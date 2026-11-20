@@ -177,6 +177,7 @@ describe("KnowledgeStore", () => {
       "0005_doc_refs.sql",
       "0006_images_in_git.sql",
       "0007_cold_parts_by_age.sql",
+      "0008_chunk_embedding_key.sql",
     ])
   })
 
@@ -229,6 +230,87 @@ describe("KnowledgeStore", () => {
       orgA.orgId,
     )
     expect(chunk).toEqual({ bits: "A17F80", distance: 2 })
+  })
+})
+
+describe("readEmbeddings (CTX-1428)", () => {
+  /** One document of one chunk with `vector` under `key`. */
+  const keyed = (docKey: string, key: string, vector: number[]) => {
+    const rows = rowsOf(docKey, docKey)
+    rows.chunks = [
+      {
+        ordinal: 0,
+        text: docKey,
+        startLine: 1,
+        endLine: 1,
+        embedding: vector,
+        embeddingKey: key,
+      },
+    ]
+    return rows
+  }
+
+  it("reads the vector of a key only in the documents, the Workspace and the org of the scope", async () => {
+    const store = createKnowledgeStore(await freshDatabase())
+    const otherWorkspace = { ...orgA, workspaceId: "ws_other" }
+    try {
+      await store.applyDocuments(orgA, {
+        documents: [
+          keyed("shared.md", "k1", [1, -1, 0.5]),
+          keyed("other.md", "k2", [0.5, 0.5, 0.5]),
+        ],
+      })
+      await store.applyDocuments(orgB, {
+        documents: [keyed("shared.md", "k1", [-2, 2, 0])],
+      })
+      await store.applyDocuments(otherWorkspace, {
+        documents: [keyed("shared.md", "k1", [4, 4, 4])],
+      })
+      const read = async (scope: KnowledgeScope, docKeys: string[]) =>
+        Object.fromEntries(
+          await store.readEmbeddings(scope, docKeys, ["k1", "k2", "k3", ""]),
+        )
+      expect(await read(orgA, ["shared.md"])).toEqual({ k1: [1, -1, 0.5] })
+      expect(await read(orgA, ["shared.md", "other.md"])).toEqual({
+        k1: [1, -1, 0.5],
+        k2: [0.5, 0.5, 0.5],
+      })
+      expect(await read(orgB, ["shared.md", "other.md"])).toEqual({
+        k1: [-2, 2, 0],
+      })
+      expect(await read(otherWorkspace, ["shared.md"])).toEqual({
+        k1: [4, 4, 4],
+      })
+      expect(await read(orgA, [])).toEqual({})
+    } finally {
+      await store.close()
+    }
+  })
+
+  it("gives the stored BFloat16 value, and a write of it stores the same value", async () => {
+    const store = createKnowledgeStore(await freshDatabase())
+    try {
+      const vector = [0.1, -1 / 3, 1234.5678, 1e-7]
+      await store.applyDocuments(orgA, {
+        documents: [keyed("first.md", "k", vector)],
+      })
+      const stored = (await store.readEmbeddings(orgA, ["first.md"], ["k"])).get(
+        "k",
+      )
+      expect(stored).toHaveLength(vector.length)
+      expect(stored).not.toEqual(vector)
+      await store.applyDocuments(orgA, {
+        documents: [keyed("second.md", "k", stored ?? [])],
+      })
+      const chunks = async (docKey: string) =>
+        (await store.readDocument(orgA, docKey))?.chunks.map(
+          (chunk) => chunk.embedding,
+        )
+      expect(await chunks("second.md")).toEqual(await chunks("first.md"))
+      expect(await chunks("first.md")).toEqual([stored])
+    } finally {
+      await store.close()
+    }
   })
 })
 

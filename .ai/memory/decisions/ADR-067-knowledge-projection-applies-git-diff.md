@@ -41,6 +41,10 @@ Since [CTX-1369](https://linear.app/ctxpipe/issue/CTX-1369), a hydrate writes on
 
    The projection version is a number in our code, plus the embedding model name. It changes when the parser, the chunking or the model changes. These are changes that the Workspace diff cannot show.
 5. **A changed file replaces its state.** The run deletes all rows of the document (the document, its chunks and its outgoing relations), then inserts the new rows. Delete before insert makes a retry safe.
+   - **The run reuses stored vectors** ([CTX-1428](https://linear.app/ctxpipe/issue/CTX-1428)). Each chunk row holds `embedding_key`: the SHA-256 of the model, the dimensions and the content that the embedding request sends (the context line and the text, or the bytes of an image). Before the run embeds the files of a batch, it reads the stored vectors of their keys, from the chunks of the same documents in the same Workspace. An input with a stored vector gets that vector. Only the other inputs go to the model, and inputs of one batch with the same key share one request.
+   - **Why this store:** the chunk rows that the run is about to replace already hold the vectors. The lookup happens before the `DELETE` of the batch, so a parser-only rebuild finds each unchanged chunk. A separate cache table would need its own walls, grants and cleanup. The lookup goes through `KnowledgeStore`, so it has both read walls of ADR-066 decision 9, and it reads no row of another Workspace or org.
+   - **What misses:** a model or a dimension change (each key changes, so the run embeds all again), a renamed file (its document key changes), a chunk whose context line changed (for example a new title or a new chunk count), the rows from before the column (an empty key), and the rows that a crashed run deleted before its `INSERT`. A miss costs only the request.
+   - **The crash-safety order stays:** the lookup is a `SELECT` before the `DELETE`, and the write is the same `DELETE`, then `INSERT`. A stored vector is the `BFloat16` value, and a write of a `BFloat16` value stores the same value. Thus a run with reuse writes the same rows as a run without it, and a retry gives the same tables.
 6. **A removed file leaves a tombstone.**
    - The document row gets `status = deleted` and `deleted_at`.
    - Its chunks and outgoing relations are deleted.
@@ -61,7 +65,8 @@ Since [CTX-1369](https://linear.app/ctxpipe/issue/CTX-1369), a hydrate writes on
     - the failed count;
     - the time of each apply;
     - the count of pending ClickHouse mutations (`system.mutations`) and the age of the oldest, because each `DELETE` is a mutation (ADR-066 decision 8). The knowledge node gives them to the host metrics agent, and an alert fires when the oldest is an hour old;
-    - the count of mutations of each run (`knowledge.projection.mutations`).
+    - the count of mutations of each run (`knowledge.projection.mutations`);
+    - the embedding work of each run (decision 5): the inputs with a stored vector and the inputs with a new vector (`knowledge.projection.embedding_inputs`, by `source`), the requests (`knowledge.projection.embedding_requests`), and the time in the embedding API (`knowledge.projection.embedding_duration`).
 12. **Public docs** state that a missing old commit, for example after a force-push and a Git GC, starts a full rebuild.
 
 ## Consequences
@@ -70,7 +75,7 @@ Since [CTX-1369](https://linear.app/ctxpipe/issue/CTX-1369), a hydrate writes on
 - **Repair by retry.** A failed run leaves some documents new and some old. The next run applies the same files again (decision 4) and repairs them.
 - **Eventual consistency:** a reader can briefly see a mix of two commits. A long failure shows as lag in the metrics, not as silent drift.
 - **Tombstones grow,** because nothing removes them yet.
-- **A full rebuild** costs a full parse and full embeddings. A projection version change starts one for each Workspace.
+- **A full rebuild** costs a full parse. It embeds only the content that has no stored vector (decision 5), unless the model or the dimensions changed. A projection version change starts one for each Workspace.
 - **Amends** ADR-046 for the ClickHouse projection. The queue and tip rules stay.
 - **Tests** ([ADR-069](ADR-069-knowledge-plane-evals-and-rollout.md)) must prove that:
   - when a run applies a real history one commit at a time, the tables are the same as after a full rebuild at the tip;

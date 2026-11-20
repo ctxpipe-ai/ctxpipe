@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { setTimeout as sleep } from "node:timers/promises"
 
 import { z } from "zod"
@@ -128,6 +129,24 @@ export class EmbeddingStatusError extends Error {
   ) {
     super(message)
   }
+}
+
+/**
+ * The key of the vector of `input`: the SHA-256 (hex) of the model, the
+ * dimensions and the content parts that the request sends. Two inputs with
+ * the same key get the same vector, so the writer reuses a stored vector of
+ * the key (ADR-067 decision 5). A change of the model or the dimensions
+ * changes each key.
+ */
+export function embeddingKey(
+  input: EmbeddingInput,
+  config: MultimodalEmbeddingConfig = multimodalEmbeddingConfig,
+): string {
+  return createHash("sha256")
+    .update(
+      JSON.stringify([config.model, config.dimensions, contentParts(input)]),
+    )
+    .digest("hex")
 }
 
 /**

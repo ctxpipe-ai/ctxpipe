@@ -30,6 +30,7 @@ import { getLogger } from "../observability/logger.js"
 import {
   EmbeddingStatusError,
   type EmbeddingInput,
+  embeddingKey,
   embedMultimodal,
   multimodalEmbeddingConfig,
 } from "../retrieval/embeddings/multimodalEmbeddings.js"
@@ -103,6 +104,11 @@ type KnowledgeRunSummary =
  * files again. The caller holds the knowledge projection lease of the
  * Workspace, so one run of a Workspace runs at a time.
  *
+ * Before a file goes to the embedding model, the writer reads the stored
+ * vectors of its document (`embedWithReuse`): an input whose key
+ * (`embeddingKey`) has a stored vector gets that vector, and only the other
+ * inputs go to the model. Thus a full rebuild embeds only new content.
+ *
  * The vector of an image comes from its bytes at the tip. An image that the
  * embedding model does not take (its type or its size) gets a `failed`
  * document, and the run goes on (ADR-066 decision 6). The bytes stay in
@@ -143,6 +149,12 @@ export async function projectKnowledgePlane(input: {
       })
       let summary: KnowledgeRunSummary | undefined
       const counter: MutationCounter = { mutations: 0 }
+      const embedding: EmbeddingCounter = {
+        reused: 0,
+        embedded: 0,
+        requests: 0,
+        seconds: 0,
+      }
       try {
         await beginKnowledgeRun({ ...key, tip: input.tip })
         summary = await withGitDirectory(
@@ -178,6 +190,7 @@ export async function projectKnowledgePlane(input: {
                     : [],
               }),
               counter,
+              embedding,
             })
             const failedCount = (
               await input.store.listDocumentKeys(key)
@@ -221,6 +234,7 @@ export async function projectKnowledgePlane(input: {
           seconds: (performance.now() - started) / 1000,
           summary,
           mutations: counter.mutations,
+          embedding,
         })
         span.end()
       }
@@ -251,6 +265,7 @@ async function applyChangeSet(input: {
   plan: KnowledgeChangeSet
   introductions: FileIntroductions
   counter: MutationCounter
+  embedding: EmbeddingCounter
 }): Promise<number> {
   const { workspaceId, root, store, observedAt, directory, plan } = input
   const scope: KnowledgeScope = {
@@ -301,6 +316,7 @@ async function applyChangeSet(input: {
     const failed: { docKey: string; error: string }[] = []
     await inBatches(group, 50, async (batch) => {
       const rows = await projectFiles({
+        reuse: { store, scope, counter: input.embedding },
         directory,
         keyOf,
         workspaceId,
@@ -375,6 +391,7 @@ async function applyChangeSet(input: {
  * with the content error. A knowledge file that gives no unit gives no row.
  */
 async function projectFiles(input: {
+  reuse: VectorReuse
   directory: string
   /** The document key of a path. */
   keyOf: (path: string) => string
@@ -444,10 +461,10 @@ async function projectFiles(input: {
       })
     }
   }
-  const embeddedImages = await embedImages(images)
+  const embeddedImages = await embedImages(images, input.reuse)
   return {
     documents: [
-      ...(await embedDocuments(documents)),
+      ...(await embedDocuments(documents, input.reuse)),
       ...embeddedImages.documents,
     ],
     failed: [...failed, ...embeddedImages.failed],
@@ -497,9 +514,88 @@ export async function inBatches<T>(
     await call(items.slice(at, at + size))
 }
 
+/** The embedding work of one run, for its metrics. */
+type EmbeddingCounter = {
+  /** The inputs (chunks and images) that got a stored vector. */
+  reused: number
+  /** The inputs with no stored vector. */
+  embedded: number
+  /**
+   * The inputs that went to the model. Inputs of one batch with the same key
+   * go one time. A retry of a request is not counted again.
+   */
+  requests: number
+  /** The time in the embedding API, in seconds. */
+  seconds: number
+}
+
+/** The store that holds the earlier vectors, and the counter of the run. */
+type VectorReuse = {
+  store: KnowledgeStore
+  scope: KnowledgeScope
+  counter: EmbeddingCounter
+}
+
+/**
+ * The vector of each input of `inputs`, in order, and its key: the stored
+ * vector of the key in a document of `docKeys`, else the result of `embed`.
+ * `embed` gets the inputs with no stored vector, one for each key, and gives
+ * a result for each, in order. Inputs with the same key share that result.
+ *
+ * The lookup reads only the chunks of `docKeys` in the Workspace of the run
+ * (ADR-067 decision 5). They are the rows that this write replaces, before
+ * its DELETE, and the rows that an earlier write of the same file gave. A
+ * stored vector is the BFloat16 value, so its write stores the same value
+ * as a write of the new vector.
+ */
+async function embedWithReuse<R>(
+  reuse: VectorReuse,
+  docKeys: string[],
+  inputs: EmbeddingInput[],
+  embed: (inputs: EmbeddingInput[]) => Promise<R[]>,
+): Promise<{ key: string; vector: number[] | R }[]> {
+  const { counter } = reuse
+  const keys = inputs.map((input) => embeddingKey(input))
+  const stored =
+    inputs.length === 0
+      ? new Map<string, number[]>()
+      : await reuse.store.readEmbeddings(reuse.scope, docKeys, keys)
+  const missing = new Map<string, EmbeddingInput>()
+  for (const [index, input] of inputs.entries()) {
+    const key = keys[index] ?? ""
+    if (stored.has(key)) counter.reused++
+    else {
+      counter.embedded++
+      if (!missing.has(key)) missing.set(key, input)
+    }
+  }
+  const fresh = new Map<string, R>()
+  if (missing.size > 0) {
+    counter.requests += missing.size
+    const started = performance.now()
+    try {
+      const missingKeys = [...missing.keys()]
+      for (const [index, result] of (
+        await embed([...missing.values()])
+      ).entries()) {
+        const key = missingKeys[index]
+        if (key !== undefined) fresh.set(key, result)
+      }
+    } finally {
+      counter.seconds += (performance.now() - started) / 1000
+    }
+  }
+  return keys.map((key) => {
+    const vector = stored.get(key) ?? fresh.get(key)
+    if (vector === undefined) throw new Error("An input got no vector")
+    return { key, vector }
+  })
+}
+
 /** Embed the text chunks of each document. A chunk with no text gets no vector. */
 async function embedDocuments(
   documents: UnembeddedDocumentRows[],
+  reuse: VectorReuse,
 ): Promise<DocumentRows[]> {
   const inputs: EmbeddingInput[] = documents.flatMap(({ document, chunks }) =>
     chunks.flatMap((chunk, index) =>
@@ -516,14 +612,20 @@ async function embedDocuments(
         : [],
     ),
   )
-  const vectors = await embedMultimodal(inputs)
+  const vectors = await embedWithReuse(
+    reuse,
+    documents.map(({ document }) => document.docKey),
+    inputs,
+    embedMultimodal,
+  )
   let next = 0
   return documents.map((rows) => ({
     ...rows,
-    chunks: rows.chunks.map((chunk) => ({
-      ...chunk,
-      embedding: chunk.text.trim() ? (vectors[next++] ?? []) : [],
-    })),
+    chunks: rows.chunks.map((chunk) => {
+      if (!chunk.text.trim()) return { ...chunk, embedding: [] }
+      const { key, vector } = vectors[next++] ?? { key: "", vector: [] }
+      return { ...chunk, embedding: vector, embeddingKey: key }
+    }),
   }))
 }
 
@@ -556,7 +658,8 @@ function embeddableImage(
 /**
  * Embed the bytes of each image, one image for each request. The vector goes
  * on the one chunk of the image, whose text is empty, so the request has the
- * image part only (ADR-066 decision 6). At most
+ * image part only (ADR-066 decision 6). An image whose bytes have a stored
+ * vector gets that vector (`embedWithReuse`). At most
  * `multimodalEmbeddingConfig.concurrency` requests are in flight.
  *
  * The model can refuse the bytes of an image with a good header (for
@@ -565,46 +668,60 @@ function embeddableImage(
  */
 async function embedImages(
   images: { rows: UnembeddedDocumentRows; bytes: Buffer; mimeType: string }[],
+  reuse: VectorReuse,
 ): Promise<{
   documents: DocumentRows[]
   failed: { docKey: string; error: string }[]
 }> {
-  const embed = async (
-    image: (typeof images)[number],
-  ): Promise<DocumentRows | { docKey: string; error: string }> => {
+  /** The vector of one image, or the status of a refusal of its content. */
+  const embedAlone = async (
+    input: EmbeddingInput,
+  ): Promise<number[] | { refused: number }> => {
     try {
-      const [vector] = await embedMultimodal([
-        { kind: "image", bytes: image.bytes, mimeType: image.mimeType },
-      ])
-      return {
-        ...image.rows,
-        chunks: image.rows.chunks.map((chunk) => ({
-          ...chunk,
-          embedding: vector ?? [],
-        })),
-      }
+      return (await embedMultimodal([input]))[0] ?? []
     } catch (error) {
       if (
         !(error instanceof EmbeddingStatusError) ||
         ![400, 413, 422].includes(error.status)
       )
         throw error
-      return {
-        docKey: image.rows.document.docKey,
-        error: `The embedding model refused the image (HTTP ${error.status}).`,
-      }
+      return { refused: error.status }
     }
   }
-  const results = await mapWithConcurrency(
-    images,
-    multimodalEmbeddingConfig.concurrency,
-    embed,
+  const vectors = await embedWithReuse(
+    reuse,
+    images.map((image) => image.rows.document.docKey),
+    images.map(({ bytes, mimeType }) => ({
+      kind: "image" as const,
+      bytes,
+      mimeType,
+    })),
+    (missing) =>
+      mapWithConcurrency(
+        missing,
+        multimodalEmbeddingConfig.concurrency,
+        embedAlone,
+      ),
   )
   const documents: DocumentRows[] = []
   const failed: { docKey: string; error: string }[] = []
-  for (const result of results)
-    if ("error" in result) failed.push(result)
-    else documents.push(result)
+  for (const [index, image] of images.entries()) {
+    const { key, vector } = vectors[index] ?? { key: "", vector: [] }
+    if ("refused" in vector)
+      failed.push({
+        docKey: image.rows.document.docKey,
+        error: `The embedding model refused the image (HTTP ${vector.refused}).`,
+      })
+    else
+      documents.push({
+        ...image.rows,
+        chunks: image.rows.chunks.map((chunk) => ({
+          ...chunk,
+          embedding: vector,
+          embeddingKey: key,
+        })),
+      })
+  }
   return { documents, failed }
 }
 
@@ -753,6 +870,8 @@ function recordRun(input: {
   summary: KnowledgeRunSummary | undefined
   /** The mutations of the run, also of a failed run. */
   mutations: number
+  /** The embedding work of the run, also of a failed run. */
+  embedding: EmbeddingCounter
 }): void {
   const { summary } = input
   const outcome = summary ? "completed" : "failed"
@@ -770,11 +889,37 @@ function recordRun(input: {
       unit: "{mutation}",
     })
     .record(input.mutations, { outcome, mode })
+  // The share of the inputs that got a stored vector is the hit rate of the
+  // vector reuse (ADR-067 decision 5).
+  const { embedding } = input
+  const inputs = meter.createHistogram("knowledge.projection.embedding_inputs", {
+    description:
+      "The embedding inputs of one knowledge projection run, by the source of the vector",
+    unit: "{input}",
+  })
+  inputs.record(embedding.reused, { outcome, mode, source: "stored" })
+  inputs.record(embedding.embedded, { outcome, mode, source: "model" })
+  meter
+    .createHistogram("knowledge.projection.embedding_requests", {
+      description: "The embedding requests of one knowledge projection run",
+      unit: "{request}",
+    })
+    .record(embedding.requests, { outcome, mode })
+  meter
+    .createHistogram("knowledge.projection.embedding_duration", {
+      description: "The time in the embedding API of one knowledge projection run",
+      unit: "s",
+    })
+    .record(embedding.seconds, { outcome, mode })
   const fields: Record<string, string | number> = {
     "ctxpipe.knowledge.outcome": outcome,
     "ctxpipe.knowledge.mode": mode,
     "ctxpipe.knowledge.duration_s": input.seconds,
     "ctxpipe.knowledge.mutations": input.mutations,
+    "ctxpipe.knowledge.embedding_reused": embedding.reused,
+    "ctxpipe.knowledge.embedding_embedded": embedding.embedded,
+    "ctxpipe.knowledge.embedding_requests": embedding.requests,
+    "ctxpipe.knowledge.embedding_s": embedding.seconds,
   }
   if (summary?.mode === "delta" || summary?.mode === "full") {
     meter
@@ -802,6 +947,7 @@ function recordRun(input: {
       mode,
       seconds: input.seconds,
       mutations: input.mutations,
+      embedding,
       ...summary,
     },
   })

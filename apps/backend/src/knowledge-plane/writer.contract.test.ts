@@ -64,12 +64,15 @@ const tables = [
 ] as const
 const EMBEDDINGS_URL = "https://embeddings.test/api/v1/embeddings"
 
-/** A vector that only the text of the input decides. */
+/**
+ * A vector that only the text of the input decides. Most of its values are
+ * not BFloat16 values, so the stored vector is not the vector of the answer.
+ */
 function vectorOf(content: unknown): number[] {
   const digest = createHash("sha256").update(JSON.stringify(content)).digest()
   return Array.from(
     { length: multimodalEmbeddingConfig.dimensions },
-    (_, i) => ((digest[i % digest.length] ?? 0) - 128) / 64,
+    (_, i) => ((digest[i % digest.length] ?? 0) - 128) / 37,
   )
 }
 
@@ -1538,6 +1541,138 @@ describe("reference keys (CTX-1400)", () => {
             ?.embedding,
         ).toHaveLength(multimodalEmbeddingConfig.dimensions)
     } finally {
+      await remote.remove()
+    }
+  })
+})
+
+describe("vector reuse (CTX-1428)", () => {
+  /** Make the stored projection version old, so that the next run is full. */
+  const staleVersion = (workspaceId: string) =>
+    withOrgDbContext(orgId, (db) =>
+      db
+        .update(knowledgeState)
+        .set({ projectionVersion: "old" })
+        .where(
+          and(
+            eq(knowledgeState.organizationId, orgId),
+            eq(knowledgeState.workspaceId, workspaceId),
+          ),
+        ),
+    )
+  const embeddingOf = () =>
+    spans.spanNamed("knowledge.projection.apply")?.attributes
+  /** The text of each request since the last reset. */
+  const sentTexts = () =>
+    embeddings.inputs.flat().map((input) => JSON.stringify(input.content))
+  const files = {
+    "a.md": "# Alpha\n\nThe first part.\n\n## Two\n\nThe second part.\n",
+    "b.md": "# Beta\n\nSee [a](a.md).\n",
+    "c.md": "# Gamma\n\n![d](img/d.png)\n",
+    "img/d.png": png("one"),
+    // The same content in two files: one request.
+    "same-1.md": "# Same\n\nThe same text.\n",
+    "same-2.md": "# Same\n\nThe same text.\n",
+  }
+  const paths = [...Object.keys(files), "n.md"]
+
+  it("a full rebuild after a projection version change embeds only new text, and gives the tables of a rebuild with no stored vectors", async () => {
+    const remote = await Remote.create()
+    try {
+      const workspaceId = await newWorkspace()
+      await run(remote, workspaceId, await remote.commit(files))
+      const first = sentTexts()
+      expect(new Set(first).size).toBe(first.length)
+      const inputs =
+        Number(embeddingOf()?.["ctxpipe.knowledge.embedding_embedded"]) || 0
+      expect(embeddingOf()).toMatchObject({
+        "ctxpipe.knowledge.embedding_reused": 0,
+        "ctxpipe.knowledge.embedding_requests": inputs - 1,
+      })
+      expect(first).toHaveLength(inputs - 1)
+
+      // A parser change (a new projection version), a changed file and a
+      // new file.
+      const tip = await remote.commit({
+        "b.md": "# Beta\n\nSee [a](a.md) again.\n",
+        "n.md": "# New\n\nA new file.\n",
+      })
+      await staleVersion(workspaceId)
+      embeddings.requests = 0
+      embeddings.inputs = []
+      spans.reset()
+      expect(await run(remote, workspaceId, tip)).toMatchObject({
+        mode: "full",
+        fullReason: "projection_version",
+      })
+      // Only the text of b.md and n.md goes to the model.
+      expect(embeddings.requests).toBe(2)
+      expect(sentTexts()).toHaveLength(2)
+      expect(sentTexts()).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining("again."),
+          expect.stringContaining("A new file."),
+        ]),
+      )
+      expect(embeddingOf()).toMatchObject({
+        "ctxpipe.knowledge.embedding_reused": inputs - 1,
+        "ctxpipe.knowledge.embedding_embedded": 2,
+        "ctxpipe.knowledge.embedding_requests": 2,
+      })
+
+      // A Workspace with no stored vectors embeds each input.
+      embeddings.inputs = []
+      const fresh = await newWorkspace()
+      await run(remote, fresh, tip)
+      expect(embeddingOf()).toMatchObject({
+        "ctxpipe.knowledge.embedding_reused": 0,
+      })
+      const left = await content(workspaceId, paths)
+      const right = await content(fresh, paths)
+      for (const table of tables)
+        expect(left[table], table).toEqual(right[table])
+      expect(left.chunks.length).toBe(inputs + 1)
+      expect(left.chunks.every((row) => row.embedding_key !== "")).toBe(true)
+      // The tables hold the BFloat16 values, not the vectors of the answers:
+      // the equal tables compare stored values.
+      const answered = new Set(
+        embeddings.inputs
+          .flat()
+          .map((input) => JSON.stringify(vectorOf(input.content))),
+      )
+      expect(answered.size).toBe(inputs)
+      expect(
+        right.chunks.filter((row) =>
+          answered.has(JSON.stringify(row.embedding)),
+        ),
+      ).toEqual([])
+    } finally {
+      await remote.remove()
+    }
+  })
+
+  it("a change of the embedding model embeds each input again", async () => {
+    const remote = await Remote.create()
+    const model = multimodalEmbeddingConfig.model
+    try {
+      const workspaceId = await newWorkspace()
+      const tip = await remote.commit(files)
+      await run(remote, workspaceId, tip)
+      const requests = embeddings.requests
+      multimodalEmbeddingConfig.model = "test/other-embedding"
+      embeddings.requests = 0
+      spans.reset()
+      expect(await run(remote, workspaceId, tip)).toMatchObject({
+        mode: "full",
+        fullReason: "projection_version",
+      })
+      expect(embeddings.requests).toBe(requests)
+      expect(embeddingOf()).toMatchObject({
+        "ctxpipe.knowledge.embedding_reused": 0,
+        "ctxpipe.knowledge.embedding_requests": requests,
+      })
+    } finally {
+      multimodalEmbeddingConfig.model = model
       await remote.remove()
     }
   })
