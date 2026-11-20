@@ -94,7 +94,13 @@ export function useGithubConnectFlow({
       if (status === "redirected") return
       if (status === "registered") {
         HyperDX.addAction("connector_connect", { connector: "github" })
-        await onRegistered?.()
+        try {
+          await onRegistered?.()
+        } catch {
+          onRegistrationFailed?.(
+            "GitHub is connected, but the next step did not open. Please reload the page.",
+          )
+        }
       } else if (status === "registration_failed")
         onRegistrationFailed?.(
           "Could not complete GitHub connection. Please try again.",
@@ -136,17 +142,17 @@ export function useGithubConnectFlow({
           setInstallStarting(false)
           setIsSyncing(true)
           void (async () => {
-            const result = await handleGithubSetupPopupResult(
-              orgSlug,
-              queryClient,
-            )
-            // A redirect unloads the page: keep the button in progress.
-            if (result.status === "redirected") return
             try {
+              const result = await handleGithubSetupPopupResult(
+                orgSlug,
+                queryClient,
+              )
+              // A redirect unloads the page: keep the button in progress.
+              if (result.status === "redirected") return
               await handleInstallSettled(result)
             } catch {
               onRegistrationFailed?.(
-                "GitHub is connected, but the next step did not open. Please reload the page.",
+                "Could not complete GitHub connection. Please try again.",
               )
             }
             setIsSyncing(false)
