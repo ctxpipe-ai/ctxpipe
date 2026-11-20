@@ -12,7 +12,10 @@ import { eq } from "drizzle-orm"
 import { BackendPostgres } from "openworkflow/postgres"
 import { afterAll, beforeAll, expect, it, vi } from "vitest"
 
-import { testLabels } from "../../../../../scripts/ci/test-containers.mjs"
+import {
+  TEST_LABEL,
+  testLabels,
+} from "../../../../../scripts/ci/test-containers.mjs"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import {
   closeDb,
@@ -734,14 +737,19 @@ it(
       const source = await docker.createContainer({
         Image: contractImage("alpine"),
         Cmd: ["true"],
+        Labels: testLabels(),
       })
       try {
         const committed = (await source.commit({
           repo: "ctxpipe-workspace-base-proof",
           tag: randomUUID(),
-          changes: Object.entries(labels).map(
-            ([key, value]) => `LABEL ${key}=${JSON.stringify(value)}`,
-          ),
+          changes: [
+            // The image does not keep the owner of this run.
+            `LABEL ${TEST_LABEL}=""`,
+            ...Object.entries(labels).map(
+              ([key, value]) => `LABEL ${key}=${JSON.stringify(value)}`,
+            ),
+          ],
         })) as { Id: string }
         images.push(committed.Id)
         return committed.Id
