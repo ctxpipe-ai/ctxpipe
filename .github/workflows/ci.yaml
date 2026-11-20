@@ -308,27 +308,8 @@ jobs:
             scripts/zoekt/build.sh
           fi
           echo "$GITHUB_WORKSPACE/.tools/bin" >> "$GITHUB_PATH"
-      # The file converter of the knowledge plane (apps/backend/converter).
-      # The backend tests run the real CLI. The cache holds the binary, keyed
-      # by the files of the converter (a checkout has no `target/` yet) and
-      # the Rust version. A miss builds it
-      # here, before the tests start: a cold build takes minutes, longer than
-      # a test case may take.
-      - name: Rust version of the file converter
-        id: rust
-        run: echo "version=$(rustc --version | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
-      - name: Restore the file converter
-        id: converter
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: apps/backend/converter/target/release/ctxpipe-convert
-          key: converter-${{ runner.os }}-${{ runner.arch }}-rust${{ steps.rust.outputs.version }}-${{ hashFiles('apps/backend/converter/**') }}
-      - name: Required file converter
-        run: |
-          if [ ! -x apps/backend/converter/target/release/ctxpipe-convert ]; then
-            node scripts/checks/prerequisites.mjs converter
-          fi
-          echo "SKIP_CONVERTER_BUILD=1" >> "$GITHUB_ENV"
+      # The backend Vitest config runs the file converter (its global setup).
+      - uses: ./.github/actions/converter
       - name: Migrate backend schema
         env:
           DATABASE_URL: postgresql://ctxpipe:ctxpipe@localhost:5432/ctxpipe
@@ -1405,6 +1386,8 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # The backend Vitest config runs the file converter (its global setup).
+      - uses: ./.github/actions/converter
       - name: Apply migrations to an empty database
         env:
           DATABASE_URL: postgresql://ctxpipe:ctxpipe@localhost:5432/postgres
