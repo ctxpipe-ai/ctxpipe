@@ -178,6 +178,7 @@ describe("KnowledgeStore", () => {
       "0006_images_in_git.sql",
       "0007_cold_parts_by_age.sql",
       "0008_chunk_embedding_key.sql",
+      "0009_image_texts.sql",
     ])
   })
 
@@ -308,6 +309,70 @@ describe("readEmbeddings (CTX-1428)", () => {
         )
       expect(await chunks("second.md")).toEqual(await chunks("first.md"))
       expect(await chunks("first.md")).toEqual([stored])
+    } finally {
+      await store.close()
+    }
+  })
+})
+
+describe("image_texts (CTX-1433)", () => {
+  const row = (blobSha: string, model: string, reading: string) => ({
+    blobSha,
+    model,
+    promptVersion: 1,
+    reading,
+  })
+
+  it("reads a reading only in the Workspace and the org of the scope, for the prompt version", async () => {
+    const store = createKnowledgeStore(await freshDatabase())
+    const otherWorkspace = { ...orgA, workspaceId: "ws_other" }
+    try {
+      await store.writeImageTexts(orgA, [row("sha1", "m/a", "a1")])
+      await store.writeImageTexts(orgB, [row("sha1", "m/a", "b1")])
+      await store.writeImageTexts(otherWorkspace, [
+        { ...row("sha1", "m/a", "w1"), promptVersion: 2 },
+      ])
+      const read = async (scope: KnowledgeScope, version = 1) =>
+        Object.fromEntries(
+          [
+            ...(await store.readImageTexts(
+              scope,
+              ["sha1", "sha2"],
+              "m/a",
+              version,
+            )),
+          ].map(([sha, text]) => [sha, text.reading]),
+        )
+      expect(await read(orgA)).toEqual({ sha1: "a1" })
+      expect(await read(orgB)).toEqual({ sha1: "b1" })
+      expect(await read(otherWorkspace)).toEqual({})
+      expect(await read(otherWorkspace, 2)).toEqual({ sha1: "w1" })
+    } finally {
+      await store.close()
+    }
+  })
+
+  it("gives the reading of the model only, and one row for a key written twice", async () => {
+    const store = createKnowledgeStore(await freshDatabase())
+    try {
+      await store.writeImageTexts(orgA, [
+        row("sha1", "m/old", "from the old model"),
+        row("sha2", "m/old", "only the old model"),
+      ])
+      await store.writeImageTexts(orgA, [row("sha1", "m/new", "new")])
+      await store.writeImageTexts(orgA, [row("sha1", "m/new", "new")])
+      const texts = await store.readImageTexts(
+        orgA,
+        ["sha1", "sha2"],
+        "m/new",
+        1,
+      )
+      expect(Object.fromEntries(texts)).toEqual({
+        sha1: row("sha1", "m/new", "new"),
+      })
+      expect(
+        (await store.readImageTexts(orgA, ["sha1"], "m/other", 1)).size,
+      ).toBe(0)
     } finally {
       await store.close()
     }

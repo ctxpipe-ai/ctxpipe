@@ -673,6 +673,30 @@ export async function readGitPackFromRemote(input: {
   )
 }
 
+/**
+ * The size in bytes of each blob of `blobs`, in order, with no blob read
+ * (`git cat-file --batch-check`). A caller checks the sizes before it reads
+ * the blobs, because the output of one git call has a limit.
+ */
+export async function readGitBlobSizes(
+  directory: string,
+  blobs: readonly string[],
+): Promise<number[]> {
+  if (blobs.length === 0) return []
+  const output = await nativeGit(
+    directory,
+    ["cat-file", "--batch-check=%(objectname) %(objecttype) %(objectsize)"],
+    `${blobs.join("\n")}\n`,
+  )
+  const lines = output.toString().split("\n")
+  return blobs.map((blob, index) => {
+    const [name, type, size] = (lines[index] ?? "").split(" ")
+    if (name !== blob || type !== "blob" || !Number.isInteger(Number(size)))
+      throw new Error(`Git has no blob ${blob}`)
+    return Number(size)
+  })
+}
+
 /** The bytes of each blob, in the order of `blobs` (`git cat-file --batch`). */
 export async function readGitBlobs(
   directory: string,

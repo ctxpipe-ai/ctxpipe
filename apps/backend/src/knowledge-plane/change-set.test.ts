@@ -15,6 +15,8 @@ const versionParts = {
   embeddingModel: "test-embedding-model",
   dimensions: 8,
   root: "",
+  converter: "ctxpipe-convert 0.1.0 0000000000000000",
+  visionModel: "vendor/vision",
 }
 const version = knowledgeProjectionVersion(versionParts)
 const sourcesFilePath = ".ctxpipe/sources.yaml"
@@ -180,6 +182,8 @@ describe("planKnowledgeChangeSet", () => {
     { ...versionParts, embeddingModel: "another-model" },
     { ...versionParts, dimensions: 16 },
     { ...versionParts, root: "docs" },
+    { ...versionParts, converter: "ctxpipe-convert 0.1.0 1111111111111111" },
+    { ...versionParts, visionModel: "vendor/other-vision" },
   ])(
     "rebuilds in full when a part of the projection version changed (%o)",
     async (parts) => {

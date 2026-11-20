@@ -81,6 +81,7 @@ behavior.
 | `MODEL_BEDROCK_AWS_REGION` | Optional explicit region for native Bedrock; otherwise use the AWS runtime region. |
 | `MODEL_FAST_NAME`, `MODEL_MEDIUM_NAME`, `MODEL_HIGH_NAME` | Optional model names per tier. |
 | `MODEL_EMBEDDING_NAME` | Optional embedding model ID. |
+| `MODEL_VISION_NAME` | Optional. The one OpenRouter model that reads images for the knowledge plane (default `openai/gpt-6.1-terra`). It must take image input and have a ZDR endpoint on OpenRouter. |
 
 See [Model configuration](/docs/self-hosting/models) for provider-specific
 examples and embedding requirements.

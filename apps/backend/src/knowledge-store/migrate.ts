@@ -147,6 +147,7 @@ async function setUser(
       "relations",
       "relations_in",
       "doc_refs",
+      "image_texts",
     ]
       .map((table) => `${privileges} ON ${table}`)
       .join(", ")} TO ${name} WITH REPLACE OPTION`,

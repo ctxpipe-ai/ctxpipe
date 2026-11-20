@@ -1,5 +1,7 @@
 import { z } from "zod"
 
+import { modelNameShape } from "../retrieval/services/modelTierSpecs.js"
+
 /**
  * `AGENT_VAULT_SANDBOX_PROXY_HOST`: the host that sandboxes connect to for
  * Agent Vault's proxy, when it is not the host of `AGENT_VAULT_ADDR`. A DNS
@@ -149,6 +151,9 @@ const envSchema = z
     MODEL_MEDIUM_NAME: z.string().optional(),
     MODEL_HIGH_NAME: z.string().optional(),
     MODEL_EMBEDDING_NAME: z.string().optional(),
+    // Validated here, so that a value of only spaces stops the backend at
+    // start. The default is in `modelNameShape`.
+    MODEL_VISION_NAME: modelNameShape.MODEL_VISION_NAME,
     /** When unset, Bedrock IAM SigV4 resolves region from MODEL_PROVIDER_URL, AWS_REGION, or AWS_DEFAULT_REGION */
     MODEL_BEDROCK_AWS_REGION: z.string().optional(),
 

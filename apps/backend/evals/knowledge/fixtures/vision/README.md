@@ -3,7 +3,7 @@
 These are the diagrams of the vision eval (`../../vision.ts`). Each fixture has three files:
 
 - the source of the diagram (`.dot`, `.d2`, `.puml` or `.mmd`);
-- the image that the model reads (`.png`, or `.jpg` for the photo);
+- the image that the model reads (`.png`, `.jpg` for a photo, or `.svg`, which the converter draws to a PNG);
 - the gold graph (`.gold.json`), which we wrote by hand from the source.
 
 `arch-web-photo.gold.json` is a copy of `arch-web.gold.json` on purpose: each fixture is one image and one gold graph. Change the two files together.
@@ -27,8 +27,10 @@ All the diagrams are made up. They contain no customer data. Four tools drew the
 | `dense-mesh` | architecture | Graphviz `neato`: 32 nodes and 48 edges with many crossings, no main direction (`"direction": null`) |
 | `whiteboard-photo` | architecture | D2 sketch with the Kalam handwriting font (SIL Open Font License), made to look like a photo of a whiteboard (gray, perspective, uneven light, noise, blur, JPEG). It is synthetic: the letters are a font, not real handwriting. |
 | `lowres-screenshot` | flow | Mermaid flowchart, made small (245 × 716 pixels) with strong JPEG loss |
-| `swimlanes` | flow | D2 grid with three lanes; lines cross lanes and labels |
+| `swimlanes` | flow | D2 grid with three lanes; lines cross lanes and labels. The lanes go down and the steps in a lane go right, so the main direction is not scored (`"direction": null`) |
 | `c4-container` | architecture | C4-PlantUML container diagram: each box holds a name, a type and a description |
+| `drawio-orders` | architecture | An SVG export of draw.io (`drawio-orders.drawio`, exported with `rlespinasse/drawio-desktop-headless`). Its labels are HTML in `<foreignObject>`, its colors use `light-dark()` and `var()`. The eval reads the PNG of the converter, as the projection does. |
+| `mermaid-release` | flow | An SVG of Mermaid (`mermaid-release.mmd`), with HTML labels in `<foreignObject>`. The eval reads the PNG of the converter. |
 
 ## Draw the images again
 
@@ -53,6 +55,8 @@ docker run --rm -v "$PWD:/f" -w /f alpine:3.22 sh -c '
 docker run --rm -v "$PWD:/data" plantuml/plantuml -tpng /data/arch-components.puml /data/oauth-login.puml /data/c4-container.puml
 docker run --rm -u root -v "$PWD:/data" minlag/mermaid-cli -i /data/checkout.mmd -o /data/checkout.png -s 2 -b white
 docker run --rm -u root -v "$PWD:/data" minlag/mermaid-cli -i /data/ci-pipeline.mmd -o /data/ci-pipeline.png -s 2 -b white
+docker run --rm -u root -v "$PWD:/data" minlag/mermaid-cli -i /data/mermaid-release.mmd -o /data/mermaid-release.svg -b white
+docker run --rm -v "$PWD:/data" -w /data rlespinasse/drawio-desktop-headless -x -f svg --embed-svg-images -o /data/ /data/drawio-orders.drawio
 docker run --rm -u root -v "$PWD:/data" minlag/mermaid-cli -i /data/lowres-screenshot.mmd -o /data/lowres-full.png -s 1 -b white
 docker run --rm -v "$PWD:/f" -w /f alpine:3.22 sh -c 'apk add -q imagemagick imagemagick-jpeg && magick lowres-full.png -resize 60% -quality 30 lowres-screenshot.jpg && rm lowres-full.png'
 ```

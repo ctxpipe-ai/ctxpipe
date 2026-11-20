@@ -1,8 +1,12 @@
-import { mkdir, writeFile } from "node:fs/promises"
+import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 
 import { z } from "zod"
 
+import {
+  imageTextModel,
+  readImage,
+} from "../../src/knowledge-plane/image-text.js"
 import {
   type EmbeddingInput,
   embedTexts,
@@ -53,6 +57,14 @@ const NON_ZDR_DECISIONS_MODEL = "openai/gpt-6-luna-decisions"
  */
 const NON_ZDR_EMBEDDING_MODEL = "openai/text-embedding-ada-002"
 
+/**
+ * The ZDR control of the vision request (CTX-1433): a vision model that
+ * takes an image and a JSON schema and is not on the OpenRouter ZDR list
+ * (2026-11-20). If the catalog changes, the control check fails and says
+ * so; then pick another such model.
+ */
+const NON_ZDR_VISION_MODEL = "google/gemini-2.5-flash-lite"
+
 /** The provider names of the ZDR endpoints of a model (`zdrProviders`). */
 type ZdrProvidersOf = (
   model: string,
@@ -100,6 +112,7 @@ async function zdrProviders(base: string): Promise<ZdrProvidersOf> {
 
 const answerSchema = z.object({
   provider: z.string().optional(),
+  model: z.string().optional(),
   error: z.object({ message: z.string().optional() }).optional(),
   data: z.array(z.unknown()).optional(),
 })
@@ -340,6 +353,37 @@ async function probeChecks(
     })),
   )
   await refusalPair("embedding", NON_ZDR_EMBEDDING_MODEL, nonZdrEmbedding)
+
+  // The vision model (CTX-1433) reads a made-up diagram of the vision eval
+  // at a ZDR provider. The request of the client, sent to a model with no
+  // ZDR endpoint, is refused when `zdr` is true.
+  const image = {
+    bytes: await readFile(
+      new URL("./fixtures/vision/order-states.png", import.meta.url),
+    ),
+    mimeType: "image/png",
+  }
+  const visionModel = imageTextModel()
+  const vision = await observe(calls, () =>
+    readImage(image, { model: visionModel }),
+  )
+  const visionProviders = zdrProvidersOf(visionModel)
+  check(
+    "vision-read",
+    vision,
+    vision.status === 200 && visionProviders.has(vision.provider ?? ""),
+    `HTTP 200 from ${visionModel} at a ZDR provider (${[...visionProviders].join(", ") || "none listed"})`,
+  )
+  await refusalPair("vision", NON_ZDR_VISION_MODEL, (zdr) =>
+    withChangedBody(
+      (body) => ({
+        ...body,
+        model: NON_ZDR_VISION_MODEL,
+        provider: { ...jsonObject.parse(body.provider), zdr },
+      }),
+      () => readImage(image, { model: visionModel, backoffMs: 1 }),
+    ),
+  )
   return checks
 }
 

@@ -5,7 +5,8 @@ import {
   hydrateKnowledgeTree,
   servingIdForKnowledgePath,
 } from "../domain/workspaces/hydrate.js"
-import { imageRows, knowledgeRows } from "./rows.js"
+import { imageContentType } from "../domain/workspaces/raw-file.js"
+import { fileRows, knowledgeRows } from "./rows.js"
 
 const WS = "ws_1"
 const OBSERVED = new Date("2026-11-19T10:00:00.000Z")
@@ -41,7 +42,14 @@ function rowsOf(
   return [
     rows,
     ...[...shown].map((image) =>
-      imageRows({ workspaceId: WS, path: image, observedAt: OBSERVED }),
+      fileRows({
+        workspaceId: WS,
+        path: image,
+        kind: "image",
+        mime: imageContentType(image) ?? "",
+        text: `The text of ${image}.`,
+        observedAt: OBSERVED,
+      }),
     ),
   ]
 }
@@ -288,7 +296,7 @@ describe("knowledgeRows", () => {
     ])
   })
 
-  it("maps an image to an image document whose key is its path, with no chunk", () => {
+  it("maps an image to an image document whose key is its path, with the chunks of its text", () => {
     const path = "knowledge/arch/overview.md"
     const content = [
       "# Overview",
@@ -320,7 +328,14 @@ describe("knowledgeRows", () => {
           validTo: null,
           observedAt: OBSERVED,
         },
-        chunks: [],
+        chunks: [
+          {
+            ordinal: 0,
+            text: "flow.png\n\nThe text of assets/flow.png.",
+            startLine: 1,
+            endLine: 1,
+          },
+        ],
         relations: [],
       },
     ])

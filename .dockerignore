@@ -11,3 +11,4 @@
 .ci-results
 .turbo
 .pnpm-store
+**/target

@@ -38,11 +38,25 @@ const CONTENT_TYPES: Record<string, string> = {
   wasm: "application/wasm",
 }
 
-function rawFileContentType(path: string): string {
+/** The extension of the file name of `path`, in lowercase, else "". */
+export function fileExtension(path: string): string {
   const name = path.split("/").at(-1) ?? ""
   const dot = name.lastIndexOf(".")
-  const extension = dot > 0 ? name.slice(dot + 1).toLowerCase() : ""
-  return CONTENT_TYPES[extension] ?? "application/octet-stream"
+  return dot > 0 ? name.slice(dot + 1).toLowerCase() : ""
+}
+
+function rawFileContentType(path: string): string {
+  return CONTENT_TYPES[fileExtension(path)] ?? "application/octet-stream"
+}
+
+/**
+ * The content type of a raster image file (PNG, JPEG, GIF, WebP), else
+ * null. The Files pane shows these inline, and the vision model of the
+ * knowledge plane reads them as they are.
+ */
+export function rasterImageType(path: string): string | null {
+  const contentType = rawFileContentType(path)
+  return INLINE_IMAGE_TYPES.has(contentType) ? contentType : null
 }
 
 /** The content type of an image file (`image/…`), else null. */

@@ -1,7 +1,7 @@
 {
   "category": "flow",
   "kind": "graph",
-  "direction": "LR",
+  "direction": null,
   "groups": [
     {
       "label": "Customer",

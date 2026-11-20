@@ -6,7 +6,8 @@ import { gatewayCost } from "../../src/observability/gatewayCost.js"
 
 /*
  * The model calls of an eval run: Jev, the embedding endpoints of both
- * stacks, and the judge panel. They all go to the model provider
+ * stacks, and the chat calls (the judge panel and the vision model). They all
+ * go to the model provider
  * (`MODEL_PROVIDER_URL`). The run puts this recorder in front of `fetch`, so
  * the readers stay as they are. The recorder:
  * - keeps each Jev and embedding request and its raw answer, so that a later
@@ -15,13 +16,13 @@ import { gatewayCost } from "../../src/observability/gatewayCost.js"
  * - stops at the spend cap.
  */
 
-type CallKind = "jev" | "embedding" | "panel"
+type CallKind = "jev" | "embedding" | "chat" | "vision"
 
 /** One model call, as the run folder keeps it (`calls.jsonl`). */
 export const recordedCallSchema = z.object({
   arm: z.string(),
   question: z.string(),
-  kind: z.enum(["jev", "embedding"]),
+  kind: z.enum(["jev", "embedding", "chat", "vision"]),
   /** The SHA-256 of the kind and the request body: the replay key. */
   key: z.string(),
   request: z.unknown(),
@@ -56,13 +57,14 @@ export type CallCounts = z.infer<typeof callCountsSchema>
  * before it sends the call. Each value is above the highest cost that the
  * bake-offs measured (ADR-063: $0.0008 for one Jev call, and $0.25 for an
  * LLM judge reply with no cost); a query embedding costs much less than
- * $0.001. A call whose answer has no `usage.cost`, or that fails, keeps the
+ * $0.001, and the vision eval measured at most $0.03 for one image. A call whose answer has no `usage.cost`, or that fails, keeps the
  * reserved value, so a missing cost never turns the spend cap off.
  */
 const RESERVED_COST_USD: Record<CallKind, number> = {
   jev: 0.002,
   embedding: 0.001,
-  panel: 0.25,
+  chat: 0.25,
+  vision: 0.05,
 }
 
 const answerSchema = z.object({ usage: z.unknown() }).partial()
@@ -78,11 +80,16 @@ const emptyCounts = (): CallCounts => ({
   missing: 0,
 })
 
-/** The kind of a call to the origin of the model provider, from its path. */
-function kindOf(path: string): CallKind | null {
+/**
+ * The kind of a call to the origin of the model provider, from its path
+ * and its body. A chat call of the vision client (`readImage`) names its JSON schema
+ * `image_reading`.
+ */
+function kindOf(path: string, body: string): CallKind | null {
   if (path.endsWith("/alpha/decisions")) return "jev"
   if (path.endsWith("/embeddings")) return "embedding"
-  if (path.endsWith("/chat/completions")) return "panel"
+  if (path.endsWith("/chat/completions"))
+    return body.includes('"name":"image_reading"') ? "vision" : "chat"
   return null
 }
 
@@ -184,9 +191,10 @@ export class ModelCalls {
     owner: Owner,
   ): Promise<Response> {
     const url = new URL(request.url)
-    const kind = url.origin === this.origin ? kindOf(url.pathname) : null
-    if (!kind) return next(request)
+    if (url.origin !== this.origin) return next(request)
     const body = await request.clone().text()
+    const kind = kindOf(url.pathname, body)
+    if (!kind) return next(request)
     const key = createHash("sha256").update(`${kind}\n${body}`).digest("hex")
     if (this.replay) return this.replayed(kind, key, body, owner)
     // The hard spend cap: each call in flight holds its worst-case cost, and
@@ -223,23 +231,22 @@ export class ModelCalls {
     const costUsd = known ?? reserved
     this.spentUsd += costUsd
     owner.counts.costUsd += costUsd
-    // A panel reply is no retrieval answer: the votes file keeps it.
-    if (kind !== "panel") {
-      owner.counts[kind] += 1
-      if (kind === "jev") owner.counts.jevQuestions += questionsOf(body)
-      this.records.push({
-        arm: owner.arm,
-        question: owner.question,
-        kind,
-        key,
-        request: parseOr(body, body),
-        status: response.status,
-        response: text,
-        costUsd,
-        estimated: known === undefined,
-        latencyMs: Math.round(latencyMs),
-      })
-    }
+    // A chat reply is no retrieval answer, so the counts of a question leave
+    // it out. The record keeps it as evidence (the probe reads it).
+    if (kind === "jev" || kind === "embedding") owner.counts[kind] += 1
+    if (kind === "jev") owner.counts.jevQuestions += questionsOf(body)
+    this.records.push({
+      arm: owner.arm,
+      question: owner.question,
+      kind,
+      key,
+      request: parseOr(body, body),
+      status: response.status,
+      response: text,
+      costUsd,
+      estimated: known === undefined,
+      latencyMs: Math.round(latencyMs),
+    })
     // The text is decoded, so only the content type still applies.
     return new Response(text, {
       status: response.status,
@@ -266,8 +273,8 @@ export class ModelCalls {
       this.replayKey(owner.arm, owner.question, key),
     )
     const recorded = queue && queue.length > 1 ? queue.shift() : queue?.[0]
-    // A replay is only of `run` and `rescore`, which make no panel call.
-    if (kind === "panel" || !recorded) {
+    // A replay is only of `run` and `rescore`, which make no chat call.
+    if (kind === "chat" || kind === "vision" || !recorded) {
       owner.counts.missing += 1
       return unavailable("The recording holds no answer for this call.")
     }
