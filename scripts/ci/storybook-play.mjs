@@ -93,25 +93,6 @@ const playContext = {
 // the page a secure context, which the MSW service worker needs.
 const playOrigin = "http://localhost:6006"
 
-// Cosmograph (the knowledge graph canvas) loads the DuckDB-Wasm worker and
-// its WebAssembly module (about 40 MB) from jsDelivr when it starts. Thus a
-// play of a graph story waited on the internet: when jsDelivr was slow, the
-// graph did not start before the bound of the play (CTX-1437). The context
-// serves these files from the DuckDB-Wasm package that Cosmograph uses. The
-// URL names the version of that package, so the files are the same.
-const duckdbDist = dirname(
-  createRequire(
-    createRequire(
-      createRequire(join(ui, "package.json")).resolve(
-        "@cosmograph/react/package.json",
-      ),
-    ).resolve("@cosmograph/cosmograph/package.json"),
-  ).resolve("@duckdb/duckdb-wasm/dist/duckdb-eh.wasm"),
-)
-const duckdbCdn = `https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@${
-  JSON.parse(readFileSync(join(duckdbDist, "../package.json"), "utf8")).version
-}/dist/`
-
 const playInitScript = ({ endPhase, needsPlay, time }) => {
   window.__CTXPIPE_PLAY__ = { result: null, waiters: [] }
   const NativeDate = Date
@@ -296,6 +277,27 @@ export async function playStories(
   { trace = false, beforePlay, afterPlay, viewport } = {},
 ) {
   const { chromium } = createRequire(join(ui, "package.json"))("playwright")
+  // Cosmograph (the knowledge graph canvas) loads the DuckDB-Wasm worker and
+  // its WebAssembly module (about 40 MB) from jsDelivr when it starts. Thus a
+  // play of a graph story waited on the internet: when jsDelivr was slow, the
+  // graph did not start before the bound of the play (CTX-1437). The context
+  // serves these files from the DuckDB-Wasm package that Cosmograph uses. The
+  // URL names the version of that package, so the files are the same.
+  const cosmographReact = createRequire(join(ui, "package.json")).resolve(
+    "@cosmograph/react/package.json",
+  )
+  const cosmograph = createRequire(cosmographReact).resolve(
+    "@cosmograph/cosmograph/package.json",
+  )
+  const duckdbDist = dirname(
+    createRequire(cosmograph).resolve(
+      "@duckdb/duckdb-wasm/dist/duckdb-eh.wasm",
+    ),
+  )
+  const duckdbVersion = JSON.parse(
+    readFileSync(join(duckdbDist, "../package.json"), "utf8"),
+  ).version
+  const duckdbCdn = `https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@${duckdbVersion}/dist/`
   // The browser starts with a time zone and a language that no pin uses, so
   // the Testing/Play host story fails when a pin of playContext is missing.
   const browser = await chromium.launch({
