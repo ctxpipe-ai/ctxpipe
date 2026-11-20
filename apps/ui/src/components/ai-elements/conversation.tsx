@@ -40,7 +40,7 @@ export const ConversationContent = ({
     // user who leaves the bottom. Scroll anchoring of the browser also moves
     // the scroll: when text above the view changes height (a font that
     // loads), it can move the thread up by a fractional pixel. Then the
-    // thread stopped to follow the answer (CTX-1437).
+    // thread did not follow the answer (CTX-1437).
     scrollClassName="[overflow-anchor:none]"
     {...props}
   />

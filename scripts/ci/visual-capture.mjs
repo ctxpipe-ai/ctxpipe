@@ -433,8 +433,9 @@ export const splitPlan = (plan, workers) =>
 // Returns one entry for each shot (the end state of each story, and each
 // named snapshot): `{ id, snapshot, status, error }`, with the status
 // captured, unstable, play-failed, capture-failed or not-run. The PNG of a
-// shot is <out>/<shotKey>.png. `viewport` is desktop or mobile. `cpus`
-// limits the CPUs of each container (the `--cpus` option of the command).
+// shot is <out>/<shotKey>.png. The options: `viewport` (desktop or mobile),
+// `workers` (the count of containers) and `cpus` (the CPUs of each
+// container, the `--cpus` option of the command).
 //
 // More than one container captures at the same time: `workers`, by default
 // from the free CPUs of Docker (captureWorkers). Each container captures a
@@ -446,9 +447,7 @@ export const splitPlan = (plan, workers) =>
 export async function captureInContainer(
   plan,
   out,
-  viewport = "desktop",
-  workers,
-  cpus,
+  { viewport = "desktop", workers, cpus } = {},
 ) {
   if (workers === undefined) {
     const dockerOutput = (args) =>
@@ -551,7 +550,13 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const ids = args.filter(
       (arg, i) => !options.includes(arg) && !options.includes(args[i - 1]),
     )
-    if (!out || !ids.length || (cpus !== undefined && !(Number(cpus) > 0))) {
+    // A `--cpus` with no number is an error: else the capture runs with no
+    // limit, and a proof seems to have one CPU.
+    if (
+      !out ||
+      !ids.length ||
+      (args.includes("--cpus") && !(Number(cpus) > 0))
+    ) {
       process.stderr.write(
         "Usage: node scripts/ci/visual-capture.mjs [--cpus <n>] --out <dir> <story id>...\n",
       )
@@ -560,9 +565,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       const shots = await captureInContainer(
         await capturePlan(ids),
         resolve(out),
-        "desktop",
-        undefined,
-        cpus,
+        { cpus },
       )
       for (const shot of shots)
         process.stdout.write(

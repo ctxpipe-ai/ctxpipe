@@ -20,9 +20,7 @@ export async function waitForGraphReady(root: HTMLElement) {
   await waitFor(
     async () => {
       graph.getByRole("button", { name: "Reset view" })
-      const history = graph.queryByRole("button", {
-        name: /^(Play|Pause) history$/,
-      })
+      const history = graph.queryByRole("button", { name: "Play history" })
       if (history) await expect(history).toBeEnabled()
     },
     { timeout: 70_000 },
