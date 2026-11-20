@@ -1,0 +1,30 @@
+direction: right
+grid-rows: 3
+grid-gap: 0
+customer: Customer {
+  direction: right
+  report: Report issue
+  confirm: Confirm fix
+  # Invisible: it only puts Confirm fix to the right of Report issue.
+  report -> confirm: {style.opacity: 0}
+}
+support: Support {
+  direction: right
+  triage: Triage ticket
+  known: Known issue? {shape: diamond}
+  workaround: Send workaround
+  notify: Notify customer
+}
+engineering: Engineering {
+  direction: right
+  repro: Reproduce bug
+  fix: Fix and deploy
+}
+customer.report -> support.triage
+support.triage -> support.known
+support.known -> support.workaround: yes
+support.known -> engineering.repro: no
+engineering.repro -> engineering.fix
+engineering.fix -> support.notify
+support.workaround -> customer.confirm
+support.notify -> customer.confirm

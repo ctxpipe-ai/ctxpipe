@@ -68,7 +68,7 @@ function perfectReading(gold: Gold): ImageReading {
     diagram: {
       ...empty,
       kind: "graph",
-      direction: gold.direction,
+      direction: gold.direction ?? "LR",
       groups: gold.groups.map((group) => ({
         id: groupId(group.label),
         label: group.label,
@@ -197,6 +197,22 @@ describe("scoreReading", () => {
     expect(score.order).toBeCloseTo(2 / 3)
   })
 
+  it("matches a label that holds the gold name and more text, and skips a null direction", () => {
+    const gold: Gold = { ...graphGold, direction: null }
+    const reading = perfectReading(gold)
+    reading.diagram.nodes = reading.diagram.nodes.map((node) =>
+      node.label === "API service"
+        ? { ...node, label: "API service [Container: Go] The JSON API" }
+        : node,
+    )
+    reading.diagram.edges = reading.diagram.edges.map((edge) =>
+      edge.label === "SQL" ? { ...edge, label: "SQL [JDBC]" } : edge,
+    )
+    const score = scoreReading(gold, reading)
+    expect(score).toMatchObject({ nodeF1: 1, edgeF1: 1, edgeLabel: 1 })
+    expect(score.direction).toBeNull()
+  })
+
   it("gives 0 to a reading that finds no diagram", () => {
     const reading = perfectReading(graphGold)
     reading.diagram = {
@@ -283,8 +299,8 @@ describe("runVision", () => {
         now: new Date("2026-11-20T00:00:00Z"),
       })
       const [good, broken] = result.summaries
-      expect(readings.size).toBe(12)
-      expect(bodies).toHaveLength(24)
+      expect(readings.size).toBe(17)
+      expect(bodies).toHaveLength(34)
       expect(good).toMatchObject({
         model: "vendor/good",
         nodeF1: 1,
@@ -302,7 +318,7 @@ describe("runVision", () => {
       expect(good?.costPerImageUsd).toBeCloseTo(0.01)
       // A failed call with no reported cost keeps the reserved cost.
       expect(broken).toMatchObject({
-        failed: 12,
+        failed: 17,
         edgeF1: null,
         costPerImageUsd: 0.25,
         zdrEndpoints: [],

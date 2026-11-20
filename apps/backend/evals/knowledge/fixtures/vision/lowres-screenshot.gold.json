@@ -1,0 +1,106 @@
+{
+  "category": "flow",
+  "kind": "graph",
+  "direction": "TB",
+  "groups": [
+    {
+      "label": "IT operations",
+      "parent": null
+    }
+  ],
+  "nodes": [
+    {
+      "label": "Access request",
+      "group": null
+    },
+    {
+      "label": "Manager approves?",
+      "group": null
+    },
+    {
+      "label": "Request denied",
+      "group": null
+    },
+    {
+      "label": "High-risk system?",
+      "group": null
+    },
+    {
+      "label": "Security review",
+      "group": null
+    },
+    {
+      "label": "Grant access",
+      "group": "IT operations"
+    },
+    {
+      "label": "Create ticket",
+      "group": "IT operations"
+    },
+    {
+      "label": "Audit log entry",
+      "group": "IT operations"
+    },
+    {
+      "label": "Notify requester",
+      "group": null
+    }
+  ],
+  "edges": [
+    {
+      "from": "Access request",
+      "to": "Manager approves?",
+      "label": null
+    },
+    {
+      "from": "Manager approves?",
+      "to": "Request denied",
+      "label": "no"
+    },
+    {
+      "from": "Manager approves?",
+      "to": "High-risk system?",
+      "label": "yes"
+    },
+    {
+      "from": "High-risk system?",
+      "to": "Security review",
+      "label": "yes"
+    },
+    {
+      "from": "High-risk system?",
+      "to": "Grant access",
+      "label": "no"
+    },
+    {
+      "from": "Security review",
+      "to": "Grant access",
+      "label": "approved"
+    },
+    {
+      "from": "Security review",
+      "to": "Request denied",
+      "label": "rejected"
+    },
+    {
+      "from": "Grant access",
+      "to": "Create ticket",
+      "label": null
+    },
+    {
+      "from": "Create ticket",
+      "to": "Audit log entry",
+      "label": null
+    },
+    {
+      "from": "Request denied",
+      "to": "Notify requester",
+      "label": null
+    },
+    {
+      "from": "Audit log entry",
+      "to": "Notify requester",
+      "label": null
+    }
+  ]
+}

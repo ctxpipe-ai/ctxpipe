@@ -1,0 +1,14 @@
+flowchart TD
+    req[Access request] --> mgr{Manager approves?}
+    mgr -->|no| deny[Request denied]
+    mgr -->|yes| risk{High-risk system?}
+    risk -->|yes| sec[Security review]
+    risk -->|no| grant[Grant access]
+    sec -->|approved| grant
+    sec -->|rejected| deny
+    subgraph IT [IT operations]
+        grant --> ticket[Create ticket]
+        ticket --> audit[Audit log entry]
+    end
+    deny --> notify[Notify requester]
+    audit --> notify

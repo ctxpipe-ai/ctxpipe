@@ -38,7 +38,8 @@ const goldSchema = z.discriminatedUnion("kind", [
   z.object({
     category: z.enum(["architecture", "flow", "sequence"]),
     kind: z.literal("graph"),
-    direction: z.enum(["TB", "LR", "BT", "RL"]),
+    /** Null for a layout with no main direction (a mesh): not scored. */
+    direction: z.enum(["TB", "LR", "BT", "RL"]).nullable(),
     groups: z.array(
       z.object({ label: z.string(), parent: z.string().nullable() }),
     ),
@@ -97,13 +98,17 @@ const bigrams = (text: string) => {
 
 /**
  * The similarity of two labels: 1 when they are equal after normalization,
- * else the Dice coefficient of their character pairs. It accepts small
- * reading errors, as in the photo fixture.
+ * 0.9 when one is the other with more words after it, else the Dice
+ * coefficient of their character pairs. It accepts small reading errors, as
+ * in the photo fixtures.
  */
 function similarity(a: string, b: string): number {
   const left = normalize(a)
   const right = normalize(b)
   if (left === right) return 1
+  // A C4 box holds a name, a type and a description, and a C4 line holds a
+  // label and a technology: a reading of the full text still matches.
+  if (left.startsWith(`${right} `) || right.startsWith(`${left} `)) return 0.9
   const pairs = bigrams(left)
   const others = bigrams(right)
   if (pairs.length === 0 || others.length === 0) return 0
@@ -240,7 +245,7 @@ function scoreGraph(
     edgeLabel: matchedEdges ? sameEdgeLabel / matchedEdges : null,
     groupF1: f1(groupsInPlace, groups.length, gold.groups.length),
     membership: nodeMatch.size ? inGoldGroup / nodeMatch.size : null,
-    direction: diagram.direction === gold.direction,
+    direction: gold.direction && diagram.direction === gold.direction,
     order: null,
   }
 }

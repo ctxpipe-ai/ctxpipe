@@ -1,0 +1,95 @@
+{
+  "category": "flow",
+  "kind": "graph",
+  "direction": "LR",
+  "groups": [
+    {
+      "label": "Customer",
+      "parent": null
+    },
+    {
+      "label": "Support",
+      "parent": null
+    },
+    {
+      "label": "Engineering",
+      "parent": null
+    }
+  ],
+  "nodes": [
+    {
+      "label": "Report issue",
+      "group": "Customer"
+    },
+    {
+      "label": "Confirm fix",
+      "group": "Customer"
+    },
+    {
+      "label": "Triage ticket",
+      "group": "Support"
+    },
+    {
+      "label": "Known issue?",
+      "group": "Support"
+    },
+    {
+      "label": "Send workaround",
+      "group": "Support"
+    },
+    {
+      "label": "Notify customer",
+      "group": "Support"
+    },
+    {
+      "label": "Reproduce bug",
+      "group": "Engineering"
+    },
+    {
+      "label": "Fix and deploy",
+      "group": "Engineering"
+    }
+  ],
+  "edges": [
+    {
+      "from": "Report issue",
+      "to": "Triage ticket",
+      "label": null
+    },
+    {
+      "from": "Triage ticket",
+      "to": "Known issue?",
+      "label": null
+    },
+    {
+      "from": "Known issue?",
+      "to": "Send workaround",
+      "label": "yes"
+    },
+    {
+      "from": "Known issue?",
+      "to": "Reproduce bug",
+      "label": "no"
+    },
+    {
+      "from": "Reproduce bug",
+      "to": "Fix and deploy",
+      "label": null
+    },
+    {
+      "from": "Fix and deploy",
+      "to": "Notify customer",
+      "label": null
+    },
+    {
+      "from": "Send workaround",
+      "to": "Confirm fix",
+      "label": null
+    },
+    {
+      "from": "Notify customer",
+      "to": "Confirm fix",
+      "label": null
+    }
+  ]
+}
