@@ -1584,9 +1584,9 @@ describe("vector reuse (CTX-1428)", () => {
       const first = sentTexts()
       expect(new Set(first).size).toBe(first.length)
       const inputs =
-        Number(embeddingOf()?.["ctxpipe.knowledge.embedding_embedded"]) || 0
+        Number(embeddingOf()?.["ctxpipe.knowledge.embedding_misses"]) || 0
       expect(embeddingOf()).toMatchObject({
-        "ctxpipe.knowledge.embedding_reused": 0,
+        "ctxpipe.knowledge.embedding_hits": 0,
         "ctxpipe.knowledge.embedding_requests": inputs - 1,
       })
       expect(first).toHaveLength(inputs - 1)
@@ -1615,8 +1615,8 @@ describe("vector reuse (CTX-1428)", () => {
         ]),
       )
       expect(embeddingOf()).toMatchObject({
-        "ctxpipe.knowledge.embedding_reused": inputs - 1,
-        "ctxpipe.knowledge.embedding_embedded": 2,
+        "ctxpipe.knowledge.embedding_hits": inputs - 1,
+        "ctxpipe.knowledge.embedding_misses": 2,
         "ctxpipe.knowledge.embedding_requests": 2,
       })
 
@@ -1625,7 +1625,7 @@ describe("vector reuse (CTX-1428)", () => {
       const fresh = await newWorkspace()
       await run(remote, fresh, tip)
       expect(embeddingOf()).toMatchObject({
-        "ctxpipe.knowledge.embedding_reused": 0,
+        "ctxpipe.knowledge.embedding_hits": 0,
       })
       const left = await content(workspaceId, paths)
       const right = await content(fresh, paths)
@@ -1692,8 +1692,8 @@ describe("vector reuse (CTX-1428)", () => {
       )
       expect(embeddingOf()).toMatchObject({
         "ctxpipe.knowledge.outcome": "completed",
-        "ctxpipe.knowledge.embedding_reused": 1000,
-        "ctxpipe.knowledge.embedding_embedded": 5,
+        "ctxpipe.knowledge.embedding_hits": 1000,
+        "ctxpipe.knowledge.embedding_misses": 5,
         "ctxpipe.knowledge.embedding_requests": 5,
       })
       const statuses = Object.values(await statusOf(workspaceId))
@@ -1721,7 +1721,7 @@ describe("vector reuse (CTX-1428)", () => {
       })
       expect(embeddings.requests).toBe(requests)
       expect(embeddingOf()).toMatchObject({
-        "ctxpipe.knowledge.embedding_reused": 0,
+        "ctxpipe.knowledge.embedding_hits": 0,
         "ctxpipe.knowledge.embedding_requests": requests,
       })
     } finally {

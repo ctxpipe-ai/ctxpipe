@@ -66,7 +66,7 @@ Since [CTX-1369](https://linear.app/ctxpipe/issue/CTX-1369), a hydrate writes on
     - the time of each apply;
     - the count of pending ClickHouse mutations (`system.mutations`) and the age of the oldest, because each `DELETE` is a mutation (ADR-066 decision 8). The knowledge node gives them to the host metrics agent, and an alert fires when the oldest is an hour old;
     - the count of mutations of each run (`knowledge.projection.mutations`);
-    - the embedding work of each run (decision 5): the inputs with a stored vector and the inputs with a new vector (`knowledge.projection.embedding_inputs`, by `source`), the requests (`knowledge.projection.embedding_requests`), and the time in the embedding API (`knowledge.projection.embedding_duration`).
+    - the embedding work of each run (decision 5): the inputs with a stored vector (hits) and the inputs that go to the model (misses) (`knowledge.projection.embedding_lookups`, by `result`), the requests (`knowledge.projection.embedding_requests`), and the time in the embedding API (`knowledge.projection.embedding_duration`).
 12. **Public docs** state that a missing old commit, for example after a force-push and a Git GC, starts a full rebuild.
 
 ## Consequences

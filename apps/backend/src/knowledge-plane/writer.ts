@@ -150,8 +150,8 @@ export async function projectKnowledgePlane(input: {
       let summary: KnowledgeRunSummary | undefined
       const counter: MutationCounter = { mutations: 0 }
       const embedding: EmbeddingCounter = {
-        reused: 0,
-        embedded: 0,
+        hits: 0,
+        misses: 0,
         requests: 0,
         seconds: 0,
       }
@@ -517,9 +517,12 @@ export async function inBatches<T>(
 /** The embedding work of one run, for its metrics. */
 type EmbeddingCounter = {
   /** The inputs (chunks and images) that got a stored vector. */
-  reused: number
-  /** The inputs with no stored vector. */
-  embedded: number
+  hits: number
+  /**
+   * The inputs with no stored vector. They go to the model, and an image
+   * that the model refuses gets no vector.
+   */
+  misses: number
   /**
    * The HTTP requests to the embedding API, each retry too. Inputs of one
    * batch with the same key go in one request.
@@ -562,9 +565,9 @@ async function embedWithReuse<R>(
   const missing = new Map<string, EmbeddingInput>()
   for (const [index, input] of inputs.entries()) {
     const key = keys[index] ?? ""
-    if (stored.has(key)) counter.reused++
+    if (stored.has(key)) counter.hits++
     else {
-      counter.embedded++
+      counter.misses++
       if (!missing.has(key)) missing.set(key, input)
     }
   }
@@ -901,19 +904,19 @@ function recordRun(input: {
       unit: "{mutation}",
     })
     .record(input.mutations, { outcome, mode })
-  // The share of the inputs that got a stored vector is the hit rate of the
-  // vector reuse (ADR-067 decision 5).
+  // The hits divided by all lookups is the hit rate of the vector reuse
+  // (ADR-067 decision 5).
   const { embedding } = input
-  const inputs = meter.createHistogram(
-    "knowledge.projection.embedding_inputs",
+  const lookups = meter.createHistogram(
+    "knowledge.projection.embedding_lookups",
     {
       description:
-        "The embedding inputs of one knowledge projection run, by the source of the vector",
+        "The lookups of a stored vector of one knowledge projection run, by result",
       unit: "{input}",
     },
   )
-  inputs.record(embedding.reused, { outcome, mode, source: "stored" })
-  inputs.record(embedding.embedded, { outcome, mode, source: "model" })
+  lookups.record(embedding.hits, { outcome, mode, result: "hit" })
+  lookups.record(embedding.misses, { outcome, mode, result: "miss" })
   meter
     .createHistogram("knowledge.projection.embedding_requests", {
       description: "The embedding requests of one knowledge projection run",
@@ -932,8 +935,8 @@ function recordRun(input: {
     "ctxpipe.knowledge.mode": mode,
     "ctxpipe.knowledge.duration_s": input.seconds,
     "ctxpipe.knowledge.mutations": input.mutations,
-    "ctxpipe.knowledge.embedding_reused": embedding.reused,
-    "ctxpipe.knowledge.embedding_embedded": embedding.embedded,
+    "ctxpipe.knowledge.embedding_hits": embedding.hits,
+    "ctxpipe.knowledge.embedding_misses": embedding.misses,
     "ctxpipe.knowledge.embedding_requests": embedding.requests,
     "ctxpipe.knowledge.embedding_s": embedding.seconds,
   }
