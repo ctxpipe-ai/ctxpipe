@@ -535,6 +535,42 @@ describe("POST /github/installation requires GitHub access (Postgres)", () => {
       )
     })
 
+    it("names the install page of each installation's App: the deployment's through its forwarder", async () => {
+      // The AWS PR previews (CTX-1441): the forwarder marks the `state` that
+      // GitHub gives back to the deployment App's setup URL. A wizard App
+      // lists this deployment's own setup URL, so its page stays on GitHub.
+      const forwarded = createApp({
+        ...env,
+        GITHUB_WEB_URL: "https://forwarder.example.test/.to-github/pr-12",
+        GITHUB_REDIRECT_URI:
+          "https://forwarder.example.test/.auth/api/v1/auth/callback/github",
+      })
+      const deploymentCopy = await createDraftGithubConnection({
+        orgId: seed.orgId,
+        env,
+        githubAppId: "3",
+        appSlug: "ctxpipe-agent",
+        privateKey: ownAppPrivateKey,
+        webhookSecret: "webhook-secret",
+      })
+      const ownApp = await createOwnAppDraft()
+      const installUrlOf = async (connectionId: string) => {
+        const res = await forwarded.request(
+          `http://backend.test/${seed.orgSlug}/api/v1/github/installation?connectionId=${connectionId}`,
+          { headers: { cookie: seed.cookie } },
+        )
+        expect(res.status).toBe(200)
+        return ((await res.json()) as { installUrl: string | null }).installUrl
+      }
+
+      expect(await installUrlOf(deploymentCopy.id)).toBe(
+        "https://forwarder.example.test/.to-github/pr-12/apps/ctxpipe-agent/installations/new",
+      )
+      expect(await installUrlOf(ownApp.id)).toBe(
+        "https://github.com/apps/self-hosted-app/installations/new",
+      )
+    })
+
     it("attaches for a user whose GitHub account is linked to another ctxpipe user", async () => {
       await linkGithub(
         "gho_link_of_other_user",

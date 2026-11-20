@@ -166,12 +166,10 @@ export function useGithubConnectFlow({
   const start = useCallback(
     (intent: "connect" | "manage_scope") => {
       if (!orgSlug.trim()) return
-      if (intent === "manage_scope" && installation?.appSlug?.trim()) {
-        openManagedInstallPopup(
-          `https://github.com/apps/${encodeURIComponent(
-            installation.appSlug.trim(),
-          )}/installations/select_target`,
-        )
+      // The backend names the App's install page: on a deployment behind a
+      // forwarder (the AWS PR previews), the forwarder's.
+      if (intent === "manage_scope" && installation?.installUrl) {
+        openManagedInstallPopup(installation.installUrl)
         return
       }
       const branch = getGithubConnectStartBranch({

@@ -2,7 +2,7 @@ import type { Env } from "../config/env.js"
 
 type GithubUrlEnv = Pick<
   Env,
-  "AUTH_BASE_URL" | "GITHUB_WEB_URL" | "GITHUB_REDIRECT_URI"
+  "AUTH_BASE_URL" | "GITHUB_WEB_URL" | "GITHUB_REDIRECT_URI" | "GITHUB_APP_SLUG"
 >
 
 /**
@@ -32,14 +32,19 @@ export function githubOAuthUrls(env: GithubUrlEnv) {
   }
 }
 
+/** The slug of the deployment's App, as in its install links. */
+export function deploymentAppSlug(env: Pick<Env, "GITHUB_APP_SLUG">) {
+  return env.GITHUB_APP_SLUG?.trim() || "ctxpipe-agent"
+}
+
 /**
- * The install page of the deployment's App. GitHub gives its `state` back
- * to the App's setup URL. An App of a wizard connection is not the
- * deployment's App: its install page is on github.com.
+ * The install page of a GitHub App. GitHub gives its `state` back to the
+ * App's setup URL. Only the deployment's App goes through `GITHUB_WEB_URL`
+ * (a slug names one App on GitHub): the App of a wizard connection lists
+ * the setup URL of this deployment's own host.
  */
-export function githubDeploymentAppInstallUrl(
-  env: GithubUrlEnv,
-  slug: string,
-) {
-  return `${githubWebUrl(env)}/apps/${encodeURIComponent(slug)}/installations/new`
+export function githubAppInstallUrl(env: GithubUrlEnv, slug: string) {
+  const base =
+    slug === deploymentAppSlug(env) ? githubWebUrl(env) : "https://github.com"
+  return `${base}/apps/${encodeURIComponent(slug)}/installations/new`
 }

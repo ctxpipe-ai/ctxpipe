@@ -133,6 +133,7 @@ export const githubInstallationLinkedHandler = http.get(
     HttpResponse.json({
       id: "con_story_github",
       appSlug: "ctxpipe",
+      installUrl: "https://github.com/apps/ctxpipe/installations/new",
       accountSlug: "acme",
       installationId: 4242,
     }),

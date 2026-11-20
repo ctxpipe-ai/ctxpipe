@@ -15,14 +15,18 @@ describe("parseEnv GitHub forwarder URLs", () => {
       parseEnv({
         ...required,
         GITHUB_WEB_URL: "https://forwarder.example.test/.to-github/pr-1",
-        GITHUB_REDIRECT_URI: "https://forwarder.example.test/.auth/api/v1/auth/callback/github",
+        GITHUB_REDIRECT_URI:
+          "https://forwarder.example.test/.auth/api/v1/auth/callback/github",
       }),
     ).not.toThrow()
   })
 
   it.each([
     ["GITHUB_WEB_URL", "https://forwarder.example.test/.to-github/pr-1"],
-    ["GITHUB_REDIRECT_URI", "https://forwarder.example.test/.auth/api/v1/auth/callback/github"],
+    [
+      "GITHUB_REDIRECT_URI",
+      "https://forwarder.example.test/.auth/api/v1/auth/callback/github",
+    ],
   ])(
     "refuses %s alone, so a half-set deployment does not start",
     (name, value) => {
