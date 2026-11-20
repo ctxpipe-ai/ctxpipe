@@ -226,6 +226,24 @@ describe("the hydrate of the knowledge eval harness", () => {
 
   let targets: Targets
 
+  it("refuses a context repo that is not on http or https", async () => {
+    const [corpus] = dataset.corpora
+    if (!corpus) throw new Error("The dataset has no corpus.")
+    await expect(
+      hydrate(new ModelCalls(MODEL_URL, 1), {
+        ...dataset,
+        corpora: [
+          {
+            ...corpus,
+            contextRepo: { ...corpus.contextRepo, url: `file://${directory}` },
+          },
+        ],
+      }),
+    ).rejects.toThrow(
+      "The context repo of tiny must have an http or https URL.",
+    )
+  })
+
   it("stops with exit code 3 when the spend cap stops a call, and writes the spend", async () => {
     vi.stubEnv("CLICKHOUSE_URL", writerUrl)
     const out = join(directory, "capped")

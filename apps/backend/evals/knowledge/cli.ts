@@ -369,16 +369,19 @@ async function main(argv: string[]): Promise<number> {
     ? keptRunSchema.parse(await readJson(values.kept))
     : null
   const settings = parseSettings(values.set ?? [])
+  const dataset = values.dataset
   if (command === "hydrate") {
-    if (!values.dataset) throw new SetupError("hydrate needs --dataset.")
+    if (!dataset) throw new SetupError("hydrate needs --dataset.")
+    if (values.set || values.kept)
+      throw new SetupError("hydrate takes no --set and no --kept.")
     // The projection of the plane converts each file with it.
     buildConverter()
   }
   initDb(databaseUrl)
   try {
-    if (command === "hydrate")
+    if (command === "hydrate" && dataset)
       return await hydrateCommand({
-        dataset: await readDataset(values.dataset ?? ""),
+        dataset: await readDataset(dataset),
         // The eval org. Its ids are made up.
         org: {
           id: "org_knowledge_eval",
@@ -408,7 +411,7 @@ async function main(argv: string[]): Promise<number> {
         },
       })
     } else {
-      if (!values.dataset || !values.targets)
+      if (!dataset || !values.targets)
         throw new SetupError("run needs --dataset and --targets.")
       const splits: Manifest["splits"] =
         values.split === "dev" || values.split === "holdout"
@@ -417,7 +420,7 @@ async function main(argv: string[]): Promise<number> {
       if (values.split && splits.length !== 1)
         throw new SetupError("--split is dev or holdout.")
       report = await executeRun({
-        dataset: await readDataset(values.dataset),
+        dataset: await readDataset(dataset),
         targets: targetsSchema.parse(await readJson(values.targets)),
         splits,
         settings,

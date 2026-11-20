@@ -75,11 +75,11 @@ const RESERVED_COST_USD: Record<CallKind, number> = {
 
 /**
  * The reservation of an embedding call grows with its input: a batch of the
- * hydrate holds up to 64 chunks. $0.5 for each million characters is above
+ * hydrate holds up to 64 chunks. $0.5 for each million UTF-8 bytes is above
  * the price of each embedding model of the stacks for each million tokens,
- * and a token holds more than one character.
+ * and each token holds at least one byte.
  */
-const EMBEDDING_USD_PER_CHARACTER = 0.5 / 1_000_000
+const EMBEDDING_USD_PER_BYTE = 0.5 / 1_000_000
 
 /** The worst-case cost of one call of `kind` with the request `body`. */
 function reservationOf(kind: CallKind, body: string): number {
@@ -87,16 +87,21 @@ function reservationOf(kind: CallKind, body: string): number {
   const input = z
     .object({ input: z.union([z.string(), z.array(z.string())]) })
     .safeParse(parseOr(body, {})).data?.input
-  const characters = [input ?? []]
-    .flat()
-    .reduce((sum, text) => sum + text.length, 0)
-  return Math.max(
-    RESERVED_COST_USD.embedding,
-    characters * EMBEDDING_USD_PER_CHARACTER,
+  const texts = typeof input === "string" ? [input] : (input ?? [])
+  const bytes = texts.reduce(
+    (sum, text) => sum + Buffer.byteLength(text, "utf8"),
+    0,
   )
+  return Math.max(RESERVED_COST_USD.embedding, bytes * EMBEDDING_USD_PER_BYTE)
 }
 
 const answerSchema = z.object({ usage: z.unknown() }).partial()
+
+/** The fields of a model request that the ZDR rule reads. */
+const requestBodySchema = z.looseObject({
+  model: z.string().optional(),
+  provider: z.record(z.string(), z.unknown()).nullish(),
+})
 
 /** The arm, the question and the counts that a call belongs to. */
 type Owner = { arm: string; question: string; counts: CallCounts }
@@ -322,15 +327,9 @@ export class ModelCalls {
     kind: CallKind,
     owner: Owner,
   ): { request: Request; body: string } {
-    const parsed = parseOr(body, null)
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
-      return { request, body }
-    const provider =
-      "provider" in parsed &&
-      typeof parsed.provider === "object" &&
-      parsed.provider !== null
-        ? (parsed.provider as Record<string, unknown>)
-        : {}
+    const parsed = requestBodySchema.safeParse(parseOr(body, null)).data
+    if (!parsed) return { request, body }
+    const provider = parsed.provider ?? {}
     if (
       provider.zdr === ZDR_PROVIDER.zdr &&
       provider.data_collection === ZDR_PROVIDER.data_collection
@@ -340,10 +339,7 @@ export class ModelCalls {
       ...parsed,
       provider: { ...provider, ...ZDR_PROVIDER },
     })
-    const model =
-      "model" in parsed && typeof parsed.model === "string"
-        ? parsed.model
-        : "unknown"
+    const model = parsed.model ?? "unknown"
     const name = `${owner.arm} ${kind} ${model}`
     this.zdrAdded[name] = (this.zdrAdded[name] ?? 0) + 1
     return {

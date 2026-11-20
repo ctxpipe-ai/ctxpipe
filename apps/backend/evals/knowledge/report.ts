@@ -202,7 +202,7 @@ export function renderMarkdown(report: Report): string {
     ...(Object.keys(report.run.zdrAdded).length
       ? [
           "",
-          `Run notes: the request had no provider block, so the harness added the ZDR block \`${JSON.stringify(ZDR_PROVIDER)}\` (ADR-068 decision 7): ${Object.entries(
+          `Run notes: the request did not set the ZDR fields, so the harness added the ZDR block \`${JSON.stringify(ZDR_PROVIDER)}\` (ADR-068 decision 7): ${Object.entries(
             report.run.zdrAdded,
           )
             .map(([call, count]) => `${call} (${count})`)

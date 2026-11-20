@@ -40,6 +40,21 @@ export function knowledgeProjectionVersion(input: {
   ])
 }
 
+/**
+ * The Workspace root folder of a projection version
+ * (`knowledgeProjectionVersion`), or null for a version in another form.
+ */
+export function knowledgeProjectionRoot(version: string): string | null {
+  try {
+    const parts: unknown = JSON.parse(version)
+    return Array.isArray(parts) && typeof parts[3] === "string"
+      ? parts[3]
+      : null
+  } catch {
+    return null
+  }
+}
+
 /** The reasons for a full rebuild instead of a delta. */
 export type KnowledgeFullReason =
   /** No run has completed for the Workspace. */

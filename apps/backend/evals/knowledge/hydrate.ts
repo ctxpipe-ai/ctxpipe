@@ -1,3 +1,7 @@
+import { mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
 import { and, eq, sql } from "drizzle-orm"
 import { OpenWorkflow } from "openworkflow"
 
@@ -62,6 +66,11 @@ export async function hydrateCorpora(input: {
     throw new Error(
       `The hydrate runs only in an OpenWorkflow namespace of its own (${EVAL_NAMESPACE}…), not in "${namespace}".`,
     )
+  for (const corpus of input.dataset.corpora)
+    if (!["http:", "https:"].includes(new URL(corpus.contextRepo.url).protocol))
+      throw new Error(
+        `The context repo of ${corpus.id} must have an http or https URL.`,
+      )
   await getSystemDb()
     .insert(organizations)
     .values({ ...org, createdAt: new Date() })
@@ -84,6 +93,7 @@ export async function hydrateCorpora(input: {
   runner.implementWorkflow(workspaceHydrate.spec, workspaceHydrate.fn)
   runner.implementWorkflow(knowledgeProjection.spec, knowledgeProjection.fn)
   const worker = runner.newWorker({ concurrency: 2 })
+  const restoreGit = isolateGit()
   await worker.start()
   const targets: Targets = {}
   try {
@@ -140,8 +150,49 @@ export async function hydrateCorpora(input: {
           and status not in ('completed', 'failed')`,
     )
     await backend.stop()
+    restoreGit()
   }
   return targets
+}
+
+/**
+ * Make each Git process of the hydrate read with no credential of the host:
+ * no global or system configuration (and thus no credential helper), no
+ * configuration from the environment, no prompt, and an empty home folder
+ * (no `.netrc`). The corpora are public, and a dataset must not make the
+ * hydrate read a private repository with the credentials of the operator.
+ * Call the result to restore the environment.
+ */
+function isolateGit(): () => void {
+  const home = mkdtempSync(join(tmpdir(), "knowledge-eval-git-home-"))
+  const names = [
+    "HOME",
+    "GIT_CONFIG_GLOBAL",
+    "GIT_CONFIG_NOSYSTEM",
+    "GIT_CONFIG_PARAMETERS",
+    "GIT_CONFIG_COUNT",
+    "GIT_TERMINAL_PROMPT",
+    "GIT_ASKPASS",
+    "SSH_ASKPASS",
+  ] as const
+  const before = Object.fromEntries(
+    names.map((name) => [name, process.env[name]]),
+  )
+  for (const name of names) delete process.env[name]
+  Object.assign(process.env, {
+    HOME: home,
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_TERMINAL_PROMPT: "0",
+  })
+  return () => {
+    for (const name of names) {
+      const value = before[name]
+      if (value === undefined) delete process.env[name]
+      else process.env[name] = value
+    }
+    rmSync(home, { recursive: true, force: true })
+  }
 }
 
 /**

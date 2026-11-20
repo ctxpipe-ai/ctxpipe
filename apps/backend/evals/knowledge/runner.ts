@@ -4,7 +4,9 @@ import { join } from "node:path"
 import { z } from "zod"
 
 import { withOrgDbContext } from "../../src/db/client.js"
+import { workspaceRevisionSchema } from "../../src/domain/workspaces/revision.js"
 import { workspaceRootPath } from "../../src/domain/workspaces/root-path.js"
+import { knowledgeProjectionRoot } from "../../src/knowledge-plane/change-set.js"
 import type { KnowledgeReader } from "../../src/knowledge-reader/knowledge-reader.js"
 import { legacyKnowledgeReader } from "../../src/knowledge-reader/legacy-reader.js"
 import { ORCHESTRATOR_DEFAULTS } from "../../src/knowledge-reader/orchestrator.js"
@@ -12,7 +14,10 @@ import { planeKnowledgeReader } from "../../src/knowledge-reader/plane-reader.js
 import { resolveCallWorkspace } from "../../src/mcp/framework/call-workspace.js"
 import { McpToolError } from "../../src/mcp/framework/tool-errors.js"
 import { getRelatedInputShape } from "../../src/mcp/tools/get-related.js"
-import { readyKnowledgeShas } from "../../src/models/knowledge-state.js"
+import {
+  getKnowledgeState,
+  readyKnowledgeShas,
+} from "../../src/models/knowledge-state.js"
 import { getWorkspaceById } from "../../src/models/workspaces.js"
 import { POSITION_STATUSES } from "../../src/retrieval/jev/disagreement.js"
 import { type Dataset, datasetSchema, type Question } from "./dataset.js"
@@ -193,15 +198,27 @@ async function resolveWorkspaces(
         `Workspace ${workspace.slug} must serve the frozen SHA ${sha} of ${corpus.id} on both stacks. The old stack serves ${workspace.served?.sha ?? "nothing"}, and the plane serves ${plane ?? "nothing"}.`,
       )
     // The gold paths are relative to the root of the corpus, as the tools
-    // give the paths of the Workspace.
-    const workspaceRoot = workspaceRootPath(
-      await withOrgDbContext(org.id, () =>
-        getWorkspaceById(workspace.id, org.id),
-      ),
+    // give the paths of the Workspace. Each stack must serve that root: a
+    // failed projection after a change of the root keeps the earlier one.
+    const record = await withOrgDbContext(org.id, () =>
+      getWorkspaceById(workspace.id, org.id),
     )
-    if (workspaceRoot !== root)
+    const state = await getKnowledgeState({
+      orgId: org.id,
+      workspaceId: workspace.id,
+    })
+    const roots = {
+      workspace: workspaceRootPath(record),
+      old: workspaceRootPath(
+        workspaceRevisionSchema.safeParse(record?.activeRevision).data,
+      ),
+      plane: state?.projectionVersion
+        ? knowledgeProjectionRoot(state.projectionVersion)
+        : null,
+    }
+    if (Object.values(roots).some((served) => served !== root))
       throw new Error(
-        `Workspace ${workspace.slug} must have the root "${root}" of ${corpus.id}, not "${workspaceRoot}".`,
+        `Workspace ${workspace.slug} must serve the root "${root}" of ${corpus.id} on both stacks. The Workspace has "${roots.workspace}", the old stack serves "${roots.old}", and the plane serves "${roots.plane ?? "an unknown root"}".`,
       )
     resolved.set(corpus.id, {
       org,

@@ -15,6 +15,7 @@ import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../test/db.js"
 import { withOrgDbContext } from "../db/client.js"
 import { workspaceKnowledgeUnits, workspaces } from "../db/schema/workspaces.js"
 import { servingIdForKnowledgePath } from "../domain/workspaces/hydrate.js"
+import { knowledgeProjectionVersion } from "../knowledge-plane/change-set.js"
 import {
   createKnowledgeStore,
   type DocumentRows,
@@ -160,6 +161,28 @@ const models = setupServer(
   }),
 )
 
+/** The root of the example corpus. */
+const root = dataset.corpora[0]?.contextRepo.root ?? ""
+let seededWorkspace: string
+
+/** Record a complete plane run of the frozen SHA at the root `of`. */
+async function projectPlane(of: string) {
+  const key = { orgId: seed.orgId, workspaceId: seededWorkspace }
+  await beginKnowledgeRun({ ...key, tip: frozenSha })
+  await completeKnowledgeRun({
+    ...key,
+    tip: frozenSha,
+    projectionVersion: knowledgeProjectionVersion({
+      embeddingModel: textEmbeddingConfig.model,
+      dimensions: textEmbeddingConfig.dimensions,
+      root: of,
+      converter: "fixture",
+      visionModel: "fixture",
+    }),
+    failedCount: 0,
+  })
+}
+
 let seed: SeededOrg
 let clickHouse: Awaited<ReturnType<typeof startClickHouse>>
 let folder: string
@@ -249,7 +272,7 @@ describe("the knowledge eval harness", () => {
     // The backend reads as the reader user, with SELECT only.
     vi.stubEnv("CLICKHOUSE_URL", userUrl(url, "ctxpipe_reader", "reader-test"))
     seed = await seedOrg()
-    const { workspaceId } = await seedRelatedWorkspace({
+    const { workspaceId, revision } = await seedRelatedWorkspace({
       seed,
       slug: "memory",
       sha: frozenSha,
@@ -264,11 +287,16 @@ describe("the knowledge eval harness", () => {
       })),
       chunks: true,
     })
-    // The gold paths are relative to the root of the corpus.
+    seededWorkspace = workspaceId
+    // The gold paths are relative to the root of the corpus, and the old
+    // stack serves that root.
     await withOrgDbContext(seed.orgId, (db) =>
       db
         .update(workspaces)
-        .set({ rootPath: dataset.corpora[0]?.contextRepo.root })
+        .set({
+          rootPath: root,
+          activeRevision: { ...revision, rootPath: root },
+        })
         .where(eq(workspaces.id, workspaceId)),
     )
     // The search of the old stack reads the claims of a unit for `validAt`.
@@ -295,14 +323,7 @@ describe("the knowledge eval harness", () => {
     } finally {
       await writer.close()
     }
-    await beginKnowledgeRun({ orgId: seed.orgId, workspaceId, tip: frozenSha })
-    await completeKnowledgeRun({
-      orgId: seed.orgId,
-      workspaceId,
-      tip: frozenSha,
-      projectionVersion: "test",
-      failedCount: 0,
-    })
+    await projectPlane(root)
     targets = {
       "ctxpipe-memory-v0": {
         orgId: seed.orgId,
@@ -596,8 +617,21 @@ describe("the knowledge eval harness", () => {
         },
       }),
     ).rejects.toThrow(
-      'Workspace memory must have the root "" of ctxpipe-memory, not ".ai/memory".',
+      'Workspace memory must serve the root "" of ctxpipe-memory on both stacks. The Workspace has ".ai/memory", the old stack serves ".ai/memory", and the plane serves ".ai/memory".',
     )
     expect(requests).toEqual(before)
+  })
+
+  it("refuses a plane that serves another root of the frozen SHA", async () => {
+    // A failed projection after a change of the root keeps the earlier
+    // projection of the same SHA.
+    await projectPlane("")
+    try {
+      await expect(run("plane-root")).rejects.toThrow(
+        'the old stack serves ".ai/memory", and the plane serves "".',
+      )
+    } finally {
+      await projectPlane(root)
+    }
   })
 })
