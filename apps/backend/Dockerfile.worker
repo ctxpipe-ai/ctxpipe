@@ -7,7 +7,7 @@ RUN npm install -g @forge/cli@13.4.0
 
 # The file converter of the knowledge plane (apps/backend/converter, CTX-1433):
 # one static musl binary, so the runtime image needs no Rust and no library.
-FROM rust:1.99-alpine3.22 AS converter
+FROM rust:1.99.1-alpine3.22 AS converter
 RUN apk add --no-cache musl-dev
 WORKDIR /converter
 COPY apps/backend/converter ./
