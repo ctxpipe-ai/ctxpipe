@@ -1,0 +1,42 @@
+{
+  "category": "sequence",
+  "kind": "sequence",
+  "participants": ["Client", "CDN edge", "Cache store", "Origin server"],
+  "messages": [
+    {
+      "from": "Client",
+      "to": "CDN edge",
+      "label": "GET /image.png"
+    },
+    {
+      "from": "CDN edge",
+      "to": "Cache store",
+      "label": "lookup key"
+    },
+    {
+      "from": "Cache store",
+      "to": "CDN edge",
+      "label": "miss"
+    },
+    {
+      "from": "CDN edge",
+      "to": "Origin server",
+      "label": "GET /image.png"
+    },
+    {
+      "from": "Origin server",
+      "to": "CDN edge",
+      "label": "200 + Cache-Control"
+    },
+    {
+      "from": "CDN edge",
+      "to": "Cache store",
+      "label": "store"
+    },
+    {
+      "from": "CDN edge",
+      "to": "Client",
+      "label": "200 image"
+    }
+  ]
+}

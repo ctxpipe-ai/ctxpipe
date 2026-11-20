@@ -1,0 +1,25 @@
+direction: right
+mobile: Mobile app {shape: rectangle}
+stripe: Stripe {shape: cloud}
+cluster: Kubernetes cluster {
+  gateway: API gateway
+  kafka: Kafka {shape: queue}
+  notify: Notification service
+  orders: orders namespace {
+    svc: Orders service
+    db: Order DB {shape: cylinder}
+  }
+  payments: payments namespace {
+    svc: Payments service
+    db: Ledger DB {shape: cylinder}
+  }
+}
+mobile -> cluster.gateway: gRPC
+cluster.gateway -> cluster.orders.svc: create order
+cluster.orders.svc -> cluster.orders.db
+cluster.orders.svc -> cluster.kafka: OrderCreated
+cluster.kafka -> cluster.payments.svc: OrderCreated
+cluster.payments.svc -> stripe: charge
+cluster.payments.svc -> cluster.payments.db
+cluster.payments.svc -> cluster.kafka: PaymentSettled
+cluster.kafka -> cluster.notify: PaymentSettled

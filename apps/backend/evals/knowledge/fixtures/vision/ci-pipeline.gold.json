@@ -1,0 +1,87 @@
+{
+  "category": "flow",
+  "kind": "graph",
+  "direction": "LR",
+  "groups": [
+    {
+      "label": "Pull request",
+      "parent": null
+    },
+    {
+      "label": "Main branch",
+      "parent": null
+    }
+  ],
+  "nodes": [
+    {
+      "label": "Open PR",
+      "group": "Pull request"
+    },
+    {
+      "label": "Lint",
+      "group": "Pull request"
+    },
+    {
+      "label": "Unit tests",
+      "group": "Pull request"
+    },
+    {
+      "label": "Review",
+      "group": "Pull request"
+    },
+    {
+      "label": "Merge",
+      "group": "Main branch"
+    },
+    {
+      "label": "Build",
+      "group": "Main branch"
+    },
+    {
+      "label": "Publish package",
+      "group": "Main branch"
+    }
+  ],
+  "edges": [
+    {
+      "from": "Open PR",
+      "to": "Lint",
+      "label": null
+    },
+    {
+      "from": "Open PR",
+      "to": "Unit tests",
+      "label": null
+    },
+    {
+      "from": "Lint",
+      "to": "Review",
+      "label": null
+    },
+    {
+      "from": "Unit tests",
+      "to": "Review",
+      "label": null
+    },
+    {
+      "from": "Merge",
+      "to": "Build",
+      "label": null
+    },
+    {
+      "from": "Build",
+      "to": "Publish package",
+      "label": null
+    },
+    {
+      "from": "Review",
+      "to": "Merge",
+      "label": "approved"
+    },
+    {
+      "from": "Review",
+      "to": "Open PR",
+      "label": "changes requested"
+    }
+  ]
+}

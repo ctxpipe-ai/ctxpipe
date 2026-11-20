@@ -1,0 +1,108 @@
+{
+  "category": "architecture",
+  "kind": "graph",
+  "direction": "LR",
+  "groups": [
+    {
+      "label": "AWS Cloud",
+      "parent": null
+    },
+    {
+      "label": "VPC",
+      "parent": "AWS Cloud"
+    },
+    {
+      "label": "Public subnet",
+      "parent": "VPC"
+    },
+    {
+      "label": "Private subnet",
+      "parent": "VPC"
+    }
+  ],
+  "nodes": [
+    {
+      "label": "User",
+      "group": null
+    },
+    {
+      "label": "CloudFront CDN",
+      "group": "AWS Cloud"
+    },
+    {
+      "label": "S3 static assets",
+      "group": "AWS Cloud"
+    },
+    {
+      "label": "SQS queue",
+      "group": "AWS Cloud"
+    },
+    {
+      "label": "Application Load Balancer",
+      "group": "Public subnet"
+    },
+    {
+      "label": "API service",
+      "group": "Private subnet"
+    },
+    {
+      "label": "Worker service",
+      "group": "Private subnet"
+    },
+    {
+      "label": "PostgreSQL",
+      "group": "Private subnet"
+    },
+    {
+      "label": "Redis cache",
+      "group": "Private subnet"
+    }
+  ],
+  "edges": [
+    {
+      "from": "User",
+      "to": "CloudFront CDN",
+      "label": "HTTPS"
+    },
+    {
+      "from": "CloudFront CDN",
+      "to": "S3 static assets",
+      "label": "static files"
+    },
+    {
+      "from": "CloudFront CDN",
+      "to": "Application Load Balancer",
+      "label": "/api/*"
+    },
+    {
+      "from": "Application Load Balancer",
+      "to": "API service",
+      "label": null
+    },
+    {
+      "from": "API service",
+      "to": "PostgreSQL",
+      "label": "SQL"
+    },
+    {
+      "from": "API service",
+      "to": "Redis cache",
+      "label": "sessions"
+    },
+    {
+      "from": "API service",
+      "to": "SQS queue",
+      "label": "enqueue jobs"
+    },
+    {
+      "from": "SQS queue",
+      "to": "Worker service",
+      "label": "poll"
+    },
+    {
+      "from": "Worker service",
+      "to": "PostgreSQL",
+      "label": null
+    }
+  ]
+}

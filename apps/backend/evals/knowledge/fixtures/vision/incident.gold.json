@@ -1,0 +1,96 @@
+{
+  "category": "flow",
+  "kind": "graph",
+  "direction": "TB",
+  "groups": [
+    {
+      "label": "On-call engineer",
+      "parent": null
+    }
+  ],
+  "nodes": [
+    {
+      "label": "Alert fires",
+      "group": null
+    },
+    {
+      "label": "Acknowledged in 5 min?",
+      "group": "On-call engineer"
+    },
+    {
+      "label": "Assess severity",
+      "group": "On-call engineer"
+    },
+    {
+      "label": "Escalate to secondary",
+      "group": null
+    },
+    {
+      "label": "Open incident channel",
+      "group": null
+    },
+    {
+      "label": "Create ticket",
+      "group": null
+    },
+    {
+      "label": "Mitigate",
+      "group": null
+    },
+    {
+      "label": "Write postmortem",
+      "group": null
+    },
+    {
+      "label": "Fix in sprint",
+      "group": null
+    }
+  ],
+  "edges": [
+    {
+      "from": "Alert fires",
+      "to": "Acknowledged in 5 min?",
+      "label": null
+    },
+    {
+      "from": "Acknowledged in 5 min?",
+      "to": "Assess severity",
+      "label": "yes"
+    },
+    {
+      "from": "Acknowledged in 5 min?",
+      "to": "Escalate to secondary",
+      "label": "no"
+    },
+    {
+      "from": "Escalate to secondary",
+      "to": "Acknowledged in 5 min?",
+      "label": null
+    },
+    {
+      "from": "Assess severity",
+      "to": "Open incident channel",
+      "label": "SEV1"
+    },
+    {
+      "from": "Assess severity",
+      "to": "Create ticket",
+      "label": "SEV2 or SEV3"
+    },
+    {
+      "from": "Open incident channel",
+      "to": "Mitigate",
+      "label": null
+    },
+    {
+      "from": "Mitigate",
+      "to": "Write postmortem",
+      "label": null
+    },
+    {
+      "from": "Create ticket",
+      "to": "Fix in sprint",
+      "label": null
+    }
+  ]
+}

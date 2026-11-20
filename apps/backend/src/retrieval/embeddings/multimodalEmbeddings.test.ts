@@ -138,6 +138,31 @@ describe("embedMultimodal", () => {
     expect(calls).toBe(2)
   })
 
+  it("rejects after the requests in flight end, also their retries", async () => {
+    const sent: string[] = []
+    server.use(
+      http.post(EMBEDDINGS_URL, async ({ request }) => {
+        const body = JSON.stringify(await request.json())
+        const chunk = /chunk (\d)/.exec(body)?.[1] ?? "?"
+        sent.push(chunk)
+        if (chunk === "0") return new HttpResponse("bad model", { status: 400 })
+        // The first answer to chunk 1 comes after the 400, and is a 429.
+        if (sent.filter((item) => item === "1").length === 1) {
+          await new Promise((resolve) => setTimeout(resolve, 20))
+          return new HttpResponse("busy", { status: 429 })
+        }
+        return HttpResponse.json({ data: [{ index: 0, embedding: vector(1) }] })
+      }),
+    )
+    let requests = 0
+    await expect(
+      embedMultimodal([0, 1, 2].map(text), config, () => requests++),
+    ).rejects.toThrow("400")
+    // The retry of chunk 1 went out before the rejection, and chunk 2 never.
+    expect(sent.sort()).toEqual(["0", "1", "1"])
+    expect(requests).toBe(3)
+  })
+
   it("sends a search query as its text only, with no context line", async () => {
     const bodies: Body[] = []
     server.use(echoHandler(bodies))
@@ -201,7 +226,7 @@ describe("embedMultimodal", () => {
     )
   })
 
-  it("retries 429 and 5xx, with one span for each request and the usage on the answered one", async () => {
+  it("retries 429 and 5xx, with one span and one `onRequest` call for each request, and the usage on the answered one", async () => {
     const statuses = [429, 503]
     const bodies: Body[] = []
     const echo = echoHandler(bodies)
@@ -213,9 +238,11 @@ describe("embedMultimodal", () => {
       echo,
     )
 
-    const result = await embedMultimodal([text(0)], config)
+    let sent = 0
+    const result = await embedMultimodal([text(0)], config, () => sent++)
 
     expect(result).toHaveLength(1)
+    expect(sent).toBe(3)
     const requests = spans
       .finishedSpans()
       .filter((s) => s.name === "embeddings.embedMultimodal")

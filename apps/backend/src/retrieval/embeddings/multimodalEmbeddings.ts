@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { setTimeout as sleep } from "node:timers/promises"
 
 import { z } from "zod"
@@ -131,13 +132,33 @@ export class EmbeddingStatusError extends Error {
 }
 
 /**
+ * The key of the vector of `input`: the SHA-256 (hex) of the model, the
+ * dimensions and the content parts that the request sends. Two inputs with
+ * the same key get the same vector, so the writer reuses a stored vector of
+ * the key (ADR-067 decision 5). A change of the model or the dimensions
+ * changes each key.
+ */
+export function embeddingKey(
+  input: EmbeddingInput,
+  config: MultimodalEmbeddingConfig = multimodalEmbeddingConfig,
+): string {
+  return createHash("sha256")
+    .update(
+      JSON.stringify([config.model, config.dimensions, contentParts(input)]),
+    )
+    .digest("hex")
+}
+
+/**
  * Embed texts and images in one vector space. The result has the order of
  * `inputs`. Every request sets `provider.data_collection: "deny"` and
  * `provider.zdr: true`, and pins the upstream provider without fallback.
+ * `onRequest` is called before each HTTP request, also before each retry.
  */
 export async function embedMultimodal(
   inputs: EmbeddingInput[],
   config: MultimodalEmbeddingConfig = multimodalEmbeddingConfig,
+  onRequest?: () => void,
 ): Promise<number[][]> {
   if (inputs.length === 0) return []
   assertNotInOrgDbContext()
@@ -160,6 +181,7 @@ export async function embedMultimodal(
     })
     for (let attempt = 1; ; attempt++) {
       try {
+        onRequest?.()
         return await embedRequest(input, body, {
           url,
           apiKey: env.MODEL_PROVIDER_API_KEY,
