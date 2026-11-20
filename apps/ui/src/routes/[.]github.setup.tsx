@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { PageBodySkeleton } from "@/components/ui/Skeleton"
 import { Spinner } from "@/components/ui/spinner"
-import { GithubNotLinkedNotice } from "@/features/connectors/components/GithubNotLinkedNotice"
+import { GithubOwnAppNotice } from "@/features/connectors/components/GithubOwnAppNotice"
 import { resolveGithubSetupOrganization } from "@/features/connectors/githubConnectFlow"
 import { client, userClient } from "@/lib/api"
 import { ApiError, readApiJson } from "@/lib/api-result"
@@ -20,8 +20,8 @@ import {
   GITHUB_SETUP_RESULT_KEY,
   GITHUB_SETUP_RESULT_MESSAGE,
   getActiveGithubPopupFlowState,
+  githubAuthorizeUrl,
 } from "@/lib/popup"
-import { useGithubSignInEnabled } from "@/lib/useGetAuthConfig"
 
 export const Route = createFileRoute("/.github/setup")({
   ssr: false,
@@ -39,7 +39,6 @@ export const Route = createFileRoute("/.github/setup")({
     connectionId:
       typeof search.connectionId === "string" ? search.connectionId : undefined,
     state: typeof search.state === "string" ? search.state : undefined,
-    error: typeof search.error === "string" ? search.error : undefined,
   }),
 })
 
@@ -47,8 +46,14 @@ type ConnectGithubViewProps = {
   installationId: number
   selectedOrganizationSlug: string
   connectionId?: string
-  /** The error code of a failed GitHub account link. */
-  linkError?: string
+}
+
+/** The GitHub authorize page of a `github_authorization_required` refusal. */
+function authorizeUrlOf(error: unknown) {
+  return error instanceof ApiError &&
+    error.body.why === "github_authorization_required"
+    ? githubAuthorizeUrl(error.body.authorizeUrl)
+    : null
 }
 
 function MissingInstallationIdView() {
@@ -154,7 +159,6 @@ export function ConnectGithubView({
   installationId,
   selectedOrganizationSlug,
   connectionId,
-  linkError,
 }: ConnectGithubViewProps) {
   const navigate = useNavigate()
 
@@ -172,6 +176,12 @@ export function ConnectGithubView({
         message: "Failed to register GitHub installation",
       })
       return orgSlug
+    },
+    // The user authorizes the GitHub App once; the backend callback attaches
+    // the installation and comes back to the org's GitHub setup page.
+    onError: (e) => {
+      const url = authorizeUrlOf(e)
+      if (url) window.location.assign(url)
     },
     onSuccess: (orgSlug) => {
       try {
@@ -194,17 +204,12 @@ export function ConnectGithubView({
 
   const parsedErrorWhy =
     error instanceof ApiError ? error.body.why : parseError(error)?.why
-  const githubSignIn = useGithubSignInEnabled()
 
-  if (parsedErrorWhy === "github_not_linked") {
+  if (parsedErrorWhy === "github_authorization_unavailable") {
     return (
       <AppShell>
         <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
-          <GithubNotLinkedNotice
-            githubSignInEnabled={githubSignIn ?? true}
-            orgSlug={selectedOrganizationSlug}
-            linkError={linkError}
-          />
+          <GithubOwnAppNotice orgSlug={selectedOrganizationSlug} />
         </main>
       </AppShell>
     )
@@ -217,7 +222,7 @@ export function ConnectGithubView({
           <h1 className="text-3xl font-medium tracking-tight text-foreground">
             Link GitHub installation
           </h1>
-          {error ? (
+          {error && !authorizeUrlOf(error) ? (
             <div className="mt-8">
               <InlineAlert
                 variant="error"
@@ -357,7 +362,6 @@ function DirectSetupPage() {
       installationId={search.installation_id}
       selectedOrganizationSlug={organization.orgSlug}
       connectionId={search.connectionId}
-      linkError={search.error}
     />
   )
 }

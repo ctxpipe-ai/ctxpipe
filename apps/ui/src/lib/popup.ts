@@ -19,7 +19,7 @@ export const NOTION_SETUP_RESULT_KEY = "notion-setup-result"
 export const PAGERDUTY_SETUP_RESULT_KEY = "pagerduty-setup-result"
 /** Draft `con_*` id for wizard: popup callback merges install with this row. */
 export const GITHUB_DRAFT_CONNECTION_KEY = "github-draft-connection-id"
-export const GITHUB_POPUP_FLOW_KEY = "github-popup-flow"
+const GITHUB_POPUP_FLOW_KEY = "github-popup-flow"
 
 const GITHUB_POPUP_FLOW_TTL_MS = 15 * 60 * 1000
 
@@ -28,16 +28,13 @@ type GithubPopupFlowState = {
   startedAtMs: number
 }
 
-export type GithubSetupPopupResult =
-  | { status: GithubSetupRegistrationStatus }
-  /** The popup could not link the user's GitHub account. */
-  | { status: "link_failed"; linkError: string }
+export type GithubSetupPopupResult = { status: GithubSetupRegistrationStatus }
 
 export type GithubSetupRegistrationStatus =
   | "no_result"
   | "registered"
   | "registration_failed"
-  /** Left for `/.github/setup` to link a GitHub account; callers do nothing. */
+  /** Left for GitHub to confirm access, or for `/.github/setup`; callers do nothing. */
   | "redirected"
 
 type NotionSetupPopupResult =
@@ -132,39 +129,20 @@ export function consumeGithubSetupOrgHint() {
 }
 
 /**
- * True for a GitHub App install page on github.com. The link page goes on
- * only to such a page, so its `next` parameter cannot send the user
- * elsewhere.
+ * The GitHub authorize address of a `github_authorization_required` refusal,
+ * or `null`. The page goes there only when it is GitHub's authorize page.
  */
-export function isGithubAppInstallUrl(url: string): boolean {
+export function githubAuthorizeUrl(value: unknown): string | null {
+  if (typeof value !== "string") return null
   try {
-    const parsed = new URL(url)
-    return (
-      parsed.origin === "https://github.com" &&
-      /^\/apps\/[^/]+\/installations\/(new|select_target)$/.test(
-        parsed.pathname,
-      )
-    )
+    const url = new URL(value)
+    return url.origin === "https://github.com" &&
+      url.pathname === "/login/oauth/authorize"
+      ? url.toString()
+      : null
   } catch {
-    return false
+    return null
   }
-}
-
-/**
- * The popup address that links the user's GitHub account first, then opens
- * `installUrl`. The backend attaches an installation only for a user whose
- * linked GitHub account can see it.
- */
-export function githubLinkPopupUrl(installUrl: string) {
-  return `/.github/link?${new URLSearchParams({ next: installUrl })}`
-}
-
-/** The message for an error code of a failed GitHub account link. */
-export function githubLinkErrorMessage(code: string | undefined) {
-  if (code === "account_already_linked_to_different_user") {
-    return "This GitHub account is linked to another ctxpipe user. Sign in as that user and unlink GitHub (User account → OAuth Providers → Unlink OAuth), or use a different GitHub account."
-  }
-  return "Could not link your GitHub account. Try again."
 }
 
 /**
@@ -318,19 +296,8 @@ export async function handleGithubSetupPopupResult(
         installationId: number
         connectionId?: string
         popupFlowNonce?: string
-        linkError?: string
       }
-      const { installationId, connectionId, popupFlowNonce, linkError } = parsed
-      // The link page stopped before the install. Only the popup of this
-      // flow can report that, so a stale or planted value does nothing.
-      if (
-        typeof linkError === "string" &&
-        activePopupFlow &&
-        popupFlowNonce === activePopupFlow.nonce
-      ) {
-        clearGithubPopupFlow()
-        return { status: "link_failed", linkError }
-      }
+      const { installationId, connectionId, popupFlowNonce } = parsed
       const nonceMatches =
         !activePopupFlow ||
         (typeof popupFlowNonce === "string" &&
@@ -351,20 +318,28 @@ export async function handleGithubSetupPopupResult(
             await readApiJson(response)
             status = "registered"
           } catch (e) {
-            if (!(e instanceof ApiError && e.body.why === "github_not_linked"))
+            const why = e instanceof ApiError ? e.body.why : undefined
+            if (
+              !(e instanceof ApiError) ||
+              (why !== "github_authorization_required" &&
+                why !== "github_authorization_unavailable")
+            )
               throw e
-            // Its not-linked view links GitHub, then registers again.
+            // The user authorizes the GitHub App once, and the backend
+            // callback attaches the installation. Without a GitHub App client,
+            // /.github/setup shows the way through the organization's own App.
             status = "redirected"
             // End the flow first. The navigation unloads this page before the
             // clear below runs, and a live flow makes /.github/setup act as
             // the popup and close itself.
             clearGithubPopupFlow()
             window.location.assign(
-              `/.github/setup?${new URLSearchParams({
-                installation_id: String(installationId),
-                orgSlug,
-                ...(connectionId ? { connectionId } : {}),
-              })}`,
+              githubAuthorizeUrl(e.body.authorizeUrl) ??
+                `/.github/setup?${new URLSearchParams({
+                  installation_id: String(installationId),
+                  orgSlug,
+                  ...(connectionId ? { connectionId } : {}),
+                })}`,
             )
           }
         }

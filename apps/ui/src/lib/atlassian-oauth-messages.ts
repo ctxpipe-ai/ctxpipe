@@ -35,6 +35,11 @@ const KNOWN: Record<string, { title: string; description: string }> = {
     title: "Link request expired",
     description: "Start the connection again.",
   },
+  // The one-time GitHub App authorization that proves installation access.
+  github_installation_proof_failed: {
+    title: "Could not connect GitHub",
+    description: "Start the connection again.",
+  },
 }
 
 export function oauthErrorMessage(

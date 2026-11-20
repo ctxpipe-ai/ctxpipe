@@ -143,10 +143,17 @@ needs broad access.
 ctxpipe attaches an installation to an organization only with proof that it
 belongs there. A connection that you create in the wizard gives this proof with
 its own App credentials. An installation of an App that you configure with
-`GITHUB_APP_ID` is different. The person who finishes setup must have a linked
-GitHub account that can see the installation. This needs GitHub sign-in
-(`GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`). Without GitHub sign-in, use the
-wizard.
+`GITHUB_APP_ID` is different. The person who finishes setup must show that
+their GitHub account can see the installation. If their linked GitHub account
+cannot show this, ctxpipe asks them to authorize the App once. ctxpipe uses
+the short-lived token of that authorization for this check only. It does not
+keep the token and does not link the GitHub account.
+
+The authorization needs the client ID and the client secret of that same App
+in `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`. These variables also turn on
+GitHub sign-in. The App must list the callback URL
+`{AUTH_BASE_URL}/.auth/api/v1/auth/callback/github`. Without these values, use
+the wizard.
 
 Then verify the full path:
 

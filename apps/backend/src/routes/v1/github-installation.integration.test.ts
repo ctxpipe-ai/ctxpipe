@@ -1,7 +1,7 @@
-import { generateKeyPairSync } from "node:crypto"
+import { createHash, generateKeyPairSync } from "node:crypto"
 
 import { OpenAPIHono } from "@hono/zod-openapi"
-import { and, eq } from "drizzle-orm"
+import { and, eq, like } from "drizzle-orm"
 import { evlog } from "evlog/hono"
 import { HttpResponse, http } from "msw"
 import {
@@ -18,8 +18,9 @@ import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../../test/db.js"
 import { useMswServer } from "../../../test/msw.js"
 import type { AppEnv } from "../../app/env.js"
 import { parseEnv } from "../../config/env.js"
-import { getSystemDb } from "../../db/client.js"
-import { accounts } from "../../db/schema/auth.js"
+import { getSystemDb, initDb } from "../../db/client.js"
+import { accounts, verifications } from "../../db/schema/auth.js"
+import { connections } from "../../db/schema/connections.js"
 import { generateObjectId } from "../../lib/id.js"
 import {
   createDraftGithubConnection,
@@ -31,6 +32,7 @@ import {
   contextStorage,
   withTestRequestLogger,
 } from "../../test/hono-test-logger.js"
+import { registerAuthRoutes } from "../auth.js"
 import { registerV1Routes } from "./index.js"
 
 // registerV1Routes loads the conversation graph, which builds its model at import time.
@@ -42,6 +44,12 @@ const visibleToken = "gho_can_see_installation"
 const otherToken = "gho_cannot_see_installation"
 const revokedToken = "gho_revoked"
 const oauthAppToken = "gho_oauth_app"
+// One-time App authorization: each code gives one user token.
+const tokenForCode: Record<string, string> = {
+  "code-visible": visibleToken,
+  "code-other": otherToken,
+}
+const authorizedGithubUser = { id: 4242, login: "octo-owner" }
 const { privateKey: ownAppPrivateKey } = generateKeyPairSync("rsa", {
   modulusLength: 2048,
   privateKeyEncoding: { type: "pkcs1", format: "pem" },
@@ -49,6 +57,7 @@ const { privateKey: ownAppPrivateKey } = generateKeyPairSync("rsa", {
 })
 
 let installationLookups = 0
+let codeExchanges: Record<string, string>[] = []
 
 useMswServer(
   http.get("https://api.github.com/user/installations", ({ request }) => {
@@ -81,13 +90,28 @@ useMswServer(
     "https://api.github.com/app/installations/:installationId/access_tokens",
     () => HttpResponse.json({ message: "Not Found" }, { status: 404 }),
   ),
-  http.post("https://github.com/login/oauth/access_token", () =>
-    HttpResponse.json({
-      access_token: visibleToken,
-      token_type: "bearer",
-      expires_in: 28_800,
-      refresh_token: "ghr_rotated",
-    }),
+  http.post(
+    "https://github.com/login/oauth/access_token",
+    async ({ request }) => {
+      // The App authorization sends JSON; Better Auth's refresh sends a form.
+      if (request.headers.get("content-type")?.includes("json")) {
+        const body = (await request.json()) as Record<string, string>
+        codeExchanges.push(body)
+        const token = body.code ? tokenForCode[body.code] : undefined
+        return token
+          ? HttpResponse.json({ access_token: token, token_type: "bearer" })
+          : HttpResponse.json({ error: "bad_verification_code" })
+      }
+      return HttpResponse.json({
+        access_token: visibleToken,
+        token_type: "bearer",
+        expires_in: 28_800,
+        refresh_token: "ghr_rotated",
+      })
+    },
+  ),
+  http.get("https://api.github.com/user", () =>
+    HttpResponse.json(authorizedGithubUser),
   ),
   // Better Auth dashboard events when a local .env.local enables them.
   http.post(
@@ -104,15 +128,17 @@ describe("POST /github/installation requires GitHub access (Postgres)", () => {
     ...(process.env as Record<string, string | undefined>),
     GITHUB_APP_ID: "3",
     GITHUB_PRIVATE_KEY: undefined,
+    GITHUB_CLIENT_ID: "test-github-client",
+    GITHUB_CLIENT_SECRET: "test-github-secret",
   })
 
-  function createApp() {
+  function createApp(appEnv = env) {
     const app = new OpenAPIHono<AppEnv>()
     app.use(contextStorage())
     app.use(evlog())
     app.use(withTestRequestLogger)
     app.use("*", async (c, next) => {
-      c.set("env", env)
+      c.set("env", appEnv)
       c.set("user", null)
       c.set("session", null)
       c.set("oauthReferenceId", null)
@@ -123,12 +149,17 @@ describe("POST /github/installation requires GitHub access (Postgres)", () => {
       c.set("orgId", null)
       await next()
     })
+    // The same order as the app: the auth routes come first.
+    registerAuthRoutes(app)
     registerV1Routes(app)
     return app
   }
 
-  function attach(body: { installationId: number; connectionId?: string }) {
-    return createApp().request(
+  function attach(
+    body: { installationId: number; connectionId?: string },
+    app = createApp(),
+  ) {
+    return app.request(
       `http://backend.test/${seed.orgSlug}/api/v1/github/installation`,
       {
         method: "POST",
@@ -141,14 +172,16 @@ describe("POST /github/installation requires GitHub access (Postgres)", () => {
   async function linkGithub(
     accessToken: string,
     refresh?: { refreshToken: string; accessTokenExpiresAt: Date },
+    userId = seed.userId,
+    accountId = `gh-${userId}`,
   ) {
     await getSystemDb()
       .insert(accounts)
       .values({
         id: generateObjectId("acc"),
-        accountId: `gh-${seed.userId}`,
+        accountId,
         providerId: "github",
-        userId: seed.userId,
+        userId,
         accessToken,
         ...refresh,
         createdAt: new Date(),
@@ -167,43 +200,111 @@ describe("POST /github/installation requires GitHub access (Postgres)", () => {
     })
   }
 
+  /** The attach refusal that sends the user to authorize the App once. */
+  async function authorizeUrlFor(body: {
+    installationId: number
+    connectionId?: string
+  }) {
+    const res = await attach(body)
+    expect(res.status).toBe(403)
+    const json = (await res.json()) as { why?: string; authorizeUrl?: string }
+    expect(json.why).toBe("github_authorization_required")
+    return new URL(json.authorizeUrl ?? "")
+  }
+
+  /** GitHub's redirect back after the user authorizes the App. */
+  function githubCallback(
+    state: string,
+    code: string,
+    cookie: string = seed.cookie,
+  ) {
+    return createApp().request(
+      `http://backend.test/.auth/api/v1/auth/callback/github?${new URLSearchParams({ code, state })}`,
+      { headers: { cookie } },
+    )
+  }
+
+  function expectProofRefused(res: Response) {
+    expect(res.status).toBe(302)
+    const location = new URL(res.headers.get("location") ?? "")
+    expect(location.pathname).toBe(`/${seed.orgSlug}/connectors`)
+    expect(location.searchParams.get("error")).toBe(
+      "github_installation_proof_failed",
+    )
+  }
+
   async function attachedInstallationIds() {
     const rows = await listGithubConnectionsForOrg(seed.orgId)
     return rows.map((row) => row.installationId)
   }
+
+  let other: SeededOrg
 
   beforeAll(async () => {
     // GitHub sign-in configured, so Better Auth can refresh GitHub tokens.
     vi.stubEnv("GITHUB_CLIENT_ID", "test-github-client")
     vi.stubEnv("GITHUB_CLIENT_SECRET", "test-github-secret")
     seed = await seedOrg()
+    other = await seedOrg()
   })
 
   afterEach(async () => {
+    vi.useRealTimers()
     installationLookups = 0
+    codeExchanges = []
+    for (const userId of [seed.userId, other.userId]) {
+      await getSystemDb()
+        .delete(accounts)
+        .where(
+          and(eq(accounts.userId, userId), eq(accounts.providerId, "github")),
+        )
+    }
     await getSystemDb()
-      .delete(accounts)
-      .where(
-        and(
-          eq(accounts.userId, seed.userId),
-          eq(accounts.providerId, "github"),
-        ),
-      )
+      .delete(verifications)
+      .where(like(verifications.identifier, "github-installation-proof:%"))
     for (const row of await listGithubConnectionsForOrg(seed.orgId)) {
       await deleteGithubConnectionById(seed.orgId, row.id)
     }
   })
 
   afterAll(async () => {
-    if (seed) await cleanupSeededOrg(seed)
+    for (const s of [other, seed]) {
+      if (!s) continue
+      // cleanupSeededOrg closes the pool, so open it again for the next seed.
+      initDb(process.env.DATABASE_URL ?? "")
+      await cleanupSeededOrg(s)
+    }
     vi.unstubAllEnvs()
   })
 
-  it("rejects a user without a linked GitHub account and writes nothing", async () => {
-    const res = await attach({ installationId })
+  it("asks a user without a linked GitHub account to authorize the App once, and writes nothing", async () => {
+    const url = await authorizeUrlFor({ installationId })
+
+    expect(url.origin + url.pathname).toBe(
+      "https://github.com/login/oauth/authorize",
+    )
+    expect(url.searchParams.get("client_id")).toBe("test-github-client")
+    expect(url.searchParams.get("redirect_uri")).toBe(
+      `${env.AUTH_BASE_URL}/.auth/api/v1/auth/callback/github`,
+    )
+    expect(url.searchParams.get("code_challenge_method")).toBe("S256")
+    expect(await attachedInstallationIds()).toEqual([])
+  })
+
+  it("says that the deployment cannot ask GitHub when it has no GitHub App client", async () => {
+    const res = await attach(
+      { installationId },
+      createApp({
+        ...env,
+        GITHUB_CLIENT_ID: undefined,
+        GITHUB_CLIENT_SECRET: undefined,
+      }),
+    )
 
     expect(res.status).toBe(403)
-    expect(await res.json()).toMatchObject({ why: "github_not_linked" })
+    expect(await res.json()).toMatchObject({
+      why: "github_authorization_unavailable",
+    })
     expect(await attachedInstallationIds()).toEqual([])
   })
 
@@ -215,32 +316,28 @@ describe("POST /github/installation requires GitHub access (Postgres)", () => {
     const res = await attach({ installationId, connectionId: placeholder.id })
 
     expect(res.status).toBe(403)
-    expect(await res.json()).toMatchObject({ why: "github_not_linked" })
+    expect(await res.json()).toMatchObject({
+      why: "github_authorization_required",
+    })
     expect(await attachedInstallationIds()).toEqual([null])
   })
 
-  it("rejects a GitHub account that cannot see the installation", async () => {
+  it("asks to authorize the App when the linked GitHub account cannot see the installation", async () => {
     await linkGithub(otherToken)
 
-    const res = await attach({ installationId })
+    await authorizeUrlFor({ installationId })
 
-    expect(res.status).toBe(403)
-    expect(await res.json()).toMatchObject({
-      why: "github_installation_not_accessible",
-    })
     expect(await attachedInstallationIds()).toEqual([])
   })
 
   it.each([
     ["rejects the stored token", revokedToken],
     ["will not list installations for the token", oauthAppToken],
-  ])("asks to link GitHub again when GitHub %s", async (_, token) => {
+  ])("asks to authorize the App when GitHub %s", async (_, token) => {
     await linkGithub(token)
 
-    const res = await attach({ installationId })
+    await authorizeUrlFor({ installationId })
 
-    expect(res.status).toBe(403)
-    expect(await res.json()).toMatchObject({ why: "github_not_linked" })
     expect(await attachedInstallationIds()).toEqual([])
   })
 
@@ -296,7 +393,9 @@ describe("POST /github/installation requires GitHub access (Postgres)", () => {
     })
 
     expect(res.status).toBe(403)
-    expect(await res.json()).toMatchObject({ why: "github_not_linked" })
+    expect(await res.json()).toMatchObject({
+      why: "github_authorization_required",
+    })
     expect(await attachedInstallationIds()).toEqual([null])
   })
 
@@ -310,5 +409,152 @@ describe("POST /github/installation requires GitHub access (Postgres)", () => {
       why: "github_installation_not_accessible",
     })
     expect(await attachedInstallationIds()).toEqual([null])
+  })
+
+  describe("one-time GitHub App authorization", () => {
+    it("attaches the installation, makes no account link and stores no token", async () => {
+      const url = await authorizeUrlFor({ installationId })
+      const state = url.searchParams.get("state") ?? ""
+
+      const res = await githubCallback(state, "code-visible")
+
+      expect(res.status).toBe(302)
+      expect(new URL(res.headers.get("location") ?? "").pathname).toBe(
+        `/${seed.orgSlug}/github/setup`,
+      )
+      expect(await attachedInstallationIds()).toEqual([installationId])
+      // The code exchange proves the PKCE verifier of this state.
+      expect(codeExchanges).toHaveLength(1)
+      const [exchange] = codeExchanges
+      expect(exchange).toMatchObject({
+        client_id: "test-github-client",
+        client_secret: "test-github-secret",
+        code: "code-visible",
+        redirect_uri: `${env.AUTH_BASE_URL}/.auth/api/v1/auth/callback/github`,
+      })
+      expect(
+        createHash("sha256")
+          .update(exchange?.code_verifier ?? "")
+          .digest("base64url"),
+      ).toBe(url.searchParams.get("code_challenge"))
+      const links = await getSystemDb()
+        .select()
+        .from(accounts)
+        .where(eq(accounts.userId, seed.userId))
+      expect(links.filter((a) => a.providerId === "github")).toEqual([])
+      const stored = JSON.stringify([
+        await getSystemDb()
+          .select()
+          .from(connections)
+          .where(eq(connections.orgId, seed.orgId)),
+        await getSystemDb().select().from(verifications),
+        links,
+      ])
+      expect(stored).not.toContain(visibleToken)
+    })
+
+    it("attaches for a user whose GitHub account is linked to another ctxpipe user", async () => {
+      await linkGithub(
+        "gho_link_of_other_user",
+        undefined,
+        other.userId,
+        String(authorizedGithubUser.id),
+      )
+      const url = await authorizeUrlFor({ installationId })
+
+      const res = await githubCallback(
+        url.searchParams.get("state") ?? "",
+        "code-visible",
+      )
+
+      expect(res.status).toBe(302)
+      expect(await attachedInstallationIds()).toEqual([installationId])
+      const githubLinks = await getSystemDb()
+        .select({ userId: accounts.userId, accessToken: accounts.accessToken })
+        .from(accounts)
+        .where(
+          and(
+            eq(accounts.providerId, "github"),
+            eq(accounts.accountId, String(authorizedGithubUser.id)),
+          ),
+        )
+      expect(githubLinks).toEqual([
+        { userId: other.userId, accessToken: "gho_link_of_other_user" },
+      ])
+    })
+
+    it("refuses when the authorized GitHub account cannot see the installation", async () => {
+      const url = await authorizeUrlFor({ installationId })
+
+      const res = await githubCallback(
+        url.searchParams.get("state") ?? "",
+        "code-other",
+      )
+
+      expectProofRefused(res)
+      expect(await attachedInstallationIds()).toEqual([])
+    })
+
+    it("refuses a state that was used before", async () => {
+      const url = await authorizeUrlFor({ installationId })
+      const state = url.searchParams.get("state") ?? ""
+      expect((await githubCallback(state, "code-visible")).status).toBe(302)
+      for (const row of await listGithubConnectionsForOrg(seed.orgId)) {
+        await deleteGithubConnectionById(seed.orgId, row.id)
+      }
+
+      const res = await githubCallback(state, "code-visible")
+
+      expectProofRefused(res)
+      expect(await attachedInstallationIds()).toEqual([])
+      expect(codeExchanges).toHaveLength(1)
+    })
+
+    it("refuses a state with a changed signature", async () => {
+      const url = await authorizeUrlFor({ installationId })
+      const state = url.searchParams.get("state") ?? ""
+      const forged = `${state.slice(0, -1)}${state.endsWith("A") ? "B" : "A"}`
+
+      const res = await githubCallback(forged, "code-visible")
+
+      expect(res.status).toBe(302)
+      expect(
+        new URL(res.headers.get("location") ?? "").searchParams.get("error"),
+      ).toBe("github_installation_proof_failed")
+      expect(await attachedInstallationIds()).toEqual([])
+      expect(codeExchanges).toEqual([])
+    })
+
+    it("refuses a state after it expires", async () => {
+      const url = await authorizeUrlFor({ installationId })
+      vi.useFakeTimers({ toFake: ["Date"] })
+      vi.setSystemTime(Date.now() + 11 * 60 * 1000)
+
+      const res = await githubCallback(
+        url.searchParams.get("state") ?? "",
+        "code-visible",
+      )
+
+      expect(res.status).toBe(302)
+      expect(
+        new URL(res.headers.get("location") ?? "").searchParams.get("error"),
+      ).toBe("github_installation_proof_failed")
+      expect(await attachedInstallationIds()).toEqual([])
+      expect(codeExchanges).toEqual([])
+    })
+
+    it("refuses a state that another ctxpipe user started", async () => {
+      const url = await authorizeUrlFor({ installationId })
+
+      const res = await githubCallback(
+        url.searchParams.get("state") ?? "",
+        "code-visible",
+        other.cookie,
+      )
+
+      expectProofRefused(res)
+      expect(await attachedInstallationIds()).toEqual([])
+      expect(codeExchanges).toEqual([])
+    })
   })
 })
