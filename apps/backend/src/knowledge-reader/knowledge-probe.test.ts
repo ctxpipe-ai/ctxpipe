@@ -392,7 +392,7 @@ describe("the provider probe controls", () => {
       .passthrough(),
   })
 
-  it("sends each control once and records its status, provider, error and vector count", async () => {
+  it("sends each control once and records its status, provider, error, vector count and latency", async () => {
     const bodies: z.infer<typeof controlSchema>[] = []
     // A gateway with the batch finding: with zdr true, Gemini has no
     // endpoint for more than one input.
