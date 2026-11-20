@@ -39,7 +39,7 @@ import {
 import { type Dataset, readDataset } from "./dataset.js"
 import { ModelCalls, type RecordedCall } from "./model-calls.js"
 import { labelWithPanel } from "./panel.js"
-import { probe } from "./probe.js"
+import { probe, probeControls } from "./probe.js"
 import {
   buildReport,
   type KeptRun,
@@ -62,12 +62,10 @@ import {
 } from "./runner.js"
 
 /** The model calls go to `MODEL_PROVIDER_URL`, as in the readers. */
+const modelBase = () =>
+  process.env.MODEL_PROVIDER_URL || DEFAULT_OPENROUTER_BASE
 const modelCalls = (capUsd: number, replay?: readonly RecordedCall[]) =>
-  new ModelCalls(
-    process.env.MODEL_PROVIDER_URL || DEFAULT_OPENROUTER_BASE,
-    capUsd,
-    replay,
-  )
+  new ModelCalls(modelBase(), capUsd, replay)
 
 /**
  * Run the questions of `splits` through both arms, then write the run folder
@@ -245,12 +243,10 @@ async function main(argv: string[]): Promise<number> {
   if (command === "probe") {
     if (!process.env.MODEL_PROVIDER_API_KEY)
       throw new SetupError("probe needs MODEL_PROVIDER_API_KEY.")
-    return probe({
-      out,
-      calls: modelCalls(capUsd),
-      capUsd,
-      controls: values.controls,
-    })
+    const calls = modelCalls(capUsd)
+    return values.controls
+      ? probeControls({ out, calls, capUsd, base: modelBase() })
+      : probe({ out, calls, capUsd })
   }
 
   if (command !== "run" && command !== "rescore")

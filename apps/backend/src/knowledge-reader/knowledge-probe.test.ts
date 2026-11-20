@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { z } from "zod"
 
 import { ModelCalls } from "../../evals/knowledge/model-calls.js"
-import { probe } from "../../evals/knowledge/probe.js"
+import { probe, probeControls } from "../../evals/knowledge/probe.js"
 import { useMswServer } from "../../test/msw.js"
 
 /*
@@ -164,8 +164,8 @@ const readResult = async () =>
   resultSchema.parse(
     JSON.parse(await readFile(join(out, "probe.json"), "utf8")),
   )
-const run = (capUsd: number, controls = false) =>
-  probe({ out, calls: new ModelCalls(BASE, capUsd), capUsd, controls })
+const run = (capUsd: number) =>
+  probe({ out, calls: new ModelCalls(BASE, capUsd), capUsd })
 const passes = async () =>
   Object.fromEntries(
     (await readResult()).checks.map((check) => [check.name, check.pass]),
@@ -384,10 +384,12 @@ describe("the provider probe controls", () => {
   const controlSchema = z.object({
     model: z.string(),
     input: z.array(z.unknown()),
-    provider: z.object({
-      zdr: z.boolean(),
-      order: z.array(z.string()).optional(),
-    }),
+    provider: z
+      .object({
+        zdr: z.boolean(),
+        order: z.array(z.string()).optional(),
+      })
+      .passthrough(),
   })
 
   it("sends each control once and records its status, provider, error and vector count", async () => {
@@ -420,7 +422,15 @@ describe("the provider probe controls", () => {
       }),
     )
 
-    expect(await run(0.05, true)).toBe(0)
+    const capUsd = 0.05
+    expect(
+      await probeControls({
+        out,
+        calls: new ModelCalls(BASE, capUsd),
+        capUsd,
+        base: BASE,
+      }),
+    ).toBe(0)
 
     const result = z
       .object({
@@ -448,14 +458,28 @@ describe("the provider probe controls", () => {
       ["gemini-16-multimodal-zdr", 404, refused, null],
       ["gemini-1-multimodal-zdr", 200, null, 1],
       ["gemini-16-multimodal-no-zdr", 200, null, 16],
+      ["gemini-16-multimodal-no-zdr-no-pin", 200, null, 16],
       ["gemini-16-strings-zdr", 404, refused, null],
       ["gemini-2-multimodal-zdr", 404, refused, null],
       ["gemini-4-multimodal-zdr", 404, refused, null],
       ["gemini-16-multimodal-zdr-no-pin", 404, refused, null],
+      ["gemini-16-multimodal-zdr-google-vertex-us", 404, refused, null],
+      ["gemini-16-multimodal-no-zdr-google-vertex-us", 200, null, 16],
+      ["gemini-16-multimodal-zdr-google-vertex-global", 404, refused, null],
+      ["gemini-16-multimodal-no-zdr-google-vertex-global", 200, null, 16],
+      ["gemini-16-multimodal-no-zdr-google-ai-studio", 200, null, 16],
+      ["gemini-batch-16-multimodal-zdr", 200, null, 16],
+      ["gemini-batch-16-multimodal-no-zdr", 200, null, 16],
       ["titan-16-strings-zdr", 200, null, 16],
       ["openai-3-large-16-strings-zdr", 200, null, 16],
     ])
-    expect(bodies).toHaveLength(9)
+    expect(bodies).toHaveLength(17)
+    expect(bodies[8]?.provider).toEqual({
+      data_collection: "deny",
+      order: ["google-vertex/us"],
+      allow_fallbacks: false,
+      zdr: true,
+    })
     // Only the fixed texts go out.
     expect(JSON.stringify(bodies)).not.toMatch(
       /"text":"(?!Square \d+ of the checkerboard is (red|blue)\.)/,

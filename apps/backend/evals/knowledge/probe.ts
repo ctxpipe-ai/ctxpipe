@@ -9,7 +9,6 @@ import {
   multimodalEmbeddingConfig,
 } from "../../src/retrieval/embeddings/multimodalEmbeddings.js"
 import { decideNoul, JEV_PROVIDER } from "../../src/retrieval/jev/client.js"
-import { DEFAULT_OPENROUTER_BASE } from "../../src/retrieval/services/modelProvider.js"
 import type { ModelCalls } from "./model-calls.js"
 
 /*
@@ -64,8 +63,14 @@ const PROVIDER_NAMES: Record<string, string> = {
 
 const answerSchema = z.object({
   provider: z.string().optional(),
+  model: z.string().optional(),
   error: z.object({ message: z.string().optional() }).optional(),
+  data: z.array(z.unknown()).optional(),
 })
+
+/** Sentence `index` of the fixed public text of the probe. */
+const checkerboardSentence = (index: number) =>
+  `Square ${index + 1} of the checkerboard is ${index % 2 === 0 ? "red" : "blue"}.`
 
 const jevQuestion = {
   sky: {
@@ -79,6 +84,10 @@ type Evidence<T> = {
   result: T | undefined
   status: number | null
   provider: string | null
+  /** The `model` field of the answer. */
+  model: string | null
+  /** The count of vectors in the answer (`data`). */
+  vectors: number | null
   error: string | null
 }
 
@@ -92,12 +101,15 @@ async function observe<T>(
 ): Promise<Evidence<T>> {
   // A stopped call can retry (the embedding client retries a 503), so a
   // check after the stop sends nothing.
+  const stopped = "The spend cap stopped the probe before this check."
   if (calls.stopped)
     return {
       result: undefined,
       status: null,
       provider: null,
-      error: "The spend cap stopped the probe before this check.",
+      model: null,
+      vectors: null,
+      error: stopped,
     }
   const before = calls.records.length
   let result: T | undefined
@@ -119,11 +131,15 @@ async function observe<T>(
   const errors = [
     thrown,
     providerText && !thrown?.includes(providerText) ? providerText : null,
+    // The spend cap stopped this call: the recorder kept no record of it.
+    !last && calls.stopped ? stopped : null,
   ].filter((part): part is string => Boolean(part))
   return {
     result,
     status: last?.status ?? null,
     provider: answer.provider ?? null,
+    model: answer.model ?? null,
+    vectors: answer.data?.length ?? null,
     error: errors.length > 0 ? errors.join(" Provider: ") : null,
   }
 }
@@ -263,7 +279,7 @@ async function probeChecks(
     "embedding-text-batch",
     Array.from({ length: chunkCount }, (_, index) => ({
       kind: "text" as const,
-      text: `Square ${index + 1} of the checkerboard is ${index % 2 === 0 ? "red" : "blue"}.`,
+      text: checkerboardSentence(index),
       documentTitle: "Checkerboard",
       chunkIndex: index,
       chunkCount,
@@ -272,245 +288,266 @@ async function probeChecks(
   return checks
 }
 
-/** The result of one control request of `probe --controls`. */
-type ProbeControl = {
-  name: string
-  /** What the control asks. */
-  question: string
-  status: number | null
-  provider: string | null
-  /** The `error.message` of the answer: the routing message on a 404. */
-  error: string | null
-  vectors: number | null
-}
-
-const controlAnswerSchema = answerSchema.extend({
-  data: z.array(z.object({ embedding: z.array(z.number()) })).optional(),
-})
-
 /**
- * The control requests of the batch finding (2026-11-20): a request with 16
- * inputs, `zdr: true` and the `google-vertex` pin got "No endpoints found
- * matching your data policy (Zero data retention)", and one input passed.
- * Each control changes one thing of that request. These are experiments, so
- * they send hand-written bodies, not the request of the client. The inputs
- * are fixed public texts only.
+ * Write the report of a probe command: `NAME.json` and `NAME.md` in `out`,
+ * and the Markdown to stdout. The Markdown has `title`, a table, and the
+ * spend.
  */
-async function probeControls(calls: ModelCalls): Promise<ProbeControl[]> {
-  const { model, upstreamProvider, dimensions } = multimodalEmbeddingConfig
-  const texts = (count: number) =>
-    Array.from(
-      { length: count },
-      (_, index) =>
-        `Square ${index + 1} of the checkerboard is ${index % 2 === 0 ? "red" : "blue"}.`,
-    )
-  const multimodal = (count: number) =>
-    texts(count).map((text) => ({ content: [{ type: "text", text }] }))
-  const pinned = (zdr: boolean) => ({
-    data_collection: "deny",
-    order: [upstreamProvider],
-    allow_fallbacks: false,
-    zdr,
-  })
-  const unpinned = { data_collection: "deny", allow_fallbacks: true, zdr: true }
-  const gemini = { model, dimensions, encoding_format: "float" }
-  const requests: {
-    name: string
-    question: string
-    body: Record<string, unknown>
-  }[] = [
-    {
-      name: "gemini-16-multimodal-zdr",
-      question: "The finding again: 16 multimodal items, pin, zdr true.",
-      body: { ...gemini, input: multimodal(16), provider: pinned(true) },
-    },
-    {
-      name: "gemini-1-multimodal-zdr",
-      question: "One multimodal item, pin, zdr true.",
-      body: { ...gemini, input: multimodal(1), provider: pinned(true) },
-    },
-    {
-      name: "gemini-16-multimodal-no-zdr",
-      question: "Is ZDR the cause? 16 multimodal items, pin, zdr false.",
-      body: { ...gemini, input: multimodal(16), provider: pinned(false) },
-    },
-    {
-      name: "gemini-16-strings-zdr",
-      question: "Is it our shape? 16 plain strings, pin, zdr true.",
-      body: { ...gemini, input: texts(16), provider: pinned(true) },
-    },
-    {
-      name: "gemini-2-multimodal-zdr",
-      question: "Is it the size? 2 multimodal items, pin, zdr true.",
-      body: { ...gemini, input: multimodal(2), provider: pinned(true) },
-    },
-    {
-      name: "gemini-4-multimodal-zdr",
-      question: "Is it the size? 4 multimodal items, pin, zdr true.",
-      body: { ...gemini, input: multimodal(4), provider: pinned(true) },
-    },
-    {
-      name: "gemini-16-multimodal-zdr-no-pin",
-      question:
-        "Is it the pin? 16 multimodal items, no pin, fallbacks allowed, zdr true.",
-      body: { ...gemini, input: multimodal(16), provider: unpinned },
-    },
-    {
-      name: "titan-16-strings-zdr",
-      question:
-        "Another ZDR candidate: Titan Multimodal G1, 16 plain strings, pin amazon-bedrock, zdr true.",
-      body: {
-        model: "amazon/titan-embed-image-v1",
-        input: texts(16),
-        provider: {
-          data_collection: "deny",
-          order: ["amazon-bedrock"],
-          allow_fallbacks: false,
-          zdr: true,
-        },
-      },
-    },
-    {
-      name: "openai-3-large-16-strings-zdr",
-      question:
-        "A text model: openai/text-embedding-3-large, 16 plain strings, no pin, zdr true.",
-      body: {
-        model: "openai/text-embedding-3-large",
-        input: texts(16),
-        provider: unpinned,
-      },
-    },
-  ]
-  const base = process.env.MODEL_PROVIDER_URL || DEFAULT_OPENROUTER_BASE
-  const url = `${base.replace(/\/+$/, "")}/embeddings`
-  const results: ProbeControl[] = []
-  for (const request of requests) {
-    const control = { name: request.name, question: request.question }
-    if (calls.stopped) {
-      results.push({
-        ...control,
-        status: null,
-        provider: null,
-        error: "The spend cap stopped the probe before this control.",
-        vectors: null,
-      })
-      continue
-    }
-    const before = calls.records.length
-    let thrown: string | null = null
-    try {
-      await fetch(url, {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${process.env.MODEL_PROVIDER_API_KEY}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify(request.body),
-      })
-    } catch (error) {
-      thrown = error instanceof Error ? error.message : String(error)
-    }
-    const last = calls.records.slice(before).at(-1)
-    let answer: z.infer<typeof controlAnswerSchema> = {}
-    try {
-      answer = controlAnswerSchema.parse(JSON.parse(last?.response ?? ""))
-    } catch {
-      // No JSON answer: the evidence is the status.
-    }
-    results.push({
-      ...control,
-      status: last?.status ?? null,
-      provider: answer.provider ?? null,
-      error: thrown ?? answer.error?.message?.slice(0, 300) ?? null,
-      vectors: answer.data?.length ?? null,
-    })
-  }
-  return results
-}
-
-/** One Markdown table row. */
-const row = (values: (string | number | boolean | null)[]) =>
-  `| ${values.map((value) => String(value ?? "—").replace(/\|/g, "\\|")).join(" | ")} |`
-
-/**
- * The `probe` command. It sends the calls through `calls`. With `controls`,
- * it sends the control requests of the batch finding (`probeControls`) and
- * writes `controls.json` and `controls.md` to `out`; else it runs the checks
- * and writes `probe.json` and `probe.md`. Returns the exit code: 0 done (and
- * all checks pass), 3 the spend cap stopped a call, 4 a check failed.
- */
-export async function probe(input: {
+async function writeReport(input: {
   out: string
+  name: string
+  title: string
   calls: ModelCalls
   capUsd: number
-  controls: boolean
-}): Promise<number> {
+  items: Record<string, unknown>
+  header: string[]
+  rows: (string | number | boolean | null)[][]
+}): Promise<void> {
   const { calls } = input
-  const image = await readFile(
-    new URL("fixtures/probe-checkerboard.png", import.meta.url),
-  )
-  const restore = calls.install()
-  let checks: ProbeCheck[] = []
-  let controls: ProbeControl[] = []
-  try {
-    if (input.controls) controls = await probeControls(calls)
-    else checks = await probeChecks(calls, image)
-  } finally {
-    restore()
-  }
   const at = new Date().toISOString()
-  const name = input.controls ? "controls" : "probe"
   const result = {
     at,
     capUsd: input.capUsd,
     spentUsd: calls.spentUsd,
     stopped: calls.stopped,
-    ...(input.controls ? { controls } : { checks }),
+    ...input.items,
   }
-  const table = input.controls
-    ? [
-        "| Control | Question | Status | Provider | Error | Vectors |",
-        "| --- | --- | --- | --- | --- | --- |",
-        ...controls.map((control) =>
-          row([
-            control.name,
-            control.question,
-            control.status,
-            control.provider,
-            control.error,
-            control.vectors,
-          ]),
-        ),
-      ]
-    : [
-        "| Check | Result | Status | Provider | Error | Pass needs |",
-        "| --- | --- | --- | --- | --- | --- |",
-        ...checks.map((check) =>
-          row([
-            check.name,
-            check.pass ? "pass" : "FAIL",
-            check.status,
-            check.provider,
-            check.error,
-            check.expects,
-          ]),
-        ),
-      ]
+  const row = (values: (string | number | boolean | null)[]) =>
+    `| ${values.map((value) => String(value ?? "—").replace(/\|/g, "\\|")).join(" | ")} |`
   const markdown = [
-    `# Provider ${input.controls ? "probe controls" : "probe"}, ${at}`,
+    `# ${input.title}, ${at}`,
     "",
-    ...table,
+    row(input.header),
+    row(input.header.map(() => "---")),
+    ...input.rows.map(row),
     "",
     `Spent $${calls.spentUsd.toFixed(4)} of the cap $${input.capUsd}.${calls.stopped ? " The spend cap stopped a call." : ""}`,
     "",
   ].join("\n")
   await mkdir(input.out, { recursive: true })
   await writeFile(
-    join(input.out, `${name}.json`),
+    join(input.out, `${input.name}.json`),
     `${JSON.stringify(result, null, 2)}\n`,
   )
-  await writeFile(join(input.out, `${name}.md`), markdown)
+  await writeFile(join(input.out, `${input.name}.md`), markdown)
   process.stdout.write(markdown)
+}
+
+/**
+ * The `probe` command. It sends the calls through `calls`, and it writes
+ * `probe.json` and `probe.md` to `out`. Returns the exit code: 0 all checks
+ * pass, 3 the spend cap stopped a call, 4 a check failed.
+ */
+export async function probe(input: {
+  out: string
+  calls: ModelCalls
+  capUsd: number
+}): Promise<number> {
+  const { calls } = input
+  const image = await readFile(
+    new URL("fixtures/probe-checkerboard.png", import.meta.url),
+  )
+  const restore = calls.install()
+  let checks: ProbeCheck[]
+  try {
+    checks = await probeChecks(calls, image)
+  } finally {
+    restore()
+  }
+  await writeReport({
+    ...input,
+    name: "probe",
+    title: "Provider probe",
+    items: { checks },
+    header: ["Check", "Result", "Status", "Provider", "Error", "Pass needs"],
+    rows: checks.map((check) => [
+      check.name,
+      check.pass ? "pass" : "FAIL",
+      check.status,
+      check.provider,
+      check.error,
+      check.expects,
+    ]),
+  })
   if (calls.stopped) return 3
   return checks.every((check) => check.pass) ? 0 : 4
+}
+
+/**
+ * The `probe --controls` command: the control requests of the batch finding
+ * (2026-11-20). A request with 16 inputs, `zdr: true` and the
+ * `google-vertex` pin got "No endpoints found matching your data policy
+ * (Zero data retention)", and one input passed. Each control changes one
+ * thing of that request: `zdr`, the input shape, the input count, the pin
+ * (also to each endpoint tag of the model), and the model (the `:batch`
+ * variant and the other candidates). These are experiments, so they send
+ * hand-written bodies to `{base}/embeddings`, not the request of the client.
+ * The inputs are fixed public texts only. The controls have no pass or fail.
+ * It writes `controls.json` and `controls.md` to `out`. Returns the exit
+ * code: 0 done, 3 the spend cap stopped a call.
+ */
+export async function probeControls(input: {
+  out: string
+  calls: ModelCalls
+  capUsd: number
+  /** `MODEL_PROVIDER_URL`, the base of the recorder. */
+  base: string
+}): Promise<number> {
+  const { calls } = input
+  const { model, upstreamProvider, dimensions } = multimodalEmbeddingConfig
+  const texts = (count: number) =>
+    Array.from({ length: count }, (_, index) => checkerboardSentence(index))
+  const multimodal = (count: number) =>
+    texts(count).map((text) => ({ content: [{ type: "text", text }] }))
+  /** Pinned to `provider` with no fallback. */
+  const pinned = (zdr: boolean, provider = upstreamProvider) => ({
+    data_collection: "deny",
+    order: [provider],
+    allow_fallbacks: false,
+    zdr,
+  })
+  const unpinned = (zdr: boolean) => ({
+    data_collection: "deny",
+    allow_fallbacks: true,
+    zdr,
+  })
+  const gemini = { model, dimensions, encoding_format: "float" }
+  const geminiBatch = { ...gemini, model: `${model}:batch` }
+  const requests: [name: string, question: string, body: object][] = [
+    [
+      "gemini-16-multimodal-zdr",
+      "The finding again: 16 multimodal items, pin google-vertex, zdr true.",
+      { ...gemini, input: multimodal(16), provider: pinned(true) },
+    ],
+    [
+      "gemini-1-multimodal-zdr",
+      "1 multimodal item, pin google-vertex, zdr true.",
+      { ...gemini, input: multimodal(1), provider: pinned(true) },
+    ],
+    [
+      "gemini-16-multimodal-no-zdr",
+      "Is ZDR the cause? 16 multimodal items, pin google-vertex, zdr false.",
+      { ...gemini, input: multimodal(16), provider: pinned(false) },
+    ],
+    [
+      "gemini-16-multimodal-no-zdr-no-pin",
+      "Which endpoint takes a batch? 16 multimodal items, no pin, zdr false.",
+      { ...gemini, input: multimodal(16), provider: unpinned(false) },
+    ],
+    [
+      "gemini-16-strings-zdr",
+      "Is it our shape? 16 plain strings, pin google-vertex, zdr true.",
+      { ...gemini, input: texts(16), provider: pinned(true) },
+    ],
+    [
+      "gemini-2-multimodal-zdr",
+      "Is it the size? 2 multimodal items, pin google-vertex, zdr true.",
+      { ...gemini, input: multimodal(2), provider: pinned(true) },
+    ],
+    [
+      "gemini-4-multimodal-zdr",
+      "Is it the size? 4 multimodal items, pin google-vertex, zdr true.",
+      { ...gemini, input: multimodal(4), provider: pinned(true) },
+    ],
+    [
+      "gemini-16-multimodal-zdr-no-pin",
+      "Is it the pin? 16 multimodal items, no pin, zdr true.",
+      { ...gemini, input: multimodal(16), provider: unpinned(true) },
+    ],
+    ...(["google-vertex/us", "google-vertex/global"] as const).flatMap(
+      (tag): [string, string, object][] =>
+        [true, false].map((zdr) => [
+          `gemini-16-multimodal-${zdr ? "zdr" : "no-zdr"}-${tag.replace("/", "-")}`,
+          `Does the endpoint ${tag} take a batch? 16 multimodal items, pin ${tag}, zdr ${zdr}.`,
+          { ...gemini, input: multimodal(16), provider: pinned(zdr, tag) },
+        ]),
+    ),
+    [
+      "gemini-16-multimodal-no-zdr-google-ai-studio",
+      "Does the endpoint google-ai-studio (not ZDR) take a batch? 16 multimodal items, pin google-ai-studio, zdr false.",
+      {
+        ...gemini,
+        input: multimodal(16),
+        provider: pinned(false, "google-ai-studio"),
+      },
+    ],
+    [
+      "gemini-batch-16-multimodal-zdr",
+      `The batch model: ${geminiBatch.model}, 16 multimodal items, zdr true.`,
+      { ...geminiBatch, input: multimodal(16), provider: unpinned(true) },
+    ],
+    [
+      "gemini-batch-16-multimodal-no-zdr",
+      `The batch model: ${geminiBatch.model}, 16 multimodal items, zdr false.`,
+      { ...geminiBatch, input: multimodal(16), provider: unpinned(false) },
+    ],
+    [
+      "titan-16-strings-zdr",
+      "Another ZDR candidate: Titan Multimodal G1, 16 plain strings, pin amazon-bedrock, zdr true.",
+      {
+        model: "amazon/titan-embed-image-v1",
+        input: texts(16),
+        provider: pinned(true, "amazon-bedrock"),
+      },
+    ],
+    [
+      "openai-3-large-16-strings-zdr",
+      "A text model: openai/text-embedding-3-large, 16 plain strings, no pin, zdr true.",
+      {
+        model: "openai/text-embedding-3-large",
+        input: texts(16),
+        provider: unpinned(true),
+      },
+    ],
+  ]
+  const url = `${input.base.replace(/\/+$/, "")}/embeddings`
+  const restore = calls.install()
+  const controls: (Evidence<Response> & { name: string; question: string })[] =
+    []
+  try {
+    for (const [name, question, body] of requests)
+      controls.push({
+        name,
+        question,
+        ...(await observe(calls, () =>
+          fetch(url, {
+            method: "POST",
+            headers: {
+              authorization: `Bearer ${process.env.MODEL_PROVIDER_API_KEY}`,
+              "content-type": "application/json",
+            },
+            body: JSON.stringify(body),
+          }),
+        )),
+      })
+  } finally {
+    restore()
+  }
+  await writeReport({
+    ...input,
+    name: "controls",
+    title: "Provider probe controls",
+    items: {
+      controls: controls.map(({ result: _response, ...control }) => control),
+    },
+    header: [
+      "Control",
+      "Question",
+      "Status",
+      "Provider",
+      "Model",
+      "Error",
+      "Vectors",
+    ],
+    rows: controls.map((control) => [
+      control.name,
+      control.question,
+      control.status,
+      control.provider,
+      control.model,
+      control.error,
+      control.vectors,
+    ]),
+  })
+  return calls.stopped ? 3 : 0
 }
