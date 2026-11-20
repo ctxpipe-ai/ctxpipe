@@ -1,0 +1,21 @@
+direction: down
+alert: Alert fires {shape: oval}
+oncall: On-call engineer {
+  ack: Acknowledged in 5 min? {shape: diamond}
+  assess: Assess severity
+}
+escalate: Escalate to secondary
+channel: Open incident channel
+ticket: Create ticket
+mitigate: Mitigate
+postmortem: Write postmortem
+fix: Fix in sprint
+alert -> oncall.ack
+oncall.ack -> oncall.assess: yes
+oncall.ack -> escalate: no
+escalate -> oncall.ack
+oncall.assess -> channel: SEV1
+oncall.assess -> ticket: SEV2 or SEV3
+channel -> mitigate
+mitigate -> postmortem
+ticket -> fix

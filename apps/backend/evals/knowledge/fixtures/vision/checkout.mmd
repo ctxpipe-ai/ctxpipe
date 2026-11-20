@@ -1,0 +1,13 @@
+sequenceDiagram
+    participant C as Customer
+    participant S as Storefront
+    participant O as Order service
+    participant P as Payment provider
+    C->>S: Place order
+    S->>O: createOrder()
+    O->>P: authorize(amount)
+    P-->>O: authorized
+    O->>O: reserve stock
+    O-->>S: order confirmed
+    S-->>C: Confirmation page
+    P-)O: webhook: captured

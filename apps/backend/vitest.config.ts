@@ -10,6 +10,11 @@ export default defineConfig({
     // Native admission contracts share the production OpenWorkflow namespace.
     // Keep file-owned workers from claiming another fixture's commands.
     fileParallelism: false,
+    // The msw interceptor parses each request with the Node header limit
+    // (16 KiB). A ClickHouse statement of the knowledge store has up to 1000
+    // keys in its URL (ClickHouse takes up to 1 MiB), so the tests that write
+    // 1000 documents need the limit of ClickHouse.
+    execArgv: ["--max-http-header-size=1048576"],
     include: ["src/**/*.test.ts"],
     setupFiles: [
       "src/test/setup-evlog.ts",

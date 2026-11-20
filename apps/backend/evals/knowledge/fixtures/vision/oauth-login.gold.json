@@ -1,0 +1,78 @@
+{
+  "category": "sequence",
+  "kind": "sequence",
+  "participants": [
+    "User",
+    "Browser",
+    "App server",
+    "Auth server",
+    "Resource API"
+  ],
+  "messages": [
+    {
+      "from": "User",
+      "to": "Browser",
+      "label": "Click Sign in"
+    },
+    {
+      "from": "Browser",
+      "to": "App server",
+      "label": "GET /login"
+    },
+    {
+      "from": "App server",
+      "to": "Browser",
+      "label": "302 redirect to /authorize"
+    },
+    {
+      "from": "Browser",
+      "to": "Auth server",
+      "label": "GET /authorize"
+    },
+    {
+      "from": "Auth server",
+      "to": "Browser",
+      "label": "Login page"
+    },
+    {
+      "from": "User",
+      "to": "Browser",
+      "label": "Enter credentials"
+    },
+    {
+      "from": "Browser",
+      "to": "Auth server",
+      "label": "POST /login"
+    },
+    {
+      "from": "Auth server",
+      "to": "Browser",
+      "label": "302 redirect with code"
+    },
+    {
+      "from": "Browser",
+      "to": "App server",
+      "label": "GET /callback?code"
+    },
+    {
+      "from": "App server",
+      "to": "Auth server",
+      "label": "POST /token"
+    },
+    {
+      "from": "Auth server",
+      "to": "App server",
+      "label": "access token"
+    },
+    {
+      "from": "App server",
+      "to": "Resource API",
+      "label": "GET /profile"
+    },
+    {
+      "from": "Resource API",
+      "to": "App server",
+      "label": "profile JSON"
+    }
+  ]
+}

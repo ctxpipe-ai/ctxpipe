@@ -1,0 +1,156 @@
+{
+  "category": "architecture",
+  "kind": "graph",
+  "direction": "TB",
+  "groups": [],
+  "nodes": [
+    {
+      "label": "Clickstream",
+      "group": null
+    },
+    {
+      "label": "CRM export",
+      "group": null
+    },
+    {
+      "label": "Billing DB",
+      "group": null
+    },
+    {
+      "label": "Ingest API",
+      "group": null
+    },
+    {
+      "label": "Kafka",
+      "group": null
+    },
+    {
+      "label": "Stream processor",
+      "group": null
+    },
+    {
+      "label": "Batch ETL",
+      "group": null
+    },
+    {
+      "label": "Data lake",
+      "group": null
+    },
+    {
+      "label": "Warehouse",
+      "group": null
+    },
+    {
+      "label": "Feature store",
+      "group": null
+    },
+    {
+      "label": "ML training",
+      "group": null
+    },
+    {
+      "label": "Model registry",
+      "group": null
+    },
+    {
+      "label": "Dashboards",
+      "group": null
+    },
+    {
+      "label": "Reverse ETL",
+      "group": null
+    }
+  ],
+  "edges": [
+    {
+      "from": "Clickstream",
+      "to": "Ingest API",
+      "label": null
+    },
+    {
+      "from": "CRM export",
+      "to": "Batch ETL",
+      "label": null
+    },
+    {
+      "from": "Billing DB",
+      "to": "Batch ETL",
+      "label": "CDC"
+    },
+    {
+      "from": "Ingest API",
+      "to": "Kafka",
+      "label": null
+    },
+    {
+      "from": "Kafka",
+      "to": "Stream processor",
+      "label": null
+    },
+    {
+      "from": "Kafka",
+      "to": "Data lake",
+      "label": "raw archive"
+    },
+    {
+      "from": "Stream processor",
+      "to": "Data lake",
+      "label": null
+    },
+    {
+      "from": "Stream processor",
+      "to": "Feature store",
+      "label": "online features"
+    },
+    {
+      "from": "Batch ETL",
+      "to": "Data lake",
+      "label": null
+    },
+    {
+      "from": "Data lake",
+      "to": "Warehouse",
+      "label": "load"
+    },
+    {
+      "from": "Warehouse",
+      "to": "Dashboards",
+      "label": null
+    },
+    {
+      "from": "Warehouse",
+      "to": "Reverse ETL",
+      "label": null
+    },
+    {
+      "from": "Reverse ETL",
+      "to": "CRM export",
+      "label": "sync segments"
+    },
+    {
+      "from": "Warehouse",
+      "to": "Feature store",
+      "label": "offline features"
+    },
+    {
+      "from": "Data lake",
+      "to": "ML training",
+      "label": null
+    },
+    {
+      "from": "Feature store",
+      "to": "ML training",
+      "label": null
+    },
+    {
+      "from": "ML training",
+      "to": "Model registry",
+      "label": null
+    },
+    {
+      "from": "Model registry",
+      "to": "Stream processor",
+      "label": "deploy model"
+    }
+  ]
+}

@@ -32,6 +32,36 @@ const EMBEDDING_DIMENSIONS = 2000
 
 export const DEFAULT_OPENROUTER_BASE = "https://openrouter.ai/api/v1"
 
+/**
+ * The OpenRouter base URL and key of the backend model settings, or null
+ * when the settings do not point at OpenRouter. A model that is only on
+ * OpenRouter (Jev, the vision model) gets null for a deployment with
+ * `MODEL_PROVIDER` `bedrock` or `azure`: its content must not go to a
+ * provider that the operator did not choose.
+ */
+export function openRouterSettings(): { base: string; apiKey: string } | null {
+  const settings = z
+    .preprocess(
+      dropEmptyEnvValues,
+      z.object({
+        MODEL_PROVIDER: z.string().default("openai-like"),
+        MODEL_PROVIDER_API_KEY: z.string().optional(),
+        MODEL_PROVIDER_URL: z.string().url().default(DEFAULT_OPENROUTER_BASE),
+      }),
+    )
+    .safeParse(process.env)
+  if (
+    !settings.success ||
+    !["openrouter", "openai-like"].includes(settings.data.MODEL_PROVIDER) ||
+    !settings.data.MODEL_PROVIDER_API_KEY
+  )
+    return null
+  return {
+    base: settings.data.MODEL_PROVIDER_URL,
+    apiKey: settings.data.MODEL_PROVIDER_API_KEY,
+  }
+}
+
 const modelProviderSchema = z.enum([
   "openai-like",
   "openrouter",

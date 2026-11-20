@@ -1,0 +1,11 @@
+digraph G {
+  rankdir=TB; nodesep=0.5; node [shape=box, fontname="DejaVu Sans"]; edge [fontname="DejaVu Sans", fontsize=10];
+  click [label="Clickstream"]; crm [label="CRM export"]; billing [label="Billing DB", shape=cylinder];
+  ingest [label="Ingest API"]; kafka [label="Kafka"]; stream [label="Stream processor"]; etl [label="Batch ETL"];
+  lake [label="Data lake", shape=cylinder]; wh [label="Warehouse", shape=cylinder]; fs [label="Feature store"];
+  train [label="ML training"]; registry [label="Model registry"]; dash [label="Dashboards"]; retl [label="Reverse ETL"];
+  click -> ingest; crm -> etl; billing -> etl [label="CDC"]; ingest -> kafka; kafka -> stream; kafka -> lake [label="raw archive"];
+  stream -> lake; stream -> fs [label="online features"]; etl -> lake; lake -> wh [label="load"]; wh -> dash; wh -> retl;
+  retl -> crm [label="sync segments"]; wh -> fs [label="offline features"]; lake -> train; fs -> train; train -> registry;
+  registry -> stream [label="deploy model"];
+}

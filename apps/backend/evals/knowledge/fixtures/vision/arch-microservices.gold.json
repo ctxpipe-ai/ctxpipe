@@ -1,0 +1,104 @@
+{
+  "category": "architecture",
+  "kind": "graph",
+  "direction": "LR",
+  "groups": [
+    {
+      "label": "Kubernetes cluster",
+      "parent": null
+    },
+    {
+      "label": "orders namespace",
+      "parent": "Kubernetes cluster"
+    },
+    {
+      "label": "payments namespace",
+      "parent": "Kubernetes cluster"
+    }
+  ],
+  "nodes": [
+    {
+      "label": "Mobile app",
+      "group": null
+    },
+    {
+      "label": "Stripe",
+      "group": null
+    },
+    {
+      "label": "API gateway",
+      "group": "Kubernetes cluster"
+    },
+    {
+      "label": "Kafka",
+      "group": "Kubernetes cluster"
+    },
+    {
+      "label": "Notification service",
+      "group": "Kubernetes cluster"
+    },
+    {
+      "label": "Orders service",
+      "group": "orders namespace"
+    },
+    {
+      "label": "Order DB",
+      "group": "orders namespace"
+    },
+    {
+      "label": "Payments service",
+      "group": "payments namespace"
+    },
+    {
+      "label": "Ledger DB",
+      "group": "payments namespace"
+    }
+  ],
+  "edges": [
+    {
+      "from": "Mobile app",
+      "to": "API gateway",
+      "label": "gRPC"
+    },
+    {
+      "from": "API gateway",
+      "to": "Orders service",
+      "label": "create order"
+    },
+    {
+      "from": "Orders service",
+      "to": "Order DB",
+      "label": null
+    },
+    {
+      "from": "Orders service",
+      "to": "Kafka",
+      "label": "OrderCreated"
+    },
+    {
+      "from": "Kafka",
+      "to": "Payments service",
+      "label": "OrderCreated"
+    },
+    {
+      "from": "Payments service",
+      "to": "Stripe",
+      "label": "charge"
+    },
+    {
+      "from": "Payments service",
+      "to": "Ledger DB",
+      "label": null
+    },
+    {
+      "from": "Payments service",
+      "to": "Kafka",
+      "label": "PaymentSettled"
+    },
+    {
+      "from": "Kafka",
+      "to": "Notification service",
+      "label": "PaymentSettled"
+    }
+  ]
+}

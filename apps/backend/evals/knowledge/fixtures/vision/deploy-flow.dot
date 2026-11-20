@@ -1,0 +1,10 @@
+digraph G {
+  rankdir=TB; node [fontname="DejaVu Sans", shape=box, style=rounded]; edge [fontname="DejaVu Sans", fontsize=10];
+  merge [label="Merge to main", shape=oval]; build [label="Build image"]; tests [label="Tests pass?", shape=diamond];
+  staging [label="Deploy to staging"]; smoke [label="Smoke tests pass?", shape=diamond]; prod [label="Deploy to production"];
+  errors [label="Error rate < 1%?", shape=diamond]; done [label="Done", shape=oval]; rbs [label="Roll back staging"];
+  rbp [label="Roll back production"]; notify [label="Notify author"];
+  merge -> build; build -> tests; tests -> staging [label="yes"]; tests -> notify [label="no"]; staging -> smoke;
+  smoke -> prod [label="yes"]; smoke -> rbs [label="no"]; rbs -> notify; prod -> errors; errors -> done [label="yes"];
+  errors -> rbp [label="no"]; rbp -> notify;
+}
