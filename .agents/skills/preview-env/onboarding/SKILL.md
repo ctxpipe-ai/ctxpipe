@@ -16,7 +16,7 @@ First area of every run. Creates account A, the org, the GitHub connection, and 
 
 **Expect (UI)**
 - The browser reaches `/onboarding` (a user with no org is redirected there from `/`) and the first slide, **Welcome to ctxpipe**, shows **Next**.
-- A target with an email transport that is not a PR preview requires a verified address: the sign-up form routes to `/.auth/email-verification` ("check your email"). Then run `factory inbox wait {A} --link {BASE_URL}/.auth/api/v1/auth/verify-email` ([test inbox](../run-setup.md#test-inbox)) and open the link in A's browser context: it verifies A and signs A in.
+- A target with an email transport that is not a PR preview requires a verified address: the sign-up form routes to `/.auth/email-verification` ("check your email"). Then run `factory inbox wait {A} --link {BASE_URL}/.auth/api/v1/auth/verify-email --timeout 120` ([test inbox](../run-setup.md#test-inbox)) and open the link in A's browser context: it verifies A and signs A in.
 - *Uncertain:* a target that requires no verification may still route to `/.auth/email-verification`. If so, sign in with the same credentials and record the screen as an observation, not a FAIL.
 
 **Expect (backend)** `users` row for A with `onboardingCompletedAt` empty; a credential row in `accounts`; a `sessions` row.

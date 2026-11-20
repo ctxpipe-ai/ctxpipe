@@ -55,7 +55,7 @@ Only a pull request from ctxpipe-ai/ctxpipe itself into `main` gets a preview. `
 | `mode` | `local`, `preview` or `aws`, derived from `BASE_URL` in [run-setup](run-setup.md#target-guard) |
 | `run-id` | UTC `YYYYMMDD-HHMMSS`, minted once per run |
 | `GH_TEST_ORG` | `ctxpipe-ai` |
-| `TEST_EMAIL_DOMAIN` | `agents.ctxpipe.dev` (the agents' inbox) unless the prompt names another; see [run-setup](run-setup.md#test-inbox) |
+| `TEST_EMAIL_DOMAIN` | `agents.ctxpipe.dev` (the agents' inbox); see [run-setup](run-setup.md#test-inbox) |
 | `local` only: trace export | the `local-<name>` environment from [run-setup](run-setup.md#local-trace-export) |
 
 Optional: `section` (one or more area names); flags `live-oauth`, `merge-pr`, `default-branch-write`, `restart-ok` (each defined where it is used). Without a value for a required input, ask; do not invent one.
