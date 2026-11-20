@@ -100,7 +100,7 @@ type KnowledgeRunSummary =
  * Workspace, so one run of a Workspace runs at a time.
  *
  * Before a file goes to the embedding model, the writer reads the stored
- * vectors of its document (`embedWithReuse`): an input whose key
+ * vectors of its document (`embedDocuments`): an input whose key
  * (`embeddingKey`) has a stored vector gets that vector, and only the other
  * inputs go to the model. Thus a full rebuild embeds only new content.
  *
@@ -327,11 +327,12 @@ async function applyChangeSet(input: {
       unembedded.push(...rows.documents)
       failed.push(...rows.failed)
     })
-    const documents = await embedDocuments(unembedded, {
+    const documents = await embedDocuments(
+      unembedded,
       store,
       scope,
-      counter: input.embedding,
-    })
+      input.embedding,
+    )
     for (const { document, relations } of documents) {
       written.add(document.docKey)
       for (const relation of relations)
@@ -517,73 +518,24 @@ type EmbeddingCounter = {
   seconds: number
 }
 
-/** The store that holds the earlier vectors, and the counter of the run. */
-type VectorReuse = {
-  store: KnowledgeStore
-  scope: KnowledgeScope
-  counter: EmbeddingCounter
-}
-
-/**
- * The vector of each input of `inputs`, in order, and its key: the stored
- * vector of the key in a document of `docKeys`, else a new vector from
- * `embedTexts`. The model gets the inputs with no stored vector, one for each
- * key. Inputs with the same key share that vector.
- *
- * The lookup reads only the chunks of `docKeys` in the Workspace of the run
- * (ADR-067 decision 5). They are the rows that this write replaces, before
- * its DELETE, and the rows that an earlier write of the same file gave. A
- * stored vector is the BFloat16 value, so its write stores the same value
- * as a write of the new vector.
- */
-async function embedWithReuse(
-  reuse: VectorReuse,
-  docKeys: string[],
-  inputs: EmbeddingInput[],
-): Promise<{ key: string; vector: number[] }[]> {
-  const { counter } = reuse
-  const keys = inputs.map((input) => embeddingKey(input, textEmbeddingConfig))
-  const stored = await reuse.store.readEmbeddings(reuse.scope, docKeys, keys)
-  const missing = new Map<string, EmbeddingInput>()
-  for (const [index, input] of inputs.entries()) {
-    const key = keys[index] ?? ""
-    if (stored.has(key)) counter.hits++
-    else {
-      counter.misses++
-      if (!missing.has(key)) missing.set(key, input)
-    }
-  }
-  const fresh = new Map<string, number[]>()
-  if (missing.size > 0) {
-    const started = performance.now()
-    try {
-      const missingKeys = [...missing.keys()]
-      for (const [index, result] of (
-        await embedTexts([...missing.values()], textEmbeddingConfig, () => {
-          counter.requests++
-        })
-      ).entries()) {
-        const key = missingKeys[index]
-        if (key !== undefined) fresh.set(key, result)
-      }
-    } finally {
-      counter.seconds += (performance.now() - started) / 1000
-    }
-  }
-  return keys.map((key) => {
-    const vector = stored.get(key) ?? fresh.get(key)
-    if (vector === undefined) throw new Error("An input got no vector")
-    return { key, vector }
-  })
-}
-
 /**
  * Embed the text chunks of each document, in batches (`embedTexts`). A chunk
- * with no text gets no vector.
+ * with no text gets no vector. Each chunk gets its key (`embeddingKey`) and
+ * the stored vector of that key in one of `documents`, if there is one. Only
+ * the chunks with no stored vector go to the model, one for each key, and
+ * chunks with the same key share that vector.
+ *
+ * The lookup reads only the chunks of these documents in the Workspace of
+ * the run (ADR-067 decision 5). They are the rows that this write replaces,
+ * before its DELETE, and the rows that an earlier write of the same file
+ * gave. A stored vector is the BFloat16 value, so its write stores the same
+ * value as a write of the new vector. `counter` gets the counts of the run.
  */
 async function embedDocuments(
   documents: UnembeddedDocumentRows[],
-  reuse: VectorReuse,
+  store: KnowledgeStore,
+  scope: KnowledgeScope,
+  counter: EmbeddingCounter,
 ): Promise<DocumentRows[]> {
   const inputs: EmbeddingInput[] = documents.flatMap(({ document, chunks }) =>
     chunks.flatMap((chunk, index) =>
@@ -600,19 +552,48 @@ async function embedDocuments(
         : [],
     ),
   )
-  const vectors = await embedWithReuse(
-    reuse,
+  const keys = inputs.map((input) => embeddingKey(input, textEmbeddingConfig))
+  const vectors = await store.readEmbeddings(
+    scope,
     documents.map(({ document }) => document.docKey),
-    inputs,
+    keys,
   )
+  const missing = new Map<string, EmbeddingInput>()
+  for (const [index, input] of inputs.entries()) {
+    const key = keys[index] ?? ""
+    if (vectors.has(key)) counter.hits++
+    else {
+      counter.misses++
+      if (!missing.has(key)) missing.set(key, input)
+    }
+  }
+  if (missing.size > 0) {
+    const started = performance.now()
+    try {
+      const fresh = await embedTexts(
+        [...missing.values()],
+        textEmbeddingConfig,
+        () => {
+          counter.requests++
+        },
+      )
+      ;[...missing.keys()].forEach((key, index) => {
+        const vector = fresh[index]
+        if (vector) vectors.set(key, vector)
+      })
+    } finally {
+      counter.seconds += (performance.now() - started) / 1000
+    }
+  }
   let next = 0
   return documents.map((rows) => ({
     ...rows,
     chunks: rows.chunks.map((chunk) => {
       if (!chunk.text.trim()) return { ...chunk, embedding: [] }
-      const result = vectors[next++]
-      if (!result) throw new Error("A chunk got no vector")
-      return { ...chunk, embedding: result.vector, embeddingKey: result.key }
+      const key = keys[next++] ?? ""
+      const vector = vectors.get(key)
+      if (!vector) throw new Error("A chunk got no vector")
+      return { ...chunk, embedding: vector, embeddingKey: key }
     }),
   }))
 }
