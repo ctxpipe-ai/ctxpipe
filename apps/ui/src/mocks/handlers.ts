@@ -154,6 +154,11 @@ export const githubAppInstalledHandlers = [
   githubInstallationLinkedHandler,
 ]
 
+/** `POST .../github/installation`: registers an installation; `reply` answers it. */
+export function githubInstallationRegisterHandler(reply: () => Response) {
+  return http.post("*/api/v1/github/installation", reply)
+}
+
 /** The org has no GitHub App installation yet; the hosted App can install. */
 export const githubAppMissingHandlers = [
   hostedGithubAppBootstrapHandler,

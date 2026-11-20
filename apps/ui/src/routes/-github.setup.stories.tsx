@@ -1,9 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { HttpResponse, http } from "msw"
+import { HttpResponse } from "msw"
 import { expect, waitFor, within } from "storybook/test"
 
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import {
+  githubInstallationRegisterHandler,
   organizationFullWithOrgHandler,
   signedInHandlers,
 } from "../mocks/handlers"
@@ -46,7 +47,7 @@ export const RegistrationRefused: Story = {
         page: [
           organizationFullWithOrgHandler,
           workspaceListHandler([]),
-          http.post("*/acme/api/v1/github/installation", () =>
+          githubInstallationRegisterHandler(() =>
             HttpResponse.json(
               {
                 error:
@@ -94,7 +95,7 @@ export const AuthorizationUnavailableShowsOwnApp: Story = {
         page: [
           organizationFullWithOrgHandler,
           workspaceListHandler([]),
-          http.post("*/acme/api/v1/github/installation", () =>
+          githubInstallationRegisterHandler(() =>
             HttpResponse.json(
               {
                 error:
@@ -143,7 +144,7 @@ export const AuthorizationRequiredAsksToConfirm: Story = {
         page: [
           organizationFullWithOrgHandler,
           workspaceListHandler([]),
-          http.post("*/acme/api/v1/github/installation", () =>
+          githubInstallationRegisterHandler(() =>
             HttpResponse.json(
               {
                 error: "Authorize the GitHub App to confirm your access",
