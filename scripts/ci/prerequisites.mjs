@@ -1,7 +1,6 @@
 import { execFileSync } from "node:child_process"
 import { readFileSync } from "node:fs"
 import { createRequire } from "node:module"
-import { prerequisites } from "../checks/prerequisites.mjs"
 import { graphReady } from "./graph-ready.mjs"
 
 try {
@@ -61,10 +60,6 @@ try {
       )
     }
   }
-  // The file converter, before the tests, so that no test waits for a
-  // build: Cargo builds it, or reuses an earlier build. In CI the job step
-  // restores or builds it and sets SKIP_CONVERTER_BUILD=1.
-  await prerequisites.converter.prepare()
   if (!process.env.DATABASE_URL)
     throw new Error(
       "DATABASE_URL for a migrated application-role test database is required",

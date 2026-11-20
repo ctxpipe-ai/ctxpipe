@@ -310,7 +310,8 @@ jobs:
           echo "$GITHUB_WORKSPACE/.tools/bin" >> "$GITHUB_PATH"
       # The file converter of the knowledge plane (apps/backend/converter).
       # The backend tests run the real CLI. The cache holds the binary, keyed
-      # by the files that decide it and the Rust version. A miss builds it
+      # by the files that decide it (the same list as `nativeInputs` in
+      # scripts/checks/lanes.mjs) and the Rust version. A miss builds it
       # here, before the tests start: a cold build takes minutes, longer than
       # a test case may take.
       - name: Rust version of the file converter

@@ -52,11 +52,11 @@ try {
         "       test-suite.mjs backend|contracts [--shard=i/N] [--list | --trace] | --merge",
     )
   const cwd = join(root, packages[name])
-  const run = (script, args = [], directory = root) => {
+  const run = (script, args = [], directory = root, timeout = 300_000) => {
     const result = spawnSync(process.execPath, [join(root, script), ...args], {
       cwd: directory,
       stdio: "inherit",
-      timeout: 300_000,
+      timeout,
     })
     if (result.error)
       throw new Error(`${script} did not finish: ${result.error.message}`)
@@ -167,8 +167,13 @@ try {
   } else if (listOnly) {
     process.stdout.write(`${JSON.stringify(files.sort(), null, 2)}\n`)
   } else {
-    if (name === "backend" || name === "contracts")
+    if (name === "backend" || name === "contracts") {
+      // The file converter, before the tests, so that no test waits for a
+      // build. A cold build takes minutes, so it has its own limit. In CI
+      // the job step restores or builds it (SKIP_CONVERTER_BUILD=1).
+      run("scripts/checks/prerequisites.mjs", ["converter"], root, 1_800_000)
       run("scripts/ci/prerequisites.mjs")
+    }
     run("scripts/ci/check-allowlist-history.mjs", [baseline])
     const output = shard
       ? join(resultsRoot, `shard-${shard[0]}-of-${shard[1]}`)

@@ -253,30 +253,19 @@ async function main(argv: string[]): Promise<number> {
     if (!process.env.MODEL_PROVIDER_API_KEY)
       throw new SetupError("vision needs MODEL_PROVIDER_API_KEY.")
     // The SVG fixtures go through the converter, and the export of
-    // `factory eval` has no build of it. Cargo gets only what it needs.
+    // `factory eval` has no build of it.
     execFileSync(
-      "cargo",
+      process.execPath,
       [
-        "build",
-        "--release",
-        "--locked",
-        "--manifest-path",
-        fileURLToPath(new URL("../../converter/Cargo.toml", import.meta.url)),
-      ],
-      {
-        stdio: ["ignore", "ignore", "inherit"],
-        env: Object.fromEntries(
-          [
-            "PATH",
-            "HOME",
-            "CARGO_HOME",
-            "RUSTUP_HOME",
-            "RUSTUP_TOOLCHAIN",
-          ].flatMap((name) =>
-            process.env[name] ? [[name, process.env[name]]] : [],
+        fileURLToPath(
+          new URL(
+            "../../../../scripts/checks/prerequisites.mjs",
+            import.meta.url,
           ),
         ),
-      },
+        "converter",
+      ],
+      { stdio: ["ignore", "ignore", "inherit"] },
     )
     const calls = modelCalls(capUsd)
     const restore = calls.install()

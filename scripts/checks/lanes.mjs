@@ -53,6 +53,7 @@ const nativeInputs = [
   "scripts/chat-sandbox/**",
   // The file converter that the knowledge-plane tests run (the
   // `converter` prerequisite builds it): the files that decide the binary.
+  // The cache key of the converter in ci.yaml (test-shards) lists them too.
   "apps/backend/converter/Cargo.lock",
   "apps/backend/converter/Cargo.toml",
   "apps/backend/converter/build.rs",

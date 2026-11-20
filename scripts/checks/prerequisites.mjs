@@ -19,9 +19,10 @@ const root = fileURLToPath(new URL("../../", import.meta.url))
 const backend = createRequire(join(root, "apps/backend/package.json"))
 
 // Runs a command with its output on stderr. Throws `fix` when it fails.
-const step = (command, args, fix, cwd = root) => {
+const step = (command, args, fix, cwd = root, env = process.env) => {
   const result = spawnSync(command, args, {
     cwd,
+    env,
     stdio: ["ignore", 2, 2],
     timeout: 1_800_000,
   })
@@ -380,6 +381,14 @@ export const prerequisites = {
             "apps/backend/converter/Cargo.toml",
           ],
           "Install a Rust toolchain (rustup.rs) and fix the converter build.",
+          root,
+          // Only what Cargo needs: the build scripts of the crates get no
+          // key of the environment.
+          Object.fromEntries(
+            ["PATH", "HOME", "CARGO_HOME", "RUSTUP_HOME", "RUSTUP_TOOLCHAIN"]
+              .filter((name) => process.env[name])
+              .map((name) => [name, process.env[name]]),
+          ),
         )
       quiet(
         join(root, "apps/backend/converter/target/release/ctxpipe-convert"),
