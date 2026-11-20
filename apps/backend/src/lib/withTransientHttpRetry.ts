@@ -40,7 +40,12 @@ function errnoCode(error: unknown): string | undefined {
   return undefined
 }
 
-function isRetryableFetchFailure(error: unknown): boolean {
+/**
+ * True for a transient failure of `fetch`: a {@link TransientHttpError}, a
+ * network error (a `TypeError` of fetch, or a cause code such as
+ * `ECONNRESET`), but not an abort.
+ */
+export function isRetryableFetchFailure(error: unknown): boolean {
   if (error instanceof TransientHttpError) return true
   if (error instanceof TypeError) {
     const msg = String((error as Error).message).toLowerCase()
@@ -56,7 +61,9 @@ function isRetryableFetchFailure(error: unknown): boolean {
     code === "ETIMEDOUT" ||
     code === "EPIPE" ||
     code === "ENOTFOUND" ||
-    code === "ECONNREFUSED"
+    code === "ECONNREFUSED" ||
+    code === "UND_ERR_SOCKET" ||
+    code === "UND_ERR_CONNECT_TIMEOUT"
   )
 }
 
