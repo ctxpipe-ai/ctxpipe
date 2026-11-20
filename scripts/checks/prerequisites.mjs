@@ -31,9 +31,10 @@ const step = (command, args, fix, cwd = root, env = process.env) => {
       `${command} ${args.join(" ")} failed (${result.error?.message ?? `exit ${result.status}`}). ${fix}`,
     )
 }
-const quiet = (command, args, fix) => {
+const quiet = (command, args, fix, env = process.env) => {
   try {
     return execFileSync(command, args, {
+      env,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
       timeout: 60_000,
@@ -394,6 +395,9 @@ export const prerequisites = {
         join(root, "apps/backend/converter/target/release/ctxpipe-convert"),
         ["--version"],
         "Build the converter: pnpm checks:prepare converter, with SKIP_CONVERTER_BUILD unset.",
+        // No environment, as for each conversion: the binary links the
+        // crates, so it gets no key.
+        {},
       )
     },
   },

@@ -265,7 +265,8 @@ async function main(argv: string[]): Promise<number> {
         ),
         "converter",
       ],
-      { stdio: ["ignore", "ignore", "inherit"] },
+      // Its result line (and the fix of a failure) goes to stderr.
+      { stdio: ["ignore", 2, "inherit"] },
     )
     const calls = modelCalls(capUsd)
     const restore = calls.install()

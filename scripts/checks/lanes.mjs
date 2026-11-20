@@ -52,13 +52,8 @@ const nativeInputs = [
   "apps/backend/src/domain/workspaces/workspace-chat-opencode-contract.ts",
   "scripts/chat-sandbox/**",
   // The file converter that the knowledge-plane tests run (the
-  // `converter` prerequisite builds it): the files that decide the binary.
-  // The cache key of the converter in ci.yaml (test-shards) lists them too.
-  "apps/backend/converter/Cargo.lock",
-  "apps/backend/converter/Cargo.toml",
-  "apps/backend/converter/build.rs",
-  "apps/backend/converter/src/**",
-  "apps/backend/converter/fonts/**",
+  // `converter` prerequisite builds it). Git lists no ignored `target/`.
+  "apps/backend/converter/**",
 ]
 // Environment variables that change backend results. A result cache adds a
 // hash of the value of each `value` variable to its key, and only set or unset
