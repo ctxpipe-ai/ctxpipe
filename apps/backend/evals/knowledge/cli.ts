@@ -42,7 +42,7 @@ import {
   snapshotRepositories,
 } from "./corpus.js"
 import { type Dataset, readDataset } from "./dataset.js"
-import { hydrateCorpora } from "./hydrate.js"
+import type { EvalOrg } from "./hydrate.js"
 import { ModelCalls, type RecordedCall } from "./model-calls.js"
 import { labelWithPanel } from "./panel.js"
 import { probe } from "./probe.js"
@@ -76,13 +76,6 @@ const modelCalls = (
   replay?: readonly RecordedCall[],
   options?: ConstructorParameters<typeof ModelCalls>[3],
 ) => new ModelCalls(modelBase(), capUsd, replay, options)
-
-/** The eval org of `hydrate`. Its ids are made up. */
-const EVAL_ORG = {
-  id: "org_knowledge_eval",
-  slug: "knowledge-eval",
-  name: "Knowledge eval",
-}
 
 /**
  * Run the questions of `splits` through both arms, then write the run folder
@@ -181,7 +174,7 @@ function buildConverter() {
  */
 export async function hydrateCommand(input: {
   dataset: Dataset
-  org: typeof EVAL_ORG
+  org: EvalOrg
   databaseUrl: string
   out: string
   capUsd: number
@@ -192,6 +185,9 @@ export async function hydrateCommand(input: {
     addZdr: true,
     keepRecords: false,
   })
+  // Only `hydrate` loads the workflows: their OpenWorkflow client connects to
+  // Postgres when it loads, and the other commands need no database.
+  const { hydrateCorpora } = await import("./hydrate.js")
   const restore = calls.install()
   await mkdir(input.out, { recursive: true })
   try {
@@ -383,7 +379,12 @@ async function main(argv: string[]): Promise<number> {
     if (command === "hydrate")
       return await hydrateCommand({
         dataset: await readDataset(values.dataset ?? ""),
-        org: EVAL_ORG,
+        // The eval org. Its ids are made up.
+        org: {
+          id: "org_knowledge_eval",
+          slug: "knowledge-eval",
+          name: "Knowledge eval",
+        },
         databaseUrl,
         out,
         capUsd,

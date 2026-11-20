@@ -218,6 +218,24 @@ describe("the spend cap", () => {
     }
   })
 
+  it("reserves an embedding batch by the size of its input", async () => {
+    sent = 0
+    const calls = new ModelCalls(BASE, 0.005)
+    const restore = calls.install()
+    try {
+      // 64 chunks of 200 characters: $0.0064 at $0.5 for each million
+      // characters, above the cap.
+      const batch = Array.from({ length: 64 }, () => "x".repeat(200))
+      expect((await post(`${BASE}/embeddings`, { input: batch })).status).toBe(
+        503,
+      )
+      expect(sent).toBe(0)
+      expect(calls.stopped).toBe(true)
+    } finally {
+      restore()
+    }
+  })
+
   it("counts an answer with no cost at the reserved value", async () => {
     sent = 0
     const calls = new ModelCalls(BASE, 1)
@@ -247,10 +265,13 @@ describe("the ZDR provider block", () => {
   const bodies: unknown[] = []
   useMswServer(
     http.post(`${BASE}/embeddings`, async ({ request }) => {
-      const body = (await request.json()) as { provider?: { zdr?: boolean } }
+      const body = (await request.json()) as {
+        model?: string
+        provider?: { zdr?: boolean }
+      }
       bodies.push(body)
       // OpenRouter refuses a ZDR request to a model with no ZDR endpoint.
-      if ((body as { model?: string }).model === "no-zdr/model")
+      if (body.model === "no-zdr/model")
         return HttpResponse.json(
           { error: { message: "No endpoints found" } },
           { status: 404 },
@@ -279,6 +300,13 @@ describe("the ZDR provider block", () => {
       await post({ model: "openai/text-embedding-3-large", input: ["q"] })
       live.begin("plane", "question")
       await post(plane)
+      // A provider block without the ZDR fields gets them.
+      live.begin("plane", "other")
+      await post({
+        model: "qwen/qwen3-embedding-8b",
+        input: ["q"],
+        provider: { quantizations: ["bf16"] },
+      })
       // A model with no ZDR endpoint fails: it does not fall back.
       live.begin("legacy", "other")
       expect((await post({ model: "no-zdr/model", input: ["q"] })).status).toBe(
@@ -295,6 +323,15 @@ describe("the ZDR provider block", () => {
       },
       plane,
       {
+        model: "qwen/qwen3-embedding-8b",
+        input: ["q"],
+        provider: {
+          quantizations: ["bf16"],
+          data_collection: "deny",
+          zdr: true,
+        },
+      },
+      {
         model: "no-zdr/model",
         input: ["q"],
         provider: { data_collection: "deny", zdr: true },
@@ -302,6 +339,7 @@ describe("the ZDR provider block", () => {
     ])
     expect(live.zdrAdded).toEqual({
       "legacy embedding openai/text-embedding-3-large": 1,
+      "plane embedding qwen/qwen3-embedding-8b": 1,
       "legacy embedding no-zdr/model": 1,
     })
     expect(live.records[0]?.request).toEqual(bodies[0])

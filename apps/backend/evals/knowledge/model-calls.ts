@@ -73,6 +73,29 @@ const RESERVED_COST_USD: Record<CallKind, number> = {
   vision: 0.05,
 }
 
+/**
+ * The reservation of an embedding call grows with its input: a batch of the
+ * hydrate holds up to 64 chunks. $0.5 for each million characters is above
+ * the price of each embedding model of the stacks for each million tokens,
+ * and a token holds more than one character.
+ */
+const EMBEDDING_USD_PER_CHARACTER = 0.5 / 1_000_000
+
+/** The worst-case cost of one call of `kind` with the request `body`. */
+function reservationOf(kind: CallKind, body: string): number {
+  if (kind !== "embedding") return RESERVED_COST_USD[kind]
+  const input = z
+    .object({ input: z.union([z.string(), z.array(z.string())]) })
+    .safeParse(parseOr(body, {})).data?.input
+  const characters = [input ?? []]
+    .flat()
+    .reduce((sum, text) => sum + text.length, 0)
+  return Math.max(
+    RESERVED_COST_USD.embedding,
+    characters * EMBEDDING_USD_PER_CHARACTER,
+  )
+}
+
 const answerSchema = z.object({ usage: z.unknown() }).partial()
 
 /** The arm, the question and the counts that a call belongs to. */
@@ -227,7 +250,7 @@ export class ModelCalls {
     // a call that would take the spent and reserved total over the cap is
     // not sent. The check and the reservation have no `await` between them,
     // so calls in parallel cannot pass the cap together.
-    const reserved = RESERVED_COST_USD[kind]
+    const reserved = reservationOf(kind, body)
     if (
       this.stopped ||
       this.spentUsd + this.reservedUsd + reserved > this.capUsd
@@ -288,8 +311,9 @@ export class ModelCalls {
   }
 
   /**
-   * The request with the ZDR provider block, when its JSON body has no
-   * `provider` field. The replay key stays the key of the body of the
+   * The request with the ZDR provider block, when its JSON body does not
+   * set both of its fields. The block goes over the fields of a provider
+   * block of the request. The replay key stays the key of the body of the
    * reader, so a replay finds the call.
    */
   private withZdr(
@@ -299,14 +323,23 @@ export class ModelCalls {
     owner: Owner,
   ): { request: Request; body: string } {
     const parsed = parseOr(body, null)
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
+      return { request, body }
+    const provider =
+      "provider" in parsed &&
+      typeof parsed.provider === "object" &&
+      parsed.provider !== null
+        ? (parsed.provider as Record<string, unknown>)
+        : {}
     if (
-      typeof parsed !== "object" ||
-      parsed === null ||
-      Array.isArray(parsed) ||
-      "provider" in parsed
+      provider.zdr === ZDR_PROVIDER.zdr &&
+      provider.data_collection === ZDR_PROVIDER.data_collection
     )
       return { request, body }
-    const changed = JSON.stringify({ ...parsed, provider: ZDR_PROVIDER })
+    const changed = JSON.stringify({
+      ...parsed,
+      provider: { ...provider, ...ZDR_PROVIDER },
+    })
     const model =
       "model" in parsed && typeof parsed.model === "string"
         ? parsed.model

@@ -51,7 +51,10 @@ const workspaceId = `ws_knowledge_eval_${suffix}_tiny`
 // The worker of the hydrate takes the runs of its OpenWorkflow namespace,
 // so the test has its own namespace, set before the client module loads.
 vi.hoisted(() => {
-  process.env.OPENWORKFLOW_NAMESPACE_ID = `knowledge-eval-hydrate-${process.pid}`
+  vi.stubEnv(
+    "OPENWORKFLOW_NAMESPACE_ID",
+    `knowledge-eval-hydrate-${process.pid}`,
+  )
 })
 
 const MODEL_URL = "https://hydrate-model.test/v1"
@@ -219,7 +222,6 @@ describe("the hydrate of the knowledge eval harness", () => {
     if (directory) rmSync(directory, { recursive: true, force: true })
     models.close()
     vi.unstubAllEnvs()
-    delete process.env.OPENWORKFLOW_NAMESPACE_ID
   })
 
   let targets: Targets
@@ -290,7 +292,7 @@ describe("the hydrate of the knowledge eval harness", () => {
           broken,
         ),
       ).rejects.toThrow(
-        `The embeddings of the old stack for ws_knowledge_eval_${suffix}_broken are failed`,
+        `The old stack has the state failed for its embeddings of ws_knowledge_eval_${suffix}_broken`,
       )
     } finally {
       failOldStack = false

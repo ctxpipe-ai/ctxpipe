@@ -90,7 +90,10 @@ export async function hydrateCorpora(input: {
     for (const corpus of input.dataset.corpora) {
       calls.begin("hydrate", corpus.id)
       const started = performance.now()
-      const since = new Date()
+      // The clock of the database writes the time of each run.
+      const [now] = (await getSystemDb().execute(sql`select now() as now`))
+        .rows as { now: string | Date }[]
+      const since = new Date(now?.now ?? Date.now())
       const workspaceId = await upsertWorkspace(org, corpus)
       const revision = await withOrgIdContext(org, () =>
         resolveWorkspaceReadRevision({
@@ -248,7 +251,7 @@ async function waitForBothStacks(input: {
       }))
         if (result.kind !== "ready")
           throw new Error(
-            `The ${store} of the old stack for ${workspaceId} are ${result.kind}${result.kind === "failed" ? `: ${result.message}` : ""}.`,
+            `The old stack has the state ${result.kind} for its ${store} of ${workspaceId}${result.kind === "failed" ? `: ${result.message}` : ""}.`,
           )
       const plane = (await readyKnowledgeShas(org.id, [workspaceId])).get(
         workspaceId,
