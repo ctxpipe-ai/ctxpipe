@@ -12,7 +12,7 @@
  *     --models A,B,C --out FILE [--cap-usd 5]
  *   bun evals/knowledge/cli.ts corpus snapshot|issues|freeze --plan FILE \
  *     --out FILE
- *   bun evals/knowledge/cli.ts probe --out DIR [--cap-usd 0.05]
+ *   bun evals/knowledge/cli.ts probe --out DIR [--cap-usd 0.05] [--controls]
  *
  * See README.md. Exit code 0: done. 2: bad setup. 3: the spend cap stopped
  * the command (the output holds the work before the stop). 4: a check of
@@ -39,7 +39,7 @@ import {
 import { type Dataset, readDataset } from "./dataset.js"
 import { ModelCalls, type RecordedCall } from "./model-calls.js"
 import { labelWithPanel } from "./panel.js"
-import { probe } from "./probe.js"
+import { probe, probeControls } from "./probe.js"
 import {
   buildReport,
   type KeptRun,
@@ -62,12 +62,10 @@ import {
 } from "./runner.js"
 
 /** The model calls go to `MODEL_PROVIDER_URL`, as in the readers. */
+const modelBase = () =>
+  process.env.MODEL_PROVIDER_URL || DEFAULT_OPENROUTER_BASE
 const modelCalls = (capUsd: number, replay?: readonly RecordedCall[]) =>
-  new ModelCalls(
-    process.env.MODEL_PROVIDER_URL || DEFAULT_OPENROUTER_BASE,
-    capUsd,
-    replay,
-  )
+  new ModelCalls(modelBase(), capUsd, replay)
 
 /**
  * Run the questions of `splits` through both arms, then write the run folder
@@ -232,6 +230,7 @@ async function main(argv: string[]): Promise<number> {
       draft: { type: "string" },
       repo: { type: "string" },
       models: { type: "string" },
+      controls: { type: "boolean", default: false },
     },
   })
   const capUsd = Number(values["cap-usd"] ?? (command === "probe" ? 0.05 : 5))
@@ -244,7 +243,10 @@ async function main(argv: string[]): Promise<number> {
   if (command === "probe") {
     if (!process.env.MODEL_PROVIDER_API_KEY)
       throw new SetupError("probe needs MODEL_PROVIDER_API_KEY.")
-    return probe({ out, calls: modelCalls(capUsd), capUsd })
+    const calls = modelCalls(capUsd)
+    return values.controls
+      ? probeControls({ out, calls, capUsd, base: modelBase() })
+      : probe({ out, calls, capUsd })
   }
 
   if (command !== "run" && command !== "rescore")
