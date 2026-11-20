@@ -2,103 +2,103 @@
   "description": "A small Workspace for the example questions: short summaries of some files of .ai/memory, with their supersede relations. The integration test writes it to both stacks. The validity window of a unit applies to the document and to its claims.",
   "units": [
     {
-      "path": ".ai/memory/decisions/ADR-003-drizzle-beta.md",
+      "path": "decisions/ADR-003-drizzle-beta.md",
       "kind": "Decision",
       "title": "ADR-003: Drizzle ORM beta (v1.x)",
       "body": "Status: Accepted. The backend uses the beta dist-tag of drizzle-orm and drizzle-kit and follows the v1 API."
     },
     {
-      "path": ".ai/memory/decisions/ADR-004-local-development-docker-compose.md",
+      "path": "decisions/ADR-004-local-development-docker-compose.md",
       "kind": "Decision",
       "title": "ADR-004: Local development with Docker Compose",
       "body": "Status: Superseded by ADR-015. Local development runs Postgres and the graph database with one Docker Compose file and no profiles.",
       "claims": [
         {
-          "to": ".ai/memory/decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md",
+          "to": "decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md",
           "predicate": "SUPERSEDED_BY",
           "confidence": 0.9
         }
       ]
     },
     {
-      "path": ".ai/memory/decisions/ADR-010-opencypher-graph-db-falkordb-default.md",
+      "path": "decisions/ADR-010-opencypher-graph-db-falkordb-default.md",
       "kind": "Decision",
       "title": "ADR-010: OpenCypher graph database and FalkorDB as default",
       "body": "Status: Accepted, to be superseded by ADR-066 when all orgs use ClickHouse. The knowledge graph uses OpenCypher, and FalkorDB is the default graph database.",
       "claims": [
         {
-          "to": ".ai/memory/decisions/ADR-066-knowledge-content-in-clickhouse.md",
+          "to": "decisions/ADR-066-knowledge-content-in-clickhouse.md",
           "predicate": "SUPERSEDED_BY",
           "confidence": 0.8
         }
       ]
     },
     {
-      "path": ".ai/memory/decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md",
+      "path": "decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md",
       "kind": "Decision",
       "title": "ADR-015: Docker Compose profiles and small-scale container deploy",
       "body": "Status: Accepted. One docker-compose.yml uses profiles. pnpm dev:infra starts the infra profile, and pnpm start starts the deploy profile."
     },
     {
-      "path": ".ai/memory/decisions/ADR-017-amplitude-analytics.md",
+      "path": "decisions/ADR-017-amplitude-analytics.md",
       "kind": "Decision",
       "title": "ADR-017: Amplitude analytics (UI and backend)",
       "body": "Status: Superseded by ADR-038. Product analytics and observability events go to Amplitude from the UI and the backend.",
       "claims": [
         {
-          "to": ".ai/memory/decisions/ADR-038-self-hosted-clickstack-langfuse.md",
+          "to": "decisions/ADR-038-self-hosted-clickstack-langfuse.md",
           "predicate": "SUPERSEDED_BY",
           "confidence": 0.9
         }
       ]
     },
     {
-      "path": ".ai/memory/decisions/ADR-021-local-agent-memory-agentmemory-hybrid-mcp-proxy.md",
+      "path": "decisions/ADR-021-local-agent-memory-agentmemory-hybrid-mcp-proxy.md",
       "kind": "Decision",
       "title": "ADR-021: Local agent memory with repo Markdown and AgentMemory hydrated cache",
       "body": "Status: Superseded by ADR-024. Coding agents keep memory in repo Markdown, and an AgentMemory cache with an MCP proxy serves it.",
       "claims": [
         {
-          "to": ".ai/memory/decisions/ADR-024-markdown-only-local-memory-capture.md",
+          "to": "decisions/ADR-024-markdown-only-local-memory-capture.md",
           "predicate": "SUPERSEDED_BY",
           "confidence": 0.9
         }
       ]
     },
     {
-      "path": ".ai/memory/decisions/ADR-024-markdown-only-local-memory-capture.md",
+      "path": "decisions/ADR-024-markdown-only-local-memory-capture.md",
       "kind": "Decision",
       "title": "ADR-024: Markdown-only local memory with candidate-first capture",
       "body": "Status: Accepted. Durable agent memory is Markdown only under .ai/memory. A hook captures candidates first. There are no embeddings and no memory MCP."
     },
     {
-      "path": ".ai/memory/decisions/ADR-029-railway-us-east-next-to-neon.md",
+      "path": "decisions/ADR-029-railway-us-east-next-to-neon.md",
       "kind": "Decision",
       "title": "ADR-029: Railway compute in US East next to Neon",
       "body": "Status: Superseded by ADR-061. The hosted compute runs on Railway in US East, next to the Neon database, for low latency.",
       "claims": [
         {
-          "to": ".ai/memory/decisions/ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md",
+          "to": "decisions/ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md",
           "predicate": "SUPERSEDED_BY",
           "confidence": 0.9
         }
       ]
     },
     {
-      "path": ".ai/memory/decisions/ADR-038-self-hosted-clickstack-langfuse.md",
+      "path": "decisions/ADR-038-self-hosted-clickstack-langfuse.md",
       "kind": "Decision",
       "title": "ADR-038: Self-hosted ClickStack and Langfuse (ops observability)",
       "body": "Status: Superseded by ADR-061. Ops observability runs on a self-hosted ClickStack and Langfuse on Railway.",
       "claims": [
         {
-          "to": ".ai/memory/decisions/ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md",
+          "to": "decisions/ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md",
           "predicate": "SUPERSEDED_BY",
           "confidence": 0.9
         }
       ]
     },
     {
-      "path": ".ai/memory/decisions/ADR-039-production-image-deploys-one-environment.md",
+      "path": "decisions/ADR-039-production-image-deploys-one-environment.md",
       "kind": "Decision",
       "title": "ADR-039: Production image deploys stay on one Railway environment",
       "body": "Status: Superseded by ADR-061. Production image deploys stay on one Railway environment.",
@@ -106,52 +106,52 @@
       "validTo": "2026-11-07T00:00:00Z",
       "claims": [
         {
-          "to": ".ai/memory/decisions/ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md",
+          "to": "decisions/ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md",
           "predicate": "SUPERSEDED_BY",
           "confidence": 0.9
         }
       ]
     },
     {
-      "path": ".ai/memory/decisions/ADR-056-oxlint-and-oxfmt-replace-biome.md",
+      "path": "decisions/ADR-056-oxlint-and-oxfmt-replace-biome.md",
       "kind": "Decision",
       "title": "ADR-056: Oxlint and Oxfmt replace Biome",
       "body": "Status: Accepted. Oxlint and Oxfmt replace Biome: one Oxc parser for lint and format, checked in CI."
     },
     {
-      "path": ".ai/memory/decisions/ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md",
+      "path": "decisions/ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md",
       "kind": "Decision",
       "title": "ADR-061: Hosted ctxpipe on AWS (us-west-2) behind Cloudflare",
       "body": "Status: Proposed. Hosted ctxpipe runs on AWS in us-west-2 behind Cloudflare, with Aurora, AgentCore sandboxes and HyperDX only for observability.",
       "validFrom": "2026-11-07T00:00:00Z",
       "claims": [
         {
-          "to": ".ai/memory/decisions/ADR-066-knowledge-content-in-clickhouse.md",
+          "to": "decisions/ADR-066-knowledge-content-in-clickhouse.md",
           "predicate": "AMENDED_BY",
           "confidence": 0.6
         }
       ]
     },
     {
-      "path": ".ai/memory/decisions/ADR-066-knowledge-content-in-clickhouse.md",
+      "path": "decisions/ADR-066-knowledge-content-in-clickhouse.md",
       "kind": "Decision",
       "title": "ADR-066: Knowledge content lives in ClickHouse",
       "body": "Status: Accepted. Knowledge documents, chunks and relations live in ClickHouse. Postgres keeps the operational data. Org isolation is a WHERE clause and a row policy."
     },
     {
-      "path": ".ai/memory/decisions/ADR-067-knowledge-projection-applies-git-diff.md",
+      "path": "decisions/ADR-067-knowledge-projection-applies-git-diff.md",
       "kind": "Decision",
       "title": "ADR-067: The knowledge projection applies the Git diff",
       "body": "Status: Accepted. The knowledge projection applies the Git diff from last_sha, replaces each changed document, and keeps the current state only."
     },
     {
-      "path": ".ai/memory/glossary.md",
+      "path": "glossary.md",
       "kind": "Glossary",
       "title": "Project glossary",
       "body": "Hydrate: a read-only rebuild of the projection from a workspace-repository tree; it never writes the workspace repository. Projection: the derived retrieval state of one SHA.",
       "claims": [
         {
-          "to": ".ai/memory/decisions/ADR-067-knowledge-projection-applies-git-diff.md",
+          "to": "decisions/ADR-067-knowledge-projection-applies-git-diff.md",
           "predicate": "MENTIONS",
           "confidence": 0.5
         }

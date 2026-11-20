@@ -15,10 +15,10 @@ Both arms read through the `KnowledgeReader` seam of the tools (`src/knowledge-r
 
 A dataset is one JSON file that `dataset.ts` checks (version 0):
 
-- **Corpora:** the public source, the frozen context repo (URL and SHA), and the id of its Workspace fixture.
+- **Corpora:** the public source, the frozen context repo (URL, SHA, and the root folder of the Workspace: `root`, with `""` as the default), and the id of its Workspace fixture. The gold paths, the seeds and the position refs are relative to the root, as the tools give the paths of a Workspace.
 - **Questions:** an id, a category of ADR-069 decision 5 (`lookup`, `multi-hop`, `cross-source`, `time`, `disagreement`, `image`, `no-answer`), the text, the gold document paths, the seeds of `get_related` (optional), the expected positions with their status (a `disagreement` question), the key facts, and the split (`dev` to tune, `holdout` for the keep-or-revert decision only).
 
-`fixtures/ctxpipe-memory.dataset.json` holds 12 example questions over `.ai/memory/` of this repository, written by hand. The ADRs with superseded entries are the disagreement questions. `fixtures/ctxpipe-memory.workspace.json` is the small Workspace that the integration test writes to both stacks. The real question set comes from the frozen corpora ([CTX-1393](https://linear.app/ctxpipe/issue/CTX-1393)).
+`fixtures/ctxpipe-memory.dataset.json` holds 12 example questions over `.ai/memory/` of this repository, written by hand. Its corpus is this repository at a fixed SHA with the root `.ai/memory`. The ADRs with superseded entries are the disagreement questions. `fixtures/ctxpipe-memory.workspace.json` is the small Workspace that the integration test writes to both stacks. The real question set comes from the frozen corpora ([CTX-1393](https://linear.app/ctxpipe/issue/CTX-1393)).
 
 ## The metrics
 
@@ -35,6 +35,26 @@ A plane search says "no answer" when no Jev-judged hit reaches the `keepAt` sett
 
 Run each command from `apps/backend`, with the backend environment of the database that holds the eval Workspaces: `DATABASE_URL`, `AUTH_SECRET`, `GRAPH_DB_URI`, `CLICKHOUSE_URL`, and the model settings `MODEL_PROVIDER`, `MODEL_PROVIDER_URL` and `MODEL_PROVIDER_API_KEY` (OpenRouter).
 
+### Hydrate the corpora
+
+```sh
+factory eval knowledge:hydrate --repo CTXPIPE-CHECKOUT --out "$TMPDIR/knowledge-eval/hydrate" [--max-cost 5] \
+  -- --dataset "$PWD/DATASET.json"
+# or, with the model key in the environment:
+bun --env-file=.env.local evals/knowledge/cli.ts hydrate \
+  --dataset DATASET.json --out "$TMPDIR/knowledge-eval/hydrate" [--cap-usd 5]
+```
+
+An eval run repeats only the hydrate and the retrieval (ADR-069 decision 3). `hydrate` writes each frozen context repo of the dataset into both stacks of the database, through the real workflows: `workspace-hydrate` writes the old stack (Postgres and FalkorDB), and it queues `knowledge-projection`, which writes the plane (ClickHouse). It runs these workflows in its own worker, and it removes the other jobs that the hydrate queues (the code index and the knowledge maintenance), because the corpus is frozen.
+
+- Each corpus gets one Workspace in the eval org `knowledge-eval` (made-up ids), at the URL, the SHA and the root of the corpus, with the org flag `knowledge_plane` at `shadow`. A second hydrate of the same SHA makes no model call.
+- The hydrate reads the context repo with no credential: the repository must be public (or on a local Git server).
+- `CLICKHOUSE_URL` is the writer user (`ctxpipe_writer`) for `hydrate`, as in the worker, and the reader user (`ctxpipe_reader`) for `run`, as in the backend.
+- The model calls are the embedding calls of the two writers, and a vision call for each image of the plane. They go through the recorder of the run, so the spend cap and the ZDR rule apply (see `run`). The recorder keeps no copy of them.
+- A failed step of a workflow stops the hydrate at once with the error of the step. The workflows retry an outage for minutes, but in an eval a failed step is almost always a setup error. Fix it, and run `hydrate` again: it continues from the stored state.
+
+It writes `targets.json` (the input of `run`) and `hydrate.json` (the spend, and the calls that got the ZDR block) to `--out`. Exit codes: 0 done, 2 bad setup, 3 the spend cap stopped a call.
+
 ### Run
 
 ```sh
@@ -49,13 +69,14 @@ bun --env-file=.env.local evals/knowledge/cli.ts run \
 { "ctxpipe-memory-v0": { "orgId": "org_…", "orgSlug": "eval", "workspace": "memory" } }
 ```
 
-Each Workspace must serve the frozen SHA of its corpus on both stacks: the published revision on the old stack, and the last complete knowledge run on the plane (`knowledge_state`).
+Each Workspace must serve the frozen SHA of its corpus on both stacks: the published revision on the old stack, and the last complete knowledge run on the plane (`knowledge_state`). It must also have the root of the corpus. `hydrate` makes such Workspaces.
 
 Write each run folder outside the checkout, as in these examples. The folder holds the org id of the targets file and the corpus text, and this repository is public.
 
 - `--set NAME=VALUE` changes one setting of `ORCHESTRATOR_DEFAULTS` for the run. A run changes one setting (ADR-069 decision 7), so `--set` is allowed one time only.
 - `--cap-usd` is the hard spend cap (default $5). Before each model call, the run reserves the worst-case cost of that kind of call: $0.002 for Jev, $0.001 for an embedding, $0.25 for a judge. Each value is above the highest cost that the bake-offs measured. A call that would take the spent and reserved total over the cap does not go out, and the run stops with the spend-cap status in the report. After the call, its real `usage.cost` replaces the reservation. An answer with no cost, or a failed call, keeps the reserved value. Thus calls in parallel never take the run over the cap. The report compares only the questions that both arms answered before the stop, and it lists the others. The spend-capped model key is a second limit, outside the code.
 - `--kept` is the report of the last kept run. The report then gives the change of each question against it.
+- Each model call goes only to a ZDR endpoint (ADR-068 decision 7). The old stack sends its embedding calls with no provider block, so the recorder adds `{"data_collection":"deny","zdr":true}` to each request that has no provider block. This changes only the endpoint that serves the call, not the model. A model with no ZDR endpoint then refuses the call: it does not fall back. The run notes of the report name the calls that got the block.
 
 ### Score again with no model call
 
@@ -158,8 +179,8 @@ A recorder in front of `fetch` keeps the calls (`model-calls.ts`). Thus the read
 
 ## The report
 
-The first table compares the plane with the baseline arm, the current stack, for each split and category: the baseline value, the plane value, and the change. Then come the operations guards (with the count of partial answers), the cost, the change of each question against the kept run, the errors, and the questions that the report leaves out.
+The run notes name the calls that got the ZDR block. The first table compares the plane with the baseline arm, the current stack, for each split and category: the baseline value, the plane value, and the change. Then come the operations guards (with the count of partial answers), the cost, the change of each question against the kept run, the errors, and the questions that the report leaves out.
 
 ## Proof
 
-`src/knowledge-reader/knowledge-eval.integration.test.ts` writes the example Workspace to real Postgres, FalkorDB and ClickHouse. It runs the 12 example questions through both arms with fixed model answers (msw), and it checks a small expected report. It then scores a new `keepAt` again from the recorded calls with no model request, it stops a run at the spend cap, and it refuses a Workspace that does not serve the frozen SHA. `src/knowledge-reader/knowledge-eval.test.ts` checks the dataset rules, the metrics, the panel majority and the stop of the panel at the spend cap.
+`src/knowledge-reader/knowledge-eval-hydrate.integration.test.ts` hydrates a small context repo (real Git over HTTP) into real Postgres, FalkorDB and ClickHouse with `hydrate`, and `run` answers its question on both arms. It checks the ZDR block on each embedding call, a second hydrate with no model call, and the stop at the first failed step. `src/knowledge-reader/knowledge-eval.integration.test.ts` writes the example Workspace to real Postgres, FalkorDB and ClickHouse. It runs the 12 example questions through both arms with fixed model answers (msw), and it checks a small expected report. It then scores a new `keepAt` again from the recorded calls with no model request, it stops a run at the spend cap, and it refuses a Workspace that does not serve the frozen SHA or that has another root. `src/knowledge-reader/knowledge-eval.test.ts` checks the dataset rules, the metrics, the panel majority and the stop of the panel at the spend cap.

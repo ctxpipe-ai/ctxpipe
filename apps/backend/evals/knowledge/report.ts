@@ -198,6 +198,16 @@ export function renderMarkdown(report: Report): string {
     "",
     `Status: ${report.status}. Dataset ${report.datasetVersion}. Mode: ${report.run.mode}. Query time: ${report.run.now}.`,
     `Settings: ${JSON.stringify(report.run.settings)}. Spend: ${usd(report.run.spentUsd)} of ${usd(report.run.capUsd)}.`,
+    ...(Object.keys(report.run.zdrAdded).length
+      ? [
+          "",
+          `Run notes: the request had no provider block, so the harness added the ZDR block \`{"data_collection":"deny","zdr":true}\` (ADR-068 decision 7): ${Object.entries(
+            report.run.zdrAdded,
+          )
+            .map(([call, count]) => `${call} (${count})`)
+            .join(", ")}.`,
+        ]
+      : []),
     ...(report.run.stopped
       ? [
           "",

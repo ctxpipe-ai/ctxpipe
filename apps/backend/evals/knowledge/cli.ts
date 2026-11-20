@@ -4,6 +4,7 @@
  * the eval Workspaces (`DATABASE_URL`, `AUTH_SECRET`, `GRAPH_DB_URI`,
  * `CLICKHOUSE_URL`, and the model settings `MODEL_PROVIDER_*`):
  *
+ *   bun evals/knowledge/cli.ts hydrate --dataset FILE --out DIR [--cap-usd 5]
  *   bun evals/knowledge/cli.ts run --dataset FILE --targets FILE --out DIR \
  *     [--split dev|holdout] [--cap-usd 5] [--set NAME=VALUE] [--kept REPORT]
  *   bun evals/knowledge/cli.ts rescore --from DIR --out DIR \
@@ -20,7 +21,7 @@
  * `probe` failed.
  */
 import { execFile, execFileSync } from "node:child_process"
-import { writeFile } from "node:fs/promises"
+import { mkdir, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { parseArgs, promisify } from "node:util"
@@ -39,6 +40,7 @@ import {
   snapshotRepositories,
 } from "./corpus.js"
 import { type Dataset, readDataset } from "./dataset.js"
+import { hydrateCorpora } from "./hydrate.js"
 import { ModelCalls, type RecordedCall } from "./model-calls.js"
 import { labelWithPanel } from "./panel.js"
 import { probe } from "./probe.js"
@@ -67,8 +69,11 @@ import { runVision, VISION_MODELS } from "./vision.js"
 /** The model calls go to `MODEL_PROVIDER_URL`, as in the readers. */
 const modelBase = () =>
   process.env.MODEL_PROVIDER_URL || DEFAULT_OPENROUTER_BASE
-const modelCalls = (capUsd: number, replay?: readonly RecordedCall[]) =>
-  new ModelCalls(modelBase(), capUsd, replay)
+const modelCalls = (
+  capUsd: number,
+  replay?: readonly RecordedCall[],
+  options?: { addZdr?: boolean },
+) => new ModelCalls(modelBase(), capUsd, replay, options)
 
 /**
  * Run the questions of `splits` through both arms, then write the run folder
@@ -86,7 +91,8 @@ export async function executeRun(input: {
   kept: KeptRun | null
   replay?: readonly RecordedCall[]
 }): Promise<Report> {
-  const calls = modelCalls(input.capUsd, input.replay)
+  // Each call of the arms goes only to a ZDR endpoint (ADR-068 decision 7).
+  const calls = modelCalls(input.capUsd, input.replay, { addZdr: true })
   const restoreSettings = applySettings(input.settings)
   const restoreFetch = calls.install()
   try {
@@ -109,6 +115,7 @@ export async function executeRun(input: {
       capUsd: input.capUsd,
       spentUsd: calls.spentUsd,
       stopped: calls.stopped,
+      zdrAdded: { ...calls.zdrAdded },
     }
     await writeRun(input.out, {
       manifest,
@@ -134,6 +141,69 @@ export async function executeRun(input: {
 
 class SetupError extends Error {}
 
+/** Build the file converter: the export of `factory eval` has no build of it. */
+function buildConverter() {
+  execFileSync(
+    process.execPath,
+    [
+      fileURLToPath(
+        new URL(
+          "../../../../scripts/checks/prerequisites.mjs",
+          import.meta.url,
+        ),
+      ),
+      "converter",
+    ],
+    // Its result line (and the fix of a failure) goes to stderr.
+    { stdio: ["ignore", 2, "inherit"] },
+  )
+}
+
+/**
+ * Hydrate each corpus into both stacks (`hydrate.ts`), and write the targets
+ * of `run` (`targets.json`) and the spend (`hydrate.json`) to `out`. Returns
+ * the exit code.
+ */
+async function hydrate(input: {
+  dataset: Dataset
+  databaseUrl: string
+  out: string
+  capUsd: number
+}): Promise<number> {
+  // The hydrate sends each chunk of each corpus, so the recorder keeps no
+  // call: a rescore replays only the calls of `run`.
+  const calls = new ModelCalls(modelBase(), input.capUsd, undefined, {
+    addZdr: true,
+    keepRecords: false,
+  })
+  const restore = calls.install()
+  initDb(input.databaseUrl)
+  try {
+    const targets = await hydrateCorpora({
+      dataset: input.dataset,
+      databaseUrl: input.databaseUrl,
+      calls,
+      log: (line) => process.stderr.write(`${line}\n`),
+    })
+    await mkdir(input.out, { recursive: true })
+    await writeJson(join(input.out, "targets.json"), targets)
+    await writeJson(join(input.out, "hydrate.json"), {
+      capUsd: input.capUsd,
+      spentUsd: calls.spentUsd,
+      stopped: calls.stopped,
+      zdrAdded: calls.zdrAdded,
+    })
+    process.stdout.write(
+      `The targets are in ${join(input.out, "targets.json")}. Spend: $${calls.spentUsd.toFixed(4)}.\n`,
+    )
+    return calls.stopped ? 3 : 0
+  } finally {
+    restore()
+    await closeGraphDb()
+    await closeDb()
+  }
+}
+
 /** Label a draft with the judge panel. Returns the exit code. */
 async function label(values: {
   draft?: string
@@ -146,8 +216,12 @@ async function label(values: {
     throw new SetupError("label needs --draft, --repo and --models.")
   const repo = values.repo
   const draft = await readDataset(values.draft)
-  const shas = new Map(
-    draft.corpora.map((corpus) => [corpus.id, corpus.contextRepo.sha]),
+  // The gold paths are relative to the root of the corpus.
+  const trees = new Map(
+    draft.corpora.map(({ id, contextRepo: { sha, root } }) => [
+      id,
+      root ? `${sha}:${root}/` : `${sha}:`,
+    ]),
   )
   const calls = modelCalls(values.capUsd)
   const restore = calls.install()
@@ -161,7 +235,7 @@ async function label(values: {
             "-C",
             repo,
             "show",
-            `${shas.get(corpus)}:${ref}`,
+            `${trees.get(corpus)}${ref}`,
           ])
         ).stdout,
       env: process.env,
@@ -252,22 +326,8 @@ async function main(argv: string[]): Promise<number> {
   if (command === "vision") {
     if (!process.env.MODEL_PROVIDER_API_KEY)
       throw new SetupError("vision needs MODEL_PROVIDER_API_KEY.")
-    // The SVG fixtures go through the converter, and the export of
-    // `factory eval` has no build of it.
-    execFileSync(
-      process.execPath,
-      [
-        fileURLToPath(
-          new URL(
-            "../../../../scripts/checks/prerequisites.mjs",
-            import.meta.url,
-          ),
-        ),
-        "converter",
-      ],
-      // Its result line (and the fix of a failure) goes to stderr.
-      { stdio: ["ignore", 2, "inherit"] },
-    )
+    // The SVG fixtures go through the converter.
+    buildConverter()
     const calls = modelCalls(capUsd)
     const restore = calls.install()
     try {
@@ -285,11 +345,22 @@ async function main(argv: string[]): Promise<number> {
     }
   }
 
-  if (command !== "run" && command !== "rescore")
+  if (command !== "run" && command !== "rescore" && command !== "hydrate")
     throw new SetupError(
-      "Use the command run, rescore, label, corpus, probe or vision.",
+      "Use the command hydrate, run, rescore, label, corpus, probe or vision.",
     )
   if (!process.env.DATABASE_URL) throw new SetupError("Set DATABASE_URL.")
+  if (command === "hydrate") {
+    if (!values.dataset) throw new SetupError("hydrate needs --dataset.")
+    // The projection of the plane converts each file with it.
+    buildConverter()
+    return hydrate({
+      dataset: await readDataset(values.dataset),
+      databaseUrl: process.env.DATABASE_URL,
+      out,
+      capUsd,
+    })
+  }
   const kept = values.kept
     ? keptRunSchema.parse(await readJson(values.kept))
     : null

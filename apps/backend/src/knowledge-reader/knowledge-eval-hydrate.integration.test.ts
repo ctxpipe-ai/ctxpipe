@@ -1,0 +1,271 @@
+import { execFileSync } from "node:child_process"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
+import { eq, sql } from "drizzle-orm"
+import { HttpResponse, http } from "msw"
+import { setupServer } from "msw/node"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+
+import { executeRun } from "../../evals/knowledge/cli.js"
+import { type Dataset, datasetSchema } from "../../evals/knowledge/dataset.js"
+import { hydrateCorpora } from "../../evals/knowledge/hydrate.js"
+import { ModelCalls } from "../../evals/knowledge/model-calls.js"
+import type { Targets } from "../../evals/knowledge/runner.js"
+import { getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
+import { organizations } from "../db/schema/auth.js"
+import { workspaces } from "../db/schema/workspaces.js"
+import { migrateKnowledgeStore } from "../knowledge-store/migrate.js"
+import { textEmbeddingConfig } from "../retrieval/embeddings/textEmbeddings.js"
+import { startClickHouse, userUrl } from "../test/clickhouse.js"
+import { startGitHttpServer } from "../test/git-http-server.js"
+import {
+  embedText,
+  planeInputVector,
+} from "../test/knowledge-search-fixture.js"
+import { dropOrgGraph } from "../test/related-fixture.js"
+
+/*
+ * The hydrate of the knowledge eval harness (ADR-069 decision 3): a small
+ * frozen context repo goes into both stacks through the real workflows
+ * (real Git over HTTP, Postgres, FalkorDB and ClickHouse; msw answers for
+ * the model). Then `run` answers its question on both arms.
+ */
+
+// The worker of the hydrate takes the runs of its OpenWorkflow namespace,
+// so the test has its own namespace, set before the client module loads.
+vi.hoisted(() => {
+  process.env.OPENWORKFLOW_NAMESPACE_ID = `knowledge-eval-hydrate-${process.pid}`
+})
+
+const MODEL_URL = "https://hydrate-model.test/v1"
+/** The body of each embedding request, by model. */
+const embeddingBodies: { model: string; provider?: unknown }[] = []
+
+const models = setupServer(
+  http.post(`${MODEL_URL}/embeddings`, async ({ request }) => {
+    const body = (await request.json()) as {
+      model: string
+      input: string[]
+      provider?: unknown
+    }
+    embeddingBodies.push({ model: body.model, provider: body.provider })
+    const plane = body.model === textEmbeddingConfig.model
+    return HttpResponse.json({
+      data: body.input.map((input, index) => ({
+        index,
+        embedding: plane ? planeInputVector(input) : embedText(input),
+      })),
+      usage: { cost: 0.0001 },
+    })
+  }),
+  // Jev keeps each candidate.
+  http.post(
+    "https://hydrate-model.test/alpha/decisions",
+    async ({ request }) => {
+      const body = (await request.json()) as {
+        questions: Record<string, unknown>
+      }
+      return HttpResponse.json({
+        answers: Object.fromEntries(
+          Object.keys(body.questions).map((key) => [
+            key,
+            { type: "noul", noul: 0.9 },
+          ]),
+        ),
+        usage: { cost: 0.0001 },
+      })
+    },
+  ),
+)
+
+let directory: string
+let git: Awaited<ReturnType<typeof startGitHttpServer>>
+let clickHouse: Awaited<ReturnType<typeof startClickHouse>>
+let readerUrl: string
+let writerUrl: string
+let dataset: Dataset
+
+const hydrate = async (calls: ModelCalls) => {
+  const restore = calls.install()
+  try {
+    return await hydrateCorpora({
+      dataset,
+      databaseUrl: process.env.DATABASE_URL ?? "",
+      calls,
+      log: () => {},
+    })
+  } finally {
+    restore()
+  }
+}
+
+describe("the hydrate of the knowledge eval harness", () => {
+  beforeAll(async () => {
+    if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required")
+    vi.stubEnv("MODEL_PROVIDER", "openrouter")
+    vi.stubEnv("MODEL_PROVIDER_API_KEY", "fixture-only")
+    vi.stubEnv("MODEL_PROVIDER_URL", MODEL_URL)
+    models.listen({ onUnhandledRequest: "bypass" })
+    initDb(process.env.DATABASE_URL)
+
+    directory = mkdtempSync(join(tmpdir(), "knowledge-eval-hydrate-"))
+    const repo = join(directory, "context")
+    const run = (...args: string[]) =>
+      execFileSync("git", args, { cwd: repo, encoding: "utf8" }).trim()
+    mkdirSync(join(repo, "docs"), { recursive: true })
+    writeFileSync(
+      join(repo, "docs", "invoices.md"),
+      "# Invoices\n\nThe billing service stores each invoice in Postgres.\n",
+    )
+    writeFileSync(
+      join(repo, "docs", "deploys.md"),
+      "# Deploys\n\nA release ships one image to each environment.\n",
+    )
+    // Out of the root of the corpus: no stack reads it.
+    writeFileSync(join(repo, "README.md"), "# Outside\n\nNot in the corpus.\n")
+    run("init", "-b", "main")
+    run("add", ".")
+    run(
+      "-c",
+      "user.name=Eval",
+      "-c",
+      "user.email=eval@example.test",
+      "commit",
+      "-m",
+      "Frozen context repo",
+    )
+    const sha = run("rev-parse", "HEAD")
+    git = await startGitHttpServer(directory)
+
+    clickHouse = await startClickHouse()
+    const url = await clickHouse.freshDatabase()
+    await migrateKnowledgeStore(url, {
+      reader: "reader-test",
+      writer: "writer-test",
+    })
+    readerUrl = userUrl(url, "ctxpipe_reader", "reader-test")
+    writerUrl = userUrl(url, "ctxpipe_writer", "writer-test")
+
+    dataset = datasetSchema.parse({
+      version: "test",
+      corpora: [
+        {
+          id: "tiny",
+          source: "made up",
+          contextRepo: {
+            url: `http://127.0.0.1:${git.port}/context`,
+            sha,
+            root: "docs",
+          },
+          workspace: "tiny-v0",
+        },
+      ],
+      questions: [
+        {
+          id: "invoice-store",
+          corpus: "tiny",
+          category: "lookup",
+          split: "dev",
+          text: "Where does the billing service store invoices?",
+          gold: ["invoices.md"],
+          keyFacts: ["Invoices are in Postgres."],
+        },
+      ],
+    })
+  }, 240_000)
+
+  afterAll(async () => {
+    const orgId = "org_knowledge_eval"
+    await getSystemDb().execute(
+      sql`delete from openworkflow.workflow_runs where input->>'orgId' = ${orgId}`,
+    )
+    await withOrgDbContext(orgId, (db) =>
+      db.delete(workspaces).where(eq(workspaces.orgId, orgId)),
+    )
+    await dropOrgGraph(orgId)
+    await getSystemDb().delete(organizations).where(eq(organizations.id, orgId))
+    await clickHouse?.stop()
+    await git?.stop()
+    if (directory) rmSync(directory, { recursive: true, force: true })
+    models.close()
+    vi.unstubAllEnvs()
+    delete process.env.OPENWORKFLOW_NAMESPACE_ID
+  })
+
+  let targets: Targets
+
+  it("stops at the first failed step, with its error", async () => {
+    // A setup error: the projection cannot sign in to ClickHouse.
+    vi.stubEnv("CLICKHOUSE_URL", userUrl(writerUrl, "ctxpipe_writer", "wrong"))
+    const calls = new ModelCalls(MODEL_URL, 1, undefined, { addZdr: true })
+    await expect(hydrate(calls)).rejects.toThrow(
+      /^The step project-knowledge-plane of the hydrate of ws_knowledge_eval_tiny failed: .*Authentication failed/,
+    )
+    // The old stack was written first. It sends no provider block, so the
+    // harness added it.
+    expect(calls.zdrAdded).toEqual({
+      "hydrate embedding openai/text-embedding-3-large": 1,
+    })
+    // The projection writes as the writer user, as the worker does.
+    vi.stubEnv("CLICKHOUSE_URL", writerUrl)
+  })
+
+  it("writes the frozen corpus to both stacks, with ZDR on each model call", async () => {
+    const calls = new ModelCalls(MODEL_URL, 1, undefined, {
+      addZdr: true,
+      keepRecords: false,
+    })
+    targets = await hydrate(calls)
+    expect(targets).toEqual({
+      "tiny-v0": {
+        orgId: "org_knowledge_eval",
+        orgSlug: "knowledge-eval",
+        workspace: "tiny-v0",
+      },
+    })
+    // Both writers embedded the files of the root, and each request went
+    // only to ZDR endpoints.
+    expect(new Set(embeddingBodies.map((body) => body.model))).toEqual(
+      new Set(["openai/text-embedding-3-large", textEmbeddingConfig.model]),
+    )
+    for (const body of embeddingBodies)
+      expect(body.provider).toMatchObject({
+        data_collection: "deny",
+        zdr: true,
+      })
+    expect(calls.records).toEqual([])
+    expect(calls.spentUsd).toBeGreaterThan(0)
+  })
+
+  it("finds both stacks current on a second hydrate", async () => {
+    const before = embeddingBodies.length
+    await hydrate(new ModelCalls(MODEL_URL, 1, undefined, { addZdr: true }))
+    expect(embeddingBodies.length).toBe(before)
+  })
+
+  it("lets run answer the question on both arms", async () => {
+    vi.stubEnv("CLICKHOUSE_URL", readerUrl)
+    const report = await executeRun({
+      dataset,
+      targets,
+      splits: ["dev"],
+      settings: {},
+      capUsd: 1,
+      now: new Date(),
+      out: join(directory, "run"),
+      kept: null,
+    })
+    expect(report.status).toBe("complete")
+    expect(
+      report.questions.map(({ arm, metrics }) => ({
+        arm,
+        recall5: metrics.recall5,
+      })),
+    ).toEqual([
+      { arm: "legacy", recall5: 1 },
+      { arm: "plane", recall5: 1 },
+    ])
+  })
+})

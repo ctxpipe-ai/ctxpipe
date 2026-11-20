@@ -242,6 +242,82 @@ describe("the spend cap", () => {
   })
 })
 
+describe("the ZDR provider block", () => {
+  const BASE = "https://zdr.test/v1"
+  const bodies: unknown[] = []
+  useMswServer(
+    http.post(`${BASE}/embeddings`, async ({ request }) => {
+      const body = (await request.json()) as { provider?: { zdr?: boolean } }
+      bodies.push(body)
+      // OpenRouter refuses a ZDR request to a model with no ZDR endpoint.
+      if ((body as { model?: string }).model === "no-zdr/model")
+        return HttpResponse.json(
+          { error: { message: "No endpoints found" } },
+          { status: 404 },
+        )
+      return HttpResponse.json({ data: [], usage: { cost: 0.0001 } })
+    }),
+  )
+  const post = (body: unknown) =>
+    fetch(`${BASE}/embeddings`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    })
+
+  it("goes on each request with no provider block, and the replay still finds the call", async () => {
+    bodies.length = 0
+    const live = new ModelCalls(BASE, 1, undefined, { addZdr: true })
+    const plane = {
+      model: "qwen/qwen3-embedding-8b",
+      input: ["q"],
+      provider: { zdr: true, data_collection: "deny", quantizations: ["bf16"] },
+    }
+    let restore = live.install()
+    try {
+      live.begin("legacy", "question")
+      await post({ model: "openai/text-embedding-3-large", input: ["q"] })
+      live.begin("plane", "question")
+      await post(plane)
+      // A model with no ZDR endpoint fails: it does not fall back.
+      live.begin("legacy", "other")
+      expect((await post({ model: "no-zdr/model", input: ["q"] })).status).toBe(
+        404,
+      )
+    } finally {
+      restore()
+    }
+    expect(bodies).toEqual([
+      {
+        model: "openai/text-embedding-3-large",
+        input: ["q"],
+        provider: { data_collection: "deny", zdr: true },
+      },
+      plane,
+      {
+        model: "no-zdr/model",
+        input: ["q"],
+        provider: { data_collection: "deny", zdr: true },
+      },
+    ])
+    expect(live.zdrAdded).toEqual({
+      "legacy embedding openai/text-embedding-3-large": 1,
+      "legacy embedding no-zdr/model": 1,
+    })
+    expect(live.records[0]?.request).toEqual(bodies[0])
+
+    const replay = new ModelCalls(BASE, 0, live.records, { addZdr: true })
+    restore = replay.install()
+    try {
+      replay.begin("legacy", "question")
+      await post({ model: "openai/text-embedding-3-large", input: ["q"] })
+      expect(replay.end()).toMatchObject({ embedding: 1, missing: 0 })
+    } finally {
+      restore()
+    }
+  })
+})
+
 describe("the judge panel", () => {
   const BASE = "https://panel.test/v1"
   /** model → ref → [answers, status]. */
@@ -307,6 +383,7 @@ describe("the judge panel", () => {
         contextRepo: {
           url: "https://example.test/repo",
           sha: "e".repeat(40),
+          root: "",
         },
         workspace: "corpus-v0",
       },

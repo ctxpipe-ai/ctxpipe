@@ -264,6 +264,13 @@ describe("the knowledge eval harness", () => {
       })),
       chunks: true,
     })
+    // The gold paths are relative to the root of the corpus.
+    await withOrgDbContext(seed.orgId, (db) =>
+      db
+        .update(workspaces)
+        .set({ rootPath: dataset.corpora[0]?.contextRepo.root })
+        .where(eq(workspaces.id, workspaceId)),
+    )
     // The search of the old stack reads the claims of a unit for `validAt`.
     await withOrgDbContext(seed.orgId, async (db) => {
       for (const unit of units)
@@ -444,7 +451,15 @@ describe("the knowledge eval harness", () => {
       // answer, at the upper estimate of $0.001.
       costUsd: 0.064,
     })
+    // The old stack sends no provider block, so the harness added the ZDR
+    // block to each of its calls, and the report says so.
+    expect(live.run.zdrAdded).toEqual({
+      "legacy embedding openai/text-embedding-3-large": 17,
+    })
     const markdown = await readFile(join(folder, "live", "report.md"), "utf8")
+    expect(markdown).toContain(
+      'harness added the ZDR block `{"data_collection":"deny","zdr":true}` (ADR-068 decision 7): legacy embedding openai/text-embedding-3-large (17).',
+    )
     const firstTable = markdown.slice(markdown.indexOf("\n## "))
     expect(firstTable).toMatch(
       /^\n## Comparison with the baseline: current stack \(Postgres \+ FalkorDB\)/,
@@ -557,6 +572,24 @@ describe("the knowledge eval harness", () => {
         },
       }),
     ).rejects.toThrow(/must serve the frozen SHA f{40}/)
+    expect(requests).toEqual(before)
+  })
+
+  it("refuses a Workspace whose root is not the root of the corpus", async () => {
+    const before = { ...requests }
+    await expect(
+      run("other-root", {
+        dataset: {
+          ...dataset,
+          corpora: dataset.corpora.map((corpus) => ({
+            ...corpus,
+            contextRepo: { ...corpus.contextRepo, root: "" },
+          })),
+        },
+      }),
+    ).rejects.toThrow(
+      'Workspace memory must have the root "" of ctxpipe-memory, not ".ai/memory".',
+    )
     expect(requests).toEqual(before)
   })
 })
