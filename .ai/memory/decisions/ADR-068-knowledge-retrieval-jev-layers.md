@@ -57,24 +57,31 @@ The content and its tables are in [ADR-066](ADR-066-knowledge-content-in-clickho
 
    Why: Jev gives one fast judgment for each question, and the questions of one call do not see each other. A typed decision model follows the name of an option, not its definition, and the options of a Choice question compete. Thus a 5-way Choice with long definitions, or a question that weighs four factors, is not reliable. Small facts and rules in code are reliable and can be tested.
 5. **Two vector spaces: one for text, one for images** (the CTO, 2026-11-20).
-   - Our content is almost all text. A text-only model embeds text chunks in large batches. A multimodal model embeds only the images, which are few. The query pays one more embedding call, in parallel, which is a smaller cost than slow full rebuilds.
-   - The reason: Gemini Embedding 2 is the only multimodal model with ZDR endpoints, and its ZDR endpoints take one input for each request. The live controls of 2026-11-20 ([#892](https://github.com/ctxpipe-ai/ctxpipe/pull/892)) showed that its Vertex endpoints refuse a request with more than one input, also with `zdr: false`; only Google AI Studio takes a batch, and it has no ZDR endpoint. With one space, a full rebuild needs one request for each chunk.
+   - Our content is almost all text. A text-only model embeds the text chunks in large batches. A multimodal model embeds only the images, which are few.
+   - Each query makes one more embedding call, in parallel with the first. Slow full rebuilds are a larger problem than this call.
+   - The reason: Gemini Embedding 2 is the only multimodal model with ZDR endpoints, and its ZDR endpoints take one input for each request. With one space, a full rebuild needs one request for each chunk.
+   - The evidence: the live controls of 2026-11-20 ([#892](https://github.com/ctxpipe-ai/ctxpipe/pull/892)). Its Vertex endpoints refused each request with more than one input, also with `zdr: false`. Only Google AI Studio took a batch, and AI Studio has no ZDR endpoint.
    - All embeddings go through the OpenRouter embeddings endpoint, with one OpenAI-compatible client. The models must also be usable outside AWS, for example by a self-hoster on Azure.
-   - The model and the dimension of each space are config. Both model names are part of the projection version ([ADR-067](ADR-067-knowledge-projection-applies-git-diff.md)).
+   - The model, the pinned provider endpoint and the dimension of each space are config. All of them are part of the projection version ([ADR-067](ADR-067-knowledge-projection-applies-git-diff.md)). Thus a change of model or provider starts a full rebuild, and one space never mixes vectors of two providers.
    - Before a chunk is embedded, it gets one line of context: the title and position of its document.
    - **Text model: Qwen3 Embedding 8B** (`qwen/qwen3-embedding-8b`; the CTO, 2026-11-20). The reasons, from the OpenRouter lists and the public benchmarks of 2026-11-20:
-     - It has the best published retrieval quality of the ZDR text models: about 70.6 on the MTEB multilingual board at its release in 2025 (the first place then), and the Qwen3 family scores about 69.6 nDCG@10 on MTEB multilingual v2 retrieval. Gemini Embedding 001 scores 67.71 on that measure. OpenAI text-embedding-3-small is a model of 2024 and scores 62.3 on the older MTEB English average.
+     - It has the best published retrieval quality of the ZDR text models. It had about 70.6 on the MTEB multilingual board at its release in 2025, the first place then. The Qwen3 family has about 69.6 nDCG@10 on MTEB multilingual v2 retrieval, and Gemini Embedding 001 has 67.71 on that measure.
+     - OpenAI text-embedding-3-small is a model of 2024. It has 62.3 on the older MTEB English average.
      - It is the least expensive model of good quality: $0.01 for each million tokens.
      - It accepts 32,768 to 40,960 tokens of input, so chunks are not cut.
-     - It has three ZDR endpoints (DeepInfra, Nebius, SiliconFlow), so one provider can replace another.
+     - It has three ZDR endpoints (DeepInfra, Nebius and SiliconFlow). Each call pins one of them, with no fallback (decision 7). The other endpoints let us move to a different provider by a config change and a full rebuild. The batch probe of [CTX-1431](https://linear.app/ctxpipe/issue/CTX-1431) chooses the pinned endpoint.
      - Its weights are open, so a self-hoster can run it locally.
-     - The costs: the providers are smaller than Azure, and the model expects an instruction line before a query. The writer and the search must send it.
-   - **The other text candidates:** Perplexity pplx-embed-v1-4b reports similar retrieval quality (69.66 nDCG@10, self-reported) and is the challenger in the first eval. OpenAI text-embedding-3-small on Azure is the fallback if the Qwen providers fail in operation. Models with an input limit of 512 tokens are too short for our chunks. Voyage 4, Cohere Embed 5 and NVIDIA Nemotron have no ZDR endpoint.
+     - The disadvantages: the providers are smaller than Azure. The model also expects an instruction line before a query: only the search adds it to the question. The writer embeds the chunks with no instruction line, only with the context line above.
+   - **The other text candidates:**
+     - Perplexity pplx-embed-v1-4b reports a similar retrieval quality (69.66 nDCG@10, self-reported). It is the challenger in the first eval.
+     - OpenAI text-embedding-3-small on Azure is the operational fallback if the Qwen providers fail in operation. It is a change in config with a full rebuild, never a fallback inside a request. It keeps `zdr: true`, `data_collection: "deny"` and a pinned provider.
+     - Models with an input limit of 512 tokens are too short for our chunks.
+     - Voyage 4, Cohere Embed 5 and NVIDIA Nemotron have no ZDR endpoint.
    - **Image model: Gemini Embedding 2,** pinned to the provider `google-vertex`, one image for each request. It is the only ZDR model that takes images and accepts enough input. Titan Multimodal G1 accepts only 128 tokens of input.
    - Public benchmarks do not match our content (engineering knowledge). The evals of [ADR-069](ADR-069-knowledge-plane-evals-and-rollout.md) decide between the text candidates on our data.
 6. **Images.** Jev sees the image bytes, which the backend reads from the Workspace Git at the served SHA ([ADR-066](ADR-066-knowledge-content-in-clickhouse.md) decision 6). OCR or a vision-model description at ingest is optional, and the evals decide it.
-7. **Data receivers.** Jev receives the question, the text of the candidates and images. The embedding provider receives the content. Both are upstreams of OpenRouter, which our public docs list as the model sub-processor, and we reach them only through ZDR endpoints. ADR-063 accepted the Jev endpoint only for public mock screenshots. For customer content:
-   - Every Jev call and every embedding call sets `provider.data_collection: "deny"` and `provider.zdr: true`. Our public docs promise ZDR endpoints for hosted model calls. On 2026-11-19, the OpenRouter ZDR list (`GET /api/v1/endpoints/zdr`) had TypeSafe Jev 1.14 (provider `typesafe`), Gemini Embedding 2 (provider `google-vertex`) and Titan Multimodal G1 (provider `amazon-bedrock`).
+7. **Data receivers.** Jev receives the question, the text of the candidates and images. The embedding providers receive the content: the text-model provider receives the text chunks and the questions, and the image-model provider receives the images and the questions. Both are upstreams of OpenRouter, which our public docs list as the model sub-processor, and we reach them only through ZDR endpoints. ADR-063 accepted the Jev endpoint only for public mock screenshots. For customer content:
+   - Every Jev call and every embedding call sets `provider.data_collection: "deny"` and `provider.zdr: true`. Our public docs promise ZDR endpoints for hosted model calls. On 2026-11-20, the OpenRouter ZDR list (`GET /api/v1/endpoints/zdr`) had TypeSafe Jev 1.14 (provider `typesafe`), Qwen3 Embedding 8B (`deepinfra/us`, `nebius/bf16` and `siliconflow/fp8`) and Gemini Embedding 2 (`google-vertex/us` and `google-vertex/global`).
    - Every call pins its upstream provider, with no fallback to another provider (OpenRouter `provider.order` with `allow_fallbacks: false`). A call that the pinned provider cannot serve fails. It does not go to another provider.
    - These request settings are the guard. No written confirmation from a provider gates the flag (the CTO, 2026-11-19).
    - ADR-063 decision 6 records that nobody has confirmed that OpenRouter applies these settings on the alpha Decisions endpoint. Before the first org leaves `off`, an automated probe with a real call confirms it. An agent runs the probe, and no person is necessary.
@@ -82,8 +89,8 @@ The content and its tables are in [ADR-066](ADR-066-knowledge-content-in-clickho
 ## Consequences
 
 - **Better ranking signal:** the ranking comes from the question, not from the graph shape. We no longer tune the intent presets and the predicate weights.
-- **Latency:** about 500 ms of Jev time for `get_related` at D = 3, plus the ClickHouse queries. The scan cost grows with the size of the Workspace: 1 million chunks is about 128 MB of binary vectors for each query.
-- **Cost:** each retrieval has a model cost (Jev and the query embedding).
+- **Latency:** about 500 ms of Jev time for `get_related` at D = 3, plus the ClickHouse queries. Each query makes two embedding calls in parallel and two vector scans. The text scan grows with the size of the Workspace: 1 million chunks is about 128 MB of binary vectors for each query. The image scan is small.
+- **Cost:** each retrieval has a model cost (Jev and the two query embeddings).
 - **Open: what happens when Jev fails or is slow** (return the search order, or fail the call). The PoC decides it.
 - **Facts to verify:**
   - how many Jev questions fit in one call (50 candidates × 2, or 12 pairs × 4 and the items);
