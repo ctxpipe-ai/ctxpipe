@@ -25,7 +25,9 @@ const CHAT = `${BASE}/chat/completions`
 const server = useMswServer()
 
 /** The allowlist of the tests, and the provider block of each request. */
-const ALLOWED = ["typesafe", "openai", "azure", "nebius"]
+// As on the hosted stack: the control models of the ZDR pairs are at
+// providers outside it (OpenAI, Google AI Studio).
+const ALLOWED = ["typesafe", "azure", "amazon-bedrock", "google-vertex"]
 const BLOCK = { data_collection: "deny", zdr: true, only: ALLOWED }
 
 let out: string
@@ -78,6 +80,9 @@ const PROVIDERS = [
   ["typesafe", "TypeSafe"],
   ["openai", "OpenAI"],
   ["azure", "Azure"],
+  ["amazon-bedrock", "Amazon Bedrock"],
+  ["google-vertex", "Google"],
+  ["google-ai-studio", "Google AI Studio"],
   ["nebius", "Nebius"],
   ["deepinfra", "DeepInfra"],
   ["siliconflow", "SiliconFlow"],
@@ -180,6 +185,8 @@ function gateway(options: {
       const body = decisionSchema.parse(await request.json())
       bodies.decisions.push(body)
       const endpoint = ENDPOINTS[body.model]
+      if (endpoint && outsideAllowlist(body.provider, endpoint.name))
+        return noAllowedProvider()
       if (options.refusal && body.provider.zdr && !endpoint?.zdr)
         return HttpResponse.json(
           { error: { message: options.refusal.message } },
@@ -214,7 +221,7 @@ function gateway(options: {
         return HttpResponse.json({
           id: "reply",
           model: tier.data.model,
-          provider: options.tierName ?? "OpenAI",
+          provider: options.tierName ?? "Azure",
           choices: [
             {
               index: 0,
@@ -234,6 +241,8 @@ function gateway(options: {
       bodies.vision.push(body)
       const { model } = body
       const endpoint = VISION_ENDPOINTS[model]
+      if (endpoint && outsideAllowlist(body.provider, endpoint.name))
+        return noAllowedProvider()
       if (
         !endpoint ||
         (options.enforcesZdr && body.provider.zdr && !endpoint.zdr)
@@ -386,7 +395,7 @@ describe("the provider probe", () => {
         name: "chat openai/fast-model",
         pass: true,
         status: 200,
-        provider: "OpenAI",
+        provider: "Azure",
       }),
       expect.objectContaining({ name: "chat openai/high-model", pass: true }),
       expect.objectContaining({
@@ -422,7 +431,9 @@ describe("the provider probe", () => {
     )
 
     // The control and the refused request are the request of the real
-    // client: only the model and `zdr` change. No request pins a provider.
+    // client: only the model and `zdr` change, and the pair sends no `only`
+    // (the control model is at a provider outside the allowlist). No request
+    // pins a provider.
     const [served, control, refused] = bodies.decisions
     expect(served?.provider).toEqual(BLOCK)
     const nonZdr = {
@@ -432,9 +443,12 @@ describe("the provider probe", () => {
     }
     expect(control).toEqual({
       ...nonZdr,
-      provider: { ...BLOCK, zdr: false },
+      provider: { data_collection: "deny", zdr: false },
     })
-    expect(refused).toEqual(nonZdr)
+    expect(refused).toEqual({
+      ...nonZdr,
+      provider: { data_collection: "deny", zdr: true },
+    })
 
     // The question goes as it is, only to a ZDR endpoint.
     expect(bodies.embeddings[0]).toEqual({
@@ -458,11 +472,11 @@ describe("the provider probe", () => {
       model: "openai/text-embedding-ada-002",
       encoding_format: "float",
       input: ["Is the sky blue?"],
-      provider: { ...BLOCK, zdr: false },
+      provider: { data_collection: "deny", zdr: false },
     })
     expect(embeddingRefused).toEqual({
       ...embeddingControl,
-      provider: BLOCK,
+      provider: { data_collection: "deny", zdr: true },
     })
 
     // The vision requests are the request of the client for the default
@@ -474,7 +488,11 @@ describe("the provider probe", () => {
     expect(visionControl).toEqual({
       ...vision,
       model: "google/gemini-2.5-flash-lite",
-      provider: { ...vision?.provider, zdr: false },
+      provider: {
+        data_collection: "deny",
+        zdr: false,
+        require_parameters: true,
+      },
     })
     expect(visionRefused).toEqual({
       ...visionControl,
@@ -604,6 +622,7 @@ describe("the provider probe", () => {
       embeddingName: "OpenAI",
       dimensions: 768,
     })
+    vi.stubEnv("MODEL_PROVIDER_ALLOWLIST", [...ALLOWED, "openai"].join(","))
 
     expect(await run()).toBe(4)
 

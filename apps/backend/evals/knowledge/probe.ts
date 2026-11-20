@@ -259,6 +259,17 @@ export async function withChangedBody<T>(
 }
 
 /**
+ * The provider block of a request of a ZDR pair: the block of the client
+ * with another `zdr`, and with no `only`. A ZDR pair proves `zdr` alone. Its
+ * control model can be at a trusted provider that the allowlist does not
+ * turn on now (ADR-070), and the allowlist pair proves `only`.
+ */
+function zdrPairProvider(provider: unknown, zdr: boolean) {
+  const { only: _only, ...block } = jsonObject.parse(provider)
+  return { ...block, zdr }
+}
+
+/**
  * The Jev request of the client, sent to the non-ZDR Decisions model. Only
  * the model and `zdr` change.
  */
@@ -267,7 +278,7 @@ const nonZdrDecision = (zdr: boolean) =>
     (body) => ({
       ...body,
       model: NON_ZDR_DECISIONS_MODEL,
-      provider: { ...jsonObject.parse(body.provider), zdr },
+      provider: zdrPairProvider(body.provider, zdr),
     }),
     () => decideNoul(["The sky is green."], jevQuestion, jevOptions),
   )
@@ -283,7 +294,7 @@ const nonZdrEmbedding = (zdr: boolean) =>
     ({ dimensions: _dimensions, ...body }) => ({
       ...body,
       model: NON_ZDR_EMBEDDING_MODEL,
-      provider: { ...jsonObject.parse(body.provider), zdr },
+      provider: zdrPairProvider(body.provider, zdr),
     }),
     () => embedQuery("Is the sky blue?"),
   )
@@ -421,7 +432,7 @@ async function probeChecks(
       (body) => ({
         ...body,
         model: NON_ZDR_VISION_MODEL,
-        provider: { ...jsonObject.parse(body.provider), zdr },
+        provider: zdrPairProvider(body.provider, zdr),
       }),
       () => readImage(image, { model: visionModel, backoffMs: 1 }),
     ),
