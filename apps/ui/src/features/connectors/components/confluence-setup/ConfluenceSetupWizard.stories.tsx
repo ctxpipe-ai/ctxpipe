@@ -354,7 +354,7 @@ const installationPostRecorded = http.post(
   },
 )
 /** Records each `window.open` call of the install story. */
-const openPopup = fn()
+const openPopup = fn<typeof window.open>(() => null)
 const installHandlers = [
   status(sInstall),
   atlassianCapabilitiesHandler(
@@ -407,10 +407,7 @@ export const InstallMarksTheDraft: Story = {
     // The product opens the install URL with `window.open` after the install
     // intent request completes. The stub stays in place until the story ends,
     // so the real popup never opens and the run stays on the Storybook server.
-    window.open = ((...args: Parameters<typeof window.open>) => {
-      openPopup(...args)
-      return null
-    }) as typeof window.open
+    window.open = openPopup
     return () => {
       window.open = open
     }
@@ -422,12 +419,11 @@ export const InstallMarksTheDraft: Story = {
       await body.findByRole("button", { name: "Install Forge app" }),
     )
     await waitFor(() => expect(intentCalls).toEqual(["true"]))
-    await waitFor(() =>
-      expect(openPopup).toHaveBeenCalledExactlyOnceWith(
-        "https://marketplace.atlassian.com/apps/123/ctxpipe",
-        "ctxpipe-forge-install",
-        "width=860,height=740",
-      ),
+    await waitFor(() => expect(openPopup).toHaveBeenCalledTimes(1))
+    await expect(openPopup).toHaveBeenCalledWith(
+      "https://marketplace.atlassian.com/apps/123/ctxpipe",
+      "ctxpipe-forge-install",
+      "width=860,height=740",
     )
   },
 }
