@@ -499,6 +499,26 @@ export async function probeControls(input: {
         provider: unpinned(true),
       },
     ],
+    // The text space (CTX-1431): does a text-only model take a batch on a
+    // ZDR endpoint? Each endpoint tag is pinned with no fallback.
+    ...(
+      [
+        ["qwen/qwen3-embedding-8b", "deepinfra/us"],
+        ["qwen/qwen3-embedding-8b", "nebius/bf16"],
+        ["openai/text-embedding-3-small", "azure"],
+      ] as const
+    ).flatMap(([textModel, tag]): [string, string, object][] =>
+      [16, 64].map((count) => [
+        `${textModel.split("/")[1]}-${count}-strings-zdr-${tag.replace("/", "-")}`,
+        `Does ${textModel} on ${tag} take a batch? ${count} plain strings, pin ${tag}, zdr true.`,
+        {
+          model: textModel,
+          input: texts(count),
+          encoding_format: "float",
+          provider: pinned(true, tag),
+        },
+      ]),
+    ),
   ]
   const url = `${input.base.replace(/\/+$/, "")}/embeddings`
   const restore = calls.install()
