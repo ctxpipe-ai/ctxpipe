@@ -14,8 +14,10 @@ import {
 } from "../../evals/knowledge/metrics.js"
 import { ModelCalls } from "../../evals/knowledge/model-calls.js"
 import { checkPanel, labelWithPanel } from "../../evals/knowledge/panel.js"
+import { buildReport, renderMarkdown } from "../../evals/knowledge/report.js"
 import { parseSettings } from "../../evals/knowledge/runner.js"
 import { useMswServer } from "../../test/msw.js"
+import { ORCHESTRATOR_DEFAULTS } from "./orchestrator.js"
 
 /*
  * The parts of the knowledge eval harness that need no store: the dataset
@@ -353,6 +355,77 @@ describe("the ZDR provider block", () => {
     } finally {
       restore()
     }
+  })
+})
+
+describe("the comparison with the kept run", () => {
+  it("counts an error of this run, not of the kept run, in the guards", async () => {
+    const dataset = await readDataset(datasetFile)
+    const id = "orm-dist-tag"
+    const calls = { jev: 1, jevQuestions: 2, embedding: 1, costUsd: 0.001 }
+    const report = buildReport({
+      manifest: {
+        datasetVersion: dataset.version,
+        splits: ["dev"],
+        now: "2026-11-20T00:00:00.000Z",
+        settings: {},
+        loop: { ...ORCHESTRATOR_DEFAULTS },
+        mode: "live",
+        capUsd: 1,
+        spentUsd: 0.002,
+        stopped: false,
+        zdrAdded: {},
+      },
+      dataset: {
+        ...dataset,
+        questions: dataset.questions.filter((question) => question.id === id),
+      },
+      answers: [
+        {
+          arm: "legacy",
+          question: id,
+          search: { refs: [], scores: [], latencyMs: 10 },
+          calls: { ...calls, missing: 0 },
+        },
+        {
+          arm: "plane",
+          question: id,
+          search: { error: "internal", latencyMs: 10 },
+          calls: { ...calls, missing: 0 },
+        },
+      ],
+      kept: {
+        run: { mode: "live" },
+        questions: [
+          {
+            arm: "plane",
+            question: id,
+            metrics: {
+              recall5: 1,
+              ndcg10: 1,
+              searchRecall50: 1,
+              traversalRecall: null,
+              noAnswer: null,
+              positions: null,
+            },
+            searchMs: 10,
+            relatedMs: null,
+            jevCalls: 1,
+            jevQuestions: 2,
+            costUsd: 0.001,
+          },
+        ],
+      },
+    })
+    expect(
+      report.kept?.guards.map(({ kept, now }) => ({
+        kept: kept.errors,
+        now: now.errors,
+      })),
+    ).toEqual([{ kept: 0, now: 1 }])
+    expect(renderMarkdown(report)).toContain(
+      "| dev | 1 | errors | 0 | 1 | +1 |",
+    )
   })
 })
 

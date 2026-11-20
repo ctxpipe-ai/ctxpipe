@@ -22,8 +22,8 @@ use base64::Engine;
 use serde_json::{Value, json};
 
 /// The version line of `--version`: the package version and the hash that
-/// build.rs makes of Cargo.lock, the source and the font. It is part of the
-/// projection version (ADR-067).
+/// build.rs makes of Cargo.lock, the source, the font and the Rust compiler.
+/// It is part of the projection version (ADR-067).
 const VERSION: &str = concat!(
     "ctxpipe-convert ",
     env!("CARGO_PKG_VERSION"),
