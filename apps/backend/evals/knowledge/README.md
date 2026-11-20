@@ -180,7 +180,15 @@ A recorder in front of `fetch` keeps the calls (`model-calls.ts`). Thus the read
 
 ## The report
 
-The run notes name the calls that got the ZDR block. The first table compares the plane with the baseline arm, the current stack, for each split and category: the baseline value, the plane value, and the change. Then come the operations guards (with the count of partial answers) and the cost. With `--kept`, the next section is the input of the keep-or-revert rule of ADR-069 decision 7 (a change stays only if the hold-out set improves and no guard gets worse): the plane metrics now and in the kept run for each split and category, and the guards of the plane (search and `get_related` p95, Jev calls and Jev questions for each question, cost for each question, errors) now and in the kept run for each split. Both read only the questions that both runs scored. A replay gives no latency. Then come the change of each question against the kept run, the errors, and the questions that the report leaves out.
+The run notes name the calls that got the ZDR block. The first table compares the plane with the baseline arm, the current stack, for each split and category: the baseline value, the plane value, and the change. Then come the operations guards (with the count of partial answers) and the cost.
+
+With `--kept`, the next section compares the plane with the kept run. It is the input of the keep-or-revert rule of ADR-069 decision 7: a change stays only if the hold-out set improves and no guard gets worse.
+
+- The first table gives the plane metrics now and in the kept run, for each split and category.
+- The guard table gives, for each split: the p95 of the search and of `get_related`, the Jev calls and the Jev questions for each question, the cost for each question, and the errors.
+- Both tables read only the questions that both runs scored. A replay gives no latency.
+
+Then come the change of each question against the kept run, the errors, and the questions that the report leaves out.
 
 ## Proof
 

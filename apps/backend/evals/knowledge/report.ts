@@ -66,14 +66,14 @@ type KeptGuardRow = {
  * The guards of ADR-069 decision 6 that the keep-or-revert rule reads. A
  * latency is null in a replay.
  */
-type Guards = {
-  searchP95Ms: number | null
-  relatedP95Ms: number | null
-  jevCallsPerQuestion: number
-  jevQuestionsPerQuestion: number
-  costPerQuestionUsd: number
-  errors: number
-}
+type Guards = Pick<
+  ReturnType<typeof operations>,
+  | "searchP95Ms"
+  | "relatedP95Ms"
+  | "jevCallsPerQuestion"
+  | "jevQuestionsPerQuestion"
+  | "errors"
+> & { costPerQuestionUsd: number }
 
 export type Report = {
   datasetVersion: string
@@ -112,10 +112,8 @@ export const keptRunSchema = z.object({
       relatedMs: z.number().nullable(),
       jevCalls: z.number(),
       jevQuestions: z.number(),
-      embeddingCalls: z.number(),
       costUsd: z.number(),
       error: z.string().optional(),
-      partial: z.boolean(),
     }),
   ),
 })
@@ -252,17 +250,26 @@ function compareWithKept(input: {
   splits: Manifest["splits"]
   measured: boolean
 }): NonNullable<Report["kept"]> {
-  const now = new Map(
+  const planeScores = new Map(
     input.now
       .filter((score) => score.arm === "plane")
       .map((score) => [score.question, score]),
   )
   const pairs = input.kept.questions.flatMap((kept) => {
-    const score = kept.arm === "plane" ? now.get(kept.question) : undefined
-    // The split and the category are those of the dataset of this run.
-    return score
-      ? [{ now: score, kept: { ...score, ...kept, arm: "plane" as const } }]
-      : []
+    const score =
+      kept.arm === "plane" ? planeScores.get(kept.question) : undefined
+    if (!score) return []
+    // The split and the category are those of the dataset of this run. The
+    // guards do not read the embedding calls and the partial answers.
+    const keptScore: QuestionScore = {
+      ...kept,
+      arm: "plane",
+      split: score.split,
+      category: score.category,
+      embeddingCalls: 0,
+      partial: false,
+    }
+    return [{ now: score, kept: keptScore }]
   })
   const guards = (
     scores: readonly QuestionScore[],
@@ -289,14 +296,14 @@ function compareWithKept(input: {
       )
       if (group.length === 0) continue
       const kept = meanMetrics(group.map((pair) => pair.kept))
-      const value = meanMetrics(group.map((pair) => pair.now))
+      const nowMetrics = meanMetrics(group.map((pair) => pair.now))
       comparison.push({
         split,
         category,
         questions: group.length,
         kept,
-        now: value,
-        change: delta(value, kept),
+        now: nowMetrics,
+        change: delta(nowMetrics, kept),
       })
     }
     const group = pairs.filter((pair) => pair.now.split === split)
@@ -324,8 +331,6 @@ const signed = (number: number | null) =>
 const ms = (number: number | null) =>
   number === null ? "n/a" : `${Math.round(number)} ms`
 const usd = (number: number) => `$${number.toFixed(4)}`
-const count = (number: number | null) =>
-  number === null ? "n/a" : number.toFixed(1)
 
 /** The Markdown of a report. */
 export function renderMarkdown(report: Report): string {
@@ -385,7 +390,14 @@ export function renderMarkdown(report: Report): string {
     `Model cost: ${usd(report.costUsd)}${report.run.mode === "replay" ? " (the cost of the recorded calls when they were made)" : ""}.`,
     "",
   )
-  if (report.kept) {
+  if (report.kept?.comparison.length === 0)
+    lines.push(
+      "## The plane against the kept run",
+      "",
+      "No question was scored by both runs.",
+      "",
+    )
+  else if (report.kept) {
     lines.push(
       "## The plane against the kept run",
       "",
@@ -401,26 +413,6 @@ export function renderMarkdown(report: Report): string {
           `| ${row.split} | ${row.category} | ${row.questions} | ${METRIC_NAMES[metric]} | ${value(row.kept[metric])} | ${value(row.now[metric])} | ${signed(row.change[metric])} |`,
         )
       }
-    const guardNames: [
-      keyof Guards,
-      string,
-      (number: number | null) => string,
-    ][] = [
-      ["searchP95Ms", "search p95", ms],
-      ["relatedP95Ms", "get_related p95", ms],
-      ["jevCallsPerQuestion", "Jev calls / question", count],
-      ["jevQuestionsPerQuestion", "Jev questions / question", count],
-      [
-        "costPerQuestionUsd",
-        "cost / question",
-        (number) => (number === null ? "n/a" : usd(number)),
-      ],
-      [
-        "errors",
-        "errors",
-        (number) => (number === null ? "n/a" : String(number)),
-      ],
-    ]
     lines.push(
       "",
       "Guards (a higher value is worse; a replay gives no latency):",
@@ -428,18 +420,40 @@ export function renderMarkdown(report: Report): string {
       "| Split | Questions | Guard | Kept | Now | Change |",
       "| --- | ---: | --- | ---: | ---: | ---: |",
     )
-    for (const row of report.kept.guards)
-      for (const [key, name, format] of guardNames) {
-        const kept = row.kept[key]
-        const now = row.now[key]
-        const change =
-          kept === null || now === null
-            ? "n/a"
-            : `${now - kept >= 0 ? "+" : "-"}${format(Math.abs(now - kept))}`
-        lines.push(
-          `| ${row.split} | ${row.questions} | ${name} | ${format(kept)} | ${format(now)} | ${change} |`,
-        )
-      }
+    for (const { split, questions, kept, now } of report.kept.guards) {
+      const latency = (name: string, a: number | null, b: number | null) =>
+        `| ${split} | ${questions} | ${name} | ${ms(a)} | ${ms(b)} | ${a === null || b === null ? "n/a" : `${b >= a ? "+" : "-"}${ms(Math.abs(b - a))}`} |`
+      const number = (
+        name: string,
+        a: number,
+        b: number,
+        show: (n: number) => string,
+      ) =>
+        `| ${split} | ${questions} | ${name} | ${show(a)} | ${show(b)} | ${b === a ? "0" : `${b > a ? "+" : "-"}${show(Math.abs(b - a))}`} |`
+      lines.push(
+        latency("search p95", kept.searchP95Ms, now.searchP95Ms),
+        latency("get_related p95", kept.relatedP95Ms, now.relatedP95Ms),
+        number(
+          "Jev calls / question",
+          kept.jevCallsPerQuestion,
+          now.jevCallsPerQuestion,
+          (n) => n.toFixed(3),
+        ),
+        number(
+          "Jev questions / question",
+          kept.jevQuestionsPerQuestion,
+          now.jevQuestionsPerQuestion,
+          (n) => n.toFixed(3),
+        ),
+        number(
+          "cost / question",
+          kept.costPerQuestionUsd,
+          now.costPerQuestionUsd,
+          (n) => `$${n.toFixed(6)}`,
+        ),
+        number("errors", kept.errors, now.errors, String),
+      )
+    }
     lines.push("")
   }
   lines.push("## Changes against the kept run", "")

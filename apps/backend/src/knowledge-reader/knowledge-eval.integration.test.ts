@@ -642,7 +642,7 @@ describe("the knowledge eval harness", () => {
       "| holdout | all | 4 | traversal recall | 1.000 | 0.000 | -1.000 |",
     )
     expect(markdown).toContain(
-      "| holdout | 4 | Jev calls / question | 3.0 | 2.5 | -0.5 |",
+      "| holdout | 4 | Jev calls / question | 3.000 | 2.500 | -0.500 |",
     )
   })
 
