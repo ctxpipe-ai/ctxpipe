@@ -168,7 +168,7 @@ async function revokeToken(env: Env, token: string) {
         signal: AbortSignal.timeout(15_000),
       },
     )
-    if (res.ok || res.status === 404) return
+    if (res.ok) return
     getLogger().warn("github_installation.proof_token_revoke_failed", {
       status: res.status,
     })

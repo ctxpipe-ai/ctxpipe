@@ -442,6 +442,12 @@ describe("POST /github/installation requires GitHub access (Postgres)", () => {
   })
 
   describe("one-time GitHub App authorization", () => {
+    /** The revoke call with the App client credentials. */
+    const expectedRevoke = (token: string) => ({
+      authorization: `Basic ${Buffer.from("test-github-client:test-github-secret").toString("base64")}`,
+      body: { access_token: token },
+    })
+
     it("attaches the installation, makes no account link and stores no token", async () => {
       const url = await authorizeUrlFor({ installationId })
       const state = url.searchParams.get("state") ?? ""
@@ -523,12 +529,7 @@ describe("POST /github/installation requires GitHub access (Postgres)", () => {
 
       expectProofRefused(res)
       expect(await attachedInstallationIds()).toEqual([])
-      expect(revokes).toEqual([
-        {
-          authorization: `Basic ${Buffer.from("test-github-client:test-github-secret").toString("base64")}`,
-          body: { access_token: otherToken },
-        },
-      ])
+      expect(revokes).toEqual([expectedRevoke(otherToken)])
       expect(JSON.stringify(logEvents)).not.toContain(otherToken)
     })
 
@@ -541,12 +542,7 @@ describe("POST /github/installation requires GitHub access (Postgres)", () => {
       )
 
       expect(res.status).toBe(302)
-      expect(revokes).toEqual([
-        {
-          authorization: `Basic ${Buffer.from("test-github-client:test-github-secret").toString("base64")}`,
-          body: { access_token: visibleToken },
-        },
-      ])
+      expect(revokes).toEqual([expectedRevoke(visibleToken)])
       expect(logEvents.length).toBeGreaterThan(0)
       expect(JSON.stringify(logEvents)).not.toContain(visibleToken)
     })
