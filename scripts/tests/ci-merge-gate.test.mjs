@@ -2415,6 +2415,7 @@ test("the critics job fails on a critic that gate.mjs counts as missing, and on 
     }).status
   }
   for (const statuses of [
+    [],
     ["carried", "not-applicable"],
     ["carried", "missing"],
     ["carried", "held"],
@@ -2427,7 +2428,7 @@ test("the critics job fails on a critic that gate.mjs counts as missing, and on 
     }
     assert.equal(
       exit({ "critics.json": JSON.stringify(record) }) === 0,
-      critics(inputs({ "critics.json": record })).missing.length === 0,
+      !criticsFail(critics(inputs({ "critics.json": record }))),
       statuses.join(" "),
     )
   }
