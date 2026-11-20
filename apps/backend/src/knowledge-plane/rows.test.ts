@@ -288,7 +288,7 @@ describe("knowledgeRows", () => {
     ])
   })
 
-  it("maps an image to an image document whose key is its path", () => {
+  it("maps an image to an image document whose key is its path, with no chunk", () => {
     const path = "knowledge/arch/overview.md"
     const content = [
       "# Overview",
@@ -320,7 +320,7 @@ describe("knowledgeRows", () => {
           validTo: null,
           observedAt: OBSERVED,
         },
-        chunks: [{ ordinal: 0, text: "", startLine: 0, endLine: 0 }],
+        chunks: [],
         relations: [],
       },
     ])

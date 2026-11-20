@@ -19,8 +19,9 @@ export function knowledgeProjectionVersion(input: {
   // changes. 2: the reference keys of CTX-1400. 3: image vectors and the alt
   // text of EMBEDS_IMAGE (CTX-1412). 4: the ClickHouse migration 0007 made
   // the tables again, empty (CTX-1417). 5: `valid_from` from the commit that
-  // introduced the file (CTX-1421).
-  return JSON.stringify([5, input.embeddingModel, input.dimensions, input.root])
+  // introduced the file (CTX-1421). 6: one text vector space, and an image
+  // document has no chunk (CTX-1431).
+  return JSON.stringify([6, input.embeddingModel, input.dimensions, input.root])
 }
 
 /** The reasons for a full rebuild instead of a delta. */

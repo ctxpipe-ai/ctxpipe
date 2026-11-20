@@ -31,7 +31,7 @@ import {
 import { truncateText } from "../mcp/framework/budget.js"
 import { checkPath } from "../mcp/framework/refs.js"
 import { McpToolError } from "../mcp/framework/tool-errors.js"
-import { embedMultimodal } from "../retrieval/embeddings/multimodalEmbeddings.js"
+import { embedTexts } from "../retrieval/embeddings/textEmbeddings.js"
 import { JevError } from "../retrieval/jev/client.js"
 import {
   disagreementCalls,
@@ -58,7 +58,7 @@ import {
 
 /*
  * The knowledge plane (ADR-066 and ADR-068): ClickHouse reads, the Jev
- * layer judge and the multimodal query embedding. The output has the shapes
+ * layer judge and the query embedding. The output has the shapes
  * of the old stack, so the tools do not change.
  */
 
@@ -85,7 +85,7 @@ export function planeKnowledgeReader(input: {
   }
   const embed = async (text: string) => {
     meter.embeddingCalls += 1
-    const [vector] = await embedMultimodal([{ kind: "query", text }])
+    const [vector] = await embedTexts([{ kind: "query", text }])
     if (!vector) throw new Error("The embedding endpoint returned no vector")
     return vector
   }

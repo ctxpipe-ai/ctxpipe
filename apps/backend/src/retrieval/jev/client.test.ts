@@ -18,7 +18,7 @@ beforeEach(() => {
 const question = { type: "noul" as const, instructions: "Is the sky blue?" }
 
 describe("decideNoul", () => {
-  it("sends the yes/no questions in one pinned, no-retention call and returns the probability of yes", async () => {
+  it("sends the yes/no questions in one no-retention call and returns the probability of yes", async () => {
     let body: unknown
     server.use(
       http.post(DECISIONS, async ({ request }) => {
@@ -43,12 +43,7 @@ describe("decideNoul", () => {
       model: "typesafe/jev-1.14",
       state: ["The state."],
       questions: { sky: question },
-      provider: {
-        data_collection: "deny",
-        order: ["typesafe"],
-        allow_fallbacks: false,
-        zdr: true,
-      },
+      provider: { data_collection: "deny", zdr: true },
     })
     const span = spans.spanNamed("jev.decide")
     expect(span?.attributes["jev.pairs"]).toBe(1)

@@ -248,7 +248,7 @@ async function main(argv: string[]): Promise<number> {
     const calls = modelCalls(capUsd)
     return values.controls
       ? probeControls({ out, calls, capUsd, base: modelBase() })
-      : probe({ out, calls, capUsd })
+      : probe({ out, calls, capUsd, base: modelBase() })
   }
 
   if (command === "vision") {

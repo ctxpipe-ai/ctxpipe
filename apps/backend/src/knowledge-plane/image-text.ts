@@ -15,7 +15,10 @@ import {
   TransientHttpError,
   withTransientHttpRetry,
 } from "../lib/withTransientHttpRetry.js"
-import { openRouterSettings } from "../retrieval/services/modelProvider.js"
+import {
+  openRouterSettings,
+  ZDR_PROVIDER,
+} from "../retrieval/services/modelProvider.js"
 
 /**
  * The version of the prompt and the reading schema. A change of either
@@ -262,9 +265,8 @@ export async function readImage(
         schema: z.toJSONSchema(readingSchema),
       },
     },
-    // No pin and no `allow_fallbacks: false`: each ZDR endpoint of the model
-    // that takes the JSON schema can answer.
-    provider: { data_collection: "deny", zdr: true, require_parameters: true },
+    // Each ZDR endpoint of the model that takes the JSON schema can answer.
+    provider: { ...ZDR_PROVIDER, require_parameters: true },
   })
   try {
     return await withTransientHttpRetry(

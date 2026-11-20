@@ -1,27 +1,21 @@
 // The Jev client of the backend (ADR-068). Jev (TypeSafe) answers typed
 // questions with probabilities through the OpenRouter Decisions API. The
 // request shape is the same as in the visual critic
-// (`packages/visual-review/src/adapters/jev.ts`), but this client also pins
-// the upstream provider and requires a zero-data-retention (ZDR) endpoint
-// (ADR-068 decision 7), because it sends customer content. OpenRouter lists
-// TypeSafe as a ZDR endpoint of `typesafe/jev-1.14`
-// (`GET /api/v1/endpoints/zdr`).
+// (`packages/visual-review/src/adapters/jev.ts`), but this client also
+// requires a zero-data-retention (ZDR) endpoint (ADR-068 decision 7), because
+// it sends customer content. It pins no provider, so OpenRouter can fall back
+// among the ZDR endpoints of the model. OpenRouter lists TypeSafe as a ZDR
+// endpoint of `typesafe/jev-1.14` (`GET /api/v1/endpoints/zdr`).
 import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api"
 import { z } from "zod"
 
 import { assertNotInOrgDbContext } from "../../db/client.js"
 import { gatewayCost } from "../../observability/gatewayCost.js"
 import { gatewayRoutingError } from "../../observability/gatewayError.js"
-import { openRouterSettings } from "../services/modelProvider.js"
+import { openRouterSettings, ZDR_PROVIDER } from "../services/modelProvider.js"
 
 /** The Jev model of the OpenRouter Decisions API. */
-const JEV_MODEL = "typesafe/jev-1.14"
-/**
- * The OpenRouter slug of the only upstream provider that can serve
- * `JEV_MODEL`. Each request pins it, with no fallback (ADR-068 decision 7).
- */
-// scope-allow: the pinned provider stays next to the model id.
-export const JEV_PROVIDER = "typesafe"
+export const JEV_MODEL = "typesafe/jev-1.14"
 
 /**
  * The state of a decisions request: text only. Jev gets no image bytes
@@ -121,12 +115,7 @@ export async function decideNoul(
                 model: JEV_MODEL,
                 state,
                 questions,
-                provider: {
-                  data_collection: "deny",
-                  order: [JEV_PROVIDER],
-                  allow_fallbacks: false,
-                  zdr: true,
-                },
+                provider: ZDR_PROVIDER,
               }),
               signal,
             },

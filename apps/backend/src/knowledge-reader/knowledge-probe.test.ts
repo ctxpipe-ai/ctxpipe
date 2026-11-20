@@ -25,6 +25,7 @@ const server = useMswServer()
 
 let out: string
 beforeEach(async () => {
+  vi.stubEnv("MODEL_PROVIDER", "openai-like")
   vi.stubEnv("MODEL_PROVIDER_URL", BASE)
   vi.stubEnv("MODEL_PROVIDER_API_KEY", "fixture-only")
   out = await mkdtemp(join(tmpdir(), "knowledge-probe-"))
@@ -35,9 +36,8 @@ afterEach(async () => {
 
 const providerSchema = z.object({
   data_collection: z.string(),
-  order: z.array(z.string()),
-  allow_fallbacks: z.boolean(),
   zdr: z.boolean(),
+  quantizations: z.array(z.string()).optional(),
 })
 const decisionSchema = z.object({
   model: z.string(),
@@ -47,29 +47,37 @@ const decisionSchema = z.object({
 })
 const embeddingSchema = z.object({
   model: z.string(),
-  dimensions: z.number(),
-  input: z.array(z.object({ content: z.array(z.unknown()) })),
+  dimensions: z.number().optional(),
+  input: z.array(z.string()),
   encoding_format: z.string(),
   provider: providerSchema,
 })
 
 /** The Decisions endpoints of the fake catalog, as on OpenRouter. */
-const ENDPOINTS: Record<string, { slug: string; name: string; zdr: boolean }> =
-  {
-    "typesafe/jev-1.14": { slug: "typesafe", name: "TypeSafe", zdr: true },
-    "openai/gpt-6-luna-decisions": {
-      slug: "openai",
-      name: "OpenAI",
-      zdr: false,
-    },
-  }
+const ENDPOINTS: Record<string, { name: string; zdr: boolean }> = {
+  "typesafe/jev-1.14": { name: "TypeSafe", zdr: true },
+  "openai/gpt-6-luna-decisions": { name: "OpenAI", zdr: false },
+}
+
+/** The fake OpenRouter ZDR list (`GET /api/v1/endpoints/zdr`). */
+const ZDR_LIST = [
+  ["typesafe/jev-1.14", "TypeSafe", "unknown"],
+  ["qwen/qwen3-embedding-8b", "Nebius", "bf16"],
+  ["qwen/qwen3-embedding-8b", "DeepInfra", "unknown"],
+  ["qwen/qwen3-embedding-8b", "SiliconFlow", "fp8"],
+].map(([model_id, provider_name, quantization]) => ({
+  model_id,
+  provider_name,
+  quantization,
+}))
 
 /**
- * A gateway that routes Decisions requests like OpenRouter: by the pinned
- * provider, and with `zdr: true` only to a ZDR endpoint. With
+ * A gateway that routes Decisions requests like OpenRouter: with `zdr: true`
+ * only to a ZDR endpoint. With
  * `enforcesZdr: false`, it ignores `zdr`. `refusal` replaces the answer to a
- * request with `zdr: true` to the non-ZDR model. A request with more than
- * `maxInputs` embedding inputs finds no endpoint.
+ * request with `zdr: true` to the non-ZDR model. Embedding requests route
+ * the same way: `openai/text-embedding-ada-002` has no ZDR endpoint. A
+ * request with more than `maxInputs` embedding inputs finds no endpoint.
  */
 function gateway(options: {
   enforcesZdr: boolean
@@ -85,6 +93,9 @@ function gateway(options: {
     embeddings: [] as z.infer<typeof embeddingSchema>[],
   }
   server.use(
+    http.get(`${BASE}/endpoints/zdr`, () =>
+      HttpResponse.json({ data: ZDR_LIST }),
+    ),
     http.post(DECISIONS, async ({ request }) => {
       const body = decisionSchema.parse(await request.json())
       bodies.decisions.push(body)
@@ -96,7 +107,6 @@ function gateway(options: {
         )
       if (
         !endpoint ||
-        !body.provider.order.includes(endpoint.slug) ||
         (options.enforcesZdr && body.provider.zdr && !endpoint.zdr)
       )
         return HttpResponse.json(
@@ -119,7 +129,12 @@ function gateway(options: {
     http.post(EMBEDDINGS, async ({ request }) => {
       const body = embeddingSchema.parse(await request.json())
       bodies.embeddings.push(body)
-      if (body.input.length > (options.maxInputs ?? Infinity))
+      if (
+        body.input.length > (options.maxInputs ?? Infinity) ||
+        (options.enforcesZdr &&
+          body.provider.zdr &&
+          body.model === "openai/text-embedding-ada-002")
+      )
         return HttpResponse.json(
           {
             error: {
@@ -138,7 +153,7 @@ function gateway(options: {
           ),
           index,
         })),
-        provider: options.embeddingName ?? "Google",
+        provider: options.embeddingName ?? "Nebius",
         usage: { prompt_tokens: 4, cost: 0.00001 },
       })
     }),
@@ -165,7 +180,7 @@ const readResult = async () =>
     JSON.parse(await readFile(join(out, "probe.json"), "utf8")),
   )
 const run = (capUsd: number) =>
-  probe({ out, calls: new ModelCalls(BASE, capUsd), capUsd })
+  probe({ out, calls: new ModelCalls(BASE, capUsd), capUsd, base: BASE })
 const passes = async () =>
   Object.fromEntries(
     (await readResult()).checks.map((check) => [check.name, check.pass]),
@@ -180,7 +195,7 @@ describe("the provider probe", () => {
     const result = await readResult()
     expect(result.checks).toEqual([
       expect.objectContaining({
-        name: "decisions-pinned",
+        name: "decisions-zdr-provider",
         pass: true,
         status: 200,
         provider: "TypeSafe",
@@ -200,121 +215,128 @@ describe("the provider probe", () => {
           "Jev answered HTTP 404: No endpoints found matching your data policy.",
       }),
       expect.objectContaining({
-        name: "embedding-image",
+        name: "embedding-query",
         pass: true,
         status: 200,
-        provider: "Google",
+        provider: "Nebius",
       }),
-      expect.objectContaining({ name: "embedding-text", pass: true }),
       expect.objectContaining({ name: "embedding-text-batch", pass: true }),
+      expect.objectContaining({
+        name: "embedding-control-without-zdr",
+        pass: true,
+        status: 200,
+      }),
+      expect.objectContaining({
+        name: "embedding-refused-without-zdr-endpoint",
+        pass: true,
+        status: 404,
+      }),
     ])
     expect(result.stopped).toBe(false)
     expect(await readFile(join(out, "probe.md"), "utf8")).toContain(
-      "| decisions-pinned | pass | 200 | TypeSafe |",
+      "| decisions-zdr-provider | pass | 200 | TypeSafe |",
     )
 
     // The control and the refused request are the request of the real
-    // client: only the model, the pinned provider and `zdr` change.
-    const [pinned, control, refused] = bodies.decisions
-    expect(pinned?.provider).toEqual({
-      data_collection: "deny",
-      order: ["typesafe"],
-      allow_fallbacks: false,
-      zdr: true,
-    })
+    // client: only the model and `zdr` change. No request pins a provider.
+    const [served, control, refused] = bodies.decisions
+    expect(served?.provider).toEqual({ data_collection: "deny", zdr: true })
     const nonZdr = {
-      ...pinned,
+      ...served,
       model: "openai/gpt-6-luna-decisions",
       state: ["The sky is green."],
     }
     expect(control).toEqual({
       ...nonZdr,
-      provider: { ...pinned?.provider, order: ["openai"], zdr: false },
+      provider: { data_collection: "deny", zdr: false },
     })
-    expect(refused).toEqual({
-      ...nonZdr,
-      provider: { ...pinned?.provider, order: ["openai"] },
-    })
+    expect(refused).toEqual(nonZdr)
 
-    // The image goes as a PNG data URI of the checkerboard fixture, to the
-    // pinned provider with ZDR.
-    const image = await readFile(
-      new URL(
-        "../../evals/knowledge/fixtures/probe-checkerboard.png",
-        import.meta.url,
-      ),
-    )
+    // The question goes with the instruction line of the model, only to a
+    // ZDR endpoint at an allowed quantization.
     expect(bodies.embeddings[0]).toEqual({
-      model: "google/gemini-embedding-2",
+      model: "qwen/qwen3-embedding-8b",
       dimensions: 1024,
       encoding_format: "float",
       input: [
-        {
-          content: [
-            {
-              type: "image_url",
-              image_url: {
-                url: `data:image/png;base64,${image.toString("base64")}`,
-              },
-            },
-          ],
-        },
+        expect.stringMatching(
+          /^Instruct: .+\nQuery:Which squares of the checkerboard are red\?$/,
+        ),
       ],
       provider: {
         data_collection: "deny",
-        order: ["google-vertex"],
-        allow_fallbacks: false,
         zdr: true,
+        quantizations: ["bf16", "fp16", "fp32", "unknown"],
       },
     })
-    expect(bodies.embeddings[1]?.input).toEqual([
-      { content: [{ type: "text", text: "A red and blue checkerboard." }] },
-    ])
-    // The batch is 16 requests, each with one document chunk and the
+    // The batch is one request with 64 document chunks, each with the
     // context line of the projection.
-    expect(bodies.embeddings).toHaveLength(18)
-    expect(bodies.embeddings.every((body) => body.input.length === 1)).toBe(
-      true,
+    expect(bodies.embeddings).toHaveLength(4)
+    expect(bodies.embeddings[1]?.input).toHaveLength(64)
+    expect(bodies.embeddings[1]?.input.at(-1)).toBe(
+      "Checkerboard (part 64 of 64)\n\nSquare 64 of the checkerboard is blue.",
     )
-    expect(bodies.embeddings.map((body) => body.input[0])).toContainEqual({
-      content: [
-        {
-          type: "text",
-          text: "Checkerboard (part 16 of 16)\n\nSquare 16 of the checkerboard is blue.",
-        },
-      ],
+    // The embedding refusal pair is the request of the client to the non-ZDR
+    // model, with no dimension and no quantizations. Only `zdr` differs.
+    const [, , embeddingControl, embeddingRefused] = bodies.embeddings
+    expect(embeddingControl).toEqual({
+      model: "openai/text-embedding-ada-002",
+      encoding_format: "float",
+      input: [expect.stringMatching(/\nQuery:Is the sky blue\?$/)],
+      provider: { data_collection: "deny", zdr: false },
+    })
+    expect(embeddingRefused).toEqual({
+      ...embeddingControl,
+      provider: { data_collection: "deny", zdr: true },
     })
   })
 
-  it("passes the batch check on a gateway that takes one input per request, as the ZDR endpoints do", async () => {
+  it("fails the batch check on a gateway that takes one input per request", async () => {
     gateway({ enforcesZdr: true, maxInputs: 1 })
 
-    expect(await run(0.05)).toBe(0)
+    expect(await run(0.05)).toBe(4)
+
+    expect(await passes()).toMatchObject({
+      "embedding-query": true,
+      "embedding-text-batch": false,
+    })
+    expect(
+      (await readResult()).checks.find(
+        (check) => check.name === "embedding-text-batch",
+      ),
+    ).toMatchObject({
+      status: 404,
+      error: expect.stringContaining(
+        "No endpoints found matching your data policy (Zero data retention).",
+      ),
+    })
   })
 
   it("fails each check that the answers do not prove", async () => {
     gateway({
       enforcesZdr: false,
       jevName: "Other Host",
-      embeddingName: "Google AI Studio",
+      // A ZDR endpoint of the model, but at a low precision (fp8).
+      embeddingName: "SiliconFlow",
       dimensions: 768,
     })
 
     expect(await run(0.05)).toBe(4)
 
     expect(await passes()).toEqual({
-      "decisions-pinned": false,
+      "decisions-zdr-provider": false,
       "decisions-control-without-zdr": true,
       "decisions-refused-without-zdr-endpoint": false,
-      "embedding-image": false,
-      "embedding-text": false,
+      "embedding-query": false,
       "embedding-text-batch": false,
+      "embedding-control-without-zdr": true,
+      "embedding-refused-without-zdr-endpoint": false,
     })
     const result = await readResult()
     expect(result.checks[0]?.provider).toBe("Other Host")
     expect(result.checks[2]?.status).toBe(200)
     expect(result.checks[3]).toMatchObject({
-      provider: "Google AI Studio",
+      provider: "SiliconFlow",
       error: "Expected 1024 dimensions at index 0, got 768",
     })
   })
@@ -351,11 +373,33 @@ describe("the provider probe", () => {
     expect(await run(0.05)).toBe(4)
 
     expect(await passes()).toMatchObject({
-      "decisions-pinned": true,
+      "decisions-zdr-provider": true,
       "decisions-control-without-zdr": false,
       "decisions-refused-without-zdr-endpoint": false,
     })
   })
+
+  it.each([
+    ["an error status", () => new HttpResponse("down", { status: 502 })],
+    ["the wrong shape", () => HttpResponse.json({ endpoints: [] })],
+  ])(
+    "fails with a zdr-list check when the ZDR list gives %s",
+    async (_, answer) => {
+      gateway({ enforcesZdr: true })
+      server.use(http.get(`${BASE}/endpoints/zdr`, answer))
+
+      expect(await run(0.05)).toBe(4)
+
+      const result = await readResult()
+      expect(result.checks[0]).toMatchObject({ name: "zdr-list", pass: false })
+      expect(result.checks[0]?.error).toBeTruthy()
+      // With no ZDR provider, no provider check passes.
+      expect(await passes()).toMatchObject({
+        "decisions-zdr-provider": false,
+        "embedding-query": false,
+      })
+    },
+  )
 
   it("stops at the spend cap", async () => {
     gateway({ enforcesZdr: true })
@@ -368,6 +412,7 @@ describe("the provider probe", () => {
     expect(result.spentUsd).toBeCloseTo(0.0001)
     expect(result.checks.map((check) => [check.pass, check.status])).toEqual([
       [true, 200],
+      [false, null],
       [false, null],
       [false, null],
       [false, null],
@@ -394,17 +439,12 @@ describe("the provider probe controls", () => {
 
   it("sends each control once and records its status, provider, error, vector count and latency", async () => {
     const bodies: z.infer<typeof controlSchema>[] = []
-    // A gateway with the batch finding: with zdr true, Gemini has no
-    // endpoint for more than one input.
+    // A gateway that refuses each request pinned to `siliconflow/fp8`.
     server.use(
       http.post(EMBEDDINGS, async ({ request }) => {
         const body = controlSchema.parse(await request.json())
         bodies.push(body)
-        if (
-          body.model === "google/gemini-embedding-2" &&
-          body.provider.zdr &&
-          body.input.length > 1
-        )
+        if (body.provider.order?.[0] === "siliconflow/fp8")
           return HttpResponse.json(
             {
               error: {
@@ -416,7 +456,7 @@ describe("the provider probe controls", () => {
           )
         return HttpResponse.json({
           data: body.input.map((_, index) => ({ embedding: [0.1], index })),
-          provider: body.model.startsWith("google/") ? "Google" : "Other",
+          provider: "Other",
           usage: { cost: 0.00001 },
         })
       }),
@@ -456,49 +496,26 @@ describe("the provider probe controls", () => {
         vectors,
       ]),
     ).toEqual([
-      ["gemini-16-multimodal-zdr", 404, refused, null],
-      ["gemini-1-multimodal-zdr", 200, null, 1],
-      ["gemini-16-multimodal-no-zdr", 200, null, 16],
-      ["gemini-16-multimodal-no-zdr-no-pin", 200, null, 16],
-      ["gemini-16-strings-zdr", 404, refused, null],
-      ["gemini-2-multimodal-zdr", 404, refused, null],
-      ["gemini-4-multimodal-zdr", 404, refused, null],
-      ["gemini-16-multimodal-zdr-no-pin", 404, refused, null],
-      ["gemini-16-multimodal-zdr-google-vertex-us", 404, refused, null],
-      ["gemini-16-multimodal-no-zdr-google-vertex-us", 200, null, 16],
-      ["gemini-16-multimodal-zdr-google-vertex-global", 404, refused, null],
-      ["gemini-16-multimodal-no-zdr-google-vertex-global", 200, null, 16],
-      ["gemini-16-multimodal-no-zdr-google-ai-studio", 200, null, 16],
-      ["gemini-batch-16-multimodal-zdr", 200, null, 16],
-      ["gemini-batch-16-multimodal-no-zdr", 200, null, 16],
-      ["titan-16-strings-zdr", 200, null, 16],
-      ["openai-3-large-16-strings-zdr", 200, null, 16],
       ["qwen3-embedding-8b-16-strings-zdr-deepinfra-us", 200, null, 16],
       ["qwen3-embedding-8b-64-strings-zdr-deepinfra-us", 200, null, 64],
       ["qwen3-embedding-8b-16-strings-zdr-nebius-bf16", 200, null, 16],
       ["qwen3-embedding-8b-64-strings-zdr-nebius-bf16", 200, null, 64],
-      ["qwen3-embedding-8b-16-strings-zdr-siliconflow-fp8", 200, null, 16],
-      ["qwen3-embedding-8b-64-strings-zdr-siliconflow-fp8", 200, null, 64],
+      ["qwen3-embedding-8b-16-strings-zdr-siliconflow-fp8", 404, refused, null],
+      ["qwen3-embedding-8b-64-strings-zdr-siliconflow-fp8", 404, refused, null],
       ["pplx-embed-v1-4b-16-strings-zdr-perplexity-int8", 200, null, 16],
       ["pplx-embed-v1-4b-64-strings-zdr-perplexity-int8", 200, null, 64],
       ["text-embedding-3-small-16-strings-zdr-azure", 200, null, 16],
       ["text-embedding-3-small-64-strings-zdr-azure", 200, null, 64],
     ])
-    expect(bodies).toHaveLength(27)
+    expect(bodies).toHaveLength(10)
     // Each answered control records the time of its call.
     expect(
       result.controls.every(
         (control) => control.latencyMs !== null && control.latencyMs >= 0,
       ),
     ).toBe(true)
-    expect(bodies[8]?.provider).toEqual({
-      data_collection: "deny",
-      order: ["google-vertex/us"],
-      allow_fallbacks: false,
-      zdr: true,
-    })
-    // A text-space control pins one ZDR endpoint with no fallback.
-    expect(bodies[18]).toMatchObject({
+    // A control pins one ZDR endpoint with no fallback.
+    expect(bodies[1]).toMatchObject({
       model: "qwen/qwen3-embedding-8b",
       provider: {
         data_collection: "deny",
@@ -507,16 +524,20 @@ describe("the provider probe controls", () => {
         zdr: true,
       },
     })
-    expect(bodies[18]?.input).toHaveLength(64)
-    expect(bodies[18]?.input.at(-1)).toBe(
+    expect(bodies[1]?.input).toHaveLength(64)
+    expect(bodies[1]?.input.at(-1)).toBe(
       "Square 64 of the checkerboard is blue.",
     )
     // Only the fixed texts go out.
-    expect(JSON.stringify(bodies)).not.toMatch(
-      /"text":"(?!Square \d+ of the checkerboard is (red|blue)\.)/,
-    )
+    expect(
+      bodies
+        .flatMap((body) => body.input)
+        .every((text) =>
+          /^Square \d+ of the checkerboard is (red|blue)\.$/.test(String(text)),
+        ),
+    ).toBe(true)
     expect(await readFile(join(out, "controls.md"), "utf8")).toContain(
-      "| gemini-16-multimodal-no-zdr | Is ZDR the cause?",
+      "| qwen3-embedding-8b-64-strings-zdr-nebius-bf16 | Does qwen/qwen3-embedding-8b on nebius/bf16 take a batch?",
     )
   })
 })

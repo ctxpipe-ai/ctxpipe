@@ -24,8 +24,13 @@ import {
   beginKnowledgeRun,
   completeKnowledgeRun,
 } from "../models/knowledge-state.js"
+import { textEmbeddingConfig } from "../retrieval/embeddings/textEmbeddings.js"
 import { startClickHouse, userUrl } from "../test/clickhouse.js"
-import { embedText } from "../test/knowledge-search-fixture.js"
+import {
+  embedText,
+  planeInputVector,
+  planeVector,
+} from "../test/knowledge-search-fixture.js"
 import { dropOrgGraph, seedRelatedWorkspace } from "../test/related-fixture.js"
 
 /*
@@ -72,9 +77,6 @@ const claimsOf = (unit: Unit) =>
     validFrom: unit.validFrom ?? null,
     validTo: unit.validTo ?? null,
   }))
-
-/** The vector of a text on both stacks: the old stack has 2000 dimensions. */
-const planeVector = (text: string) => embedText(text).slice(0, 1024)
 
 /** The text of a unit, as both stacks index it. */
 const unitText = (unit: Unit) => `${unit.title}\n\n${unit.body}`
@@ -137,16 +139,12 @@ let goldTitlesByQuestion = new Map<string, string[]>()
 const models = setupServer(
   http.post(`${MODEL_URL}/embeddings`, async ({ request }) => {
     requests.embedding += 1
-    const body = (await request.json()) as {
-      input: (string | { content: { text?: string }[] })[]
-    }
+    const body = (await request.json()) as { model: string; input: string[] }
+    const plane = body.model === textEmbeddingConfig.model
     return HttpResponse.json({
       data: body.input.map((input, index) => ({
         index,
-        embedding:
-          typeof input === "string"
-            ? embedText(input)
-            : planeVector(input.content[0]?.text ?? ""),
+        embedding: plane ? planeInputVector(input) : embedText(input),
       })),
     })
   }),

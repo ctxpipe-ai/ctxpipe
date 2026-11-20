@@ -41,6 +41,17 @@ export function embedText(text: string): number[] {
   return vector
 }
 
+/** The vector of a text on both stacks: the old stack has 2000 dimensions. */
+export const planeVector = (text: string) => embedText(text).slice(0, 1024)
+
+/**
+ * The plane vector of an input of a plane embedding request. A question
+ * comes with the instruction line of the model; its vector comes from the
+ * question alone.
+ */
+export const planeInputVector = (input: string) =>
+  planeVector(input.replace(/^Instruct: [^\n]*\nQuery:/, ""))
+
 /** An msw server for the embeddings endpoint of `MODEL_PROVIDER_URL=https://search-model.test/v1`. */
 export function embeddingModelServer(requests: string[] = []) {
   return setupServer(

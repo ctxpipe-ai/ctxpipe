@@ -11,11 +11,12 @@ import {
   planKnowledgeChangeSet,
 } from "./change-set.js"
 
-const version = knowledgeProjectionVersion({
+const versionParts = {
   embeddingModel: "test-embedding-model",
   dimensions: 8,
   root: "",
-})
+}
+const version = knowledgeProjectionVersion(versionParts)
 const sourcesFilePath = ".ctxpipe/sources.yaml"
 
 let directory: string
@@ -176,9 +177,9 @@ describe("planKnowledgeChangeSet", () => {
   })
 
   it.each([
-    { embeddingModel: "another-model", dimensions: 8, root: "" },
-    { embeddingModel: "test-embedding-model", dimensions: 16, root: "" },
-    { embeddingModel: "test-embedding-model", dimensions: 8, root: "docs" },
+    { ...versionParts, embeddingModel: "another-model" },
+    { ...versionParts, dimensions: 16 },
+    { ...versionParts, root: "docs" },
   ])(
     "rebuilds in full when a part of the projection version changed (%o)",
     async (parts) => {

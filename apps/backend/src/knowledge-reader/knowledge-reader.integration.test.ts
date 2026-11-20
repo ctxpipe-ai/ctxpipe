@@ -31,8 +31,13 @@ import {
   beginKnowledgeRun,
   completeKnowledgeRun,
 } from "../models/knowledge-state.js"
+import { textEmbeddingConfig } from "../retrieval/embeddings/textEmbeddings.js"
 import { startClickHouse, userUrl } from "../test/clickhouse.js"
-import { embedText } from "../test/knowledge-search-fixture.js"
+import {
+  embedText,
+  planeInputVector,
+  planeVector,
+} from "../test/knowledge-search-fixture.js"
 import {
   callTool,
   connectToolClient,
@@ -71,25 +76,15 @@ let jevCalls = 0
 /** Answer the embedding of the plane after the 3-second budget. */
 let slowEmbedding = false
 
-/** The vector of a text on both stacks: the old stack has 2000 dimensions. */
-const planeVector = (text: string) => embedText(text).slice(0, 1024)
-
 const models = setupServer(
   http.post(`${MODEL_URL}/embeddings`, async ({ request }) => {
-    const body = (await request.json()) as {
-      input: (string | { content: { text?: string }[] })[]
-    }
-    const texts = body.input.map((input) =>
-      typeof input === "string" ? input : (input.content[0]?.text ?? ""),
-    )
-    if (slowEmbedding && typeof body.input[0] !== "string") await delay(5_000)
+    const body = (await request.json()) as { model: string; input: string[] }
+    const plane = body.model === textEmbeddingConfig.model
+    if (slowEmbedding && plane) await delay(5_000)
     return HttpResponse.json({
       data: body.input.map((input, index) => ({
         index,
-        embedding:
-          typeof input === "string"
-            ? embedText(input)
-            : planeVector(texts[index] ?? ""),
+        embedding: plane ? planeInputVector(input) : embedText(input),
       })),
     })
   }),
