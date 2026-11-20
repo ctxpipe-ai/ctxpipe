@@ -2,6 +2,7 @@
  * Messages for the `?error=` codes of an account link (Better Auth). Every
  * provider (Atlassian, GitHub, Google, Microsoft) fails through the same
  * redirect, which does not say which provider it was, so no message names one.
+ * The GitHub installation proof has its own code, so its message names GitHub.
  */
 const KNOWN: Record<string, { title: string; description: string }> = {
   account_already_linked_to_different_user: {
@@ -33,6 +34,11 @@ const KNOWN: Record<string, { title: string; description: string }> = {
   },
   please_restart_the_process: {
     title: "Link request expired",
+    description: "Start the connection again.",
+  },
+  // The one-time GitHub App authorization that proves installation access.
+  github_installation_proof_failed: {
+    title: "Could not connect GitHub",
     description: "Start the connection again.",
   },
 }

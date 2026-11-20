@@ -351,10 +351,10 @@ Read this when you set up or change a deployment: Railway production or previews
 - **Source:** repo-page-ux (2026-08-13); user correction (GitHub workspace destination, candidate `ba616391f38e94cf`)
 
 ### Connect GitHub is one step
-- **Rule:** Connect GitHub is one popup flow. With GitHub sign-in on, the popup opens `/.github/link` first. That page links the GitHub account of a user who has none, then goes on to the App install. Do not go back to the order of `main` (install first, then a second "Connect your GitHub account" page on `/.github/setup`). The backend still needs a linked GitHub account that can see the installation (#386). A GitHub account that is the sign-in of another ctx| user fails in both orders. That case is not a reason to remove the single step: show the link error, or change how the backend proves access.
+- **Rule:** Connect GitHub is one flow. The popup opens the App install. If the user's linked GitHub account does not show access to the installation, the opener goes to GitHub's App authorization (one time, no account link), and the backend callback attaches the installation (CTX-1429). Do not add a second ctxpipe page that asks the user to connect or link GitHub. Proof of installation access is not the login link: a GitHub account that is the sign-in of another ctxpipe user can still connect GitHub.
 - **Category:** product
 - **Date:** 2026-10-19
-- **Source:** user correction after a PR 280 retest (the single step from `f52640644` was removed in `767082725` and restored)
+- **Source:** user correction after a PR 280 retest (the single step from `f52640644` was removed in `767082725` and restored); revised 2026-11-20 for the one-time App authorization (CTX-1429)
 
 ### Product UI skills vs marketing frontend-design
 - **Rule:** Do not install Anthropic `frontend-design` (or similar marketing taste skills) as always-on for `apps/ui`. Use first-party [product-ui](../../.agents/skills/product-ui/SKILL.md) + [DESIGN.md](../../apps/ui/DESIGN.md). Do not paste copyrighted book prose or figures (including Refactoring UI) into skills or the repo; encode tactics as house yes/no rules in our own words.

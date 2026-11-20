@@ -317,9 +317,6 @@
   "apps/ui/src/routes/[.]auth.select-organization.tsx": [
     "OAuthOrganizationSelectionRoutePage"
   ],
-  "apps/ui/src/routes/[.]github.link.tsx": [
-    "GithubLinkStep"
-  ],
   "apps/ui/src/routes/[.]github.setup.tsx": [
     "ConnectGithubView"
   ]

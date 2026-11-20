@@ -1429,11 +1429,11 @@ export const GuideMemberNoWorkspace: Story = {
 const openPopup = fn()
 /**
  * Org home page with the setup guide, which leads a new org through its first
- * steps: with GitHub sign-in on, the admin pressed Connect GitHub, and one
- * popup opened at the GitHub link page with the App install (and the flow nonce)
- * as `next`. The user does not have to press Connect GitHub a second time.
+ * steps: the admin pressed Connect GitHub, and one popup opened at the GitHub
+ * App install, with the flow nonce as `state`. The user does not have to press
+ * Connect GitHub a second time.
  */
-export const GuideConnectGithubOpensLinkPopup: Story = {
+export const GuideConnectGithubOpensInstallPopup: Story = {
   beforeEach: () => {
     openPopup.mockClear()
     const open = window.open
@@ -1449,12 +1449,7 @@ export const GuideConnectGithubOpensLinkPopup: Story = {
   parameters: {
     msw: {
       handlers: {
-        session: [
-          http.get("*/.auth/api/config", () =>
-            HttpResponse.json({ providers: ["github"] }),
-          ),
-          ...sessionDefaults(1).slice(1),
-        ],
+        session: sessionDefaults(1),
         page: [
           ...adminGuide({}),
           workspaceListHandler([]),
@@ -1470,12 +1465,10 @@ export const GuideConnectGithubOpensLinkPopup: Story = {
     await waitFor(() => expect(connect).not.toHaveAttribute("data-pending"))
     await userEvent.click(connect)
     await waitFor(() => expect(openPopup).toHaveBeenCalledTimes(1))
-    const url = new URL(String(openPopup.mock.calls[0]?.[0]), "http://app.test")
-    await expect(url.pathname).toBe("/.github/link")
-    const next = new URL(url.searchParams.get("next") ?? "")
-    await expect(`${next.origin}${next.pathname}`).toBe(
+    const url = new URL(String(openPopup.mock.calls[0]?.[0]))
+    await expect(`${url.origin}${url.pathname}`).toBe(
       "https://github.com/apps/ctxpipe/installations/new",
     )
-    await expect(next.searchParams.get("state")).toBeTruthy()
+    await expect(url.searchParams.get("state")).toBeTruthy()
   },
 }

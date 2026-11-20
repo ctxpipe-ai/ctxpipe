@@ -39,13 +39,13 @@ First area of every run. Creates account A, the org, the GitHub connection, and 
 **Steps**
 1. In the **Get started** guide, click **Connect GitHub**.
 2. Human: install the App on `GH_TEST_ORG` with access to **all repositories**, then return.
-3. Account A signed up with email, so it has no linked GitHub account. The window goes to `/.github/setup` and shows **Connect your GitHub account to finish setup**. Click **Connect GitHub** and authorize.
+3. Account A signed up with email, so it has no linked GitHub account. The window goes to GitHub's App authorization page (`https://github.com/login/oauth/authorize`). Human: click **Authorize**. GitHub skips this page when the GitHub account authorized the App before. The GitHub account can be the sign-in of another ctxpipe user.
 4. Open **Home**.
 
 **Expect (UI)** after step 3, the page shows the GitHub destination (`/{orgSlug}/github/setup`), not onboarding. On Home, the guide marks **Connect GitHub** done (**1 of 6 done**) and **Create your first Workspace** is the open row.
-**Expect (backend)** a `github` row in `accounts` for A; `connections` row of type `github` (`con_*`) for the org with an installation id; `GET /{orgSlug}/api/v1/github/installation` returns a non-null `installationId`.
+**Expect (backend)** no `github` row in `accounts` for A (the authorization proves access one time and makes no link); a `github_installation.proof` log event with A's user id and the installation id; `connections` row of type `github` (`con_*`) for the org with an installation id; `GET /{orgSlug}/api/v1/github/installation` returns a non-null `installationId`.
 **Budget** 15 s / 60 s, popup closed to the GitHub destination.
-**Evidence** `ONB-3-1.png` (account link page), `ONB-3-2.png` (guide with GitHub done); trace of the installation request; the webhook delivery trace for the install event.
+**Evidence** `ONB-3-1.png` (GitHub authorization page, or the GitHub destination when GitHub skipped it), `ONB-3-2.png` (guide with GitHub done); trace of the installation request; the webhook delivery trace for the install event.
 
 ### ONB-4 Create Workspace 1 from the guide
 **Requires** ONB-3 `PASS`; repo `pe-{run-id}-ws`.
