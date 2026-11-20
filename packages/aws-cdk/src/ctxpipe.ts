@@ -17,6 +17,7 @@ import type {
 } from "./internal/contracts"
 import { DataPlaneConstruct } from "./internal/data-plane-construct"
 import { IngressConstruct } from "./internal/ingress-construct"
+import { KnowledgeStoreConstruct } from "./internal/knowledge-store-construct"
 import { MigrateOnDeployConstruct } from "./internal/migrate-on-deploy-construct"
 import { NetworkingConstruct } from "./internal/networking-construct"
 import { OutputsConstruct } from "./internal/outputs-construct"
@@ -70,6 +71,13 @@ const SIZE_PROFILES: Record<CtxPipeSize, CtxPipeSizeProfile> = {
       ),
       dockerVolumeSizeGiB: 30,
     },
+    knowledgeStore: {
+      instanceType: ec2.InstanceType.of(
+        ec2.InstanceClass.T4G,
+        ec2.InstanceSize.LARGE,
+      ),
+      dataVolumeSizeGiB: 50,
+    },
   },
   medium: {
     size: "medium",
@@ -108,6 +116,13 @@ const SIZE_PROFILES: Record<CtxPipeSize, CtxPipeSizeProfile> = {
       ),
       dockerVolumeSizeGiB: 50,
     },
+    knowledgeStore: {
+      instanceType: ec2.InstanceType.of(
+        ec2.InstanceClass.R7G,
+        ec2.InstanceSize.LARGE,
+      ),
+      dataVolumeSizeGiB: 100,
+    },
   },
   large: {
     size: "large",
@@ -145,6 +160,13 @@ const SIZE_PROFILES: Record<CtxPipeSize, CtxPipeSizeProfile> = {
         ec2.InstanceSize.XLARGE,
       ),
       dockerVolumeSizeGiB: 100,
+    },
+    knowledgeStore: {
+      instanceType: ec2.InstanceType.of(
+        ec2.InstanceClass.R7G,
+        ec2.InstanceSize.XLARGE,
+      ),
+      dataVolumeSizeGiB: 200,
     },
   },
 }
@@ -194,6 +216,11 @@ export class CtxPipe extends Construct {
       sizeProfile,
     })
 
+    const knowledgeStore = new KnowledgeStoreConstruct(this, "KnowledgeStore", {
+      networking: networking.resources,
+      ...sizeProfile.knowledgeStore,
+    })
+
     const secrets = new SecretsConstruct(this, "Secrets", {
       dataPlane: dataPlane.resources,
       databaseName: defaults.databaseName,
@@ -201,6 +228,7 @@ export class CtxPipe extends Construct {
       hostedZone: resolvedCustomDomain.hostedZone,
       connectorSecrets: props.connectorSecrets,
       emailFromAddress: defaults.emailFromAddress,
+      knowledgeStore: knowledgeStore.resources,
     })
 
     const sandboxHost = sandboxHostProfile
@@ -224,6 +252,7 @@ export class CtxPipe extends Construct {
         sizeProfile,
         otel: props.otel,
         sandboxHost: sandboxHost?.resources,
+        knowledgeStore: knowledgeStore.resources,
       },
     )
 
@@ -232,6 +261,7 @@ export class CtxPipe extends Construct {
       dataPlane: dataPlane.resources,
       tasks: taskDefinitions.resources,
       secrets: secrets.resources,
+      knowledgeStore: knowledgeStore.resources,
     })
 
     const services = new ServicesConstruct(this, "Services", {
@@ -242,6 +272,7 @@ export class CtxPipe extends Construct {
       codesearchEfsMountDependency:
         dataPlane.resources.codesearchFileSystem.mountTargetsAvailable,
       sandboxHost: sandboxHost?.resources,
+      knowledgeStore: knowledgeStore.resources,
     })
 
     const ingress = new IngressConstruct(this, "Ingress", {
@@ -266,6 +297,8 @@ export class CtxPipe extends Construct {
       connectorSecretArn: this.connectorSecret?.secretArn,
       sandboxHostAutoScalingGroupName:
         sandboxHost?.resources.autoScalingGroup.autoScalingGroupName,
+      knowledgeStoreAutoScalingGroupName:
+        knowledgeStore.resources.autoScalingGroup.autoScalingGroupName,
     })
   }
 

@@ -169,6 +169,11 @@ export class TaskDefinitionsConstruct extends Construct {
           props.secrets.runtimeDatabaseUrlSecret,
           "DATABASE_URL",
         ),
+        // The backend only reads the knowledge store (ADR-066 decision 9).
+        CLICKHOUSE_URL: ecs.Secret.fromSecretsManager(
+          props.secrets.clickhouseReaderUrlSecret,
+          "CLICKHOUSE_URL",
+        ),
         SMTP_CONNECTION_URL: ecs.Secret.fromSecretsManager(
           props.secrets.smtpSecret,
           "SMTP_CONNECTION_URL",
@@ -221,6 +226,11 @@ export class TaskDefinitionsConstruct extends Construct {
         DATABASE_URL: ecs.Secret.fromSecretsManager(
           props.secrets.runtimeDatabaseUrlSecret,
           "DATABASE_URL",
+        ),
+        // The worker writes the knowledge store (ADR-066 decision 9).
+        CLICKHOUSE_URL: ecs.Secret.fromSecretsManager(
+          props.secrets.clickhouseWriterUrlSecret,
+          "CLICKHOUSE_URL",
         ),
         SMTP_CONNECTION_URL: ecs.Secret.fromSecretsManager(
           props.secrets.smtpSecret,
@@ -342,6 +352,20 @@ export class TaskDefinitionsConstruct extends Construct {
           props.secrets.appDatabaseCredentialsSecret,
           "password",
         ),
+        // The admin user. Migrate makes the reader and writer users with
+        // these passwords.
+        CLICKHOUSE_URL: ecs.Secret.fromSecretsManager(
+          props.secrets.clickhouseAdminUrlSecret,
+          "CLICKHOUSE_URL",
+        ),
+        CLICKHOUSE_READER_PASSWORD: ecs.Secret.fromSecretsManager(
+          props.knowledgeStore.readerCredentialsSecret,
+          "password",
+        ),
+        CLICKHOUSE_WRITER_PASSWORD: ecs.Secret.fromSecretsManager(
+          props.knowledgeStore.writerCredentialsSecret,
+          "password",
+        ),
       },
       logging: ecs.LogDrivers.awsLogs({ streamPrefix: "ctxpipe-migrate" }),
     })
@@ -349,6 +373,7 @@ export class TaskDefinitionsConstruct extends Construct {
     this.grantTaskSecrets(backendTask, [
       props.secrets.authSecret,
       props.secrets.runtimeDatabaseUrlSecret,
+      props.secrets.clickhouseReaderUrlSecret,
       props.secrets.modelProviderSecret,
       props.secrets.smtpSecret,
       props.secrets.connectorSecret,
@@ -357,6 +382,7 @@ export class TaskDefinitionsConstruct extends Construct {
     this.grantTaskSecrets(workerTask, [
       props.secrets.authSecret,
       props.secrets.runtimeDatabaseUrlSecret,
+      props.secrets.clickhouseWriterUrlSecret,
       props.secrets.modelProviderSecret,
       props.secrets.smtpSecret,
       props.secrets.connectorSecret,
@@ -372,6 +398,9 @@ export class TaskDefinitionsConstruct extends Construct {
       props.secrets.authSecret,
       props.secrets.databaseUrlSecret,
       props.secrets.appDatabaseCredentialsSecret,
+      props.secrets.clickhouseAdminUrlSecret,
+      props.knowledgeStore.readerCredentialsSecret,
+      props.knowledgeStore.writerCredentialsSecret,
     ])
 
     this.resources = {
