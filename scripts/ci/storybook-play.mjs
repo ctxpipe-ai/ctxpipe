@@ -1,7 +1,7 @@
 import { readFileSync, statSync } from "node:fs"
 import { createServer } from "node:http"
 import { createRequire } from "node:module"
-import { extname, join } from "node:path"
+import { basename, dirname, extname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 // Plays Storybook stories in a headless Chromium, one page for each story.
@@ -23,6 +23,7 @@ const mime = {
   ".png": "image/png",
   ".ico": "image/x-icon",
   ".woff2": "font/woff2",
+  ".wasm": "application/wasm",
 }
 
 // Serves the static Storybook build. Port 0 takes a free port; the URL of
@@ -91,6 +92,25 @@ const playContext = {
 // The context routes this origin to the real server. A localhost origin keeps
 // the page a secure context, which the MSW service worker needs.
 const playOrigin = "http://localhost:6006"
+
+// Cosmograph (the knowledge graph canvas) loads the DuckDB-Wasm worker and
+// its WebAssembly module (about 40 MB) from jsDelivr when it starts. Thus a
+// play of a graph story waited on the internet: when jsDelivr was slow, the
+// graph did not start before the bound of the play (CTX-1437). The context
+// serves these files from the DuckDB-Wasm package that Cosmograph uses. The
+// URL names the version of that package, so the files are the same.
+const duckdbDist = dirname(
+  createRequire(
+    createRequire(
+      createRequire(join(ui, "package.json")).resolve(
+        "@cosmograph/react/package.json",
+      ),
+    ).resolve("@cosmograph/cosmograph/package.json"),
+  ).resolve("@duckdb/duckdb-wasm/dist/duckdb-eh.wasm"),
+)
+const duckdbCdn = `https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@${
+  JSON.parse(readFileSync(join(duckdbDist, "../package.json"), "utf8")).version
+}/dist/`
 
 const playInitScript = ({ endPhase, needsPlay, time }) => {
   window.__CTXPIPE_PLAY__ = { result: null, waiters: [] }
@@ -305,6 +325,19 @@ export async function playStories(
         await route
           .fetch({ url: `${storybookUrl}${pathname}${search}` })
           .then((response) => route.fulfill({ response }))
+          .catch(() => route.abort().catch(() => undefined))
+      })
+      // The DuckDB-Wasm worker fetches the module from the jsDelivr origin,
+      // so the response must allow that cross-origin read. A file that is not
+      // in the package fails its request: the play does not go to jsDelivr.
+      await context.route(`${duckdbCdn}*`, (route) => {
+        const file = basename(new URL(route.request().url()).pathname)
+        return route
+          .fulfill({
+            path: join(duckdbDist, file),
+            contentType: mime[extname(file)],
+            headers: { "access-control-allow-origin": "*" },
+          })
           .catch(() => route.abort().catch(() => undefined))
       })
       const page = await context.newPage()

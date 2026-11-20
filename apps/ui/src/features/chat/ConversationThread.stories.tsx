@@ -406,14 +406,19 @@ export const OpeningLogKeepsScroll: Story = {
     const top = log.getBoundingClientRect().top
     await userEvent.click(log)
     await waitFor(() => expect(log).toHaveAttribute("aria-expanded", "true"))
+    // The thread stops 1 px above the bottom, and its content has a fractional
+    // height. When the web fonts load, the text lays out again, and the scroll
+    // anchoring of the browser can move the thread by 1 px. That move can come
+    // after `top` is read (CTX-1437). A scroll to the bottom moves the counters
+    // by the height of the open log, which is much more than 1 px.
     await waitFor(() =>
       expect(
-        Math.round(
+        Math.abs(
           canvas
             .getByRole("button", { name: progressCounters })
-            .getBoundingClientRect().top,
+            .getBoundingClientRect().top - top,
         ),
-      ).toBe(Math.round(top)),
+      ).toBeLessThanOrEqual(1),
     )
   },
 }
