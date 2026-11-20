@@ -1,18 +1,5 @@
--- The reading of each image by the vision model (CTX-1433, ADR-068 decision
--- 6). The projection converts an image to text at projection time and
--- stores no text in Git. A vision call costs money and its answer can
--- change, so the reading is kept here by the blob SHA of the image, the
--- vision model of the request (MODEL_VISION_NAME) and the prompt
--- version. A rebuild reads it again and makes no vision call: the same
--- bytes give the same text.
---
--- reading is the JSON of the structured reading; the projection renders
--- the text (and the Mermaid) from it.
---
--- image_texts has the same CHECK constraint and the same row policy as the
--- other knowledge tables (see 0001_knowledge_tables.sql).
---
--- Each statement is idempotent: a second run after a failure changes nothing.
+-- One vision reading of an image blob for each (model, prompt version);
+-- reading is its JSON. The wall is the one of 0001_knowledge_tables.sql.
 
 CREATE TABLE IF NOT EXISTS image_texts
 (
