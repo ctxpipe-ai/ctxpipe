@@ -81,7 +81,6 @@
     "falkordb": "^6.6.2",
     "graphql": "16.13.2",
     "hono": "^4.12.1",
-    "image-size": "2.0.2",
     "jose": "^6.2.3",
     "mdast-util-from-markdown": "2.0.3",
     "mdast-util-gfm": "3.1.0",

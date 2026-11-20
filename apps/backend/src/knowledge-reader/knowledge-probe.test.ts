@@ -77,8 +77,7 @@ const ZDR_LIST = [
  * `enforcesZdr: false`, it ignores `zdr`. `refusal` replaces the answer to a
  * request with `zdr: true` to the non-ZDR model. Embedding requests route
  * the same way: `openai/text-embedding-ada-002` has no ZDR endpoint. A
- * request with more than `maxInputs` embedding inputs finds no endpoint, as
- * Gemini Embedding 2 did on its ZDR endpoints.
+ * request with more than `maxInputs` embedding inputs finds no endpoint.
  */
 function gateway(options: {
   enforcesZdr: boolean

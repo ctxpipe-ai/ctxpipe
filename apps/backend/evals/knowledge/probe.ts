@@ -53,6 +53,12 @@ const NON_ZDR_DECISIONS_MODEL = "openai/gpt-6-luna-decisions"
  */
 const NON_ZDR_EMBEDDING_MODEL = "openai/text-embedding-ada-002"
 
+/** The provider names of the ZDR endpoints of a model (`zdrProviders`). */
+type ZdrProvidersOf = (
+  model: string,
+  quantizations?: readonly string[],
+) => Set<string>
+
 /**
  * The provider names of the ZDR endpoints of each model, from the OpenRouter
  * ZDR list (`GET /api/v1/endpoints/zdr`), at an allowed quantization when
@@ -64,7 +70,7 @@ const NON_ZDR_EMBEDDING_MODEL = "openai/text-embedding-ada-002"
  * endpoint, and the refusal pairs show that OpenRouter applies `zdr`. The
  * list holds no input of ours, so the call goes around the recorder.
  */
-async function zdrProviders(base: string) {
+async function zdrProviders(base: string): Promise<ZdrProvidersOf> {
   const response = await fetch(`${base.replace(/\/+$/, "")}/endpoints/zdr`)
   if (!response.ok)
     throw new Error(`The ZDR list answered HTTP ${response.status}`)
@@ -86,7 +92,7 @@ async function zdrProviders(base: string) {
           (endpoint) =>
             endpoint.model_id === model &&
             (!quantizations ||
-              quantizations.includes(endpoint.quantization ?? "")),
+              quantizations.includes(endpoint.quantization ?? "unknown")),
         )
         .map((endpoint) => endpoint.provider_name),
     )
@@ -248,7 +254,7 @@ const nonZdrEmbedding = (zdr: boolean) =>
 /** The checks of the probe, one after the other. */
 async function probeChecks(
   calls: ModelCalls,
-  zdr: Awaited<ReturnType<typeof zdrProviders>>,
+  zdrProvidersOf: ZdrProvidersOf,
 ): Promise<ProbeCheck[]> {
   const checks: ProbeCheck[] = []
   const check = <T>(
@@ -269,7 +275,7 @@ async function probeChecks(
   const served = await observe(calls, () =>
     decideNoul(["The sky is blue on a clear day."], jevQuestion, jevOptions),
   )
-  const jevProviders = zdr(JEV_MODEL)
+  const jevProviders = zdrProvidersOf(JEV_MODEL)
   check(
     "decisions-zdr-provider",
     served,
@@ -312,7 +318,7 @@ async function probeChecks(
   await refusalPair("decisions", NON_ZDR_DECISIONS_MODEL, nonZdrDecision)
 
   const { model, dimensions, batchSize, quantizations } = textEmbeddingConfig
-  const embeddingProviders = zdr(model, quantizations)
+  const embeddingProviders = zdrProvidersOf(model, quantizations)
   const embedded = async (name: string, inputs: EmbeddingInput[]) => {
     const evidence = await observe(calls, () => embedTexts(inputs))
     check(
@@ -406,10 +412,10 @@ export async function probe(input: {
   const { calls } = input
   // A failed read of the ZDR list is a failed check: then no provider is a
   // ZDR provider, and the other checks fail too.
-  let zdr: Awaited<ReturnType<typeof zdrProviders>> = () => new Set()
+  let zdrProvidersOf: ZdrProvidersOf = () => new Set()
   const listChecks: ProbeCheck[] = []
   try {
-    zdr = await zdrProviders(input.base)
+    zdrProvidersOf = await zdrProviders(input.base)
   } catch (error) {
     listChecks.push({
       name: "zdr-list",
@@ -423,7 +429,7 @@ export async function probe(input: {
   const restore = calls.install()
   let checks: ProbeCheck[]
   try {
-    checks = [...listChecks, ...(await probeChecks(calls, zdr))]
+    checks = [...listChecks, ...(await probeChecks(calls, zdrProvidersOf))]
   } finally {
     restore()
   }

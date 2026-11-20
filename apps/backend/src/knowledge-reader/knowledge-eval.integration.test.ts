@@ -26,7 +26,11 @@ import {
 } from "../models/knowledge-state.js"
 import { textEmbeddingConfig } from "../retrieval/embeddings/textEmbeddings.js"
 import { startClickHouse, userUrl } from "../test/clickhouse.js"
-import { embedText } from "../test/knowledge-search-fixture.js"
+import {
+  embedText,
+  planeInputVector,
+  planeVector,
+} from "../test/knowledge-search-fixture.js"
 import { dropOrgGraph, seedRelatedWorkspace } from "../test/related-fixture.js"
 
 /*
@@ -73,9 +77,6 @@ const claimsOf = (unit: Unit) =>
     validFrom: unit.validFrom ?? null,
     validTo: unit.validTo ?? null,
   }))
-
-/** The vector of a text on both stacks: the old stack has 2000 dimensions. */
-const planeVector = (text: string) => embedText(text).slice(0, 1024)
 
 /** The text of a unit, as both stacks index it. */
 const unitText = (unit: Unit) => `${unit.title}\n\n${unit.body}`
@@ -143,11 +144,7 @@ const models = setupServer(
     return HttpResponse.json({
       data: body.input.map((input, index) => ({
         index,
-        // The vector of a plane question comes from the question alone,
-        // without the instruction line of the model.
-        embedding: plane
-          ? planeVector(input.replace(/^Instruct: [^\n]*\nQuery:/, ""))
-          : embedText(input),
+        embedding: plane ? planeInputVector(input) : embedText(input),
       })),
     })
   }),
