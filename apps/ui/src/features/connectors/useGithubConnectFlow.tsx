@@ -111,9 +111,10 @@ export function useGithubConnectFlow({
         width: 1120,
         height: 780,
       })
+      // A blocked popup makes the page itself go to GitHub, so the button
+      // stays in progress until the page unloads.
       if (!popup) {
         clearGithubPopupFlow()
-        setInstallStarting(false)
         return
       }
       watchPopupClose(
@@ -126,6 +127,8 @@ export function useGithubConnectFlow({
               orgSlug,
               queryClient,
             )
+            // A redirect unloads the page: keep the button in progress.
+            if (result.status === "redirected") return
             setIsSyncing(false)
             handleInstallSettled(result)
           })()
