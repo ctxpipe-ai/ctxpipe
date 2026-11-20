@@ -167,7 +167,10 @@ const definitions = () => [
     ],
     [
       "component-descriptions",
-      ["apps/ui/src/**", "scripts/ci/component-descriptions-allowlist.json"],
+      [
+        "apps/ui/src/**",
+        "scripts/ci/component-descriptions-allowlist.json",
+      ],
       "Catches an exported React component under apps/ui/src with no JSDoc description that the allowlist does not have, and an allowlist entry that is no longer necessary. Run it when a .tsx file under apps/ui/src or the allowlist changes; never for a change outside them.",
     ],
     [
@@ -291,6 +294,11 @@ const definitions = () => [
         "apps/backend/package.json",
         "scripts/checks/ui-bundled-imports.mjs",
       ],
+      // The layer caches of main (the Layer cache job of ci.yaml).
+      [
+        "--cache-from",
+        "type=registry,ref=ghcr.io/ctxpipe-ai/ci-cache:production-ui",
+      ],
     ],
     [
       "codesearch",
@@ -304,7 +312,15 @@ const definitions = () => [
         "type=registry,ref=ghcr.io/ctxpipe-ai/ci-cache:production-codesearch",
       ],
     ],
-    ["docs", "apps/docs/Dockerfile", ["apps/docs/**"]],
+    [
+      "docs",
+      "apps/docs/Dockerfile",
+      ["apps/docs/**"],
+      [
+        "--cache-from",
+        "type=registry,ref=ghcr.io/ctxpipe-ai/ci-cache:production-docs",
+      ],
+    ],
     [
       "chat-sandbox",
       "scripts/chat-sandbox/Dockerfile",
@@ -317,7 +333,10 @@ const definitions = () => [
       "cost-telemetry",
       "ops/observability/cost-telemetry/Dockerfile",
       ["ops/observability/cost-telemetry/**"],
-      [],
+      [
+        "--cache-from",
+        "type=registry,ref=ghcr.io/ctxpipe-ai/ci-cache:production-cost-telemetry",
+      ],
       "ops/observability/cost-telemetry",
     ],
   ].map(([name, file, reads, flags = [], context = "."]) => {

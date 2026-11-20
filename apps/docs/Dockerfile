@@ -6,9 +6,7 @@ RUN npm install -g pnpm@10.12.1
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
 COPY patches patches
 COPY apps/docs/package.json apps/docs/package.json
-# The pnpm store is a BuildKit cache mount: a lockfile change downloads only
-# the new packages. The mount is not in the image and not in a registry
-# cache, so a builder without it downloads each package again.
+# The pnpm store is a BuildKit cache mount (scripts/checks/README.md, Builds).
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm install --store-dir /pnpm/store --frozen-lockfile --filter @ctxpipe/docs...
 

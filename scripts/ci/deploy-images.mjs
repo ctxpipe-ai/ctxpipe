@@ -649,6 +649,7 @@ async function lockfileChangedFor(root, baseSha, list) {
   }
 }
 
+
 /**
  * Write the plan of `list`: `build` and `reuse`, and each line of `extra`, to
  * $GITHUB_OUTPUT (else stdout), and a table of the plan to stdout (else
@@ -656,7 +657,8 @@ async function lockfileChangedFor(root, baseSha, list) {
  */
 // A reason can name a changed path, which can hold a newline or another
 // control or line separator character. A reason stays on its one table row.
-const oneLine = (text) => String(text).replace(/[\p{Cc}\u2028\u2029]/gu, " ")
+const oneLine = (text) =>
+  String(text).replace(/[\p{Cc}\u2028\u2029]/gu, " ")
 
 export function writePlan(result, list, extra = []) {
   const env = process.env
