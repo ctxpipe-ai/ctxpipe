@@ -12,11 +12,12 @@ import {
   vi,
 } from "vitest"
 
+import { ApiError } from "./api-result"
 import {
   beginGithubPopupFlow,
   GITHUB_SETUP_RESULT_KEY,
   getActiveGithubPopupFlowState,
-  githubAuthorizeUrl,
+  githubAuthorizeUrlOf,
   handleGithubSetupPopupResult,
 } from "./popup"
 
@@ -142,9 +143,14 @@ describe("handleGithubSetupPopupResult", () => {
   })
 })
 
-describe("githubAuthorizeUrl", () => {
+describe("githubAuthorizeUrlOf", () => {
+  const refusal = (authorizeUrl: string | undefined) =>
+    new ApiError("Refused", 403, {
+      body: { why: "github_authorization_required", authorizeUrl },
+    })
+
   it("accepts only GitHub's authorize page", () => {
-    expect(githubAuthorizeUrl(authorizeUrl)).toBe(authorizeUrl)
+    expect(githubAuthorizeUrlOf(refusal(authorizeUrl))).toBe(authorizeUrl)
     for (const url of [
       "https://github.com/apps/ctxpipe/installations/new",
       "https://github.com.evil.test/login/oauth/authorize",
@@ -156,7 +162,15 @@ describe("githubAuthorizeUrl", () => {
       "",
       undefined,
     ]) {
-      expect(githubAuthorizeUrl(url)).toBeNull()
+      expect(githubAuthorizeUrlOf(refusal(url))).toBeNull()
     }
+  })
+
+  it("ignores any other refusal", () => {
+    const other = new ApiError("Refused", 403, {
+      body: { why: "github_installation_not_accessible", authorizeUrl },
+    })
+    expect(githubAuthorizeUrlOf(other)).toBeNull()
+    expect(githubAuthorizeUrlOf(new Error("network"))).toBeNull()
   })
 })

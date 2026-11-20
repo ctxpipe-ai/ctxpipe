@@ -132,10 +132,15 @@ export function consumeGithubSetupOrgHint() {
  * The GitHub authorize address of a `github_authorization_required` refusal,
  * or `null`. The page goes there only when it is GitHub's authorize page.
  */
-export function githubAuthorizeUrl(value: unknown): string | null {
-  if (typeof value !== "string") return null
+export function githubAuthorizeUrlOf(error: unknown): string | null {
+  if (
+    !(error instanceof ApiError) ||
+    error.body.why !== "github_authorization_required" ||
+    typeof error.body.authorizeUrl !== "string"
+  )
+    return null
   try {
-    const url = new URL(value)
+    const url = new URL(error.body.authorizeUrl)
     return url.origin === "https://github.com" &&
       url.pathname === "/login/oauth/authorize"
       ? url.toString()
@@ -161,8 +166,6 @@ type PopupOptions = {
   name?: string
   width?: number
   height?: number
-  /** Where this window goes when the browser blocks the popup (default: `url`). */
-  fallbackUrl?: string
 }
 
 export function openCenteredPopup(url: string, options?: PopupOptions) {
@@ -188,7 +191,7 @@ export function openCenteredPopup(url: string, options?: PopupOptions) {
   )
 
   if (!popup) {
-    window.location.assign(options?.fallbackUrl ?? url)
+    window.location.assign(url)
     return null
   }
 
@@ -318,11 +321,13 @@ export async function handleGithubSetupPopupResult(
             await readApiJson(response)
             status = "registered"
           } catch (e) {
-            const why = e instanceof ApiError ? e.body.why : undefined
+            const authorizeUrl = githubAuthorizeUrlOf(e)
             if (
-              !(e instanceof ApiError) ||
-              (why !== "github_authorization_required" &&
-                why !== "github_authorization_unavailable")
+              !authorizeUrl &&
+              !(
+                e instanceof ApiError &&
+                e.body.why === "github_authorization_unavailable"
+              )
             )
               throw e
             // The user authorizes the GitHub App once, and the backend
@@ -334,7 +339,7 @@ export async function handleGithubSetupPopupResult(
             // the popup and close itself.
             clearGithubPopupFlow()
             window.location.assign(
-              githubAuthorizeUrl(e.body.authorizeUrl) ??
+              authorizeUrl ??
                 `/.github/setup?${new URLSearchParams({
                   installation_id: String(installationId),
                   orgSlug,

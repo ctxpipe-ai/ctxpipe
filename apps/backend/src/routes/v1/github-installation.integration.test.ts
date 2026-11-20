@@ -226,11 +226,9 @@ describe("POST /github/installation requires GitHub access (Postgres)", () => {
 
   function expectProofRefused(res: Response) {
     expect(res.status).toBe(302)
-    const location = new URL(res.headers.get("location") ?? "")
-    expect(location.pathname).toBe(`/${seed.orgSlug}/connectors`)
-    expect(location.searchParams.get("error")).toBe(
-      "github_installation_proof_failed",
-    )
+    expect(
+      new URL(res.headers.get("location") ?? "").searchParams.get("error"),
+    ).toBe("github_installation_proof_failed")
   }
 
   async function attachedInstallationIds() {
@@ -510,17 +508,14 @@ describe("POST /github/installation requires GitHub access (Postgres)", () => {
       expect(codeExchanges).toHaveLength(1)
     })
 
-    it("refuses a state with a changed signature", async () => {
+    it("refuses a state that the server did not issue", async () => {
       const url = await authorizeUrlFor({ installationId })
       const state = url.searchParams.get("state") ?? ""
       const forged = `${state.slice(0, -1)}${state.endsWith("A") ? "B" : "A"}`
 
       const res = await githubCallback(forged, "code-visible")
 
-      expect(res.status).toBe(302)
-      expect(
-        new URL(res.headers.get("location") ?? "").searchParams.get("error"),
-      ).toBe("github_installation_proof_failed")
+      expectProofRefused(res)
       expect(await attachedInstallationIds()).toEqual([])
       expect(codeExchanges).toEqual([])
     })
@@ -535,10 +530,7 @@ describe("POST /github/installation requires GitHub access (Postgres)", () => {
         "code-visible",
       )
 
-      expect(res.status).toBe(302)
-      expect(
-        new URL(res.headers.get("location") ?? "").searchParams.get("error"),
-      ).toBe("github_installation_proof_failed")
+      expectProofRefused(res)
       expect(await attachedInstallationIds()).toEqual([])
       expect(codeExchanges).toEqual([])
     })

@@ -1,3 +1,5 @@
+import { Link } from "@/components/ui/Link"
+
 /**
  * A deployment without a GitHub App client cannot ask GitHub whether the user
  * can access an installation of the deployment's App. The organization's own
@@ -15,12 +17,9 @@ export function GithubOwnAppNotice({ orgSlug }: { orgSlug: string }) {
         with your organization's own GitHub App from Connectors instead.
       </p>
       <div className="mt-6">
-        <a
-          href={`/${orgSlug}/connectors`}
-          className="text-sm text-teal-400 underline underline-offset-4"
-        >
+        <Link href={`/${orgSlug}/connectors`} className="text-sm">
           Open Connectors
-        </a>
+        </Link>
       </div>
     </section>
   )

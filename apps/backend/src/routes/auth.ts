@@ -10,6 +10,10 @@ import type { Context, Hono } from "hono"
 import type { AppEnv } from "../app/env.js"
 import { atlassianLinkCallbackFirst } from "../auth/atlassian-link-callback.js"
 import { getAuth } from "../auth/config.js"
+import {
+  githubInstallationProofCallback,
+  isGithubInstallationProofState,
+} from "../auth/github-installation-proof.js"
 import { MCP_SCOPES } from "../auth/mcp-scopes.js"
 import {
   logOAuthError,
@@ -23,10 +27,6 @@ import {
 import { applyMcpScopeRules } from "../auth/oauth-scope-request.js"
 import { getSystemDb } from "../db/client.js"
 import { invitations, organizations } from "../db/schema/auth.js"
-import {
-  githubInstallationProofCallback,
-  isGithubInstallationProofState,
-} from "./v1/github-installation-access.js"
 
 function authorizationServersForProtectedResourceMetadata(
   env: AppEnv["Variables"]["env"],

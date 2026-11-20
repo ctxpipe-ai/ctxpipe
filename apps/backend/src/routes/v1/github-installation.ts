@@ -3,6 +3,8 @@ import type { Context } from "hono"
 import { RequestError } from "octokit"
 
 import type { AppEnv } from "../../app/env.js"
+import { createGithubInstallationProofUrl } from "../../auth/github-installation-proof.js"
+import { attachGithubInstallation } from "../../domain/github-installation-attach.js"
 import type { GitHubInstallationShape } from "../../models/connection-rows.js"
 import {
   githubConnectionToShape,
@@ -36,10 +38,6 @@ import {
 } from "../../models/repositories.js"
 import { getLogger } from "../../observability/logger.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
-import {
-  attachGithubInstallation,
-  createGithubInstallationProofUrl,
-} from "./github-installation-access.js"
 
 const ErrorResponseSchema = z
   .object({
@@ -887,14 +885,16 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
           }
         }
         if (!canAccess) {
-          const authorizeUrl = await createGithubInstallationProofUrl({
-            env: c.var.env,
-            orgId,
-            orgSlug: c.get("orgSlug") ?? "",
-            userId: user.id,
-            installationId: body.installationId,
-            connectionId: body.connectionId,
-          })
+          const authorizeUrl = await createGithubInstallationProofUrl(
+            c.var.env,
+            {
+              orgId,
+              orgSlug: c.get("orgSlug") ?? "",
+              userId: user.id,
+              installationId: body.installationId,
+              connectionId: body.connectionId,
+            },
+          )
           if (!authorizeUrl) {
             return c.json(
               {
@@ -924,7 +924,6 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
         installationId: body.installationId,
         connectionId: body.connectionId,
         env: c.var.env,
-        log: c.get("log"),
       })
       if (!installation) {
         return c.json({ error: "Unknown GitHub connection" }, 404)

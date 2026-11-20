@@ -111,6 +111,7 @@ vi.mock("../../models/github-installation.js", async (importOriginal) => {
 import { requireOrgAdminOrOwner } from "../../auth/withAuth.js"
 import type { Env } from "../../config/env.js"
 import { parseEnv } from "../../config/env.js"
+import { contextStorage } from "../../test/hono-test-logger.js"
 import { githubInstallationRoutes } from "./github-installation.js"
 import { meGithubInstallationsRoutes } from "./me-github-installations.js"
 
@@ -145,6 +146,8 @@ const testEnvWithDefaultGithubApp = parseEnv({
 
 function createApp(appEnv: Env = testEnv): OpenAPIHono<AppEnv> {
   const app = new OpenAPIHono<AppEnv>()
+  // getLogger() reads the request logger from the Hono context.
+  app.use(contextStorage())
   app.use("*", async (c, next) => {
     c.set("user", { id: "user_1" } as AppEnv["Variables"]["user"])
     c.set("session", { id: "sess_1" } as AppEnv["Variables"]["session"])

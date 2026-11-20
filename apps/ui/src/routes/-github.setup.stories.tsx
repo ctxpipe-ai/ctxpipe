@@ -125,3 +125,47 @@ export const AuthorizationUnavailableShowsOwnApp: Story = {
     })
   },
 }
+
+/**
+ * GitHub setup screen after the App install, when the user's linked GitHub
+ * account does not show access to the installation: the page names the
+ * organization and waits for the user to choose **Authorize on GitHub**. It
+ * does not go to GitHub without that click, because another person can send
+ * this address.
+ */
+export const AuthorizationRequiredAsksToConfirm: Story = {
+  render: () => (
+    <ConnectGithubView installationId={42} selectedOrganizationSlug="acme" />
+  ),
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          organizationFullWithOrgHandler,
+          workspaceListHandler([]),
+          http.post("*/acme/api/v1/github/installation", () =>
+            HttpResponse.json(
+              {
+                error: "Authorize the GitHub App to confirm your access",
+                why: "github_authorization_required",
+                authorizeUrl:
+                  "https://github.com/login/oauth/authorize?client_id=Iv1.story&state=gh-installation.story",
+              },
+              { status: 403 },
+            ),
+          ),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByRole("heading", { name: "Confirm your GitHub access" })
+    await expect(canvas.getByText("acme")).toBeVisible()
+    const authorize = canvas.getByRole("link", { name: "Authorize on GitHub" })
+    await expect(authorize).toHaveAttribute(
+      "href",
+      "https://github.com/login/oauth/authorize?client_id=Iv1.story&state=gh-installation.story",
+    )
+  },
+}

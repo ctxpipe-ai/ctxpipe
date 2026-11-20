@@ -20,7 +20,7 @@ import {
   GITHUB_SETUP_RESULT_KEY,
   GITHUB_SETUP_RESULT_MESSAGE,
   getActiveGithubPopupFlowState,
-  githubAuthorizeUrl,
+  githubAuthorizeUrlOf,
 } from "@/lib/popup"
 
 export const Route = createFileRoute("/.github/setup")({
@@ -46,14 +46,6 @@ type ConnectGithubViewProps = {
   installationId: number
   selectedOrganizationSlug: string
   connectionId?: string
-}
-
-/** The GitHub authorize page of a `github_authorization_required` refusal. */
-function authorizeUrlOf(error: unknown) {
-  return error instanceof ApiError &&
-    error.body.why === "github_authorization_required"
-    ? githubAuthorizeUrl(error.body.authorizeUrl)
-    : null
 }
 
 function MissingInstallationIdView() {
@@ -177,12 +169,6 @@ export function ConnectGithubView({
       })
       return orgSlug
     },
-    // The user authorizes the GitHub App once; the backend callback attaches
-    // the installation and comes back to the org's GitHub setup page.
-    onError: (e) => {
-      const url = authorizeUrlOf(e)
-      if (url) window.location.assign(url)
-    },
     onSuccess: (orgSlug) => {
       try {
         localStorage.removeItem(GITHUB_DRAFT_CONNECTION_KEY)
@@ -205,6 +191,41 @@ export function ConnectGithubView({
   const parsedErrorWhy =
     error instanceof ApiError ? error.body.why : parseError(error)?.why
 
+  // Someone can send this address to the user, so the user confirms the org
+  // before GitHub, which can skip its own consent screen.
+  const authorizeUrl = githubAuthorizeUrlOf(error)
+  if (authorizeUrl) {
+    return (
+      <AppShell>
+        <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
+          <section>
+            <h1 className="text-3xl font-medium tracking-tight text-foreground">
+              Confirm your GitHub access
+            </h1>
+            <p className="mt-3 text-sm text-zinc-400">
+              To connect this GitHub App installation to the organization{" "}
+              <span className="font-medium text-foreground">
+                {selectedOrganizationSlug}
+              </span>
+              , authorize the ctxpipe GitHub App on GitHub. ctxpipe uses this
+              one time to check that your GitHub account can access the
+              installation.
+            </p>
+            <div className="mt-6">
+              <Button
+                variant="primary"
+                className="rounded-md"
+                href={authorizeUrl}
+              >
+                Authorize on GitHub
+              </Button>
+            </div>
+          </section>
+        </main>
+      </AppShell>
+    )
+  }
+
   if (parsedErrorWhy === "github_authorization_unavailable") {
     return (
       <AppShell>
@@ -222,7 +243,7 @@ export function ConnectGithubView({
           <h1 className="text-3xl font-medium tracking-tight text-foreground">
             Link GitHub installation
           </h1>
-          {error && !authorizeUrlOf(error) ? (
+          {error ? (
             <div className="mt-8">
               <InlineAlert
                 variant="error"
