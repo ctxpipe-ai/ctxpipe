@@ -1,0 +1,634 @@
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises"
+import { join } from "node:path"
+import { fileURLToPath } from "node:url"
+
+import { z } from "zod"
+
+import {
+  firstOfEachId,
+  IMAGE_TEXT_PROMPT_VERSION,
+  type ImageReading,
+  imageText,
+  readImage,
+} from "../../src/knowledge-plane/image-text.js"
+import type { ModelCalls } from "./model-calls.js"
+
+/*
+ * The vision eval (CTX-1433). Each vision model reads each diagram fixture
+ * through the production client (`readImage`), and the score compares its
+ * reading with the gold graph of the fixture. Diagrams are the main feature
+ * of the image text: the score measures the nodes, the edges, the edge
+ * labels, the groups, the direction and the order of a sequence. The report
+ * also gives the cost of each image and the ZDR endpoints of each model that
+ * take the JSON schema: with no provider pin, they are the fallbacks.
+ *
+ * The fixtures are made-up diagrams, drawn with Graphviz, D2 (also in its
+ * hand-drawn sketch style), PlantUML and Mermaid, and one copy that looks
+ * like a photo of a screen (`fixtures/vision/README.md`).
+ */
+
+/** The candidates of the eval: ZDR vision models of three families. */
+export const VISION_MODELS = [
+  "openai/gpt-6.1-terra",
+  "google/gemini-3.8-flash",
+  "anthropic/claude-sonnet-5.5",
+]
+
+const FIXTURES = fileURLToPath(new URL("./fixtures/vision", import.meta.url))
+
+const goldSchema = z.discriminatedUnion("kind", [
+  z.object({
+    category: z.enum(["architecture", "flow", "sequence"]),
+    kind: z.literal("graph"),
+    direction: z.enum(["TB", "LR", "BT", "RL"]),
+    groups: z.array(
+      z.object({ label: z.string(), parent: z.string().nullable() }),
+    ),
+    nodes: z.array(
+      z.object({ label: z.string(), group: z.string().nullable() }),
+    ),
+    edges: z.array(
+      z.object({
+        from: z.string(),
+        to: z.string(),
+        label: z.string().nullable(),
+      }),
+    ),
+  }),
+  z.object({
+    category: z.enum(["architecture", "flow", "sequence"]),
+    kind: z.literal("sequence"),
+    participants: z.array(z.string()),
+    messages: z.array(
+      z.object({ from: z.string(), to: z.string(), label: z.string() }),
+    ),
+  }),
+])
+export type Gold = z.infer<typeof goldSchema>
+
+/** The score of one reading against the gold graph of its fixture. */
+export type Score = {
+  /** The reading has the diagram kind of the gold graph. */
+  kind: boolean
+  /** Nodes, or the participants of a sequence. */
+  nodeF1: number
+  /** Edges, or the messages of a sequence (with their labels). */
+  edgeF1: number
+  /** The share of the matched edges of a graph with the gold label. */
+  edgeLabel: number | null
+  groupF1: number | null
+  /** The share of the matched nodes of a graph in the gold group. */
+  membership: number | null
+  direction: boolean | null
+  /** The share of the matched messages of a sequence in the gold order. */
+  order: number | null
+}
+
+const normalize = (label: string) =>
+  label
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim()
+
+const bigrams = (text: string) => {
+  const compact = text.replace(/ /g, "")
+  return Array.from({ length: Math.max(compact.length - 1, 0) }, (_, i) =>
+    compact.slice(i, i + 2),
+  )
+}
+
+/**
+ * The similarity of two labels: 1 when they are equal after normalization,
+ * else the Dice coefficient of their character pairs. It accepts small
+ * reading errors, as in the photo fixture.
+ */
+function similarity(a: string, b: string): number {
+  const left = normalize(a)
+  const right = normalize(b)
+  if (left === right) return 1
+  const pairs = bigrams(left)
+  const others = bigrams(right)
+  if (pairs.length === 0 || others.length === 0) return 0
+  const pool = [...others]
+  let shared = 0
+  for (const pair of pairs) {
+    const at = pool.indexOf(pair)
+    if (at >= 0) {
+      shared += 1
+      pool.splice(at, 1)
+    }
+  }
+  return (2 * shared) / (pairs.length + others.length)
+}
+
+const SAME_LABEL = 0.75
+const sameLabel = (a: string, b: string) =>
+  (!normalize(a) && !normalize(b)) || similarity(a, b) >= SAME_LABEL
+
+/**
+ * A one-to-one match of predicted labels to gold labels, best pairs first.
+ * Returns the gold index of each matched predicted index.
+ */
+function matchLabels(
+  gold: readonly string[],
+  predicted: readonly string[],
+): Map<number, number> {
+  const pairs: { g: number; p: number; score: number }[] = []
+  gold.forEach((g, gi) => {
+    predicted.forEach((p, pi) => {
+      const score = similarity(g, p)
+      if (score >= SAME_LABEL) pairs.push({ g: gi, p: pi, score })
+    })
+  })
+  pairs.sort((a, b) => b.score - a.score || a.g - b.g || a.p - b.p)
+  const match = new Map<number, number>()
+  const usedGold = new Set<number>()
+  for (const pair of pairs)
+    if (!match.has(pair.p) && !usedGold.has(pair.g)) {
+      match.set(pair.p, pair.g)
+      usedGold.add(pair.g)
+    }
+  return match
+}
+
+function f1(matched: number, predicted: number, gold: number): number {
+  if (predicted === 0 && gold === 0) return 1
+  if (matched === 0) return 0
+  const precision = matched / predicted
+  const recall = matched / gold
+  return (2 * precision * recall) / (precision + recall)
+}
+
+/** The length of the longest increasing run (not contiguous) of `values`. */
+function longestIncreasing(values: readonly number[]): number {
+  const tails: number[] = []
+  for (const value of values) {
+    let low = 0
+    let high = tails.length
+    while (low < high) {
+      const mid = (low + high) >> 1
+      if ((tails[mid] ?? 0) < value) low = mid + 1
+      else high = mid
+    }
+    tails[low] = value
+  }
+  return tails.length
+}
+
+function scoreGraph(
+  gold: Extract<Gold, { kind: "graph" }>,
+  reading: ImageReading,
+): Score {
+  const diagram = reading.diagram
+  const nodes = firstOfEachId(diagram.nodes)
+  const groups = firstOfEachId(diagram.groups)
+  const nodeMatch = matchLabels(
+    gold.nodes.map((node) => node.label),
+    nodes.map((node) => node.label),
+  )
+  const groupMatch = matchLabels(
+    gold.groups.map((group) => group.label),
+    groups.map((group) => group.label),
+  )
+  const goldNodeOf = new Map(
+    nodes.map((node, i) => [node.id, nodeMatch.get(i) ?? -1]),
+  )
+  const goldIndex = new Map(gold.nodes.map((node, i) => [node.label, i]))
+  const used = new Set<number>()
+  let matchedEdges = 0
+  let sameEdgeLabel = 0
+  for (const edge of gold.edges) {
+    const from = goldIndex.get(edge.from)
+    const to = goldIndex.get(edge.to)
+    const at = diagram.edges.findIndex((candidate, i) => {
+      if (used.has(i)) return false
+      const f = goldNodeOf.get(candidate.from)
+      const t = goldNodeOf.get(candidate.to)
+      return (
+        (f === from && t === to) ||
+        (candidate.arrow !== "forward" && f === to && t === from)
+      )
+    })
+    if (at < 0) continue
+    used.add(at)
+    matchedEdges += 1
+    if (sameLabel(edge.label ?? "", diagram.edges[at]?.label ?? ""))
+      sameEdgeLabel += 1
+  }
+  // The gold group of each predicted group, by label: "" is no group, and a
+  // group with no gold match is a wrong group.
+  const goldGroupOf = new Map(
+    groups.map((group, i) => {
+      const g = groupMatch.get(i)
+      return [group.id, g === undefined ? "\0unmatched" : gold.groups[g]?.label]
+    }),
+  )
+  let inGoldGroup = 0
+  for (const [p, g] of nodeMatch) {
+    const predicted = nodes[p]?.group ?? ""
+    const mapped = predicted
+      ? (goldGroupOf.get(predicted) ?? "\0unmatched")
+      : null
+    if (mapped === (gold.nodes[g]?.group ?? null)) inGoldGroup += 1
+  }
+  return {
+    kind: diagram.kind === "graph",
+    nodeF1: f1(nodeMatch.size, nodes.length, gold.nodes.length),
+    edgeF1: f1(matchedEdges, diagram.edges.length, gold.edges.length),
+    edgeLabel: matchedEdges ? sameEdgeLabel / matchedEdges : null,
+    groupF1: f1(groupMatch.size, groups.length, gold.groups.length),
+    membership: nodeMatch.size ? inGoldGroup / nodeMatch.size : null,
+    direction: diagram.direction === gold.direction,
+    order: null,
+  }
+}
+
+function scoreSequence(
+  gold: Extract<Gold, { kind: "sequence" }>,
+  reading: ImageReading,
+): Score {
+  const diagram = reading.diagram
+  const participants = firstOfEachId(diagram.participants)
+  const match = matchLabels(
+    gold.participants,
+    participants.map((participant) => participant.label),
+  )
+  const goldOf = new Map(
+    participants.map((participant, i) => [participant.id, match.get(i) ?? -1]),
+  )
+  const goldIndex = new Map(gold.participants.map((label, i) => [label, i]))
+  const used = new Set<number>()
+  // The gold index of each matched message, in the predicted order.
+  const matched: { predicted: number; gold: number }[] = []
+  gold.messages.forEach((message, g) => {
+    const at = diagram.messages.findIndex(
+      (candidate, i) =>
+        !used.has(i) &&
+        goldOf.get(candidate.from) === goldIndex.get(message.from) &&
+        goldOf.get(candidate.to) === goldIndex.get(message.to) &&
+        sameLabel(message.label, candidate.label),
+    )
+    if (at < 0) return
+    used.add(at)
+    matched.push({ predicted: at, gold: g })
+  })
+  matched.sort((a, b) => a.predicted - b.predicted)
+  return {
+    kind: diagram.kind === "sequence",
+    nodeF1: f1(match.size, participants.length, gold.participants.length),
+    edgeF1: f1(matched.length, diagram.messages.length, gold.messages.length),
+    edgeLabel: null,
+    groupF1: null,
+    membership: null,
+    direction: null,
+    order: matched.length
+      ? longestIncreasing(matched.map((item) => item.gold)) / matched.length
+      : null,
+  }
+}
+
+/** The score of a reading against the gold graph of its fixture. */
+export function scoreReading(gold: Gold, reading: ImageReading): Score {
+  return gold.kind === "graph"
+    ? scoreGraph(gold, reading)
+    : scoreSequence(gold, reading)
+}
+
+type Fixture = {
+  name: string
+  gold: Gold
+  image: { bytes: Buffer; mimeType: string }
+}
+
+const MIME_TYPES: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+}
+
+/** Each `<name>.gold.json` of `dir` with its image `<name>.png` or `.jpg`. */
+async function readFixtures(dir: string): Promise<Fixture[]> {
+  const files = (await readdir(dir)).sort()
+  const fixtures: Fixture[] = []
+  for (const file of files) {
+    if (!file.endsWith(".gold.json")) continue
+    const name = file.slice(0, -".gold.json".length)
+    const image = files.find((other) =>
+      Object.keys(MIME_TYPES).some((ext) => other === `${name}.${ext}`),
+    )
+    if (!image) throw new Error(`The fixture ${name} has no image.`)
+    fixtures.push({
+      name,
+      gold: goldSchema.parse(
+        JSON.parse(await readFile(join(dir, file), "utf8")),
+      ),
+      image: {
+        bytes: await readFile(join(dir, image)),
+        mimeType: MIME_TYPES[image.split(".").pop() ?? ""] ?? "image/png",
+      },
+    })
+  }
+  return fixtures
+}
+
+const zdrSchema = z.object({
+  data: z.array(
+    z.object({
+      model_id: z.string(),
+      provider_name: z.string(),
+      tag: z.string(),
+      supported_parameters: z.array(z.string()).default([]),
+    }),
+  ),
+})
+
+/**
+ * The ZDR endpoints of each model that take a JSON schema
+ * (`GET /endpoints/zdr`). With no provider pin, OpenRouter can fall back
+ * from one of them to another.
+ */
+async function zdrEndpoints(
+  base: string,
+  models: readonly string[],
+): Promise<Map<string, { endpoints: string[]; providers: string[] }>> {
+  const response = await fetch(`${base.replace(/\/+$/, "")}/endpoints/zdr`)
+  const list = zdrSchema.parse(await response.json()).data
+  return new Map(
+    models.map((model) => {
+      const endpoints = list.filter(
+        (endpoint) =>
+          endpoint.model_id === model &&
+          endpoint.supported_parameters.includes("structured_outputs"),
+      )
+      return [
+        model,
+        {
+          endpoints: endpoints.map((endpoint) => endpoint.tag).sort(),
+          providers: [
+            ...new Set(endpoints.map((endpoint) => endpoint.provider_name)),
+          ].sort(),
+        },
+      ]
+    }),
+  )
+}
+
+type Result = {
+  model: string
+  fixture: string
+  category: Gold["category"]
+  score: Score | null
+  costUsd: number | null
+  latencyMs: number
+  provider: string | null
+  error: string | null
+  text: string | null
+  reading: ImageReading | null
+}
+
+const mean = (values: readonly (number | boolean | null)[]): number | null => {
+  const numbers = values
+    .filter((value) => value !== null)
+    .map((value) => Number(value))
+  return numbers.length
+    ? numbers.reduce((sum, value) => sum + value, 0) / numbers.length
+    : null
+}
+
+const median = (values: readonly number[]): number | null => {
+  const sorted = [...values].sort((a, b) => a - b)
+  return sorted.length ? (sorted[Math.floor(sorted.length / 2)] ?? null) : null
+}
+
+/** The summary of one model over the fixtures. */
+export type ModelSummary = {
+  model: string
+  nodeF1: number | null
+  edgeF1: number | null
+  edgeLabel: number | null
+  groupF1: number | null
+  membership: number | null
+  direction: number | null
+  order: number | null
+  edgeF1ByCategory: Record<Gold["category"], number | null>
+  failed: number
+  costPerImageUsd: number | null
+  medianLatencyMs: number | null
+  answeredBy: string[]
+  zdrEndpoints: string[]
+  zdrProviders: string[]
+}
+
+function summarize(
+  model: string,
+  results: readonly Result[],
+  zdr: { endpoints: string[]; providers: string[] } | undefined,
+): ModelSummary {
+  const scored = results.filter((result) => result.score)
+  const of = (pick: (score: Score) => number | boolean | null) =>
+    mean(scored.map((result) => (result.score ? pick(result.score) : null)))
+  const byCategory = (category: Gold["category"]) =>
+    mean(
+      scored
+        .filter((result) => result.category === category)
+        .map((result) => result.score?.edgeF1 ?? null),
+    )
+  const costs = results.flatMap((result) =>
+    result.costUsd === null ? [] : [result.costUsd],
+  )
+  return {
+    model,
+    nodeF1: of((score) => score.nodeF1),
+    edgeF1: of((score) => score.edgeF1),
+    edgeLabel: of((score) => score.edgeLabel),
+    groupF1: of((score) => score.groupF1),
+    membership: of((score) => score.membership),
+    direction: of((score) => score.direction),
+    order: of((score) => score.order),
+    edgeF1ByCategory: {
+      architecture: byCategory("architecture"),
+      flow: byCategory("flow"),
+      sequence: byCategory("sequence"),
+    },
+    failed: results.length - scored.length,
+    costPerImageUsd: mean(costs),
+    medianLatencyMs: median(scored.map((result) => result.latencyMs)),
+    answeredBy: [
+      ...new Set(results.flatMap((result) => result.provider ?? [])),
+    ].sort(),
+    zdrEndpoints: zdr?.endpoints ?? [],
+    zdrProviders: zdr?.providers ?? [],
+  }
+}
+
+const pct = (value: number | null) => (value === null ? "–" : value.toFixed(2))
+const usd = (value: number | null) =>
+  value === null ? "–" : `$${value.toFixed(4)}`
+
+function renderReport(input: {
+  summaries: readonly ModelSummary[]
+  results: readonly Result[]
+  fixtures: readonly Fixture[]
+  spentUsd: number
+  capUsd: number
+  stopped: boolean
+  now: Date
+}): string {
+  const lines = [
+    "# Vision eval",
+    "",
+    `Run at ${input.now.toISOString()}. Prompt version ${IMAGE_TEXT_PROMPT_VERSION}. ${input.fixtures.length} fixtures. Spend $${input.spentUsd.toFixed(4)} of the cap $${input.capUsd}.${input.stopped ? " **The spend cap stopped the run.**" : ""}`,
+    "",
+    "The scores are means over the fixtures (1.00 is the gold graph). Node F1 counts the participants of a sequence, and edge F1 its messages with their labels. Fallback: the ZDR endpoints of the model that take the JSON schema, and their providers.",
+    "",
+    "| Model | Node F1 | Edge F1 | Edge label | Group F1 | Group membership | Direction | Sequence order | Failed | Cost per image | Median latency | Answered by | Fallback endpoints (providers) |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    ...input.summaries.map(
+      (s) =>
+        `| ${s.model} | ${pct(s.nodeF1)} | ${pct(s.edgeF1)} | ${pct(s.edgeLabel)} | ${pct(s.groupF1)} | ${pct(s.membership)} | ${pct(s.direction)} | ${pct(s.order)} | ${s.failed} | ${usd(s.costPerImageUsd)} | ${s.medianLatencyMs === null ? "–" : `${(s.medianLatencyMs / 1000).toFixed(1)} s`} | ${s.answeredBy.join(", ") || "–"} | ${s.zdrEndpoints.length} (${s.zdrProviders.join(", ") || "none"}) |`,
+    ),
+    "",
+    "## Edge F1 by category",
+    "",
+    "| Model | Architecture | Flow | Sequence |",
+    "| --- | --- | --- | --- |",
+    ...input.summaries.map(
+      (s) =>
+        `| ${s.model} | ${pct(s.edgeF1ByCategory.architecture)} | ${pct(s.edgeF1ByCategory.flow)} | ${pct(s.edgeF1ByCategory.sequence)} |`,
+    ),
+    "",
+    "## Edge F1 of each fixture",
+    "",
+    `| Fixture | Category | ${input.summaries.map((s) => s.model).join(" | ")} |`,
+    `| --- | --- | ${input.summaries.map(() => "---").join(" | ")} |`,
+    ...input.fixtures.map((fixture) => {
+      const cells = input.summaries.map((s) => {
+        const result = input.results.find(
+          (item) => item.model === s.model && item.fixture === fixture.name,
+        )
+        return result?.score ? pct(result.score.edgeF1) : (result?.error ?? "–")
+      })
+      return `| ${fixture.name} | ${fixture.gold.category} | ${cells.join(" | ")} |`
+    }),
+    "",
+    "The text of each reading is in `<model>/<fixture>.md`, and each reading and score in `vision.json`.",
+    "",
+  ]
+  return lines.join("\n")
+}
+
+/**
+ * Read each fixture with each model, score the readings and write the
+ * report (`vision.md`, `vision.json`, and the text of each reading) to
+ * `out`. The models run in parallel, and the fixtures of a model one at a
+ * time. `calls` applies the spend cap.
+ */
+export async function runVision(input: {
+  models: readonly string[]
+  out: string
+  calls: ModelCalls
+  capUsd: number
+  base: string
+  fixturesDir?: string
+  now?: Date
+}): Promise<{ summaries: ModelSummary[]; stopped: boolean }> {
+  const fixtures = await readFixtures(input.fixturesDir ?? FIXTURES)
+  const zdr = await zdrEndpoints(input.base, input.models)
+  const results = (
+    await Promise.all(
+      input.models.map(async (model) => {
+        const own: Result[] = []
+        for (const fixture of fixtures) {
+          const base = {
+            model,
+            fixture: fixture.name,
+            category: fixture.gold.category,
+          }
+          if (input.calls.stopped) {
+            own.push({
+              ...base,
+              score: null,
+              costUsd: null,
+              latencyMs: 0,
+              provider: null,
+              error: "not run: the spend cap",
+              text: null,
+              reading: null,
+            })
+            continue
+          }
+          const started = performance.now()
+          try {
+            const result = await readImage(fixture.image, { model })
+            own.push({
+              ...base,
+              score: scoreReading(fixture.gold, result.reading),
+              costUsd: result.costUsd,
+              latencyMs: Math.round(performance.now() - started),
+              provider: result.provider,
+              error: null,
+              text: imageText(result.reading),
+              reading: result.reading,
+            })
+          } catch (error) {
+            own.push({
+              ...base,
+              score: null,
+              costUsd: null,
+              latencyMs: Math.round(performance.now() - started),
+              provider: null,
+              error: error instanceof Error ? error.message : String(error),
+              text: null,
+              reading: null,
+            })
+          }
+        }
+        return own
+      }),
+    )
+  ).flat()
+  const summaries = input.models.map((model) =>
+    summarize(
+      model,
+      results.filter((result) => result.model === model),
+      zdr.get(model),
+    ),
+  )
+  const now = input.now ?? new Date()
+  await mkdir(input.out, { recursive: true })
+  for (const result of results)
+    if (result.text) {
+      const dir = join(input.out, result.model.replace(/\//g, "__"))
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, `${result.fixture}.md`), result.text)
+    }
+  await writeFile(
+    join(input.out, "vision.json"),
+    `${JSON.stringify(
+      {
+        now: now.toISOString(),
+        promptVersion: IMAGE_TEXT_PROMPT_VERSION,
+        capUsd: input.capUsd,
+        spentUsd: input.calls.spentUsd,
+        stopped: input.calls.stopped,
+        summaries,
+        results,
+      },
+      null,
+      2,
+    )}\n`,
+  )
+  await writeFile(
+    join(input.out, "vision.md"),
+    renderReport({
+      summaries,
+      results,
+      fixtures,
+      spentUsd: input.calls.spentUsd,
+      capUsd: input.capUsd,
+      stopped: input.calls.stopped,
+      now,
+    }),
+  )
+  return { summaries, stopped: input.calls.stopped }
+}

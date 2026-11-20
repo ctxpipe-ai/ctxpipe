@@ -1,0 +1,95 @@
+{
+  "category": "architecture",
+  "kind": "graph",
+  "direction": "LR",
+  "groups": [
+    {
+      "label": "Frontend",
+      "parent": null
+    },
+    {
+      "label": "Backend",
+      "parent": null
+    },
+    {
+      "label": "Data",
+      "parent": null
+    }
+  ],
+  "nodes": [
+    {
+      "label": "Web UI",
+      "group": "Frontend"
+    },
+    {
+      "label": "Admin console",
+      "group": "Frontend"
+    },
+    {
+      "label": "REST API",
+      "group": "Backend"
+    },
+    {
+      "label": "Auth service",
+      "group": "Backend"
+    },
+    {
+      "label": "Search indexer",
+      "group": "Backend"
+    },
+    {
+      "label": "MySQL",
+      "group": "Data"
+    },
+    {
+      "label": "Elasticsearch",
+      "group": "Data"
+    },
+    {
+      "label": "Object storage",
+      "group": "Data"
+    }
+  ],
+  "edges": [
+    {
+      "from": "Web UI",
+      "to": "REST API",
+      "label": "JSON"
+    },
+    {
+      "from": "Admin console",
+      "to": "REST API",
+      "label": null
+    },
+    {
+      "from": "REST API",
+      "to": "Auth service",
+      "label": "validate token"
+    },
+    {
+      "from": "REST API",
+      "to": "MySQL",
+      "label": null
+    },
+    {
+      "from": "REST API",
+      "to": "Object storage",
+      "label": "uploads"
+    },
+    {
+      "from": "Search indexer",
+      "to": "MySQL",
+      "label": "read changes"
+    },
+    {
+      "from": "Search indexer",
+      "to": "Elasticsearch",
+      "label": "index"
+    },
+    {
+      "from": "REST API",
+      "to": "Elasticsearch",
+      "label": "query"
+    }
+  ]
+}

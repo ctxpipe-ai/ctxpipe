@@ -1,0 +1,14 @@
+digraph G {
+  rankdir=LR; fontname="DejaVu Sans"; node [shape=box, style="rounded,filled", fillcolor="#eef3fb", fontname="DejaVu Sans"]; edge [fontname="DejaVu Sans", fontsize=10];
+  user [label="User", shape=ellipse, fillcolor="#ffffff"];
+  subgraph cluster_aws { label="AWS Cloud"; style=dashed;
+    cdn [label="CloudFront CDN"]; s3 [label="S3 static assets", shape=cylinder]; sqs [label="SQS queue"];
+    subgraph cluster_vpc { label="VPC"; style=solid;
+      subgraph cluster_pub { label="Public subnet"; style=filled; fillcolor="#f4fbf2"; alb [label="Application Load Balancer"]; }
+      subgraph cluster_priv { label="Private subnet"; style=filled; fillcolor="#fbf4f2";
+        api [label="API service"]; worker [label="Worker service"]; pg [label="PostgreSQL", shape=cylinder]; redis [label="Redis cache", shape=cylinder]; }
+    }
+  }
+  user -> cdn [label="HTTPS"]; cdn -> s3 [label="static files"]; cdn -> alb [label="/api/*"]; alb -> api;
+  api -> pg [label="SQL"]; api -> redis [label="sessions"]; api -> sqs [label="enqueue jobs"]; sqs -> worker [label="poll"]; worker -> pg;
+}

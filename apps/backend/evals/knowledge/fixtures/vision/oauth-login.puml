@@ -1,0 +1,20 @@
+@startuml
+actor User
+participant Browser
+participant "App server" as App
+participant "Auth server" as Auth
+participant "Resource API" as Res
+User -> Browser : Click Sign in
+Browser -> App : GET /login
+App --> Browser : 302 redirect to /authorize
+Browser -> Auth : GET /authorize
+Auth --> Browser : Login page
+User -> Browser : Enter credentials
+Browser -> Auth : POST /login
+Auth --> Browser : 302 redirect with code
+Browser -> App : GET /callback?code
+App -> Auth : POST /token
+Auth --> App : access token
+App -> Res : GET /profile
+Res --> App : profile JSON
+@enduml

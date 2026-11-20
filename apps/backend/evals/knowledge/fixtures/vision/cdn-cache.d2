@@ -1,0 +1,12 @@
+shape: sequence_diagram
+client: Client
+cdn: CDN edge
+cache: Cache store
+origin: Origin server
+client -> cdn: GET /image.png
+cdn -> cache: lookup key
+cache -> cdn: miss
+cdn -> origin: GET /image.png
+origin -> cdn: 200 + Cache-Control
+cdn -> cache: store
+cdn -> client: 200 image

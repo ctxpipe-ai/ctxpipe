@@ -1,0 +1,64 @@
+{
+  "category": "flow",
+  "kind": "graph",
+  "direction": "LR",
+  "groups": [],
+  "nodes": [
+    {
+      "label": "Created",
+      "group": null
+    },
+    {
+      "label": "Paid",
+      "group": null
+    },
+    {
+      "label": "Shipped",
+      "group": null
+    },
+    {
+      "label": "Delivered",
+      "group": null
+    },
+    {
+      "label": "Cancelled",
+      "group": null
+    },
+    {
+      "label": "Refunded",
+      "group": null
+    }
+  ],
+  "edges": [
+    {
+      "from": "Created",
+      "to": "Paid",
+      "label": "payment received"
+    },
+    {
+      "from": "Created",
+      "to": "Cancelled",
+      "label": "timeout 30 min"
+    },
+    {
+      "from": "Paid",
+      "to": "Shipped",
+      "label": "label printed"
+    },
+    {
+      "from": "Paid",
+      "to": "Refunded",
+      "label": "customer cancels"
+    },
+    {
+      "from": "Shipped",
+      "to": "Delivered",
+      "label": "carrier scan"
+    },
+    {
+      "from": "Delivered",
+      "to": "Refunded",
+      "label": "return accepted"
+    }
+  ]
+}
