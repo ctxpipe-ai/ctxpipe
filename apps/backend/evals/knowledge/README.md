@@ -145,6 +145,27 @@ Before the first org leaves `off`, this command confirms with real calls that Op
 
 The probe sends only fixed texts (questions and one batch of 64 checkerboard chunks) and one made-up diagram (`fixtures/vision/order-states.png`), and the default spend cap is $0.25: the recorder holds $0.05 for each vision call in flight. An answer names only its provider, not the endpoint: when a provider has more than one endpoint of a model, the name does not show which endpoint served the call. The `zdr` and `quantizations` fields of the request decide the endpoint, and the refusal pairs show that OpenRouter applies `zdr`. When the probe cannot read the ZDR list, the check `zdr-list` fails with the error, and the other checks find no ZDR provider. It writes `probe.json` and `probe.md` to `--out`. It needs no store, but the backend environment check still needs `DATABASE_URL` and `AUTH_SECRET` to be set. Exit codes: 0 all checks pass, 3 the spend cap stopped a call, 4 a check failed. A failed check shows the error of the client, then the error text of the provider. The client error keeps only a complete routing message of OpenRouter (for example "No endpoints found that can handle the requested parameters."), because other error text can echo the input. The probe sends only fixed public inputs, so it also shows the provider text. When a check fails, report it. Do not change the request settings to make it pass.
 
+### Measure the latency of the model calls
+
+```sh
+factory eval knowledge:latency --repo CTXPIPE-CHECKOUT --out "$TMPDIR/knowledge-latency" [--max-cost 2] [-- --runs 50]
+# or, with the model key in the environment:
+bun --env-file=.env.local evals/knowledge/cli.ts latency --out "$TMPDIR/knowledge-latency" [--runs 50] [--cap-usd 2]
+```
+
+The time budget of a plane search (`timeBudgetMs`) must fit the latency of its model calls. This command measures them for a decision on the budget. It sends one fixed public question, and one call at a time, so that each latency is the latency of one request. Each call goes only to a ZDR endpoint (ADR-068 decision 7).
+
+| Measure | What it sends |
+| --- | --- |
+| OpenRouter round trip | A request that reaches no model (10 calls): the network time of this host. |
+| Plane query embedding, production request | The query embedding of the real client (`embedTexts`), with no pin, as production sends it. |
+| Plane query embedding, pinned | The same request, pinned to one ZDR endpoint tag of the model (no fallback, one attempt), for each ZDR endpoint. The tag also fixes the quantization, so an fp8 endpoint is measured too. The pin is for the measurement only: production pins no provider. |
+| Plane query embedding, hedged | The same request to two ZDR endpoints at once, at the quantizations that production allows. The latency is that of the first answer. The next sample starts after both answers. |
+| Query embedding, other model | Each other text embedding model with a ZDR endpoint, with no pin, and pinned to each of its ZDR endpoints. |
+| Jev, layer judge | The request of the layer judge with 10 made-up candidates (at most 30 calls). |
+
+It writes `latency.md` (for each measure: the calls, the errors, p50, p95, the maximum, the price of 1M input tokens, and the providers that answered) and `latency.json` (each sample) to `--out`. The default spend cap is $2. Exit codes: 0 done, 3 the spend cap stopped a call.
+
 ### Compare the vision models
 
 ```sh

@@ -83,31 +83,43 @@ type ZdrProvidersOf = (
  * list holds no input of ours, so the call goes around the recorder.
  */
 async function zdrProviders(base: string): Promise<ZdrProvidersOf> {
-  const response = await fetch(`${base.replace(/\/+$/, "")}/endpoints/zdr`)
-  if (!response.ok)
-    throw new Error(`The ZDR list answered HTTP ${response.status}`)
-  const { data } = z
-    .object({
-      data: z.array(
-        z.object({
-          model_id: z.string(),
-          provider_name: z.string(),
-          quantization: z.string().nullable().optional(),
-        }),
-      ),
-    })
-    .parse(await response.json())
+  const data = await readZdrList(base)
   return (model: string, quantizations?: readonly string[]) =>
     new Set(
       data
         .filter(
           (endpoint) =>
             endpoint.model_id === model &&
-            (!quantizations ||
-              quantizations.includes(endpoint.quantization ?? "unknown")),
+            (!quantizations || quantizations.includes(endpoint.quantization)),
         )
         .map((endpoint) => endpoint.provider_name),
     )
+}
+
+/**
+ * The OpenRouter ZDR list (`GET /api/v1/endpoints/zdr`): each ZDR endpoint
+ * with its model, provider, tag and quantization (`unknown` when the list
+ * gives none).
+ */
+export async function readZdrList(base: string) {
+  const response = await fetch(`${base.replace(/\/+$/, "")}/endpoints/zdr`)
+  if (!response.ok)
+    throw new Error(`The ZDR list answered HTTP ${response.status}`)
+  return z
+    .object({
+      data: z.array(
+        z.object({
+          model_id: z.string(),
+          provider_name: z.string(),
+          tag: z.string(),
+          quantization: z
+            .string()
+            .nullish()
+            .transform((value) => value ?? "unknown"),
+        }),
+      ),
+    })
+    .parse(await response.json()).data
 }
 
 const answerSchema = z.object({
@@ -195,7 +207,7 @@ const jsonObject = z.record(z.string(), z.unknown())
  * Run `call` with one change to the JSON body of each request that it sends.
  * The real client still makes the request and reads the answer.
  */
-async function withChangedBody<T>(
+export async function withChangedBody<T>(
   change: (body: Record<string, unknown>) => Record<string, unknown>,
   call: () => Promise<T>,
 ): Promise<T> {
