@@ -5,7 +5,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect, useState } from "react"
 
 import { GithubSelfHostedWizardModal } from "@/features/connectors/components/GithubSelfHostedWizardModal"
-import { getGithubConnectStartBranch } from "@/features/connectors/githubConnectFlow"
+import {
+  getGithubConnectStartBranch,
+  githubManageScopeUrl,
+} from "@/features/connectors/githubConnectFlow"
 import {
   fetchGithubInstallationSummary,
   githubConnectorKeys,
@@ -166,10 +169,9 @@ export function useGithubConnectFlow({
   const start = useCallback(
     (intent: "connect" | "manage_scope") => {
       if (!orgSlug.trim()) return
-      // The backend names the App's install page: on a deployment behind a
-      // forwarder (the AWS PR previews), the forwarder's.
-      if (intent === "manage_scope" && installation?.installUrl) {
-        openManagedInstallPopup(installation.installUrl)
+      const manageScopeUrl = githubManageScopeUrl(installation)
+      if (intent === "manage_scope" && manageScopeUrl) {
+        openManagedInstallPopup(manageScopeUrl)
         return
       }
       const branch = getGithubConnectStartBranch({
