@@ -308,6 +308,8 @@ jobs:
             scripts/zoekt/build.sh
           fi
           echo "$GITHUB_WORKSPACE/.tools/bin" >> "$GITHUB_PATH"
+      # The backend Vitest config runs the file converter (its global setup).
+      - uses: ./.github/actions/converter
       - name: Migrate backend schema
         env:
           DATABASE_URL: postgresql://ctxpipe:ctxpipe@localhost:5432/ctxpipe
@@ -1384,6 +1386,8 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # The backend Vitest config runs the file converter (its global setup).
+      - uses: ./.github/actions/converter
       - name: Apply migrations to an empty database
         env:
           DATABASE_URL: postgresql://ctxpipe:ctxpipe@localhost:5432/postgres

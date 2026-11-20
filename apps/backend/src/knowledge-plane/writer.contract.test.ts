@@ -23,7 +23,6 @@ import {
 import { stringify } from "yaml"
 import { z } from "zod"
 
-import { buildConverter } from "../../test/converter.js"
 import { recordSpans } from "../../test/spans.js"
 import { closeDb, getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
@@ -211,7 +210,6 @@ let store: KnowledgeStore
 const workspaceIds: string[] = []
 beforeAll(async () => {
   if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required")
-  buildConverter()
   initDb(process.env.DATABASE_URL)
   await getSystemDb().insert(organizations).values({
     id: orgId,

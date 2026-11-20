@@ -16,6 +16,7 @@ export default defineConfig({
     // 1000 documents need the limit of ClickHouse.
     execArgv: ["--max-http-header-size=1048576"],
     include: ["src/**/*.test.ts"],
+    globalSetup: ["src/test/global-setup-converter.ts"],
     setupFiles: [
       "src/test/setup-evlog.ts",
       "src/test/setup-openworkflow-runs.ts",

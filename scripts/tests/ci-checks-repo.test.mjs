@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 import { gunzipSync } from "node:zlib"
@@ -503,6 +503,46 @@ test("the Storybook build is a cached artifact of the prerequisite that writes i
     assert.ok(existsSync(join(root, input)), input)
 })
 
+test("each built program is named by the code that starts it, and its inputs exist", () => {
+  // A selector without trace data finds the checks that start a program by a
+  // relative string literal that names its output (machines/cli of the
+  // factory, src/builds.rs): keep the output the same path as the code names.
+  const result = node([script("list.mjs")])
+  assert.equal(result.status, 0, result.stderr)
+  const { builds } = JSON.parse(result.stdout)
+  assert.ok(builds.length >= 1)
+  for (const { output, inputs } of builds) {
+    for (const input of inputs)
+      assert.ok(existsSync(join(root, input.replace(/\/\*\*$/, ""))), input)
+    assert.ok(
+      inputs.some(
+        (input) =>
+          input.endsWith("/**") && output.startsWith(input.slice(0, -2)),
+      ),
+      `${output} is below an input folder`,
+    )
+    const base = output.split("/").pop()
+    const files = spawnSync(
+      "git",
+      ["grep", "-l", "--fixed-strings", base, "--", "*.ts"],
+      {
+        cwd: root,
+        encoding: "utf8",
+      },
+    )
+      .stdout.split("\n")
+      .filter(Boolean)
+    const named = files.some((file) =>
+      [
+        ...readFileSync(join(root, file), "utf8").matchAll(
+          /["'`](\.\.?\/[^"'`]+)["'`]/g,
+        ),
+      ].some(([, literal]) => join(dirname(file), literal) === output),
+    )
+    assert.ok(named, `no code names ${output} by a relative path`)
+  }
+})
+
 test("the backend files that start Docker or host tools run in the contracts lane", () => {
   const moved = JSON.parse(
     readFileSync(join(root, "scripts/ci/contracts.json"), "utf8"),
@@ -664,7 +704,7 @@ test("the trace records the lines that a case runs in a Node child process", () 
   }
 })
 
-test("the trace records the files that a case runs in a Bun child process", async () => {
+test("the trace records the files that a case runs in a Bun child process, and the programs that it starts", async () => {
   const directory = mkdtempSync(join(tmpdir(), "ctxpipe-trace-"))
   try {
     // Each fixture case starts child.mjs, which runs known() from known.mjs.
@@ -726,6 +766,16 @@ test("the trace records the files that a case runs in a Bun child process", asyn
     // The Bun file must not change the exact ranges of the in-process case.
     assert.deepEqual(lines("mixed.fixture.mjs", "a Bun child"), [[1, 7]])
     assert.deepEqual(lines("mixed.fixture.mjs", "in process"), [[1, 3]])
+    // A case that starts a repo program records it in `execs`. A file whose
+    // cases start a Node or Bun child does not claim `execs`: the program
+    // that runs in the child is not known.
+    const program = checks.get("program.fixture.mjs")
+    assert.ok(program.recorded.includes("execs"))
+    assert.deepEqual(
+      program.cases.find((c) => c.name === "a repo program").execs,
+      ["scripts/tests/fixtures/trace-children/program"],
+    )
+    assert.ok(!checks.get("children.fixture.mjs").recorded.includes("execs"))
   } finally {
     rmSync(directory, { recursive: true, force: true })
   }

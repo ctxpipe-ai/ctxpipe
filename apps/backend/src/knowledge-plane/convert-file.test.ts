@@ -2,9 +2,8 @@ import { execFileSync } from "node:child_process"
 import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 
-import { beforeAll, describe, expect, it } from "vitest"
+import { describe, expect, it } from "vitest"
 
-import { buildConverter } from "../../test/converter.js"
 import {
   type Conversion,
   convertFile,
@@ -35,9 +34,6 @@ const pngSize = (png: Buffer) => ({
   width: png.readUInt32BE(16),
   height: png.readUInt32BE(20),
 })
-
-// The real CLI of this checkout.
-beforeAll(buildConverter, 900_000)
 
 describe("fileType", () => {
   it("routes a path to the converter, the vision model, a failure or nothing", () => {
