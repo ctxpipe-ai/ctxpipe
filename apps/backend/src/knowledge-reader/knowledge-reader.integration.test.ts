@@ -75,12 +75,19 @@ let slowJevCall: number | null = null
 let jevCalls = 0
 /** Answer the embedding of the plane after the 3-second budget. */
 let slowEmbedding = false
+/** Answer the embedding of the plane with this HTTP status, or none. */
+let embeddingFailure: number | null = null
+/** The embedding requests of the plane. */
+let planeEmbeddings = 0
 
 const models = setupServer(
   http.post(`${MODEL_URL}/embeddings`, async ({ request }) => {
     const body = (await request.json()) as { model: string; input: string[] }
     const plane = body.model === textEmbeddingConfig.model
+    if (plane) planeEmbeddings += 1
     if (slowEmbedding && plane) await delay(5_000)
+    if (embeddingFailure && plane)
+      return new HttpResponse("busy", { status: embeddingFailure })
     return HttpResponse.json({
       data: body.input.map((input, index) => ({
         index,
@@ -424,6 +431,8 @@ describe("the knowledge reader seam", () => {
     jevFails = false
     slowJevCall = null
     slowEmbedding = false
+    embeddingFailure = null
+    planeEmbeddings = 0
     jevCalls = 0
     jevRequests.length = 0
     jevParts.length = 0
@@ -773,6 +782,34 @@ describe("the knowledge reader seam", () => {
     })
     expect(jevRequests).toEqual([])
   }, 15_000)
+
+  it("on: when the query embedding gets a 429, search_knowledge has no hits and says total_timeout at once, with no retry", async () => {
+    await setFlag("on")
+    embeddingFailure = 429
+    const result = await searchCall({ workspaces: ["ready"] })
+    expect(result.isError).toBeFalsy()
+    expect(structured(result)).toMatchObject({
+      hits: [],
+      partial: true,
+      partialReason: "total_timeout",
+    })
+    // One request and no retry. A backoff wait would end in the budget.
+    expect(planeEmbeddings).toBe(1)
+    expect(jevRequests).toEqual([])
+  })
+
+  it("on: when the query embedding gets a 503, get_related returns partial with no retry", async () => {
+    await setFlag("on")
+    embeddingFailure = 503
+    const content = structured(await relatedCall({ maxDepth: 3 }))
+    expect(content).toMatchObject({
+      results: [],
+      partial: true,
+      partialReason: "total_timeout",
+    })
+    expect(planeEmbeddings).toBe(1)
+    expect(jevRequests).toEqual([])
+  })
 
   it("on: when the time budget ends in the judge, search_knowledge gives the search order and says total_timeout", async () => {
     await setFlag("on")

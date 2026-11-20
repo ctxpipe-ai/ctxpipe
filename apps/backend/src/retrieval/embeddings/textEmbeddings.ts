@@ -124,14 +124,13 @@ export async function embedTexts(
   onRequest?: () => void,
 ): Promise<number[][]> {
   if (inputs.length === 0) return []
-  const send = sender(config, {})
 
   const embedBatch = async (batch: EmbeddingInput[]): Promise<number[][]> => {
     const texts = batch.map(chunkText)
     for (let attempt = 1; ; attempt++) {
       try {
         onRequest?.()
-        return await send(texts)
+        return await embedRequest(texts, config)
       } catch (err) {
         // A 429, a 5xx and a network error of fetch (no answer) retry. The
         // message of a network error holds no input text.
@@ -164,22 +163,25 @@ export async function embedQuery(
   text: string,
   config: TextEmbeddingConfig = textEmbeddingConfig,
 ): Promise<number[]> {
-  const [vector] = await sender(config, { sort: "latency" })([
-    `Instruct: ${config.queryInstruction}\nQuery:${text}`,
-  ])
+  const [vector] = await embedRequest(
+    [`Instruct: ${config.queryInstruction}\nQuery:${text}`],
+    config,
+    "latency",
+  )
   if (!vector) throw new Error("The embedding endpoint returned no vector")
   return vector
 }
 
 /**
- * The function that sends one request with `texts` and returns their
- * vectors. The request has the ZDR fields, the allowed quantizations and
- * the `routing` fields in its provider block.
+ * One HTTP request with `texts`, in one span. The provider block has the ZDR
+ * fields, the allowed quantizations and `sort` when it is set. The span
+ * holds counts, never content.
  */
-function sender(
+function embedRequest(
+  texts: string[],
   config: TextEmbeddingConfig,
-  routing: { sort?: "latency" },
-): (texts: string[]) => Promise<number[][]> {
+  sort?: "latency",
+): Promise<number[][]> {
   assertNotInOrgDbContext()
   // The model and the provider block are of OpenRouter. A deployment whose
   // model settings do not point at OpenRouter sends no content to it.
@@ -188,32 +190,7 @@ function sender(
     throw new Error(
       "The knowledge embeddings need MODEL_PROVIDER openrouter or openai-like, an OpenRouter MODEL_PROVIDER_URL, and MODEL_PROVIDER_API_KEY.",
     )
-  const url = `${settings.base.replace(/\/$/, "")}/embeddings`
-  return (texts) =>
-    embedRequest(
-      texts.length,
-      JSON.stringify({
-        model: config.model,
-        input: texts,
-        dimensions: config.dimensions,
-        encoding_format: "float",
-        provider: {
-          ...ZDR_PROVIDER,
-          quantizations: config.quantizations,
-          ...routing,
-        },
-      }),
-      { url, apiKey: settings.apiKey, config },
-    )
-}
-
-/** One HTTP request in one span. The span holds counts, never content. */
-function embedRequest(
-  count: number,
-  body: string,
-  request: { url: string; apiKey: string; config: TextEmbeddingConfig },
-): Promise<number[][]> {
-  const { config } = request
+  const count = texts.length
   let usage: { input?: number; cost?: number } | undefined
   return withLlmGeneration(
     {
@@ -229,14 +206,27 @@ function embedRequest(
       usageSoFar: () => usage,
     },
     async () => {
-      const res = await fetch(request.url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${request.apiKey}`,
+      const res = await fetch(
+        `${settings.base.replace(/\/$/, "")}/embeddings`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${settings.apiKey}`,
+          },
+          body: JSON.stringify({
+            model: config.model,
+            input: texts,
+            dimensions: config.dimensions,
+            encoding_format: "float",
+            provider: {
+              ...ZDR_PROVIDER,
+              quantizations: config.quantizations,
+              ...(sort ? { sort } : {}),
+            },
+          }),
         },
-        body,
-      })
+      )
       if (!res.ok) {
         // The provider can echo the input in the body. Keep it out of the
         // error, because the span status copies the error message. Only a

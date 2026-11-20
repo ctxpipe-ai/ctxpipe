@@ -62,7 +62,7 @@ export type ModelMeter = {
 const JEV_BATCH = 25
 
 /** The time budget of a retrieval ended before a step could start or end. */
-class BudgetSpentError extends Error {
+export class BudgetSpentError extends Error {
   override readonly name = "BudgetSpentError"
 }
 
