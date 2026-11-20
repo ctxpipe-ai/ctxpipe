@@ -159,9 +159,9 @@ The time budget of a plane search (`timeBudgetMs`) must fit the latency of its m
 | --- | --- |
 | OpenRouter round trip | A request that reaches no model (10 calls): the network time of this host. |
 | Plane query embedding, production request | The query embedding of the real client (`embedTexts`), with no pin, as production sends it. |
-| Plane query embedding, pinned | The same request, pinned to one ZDR provider of the model (`only`, no fallback, one attempt), for each ZDR provider. The pin is for the measurement only: production pins no provider. |
-| Plane query embedding, hedged | The same request to two ZDR providers at once (not fp8). The latency is that of the first answer. |
-| Query embedding, other model | Each other text embedding model with a ZDR endpoint, with no pin. |
+| Plane query embedding, pinned | The same request, pinned to one ZDR endpoint tag of the model (no fallback, one attempt), for each ZDR endpoint. The tag also fixes the quantization, so an fp8 endpoint is measured too. The pin is for the measurement only: production pins no provider. |
+| Plane query embedding, hedged | The same request to two ZDR endpoints at once, at the quantizations that production allows. The latency is that of the first answer. The next sample starts after both answers. |
+| Query embedding, other model | Each other text embedding model with a ZDR endpoint, with no pin, and pinned to each endpoint when the model has more than one. |
 | Jev, layer judge | The request of the layer judge with 10 made-up candidates (at most 30 calls). |
 
 It writes `latency.md` (for each measure: the calls, the errors, p50, p95, the maximum, the price of 1M input tokens, and the providers that answered) and `latency.json` (each sample) to `--out`. The default spend cap is $2. Exit codes: 0 done, 3 the spend cap stopped a call.

@@ -92,9 +92,10 @@ const ZDR_LIST = [
   ["qwen/qwen3-embedding-8b", "Nebius", "bf16"],
   ["qwen/qwen3-embedding-8b", "DeepInfra", "unknown"],
   ["qwen/qwen3-embedding-8b", "SiliconFlow", "fp8"],
-].map(([model_id, provider_name, quantization]) => ({
+].map(([model_id = "", provider_name = "", quantization]) => ({
   model_id,
   provider_name,
+  tag: `${provider_name.toLowerCase()}/${quantization}`,
   quantization,
 }))
 

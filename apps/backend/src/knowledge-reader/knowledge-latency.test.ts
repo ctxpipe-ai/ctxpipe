@@ -18,8 +18,16 @@ import { textEmbeddingConfig } from "../retrieval/embeddings/textEmbeddings.js"
 
 const BASE = "https://latency-gateway.test/api/v1"
 
-/** The provider of each embedding request, by model. */
-const posted: { model: string; provider: Record<string, unknown> }[] = []
+/** The model, the provider block and the pin of each embedding request. */
+const posted: {
+  model: string
+  provider: Record<string, unknown>
+  pin: unknown
+}[] = []
+
+/** The endpoint tags of the pin of a provider block, or undefined. */
+const pinOf = (provider: Record<string, unknown>) =>
+  Object.entries(provider).find(([key]) => key === "only")?.[1]
 let jevCalls = 0
 
 useMswServer(
@@ -28,26 +36,39 @@ useMswServer(
       data: [
         {
           model_id: textEmbeddingConfig.model,
+          provider_name: "Nebius",
           tag: "nebius/bf16",
           quantization: "bf16",
         },
         {
           model_id: textEmbeddingConfig.model,
+          provider_name: "DeepInfra",
           tag: "deepinfra/us",
           quantization: "unknown",
         },
+        // A low precision: pinned, but not in the hedge.
+        {
+          model_id: textEmbeddingConfig.model,
+          provider_name: "SiliconFlow",
+          tag: "siliconflow/fp8",
+          quantization: "fp8",
+        },
         {
           model_id: "openai/text-embedding-3-small",
+          provider_name: "Azure",
           tag: "azure",
-          quantization: "unknown",
+          // The list can give no quantization.
+          quantization: null,
         },
         {
           model_id: "amazon/titan-embed-image-v1",
+          provider_name: "Amazon Bedrock",
           tag: "amazon-bedrock",
           quantization: "unknown",
         },
         {
           model_id: "typesafe/jev-1.14",
+          provider_name: "TypeSafe",
           tag: "typesafe",
           quantization: "unknown",
         },
@@ -62,6 +83,7 @@ useMswServer(
             ? [
                 { tag: "nebius/bf16", pricing: { prompt: "0.00000001" } },
                 { tag: "deepinfra/us", pricing: { prompt: "0.00000001" } },
+                { tag: "siliconflow/fp8", pricing: { prompt: "0.00000004" } },
               ]
             : [{ tag: "azure", pricing: { prompt: "0.00000002" } }],
       },
@@ -73,14 +95,19 @@ useMswServer(
       input: string[]
       provider: Record<string, unknown>
     }
-    posted.push({ model: body.model, provider: body.provider })
-    const only = body.provider.only as string[] | undefined
+    const pin = pinOf(body.provider) as string[] | undefined
+    posted.push({ model: body.model, provider: body.provider, pin })
     return HttpResponse.json({
       data: body.input.map((_, index) => ({
         index,
         embedding: Array(textEmbeddingConfig.dimensions).fill(0.1),
       })),
-      provider: only?.[0] === "deepinfra" ? "DeepInfra" : "Nebius",
+      provider:
+        pin?.[0] === "deepinfra/us"
+          ? "DeepInfra"
+          : pin?.[0] === "siliconflow/fp8"
+            ? "SiliconFlow"
+            : "Nebius",
       usage: { cost: 0.000001 },
     })
   }),
@@ -151,7 +178,7 @@ describe("the latency command", () => {
           name: "plane query embedding, production request",
           model: textEmbeddingConfig.model,
           provider: "routing",
-          usdPer1MTokens: "0.0100",
+          usdPer1MTokens: "0.0100–0.0400",
           ok: 2,
           servedBy: ["Nebius"],
         },
@@ -170,6 +197,14 @@ describe("the latency command", () => {
           usdPer1MTokens: "0.0100",
           ok: 2,
           servedBy: ["DeepInfra"],
+        },
+        {
+          name: "plane query embedding, pinned",
+          model: textEmbeddingConfig.model,
+          provider: "siliconflow/fp8",
+          usdPer1MTokens: "0.0400",
+          ok: 2,
+          servedBy: ["SiliconFlow"],
         },
         {
           name: "plane query embedding, hedged (first of two)",
@@ -205,22 +240,30 @@ describe("the latency command", () => {
       expect(provider).toMatchObject({ zdr: true, data_collection: "deny" })
     expect(
       posted
-        .filter(({ provider }) => provider.only)
-        .map(({ provider }) => [provider.only, provider.allow_fallbacks]),
+        .filter(({ pin }) => pin)
+        .map(({ pin, provider }) => [pin, provider.allow_fallbacks]),
     ).toEqual([
-      [["nebius"], false],
-      [["nebius"], false],
-      [["deepinfra"], false],
-      [["deepinfra"], false],
+      [["nebius/bf16"], false],
+      [["nebius/bf16"], false],
+      [["deepinfra/us"], false],
+      [["deepinfra/us"], false],
+      [["siliconflow/fp8"], false],
+      [["siliconflow/fp8"], false],
       // The hedge: two requests at once for each sample.
-      ...Array.from({ length: 4 }, () => [expect.any(Array), false]),
+      [["nebius/bf16"], false],
+      [["deepinfra/us"], false],
+      [["nebius/bf16"], false],
+      [["deepinfra/us"], false],
     ])
+    // The production request: no pin, and the quantizations of the client.
     expect(
-      posted.filter(
-        ({ model, provider }) =>
-          model === textEmbeddingConfig.model && !provider.only,
-      ),
-    ).toHaveLength(3)
+      posted
+        .filter(({ model, pin }) => model === textEmbeddingConfig.model && !pin)
+        .map(({ provider }) => provider.quantizations),
+    ).toEqual([
+      textEmbeddingConfig.quantizations,
+      textEmbeddingConfig.quantizations,
+    ])
     expect(jevCalls).toBe(2)
     const table = await readFile(join(out, "latency.md"), "utf8")
     expect(table).toContain(
