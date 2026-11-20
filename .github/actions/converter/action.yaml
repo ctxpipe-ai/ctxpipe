@@ -10,9 +10,11 @@ description: >
 runs:
   using: composite
   steps:
+    # In the converter folder: rustup uses the Rust of its rust-toolchain.toml.
     - name: Rust version of the file converter
       id: rust
       shell: bash
+      working-directory: apps/backend/converter
       run: echo "version=$(rustc --version | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
     - name: Restore the file converter
       uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0

@@ -126,3 +126,17 @@ test("previous-release refuses a tree at another commit", async () => {
     /is at [0-9a-f]{40}|git fetch origin tag/,
   )
 })
+
+test("the worker image builds the converter with the Rust of its rust-toolchain.toml", () => {
+  const channel = read("apps/backend/converter/rust-toolchain.toml").match(
+    /^channel = "([^"]+)"$/m,
+  )?.[1]
+  assert.ok(channel, "rust-toolchain.toml has no channel")
+  assert.match(
+    read("apps/backend/Dockerfile.worker"),
+    new RegExp(
+      `^FROM rust:${channel.replaceAll(".", "\\.")}-alpine\\S* AS converter$`,
+      "m",
+    ),
+  )
+})
