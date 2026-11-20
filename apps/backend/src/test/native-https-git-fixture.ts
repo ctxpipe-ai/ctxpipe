@@ -17,6 +17,8 @@ import { promisify } from "node:util"
 
 import type Docker from "dockerode"
 
+import { testLabels } from "../../../../scripts/ci/test-containers.mjs"
+
 const exec = promisify(execFile)
 
 interface NativeHttpsGitRemote {
@@ -233,7 +235,10 @@ export async function withNativeHttpsGitFixture<T>(
         )
         network = await input.docker.createNetwork({
           Name: networkName,
-          Labels: { "ai.ctxpipe.purpose": "native-https-git-fixture" },
+          Labels: {
+            "ai.ctxpipe.purpose": "native-https-git-fixture",
+            ...testLabels(),
+          },
         })
         server = await input.docker.createContainer({
           name: serverName,
@@ -273,7 +278,10 @@ export async function withNativeHttpsGitFixture<T>(
               [networkName]: { Aliases: [hostname] },
             },
           },
-          Labels: { "ai.ctxpipe.purpose": "native-https-git-fixture" },
+          Labels: {
+            "ai.ctxpipe.purpose": "native-https-git-fixture",
+            ...testLabels(),
+          },
         })
         await server.putArchive(await readFile(serverArchive), { path: "/" })
         await server.start()

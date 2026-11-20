@@ -6,6 +6,7 @@ import { join } from "node:path"
 import Docker from "dockerode"
 import { expect, it } from "vitest"
 
+import { testLabels } from "../../../../../scripts/ci/test-containers.mjs"
 import { withNativeHttpsGitFixture } from "../../test/native-https-git-fixture.js"
 
 it(
@@ -153,7 +154,10 @@ async function runGitRemote(
       "refs/heads/main",
     ],
     HostConfig: { NetworkMode: input.network },
-    Labels: { "ai.ctxpipe.purpose": "native-https-git-auth-client" },
+    Labels: {
+      "ai.ctxpipe.purpose": "native-https-git-auth-client",
+      ...testLabels(),
+    },
   })
   try {
     await container.start()

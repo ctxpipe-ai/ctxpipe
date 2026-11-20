@@ -6,7 +6,6 @@ import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { graphReady } from "../ci/graph-ready.mjs"
-import { testLabelArgs } from "../ci/test-containers.mjs"
 
 // The named prerequisites of checks (the `prerequisites` of a manifest
 // record). Each one makes a thing or verifies it, and throws an error with
@@ -307,7 +306,6 @@ export const prerequisites = {
         [
           "run",
           "--rm",
-          ...testLabelArgs(),
           "--platform",
           visualPin.platform,
           "--entrypoint",

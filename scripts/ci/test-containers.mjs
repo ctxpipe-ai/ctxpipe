@@ -25,6 +25,11 @@ export function testLabelArgs() {
   return ["--label", `${TEST_LABEL}=${testOwner()}`]
 }
 
+/** The `Labels` of a test container that the Docker API (dockerode) creates. */
+export function testLabels() {
+  return { [TEST_LABEL]: testOwner() }
+}
+
 /** The output lines of a docker command. No lines when the command fails. */
 function dockerLines(args) {
   const result = spawnSync("docker", args, {

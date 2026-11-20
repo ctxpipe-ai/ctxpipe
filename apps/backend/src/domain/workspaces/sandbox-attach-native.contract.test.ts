@@ -1,6 +1,7 @@
 import Docker from "dockerode"
 import { expect, it } from "vitest"
 
+import { testLabels } from "../../../../../scripts/ci/test-containers.mjs"
 import { contractImage } from "../../test/contract-images.js"
 import { attachProviderSandbox } from "./sandbox-provider.js"
 
@@ -33,6 +34,7 @@ it(
       Image: IMAGE,
       Cmd: ["sleep", "600"],
       WorkingDir: "/workspace",
+      Labels: testLabels(),
     })
     try {
       await container.start()

@@ -12,6 +12,7 @@ import { eq } from "drizzle-orm"
 import { BackendPostgres } from "openworkflow/postgres"
 import { afterAll, beforeAll, expect, it, vi } from "vitest"
 
+import { testLabels } from "../../../../../scripts/ci/test-containers.mjs"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import {
   closeDb,
@@ -197,7 +198,7 @@ async function withGitRemote<T>(
       User: "0:0",
       Entrypoint: ["node"],
       Cmd: ["/tmp/srv/server.mjs"],
-      Labels: { "ai.ctxpipe.purpose": "workspace-base-proof" },
+      Labels: { "ai.ctxpipe.purpose": "workspace-base-proof", ...testLabels() },
       HostConfig: { NetworkMode: network },
       NetworkingConfig: {
         EndpointsConfig: { [network]: { Aliases: [GIT_HOST] } },
@@ -414,7 +415,10 @@ it(
         Image: image,
         User: "0:0",
         Cmd: ["sleep", "120"],
-        Labels: { "ai.ctxpipe.purpose": "workspace-base-proof" },
+        Labels: {
+          "ai.ctxpipe.purpose": "workspace-base-proof",
+          ...testLabels(),
+        },
       })
       try {
         await probe.start()
@@ -715,7 +719,11 @@ it(
       const created = await docker.createContainer({
         Image: contractImage("alpine"),
         Cmd: ["sleep", "600"],
-        Labels: { "ai.ctxpipe.purpose": "workspace-base-proof", ...labels },
+        Labels: {
+          "ai.ctxpipe.purpose": "workspace-base-proof",
+          ...testLabels(),
+          ...labels,
+        },
       })
       containers.push(created.id)
       await created.start()
