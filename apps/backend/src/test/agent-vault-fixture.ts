@@ -13,6 +13,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
 
+import { testLabelArgs } from "../../../../scripts/ci/test-containers.mjs"
 import type { AgentVaultAccess } from "../domain/workspaces/agent-vault.js"
 import { contractImage } from "./contract-images.js"
 
@@ -32,7 +33,7 @@ async function dockerRunWithFiles(
   createArgs: string[],
   files: { directory: string; target: string }[],
 ) {
-  await docker("create", "--name", name, ...createArgs)
+  await docker("create", "--name", name, ...testLabelArgs(), ...createArgs)
   for (const { directory, target } of files)
     await docker("cp", `${directory}/.`, `${name}:${target}`)
   await docker("start", name)
@@ -355,6 +356,7 @@ exec node /tmp/upstream.cjs`,
       await docker(
         "run",
         "-d",
+        ...testLabelArgs(),
         "--name",
         forwarderName,
         "--network",
@@ -393,7 +395,13 @@ net.createServer((client) => {
       gitToken,
       agentVaultName: vaultName,
       sandbox: async (env, script) => {
-        const args = ["run", "--rm", "--network", sandboxNetwork]
+        const args = [
+          "run",
+          "--rm",
+          ...testLabelArgs(),
+          "--network",
+          sandboxNetwork,
+        ]
         for (const [key, value] of Object.entries(env))
           args.push("-e", `${key}=${value}`)
         args.push(input.image, "sh", "-c", script)

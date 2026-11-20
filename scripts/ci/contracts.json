@@ -113,6 +113,7 @@
     "src/openworkflow/enqueue-follow-up-native.contract.test.ts",
     "src/platform/graph/falkordb-transfer.contract.test.ts",
     "src/test/docker-outside-msw.test.ts",
-    "src/db/copy-database.contract.test.ts"
+    "src/db/copy-database.contract.test.ts",
+    "src/test/test-containers.contract.test.ts"
   ]
 }

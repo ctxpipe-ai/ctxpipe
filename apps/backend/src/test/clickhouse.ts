@@ -9,6 +9,7 @@ import {
   createClient,
 } from "@clickhouse/client"
 
+import { testLabelArgs } from "../../../../scripts/ci/test-containers.mjs"
 import { migrateKnowledgeStore } from "../knowledge-store/migrate.js"
 import { contractImage } from "./contract-images.js"
 
@@ -43,6 +44,7 @@ export async function startClickHouse(): Promise<{
   const container = `ctxpipe-knowledge-${randomUUID().slice(0, 8)}`
   await docker(
     "create",
+    ...testLabelArgs(),
     "--name",
     container,
     "-p",

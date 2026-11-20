@@ -18,6 +18,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { BedrockAgentCoreClient } from "@aws-sdk/client-bedrock-agentcore"
 import { EventStreamCodec } from "@smithy/eventstream-codec"
 
+import { testLabelArgs } from "../../../../scripts/ci/test-containers.mjs"
 import type { AgentCoreRuntime } from "../domain/workspaces/agentcore-sandbox-provider.js"
 
 export const RUNTIME_ARN =
@@ -314,6 +315,7 @@ export async function startContainerAgentCore(
     "run",
     "-d",
     "--rm",
+    ...testLabelArgs(),
     // tini as PID 1 and root as the image user, as in the image's
     // `agentcore` target.
     "--init",

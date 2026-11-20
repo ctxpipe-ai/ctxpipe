@@ -26,6 +26,8 @@ These rules add to the root [AGENTS.md](../../AGENTS.md).
 
 What to fake: [root AGENTS.md → Testing](../../AGENTS.md#testing). Name Postgres tests `*.integration.test.ts`. The full backend suite runs in [CI](../../.github/workflows/ci.yaml) with Postgres and native tools.
 
+A test or a helper that starts a Docker container gives it the label of the run: `...testLabelArgs()` in `docker run` or `docker create` ([`scripts/ci/test-containers.mjs`](../../scripts/ci/test-containers.mjs)). The run then removes the container when it ends, also after a failure, SIGINT or a kill, and `factory check` can remove an old stopped one when the shared Docker disk is almost full.
+
 [`test/msw.ts`](test/msw.ts): `useMswServer`, `codesearchNotFound`. [`test/spans.ts`](test/spans.ts): `recordSpans`. [`test/db.ts`](test/db.ts): `describeWithDatabase`, `seedOrg`, `cleanupSeededOrg`. evlog assertions: pattern in [`src/mcp/transport.test.ts`](src/mcp/transport.test.ts).
 
 ## Agent tools (ingestion + conversation)

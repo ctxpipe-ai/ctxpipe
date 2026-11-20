@@ -6,6 +6,7 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["src/**/*.latency.ts"],
+    globalSetup: ["src/test/global-setup-containers.ts"],
     setupFiles: ["src/test/setup-evlog.ts"],
     server: { deps: { inline: ["zod"] } },
   },
