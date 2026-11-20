@@ -537,6 +537,113 @@ describe("the knowledge eval harness", () => {
           question.arm === "plane" && question.question === "billing-provider",
       )?.metrics.noAnswer,
     ).toBe(1)
+    // The keep-or-revert rule reads the plane against the kept run: the
+    // hold-out set gets worse, and a replay gives no latency guard.
+    const round = (values: Record<string, number | null>) =>
+      Object.fromEntries(
+        Object.entries(values).map(([key, value]) => [
+          key,
+          value === null ? null : Number(value.toFixed(3)),
+        ]),
+      )
+    const holdout = rescored.kept?.comparison.find(
+      (row) => row.split === "holdout" && row.category === "all",
+    )
+    expect(holdout && { ...holdout, change: round(holdout.change) })
+      .toMatchInlineSnapshot(`
+      {
+        "category": "all",
+        "change": {
+          "ndcg10": 0,
+          "noAnswer": 0,
+          "positions": -1,
+          "recall5": 0,
+          "searchRecall50": 0,
+          "traversalRecall": -1,
+        },
+        "kept": {
+          "ndcg10": 1,
+          "noAnswer": 1,
+          "positions": 1,
+          "recall5": 1,
+          "searchRecall50": 1,
+          "traversalRecall": 1,
+        },
+        "now": {
+          "ndcg10": 1,
+          "noAnswer": 1,
+          "positions": 0,
+          "recall5": 1,
+          "searchRecall50": 1,
+          "traversalRecall": 0,
+        },
+        "questions": 4,
+        "split": "holdout",
+      }
+    `)
+    // The live latency of the kept run varies; the replay has none.
+    const latency = {
+      searchP95Ms: expect.any(Number),
+      relatedP95Ms: expect.any(Number),
+    }
+    expect(
+      rescored.kept?.guards.map(({ split, questions, kept, now }) => ({
+        split,
+        questions,
+        kept: round(kept),
+        now: round(now),
+      })),
+    ).toEqual([
+      {
+        split: "dev",
+        questions: 8,
+        kept: {
+          ...latency,
+          jevCallsPerQuestion: 2.25,
+          jevQuestionsPerQuestion: 34,
+          costPerQuestionUsd: 0.004,
+          errors: 0,
+        },
+        now: {
+          searchP95Ms: null,
+          relatedP95Ms: null,
+          jevCallsPerQuestion: 1.875,
+          jevQuestionsPerQuestion: 31.75,
+          costPerQuestionUsd: 0.003,
+          errors: 0,
+        },
+      },
+      {
+        split: "holdout",
+        questions: 4,
+        kept: {
+          ...latency,
+          jevCallsPerQuestion: 3,
+          jevQuestionsPerQuestion: 39.25,
+          costPerQuestionUsd: 0.005,
+          errors: 0,
+        },
+        now: {
+          searchP95Ms: null,
+          relatedP95Ms: null,
+          jevCallsPerQuestion: 2.5,
+          jevQuestionsPerQuestion: 34,
+          costPerQuestionUsd: 0.004,
+          errors: 0,
+        },
+      },
+    ])
+    const markdown = await readFile(
+      join(folder, "rescore", "report.md"),
+      "utf8",
+    )
+    expect(markdown).toContain("## The plane against the kept run")
+    expect(markdown).toContain(
+      "| holdout | all | 4 | traversal recall | 1.000 | 0.000 | -1.000 |",
+    )
+    expect(markdown).toContain(
+      "| holdout | 4 | Jev calls / question | 3.000 | 2.500 | -0.500 |",
+    )
   })
 
   it("scores a change of a fact threshold again from the kept calls, with no model call", async () => {
