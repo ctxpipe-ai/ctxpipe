@@ -317,7 +317,8 @@ describe("judgeWithJev verdict", () => {
     const verdict = await judgeWithJev(await story())
     expect(verdictSchema.parse(verdict)).toEqual(verdict)
     expect(verdict.verdict).toBe("regression")
-    expect(verdict.severity).toBe("minor")
+    // A strong flag (0.95) is major: the factory makes it a should-fix.
+    expect(verdict.severity).toBe("major")
     expect(verdict.confidence).toBeCloseTo(0.95)
     expect(verdict.storyId).toBe("connectors-card--connected")
     expect(verdict.model).toBe("typesafe/jev-1.14-20261001")
@@ -341,17 +342,34 @@ describe("judgeWithJev verdict", () => {
     expect(verdict.qualities.map(({ name }) => name)).not.toContain("focus")
   })
 
-  test("a Jev regression is minor at any probability: feedback that never blocks", async () => {
+  test("a Jev regression is minor under 0.8 and major from 0.8: a should-fix, never a blocker", async () => {
+    const severityAt = async (worse: number) => {
+      serve((name) => {
+        if (name === "area.spacing") return choice(0.1, 0.9 - worse, worse)
+        if (name === "defect") return defect(0.1)
+        if (name === "defect-box") return box(0.2, 0.5, 0.1, 0.4)
+        return fine
+      })
+      const verdict = await judgeWithJev(await story())
+      expect(verdict.verdict).toBe("regression")
+      return verdict.severity
+    }
+    expect(await severityAt(0.6)).toBe("minor")
+    expect(await severityAt(0.79)).toBe("minor")
+    expect(await severityAt(0.8)).toBe("major")
+  })
+
+  test("a strong defect or density answer alone does not make a regression major", async () => {
     serve((name) => {
       if (name === "area.spacing") return choice(0.1, 0.3, 0.6)
-      if (name === "defect") return defect(0.1)
+      if (name === "quality.density") return choice(0, 0.05, 0.95)
+      if (name === "defect") return defect(0.95)
       if (name === "defect-box") return box(0.2, 0.5, 0.1, 0.4)
       return fine
     })
     const verdict = await judgeWithJev(await story())
     expect(verdict.verdict).toBe("regression")
     expect(verdict.severity).toBe("minor")
-    expect(verdict.confidence).toBeCloseTo(0.6)
   })
 
   test("a worse quality with no worse area names the region of the box in the summary", async () => {
@@ -515,7 +533,7 @@ describe("judgeWithJev verdict", () => {
     serve((name) => (name === "quality.restraint" ? choice(0, 0.1, 0.9) : fine))
     const verdict = await judgeWithJev(await story())
     expect(verdict.verdict).toBe("regression")
-    expect(verdict.severity).toBe("minor")
+    expect(verdict.severity).toBe("major")
     expect(verdict.findings).toEqual([])
     expect(verdict.summary).toContain("restraint")
   })
@@ -789,7 +807,7 @@ describe("judgeNewWithJev", () => {
     const verdict = await judgeNewWithJev(await newStory())
     expect(verdictSchema.parse(verdict)).toEqual(verdict)
     expect(verdict.verdict).toBe("regression")
-    expect(verdict.severity).toBe("minor")
+    expect(verdict.severity).toBe("major")
     expect(verdict.findings.map(({ kind }) => kind)).toEqual(["spacing"])
     expect(verdict.findings[0]?.region.x).toBeCloseTo(0.1)
     expect(verdict.findings[0]?.region.height).toBeCloseTo(0.3)
@@ -806,7 +824,9 @@ describe("judgeNewWithJev", () => {
     const verdict = await judgeNewWithJev(await newStory())
     expect(
       String(defined(seen.body.questions["area.broken-content"]).instructions),
-    ).toMatch(/Does the new screenshot break a rule of this area\?$/)
+    ).toMatch(
+      /Does the new screenshot break a rule of this area\? A screenshot with no element of this area does not break it\.$/,
+    )
     expect(verdictSchema.parse(verdict)).toEqual(verdict)
     expect(verdict.verdict).toBe("regression")
     expect(verdict.findings.map(({ kind }) => kind)).toEqual(["broken-content"])
@@ -819,13 +839,24 @@ describe("judgeNewWithJev", () => {
     serve((name) => (name === "area.spacing" ? noul(0.9) : noul(0.02)))
     const verdict = await judgeNewWithJev(await newStory(), "baseten/mammoth-1")
     expect(verdict.verdict).toBe("regression")
-    expect(verdict.severity).toBe("minor")
+    expect(verdict.severity).toBe("major")
     expect(verdict.findings[0]?.region).toEqual({
       x: 0,
       y: 0,
       width: 1,
       height: 1,
     })
+  })
+
+  test("a broken density alone is never major, also at 0.8 or more", async () => {
+    serve((name) => {
+      if (name === "quality.density") return noul(0.9)
+      if (name === "quality.clarity") return noul(0.6)
+      return noul(0.02)
+    })
+    const verdict = await judgeNewWithJev(await newStory())
+    expect(verdict.verdict).toBe("regression")
+    expect(verdict.severity).toBe("minor")
   })
 
   test("a failed quality is a regression with a fails rating", async () => {

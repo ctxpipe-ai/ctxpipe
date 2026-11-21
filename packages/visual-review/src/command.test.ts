@@ -1143,7 +1143,7 @@ export const Primary = { render: () => null }
     })
   })
 
-  describe("--judge jev: the verdict of Jev is final; an explainer only adds text", () => {
+  describe("--judge jev: Jev decides the severity; the explainer and the design review add text", () => {
     // The Decisions API: each question gets the answer of `answer`.
     const decisions: {
       questions: Record<string, { type: string }>
@@ -1206,6 +1206,32 @@ export const Primary = { render: () => null }
                   ? { better: 0.1, same: 0.3, worse: 0.6 }
                   : { better: 0.02, same: 0.97, worse: 0.01 },
             }
+    // The reply of the design review of a new story (CTX-1469), in the schema
+    // of a new screenshot.
+    const designReply = (verdict: string, severity: string) =>
+      JSON.stringify({
+        observations: [
+          { part: 1, seen: "A composer with a bordered select inside it." },
+        ],
+        verdict,
+        severity,
+        confidence: 0.7,
+        summary: "The select is louder than the composer that holds it.",
+        qualities: [{ name: "pragnanz", rating: "fails", confidence: 0.7 }],
+        findings:
+          verdict === "regression"
+            ? [
+                {
+                  kind: "spacing",
+                  region: { x: 0.2, y: 0.5, width: 0.3, height: 0.1 },
+                  evidence: "The select has a bright frame\nof its own.",
+                  rubricRef: "apps/ui/DESIGN.md › Gestalt lens",
+                  explainedByBrief: false,
+                  suggestion: "Make the select a quiet chip of the composer.",
+                },
+              ]
+            : [],
+      })
     beforeEach(() => {
       decisions.length = 0
       content = explanation()
@@ -1276,10 +1302,11 @@ export const Primary = { render: () => null }
       expect(await readFile(copies[1]?.file ?? "")).toEqual(Buffer.from(after))
     })
 
-    test("a new screenshot goes to Jev on its own, and a clean one with a brief passes", async () => {
+    test("a new screenshot goes to Jev on its own and gets a design review, and a clean one with a brief passes", async () => {
       serveJev((name) =>
         name === "defect-box" ? box : { type: "noul", noul: 0.02 },
       )
+      content = designReply("intended", "none")
       await put("head", button, after)
       const brief = join(root, "brief.md")
       await writeFile(brief, "Add a primary button.")
@@ -1297,13 +1324,22 @@ export const Primary = { render: () => null }
       )
 
       expect(code).toBe(0)
-      expect(chats).toHaveLength(0)
       expect(decisions).toHaveLength(1)
       // The questions of a new screenshot: does it break a rule.
       expect(decisions[0]?.questions["area.spacing"]?.type).toBe("noul")
+      // The design review: the prompt of a new screenshot, with its rule
+      // for new UI, to the design model.
+      expect(chats).toHaveLength(1)
+      expect(chats[0]?.model).toBe("anthropic/claude-haiku-5.5")
+      expect(chats[0]?.messages[0]?.content[0]?.text).toContain(
+        "New UI has no earlier version",
+      )
       expect(verdicts()).toMatchObject([
         { path: button, verdict: "intended", severity: "none" },
       ])
+      expect(verdicts()[0]?.summary).toContain(
+        "Design review (anthropic/claude-haiku-5.5, it says intended): The select is louder",
+      )
     })
 
     test("the name, the kind and the purpose of the story reach Jev with each screenshot, the purpose as data", async () => {
@@ -1412,12 +1448,13 @@ export const Primary = { render: () => null }
       expect(member?.summary).toMatch(/Look at the images: before \S+\.png/)
     })
 
-    test("a broken new screenshot is minor feedback with a kept copy of the new image", async () => {
+    test("a broken new screenshot is major (a should-fix in the factory) with a kept copy of the new image, and the design review does not lower it", async () => {
       serveJev((name) =>
         name === "defect-box"
           ? box
           : { type: "noul", noul: name === "area.spacing" ? 0.9 : 0.02 },
       )
+      content = designReply("intended", "none")
       await put("head", button, after)
 
       const code = await run(
@@ -1430,13 +1467,14 @@ export const Primary = { render: () => null }
         button,
       )
 
-      expect(code).toBe(0)
+      // A flag of 0.8 or more is a strong signal: major, exit code 1.
+      expect(code).toBe(1)
       expect(verdicts()).toMatchObject([
-        { path: button, verdict: "regression", severity: "minor" },
+        { path: button, verdict: "regression", severity: "major" },
       ])
       const copy = /after (\S+\.png)/.exec(verdicts()[0]?.summary ?? "")?.[1]
       expect(copy && existsSync(copy)).toBe(true)
-      expect(verdicts()[0]?.summary).not.toMatch(/before |diff /)
+      expect(verdicts()[0]?.summary).not.toMatch(/(before|diff) \S+\.png/)
     })
 
     test("--judge jev takes no --filter", async () => {
@@ -1595,12 +1633,13 @@ export const Primary = { render: () => null }
         )
       })
 
-      test("a broken new screenshot gets an explanation from the new image alone", async () => {
+      test("a broken new screenshot gets the design review from the new image alone, not the explainer", async () => {
         serveJev((name) =>
           name === "defect-box"
             ? box
             : { type: "noul", noul: name === "area.spacing" ? 0.9 : 0.02 },
         )
+        content = designReply("regression", "major")
         await put("head", button, after)
 
         expect(
@@ -1613,19 +1652,145 @@ export const Primary = { render: () => null }
             "--",
             button,
           ),
-        ).toBe(0)
+        ).toBe(1)
 
+        expect(chats).toHaveLength(1)
+        expect(chats[0]?.model).toBe("anthropic/claude-haiku-5.5")
         const parts = chats[0]?.messages[0]?.content ?? []
         expect(parts.filter(({ type }) => type === "image_url")).toHaveLength(1)
+        // The finding of Jev comes first, then the one of the review.
         expect(verdicts()[0]).toMatchObject({
           verdict: "regression",
-          observations: [{ before: "" }],
+          severity: "major",
+          observations: [{ region: 1, before: "" }],
           findings: [
+            { kind: "spacing", evidence: "" },
             {
               kind: "spacing",
-              suggestion: "Put gap-2 between the icon and the label.",
+              suggestion: "Make the select a quiet chip of the composer.",
             },
           ],
+        })
+        // Model text is one line in the summary.
+        expect(verdicts()[0]?.summary).toContain(
+          "spacing: The select has a bright frame of its own. Fix: Make the select a quiet chip of the composer.",
+        )
+        expect(verdicts()[0]?.summary).not.toContain("Explainer (")
+      })
+
+      describe("the design review of a new story (CTX-1469)", () => {
+        // Jev is not sure about the new screenshot: a flag under 0.8.
+        const jevUnsure = (name: string) =>
+          name === "defect-box"
+            ? box
+            : { type: "noul", noul: name === "area.spacing" ? 0.6 : 0.02 }
+        const card = "apps/ui/src/components/screenshots/Card.Primary"
+        const desktop = `${card}.desktop.screenshot.png`
+        const mobile = `${card}.mobile.screenshot.png`
+        const review = () =>
+          run(
+            "--json",
+            "--judge",
+            "jev",
+            "--images",
+            images,
+            "--",
+            desktop,
+            mobile,
+          )
+        beforeEach(async () => {
+          await put("head", desktop, after)
+          await put("head", mobile, screenshot(390, 600, []))
+        })
+
+        test("it makes an unsure verdict regression minor, never more, and the other viewport takes the reviewed verdict", async () => {
+          serveJev(jevUnsure)
+          content = designReply("regression", "blocker")
+
+          // A nit: the review of a model never stops a merge.
+          expect(await review()).toBe(0)
+
+          expect(chats).toHaveLength(1)
+          expect(verdicts()).toMatchObject([
+            {
+              path: desktop,
+              verdict: "regression",
+              severity: "minor",
+              confidence: 0.7,
+              costUsd: 0.0104,
+            },
+            {
+              path: mobile,
+              verdict: "regression",
+              severity: "minor",
+              groupedWith: desktop,
+              costUsd: 0,
+            },
+          ])
+          expect(verdicts()[0]?.summary).toContain(
+            "Design review (anthropic/claude-haiku-5.5, it makes the verdict regression minor)",
+          )
+          expect(verdicts()[1]?.summary).toMatch(
+            /^One verdict for the story at each viewport, with .*Design review/,
+          )
+        })
+
+        test("a failed review keeps the Jev verdict with no error, and an unknown cost", async () => {
+          serveJev(jevUnsure)
+          server.use(
+            http.post("https://openrouter.test/api/v1/chat/completions", () =>
+              HttpResponse.json(
+                { error: { message: "overloaded" } },
+                { status: 503 },
+              ),
+            ),
+          )
+
+          expect(await review()).toBe(0)
+
+          const [verdict] = verdicts()
+          expect(verdict).toMatchObject({ verdict: "unsure", costUsd: null })
+          expect(verdict?.error).toBeUndefined()
+          expect(verdict?.summary).toContain(
+            "The design review gave no text: OpenRouter answered 503",
+          )
+        })
+
+        test("a reply that is not usable keeps the Jev verdict", async () => {
+          serveJev(jevUnsure)
+          content = "not JSON"
+
+          expect(await review()).toBe(0)
+
+          expect(verdicts()[0]).toMatchObject({ verdict: "unsure" })
+          expect(verdicts()[0]?.summary).toContain(
+            "The design review gave no usable reply.",
+          )
+        })
+
+        test("with a short budget the review does not run, and the verdict says so", async () => {
+          serveJev(jevUnsure)
+          content = designReply("regression", "minor")
+
+          expect(
+            await run(
+              "--json",
+              "--judge",
+              "jev",
+              "--budget-usd",
+              "0.005",
+              "--images",
+              images,
+              "--",
+              desktop,
+            ),
+          ).toBe(0)
+
+          expect(chats).toHaveLength(0)
+          expect(verdicts()[0]).toMatchObject({ verdict: "unsure" })
+          expect(verdicts()[0]?.summary).toContain(
+            "The design review did not run: the budget of the run is short.",
+          )
         })
       })
 

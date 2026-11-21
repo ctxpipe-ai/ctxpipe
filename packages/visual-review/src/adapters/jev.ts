@@ -35,6 +35,15 @@ const failAt: Record<string, number> = { focus: 0.65 }
 const failsFrom = (id: string) => failAt[id] ?? 0.5
 
 /**
+ * The probability from which a flagged area or quality is a strong signal: the
+ * regression has severity `major`, which the factory makes a should-fix
+ * (CTX-1469). It is the floor of a regression on a new screenshot. The
+ * defect question and density never make a regression major: they are not a
+ * flag of a rubric entry.
+ */
+const strongFrom = 0.8
+
+/**
  * Read one PNG for Jev. Jev takes each side from 280 to 1568 px, which also
  * keeps the total pixels within its limits, so `prepareImage` scales or pads
  * the image to fit. Returns the data URL and the part of the sent image that
@@ -429,7 +438,10 @@ export async function judgeNewWithJev(
   for (const { id, name, definition } of areas)
     questions[`area.${id}`] = {
       type: "noul",
-      instructions: `Area: ${name}. ${definition} Does the new screenshot break a rule of this area?`,
+      // An area that the screenshot does not show is not broken: without this
+      // sentence, Jev called the dialog area broken on a panel with no
+      // dialog (CTX-1469).
+      instructions: `Area: ${name}. ${definition} Does the new screenshot break a rule of this area? A screenshot with no element of this area does not break it.`,
     }
   for (const { id, name, definition } of askedQualities)
     questions[`quality.${id}`] = {
@@ -530,7 +542,9 @@ export async function judgeNewWithJev(
  * regression with no finding, since a finding names an area. A flag whose highest probability is under
  * `floor` is `unsure`. Else a probability from 0.2 up, or a question with no
  * answer, is `unsure`, and the rest is `intended`. A regression has severity
- * `minor`: it does not block.
+ * `major` when a placed area or a flagged quality has a probability of
+ * `strongFrom` or more (a should-fix in the factory, which the agent fixes or
+ * overrides with a reason), else `minor` (a nit).
  */
 function decision({
   word,
@@ -566,6 +580,11 @@ function decision({
     ...flaggedQualities.map(({ probability }) => probability),
   )
   const underFloor = flagged && top < floor
+  // Density is a flag of a new screenshot, but never a strong one.
+  const strong = [
+    ...placed,
+    ...flaggedQualities.filter(({ id }) => id !== "density"),
+  ].some(({ probability }) => probability >= strongFrom)
   // A flagged area with no region is `unsure`.
   const verdict =
     flagged && !underFloor
@@ -601,8 +620,9 @@ function decision({
     observations: [],
     verdict,
     // Jev gives no severity. A Jev regression is feedback for the agent,
-    // never a block (owner decision, ADR-063), so each one is minor.
-    severity: verdict === "regression" ? "minor" : "none",
+    // never a block for a person (ADR-063 rule 3): a strong flag is major (a
+    // should-fix), the rest is minor (a nit).
+    severity: verdict === "regression" ? (strong ? "major" : "minor") : "none",
     confidence:
       verdict === "regression" ? top : verdict === "unsure" ? 0 : 1 - strongest,
     summary,

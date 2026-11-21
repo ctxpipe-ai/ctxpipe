@@ -238,7 +238,7 @@
     {
       "id": "pragnanz",
       "name": "Prägnanz",
-      "definition": "Each block reads in its simplest form: one state signal, quiet items inside, and space before a hairline.",
+      "definition": "Each block reads in its simplest form: one state signal, quiet items inside, and space before a hairline. An item inside a framed block (a composer, a card, a row, a toolbar) has no frame or ink that is louder than the block, and it does not look like a separate form inside the block.",
       "sources": [
         {
           "file": "apps/ui/DESIGN.md",

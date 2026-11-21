@@ -36,7 +36,13 @@ import {
   storyInput,
   toStoryInput,
 } from "./compare/manifest.ts"
-import { explainerModel, explainRegression, type Explained } from "./explain.ts"
+import {
+  designModel,
+  explainerModel,
+  explainRegression,
+  reviewDesign,
+  type Explained,
+} from "./explain.ts"
 import { pngSize, prepareImage } from "./prepare.ts"
 import { buildNewPrompt, buildPrompt, type Prompt } from "./prompt.ts"
 import { reviewStories } from "./review.ts"
@@ -60,10 +66,11 @@ const unknownCallUsd = 0.25
 // bake-off ($0.0008), so that one reply with no cost does not use the budget
 // of a whole run (ADR-063).
 const unknownJevCallUsd = 0.002
-// The same for a call of the explainer of a Jev regression. It is also the
-// free budget that the run must have before it calls the explainer. It is an
-// estimate, not a measured value: by the price list of OpenRouter, one call
-// with two images costs less than $0.001 (CTX-1256).
+// The same for a call of the explainer of a Jev regression, or of the design
+// review of a new story. It is also the free budget that the run must have
+// before it makes such a call. It is an estimate: by the price list of
+// OpenRouter, one explainer call with two images costs less than $0.001
+// (CTX-1256), and a design review cost about $0.0013 (CTX-1469).
 const unknownExplainerUsd = 0.005
 
 const usage = `Usage: pnpm visual:review [--manifest <path>] [--judge model|jev|agent] [--model <id>] [--filter jev|none] [--budget-usd <n>] [--brief <file>] [--rubric <file>] [--session <folder>] [--json]
@@ -98,20 +105,27 @@ const usage = `Usage: pnpm visual:review [--manifest <path>] [--judge model|jev|
               also when the last call reaches the budget. Thus a run spends at
               most the budget plus one call. The new screenshots are judged
               first. A verdict with no error was judged: a caller can keep it,
-              and give a rerun only the other screenshots. The explainer of
-              --judge jev runs after all Jev calls, only while
-              ${unknownExplainerUsd} USD of the budget is free, and its spend
-              never makes the exit code 2. Only with --judge model or jev.
+              and give a rerun only the other screenshots. The explainer and
+              the design review of --judge jev run after all Jev calls, only
+              while ${unknownExplainerUsd} USD of the budget is free, and their
+              spend never makes the exit code 2. Only with --judge model or
+              jev.
               Default: no budget.
   --judge     model: a vision model through OpenRouter, with MODEL_PROVIDER_API_KEY
               (and MODEL_PROVIDER_URL). jev: Jev 1.14 through the OpenRouter
               Decisions API, with the same key: the verdict of Jev is the
               final verdict, also for a new screenshot. A Jev regression has
-              severity minor: it is feedback, and it does not block. After
-              each Jev regression, the explainer ${explainerModel} writes
-              the evidence and a fix into the summary, or says that it sees
-              no visible defect. It never changes the verdict or the
-              severity. The visual critic of the factory uses jev (ADR-063).
+              severity major when a flagged area or quality has a
+              probability of 0.8 or more (a should-fix in the factory), else
+              minor (a nit). After each Jev regression on a change, the
+              explainer ${explainerModel} writes the evidence and a fix into
+              the summary, or says that it sees no visible defect. It never
+              changes the verdict or the severity. After Jev judges a new
+              story, the design review ${designModel} compares each element
+              with the elements around it and writes its findings and fixes
+              into the summary. It can make the verdict regression minor, but
+              never another verdict or severity. The visual critic of the
+              factory uses jev (ADR-063).
               agent: write a judgment request for each story; your coding
               agent writes its verdict.json; run again to read it.
               Default: model.
@@ -261,39 +275,61 @@ export async function visualReview(
           unknownJevCallUsd,
         )
       : judgeByModel(story, model, filter, undefined, budget)
-  // The explainer pass runs after all Jev calls, so that a short budget goes
-  // to the verdicts first. It calls the explainer only while
-  // `unknownExplainerUsd` of the budget is free. A screenshot of a group, or
-  // another viewport of a new story, gets the explained summary of the
-  // screenshot that Jev judged.
+  // The feedback pass runs after all Jev calls, so that a short budget goes
+  // to the verdicts first: the explainer of a Jev regression on a change, and
+  // the design review of each new story (CTX-1469). It makes a call only
+  // while `unknownExplainerUsd` of the budget is free. A screenshot of a
+  // group gets the explained summary of the screenshot that Jev judged.
+  // Another viewport of a new story gets the reviewed verdict, as
+  // `judgeNewScreenshots` copies it.
   const explainAll = async (verdicts: Verdict[]) => {
     for (const [index, verdict] of verdicts.entries()) {
       const input = jevInputs.get(verdict.storyId)
+      if (!input || verdict.groupedWith !== undefined) continue
       if (
-        !input ||
-        verdict.groupedWith !== undefined ||
-        (budget.limitUsd !== undefined &&
-          budget.spentUsd + unknownExplainerUsd > budget.limitUsd)
-      )
+        budget.limitUsd !== undefined &&
+        budget.spentUsd + unknownExplainerUsd > budget.limitUsd
+      ) {
+        if (input.kind === "new" && verdict.error === undefined)
+          verdicts[index] = {
+            ...verdict,
+            summary: `${verdict.summary} The design review did not run: the budget of the run is short.`,
+          }
         continue
-      const result = await explainRegression(
-        verdict,
-        input,
-        explainerModel,
-        process.env,
-      )
-      if (!result.explainer) continue
-      budget.spentUsd += result.explainer.costUsd ?? unknownExplainerUsd
+      }
+      const result =
+        input.kind === "new"
+          ? await reviewDesign(
+              verdict,
+              input.story,
+              designModel,
+              process.env,
+            ).then(({ verdict, reviewer }) => ({ verdict, call: reviewer }))
+          : await explainRegression(
+              verdict,
+              input,
+              explainerModel,
+              process.env,
+            ).then(({ verdict, explainer }) => ({ verdict, call: explainer }))
+      if (!result.call) continue
+      budget.spentUsd += result.call.costUsd ?? unknownExplainerUsd
       verdicts[index] = result.verdict
-      for (const [other, member] of verdicts.entries())
-        if (
-          member.groupedWith === verdict.storyId &&
-          member.verdict === "regression"
-        )
+      for (const [other, member] of verdicts.entries()) {
+        if (member.groupedWith !== verdict.storyId) continue
+        if (input.kind === "new")
+          verdicts[other] = {
+            ...member,
+            verdict: result.verdict.verdict,
+            severity: result.verdict.severity,
+            confidence: result.verdict.confidence,
+            summary: `One verdict for the story at each viewport, with ${verdict.storyId}: ${result.verdict.summary}`,
+          }
+        else if (member.verdict === "regression")
           verdicts[other] = {
             ...member,
             summary: `${member.summary} Jev on ${verdict.storyId}: ${result.verdict.summary}`,
           }
+      }
     }
   }
 
