@@ -77,6 +77,7 @@ import { openDockerRunVault } from "./docker-run-vault.js"
 import { adaptTanstackHandle, SANDBOX_GIT_GUARD } from "./job-sandbox.js"
 import type { JobSandboxHandle } from "./job-worktree.js"
 import { createChunkMasker, maskCredentials } from "./mask-credentials.js"
+import { waitForOpencodeWarmup, withOpencodeWarmup } from "./opencode-warmup.js"
 import { type WorkspaceRevision, workspaceRevisionSchema } from "./revision.js"
 import { workspaceRootPath } from "./root-path.js"
 import { recordedRunGitToken, revokeRunGitTokens } from "./run-git-tokens.js"
@@ -292,7 +293,7 @@ export function conversationSandboxProvider(
   // session claims a pool session that holds the clone, or starts from git
   // (no Workspace base, ADR-061 decision 18).
   if (isolation === "agentcore") {
-    const agentCore = configuredAgentCoreProvider()
+    const agentCore = withOpencodeWarmup(configuredAgentCoreProvider())
     return withSingleOpencodeServer(
       withProxyCa(
         withSessionOnlyEnv(
@@ -1086,8 +1087,10 @@ async function startWorkspaceChat(
                 })
               // A turn starts with no agent process of an earlier turn: such a
               // process would get this turn's capability, rules or session.
-              if (built.isolation !== "unsandboxed")
+              if (built.isolation !== "unsandboxed") {
+                await waitForOpencodeWarmup(activeSandbox.id)
                 await stopEarlierTurnProcesses(activeSandbox)
+              }
               // The conversation lock is held and OpenCode has not started.
               // Its subprocesses inherit these values (none on Docker or
               // AgentCore).

@@ -16,6 +16,7 @@ import {
   defineSandbox,
   defineWorkspace,
   gitSource,
+  type SandboxProvider,
 } from "@tanstack/ai-sandbox"
 import { eq } from "drizzle-orm"
 import {
@@ -59,6 +60,7 @@ import {
   sweepConversationSandboxes,
   withConversationSandboxSlots,
 } from "./conversation-sandbox-lifecycle.js"
+import { OPENCODE_WARMUP_COMMAND } from "./opencode-warmup.js"
 import type { WorkspaceRevision } from "./revision.js"
 import { postgresSandboxInstanceStore } from "./sandbox-instance-store.js"
 import { workspaceLockUntilCreated } from "./sandbox-lock-store.js"
@@ -396,6 +398,64 @@ describe("the warm pool of AgentCore chat sessions (Postgres)", () => {
       const env = (await claimed.process.exec("env")).stdout
       expect(env).toContain("CONV-SECRET")
       expect(env).not.toContain("POOL-SECRET")
+    })
+  }, 60_000)
+
+  it("warms OpenCode before the vault env is set, and the session waits only after the warm-up", async () => {
+    await withOrg(1, async ({ orgId, workspaceIds: [workspaceId = ""] }) => {
+      const seen: string[] = []
+      const recording = (): SandboxProvider => {
+        const inner = provider()
+        return {
+          ...inner,
+          create: async (options) => {
+            const handle = await inner.create(options)
+            return {
+              ...handle,
+              env: {
+                set: async (vars) => {
+                  seen.push("vault env")
+                  await handle.env.set(vars)
+                },
+              },
+              process: {
+                ...handle.process,
+                spawn: async (command, spawnOptions) => {
+                  // The provider reads the env when the call starts.
+                  const warmup = command === OPENCODE_WARMUP_COMMAND
+                  if (warmup) seen.push("warm-up")
+                  const job = await handle.process.spawn(command, spawnOptions)
+                  if (!warmup) return job
+                  return {
+                    ...job,
+                    wait: async () => {
+                      const code = await job.wait()
+                      const [row] = await poolRows(orgId)
+                      seen.push(`warm-up done, row ${row?.state}`)
+                      return code
+                    },
+                  }
+                },
+              },
+            }
+          },
+        }
+      }
+      expect(
+        await fillChatSandboxPool({
+          orgId,
+          workspaceId,
+          revision: revisionOf(workspaceId),
+          provider: recording,
+          openVault: fakeVault(orgId).open,
+        }),
+      ).toBe("filled")
+      expect(seen).toEqual([
+        "warm-up",
+        "vault env",
+        "warm-up done, row building",
+      ])
+      expect((await poolRows(orgId))[0]?.state).toBe("live")
     })
   }, 60_000)
 
