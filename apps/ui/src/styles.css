@@ -328,28 +328,6 @@
   }
 }
 
-@keyframes ctx-unindexing-pulse {
-  0%,
-  100% {
-    opacity: 0.45;
-    box-shadow: 0 0 0 0 rgba(248, 113, 113, 0.18);
-  }
-  50% {
-    opacity: 1;
-    box-shadow: 0 0 0 6px rgba(248, 113, 113, 0);
-  }
-}
-
-@keyframes ctx-unindexing-glow {
-  0%,
-  100% {
-    color: rgba(248, 113, 113, 0.72);
-  }
-  50% {
-    color: rgba(252, 165, 165, 1);
-  }
-}
-
 .hero-gradient {
   position: relative;
 }
@@ -419,9 +397,7 @@
     @apply inline-flex items-center rounded-md border border-primary/25 bg-primary/10 px-2 py-0.5 font-mono text-xs text-primary;
   }
 
-  .ctx-indexing,
-  .ctx-pending-indexing,
-  .ctx-indexed {
+  .ctx-indexing {
     @apply inline-flex items-center gap-1.5 font-mono text-xs text-teal-200;
   }
 
@@ -434,38 +410,8 @@
     animation: ctx-indexing-pulse 1200ms ease-in-out infinite;
   }
 
-  .ctx-indexing-badge {
-    @apply inline-flex items-center rounded-md border border-teal-400/30 bg-teal-400/10 px-2 py-0.5;
-  }
-
-  .ctx-pending-indexing-dot {
-    @apply h-1.5 w-1.5 rounded-full bg-teal-200/80;
-  }
-
-  .ctx-indexed-dot {
-    @apply h-1.5 w-1.5 rounded-full bg-teal-200/80;
-  }
-
   .ctx-indexing-failed-dot {
     @apply h-1.5 w-1.5 rounded-full bg-red-300;
-  }
-
-  .ctx-indexing-issues {
-    @apply inline-flex items-center gap-1.5 font-mono text-xs text-amber-200;
-  }
-
-  .ctx-indexing-issues-dot {
-    @apply h-1.5 w-1.5 rounded-full bg-amber-200/80;
-  }
-
-  .ctx-unindexing {
-    @apply inline-flex items-center gap-1.5 font-mono text-xs text-red-300;
-    animation: ctx-unindexing-glow 900ms ease-in-out infinite;
-  }
-
-  .ctx-unindexing-dot {
-    @apply h-1.5 w-1.5 rounded-full bg-red-300;
-    animation: ctx-unindexing-pulse 900ms ease-in-out infinite;
   }
 
   .ctx-node {

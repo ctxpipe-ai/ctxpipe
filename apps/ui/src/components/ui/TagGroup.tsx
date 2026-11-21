@@ -74,8 +74,8 @@ interface TagProps extends AriaTagProps {
 
 /**
  * A labeled group of small tags, such as the services that a source includes.
- * With `onRemove`, each tag gets a remove button. Use a status pill
- * (`RepositoryStatus`) for a state, not a tag.
+ * With `onRemove`, each tag gets a remove button. Show a state as a dot and
+ * its word (the `ctx-indexing` classes of styles.css), not as a tag.
  */
 export function TagGroup<T extends object>({
   label,

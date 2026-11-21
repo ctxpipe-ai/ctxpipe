@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest"
 
 import {
   formatIndexingStepLabel,
-  formatShortCommitHash,
   getBadgeWord,
   getRepositoryStatusDisplay,
 } from "./types"
@@ -66,12 +65,6 @@ describe("getRepositoryStatusDisplay", () => {
         lastIngestedHash: "abc123def456",
       }),
     ).toBe("complete_with_issues")
-  })
-})
-
-describe("formatShortCommitHash", () => {
-  it("returns the first 7 characters", () => {
-    expect(formatShortCommitHash("abcdef0123456789")).toBe("abcdef0")
   })
 })
 

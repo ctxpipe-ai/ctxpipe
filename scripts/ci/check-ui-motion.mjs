@@ -22,8 +22,6 @@ const LOADER_CLASSES = [
   "animate-pulse",
   "ctx-loading-motion",
   "ctx-indexing-dot",
-  "ctx-unindexing",
-  "ctx-unindexing-dot",
   "ctx-status-pulse",
   "inline-loader-indeterminate",
 ]
