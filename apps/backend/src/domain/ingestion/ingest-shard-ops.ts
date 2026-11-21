@@ -1,3 +1,5 @@
+import { setTimeout as sleep } from "node:timers/promises"
+
 import type { SandboxHandle } from "@tanstack/ai-sandbox"
 
 import {
@@ -95,7 +97,7 @@ function quote(value: string): string {
 }
 
 async function run(
-  handle: Sandbox,
+  handle: Pick<Sandbox, "process">,
   command: string,
   signal?: AbortSignal,
 ): Promise<string> {
@@ -107,6 +109,41 @@ async function run(
       `Ingest shard command failed (${result.exitCode}): ${result.stderr.slice(-500)}`,
     )
   return result.stdout
+}
+
+/**
+ * Run a clone or a fetch through the egress proxy. When Agent Vault answers
+ * HTTP 429 (to the CONNECT, or to a request in the tunnel), the command runs
+ * again after each wait of `waitsMs`, and then the error stays (CTX-1470).
+ * Git does not show the Retry-After of the answer, so the waits are fixed and
+ * short: a short burst delays the shard, and a long block still fails the
+ * step. The command must start again from nothing (it removes its clone
+ * first).
+ */
+export async function runIngestFetch(
+  handle: Pick<Sandbox, "process">,
+  command: string,
+  signal?: AbortSignal,
+  waitsMs: readonly number[] = [5_000, 15_000, 30_000],
+): Promise<string> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await run(handle, command, signal)
+    } catch (error) {
+      const waitMs = waitsMs[attempt]
+      const proxy429 =
+        error instanceof Error &&
+        /CONNECT tunnel failed, response 429|returned error: 429/.test(
+          error.message,
+        )
+      if (waitMs === undefined || !proxy429) throw error
+      logIngestEvent("warn", "ingestion-v2.fetch-proxy-429", {
+        attempt: attempt + 1,
+        waitMs,
+      })
+      await sleep(waitMs, undefined, signal ? { signal } : {})
+    }
+  }
 }
 
 /** True when an earlier `prepareIngestShard` finished in this sandbox. */
@@ -159,7 +196,7 @@ export async function prepareIngestShard(
   // control: git stops when that host sends less than 1000 bytes each
   // second for 60 seconds. The clone keeps this config for the fetch below.
   const cloneSource = `git clone -q${filter}${input.source.blobless ? "" : " -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=60"}`
-  await run(
+  await runIngestFetch(
     handle,
     [
       `rm -rf ${sourceClone}`,
@@ -180,7 +217,7 @@ export async function prepareIngestShard(
   })
   for (const context of input.contexts) {
     const clone = `/tmp/ctxpipe-clone-${context.workspaceId}`
-    await run(
+    await runIngestFetch(
       handle,
       `rm -rf ${quote(clone)} && git clone -q -- ${quote(context.url)} ${quote(clone)}`,
       signal,
@@ -458,8 +495,8 @@ export class IngestStepCommandError extends Error {
 
 /**
  * The agent's environment: the OpenCode isolation flags, the stage helpers
- * on PATH, and the sandbox's egress proxy settings. `env -i` gives the agent
- * nothing else.
+ * on PATH, and the sandbox's egress proxy settings (also the proxy auth method
+ * of Git, see `openRunVault`). `env -i` gives the agent nothing else.
  *
  * The proxy settings come from the root command's own environment: a Docker
  * exec gets the container's environment, where the vault session is. Root
@@ -476,7 +513,7 @@ export async function ingestAgentEnv(
     "{ env -0; cat /proc/1/environ 2>/dev/null; } | tr '\\0' '\\n'",
   )
   const keep =
-    /^(https?_proxy|HTTPS?_PROXY|no_proxy|NO_PROXY|NODE_EXTRA_CA_CERTS|SSL_CERT_FILE|GIT_SSL_CAINFO|PATH)$/
+    /^(https?_proxy|HTTPS?_PROXY|no_proxy|NO_PROXY|NODE_EXTRA_CA_CERTS|SSL_CERT_FILE|GIT_SSL_CAINFO|GIT_HTTP_PROXY_AUTHMETHOD|PATH)$/
   const sandbox = Object.fromEntries(
     result.stdout
       .split("\n")

@@ -580,6 +580,8 @@ async function modelStepScenario(
           try {
             const root = sandbox.root(handle.id)
             const agentEnv = await ingestAgentEnv(root, { modelProxyUrl })
+            // The agent's Git sends the session in its first CONNECT too.
+            expect(agentEnv.GIT_HTTP_PROXY_AUTHMETHOD).toBe("basic")
             await prepareIngestSandbox(handle, root, {
               bundle: {
                 name: "ingest-test",

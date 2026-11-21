@@ -5,6 +5,7 @@ import {
   INGEST_STEP_LIMIT_MS,
   ingestStepCheckpoint,
   ingestStepSignal,
+  runIngestFetch,
   runIngestShardStep,
 } from "./ingest-shard-ops.js"
 
@@ -102,5 +103,73 @@ describe("ingestStepCheckpoint", () => {
     expect(limit.aborted).toBe(false)
     vi.advanceTimersByTime(60_000)
     expect(limit.aborted).toBe(true)
+  })
+})
+
+/*
+ * A clone through the egress proxy (CTX-1470). The sandbox is the
+ * environment here: its exec gives the answers of Git, in order.
+ */
+function fetchSandbox(stderrs: string[]) {
+  const commands: string[] = []
+  const handle = {
+    process: {
+      exec: async (command: string) => {
+        commands.push(command)
+        const stderr = stderrs.shift()
+        return stderr === undefined
+          ? { exitCode: 0, stdout: "done", stderr: "" }
+          : { exitCode: 128, stdout: "", stderr }
+      },
+    },
+  } as unknown as Parameters<typeof runIngestFetch>[0]
+  return { handle, commands }
+}
+
+const proxy429 =
+  "fatal: unable to access 'https://github.com/o/r.git/': CONNECT tunnel failed, response 429\n"
+
+describe("runIngestFetch", () => {
+  it("runs a clone again after a short burst of proxy 429s, and the clone finishes", async () => {
+    const { handle, commands } = fetchSandbox([
+      proxy429,
+      "error: RPC failed; HTTP 429 curl 22 The requested URL returned error: 429\n",
+    ])
+    await expect(
+      runIngestFetch(handle, "git clone x", undefined, [1, 1, 1]),
+    ).resolves.toBe("done")
+    expect(commands).toEqual(["git clone x", "git clone x", "git clone x"])
+  })
+
+  it("stops after its last wait, so a long block still fails the step", async () => {
+    const { handle, commands } = fetchSandbox(Array(5).fill(proxy429))
+    await expect(
+      runIngestFetch(handle, "git clone x", undefined, [1, 1]),
+    ).rejects.toThrow(/response 429/)
+    expect(commands).toHaveLength(3)
+  })
+
+  it("does not run again on another error", async () => {
+    const { handle, commands } = fetchSandbox([
+      "fatal: repository 'https://github.com/o/r.git/' not found\n",
+    ])
+    await expect(
+      runIngestFetch(handle, "git clone x", undefined, [1, 1, 1]),
+    ).rejects.toThrow(/not found/)
+    expect(commands).toHaveLength(1)
+  })
+
+  it("stops its wait when the step ends", async () => {
+    const { handle, commands } = fetchSandbox([proxy429])
+    const controller = new AbortController()
+    const fetching = runIngestFetch(
+      handle,
+      "git clone x",
+      controller.signal,
+      [60_000],
+    )
+    controller.abort(new Error("step limit"))
+    await expect(fetching).rejects.toThrow(/step limit|aborted/)
+    expect(commands).toHaveLength(1)
   })
 })

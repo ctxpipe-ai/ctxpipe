@@ -561,4 +561,63 @@ curl -sS -o /dev/null -w "%{http_code}" http://${fixture.upstream}:8080/echo/x`,
       })
     },
   )
+
+  it(
+    "lets many parallel Git fetches from one address through the proxy, because no fetch sends a CONNECT without credentials (CTX-1470)",
+    { timeout: 240_000 },
+    async () => {
+      // On the AWS sandbox host, the proxy sees one address for all
+      // sandboxes (docker-proxy). Agent Vault refuses each CONNECT from an
+      // address with 50 proxy-auth failures in 5 minutes (HTTP 429). One
+      // container here is that one address: 8 shards fetch 8 times each.
+      await withAgentVault({ image, closed: true }, async (fixture) => {
+        const { upstream } = fixture
+        const vault = await openRunVault({
+          access: fixture.access,
+          runKey: `test:${crypto.randomUUID()}`,
+          ttlSeconds: 600,
+          rules: ingestCredentialRules(
+            {
+              repositories: [
+                { kind: "git", host: upstream, path: "/public/repo.git" },
+              ],
+              modelProxyUrl: `http://${upstream}:8080/echo/model/v1`,
+              capability: "model-capability",
+              bridge: {
+                url: `http://${upstream}:8080/echo/bridge`,
+                token: "t",
+              },
+            },
+            [],
+            { fetchSource: true },
+          ),
+          unmatchedHosts: "deny",
+        })
+        try {
+          const result = await fixture.sandbox(
+            vault.env,
+            `${writeProxyCaCommand(vault.caPem)}
+for shard in 1 2 3 4 5 6 7 8; do
+  ( for fetch in 1 2 3 4 5 6 7 8; do
+      git ls-remote https://${upstream}/public/repo.git refs/heads/main >/dev/null 2>>/tmp/errors && echo ok || echo failed
+    done ) &
+done > /tmp/results
+wait
+echo "== ok"
+grep -c '^ok$' /tmp/results || true
+echo "== errors"
+sort -u /tmp/errors
+`,
+          )
+          const output = `${result.stdout}\n${result.stderr}`
+          expect(result.exitCode, output).toBe(0)
+          const sections = sectionsOf(result.stdout)
+          expect(sections.errors, output).toBe("")
+          expect(sections.ok, output).toBe("64")
+        } finally {
+          await vault.close()
+        }
+      })
+    },
+  )
 })
