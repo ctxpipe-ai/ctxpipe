@@ -294,9 +294,21 @@ it(
       async (f) => {
         await f.publish()
         await waitForKnowledgeState(f, { lastSha: f.sha })
+        // The run of the default branch queues its maintenance after it
+        // moves the head: count the jobs when that run has ended.
+        await vi.waitFor(
+          async () =>
+            expect(
+              (await runsOf("knowledge-projection", f.workspaceId)).every(
+                (run) => run.status === "completed",
+              ),
+            ).toBe(true),
+          { timeout: 60_000, interval: 500 },
+        )
         const maintenance = (
           await runsOf("knowledge-maintenance", f.workspaceId)
         ).length
+        expect(maintenance).toBe(1)
         f.git("checkout", "--", ".")
         f.git("checkout", "-q", "-b", "feature")
         writeFileSync(join(f.directory, "b.md"), "# Beta on the branch\n")
