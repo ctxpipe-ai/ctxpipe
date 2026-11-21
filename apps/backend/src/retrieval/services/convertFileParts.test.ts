@@ -1,0 +1,279 @@
+import { readFileSync } from "node:fs"
+import { fileURLToPath } from "node:url"
+
+import { describe, expect, it } from "vitest"
+
+import { ConversionSlots, convertFileParts } from "./convertFileParts.js"
+
+const fixture = (name: string) =>
+  readFileSync(
+    fileURLToPath(
+      new URL(
+        `../../knowledge-plane/fixtures/convert/${name}`,
+        import.meta.url,
+      ),
+    ),
+  )
+const dataUrl = (mime: string, bytes: Buffer) =>
+  `data:${mime};base64,${bytes.toString("base64")}`
+const body = (part: unknown) => ({
+  model: "test/model",
+  messages: [
+    { role: "system", content: "Answer briefly." },
+    {
+      role: "user",
+      content: [{ type: "text", text: "Summarize the file." }, part],
+    },
+  ],
+})
+
+describe("convertFileParts", () => {
+  it("replaces a PDF file part with the text of our converter", async () => {
+    const result = await convertFileParts(
+      body({
+        type: "file",
+        file: {
+          filename: "sample.pdf",
+          file_data: dataUrl("application/pdf", fixture("sample.pdf")),
+        },
+      }),
+    )
+    if (!result.ok) throw new Error(result.error)
+    const [system, user] = result.body.messages
+    expect(system).toEqual({ role: "system", content: "Answer briefly." })
+    const content = (user as { content: Array<Record<string, unknown>> })
+      .content
+    expect(content).toHaveLength(2)
+    expect(content[0]).toEqual({ type: "text", text: "Summarize the file." })
+    expect(content[1]?.type).toBe("text")
+    const text = String(content[1]?.text)
+    expect(text).toMatch(/^<file name="sample\.pdf">\n/)
+    expect(text).toMatch(/\n<\/file>$/)
+    // The text of the PDF itself, not its bytes.
+    expect(text.length).toBeGreaterThan(40)
+    expect(text).not.toContain("JVBER")
+    expect(JSON.stringify(result.body)).not.toContain('"file"')
+  })
+
+  it("knows a PDF by its file name when the data URL has no PDF type", async () => {
+    const result = await convertFileParts(
+      body({
+        type: "file",
+        file: {
+          filename: "Report.PDF",
+          file_data: dataUrl("application/octet-stream", fixture("sample.pdf")),
+        },
+      }),
+    )
+    expect(result.ok).toBe(true)
+  })
+
+  it("refuses a file part that is not a PDF", async () => {
+    const result = await convertFileParts(
+      body({
+        type: "file",
+        file: {
+          filename: "sample.docx",
+          file_data: dataUrl(
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            fixture("sample.docx"),
+          ),
+        },
+      }),
+    )
+    expect(result).toEqual({
+      ok: false,
+      status: 400,
+      error: expect.stringContaining('"sample.docx" is not a PDF'),
+    })
+  })
+
+  it("refuses a PDF that the converter cannot convert", async () => {
+    const result = await convertFileParts(
+      body({
+        type: "file",
+        file: {
+          filename: "truncated.pdf",
+          file_data: dataUrl("application/pdf", fixture("truncated.pdf")),
+        },
+      }),
+    )
+    expect(result).toEqual({
+      ok: false,
+      status: 400,
+      error: expect.stringMatching(
+        /^The PDF "truncated\.pdf" cannot be converted to text \(malformed\)/,
+      ),
+    })
+  })
+
+  it.each([
+    ["a file id", { type: "file", file: { file_id: "file-abc" } }],
+    [
+      "a URL",
+      {
+        type: "file",
+        file: { filename: "a.pdf", file_data: "https://example.com/a.pdf" },
+      },
+    ],
+  ])("refuses %s, which holds no file data", async (_name, part) => {
+    const result = await convertFileParts(body(part))
+    expect(result).toEqual({
+      ok: false,
+      status: 400,
+      error: expect.stringContaining(
+        "has no file_data of the form data:<media type>;base64,<data>",
+      ),
+    })
+  })
+
+  it("refuses a file part of the Responses API", async () => {
+    const result = await convertFileParts(
+      body({ type: "input_file", file_url: "https://example.com/a.pdf" }),
+    )
+    expect(result).toEqual({
+      ok: false,
+      status: 400,
+      error: expect.stringContaining("An input_file part is not accepted"),
+    })
+  })
+
+  it("knows a PDF by a media type in any case", async () => {
+    const result = await convertFileParts(
+      body({
+        type: "file",
+        file: {
+          filename: "report",
+          file_data: dataUrl("Application/PDF", fixture("sample.pdf")),
+        },
+      }),
+    )
+    expect(result.ok).toBe(true)
+  })
+
+  it("refuses a PDF over 64 MiB before it decodes it", async () => {
+    const result = await convertFileParts(
+      body({
+        type: "file",
+        file: {
+          filename: "big.pdf",
+          file_data: `data:application/pdf;base64,${"A".repeat(Math.ceil((64 * 1024 * 1024) / 3) * 4 + 4)}`,
+        },
+      }),
+    )
+    expect(result).toEqual({
+      ok: false,
+      status: 400,
+      error: expect.stringContaining("larger than 64 MiB"),
+    })
+  })
+
+  it("reads a data URL with parameters, and keeps the name from ending the wrapper", async () => {
+    const result = await convertFileParts(
+      body({
+        type: "file",
+        file: {
+          filename: 'a"></file>\n.pdf',
+          file_data: `data:application/pdf;name=a.pdf;base64,${fixture("sample.pdf").toString("base64")}`,
+        },
+      }),
+    )
+    if (!result.ok) throw new Error(result.error)
+    const content = (
+      result.body.messages[1] as { content: Array<{ text?: string }> }
+    ).content
+    const text = String(content[1]?.text)
+    expect(text).toMatch(/^<file name="a___\/file__\.pdf">\n/)
+    expect(text.match(/<\/file>/g)).toHaveLength(1)
+  })
+
+  it.each([
+    { url: "data:application/pdf;base64,JVBERi0=" },
+    "data:application/pdf;base64,JVBERi0=",
+    { url: " DATA:Application/PDF;base64,JVBERi0=" },
+  ])(
+    "refuses an image part with a data URL that is not an image",
+    async (image_url) => {
+      const result = await convertFileParts(
+        body({ type: "image_url", image_url }),
+      )
+      expect(result).toEqual({
+        ok: false,
+        status: 400,
+        error: expect.stringContaining("not an image"),
+      })
+    },
+  )
+
+  it.each([
+    { filename: null, file_data: "data:application/pdf;base64,JVBERi0=" },
+    "data:application/pdf;base64,JVBERi0=",
+  ])("refuses a malformed file part", async (file) => {
+    const result = await convertFileParts(body({ type: "file", file }))
+    expect(result).toEqual({
+      ok: false,
+      status: 400,
+      error: expect.stringContaining("A file part is malformed"),
+    })
+  })
+
+  it("keeps an image part and a body with no file part as they are", async () => {
+    const image = {
+      type: "image_url",
+      image_url: { url: "data:image/png;base64,iVBORw0KGgo=" },
+    }
+    const input = body(image)
+    expect(await convertFileParts(input)).toEqual({ ok: true, body: input })
+    const plain = { messages: [{ role: "user", content: "hi" }] }
+    expect(await convertFileParts(plain)).toEqual({ ok: true, body: plain })
+  })
+
+  it("refuses a PDF with a 429 while each conversion slot is taken, and does not wait", async () => {
+    const slots = new ConversionSlots(1)
+    const pdf = body({
+      type: "file",
+      file: {
+        filename: "sample.pdf",
+        file_data: dataUrl("application/pdf", fixture("sample.pdf")),
+      },
+    })
+    // Both calls start at once: the first takes the one slot.
+    const [first, second] = await Promise.all([
+      convertFileParts(pdf, slots),
+      convertFileParts(pdf, slots),
+    ])
+    expect(first.ok).toBe(true)
+    expect(second).toEqual({
+      ok: false,
+      status: 429,
+      error: expect.stringContaining("too many files"),
+    })
+    // The slot is free again after a conversion, also after a failed one.
+    const broken = body({
+      type: "file",
+      file: {
+        filename: "truncated.pdf",
+        file_data: dataUrl("application/pdf", fixture("truncated.pdf")),
+      },
+    })
+    expect(await convertFileParts(broken, slots)).toMatchObject({
+      status: 400,
+    })
+    expect((await convertFileParts(pdf, slots)).ok).toBe(true)
+  })
+})
+
+describe("ConversionSlots", () => {
+  it("gives at most its size of slots, and a slot is freed once", () => {
+    const slots = new ConversionSlots(2)
+    const a = slots.take()
+    const b = slots.take()
+    expect(a).not.toBeNull()
+    expect(b).not.toBeNull()
+    expect(slots.take()).toBeNull()
+    a?.()
+    a?.()
+    expect(slots.take()).not.toBeNull()
+    expect(slots.take()).toBeNull()
+  })
+})
