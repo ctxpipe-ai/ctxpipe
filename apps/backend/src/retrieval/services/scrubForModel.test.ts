@@ -1,4 +1,4 @@
-import { generateKeyPairSync, randomBytes } from "node:crypto"
+import { randomBytes } from "node:crypto"
 import { readdirSync, readFileSync, statSync } from "node:fs"
 import { join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -8,6 +8,7 @@ import { HttpResponse, http } from "msw"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { z } from "zod"
 
+import { madeUpPrivateKey } from "../../../test/made-up-key.js"
 import { useMswServer } from "../../../test/msw.js"
 import {
   embeddingKey,
@@ -67,10 +68,7 @@ function secrets() {
     },
     {
       rule: "betterleaks.private-key",
-      value: generateKeyPairSync("rsa", { modulusLength: 2048 })
-        .privateKey.export({ type: "pkcs1", format: "pem" })
-        .toString()
-        .trim(),
+      value: madeUpPrivateKey(2048),
     },
   ]
 }
@@ -106,7 +104,7 @@ describe("scrubForModel", () => {
       "mailto:someone@example.test",
       "git@github.com:org/repo.git",
       "postgres://user@db.example.test/app",
-      "postgres://${DB_USER}:${DB_PASSWORD}@db.example.test/app",
+      `postgres://\${DB_USER}:\${DB_PASSWORD}@db.example.test/app`,
       "postgres://user:<password>@db.example.test/app",
       "https://example.test:8443/a",
       "The meeting is at 10:30@noon.",
@@ -126,7 +124,11 @@ describe("scrubForModel", () => {
     const texts = [
       "",
       "The sky is blue on a clear day.",
-      readFileSync(fileURLToPath(import.meta.url), "utf8").slice(0, 4000),
+      // Source code: the scrubber module itself.
+      readFileSync(
+        fileURLToPath(new URL("./scrubForModel.ts", import.meta.url)),
+        "utf8",
+      ),
       readFileSync(
         fileURLToPath(new URL("../../../package.json", import.meta.url)),
         "utf8",
@@ -449,7 +451,7 @@ describe("the model clients", () => {
     return sent
   }
 
-  it("send no secret to a model: LLM tiers, embeddings, the plane and Jev", async () => {
+  it("sends no secret to a model: LLM tiers, embeddings, the plane and Jev", async () => {
     settings()
     const sent = provider()
     const all = secrets()
@@ -534,10 +536,7 @@ describe("the model clients", () => {
   it("scrubs a search question before the cut to the input limit of the model", async () => {
     settings()
     const sent = provider()
-    const pem = generateKeyPairSync("rsa", { modulusLength: 4096 })
-      .privateKey.export({ type: "pkcs1", format: "pem" })
-      .toString()
-      .trim()
+    const pem = madeUpPrivateKey(4096)
     // The cut (8,192 bytes) falls inside the key and removes its END line.
     const question = `${"é".repeat(3_000)}\n${pem}`
     expect(
