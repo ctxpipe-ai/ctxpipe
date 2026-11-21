@@ -138,8 +138,8 @@ export async function baseBranchTip(input: {
   const sha = tip?.sha ?? null
   const now = Date.now()
   // A tip older than a minute is of no use to a Files read: it goes.
-  for (const [known, entry] of knownTips)
-    if (now - entry.at > 60_000) knownTips.delete(known)
+  for (const [staleKey, entry] of knownTips)
+    if (now - entry.at > 60_000) knownTips.delete(staleKey)
   knownTips.set(key, { sha, at: now })
   return sha
 }
