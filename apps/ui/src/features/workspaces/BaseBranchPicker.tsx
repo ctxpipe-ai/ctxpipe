@@ -1,7 +1,15 @@
-import { IconCheck, IconChevronDown, IconGitBranch } from "@tabler/icons-react"
+import {
+  IconCheck,
+  IconChevronDown,
+  IconGitBranch,
+  IconSearch,
+} from "@tabler/icons-react"
 import { useQuery } from "@tanstack/react-query"
+import { useId } from "react"
 import {
   Autocomplete,
+  SearchField as AriaSearchField,
+  Input,
   ListBox,
   ListBoxItem,
   Select,
@@ -12,7 +20,6 @@ import {
 import { Button } from "@/components/ui/Button"
 import { dropdownItemStylesDark } from "@/components/ui/ListBox"
 import { Popover } from "@/components/ui/Popover"
-import { SearchField } from "@/components/ui/SearchField"
 import { SkeletonLine, useSkeletonHold } from "@/components/ui/Skeleton"
 import { cn } from "@/lib/utils"
 
@@ -40,6 +47,7 @@ export function BaseBranchPicker(props: {
     workspaceBranchesOptions(props.orgSlug, props.workspaceSlug),
   )
   const { contains } = useFilter({ sensitivity: "base" })
+  const descriptionId = useId()
   const listLoading = !branches.data && branches.isFetching
   const showSkeleton = useSkeletonHold(listLoading)
   const defaultBranch = branches.data?.defaultBranch ?? props.defaultBranch
@@ -59,10 +67,14 @@ export function BaseBranchPicker(props: {
       }}
       className="min-w-0"
     >
+      {/* Muted, in the UI font and at normal weight at rest (the composer
+          footer sets medium), so that the prompt and the send button lead.
+          Hover and the open menu brighten it. */}
       <Button
         variant="quiet"
         size="sm"
-        className="max-w-80 min-w-0 gap-1.5 pr-1.5 pl-1 aria-expanded:bg-foreground/[0.06] aria-expanded:text-foreground max-sm:max-w-60"
+        aria-describedby={descriptionId}
+        className="max-w-80 min-w-0 gap-1.5 px-1.5 font-normal aria-expanded:bg-foreground/[0.06] aria-expanded:text-foreground max-sm:max-w-60"
       >
         <IconGitBranch
           aria-hidden
@@ -70,29 +82,47 @@ export function BaseBranchPicker(props: {
           stroke={1.75}
         />
         <SelectValue className="min-w-0">
-          {() => <BranchName name={value} />}
+          {() => <BranchName name={value} className="font-sans" />}
         </SelectValue>
         <IconChevronDown aria-hidden className="size-3 shrink-0" stroke={2} />
       </Button>
+      <span id={descriptionId} className="sr-only">
+        The conversation starts from this branch, and its pull request targets
+        it.
+      </span>
+      {/* The trigger sits 16px above the bottom edge of the composer: the
+          offset puts the menu 8px below that edge, the gap of each popover. */}
       <Popover
         placement="bottom start"
+        offset={24}
         className="flex w-72 max-w-[calc(100vw-2rem)] flex-col"
       >
         <Autocomplete filter={contains}>
-          <div className="border-b border-white/10 p-2">
-            <SearchField
-              autoFocus
-              aria-label="Search branches"
-              placeholder="Search branches"
+          {/* Not the house SearchField: its bordered box in the bordered
+              popover is a second frame. A menu search is one row with a
+              hairline under it. */}
+          <AriaSearchField
+            autoFocus
+            aria-label="Search branches"
+            className="flex h-10 items-center gap-2 border-b border-white/10 px-4"
+          >
+            <IconSearch
+              aria-hidden
+              className="size-4 shrink-0 text-muted-foreground"
+              stroke={1.75}
             />
-          </div>
+            <Input
+              placeholder="Search branches"
+              className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-0 placeholder:text-muted-foreground [&::-webkit-search-cancel-button]:hidden"
+            />
+          </AriaSearchField>
           <ListBox
             items={names.map((name) => ({ id: name }))}
             aria-label="Branches"
             className="max-h-64 overflow-y-auto p-1 outline-0"
             renderEmptyState={({ isEmpty }) =>
               isEmpty && !listLoading ? (
-                <p className="px-2 py-2 text-sm text-muted-foreground">
+                <p className="flex h-7 items-center px-3 text-xs text-muted-foreground">
                   No branch matches your search.
                 </p>
               ) : null
@@ -108,7 +138,7 @@ export function BaseBranchPicker(props: {
                     // The check marks the selected branch. The fill
                     // marks only the focused row, so one row looks active.
                     className:
-                      "gap-2 bg-transparent py-1.5 pr-2 pl-3 selected:pr-2",
+                      "h-7 gap-2 bg-transparent px-3 py-0 selected:pr-3",
                   })
                 }
               >
@@ -132,13 +162,15 @@ export function BaseBranchPicker(props: {
           </ListBox>
         </Autocomplete>
         {listLoading || showSkeleton ? (
-          <div aria-busy className="px-1 pb-1">
+          // The rows of a list that loads continue the list: the same height
+          // and the same inset as a branch row.
+          <div aria-busy className="-mt-1 px-1 pb-1">
             <span className="sr-only">Loading branches</span>
             {["opacity-75", "opacity-50", "opacity-25"].map((opacity) => (
               <div
                 key={opacity}
                 aria-hidden
-                className={cn("flex h-7 items-center gap-2 pr-2 pl-3", opacity)}
+                className={cn("flex h-7 items-center gap-2 px-3", opacity)}
               >
                 <span className="w-4 shrink-0" />
                 <SkeletonLine className="h-3 w-1/2" />
@@ -146,24 +178,20 @@ export function BaseBranchPicker(props: {
             ))}
           </div>
         ) : branches.isError ? (
-          <div className="flex items-center gap-2 border-t border-white/10 px-3 py-2">
+          <div className="flex h-10 items-center gap-2 border-t border-white/10 pr-2.5 pl-4">
             <p className="min-w-0 flex-1 text-xs text-muted-foreground">
               The other branches did not load.
             </p>
             <Button
               variant="quiet"
               size="sm"
-              className="-mr-1.5 px-1.5"
+              className="px-1.5"
               onPress={() => void branches.refetch()}
             >
               Try again
             </Button>
           </div>
         ) : null}
-        <p className="border-t border-white/10 px-3 py-2 text-xs text-muted-foreground">
-          The conversation starts from this branch, and its pull request targets
-          it.
-        </p>
       </Popover>
     </Select>
   )

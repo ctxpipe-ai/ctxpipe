@@ -107,7 +107,14 @@ export function MessageInputBox(props: {
               autoFocus={layout === "empty" && !isDisabled}
             />
           </PromptInputBody>
-          <PromptInputFooter className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 border-0 bg-transparent px-3 pb-3 pt-0 shadow-none">
+          {/* The large composer keeps one 16px inset: the text, the footer
+              controls and the send button. */}
+          <PromptInputFooter
+            className={cn(
+              "absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 border-0 bg-transparent pt-0 shadow-none",
+              layout === "empty" ? "px-4 pb-4" : "px-3 pb-3",
+            )}
+          >
             <PromptInputTools>{tools}</PromptInputTools>
             <PromptInputSubmit
               size="icon-sm"

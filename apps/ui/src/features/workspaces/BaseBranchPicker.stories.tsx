@@ -126,8 +126,8 @@ export const HoverShowsWash = meta.story({
 
 /**
  * Base branch menu of a new conversation, open after the member pressed the
- * branch control: a search field, then the branches with main first, checked
- * and marked default, and one line that says what the base branch does.
+ * branch control: a search row, then the branches with main first, checked
+ * and marked default.
  */
 export const MenuOpen = meta.story({
   play: async ({ canvasElement }) => {
