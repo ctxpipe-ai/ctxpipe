@@ -1,4 +1,4 @@
-import type { SandboxHandle } from "@tanstack/ai-sandbox"
+import type { SandboxHandle, SandboxProcess } from "@tanstack/ai-sandbox"
 
 import {
   ingestModelRunCommand,
@@ -43,6 +43,7 @@ import {
  */
 
 type Sandbox = Pick<SandboxHandle, "fs" | "process">
+type SandboxExec = { process: Pick<SandboxProcess, "exec"> }
 
 /** The source checkout: `/ctxpipe/source/source`. */
 const INGEST_SOURCE_HANDLE = "source"
@@ -95,7 +96,7 @@ function quote(value: string): string {
 }
 
 async function run(
-  handle: Sandbox,
+  handle: SandboxExec,
   command: string,
   signal?: AbortSignal,
 ): Promise<string> {
@@ -107,6 +108,94 @@ async function run(
       `Ingest shard command failed (${result.exitCode}): ${result.stderr.slice(-500)}`,
     )
   return result.stdout
+}
+
+/** True for a 429 of the egress proxy or of the Git host to a Git command. */
+function isFetch429(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    /CONNECT tunnel failed, response 429|returned error: 429/.test(
+      error.message,
+    )
+  )
+}
+
+/**
+ * The Retry-After (in seconds) of the egress proxy's answer to a request to
+ * the origin of `url`; no output when the answer has none. `-D -` writes the
+ * headers of the CONNECT answer too.
+ */
+export function retryAfterProbeCommand(url: string): string {
+  return `curl -s -o /dev/null -D - -m 10 ${quote(`${new URL(url).origin}/`)} 2>/dev/null | tr -d '\\r' | sed -n 's/^[Rr]etry-[Aa]fter: *\\([0-9][0-9]*\\)$/\\1/p' | tail -n 1`
+}
+
+/**
+ * Run a clone or a fetch of `url` through the egress proxy. On a 429 (Agent
+ * Vault refuses the CONNECT, or the proxy or the Git host refuses a request
+ * in the tunnel), the command runs again, at most 3 times (CTX-1470).
+ *
+ * Git does not show the Retry-After of the answer. Thus a curl request to
+ * the same origin through the proxy reads it: curl sends the session in its
+ * first CONNECT, and Agent Vault's CONNECT gate only reads its count of
+ * failures. The wait is that Retry-After and one second (Agent Vault cuts
+ * the fraction of a second). With no Retry-After, the waits are 5, 15 and
+ * 30 seconds. All the waits of one command are at most 2 minutes: when the
+ * next wait goes past that, the 429 fails the step at once. So a short
+ * burst delays the shard, and a long block fails it soon.
+ *
+ * The command must start again from nothing (for example, it removes its
+ * clone first).
+ */
+export async function runIngestFetch(
+  handle: SandboxExec,
+  input: { command: string; url: string; signal?: AbortSignal },
+): Promise<string> {
+  const { signal } = input
+  const fallbackWaitsMs = [5_000, 15_000, 30_000]
+  let waitedMs = 0
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await run(handle, input.command, signal)
+    } catch (error) {
+      const fallbackMs = fallbackWaitsMs[attempt]
+      if (fallbackMs === undefined || !isFetch429(error)) throw error
+      const probe = await handle.process.exec(
+        retryAfterProbeCommand(input.url),
+        signal ? { signal } : {},
+      )
+      const retryAfterS = Number.parseInt(probe.stdout.trim(), 10)
+      const waitMs = Number.isNaN(retryAfterS)
+        ? fallbackMs
+        : (retryAfterS + 1) * 1000
+      if (waitedMs + waitMs > 120_000) throw error
+      waitedMs += waitMs
+      logIngestEvent("warn", "ingestion-v2.fetch-429", {
+        attempt: attempt + 1,
+        waitMs,
+        retryAfter: Number.isNaN(retryAfterS) ? null : retryAfterS,
+      })
+      await waitFor(waitMs, signal)
+    }
+  }
+}
+
+/**
+ * Wait `ms`, or until `signal` aborts. It uses the global `setTimeout`, not
+ * `node:timers/promises`: Vitest's fake timers do not replace that module.
+ */
+async function waitFor(ms: number, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted()
+  await new Promise<void>((resolve, reject) => {
+    const abort = () => {
+      clearTimeout(timer)
+      reject(signal?.reason)
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", abort)
+      resolve()
+    }, ms)
+    signal?.addEventListener("abort", abort, { once: true })
+  })
 }
 
 /** True when an earlier `prepareIngestShard` finished in this sandbox. */
@@ -159,19 +248,31 @@ export async function prepareIngestShard(
   // control: git stops when that host sends less than 1000 bytes each
   // second for 60 seconds. The clone keeps this config for the fetch below.
   const cloneSource = `git clone -q${filter}${input.source.blobless ? "" : " -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=60"}`
-  await run(
+  const url = input.source.url
+  const sourceCloneStep = (depth: string) => ({
+    command: `rm -rf ${sourceClone} && ${cloneSource} --no-checkout ${depth} -- ${quote(url)} ${sourceClone}`,
+    url,
+    signal,
+  })
+  await runIngestFetch(
     handle,
-    [
-      `rm -rf ${sourceClone}`,
-      // A repository with no commit in the window fails a `--shallow-since`
-      // clone ("error processing shallow info"): then clone its tip only.
-      `{ ${cloneSource} --no-checkout --shallow-since=${since} -- ${quote(input.source.url)} ${sourceClone} || { rm -rf ${sourceClone} && ${cloneSource} --no-checkout --depth=1 -- ${quote(input.source.url)} ${sourceClone}; }; }`,
+    sourceCloneStep(`--shallow-since=${since}`),
+  ).catch(async (error: unknown) => {
+    // A repository with no commit in the window fails a `--shallow-since`
+    // clone ("error processing shallow info"): then clone its tip only.
+    // A 429 that stays, or the end of the step, fails the step.
+    if (isFetch429(error) || signal.aborted) throw error
+    await runIngestFetch(handle, sourceCloneStep("--depth=1"))
+  })
+  await runIngestFetch(handle, {
+    command: [
       // The run's SHA can be older than the history window.
       `(git -C ${sourceClone} cat-file -e ${input.source.sha}^{commit} 2>/dev/null || git -C ${sourceClone} fetch -q${filter} --depth=1 origin ${input.source.sha})`,
       `git -C ${sourceClone} checkout -q --detach ${input.source.sha}`,
     ].join(" && "),
+    url,
     signal,
-  )
+  })
   await sealIngestCheckout(root, {
     kind: "source",
     id: INGEST_SOURCE_HANDLE,
@@ -180,11 +281,11 @@ export async function prepareIngestShard(
   })
   for (const context of input.contexts) {
     const clone = `/tmp/ctxpipe-clone-${context.workspaceId}`
-    await run(
-      handle,
-      `rm -rf ${quote(clone)} && git clone -q -- ${quote(context.url)} ${quote(clone)}`,
+    await runIngestFetch(handle, {
+      command: `rm -rf ${quote(clone)} && git clone -q -- ${quote(context.url)} ${quote(clone)}`,
+      url: context.url,
       signal,
-    )
+    })
     await sealIngestCheckout(root, {
       kind: "context",
       id: context.workspaceId,
@@ -458,8 +559,8 @@ export class IngestStepCommandError extends Error {
 
 /**
  * The agent's environment: the OpenCode isolation flags, the stage helpers
- * on PATH, and the sandbox's egress proxy settings. `env -i` gives the agent
- * nothing else.
+ * on PATH, and the sandbox's egress proxy settings (also the proxy auth method
+ * of Git, see `openRunVault`). `env -i` gives the agent nothing else.
  *
  * The proxy settings come from the root command's own environment: a Docker
  * exec gets the container's environment, where the vault session is. Root
@@ -476,7 +577,7 @@ export async function ingestAgentEnv(
     "{ env -0; cat /proc/1/environ 2>/dev/null; } | tr '\\0' '\\n'",
   )
   const keep =
-    /^(https?_proxy|HTTPS?_PROXY|no_proxy|NO_PROXY|NODE_EXTRA_CA_CERTS|SSL_CERT_FILE|GIT_SSL_CAINFO|PATH)$/
+    /^(https?_proxy|HTTPS?_PROXY|no_proxy|NO_PROXY|NODE_EXTRA_CA_CERTS|SSL_CERT_FILE|GIT_SSL_CAINFO|GIT_HTTP_PROXY_AUTHMETHOD|PATH)$/
   const sandbox = Object.fromEntries(
     result.stdout
       .split("\n")
