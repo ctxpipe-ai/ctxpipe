@@ -9,7 +9,7 @@ import { workspaceGitRead } from "../../domain/workspaces/resolve-revision.js"
 import { workspaceRootPath } from "../../domain/workspaces/root-path.js"
 import { findKnowledgeRepairs } from "../../knowledge-plane/maintenance.js"
 import { createKnowledgeStore } from "../../knowledge-store/knowledge-store.js"
-import { getKnowledgeState, treeHeadOf } from "../../models/knowledge-state.js"
+import { readyKnowledgeHeads } from "../../models/knowledge-state.js"
 import { getWorkspaceById } from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
@@ -49,8 +49,8 @@ export const knowledgeMaintenance = defineWorkflow(
     step.run({ name: "maintain" }, async () => {
       const env = parseEnv(process.env)
       const key = { orgId: input.orgId, workspaceId: input.workspaceId }
-      const [state, workspace, org] = await Promise.all([
-        getKnowledgeState(key),
+      const [heads, workspace, org] = await Promise.all([
+        readyKnowledgeHeads(input.orgId, [input.workspaceId]),
         withOrgDbContext(input.orgId, () =>
           getWorkspaceById(input.workspaceId, input.orgId),
         ),
@@ -59,9 +59,10 @@ export const knowledgeMaintenance = defineWorkflow(
         }),
       ])
       // A later tip, or a Workspace or org that is gone: the run has
-      // nothing to check.
-      const head = treeHeadOf(state)
-      if (state?.lastSha !== input.sha || !head || !workspace || !org) {
+      // nothing to check. Only the default branch gets maintenance
+      // (ADR-071 decision 9).
+      const head = heads.get(input.workspaceId)
+      if (head?.sha !== input.sha || !workspace || !org) {
         getLogger().set({
           step: "knowledge-maintenance",
           knowledgeMaintenance: { sha: input.sha, outcome: "superseded" },
@@ -83,7 +84,7 @@ export const knowledgeMaintenance = defineWorkflow(
         }),
         root: workspaceRootPath(workspace),
         sha: input.sha,
-        head,
+        head: { branch: head.branch, treeVersion: head.treeVersion },
         store,
       }).finally(() => store.close())
 

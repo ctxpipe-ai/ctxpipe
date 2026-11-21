@@ -2,12 +2,20 @@ import { z } from "zod"
 
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
-import { workspaceGitRead } from "../../domain/workspaces/resolve-revision.js"
+import {
+  resolveRepositoryReadTip,
+  workspaceGitRead,
+} from "../../domain/workspaces/resolve-revision.js"
 import { workspaceRootPath } from "../../domain/workspaces/root-path.js"
 import { withSandboxLockIfFree } from "../../domain/workspaces/sandbox-lock-store.js"
 import { cleanUpKnowledgePlane } from "../../knowledge-plane/cleanup.js"
 import { projectKnowledgePlane } from "../../knowledge-plane/writer.js"
 import { createKnowledgeStore } from "../../knowledge-store/knowledge-store.js"
+import {
+  deleteBranchHead,
+  listBranchHeads,
+  readyKnowledgeHeads,
+} from "../../models/knowledge-state.js"
 import { getOrgFeature } from "../../models/org-features.js"
 import { getWorkspaceById } from "../../models/workspaces.js"
 import { enqueueWorkflow } from "../client.js"
@@ -24,7 +32,15 @@ import { knowledgeMaintenance } from "./knowledge-maintenance.js"
  * the SHA of its trigger. Thus queued runs merge (ADR-067 decision 3): a
  * later run of an applied tip returns `current`, and an earlier run never
  * moves `last_sha` back. Its own lease lets one run of a Workspace run at a
- * time.
+ * time, for all its branches (ADR-071 decision 7).
+ *
+ * A run is for one branch (`branch`; absent: the default branch). The
+ * default branch gets a full tree, each other branch an overlay (ADR-071
+ * decision 3). A branch that Git no longer has loses its head, and the
+ * cleanup of the same run deletes its tree rows (decision 10). Only a run
+ * of the default branch queues maintenance (decision 9). The first run of a
+ * new default branch (a rename) queues a run of each other branch, so that
+ * each overlay gets the merge base with it (decision 11).
  *
  * An infrastructure error throws in the step. The step retries from the same
  * `last_sha`, and the next run starts from it too (ADR-067 decision 8). When
@@ -39,11 +55,14 @@ export const knowledgeProjection = defineWorkflow(
       .object({
         orgId: z.string().min(1),
         workspaceId: z.string().min(1),
+        /** The branch of the run; absent: the default branch. */
+        branch: z.string().min(1).optional(),
       })
       .strict(),
     logFields: (input) => ({
       orgId: input.orgId,
       workspaceId: input.workspaceId,
+      ...(input.branch ? { branch: input.branch } : {}),
     }),
   },
   async ({ input, step }) => {
@@ -73,35 +92,65 @@ export const knowledgeProjection = defineWorkflow(
           // queues a run when it has one.
           if (!workspace?.desiredSha || !workspace.desiredDefaultBranch)
             return null
-          const tip = workspace.desiredSha
+          const key = { orgId: input.orgId, workspaceId: input.workspaceId }
+          const defaultBranch = workspace.desiredDefaultBranch
+          const branch = input.branch ?? defaultBranch
+          const isDefault = branch === defaultBranch
+          const remote = {
+            url: workspace.workspaceRepositoryUrl,
+            connectionId: workspace.githubConnectionId,
+          }
+          // The tip of a branch that is not the default branch comes from
+          // Git; null when Git no longer has the branch.
+          const tip = isDefault
+            ? workspace.desiredSha
+            : ((
+                await resolveRepositoryReadTip({
+                  orgId: input.orgId,
+                  env,
+                  remote,
+                  branch,
+                })
+              )?.sha ?? null)
+          const before = (
+            await readyKnowledgeHeads(input.orgId, [input.workspaceId])
+          ).get(input.workspaceId)
           const store = createKnowledgeStore(env.CLICKHOUSE_URL)
           try {
-            const summary = await projectKnowledgePlane({
-              orgId: input.orgId,
-              workspaceId: input.workspaceId,
-              remote: workspaceGitRead({
-                orgId: input.orgId,
-                env,
-                remote: {
-                  url: workspace.workspaceRepositoryUrl,
-                  connectionId: workspace.githubConnectionId,
-                },
-              }),
-              root: workspaceRootPath(workspace),
-              branch: workspace.desiredDefaultBranch,
-              tip,
-              store,
-              observedAt: new Date(),
-            })
+            // A removed branch loses its head. The head of the default
+            // branch of the reads stays until a run of the new default
+            // branch moves its own head (a rename).
+            const summary = tip
+              ? await projectKnowledgePlane({
+                  ...key,
+                  remote: workspaceGitRead({ orgId: input.orgId, env, remote }),
+                  root: workspaceRootPath(workspace),
+                  branch,
+                  tip,
+                  defaultTip: isDefault ? null : workspace.desiredSha,
+                  store,
+                  observedAt: new Date(),
+                })
+              : before?.branch === branch
+                ? { mode: "waiting" as const }
+                : await deleteBranchHead({ ...key, branch }).then(() => ({
+                    mode: "deleted" as const,
+                  }))
             // Under the same lease, so that no run uses a file version
             // while the cleanup deletes it (ADR-071 decision 10).
-            await cleanUpKnowledgePlane({
-              orgId: input.orgId,
-              workspaceId: input.workspaceId,
-              store,
-              now: new Date(),
-            })
-            return { tip, summary }
+            await cleanUpKnowledgePlane({ ...key, store, now: new Date() })
+            const after = (
+              await readyKnowledgeHeads(input.orgId, [input.workspaceId])
+            ).get(input.workspaceId)
+            // The head of the default branch moved to another branch: each
+            // other branch needs the merge base with it.
+            const others =
+              isDefault && after?.branch === branch && before?.branch !== branch
+                ? (await listBranchHeads(key))
+                    .map((row) => row.branch)
+                    .filter((name) => name !== branch)
+                : []
+            return { tip, isDefault, summary, others }
           } finally {
             await store.close()
           }
@@ -124,6 +173,19 @@ export const knowledgeProjection = defineWorkflow(
     }
     const applied = locked.value
     if (!applied) return null
+    const { tip, isDefault, others } = applied
+    if (others.length > 0)
+      await step.run({ name: "enqueue-branch-projections" }, async () => {
+        for (const branch of others)
+          await enqueueWorkflow(
+            knowledgeProjection.spec,
+            { orgId: input.orgId, workspaceId: input.workspaceId, branch },
+            {
+              idempotencyKey: `knowledge-projection:${input.workspaceId}:${branch}:${tip}`,
+            },
+          )
+      })
+    if (!isDefault || !tip) return applied
     // Also after a `current` result: a retry after a stop between
     // `completeKnowledgeRun` and the step output gives `current`. The key
     // queues one job for each tip.
@@ -133,10 +195,10 @@ export const knowledgeProjection = defineWorkflow(
         {
           orgId: input.orgId,
           workspaceId: input.workspaceId,
-          sha: applied.tip,
+          sha: tip,
         },
         {
-          idempotencyKey: `knowledge-maintenance:${input.workspaceId}:${applied.tip}`,
+          idempotencyKey: `knowledge-maintenance:${input.workspaceId}:${tip}`,
         },
       )
     })

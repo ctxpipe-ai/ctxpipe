@@ -2,7 +2,7 @@ import type {
   KnowledgeStore,
   MutationCounter,
 } from "../knowledge-store/knowledge-store.js"
-import { getKnowledgeState, treeHeadOf } from "../models/knowledge-state.js"
+import { listBranchHeads, treeHeadOf } from "../models/knowledge-state.js"
 import { getLogger } from "../observability/logger.js"
 
 /**
@@ -19,9 +19,10 @@ const GRACE = {
 
 /**
  * Deletes the tree rows and the file versions of a Workspace that no head
- * can see (`KnowledgeStore.cleanUp`). The caller holds the knowledge
- * projection lease of the Workspace, so that no run uses a file version
- * while it is deleted. A Workspace with no completed run has nothing to
+ * of any of its branches can see (`KnowledgeStore.cleanUp`). The caller
+ * holds the knowledge projection lease of the Workspace, the one lease of
+ * all its branches, so that no run uses a file version while it is deleted
+ * (ADR-071 decision 7). A Workspace with no completed run has nothing to
  * clean.
  */
 export async function cleanUpKnowledgePlane(input: {
@@ -32,14 +33,18 @@ export async function cleanUpKnowledgePlane(input: {
   now: Date
 }): Promise<void> {
   const scope = { orgId: input.orgId, workspaceId: input.workspaceId }
-  const state = await getKnowledgeState(scope)
-  const head = treeHeadOf(state)
-  if (state?.runStatus !== "completed" || !head) return
+  // A head that a stopped run left keeps its rows: `treeHeadOf` gives the
+  // head of its last completed run. A branch with no completed run has no
+  // head, and the cleanup treats its rows as the rows of a removed branch.
+  const heads = (await listBranchHeads(scope)).flatMap(
+    (row) => treeHeadOf(row) ?? [],
+  )
+  if (heads.length === 0) return
   const counter: MutationCounter = { mutations: 0 }
   const deleted = await input.store.cleanUp(
     scope,
     {
-      heads: [head],
+      heads,
       replacedBefore: new Date(input.now.getTime() - GRACE.replacedTreeRowMs),
       unusedBefore: new Date(input.now.getTime() - GRACE.unusedFileVersionMs),
     },

@@ -3,6 +3,7 @@ import { parseNameStatus } from "../services/git/name-status.js"
 import { listTreeBlobs, nativeGit } from "../services/git/pack.js"
 import { workspaceRelativePath } from "../services/git/root-folder.js"
 import { IMAGE_TEXT_PROMPT_VERSION } from "./image-text.js"
+import { isKnowledgePath } from "./parse-file.js"
 
 /**
  * The projection version of the knowledge plane (ADR-067 decision 4): a code
@@ -27,11 +28,12 @@ export function knowledgeProjectionVersion(input: {
   // introduced the file (CTX-1421). 6: one text vector space, and an image
   // document has no chunk (CTX-1431). 7: files become text at projection
   // time (CTX-1433). 8: file versions and trees (ADR-071): the ClickHouse
-  // migration 0010 made the tables again, empty. The converter version, the
+  // migration 0010 made the tables again, empty. 9: the tree rows hold the
+  // blob SHA (migration 0011). The converter version, the
   // vision model and the prompt version of the image text are part of it
   // too: a new parser, model or prompt gives other text for the same bytes.
   return JSON.stringify([
-    8,
+    9,
     input.embeddingModel,
     input.dimensions,
     input.root,
@@ -62,7 +64,7 @@ export type KnowledgeFullReason =
   | "first_run"
   /** The projection version of the code is not the stored version. */
   | "projection_version"
-  /** The default branch of the Workspace is not the branch of the head. */
+  /** The tree of the branch is an overlay, and the branch is now the default branch. */
   | "branch"
   /** Git does not have `last_sha`. */
   | "missing_commit"
@@ -78,11 +80,18 @@ export type KnowledgeFullReason =
 export type KnowledgeChangeSet =
   | { kind: "delta"; changed: string[]; removed: string[] }
   | { kind: "full"; reason: KnowledgeFullReason; files: string[] }
+  /**
+   * The overlay of a branch that is not the default branch (ADR-071
+   * decision 3): `changed` are the paths whose file at the tip differs from
+   * the merge base, `removed` the paths that the tip does not have.
+   */
+  | { kind: "overlay"; changed: string[]; removed: string[] }
 
 /** The values of the `knowledge_state` row that the planner reads. */
 export type KnowledgePlanState = {
   lastSha: string | null
-  branch: string | null
+  /** The merge base of an overlay; null for a full tree. */
+  mergeBase: string | null
   projectionVersion: string | null
 }
 
@@ -99,8 +108,6 @@ export async function planKnowledgeChangeSet(input: {
   root: string
   /** The state row, or null when the Workspace has no row. */
   state: KnowledgePlanState | null
-  /** The branch of the run: the default branch of the Workspace. */
-  branch: string
   tip: string
   /** The current version (`knowledgeProjectionVersion`). */
   projectionVersion: string
@@ -118,7 +125,7 @@ export async function planKnowledgeChangeSet(input: {
   if (!state?.lastSha) return full("first_run")
   if (state.projectionVersion !== input.projectionVersion)
     return full("projection_version")
-  if (state.branch !== input.branch) return full("branch")
+  if (state.mergeBase !== null) return full("branch")
   const base = state.lastSha
   if (!(await hasCommits(directory, [base, tip]))) return full("missing_commit")
 
@@ -182,3 +189,66 @@ async function diffPaths(
     }),
   )
 }
+
+/**
+ * Plan the overlay of a branch that is not the default branch (ADR-071
+ * decision 3): the diff from `mergeBase` (the merge base of the tip and the
+ * default branch) to `tip`. The writer compares it with the stored overlay,
+ * so the plan is the same for a first run and for each later run. When the
+ * diff changes the sources (ADR-050), each knowledge file of the tip is in
+ * `changed`: its rows come from the sources, so its file version differs
+ * from the one of the default branch.
+ */
+export async function planOverlay(input: {
+  directory: string
+  /** The Workspace root folder; `""` is the repository root. */
+  root: string
+  mergeBase: string
+  tip: string
+}): Promise<Extract<KnowledgeChangeSet, { kind: "overlay" }>> {
+  const { directory, root, mergeBase, tip } = input
+  const diff = await diffPaths(directory, root, mergeBase, tip)
+  const changed = new Set<string>()
+  const removed: string[] = []
+  for (const [path, status] of diff)
+    if (status === "D") removed.push(path)
+    else changed.add(path)
+  if ([...diff.keys()].some(isSourcesTreePath))
+    for (const { path } of await listTreeBlobs(
+      directory,
+      tip,
+      root ? [`${root}/`] : undefined,
+    )) {
+      const relative = workspaceRelativePath(root, path)
+      if (relative !== null && isKnowledgePath(relative)) changed.add(relative)
+    }
+  return { kind: "overlay", changed: [...changed].sort(), removed: removed.sort() }
+}
+
+/** The object id of the empty tree of Git (SHA-1). */
+const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+/**
+ * The merge base of `tip` and `defaultTip`. A branch with no commit in
+ * common with the default branch has the empty tree as its base, so its
+ * overlay holds each of its files.
+ */
+export async function mergeBaseOf(
+  directory: string,
+  tip: string,
+  defaultTip: string,
+): Promise<string> {
+  const output = await nativeGit(directory, [
+    "--no-lazy-fetch",
+    "merge-base",
+    tip,
+    defaultTip,
+  ]).catch((error: unknown) => {
+    // `git merge-base` exits with 1 and prints nothing when there is no
+    // common commit. Each other failure is an infrastructure error.
+    if ((error as { code?: unknown }).code === 1) return Buffer.from("")
+    throw error
+  })
+  return output.toString().trim() || EMPTY_TREE
+}
+
