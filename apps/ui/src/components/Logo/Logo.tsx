@@ -1,5 +1,9 @@
 import type { ImgHTMLAttributes } from "react"
 
+/**
+ * The ctxpipe logo mark as an image. Use it where the logo needs no link; use
+ * SideNavLogo in the nav and AuthLogoBadge on an auth card.
+ */
 export function Logo(props: ImgHTMLAttributes<HTMLImageElement>) {
   // The Vite base is "/" in the app and "./" in a Storybook build, so a
   // Storybook preview under a path prefix also loads the logo.

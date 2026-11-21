@@ -10,6 +10,10 @@ export const Route = createFileRoute("/.auth/select-organization")({
   component: OAuthOrganizationSelectionRoutePage,
 })
 
+/**
+ * Shows the organization selection step of the OAuth flow: the person selects the organization for the app, and the flow continues to the app.
+ * It is exported so that the stories can render it.
+ */
 export function OAuthOrganizationSelectionRoutePage() {
   const { data: organizations, isPending } = useListOrganizations()
   const [isSubmitting, setIsSubmitting] = useState(false)

@@ -42,6 +42,12 @@ import {
 import { SideNavTooltip } from "./SideNavTooltip"
 import { SideNavUserButton } from "./SideNavUserButton"
 
+/**
+ * The main navigation of an org. The user goes to Home, opens Search, opens a
+ * workspace or one of its conversations, goes to Connectors and the docs,
+ * changes the organization, and opens the account menu here. The user can
+ * collapse it to an icon rail.
+ */
 export function SideNav() {
   const router = useRouter()
   const queryClient = useQueryClient()

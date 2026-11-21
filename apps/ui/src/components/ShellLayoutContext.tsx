@@ -32,6 +32,10 @@ const defaultNav: SideNavLocation = { orgSlug: null, primary: "other" }
 
 const ShellLayoutContext = createContext<ShellLayoutContextValue | null>(null)
 
+/**
+ * Holds the shell state: the open state of the overlay SideNav and the current
+ * nav item. AppShell supplies it; read it with useShellLayout.
+ */
 export function ShellLayoutProvider(props: { children: ReactNode }) {
   const selectedOrganizationSlug = useSelectedOrganizationSlug()
   const [navOpen, setNavOpen] = useState(false)

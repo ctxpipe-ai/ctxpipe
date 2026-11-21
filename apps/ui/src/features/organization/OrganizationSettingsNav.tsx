@@ -9,6 +9,10 @@ const NAV_ITEMS = [
   { view: "api-keys", label: "API Keys" },
 ] as const
 
+/**
+ * The side navigation of the settings pages of one organization. It marks the
+ * `current` view. For the settings of the account, use `AccountSettingsNav`.
+ */
 export function OrganizationSettingsNav(props: {
   orgSlug: string
   current: string

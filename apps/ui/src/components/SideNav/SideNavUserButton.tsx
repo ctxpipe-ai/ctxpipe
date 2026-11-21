@@ -29,6 +29,10 @@ type SideNavUserButtonProps = {
   expanded: boolean
 }
 
+/**
+ * The user row at the bottom of the SideNav. It opens the account menu with
+ * Settings, Connected apps and Sign out.
+ */
 export function SideNavUserButton({ expanded }: SideNavUserButtonProps) {
   const {
     basePath,

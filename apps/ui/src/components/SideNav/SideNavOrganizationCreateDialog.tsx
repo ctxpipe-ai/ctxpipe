@@ -23,6 +23,10 @@ type SideNavOrganizationCreateDialogProps = {
   onOpenChange: (open: boolean) => void
 }
 
+/**
+ * A dialog in which the user creates one more organization from the SideNav.
+ * The first organization comes from OnboardingCreateOrgSlide.
+ */
 export function SideNavOrganizationCreateDialog({
   isOpen,
   onOpenChange,

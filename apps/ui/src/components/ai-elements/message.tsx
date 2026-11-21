@@ -24,6 +24,10 @@ type MessageProps = HTMLAttributes<HTMLDivElement> & {
   from: ChatMessageRole
 }
 
+/**
+ * One chat message in a Conversation, from the user or from the assistant (the
+ * `from` role).
+ */
 export const Message = ({ className, from, ...props }: MessageProps) => (
   <div
     className={cn(
@@ -37,6 +41,10 @@ export const Message = ({ className, from, ...props }: MessageProps) => (
 
 type MessageContentProps = HTMLAttributes<HTMLDivElement>
 
+/**
+ * The body of a Message. Put plain content in it, or a MessageResponse for an
+ * assistant answer.
+ */
 export const MessageContent = ({
   children,
   className,
@@ -207,6 +215,10 @@ const answerRehypePlugins = (
 ]
 const chatRehypePlugins = answerRehypePlugins()
 
+/**
+ * Shows an assistant answer as Markdown, also while it streams. Use it for
+ * model text, not for text the user typed.
+ */
 export const MessageResponse = memo(
   ({
     className,

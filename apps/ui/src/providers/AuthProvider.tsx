@@ -42,6 +42,11 @@ function AuthLinkFallback({
   return <a href={href} {...props} />
 }
 
+/**
+ * Gives the Better Auth client, the auth UI, and the session queries to the app tree.
+ * Providers mounts it at the root, so each page can sign in, sign out, and read the session.
+ * It also shows one toast when a person opens an expired or invalid verification link.
+ */
 export const AuthProvider: FC<React.PropsWithChildren> = ({ children }) => {
   useAuthEvlogIdentity()
   const router = useRouter({ warn: false })

@@ -122,6 +122,12 @@ function extractKindChips(node: KnowledgeGraphNode): Array<[string, string]> {
   return chips
 }
 
+/**
+ * The drawer that shows the details of the one selected knowledge graph node:
+ * its facts, activity, and neighbors. From it, the person focuses the node,
+ * moves to a neighbor, or opens the source. For a selection of more than one
+ * node, use `SelectionInspectorPanel`.
+ */
 export function NodeDetailDrawer({
   node,
   facts,

@@ -22,6 +22,11 @@ type OnboardingCreateOrgSlideProps = {
   finishing?: boolean
 }
 
+/**
+ * The onboarding step in which a new user creates the first organization. The
+ * name comes from the work email domain and the slug follows the name until the
+ * user edits it.
+ */
 export function OnboardingCreateOrgSlide({
   onFinish,
   userEmail,

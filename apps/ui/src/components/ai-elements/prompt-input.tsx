@@ -312,6 +312,10 @@ type PromptInputProps = Omit<
   ) => void | Promise<void>
 }
 
+/**
+ * The form in which the user writes and sends a chat prompt. Put
+ * PromptInputBody and PromptInputFooter in it.
+ */
 export const PromptInput = ({
   className,
   accept,
@@ -741,6 +745,7 @@ export const PromptInput = ({
 
 type PromptInputBodyProps = HTMLAttributes<HTMLDivElement>
 
+/** The area of a PromptInput that holds the PromptInputTextarea. */
 export const PromptInputBody = ({
   className,
   ...props
@@ -750,6 +755,10 @@ export const PromptInputBody = ({
 
 type PromptInputTextareaProps = ComponentProps<typeof InputGroupTextarea>
 
+/**
+ * The text field of a PromptInput. Enter sends the prompt; Shift+Enter adds a
+ * new line.
+ */
 export const PromptInputTextarea = ({
   onChange,
   onKeyDown,
@@ -870,6 +879,7 @@ type PromptInputFooterProps = Omit<
   "align"
 >
 
+/** The bottom row of a PromptInput, for the tools and the submit button. */
 export const PromptInputFooter = ({
   className,
   ...props
@@ -883,6 +893,7 @@ export const PromptInputFooter = ({
 
 type PromptInputToolsProps = HTMLAttributes<HTMLDivElement>
 
+/** A group of controls on the left of a PromptInputFooter. */
 export const PromptInputTools = ({
   className,
   ...props
@@ -901,6 +912,10 @@ type PromptInputSubmitProps = ComponentProps<typeof InputGroupButton> & {
   onStop?: () => void
 }
 
+/**
+ * Sends the prompt. While the answer streams, the user can click it to stop the
+ * answer.
+ */
 export const PromptInputSubmit = ({
   className,
   variant = "default",

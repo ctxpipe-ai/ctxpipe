@@ -34,6 +34,11 @@ function formatRange(range: { from: number; to: number }): string {
   )}`
 }
 
+/**
+ * The panel for a selection of many knowledge graph nodes. The person filters
+ * the selected nodes, opens one of them, or fits the canvas to the selection.
+ * For one node, use `NodeDetailDrawer`.
+ */
 export function SelectionInspectorPanel({
   kindColors,
   onClose,

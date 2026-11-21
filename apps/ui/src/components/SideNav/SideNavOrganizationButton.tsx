@@ -11,6 +11,10 @@ type SideNavOrganizationButtonProps = {
   onSelectOrg: (orgSlug: string) => void
 }
 
+/**
+ * The organization row in the SideNav. When the user selects an organization,
+ * it becomes active and the user goes to its home page.
+ */
 export function SideNavOrganizationButton({
   expanded,
   routeOrgSlug,

@@ -10,6 +10,11 @@ type OAuthOrganizationOption = {
   slug: string
 }
 
+/**
+ * The OAuth step where a person chooses the one organization that a new
+ * connection uses. The choice stays bound to the connection. Use `OAuthConsent`
+ * for the step that grants scopes.
+ */
 export function OAuthOrganizationSelector({
   organizations,
   error = null,

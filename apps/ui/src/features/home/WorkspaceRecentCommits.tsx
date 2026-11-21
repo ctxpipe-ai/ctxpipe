@@ -17,6 +17,12 @@ import { focusVisibleClassName } from "@/lib/focus-styles"
 import { formatDate } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
+/**
+ * The list of the latest commits on the default branch of the workspaces, with
+ * author and time. It shows what changed recently in the workspace activity
+ * section; set `showWorkspace` when the list holds commits of more than one
+ * workspace.
+ */
 export function WorkspaceRecentCommits(props: {
   commits: readonly WorkspaceActivityCommit[]
   emptyText?: string
@@ -180,6 +186,10 @@ function CommitRow({
   )
 }
 
+/**
+ * The placeholder for `WorkspaceRecentCommits` while the workspace activity
+ * loads.
+ */
 export function WorkspaceRecentCommitsSkeleton() {
   return (
     <div aria-busy>

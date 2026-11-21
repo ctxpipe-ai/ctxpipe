@@ -11,6 +11,11 @@ const NAV_ITEMS = [
   { view: "organizations", label: "Organizations" },
 ] as const
 
+/**
+ * The side navigation of the account settings pages (account, security, API
+ * keys, connected apps, organizations). It marks the `current` view. For the
+ * settings of one organization, use `OrganizationSettingsNav`.
+ */
 export function AccountSettingsNav(props: { current: string }) {
   return (
     <nav

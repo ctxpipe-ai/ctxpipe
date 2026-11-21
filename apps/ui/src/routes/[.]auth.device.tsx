@@ -36,6 +36,10 @@ function devicePathWithSearch(search: { user_code?: string }): string {
   return `/.auth/device?${qs.toString()}`
 }
 
+/**
+ * Shows the device authorization page, where a person enters or confirms the code that a CLI or device shows, and then approves or denies it.
+ * It is exported so that the stories can render it.
+ */
 export function DeviceAuthorizationPage() {
   const search = Route.useSearch()
   const { data: session, isPending: sessionPending } = useSession()

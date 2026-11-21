@@ -11,6 +11,11 @@ import type { GithubRepoItem } from "../githubRepoSelection"
 
 const ROW_SIZE_PX = 40
 
+/**
+ * The scrollable list where a person selects GitHub repositories, for example
+ * to add them to a workspace or a source. Use `selectionMode="single"` when the
+ * flow needs exactly one repository.
+ */
 export function GithubRepoPickerList({
   repos,
   selectedIds,
@@ -124,6 +129,9 @@ export function GithubRepoPickerList({
   )
 }
 
+/**
+ * The placeholder for `GithubRepoPickerList` while the repositories load.
+ */
 export function GithubRepoPickerSkeleton({
   rows = 6,
   className,

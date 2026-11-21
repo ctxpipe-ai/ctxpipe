@@ -5,6 +5,10 @@ import { focusVisibleClassName } from "@/lib/focus-styles"
 
 import { Logo } from "../Logo/Logo"
 
+/**
+ * The logo at the top of the SideNav. The user clicks it to go to the home
+ * page.
+ */
 export function SideNavLogo({ className }: { className?: string }) {
   return (
     <Link

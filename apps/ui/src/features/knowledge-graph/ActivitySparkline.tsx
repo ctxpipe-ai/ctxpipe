@@ -25,6 +25,10 @@ type ActivityRow = {
   start: number
 }
 
+/**
+ * A small weekly bar chart of the claims on one knowledge graph node, in the
+ * node detail drawer. It tells the person when the node changed and how much.
+ */
 export function ActivitySparkline({ buckets }: { buckets: ActivityBuckets }) {
   const rows = useMemo<ActivityRow[]>(() => {
     const bucketCount = buckets.counts.length
