@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useQuery } from "@tanstack/react-query"
 import { delay, HttpResponse, http } from "msw"
 import { type ComponentProps, useState } from "react"
@@ -23,6 +22,7 @@ import {
 import { pendingWorkspaceUpgradesHandler } from "@/mocks/workspace-upgrades-handlers"
 
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
+import preview from "../../../../.storybook/preview"
 import { SlackSetupDialog } from "./SlackSetupDialog"
 
 const orgSlug = "acme"
@@ -51,7 +51,7 @@ function statusHandler(body: unknown) {
   )
 }
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Connections/Slack/SetupDialog",
   component: SlackSetupDialog,
   args: {
@@ -60,13 +60,10 @@ const meta = {
     isOpen: true,
     onOpenChange: () => {},
   },
+  beforeEach: ({ msw }) => {
+    msw.use(...signedInHandlers, pendingWorkspaceUpgradesHandler({}))
+  },
   parameters: {
-    msw: {
-      handlers: {
-        session: signedInHandlers,
-        pendingUpgrades: [pendingWorkspaceUpgradesHandler({})],
-      },
-    },
     app: "root",
     review: { kind: "component" },
     layout: "fullscreen",
@@ -75,82 +72,66 @@ const meta = {
       orgSlug,
     } satisfies StoryRouteParams,
   },
-} satisfies Meta<typeof SlackSetupDialog>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Slack setup dialog, which connects Slack and adds its channels to Workspaces:
  * the status request is still loading.
  */
-export const Loading: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname.includes(
-                "/api/v1/connectors/slack/status",
-              ),
-            async () => {
-              await delay("infinite")
-              return HttpResponse.json({})
-            },
+export const Loading = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(
+        ({ request }) =>
+          new URL(request.url).pathname.includes(
+            "/api/v1/connectors/slack/status",
           ),
-        ],
-      },
-    },
+        async () => {
+          await delay("infinite")
+          return HttpResponse.json({})
+        },
+      ),
+    )
   },
-}
+})
 
 /**
  * Slack setup dialog, which connects Slack and adds its channels to Workspaces:
  * the first step, where the admin authorizes Slack.
  */
-export const AuthorizeSlack: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          statusHandler({
-            ...installedStatus,
-            isInstalled: false,
-            installationStatus: null,
-            teamName: null,
-            isGithubLinked: false,
-            setupPhase: "draft",
-            syncTarget: null,
-          }),
-        ],
-      },
-    },
+export const AuthorizeSlack = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      statusHandler({
+        ...installedStatus,
+        isInstalled: false,
+        installationStatus: null,
+        teamName: null,
+        isGithubLinked: false,
+        setupPhase: "draft",
+        syncTarget: null,
+      }),
+    )
   },
-}
+})
 
 /**
  * Slack setup dialog, which connects Slack and adds its channels to Workspaces:
  * Slack is authorized and the admin must connect GitHub next.
  */
-export const ConnectGitHub: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          statusHandler({
-            ...installedStatus,
-            isGithubLinked: false,
-            setupPhase: "draft",
-            syncTarget: null,
-          }),
-          ...githubAppMissingHandlers,
-        ],
-      },
-    },
+export const ConnectGitHub = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      statusHandler({
+        ...installedStatus,
+        isGithubLinked: false,
+        setupPhase: "draft",
+        syncTarget: null,
+      }),
+      ...githubAppMissingHandlers,
+    )
   },
-}
+})
 
 const addCalls: { method: string; path: string; body: unknown }[] = []
 const onOpenChange = fn()
@@ -160,26 +141,21 @@ const onOpenChange = fn()
  * channel to a Workspace, and the dialog moves to the merge step. Each
  * Workspace has its own channels, and no capture repository is necessary.
  */
-export const ChooseWorkspaces: Story = {
+export const ChooseWorkspaces = meta.story({
   args: { onOpenChange },
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          statusHandler({
-            ...installedStatus,
-            setupPhase: "draft",
-            syncTarget: null,
-          }),
-          workspaceListHandler([docsWorkspace]),
-          connectionUsageHandler([]),
-          slackChannelsHandler(),
-          ...workspaceSourceAddHandlers(addCalls),
-        ],
-      },
-    },
-  },
-  beforeEach: () => {
+  beforeEach: ({ msw }) => {
+    msw.use(
+      statusHandler({
+        ...installedStatus,
+        setupPhase: "draft",
+        syncTarget: null,
+      }),
+      workspaceListHandler([docsWorkspace]),
+      connectionUsageHandler([]),
+      slackChannelsHandler(),
+      ...workspaceSourceAddHandlers(addCalls),
+    )
+
     addCalls.length = 0
     onOpenChange.mockClear()
   },
@@ -223,25 +199,21 @@ export const ChooseWorkspaces: Story = {
     ).toHaveAttribute("href", "https://github.com/acme/docs/pull/7")
     await expect(onOpenChange).not.toHaveBeenCalled()
   },
-}
+})
 
 /**
  * Slack setup dialog at its last step, Add to Workspaces: a box explains how an
  * @mention of the bot saves a thread, and no Workspace is selected yet. The
  * step has no repository picker (ADR-050).
  */
-export const CaptureWorkspace: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          statusHandler(installedStatus),
-          workspaceListHandler([docsWorkspace]),
-          connectionUsageHandler([]),
-          slackChannelsHandler(),
-        ],
-      },
-    },
+export const CaptureWorkspace = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      statusHandler(installedStatus),
+      workspaceListHandler([docsWorkspace]),
+      connectionUsageHandler([]),
+      slackChannelsHandler(),
+    )
   },
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body)
@@ -260,7 +232,7 @@ export const CaptureWorkspace: Story = {
       body.getByRole("button", { name: "Add to Workspaces" }),
     ).toBeVisible()
   },
-}
+})
 
 /** The Docs Workspace already captures #eng through a Slack source. */
 const manageHandlers = (calls: typeof addCalls) => [
@@ -303,14 +275,15 @@ const manageCalls: typeof addCalls = []
  * and channel checked. The admin saves one more channel, and the dialog moves
  * to the merge step.
  */
-export const ManageKeepsTheCurrentScope: Story = {
+export const ManageKeepsTheCurrentScope = meta.story({
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as ChooseWorkspaces.",
     },
-    msw: { handlers: { page: manageHandlers(manageCalls) } },
   },
-  beforeEach: () => {
+  beforeEach: ({ msw }) => {
+    msw.use(...manageHandlers(manageCalls))
+
     manageCalls.length = 0
   },
   play: async ({ canvasElement }) => {
@@ -346,20 +319,21 @@ export const ManageKeepsTheCurrentScope: Story = {
       ).toBeVisible(),
     )
   },
-}
+})
 
 /**
  * Slack setup dialog opened from Manage: the admin unchecks a Workspace and
  * saves, which removes the Slack source of that Workspace.
  */
-export const ManageRemovesAnUncheckedWorkspace: Story = {
+export const ManageRemovesAnUncheckedWorkspace = meta.story({
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as ChooseWorkspaces.",
     },
-    msw: { handlers: { page: manageHandlers(manageCalls) } },
   },
-  beforeEach: () => {
+  beforeEach: ({ msw }) => {
+    msw.use(...manageHandlers(manageCalls))
+
     manageCalls.length = 0
   },
   play: async ({ canvasElement }) => {
@@ -375,29 +349,25 @@ export const ManageRemovesAnUncheckedWorkspace: Story = {
       query: { path: "sources/slack/slack.md" },
     })
   },
-}
+})
 
 /**
  * Slack setup dialog, which connects Slack and adds its channels to Workspaces:
  * the status request failed with a server error.
  */
-export const StatusError: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname.includes(
-                "/api/v1/connectors/slack/status",
-              ),
-            () => HttpResponse.json({ error: "Unavailable" }, { status: 503 }),
+export const StatusError = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(
+        ({ request }) =>
+          new URL(request.url).pathname.includes(
+            "/api/v1/connectors/slack/status",
           ),
-        ],
-      },
-    },
+        () => HttpResponse.json({ error: "Unavailable" }, { status: 503 }),
+      ),
+    )
   },
-}
+})
 
 /** The Slack channels of the Docs source on the server. */
 let docsChannels = ["C0ENG0001"]
@@ -423,52 +393,47 @@ function ManageButton(props: ComponentProps<typeof SlackSetupDialog>) {
  * channels while the dialog was closed. The dialog starts from the new
  * channels, not from the channels of the first open.
  */
-export const ManageAgainShowsTheNewScope: Story = {
+export const ManageAgainShowsTheNewScope = meta.story({
   // The close fade and the open fade of the dialog overlap on a slow runner,
   // and the step then keeps the scope of the first open. Reduced motion
   // removes the fades, so the dialog unmounts at once.
   tags: ["reduced-motion"],
   render: (args) => <ManageButton {...args} />,
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          statusHandler(installedStatus),
-          workspaceListHandler([docsWorkspace]),
-          connectionUsageHandler([
-            connectionUsageItem({
-              workspaceSlug: docsWorkspace.slug,
-              workspaceName: docsWorkspace.displayName,
-              sources: [
-                {
-                  path: "sources/slack/slack.md",
-                  provider: "slack",
-                  status: "ok",
-                  scopeSummary: "1 Slack channel",
-                },
-              ],
-            }),
-          ]),
-          http.get(`/${orgSlug}/api/v1/workspaces/docs/sources`, () =>
-            HttpResponse.json(
-              workspaceSourceList({
-                items: [
-                  workspaceSourceFixture({
-                    path: "sources/slack/slack.md",
-                    provider: "slack",
-                    connectionId,
-                    scope: { channels: docsChannels },
-                  }),
-                ],
+  beforeEach: ({ msw }) => {
+    msw.use(
+      statusHandler(installedStatus),
+      workspaceListHandler([docsWorkspace]),
+      connectionUsageHandler([
+        connectionUsageItem({
+          workspaceSlug: docsWorkspace.slug,
+          workspaceName: docsWorkspace.displayName,
+          sources: [
+            {
+              path: "sources/slack/slack.md",
+              provider: "slack",
+              status: "ok",
+              scopeSummary: "1 Slack channel",
+            },
+          ],
+        }),
+      ]),
+      http.get(`/${orgSlug}/api/v1/workspaces/docs/sources`, () =>
+        HttpResponse.json(
+          workspaceSourceList({
+            items: [
+              workspaceSourceFixture({
+                path: "sources/slack/slack.md",
+                provider: "slack",
+                connectionId,
+                scope: { channels: docsChannels },
               }),
-            ),
-          ),
-          slackChannelsHandler(),
-        ],
-      },
-    },
-  },
-  beforeEach: () => {
+            ],
+          }),
+        ),
+      ),
+      slackChannelsHandler(),
+    )
+
     docsChannels = ["C0ENG0001"]
   },
   play: async ({ canvasElement }) => {
@@ -498,4 +463,4 @@ export const ManageAgainShowsTheNewScope: Story = {
       ).not.toBeChecked(),
     )
   },
-}
+})

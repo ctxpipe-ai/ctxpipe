@@ -1,19 +1,15 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useState } from "react"
 
 import { generateGithubWebhookSecret } from "@/lib/github-webhook-secret"
 
+import preview from "../../../../../../.storybook/preview"
 import { GithubSelfHostedCredentialsStep } from "./GithubSelfHostedCredentialsStep"
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Connections/GitHub/SelfHostedCredentials",
   component: GithubSelfHostedCredentialsStep,
   parameters: { layout: "padded", review: { kind: "component" } },
-} satisfies Meta<typeof GithubSelfHostedCredentialsStep>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 function Interactive() {
   const [githubAppId, setGithubAppId] = useState("")
@@ -43,6 +39,6 @@ function Interactive() {
  * Credentials step of the self-hosted GitHub App setup, where the admin enters
  * the app id, slug and private key: the form is empty except for the app slug.
  */
-export const SelfHostedCredentials: Story = {
+export const SelfHostedCredentials = meta.story({
   render: () => <Interactive />,
-}
+})

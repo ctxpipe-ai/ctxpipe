@@ -1,29 +1,24 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
-
+import preview from "../../../../.storybook/preview"
 import {
   MANAGED_CONFLUENCE_WIZARD_STEPS,
   SELF_HOSTED_CONFLUENCE_WIZARD_STEPS,
 } from "../confluence-setup-model"
 import { ConnectorSetupStepper } from "./ConnectorSetupStepper"
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Connections/SetupStepper",
   component: ConnectorSetupStepper,
   parameters: {
     layout: "centered",
     review: { kind: "component" },
   },
-} satisfies Meta<typeof ConnectorSetupStepper>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Step list at the top of the Confluence setup wizard: the first two steps are
  * done, and the user works on the third step, Add to Workspaces.
  */
-export const MidFlow: Story = {
+export const MidFlow = meta.story({
   render: () => (
     <ConnectorSetupStepper
       className="max-w-sm"
@@ -32,13 +27,13 @@ export const MidFlow: Story = {
       onStepSelect={() => {}}
     />
   ),
-}
+})
 
 /**
  * Step list of the Confluence connector setup, which shows progress through the
  * setup: all steps are complete.
  */
-export const AllComplete: Story = {
+export const AllComplete = meta.story({
   render: () => (
     <ConnectorSetupStepper
       className="max-w-sm"
@@ -46,13 +41,13 @@ export const AllComplete: Story = {
       currentIndex={MANAGED_CONFLUENCE_WIZARD_STEPS.length}
     />
   ),
-}
+})
 
 /**
  * Step list of the Confluence connector setup, which shows progress through the
  * setup: the user is on step four and revisits step two.
  */
-export const RevisitWithFocus: Story = {
+export const RevisitWithFocus = meta.story({
   render: () => (
     <ConnectorSetupStepper
       className="max-w-sm"
@@ -62,14 +57,14 @@ export const RevisitWithFocus: Story = {
       onStepSelect={() => {}}
     />
   ),
-}
+})
 
 /**
  * Step list of the Confluence connector setup for a self-hosted deployment,
  * which has an extra Register OAuth step: the user is on that first step,
  * register the OAuth app.
  */
-export const SelfHostedCurrentRegister: Story = {
+export const SelfHostedCurrentRegister = meta.story({
   name: "Self-hosted / register OAuth",
   render: () => (
     <ConnectorSetupStepper
@@ -79,4 +74,4 @@ export const SelfHostedCurrentRegister: Story = {
       onStepSelect={() => {}}
     />
   ),
-}
+})

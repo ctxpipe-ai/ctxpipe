@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import type { ReactNode } from "react"
 import { expect, waitFor, within } from "storybook/test"
@@ -11,6 +10,7 @@ import {
 import { pendingWorkspaceUpgradesHandler } from "@/mocks/workspace-upgrades-handlers"
 
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
+import preview from "../../../../.storybook/preview"
 import { SlackConnectionCard } from "./SlackConnectionCard"
 
 const orgSlug = "acme"
@@ -30,38 +30,32 @@ const statusLive = {
   },
 }
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Connections/Slack/ConnectionCard",
   component: SlackConnectionCard,
   args: { orgSlug, connectionId },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...signedInHandlers,
+      pendingWorkspaceUpgradesHandler({}),
+      connectionUsageHandler([
+        connectionUsageItem({
+          workspaceSlug: "docs",
+          workspaceName: "Docs",
+        }),
+      ]),
+    )
+  },
   parameters: {
     app: "root",
     review: { kind: "component" },
-    msw: {
-      handlers: {
-        session: signedInHandlers,
-        pendingUpgrades: [pendingWorkspaceUpgradesHandler({})],
-        usage: [
-          connectionUsageHandler([
-            connectionUsageItem({
-              workspaceSlug: "docs",
-              workspaceName: "Docs",
-            }),
-          ]),
-        ],
-      },
-    },
     layout: "fullscreen",
     storyRoute: {
       pattern: "orgIndex",
       orgSlug,
     } satisfies StoryRouteParams,
   },
-} satisfies Meta<typeof SlackConnectionCard>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 const shell = (story: ReactNode) => <div className="max-w-xl p-6">{story}</div>
 
@@ -80,39 +74,37 @@ function statusHandler(body: unknown) {
  * Slack connection card on the Connectors page: the Slack workspace is
  * connected and captures to a context repository.
  */
-export const Connected: Story = {
+export const Connected = meta.story({
   render: () =>
     shell(
       <SlackConnectionCard orgSlug={orgSlug} connectionId={connectionId} />,
     ),
-  parameters: {
-    msw: { handlers: { page: [statusHandler(statusLive)] } },
+  beforeEach: ({ msw }) => {
+    msw.use(statusHandler(statusLive))
   },
-}
+})
 
 /**
  * Slack connection card on the Connectors page: Slack is installed without an
  * @mention capture repository. The card shows no setup warning, and the
  * connection is ready for Workspace sources.
  */
-export const ConnectedWithoutCaptureRepository: Story = {
+export const ConnectedWithoutCaptureRepository = meta.story({
   render: () =>
     shell(
       <SlackConnectionCard orgSlug={orgSlug} connectionId={connectionId} />,
     ),
+  beforeEach: ({ msw }) => {
+    msw.use(
+      statusHandler({
+        ...statusLive,
+        setupPhase: "draft",
+        syncTarget: null,
+      }),
+    )
+  },
   parameters: {
     visual: { skip: "Behavior test: it ends in the same state as Connected." },
-    msw: {
-      handlers: {
-        page: [
-          statusHandler({
-            ...statusLive,
-            setupPhase: "draft",
-            syncTarget: null,
-          }),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -124,29 +116,25 @@ export const ConnectedWithoutCaptureRepository: Story = {
     expect(canvas.queryByText("Setup not finished")).toBeNull()
     expect(canvas.queryByText(/in a thread to capture it/)).toBeNull()
   },
-}
+})
 
 /**
  * Slack connection card on the Connectors page: Slack revoked the access, so
  * the card shows Needs reconnect.
  */
-export const Revoked: Story = {
+export const Revoked = meta.story({
   render: () =>
     shell(
       <SlackConnectionCard orgSlug={orgSlug} connectionId={connectionId} />,
     ),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          statusHandler({
-            ...statusLive,
-            isInstalled: false,
-            installationStatus: "revoked",
-          }),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      statusHandler({
+        ...statusLive,
+        isInstalled: false,
+        installationStatus: "revoked",
+      }),
+    )
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -156,60 +144,52 @@ export const Revoked: Story = {
       canvas.getByRole("button", { name: "Slack connector actions" }),
     ).toBeVisible()
   },
-}
+})
 
 /**
  * Slack card on the Connectors page: the status read failed with a server
  * error, so a row under the head gives the cause and a Retry button without a
  * click.
  */
-export const StatusError: Story = {
+export const StatusError = meta.story({
   render: () =>
     shell(
       <SlackConnectionCard orgSlug={orgSlug} connectionId={connectionId} />,
     ),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname.includes(
-                "/api/v1/connectors/slack/status",
-              ),
-            () => HttpResponse.json({ error: "Unavailable" }, { status: 503 }),
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(
+        ({ request }) =>
+          new URL(request.url).pathname.includes(
+            "/api/v1/connectors/slack/status",
           ),
-        ],
-      },
-    },
+        () => HttpResponse.json({ error: "Unavailable" }, { status: 503 }),
+      ),
+    )
   },
-}
+})
 
 /**
  * Slack connection card on the Connectors page: the status request is still
  * loading.
  */
-export const Loading: Story = {
+export const Loading = meta.story({
   render: () =>
     shell(
       <SlackConnectionCard orgSlug={orgSlug} connectionId={connectionId} />,
     ),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname.includes(
-                "/api/v1/connectors/slack/status",
-              ),
-            async () => {
-              await delay("infinite")
-              return HttpResponse.json(statusLive)
-            },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(
+        ({ request }) =>
+          new URL(request.url).pathname.includes(
+            "/api/v1/connectors/slack/status",
           ),
-        ],
-      },
-    },
+        async () => {
+          await delay("infinite")
+          return HttpResponse.json(statusLive)
+        },
+      ),
+    )
   },
-}
+})

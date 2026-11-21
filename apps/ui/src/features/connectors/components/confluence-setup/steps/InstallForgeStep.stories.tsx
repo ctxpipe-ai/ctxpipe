@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
@@ -6,6 +5,7 @@ import { atlassianCapabilitiesHandler } from "@/mocks/atlassian-handlers"
 import { signedInHandlers } from "@/mocks/handlers"
 
 import type { StoryRouteParams } from "../../../../../../.storybook/decorators/with-story-route"
+import preview from "../../../../../../.storybook/preview"
 import { InstallForgeStep } from "./InstallForgeStep"
 
 const orgSlug = "acme"
@@ -50,7 +50,7 @@ function provisionStatusHandler(payload: Record<string, unknown>) {
   )
 }
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Connections/Atlassian/Steps/InstallForge",
   component: InstallForgeStep,
   decorators: [
@@ -60,8 +60,10 @@ const meta = {
       </div>
     ),
   ],
+  beforeEach: ({ msw }) => {
+    msw.use(...signedInHandlers)
+  },
   parameters: {
-    msw: { handlers: { session: signedInHandlers } },
     app: "root",
     layout: "centered",
     storyRoute: {
@@ -70,17 +72,13 @@ const meta = {
     } satisfies StoryRouteParams,
     review: { kind: "component" },
   },
-} satisfies Meta<typeof InstallForgeStep>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Step of the Confluence setup that installs the Forge app: the install options
  * are still loading.
  */
-export const CapabilitiesLoading: Story = {
+export const CapabilitiesLoading = meta.story({
   name: "Capabilities loading (no flash)",
   render: () => (
     <InstallForgeStep
@@ -89,34 +87,30 @@ export const CapabilitiesLoading: Story = {
       onOpenedInstall={() => {}}
     />
   ),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          atlassianCapabilitiesHandler("loading", atlassianConnectionId),
-          statusHandler(),
-          http.post(
-            ({ request }) =>
-              new URL(request.url).pathname.endsWith(
-                "/api/v1/connectors/atlassian/provision",
-              ),
-            async () =>
-              HttpResponse.json(
-                { accepted: true as const, workflowName: "forge-provision" },
-                { status: 202 },
-              ),
+  beforeEach: ({ msw }) => {
+    msw.use(
+      atlassianCapabilitiesHandler("loading", atlassianConnectionId),
+      statusHandler(),
+      http.post(
+        ({ request }) =>
+          new URL(request.url).pathname.endsWith(
+            "/api/v1/connectors/atlassian/provision",
           ),
-        ],
-      },
-    },
+        async () =>
+          HttpResponse.json(
+            { accepted: true as const, workflowName: "forge-provision" },
+            { status: 202 },
+          ),
+      ),
+    )
   },
-}
+})
 
 /**
  * Step of the Confluence setup that installs the Forge app: the self-hosted
  * provision of the app failed with an error message.
  */
-export const ProvisionFailed: Story = {
+export const ProvisionFailed = meta.story({
   name: "Self-hosted provision failed",
   render: () => (
     <InstallForgeStep
@@ -125,41 +119,37 @@ export const ProvisionFailed: Story = {
       onOpenedInstall={() => {}}
     />
   ),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          atlassianCapabilitiesHandler(null, atlassianConnectionId),
-          provisionStatusHandler({
-            connectionId: atlassianConnectionId,
-            provisionStatus: "failed",
-            provisionErrorCode: "forge_developer_space_ensure_failed",
-            userMessage:
-              "Could not ensure the Developer Space — check token and email",
-          }),
-          http.post(
-            ({ request }) =>
-              new URL(request.url).pathname.endsWith(
-                "/api/v1/connectors/atlassian/provision",
-              ),
-            async () =>
-              HttpResponse.json(
-                { accepted: true as const, workflowName: "forge-provision" },
-                { status: 202 },
-              ),
+  beforeEach: ({ msw }) => {
+    msw.use(
+      atlassianCapabilitiesHandler(null, atlassianConnectionId),
+      provisionStatusHandler({
+        connectionId: atlassianConnectionId,
+        provisionStatus: "failed",
+        provisionErrorCode: "forge_developer_space_ensure_failed",
+        userMessage:
+          "Could not ensure the Developer Space — check token and email",
+      }),
+      http.post(
+        ({ request }) =>
+          new URL(request.url).pathname.endsWith(
+            "/api/v1/connectors/atlassian/provision",
           ),
-          statusHandler(),
-        ],
-      },
-    },
+        async () =>
+          HttpResponse.json(
+            { accepted: true as const, workflowName: "forge-provision" },
+            { status: 202 },
+          ),
+      ),
+      statusHandler(),
+    )
   },
-}
+})
 
 /**
  * Step of the Confluence setup that installs the Forge app: the hosted
  * Marketplace install, where the install request fails when the user starts it.
  */
-export const HostedInstallIntentError: Story = {
+export const HostedInstallIntentError = meta.story({
   name: "Hosted marketplace — install intent POST error",
   render: () => (
     <InstallForgeStep
@@ -168,32 +158,28 @@ export const HostedInstallIntentError: Story = {
       onOpenedInstall={() => {}}
     />
   ),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          atlassianCapabilitiesHandler(
-            "https://example.com/marketplace/forge",
-            atlassianConnectionId,
+  beforeEach: ({ msw }) => {
+    msw.use(
+      atlassianCapabilitiesHandler(
+        "https://example.com/marketplace/forge",
+        atlassianConnectionId,
+      ),
+      http.post(
+        ({ request }) =>
+          new URL(request.url).pathname.endsWith(
+            "/api/v1/connectors/atlassian/installation",
           ),
-          http.post(
-            ({ request }) =>
-              new URL(request.url).pathname.endsWith(
-                "/api/v1/connectors/atlassian/installation",
-              ),
-            () =>
-              HttpResponse.json(
-                {
-                  error: "intent_failed",
-                  message: "Server could not record install intent",
-                },
-                { status: 500 },
-              ),
+        () =>
+          HttpResponse.json(
+            {
+              error: "intent_failed",
+              message: "Server could not record install intent",
+            },
+            { status: 500 },
           ),
-          statusHandler(),
-        ],
-      },
-    },
+      ),
+      statusHandler(),
+    )
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -202,13 +188,13 @@ export const HostedInstallIntentError: Story = {
     )
     await canvas.findByText("Could not start install")
   },
-}
+})
 
 /**
  * Step of the Confluence setup that installs the Forge app: the hosted
  * Marketplace install link is ready for the user.
  */
-export const InstallForge: Story = {
+export const InstallForge = meta.story({
   name: "Marketplace hosted URL",
   render: () => (
     <InstallForgeStep
@@ -217,34 +203,30 @@ export const InstallForge: Story = {
       onOpenedInstall={() => {}}
     />
   ),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          atlassianCapabilitiesHandler(
-            "https://example.com/marketplace/forge",
-            atlassianConnectionId,
+  beforeEach: ({ msw }) => {
+    msw.use(
+      atlassianCapabilitiesHandler(
+        "https://example.com/marketplace/forge",
+        atlassianConnectionId,
+      ),
+      http.post(
+        ({ request }) =>
+          new URL(request.url).pathname.endsWith(
+            "/api/v1/connectors/atlassian/installation",
           ),
-          http.post(
-            ({ request }) =>
-              new URL(request.url).pathname.endsWith(
-                "/api/v1/connectors/atlassian/installation",
-              ),
-            () => HttpResponse.json({ id: atlassianConnectionId }),
-          ),
-          statusHandler(),
-        ],
-      },
-    },
+        () => HttpResponse.json({ id: atlassianConnectionId }),
+      ),
+      statusHandler(),
+    )
   },
-}
+})
 
 /**
  * Install step of the Confluence setup wizard on a self-hosted deployment,
  * without the wizard frame: the admin fills in the site, email and token to
  * provision the Forge app.
  */
-export const ProvisionSelfHosted: Story = {
+export const ProvisionSelfHosted = meta.story({
   name: "Self-hosted provision form",
   render: () => (
     <InstallForgeStep
@@ -253,41 +235,37 @@ export const ProvisionSelfHosted: Story = {
       onOpenedInstall={() => {}}
     />
   ),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          atlassianCapabilitiesHandler(null, atlassianConnectionId),
-          provisionStatusHandler({
-            connectionId: atlassianConnectionId,
-            provisionStatus: "idle",
-            provisionErrorCode: null,
-            userMessage: null,
-          }),
-          http.post(
-            ({ request }) =>
-              new URL(request.url).pathname.endsWith(
-                "/api/v1/connectors/atlassian/provision",
-              ),
-            async () =>
-              HttpResponse.json(
-                { accepted: true as const, workflowName: "forge-provision" },
-                { status: 202 },
-              ),
+  beforeEach: ({ msw }) => {
+    msw.use(
+      atlassianCapabilitiesHandler(null, atlassianConnectionId),
+      provisionStatusHandler({
+        connectionId: atlassianConnectionId,
+        provisionStatus: "idle",
+        provisionErrorCode: null,
+        userMessage: null,
+      }),
+      http.post(
+        ({ request }) =>
+          new URL(request.url).pathname.endsWith(
+            "/api/v1/connectors/atlassian/provision",
           ),
-          statusHandler(),
-        ],
-      },
-    },
+        async () =>
+          HttpResponse.json(
+            { accepted: true as const, workflowName: "forge-provision" },
+            { status: 202 },
+          ),
+      ),
+      statusHandler(),
+    )
   },
-}
+})
 
 /**
  * Install step of the Confluence setup wizard on a self-hosted deployment,
  * without the wizard frame: after Start provisioning, the teal loader waits for
  * the Forge app deploy.
  */
-export const ProvisionRunning: Story = {
+export const ProvisionRunning = meta.story({
   name: "Provisioning Forge app (busy)",
   render: () => (
     <InstallForgeStep
@@ -296,30 +274,26 @@ export const ProvisionRunning: Story = {
       onOpenedInstall={() => {}}
     />
   ),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          atlassianCapabilitiesHandler(null, atlassianConnectionId),
-          provisionStatusHandler({
-            connectionId: atlassianConnectionId,
-            provisionStatus: "running",
-            provisionErrorCode: null,
-            userMessage: null,
-          }),
-          statusHandler(),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      atlassianCapabilitiesHandler(null, atlassianConnectionId),
+      provisionStatusHandler({
+        connectionId: atlassianConnectionId,
+        provisionStatus: "running",
+        provisionErrorCode: null,
+        userMessage: null,
+      }),
+      statusHandler(),
+    )
   },
-}
+})
 
 /**
  * Step of the Confluence setup that installs the Forge app: the hosted
  * Marketplace install, where the install request never returns after the user
  * starts it.
  */
-export const MarketplaceInstallPending: Story = {
+export const MarketplaceInstallPending = meta.story({
   render: () => (
     <InstallForgeStep
       orgSlug={orgSlug}
@@ -327,25 +301,21 @@ export const MarketplaceInstallPending: Story = {
       onOpenedInstall={() => {}}
     />
   ),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          atlassianCapabilitiesHandler(
-            "https://example.com/marketplace/forge",
-            atlassianConnectionId,
+  beforeEach: ({ msw }) => {
+    msw.use(
+      atlassianCapabilitiesHandler(
+        "https://example.com/marketplace/forge",
+        atlassianConnectionId,
+      ),
+      http.post(
+        ({ request }) =>
+          new URL(request.url).pathname.endsWith(
+            "/api/v1/connectors/atlassian/installation",
           ),
-          http.post(
-            ({ request }) =>
-              new URL(request.url).pathname.endsWith(
-                "/api/v1/connectors/atlassian/installation",
-              ),
-            () => new Promise(() => {}),
-          ),
-          statusHandler(),
-        ],
-      },
-    },
+        () => new Promise(() => {}),
+      ),
+      statusHandler(),
+    )
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -358,4 +328,4 @@ export const MarketplaceInstallPending: Story = {
       ).toBeDisabled(),
     )
   },
-}
+})

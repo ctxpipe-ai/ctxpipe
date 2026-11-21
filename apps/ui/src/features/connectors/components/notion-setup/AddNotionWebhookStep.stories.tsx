@@ -1,15 +1,14 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
-
 import { signedInHandlers } from "@/mocks/handlers"
 
 import type { StoryRouteParams } from "../../../../../.storybook/decorators/with-story-route"
+import preview from "../../../../../.storybook/preview"
 import { notionOauthAppHandler } from "../../mocks/notion-oauth-app-msw"
 import { AddNotionWebhookStep } from "./AddNotionWebhookStep"
 
 const orgSlug = "acme"
 const connectionId = "con_story_notion"
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Connections/Notion/Steps/AddWebhook",
   component: AddNotionWebhookStep,
   args: {
@@ -24,8 +23,10 @@ const meta = {
       </div>
     ),
   ],
+  beforeEach: ({ msw }) => {
+    msw.use(...signedInHandlers)
+  },
   parameters: {
-    msw: { handlers: { session: signedInHandlers } },
     app: "root",
     layout: "centered",
     review: { kind: "component" },
@@ -34,11 +35,7 @@ const meta = {
       orgSlug,
     } satisfies StoryRouteParams,
   },
-} satisfies Meta<typeof AddNotionWebhookStep>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 const step = () => (
   <AddNotionWebhookStep
@@ -52,48 +49,40 @@ const step = () => (
  * Notion setup step where the admin adds the webhook in Notion: ctxpipe still
  * waits for the Notion verification token.
  */
-export const WaitingForToken: Story = {
+export const WaitingForToken = meta.story({
   name: "Waiting for verification token",
   render: step,
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          notionOauthAppHandler({
-            orgSlug,
-            connectionId,
-            oauthAppSaved: true,
-            globalNotionOAuthConfigured: false,
-            webhookConfigured: false,
-            webhookVerificationToken: null,
-          }),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      notionOauthAppHandler({
+        orgSlug,
+        connectionId,
+        oauthAppSaved: true,
+        globalNotionOAuthConfigured: false,
+        webhookConfigured: false,
+        webhookVerificationToken: null,
+      }),
+    )
   },
-}
+})
 
 /**
  * Notion setup step where the admin adds the webhook in Notion: the
  * verification token arrived and shows for the admin to copy.
  */
-export const TokenReceived: Story = {
+export const TokenReceived = meta.story({
   name: "Verification token received",
   render: step,
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          notionOauthAppHandler({
-            orgSlug,
-            connectionId,
-            oauthAppSaved: true,
-            globalNotionOAuthConfigured: false,
-            webhookConfigured: true,
-            webhookVerificationToken: "secret_story-verify-token",
-          }),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      notionOauthAppHandler({
+        orgSlug,
+        connectionId,
+        oauthAppSaved: true,
+        globalNotionOAuthConfigured: false,
+        webhookConfigured: true,
+        webhookVerificationToken: "secret_story-verify-token",
+      }),
+    )
   },
-}
+})

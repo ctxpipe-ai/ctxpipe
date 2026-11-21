@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
@@ -12,6 +11,7 @@ import {
 import { pendingWorkspaceUpgradesHandler } from "@/mocks/workspace-upgrades-handlers"
 
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
+import preview from "../../../../.storybook/preview"
 import { docsWorkspace } from "../../workspaces/workspace-fixtures"
 import { notionOauthAppHandler } from "../mocks/notion-oauth-app-msw"
 import { NotionSetupDialog } from "./NotionSetupDialog"
@@ -19,7 +19,7 @@ import { NotionSetupDialog } from "./NotionSetupDialog"
 const orgSlug = "acme"
 const connectionId = "con_story_notion"
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Connections/NotionSetupDialog",
   component: NotionSetupDialog,
   args: {
@@ -27,13 +27,10 @@ const meta = {
     isOpen: true,
     onOpenChange: () => {},
   },
+  beforeEach: ({ msw }) => {
+    msw.use(...signedInHandlers, pendingWorkspaceUpgradesHandler({}))
+  },
   parameters: {
-    msw: {
-      handlers: {
-        session: signedInHandlers,
-        pendingUpgrades: [pendingWorkspaceUpgradesHandler({})],
-      },
-    },
     app: "root",
     review: { kind: "component" },
     layout: "fullscreen",
@@ -42,11 +39,7 @@ const meta = {
       orgSlug,
     } satisfies StoryRouteParams,
   },
-} satisfies Meta<typeof NotionSetupDialog>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 const draftStatus = {
   isInstalled: false,
@@ -86,68 +79,68 @@ function dialog() {
  * Notion setup dialog on a self-hosted install: the admin saves a private OAuth
  * app, and the dialog moves on to wait for the webhook token.
  */
-export const RegisterNotionOauth: Story = {
+export const RegisterNotionOauth = meta.story({
   name: "Register Notion OAuth app (self-hosted)",
   render: () => dialog(),
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...[
+        notionStatus(draftStatus),
+        (() => {
+          let saved = false
+          let clientId: string | null = null
+          return [
+            http.get(
+              ({ request }) => {
+                const u = new URL(request.url)
+                return (
+                  u.pathname ===
+                    `/${orgSlug}/api/v1/connectors/notion/oauth-app` &&
+                  u.searchParams.get("connectionId") === connectionId
+                )
+              },
+              ({ request }) => {
+                const origin = new URL(request.url).origin
+                return HttpResponse.json({
+                  oauthConfigured: saved,
+                  oauthAppSaved: saved,
+                  oauthClientId: clientId,
+                  webhookConfigured: false,
+                  webhookVerificationToken: null,
+                  globalNotionOAuthConfigured: false,
+                  callbackUrl: `${origin}/api/v1/connectors/notion/oauth/callback`,
+                  webhookUrl: saved
+                    ? `${origin}/api/v1/webhook/notion?connectionId=${connectionId}&provisioningToken=story`
+                    : `${origin}/api/v1/webhook/notion`,
+                })
+              },
+            ),
+            http.put(
+              ({ request }) => {
+                const u = new URL(request.url)
+                return (
+                  u.pathname ===
+                    `/${orgSlug}/api/v1/connectors/notion/oauth-app` &&
+                  u.searchParams.get("connectionId") === connectionId
+                )
+              },
+              async ({ request }) => {
+                const body = (await request.json()) as {
+                  clientId?: string
+                }
+                saved = true
+                clientId = body.clientId ?? "notion-client-id"
+                return new HttpResponse(null, { status: 204 })
+              },
+            ),
+          ]
+        })(),
+      ].flat(),
+    )
+  },
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as AddNotionWebhookWaiting.",
-    },
-    msw: {
-      handlers: {
-        page: [
-          notionStatus(draftStatus),
-          (() => {
-            let saved = false
-            let clientId: string | null = null
-            return [
-              http.get(
-                ({ request }) => {
-                  const u = new URL(request.url)
-                  return (
-                    u.pathname ===
-                      `/${orgSlug}/api/v1/connectors/notion/oauth-app` &&
-                    u.searchParams.get("connectionId") === connectionId
-                  )
-                },
-                ({ request }) => {
-                  const origin = new URL(request.url).origin
-                  return HttpResponse.json({
-                    oauthConfigured: saved,
-                    oauthAppSaved: saved,
-                    oauthClientId: clientId,
-                    webhookConfigured: false,
-                    webhookVerificationToken: null,
-                    globalNotionOAuthConfigured: false,
-                    callbackUrl: `${origin}/api/v1/connectors/notion/oauth/callback`,
-                    webhookUrl: saved
-                      ? `${origin}/api/v1/webhook/notion?connectionId=${connectionId}&provisioningToken=story`
-                      : `${origin}/api/v1/webhook/notion`,
-                  })
-                },
-              ),
-              http.put(
-                ({ request }) => {
-                  const u = new URL(request.url)
-                  return (
-                    u.pathname ===
-                      `/${orgSlug}/api/v1/connectors/notion/oauth-app` &&
-                    u.searchParams.get("connectionId") === connectionId
-                  )
-                },
-                async ({ request }) => {
-                  const body = (await request.json()) as {
-                    clientId?: string
-                  }
-                  saved = true
-                  clientId = body.clientId ?? "notion-client-id"
-                  return new HttpResponse(null, { status: 204 })
-                },
-              ),
-            ]
-          })(),
-        ].flat(),
-      },
     },
   },
   play: async ({ canvasElement }) => {
@@ -163,91 +156,79 @@ export const RegisterNotionOauth: Story = {
     await body.findByText(/Waiting for Notion to send a verification token/)
     await expect(body.queryByRole("textbox", { name: "Client ID" })).toBeNull()
   },
-}
+})
 
 /**
  * Notion setup dialog at the webhook step: the OAuth app is saved and ctxpipe
  * waits for Notion to send the verification token.
  */
-export const AddNotionWebhookWaiting: Story = {
+export const AddNotionWebhookWaiting = meta.story({
   name: "Add the webhook (waiting for token)",
   render: () => dialog(),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          notionStatus(draftStatus),
-          notionOauthAppHandler({
-            orgSlug,
-            connectionId,
-            oauthAppSaved: true,
-            globalNotionOAuthConfigured: false,
-            oauthClientId: "notion-client-id-story",
-            webhookConfigured: false,
-            webhookVerificationToken: null,
-          }),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      notionStatus(draftStatus),
+      notionOauthAppHandler({
+        orgSlug,
+        connectionId,
+        oauthAppSaved: true,
+        globalNotionOAuthConfigured: false,
+        oauthClientId: "notion-client-id-story",
+        webhookConfigured: false,
+        webhookVerificationToken: null,
+      }),
+    )
   },
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body)
     await body.findByText(/Waiting for Notion to send a verification token/)
     await expect(body.queryByRole("textbox", { name: "Client ID" })).toBeNull()
   },
-}
+})
 
 /**
  * Notion setup dialog at the webhook step: the verification token arrived and
  * shows for the admin to paste in Notion.
  */
-export const AddNotionWebhookToken: Story = {
+export const AddNotionWebhookToken = meta.story({
   name: "Add the webhook (verification token received)",
   render: () => dialog(),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          notionStatus(draftStatus),
-          notionOauthAppHandler({
-            orgSlug,
-            connectionId,
-            oauthAppSaved: true,
-            globalNotionOAuthConfigured: false,
-            oauthClientId: "notion-client-id-story",
-            webhookConfigured: true,
-            webhookVerificationToken: "secret_story-verify-token",
-          }),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      notionStatus(draftStatus),
+      notionOauthAppHandler({
+        orgSlug,
+        connectionId,
+        oauthAppSaved: true,
+        globalNotionOAuthConfigured: false,
+        oauthClientId: "notion-client-id-story",
+        webhookConfigured: true,
+        webhookVerificationToken: "secret_story-verify-token",
+      }),
+    )
   },
-}
+})
 
 /**
  * Notion setup dialog after the webhook step: the admin continues and the
  * dialog offers the Connect Notion button.
  */
-export const ConnectNotionAfterWebhook: Story = {
+export const ConnectNotionAfterWebhook = meta.story({
   name: "Connect Notion after webhook",
   render: () => dialog(),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          notionStatus(draftStatus),
-          notionOauthAppHandler({
-            orgSlug,
-            connectionId,
-            oauthAppSaved: true,
-            globalNotionOAuthConfigured: false,
-            oauthClientId: "notion-client-id-story",
-            webhookConfigured: true,
-            webhookVerificationToken: "secret_story-verify-token",
-          }),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      notionStatus(draftStatus),
+      notionOauthAppHandler({
+        orgSlug,
+        connectionId,
+        oauthAppSaved: true,
+        globalNotionOAuthConfigured: false,
+        oauthClientId: "notion-client-id-story",
+        webhookConfigured: true,
+        webhookVerificationToken: "secret_story-verify-token",
+      }),
+    )
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
@@ -258,36 +239,32 @@ export const ConnectNotionAfterWebhook: Story = {
     await userEvent.click(continueButton)
     await canvas.findByRole("button", { name: "Connect Notion" })
   },
-}
+})
 
 /**
  * Notion setup dialog on the hosted product, where ctxpipe supplies the OAuth
  * app: the first step asks the admin to authorize ctxpipe in Notion.
  */
-export const ConnectNotionGlobalEnv: Story = {
+export const ConnectNotionGlobalEnv = meta.story({
   name: "Connect Notion (hosted env OAuth)",
   render: () => dialog(),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          notionStatus(draftStatus),
-          notionOauthAppHandler({
-            orgSlug,
-            connectionId,
-            oauthAppSaved: false,
-            globalNotionOAuthConfigured: true,
-          }),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      notionStatus(draftStatus),
+      notionOauthAppHandler({
+        orgSlug,
+        connectionId,
+        oauthAppSaved: false,
+        globalNotionOAuthConfigured: true,
+      }),
+    )
   },
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body)
     await body.findByRole("button", { name: "Connect Notion" })
     await expect(body.queryByText("Register Notion OAuth app")).toBeNull()
   },
-}
+})
 
 const installedStatus = {
   ...draftStatus,
@@ -316,11 +293,11 @@ const installedHandlers = [
  * Notion setup dialog after the connect: the admin adds Notion pages to a
  * Workspace, and the dialog links the pull request to merge.
  */
-export const AddToWorkspaces: Story = {
+export const AddToWorkspaces = meta.story({
   name: "Add Notion to Workspaces",
   render: () => dialog(),
-  parameters: {
-    msw: { handlers: { page: installedHandlers } },
+  beforeEach: ({ msw }) => {
+    msw.use(...installedHandlers)
   },
   play: async ({ canvasElement }) => {
     addCalls.length = 0
@@ -369,28 +346,24 @@ export const AddToWorkspaces: Story = {
       },
     ])
   },
-}
+})
 
 /**
  * Notion setup dialog for a connection that is already installed: a newer setup
  * replaced this one and a config pull request waits for a merge.
  */
-export const ReplacedSetup: Story = {
+export const ReplacedSetup = meta.story({
   name: "Replaced setup with a config pull request",
   render: () => dialog(),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          notionStatus({
-            ...installedStatus,
-            setupPhase: "awaiting_merge",
-            pendingConfigPullUrl: "https://github.com/acme/notes/pull/3",
-          }),
-          ...installedHandlers.slice(1),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      notionStatus({
+        ...installedStatus,
+        setupPhase: "awaiting_merge",
+        pendingConfigPullUrl: "https://github.com/acme/notes/pull/3",
+      }),
+      ...installedHandlers.slice(1),
+    )
   },
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body)
@@ -401,4 +374,4 @@ export const ReplacedSetup: Story = {
       body.getByRole("link", { name: /^configuration pull request/ }),
     ).toHaveAttribute("href", "https://github.com/acme/notes/pull/3")
   },
-}
+})

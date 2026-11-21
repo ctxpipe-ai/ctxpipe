@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
 import { useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
@@ -17,6 +16,7 @@ import {
 import { pendingWorkspaceUpgradesHandler } from "@/mocks/workspace-upgrades-handlers"
 
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
+import preview from "../../../../.storybook/preview"
 import { docsWorkspace } from "../../workspaces/workspace-fixtures"
 import { BuildkiteSetupDialog } from "./BuildkiteSetupDialog"
 
@@ -38,27 +38,20 @@ function Dialog(props: { connectionId?: string; replaceWebhook?: boolean }) {
   )
 }
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Connections/BuildkiteSetupDialog",
   component: Dialog,
+  beforeEach: ({ msw }) => {
+    msw.use(...signedInHandlers, pendingWorkspaceUpgradesHandler({}))
+  },
   parameters: {
-    msw: {
-      handlers: {
-        session: signedInHandlers,
-        pendingUpgrades: [pendingWorkspaceUpgradesHandler({})],
-      },
-    },
     app: "root",
     layout: "fullscreen",
     storyRoute: { pattern: "orgIndex", orgSlug } satisfies StoryRouteParams,
     review: { kind: "component" },
   },
   args: {},
-} satisfies Meta<typeof Dialog>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 const connectPath = ({ request }: { request: Request }) =>
   new URL(request.url).pathname.endsWith("/api/v1/connectors/buildkite")
@@ -83,18 +76,12 @@ async function visible(element: HTMLElement) {
  * Buildkite setup dialog, which connects a Buildkite org to ctxpipe: the user
  * enters a slug and token and moves on to the webhook step.
  */
-export const ConnectWithToken: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          recordConnect(() =>
-            HttpResponse.json({ connectionId }, { status: 201 }),
-          ),
-          buildkiteStatusHandler(buildkiteStoryStatus()),
-        ],
-      },
-    },
+export const ConnectWithToken = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      recordConnect(() => HttpResponse.json({ connectionId }, { status: 201 })),
+      buildkiteStatusHandler(buildkiteStoryStatus()),
+    )
   },
   play: async ({ canvasElement }) => {
     calls.length = 0
@@ -132,27 +119,23 @@ export const ConnectWithToken: Story = {
       },
     ])
   },
-}
+})
 
 /**
  * Buildkite setup dialog at the Connect Buildkite step: the admin pressed
  * Connect Buildkite, and Buildkite refused the token because it lacks the
  * read_builds scope.
  */
-export const TokenRefused: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          recordConnect(() =>
-            HttpResponse.json(
-              { error: "Give the token these scopes: read_builds." },
-              { status: 400 },
-            ),
-          ),
-        ],
-      },
-    },
+export const TokenRefused = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      recordConnect(() =>
+        HttpResponse.json(
+          { error: "Give the token these scopes: read_builds." },
+          { status: 400 },
+        ),
+      ),
+    )
   },
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body)
@@ -173,7 +156,7 @@ export const TokenRefused: Story = {
       body.getByRole("heading", { name: "Connect Buildkite" }),
     ).toBeVisible()
   },
-}
+})
 
 const webhookCalls: unknown[] = []
 function webhookHandlers() {
@@ -211,10 +194,10 @@ function webhookHandlers() {
  * Buildkite setup dialog, which connects a Buildkite org to ctxpipe: the user
  * saves the webhook token and moves on to the Workspaces step.
  */
-export const SaveWebhookToken: Story = {
+export const SaveWebhookToken = meta.story({
   args: { connectionId },
-  parameters: {
-    msw: { handlers: { page: webhookHandlers() } },
+  beforeEach: ({ msw }) => {
+    msw.use(...webhookHandlers())
   },
   play: async ({ canvasElement }) => {
     webhookCalls.length = 0
@@ -253,26 +236,22 @@ export const SaveWebhookToken: Story = {
       { connectionId, webhookToken: "hook-token" },
     ])
   },
-}
+})
 
 /**
  * Buildkite setup dialog, which connects a Buildkite org to ctxpipe: the
  * webhook step opens with an empty field to replace the saved token.
  */
-export const ReplaceWebhookToken: Story = {
+export const ReplaceWebhookToken = meta.story({
   args: { connectionId, replaceWebhook: true },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      buildkiteStatusHandler(buildkiteStoryStatus({ webhookConfigured: true })),
+    )
+  },
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as ConnectWithToken.",
-    },
-    msw: {
-      handlers: {
-        page: [
-          buildkiteStatusHandler(
-            buildkiteStoryStatus({ webhookConfigured: true }),
-          ),
-        ],
-      },
     },
   },
   play: async ({ canvasElement }) => {
@@ -282,7 +261,7 @@ export const ReplaceWebhookToken: Story = {
     )
     await expect(body.getByLabelText("Webhook token")).toHaveValue("")
   },
-}
+})
 
 const addCalls: { method: string; path: string; body: unknown }[] = []
 
@@ -290,23 +269,17 @@ const addCalls: { method: string; path: string; body: unknown }[] = []
  * Buildkite setup dialog, which connects a Buildkite org to ctxpipe: the user
  * adds a pipeline to a Workspace and reaches the merge step.
  */
-export const AddToWorkspaces: Story = {
+export const AddToWorkspaces = meta.story({
   name: "Add Buildkite to Workspaces",
   args: { connectionId },
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          buildkiteStatusHandler(
-            buildkiteStoryStatus({ webhookConfigured: true }),
-          ),
-          workspaceListHandler([docsWorkspace]),
-          buildkitePipelinesHandler,
-          ...workspaceSourceAddHandlers(addCalls),
-          connectionUsageHandler([]),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      buildkiteStatusHandler(buildkiteStoryStatus({ webhookConfigured: true })),
+      workspaceListHandler([docsWorkspace]),
+      buildkitePipelinesHandler,
+      ...workspaceSourceAddHandlers(addCalls),
+      connectionUsageHandler([]),
+    )
   },
   play: async ({ canvasElement }) => {
     addCalls.length = 0
@@ -344,23 +317,19 @@ export const AddToWorkspaces: Story = {
       },
     ])
   },
-}
+})
 
 /**
  * Buildkite setup dialog, which connects a Buildkite org to ctxpipe: the saved
  * token was revoked and the user enters a new token.
  */
-export const Reconnect: Story = {
+export const Reconnect = meta.story({
   args: { connectionId },
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          buildkiteStatusHandler(buildkiteStoryStatus({ status: "revoked" })),
-          recordConnect(() => HttpResponse.json({ connectionId })),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      buildkiteStatusHandler(buildkiteStoryStatus({ status: "revoked" })),
+      recordConnect(() => HttpResponse.json({ connectionId })),
+    )
   },
   play: async ({ canvasElement }) => {
     calls.length = 0
@@ -387,4 +356,4 @@ export const Reconnect: Story = {
       ]),
     )
   },
-}
+})
