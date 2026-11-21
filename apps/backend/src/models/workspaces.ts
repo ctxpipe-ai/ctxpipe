@@ -1435,10 +1435,13 @@ export async function scrubHydrateUnits(
   units: readonly HydrateUnit[],
 ): Promise<HydrateUnit[]> {
   assertNotInOrgDbContext()
-  return mapPool([...units], 8, async (unit) => ({
-    ...unit,
-    ...(await scrubForModel({ title: unit.title, body: unit.body })),
-  }))
+  return mapPool([...units], 8, async (unit) => {
+    const { title, body } = await scrubForModel({
+      title: unit.title,
+      body: unit.body,
+    })
+    return { ...unit, title, body }
+  })
 }
 
 /**

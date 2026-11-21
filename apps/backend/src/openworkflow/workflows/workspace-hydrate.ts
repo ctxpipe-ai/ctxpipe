@@ -685,15 +685,15 @@ export function defineWorkspaceHydrateWorkflow() {
                 ),
               )
             : []
+          // The units as Postgres and the graph store them: scrubbed before
+          // the org transaction and before the chunker (ADR-072).
+          const scrubbedUnits = await scrubHydrateUnits(committedUnits)
           if (pending.postgres) {
             const formatVersion = workspaceFormatCache({
               text: formatFile,
               paths: treePaths,
               writeStatus: workspace.writeStatus,
             })
-            // Scrubbed before the org transaction and before the chunker
-            // (ADR-072).
-            const scrubbedUnits = await scrubHydrateUnits(committedUnits)
             lockSignal.throwIfAborted()
             committed = await orgSql(() =>
               commitHydrateProjection({
@@ -818,7 +818,7 @@ export function defineWorkspaceHydrateWorkflow() {
                       base: committed.base,
                       // The units as Postgres stores them: a full graph
                       // write reads these values from Postgres.
-                      units: committedUnits.map((unit) => ({
+                      units: scrubbedUnits.map((unit) => ({
                         servingId: unit.servingId,
                         path: unit.path,
                         kind: unit.kind ?? null,
