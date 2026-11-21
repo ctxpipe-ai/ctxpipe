@@ -570,12 +570,13 @@ curl -sS -o /dev/null -w "%{http_code}" http://${fixture.upstream}:8080/echo/x`,
     "lets many parallel Git fetches from one address through the proxy, because no fetch sends a CONNECT without credentials; while the gate is closed, shard fetches wait for its Retry-After and finish (CTX-1470)",
     { timeout: 240_000 },
     async () => {
-      // On the AWS sandbox host, the proxy sees one address for all
-      // sandboxes (docker-proxy). Agent Vault refuses each CONNECT from an
-      // address with 50 proxy-auth failures in 5 minutes (HTTP 429). One
-      // container here is that one address: 8 shards fetch 8 times each.
+      // The stock gate of Agent Vault refuses each CONNECT from an address
+      // with 50 proxy-auth failures in 5 minutes (HTTP 429). ctxpipe turns
+      // the gate off (agent-vault-limits.ts), but this test keeps it on: a
+      // 429 can still come (the global tier), and the fetch must wait it
+      // out. One container here is one address: 8 shards fetch 8 times each.
       await withAgentVault(
-        { image, closed: true, authFailureWindow: "15s" },
+        { image, closed: true, stockAuthGateWindow: "15s" },
         async (fixture) => {
           const { upstream } = fixture
           const vault = await openRunVault({

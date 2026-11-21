@@ -13,6 +13,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
 
+import { AGENT_VAULT_RATE_LIMIT_ENV } from "../../../../packages/aws-cdk/src/internal/agent-vault-limits.js"
 import { testLabelArgs } from "../../../../scripts/ci/test-containers.mjs"
 import type { AgentVaultAccess } from "../domain/workspaces/agent-vault.js"
 import { contractImage } from "./contract-images.js"
@@ -149,6 +150,25 @@ type AgentVaultFixture = {
   stopAgentVault: () => Promise<void>
 }
 
+/** `docker run` arguments that set each variable of `env`. */
+function envArgs(env: Record<string, string>): string[] {
+  return Object.entries(env).flatMap(([key, value]) => [
+    "-e",
+    `${key}=${value}`,
+  ])
+}
+
+/** The deployed limits, or the stock gate with `stockAuthGateWindow`. */
+function rateLimitEnv(stockAuthGateWindow: string | undefined) {
+  if (!stockAuthGateWindow) return AGENT_VAULT_RATE_LIMIT_ENV
+  const {
+    AGENT_VAULT_RATELIMIT_AUTH_MAX: _max,
+    AGENT_VAULT_RATELIMIT_AUTH_WINDOW: _window,
+    ...rest
+  } = AGENT_VAULT_RATE_LIMIT_ENV
+  return { ...rest, AGENT_VAULT_RATELIMIT_AUTH_WINDOW: stockAuthGateWindow }
+}
+
 async function ipOn(container: string, network: string): Promise<string> {
   return docker(
     "inspect",
@@ -174,10 +194,13 @@ export async function withAgentVault<T>(
     /** A port of a test backend on the Docker host: the upstream forwards its port 3000 there. */
     backendPort?: number
     /**
-     * The window of the proxy's auth-failure gate (Agent Vault's `AUTH`
-     * tier, 5 minutes by default), for example `15s`.
+     * The stock pre-auth gate of the proxy (Agent Vault's `AUTH` tier: 50
+     * failures for each peer address), with this window instead of 5
+     * minutes, for example `15s`. For a test of the 429 path only. Without
+     * it, Agent Vault runs with the gate off, as ctxpipe deploys it
+     * (`AGENT_VAULT_RATE_LIMIT_ENV`).
      */
-    authFailureWindow?: string
+    stockAuthGateWindow?: string
   },
   fn: (fixture: AgentVaultFixture) => Promise<T>,
 ): Promise<T> {
@@ -329,18 +352,7 @@ exec node /tmp/upstream.cjs`,
         "127.0.0.1::14321",
         "-e",
         `AGENT_VAULT_MASTER_PASSWORD=${randomBytes(16).toString("hex")}`,
-        "-e",
-        "AGENT_VAULT_RATELIMIT_PROXY_RATE=200",
-        "-e",
-        "AGENT_VAULT_RATELIMIT_PROXY_BURST=2000",
-        "-e",
-        "AGENT_VAULT_RATELIMIT_PROXY_CONCURRENCY=256",
-        ...(input.authFailureWindow
-          ? [
-              "-e",
-              `AGENT_VAULT_RATELIMIT_AUTH_WINDOW=${input.authFailureWindow}`,
-            ]
-          : []),
+        ...envArgs(rateLimitEnv(input.stockAuthGateWindow)),
         "-e",
         "SSL_CERT_DIR=/etc/ssl/certs:/extra-ca",
         "-e",
@@ -502,13 +514,6 @@ net.createServer((client) => {
   }
 }
 
-/** The rate limits our deployments set (see docker-compose.yml). */
-const AGENT_VAULT_RATE_LIMIT_ENV = [
-  "AGENT_VAULT_RATELIMIT_PROXY_RATE=200",
-  "AGENT_VAULT_RATELIMIT_PROXY_BURST=2000",
-  "AGENT_VAULT_RATELIMIT_PROXY_CONCURRENCY=256",
-]
-
 async function freePort(): Promise<number> {
   const server = createServer()
   await new Promise<void>((resolve) => server.listen(0, "0.0.0.0", resolve))
@@ -561,7 +566,7 @@ export async function startTestAgentVaultEnv(
         `${proxyPort}:${proxyPort}`,
         "-e",
         `AGENT_VAULT_MASTER_PASSWORD=${randomBytes(16).toString("hex")}`,
-        ...AGENT_VAULT_RATE_LIMIT_ENV.flatMap((entry) => ["-e", entry]),
+        ...envArgs(AGENT_VAULT_RATE_LIMIT_ENV),
         "-e",
         "AGENT_VAULT_TELEMETRY=false",
         // Test only: the Docker host (the test backend) and test networks.

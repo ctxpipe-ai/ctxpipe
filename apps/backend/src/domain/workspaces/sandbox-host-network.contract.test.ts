@@ -178,7 +178,10 @@ describe.each([
             () => "error",
           )
 
-        // The gate allows 50 auth failures for each peer address in 5 minutes.
+        // Agent Vault runs with its stock limits here, not the deployed ones
+        // (agent-vault-limits.ts turns the gate off): the gate allows 50 auth
+        // failures for each peer address in 5 minutes, so it shows which
+        // address Agent Vault sees for each sandbox.
         const hostile = await inHost(
           `docker exec hostile sh -c 'for i in $(seq 1 55); do curl -s -o /dev/null --max-time 5 -p -x http://${hostIp}:${AGENT_VAULT_PROXY_PORT} -w "%{http_connect}\\n" https://example.com || true; done'`,
         )

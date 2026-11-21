@@ -47,12 +47,16 @@ x-agent-vault-env: &agent-vault-env
 
 x-agent-vault-image: &agent-vault-image infisical/agent-vault:latest
 
-# Rate limits stay on (the login limit guards the owner account). The proxy
-# tier is raised: all sandboxes of one turn share one vault and fan out.
+# Agent Vault's rate limits: the values and the reasons are in
+# packages/aws-cdk/src/internal/agent-vault-limits.ts. A backend test keeps
+# them equal. The pre-auth gate is off.
 x-agent-vault-limits: &agent-vault-limits
   AGENT_VAULT_RATELIMIT_PROXY_RATE: "200"
   AGENT_VAULT_RATELIMIT_PROXY_BURST: "2000"
   AGENT_VAULT_RATELIMIT_PROXY_CONCURRENCY: "256"
+  AGENT_VAULT_RATELIMIT_AUTH_MAX: "9223372036854775807"
+  AGENT_VAULT_RATELIMIT_AUTH_WINDOW: "1s"
+  AGENT_VAULT_RATELIMIT_LOCK: "true"
   AGENT_VAULT_TELEMETRY: "false"
 
 x-dind-image: &dind-image docker:29.8.2-dind@sha256:7dcdfc4a20246236f558175182ccace1eb15a41bd3eb119dd2284f393498b7c1
@@ -153,7 +157,8 @@ services:
   # host's Docker daemon. Its API is published on 127.0.0.1, but on Docker
   # Desktop any local container reaches it at host.docker.internal, and so
   # can the proxy (192.168.65.254 is on the allowlist). The owner password is
-  # generated and the login limit is on. On a fresh volume a local container
+  # generated (random), and that is the guard of the login: the login limit
+  # is off with the pre-auth gate. On a fresh volume a local container
   # could register the owner first; the backend then fails closed: remove the
   # `agent_vault_dev` volume to recover. Sandboxes reach the proxy at
   # host.docker.internal on the port it listens on; it may dial only the
