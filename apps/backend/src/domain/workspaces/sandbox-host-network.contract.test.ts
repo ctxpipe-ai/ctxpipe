@@ -199,8 +199,14 @@ describe.each([
         expect(await get("neighbor", "http://1.1.1.1/")).toBe("000")
         expect(await backendToAgent()).toBe("200")
         // Agent Vault's bridge does not reach a sandbox's published agent port
-        // either, so a sandbox cannot CONNECT through the proxy to it.
+        // or Agent Vault's own API through the host address, so a sandbox
+        // cannot CONNECT through the proxy to them.
         expect(await getFromVaultNetwork(`http://${hostIp}:18080/`)).toBe("000")
+        expect(
+          await getFromVaultNetwork(
+            `http://${hostIp}:${AGENT_VAULT_API_PORT}/health`,
+          ),
+        ).toBe("000")
 
         // dockerd restarts (an update, a crash): systemd runs the firewall
         // again, and Docker may have moved its own rules above it.
@@ -212,6 +218,11 @@ describe.each([
         expect(await connect("late")).toBe("407")
         expect(await get("late", `http://${hostIp}:18080/`)).toBe("000")
         expect(await getFromVaultNetwork(`http://${hostIp}:18080/`)).toBe("000")
+        expect(
+          await getFromVaultNetwork(
+            `http://${hostIp}:${AGENT_VAULT_API_PORT}/health`,
+          ),
+        ).toBe("000")
         expect(await backendToAgent()).toBe("200")
       } finally {
         await docker("rm", "-f", "-v", name).catch(() => "")
