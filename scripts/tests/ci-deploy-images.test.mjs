@@ -461,8 +461,8 @@ test("an image whose Dockerfile copies an undeclared path builds on every merge"
     {
       baseChanges: {
         "apps/ui/Dockerfile": dockerfile.replace(
-          "COPY shared ./shared",
-          "COPY shared ./shared\nCOPY packages/new ./packages/new",
+          "COPY apps/ui ./apps/ui",
+          "COPY apps/ui ./apps/ui\nCOPY packages/new ./packages/new",
         ),
       },
     },

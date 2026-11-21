@@ -86,6 +86,8 @@ export const images = [
       "apps/ui",
       "apps/backend/package.json",
       "apps/backend/src",
+      // The `ui-imports` stage of the UI runs it to pick the backend files.
+      "scripts/checks/ui-bundled-imports.mjs",
     ],
   },
   {

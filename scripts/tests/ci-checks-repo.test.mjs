@@ -21,8 +21,9 @@ import { markPortable } from "../checks/families.mjs"
 import { fullRunResults, stepResults } from "../checks/gate.mjs"
 import { jobPlans, placeOf } from "../checks/plan.mjs"
 import { prerequisites, withNeeds } from "../checks/prerequisites.mjs"
-import { listProjects, uiBundledImports } from "../checks/projects.mjs"
+import { listProjects } from "../checks/projects.mjs"
 import { runsInOf } from "../checks/shard.mjs"
+import { uiBundledImports } from "../checks/ui-bundled-imports.mjs"
 import { vitestCommand } from "../ci/vitest-launch.mjs"
 
 // The tests of the check manifest and runner that read the whole repository:
