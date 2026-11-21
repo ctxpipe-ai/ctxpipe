@@ -83,59 +83,51 @@ export const RegisterNotionOauth = meta.story({
   name: "Register Notion OAuth app (self-hosted)",
   render: () => dialog(),
   beforeEach: ({ msw }) => {
+    let saved = false
+    let clientId: string | null = null
     msw.use(
-      ...[
-        notionStatus(draftStatus),
-        (() => {
-          let saved = false
-          let clientId: string | null = null
-          return [
-            http.get(
-              ({ request }) => {
-                const u = new URL(request.url)
-                return (
-                  u.pathname ===
-                    `/${orgSlug}/api/v1/connectors/notion/oauth-app` &&
-                  u.searchParams.get("connectionId") === connectionId
-                )
-              },
-              ({ request }) => {
-                const origin = new URL(request.url).origin
-                return HttpResponse.json({
-                  oauthConfigured: saved,
-                  oauthAppSaved: saved,
-                  oauthClientId: clientId,
-                  webhookConfigured: false,
-                  webhookVerificationToken: null,
-                  globalNotionOAuthConfigured: false,
-                  callbackUrl: `${origin}/api/v1/connectors/notion/oauth/callback`,
-                  webhookUrl: saved
-                    ? `${origin}/api/v1/webhook/notion?connectionId=${connectionId}&provisioningToken=story`
-                    : `${origin}/api/v1/webhook/notion`,
-                })
-              },
-            ),
-            http.put(
-              ({ request }) => {
-                const u = new URL(request.url)
-                return (
-                  u.pathname ===
-                    `/${orgSlug}/api/v1/connectors/notion/oauth-app` &&
-                  u.searchParams.get("connectionId") === connectionId
-                )
-              },
-              async ({ request }) => {
-                const body = (await request.json()) as {
-                  clientId?: string
-                }
-                saved = true
-                clientId = body.clientId ?? "notion-client-id"
-                return new HttpResponse(null, { status: 204 })
-              },
-            ),
-          ]
-        })(),
-      ].flat(),
+      notionStatus(draftStatus),
+      http.get(
+        ({ request }) => {
+          const u = new URL(request.url)
+          return (
+            u.pathname === `/${orgSlug}/api/v1/connectors/notion/oauth-app` &&
+            u.searchParams.get("connectionId") === connectionId
+          )
+        },
+        ({ request }) => {
+          const origin = new URL(request.url).origin
+          return HttpResponse.json({
+            oauthConfigured: saved,
+            oauthAppSaved: saved,
+            oauthClientId: clientId,
+            webhookConfigured: false,
+            webhookVerificationToken: null,
+            globalNotionOAuthConfigured: false,
+            callbackUrl: `${origin}/api/v1/connectors/notion/oauth/callback`,
+            webhookUrl: saved
+              ? `${origin}/api/v1/webhook/notion?connectionId=${connectionId}&provisioningToken=story`
+              : `${origin}/api/v1/webhook/notion`,
+          })
+        },
+      ),
+      http.put(
+        ({ request }) => {
+          const u = new URL(request.url)
+          return (
+            u.pathname === `/${orgSlug}/api/v1/connectors/notion/oauth-app` &&
+            u.searchParams.get("connectionId") === connectionId
+          )
+        },
+        async ({ request }) => {
+          const body = (await request.json()) as {
+            clientId?: string
+          }
+          saved = true
+          clientId = body.clientId ?? "notion-client-id"
+          return new HttpResponse(null, { status: 204 })
+        },
+      ),
     )
   },
   parameters: {
