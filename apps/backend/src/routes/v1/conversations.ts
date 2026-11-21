@@ -16,6 +16,10 @@ import {
 } from "../../domain/conversations/transport.js"
 import { conversationSessionBranch } from "../../domain/workspaces/chat-lifecycle.js"
 import {
+  baseBranchSchema,
+  ensureConversationOnBase,
+} from "../../domain/workspaces/conversation-base.js"
+import {
   describeSessionPullRequest,
   pushConversationSession,
   recordConversationPush,
@@ -25,7 +29,10 @@ import {
   sessionBranchOnGithub,
 } from "../../domain/workspaces/conversation-publish.js"
 import { cleanTitle } from "../../domain/workspaces/conversation-title.js"
-import { sameWorkspaceBinding } from "../../domain/workspaces/revision.js"
+import {
+  revisionBaseBranch,
+  sameWorkspaceBinding,
+} from "../../domain/workspaces/revision.js"
 import {
   postgresSandboxLocks,
   withSandboxLockIfFree,
@@ -57,7 +64,6 @@ import {
   type ConversationRecord,
   deleteConversation,
   discardUnstartedConversation,
-  ensureConversation,
   getConversation,
   getLastTurns,
   listConversationsPaginated,
@@ -91,6 +97,11 @@ const ConversationSchema = z
     workspaceId: z.string().nullable(),
     name: z.string(),
     source: z.string().nullable(),
+    /**
+     * The branch that the session branch starts from and that its pull
+     * request targets (ADR-071). Null: the default branch of the Workspace.
+     */
+    baseBranch: z.string().nullable().optional(),
     lastBranch: z.string().nullable().optional(),
     lastChatPrNumber: z.number().int().nullable().optional(),
     lastChatPrUrl: z.string().nullable().optional(),
@@ -130,6 +141,7 @@ function publicConversation(
     ...(lastTurn !== undefined && { lastTurn }),
     userId: row.userId ?? null,
     workspaceId: row.workspaceId ?? null,
+    baseBranch: row.baseBranch ?? null,
     lastBranch: row.lastBranch ?? null,
     lastChatPrNumber: row.lastChatPrNumber ?? null,
     lastChatPrUrl: conversationPublicPrUrl({
@@ -404,6 +416,11 @@ const postConversationMessageRoute = createRoute({
 const PrepareConversationRequestSchema = z
   .object({
     workspaceId: z.string().min(1),
+    /**
+     * The branch that a new conversation starts from (ADR-071). Absent: the
+     * default branch. An existing conversation keeps its base branch.
+     */
+    baseBranch: baseBranchSchema.optional(),
   })
   .openapi("PrepareConversationRequest")
 
@@ -466,6 +483,11 @@ const postConversationPrepareRoute = createRoute({
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Unauthorized",
+    },
+    409: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description:
+        "The Workspace has no commit for the conversation, for example `base_branch_missing`: the repository has no base branch of the conversation",
     },
     429: sandboxAtCapacityResponse,
     503: {
@@ -650,6 +672,7 @@ function publishError(
     case "not_allowed":
     case "default_branch":
     case "other_branch":
+    case "base_branch_missing":
     case "nothing_committed":
     case "no_changes":
     case "no_write_access":
@@ -813,7 +836,7 @@ async function createConversationPullRequest(input: {
     const created = await createPullRequestFromBranch({
       ...github,
       revision,
-      baseBranch: revision.defaultBranch,
+      baseBranch: revisionBaseBranch(revision),
       branch,
       title: described.title,
       body: described.body,
@@ -1023,6 +1046,7 @@ function workspaceConversationStream(
             conversationId,
             workspaceId: parsed.workspaceId,
             source: parsed.source,
+            baseBranch: parsed.baseBranch,
           }),
         onUserPersist: () => persistWorkspaceChatUserTurnListed(conversationId),
         onError: async () => {
@@ -1356,11 +1380,19 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
 
     const conversationId = c.req.param("conversationId")
     applyAttribution({ "ctxpipe.conversation.id": conversationId })
-    const body = PrepareConversationRequestSchema.parse(await c.req.json())
-    const conversation = await ensureConversation({
+    const body = PrepareConversationRequestSchema.safeParse(await c.req.json())
+    if (!body.success) return c.json({ error: "invalid_request" }, 400)
+    // The user may pick another base branch before the first message.
+    const conversation = await ensureConversationOnBase({
       id: conversationId,
       source: "ui",
-      workspaceId: body.workspaceId,
+      workspaceId: body.data.workspaceId,
+      baseBranch: body.data.baseBranch,
+      underLock: (remove, orgId) =>
+        postgresSandboxLocks(orgId).withLock(
+          `chat-thread:${conversationId}`,
+          remove,
+        ),
     })
     const workspace = conversation.workspaceId
       ? await getWorkspaceById(conversation.workspaceId)
@@ -1384,6 +1416,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       desiredSha: runtime.desiredSha,
       desiredGeneration: runtime.desiredGeneration,
       defaultBranch: runtime.defaultBranch,
+      baseBranch: runtime.baseBranch,
       lastBranch: runtime.lastBranch,
       ref: runtime.cloneRef || runtime.desiredSha || "HEAD",
       writeStatus: runtime.writeStatus,
@@ -1392,7 +1425,9 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     if (!warmed.ok)
       return warmed.status === 429
         ? c.json({ error: warmed.error }, 429)
-        : c.json({ error: warmed.error }, 503)
+        : warmed.status === 409
+          ? c.json({ error: warmed.error }, 409)
+          : c.json({ error: warmed.error }, 503)
     return c.body(null, 204)
   })
   .openapi(getConversationPullRequestRoute, async (c) => {

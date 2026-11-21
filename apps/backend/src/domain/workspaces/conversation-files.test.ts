@@ -182,7 +182,7 @@ describe("conversation sandbox files", { timeout: 15_000 }, () => {
           switchToSessionBranch({
             handle,
             branch: session,
-            defaultBranch: "main",
+            baseBranch: "main",
           })
         writeFileSync(join(directory, "draft.md"), "# Draft\n")
         expect(await move()).toBe(true)

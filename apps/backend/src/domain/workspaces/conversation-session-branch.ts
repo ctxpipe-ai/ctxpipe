@@ -17,22 +17,23 @@ import { COMMIT_IDENTITY, SANDBOX_READ_GIT } from "./chat-runtime.js"
 import { workspaceAllowsConversationEdits } from "./chat-sandbox-policy.js"
 import { adaptTanstackHandle, SANDBOX_GIT_GUARD } from "./job-sandbox.js"
 import type { JobSandboxHandle } from "./job-worktree.js"
-import type { WorkspaceRevision } from "./revision.js"
+import { revisionBaseBranch, type WorkspaceRevision } from "./revision.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 
 /**
- * Move a sandbox that is on the default branch to the session branch, keeping
- * its uncommitted files. An existing local session branch is checked out as
- * it is (never reset). A sandbox already on another branch stays there.
+ * Move a sandbox that is on its base branch (the default branch, or the base
+ * branch of the conversation) to the session branch, keeping its uncommitted
+ * files. An existing local session branch is checked out as it is (never
+ * reset). A sandbox already on another branch stays there.
  */
 export async function switchToSessionBranch(input: {
   handle: JobSandboxHandle
   branch: string
-  defaultBranch: string
+  baseBranch: string
 }): Promise<boolean> {
   const result = await input.handle.exec(
-    '[ "$(git branch --show-current)" != "$DEFAULT_BRANCH" ] || git checkout -q "$SESSION" 2>/dev/null || git checkout -q -b "$SESSION"',
-    { env: { DEFAULT_BRANCH: input.defaultBranch, SESSION: input.branch } },
+    '[ "$(git branch --show-current)" != "$BASE_BRANCH" ] || git checkout -q "$SESSION" 2>/dev/null || git checkout -q -b "$SESSION"',
+    { env: { BASE_BRANCH: input.baseBranch, SESSION: input.branch } },
   )
   return result.exitCode === 0
 }
@@ -69,7 +70,7 @@ export async function checkoutSessionBranch(input: {
       input.conversationId,
       conversation.lastBranch,
     ),
-    defaultBranch: input.desired.defaultBranch,
+    baseBranch: revisionBaseBranch(input.desired),
   })
   if (!switched)
     throw new Error("Cannot check out the conversation's session branch")

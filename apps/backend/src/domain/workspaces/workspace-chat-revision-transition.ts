@@ -14,9 +14,10 @@ import {
 } from "./conversation-session-branch.js"
 import { SANDBOX_GIT_GUARD } from "./job-sandbox.js"
 import {
+  revisionBaseBranch,
   sameWorkspaceBinding,
-  sameWorkspaceRevision,
   type WorkspaceRevision,
+  workspaceAdmitsRevision,
 } from "./revision.js"
 
 /**
@@ -67,7 +68,7 @@ export async function updateConversationSandboxRevision(input: {
   const current = await withOrgDbContext(input.orgId, () =>
     getDesiredWorkspaceRevision(desired.workspaceId),
   )
-  if (!current || !sameWorkspaceRevision(current, desired)) {
+  if (!current || !workspaceAdmitsRevision(current, desired)) {
     if (base) await record({ ...previousRevision, sha: base })
     return { effective: previousRevision }
   }
@@ -221,7 +222,7 @@ if [ -n "$STASH" ]; then
   PHASE=restoring
   write_state
   if ! git stash apply --index "$STASH" >/dev/null; then
-    if [ "$BRANCH" = "$DEFAULT_BRANCH" ]; then
+    if [ "$BRANCH" = "$BASE_BRANCH" ]; then
       # Keep the complete stash, including untracked files, as the recoverable
       # backup while the default branch follows the new tip.
       git restore --source="$NEW_SHA" --staged --worktree -- .
@@ -239,7 +240,7 @@ git update-ref refs/remotes/ctxpipe/base "$NEW_SHA"
       env: {
         OLD_SHA: previousRevision.sha,
         NEW_SHA: desired.sha,
-        DEFAULT_BRANCH: previousRevision.defaultBranch,
+        BASE_BRANCH: revisionBaseBranch(previousRevision),
       },
     },
   )

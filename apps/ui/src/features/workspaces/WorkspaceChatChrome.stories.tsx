@@ -239,6 +239,42 @@ export const CommittedCreatePrOnly: Story = {
 }
 
 /**
+ * Chat header of a conversation that the member started from the branch
+ * release/2026-11, not from the default branch: the branch label names that
+ * base before the session branch, and Create PR opens the pull request into it.
+ */
+export const BaseBranchLabel: Story = {
+  args: {
+    title: "Release notes",
+    branch: {
+      shortName: "chat/1",
+      base: "release/2026-11",
+    },
+    cta: {
+      commitPush: {
+        visible: false,
+        enabled: false,
+        pending: false,
+        onPress: () => {},
+      },
+      pullRequest: {
+        visible: true,
+        action: "create",
+        pending: false,
+        onPress: () => {},
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() =>
+      expect(canvas.getByText("release/2026-11")).toBeVisible(),
+    )
+    expect(canvas.getByText("chat/1")).toBeVisible()
+  },
+}
+
+/**
  * Chat header of a Workspace conversation, with its publish buttons: the branch
  * has no changes, so no Sync or pull request button shows.
  */

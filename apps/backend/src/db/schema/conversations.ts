@@ -21,6 +21,12 @@ export const conversations = pgTable.withRLS(
     workspaceId: text("workspace_id"),
     name: text("name").notNull().default("New conversation"),
     source: text("source"),
+    /**
+     * The branch that the session branch starts from and that its pull
+     * request targets (ADR-071). Null: the default branch of the Workspace.
+     * A prepare can change it until the first message; after that it is fixed.
+     */
+    baseBranch: text("base_branch"),
     lastBranch: text("last_branch"),
     /**
      * The session branch tip ctxpipe last pushed. A remote tip that differs was

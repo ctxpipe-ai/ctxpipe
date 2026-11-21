@@ -257,6 +257,11 @@ export function WorkspaceChatSession(props: {
     forwardedProps: {
       workspaceId: workspace.id,
       source: "ui",
+      // The first message records the base branch when it comes before the
+      // prepare of the composer; the server ignores it later (ADR-071).
+      ...(props.conversation?.baseBranch
+        ? { baseBranch: props.conversation.baseBranch }
+        : {}),
     },
     onError: firstSendFailed,
     onChunk: (chunk) => {
@@ -411,6 +416,7 @@ export function WorkspaceChatSession(props: {
         prepareQuery.isSuccess && gitStatus?.branch
           ? {
               shortName: conversationBranchShortName(gitStatus.branch),
+              base: props.conversation?.baseBranch ?? null,
               href: gitStatus.published
                 ? conversationGithubTreeHref(
                     workspace.workspaceRepositoryUrl,

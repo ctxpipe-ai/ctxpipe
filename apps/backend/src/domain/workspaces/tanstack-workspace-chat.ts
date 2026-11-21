@@ -184,6 +184,11 @@ export type TanstackWorkspaceChatInput = {
   desiredGeneration?: number
   githubConnectionId?: string | null
   defaultBranch?: string
+  /**
+   * The base branch of the conversation when it is not the default branch
+   * (ADR-071). `desiredSha` is then a tip of this branch.
+   */
+  baseBranch?: string | null
   /** Workspace root folder; absent for the repository root. */
   rootPath?: string
   lastBranch?: string | null
@@ -921,6 +926,7 @@ async function startWorkspaceChat(
         orgId: input.orgId,
         orgSlug: session.orgSlug,
         workspaceId: input.workspaceId,
+        conversationId: input.conversationId,
       },
       messages: turn.messages,
       abortController,
@@ -1226,6 +1232,7 @@ async function buildWorkspaceChatSandbox(
     sha: input.desiredSha,
     generation: input.desiredGeneration ?? 1,
     defaultBranch: input.defaultBranch ?? "main",
+    ...(input.baseBranch ? { baseBranch: input.baseBranch } : {}),
     access: "read",
     ...(input.rootPath ? { rootPath: input.rootPath } : {}),
   })
@@ -1233,7 +1240,9 @@ async function buildWorkspaceChatSandbox(
     return {
       ok: false as const,
       status: 409 as const,
-      error: "Workspace chat needs a stored desired SHA",
+      error: input.baseBranch
+        ? "base_branch_missing"
+        : "Workspace chat needs a stored desired SHA",
     }
   }
   const agentPassword = turnAgentPassword()
@@ -1476,6 +1485,8 @@ export function conversationSandboxWorkspace(input: {
   proxyEnv?: Record<string, string>
 }) {
   const { input: chatInput } = input
+  const cloneBranch =
+    chatInput.baseBranch || chatInput.defaultBranch?.trim() || "main"
   const opencodeHome = writeWorkspaceChatOpenCodeConfig({
     conversationId: chatInput.conversationId,
     modelBase: input.modelBase,
@@ -1487,8 +1498,7 @@ export function conversationSandboxWorkspace(input: {
     [WORKSPACE_CHAT_CLONE_URL_SECRET]: originUrlWithoutCredentials(
       input.desiredUrl,
     ),
-    [WORKSPACE_CHAT_CLONE_BRANCH_SECRET]:
-      chatInput.defaultBranch?.trim() || "main",
+    [WORKSPACE_CHAT_CLONE_BRANCH_SECRET]: cloneBranch,
     [WORKSPACE_CHAT_CLONE_SHA_SECRET]: chatInput.desiredSha?.trim() ?? "",
     [WORKSPACE_CHAT_OPENCODE_JSON_SECRET]: opencodeHome.configJson,
     ...(chatInput.lastBranch?.startsWith("ctxpipe/chat/")
@@ -1524,7 +1534,7 @@ export function conversationSandboxWorkspace(input: {
   return defineWorkspace({
     source: gitSource({
       url: originUrlWithoutCredentials(input.desiredUrl),
-      ref: chatInput.defaultBranch?.trim() || "main",
+      ref: cloneBranch,
       // Always present: the sandbox key covers whether auth exists, not the
       // token, and stock clone only authenticates when the token is non-empty.
       auth: { token: cloneToken },

@@ -101,15 +101,24 @@ export async function ensureConversation(input: {
   id: string
   source?: string
   workspaceId?: string
+  /**
+   * The base branch that the user picked (ADR-071), for a new conversation.
+   * `setUnstartedConversationBase` changes it until the first message.
+   */
+  baseBranch?: string
 }): Promise<ConversationRecord> {
   return orgSql(async () => {
     const orgId = requireCurrentOrgId()
     const userId = conversationActorUserId()
     const db = getOrgDb()
+    let defaultBranch: string | null = null
 
     if (input.workspaceId) {
       const [workspace] = await db
-        .select({ id: workspaces.id })
+        .select({
+          id: workspaces.id,
+          defaultBranch: workspaces.desiredDefaultBranch,
+        })
         .from(workspaces)
         .where(
           and(
@@ -125,6 +134,7 @@ export async function ensureConversation(input: {
           why: "Conversation create requires a Workspace in this organization",
         })
       }
+      defaultBranch = workspace.defaultBranch
     }
 
     const [existing] = await db
@@ -163,6 +173,11 @@ export async function ensureConversation(input: {
         workspaceId: input.workspaceId ?? null,
         source: input.source ?? (userId == null ? "mcp" : null),
         name: "New conversation",
+        // The default branch is stored as null: no base branch.
+        baseBranch:
+          input.baseBranch === defaultBranch
+            ? null
+            : (input.baseBranch ?? null),
       })
       .onConflictDoNothing()
       .returning(conversationFieldsWithCurrentPr())
@@ -194,6 +209,57 @@ export async function ensureConversation(input: {
   })
 }
 
+/**
+ * Set the base branch of a conversation that has no message yet (ADR-071):
+ * the user picked another branch in the composer. The default branch of the
+ * Workspace is stored as null. True when the base branch changed: the
+ * caller then removes the sandbox that starts from the old base branch.
+ */
+export async function setUnstartedConversationBase(input: {
+  conversationId: string
+  baseBranch: string
+}): Promise<boolean> {
+  return orgSql(async () => {
+    const orgId = requireCurrentOrgId()
+    const db = getOrgDb()
+    const [workspace] = await db
+      .select({ defaultBranch: workspaces.desiredDefaultBranch })
+      .from(conversations)
+      .innerJoin(
+        workspaces,
+        and(
+          eq(workspaces.id, conversations.workspaceId),
+          eq(workspaces.orgId, conversations.orgId),
+        ),
+      )
+      .where(
+        and(
+          eq(conversations.id, input.conversationId),
+          eq(conversations.orgId, orgId),
+          conversationActorWhere(),
+        ),
+      )
+      .limit(1)
+    if (!workspace) return false
+    const next =
+      input.baseBranch === workspace.defaultBranch ? null : input.baseBranch
+    const [changed] = await db
+      .update(conversations)
+      .set({ baseBranch: next, updatedAt: new Date() })
+      .where(
+        and(
+          eq(conversations.id, input.conversationId),
+          eq(conversations.orgId, orgId),
+          conversationActorWhere(),
+          isNull(conversations.lastMessageAt),
+          sql`${conversations.baseBranch} is distinct from ${next}`,
+        ),
+      )
+      .returning({ id: conversations.id })
+    return changed !== undefined
+  })
+}
+
 export async function persistConversationPublication(input: {
   conversationId: string
   lastChatPrNumber?: number
@@ -204,6 +270,8 @@ export async function persistConversationPublication(input: {
     const orgId = requireCurrentOrgId()
     const userId = requireCurrentUserId()
     const db = getOrgDb()
+    // A revision on another base branch (ADR-071) holds a tip of that
+    // branch, which the Workspace row does not hold: only the binding counts.
     const [binding] = await db
       .select({ id: workspaces.id })
       .from(workspaces)
@@ -213,7 +281,7 @@ export async function persistConversationPublication(input: {
               and ${workspaces.workspaceRepositoryUrl} = ${input.revision.remote.url}
               and ${workspaces.githubConnectionId} is not distinct from ${input.revision.remote.connectionId}
               and ${workspaces.desiredDefaultBranch} = ${input.revision.defaultBranch}
-              and ${workspaces.desiredSha} = ${input.revision.sha}`)
+              and (${input.revision.baseBranch != null} or ${workspaces.desiredSha} = ${input.revision.sha})`)
       .for("update")
     if (!binding) return false
     const [row] = await db
@@ -248,6 +316,7 @@ export async function getConversationSession(
   conversationId: string,
 ): Promise<{
   workspaceId: string | null
+  baseBranch: string | null
   lastBranch: string | null
   lastPushedSha: string | null
   lastChatPrNumber: number | null
@@ -257,6 +326,7 @@ export async function getConversationSession(
     const [row] = await db
       .select({
         workspaceId: conversations.workspaceId,
+        baseBranch: conversations.baseBranch,
         lastBranch: conversations.lastBranch,
         lastPushedSha: conversations.lastPushedSha,
         lastChatPrNumber: conversations.lastChatPrNumber,

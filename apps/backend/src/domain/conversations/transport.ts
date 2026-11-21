@@ -23,6 +23,8 @@ export type ConversationChatRequest = {
   workspaceId: string
   source?: string
   conversationId?: string
+  /** The base branch that the user picked for a new conversation (ADR-071). */
+  baseBranch?: string
   messages?: TanstackWorkspaceChatInput["messages"]
   threadId?: string
   runId?: string
@@ -331,6 +333,7 @@ function forwardedChatFields(record: Record<string, unknown>): {
   workspaceId: string
   source: string | undefined
   conversationId?: string
+  baseBranch?: string
 } {
   const forwarded =
     record.forwardedProps && typeof record.forwardedProps === "object"
@@ -350,7 +353,14 @@ function forwardedChatFields(record: Record<string, unknown>): {
   const conversationId =
     clientConversationId(forwarded.conversationId) ??
     clientConversationId(record.conversationId)
-  return { workspaceId, source, conversationId }
+  const baseBranch =
+    typeof forwarded.baseBranch === "string" ? forwarded.baseBranch : undefined
+  return {
+    workspaceId,
+    source,
+    conversationId,
+    ...(baseBranch ? { baseBranch } : {}),
+  }
 }
 
 /** Throws `ChatAttachmentError` for a user message with a part that is not text. */
@@ -382,6 +392,7 @@ export async function parseConversationChatRequest(
     workspaceId: raw.workspaceId,
     source: raw.source,
     conversationId: raw.conversationId,
+    baseBranch: raw.baseBranch,
     messages:
       rawMessages.length > 0
         ? (rawMessages as ConversationChatRequest["messages"])
@@ -413,6 +424,7 @@ export async function parseConversationChatRequest(
         source,
         conversationId:
           clientConversationId(forwarded.conversationId) ?? raw.conversationId,
+        baseBranch: raw.baseBranch,
         messages: params.messages,
         threadId: params.threadId,
         runId: params.runId,
