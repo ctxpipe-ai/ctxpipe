@@ -43,7 +43,7 @@ The AWS rows do not include credits (records of type `Credit`). A credit record 
 
 ## Environment
 
-The task definition sets the first three as plain env. Each provider input (the rows after them) comes from its env var when it is set (local runs and tests). Else, in the ECS task (ECS sets `ECS_CONTAINER_METADATA_URI_V4`), the run reads the secret `cost-telemetry/<NAME>` (for example `cost-telemetry/LINEAR_API_KEY`) once with `GetSecretValue`: the task role, region `AWS_REGION`, else `us-west-2`. The task reads them itself because ECS cannot start a task while an injected secret is empty. A missing input (no env var, no secret, no `AWSCURRENT` value, or an empty value) fails only its provider with `billing.error=missing_env`; another read error fails it with `secret_read`. The log line names each input that the run could not read with its class only (`inputs=LINEAR_API_KEY:missing_env`), never a value.
+The task definition sets the first three as plain env. Each provider input (the rows after them) comes from its env var when it is set (local runs and tests). Else, in the ECS task (ECS sets `ECS_CONTAINER_METADATA_URI_V4`), the run reads the secret `cost-telemetry/<NAME>` (for example `cost-telemetry/LINEAR_CLIENT_ID`) once with `GetSecretValue`: the task role, region `AWS_REGION`, else `us-west-2`. The task reads them itself because ECS cannot start a task while an injected secret is empty. A missing input (no env var, no secret, no `AWSCURRENT` value, or an empty value) fails only its provider with `billing.error=missing_env`; another read error fails it with `secret_read`. The log line names each input that the run could not read with its class only (`inputs=LINEAR_CLIENT_ID:missing_env`), never a value.
 
 | Variable | Use |
 | --- | --- |
@@ -54,7 +54,7 @@ The task definition sets the first three as plain env. Each provider input (the 
 | `BLACKSMITH_TOKEN` | Blacksmith organization token. |
 | `CLOUDFLARE_API_TOKEN` | Account Analytics: Read (R2) and Billing: Read (billing history). |
 | `CLOUDFLARE_ACCOUNT_ID` | The Cloudflare account id. |
-| `LINEAR_API_KEY` | A Linear API key with read permission only; it must see the workspace's subscription. |
+| `LINEAR_CLIENT_ID`, `LINEAR_CLIENT_SECRET` | The client id and secret of the `factory` Linear OAuth app (the agent hosts' app, keychain service `factory-linear`). Each run gets a token with the client credentials grant. The scopes are fixed in `src/providers/linear.ts`: they must be the same as the agent hosts' scopes, because Linear revokes all tokens of the app when a request asks for other scopes. |
 
 OpenRouter management keys and Blacksmith organization tokens also permit management actions. Neither provider has a read-only token for these APIs.
 

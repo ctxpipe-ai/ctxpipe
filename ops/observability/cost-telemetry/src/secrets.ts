@@ -14,7 +14,8 @@ const INPUTS = [
   "BLACKSMITH_TOKEN",
   "CLOUDFLARE_API_TOKEN",
   "CLOUDFLARE_ACCOUNT_ID",
-  "LINEAR_API_KEY",
+  "LINEAR_CLIENT_ID",
+  "LINEAR_CLIENT_SECRET",
 ]
 
 let loaded = new Map<string, string | ProviderError>()

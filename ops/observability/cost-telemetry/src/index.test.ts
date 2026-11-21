@@ -43,7 +43,8 @@ useEnv({
   BLACKSMITH_TOKEN: "bs-token",
   CLOUDFLARE_API_TOKEN: "cf-token",
   CLOUDFLARE_ACCOUNT_ID: "cf-account",
-  LINEAR_API_KEY: "lin-key",
+  LINEAR_CLIENT_ID: "lin-id",
+  LINEAR_CLIENT_SECRET: "lin-secret",
   AWS_ACCESS_KEY_ID: "AKIATASKROLE",
   AWS_SECRET_ACCESS_KEY: "task-secret",
   // Not an ECS task, also on a runner that is one: a missing input reads no secret.
@@ -118,7 +119,7 @@ describe("run", () => {
         HttpResponse.json({ message: "secret-ish body" }, { status: 403 }),
       ),
     )
-    delete process.env.LINEAR_API_KEY
+    delete process.env.LINEAR_CLIENT_SECRET
     expect(await run()).toBe(0)
     expect(statuses()).toEqual(
       ALL.map((provider) =>
@@ -183,7 +184,8 @@ describe("run with provider inputs from Secrets Manager", () => {
       "GITHUB_BILLING_TOKEN",
       "CLOUDFLARE_API_TOKEN",
       "CLOUDFLARE_ACCOUNT_ID",
-      "LINEAR_API_KEY",
+      "LINEAR_CLIENT_ID",
+      "LINEAR_CLIENT_SECRET",
     ]) {
       delete process.env[name]
     }
@@ -258,10 +260,13 @@ describe("run with provider inputs from Secrets Manager", () => {
       "cost-telemetry/CLOUDFLARE_ACCOUNT_ID",
       "cost-telemetry/CLOUDFLARE_API_TOKEN",
       "cost-telemetry/GITHUB_BILLING_TOKEN",
-      "cost-telemetry/LINEAR_API_KEY",
+      "cost-telemetry/LINEAR_CLIENT_ID",
+      "cost-telemetry/LINEAR_CLIENT_SECRET",
       "cost-telemetry/OPENROUTER_MANAGEMENT_KEY",
     ])
-    expect(logs.join("\n")).toContain("inputs=LINEAR_API_KEY:missing_env")
+    expect(logs.join("\n")).toContain(
+      "inputs=LINEAR_CLIENT_ID:missing_env,LINEAR_CLIENT_SECRET:missing_env",
+    )
     expect(logs.join("\n")).not.toContain("gh-secret")
   })
 
@@ -277,7 +282,8 @@ describe("run with provider inputs from Secrets Manager", () => {
           },
           "cost-telemetry/CLOUDFLARE_API_TOKEN": "cf-secret",
           "cost-telemetry/CLOUDFLARE_ACCOUNT_ID": "cf-account",
-          "cost-telemetry/LINEAR_API_KEY": "lin-secret",
+          "cost-telemetry/LINEAR_CLIENT_ID": "lin-id",
+          "cost-telemetry/LINEAR_CLIENT_SECRET": "lin-secret",
         },
         [],
       ),
@@ -356,6 +362,9 @@ function providers() {
     ),
     http.post("https://api.cloudflare.com/client/v4/graphql", () =>
       HttpResponse.json({ data: { viewer: { accounts: [{}] } } }),
+    ),
+    http.post("https://api.linear.app/oauth/token", () =>
+      HttpResponse.json({ access_token: "app-token", expires_in: 2_591_999 }),
     ),
     http.post("https://api.linear.app/graphql", () =>
       HttpResponse.json({

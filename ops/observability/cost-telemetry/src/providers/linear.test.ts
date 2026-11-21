@@ -2,6 +2,7 @@ import {
   afterAll,
   afterEach,
   beforeAll,
+  beforeEach,
   describe,
   expect,
   test,
@@ -16,14 +17,18 @@ import { useEnv } from "../test-env"
 import { rows } from "./linear"
 
 const LINEAR = "https://api.linear.app/graphql"
+const TOKEN = "https://api.linear.app/oauth/token"
 // February 2026 has 28 days, March has 31.
 const DAYS = ["2026-02-28", "2026-03-01"]
 
 const server = setupServer()
-useEnv({ LINEAR_API_KEY: "lin-key" })
+useEnv({ LINEAR_CLIENT_ID: "lin-id", LINEAR_CLIENT_SECRET: "lin-secret" })
 
 beforeAll(() => {
   server.listen({ onUnhandledRequest: "error" })
+})
+beforeEach(() => {
+  server.use(appToken())
 })
 afterEach(() => {
   server.resetHandlers()
@@ -37,7 +42,7 @@ describe("linear rows", () => {
     let query = ""
     server.use(
       http.post(LINEAR, async ({ request }) => {
-        expect(request.headers.get("Authorization")).toBe("lin-key")
+        expect(request.headers.get("Authorization")).toBe("Bearer app-token")
         const body: unknown = await request.json()
         query =
           isRecord(body) && typeof body.query === "string" ? body.query : ""
@@ -98,6 +103,7 @@ describe("linear rows", () => {
     })
     server.resetHandlers()
     server.use(
+      appToken(),
       http.post(LINEAR, () =>
         subscription({
           type: "basic_yearly",
@@ -139,6 +145,7 @@ describe("linear rows", () => {
     // A type without its billing variant does not say which price applies.
     server.resetHandlers()
     server.use(
+      appToken(),
       http.post(LINEAR, () =>
         subscription({
           type: "basic",
@@ -161,22 +168,68 @@ describe("linear rows", () => {
     )
     await expect(rows(DAYS)).rejects.toThrow("Authentication required")
     server.resetHandlers()
-    server.use(http.post(LINEAR, () => HttpResponse.json({ data: {} })))
+    server.use(
+      appToken(),
+      http.post(LINEAR, () => HttpResponse.json({ data: {} })),
+    )
     await expect(rows(DAYS)).rejects.toThrow(
       "Linear response was missing organization",
     )
     server.resetHandlers()
-    server.use(http.post(LINEAR, () => subscription({ type: "basic_yearly" })))
+    server.use(
+      appToken(),
+      http.post(LINEAR, () => subscription({ type: "basic_yearly" })),
+    )
     await expect(rows(DAYS)).rejects.toThrow(
       "Linear response was missing subscription.seats",
     )
   })
 
-  test("throws when the API key is missing", async () => {
-    delete process.env.LINEAR_API_KEY
-    await expect(rows(DAYS)).rejects.toThrow("LINEAR_API_KEY is required")
+  test("asks for the app token with the client credentials and the fixed scopes of the app", async () => {
+    let grant: URLSearchParams | undefined
+    let authorization: string | null = null
+    server.use(
+      http.post(TOKEN, async ({ request }) => {
+        authorization = request.headers.get("Authorization")
+        grant = new URLSearchParams(await request.text())
+        return HttpResponse.json({ access_token: "app-token", expires_in: 1 })
+      }),
+      http.post(LINEAR, () => subscription({ type: "basic_yearly", seats: 1 })),
+    )
+    await rows(DAYS)
+    expect(authorization).toBe(`Basic ${btoa("lin-id:lin-secret")}`)
+    expect(grant?.get("grant_type")).toBe("client_credentials")
+    // Other scopes than the agent hosts' revoke all tokens of the app.
+    expect(grant?.get("scope")).toBe(
+      "read,write,issues:create,comments:create,app:assignable,app:mentionable",
+    )
+  })
+
+  test("throws when the token request fails or gives no token", async () => {
+    server.use(
+      http.post(TOKEN, () =>
+        HttpResponse.json({ error: "invalid_client" }, { status: 401 }),
+      ),
+    )
+    await expect(rows(DAYS)).rejects.toThrow("Linear token HTTP 401")
+    server.resetHandlers()
+    server.use(http.post(TOKEN, () => HttpResponse.json({})))
+    await expect(rows(DAYS)).rejects.toThrow(
+      "Linear token response was missing access_token",
+    )
+  })
+
+  test("throws when a client credential is missing", async () => {
+    delete process.env.LINEAR_CLIENT_SECRET
+    await expect(rows(DAYS)).rejects.toThrow("LINEAR_CLIENT_SECRET is required")
   })
 })
+
+function appToken() {
+  return http.post(TOKEN, () =>
+    HttpResponse.json({ access_token: "app-token", expires_in: 2_591_999 }),
+  )
+}
 
 function subscription(fields: Record<string, unknown>) {
   return HttpResponse.json({ data: { organization: { subscription: fields } } })
