@@ -171,6 +171,17 @@ describe.each(proxies)("$name", ({ path }) => {
       filePart("broken.pdf", "application/pdf", Buffer.from("not a pdf")),
       'The PDF "broken.pdf" cannot be converted to text',
     ],
+    [
+      "a malformed file part",
+      {
+        type: "file",
+        file: {
+          filename: null,
+          file_data: `data:application/pdf;base64,${pdf.toString("base64")}`,
+        },
+      },
+      "A file part is malformed",
+    ],
   ])("refuses %s, and calls no model", async (_name, part, error) => {
     received = []
     const res = await complete(path, [part])

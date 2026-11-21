@@ -163,6 +163,17 @@ describe("convertFileParts", () => {
     },
   )
 
+  it.each([
+    { filename: null, file_data: "data:application/pdf;base64,JVBERi0=" },
+    "data:application/pdf;base64,JVBERi0=",
+  ])("refuses a malformed file part", async (file) => {
+    const result = await convertFileParts(body({ type: "file", file }))
+    expect(result).toEqual({
+      ok: false,
+      error: expect.stringContaining("A file part is malformed"),
+    })
+  })
+
   it("keeps an image part and a body with no file part as they are", async () => {
     const image = {
       type: "image_url",

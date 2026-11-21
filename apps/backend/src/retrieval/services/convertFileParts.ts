@@ -39,6 +39,11 @@ const filePartSchema = z.object({
     .optional(),
 })
 
+function isFilePart(part: unknown): boolean {
+  const type = (part as { type?: unknown } | null)?.type
+  return type === "file" || type === "input_file"
+}
+
 /** An image part with a data URL that is not an image (for example a PDF). */
 const notImageSchema = z.object({
   type: z.enum(["image_url", "input_image"]),
@@ -74,11 +79,18 @@ export async function convertFileParts<T>(
           error:
             "An image part holds a data URL that is not an image. Send a PDF as a file part.",
         }
-      const file = filePartSchema.safeParse(part)
-      if (!file.success) {
+      if (!isFilePart(part)) {
         content.push(part)
         continue
       }
+      // The type alone makes a file part: a malformed one is refused.
+      const file = filePartSchema.safeParse(part)
+      if (!file.success)
+        return {
+          ok: false,
+          error:
+            'A file part is malformed. Send { type: "file", file: { filename, file_data } }.',
+        }
       const text = await pdfText(file.data)
       if ("error" in text) return { ok: false, error: text.error }
       content.push({ type: "text", text: text.text })
