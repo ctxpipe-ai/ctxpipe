@@ -1,30 +1,27 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
-
 import { signedInHandlers } from "@/mocks/handlers"
 
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
+import preview from "../../../.storybook/preview"
 import { OAuthOrganizationSelector } from "./OAuthOrganizationSelector"
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Auth/OAuth Organization Selector",
   component: OAuthOrganizationSelector,
+  beforeEach: ({ msw }) => {
+    msw.use(...signedInHandlers)
+  },
   parameters: {
-    msw: { handlers: { session: signedInHandlers } },
     app: "root",
     layout: "fullscreen",
     review: { kind: "page" },
   },
-} satisfies Meta<typeof OAuthOrganizationSelector>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * OAuth screen where a user picks the organization that a client connection
  * uses: the user has two organizations.
  */
-export const MultipleOrganizations: Story = {
+export const MultipleOrganizations = meta.story({
   name: "Multiple organizations",
   parameters: {
     // The decorators need a router; the page lives at this path.
@@ -44,4 +41,4 @@ export const MultipleOrganizations: Story = {
     ],
     onContinue: () => undefined,
   },
-}
+})
