@@ -31,35 +31,6 @@ fn request(line: &[u8]) -> Result<(u64, Vec<String>), String> {
 /// The id of our one rule beside the rules of Kingfisher (`serve`).
 const URL_CREDENTIALS: &str = "url-credentials";
 
-/// True for a match of `url-credentials` that is a template, not a password:
-/// `${DB_PASSWORD}`, `$DB_PASSWORD`, `%(password)s`, `%PASSWORD%`,
-/// `{password}`, `{{password}}`, `<password>` or only `*`. A real password
-/// that only starts with one of these characters (`%21abc`, `$uperSecret`,
-/// `*abc123`) is not a template. Each other match is redacted, also one that
-/// might be a port and a query (`host:8443?email=a@b`): the text cannot tell
-/// them apart, and a redaction that was not needed leaks nothing.
-fn is_template(matched: &str) -> bool {
-    let is_identifier = |text: &str| {
-        let mut chars = text.chars();
-        matches!(chars.next(), Some(c) if c.is_ascii_alphabetic() || c == '_')
-            && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
-    };
-    let wrapped_in = |open: &str, close: &str| {
-        matched.len() > open.len() + close.len()
-            && matched.starts_with(open)
-            && matched.ends_with(close)
-    };
-    matched.chars().all(|c| c == '*')
-        || wrapped_in("{", "}")
-        || wrapped_in("<", ">")
-        || wrapped_in("${", "}")
-        || wrapped_in("%(", ")s")
-        || (wrapped_in("%", "%") && is_identifier(&matched[1..matched.len() - 1]))
-        || matched.strip_prefix('$').is_some_and(|name| {
-            is_identifier(name) && !name.chars().any(|c| c.is_ascii_lowercase())
-        })
-}
-
 /// The largest request line: more than the largest model request.
 const MAX_LINE_BYTES: u64 = 64 * 1024 * 1024;
 
@@ -74,24 +45,18 @@ pub fn serve(
 ) -> Result<(), String> {
     let mut rules = get_builtin_rules(None).map_err(|error| error.to_string())?;
     // Our one rule: Kingfisher's rules do not find the password of a plain
-    // URL, `scheme://user:password@host` of any scheme. The user can be
-    // empty (`redis://:password@host`) or an email address. The password
-    // runs to the last `@` before the host, so it can hold `@`, `%`, `?`,
-    // `#` and `'` (each valid in the userinfo of a URI). The scheme, the user
-    // and the password have no length limit. The host can be any text: a
-    // template (`@${DB_HOST}`), a name that starts with `_`, or empty for a
-    // Unix socket (`@/db?host=/var/run/postgresql`). The unnamed capture is
-    // the password, so only it becomes `[REDACTED:url-credentials]`. A user
-    // with no password (`user@host`) does not match, and `scrub` keeps a
-    // template password (`is_template`). Known gap: a
-    // password with an unencoded `/` does not match, because a `/` also
-    // starts the path of a URL with no credentials.
+    // URL. For `scheme://userinfo@` of any scheme, the whole userinfo up to
+    // the last `@` of the token becomes `[REDACTED:url-credentials]`, when
+    // it holds a `:` (a password part). The token ends at whitespace, `"`,
+    // `<`, `>` or a backtick. It fails safe: a part that only looks like a
+    // password (a port and a query, a template) is redacted too, because a
+    // redaction that was not needed leaks nothing, and a miss leaks a secret.
     rules.rules.insert(
         URL_CREDENTIALS.into(),
         RuleSyntax::new(
             URL_CREDENTIALS,
             "Credentials in a URL",
-            r#"(?i)\b[a-z][a-z0-9+.\-]*://[^\s:/?#"<>]*:([^\s/"<>]+)@[^\s"<>]"#,
+            r#"(?i)\b[a-z][a-z0-9+.\-]*://([^\s"<>`]*:[^\s"<>`]*)@"#,
         ),
     );
     let database = RulesDatabase::from_rule_collection_with_cache(
@@ -150,7 +115,6 @@ pub fn scrub(scanner: &Scanner, text: &str) -> Result<String, String> {
     let mut spans: Vec<(usize, usize, String)> = findings
         .into_iter()
         .filter(|finding| finding.rule().visible())
-        .filter(|finding| !(finding.rule_id == URL_CREDENTIALS && is_template(&finding.secret)))
         .map(|finding| {
             (
                 finding.location.start_offset,

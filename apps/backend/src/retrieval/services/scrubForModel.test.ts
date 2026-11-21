@@ -81,93 +81,69 @@ describe("scrubForModel", () => {
       )
   })
 
-  it("replaces the password of a URL of any scheme, and only the password", async () => {
+  it("replaces the whole userinfo of a URL of any scheme, up to its last @", async () => {
     // Made-up passwords: a random one, one that a person chose, and real
-    // passwords that start or hold a symbol.
+    // passwords that hold symbols.
     const passwords = [
       random(16),
       "hunter2",
       "%21abc%40x",
       "$uperSecret",
-      "*abc123",
       "p@ssw0rd",
       "S3cr#t!",
       "pa'ssw0rd",
-      // An `@` and then text that looks like a host and a port.
-      "p@ss:12345678",
-      // Digits, then text that looks like a query or a fragment.
-      "2024#Summer",
-      "2024#Summer=Fun",
-      "123?abc",
-      // A long password.
+      "ab/Cd+e=",
       random(400),
     ]
-    for (const url of [
-      "postgres://app:{}@db.example.test:5432/app",
-      "mysql://root:{}@10.0.0.5/db",
-      "redis://:{}@cache.example.test:6379",
-      "amqp://guest:{}@rabbit.example.test:5672/",
-      "https://bob:{}@git.example.test/repo.git",
-      "smtps://me@mail.example.test:{}@smtp.example.test",
-      "ftp://o'brien:{}@files.example.test",
-      // A host that is a template, or starts with `_`.
-      `postgres://app:{}@\${DB_HOST}:5432/app`,
-      "postgres://app:{}@{{host}}/app",
-      "postgres://app:{}@%(host)s/app",
-      "postgres://app:{}@_db/app",
-      // An empty host: a Unix socket.
-      "postgresql://app:{}@/db?host=/var/run/postgresql",
-      "mysql+pymysql://app:{}@/db?unix_socket=/cloudsql/p:r:i",
-      // A long scheme.
-      `${"a".repeat(40)}+ssh://git:{}@host.example.test`,
-      "x://u:{}@host.example.test",
-    ])
+    for (const [url, host] of [
+      ["postgres://app:{}", "db.example.test:5432/app"],
+      ["mysql://root:{}", "10.0.0.5/db"],
+      ["redis://:{}", "cache.example.test:6379"],
+      ["amqp://guest:{}", "rabbit.example.test:5672/"],
+      ["https://bob:{}", "git.example.test/repo.git"],
+      ["smtps://me@mail.example.test:{}", "smtp.example.test"],
+      ["x://u:{}", "/db?host=/var/run/postgresql"],
+    ] as const)
       for (const password of passwords)
         expect(
-          await scrubForModel(`Use ${url.replace("{}", password)} now.`),
-        ).toBe(`Use ${url.replace("{}", "[REDACTED:url-credentials]")} now.`)
+          await scrubForModel(
+            `Use ${url.replace("{}", password)}@${host} now.`,
+          ),
+        ).toBe(
+          `Use ${url.slice(0, url.indexOf("://") + 3)}[REDACTED:url-credentials]@${host} now.`,
+        )
   })
 
-  it("redacts through the last @ when the text cannot show where the password ends", async () => {
-    // A port and a query, or a password: the text cannot tell them apart,
-    // and a redaction that was not needed leaks nothing.
+  it("fails safe: a userinfo that only looks like a password is redacted too", async () => {
+    // A redaction that was not needed costs a placeholder; a miss leaks a
+    // secret. These are accepted false positives.
     for (const [text, scrubbed] of [
       [
         "https://example.test:8443?email=alice@example.test",
-        "https://example.test:[REDACTED:url-credentials]@example.test",
+        "https://[REDACTED:url-credentials]@example.test",
       ],
       [
-        "postgres://app:2024#Summer=Fun@db.example.test",
-        "postgres://app:[REDACTED:url-credentials]@db.example.test",
+        `postgres://user:\${DB_PASSWORD}@db.example.test/app`,
+        "postgres://[REDACTED:url-credentials]@db.example.test/app",
       ],
       [
         "redis://u:pw12345@cache.example.test:6379?x=a@b",
-        "redis://u:[REDACTED:url-credentials]@b",
+        "redis://[REDACTED:url-credentials]@b",
       ],
     ])
       expect(await scrubForModel(text)).toBe(scrubbed)
   })
 
-  it("keeps a URL or an address with no password, and a template password, as it is", async () => {
+  it("keeps an address and a URL with no password part as they are", async () => {
     const texts = [
       "user@host",
+      "https://user@host.example.test/path",
+      "postgres://user@db.example.test/app",
       "https://example.test/path?a=b",
+      "https://example.test:8443/a",
       "mailto:someone@example.test",
       "git@github.com:org/repo.git",
-      "postgres://user@db.example.test/app",
-      "https://example.test:8443/a",
-      "https://example.test/x?y=1:2@3",
       "The meeting is at 10:30@noon.",
-      ...[
-        `\${DB_PASSWORD}`,
-        "$DB_PASSWORD",
-        "%(password)s",
-        "%PASSWORD%",
-        "{{password}}",
-        "{password}",
-        "****",
-        "<password>",
-      ].map((password) => `postgres://user:${password}@db.example.test/app`),
     ]
     expect(await scrubForModel(texts)).toEqual(texts)
   })
