@@ -5,7 +5,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect, useState } from "react"
 
 import { GithubSelfHostedWizardModal } from "@/features/connectors/components/GithubSelfHostedWizardModal"
-import { getGithubConnectStartBranch } from "@/features/connectors/githubConnectFlow"
+import {
+  getGithubConnectStartBranch,
+  githubManageScopeUrl,
+} from "@/features/connectors/githubConnectFlow"
 import {
   fetchGithubInstallationSummary,
   githubConnectorKeys,
@@ -166,12 +169,9 @@ export function useGithubConnectFlow({
   const start = useCallback(
     (intent: "connect" | "manage_scope") => {
       if (!orgSlug.trim()) return
-      if (intent === "manage_scope" && installation?.appSlug?.trim()) {
-        openManagedInstallPopup(
-          `https://github.com/apps/${encodeURIComponent(
-            installation.appSlug.trim(),
-          )}/installations/select_target`,
-        )
+      const manageScopeUrl = githubManageScopeUrl(installation)
+      if (intent === "manage_scope" && manageScopeUrl) {
+        openManagedInstallPopup(manageScopeUrl)
         return
       }
       const branch = getGithubConnectStartBranch({

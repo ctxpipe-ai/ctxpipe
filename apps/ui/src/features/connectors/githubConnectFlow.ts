@@ -35,6 +35,20 @@ export function getGithubConnectStartBranch(args: {
   return "self_hosted_wizard"
 }
 
+/**
+ * The page where a user changes the repositories of a linked installation:
+ * the App's install page that the backend names (`installUrl`). GitHub shows
+ * the account picker there, as on `installations/select_target`, and gives
+ * the popup's `state` back to the App's setup URL. On a deployment behind a
+ * forwarder (the AWS PR previews, CTX-1441), the page is the forwarder's,
+ * which accepts only `installations/new`.
+ */
+export function githubManageScopeUrl(
+  installation: { installUrl?: string | null } | null | undefined,
+): string | null {
+  return installation?.installUrl || null
+}
+
 type GithubSetupOrganizationResolution =
   | { kind: "existing"; orgSlug: string }
   | { kind: "selected"; orgSlug: string }

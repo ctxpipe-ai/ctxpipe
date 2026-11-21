@@ -4,6 +4,11 @@ import { RequestError } from "octokit"
 
 import type { AppEnv } from "../../app/env.js"
 import { createGithubInstallationProofUrl } from "../../auth/github-installation-proof.js"
+import {
+  deploymentAppSlug,
+  githubAppInstallUrl,
+} from "../../auth/github-oauth-urls.js"
+import type { Env } from "../../config/env.js"
 import { attachGithubInstallation } from "../../domain/github-installation-attach.js"
 import type { GitHubInstallationShape } from "../../models/connection-rows.js"
 import {
@@ -96,6 +101,8 @@ const GitHubInstallationSchema = z
     installationId: z.number().nullable(),
     orgId: z.string(),
     appSlug: z.string().nullable().optional(),
+    /** The App's install page, where a user changes the repositories of the installation. */
+    installUrl: z.string().url().nullable(),
     accountSlug: z.string().nullable(),
     ingestAllRepositories: z.boolean(),
     includeFutureRepos: z.boolean(),
@@ -116,21 +123,17 @@ const GithubConnectorBootstrapResponseSchema = z
   })
   .openapi("GithubConnectorBootstrap")
 
-function hostedDefaultGithubAppInstallUrl(env: {
-  GITHUB_APP_ID?: string | null
-  GITHUB_PRIVATE_KEY?: string | null
-  GITHUB_APP_SLUG?: string | null
-}): string | null {
-  const slug = env.GITHUB_APP_SLUG?.trim() || "ctxpipe-agent"
+function hostedDefaultGithubAppInstallUrl(env: Env): string | null {
   const hasApp =
     Boolean(env.GITHUB_APP_ID?.trim()) &&
     Boolean(env.GITHUB_PRIVATE_KEY?.trim())
   if (!hasApp) return null
-  return `https://github.com/apps/${slug}/installations/new`
+  return githubAppInstallUrl(env, deploymentAppSlug(env))
 }
 
 async function githubInstallationResponsePayload(
   installation: GitHubInstallationShape,
+  env: Env,
 ) {
   const ingestionRepositoryCount = await countRepositoriesForGithubConnection(
     installation.id,
@@ -139,6 +142,9 @@ async function githubInstallationResponsePayload(
     id: installation.id,
     orgId: installation.orgId,
     appSlug: installation.appSlug,
+    installUrl: installation.appSlug
+      ? githubAppInstallUrl(env, installation.appSlug)
+      : null,
     installationId: installation.installationId,
     accountSlug: installation.accountSlug,
     ingestAllRepositories: installation.ingestAllRepositories,
@@ -650,7 +656,10 @@ export const githubInstallationReadRoutes = new OpenAPIHono<AppEnv>()
             env,
           )) ?? installation
       }
-      return c.json(await githubInstallationResponsePayload(installation), 200)
+      return c.json(
+        await githubInstallationResponsePayload(installation, c.var.env),
+        200,
+      )
     }) as never,
   )
 
@@ -730,7 +739,10 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
         privateKey: body.privateKey,
         webhookSecret: body.webhookSecret,
       })
-      return c.json(await githubInstallationResponsePayload(installation), 200)
+      return c.json(
+        await githubInstallationResponsePayload(installation, c.var.env),
+        200,
+      )
     } catch (e) {
       c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
         step: "github_installation.create_draft",
@@ -777,7 +789,10 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
       if (!installation) {
         return c.json({ error: "Unknown GitHub connection" }, 404)
       }
-      return c.json(await githubInstallationResponsePayload(installation), 200)
+      return c.json(
+        await githubInstallationResponsePayload(installation, c.var.env),
+        200,
+      )
     } catch (e) {
       c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
         step: "github_installation.patch_draft",
@@ -928,7 +943,10 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
       if (!installation) {
         return c.json({ error: "Unknown GitHub connection" }, 404)
       }
-      return c.json(await githubInstallationResponsePayload(installation), 200)
+      return c.json(
+        await githubInstallationResponsePayload(installation, c.var.env),
+        200,
+      )
     } catch (e) {
       if (e instanceof Error && e.name === "EvlogError") {
         throw e
@@ -1132,7 +1150,10 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
         )
       }
 
-      return c.json(await githubInstallationResponsePayload(installation), 200)
+      return c.json(
+        await githubInstallationResponsePayload(installation, c.var.env),
+        200,
+      )
     } catch (e) {
       c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
         step: "github_installation.update_options",

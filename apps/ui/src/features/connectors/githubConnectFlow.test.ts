@@ -4,6 +4,7 @@ import { githubInstallationIsLinked } from "@/features/connectors/queries/github
 
 import {
   getGithubConnectStartBranch,
+  githubManageScopeUrl,
   resolveGithubSetupOrganization,
 } from "./githubConnectFlow"
 
@@ -174,5 +175,30 @@ describe("resolveGithubSetupOrganization", () => {
         organizationSlugs: ["acme"],
       }),
     ).toEqual({ kind: "missing" })
+  })
+})
+
+describe("githubManageScopeUrl", () => {
+  it("opens the install page that the backend names, also a forwarder's", () => {
+    // installations/new, not installations/select_target: the forwarder of
+    // the AWS PR previews accepts only the install page (CTX-1441).
+    expect(
+      githubManageScopeUrl({
+        installUrl:
+          "https://previews.ctxpipe.dev/.to-github/pr-12/apps/ctxpipe-agent-preview/installations/new",
+      }),
+    ).toBe(
+      "https://previews.ctxpipe.dev/.to-github/pr-12/apps/ctxpipe-agent-preview/installations/new",
+    )
+    expect(
+      githubManageScopeUrl({
+        installUrl: "https://github.com/apps/ctxpipe-agent/installations/new",
+      }),
+    ).toBe("https://github.com/apps/ctxpipe-agent/installations/new")
+  })
+
+  it("opens nothing without an install page", () => {
+    expect(githubManageScopeUrl({ installUrl: null })).toBeNull()
+    expect(githubManageScopeUrl(undefined)).toBeNull()
   })
 })

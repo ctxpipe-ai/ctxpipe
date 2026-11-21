@@ -490,13 +490,13 @@ describe("POST /github/installation requires GitHub access (Postgres)", () => {
     })
 
     it("goes through the OAuth forwarder of the deployment, when it has one", async () => {
-      // The AWS PR previews (CTX-1426): the forwarder gives the state back
+      // The AWS PR previews (CTX-1441): the forwarder gives the state back
       // as this deployment sent it.
       const forwarded = createApp({
         ...env,
-        GITHUB_AUTHORIZE_URL:
-          "https://forwarder.example.test/github/authorize/pr-12",
-        GITHUB_REDIRECT_URI: "https://forwarder.example.test/github/callback",
+        GITHUB_WEB_URL: "https://forwarder.example.test/.to-github/pr-12",
+        GITHUB_REDIRECT_URI:
+          "https://forwarder.example.test/.auth/api/v1/auth/callback/github",
       })
       const res = await attach({ installationId }, forwarded)
       expect(res.status).toBe(403)
@@ -504,10 +504,10 @@ describe("POST /github/installation requires GitHub access (Postgres)", () => {
         ((await res.json()) as { authorizeUrl?: string }).authorizeUrl ?? "",
       )
       expect(url.origin + url.pathname).toBe(
-        "https://forwarder.example.test/github/authorize/pr-12",
+        "https://forwarder.example.test/.to-github/pr-12/login/oauth/authorize",
       )
       expect(url.searchParams.get("redirect_uri")).toBe(
-        "https://forwarder.example.test/github/callback",
+        "https://forwarder.example.test/.auth/api/v1/auth/callback/github",
       )
       // The UI sends the user only to the authorize page that the deployment
       // names.
@@ -517,7 +517,9 @@ describe("POST /github/installation requires GitHub access (Postgres)", () => {
       expect(
         ((await config.json()) as { githubAuthorizeUrl?: string })
           .githubAuthorizeUrl,
-      ).toBe("https://forwarder.example.test/github/authorize/pr-12")
+      ).toBe(
+        "https://forwarder.example.test/.to-github/pr-12/login/oauth/authorize",
+      )
 
       const done = await forwarded.request(
         `http://backend.test/.auth/api/v1/auth/callback/github?${new URLSearchParams({ code: "code-visible", state: url.searchParams.get("state") ?? "" })}`,
@@ -529,7 +531,43 @@ describe("POST /github/installation requires GitHub access (Postgres)", () => {
       )
       expect(codeExchanges).toHaveLength(1)
       expect(codeExchanges[0]?.redirect_uri).toBe(
-        "https://forwarder.example.test/github/callback",
+        "https://forwarder.example.test/.auth/api/v1/auth/callback/github",
+      )
+    })
+
+    it("names the install page of each installation's App: the deployment's through its forwarder", async () => {
+      // The AWS PR previews (CTX-1441): the forwarder marks the `state` that
+      // GitHub gives back to the deployment App's setup URL. A wizard App
+      // lists this deployment's own setup URL, so its page stays on GitHub.
+      const forwarded = createApp({
+        ...env,
+        GITHUB_WEB_URL: "https://forwarder.example.test/.to-github/pr-12",
+        GITHUB_REDIRECT_URI:
+          "https://forwarder.example.test/.auth/api/v1/auth/callback/github",
+      })
+      const deploymentCopy = await createDraftGithubConnection({
+        orgId: seed.orgId,
+        env,
+        githubAppId: "3",
+        appSlug: "ctxpipe-agent",
+        privateKey: ownAppPrivateKey,
+        webhookSecret: "webhook-secret",
+      })
+      const ownApp = await createOwnAppDraft()
+      const installUrlOf = async (connectionId: string) => {
+        const res = await forwarded.request(
+          `http://backend.test/${seed.orgSlug}/api/v1/github/installation?connectionId=${connectionId}`,
+          { headers: { cookie: seed.cookie } },
+        )
+        expect(res.status).toBe(200)
+        return ((await res.json()) as { installUrl: string | null }).installUrl
+      }
+
+      expect(await installUrlOf(deploymentCopy.id)).toBe(
+        "https://forwarder.example.test/.to-github/pr-12/apps/ctxpipe-agent/installations/new",
+      )
+      expect(await installUrlOf(ownApp.id)).toBe(
+        "https://github.com/apps/self-hosted-app/installations/new",
       )
     })
 
