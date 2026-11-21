@@ -1,10 +1,10 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
 import { Suspense } from "react"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
 import { conversationGitDiffHandler } from "@/mocks/workspace-handlers"
 
+import preview from "../../../.storybook/preview"
 import type { ConversationGitDiffItem } from "./types"
 import { WorkspaceConversationDiffPane } from "./WorkspaceConversationDiff"
 
@@ -49,7 +49,7 @@ const manyFiles: ConversationGitDiffItem[] = Array.from(
 const longPath =
   "knowledge/memory/decisions/archive/2026/ADR-046-workspace-revision-projection-identity-and-a-very-long-slug.md"
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Workspaces/ConversationDiffPane",
   component: WorkspaceConversationDiffPane,
   decorators: [
@@ -67,23 +67,21 @@ const meta = {
     layout: "fullscreen",
   },
   args: { orgSlug: "acme", conversationId: "conv_diff" },
-} satisfies Meta<typeof WorkspaceConversationDiffPane>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Diff pane of a conversation, which lists the file changes against main: the
  * branch has no changes, so a message says so.
  */
-export const DiffPaneEmpty: Story = {
+export const DiffPaneEmpty = meta.story({
   tags: ["required"],
   args: { conversationId: "conv_diff_empty" },
+  beforeEach: ({ msw }) => {
+    msw.use(conversationGitDiffHandler([]))
+  },
   parameters: {
     intent:
       "Catches a diff pane with no changes that shows an empty toolbar or no message. It says there are no changes against main. Not for diffs with files.",
-    msw: { handlers: { page: [conversationGitDiffHandler([])] } },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -95,7 +93,7 @@ export const DiffPaneEmpty: Story = {
     ).toBeVisible()
     await expect(canvas.queryByRole("toolbar")).not.toBeInTheDocument()
   },
-}
+})
 
 let manyFilesRequests = 0
 
@@ -103,22 +101,20 @@ let manyFilesRequests = 0
  * Diff pane of a conversation, which lists the file changes against main: 24
  * added, deleted, and changed files, all collapsed.
  */
-export const DiffPaneManyFiles: Story = {
+export const DiffPaneManyFiles = meta.story({
   tags: ["required"],
   args: { conversationId: "conv_diff_many" },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(/\/conversations\/conv_diff_many\/files\/diff$/, () => {
+        manyFilesRequests += 1
+        return HttpResponse.json({ base: "main", items: manyFiles })
+      }),
+    )
+  },
   parameters: {
     intent:
       "Catches a diff pane that drops files or sends extra requests. It lists every changed file with its status from one request. Not for one expanded file.",
-    msw: {
-      handlers: {
-        page: [
-          http.get(/\/conversations\/conv_diff_many\/files\/diff$/, () => {
-            manyFilesRequests += 1
-            return HttpResponse.json({ base: "main", items: manyFiles })
-          }),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     manyFilesRequests = 0
@@ -159,22 +155,24 @@ export const DiffPaneManyFiles: Story = {
     await userEvent.click(canvas.getByRole("button", { name: "Refresh" }))
     await waitFor(() => expect(manyFilesRequests).toBe(before + 1))
   },
-}
+})
 
 /**
  * Diff pane of a conversation, which lists the file changes against main: the
  * pane opened on one chosen file, highlighted and in view.
  */
-export const DiffPaneExpandedFile: Story = {
+export const DiffPaneExpandedFile = meta.story({
   tags: ["required"],
   args: {
     conversationId: "conv_diff_expanded",
     focusPath: "knowledge/decisions/ADR-021-decision.md",
   },
+  beforeEach: ({ msw }) => {
+    msw.use(conversationGitDiffHandler(manyFiles))
+  },
   parameters: {
     intent:
       "Catches a diff pane that does not open on the chosen file. The file row expands, stays highlighted, and scrolls into view. Not for the file list.",
-    msw: { handlers: { page: [conversationGitDiffHandler(manyFiles)] } },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -215,42 +213,40 @@ export const DiffPaneExpandedFile: Story = {
       expect(focused).toHaveAttribute("aria-expanded", "false"),
     )
   },
-}
+})
 
 /**
  * Diff pane of a conversation, which lists the file changes against main: a
  * very long file path is cut at the start, and the path was copied.
  */
-export const DiffPaneLongPaths: Story = {
+export const DiffPaneLongPaths = meta.story({
   tags: ["required"],
   args: { conversationId: "conv_diff_long" },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      conversationGitDiffHandler([
+        {
+          path: longPath,
+          status: "modified",
+          additions: 1,
+          deletions: 0,
+          oldBody: "a\n",
+          body: "a\nb\n",
+        },
+        {
+          path: "README.md",
+          status: "modified",
+          additions: 1,
+          deletions: 1,
+          oldBody: "x\n",
+          body: "y\n",
+        },
+      ]),
+    )
+  },
   parameters: {
     intent:
       "Catches a long file path that breaks the diff pane layout. The path must truncate and not push other rows out. Not for diff content.",
-    msw: {
-      handlers: {
-        page: [
-          conversationGitDiffHandler([
-            {
-              path: longPath,
-              status: "modified",
-              additions: 1,
-              deletions: 0,
-              oldBody: "a\n",
-              body: "a\nb\n",
-            },
-            {
-              path: "README.md",
-              status: "modified",
-              additions: 1,
-              deletions: 1,
-              oldBody: "x\n",
-              body: "y\n",
-            },
-          ]),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -277,53 +273,51 @@ export const DiffPaneLongPaths: Story = {
       canvas.getByRole("button", { name: "Path copied" }),
     ).toBeVisible()
   },
-}
+})
 
 /**
  * Diff pane of a conversation, which lists the file changes against main: a
  * renamed file, a binary file, and a file too large to show.
  */
-export const DiffPaneRenamedAndOmitted: Story = {
+export const DiffPaneRenamedAndOmitted = meta.story({
   tags: ["required"],
   args: { conversationId: "conv_diff_omitted" },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      conversationGitDiffHandler([
+        {
+          path: "docs/moved.md",
+          oldPath: "docs/old.md",
+          status: "renamed",
+          additions: 0,
+          deletions: 0,
+          oldBody: "same\n",
+          body: "same\n",
+        },
+        {
+          path: "assets/logo.png",
+          status: "modified",
+          additions: 0,
+          deletions: 0,
+          omitted: "binary",
+          oldBody: null,
+          body: null,
+        },
+        {
+          path: "data/dump.sql",
+          status: "added",
+          additions: 40_000,
+          deletions: 0,
+          omitted: "too_large",
+          oldBody: null,
+          body: null,
+        },
+      ]),
+    )
+  },
   parameters: {
     intent:
       "Catches a diff row for a renamed, binary, or huge file that shows a broken diff. It shows the rename and an omitted note. Not for normal text diffs.",
-    msw: {
-      handlers: {
-        page: [
-          conversationGitDiffHandler([
-            {
-              path: "docs/moved.md",
-              oldPath: "docs/old.md",
-              status: "renamed",
-              additions: 0,
-              deletions: 0,
-              oldBody: "same\n",
-              body: "same\n",
-            },
-            {
-              path: "assets/logo.png",
-              status: "modified",
-              additions: 0,
-              deletions: 0,
-              omitted: "binary",
-              oldBody: null,
-              body: null,
-            },
-            {
-              path: "data/dump.sql",
-              status: "added",
-              additions: 40_000,
-              deletions: 0,
-              omitted: "too_large",
-              oldBody: null,
-              body: null,
-            },
-          ]),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -350,27 +344,25 @@ export const DiffPaneRenamedAndOmitted: Story = {
       canvas.getByText("Total: 40000 added, 0 removed"),
     ).toBeInTheDocument()
   },
-}
+})
 
 /**
  * Diff pane of a conversation, which lists the file changes against main: the
  * snapshot of the turn is gone, so the diff is not available.
  */
-export const DiffPaneTurnGone: Story = {
+export const DiffPaneTurnGone = meta.story({
   tags: ["required"],
   args: { conversationId: "conv_diff_gone", turn: "run_gone" },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(/\/conversations\/conv_diff_gone\/files\/diff$/, () =>
+        HttpResponse.json({ error: "turn_snapshot_gone" }, { status: 410 }),
+      ),
+    )
+  },
   parameters: {
     intent:
       "Catches a diff of a turn whose snapshot is gone that shows an error screen or toolbar. It shows that the diff is no longer available. Not for current turns.",
-    msw: {
-      handlers: {
-        page: [
-          http.get(/\/conversations\/conv_diff_gone\/files\/diff$/, () =>
-            HttpResponse.json({ error: "turn_snapshot_gone" }, { status: 410 }),
-          ),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -381,4 +373,4 @@ export const DiffPaneTurnGone: Story = {
     )
     await expect(canvas.queryByRole("toolbar")).not.toBeInTheDocument()
   },
-}
+})

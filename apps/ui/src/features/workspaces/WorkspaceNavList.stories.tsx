@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
@@ -23,6 +22,7 @@ import {
 } from "@/mocks/workspace-upgrades-handlers"
 
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
+import preview from "../../../.storybook/preview"
 import {
   createdWorkspace,
   createdWritableWorkspaceDetail,
@@ -32,7 +32,7 @@ import {
 } from "./workspace-fixtures"
 import { WorkspaceNavList } from "./WorkspaceNavList"
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Workspaces/NavList",
   component: WorkspaceNavList,
   decorators: [
@@ -42,14 +42,14 @@ const meta = {
       </ul>
     ),
   ],
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...signedInHandlers,
+      activeMemberRoleHandler("admin"),
+      ...workspaceIngestionHandlers({}),
+    )
+  },
   parameters: {
-    msw: {
-      handlers: {
-        session: signedInHandlers,
-        role: [activeMemberRoleHandler("admin")],
-        ingestion: workspaceIngestionHandlers({}),
-      },
-    },
     app: "root",
     review: { kind: "component" },
     layout: "centered",
@@ -65,127 +65,101 @@ const meta = {
     currentWorkspaceSlug: "docs",
     onSelectNav: () => {},
   },
-} satisfies Meta<typeof WorkspaceNavList>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Workspace list in the side nav, where a member opens a Workspace or its
  * chats: two Workspaces, and the current one shows its chats.
  */
-export const MultipleWorkspaces: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceListHandler([docsWorkspace, readOnlyWorkspace]),
-          conversationsListHandler(docsConversations),
-          githubInstallationReposHandler(),
-        ],
-      },
-    },
+export const MultipleWorkspaces = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceListHandler([docsWorkspace, readOnlyWorkspace]),
+      conversationsListHandler(docsConversations),
+      githubInstallationReposHandler(),
+    )
   },
-}
+})
 
 /**
  * Workspace list in the side nav, where a member opens a Workspace or its
  * chats: the org has one Workspace with its chats.
  */
-export const SingleWorkspace: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceListHandler([docsWorkspace]),
-          conversationsListHandler(docsConversations),
-          githubInstallationReposHandler(),
-        ],
-      },
-    },
+export const SingleWorkspace = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceListHandler([docsWorkspace]),
+      conversationsListHandler(docsConversations),
+      githubInstallationReposHandler(),
+    )
   },
-}
+})
 
 /**
  * Workspace list in the side nav, where a member opens a Workspace or its
  * chats: the org has no Workspaces yet.
  */
-export const Empty: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [workspaceListHandler([]), githubInstallationReposHandler()],
-      },
-    },
+export const Empty = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(workspaceListHandler([]), githubInstallationReposHandler())
   },
-}
+})
 
 /**
  * Workspace list in the collapsed side nav rail, where a member opens a
  * Workspace: the Workspace list still loads.
  */
-export const Loading: Story = {
+export const Loading = meta.story({
   args: { expanded: false },
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) =>
-              /\/api\/v1\/workspaces$/.test(new URL(request.url).pathname),
-            async () => {
-              await delay("infinite")
-              return HttpResponse.json({
-                items: [],
-                lastUsedWorkspaceId: null,
-              })
-            },
-          ),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(
+        ({ request }) =>
+          /\/api\/v1\/workspaces$/.test(new URL(request.url).pathname),
+        async () => {
+          await delay("infinite")
+          return HttpResponse.json({
+            items: [],
+            lastUsedWorkspaceId: null,
+          })
+        },
+      ),
+    )
   },
-}
+})
 
 // The first read of the Workspace list fails, then Retry reads it again.
 let listReadFails = true
 
-const loadFailsParameters = {
-  msw: {
-    handlers: {
-      page: [
-        http.get(
-          ({ request }) =>
-            /\/api\/v1\/workspaces$/.test(new URL(request.url).pathname),
-          () =>
-            listReadFails
-              ? HttpResponse.json({ error: "boom" }, { status: 500 })
-              : HttpResponse.json({
-                  items: [docsWorkspace],
-                  lastUsedWorkspaceId: docsWorkspace.id,
-                }),
-        ),
-        conversationsListHandler(docsConversations),
-        githubInstallationReposHandler(),
-      ],
-    },
-  },
-}
+const loadFailsHandlers = [
+  http.get(
+    ({ request }) =>
+      /\/api\/v1\/workspaces$/.test(new URL(request.url).pathname),
+    () =>
+      listReadFails
+        ? HttpResponse.json({ error: "boom" }, { status: 500 })
+        : HttpResponse.json({
+            items: [docsWorkspace],
+            lastUsedWorkspaceId: docsWorkspace.id,
+          }),
+  ),
+  conversationsListHandler(docsConversations),
+  githubInstallationReposHandler(),
+]
 
 /**
  * Workspace list in the side nav, where a member opens a Workspace or its
  * chats: the first load failed, and Retry loaded the Workspace.
  */
-export const LoadFails: Story = {
-  beforeEach: () => {
+export const LoadFails = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(...loadFailsHandlers)
     listReadFails = true
   },
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as SingleWorkspace.",
     },
-    ...loadFailsParameters,
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -197,20 +171,18 @@ export const LoadFails: Story = {
       expect(canvas.queryByText("Could not load Workspaces.")).toBeNull(),
     )
   },
-}
+})
 
 /**
  * Workspace list in the collapsed side nav rail, where a member opens a
  * Workspace: the first load failed, the member pressed Retry, and the Workspace
  * and its chats show as icons.
  */
-export const LoadFailsCollapsed: Story = {
+export const LoadFailsCollapsed = meta.story({
   args: { expanded: false },
-  beforeEach: () => {
+  beforeEach: ({ msw }) => {
+    msw.use(...loadFailsHandlers)
     listReadFails = true
-  },
-  parameters: {
-    ...loadFailsParameters,
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -229,27 +201,14 @@ export const LoadFailsCollapsed: Story = {
       ).toBeNull(),
     )
   },
-}
+})
 
 /**
  * Workspace list in the side nav, where a member opens a Workspace: the member
  * pressed Add Workspace, so the dialog opens at its first step, before a
  * repository is chosen.
  */
-export const AddWorkspace: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceListHandler([docsWorkspace]),
-          conversationsListHandler(docsConversations),
-          orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
-          ...githubAppInstalledHandlers,
-          githubInstallationReposHandler(),
-        ],
-      },
-    },
-  },
+export const AddWorkspace = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(
@@ -264,35 +223,42 @@ export const AddWorkspace: Story = {
       ).toBeVisible(),
     )
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceListHandler([docsWorkspace]),
+      conversationsListHandler(docsConversations),
+      orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
+      ...githubAppInstalledHandlers,
+      githubInstallationReposHandler(),
+    )
+  },
+})
 
 /**
  * Workspace list in the side nav: an owner created a Workspace in the Add
  * Workspace dialog and opened it, so the dialog closed.
  */
-export const AddWorkspaceThenRepositories: Story = {
+export const AddWorkspaceThenRepositories = meta.story({
+  beforeEach: ({ msw }) => {
+    // Only an owner or admin sees the repository picker.
+    msw.use(
+      activeMemberRoleHandler("owner"),
+      workspaceListHandler([docsWorkspace]),
+      conversationsListHandler(docsConversations),
+      orgConnectionsHandler([
+        { id: "con_gh", type: "github", displayName: "acme" },
+      ]),
+      ...githubAppInstalledHandlers,
+      githubInstallationReposHandler(),
+      workspaceCreateHandler(createdWorkspace),
+      workspaceDetailHandler(createdWritableWorkspaceDetail),
+      workspaceSourcesHandler(workspaceSourceList()),
+      workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
+    )
+  },
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as SingleWorkspace.",
-    },
-    msw: {
-      handlers: {
-        // Only an owner or admin sees the repository picker.
-        role: [activeMemberRoleHandler("owner")],
-        page: [
-          workspaceListHandler([docsWorkspace]),
-          conversationsListHandler(docsConversations),
-          orgConnectionsHandler([
-            { id: "con_gh", type: "github", displayName: "acme" },
-          ]),
-          ...githubAppInstalledHandlers,
-          githubInstallationReposHandler(),
-          workspaceCreateHandler(createdWorkspace),
-          workspaceDetailHandler(createdWritableWorkspaceDetail),
-          workspaceSourcesHandler(workspaceSourceList()),
-          workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
-        ],
-      },
     },
   },
   play: async ({ canvasElement }) => {
@@ -325,4 +291,4 @@ export const AddWorkspaceThenRepositories: Story = {
     )
     await waitFor(() => expect(body.queryByRole("dialog")).toBeNull())
   },
-}
+})

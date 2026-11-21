@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
 import { expect, waitFor, within } from "storybook/test"
 
@@ -10,6 +9,7 @@ import {
 } from "@/mocks/workspace-sources-handlers"
 
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
+import preview from "../../../.storybook/preview"
 import type { OpenedPullRequest } from "./useAddToWorkspaces"
 
 /**
@@ -32,7 +32,7 @@ function MergeStepInSetup(props: {
   )
 }
 
-const meta = {
+const meta = preview.meta({
   title: "Components/WorkspaceSources/PullRequestsToMerge",
   component: MergeStepInSetup,
   decorators: [
@@ -42,8 +42,10 @@ const meta = {
       </div>
     ),
   ],
+  beforeEach: ({ msw }) => {
+    msw.use(...signedInHandlers)
+  },
   parameters: {
-    msw: { handlers: { session: signedInHandlers } },
     app: "root",
     review: { kind: "component" },
     layout: "fullscreen",
@@ -69,11 +71,7 @@ const meta = {
       },
     ],
   },
-} satisfies Meta<typeof MergeStepInSetup>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /** Whether the story user merged the scope change on GitHub. */
 let scopeMerged = false
@@ -84,32 +82,26 @@ let scopeMerged = false
  * requests merged and each link says Merged. One pull request removes a source,
  * and the other changes a scope. The remove merges first.
  */
-export const RemoveAndScopeChange: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.get("/acme/api/v1/workspaces/docs/sources", () =>
-            HttpResponse.json(workspaceSourceList()),
-          ),
-          http.get("/acme/api/v1/workspaces/eng/sources", () =>
-            HttpResponse.json(
-              workspaceSourceList({
-                items: [
-                  workspaceSourceFixture({
-                    path: "slack",
-                    provider: "slack",
-                    scope: { channels: [scopeMerged ? "C2" : "C1"] },
-                  }),
-                ],
+export const RemoveAndScopeChange = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get("/acme/api/v1/workspaces/docs/sources", () =>
+        HttpResponse.json(workspaceSourceList()),
+      ),
+      http.get("/acme/api/v1/workspaces/eng/sources", () =>
+        HttpResponse.json(
+          workspaceSourceList({
+            items: [
+              workspaceSourceFixture({
+                path: "slack",
+                provider: "slack",
+                scope: { channels: [scopeMerged ? "C2" : "C1"] },
               }),
-            ),
-          ),
-        ],
-      },
-    },
-  },
-  beforeEach: () => {
+            ],
+          }),
+        ),
+      ),
+    )
     scopeMerged = false
   },
   play: async ({ canvasElement }) => {
@@ -132,4 +124,4 @@ export const RemoveAndScopeChange: Story = {
     )
     await expect(canvas.getAllByText("Merged")).toHaveLength(2)
   },
-}
+})

@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
 import { type ComponentProps, useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
@@ -14,6 +13,7 @@ import {
 } from "@/mocks/workspace-handlers"
 
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
+import preview from "../../../.storybook/preview"
 import {
   codeAnswerMessages,
   docsConversationDetail,
@@ -38,7 +38,7 @@ const threadRoute = {
   conversationId: "conv_1",
 } satisfies StoryRouteParams
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Workspaces/ChatSession",
   component: WorkspaceChatSession,
   // The last step of the spring scroll of the thread depends on the timing of
@@ -53,6 +53,9 @@ const meta = {
       </div>
     ),
   ],
+  beforeEach: ({ msw }) => {
+    msw.use(...signedInHandlers, ...workspaceShellHandlers())
+  },
   parameters: {
     app: "root",
     review: { kind: "component" },
@@ -62,12 +65,6 @@ const meta = {
       orgSlug: "acme",
       workspaceSlug: "docs",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        session: signedInHandlers,
-        page: workspaceShellHandlers(),
-      },
-    },
   },
   args: {
     orgSlug: "acme",
@@ -76,11 +73,7 @@ const meta = {
     title: "New conversation",
     initialMessages: [],
   },
-} satisfies Meta<typeof WorkspaceChatSession>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 function threadArgs(
   messages: typeof docsConversationDetail.messages,
@@ -93,48 +86,45 @@ function threadArgs(
   }
 }
 
-/** The server has the same transcript as the thread that the page shows. */
-function threadHandlers(messages: typeof docsConversationDetail.messages) {
-  return {
-    handlers: {
-      page: [conversationChatHandler(messages), ...workspaceShellHandlers()],
-    },
-  }
-}
-
 /**
  * Chat session of a Workspace, where a member asks about the code: a member
  * opened a long thread, so it scrolls to the latest answer and the first turns
  * are above the view.
  */
-export const ThreadLong: Story = {
+export const ThreadLong = meta.story({
   args: threadArgs(longThreadMessages, "Billing"),
+  beforeEach: ({ msw }) => {
+    msw.use(conversationChatHandler(longThreadMessages))
+  },
   parameters: {
-    msw: threadHandlers(longThreadMessages),
     storyRoute: threadRoute,
   },
-}
+})
 
 /**
  * Chat session of a Workspace, where a member asks about the code: the answer
  * has Markdown headings, lists, and links.
  */
-export const MarkdownAnswer: Story = {
+export const MarkdownAnswer = meta.story({
   args: threadArgs(markdownAnswerMessages, "Auth"),
+  beforeEach: ({ msw }) => {
+    msw.use(conversationChatHandler(markdownAnswerMessages))
+  },
   parameters: {
-    msw: threadHandlers(markdownAnswerMessages),
     storyRoute: threadRoute,
   },
-}
+})
 
 /**
  * Chat session of a Workspace, where a member asks about the code: the answer
  * has a TypeScript code block with syntax colors.
  */
-export const CodeAnswer: Story = {
+export const CodeAnswer = meta.story({
   args: threadArgs(codeAnswerMessages, "Session helper"),
+  beforeEach: ({ msw }) => {
+    msw.use(conversationChatHandler(codeAnswerMessages))
+  },
   parameters: {
-    msw: threadHandlers(codeAnswerMessages),
     storyRoute: threadRoute,
   },
   play: async ({ canvasElement }) => {
@@ -155,30 +145,28 @@ export const CodeAnswer: Story = {
       { timeout: 15_000 },
     )
   },
-}
+})
 
 /**
  * Chat session of a Workspace, where a member asks about the code: the answer
  * has a finished reasoning block before the text.
  */
-export const Reasoning: Story = {
+export const Reasoning = meta.story({
   args: threadArgs(reasoningMessages, "Ledger"),
+  beforeEach: ({ msw }) => {
+    msw.use(conversationChatHandler(reasoningMessages))
+  },
   parameters: {
-    msw: threadHandlers(reasoningMessages),
     storyRoute: threadRoute,
   },
-}
+})
 
 /**
  * A follow-up turn that runs in the screenshot: the member sends `question`,
  * and the socket answers with `events` after the start of the run. The run
  * never finishes, so the thread shows the live turn and the Stop button.
  */
-function liveTurn(
-  question: string,
-  events: object[],
-  lastChunk: string,
-): Pick<Story, "args" | "beforeEach" | "play"> {
+function liveTurn(question: string, events: object[], lastChunk: string) {
   return {
     args: threadArgs(docsConversationDetail.messages, "Billing"),
     beforeEach: () =>
@@ -188,7 +176,7 @@ function liveTurn(
         { type: "CUSTOM", name: "sandbox-setup", value: { phase: "ready" } },
         ...events,
       ]).restore,
-    play: async ({ canvasElement }) => {
+    play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
       const canvas = within(canvasElement)
       await userEvent.type(
         canvas.getByPlaceholderText(/continue the conversation/i),
@@ -206,11 +194,6 @@ function liveTurn(
       await canvas.findByText(lastChunk, undefined, { timeout: SEND_WAIT_MS })
     },
   }
-}
-
-const liveTurnParameters = {
-  storyRoute: threadRoute,
-  msw: { handlers: { page: [...workspaceShellHandlers()] } },
 }
 
 /** A thought as the backend streams it; an open thought has no end yet. */
@@ -266,46 +249,50 @@ const refundsThought =
  * still writes its first thought, so the status line names the thought and Stop
  * shows.
  */
-export const ReasoningStreaming: Story = {
+export const ReasoningStreaming = meta.story({
   ...liveTurn(
     "Who can approve a refund?",
     [...thoughtEvents("reason_live", refundsThought, true)],
     "Finding the refund rules",
   ),
   parameters: {
-    ...liveTurnParameters,
+    storyRoute: threadRoute,
   },
-}
+})
 
 /**
  * Chat session of a Workspace, where a member asks about the code: the answer
  * has one finished tool call.
  */
-export const ToolUse: Story = {
+export const ToolUse = meta.story({
   args: threadArgs(oneToolMessages, "Login"),
+  beforeEach: ({ msw }) => {
+    msw.use(conversationChatHandler(oneToolMessages))
+  },
   parameters: {
-    msw: threadHandlers(oneToolMessages),
     storyRoute: threadRoute,
   },
-}
+})
 
 /**
  * Chat session of a Workspace, where a member asks about the code: the answer
  * has many finished tool calls.
  */
-export const ToolUseMany: Story = {
+export const ToolUseMany = meta.story({
   args: threadArgs(manyToolMessages, "Billing"),
+  beforeEach: ({ msw }) => {
+    msw.use(conversationChatHandler(manyToolMessages))
+  },
   parameters: {
-    msw: threadHandlers(manyToolMessages),
     storyRoute: threadRoute,
   },
-}
+})
 
 /**
  * Chat session of a Workspace, where a member asks about the code: the agent
  * searched and still reads a file, so the log counts both tools and Stop shows.
  */
-export const ToolUseStreaming: Story = {
+export const ToolUseStreaming = meta.story({
   ...liveTurn(
     "Which file holds the refund rules?",
     [
@@ -322,28 +309,30 @@ export const ToolUseStreaming: Story = {
     "Read 1 file",
   ),
   parameters: {
-    ...liveTurnParameters,
+    storyRoute: threadRoute,
   },
-}
+})
 
 /**
  * Chat session of a Workspace, where a member asks about the code: the answer
  * has reasoning and tool calls, all finished.
  */
-export const ReasoningAndTools: Story = {
+export const ReasoningAndTools = meta.story({
   args: threadArgs(reasoningAndToolsMessages, "Ledger"),
+  beforeEach: ({ msw }) => {
+    msw.use(conversationChatHandler(reasoningAndToolsMessages))
+  },
   parameters: {
-    msw: threadHandlers(reasoningAndToolsMessages),
     storyRoute: threadRoute,
   },
-}
+})
 
 /**
  * Chat session of a Workspace, where a member asks about the code: the agent
  * thought, searched, and still reads a file, so the log counts each step and
  * Stop shows.
  */
-export const ReasoningAndToolsStreaming: Story = {
+export const ReasoningAndToolsStreaming = meta.story({
   ...liveTurn(
     "Why ledger.md and not invoices.md?",
     [
@@ -364,27 +353,29 @@ export const ReasoningAndToolsStreaming: Story = {
     "Read 1 file",
   ),
   parameters: {
-    ...liveTurnParameters,
+    storyRoute: threadRoute,
   },
-}
+})
 
 /**
  * Chat session of a Workspace, where a member asks about the code: the answer
  * links to source files.
  */
-export const SourceLinks: Story = {
+export const SourceLinks = meta.story({
   args: threadArgs(sourceLinkMessages, "Payments API"),
+  beforeEach: ({ msw }) => {
+    msw.use(conversationChatHandler(sourceLinkMessages))
+  },
   parameters: {
-    msw: threadHandlers(sourceLinkMessages),
     storyRoute: threadRoute,
   },
-}
+})
 
 /**
  * Chat session of a Workspace, where a member asks about the code: the
  * Workspace is read-only, so the member cannot send a message.
  */
-export const ReadOnly: Story = {
+export const ReadOnly = meta.story({
   args: {
     ...threadArgs(docsConversationDetail.messages),
     workspace: readOnlyWorkspace,
@@ -395,23 +386,18 @@ export const ReadOnly: Story = {
       workspaceSlug: "handbook",
     } satisfies StoryRouteParams,
   },
-}
+})
 
 /**
  * Chat session of a Workspace, where a member asks about the code: the member
  * sent a question and the sandbox is still in setup.
  */
-export const Waiting: Story = {
+export const Waiting = meta.story({
   args: threadArgs(docsConversationDetail.messages),
   // The socket takes the run and answers nothing.
   beforeEach: () => installAguiWebSocket(() => []).restore,
   parameters: {
     storyRoute: threadRoute,
-    msw: {
-      handlers: {
-        page: [...workspaceShellHandlers()],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -427,14 +413,14 @@ export const Waiting: Story = {
       },
     )
   },
-}
+})
 
 /**
  * Chat session of a Workspace, where a member asks about the code: the member
  * sent a follow-up question, and the first words of the answer stream in while
  * Stop shows.
  */
-export const Streaming: Story = {
+export const Streaming = meta.story({
   ...liveTurn(
     "Where do refunds go?",
     [
@@ -448,35 +434,32 @@ export const Streaming: Story = {
     "Refunds go through the payments API and reverse the",
   ),
   parameters: {
-    ...liveTurnParameters,
+    storyRoute: threadRoute,
   },
-}
+})
 
 /**
  * Chat session of a Workspace, where a member asks about the code: the
  * organization is at its chat limit, so an alert tells the member to try again
  * later.
  */
-export const PrepareAtCapacity: Story = {
+export const PrepareAtCapacity = meta.story({
   args: threadArgs(docsConversationDetail.messages),
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.post(/\/api\/v1\/conversations\/[^/]+\/prepare$/, () =>
+        HttpResponse.json(
+          {
+            error:
+              "Workspace chat is at capacity: your organization already has 50 chats running. Try again in a few minutes, after an idle chat stops.",
+          },
+          { status: 429 },
+        ),
+      ),
+    )
+  },
   parameters: {
     storyRoute: threadRoute,
-    msw: {
-      handlers: {
-        page: [
-          http.post(/\/api\/v1\/conversations\/[^/]+\/prepare$/, () =>
-            HttpResponse.json(
-              {
-                error:
-                  "Workspace chat is at capacity: your organization already has 50 chats running. Try again in a few minutes, after an idle chat stops.",
-              },
-              { status: 429 },
-            ),
-          ),
-          ...workspaceShellHandlers(),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -488,13 +471,13 @@ export const PrepareAtCapacity: Story = {
         throw new Error("The at-capacity message is not shown")
     })
   },
-}
+})
 
 /**
  * Chat session of a Workspace, where a member asks about the code: the run
  * failed after a send, and an alert shows the error.
  */
-export const SendError: Story = {
+export const SendError = meta.story({
   args: threadArgs(docsConversationDetail.messages),
   beforeEach: () =>
     installAguiWebSocket((threadId, runId) => [
@@ -503,11 +486,6 @@ export const SendError: Story = {
     ]).restore,
   parameters: {
     storyRoute: threadRoute,
-    msw: {
-      handlers: {
-        page: [...workspaceShellHandlers()],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -518,7 +496,7 @@ export const SendError: Story = {
     await userEvent.click(canvas.getByRole("button", { name: /send/i }))
     await waitFor(() => canvas.getByRole("alert"), { timeout: SEND_WAIT_MS })
   },
-}
+})
 
 const stoppedQuestion = {
   id: "msg_user_stopped",
@@ -538,9 +516,10 @@ let retrySocket: ReturnType<typeof installAguiWebSocket> | undefined
  * a stopped alert. The member pressed Retry, which sent the question again, and
  * the answer arrived.
  */
-export const StoppedBeforeFirstAnswer: Story = {
+export const StoppedBeforeFirstAnswer = meta.story({
   args: threadArgs([stoppedQuestion], "Skipped file"),
-  beforeEach: () => {
+  beforeEach: ({ msw }) => {
+    msw.use(conversationChatHandler([stoppedQuestion]))
     retrySocket = installAguiWebSocket((threadId, runId) =>
       conversationAguiTextEvents({
         threadId,
@@ -553,14 +532,6 @@ export const StoppedBeforeFirstAnswer: Story = {
   },
   parameters: {
     storyRoute: threadRoute,
-    msw: {
-      handlers: {
-        page: [
-          conversationChatHandler([stoppedQuestion]),
-          ...workspaceShellHandlers(),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -595,7 +566,7 @@ export const StoppedBeforeFirstAnswer: Story = {
       "msg_user_stopped",
     ])
   },
-}
+})
 
 /** The socket of the stories that leave or stop a running turn. */
 let turnSocket: ReturnType<typeof installAguiWebSocket> | undefined
@@ -621,9 +592,11 @@ function LeavableChatSession(
   )
 }
 
-const runningTurn: Story = {
+const runningTurn = {
   args: threadArgs(docsConversationDetail.messages),
-  render: (args) => <LeavableChatSession {...args} />,
+  render: (args: ComponentProps<typeof WorkspaceChatSession>) => (
+    <LeavableChatSession {...args} />
+  ),
   // The turn starts and does not end. An abort frame gets no answer.
   beforeEach: () => {
     turnSocket = installAguiWebSocket((threadId, runId) =>
@@ -633,11 +606,6 @@ const runningTurn: Story = {
   },
   parameters: {
     storyRoute: threadRoute,
-    msw: {
-      handlers: {
-        page: [...workspaceShellHandlers()],
-      },
-    },
   },
 }
 
@@ -663,10 +631,7 @@ async function startTurn(canvasElement: HTMLElement) {
  * left the conversation during a turn. The chat closed its socket and sent no
  * abort frame, so the turn continues on the server.
  */
-export const LeaveDuringTurn: Story = {
-  parameters: {
-    ...runningTurn.parameters,
-  },
+export const LeaveDuringTurn = meta.story({
   ...runningTurn,
   play: async ({ canvasElement }) => {
     await startTurn(canvasElement)
@@ -685,17 +650,14 @@ export const LeaveDuringTurn: Story = {
     await new Promise((resolve) => setTimeout(resolve, 100))
     await expect(abortFrames()).toEqual([])
   },
-}
+})
 
 /**
  * Chat session of a Workspace, where a member asks about the code. The member
  * clicked Stop during a running turn, and the chat sent the abort frame of that
  * turn.
  */
-export const StopDuringTurn: Story = {
-  parameters: {
-    ...runningTurn.parameters,
-  },
+export const StopDuringTurn = meta.story({
   ...runningTurn,
   play: async ({ canvasElement }) => {
     const stop = await startTurn(canvasElement)
@@ -707,4 +669,4 @@ export const StopDuringTurn: Story = {
       expect(abortFrames()).toContainEqual({ type: "abort", runId }),
     )
   },
-}
+})

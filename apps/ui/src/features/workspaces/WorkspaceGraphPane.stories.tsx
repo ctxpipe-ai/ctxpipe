@@ -1,4 +1,4 @@
-import type { Decorator, Meta, StoryObj } from "@storybook/react-vite"
+import type { Decorator } from "@storybook/react-vite"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
 import { waitForGraphReady } from "@/features/knowledge-graph/graphReadyStory"
@@ -6,6 +6,7 @@ import { knowledgeGraphIntroStorageKey } from "@/features/knowledge-graph/knowle
 import { signedInHandlers } from "@/mocks/handlers"
 
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
+import preview from "../../../.storybook/preview"
 import { docsWorkspaceGraph } from "./workspace-fixtures"
 import { WorkspaceGraphPane } from "./WorkspaceGraphPane"
 
@@ -17,7 +18,7 @@ function paneFrame(widthClass: string): Decorator {
   )
 }
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Workspaces/GraphPane",
   component: WorkspaceGraphPane,
   decorators: [paneFrame("w-full")],
@@ -27,8 +28,10 @@ const meta = {
     pending: false,
     onRetry: () => undefined,
   },
+  beforeEach: ({ msw }) => {
+    msw.use(...signedInHandlers)
+  },
   parameters: {
-    msw: { handlers: { session: signedInHandlers } },
     app: "root",
     review: { kind: "component" },
     layout: "fullscreen",
@@ -37,17 +40,13 @@ const meta = {
       orgSlug: "acme",
     } satisfies StoryRouteParams,
   },
-} satisfies Meta<typeof WorkspaceGraphPane>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Knowledge graph pane of a Workspace, where a member explores how the
  * knowledge links: the graph has no nodes yet.
  */
-export const EmptyProjection: Story = {
+export const EmptyProjection = meta.story({
   args: {
     pending: false,
     graph: {
@@ -63,22 +62,22 @@ export const EmptyProjection: Story = {
       edges: [],
     },
   },
-}
+})
 
 /**
  * Knowledge graph pane of a Workspace, where a member explores how the
  * knowledge links: the graph request still runs, so a progress bar and its
  * status show.
  */
-export const Loading: Story = {
+export const Loading = meta.story({
   args: { graph: undefined, pending: true },
-}
+})
 
 /**
  * Knowledge graph pane of a Workspace, where a member explores how the
  * knowledge links: a full graph with nodes and edges.
  */
-export const Populated: Story = {
+export const Populated = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await expect(canvas.queryByText(/but no edges yet/)).toBeNull() // play-timing: ok the pane draws this note from props, with no request
@@ -87,38 +86,38 @@ export const Populated: Story = {
     pending: false,
     graph: docsWorkspaceGraph,
   },
-}
+})
 
 /**
  * Knowledge graph pane of a Workspace in a narrow pane, where a member explores
  * how the knowledge links: the graph data arrived, and ctxpipe prepares the
  * view.
  */
-export const NarrowPane: Story = {
+export const NarrowPane = meta.story({
   args: {
     pending: false,
     graph: docsWorkspaceGraph,
   },
   decorators: [paneFrame("w-96")],
-}
+})
 
 /**
  * Knowledge graph pane of a Workspace, where a member explores how the
  * knowledge links: a full graph in a wide pane.
  */
-export const WidePane: Story = {
+export const WidePane = meta.story({
   args: {
     pending: false,
     graph: docsWorkspaceGraph,
   },
   decorators: [paneFrame("w-full max-w-5xl")],
-}
+})
 
 /**
  * Knowledge graph pane of a Workspace, where a member explores how the
  * knowledge links: the graph has nodes but no edges, and a note says so.
  */
-export const NodesWithoutRelationships: Story = {
+export const NodesWithoutRelationships = meta.story({
   parameters: {
     intent:
       "Catches a graph with nodes but no edges that shows a blank pane. It says how many nodes it has and that it has no edges yet. Not for graphs with edges.",
@@ -142,7 +141,7 @@ export const NodesWithoutRelationships: Story = {
       expect(canvas.getByText(/has 28 nodes but no edges yet/)).toBeVisible(),
     )
   },
-}
+})
 
 /**
  * Knowledge graph pane of a Workspace, where a member explores how the
@@ -150,7 +149,7 @@ export const NodesWithoutRelationships: Story = {
  * for the org, so the tips do not open on the next visit. To hide them on the
  * tool rail has the same result.
  */
-export const ClosingTipsIsRemembered: Story = {
+export const ClosingTipsIsRemembered = meta.story({
   args: {
     pending: false,
     graph: docsWorkspaceGraph,
@@ -187,14 +186,14 @@ export const ClosingTipsIsRemembered: Story = {
       window.localStorage.getItem(knowledgeGraphIntroStorageKey("acme")),
     ).toBe("1")
   },
-}
+})
 
 /**
  * Knowledge graph pane of a Workspace, where a member explores how the
  * knowledge links. The member closed the tips on an earlier visit, so the graph
  * opens without them.
  */
-export const TipsClosedEarlier: Story = {
+export const TipsClosedEarlier = meta.story({
   args: {
     pending: false,
     graph: docsWorkspaceGraph,
@@ -215,4 +214,4 @@ export const TipsClosedEarlier: Story = {
       canvas.queryByRole("dialog", { name: "Knowledge graph tips" }),
     ).toBeNull()
   },
-}
+})

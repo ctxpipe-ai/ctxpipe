@@ -1,10 +1,10 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useState } from "react"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
 import { Button } from "@/components/ui/Button"
 import { workspaceSuggestions } from "@/features/workspaces/workspace-suggestions"
 
+import preview from "../../../.storybook/preview"
 import { readChatDraft, writeChatDraft } from "./chat-draft"
 import { MessageInputBox } from "./MessageInputBox"
 
@@ -27,7 +27,7 @@ function RemountHarness(props: Parameters<typeof MessageInputBox>[0]) {
   )
 }
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Chat/Message input",
   component: MessageInputBox,
   render: (args) => <RemountHarness {...args} />,
@@ -40,18 +40,14 @@ const meta = {
     sendMessage: fn(),
     draftKey,
   },
-} satisfies Meta<typeof MessageInputBox>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Chat message composer with a saved draft: the user types text, and the text
  * stays after a remount under the same draft key. The send then clears the
  * draft, so the composer is empty again.
  */
-export const DraftSurvivesRemount: Story = {
+export const DraftSurvivesRemount = meta.story({
   parameters: {
     visual: {
       skip: "Behavior test: it ends on a test harness with a Remount composer button, which the product does not render.",
@@ -79,14 +75,14 @@ export const DraftSurvivesRemount: Story = {
     })
     expect(canvas.getByRole("textbox")).toHaveValue("")
   },
-}
+})
 
 /**
  * Chat message composer with suggested prompts: the user opened the list and
  * picked one. The prompt fills the composer and the composer gets focus, but
  * nothing is sent.
  */
-export const SuggestionFillsComposer: Story = {
+export const SuggestionFillsComposer = meta.story({
   beforeEach: () => {
     writeChatDraft(draftKey, "")
   },
@@ -108,24 +104,24 @@ export const SuggestionFillsComposer: Story = {
     expect(composer).toHaveFocus()
     expect(args.sendMessage).not.toHaveBeenCalled()
   },
-}
+})
 
 /**
  * Chat message composer under a conversation thread: it has no draft key and no
  * saved draft, so it starts empty every time.
  */
-export const Thread: Story = {
+export const Thread = meta.story({
   args: {
     layout: "thread",
     draftKey: undefined,
   },
-}
+})
 
 /**
  * Chat message composer under a thread while a reply streams: the text box is
  * locked, and the Stop button stays active. A click on Stop cancels the turn.
  */
-export const StopDuringStreamedTurn: Story = {
+export const StopDuringStreamedTurn = meta.story({
   args: {
     layout: "thread",
     draftKey: undefined,
@@ -142,4 +138,4 @@ export const StopDuringStreamedTurn: Story = {
     expect(args.onStop).toHaveBeenCalledTimes(1)
     expect(args.sendMessage).not.toHaveBeenCalled()
   },
-}
+})

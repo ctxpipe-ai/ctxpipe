@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { HttpResponse, http } from "msw"
 import { StrictMode, useState } from "react"
@@ -19,10 +18,11 @@ import {
 } from "@/mocks/workspace-handlers"
 
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
+import preview from "../../../.storybook/preview"
 import { docsConversationDetail, docsWorkspace } from "./workspace-fixtures"
 import { WorkspaceChat } from "./WorkspaceChat"
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Workspaces/Chat",
   component: WorkspaceChat,
   decorators: [
@@ -32,8 +32,10 @@ const meta = {
       </div>
     ),
   ],
+  beforeEach: ({ msw }) => {
+    msw.use(...signedInHandlers)
+  },
   parameters: {
-    msw: { handlers: { session: signedInHandlers } },
     app: "root",
     layout: "fullscreen",
     storyRoute: {
@@ -47,57 +49,35 @@ const meta = {
     orgSlug: "acme",
     workspace: docsWorkspace,
   },
-} satisfies Meta<typeof WorkspaceChat>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Chat panel of a Workspace, where a member talks to the ctxpipe agent: no
  * conversation is open, so the empty composer for a new conversation shows.
  */
-export const ComposeEmpty: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: workspaceShellHandlers(),
-      },
-    },
+export const ComposeEmpty = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(...workspaceShellHandlers())
   },
-}
+})
 
 /**
  * Chat panel of a Workspace with the composer of a new conversation: the
  * branches of the repository still load, so the Base field is a gray bone
  * of its size. The member can already type and send on the default branch.
  */
-export const ComposeBranchesLoading: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceBranchesHandler("loading"),
-          ...workspaceShellHandlers(),
-        ],
-      },
-    },
+export const ComposeBranchesLoading = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(workspaceBranchesHandler("loading"), ...workspaceShellHandlers())
   },
-}
+})
 
 /**
  * Chat panel of a Workspace with the composer of a new conversation: the
  * branch list of the repository did not load, so the composer has no Base
  * field, and the conversation starts from the default branch.
  */
-export const ComposeBranchesUnavailable: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [workspaceBranchesHandler("error"), ...workspaceShellHandlers()],
-      },
-    },
-  },
+export const ComposeBranchesUnavailable = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByPlaceholderText(
@@ -109,7 +89,10 @@ export const ComposeBranchesUnavailable: Story = {
       ).not.toBeInTheDocument(),
     )
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(workspaceBranchesHandler("error"), ...workspaceShellHandlers())
+  },
+})
 
 const preparedBases: (string | undefined)[] = []
 const preparedConversationIds: string[] = []
@@ -119,30 +102,7 @@ const preparedConversationIds: string[] = []
  * member picked the branch release/2026-11 as the base, so the conversation
  * starts from that branch and its pull request targets it.
  */
-export const ComposeOnBaseBranch: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.post(
-            ({ request }) =>
-              /\/api\/v1\/conversations\/[^/]+\/prepare$/.test(
-                new URL(request.url).pathname,
-              ),
-            async ({ request }) => {
-              const body = (await request.json()) as { baseBranch?: string }
-              preparedBases.push(body.baseBranch)
-              preparedConversationIds.push(
-                new URL(request.url).pathname.split("/").at(-2) ?? "",
-              )
-              return new HttpResponse(null, { status: 204 })
-            },
-          ),
-          ...workspaceShellHandlers(),
-        ],
-      },
-    },
-  },
+export const ComposeOnBaseBranch = meta.story({
   play: async ({ canvasElement }) => {
     preparedBases.length = 0
     preparedConversationIds.length = 0
@@ -169,14 +129,36 @@ export const ComposeOnBaseBranch: Story = {
       ),
     )
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.post(
+        ({ request }) =>
+          /\/api\/v1\/conversations\/[^/]+\/prepare$/.test(
+            new URL(request.url).pathname,
+          ),
+        async ({ request }) => {
+          const body = (await request.json()) as { baseBranch?: string }
+          preparedBases.push(body.baseBranch)
+          preparedConversationIds.push(
+            new URL(request.url).pathname.split("/").at(-2) ?? "",
+          )
+          return new HttpResponse(null, { status: 204 })
+        },
+      ),
+      ...workspaceShellHandlers(),
+    )
+  },
+})
 
 /**
  * Chat panel of a Workspace, where a member talks to the ctxpipe agent: the
  * conversation detail is still loading.
  */
-export const ConversationLoading: Story = {
+export const ConversationLoading = meta.story({
   args: { conversationId: "conv_1" },
+  beforeEach: ({ msw }) => {
+    msw.use(conversationDetailLoadingHandler(), ...workspaceShellHandlers())
+  },
   parameters: {
     storyRoute: {
       pattern: "orgWorkspace",
@@ -184,21 +166,19 @@ export const ConversationLoading: Story = {
       workspaceSlug: "docs",
       conversationId: "conv_1",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: [conversationDetailLoadingHandler(), ...workspaceShellHandlers()],
-      },
-    },
   },
-}
+})
 
 /**
  * Chat panel of a Workspace, where a member talks to the ctxpipe agent: the
  * member opened a link to a conversation that does not exist, so a not found
  * message and New conversation show.
  */
-export const ConversationMissing: Story = {
+export const ConversationMissing = meta.story({
   args: { conversationId: "conv_missing" },
+  beforeEach: ({ msw }) => {
+    msw.use(conversationDetailHandler(null), ...workspaceShellHandlers())
+  },
   parameters: {
     storyRoute: {
       pattern: "orgWorkspace",
@@ -206,11 +186,6 @@ export const ConversationMissing: Story = {
       workspaceSlug: "docs",
       conversationId: "conv_missing",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: [conversationDetailHandler(null), ...workspaceShellHandlers()],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -225,14 +200,17 @@ export const ConversationMissing: Story = {
       ),
     ).toBeNull()
   },
-}
+})
 
 /**
  * Chat panel of a Workspace, where a member talks to the ctxpipe agent: the
  * conversation belongs to another Workspace, so a not found heading shows.
  */
-export const ConversationForeignWorkspace: Story = {
+export const ConversationForeignWorkspace = meta.story({
   args: { conversationId: "conv_other" },
+  beforeEach: ({ msw }) => {
+    msw.use(conversationDetailHandler(null), ...workspaceShellHandlers())
+  },
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as ConversationMissing.",
@@ -243,11 +221,6 @@ export const ConversationForeignWorkspace: Story = {
       workspaceSlug: "docs",
       conversationId: "conv_other",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: [conversationDetailHandler(null), ...workspaceShellHandlers()],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -257,15 +230,18 @@ export const ConversationForeignWorkspace: Story = {
       ).toBeVisible(),
     )
   },
-}
+})
 
 /**
  * Chat panel of a Workspace, where a member talks to the ctxpipe agent: the
  * member opened a stored conversation, so its messages and the follow-up
  * composer show.
  */
-export const ConversationReady: Story = {
+export const ConversationReady = meta.story({
   args: { conversationId: "conv_1" },
+  beforeEach: ({ msw }) => {
+    msw.use(...workspaceShellHandlers())
+  },
   parameters: {
     storyRoute: {
       pattern: "orgWorkspace",
@@ -273,13 +249,8 @@ export const ConversationReady: Story = {
       workspaceSlug: "docs",
       conversationId: "conv_1",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: workspaceShellHandlers(),
-      },
-    },
   },
-}
+})
 
 /**
  * Chat panel of a Workspace, where a member talks to the ctxpipe agent. The
@@ -287,8 +258,26 @@ export const ConversationReady: Story = {
  * shows. The play proves that Enter saves with PATCH, Escape cancels, and an
  * empty name does nothing.
  */
-export const RenameConversation: Story = {
+export const RenameConversation = meta.story({
   args: { conversationId: "conv_1" },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.patch(
+        ({ request }) =>
+          /\/api\/v1\/conversations\/conv_1$/.test(
+            new URL(request.url).pathname,
+          ),
+        async ({ request }) => {
+          const body = (await request.json()) as { name: string }
+          return HttpResponse.json({
+            ...docsConversationDetail.conversation,
+            name: body.name,
+          })
+        },
+      ),
+      ...workspaceShellHandlers(),
+    )
+  },
   parameters: {
     storyRoute: {
       pattern: "orgWorkspace",
@@ -296,26 +285,6 @@ export const RenameConversation: Story = {
       workspaceSlug: "docs",
       conversationId: "conv_1",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: [
-          http.patch(
-            ({ request }) =>
-              /\/api\/v1\/conversations\/conv_1$/.test(
-                new URL(request.url).pathname,
-              ),
-            async ({ request }) => {
-              const body = (await request.json()) as { name: string }
-              return HttpResponse.json({
-                ...docsConversationDetail.conversation,
-                name: body.name,
-              })
-            },
-          ),
-          ...workspaceShellHandlers(),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -363,7 +332,7 @@ export const RenameConversation: Story = {
     ).toBeInTheDocument()
     expect(canvas.queryByRole("dialog")).not.toBeInTheDocument()
   },
-}
+})
 
 /** The turn-change reads of `RenameBeatsAutomaticTitle`. A turn end reads them. */
 const renameStory = { turnReads: 0 }
@@ -373,43 +342,39 @@ const renameStory = { turnReads: 0 }
  * user renamed the conversation, and then the turn streams the automatic title.
  * The header keeps the name of the user and never shows the automatic title.
  */
-export const RenameBeatsAutomaticTitle: Story = {
+export const RenameBeatsAutomaticTitle = meta.story({
   args: { conversationId: "conv_1" },
-  beforeEach: () => {
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.patch(
+        ({ request }) =>
+          /\/api\/v1\/conversations\/conv_1$/.test(
+            new URL(request.url).pathname,
+          ),
+        async ({ request }) => {
+          const body = (await request.json()) as { name: string }
+          return HttpResponse.json({
+            ...docsConversationDetail.conversation,
+            name: body.name,
+          })
+        },
+      ),
+      http.get(
+        ({ request }) =>
+          /\/api\/v1\/conversations\/conv_1\/turns$/.test(
+            new URL(request.url).pathname,
+          ),
+        () => {
+          renameStory.turnReads += 1
+          return HttpResponse.json({ items: [], syncs: [] })
+        },
+      ),
+      ...workspaceShellHandlers(),
+    )
     renameStory.turnReads = 0
   },
   parameters: {
-    storyRoute: RenameConversation.parameters?.storyRoute,
-    msw: {
-      handlers: {
-        page: [
-          http.patch(
-            ({ request }) =>
-              /\/api\/v1\/conversations\/conv_1$/.test(
-                new URL(request.url).pathname,
-              ),
-            async ({ request }) => {
-              const body = (await request.json()) as { name: string }
-              return HttpResponse.json({
-                ...docsConversationDetail.conversation,
-                name: body.name,
-              })
-            },
-          ),
-          http.get(
-            ({ request }) =>
-              /\/api\/v1\/conversations\/conv_1\/turns$/.test(
-                new URL(request.url).pathname,
-              ),
-            () => {
-              renameStory.turnReads += 1
-              return HttpResponse.json({ items: [], syncs: [] })
-            },
-          ),
-          ...workspaceShellHandlers(),
-        ],
-      },
-    },
+    storyRoute: RenameConversation.input.parameters?.storyRoute,
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -486,7 +451,7 @@ export const RenameBeatsAutomaticTitle: Story = {
       socket.restore()
     }
   },
-}
+})
 
 function SocketCleanupHarness() {
   const [mounted, setMounted] = useState(false)
@@ -517,20 +482,18 @@ function SocketCleanupHarness() {
  * Chat panel of a Workspace in a test harness with a leave button: the user
  * left the conversation, and a Left conversation text replaces the chat.
  */
-export const SocketCleansUpOnLeave: Story = {
+export const SocketCleansUpOnLeave = meta.story({
   tags: ["required"],
   render: () => <SocketCleanupHarness />,
+  beforeEach: ({ msw }) => {
+    msw.use(...workspaceShellHandlers())
+  },
   parameters: {
     visual: {
       skip: "Behavior test: it ends on a test harness with a Left conversation marker, which the product does not render.",
     },
     intent:
       "Catches a conversation socket that stays open after the user leaves the conversation. Leaving must close every conversation socket. Not for messages.",
-    msw: {
-      handlers: {
-        page: workspaceShellHandlers(),
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -602,7 +565,7 @@ export const SocketCleansUpOnLeave: Story = {
       window.WebSocket = Original
     }
   },
-}
+})
 
 function ReloadReconnectHarness() {
   const [generation, setGeneration] = useState(0)
@@ -631,9 +594,12 @@ function ReloadReconnectHarness() {
  * conversation reloaded, opened a new socket, and shows the stored messages
  * again.
  */
-export const ReloadReconnects: Story = {
+export const ReloadReconnects = meta.story({
   tags: ["required"],
   render: () => <ReloadReconnectHarness />,
+  beforeEach: ({ msw }) => {
+    msw.use(...workspaceShellHandlers())
+  },
   parameters: {
     visual: {
       skip: "Behavior test: it ends on a test harness with a Reload conversation button, which the product does not render.",
@@ -646,11 +612,6 @@ export const ReloadReconnects: Story = {
       workspaceSlug: "docs",
       conversationId: "conv_1",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: workspaceShellHandlers(),
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -703,7 +664,7 @@ export const ReloadReconnects: Story = {
       window.WebSocket = Original
     }
   },
-}
+})
 
 function RapidRouteHarness() {
   const navigate = useNavigate()
@@ -766,9 +727,37 @@ function RapidRouteHarness() {
  * Chat panel of a Workspace in a test harness that switches conversations fast:
  * the last route wins, so the ready conversation shows its follow-up composer.
  */
-export const RapidRouteChanges: Story = {
+export const RapidRouteChanges = meta.story({
   tags: ["required"],
   render: () => <RapidRouteHarness />,
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(
+        ({ request }) =>
+          /\/api\/v1\/conversations\/[^/]+$/.test(
+            new URL(request.url).pathname,
+          ),
+        ({ request }) => {
+          const id = new URL(request.url).pathname.split("/").pop()
+          if (id === "conv_missing") {
+            return HttpResponse.json({ error: "not found" }, { status: 404 })
+          }
+          if (id === "conv_other") {
+            return HttpResponse.json({
+              ...docsConversationDetail,
+              conversation: {
+                ...docsConversationDetail.conversation,
+                id: "conv_other",
+                workspaceId: "ws_other",
+              },
+            })
+          }
+          return HttpResponse.json(docsConversationDetail)
+        },
+      ),
+      ...workspaceShellHandlers(),
+    )
+  },
   parameters: {
     visual: {
       skip: "Behavior test: it ends on a test harness with route buttons, which the product does not render.",
@@ -781,39 +770,6 @@ export const RapidRouteChanges: Story = {
       workspaceSlug: "docs",
       conversationId: "conv_1",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) =>
-              /\/api\/v1\/conversations\/[^/]+$/.test(
-                new URL(request.url).pathname,
-              ),
-            ({ request }) => {
-              const id = new URL(request.url).pathname.split("/").pop()
-              if (id === "conv_missing") {
-                return HttpResponse.json(
-                  { error: "not found" },
-                  { status: 404 },
-                )
-              }
-              if (id === "conv_other") {
-                return HttpResponse.json({
-                  ...docsConversationDetail,
-                  conversation: {
-                    ...docsConversationDetail.conversation,
-                    id: "conv_other",
-                    workspaceId: "ws_other",
-                  },
-                })
-              }
-              return HttpResponse.json(docsConversationDetail)
-            },
-          ),
-          ...workspaceShellHandlers(),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -847,7 +803,7 @@ export const RapidRouteChanges: Story = {
       canvas.queryByRole("heading", { name: "Conversation not found" }),
     ).toBeNull()
   },
-}
+})
 
 const SEND_WAIT_MS = 8_000
 const lateErrorConversationId = "conv_late"
@@ -893,9 +849,31 @@ function ComposeHarness() {
  * Chat panel of a Workspace, where a member talks to the ctxpipe agent: a later
  * send failed, the first answer stays, and the error shows as an alert.
  */
-export const LateErrorDoesNotClobberSuccess: Story = {
+export const LateErrorDoesNotClobberSuccess = meta.story({
   tags: ["required"],
   render: () => <ComposeHarness />,
+  beforeEach: ({ msw }) => {
+    msw.use(
+      conversationChatHandler(lateErrorDetail.messages),
+      http.get(
+        ({ request }) =>
+          /\/api\/v1\/conversations\/[^/]+$/.test(
+            new URL(request.url).pathname,
+          ),
+        ({ request }) => {
+          const id = new URL(request.url).pathname.split("/").pop()
+          return HttpResponse.json({
+            ...lateErrorDetail,
+            conversation: {
+              ...lateErrorDetail.conversation,
+              id,
+            },
+          })
+        },
+      ),
+      ...workspaceShellHandlers(),
+    )
+  },
   parameters: {
     intent:
       "Catches a late failed send that replaces a finished answer. The first answer stays visible and the error shows as an alert. Not for first turn streaming.",
@@ -904,30 +882,6 @@ export const LateErrorDoesNotClobberSuccess: Story = {
       orgSlug: "acme",
       workspaceSlug: "docs",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: [
-          conversationChatHandler(lateErrorDetail.messages),
-          http.get(
-            ({ request }) =>
-              /\/api\/v1\/conversations\/[^/]+$/.test(
-                new URL(request.url).pathname,
-              ),
-            ({ request }) => {
-              const id = new URL(request.url).pathname.split("/").pop()
-              return HttpResponse.json({
-                ...lateErrorDetail,
-                conversation: {
-                  ...lateErrorDetail.conversation,
-                  id,
-                },
-              })
-            },
-          ),
-          ...workspaceShellHandlers(),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -975,7 +929,7 @@ export const LateErrorDoesNotClobberSuccess: Story = {
       socket.restore()
     }
   },
-}
+})
 
 const firstTurnAnswer = "The billing service lives in the ledger package."
 
@@ -1039,7 +993,7 @@ function firstTurnEvents(threadId: string, runId: string): object[] {
  * during the turn, as on a real backend, so only the live stream can show the
  * answer.
  */
-export const FirstTurnStreamsLive: Story = {
+export const FirstTurnStreamsLive = meta.story({
   tags: ["required"],
   decorators: [
     (Story) => (
@@ -1049,6 +1003,18 @@ export const FirstTurnStreamsLive: Story = {
     ),
   ],
   render: () => <ComposeHarness />,
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(
+        ({ request }) =>
+          /\/api\/v1\/conversations\/[^/]+(?:\/chat)?$/.test(
+            new URL(request.url).pathname,
+          ),
+        () => HttpResponse.json({ error: "Not found" }, { status: 404 }),
+      ),
+      ...workspaceShellHandlers(),
+    )
+  },
   parameters: {
     intent:
       "Catches a first chat turn that does not stream live. Sandbox setup, thinking, the tool call, and the answer show in order without a reload. Not for chat API shapes or auth.",
@@ -1057,20 +1023,6 @@ export const FirstTurnStreamsLive: Story = {
       orgSlug: "acme",
       workspaceSlug: "docs",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) =>
-              /\/api\/v1\/conversations\/[^/]+(?:\/chat)?$/.test(
-                new URL(request.url).pathname,
-              ),
-            () => HttpResponse.json({ error: "Not found" }, { status: 404 }),
-          ),
-          ...workspaceShellHandlers(),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1131,7 +1083,7 @@ export const FirstTurnStreamsLive: Story = {
       socket.restore()
     }
   },
-}
+})
 
 /** Records each new status line label, in the order the user sees them. */
 function recordStatusLabels(root: HTMLElement) {
@@ -1179,11 +1131,12 @@ function followUpEvents(threadId: string, runId: string): object[] {
  * follow-up turn shows "Setting up sandbox" first, and "Thinking" only after
  * the sandbox is ready. No other label shows before the setup label.
  */
-export const FollowUpShowsSandboxSetupFirst: Story = {
+export const FollowUpShowsSandboxSetupFirst = meta.story({
   tags: ["required"],
   render: () => <ComposeHarness />,
+  beforeEach: FirstTurnStreamsLive.input.beforeEach,
   parameters: {
-    ...FirstTurnStreamsLive.parameters,
+    ...FirstTurnStreamsLive.input.parameters,
     intent:
       "Catches a follow-up turn that shows Thinking before the sandbox is ready. The status line shows Setting up sandbox first, with no other label before it. Not for the first turn.",
   },
@@ -1230,7 +1183,7 @@ export const FollowUpShowsSandboxSetupFirst: Story = {
       socket.restore()
     }
   },
-}
+})
 
 /** A turn that thinks, uses a tool, thinks again, and uses a second tool. */
 function interleavedTurnEvents(threadId: string, runId: string): object[] {
@@ -1286,11 +1239,12 @@ function interleavedTurnEvents(threadId: string, runId: string): object[] {
  * activity log lists thoughts and tool calls in stream order, also when a
  * thought comes after a tool call. Each tool row shows its detail.
  */
-export const LogKeepsStreamOrder: Story = {
+export const LogKeepsStreamOrder = meta.story({
   tags: ["required"],
   render: () => <ComposeHarness />,
+  beforeEach: FirstTurnStreamsLive.input.beforeEach,
   parameters: {
-    ...FirstTurnStreamsLive.parameters,
+    ...FirstTurnStreamsLive.input.parameters,
     intent:
       "Catches an activity log that reorders thoughts and tool calls. Rows follow the stream order, also when a thought comes after a tool call. Not for spacing or the closed log.",
   },
@@ -1324,7 +1278,7 @@ export const LogKeepsStreamOrder: Story = {
       socket.restore()
     }
   },
-}
+})
 
 const capacityError =
   "Workspace chat is at capacity: your organization already has 50 chats running."
@@ -1334,11 +1288,12 @@ const capacityError =
  * first turn failed at chat capacity, and the error shows. The composer holds
  * the message again, so the user can send it again without typing it.
  */
-export const FirstTurnFailureRestoresDraft: Story = {
+export const FirstTurnFailureRestoresDraft = meta.story({
   tags: ["required"],
   render: () => <ComposeHarness />,
+  beforeEach: FirstTurnStreamsLive.input.beforeEach,
   parameters: {
-    ...FirstTurnStreamsLive.parameters,
+    ...FirstTurnStreamsLive.input.parameters,
     intent:
       "Catches a failed first turn that loses the user's message. The error shows and the composer holds the message again to send. Not for successful turns.",
   },
@@ -1370,7 +1325,7 @@ export const FirstTurnFailureRestoresDraft: Story = {
       socket.restore()
     }
   },
-}
+})
 
 /** The conversation ids of the prepare requests that the story saw. */
 const preparedConversations: string[] = []
@@ -1381,8 +1336,31 @@ const preparedConversations: string[] = []
  * message. The first message then uses the prepared conversation, so the
  * session does not prepare again and the turn does not wait for it.
  */
-export const ComposeOpenPreparesSandbox: Story = {
+export const ComposeOpenPreparesSandbox = meta.story({
   render: () => <ComposeHarness />,
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.post(
+        ({ request }) =>
+          /\/api\/v1\/conversations\/[^/]+\/prepare$/.test(
+            new URL(request.url).pathname,
+          ),
+        ({ request }) => {
+          const id = new URL(request.url).pathname.split("/").at(-2)
+          if (id) preparedConversations.push(id)
+          return new HttpResponse(null, { status: 204 })
+        },
+      ),
+      http.get(
+        ({ request }) =>
+          /\/api\/v1\/conversations\/[^/]+(?:\/chat)?$/.test(
+            new URL(request.url).pathname,
+          ),
+        () => HttpResponse.json({ error: "Not found" }, { status: 404 }),
+      ),
+      ...workspaceShellHandlers(),
+    )
+  },
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as FirstTurnStreamsLive.",
@@ -1392,31 +1370,6 @@ export const ComposeOpenPreparesSandbox: Story = {
       orgSlug: "acme",
       workspaceSlug: "docs",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: [
-          http.post(
-            ({ request }) =>
-              /\/api\/v1\/conversations\/[^/]+\/prepare$/.test(
-                new URL(request.url).pathname,
-              ),
-            ({ request }) => {
-              const id = new URL(request.url).pathname.split("/").at(-2)
-              if (id) preparedConversations.push(id)
-              return new HttpResponse(null, { status: 204 })
-            },
-          ),
-          http.get(
-            ({ request }) =>
-              /\/api\/v1\/conversations\/[^/]+(?:\/chat)?$/.test(
-                new URL(request.url).pathname,
-              ),
-            () => HttpResponse.json({ error: "Not found" }, { status: 404 }),
-          ),
-          ...workspaceShellHandlers(),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     preparedConversations.length = 0
@@ -1447,4 +1400,4 @@ export const ComposeOpenPreparesSandbox: Story = {
       socket.restore()
     }
   },
-}
+})

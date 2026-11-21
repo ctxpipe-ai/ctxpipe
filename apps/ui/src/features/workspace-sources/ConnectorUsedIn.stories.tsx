@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
 import { signedInHandlers } from "@/mocks/handlers"
@@ -10,6 +9,7 @@ import {
 import { pendingWorkspaceUpgradesHandler } from "@/mocks/workspace-upgrades-handlers"
 
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
+import preview from "../../../.storybook/preview"
 import {
   docsWorkspace,
   readOnlyWorkspace,
@@ -17,7 +17,7 @@ import {
 import { CHOOSE_WORKSPACES_HINT } from "./ChooseWorkspacesStep"
 import { ConnectorUsedIn } from "./ConnectorUsedIn"
 
-const meta = {
+const meta = preview.meta({
   title: "Components/WorkspaceSources/ConnectorUsedIn",
   component: ConnectorUsedIn,
   decorators: [
@@ -27,13 +27,10 @@ const meta = {
       </div>
     ),
   ],
+  beforeEach: ({ msw }) => {
+    msw.use(...signedInHandlers, pendingWorkspaceUpgradesHandler({}))
+  },
   parameters: {
-    msw: {
-      handlers: {
-        session: signedInHandlers,
-        pendingUpgrades: [pendingWorkspaceUpgradesHandler({})],
-      },
-    },
     app: "root",
     review: { kind: "component" },
     layout: "fullscreen",
@@ -47,20 +44,13 @@ const meta = {
     connectionId: "con_story1",
     provider: "github",
   },
-} satisfies Meta<typeof ConnectorUsedIn>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Used in section of a connector, which lists the Workspaces that use the
  * connection: the Workspace list still loads.
  */
-export const Loading: Story = {
-  parameters: {
-    msw: { handlers: { page: [connectionUsageHandler("loading")] } },
-  },
+export const Loading = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() =>
@@ -69,24 +59,17 @@ export const Loading: Story = {
       ).toHaveAttribute("aria-busy", "true"),
     )
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(connectionUsageHandler("loading"))
+  },
+})
 
 /**
  * Used in section of a connector, which lists the Workspaces that use the
  * connection: no Workspace uses the GitHub connection yet, and the Add to
  * Workspaces dialog is open.
  */
-export const NotUsedInAnyWorkspace: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          connectionUsageHandler([]),
-          workspaceListHandler([docsWorkspace, readOnlyWorkspace]),
-        ],
-      },
-    },
-  },
+export const NotUsedInAnyWorkspace = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText("No Workspaces yet")
@@ -105,29 +88,20 @@ export const NotUsedInAnyWorkspace: Story = {
       expect(dialog.getByText(CHOOSE_WORKSPACES_HINT)).toBeVisible(),
     )
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      connectionUsageHandler([]),
+      workspaceListHandler([docsWorkspace, readOnlyWorkspace]),
+    )
+  },
+})
 
 /**
  * Used in section of a connector, which lists the Workspaces that use the
  * connection: one Workspace uses the GitHub connection, with its count of
  * linked repositories.
  */
-export const UsedInOneWorkspace: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          connectionUsageHandler([
-            connectionUsageItem({
-              workspaceSlug: "docs",
-              workspaceName: "Docs",
-              stat: "5 linked repositories",
-            }),
-          ]),
-        ],
-      },
-    },
-  },
+export const UsedInOneWorkspace = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const link = await canvas.findByRole("link", {
@@ -136,53 +110,26 @@ export const UsedInOneWorkspace: Story = {
     await expect(link).toBeVisible()
     await expect(canvas.queryByText("No Workspaces yet")).toBeNull()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      connectionUsageHandler([
+        connectionUsageItem({
+          workspaceSlug: "docs",
+          workspaceName: "Docs",
+          stat: "5 linked repositories",
+        }),
+      ]),
+    )
+  },
+})
 
 /**
  * Used in section of a connector, which lists the Workspaces that use the
  * connection: two Workspaces have an open pull request for the Notion source
  * that waits for a merge.
  */
-export const PullRequestAwaitingMerge: Story = {
+export const PullRequestAwaitingMerge = meta.story({
   args: { provider: "notion" },
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          connectionUsageHandler([
-            connectionUsageItem({
-              workspaceSlug: "docs",
-              workspaceName: "Docs",
-              stat: "",
-              pendingChanges: [
-                {
-                  path: "notion",
-                  provider: "notion",
-                  action: "add",
-                  pullRequestUrl: "https://github.com/acme/docs/pull/7",
-                  createdAt: "2026-10-13T10:00:00Z",
-                },
-              ],
-            }),
-            connectionUsageItem({
-              workspaceSlug: "ops",
-              workspaceName: "Ops",
-              stat: "2 Notion pages",
-              pendingChanges: [
-                {
-                  path: "runbooks",
-                  provider: "notion",
-                  action: "edit",
-                  pullRequestUrl: "https://github.com/acme/ops/pull/3",
-                  createdAt: "2026-10-13T10:00:00Z",
-                },
-              ],
-            }),
-          ]),
-        ],
-      },
-    },
-  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     // A Workspace with only an open pull request is a waiting step, not
@@ -205,74 +152,102 @@ export const PullRequestAwaitingMerge: Story = {
       "https://github.com/acme/ops/pull/3",
     ])
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      connectionUsageHandler([
+        connectionUsageItem({
+          workspaceSlug: "docs",
+          workspaceName: "Docs",
+          stat: "",
+          pendingChanges: [
+            {
+              path: "notion",
+              provider: "notion",
+              action: "add",
+              pullRequestUrl: "https://github.com/acme/docs/pull/7",
+              createdAt: "2026-10-13T10:00:00Z",
+            },
+          ],
+        }),
+        connectionUsageItem({
+          workspaceSlug: "ops",
+          workspaceName: "Ops",
+          stat: "2 Notion pages",
+          pendingChanges: [
+            {
+              path: "runbooks",
+              provider: "notion",
+              action: "edit",
+              pullRequestUrl: "https://github.com/acme/ops/pull/3",
+              createdAt: "2026-10-13T10:00:00Z",
+            },
+          ],
+        }),
+      ]),
+    )
+  },
+})
 
 /**
  * Used in list of a Confluence connection card on the Connectors page: three
  * Workspaces use the connection, and each row links to the Workspace with the
  * count of spaces that it syncs.
  */
-export const UsedInManyWorkspaces: Story = {
+export const UsedInManyWorkspaces = meta.story({
   args: { provider: "confluence" },
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          connectionUsageHandler([
-            connectionUsageItem({
-              workspaceSlug: "docs",
-              workspaceName: "Docs",
-              stat: "3 Confluence spaces",
-            }),
-            connectionUsageItem({
-              workspaceSlug: "handbook",
-              workspaceName: "Handbook",
-              stat: "1 Confluence space",
-            }),
-            connectionUsageItem({
-              workspaceSlug: "support",
-              workspaceName: "Support",
-              stat: "12 Confluence spaces",
-            }),
-          ]),
-        ],
-      },
-    },
-  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByRole("link", { name: "Docs · 3 Confluence spaces" })
     const section = canvas.getByRole("region", { name: "Used in" })
     await expect(within(section).getAllByRole("link")).toHaveLength(3)
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      connectionUsageHandler([
+        connectionUsageItem({
+          workspaceSlug: "docs",
+          workspaceName: "Docs",
+          stat: "3 Confluence spaces",
+        }),
+        connectionUsageItem({
+          workspaceSlug: "handbook",
+          workspaceName: "Handbook",
+          stat: "1 Confluence space",
+        }),
+        connectionUsageItem({
+          workspaceSlug: "support",
+          workspaceName: "Support",
+          stat: "12 Confluence spaces",
+        }),
+      ]),
+    )
+  },
+})
 
 /**
  * Used in section of a connector, which lists the Workspaces that use the
  * connection: one Workspace uses the GitHub connection, and its link opens the
  * source section of its settings.
  */
-export const UsedInLinksToSourceSection: Story = {
+export const UsedInLinksToSourceSection = meta.story({
   tags: ["required"],
+  beforeEach: ({ msw }) => {
+    msw.use(
+      connectionUsageHandler([
+        connectionUsageItem({
+          workspaceSlug: "docs",
+          workspaceName: "Docs",
+          stat: "5 linked repositories",
+        }),
+      ]),
+    )
+  },
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as UsedInOneWorkspace.",
     },
     intent:
       "Catches a connector usage row that links to the wrong place. The link must open the workspace settings pane at the source section of that connector. Not for usage counts.",
-    msw: {
-      handlers: {
-        page: [
-          connectionUsageHandler([
-            connectionUsageItem({
-              workspaceSlug: "docs",
-              workspaceName: "Docs",
-              stat: "5 linked repositories",
-            }),
-          ]),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -284,4 +259,4 @@ export const UsedInLinksToSourceSection: Story = {
       "/acme/ws/docs?pane=settings#source-github",
     )
   },
-}
+})

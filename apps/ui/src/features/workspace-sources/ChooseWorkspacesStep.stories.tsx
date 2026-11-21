@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, http } from "msw"
 import { type ComponentProps, useState } from "react"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
@@ -13,6 +12,7 @@ import {
 } from "@/mocks/workspace-upgrades-handlers"
 
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
+import preview from "../../../.storybook/preview"
 import {
   docsWorkspace,
   readOnlyWorkspace,
@@ -59,7 +59,7 @@ function lastRequests(args: StepProps) {
   return chooseWorkspacesRequests(value, args)
 }
 
-const meta = {
+const meta = preview.meta({
   title: "Components/WorkspaceSources/ChooseWorkspacesStep",
   component: StepWithState,
   decorators: [sourceDialogStoryFrame],
@@ -71,16 +71,6 @@ const meta = {
       pattern: "orgIndex",
       orgSlug: "acme",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        session: signedInHandlers,
-        pendingUpgrades: [pendingWorkspaceUpgradesHandler({})],
-        page: [
-          workspaceListHandler([docsWorkspace, readOnlyWorkspace]),
-          linearAvailableScopesHandler(),
-        ],
-      },
-    },
   },
   args: {
     orgSlug: "acme",
@@ -88,60 +78,55 @@ const meta = {
     connectionId: "con_li1",
     onChange: onStepChange,
   },
-  beforeEach: () => {
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...signedInHandlers,
+      pendingWorkspaceUpgradesHandler({}),
+      workspaceListHandler([docsWorkspace, readOnlyWorkspace]),
+      linearAvailableScopesHandler(),
+    )
     onStepChange.mockClear()
   },
-} satisfies Meta<typeof StepWithState>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Choose Workspaces step of a connector setup, where the user adds a source to
  * Workspaces: the Workspace list still loads.
  */
-export const Loading: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.get(/\/api\/v1\/workspaces$/, async () => {
-            await delay("infinite")
-          }),
-        ],
-      },
-    },
-  },
+export const Loading = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText("Loading Workspaces")
     await expect(canvas.getByText(CHOOSE_WORKSPACES_HINT)).toBeVisible()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(/\/api\/v1\/workspaces$/, async () => {
+        await delay("infinite")
+      }),
+    )
+  },
+})
 
 /**
  * Add to Workspaces step of a connector setup, where the user ticks the
  * Workspaces that get the new source: the list loaded and nothing is ticked
  * yet, so no scope editor shows, only a hint.
  */
-export const ShowsHint: Story = {
+export const ShowsHint = meta.story({
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByRole("checkbox", { name: docsWorkspace.displayName })
     await expect(canvas.getByText(CHOOSE_WORKSPACES_HINT)).toBeVisible()
     await expect(lastRequests(args)).toBeNull()
   },
-}
+})
 
 /**
  * Choose Workspaces step of a connector setup, where the user adds a source to
  * Workspaces: the org has no Workspaces yet, so the step offers to create one.
  */
-export const NoWorkspaces: Story = {
-  parameters: {
-    msw: { handlers: { page: [workspaceListHandler([])] } },
-  },
+export const NoWorkspaces = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() =>
@@ -152,14 +137,17 @@ export const NoWorkspaces: Story = {
       canvas.getByRole("button", { name: "Create a Workspace" }),
     ).toBeEnabled()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(workspaceListHandler([]))
+  },
+})
 
 /**
  * Choose Workspaces step of a connector setup, where the user adds a source to
  * Workspaces: the user picks one Workspace and one Linear team, so the step is
  * ready.
  */
-export const SingleWorkspace: Story = {
+export const SingleWorkspace = meta.story({
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(
@@ -172,14 +160,14 @@ export const SingleWorkspace: Story = {
     )
     await expect(lastRequests(args)).toHaveLength(1)
   },
-}
+})
 
 /**
  * Choose Workspaces step of a connector setup, where the user adds a source to
  * Workspaces: two Workspaces are picked, with a choice between one Linear scope
  * for both and a scope for each.
  */
-export const ChooseWorkspacesMulti: Story = {
+export const ChooseWorkspacesMulti = meta.story({
   parameters: {
     intent:
       "Catches a multi-workspace connector step that mixes the shared and per-workspace scope. Same scope shows one picker, different scope shows one for each workspace. Not for connector sign-in.",
@@ -220,7 +208,7 @@ export const ChooseWorkspacesMulti: Story = {
     await expect(lastRequests(args)).toBeNull()
     await expect(canvas.getByText(CHOOSE_WORKSPACES_HINT)).toBeVisible()
   },
-}
+})
 
 const docsAndHandbook = workspaceListHandler([docsWorkspace, readOnlyWorkspace])
 
@@ -230,23 +218,7 @@ const docsAndHandbook = workspaceListHandler([docsWorkspace, readOnlyWorkspace])
  * and links to its upgrade. The other Workspace stays usable. A Workspace below
  * the newest format refuses a source (CTX-935).
  */
-export const OneWorkspaceNeedsUpgrade: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        pendingUpgrades: [
-          pendingWorkspaceUpgradesHandler({
-            [docsWorkspace.slug]: [upgradeItemFixture()],
-          }),
-        ],
-        page: [
-          docsAndHandbook,
-          linearAvailableScopesHandler(),
-          activeMemberRoleHandler("owner"),
-        ],
-      },
-    },
-  },
+export const OneWorkspaceNeedsUpgrade = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByRole("checkbox", { name: docsWorkspace.displayName })
@@ -271,33 +243,24 @@ export const OneWorkspaceNeedsUpgrade: Story = {
       canvas.queryByText("Upgrade a Workspace before you add a source"),
     ).toBeNull()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      pendingWorkspaceUpgradesHandler({
+        [docsWorkspace.slug]: [upgradeItemFixture()],
+      }),
+      docsAndHandbook,
+      linearAvailableScopesHandler(),
+      activeMemberRoleHandler("owner"),
+    )
+  },
+})
 
 /**
  * Add to Workspaces step of a connector setup, seen by a member: each Workspace
  * needs the format upgrade, so a warning tells the member to ask an admin, and
  * each row is off with its upgrade link.
  */
-export const AllWorkspacesNeedUpgrade: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        pendingUpgrades: [
-          pendingWorkspaceUpgradesHandler({
-            [docsWorkspace.slug]: [upgradeItemFixture()],
-            [readOnlyWorkspace.slug]: [
-              upgradeItemFixture({ status: "failed" }),
-            ],
-          }),
-        ],
-        page: [
-          docsAndHandbook,
-          linearAvailableScopesHandler(),
-          activeMemberRoleHandler("member"),
-        ],
-      },
-    },
-  },
+export const AllWorkspacesNeedUpgrade = meta.story({
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText("Upgrade a Workspace before you add a source")
@@ -312,7 +275,18 @@ export const AllWorkspacesNeedUpgrade: Story = {
     ).toHaveLength(2)
     await expect(lastRequests(args)).toBeNull()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      pendingWorkspaceUpgradesHandler({
+        [docsWorkspace.slug]: [upgradeItemFixture()],
+        [readOnlyWorkspace.slug]: [upgradeItemFixture({ status: "failed" })],
+      }),
+      docsAndHandbook,
+      linearAvailableScopesHandler(),
+      activeMemberRoleHandler("member"),
+    )
+  },
+})
 
 /**
  * Add to Workspaces step of a connector setup, where the user adds a source to
@@ -320,24 +294,20 @@ export const AllWorkspacesNeedUpgrade: Story = {
  * yet, so its row is off and links to its upgrade. The scan did not record an
  * item, but the read still lists the Workspace with its format.
  */
-export const BelowFormatWithNoUpgradeRowYet: Story = {
+export const BelowFormatWithNoUpgradeRowYet = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      pendingWorkspaceUpgradesHandler({}, undefined, {
+        formats: { [docsWorkspace.slug]: 1 },
+      }),
+      docsAndHandbook,
+      linearAvailableScopesHandler(),
+      activeMemberRoleHandler("owner"),
+    )
+  },
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as OneWorkspaceNeedsUpgrade.",
-    },
-    msw: {
-      handlers: {
-        pendingUpgrades: [
-          pendingWorkspaceUpgradesHandler({}, undefined, {
-            formats: { [docsWorkspace.slug]: 1 },
-          }),
-        ],
-        page: [
-          docsAndHandbook,
-          linearAvailableScopesHandler(),
-          activeMemberRoleHandler("owner"),
-        ],
-      },
     },
   },
   play: async ({ canvasElement }) => {
@@ -357,56 +327,38 @@ export const BelowFormatWithNoUpgradeRowYet: Story = {
       canvas.getByRole("link", { name: "Review upgrade" }),
     ).toHaveAttribute("href", "/acme/ws/docs?pane=settings#upgrades")
   },
-}
+})
 
 /**
  * Add to Workspaces step of a connector setup, where the user adds a source to
  * Workspaces: the format check still loads, so a skeleton shows and no rows.
  * The step cannot tell yet which Workspace the server refuses.
  */
-export const NoRowsWhileFormatCheckLoads: Story = {
+export const NoRowsWhileFormatCheckLoads = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(/\/workspace-upgrades\/pending$/, () => delay("infinite")),
+      docsAndHandbook,
+      linearAvailableScopesHandler(),
+      activeMemberRoleHandler("owner"),
+    )
+  },
   parameters: {
     visual: { skip: "Behavior test: it ends in the same state as Loading." },
-    msw: {
-      handlers: {
-        pendingUpgrades: [
-          http.get(/\/workspace-upgrades\/pending$/, () => delay("infinite")),
-        ],
-        page: [
-          docsAndHandbook,
-          linearAvailableScopesHandler(),
-          activeMemberRoleHandler("owner"),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText("Loading Workspaces")
     await expect(canvas.queryAllByRole("checkbox")).toHaveLength(0)
   },
-}
+})
 
 /**
  * Add to Workspaces step of a connector setup, where the user adds a source to
  * Workspaces: the format check failed, so the rows are off, and an error says
  * why and gives Retry.
  */
-export const FormatCheckFailed: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        pendingUpgrades: [
-          pendingWorkspaceUpgradesHandler({}, undefined, { answer: "error" }),
-        ],
-        page: [
-          docsAndHandbook,
-          linearAvailableScopesHandler(),
-          activeMemberRoleHandler("owner"),
-        ],
-      },
-    },
-  },
+export const FormatCheckFailed = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText(
@@ -418,4 +370,12 @@ export const FormatCheckFailed: Story = {
         canvas.getByRole("checkbox", { name: workspace.displayName }),
       ).toBeDisabled()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      pendingWorkspaceUpgradesHandler({}, undefined, { answer: "error" }),
+      docsAndHandbook,
+      linearAvailableScopesHandler(),
+      activeMemberRoleHandler("owner"),
+    )
+  },
+})

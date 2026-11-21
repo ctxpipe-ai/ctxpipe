@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { PAGERDUTY_SOURCE_MAX_SERVICES } from "backend/domain/workspace-sources/providers/pagerduty"
 import { HttpResponse, http } from "msw"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
@@ -7,13 +6,17 @@ import { signedInHandlers } from "@/mocks/handlers"
 import { pagerdutyServicesHandler } from "@/mocks/pagerduty-handlers"
 
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
+import preview from "../../../../.storybook/preview"
 import { sourceDialogStoryFrame } from "../source-dialog-story-frame"
 import { PagerdutyScopeEditor } from "./pagerduty"
 
-const meta = {
+const meta = preview.meta({
   title: "Components/WorkspaceSources/PagerdutyScopeEditor",
   component: PagerdutyScopeEditor,
   decorators: [sourceDialogStoryFrame],
+  beforeEach: ({ msw }) => {
+    msw.use(...signedInHandlers, pagerdutyServicesHandler)
+  },
   parameters: {
     app: "root",
     review: { kind: "component" },
@@ -22,9 +25,6 @@ const meta = {
       pattern: "orgIndex",
       orgSlug: "acme",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: { session: signedInHandlers, page: [pagerdutyServicesHandler] },
-    },
   },
   args: {
     orgSlug: "acme",
@@ -33,17 +33,13 @@ const meta = {
     initialScope: {},
     onChange: fn(),
   },
-} satisfies Meta<typeof PagerdutyScopeEditor>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * PagerDuty scope editor, where the user picks the services of a Workspace
  * source: the user picks two services, one from the second page of the list.
  */
-export const SelectServices: Story = {
+export const SelectServices = meta.story({
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
     await waitFor(() =>
@@ -67,14 +63,14 @@ export const SelectServices: Story = {
     await expect(within(selected).getByText("checkout-api")).toBeVisible()
     await expect(within(selected).getByText("status-page")).toBeVisible()
   },
-}
+})
 
 /**
  * PagerDuty scope editor, where the user picks the services of a Workspace
  * source: a search hides a selected service, but it stays in the selected list
  * with its name.
  */
-export const SearchKeepsTheSelection: Story = {
+export const SearchKeepsTheSelection = meta.story({
   args: { label: "On-call", initialScope: { services: ["PSVC001"] } },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
@@ -109,14 +105,14 @@ export const SearchKeepsTheSelection: Story = {
       services: ["PSVC001", "PSVC002"],
     })
   },
-}
+})
 
 /**
  * PagerDuty scope editor, where the user picks the services of a Workspace
  * source: the user removes the last selected service, so the scope is not
  * ready.
  */
-export const RemoveTheLastService: Story = {
+export const RemoveTheLastService = meta.story({
   args: { initialScope: { services: ["PSVC002"] } },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
@@ -130,29 +126,14 @@ export const RemoveTheLastService: Story = {
     await expect(args.onChange).toHaveBeenLastCalledWith(null)
     await expect(canvas.getByText("Select at least one service.")).toBeVisible()
   },
-}
+})
 
 /**
  * PagerDuty scope editor in the Add source dialog: the request for the
  * PagerDuty services failed, so an error alert stands in place of the service
  * list.
  */
-export const ServiceListFails: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname.endsWith(
-                "/api/v1/connectors/pagerduty/available-services",
-              ),
-            () => HttpResponse.json({ error: "Server error" }, { status: 500 }),
-          ),
-        ],
-      },
-    },
-  },
+export const ServiceListFails = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
     await waitFor(() =>
@@ -163,7 +144,18 @@ export const ServiceListFails: Story = {
     // The error is the one message: no hint asks for a selection.
     await expect(canvas.queryByText("Select at least one service.")).toBeNull()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(
+        ({ request }) =>
+          new URL(request.url).pathname.endsWith(
+            "/api/v1/connectors/pagerduty/available-services",
+          ),
+        () => HttpResponse.json({ error: "Server error" }, { status: 500 }),
+      ),
+    )
+  },
+})
 
 // One more service than a source can hold. Each product area has an API, a
 // worker, a database, a queue and a cron job, as in a real PagerDuty account.
@@ -204,22 +196,7 @@ const manyServices = [
  * the user ticks one more, so an error states the 100-service limit and the
  * dialog cannot save.
  */
-export const OverTheServiceLimit: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname.endsWith(
-                "/api/v1/connectors/pagerduty/available-services",
-              ),
-            () => HttpResponse.json({ items: manyServices, more: false }),
-          ),
-        ],
-      },
-    },
-  },
+export const OverTheServiceLimit = meta.story({
   args: {
     // A full selection: all services but the first.
     initialScope: {
@@ -239,4 +216,15 @@ export const OverTheServiceLimit: Story = {
     // Above the cap, the scope is not ready, so the dialog cannot save.
     await expect(args.onChange).toHaveBeenLastCalledWith(null)
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(
+        ({ request }) =>
+          new URL(request.url).pathname.endsWith(
+            "/api/v1/connectors/pagerduty/available-services",
+          ),
+        () => HttpResponse.json({ items: manyServices, more: false }),
+      ),
+    )
+  },
+})

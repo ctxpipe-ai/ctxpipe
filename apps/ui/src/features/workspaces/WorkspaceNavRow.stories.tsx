@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
 import { signedInHandlers } from "@/mocks/handlers"
@@ -14,6 +13,7 @@ import {
 } from "@/mocks/workspace-ingestion-handlers"
 
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
+import preview from "../../../.storybook/preview"
 import {
   docsConversationDetail,
   docsConversations,
@@ -23,7 +23,7 @@ import {
 } from "./workspace-fixtures"
 import { WorkspaceNavRow } from "./WorkspaceNavRow"
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Workspaces/NavRow",
   component: WorkspaceNavRow,
   decorators: [
@@ -33,13 +33,10 @@ const meta = {
       </ul>
     ),
   ],
+  beforeEach: ({ msw }) => {
+    msw.use(...signedInHandlers, ...workspaceIngestionHandlers({}))
+  },
   parameters: {
-    msw: {
-      handlers: {
-        session: signedInHandlers,
-        ingestion: workspaceIngestionHandlers({}),
-      },
-    },
     app: "root",
     review: { kind: "component" },
     layout: "centered",
@@ -60,17 +57,13 @@ const meta = {
     onExpand: fn(),
     onSelectNav: fn(),
   },
-} satisfies Meta<typeof WorkspaceNavRow>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Workspace row in the side nav, which opens a Workspace: two rows, the current
  * Workspace and a read-only one.
  */
-export const MultipleWorkspaces: Story = {
+export const MultipleWorkspaces = meta.story({
   render: (args) => (
     <>
       <WorkspaceNavRow {...args} current />
@@ -81,64 +74,58 @@ export const MultipleWorkspaces: Story = {
       />
     </>
   ),
-}
+})
 
 /**
  * Workspace row in the side nav, which opens a Workspace: the only Workspace of
  * the org, current and not collapsible.
  */
-export const SingleWorkspace: Story = {
+export const SingleWorkspace = meta.story({
   args: {
     workspaceCount: 1,
     collapsible: false,
     current: true,
   },
-}
+})
 
 /**
  * Workspace row in the collapsed side nav rail, which opens a Workspace: the
  * current Workspace as an icon with no name.
  */
-export const CollapsedNav: Story = {
+export const CollapsedNav = meta.story({
   args: {
     navExpanded: false,
     current: true,
   },
-}
+})
 
 /**
  * Workspace row in the side nav, which opens a Workspace: the member opened the
  * Workspace, so the row lists its chats and the open chat is selected.
  */
-export const OpenWithConversations: Story = {
+export const OpenWithConversations = meta.story({
   args: {
     open: true,
     current: true,
     currentConversationId: "conv_1",
   },
-  parameters: {
-    msw: {
-      handlers: {
-        page: [conversationsListHandler(docsConversations)],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(conversationsListHandler(docsConversations))
   },
-}
+})
 
-const ingestingDocs = {
-  ingestion: workspaceIngestionHandlers({
-    docs: [
-      ingestionItemFixture(),
-      ingestionItemFixture({
-        id: "run_linear",
-        kind: "source_sync",
-        name: "Linear",
-        stage: null,
-        progress: null,
-      }),
-    ],
-  }),
-}
+const ingestingDocs = workspaceIngestionHandlers({
+  docs: [
+    ingestionItemFixture(),
+    ingestionItemFixture({
+      id: "run_linear",
+      kind: "source_sync",
+      name: "Linear",
+      stage: null,
+      progress: null,
+    }),
+  ],
+})
 
 /**
  * Two Workspace rows in the side nav, which open a Workspace. ctxpipe ingests
@@ -146,22 +133,13 @@ const ingestingDocs = {
  * row has no pulse and names only the Workspace. The second row lets the play
  * know that the read is applied.
  */
-export const NotIngesting: Story = {
+export const NotIngesting = meta.story({
   render: (args) => (
     <>
       <WorkspaceNavRow {...args} />
       <WorkspaceNavRow {...args} workspace={readOnlyWorkspace} />
     </>
   ),
-  parameters: {
-    msw: {
-      handlers: {
-        ingestion: workspaceIngestionHandlers({
-          handbook: [ingestionItemFixture()],
-        }),
-      },
-    },
-  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByRole("link", {
@@ -172,7 +150,14 @@ export const NotIngesting: Story = {
       expect(docs.querySelector("[data-ingesting]")).not.toBeInTheDocument()
     })
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...workspaceIngestionHandlers({
+        handbook: [ingestionItemFixture()],
+      }),
+    )
+  },
+})
 
 /**
  * Workspace row in the side nav, which opens a Workspace. ctxpipe ingests two
@@ -180,19 +165,15 @@ export const NotIngesting: Story = {
  * opens a tooltip with "Ingesting 2 sources", and the row name has the same
  * text (CTX-959).
  */
-export const Ingesting: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        ...ingestingDocs,
-        // The hover preloads the Workspace and its last conversation.
-        page: [
-          workspaceDetailHandler(docsWorkspaceDetail),
-          conversationDetailHandler(docsConversationDetail),
-          conversationGitTreeHandler(),
-        ],
-      },
-    },
+export const Ingesting = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...ingestingDocs,
+      // The hover preloads the Workspace and its last conversation.
+      workspaceDetailHandler(docsWorkspaceDetail),
+      conversationDetailHandler(docsConversationDetail),
+      conversationGitTreeHandler(),
+    )
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -216,19 +197,21 @@ export const Ingesting: Story = {
       ).toBeVisible(),
     )
   },
-}
+})
 
 /**
  * Workspace row in the side nav, which opens a Workspace. ctxpipe ingests two
  * of its sources with reduced motion, so the dot stays but does not pulse. The
  * play runner opens this story with `prefers-reduced-motion: reduce`.
  */
-export const IngestingReducedMotion: Story = {
+export const IngestingReducedMotion = meta.story({
   tags: ["required", "reduced-motion"],
+  beforeEach: ({ msw }) => {
+    msw.use(...ingestingDocs)
+  },
   parameters: {
     intent:
       "Catches an ingesting dot in the workspace nav row that keeps animating when the user prefers reduced motion. The dot must not animate. Not for the row label or link.",
-    msw: { handlers: ingestingDocs },
   },
   play: async ({ canvasElement }) => {
     expect(window.matchMedia("(prefers-reduced-motion: reduce)").matches).toBe(
@@ -244,18 +227,15 @@ export const IngestingReducedMotion: Story = {
       expect(getComputedStyle(dot as HTMLElement).animationName).toBe("none")
     })
   },
-}
+})
 
 /**
  * Workspace row in the collapsed side nav rail. ctxpipe ingests two of its
  * sources, so a dot sits on the folder icon, and the open row tooltip gives the
  * text.
  */
-export const IngestingCollapsed: Story = {
+export const IngestingCollapsed = meta.story({
   args: { navExpanded: false, current: true },
-  parameters: {
-    msw: { handlers: ingestingDocs },
-  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const row = await canvas.findByRole("button", {
@@ -273,4 +253,7 @@ export const IngestingCollapsed: Story = {
       ).toBeVisible(),
     )
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(...ingestingDocs)
+  },
+})

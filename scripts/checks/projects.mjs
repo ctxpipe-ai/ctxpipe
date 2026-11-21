@@ -171,9 +171,8 @@ const definitions = () => [
         "apps/ui/src/**",
         "apps/ui/.storybook/check-modules.mjs",
         "packages/visual-review/src/story-tags.ts",
-        "scripts/ci/csf3-story-files.json",
       ],
-      "Catches a new CSF 3 story file, a list entry of scripts/ci/csf3-story-files.json that is converted or gone, and a CSF 4 story file that sets parameters.msw. Run it when a story under apps/ui/src or the list changes; never for a change outside them.",
+      "Catches a CSF 3 story file and a story file that sets parameters.msw. Run it when a story under apps/ui/src changes; never for a change outside it.",
     ],
     [
       "component-descriptions",

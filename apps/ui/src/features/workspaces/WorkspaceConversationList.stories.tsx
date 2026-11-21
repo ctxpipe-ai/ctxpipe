@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
 import { type ComponentProps, useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
@@ -17,6 +16,7 @@ import {
 } from "@/mocks/workspace-handlers"
 
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
+import preview from "../../../.storybook/preview"
 import {
   docsConversationDetail,
   docsConversations,
@@ -24,7 +24,7 @@ import {
 } from "./workspace-fixtures"
 import { WorkspaceConversationList } from "./WorkspaceConversationList"
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Workspaces/ConversationList",
   component: WorkspaceConversationList,
   decorators: [
@@ -34,8 +34,10 @@ const meta = {
       </div>
     ),
   ],
+  beforeEach: ({ msw }) => {
+    msw.use(...signedInHandlers)
+  },
   parameters: {
-    msw: { handlers: { session: signedInHandlers } },
     app: "root",
     review: { kind: "component" },
     layout: "centered",
@@ -51,31 +53,26 @@ const meta = {
     currentConversationId: "conv_1",
     onSelectNav: () => {},
   },
-} satisfies Meta<typeof WorkspaceConversationList>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Conversation list of a Workspace in the side nav, where a member opens a
  * chat: a few chats, and the open chat is selected.
  */
-export const WithConversations: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [conversationsListHandler(docsConversations)],
-      },
-    },
+export const WithConversations = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(conversationsListHandler(docsConversations))
   },
-}
+})
 
 /**
  * Conversation list of a Workspace in the side nav: a file is open, so the chat
  * links go to the files pane and not to that file.
  */
-export const SwitchFromOpenFile: Story = {
+export const SwitchFromOpenFile = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(conversationsListHandler(docsConversations))
+  },
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as WithConversations.",
@@ -85,11 +82,6 @@ export const SwitchFromOpenFile: Story = {
       orgSlug: "acme",
       search: "?pane=file%3Aa.md",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: [conversationsListHandler(docsConversations)],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -102,72 +94,53 @@ export const SwitchFromOpenFile: Story = {
       "pane=file%3Aa.md",
     )
   },
-}
+})
 
 /**
  * Conversation list of a Workspace in the side nav, where a member opens a
  * chat: the Workspace has no chats yet, so a short line says so.
  */
-export const Empty: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [conversationsListHandler([])],
-      },
-    },
+export const Empty = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(conversationsListHandler([]))
   },
-}
+})
 
 /**
  * Conversation list of a Workspace in the side nav, where a member opens a
  * chat: the chats still load, so skeleton rows show.
  */
-export const Loading: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [conversationsListLoadingHandler()],
-      },
-    },
+export const Loading = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(conversationsListLoadingHandler())
   },
-}
+})
 
 /**
  * Conversation list of a Workspace in the side nav, where a member opens a
  * chat: the server has more chats than the first page, so a Load more control
  * shows.
  */
-export const LoadMore: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          conversationsListHandler(docsConversations, {
-            hasNextPage: true,
-            hasPreviousPage: false,
-            startCursor: "conv_1",
-            endCursor: "conv_2",
-          }),
-        ],
-      },
-    },
+export const LoadMore = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      conversationsListHandler(docsConversations, {
+        hasNextPage: true,
+        hasPreviousPage: false,
+        startCursor: "conv_1",
+        endCursor: "conv_2",
+      }),
+    )
   },
-}
+})
 
 /**
  * Conversation list of a Workspace in the collapsed side nav rail: each chat
  * shows as initials with no name.
  */
-export const Collapsed: Story = {
+export const Collapsed = meta.story({
   args: {
     navExpanded: false,
-  },
-  parameters: {
-    msw: {
-      handlers: {
-        page: [conversationsListHandler(docsConversations)],
-      },
-    },
   },
   decorators: [
     (Story) => (
@@ -176,7 +149,10 @@ export const Collapsed: Story = {
       </div>
     ),
   ],
-}
+  beforeEach: ({ msw }) => {
+    msw.use(conversationsListHandler(docsConversations))
+  },
+})
 
 const conversationsGate = responseGate()
 const threeConversations = [
@@ -189,28 +165,26 @@ const threeConversations = [
  * Conversation list of a Workspace in the side nav, with three loaded chats.
  * The loaded rows fill the same box as the skeleton rows before them.
  */
-export const ConversationListSkeletonMatches: Story = {
+export const ConversationListSkeletonMatches = meta.story({
   tags: ["required"],
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(
+        ({ request }) =>
+          /\/api\/v1\/conversations$/.test(new URL(request.url).pathname),
+        async () => {
+          await conversationsGate.wait()
+          return HttpResponse.json({
+            items: threeConversations,
+            pageInfo: { hasNextPage: false, endCursor: null },
+          })
+        },
+      ),
+    )
+  },
   parameters: {
     intent:
       "Catches a conversation list skeleton whose box differs from the loaded list. This causes layout shift when the data arrives. Not for conversation titles or order.",
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) =>
-              /\/api\/v1\/conversations$/.test(new URL(request.url).pathname),
-            async () => {
-              await conversationsGate.wait()
-              return HttpResponse.json({
-                items: threeConversations,
-                pageInfo: { hasNextPage: false, endCursor: null },
-              })
-            },
-          ),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -226,7 +200,7 @@ export const ConversationListSkeletonMatches: Story = {
       )
     })
   },
-}
+})
 
 const requests: string[] = []
 
@@ -285,18 +259,14 @@ async function chooseAction(
  * Conversation list of a Workspace in the side nav. Keyboard focus shows the
  * Actions button of a chat, and its menu with Rename and Delete is open.
  */
-export const ActionsMenuByKeyboard: Story = {
-  beforeEach: () => {
+export const ActionsMenuByKeyboard = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...conversationRequestHandlers({
+        del: () => new HttpResponse(null, { status: 204 }),
+      }),
+    )
     requests.length = 0
-  },
-  parameters: {
-    msw: {
-      handlers: {
-        page: conversationRequestHandlers({
-          del: () => new HttpResponse(null, { status: 204 }),
-        }),
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -322,25 +292,21 @@ export const ActionsMenuByKeyboard: Story = {
       ).toHaveFocus(),
     )
   },
-}
+})
 
 /**
  * Conversation list of a Workspace in the side nav. The member renamed a chat
  * in its row, and the new name shows. The play proves that Enter saves the name
  * one time.
  */
-export const RenameFromMenu: Story = {
-  beforeEach: () => {
+export const RenameFromMenu = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...conversationRequestHandlers({
+        del: () => new HttpResponse(null, { status: 204 }),
+      }),
+    )
     requests.length = 0
-  },
-  parameters: {
-    msw: {
-      handlers: {
-        page: conversationRequestHandlers({
-          del: () => new HttpResponse(null, { status: 204 }),
-        }),
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -360,24 +326,20 @@ export const RenameFromMenu: Story = {
       "PATCH /acme/api/v1/conversations/conv_2 Token claims",
     ])
   },
-}
+})
 
 /**
  * Conversation list of a Workspace in the side nav. The member pressed Escape
  * during a rename, so the chat keeps its old name and no request goes out.
  */
-export const RenameCancelWithEscape: Story = {
-  beforeEach: () => {
+export const RenameCancelWithEscape = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...conversationRequestHandlers({
+        del: () => new HttpResponse(null, { status: 204 }),
+      }),
+    )
     requests.length = 0
-  },
-  parameters: {
-    msw: {
-      handlers: {
-        page: conversationRequestHandlers({
-          del: () => new HttpResponse(null, { status: 204 }),
-        }),
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -389,27 +351,25 @@ export const RenameCancelWithEscape: Story = {
     )
     expect(requests).toEqual([])
   },
-}
+})
 
 /**
  * Conversation list of a Workspace in the side nav. Delete asks first, and the
  * member canceled the dialog. The chat stays in the list, and no request goes
  * out.
  */
-export const DeleteCancel: Story = {
-  beforeEach: () => {
+export const DeleteCancel = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...conversationRequestHandlers({
+        del: () => new HttpResponse(null, { status: 204 }),
+      }),
+    )
     requests.length = 0
   },
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as WithConversations, with only a focus ring more.",
-    },
-    msw: {
-      handlers: {
-        page: conversationRequestHandlers({
-          del: () => new HttpResponse(null, { status: 204 }),
-        }),
-      },
     },
   },
   play: async ({ canvasElement }) => {
@@ -422,25 +382,21 @@ export const DeleteCancel: Story = {
     expect(canvas.getByRole("link", { name: "Auth claims" })).toBeVisible()
     expect(requests).toEqual([])
   },
-}
+})
 
 /**
  * Conversation list of a Workspace in the side nav. The member deleted a chat
  * from its menu and confirmed. One DELETE goes out, the chat is gone, and one
  * chat stays.
  */
-export const DeleteConfirm: Story = {
-  beforeEach: () => {
+export const DeleteConfirm = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...conversationRequestHandlers({
+        del: () => new HttpResponse(null, { status: 204 }),
+      }),
+    )
     requests.length = 0
-  },
-  parameters: {
-    msw: {
-      handlers: {
-        page: conversationRequestHandlers({
-          del: () => new HttpResponse(null, { status: 204 }),
-        }),
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -458,26 +414,22 @@ export const DeleteConfirm: Story = {
     )
     expect(requests).toEqual(["DELETE /acme/api/v1/conversations/conv_2"])
   },
-}
+})
 
 /**
  * Conversation list of a Workspace in the side nav. The member deleted a chat
  * that has a chat after it, and focus moved to the next chat.
  */
-export const DeleteFirstFocusesNext: Story = {
-  beforeEach: () => {
+export const DeleteFirstFocusesNext = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...conversationRequestHandlers({
+        del: () => new HttpResponse(null, { status: 204 }),
+      }),
+    )
     requests.length = 0
   },
   args: { currentConversationId: "conv_2" },
-  parameters: {
-    msw: {
-      handlers: {
-        page: conversationRequestHandlers({
-          del: () => new HttpResponse(null, { status: 204 }),
-        }),
-      },
-    },
-  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const body = within(canvasElement.ownerDocument.body)
@@ -492,27 +444,25 @@ export const DeleteFirstFocusesNext: Story = {
       expect(canvas.getByRole("link", { name: "Auth claims" })).toHaveFocus(),
     )
   },
-}
+})
 
 /**
  * Conversation list of a Workspace in the side nav. The member deleted the open
  * chat, and the app went to the Workspace start page.
  */
-export const DeleteOpenChatNavigatesAway: Story = {
-  beforeEach: () => {
+export const DeleteOpenChatNavigatesAway = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...conversationRequestHandlers({
+        del: () => new HttpResponse(null, { status: 204 }),
+      }),
+    )
     requests.length = 0
   },
   args: { currentConversationId: "conv_2" },
   parameters: {
     visual: {
       skip: "Behavior test: it ends on a story route marker, which the product does not render.",
-    },
-    msw: {
-      handlers: {
-        page: conversationRequestHandlers({
-          del: () => new HttpResponse(null, { status: 204 }),
-        }),
-      },
     },
   },
   play: async ({ canvasElement }) => {
@@ -528,28 +478,21 @@ export const DeleteOpenChatNavigatesAway: Story = {
     )
     expect(requests).toEqual(["DELETE /acme/api/v1/conversations/conv_2"])
   },
-}
+})
 
 /**
  * Conversation list of a Workspace in the side nav. The delete request of a
  * chat failed, so the chat stays, and an alert gives the cause and a next step.
  */
-export const DeleteError: Story = {
-  beforeEach: () => {
+export const DeleteError = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...conversationRequestHandlers({
+        del: () =>
+          HttpResponse.json({ error: "Database unavailable" }, { status: 500 }),
+      }),
+    )
     requests.length = 0
-  },
-  parameters: {
-    msw: {
-      handlers: {
-        page: conversationRequestHandlers({
-          del: () =>
-            HttpResponse.json(
-              { error: "Database unavailable" },
-              { status: 500 },
-            ),
-        }),
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -566,26 +509,22 @@ export const DeleteError: Story = {
     expect(alert).toHaveTextContent("Try again")
     expect(canvas.getByRole("link", { name: "Auth claims" })).toBeVisible()
   },
-}
+})
 
 /**
  * Conversation list of a Workspace in the side nav. The delete failed because a
  * turn runs in the chat, so the chat stays, and the message tells how to stop
  * the turn.
  */
-export const DeleteRefusedWhileTurnRuns: Story = {
-  beforeEach: () => {
+export const DeleteRefusedWhileTurnRuns = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...conversationRequestHandlers({
+        del: () =>
+          HttpResponse.json({ error: "turn_running" }, { status: 409 }),
+      }),
+    )
     requests.length = 0
-  },
-  parameters: {
-    msw: {
-      handlers: {
-        page: conversationRequestHandlers({
-          del: () =>
-            HttpResponse.json({ error: "turn_running" }, { status: 409 }),
-        }),
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -604,7 +543,7 @@ export const DeleteRefusedWhileTurnRuns: Story = {
     expect(canvas.getByRole("button", { name: "Dismiss" })).toBeVisible()
     expect(canvas.getByRole("link", { name: "Auth claims" })).toBeVisible()
   },
-}
+})
 
 let startingDeletes = 0
 
@@ -614,24 +553,22 @@ let startingDeletes = 0
  * message says that the chat starts and offers Try again. It does not tell the
  * user to stop a turn.
  */
-export const DeleteWhileChatStarts: Story = {
-  beforeEach: () => {
+export const DeleteWhileChatStarts = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...conversationRequestHandlers({
+        del: () =>
+          startingDeletes++ === 0
+            ? HttpResponse.json({ error: "chat_starting" }, { status: 409 })
+            : new HttpResponse(null, { status: 204 }),
+      }),
+    )
     requests.length = 0
     startingDeletes = 0
   },
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as DeleteConfirm.",
-    },
-    msw: {
-      handlers: {
-        page: conversationRequestHandlers({
-          del: () =>
-            startingDeletes++ === 0
-              ? HttpResponse.json({ error: "chat_starting" }, { status: 409 })
-              : new HttpResponse(null, { status: 204 }),
-        }),
-      },
     },
   },
   play: async ({ canvasElement }) => {
@@ -658,7 +595,7 @@ export const DeleteWhileChatStarts: Story = {
       "DELETE /acme/api/v1/conversations/conv_2",
     ])
   },
-}
+})
 
 const PREFERENCES_KEY = "ctxpipe:userPreferences"
 
@@ -703,27 +640,23 @@ const statusChats = (
  * for idle, unread, working, or needs attention, with a text label, so the
  * state is not only a color. Each cause of needs attention has its own row.
  */
-export const StatusDots: Story = {
+export const StatusDots = meta.story({
   args: { currentConversationId: undefined },
-  beforeEach: () => seedSeen({ conv_1: 100, conv_2: 100, conv_4: 100 }),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          conversationsListHandler(
-            statusChats({
-              "Idle chat": { status: "completed", at: 100 },
-              "Unread chat": { status: "completed", at: 200 },
-              "Working chat": { status: "running", at: Date.now() },
-              "Failed chat": { status: "failed", at: 400 },
-              "Stopped chat": { status: "aborted", at: 500 },
-              "Waiting chat": { status: "interrupted", at: 600 },
-              "New chat": null,
-            }),
-          ),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      conversationsListHandler(
+        statusChats({
+          "Idle chat": { status: "completed", at: 100 },
+          "Unread chat": { status: "completed", at: 200 },
+          "Working chat": { status: "running", at: Date.now() },
+          "Failed chat": { status: "failed", at: 400 },
+          "Stopped chat": { status: "aborted", at: 500 },
+          "Waiting chat": { status: "interrupted", at: 600 },
+          "New chat": null,
+        }),
+      ),
+    )
+    return seedSeen({ conv_1: 100, conv_2: 100, conv_4: 100 })
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -757,31 +690,15 @@ export const StatusDots: Story = {
       "idle",
     ])
   },
-}
+})
 
 /**
  * Conversation list of a Workspace in the side nav. A chat runs past the
  * backend turn limit, so the chat counts as lost: its dot is orange, with no
  * spinner.
  */
-export const StaleRunningChat: Story = {
+export const StaleRunningChat = meta.story({
   args: { currentConversationId: undefined },
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          conversationsListHandler(
-            statusChats({
-              "Lost chat": {
-                status: "running",
-                at: Date.now() - 3 * 60 * 60_000,
-              },
-            }),
-          ),
-        ],
-      },
-    },
-  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const link = await canvas.findByRole("link", { name: "Lost chat" })
@@ -795,29 +712,37 @@ export const StaleRunningChat: Story = {
       "attention",
     )
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      conversationsListHandler(
+        statusChats({
+          "Lost chat": {
+            status: "running",
+            at: Date.now() - 3 * 60 * 60_000,
+          },
+        }),
+      ),
+    )
+  },
+})
 
 /**
  * Conversation list of a Workspace in the collapsed side nav rail. The rail has
  * no room for names, so each status dot is a badge on the chat initials.
  */
-export const StatusDotsCollapsed: Story = {
+export const StatusDotsCollapsed = meta.story({
   args: { navExpanded: false, currentConversationId: undefined },
-  beforeEach: () => seedSeen({ conv_1: 100 }),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          conversationsListHandler(
-            statusChats({
-              "Unread chat": { status: "completed", at: 200 },
-              "Working chat": { status: "running", at: Date.now() },
-              "Failed chat": { status: "failed", at: 400 },
-            }),
-          ),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      conversationsListHandler(
+        statusChats({
+          "Unread chat": { status: "completed", at: 200 },
+          "Working chat": { status: "running", at: Date.now() },
+          "Failed chat": { status: "failed", at: 400 },
+        }),
+      ),
+    )
+    return seedSeen({ conv_1: 100 })
   },
   decorators: [
     (Story) => (
@@ -834,7 +759,7 @@ export const StatusDotsCollapsed: Story = {
       canvas.getByRole("link", { name: "Failed chat" }),
     ).toHaveAccessibleDescription("Needs attention. The turn failed.")
   },
-}
+})
 
 /** The list with an open chat that follows the chat the user selects. */
 function OpensChats(props: ComponentProps<typeof WorkspaceConversationList>) {
@@ -858,8 +783,28 @@ const finishRequests = { count: 0 }
  * Conversation list of a Workspace in the side nav: a working chat finished and
  * became unread, and the member opened it, so it is read.
  */
-export const WorkingThenUnreadThenRead: Story = {
-  beforeEach: () => {
+export const WorkingThenUnreadThenRead = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(
+        ({ request }) =>
+          /\/api\/v1\/conversations$/.test(new URL(request.url).pathname),
+        () => {
+          finishRequests.count += 1
+          const lastTurn: ConversationLastTurn =
+            finishRequests.count < 2
+              ? { status: "running", at: Date.now() }
+              : { status: "completed", at: 2000 }
+          return HttpResponse.json({
+            items: statusChats({ "Billing questions": lastTurn }),
+            pageInfo: { hasNextPage: false, endCursor: null },
+          })
+        },
+      ),
+      // Opening the chat loads it and its files.
+      conversationDetailHandler(docsConversationDetail),
+      conversationGitTreeHandler(),
+    )
     finishRequests.count = 0
     return seedSeen({ conv_1: 500 })
   },
@@ -872,30 +817,6 @@ export const WorkingThenUnreadThenRead: Story = {
       orgSlug: "acme",
       workspaceSlug: docsWorkspace.slug,
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) =>
-              /\/api\/v1\/conversations$/.test(new URL(request.url).pathname),
-            () => {
-              finishRequests.count += 1
-              const lastTurn: ConversationLastTurn =
-                finishRequests.count < 2
-                  ? { status: "running", at: Date.now() }
-                  : { status: "completed", at: 2000 }
-              return HttpResponse.json({
-                items: statusChats({ "Billing questions": lastTurn }),
-                pageInfo: { hasNextPage: false, endCursor: null },
-              })
-            },
-          ),
-          // Opening the chat loads it and its files.
-          conversationDetailHandler(docsConversationDetail),
-          conversationGitTreeHandler(),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -917,15 +838,35 @@ export const WorkingThenUnreadThenRead: Story = {
     )
     await expectStatus(canvasElement, "Billing questions", "Idle")
   },
-}
+})
 
 const failRequests = { count: 0 }
 /**
  * Conversation list of a Workspace in the side nav. A working chat failed, so
  * its dot turned orange. The dot stays orange after the member opens the chat.
  */
-export const WorkingThenNeedsAttention: Story = {
-  beforeEach: () => {
+export const WorkingThenNeedsAttention = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(
+        ({ request }) =>
+          /\/api\/v1\/conversations$/.test(new URL(request.url).pathname),
+        () => {
+          failRequests.count += 1
+          const lastTurn: ConversationLastTurn =
+            failRequests.count < 2
+              ? { status: "running", at: Date.now() }
+              : { status: "failed", at: 2000 }
+          return HttpResponse.json({
+            items: statusChats({ "Billing questions": lastTurn }),
+            pageInfo: { hasNextPage: false, endCursor: null },
+          })
+        },
+      ),
+      // Opening the chat loads it and its files.
+      conversationDetailHandler(docsConversationDetail),
+      conversationGitTreeHandler(),
+    )
     failRequests.count = 0
     return seedSeen({ conv_1: 500 })
   },
@@ -938,30 +879,6 @@ export const WorkingThenNeedsAttention: Story = {
       orgSlug: "acme",
       workspaceSlug: docsWorkspace.slug,
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) =>
-              /\/api\/v1\/conversations$/.test(new URL(request.url).pathname),
-            () => {
-              failRequests.count += 1
-              const lastTurn: ConversationLastTurn =
-                failRequests.count < 2
-                  ? { status: "running", at: Date.now() }
-                  : { status: "failed", at: 2000 }
-              return HttpResponse.json({
-                items: statusChats({ "Billing questions": lastTurn }),
-                pageInfo: { hasNextPage: false, endCursor: null },
-              })
-            },
-          ),
-          // Opening the chat loads it and its files.
-          conversationDetailHandler(docsConversationDetail),
-          conversationGitTreeHandler(),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -980,4 +897,4 @@ export const WorkingThenNeedsAttention: Story = {
     // Opening the chat does not clear the cause. A retry or a new turn does.
     await expectStatus(canvasElement, "Billing questions", failed)
   },
-}
+})
