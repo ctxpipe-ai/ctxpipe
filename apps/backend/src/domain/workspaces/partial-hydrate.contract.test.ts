@@ -6,6 +6,7 @@ import { initLogger } from "evlog"
 import { FalkorDB } from "falkordb"
 import { expect, it, vi } from "vitest"
 
+import { madeUpPrivateKey } from "../../../test/made-up-key.js"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import {
@@ -746,4 +747,56 @@ it(
         }),
       )
     }),
+)
+
+it(
+  "scrubs each unit before the chunker cuts it: a private key across a chunk boundary is in no stored unit or chunk",
+  { timeout: 120_000 },
+  async () => {
+    // A made-up 4096-bit key (about 3.2 KB) in one section, longer than a
+    // chunk, so the chunker would cut the key without the scrub.
+    const key = madeUpPrivateKey(4096)
+    const secretFiles = [
+      {
+        path: "setup.md",
+        body: `# Setup\n\n${"The deploy key. ".repeat(80)}\n${key}\n`,
+      },
+    ]
+    await withNativeHydrationFixture({ files: secretFiles }, async (f) => {
+      await withOrgIdContext(f.org, async () => {
+        const { units } = hydrateKnowledgeTree({
+          workspaceId: f.workspaceId,
+          files: secretFiles.map((file) => ({
+            path: file.path,
+            content: file.body,
+          })),
+        })
+        await commitHydrateProjection({
+          orgId: f.org.id,
+          revision: f.revision,
+          displayName: null,
+          formatVersion: null,
+          units,
+          skipped: [],
+          embeddingModel: "fixture-embedding",
+        })
+        const stored = await withOrgDbContext(f.org.id, async (db) =>
+          JSON.stringify([
+            await db
+              .select({ body: workspaceKnowledgeUnits.body })
+              .from(workspaceKnowledgeUnits)
+              .where(eq(workspaceKnowledgeUnits.workspaceId, f.workspaceId)),
+            await db
+              .select({ text: workspaceKnowledgeChunks.text })
+              .from(workspaceKnowledgeChunks)
+              .where(eq(workspaceKnowledgeChunks.workspaceId, f.workspaceId)),
+          ]),
+        )
+        expect(key.length).toBeGreaterThan(2048)
+        for (const line of key.split("\n").slice(1, -1))
+          expect(stored).not.toContain(line)
+        expect(stored).toContain("[REDACTED:betterleaks.private-key]")
+      })
+    })
+  },
 )

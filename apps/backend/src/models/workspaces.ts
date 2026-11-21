@@ -74,6 +74,7 @@ import {
   writeStatusFromClassification,
 } from "../domain/workspaces/write-status.js"
 import { generateObjectId } from "../lib/id.js"
+import { scrubForModel } from "../retrieval/services/scrubForModel.js"
 import { publishedRepositoryCheckoutKey } from "./repositories.js"
 import {
   clearLinkedRepositoryShas,
@@ -1429,7 +1430,7 @@ export type HydrateCommit = {
  * rows. A partial write and a full write of one revision give the same rows,
  * except `created_at` and the `projection_sha` of the unchanged rows.
  */
-export async function commitHydrateProjection(input: {
+export async function commitHydrateProjection(raw: {
   orgId: string
   revision: WorkspaceRevision
   displayName: string | null
@@ -1446,6 +1447,22 @@ export async function commitHydrateProjection(input: {
    */
   base?: HydrateCommitBase
 }): Promise<HydrateCommit | null> {
+  // The title and the body of each unit are scrubbed whole before the
+  // chunker cuts them (ADR-072): a cut can split a secret, and then no rule
+  // finds it. The stored units and chunks hold the scrubbed text. The unit
+  // hash covers the body, so a stored unit with a secret changes, and the
+  // next hydrate of its Workspace writes it again.
+  const scrubbed = await scrubForModel(
+    raw.units.map((unit) => ({ title: unit.title ?? null, body: unit.body })),
+  )
+  const input = {
+    ...raw,
+    units: raw.units.map((unit, at) => ({
+      ...unit,
+      ...(unit.title == null ? {} : { title: scrubbed[at]?.title ?? "" }),
+      body: scrubbed[at]?.body ?? "",
+    })),
+  }
   return orgSql(async () => {
     const db = getOrgDb()
     return db.transaction(async (tx) => {
