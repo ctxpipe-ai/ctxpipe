@@ -22,6 +22,11 @@ import {
 import type { Workspace } from "./types"
 import { WorkspaceConversationRow } from "./WorkspaceConversationRow"
 
+/**
+ * The conversations of one Workspace in the side navigation,
+ * with a status dot each. The user opens a conversation from it, and loads
+ * more when there are more than five.
+ */
 export function WorkspaceConversationList(props: {
   orgSlug: string
   workspace: Workspace

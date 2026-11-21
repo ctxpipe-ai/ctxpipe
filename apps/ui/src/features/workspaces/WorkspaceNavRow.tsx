@@ -29,6 +29,10 @@ import {
 import type { Workspace } from "./types"
 import { WorkspaceConversationList } from "./WorkspaceConversationList"
 
+/**
+ * One Workspace in the side navigation. The user opens the Workspace from it,
+ * and opens or closes the list of its conversations below it.
+ */
 export function WorkspaceNavRow(props: {
   orgSlug: string
   workspace: Workspace

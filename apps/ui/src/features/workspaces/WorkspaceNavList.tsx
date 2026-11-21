@@ -19,6 +19,11 @@ import { WorkspaceCreateModal } from "./WorkspaceCreateModal"
 import { WorkspaceNavRow } from "./WorkspaceNavRow"
 import { WorkspaceQueryErrorBoundary } from "./WorkspaceQueryErrorBoundary"
 
+/**
+ * The Workspaces of the organization in the side navigation, each with its
+ * conversations, and the action to create a Workspace. If the list does not
+ * load, it shows a Retry action.
+ */
 export function WorkspaceNavList(props: {
   orgSlug: string
   expanded: boolean

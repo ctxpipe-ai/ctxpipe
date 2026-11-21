@@ -181,6 +181,11 @@ export function useGithubEmptyAction(props: {
   )
 }
 
+/**
+ * Tells that a source change (add, remove or rename) waits for its pull
+ * request to merge, and opens that pull request on GitHub. Put it on the row of
+ * a source that has a pending change.
+ */
 export function AwaitingMergeLink(props: { change: PendingSourceChange }) {
   const { change } = props
   const label =

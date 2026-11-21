@@ -37,6 +37,9 @@ export function WorkspaceGraphPaneSkeleton() {
   )
 }
 
+/**
+ * The loading state of the Files pane, while its file tree loads.
+ */
 export function WorkspaceFilesPaneSkeleton() {
   return (
     <SkeletonChain id="files">
@@ -71,6 +74,10 @@ export function WorkspaceFilesPaneSkeleton() {
   )
 }
 
+/**
+ * The loading state of one open file in the Files pane, while its text
+ * loads.
+ */
 export function WorkspaceFilePreviewSkeleton() {
   return (
     <div className="flex h-full flex-col gap-3 p-4" aria-busy>

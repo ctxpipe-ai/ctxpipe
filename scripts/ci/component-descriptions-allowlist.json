@@ -1,13 +1,4 @@
 {
-  "apps/ui/src/features/chat/ConversationThread.tsx": [
-    "ConversationThread"
-  ],
-  "apps/ui/src/features/chat/MessageInputBox.tsx": [
-    "MessageInputBox"
-  ],
-  "apps/ui/src/features/chat/components/ConversationThreadSkeleton.tsx": [
-    "ConversationThreadSkeleton"
-  ],
   "apps/ui/src/features/connectors/SpacePageTree.tsx": [
     "SpacePageTree"
   ],
@@ -103,64 +94,5 @@
   ],
   "apps/ui/src/features/connectors/components/notion-setup/RegisterNotionOauthStep.tsx": [
     "RegisterNotionOauthStep"
-  ],
-  "apps/ui/src/features/workspace-sources/WorkspaceSources.tsx": [
-    "AwaitingMergeLink"
-  ],
-  "apps/ui/src/features/workspaces/GithubWorkspaceDestination.tsx": [
-    "GithubWorkspaceDestination",
-    "GithubWorkspaceDestinationFromApi"
-  ],
-  "apps/ui/src/features/workspaces/WorkspaceChat.tsx": [
-    "WorkspaceChat"
-  ],
-  "apps/ui/src/features/workspaces/WorkspaceChatSession.tsx": [
-    "WorkspaceChatSession"
-  ],
-  "apps/ui/src/features/workspaces/WorkspaceConversationDiff.tsx": [
-    "WorkspaceConversationDiffPane",
-    "ChangedFileStatusIcon",
-    "LineCounts"
-  ],
-  "apps/ui/src/features/workspaces/WorkspaceConversationList.tsx": [
-    "WorkspaceConversationList"
-  ],
-  "apps/ui/src/features/workspaces/WorkspaceCreateModal.tsx": [
-    "WorkspaceCreateModal"
-  ],
-  "apps/ui/src/features/workspaces/WorkspaceFileTree.tsx": [
-    "WorkspaceFileTree"
-  ],
-  "apps/ui/src/features/workspaces/WorkspaceFilesPane.tsx": [
-    "WorkspaceFilesPaneBody"
-  ],
-  "apps/ui/src/features/workspaces/WorkspaceGraphPane.tsx": [
-    "WorkspaceGraphPane"
-  ],
-  "apps/ui/src/features/workspaces/WorkspaceHydrateProgress.tsx": [
-    "WorkspaceHydrateFailedBody"
-  ],
-  "apps/ui/src/features/workspaces/WorkspaceNavList.tsx": [
-    "WorkspaceNavList"
-  ],
-  "apps/ui/src/features/workspaces/WorkspaceNavRow.tsx": [
-    "WorkspaceNavRow"
-  ],
-  "apps/ui/src/features/workspaces/WorkspacePane.tsx": [
-    "WorkspacePane",
-    "WorkspacePaneTriggers"
-  ],
-  "apps/ui/src/features/workspaces/WorkspacePierreFile.tsx": [
-    "WorkspacePierreFile"
-  ],
-  "apps/ui/src/features/workspaces/WorkspaceRepositoryPicker.tsx": [
-    "WorkspaceRepositoryPicker"
-  ],
-  "apps/ui/src/features/workspaces/WorkspaceSurface.tsx": [
-    "WorkspaceSurface"
-  ],
-  "apps/ui/src/features/workspaces/workspaceSkeletons.tsx": [
-    "WorkspaceFilesPaneSkeleton",
-    "WorkspaceFilePreviewSkeleton"
   ]
 }
