@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, within } from "storybook/test"
 
 import {
@@ -10,30 +9,27 @@ import {
   emptyWorkspaceActivity,
 } from "@/features/workspaces/workspace-fixtures"
 
+import preview from "../../../.storybook/preview"
 import { CALENDAR_WEEKDAYS } from "./calendar-days"
 import {
   WorkspaceActivityHeatmap,
   WorkspaceActivityHeatmapSkeleton,
 } from "./WorkspaceActivityHeatmap"
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Home/Activity heatmap",
   component: WorkspaceActivityHeatmap,
   parameters: {
     review: { kind: "component" },
     layout: "padded",
   },
-} satisfies Meta<typeof WorkspaceActivityHeatmap>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Commit activity heatmap of a Workspace on the org home: a year of commits by
  * day, with weekday labels.
  */
-export const Populated: Story = {
+export const Populated = meta.story({
   args: {
     days: docsWorkspaceActivity.days,
   },
@@ -43,45 +39,45 @@ export const Populated: Story = {
       expect(await canvas.findByText(weekday)).toBeInTheDocument()
     }
   },
-}
+})
 
 /**
  * Commit activity heatmap of a Workspace on the org home, where a member picks
  * a day to filter the commits: one day is selected and has a light outline.
  */
-export const DaySelected: Story = {
+export const DaySelected = meta.story({
   args: {
     days: docsWorkspaceActivity.days,
     selectedDate: "2026-08-22",
   },
-}
+})
 
 /**
  * Commit activity heatmap of a Workspace on the org home: the Workspace has no
  * commits yet.
  */
-export const NoHistory: Story = {
+export const NoHistory = meta.story({
   args: {
     days: emptyWorkspaceActivity.days,
   },
-}
+})
 
 /**
  * Commit activity heatmap of a Workspace on the org home: the skeleton while
  * the activity loads.
  */
-export const Loading: Story = {
+export const Loading = meta.story({
   args: {
     days: [],
   },
   render: () => <WorkspaceActivityHeatmapSkeleton />,
-}
+})
 
 /**
  * Commit activity heatmap of a Workspace: the loading skeleton and the loaded
  * heatmap side by side, at the same size.
  */
-export const HeatmapSkeletonMatches: Story = {
+export const HeatmapSkeletonMatches = meta.story({
   parameters: {
     intent:
       "Catches an activity heatmap skeleton whose size differs from the loaded heatmap. This causes layout shift. Not for activity counts or colors.",
@@ -101,4 +97,4 @@ export const HeatmapSkeletonMatches: Story = {
     await within(canvasElement).findAllByText(CALENDAR_WEEKDAYS[0])
     await expectSkeletonMatchesLoaded(canvasElement)
   },
-}
+})

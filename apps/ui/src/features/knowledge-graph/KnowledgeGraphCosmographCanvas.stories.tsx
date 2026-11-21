@@ -1,13 +1,13 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
+import preview from "../../../.storybook/preview"
 import { waitForGraphReady } from "./graphReadyStory"
 import {
   KnowledgeGraphCosmographCanvas,
   type KnowledgeGraphSelectionEvent,
 } from "./KnowledgeGraphCosmographCanvas"
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Knowledge Graph/Cosmograph Canvas",
   component: KnowledgeGraphCosmographCanvas,
   decorators: [
@@ -117,18 +117,14 @@ const meta = {
       },
     ],
   },
-} satisfies Meta<typeof KnowledgeGraphCosmographCanvas>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Graph canvas of the knowledge graph, where a user explores how the knowledge
  * of a Workspace links: the layout settled, so the controls, the search, the
  * legends and the timeline show.
  */
-export const NativeLegends: Story = {
+export const NativeLegends = meta.story({
   // The WebGL canvas draws a new frame at each shot, and the cluster labels
   // of Cosmograph move with it. The capture hides both.
   parameters: {
@@ -137,13 +133,13 @@ export const NativeLegends: Story = {
   play: async ({ canvasElement }) => {
     await waitForGraphReady(canvasElement)
   },
-}
+})
 
 /**
  * Graph canvas of the knowledge graph, where a user explores how the files of a
  * Workspace link: the canvas in a narrow pane.
  */
-export const PaneNarrow: Story = {
+export const PaneNarrow = meta.story({
   decorators: [
     (Story) => (
       <div className="relative h-[32rem] w-96 overflow-hidden bg-zinc-950">
@@ -151,13 +147,13 @@ export const PaneNarrow: Story = {
       </div>
     ),
   ],
-}
+})
 
 /**
  * Graph canvas of the knowledge graph, where a user explores how the files of a
  * Workspace link: the canvas in a wide pane.
  */
-export const PaneWide: Story = {
+export const PaneWide = meta.story({
   decorators: [
     (Story) => (
       <div className="relative h-[32rem] w-full max-w-5xl overflow-hidden bg-zinc-950">
@@ -165,14 +161,14 @@ export const PaneWide: Story = {
       </div>
     ),
   ],
-}
+})
 
 /**
  * Graph canvas of the knowledge graph, where a user explores how the files of a
  * Workspace link: the node drawer is open and is the focused layer. The search
  * and the timeline dim and do not take input.
  */
-export const DrawerOpenDimsOverlays: Story = {
+export const DrawerOpenDimsOverlays = meta.story({
   args: { drawerOpen: true },
   // The WebGL canvas draws a new frame at each shot, and the cluster labels
   // of Cosmograph move with it. The capture hides both.
@@ -188,7 +184,7 @@ export const DrawerOpenDimsOverlays: Story = {
     search.focus()
     await expect(search).not.toHaveFocus()
   },
-}
+})
 
 const timelineSelections =
   fn<(selection: KnowledgeGraphSelectionEvent | null) => void>()
@@ -199,7 +195,7 @@ const timelineSelections =
  * paused. Play starts from the first part of the history and moves the window
  * forward, with one selection for each step.
  */
-export const TimelinePlaysWithoutRange: Story = {
+export const TimelinePlaysWithoutRange = meta.story({
   args: { onSelectionChange: timelineSelections },
   // The WebGL canvas draws a new frame at each shot, so the capture hides it.
   parameters: {
@@ -234,14 +230,14 @@ export const TimelinePlaysWithoutRange: Story = {
       await expect(start).toBeGreaterThan(starts[i] ?? start)
     }
   },
-}
+})
 
 /**
  * Graph canvas of the knowledge graph, where a user explores how the files of a
  * Workspace link: the browser has WebGL 2 turned off, so a clear message shows
  * instead of a blank canvas.
  */
-export const NoWebGL: Story = {
+export const NoWebGL = meta.story({
   parameters: {
     intent:
       "Catches a graph canvas that fails with no message when the browser has no WebGL 2. It must show that the browser cannot show the graph. Not for graph data or layout.",
@@ -268,4 +264,4 @@ export const NoWebGL: Story = {
       ),
     ).toBeVisible()
   },
-}
+})

@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
@@ -10,6 +9,7 @@ import type { WorkspaceActivityCommit } from "@/features/workspaces/types"
 import { docsWorkspaceActivityRecent } from "@/features/workspaces/workspace-fixtures"
 import { formatDate } from "@/lib/format"
 
+import preview from "../../../.storybook/preview"
 import {
   formatCommitTime,
   WorkspaceRecentCommits,
@@ -25,28 +25,24 @@ const pageOfCommits: WorkspaceActivityCommit[] = [
   })),
 ]
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Home/Recent commits",
   component: WorkspaceRecentCommits,
   parameters: {
     review: { kind: "component" },
     layout: "padded",
   },
-} satisfies Meta<typeof WorkspaceRecentCommits>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Recent commits list of a Workspace on the org home: a few commits, each with
  * author, message, time and hash.
  */
-export const Populated: Story = {
+export const Populated = meta.story({
   args: {
     commits: docsWorkspaceActivityRecent,
   },
-}
+})
 
 /**
  * Recent commits list of a Workspace: the short hash of a commit has keyboard
@@ -54,7 +50,7 @@ export const Populated: Story = {
  * external-link icon shows on hover and on keyboard focus, together with the
  * focus ring.
  */
-export const OpensInNewTab: Story = {
+export const OpensInNewTab = meta.story({
   args: {
     commits: docsWorkspaceActivityRecent,
   },
@@ -110,7 +106,7 @@ export const OpensInNewTab: Story = {
     expect(getComputedStyle(hash).outlineStyle).toBe("solid")
     expect(getComputedStyle(hash).outlineWidth).toBe("2px")
   },
-}
+})
 
 const longCommit = {
   ...docsWorkspaceActivityRecent[0],
@@ -123,7 +119,7 @@ const longCommit = {
  * avatar, message, time and hash. A long commit message ends in an ellipsis,
  * and the time and the hash stay whole at the right.
  */
-export const CompactRowTruncates: Story = {
+export const CompactRowTruncates = meta.story({
   parameters: {
     intent:
       "Catches a long commit message that wraps or pushes the time and hash to a second line. The message truncates and the row stays on one line. Not for avatar images.",
@@ -165,13 +161,13 @@ export const CompactRowTruncates: Story = {
     )
     expect(within(row).getByText("Ada:")).toHaveClass("sr-only")
   },
-}
+})
 
 /**
  * Recent commits list of a Workspace: the commit time has keyboard focus, and
  * its tooltip gives the full local date and time.
  */
-export const TimeTooltip: Story = {
+export const TimeTooltip = meta.story({
   args: {
     commits: docsWorkspaceActivityRecent,
   },
@@ -192,13 +188,13 @@ export const TimeTooltip: Story = {
     expect(time).toHaveAttribute("aria-describedby", tooltip.id)
     expect(canvas.getAllByRole("link")[0]).not.toHaveFocus()
   },
-}
+})
 
 /**
  * Recent commits list across Workspaces, with a tall row: the decorative commit
  * line joins from row to row, and each node is at the center line of its row.
  */
-export const CommitLineAligns: Story = {
+export const CommitLineAligns = meta.story({
   parameters: {
     intent:
       "Catches a commit timeline line that does not span its row, or whose node does not align with the row content. Not for commit text or the workspace label.",
@@ -241,7 +237,7 @@ export const CommitLineAligns: Story = {
         expect(next.getBoundingClientRect().top).toBeCloseTo(lineBox.bottom, 0)
     }
   },
-}
+})
 
 /** A 1x1 PNG, so the avatar story needs no network. */
 const pixelPng = Uint8Array.from(
@@ -260,7 +256,7 @@ const avatarRequests: { login: string; authorization: string | null }[] = []
  * no login, and the avatar of the other does not load. The image requests carry
  * no token.
  */
-export const AvatarAndInitialFallback: Story = {
+export const AvatarAndInitialFallback = meta.story({
   tags: ["required"],
   args: {
     commits: [
@@ -269,30 +265,26 @@ export const AvatarAndInitialFallback: Story = {
       { ...docsWorkspaceActivityRecent[2], authorLogin: "gone-user" },
     ],
   },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get("https://github.com/:file", ({ params, request }) => {
+        const login = String(params.file).replace(/\.png$/, "")
+        avatarRequests.push({
+          login,
+          authorization: request.headers.get("authorization"),
+        })
+        if (login === "gone-user")
+          return new HttpResponse(null, { status: 404 })
+        return HttpResponse.arrayBuffer(pixelPng.buffer, {
+          headers: { "Content-Type": "image/png" },
+        })
+      }),
+    )
+    avatarRequests.length = 0
+  },
   parameters: {
     intent:
       "Catches a commit author without a loadable avatar that shows a broken image. It must fall back to an initial. A known author shows the image. Not for commit text.",
-    msw: {
-      handlers: {
-        page: [
-          http.get("https://github.com/:file", ({ params, request }) => {
-            const login = String(params.file).replace(/\.png$/, "")
-            avatarRequests.push({
-              login,
-              authorization: request.headers.get("authorization"),
-            })
-            if (login === "gone-user")
-              return new HttpResponse(null, { status: 404 })
-            return HttpResponse.arrayBuffer(pixelPng.buffer, {
-              headers: { "Content-Type": "image/png" },
-            })
-          }),
-        ],
-      },
-    },
-  },
-  beforeEach: () => {
-    avatarRequests.length = 0
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -328,24 +320,24 @@ export const AvatarAndInitialFallback: Story = {
     for (const request of avatarRequests)
       expect(request.authorization).toBeNull()
   },
-}
+})
 
 /**
  * Recent commits list of a Workspace on the org home: the Workspace has no
  * commits yet.
  */
-export const NoHistory: Story = {
+export const NoHistory = meta.story({
   args: {
     commits: [],
   },
-}
+})
 
 /**
  * Recent commits list of a Workspace on Home, which lists the latest commits of
  * its repository: the commits still load, so three fading skeleton rows hold
  * the place.
  */
-export const Loading: Story = {
+export const Loading = meta.story({
   args: {
     commits: [],
   },
@@ -360,14 +352,14 @@ export const Loading: Story = {
       "0.25",
     ])
   },
-}
+})
 
 /**
  * Recent commits list of a Workspace: the loading skeleton and three loaded
  * commits side by side. The test proves that the skeleton has the same box as
  * the three loaded commits.
  */
-export const RecentCommitsSkeletonMatches: Story = {
+export const RecentCommitsSkeletonMatches = meta.story({
   parameters: {
     intent:
       "Catches a recent commits skeleton whose size differs from the loaded list. This causes layout shift. Not for commit data or row content.",
@@ -386,4 +378,4 @@ export const RecentCommitsSkeletonMatches: Story = {
   play: async ({ canvasElement }) => {
     await expectSkeletonMatchesLoaded(canvasElement)
   },
-}
+})

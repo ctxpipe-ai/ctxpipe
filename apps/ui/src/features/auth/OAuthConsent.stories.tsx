@@ -1,9 +1,9 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
 import { signedInHandlers } from "@/mocks/handlers"
 
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
+import preview from "../../../.storybook/preview"
 import { OAuthConsent } from "./OAuthConsent"
 
 const organizations = [
@@ -11,11 +11,13 @@ const organizations = [
   { id: "org_harbor", name: "Harbor Systems", slug: "harbor-systems" },
 ]
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Auth/OAuth Consent",
   component: OAuthConsent,
+  beforeEach: ({ msw }) => {
+    msw.use(...signedInHandlers)
+  },
   parameters: {
-    msw: { handlers: { session: signedInHandlers } },
     app: "root",
     layout: "fullscreen",
     storyRoute: {
@@ -32,17 +34,13 @@ const meta = {
     onAllow: fn(),
     onDeny: fn(),
   },
-} satisfies Meta<typeof OAuthConsent>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * OAuth consent screen, where a user lets a client reach ctxpipe data: the user
  * ticked a second organization and allowed.
  */
-export const ConsentOrgPicker: Story = {
+export const ConsentOrgPicker = meta.story({
   parameters: {
     intent:
       "Catches an OAuth consent screen that does not tick the current organization, or does not send the chosen organizations on Allow. Not for scope text or sign-in.",
@@ -62,13 +60,13 @@ export const ConsentOrgPicker: Story = {
       ["org_north", "org_harbor"],
     )
   },
-}
+})
 
 /**
  * OAuth consent screen, where a user lets a client reach ctxpipe data: no
  * organization is ticked, so Allow is disabled.
  */
-export const ConsentNeedsOneOrg: Story = {
+export const ConsentNeedsOneOrg = meta.story({
   parameters: {
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
@@ -88,13 +86,13 @@ export const ConsentNeedsOneOrg: Story = {
     await userEvent.click(allow)
     await expect(args.onAllow).not.toHaveBeenCalled()
   },
-}
+})
 
 /**
  * OAuth consent screen, where a user lets a client reach ctxpipe data: the user
  * ticked the write access after a first allow.
  */
-export const ConsentWriteOffByDefault: Story = {
+export const ConsentWriteOffByDefault = meta.story({
   parameters: {
     intent:
       "Catches consent that grants write access by default. Write stays off until the user ticks it, then it joins the scopes. Not for organization choice.",
@@ -118,13 +116,13 @@ export const ConsentWriteOffByDefault: Story = {
       ["org_north"],
     )
   },
-}
+})
 
 /**
  * OAuth consent screen, where a user lets a client reach ctxpipe data: the
  * client asks only for read access.
  */
-export const ConsentReadOnly: Story = {
+export const ConsentReadOnly = meta.story({
   args: { scopes: ["ctxpipe:read"] },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -135,13 +133,13 @@ export const ConsentReadOnly: Story = {
       canvas.queryByRole("checkbox", { name: /Also allow changes/ }),
     ).toBeNull()
   },
-}
+})
 
 /**
  * OAuth consent screen, where a user lets a client reach ctxpipe data: the
  * client asks only for write access, and the user ticked it.
  */
-export const ConsentWriteOnly: Story = {
+export const ConsentWriteOnly = meta.story({
   args: { scopes: ["ctxpipe:write"] },
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement)
@@ -159,13 +157,13 @@ export const ConsentWriteOnly: Story = {
       ["org_north"],
     )
   },
-}
+})
 
 /**
  * OAuth consent screen, where a user lets a client reach ctxpipe data: the
  * organizations did not load, so Allow is disabled.
  */
-export const ConsentOrgsUnavailable: Story = {
+export const ConsentOrgsUnavailable = meta.story({
   args: { organizations: [], defaultOrganizationIds: [] },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -176,4 +174,4 @@ export const ConsentOrgsUnavailable: Story = {
       expect(canvas.getByRole("button", { name: "Allow" })).toBeDisabled(),
     )
   },
-}
+})

@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
 import { useState } from "react"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
@@ -43,6 +42,7 @@ import {
 } from "@/mocks/workspace-upgrades-handlers"
 
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
+import preview from "../../../.storybook/preview"
 
 const PREFERENCES_KEY = "ctxpipe:userPreferences"
 const userId = "user_storybook"
@@ -81,8 +81,11 @@ async function findHint(canvasElement: HTMLElement, text: string) {
   return within(dialog)
 }
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Onboarding/Hints",
+  beforeEach: ({ msw }) => {
+    msw.use(...newUserDefaults, ...workspaceIngestionHandlers({}))
+  },
   parameters: {
     app: "root",
     layout: "centered",
@@ -91,41 +94,27 @@ const meta = {
       orgSlug: "acme",
       workspaceSlug: "docs",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        session: newUserDefaults,
-        ingestion: workspaceIngestionHandlers({}),
-      },
-    },
     review: { kind: "component" },
   },
-} satisfies Meta
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Onboarding hint popover next to Add Workspace in the side nav, which shows
  * once at least one Workspace exists: the user closed the hint with Escape, and
  * ctxpipe records it as seen.
  */
-export const AddWorkspaceHint: Story = {
-  beforeEach: () => seedHintsSeen([]),
+export const AddWorkspaceHint = meta.story({
   render: () => (
     <ul className="w-64 bg-zinc-950 py-2">
       <WorkspaceNavList orgSlug="acme" expanded onSelectNav={() => {}} />
     </ul>
   ),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceListHandler([docsWorkspace]),
-          conversationsListHandler(docsConversations),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceListHandler([docsWorkspace]),
+      conversationsListHandler(docsConversations),
+    )
+    seedHintsSeen([])
   },
   play: async ({ canvasElement }) => {
     await findHint(canvasElement, "Add a Workspace for each team or product.")
@@ -137,7 +126,7 @@ export const AddWorkspaceHint: Story = {
     )
     expect(storedHintsSeen()).toContain("add-workspace")
   },
-}
+})
 
 /** The side nav with a modal dialog that is open when the story starts. */
 function NavWithOpenDialog() {
@@ -163,18 +152,14 @@ function NavWithOpenDialog() {
  * Workspace button: a dialog was open when the hint was due, so the hint showed
  * after the dialog closed. CTX-863: no hint shows while a modal dialog is open.
  */
-export const AddWorkspaceHintWaitsForDialog: Story = {
-  beforeEach: () => seedHintsSeen([]),
+export const AddWorkspaceHintWaitsForDialog = meta.story({
   render: () => <NavWithOpenDialog />,
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceListHandler([docsWorkspace]),
-          conversationsListHandler(docsConversations),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceListHandler([docsWorkspace]),
+      conversationsListHandler(docsConversations),
+    )
+    seedHintsSeen([])
   },
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body)
@@ -190,7 +175,7 @@ export const AddWorkspaceHintWaitsForDialog: Story = {
     await findHint(canvasElement, "Add a Workspace for each team or product.")
     expect(storedHintsSeen()).not.toContain("add-workspace")
   },
-}
+})
 
 const workspacesPath = ({ request }: { request: Request }) =>
   /\/api\/v1\/workspaces$/.test(new URL(request.url).pathname)
@@ -202,45 +187,39 @@ const createState = { created: false }
  * CTX-863: the user just did what the tip says. The tip can show on a later
  * visit, after the session flag is gone.
  */
-export const AddWorkspaceHintSkippedAfterCreating: Story = {
-  beforeEach: () => {
-    seedHintsSeen([])
-    createState.created = false
-  },
+export const AddWorkspaceHintSkippedAfterCreating = meta.story({
   render: () => (
     <ul className="w-64 bg-zinc-950 py-2">
       <WorkspaceNavList orgSlug="acme" expanded onSelectNav={() => {}} />
     </ul>
   ),
+  beforeEach: ({ msw }) => {
+    msw.use(
+      activeMemberRoleHandler("owner"),
+      http.get(workspacesPath, () =>
+        HttpResponse.json({
+          items: createState.created ? [createdWorkspace] : [],
+          lastUsedWorkspaceId: createState.created ? createdWorkspace.id : null,
+        }),
+      ),
+      http.post(workspacesPath, () => {
+        createState.created = true
+        return HttpResponse.json(createdWorkspace, { status: 201 })
+      }),
+      conversationsListHandler([]),
+      orgConnectionsHandler([
+        { id: "con_gh", type: "github", displayName: "acme" },
+      ]),
+      ...githubAppInstalledHandlers,
+      githubInstallationReposHandler(),
+      workspaceDetailHandler(createdWritableWorkspaceDetail),
+      workspaceSourcesHandler(workspaceSourceList()),
+      workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
+    )
+    seedHintsSeen([])
+    createState.created = false
+  },
   parameters: {
-    msw: {
-      handlers: {
-        page: [
-          activeMemberRoleHandler("owner"),
-          http.get(workspacesPath, () =>
-            HttpResponse.json({
-              items: createState.created ? [createdWorkspace] : [],
-              lastUsedWorkspaceId: createState.created
-                ? createdWorkspace.id
-                : null,
-            }),
-          ),
-          http.post(workspacesPath, () => {
-            createState.created = true
-            return HttpResponse.json(createdWorkspace, { status: 201 })
-          }),
-          conversationsListHandler([]),
-          orgConnectionsHandler([
-            { id: "con_gh", type: "github", displayName: "acme" },
-          ]),
-          ...githubAppInstalledHandlers,
-          githubInstallationReposHandler(),
-          workspaceDetailHandler(createdWritableWorkspaceDetail),
-          workspaceSourcesHandler(workspaceSourceList()),
-          workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
-        ],
-      },
-    },
     visual: {
       skip: "Behavior test: it ends on its control, the hint after the session flag is cleared. That is the hint state of AddWorkspaceHintWaitsForDialog.",
     },
@@ -287,14 +266,14 @@ export const AddWorkspaceHintSkippedAfterCreating: Story = {
     await cycleDialog()
     await findHint(canvasElement, "Add a Workspace for each team or product.")
   },
-}
+})
 
 /**
  * Onboarding hint popover next to the Files and Graph pane buttons, on the
  * first Workspace visit with the pane closed: a blur or an outside click does
  * not close it. The user pressed Got it, and the hint closed.
  */
-export const PanesHint: Story = {
+export const PanesHint = meta.story({
   beforeEach: () => seedHintsSeen([]),
   render: () => (
     <div className="flex w-96 justify-end p-4">
@@ -328,14 +307,14 @@ export const PanesHint: Story = {
     )
     expect(storedHintsSeen()).toContain("panes")
   },
-}
+})
 
 /**
  * Onboarding hint popover next to the Create PR button of a conversation, after
  * the user saw the panes hint: the hint shows for the first time and does not
  * take focus.
  */
-export const CreatePrHint: Story = {
+export const CreatePrHint = meta.story({
   beforeEach: () => seedHintsSeen(["panes"]),
   render: () => (
     <div className="flex w-96 justify-end p-4">
@@ -370,4 +349,4 @@ export const CreatePrHint: Story = {
         .contains(canvasElement.ownerDocument.activeElement),
     ).toBe(false)
   },
-}
+})

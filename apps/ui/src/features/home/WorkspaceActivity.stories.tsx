@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useRouterState } from "@tanstack/react-router"
 import { HttpResponse, http } from "msw"
 import { I18nProvider } from "react-aria-components"
@@ -12,6 +11,7 @@ import {
 import { signedInHandlers } from "@/mocks/handlers"
 
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
+import preview from "../../../.storybook/preview"
 import { utcDayBefore } from "./activity-search"
 import { WorkspaceActivity } from "./WorkspaceActivity"
 
@@ -121,7 +121,7 @@ function urlSearch(canvasElement: HTMLElement): Record<string, unknown> {
   return JSON.parse(probe.textContent ?? "{}")
 }
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Home/Activity",
   component: WorkspaceActivity,
   decorators: [
@@ -132,6 +132,11 @@ const meta = {
       </div>
     ),
   ],
+  beforeEach: ({ msw }) => {
+    msw.use(...signedInHandlers, ...activityByDayHandlers)
+    activityReads.length = 0
+    orgActivityReads.length = 0
+  },
   parameters: {
     app: "root",
     review: { kind: "component" },
@@ -140,23 +145,12 @@ const meta = {
       pattern: "orgIndex",
       orgSlug: "acme",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: { session: signedInHandlers, page: activityByDayHandlers },
-    },
   },
   args: {
     orgSlug: "acme",
     workspaceSlug: "docs",
   },
-  beforeEach: () => {
-    activityReads.length = 0
-    orgActivityReads.length = 0
-  },
-} satisfies Meta<typeof WorkspaceActivity>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 function dayCell(canvasElement: HTMLElement, date: string, mark = "rect-0") {
   return canvasElement.querySelector<SVGRectElement>(
@@ -185,7 +179,7 @@ function clickDay(canvasElement: HTMLElement, date: string) {
  * The box keeps its height while it loads, so a label below the box would go
  * over the Recent header.
  */
-export const MonthLabelsStayInTheChart: Story = {
+export const MonthLabelsStayInTheChart = meta.story({
   play: async ({ canvasElement }) => {
     await waitFor(() =>
       expect(dayCell(canvasElement, "2026-08-22")).not.toBeNull(),
@@ -207,7 +201,7 @@ export const MonthLabelsStayInTheChart: Story = {
       )
     }
   },
-}
+})
 
 /**
  * Workspace activity section on the org home: the user clicked a day in the
@@ -215,7 +209,7 @@ export const MonthLabelsStayInTheChart: Story = {
  * put it in the URL. Then the user pressed Reset, and Recent lists the latest
  * commits again.
  */
-export const DayFiltersRecent: Story = {
+export const DayFiltersRecent = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() =>
@@ -259,14 +253,14 @@ export const DayFiltersRecent: Story = {
     expect(dayCell(canvasElement, "2026-08-22", "selected-day")).toBeNull()
     await waitFor(() => expect(urlSearch(canvasElement)).toEqual({}))
   },
-}
+})
 
 /**
  * Workspace activity section on the org home: the user pressed Enter on a
  * focused heatmap day that has no commits. The day is selected, and Recent says
  * that the day has no commits.
  */
-export const KeyboardSelectsEmptyDay: Story = {
+export const KeyboardSelectsEmptyDay = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() =>
@@ -289,7 +283,7 @@ export const KeyboardSelectsEmptyDay: Story = {
     expect(dated[0]).toMatch(/^\d{4}-\d{2}-\d{2}$/)
     expect(canvas.getByRole("button", { name: "Reset" })).toBeVisible()
   },
-}
+})
 
 /**
  * Workspace activity section on the org home: the author menu lists the authors
@@ -297,7 +291,7 @@ export const KeyboardSelectsEmptyDay: Story = {
  * only that author's commits, and then clicked a day. No commit matches both
  * filters, and Recent says so.
  */
-export const AuthorFiltersRecent: Story = {
+export const AuthorFiltersRecent = meta.story({
   parameters: {
     intent:
       "Catches an author filter that does not narrow the recent commits. Choosing an author must update the button and send the author to the activity request. Not for the date filter or commit rows.",
@@ -354,14 +348,14 @@ export const AuthorFiltersRecent: Story = {
       }),
     )
   },
-}
+})
 
 /**
  * Workspace activity section on the org home: the user picked a date range
  * preset, so Recent lists the commits since that date. The preset sends `since`
  * and goes into the URL.
  */
-export const DateRangeFiltersRecent: Story = {
+export const DateRangeFiltersRecent = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const page = within(canvasElement.ownerDocument.body)
@@ -391,14 +385,14 @@ export const DateRangeFiltersRecent: Story = {
     )
     await waitFor(() => expect(urlSearch(canvasElement)).toEqual({ since }))
   },
-}
+})
 
 /**
  * Workspace activity section on the org home: the user typed a custom start and
  * end day in the date range picker, and Recent lists the commits in that range.
  * The list reads `since` and `until`, and both go into the URL.
  */
-export const CustomDateRange: Story = {
+export const CustomDateRange = meta.story({
   parameters: {
     intent:
       "Catches a custom date range that does not reach the activity request. Typed start and end dates must send since and until values. Not for the author filter or commit rows.",
@@ -454,7 +448,7 @@ export const CustomDateRange: Story = {
       canvas.queryByText("Document billing ledger rules"),
     ).not.toBeInTheDocument()
   },
-}
+})
 
 async function openCalendar(canvasElement: HTMLElement, label: string) {
   const canvas = within(canvasElement)
@@ -484,7 +478,7 @@ function selectedCells(page: ReturnType<typeof within>): HTMLElement[] {
  * and its calendar for a range of one day, Aug 12. That day shows as one cell
  * with every corner round.
  */
-export const OneDayRange: Story = {
+export const OneDayRange = meta.story({
   parameters: {
     storyRoute: {
       pattern: "orgIndex",
@@ -500,14 +494,14 @@ export const OneDayRange: Story = {
       expect(cells[0]).toHaveClass("rounded-s-md", "rounded-e-md")
     })
   },
-}
+})
 
 /**
  * Date filter of the Recent commits list on Home: the user opened the date menu
  * and its calendar. The range Aug 10 to 13, inside one week, shows as one band:
  * a round start, a flat middle and a round end.
  */
-export const MultiDayRange: Story = {
+export const MultiDayRange = meta.story({
   parameters: {
     storyRoute: {
       pattern: "orgIndex",
@@ -528,13 +522,13 @@ export const MultiDayRange: Story = {
       expect(cells[3]).not.toHaveClass("rounded-s-md")
     })
   },
-}
+})
 
 /**
  * Date range calendar of the Workspace activity section: a range over three
  * weeks is selected, and it stays one connected band.
  */
-export const RangeAcrossWeeks: Story = {
+export const RangeAcrossWeeks = meta.story({
   parameters: {
     storyRoute: {
       pattern: "orgIndex",
@@ -552,13 +546,13 @@ export const RangeAcrossWeeks: Story = {
       expect(cells[15]).toHaveClass("rounded-e-md")
     })
   },
-}
+})
 
 /**
  * Date range calendar of the Workspace activity section in a short window: the
  * user opened the calendar, and its popover stays inside the viewport.
  */
-export const CalendarOnShortViewport: Story = {
+export const CalendarOnShortViewport = meta.story({
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as RangeAcrossWeeks.",
@@ -580,14 +574,14 @@ export const CalendarOnShortViewport: Story = {
       expect(box.bottom).toBeLessThanOrEqual(window.innerHeight)
     })
   },
-}
+})
 
 /**
  * Date range field and calendar of the Workspace activity section in a German
  * browser locale: the field and the calendar follow the browser locale, so the
  * day comes before the month.
  */
-export const GermanLocale: Story = {
+export const GermanLocale = meta.story({
   parameters: {
     storyRoute: {
       pattern: "orgIndex",
@@ -618,14 +612,14 @@ export const GermanLocale: Story = {
       expect(segments[4]).toHaveTextContent("8")
     })
   },
-}
+})
 
 /**
  * Workspace activity section on the org home: the page opened with author, day
  * and date range filters from the URL, as after a reload. The user pressed
  * Reset once, which cleared all three filters.
  */
-export const ResetClearsEveryFilter: Story = {
+export const ResetClearsEveryFilter = meta.story({
   tags: ["required"],
   parameters: {
     visual: {
@@ -677,7 +671,7 @@ export const ResetClearsEveryFilter: Story = {
     )
     await waitFor(() => expect(urlSearch(canvasElement)).toEqual({}))
   },
-}
+})
 
 /** Twelve Docs commits, one per day back from Aug 26. */
 const twelveCommits: WorkspaceActivityCommit[] = (
@@ -717,12 +711,14 @@ function beadTops(canvasElement: HTMLElement): number[] {
  * first ten with the cursor, and the button went away. The rows above and the
  * commit line do not move.
  */
-export const LoadMorePages: Story = {
+export const LoadMorePages = meta.story({
   tags: ["required"],
+  beforeEach: ({ msw }) => {
+    msw.use(...activityHandlers(twelveCommits))
+  },
   parameters: {
     intent:
       "Catches Load more that replaces or moves earlier commits. New commits append after the first ten and the button goes away at the end. Not for filters or row content.",
-    msw: { handlers: { page: activityHandlers(twelveCommits) } },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -749,7 +745,7 @@ export const LoadMorePages: Story = {
       canvas.queryByRole("button", { name: "Load more" }),
     ).not.toBeInTheDocument()
   },
-}
+})
 
 /**
  * Workspace activity section on the org home, where the filter starts on the
@@ -757,7 +753,7 @@ export const LoadMorePages: Story = {
  * names its Workspace. Then the user clicked a day, which filters the commits
  * of all Workspaces too.
  */
-export const AllWorkspaces: Story = {
+export const AllWorkspaces = meta.story({
   args: {
     workspaces: [
       { slug: "docs", displayName: "Docs" },
@@ -818,7 +814,7 @@ export const AllWorkspaces: Story = {
     ).not.toBeInTheDocument()
     expect(activityDates.includes("2026-08-22")).toBe(false)
   },
-}
+})
 
 let pendingOrgReads = 0
 
@@ -827,32 +823,28 @@ let pendingOrgReads = 0
  * ready: the data shows at once with a note, and the section polls slowly.
  * Before CTX-556 it stayed in the loading state and polled every 2 s.
  */
-export const AllWorkspacesPendingNote: Story = {
+export const AllWorkspacesPendingNote = meta.story({
   args: {
     workspaces: [
       { slug: "docs", displayName: "Docs" },
       { slug: "handbook", displayName: "Handbook" },
     ],
   },
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) =>
-              /\/api\/v1\/activity$/.test(new URL(request.url).pathname),
-            () => {
-              pendingOrgReads += 1
-              return HttpResponse.json({
-                ...docsWorkspaceActivity,
-                pendingWorkspaces: [{ slug: "handbook", name: "Handbook" }],
-              })
-            },
-          ),
-          ...activityByDayHandlers,
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(
+        ({ request }) =>
+          /\/api\/v1\/activity$/.test(new URL(request.url).pathname),
+        () => {
+          pendingOrgReads += 1
+          return HttpResponse.json({
+            ...docsWorkspaceActivity,
+            pendingWorkspaces: [{ slug: "handbook", name: "Handbook" }],
+          })
+        },
+      ),
+      ...activityByDayHandlers,
+    )
   },
   play: async ({ canvasElement }) => {
     pendingOrgReads = 0
@@ -889,41 +881,37 @@ export const AllWorkspacesPendingNote: Story = {
     await new Promise((settle) => setTimeout(settle, 3_000))
     expect(pendingOrgReads).toBe(2)
   },
-}
+})
 
 /**
  * Workspace activity section set to All workspaces while no Workspace is ready:
  * only the loading state shows, with no empty message and no note.
  */
-export const AllWorkspacesNoneReady: Story = {
+export const AllWorkspacesNoneReady = meta.story({
   args: {
     workspaces: [
       { slug: "docs", displayName: "Docs" },
       { slug: "handbook", displayName: "Handbook" },
     ],
   },
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) =>
-              /\/api\/v1\/activity$/.test(new URL(request.url).pathname),
-            () =>
-              HttpResponse.json({
-                status: "pending",
-                days: [],
-                recent: [],
-                pendingWorkspaces: [
-                  { slug: "docs", name: "Docs" },
-                  { slug: "handbook", name: "Handbook" },
-                ],
-              }),
-          ),
-          ...activityByDayHandlers,
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(
+        ({ request }) =>
+          /\/api\/v1\/activity$/.test(new URL(request.url).pathname),
+        () =>
+          HttpResponse.json({
+            status: "pending",
+            days: [],
+            recent: [],
+            pendingWorkspaces: [
+              { slug: "docs", name: "Docs" },
+              { slug: "handbook", name: "Handbook" },
+            ],
+          }),
+      ),
+      ...activityByDayHandlers,
+    )
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -946,4 +934,4 @@ export const AllWorkspacesNoneReady: Story = {
     ).not.toBeInTheDocument()
     expect(canvas.queryByText(/is still loading/)).not.toBeInTheDocument()
   },
-}
+})
