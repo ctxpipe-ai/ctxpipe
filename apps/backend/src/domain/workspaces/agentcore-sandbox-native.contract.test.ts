@@ -5,6 +5,7 @@ import { startContainerAgentCore } from "../../test/agentcore-fake.js"
 import { agentCoreRootExec } from "../ingestion/ingest-root.js"
 import { agentCoreSandboxProvider } from "./agentcore-sandbox-provider.js"
 import { workspaceChatDockerImage } from "./chat-runtime.js"
+import { OPENCODE_WARMUP_COMMAND } from "./opencode-warmup.js"
 import { parseSandboxLifecycleMarks } from "./sandbox-lifecycle-timing.js"
 import { withSessionOnlyEnv } from "./sandbox-provider.js"
 import { conversationSandboxWorkspace } from "./tanstack-workspace-chat.js"
@@ -39,6 +40,25 @@ describe("the AgentCore provider in the chat sandbox image", () => {
     })
     await provider.destroy({ id: handle.id })
   })
+
+  it("warms OpenCode with no proxy and no password of the session, and leaves no file in /workspace and no process", async () => {
+    // A proxy that answers nothing and a server password: with either, the
+    // warm-up's requests would fail.
+    const handle = await provider.create({
+      env: {
+        HTTPS_PROXY: "http://127.0.0.1:9",
+        HTTP_PROXY: "http://127.0.0.1:9",
+        OPENCODE_SERVER_PASSWORD: "session-password",
+      },
+    })
+    const result = await handle.process.exec(OPENCODE_WARMUP_COMMAND)
+    expect(result.exitCode).toBe(0)
+    const left = await handle.process.exec(
+      `ls -A /workspace; ls -A /tmp/ctxpipe-opencode-warmup; for c in /proc/[0-9]*/cmdline; do tr '\\0' ' ' < "$c" 2>/dev/null | grep -q "^opencode" && echo running; done; echo checked`,
+    )
+    expect(left.stdout).toBe("checked\n")
+    await provider.destroy({ id: handle.id })
+  }, 90_000)
 
   it("kills the process group of a background process", async () => {
     const handle = await provider.create({})

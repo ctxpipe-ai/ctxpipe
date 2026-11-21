@@ -178,6 +178,25 @@ export function timedSandboxProvider(
   })
 }
 
+/** Pass the output on, and call `onMatch` once when it first holds `text`. */
+async function* markFirstLine(
+  output: AsyncIterable<string>,
+  text: string,
+  onMatch: () => void,
+): AsyncIterable<string> {
+  let tail = ""
+  let matched = false
+  for await (const chunk of output) {
+    if (!matched) {
+      tail += chunk
+      matched = tail.includes(text)
+      if (matched) onMatch()
+      else tail = tail.slice(-text.length)
+    }
+    yield chunk
+  }
+}
+
 export function timedSandboxHandle(handle: SandboxHandle): SandboxHandle {
   return {
     ...handle,
@@ -254,6 +273,16 @@ export function timedSandboxHandle(handle: SandboxHandle): SandboxHandle {
         const proc = await handle.process.spawn(command, options)
         return {
           ...proc,
+          // The split of an OpenCode start: to its port, then to the first
+          // model call (`firstCallMs`).
+          stdout:
+            phase === "opencode-serve"
+              ? markFirstLine(proc.stdout, "opencode server listening", () =>
+                  markSandboxLifecycle(`${phase}:ready`, {
+                    ms: Date.now() - started,
+                  }),
+                )
+              : proc.stdout,
           kill: async (signal) => {
             markSandboxLifecycle(phase, { ms: Date.now() - started })
             if (signal !== undefined) return proc.kill(signal)
