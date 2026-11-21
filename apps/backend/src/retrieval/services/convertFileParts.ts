@@ -4,7 +4,7 @@
 // (ADR-070). So the proxies replace each PDF file part with its text from
 // our converter: the same CLI, sandbox and limits as the knowledge plane.
 // The text then goes through the secret scrubber like any other text
-// (ADR-071). Each other file part makes the request fail. Image parts stay:
+// (ADR-072). Each other file part makes the request fail. Image parts stay:
 // the provider allowlist covers them.
 import { z } from "zod"
 
