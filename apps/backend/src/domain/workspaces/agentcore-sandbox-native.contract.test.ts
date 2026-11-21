@@ -54,7 +54,7 @@ describe("the AgentCore provider in the chat sandbox image", () => {
     const result = await handle.process.exec(OPENCODE_WARMUP_COMMAND)
     expect(result.exitCode).toBe(0)
     const left = await handle.process.exec(
-      `ls -A /workspace; ls -A /tmp/ctxpipe-opencode-warmup; for c in /proc/[0-9]*/cmdline; do tr '\\0' ' ' < "$c" 2>/dev/null | grep -q "^opencode" && echo running; done; echo checked`,
+      `ls -A /workspace; ls -d /tmp/ctxpipe-opencode-warmup* 2>/dev/null; for c in /proc/[0-9]*/cmdline; do tr '\\0' ' ' < "$c" 2>/dev/null | grep -q "^opencode" && echo running; done; echo checked`,
     )
     expect(left.stdout).toBe("checked\n")
     await provider.destroy({ id: handle.id })

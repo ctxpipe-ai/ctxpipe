@@ -20,8 +20,8 @@ import { WORKSPACE_CHAT_OPENCODE_START_ENV } from "./workspace-chat-opencode-con
  *   fills. It removes them at the end.
  * - Its OpenCode and its stand-in model listen only on loopback.
  *
- * It stops itself after the prompt, or after 60 s. Its exit code tells how
- * it ended: 0 after a model call, 2 at the 60 s limit, 3 when OpenCode
+ * It stops itself after the prompt, or after 25 s. Its exit code tells how
+ * it ended: 0 after a model call, 2 at the 25 s limit, 3 when OpenCode
  * stopped first, 4 when no model call came, 5 when a request to OpenCode
  * failed, and 6 when `opencode` did not start.
  */
@@ -29,7 +29,7 @@ export const OPENCODE_WARMUP_COMMAND = `node -e '
 const { spawn } = require("node:child_process")
 const { mkdirSync, rmSync, writeFileSync } = require("node:fs")
 const http = require("node:http")
-const home = "/tmp/ctxpipe-opencode-warmup-" + process.pid
+const home = "/tmp/ctxpipe-opencode-warmup"
 const chunk = (delta, finish) => "data: " + JSON.stringify({ id: "w", object: "chat.completion.chunk", created: 0, model: "w", choices: [{ index: 0, delta, finish_reason: finish }] }) + "\\n\\n"
 let modelCalls = 0
 const model = http.createServer((req, res) => {
@@ -57,7 +57,7 @@ model.listen(0, "127.0.0.1", () => {
     rmSync(home, { recursive: true, force: true })
     process.exit(code)
   }
-  setTimeout(() => stop(2), 60000)
+  setTimeout(() => stop(2), 25000)
   server.on("exit", () => stop(3))
   server.on("error", () => stop(6))
   let out = ""
@@ -125,8 +125,8 @@ export function warmOpencode(handle: SandboxHandle): Promise<void> {
 export async function waitForOpencodeWarmup(sandboxId: string): Promise<void> {
   const warmup = running.get(sandboxId)
   if (!warmup) return
-  // The warm-up stops itself after 60 s. A command stream that hangs holds
-  // the caller for at most 30 s.
+  // The warm-up stops itself after 25 s, so this wait ends after it. A
+  // command stream that hangs holds the caller for at most 30 s.
   let timer: ReturnType<typeof setTimeout> | undefined
   await Promise.race([
     warmup,
