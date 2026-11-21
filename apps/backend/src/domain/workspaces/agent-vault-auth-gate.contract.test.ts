@@ -44,7 +44,7 @@ describe("Agent Vault's pre-auth gate, as ctxpipe deploys it", () => {
         try {
           // The proxy's address without credentials: `HTTPS_PROXY` is
           // http://<session>:<vault>@<host>:<port>.
-          const proxy = '"${HTTPS_PROXY##*@}"'
+          const proxy = `"\${HTTPS_PROXY##*@}"`
           // The stock gate refuses each CONNECT from the address after 50
           // failures in 5 minutes (429).
           const hostile = await fixture.sandbox(
