@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { WRITE_STATUS_REASONS } from "backend/domain/workspaces/write-status"
+import { HttpResponse, http } from "msw"
 import { Toaster } from "sonner"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
@@ -1781,6 +1782,55 @@ export const SkeletonMatchesLoaded: Story = {
     )
     expect(canvas.getByText("Loading upgrades")).toBeInTheDocument()
     await expectSkeletonMatchesLoaded(canvasElement)
+  },
+}
+
+/** The play opens this gate: the automatic-upgrades setting answers then. */
+const settingGate = { open: () => {} }
+
+/**
+ * Upgrades section of a Workspace: the upgrade list loads before the
+ * automatic-upgrades setting, and the card keeps its skeleton until both have
+ * loaded. A card without the switch row is 22 px lower, and its growth moved
+ * the scroll position of the settings pane (CTX-1466).
+ */
+export const SkeletonWaitsForSetting: Story = {
+  parameters: {
+    visual: { skip: "Behavior test: it ends in the same state as UpToDate." },
+    msw: {
+      handlers: {
+        page: [
+          activeMemberRoleHandler("owner"),
+          workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
+        ],
+        automatic: [
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname.endsWith("/upgrades/automatic"),
+            async () => {
+              await new Promise<void>((open) => {
+                settingGate.open = open
+              })
+              return HttpResponse.json({ mode: "manual", reason: null })
+            },
+          ),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    // The upgrade list has answered: its skeleton hold has ended too.
+    await new Promise((settled) => setTimeout(settled, 500))
+    expect(canvas.getByText("Loading upgrades")).toBeInTheDocument()
+    expect(canvas.queryByText("Format 3, the latest")).toBeNull()
+    settingGate.open()
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("switch", { name: "Automatic upgrades" }),
+      ).toBeVisible(),
+    )
+    await expectUpToDate(canvas)
   },
 }
 
