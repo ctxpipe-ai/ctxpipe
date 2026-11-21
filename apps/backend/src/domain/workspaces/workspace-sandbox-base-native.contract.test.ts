@@ -12,10 +12,6 @@ import { eq } from "drizzle-orm"
 import { BackendPostgres } from "openworkflow/postgres"
 import { afterAll, beforeAll, expect, it, vi } from "vitest"
 
-import {
-  TEST_LABEL,
-  testLabels,
-} from "../../../../../scripts/ci/test-containers.mjs"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import {
   closeDb,
@@ -201,7 +197,7 @@ async function withGitRemote<T>(
       User: "0:0",
       Entrypoint: ["node"],
       Cmd: ["/tmp/srv/server.mjs"],
-      Labels: { "ai.ctxpipe.purpose": "workspace-base-proof", ...testLabels() },
+      Labels: { "ai.ctxpipe.purpose": "workspace-base-proof" },
       HostConfig: { NetworkMode: network },
       NetworkingConfig: {
         EndpointsConfig: { [network]: { Aliases: [GIT_HOST] } },
@@ -418,10 +414,7 @@ it(
         Image: image,
         User: "0:0",
         Cmd: ["sleep", "120"],
-        Labels: {
-          "ai.ctxpipe.purpose": "workspace-base-proof",
-          ...testLabels(),
-        },
+        Labels: { "ai.ctxpipe.purpose": "workspace-base-proof" },
       })
       try {
         await probe.start()
@@ -722,11 +715,7 @@ it(
       const created = await docker.createContainer({
         Image: contractImage("alpine"),
         Cmd: ["sleep", "600"],
-        Labels: {
-          "ai.ctxpipe.purpose": "workspace-base-proof",
-          ...testLabels(),
-          ...labels,
-        },
+        Labels: { "ai.ctxpipe.purpose": "workspace-base-proof", ...labels },
       })
       containers.push(created.id)
       await created.start()
@@ -737,19 +726,14 @@ it(
       const source = await docker.createContainer({
         Image: contractImage("alpine"),
         Cmd: ["true"],
-        Labels: testLabels(),
       })
       try {
         const committed = (await source.commit({
           repo: "ctxpipe-workspace-base-proof",
           tag: randomUUID(),
-          changes: [
-            // The image does not keep the owner of this run.
-            `LABEL ${TEST_LABEL}=""`,
-            ...Object.entries(labels).map(
-              ([key, value]) => `LABEL ${key}=${JSON.stringify(value)}`,
-            ),
-          ],
+          changes: Object.entries(labels).map(
+            ([key, value]) => `LABEL ${key}=${JSON.stringify(value)}`,
+          ),
         })) as { Id: string }
         images.push(committed.Id)
         return committed.Id

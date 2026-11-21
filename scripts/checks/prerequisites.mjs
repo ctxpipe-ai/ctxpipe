@@ -2,6 +2,7 @@ import { execFileSync, spawnSync } from "node:child_process"
 import { existsSync, readFileSync } from "node:fs"
 import { createRequire } from "node:module"
 import { connect } from "node:net"
+import { hostname } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -301,20 +302,37 @@ export const prerequisites = {
       const { browsers } = JSON.parse(
         readFileSync(join(dirname(playwright), "browsers.json"), "utf8"),
       )
-      const present = quiet(
-        "docker",
-        [
-          "run",
-          "--rm",
-          "--platform",
-          visualPin.platform,
-          "--entrypoint",
-          "ls",
-          image,
-          "/ms-playwright",
-        ],
-        `Run: docker pull ${image}`,
-      ).split("\n")
+      // The label of a test container (scripts/ci/test-containers.mjs, which
+      // this file does not import: it would become a check definition). The
+      // `finally` removes the container also after a time-out of the client.
+      // When a signal stops this process first, the next backend test run
+      // removes the container of an owner that is gone.
+      const probe = `ctxpipe-test-visual-probe-${process.pid}`
+      let present
+      try {
+        present = quiet(
+          "docker",
+          [
+            "run",
+            "--rm",
+            "--name",
+            probe,
+            "--label",
+            `ai.ctxpipe.test=${process.env.CTXPIPE_TEST_OWNER || `${hostname()}/${process.pid}`}`,
+            "--platform",
+            visualPin.platform,
+            "--entrypoint",
+            "ls",
+            image,
+            "/ms-playwright",
+          ],
+          `Run: docker pull ${image}`,
+        ).split("\n")
+      } finally {
+        spawnSync("docker", ["rm", "--force", "--volumes", probe], {
+          stdio: "ignore",
+        })
+      }
       const missing = browsers
         .filter(({ name }) => name.startsWith("chromium"))
         .map(({ name, revision }) => `${name.replaceAll("-", "_")}-${revision}`)

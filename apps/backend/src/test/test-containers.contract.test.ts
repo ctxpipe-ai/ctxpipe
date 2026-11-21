@@ -3,6 +3,8 @@ import { once } from "node:events"
 import { hostname } from "node:os"
 import { createInterface } from "node:readline"
 
+import { dockerSandbox } from "@tanstack/ai-sandbox-docker"
+import Docker from "dockerode"
 import { describe, expect, it } from "vitest"
 
 import {
@@ -110,6 +112,62 @@ describe("test containers", () => {
         await live.exited
       }
       expect(exists(live.id)).toBe(false)
+    },
+  )
+
+  // The product sandbox providers and @tanstack/ai-sandbox-docker create
+  // their containers with dockerode (setup-test-containers.ts).
+  it(
+    "that product code creates with dockerode have the owner of the run, and an image of one has no owner",
+    { timeout: 120_000 },
+    async () => {
+      const owner = process.env.CTXPIPE_TEST_OWNER
+      const labels = async (id: string) =>
+        (await new Docker().getContainer(id).inspect()).Config.Labels
+      const handle = await dockerSandbox({
+        image: contractImage("alpine"),
+      }).create({ workspace: { source: { type: "none" } } })
+      try {
+        const [id] = docker(
+          "ps",
+          "-q",
+          "--no-trunc",
+          "--filter",
+          `label=${TEST_LABEL}=${owner}`,
+          "--filter",
+          `ancestor=${contractImage("alpine")}`,
+        ).split("\n")
+        expect(id).toBeTruthy()
+        // The labels that the code gives stay.
+        const container = await new Docker().createContainer({
+          Image: contractImage("alpine"),
+          Cmd: ["true"],
+          Labels: { "ai.ctxpipe.purpose": "proof" },
+        })
+        try {
+          expect(await labels(container.id)).toMatchObject({
+            "ai.ctxpipe.purpose": "proof",
+            [TEST_LABEL]: owner,
+          })
+          const image = (await container.commit({
+            repo: "ctxpipe-test-containers-proof",
+            tag: "unowned",
+            changes: ["USER 1000:1000"],
+          })) as { Id: string }
+          try {
+            const config = (await new Docker().getImage(image.Id).inspect())
+              .Config
+            expect(config.User).toBe("1000:1000")
+            expect(config.Labels?.[TEST_LABEL]).toBe("")
+          } finally {
+            await new Docker().getImage(image.Id).remove({ force: true })
+          }
+        } finally {
+          await container.remove({ force: true, v: true })
+        }
+      } finally {
+        await handle.destroy()
+      }
     },
   )
 })

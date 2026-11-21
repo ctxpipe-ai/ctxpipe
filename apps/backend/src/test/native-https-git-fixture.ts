@@ -17,11 +17,6 @@ import { promisify } from "node:util"
 
 import type Docker from "dockerode"
 
-import {
-  TEST_LABEL,
-  testLabels,
-} from "../../../../scripts/ci/test-containers.mjs"
-
 const exec = promisify(execFile)
 
 interface NativeHttpsGitRemote {
@@ -164,7 +159,6 @@ export async function withNativeHttpsGitFixture<T>(
       Image: input.baseImage,
       User: "0:0",
       Cmd: ["sh", "-c", "sleep 300"],
-      Labels: testLabels(),
     })
     await customizer.start()
     await customizer.putArchive(await readFile(caArchive), {
@@ -174,9 +168,7 @@ export async function withNativeHttpsGitFixture<T>(
     await customizer.commit({
       repo: derivedRepository,
       tag: "fixture",
-      // The image does not keep the owner of this run: a container of it
-      // that a later run starts is not this run's container.
-      changes: ["USER 1000:1000", `LABEL ${TEST_LABEL}=""`],
+      changes: ["USER 1000:1000"],
     })
     await customizer.remove({ force: true, v: true })
     customizer = undefined
@@ -241,10 +233,7 @@ export async function withNativeHttpsGitFixture<T>(
         )
         network = await input.docker.createNetwork({
           Name: networkName,
-          Labels: {
-            "ai.ctxpipe.purpose": "native-https-git-fixture",
-            ...testLabels(),
-          },
+          Labels: { "ai.ctxpipe.purpose": "native-https-git-fixture" },
         })
         server = await input.docker.createContainer({
           name: serverName,
@@ -284,10 +273,7 @@ export async function withNativeHttpsGitFixture<T>(
               [networkName]: { Aliases: [hostname] },
             },
           },
-          Labels: {
-            "ai.ctxpipe.purpose": "native-https-git-fixture",
-            ...testLabels(),
-          },
+          Labels: { "ai.ctxpipe.purpose": "native-https-git-fixture" },
         })
         await server.putArchive(await readFile(serverArchive), { path: "/" })
         await server.start()
