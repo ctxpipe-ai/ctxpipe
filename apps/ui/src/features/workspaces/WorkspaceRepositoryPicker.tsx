@@ -46,9 +46,9 @@ type Mode = "select" | "create" | "paste"
 
 /**
  * Selects the repository of a Workspace: a repository of a connected GitHub
- * installation, a new repository on GitHub, or a pasted git URL, with an
- * optional root folder. Use it when the user creates a Workspace or changes its
- * repository.
+ * installation, a new repository on GitHub, or a pasted git URL. The user can
+ * also set a root folder. Use it when the user creates a Workspace or changes
+ * its repository.
  */
 export function WorkspaceRepositoryPicker(props: {
   orgSlug: string
