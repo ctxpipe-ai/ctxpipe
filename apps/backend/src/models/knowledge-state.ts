@@ -88,12 +88,18 @@ export type KnowledgeHead = TreeHead & {
 }
 
 /**
- * The key of the view of a head, for the binding of a cursor or a cache: the
- * tip of the branch, and for an overlay also the tip of its base, because a
- * new tip of the default branch changes the view of an overlay too.
+ * The key of the view of a head, for the binding of a cursor or a cache:
+ * the branch, the tree version and the tip of the head, and for an overlay
+ * the same of its base, because a new tree of the default branch changes
+ * the view of an overlay too. A tree version changes also at the same tip,
+ * for example after a new projection version.
  */
 export const knowledgeViewKey = (head: KnowledgeHead) =>
-  head.base ? `${head.sha}+${head.base.sha}` : head.sha
+  JSON.stringify(
+    [head, head.base].flatMap((tree) =>
+      tree ? [[tree.branch, tree.treeVersion, tree.sha]] : [],
+    ),
+  )
 
 type HeadRow = typeof knowledgeBranchHeads.$inferSelect
 

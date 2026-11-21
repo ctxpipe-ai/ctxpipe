@@ -69,6 +69,8 @@ const observedAt = new Date("2026-11-01T00:00:00.000Z")
 let seed: SeededOrg
 let clickHouse: Awaited<ReturnType<typeof startClickHouse>>
 let repository: string
+/** The admin URL of the knowledge database, for test writes. */
+let knowledgeUrl: string
 /** The commit that the plane serves, and a later commit. */
 let servedSha: string
 let laterSha: string
@@ -191,6 +193,7 @@ describe("read_file and list_files on the knowledge plane", () => {
     vi.useFakeTimers({ now: clock, toFake: ["Date"] })
     clickHouse = await startClickHouse()
     const url = await clickHouse.freshDatabase()
+    knowledgeUrl = url
     await migrateKnowledgeStore(url, {
       reader: "reader-test",
       writer: "writer-test",
@@ -467,6 +470,80 @@ describe("read_file and list_files on the knowledge plane", () => {
         { path: "sources/notes.md" },
       ])
       expect(next.cursor).toBeUndefined()
+    })
+
+    it("on a branch, each file comes from the tip of the branch of its row of the view", async () => {
+      // The branch forks at the served SHA. It changes the payments unit and
+      // adds a unit. Its Git also changes the checkout unit, but the view
+      // takes the checkout unit from the default branch (its overlay has no
+      // row of it), so a read gives the file of the default branch.
+      await git("checkout", "-q", "-b", "feature", servedSha)
+      const branchSha = await commit({
+        [PAYMENTS]: paymentsFile.replace("owns checkout", "owns checkout on B"),
+        "knowledge/branch.md": "# Branch only\n\nOnly on the branch.\n",
+        [CHECKOUT]: checkoutFile("F"),
+      })
+      await git("checkout", "-q", "main")
+      const writer = createKnowledgeStore(knowledgeUrl)
+      try {
+        await writePlaneDocuments(
+          writer,
+          { orgId: seed.orgId, workspaceId },
+          [PAYMENTS, "knowledge/branch.md"].map((path) => ({
+            document: {
+              docKey: servingIdForKnowledgePath(workspaceId, path),
+              kind: "",
+              title: path,
+              path,
+              sourceType: "docs",
+              source: "",
+              summary: "",
+              mime: "",
+              validFrom: null,
+              validTo: null,
+              observedAt,
+            },
+            chunks: [],
+            relations: [],
+          })),
+          { branch: "feature" },
+        )
+      } finally {
+        await writer.close()
+      }
+      const head = { orgId: seed.orgId, workspaceId, branch: "feature" }
+      await beginKnowledgeRun({ ...head, isDefault: false })
+      await completeKnowledgeRun({
+        ...head,
+        tip: branchSha,
+        treeVersion: 1,
+        baseBranch: "main",
+        projectionVersion: "test",
+        failedCount: 0,
+      })
+
+      const payments = structured(
+        await readFile({ ref: PAYMENTS, branch: "feature" }),
+      )
+      expect(payments.served).toEqual({ branch: "feature", sha: branchSha })
+      expect(payments.content).toContain("owns checkout on B")
+      const checkout = structured(
+        await readFile({ ref: CHECKOUT, branch: "feature" }),
+      )
+      expect(checkout.content).toContain("Version A of the checkout service.")
+      // The default branch does not see the overlay.
+      expect((await readFile({ ref: "knowledge/branch.md" })).isError).toBe(
+        true,
+      )
+
+      const list = structured(
+        await listFiles({ path: "knowledge", depth: 3, branch: "feature" }),
+      )
+      expect(
+        (list.entries as { path: string; type: string }[])
+          .filter((entry) => entry.type === "file")
+          .map((entry) => entry.path),
+      ).toEqual(["knowledge/branch.md", CHECKOUT, PAYMENTS])
     })
 
     it("both tools give the output shape of the old stack", async () => {

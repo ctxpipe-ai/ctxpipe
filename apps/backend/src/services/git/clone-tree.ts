@@ -506,6 +506,11 @@ export async function listMarkdownFilesAtGitSha(input: {
    */
   prefix?: string
   /**
+   * Read only these Markdown paths (relative to `root`). The fetch then gets
+   * the trees and only their blobs.
+   */
+  onlyPaths?: ReadonlySet<string>
+  /**
    * Workspace root folder. Only files below it are read, and every path
    * (including `extraPaths`, `extraFolders` and `prefix`) is relative to it.
    */
@@ -520,9 +525,9 @@ export async function listMarkdownFilesAtGitSha(input: {
     lastCommitTimestamp?: string
   }>
 > {
-  const { prefix } = input
+  const { prefix, onlyPaths } = input
   return withFetchedGitSha(
-    { ...input, treesOnly: !!prefix },
+    { ...input, treesOnly: !!prefix || !!onlyPaths },
     async (dir, fetchBlobs) => {
       const inFolder = (path: string) =>
         input.extraFolders?.some((folder) => path.startsWith(folder)) ?? false
@@ -536,6 +541,7 @@ export async function listMarkdownFilesAtGitSha(input: {
         return path !== null &&
           isRegularFile(entry) &&
           (!prefix || path.startsWith(prefix)) &&
+          (!onlyPaths || onlyPaths.has(path)) &&
           (path.endsWith(".md") ||
             input.extraPaths?.includes(path) ||
             inFolder(path))

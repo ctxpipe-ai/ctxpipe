@@ -174,7 +174,8 @@ export async function listPlaneUnitFiles(input: {
 }): Promise<UnitFile[]> {
   const { orgId, workspaceId, head, folder } = input
   const repository = await workspaceRepository(orgId, workspaceId)
-  const unitsAt = async (sha: string) => {
+  /** The units at `sha`; with `onlyPaths`, of these paths only. */
+  const unitsAt = async (sha: string, onlyPaths?: ReadonlySet<string>) => {
     const files = await gitRead("mcp.list_files.git_failed", workspaceId, () =>
       listMarkdownFilesAtGitSha({
         url: repository.url,
@@ -182,6 +183,7 @@ export async function listPlaneUnitFiles(input: {
         token: repository.token,
         root: repository.root,
         ...(folder ? { prefix: `${folder}/` } : {}),
+        ...(onlyPaths ? { onlyPaths } : {}),
       }),
     )
     return hydrateKnowledgeTree({ workspaceId, files }).units.map((unit) => ({
@@ -195,15 +197,14 @@ export async function listPlaneUnitFiles(input: {
     scopeOf(orgId, workspaceId, head),
     folder ? `${folder}/` : "",
   )
-  // The branch of the row of each path of the view. A tip that gives no
-  // path of the view is not read: an empty overlay reads one tip.
-  const layer = new Map(view.map((file) => [file.path, file.branch]))
-  const from = async (tip: { branch: string; sha: string }) =>
-    view.some((file) => file.branch === tip.branch)
-      ? (await unitsAt(tip.sha)).filter(
-          (unit) => layer.get(unit.path) === tip.branch,
-        )
-      : []
+  // Each tip gives only the paths whose row of the view is of its branch,
+  // and a tip that gives none is not read.
+  const from = async (tip: { branch: string; sha: string }) => {
+    const paths = new Set(
+      view.flatMap((file) => (file.branch === tip.branch ? [file.path] : [])),
+    )
+    return paths.size > 0 ? unitsAt(tip.sha, paths) : []
+  }
   const [own, below] = await Promise.all([from(head), from(base)])
   return [...own, ...below].sort((a, b) => a.path.localeCompare(b.path))
 }
