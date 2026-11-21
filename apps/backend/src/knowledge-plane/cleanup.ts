@@ -2,7 +2,7 @@ import type {
   KnowledgeStore,
   MutationCounter,
 } from "../knowledge-store/knowledge-store.js"
-import { getKnowledgeState } from "../models/knowledge-state.js"
+import { getKnowledgeState, treeHeadOf } from "../models/knowledge-state.js"
 import { getLogger } from "../observability/logger.js"
 
 /**
@@ -14,7 +14,7 @@ import { getLogger } from "../observability/logger.js"
  */
 const GRACE = {
   replacedTreeRowMs: 60 * 60_000,
-  unusedFileVersionMs: 86_400_000,
+  unusedFileVersionMs: 24 * 60 * 60_000,
 }
 
 /**
@@ -33,17 +33,13 @@ export async function cleanUpKnowledgePlane(input: {
 }): Promise<void> {
   const scope = { orgId: input.orgId, workspaceId: input.workspaceId }
   const state = await getKnowledgeState(scope)
-  if (
-    state?.runStatus !== "completed" ||
-    !state.branch ||
-    state.treeVersion === null
-  )
-    return
+  const head = treeHeadOf(state)
+  if (state?.runStatus !== "completed" || !head) return
   const counter: MutationCounter = { mutations: 0 }
   const deleted = await input.store.cleanUp(
     scope,
     {
-      heads: [{ branch: state.branch, treeVersion: state.treeVersion }],
+      heads: [head],
       replacedBefore: new Date(input.now.getTime() - GRACE.replacedTreeRowMs),
       unusedBefore: new Date(input.now.getTime() - GRACE.unusedFileVersionMs),
     },

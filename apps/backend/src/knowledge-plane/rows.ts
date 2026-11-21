@@ -1,7 +1,7 @@
 import { connectorMirrorRoot } from "../domain/codeIngestion/connectorMirrorPaths.js"
 import {
-  looksLikeGitSha,
   normalizeValidityBound,
+  takesIntroducingTime,
 } from "../domain/workspaces/hydrate-phases.js"
 import {
   type HydrateUnit,
@@ -190,11 +190,10 @@ export function knowledgeRows(input: {
       if (shown.has(target) || linked.has(target)) return []
       linked.add(target)
     }
-    // A claim with no time of its own (empty or a Git SHA) takes the time
-    // of the commit that introduced the file (`effectiveValidFrom`).
-    const recorded = entry.validFrom?.trim() ?? ""
+    // A claim with no time of its own takes the time of the commit that
+    // introduced the file, as in the old stack (`effectiveValidFrom`).
     const introduced =
-      entry.from === "claim" && (!recorded || looksLikeGitSha(recorded))
+      entry.from === "claim" && takesIntroducingTime(entry.validFrom)
     return [
       relation(target, {
         predicate: entry.predicate,

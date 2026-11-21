@@ -9,7 +9,7 @@ import { workspaceGitRead } from "../../domain/workspaces/resolve-revision.js"
 import { workspaceRootPath } from "../../domain/workspaces/root-path.js"
 import { findKnowledgeRepairs } from "../../knowledge-plane/maintenance.js"
 import { createKnowledgeStore } from "../../knowledge-store/knowledge-store.js"
-import { getKnowledgeState } from "../../models/knowledge-state.js"
+import { getKnowledgeState, treeHeadOf } from "../../models/knowledge-state.js"
 import { getWorkspaceById } from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
@@ -60,13 +60,8 @@ export const knowledgeMaintenance = defineWorkflow(
       ])
       // A later tip, or a Workspace or org that is gone: the run has
       // nothing to check.
-      if (
-        state?.lastSha !== input.sha ||
-        !state.branch ||
-        state.treeVersion === null ||
-        !workspace ||
-        !org
-      ) {
+      const head = treeHeadOf(state)
+      if (state?.lastSha !== input.sha || !head || !workspace || !org) {
         getLogger().set({
           step: "knowledge-maintenance",
           knowledgeMaintenance: { sha: input.sha, outcome: "superseded" },
@@ -88,7 +83,7 @@ export const knowledgeMaintenance = defineWorkflow(
         }),
         root: workspaceRootPath(workspace),
         sha: input.sha,
-        head: { branch: state.branch, treeVersion: state.treeVersion },
+        head,
         store,
       }).finally(() => store.close())
 

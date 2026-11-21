@@ -140,9 +140,7 @@ export async function readPlaneUnit(input: {
   const [document] = await knowledgeStore().readDocuments(
     {
       orgId,
-      heads: [
-        { workspaceId, branch: head.branch, treeVersion: head.treeVersion },
-      ],
+      heads: [{ workspaceId, ...head }],
     },
     [{ workspaceId, docKey: servingIdForKnowledgePath(workspaceId, path) }],
   )

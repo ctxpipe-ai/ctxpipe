@@ -48,7 +48,6 @@ export async function writePlaneDocuments(
         .update(JSON.stringify(content))
         .digest("hex")
         .slice(0, 32),
-      blobSha: "",
     }
   })
   await store.writeFileVersions(scope, versions)

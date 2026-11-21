@@ -146,7 +146,7 @@ async function put(
 ): Promise<void> {
   await store.writeFileVersions(
     scope,
-    documents.map((rows) => ({ ...rows, version, blobSha: `blob-${version}` })),
+    documents.map((rows) => ({ ...rows, version })),
   )
   await store.writeTree(
     scope,
@@ -234,7 +234,7 @@ describe("KnowledgeStore", () => {
       const head = { branch: "main", treeVersion: 1 }
       for (const statement of [
         store.writeFileVersions(noWorkspace, [
-          { ...rowsOf("x"), version: "v1", blobSha: "b" },
+          { ...rowsOf("x"), version: "v1" },
         ]),
         store.writeTree(noWorkspace, "main", 1, [entryOf(rowsOf("x"), "v1")]),
         store.deleteTreeAbove(noWorkspace, "main", 0),
@@ -348,7 +348,7 @@ describe("readEmbeddings (CTX-1428)", () => {
       ])
       // An older file version of shared.md, with no tree row.
       await store.writeFileVersions(orgA, [
-        { ...keyed("shared.md", "k3", [3, 3, 3]), version: "v0", blobSha: "b" },
+        { ...keyed("shared.md", "k3", [3, 3, 3]), version: "v0" },
       ])
       await put(store, orgB, [keyed("shared.md", "k1", [-2, 2, 0])])
       await put(store, otherWorkspace, [keyed("shared.md", "k1", [4, 4, 4])])
@@ -674,9 +674,7 @@ describe("org isolation of inserts", () => {
     for (const relation of rows.relations) Object.assign(relation, smuggle)
     const store = createKnowledgeStore(url)
     try {
-      await store.writeFileVersions(orgA, [
-        { ...rows, version: "v1", blobSha: "b" },
-      ])
+      await store.writeFileVersions(orgA, [{ ...rows, version: "v1" }])
       await store.writeTree(orgA, "main", 1, [
         { ...entryOf(rows, "v1"), ...smuggle },
       ])
@@ -863,7 +861,7 @@ describe("users and mutations", () => {
 
     await expect(
       reader.writeFileVersions(scope, [
-        { ...rowsOf("Changed", "r.md"), version: "v2", blobSha: "b" },
+        { ...rowsOf("Changed", "r.md"), version: "v2" },
       ]),
     ).rejects.toThrow(denied)
     await expect(
@@ -1045,7 +1043,6 @@ describe("users and mutations", () => {
       const next = {
         ...rowsOf("Doc v3", "doc.md"),
         version: "v3",
-        blobSha: "b",
       }
       // The rest of a stopped write: chunks and relations, no document row.
       await writer.writeFileVersions(target, [next])
@@ -1082,7 +1079,7 @@ describe("users and mutations", () => {
 
     it("refuses a write with the same file version two times", async () => {
       const unchanged = await snapshot(target)
-      const version = { ...rowsOf("A", "doc.md"), version: "v9", blobSha: "b" }
+      const version = { ...rowsOf("A", "doc.md"), version: "v9" }
       await expect(
         writer.writeFileVersions(target, [version, version]),
       ).rejects.toThrow(/two times/)
@@ -1154,7 +1151,6 @@ describe("users and mutations", () => {
           relations: [],
           refKeys: [],
           version: "v1",
-          blobSha: "b",
           error: "parse error",
         },
       ])
@@ -1275,7 +1271,7 @@ describe("reference keys", () => {
         rowsOf("Seeker", "seeker.md", "ref:key:hidden.md"),
       ])
       await store.writeFileVersions(orgA, [
-        { ...rowsOf("Hidden", "hidden.md"), version: "v1", blobSha: "b" },
+        { ...rowsOf("Hidden", "hidden.md"), version: "v1" },
       ])
       expect(await store.listUnresolvedReferences(at(orgA))).toEqual([
         { srcDoc: "other.md", dstDoc: "ref:key:gone" },

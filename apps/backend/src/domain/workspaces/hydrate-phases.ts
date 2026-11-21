@@ -30,12 +30,21 @@ export function looksLikeGitSha(value: string): boolean {
   return /^[0-9a-f]{6,64}$/i.test(value.trim())
 }
 
+/**
+ * True when a recorded `valid_from` is empty or a Git SHA: the claim then
+ * takes the time of the commit that introduced its file.
+ */
+export function takesIntroducingTime(recorded: string | null): boolean {
+  const value = recorded?.trim() ?? ""
+  return !value || looksLikeGitSha(value)
+}
+
 export function effectiveValidFrom(input: {
   recorded: string | null
   introducingCommitTimestamp: string | null
 }): string | null {
-  const recorded = input.recorded?.trim() ?? ""
-  if (recorded && !looksLikeGitSha(recorded)) return recorded
+  if (!takesIntroducingTime(input.recorded))
+    return input.recorded?.trim() ?? null
   return input.introducingCommitTimestamp
 }
 

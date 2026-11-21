@@ -3,6 +3,7 @@ import { and, eq, inArray } from "drizzle-orm"
 import { withOrgDbContext } from "../db/client.js"
 import { knowledgeState } from "../db/schema/knowledge_state.js"
 import { workspaces } from "../db/schema/workspaces.js"
+import type { TreeHead } from "../knowledge-store/knowledge-store.js"
 
 /*
  * The state updates of a knowledge run (ADR-067 decisions 2 and 8, ADR-071
@@ -28,11 +29,21 @@ export async function getKnowledgeState(key: KnowledgeStateKey) {
 }
 
 /** The head of the knowledge projection of a Workspace (ADR-071 decision 4). */
-export type KnowledgeHead = {
+export type KnowledgeHead = TreeHead & {
   /** The tip that the last completed run applied (`last_sha`). */
   sha: string
-  branch: string
-  treeVersion: number
+}
+
+/**
+ * The head of a state row: its branch and tree version, or null before the
+ * first completed run.
+ */
+export function treeHeadOf(
+  state: { branch: string | null; treeVersion: number | null } | null,
+): TreeHead | null {
+  return state?.branch && state.treeVersion !== null
+    ? { branch: state.branch, treeVersion: state.treeVersion }
+    : null
 }
 
 /**
@@ -63,11 +74,12 @@ export async function readyKnowledgeHeads(
       ),
   )
   return new Map(
-    rows.flatMap(({ workspaceId, lastSha, branch, treeVersion }) =>
-      lastSha && branch && treeVersion !== null
-        ? [[workspaceId, { sha: lastSha, branch, treeVersion }] as const]
-        : [],
-    ),
+    rows.flatMap(({ workspaceId, lastSha, ...state }) => {
+      const head = treeHeadOf(state)
+      return lastSha && head
+        ? [[workspaceId, { sha: lastSha, ...head }] as const]
+        : []
+    }),
   )
 }
 
@@ -115,7 +127,7 @@ export async function beginKnowledgeRun(
  */
 export async function completeKnowledgeRun(
   input: KnowledgeStateKey &
-    Omit<KnowledgeHead, "sha"> & {
+    TreeHead & {
       tip: string
       projectionVersion: string
       /** The count of `failed` documents (ADR-067 decisions 8 and 11). */

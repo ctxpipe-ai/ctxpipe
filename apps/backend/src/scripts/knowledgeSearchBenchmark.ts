@@ -39,10 +39,6 @@ const dimensions = 1024
 const chunksPerDocument = 10
 const vocabulary = 50_000
 const target = { orgId: "org_bench", workspaceId: "ws_target" }
-/** The head of each filled Workspace: tree version 2 of `main`. */
-const head = { branch: "main", treeVersion: 2 }
-/** One document in this many also has an older, replaced file version. */
-const replacedEvery = 20
 
 // The fill and OPTIMIZE statements run for minutes. The progress headers
 // keep the HTTP connection busy.
@@ -67,10 +63,10 @@ function positiveFlag(argv: string[], name: string, fallback: number): number {
  * Inserts `chunks` made-up chunks into one Workspace, with one document row
  * (the file version `v1`) for each `chunksPerDocument` chunks, and a tree
  * row of `main` at tree version 1 for each document. Each chunk has a random
- * vector and 60 random words of the form `w<n>`. Each `replacedEvery`-th
- * document also has the file version `v0`, with the same count of chunks:
- * its tree row has tree version 1, and the row of `v1` has tree version 2.
- * The server makes the rows.
+ * vector and 60 random words of the form `w<n>`. Each 20th document also
+ * has the file version `v0`, with the same count of chunks: its tree row has
+ * tree version 1, and the row of `v1` has tree version 2 (the head that
+ * `measure` reads). The server makes the rows.
  */
 async function fill(
   client: ClickHouseClient,
@@ -80,7 +76,7 @@ async function fill(
 ): Promise<void> {
   const params = { orgId, workspaceId, chunks }
   const documents = `intDiv({chunks:UInt64} + ${chunksPerDocument - 1}, ${chunksPerDocument})`
-  const replaced = (document: string) => `${document} % ${replacedEvery} = 0`
+  const replaced = (document: string) => `${document} % 20 = 0`
   const run = (query: string) =>
     client.command({
       query,
@@ -164,7 +160,9 @@ async function measure(
   const store = createKnowledgeStore(url)
   const scope = {
     orgId: target.orgId,
-    heads: [{ workspaceId: target.workspaceId, ...head }],
+    heads: [
+      { workspaceId: target.workspaceId, branch: "main", treeVersion: 2 },
+    ],
   }
   const total: number[] = []
   let started = ""

@@ -94,7 +94,7 @@ export function planeKnowledgeReader(input: {
         throw new Error(
           `The Workspace ${workspaceId} has no head on the knowledge plane`,
         )
-      return { workspaceId, branch: head.branch, treeVersion: head.treeVersion }
+      return { workspaceId, ...head }
     }),
   })
   const meter = input.meter ?? {

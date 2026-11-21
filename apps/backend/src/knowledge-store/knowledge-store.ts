@@ -125,7 +125,6 @@ export type DocumentRows = {
  */
 export type FileVersionRows = DocumentRows & {
   version: string
-  blobSha: string
   error?: string
 }
 
@@ -409,16 +408,15 @@ export function createKnowledgeStore(url: string | undefined): KnowledgeStore {
     readTree: (scope, head) => readTree(client, scope, head),
     writeTree: (scope, branch, treeVersion, entries) =>
       writeTree(client, scope, branch, treeVersion, entries),
-    deleteTreeAbove: async (scope, branch, treeVersion, counter) => {
-      await deleteWhere(
+    deleteTreeAbove: (scope, branch, treeVersion, counter) =>
+      deleteCounted(
         client,
         scope,
+        counted(counter),
         "trees",
         "branch = {branch:String} AND tree_version > {treeVersion:UInt64}",
         { branch, treeVersion },
-      )
-      counted(counter).mutations++
-    },
+      ),
     cleanUp: (scope, input, counter) =>
       cleanUp(client, scope, input, counted(counter)),
     readEmbeddings: (scope, docKeys, embeddingKeys) =>
@@ -521,6 +519,19 @@ async function deleteWhere(
   })
 }
 
+/** {@link deleteWhere}, and 1 more mutation in `counter`. */
+async function deleteCounted(
+  client: ClickHouseClient,
+  scope: KnowledgeScope,
+  counter: MutationCounter,
+  table: MutableTable,
+  where: string,
+  params: Record<string, unknown>,
+): Promise<void> {
+  await deleteWhere(client, scope, table, where, params)
+  counter.mutations++
+}
+
 /**
  * At most this many values go in one IN list. ClickHouse takes the query
  * parameters of a DELETE in the URL, and keeps the URL below
@@ -552,14 +563,11 @@ async function deleteVersions(
   keys: FileVersionKey[],
   counter: MutationCounter,
 ): Promise<void> {
-  const remove = async (
+  const remove = (
     table: MutableTable,
     where: string,
     params: Record<string, unknown>,
-  ) => {
-    await deleteWhere(client, scope, table, where, params)
-    counter.mutations++
-  }
+  ) => deleteCounted(client, scope, counter, table, where, params)
   const inKeys = "(doc_key, version) IN {keys:Array(Tuple(String, String))}"
   const inSources =
     "(src_doc, src_version) IN {keys:Array(Tuple(String, String))}"
@@ -688,7 +696,6 @@ type TableRows = {
   documents: ScopeColumns & {
     doc_key: string
     version: string
-    blob_sha: string
     kind: string
     status: "active" | "failed"
     error: string
@@ -823,11 +830,10 @@ async function insertRows(
     client,
     scope,
     "documents",
-    versions.map(({ document, version, blobSha, error }) => ({
+    versions.map(({ document, version, error }) => ({
       ...owner,
       doc_key: document.docKey,
       version,
-      blob_sha: blobSha,
       kind: document.kind,
       status: error === undefined ? ("active" as const) : ("failed" as const),
       error: error ?? "",
@@ -921,29 +927,34 @@ async function cleanUp(
 ): Promise<CleanupCounts> {
   assertScope(scope)
   const counts: CleanupCounts = { treeRows: 0, fileVersions: 0 }
-  const remove = async (
+  const remove = (
     table: MutableTable,
     where: string,
     params: Record<string, unknown>,
-  ) => {
-    await deleteWhere(client, scope, table, where, params)
-    counter.mutations++
-  }
+  ) => deleteCounted(client, scope, counter, table, where, params)
   const replacedBefore = clickHouseTime(input.replacedBefore)
+  const branches = input.heads.map((head) => head.branch)
   // The branches with no head, for example the earlier name of a renamed
-  // default branch.
+  // default branch. A head left such a branch when it moved to a tree of a
+  // branch of `heads`, and each row of that tree was written at that time
+  // or later. Thus when the oldest row of the trees of `heads` is older
+  // than the grace time, no read can still use a head of these branches.
   const orphans = await select<{ branch: string; rows: string }>(
     client,
     scope,
     `SELECT branch, count() AS rows FROM trees
      WHERE ${scoped} AND branch NOT IN {branches:Array(String)}
-     GROUP BY branch
-     HAVING max(written_at) < {replacedBefore:DateTime64(3, 'UTC')}`,
-    { branches: input.heads.map((head) => head.branch), replacedBefore },
+       AND (SELECT min(written_at) FROM trees
+            WHERE ${scoped} AND branch IN {branches:Array(String)})
+         < {replacedBefore:DateTime64(3, 'UTC')}
+     GROUP BY branch`,
+    { branches, replacedBefore },
   )
-  for (const { branch, rows } of orphans) {
-    await remove("trees", "branch = {branch:String}", { branch })
-    counts.treeRows += Number(rows)
+  for (const slice of slices(orphans)) {
+    await remove("trees", "branch IN {orphans:Array(String)}", {
+      orphans: slice.map((row) => row.branch),
+    })
+    for (const { rows } of slice) counts.treeRows += Number(rows)
   }
   for (const head of input.heads) {
     const replaced = await select<{ docKey: string; treeVersion: string }>(

@@ -154,6 +154,8 @@ const msw = setupServer(
       new URL(request.url).searchParams.get("query") ??
       (await request.clone().text())
     ).trim()
+    if (/^(INSERT|DELETE)/.test(statement))
+      fault.writes.push(statement.split(/\s+/).slice(0, 3).join(" "))
     const fail =
       fault.match.test(statement) && ++fault.statements === fault.failAt
     // Without a content length, the client waits for the end of the body
@@ -194,6 +196,7 @@ const msw = setupServer(
  * gets to ClickHouse, or with `after`, when ClickHouse applied it. With
  * `failAt` 0, no statement fails. `deletes` counts the DELETEs that got a
  * success, so not the DELETE that fails after ClickHouse applied it.
+ * `writes` holds the start of each INSERT and DELETE, in order.
  */
 const fault = {
   match: /./,
@@ -201,6 +204,7 @@ const fault = {
   after: false,
   statements: 0,
   deletes: 0,
+  writes: [] as string[],
 }
 let clickHouseOrigin: string | undefined
 
@@ -261,6 +265,7 @@ beforeEach(() => {
     after: false,
     statements: 0,
     deletes: 0,
+    writes: [],
   })
 })
 
@@ -429,7 +434,7 @@ async function viewRows(workspaceId: string): Promise<Record<Table, Row[]>> {
       ORDER BY doc_key, tree_version DESC LIMIT 1 BY doc_key)
     WHERE kind = 'file'`
   const queries: Record<Table, string> = {
-    documents: `SELECT d.* EXCEPT (org_id, workspace_id, written_at, version, blob_sha),
+    documents: `SELECT d.* EXCEPT (org_id, workspace_id, written_at, version),
         v.valid_from AS valid_from
       FROM documents AS d INNER JOIN (${view}) AS v
         ON v.doc_key = d.doc_key AND v.version = d.version
@@ -1057,11 +1062,18 @@ describe("projectKnowledgePlane", () => {
         )[0]?.count
       const before = await mutations()
       spans.reset()
+      fault.writes = []
       expect(await run(remote, workspaceId, tip)).toMatchObject({
         mode: "delta",
         documentsChanged: 200,
       })
       expect(await mutations()).toBe(before)
+      // The tree rows go in one INSERT, the last write of the run, so that
+      // their time is the time of the new head (ADR-071 decision 10).
+      expect(fault.writes.filter((write) => write.includes("trees"))).toEqual([
+        "INSERT INTO trees",
+      ])
+      expect(fault.writes.at(-1)).toBe("INSERT INTO trees")
       expect(
         spans.spanNamed("knowledge.projection.apply")?.attributes,
       ).toMatchObject({
@@ -1089,11 +1101,11 @@ describe("projectKnowledgePlane", () => {
         "b.md": null,
         "img/e.png": null,
       })
-      // The worker dies after ClickHouse stored the last tree rows (the
-      // tombstones), before the head moves.
+      // The worker dies after ClickHouse stored the tree rows, before the
+      // head moves.
       Object.assign(fault, {
         match: /INSERT INTO trees/,
-        failAt: 2,
+        failAt: 1,
         after: true,
         statements: 0,
       })

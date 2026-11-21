@@ -26,6 +26,7 @@ import {
   completeKnowledgeRun,
   failKnowledgeRun,
   getKnowledgeState,
+  treeHeadOf,
 } from "../models/knowledge-state.js"
 import { getLogger } from "../observability/logger.js"
 import {
@@ -175,10 +176,8 @@ export async function projectKnowledgePlane(input: {
         // them, and this run must not show them either (ADR-071 decision
         // 4). A run with no head starts from no rows, so that its tree
         // versions never mix with older rows of the branch.
-        const head =
-          state?.branch === input.branch && state.treeVersion !== null
-            ? { branch: input.branch, treeVersion: state.treeVersion }
-            : null
+        const stored = treeHeadOf(state)
+        const head = stored?.branch === input.branch ? stored : null
         if (!head || state?.runStatus !== "completed")
           await input.store.deleteTreeAbove(
             key,
@@ -190,8 +189,8 @@ export async function projectKnowledgePlane(input: {
         summary = await withGitDirectory(
           input.tip,
           async (directory) => {
-            const earlier = state?.lastSha ? [state.lastSha] : []
-            await fetchCommits(directory, input.remote, input.tip, earlier)
+            const base = state?.lastSha ?? null
+            await fetchCommits(directory, input.remote, input.tip, base)
             const plan = await planKnowledgeChangeSet({
               directory,
               root: input.root,
@@ -212,7 +211,7 @@ export async function projectKnowledgePlane(input: {
                 remote: input.remote,
                 root: input.root,
                 tip: input.tip,
-                earlier: plan.kind === "delta" ? earlier : [],
+                base: plan.kind === "delta" ? base : null,
               }),
               counter,
               embedding,
@@ -288,18 +287,27 @@ const fileVersion = (blobSha: string, variant: string) =>
 /**
  * The variant of a file (ADR-071 decision 2): a hash of the inputs of its
  * rows that are not in the file. These are the projection version, and for
- * a knowledge file the source repositories of the tree, because the
- * `CHANGED` keys of a package file come from them.
+ * a knowledge file:
+ * - the URL of the Workspace repository, because a blob URL of it in a link
+ *   resolves to a Workspace path (`workspaceBlobPath`);
+ * - the source repositories of the tree, because the `CHANGED` keys of a
+ *   package file come from them.
  */
 const fileVariant = (
   projectionVersion: string,
-  sourceRepositories: ReadonlyMap<string, string> | null,
+  knowledge: {
+    remoteUrl: string
+    sourceRepositories: ReadonlyMap<string, string>
+  } | null,
 ) =>
   createHash("sha256")
     .update(
       JSON.stringify([
         projectionVersion,
-        sourceRepositories ? [...sourceRepositories].sort() : null,
+        knowledge && [
+          knowledge.remoteUrl,
+          [...knowledge.sourceRepositories].sort(),
+        ],
       ]),
     )
     .digest("hex")
@@ -355,7 +363,10 @@ async function applyChangeSet(input: {
     input.remote.url,
   )
   const variants = {
-    knowledge: fileVariant(input.projectionVersion, sourceRepositories),
+    knowledge: fileVariant(input.projectionVersion, {
+      remoteUrl: input.remote.url,
+      sourceRepositories,
+    }),
     other: fileVariant(input.projectionVersion, null),
   }
   const keyAt = (path: string): FileVersionKey => ({
@@ -428,11 +439,9 @@ async function applyChangeSet(input: {
       ...documents.map((rows) => ({
         ...rows,
         ...keyAt(rows.document.path),
-        blobSha: tree.get(rows.document.path) ?? "",
       })),
       ...failed.map(({ path, error }) => ({
         ...keyAt(path),
-        blobSha: tree.get(path) ?? "",
         document: failedDocument(keyOf(path), path, observedAt),
         chunks: [],
         relations: [],
@@ -465,7 +474,6 @@ async function applyChangeSet(input: {
       return sameEntry(current.get(key.docKey), entry) ? [] : [entry]
     })
     for (const entry of entries) next.set(entry.docKey, entry)
-    await store.writeTree(scope, input.branch, input.treeVersion, entries)
   }
 
   // A tombstone for each path whose file is gone: in a delta, the paths of
@@ -481,8 +489,13 @@ async function applyChangeSet(input: {
       ? [{ ...entry, deletedAt: observedAt }]
       : []
   })
-  await store.writeTree(scope, input.branch, input.treeVersion, tombstones)
   for (const entry of tombstones) next.set(entry.docKey, entry)
+  // All tree rows go in one INSERT at the end, just before the head moves:
+  // their `written_at` is then the time of the new head, within seconds,
+  // and the grace times of the cleanup count from it (ADR-071 decision 10).
+  await store.writeTree(scope, input.branch, input.treeVersion, [
+    ...next.values(),
+  ])
 
   const failedCount = [...new Map([...current, ...next]).values()].filter(
     (entry) => !entry.deletedAt && entry.status === "failed",
@@ -938,7 +951,7 @@ type FileIntroductions = {
   introducedAtByPath: Map<string, string>
   /**
    * The paths that a commit added on one side only of the fork between the
-   * tip and an earlier SHA.
+   * tip and `last_sha`.
    */
   addedSinceFork: string[]
 }
@@ -950,21 +963,20 @@ type FileIntroductions = {
  * so the cost does not grow with each file. Paths are relative to `root`.
  *
  * In a delta, a file can get a different introducing commit with no change
- * in the diff from an earlier SHA (`last_sha` or a SHA of a failed run): a
- * commit removed the file and a later commit added it again, a merge
- * brought an earlier add, or the tip went back to an older commit. Then the
- * introducing commit at the tip or at the earlier SHA is on one side only of
- * their fork. `addedSinceFork` gives each path that such a commit added, so
- * the delta writes the `valid_from` of a full rebuild. The walk of each
- * fork reads only the commits after it.
+ * in the diff from `last_sha`: a commit removed the file and a later commit
+ * added it again, a merge brought an earlier add, or the tip went back to an
+ * older commit. Then the introducing commit at the tip or at `last_sha` is
+ * on one side only of their fork. `addedSinceFork` gives each path that such
+ * a commit added, so the delta writes the `valid_from` of a full rebuild.
+ * The walk of the fork reads only the commits after it.
  */
 async function fileIntroductions(input: {
   directory: string
   remote: KnowledgeRemote
   root: string
   tip: string
-  /** The `last_sha` and the `attempt_shas` of a delta; empty for a full rebuild. */
-  earlier: readonly string[]
+  /** The `last_sha` of a delta; null for a full rebuild. */
+  base: string | null
 }): Promise<FileIntroductions> {
   const { directory, root, tip } = input
   await fetchGitHistory(directory, {
@@ -982,63 +994,56 @@ async function fileIntroductions(input: {
     if (path !== null) introducedAtByPath.set(path, timestamp)
   }
   const added = new Set<string>()
-  for (const sha of new Set(input.earlier))
-    if (sha !== tip)
-      for (const repositoryPath of (
-        await nativeGit(directory, [
-          "--no-lazy-fetch",
-          "log",
-          "--format=",
-          "--name-only",
-          "-z",
-          "--diff-filter=A",
-          "--no-renames",
-          `${tip}...${sha}`,
-          "--",
-          "*.md",
-        ])
-      )
-        .toString()
-        .split("\0")) {
-        // An empty format puts a newline before the paths of each commit.
-        const name = repositoryPath.replace(/^\n/, "")
-        const path = name ? workspaceRelativePath(root, name) : null
-        if (path !== null) added.add(path)
-      }
+  if (input.base && input.base !== tip)
+    for (const repositoryPath of (
+      await nativeGit(directory, [
+        "--no-lazy-fetch",
+        "log",
+        "--format=",
+        "--name-only",
+        "-z",
+        "--diff-filter=A",
+        "--no-renames",
+        `${tip}...${input.base}`,
+        "--",
+        "*.md",
+      ])
+    )
+      .toString()
+      .split("\0")) {
+      // An empty format puts a newline before the paths of each commit.
+      const name = repositoryPath.replace(/^\n/, "")
+      const path = name ? workspaceRelativePath(root, name) : null
+      if (path !== null) added.add(path)
+    }
   return { introducedAtByPath, addedSinceFork: [...added] }
 }
 
 /**
- * Fetch the tip, then the commits of earlier runs. A commit that the remote
- * does not have any more (a force-push and a Git GC) stays out, so the
- * planner sees it as missing and rebuilds in full.
+ * Fetch the tip, then `last_sha`. A commit that the remote does not have any
+ * more (a force-push and a Git GC) stays out, so the planner sees it as
+ * missing and rebuilds in full.
  */
 async function fetchCommits(
   directory: string,
   remote: KnowledgeRemote,
   tip: string,
-  earlier: string[],
+  base: string | null,
 ): Promise<void> {
   const token = await remote.token()
-  const fetch = (shas: string[]) =>
-    fetchGitCommits(directory, { url: remote.url, shas, token })
-  await fetch([tip])
-  const rest = [...new Set(earlier)].filter((sha) => sha !== tip)
-  if (rest.length === 0) return
-  try {
-    await fetch(rest)
-  } catch {
-    for (const sha of rest)
-      await fetch([sha]).catch((error: unknown) => {
-        // Only a commit that the remote does not have: any other error is
-        // an infrastructure error, and the run retries.
-        if (!/not our ref/i.test(String(error))) throw error
-        getLogger().warn(
-          "A commit of the knowledge state is not on the remote",
-          { step: "knowledge-plane.fetch", sha },
-        )
-      })
-  }
+  const fetch = (sha: string) =>
+    fetchGitCommits(directory, { url: remote.url, shas: [sha], token })
+  await fetch(tip)
+  if (!base || base === tip) return
+  await fetch(base).catch((error: unknown) => {
+    // Only a commit that the remote does not have: any other error is an
+    // infrastructure error, and the run retries.
+    if (!/not our ref/i.test(String(error))) throw error
+    getLogger().warn("A commit of the knowledge state is not on the remote", {
+      step: "knowledge-plane.fetch",
+      sha: base,
+    })
+  })
 }
 
 /** Each regular file of the root folder at `sha` → its blob id. */

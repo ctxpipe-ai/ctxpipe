@@ -243,7 +243,6 @@ async function seed(
     documents.map(({ validFrom: _validFrom, ...rows }) => ({
       ...rows,
       version,
-      blobSha: `blob-${version}`,
     })),
   )
   await store.writeTree(

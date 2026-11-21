@@ -37,7 +37,6 @@ CREATE TABLE documents
     workspace_id String,
     doc_key String,
     version String,
-    blob_sha String,
     kind LowCardinality(String),
     status Enum8('active' = 1, 'failed' = 4),
     error String DEFAULT '',
