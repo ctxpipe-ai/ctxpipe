@@ -281,9 +281,16 @@ describeWithDatabase("codesearch checkout collection (Postgres)", () => {
     ).toEqual({ deletedKeys: 1 })
     expect(runEndedRequests).toEqual([[keys.live], [keys.fresh]])
     // Codesearch gets the time before the list of unfinished runs, so it
-    // keeps a row that a run touches after that time.
+    // keeps a row that a run touches after that time. The end time comes
+    // from the database clock, so compare it with that clock, not with the
+    // clock of this host.
+    const [clock] = (
+      await getSystemDb().execute<{ now: string }>(
+        sql`select to_json(now()) #>> '{}' as now`,
+      )
+    ).rows
     for (const at of runEndedTimes)
-      expect(Date.parse(at)).toBeLessThanOrEqual(Date.now())
+      expect(Date.parse(at)).toBeLessThanOrEqual(Date.parse(clock!.now))
     const stored = await storedKeys()
     expect(stored).toContain(keys.published)
     expect(stored).not.toContain(keys.live)
