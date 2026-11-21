@@ -167,6 +167,7 @@ function WorkspaceComposeChat(props: {
               <BaseBranchPicker
                 orgSlug={orgSlug}
                 workspaceSlug={props.workspace.slug}
+                defaultBranch={props.workspace.defaultBranch}
                 value={baseBranch}
                 onChange={(branch) => {
                   if (branch === baseBranch) return

@@ -94,6 +94,10 @@ const WorkspaceSchema = z
     githubConnectionId: z.string().nullable(),
     desiredGeneration: z.number().int(),
     desiredSha: z.string().nullable(),
+    defaultBranch: z.string().nullable().openapi({
+      description:
+        "The default branch of the Workspace repository, from the last read of its tip. A new conversation starts from it when the member picks no other base branch. `null` before the first read.",
+    }),
     activeProjectionUrl: z.string().nullable(),
     activeProjectionSha: z.string().nullable(),
     indexedSha: z.string().nullable(),
@@ -205,6 +209,7 @@ function serializeWorkspace(row: {
   githubConnectionId: string | null
   desiredGeneration: number
   desiredSha: string | null
+  desiredDefaultBranch?: string | null
   activeProjectionUrl: string | null
   activeProjectionSha: string | null
   indexedSha: string | null
@@ -226,6 +231,7 @@ function serializeWorkspace(row: {
     githubConnectionId: row.githubConnectionId,
     desiredGeneration: row.desiredGeneration,
     desiredSha: row.desiredSha,
+    defaultBranch: row.desiredDefaultBranch ?? null,
     activeProjectionUrl: row.activeProjectionUrl,
     activeProjectionSha: row.activeProjectionSha,
     indexedSha: row.indexedSha,

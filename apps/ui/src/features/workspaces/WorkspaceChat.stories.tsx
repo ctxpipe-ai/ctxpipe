@@ -13,7 +13,6 @@ import {
   conversationChatHandler,
   conversationDetailHandler,
   conversationDetailLoadingHandler,
-  workspaceBranchesHandler,
   workspaceShellHandlers,
 } from "@/mocks/workspace-handlers"
 
@@ -61,39 +60,6 @@ export const ComposeEmpty = meta.story({
   },
 })
 
-/**
- * Chat panel of a Workspace with the composer of a new conversation: the
- * branches of the repository still load, so the Base field is a gray bone
- * of its size. The member can already type and send on the default branch.
- */
-export const ComposeBranchesLoading = meta.story({
-  beforeEach: ({ msw }) => {
-    msw.use(workspaceBranchesHandler("loading"), ...workspaceShellHandlers())
-  },
-})
-
-/**
- * Chat panel of a Workspace with the composer of a new conversation: the
- * branch list of the repository did not load, so the composer has no Base
- * field, and the conversation starts from the default branch.
- */
-export const ComposeBranchesUnavailable = meta.story({
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await canvas.findByPlaceholderText(
-      /what should ctxpipe do in this workspace/i,
-    )
-    await waitFor(() =>
-      expect(
-        canvas.queryByRole("combobox", { name: "Base" }),
-      ).not.toBeInTheDocument(),
-    )
-  },
-  beforeEach: ({ msw }) => {
-    msw.use(workspaceBranchesHandler("error"), ...workspaceShellHandlers())
-  },
-})
-
 const preparedBases: (string | undefined)[] = []
 const preparedConversationIds: string[] = []
 
@@ -108,15 +74,15 @@ export const ComposeOnBaseBranch = meta.story({
     preparedConversationIds.length = 0
     const canvas = within(canvasElement)
     const page = within(canvasElement.ownerDocument.body)
-    const base = await canvas.findByRole("combobox", { name: "Base" })
-    await waitFor(() => expect(base).toHaveValue("main"))
+    const base = await canvas.findByRole("button", { name: /main/ })
     await waitFor(() => expect(preparedBases).toEqual([undefined]))
-    await userEvent.type(base, "2026-11", {
-      initialSelectionStart: 0,
-      initialSelectionEnd: "main".length,
-    })
+    await userEvent.click(base)
+    await userEvent.type(
+      await page.findByRole("searchbox", { name: "Search branches" }),
+      "2026-11",
+    )
     await userEvent.click(
-      await page.findByRole("option", { name: "release/2026-11" }),
+      await page.findByRole("option", { name: /release\/2026-11/ }),
     )
     // The same conversation is prepared again with the new base branch.
     await waitFor(() =>
@@ -124,9 +90,9 @@ export const ComposeOnBaseBranch = meta.story({
     )
     expect(new Set(preparedConversationIds).size).toBe(1)
     await waitFor(() =>
-      expect(canvas.getByRole("combobox", { name: "Base" })).toHaveValue(
-        "release/2026-11",
-      ),
+      expect(
+        canvas.getByRole("button", { name: /release\/2026-11/ }),
+      ).toBeVisible(),
     )
   },
   beforeEach: ({ msw }) => {

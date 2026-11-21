@@ -393,7 +393,7 @@ export function conversationGitBlobHandler(
 export function conversationGitStatusHandler(
   status: MockState<ConversationGitStatusResponse> = {
     source: "sandbox",
-    branch: "main",
+    branch: "ctxpipe/chat/conv_1/1",
     dirty: true,
     differsFromDefault: true,
     unpushed: true,

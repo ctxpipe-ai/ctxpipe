@@ -49,6 +49,7 @@ function ws(id: string, slug: string): Workspace {
     githubConnectionId: null,
     desiredGeneration: 1,
     desiredSha: null,
+    defaultBranch: null,
     activeProjectionUrl: null,
     activeProjectionSha: null,
     indexedSha: null,
