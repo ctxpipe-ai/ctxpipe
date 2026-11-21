@@ -75,7 +75,7 @@ describe("sandbox lifecycle timing", () => {
       },
     })
     try {
-      async function* output() {
+      const output = async function* () {
         yield "opencode server lis"
         yield "tening on http://127.0.0.1:4096\n"
         yield "opencode server listening again\n"

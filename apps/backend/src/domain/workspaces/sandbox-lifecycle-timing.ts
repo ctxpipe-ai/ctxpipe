@@ -179,7 +179,7 @@ export function timedSandboxProvider(
 }
 
 /** Pass the output on, and call `onMatch` once when it first holds `text`. */
-async function* markFirstLine(
+async function* onFirstMatch(
   output: AsyncIterable<string>,
   text: string,
   onMatch: () => void,
@@ -277,7 +277,7 @@ export function timedSandboxHandle(handle: SandboxHandle): SandboxHandle {
           // model call (`firstCallMs`).
           stdout:
             phase === "opencode-serve"
-              ? markFirstLine(proc.stdout, "opencode server listening", () =>
+              ? onFirstMatch(proc.stdout, "opencode server listening", () =>
                   markSandboxLifecycle(`${phase}:ready`, {
                     ms: Date.now() - started,
                   }),

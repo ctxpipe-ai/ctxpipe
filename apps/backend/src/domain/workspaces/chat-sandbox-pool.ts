@@ -15,7 +15,7 @@ import {
 import { log } from "../../observability/logger.js"
 import type { RunVault } from "./agent-vault.js"
 import { originUrlWithoutCredentials } from "./clone-credentials.js"
-import { warmOpencode } from "./opencode-warmup.js"
+import { waitForOpencodeWarmup, warmOpencode } from "./opencode-warmup.js"
 import { sameWorkspaceBinding, type WorkspaceRevision } from "./revision.js"
 import { markSandboxLifecycle } from "./sandbox-lifecycle-timing.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
@@ -176,13 +176,12 @@ export async function fillChatSandboxPool(input: {
         if (reservation !== "reserved") return reservation
         let row: SandboxInstanceRecord = reserved
         let handle: SandboxHandle | undefined
-        let warmup: Promise<void> | undefined
         try {
           const vault = await input.openVault(id)
           try {
             handle = await input.provider(vault.caPem).create({ id })
             // Before the vault env: the warm-up holds no proxy session.
-            warmup = warmOpencode(handle)
+            void warmOpencode(handle)
             row = { ...row, providerSandboxId: handle.id }
             await persistSandboxInstance(row, ownershipOf(reserved))
             await handle.env.set(vault.env)
@@ -200,7 +199,7 @@ export async function fillChatSandboxPool(input: {
             await vault.close()
           }
           // A claim finds OpenCode's files in memory (`opencode-warmup.ts`).
-          await warmup
+          await waitForOpencodeWarmup(handle.id)
           await persistSandboxInstance(
             { ...row, state: "live", lastHeartbeatAt: new Date() },
             ownershipOf(row),

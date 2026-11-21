@@ -7,26 +7,33 @@ import { WORKSPACE_CHAT_OPENCODE_START_ENV } from "./workspace-chat-opencode-con
 /**
  * The first OpenCode start in a new AgentCore session is slow (CTX-1322).
  * On production, 9 to 20 s passed from `opencode serve` to the first model
- * call, and in the same image on a local disk 1.2 s. The difference is the
- * session's first read of the 211 MB OpenCode binary and its files. The
+ * call. In the same image on a local disk, 1.2 s passed. The difference is
+ * the session's first read of the 211 MB OpenCode binary and its files. The
  * warm-up does that work before the turn: it starts OpenCode once and sends
  * one prompt to a stand-in model in the same process. Then the turn's
  * OpenCode finds its files in memory.
  *
- * The warm-up holds no credential and no egress. It removes the proxy
- * variables and the OpenCode password from its environment, it uses its own
- * home and folder (never `/workspace`, which the clone fills) and removes
- * them at the end, and its
- * OpenCode and stand-in model listen only on loopback. It stops itself after
- * the prompt, or after 60 s.
+ * The warm-up holds no credential and no egress:
+ * - It removes the proxy variables and the OpenCode password from the
+ *   environment of its OpenCode.
+ * - It uses its own home and folder, never `/workspace`, which the clone
+ *   fills. It removes them at the end.
+ * - Its OpenCode and its stand-in model listen only on loopback.
+ *
+ * It stops itself after the prompt, or after 60 s. Its exit code tells how
+ * it ended: 0 after a model call, 2 at the 60 s limit, 3 when OpenCode
+ * stopped first, 4 when no model call came, 5 when a request to OpenCode
+ * failed, and 6 when `opencode` did not start.
  */
-const WARMUP_SCRIPT = `
+export const OPENCODE_WARMUP_COMMAND = `node -e '
 const { spawn } = require("node:child_process")
 const { mkdirSync, rmSync, writeFileSync } = require("node:fs")
 const http = require("node:http")
-const home = "/tmp/ctxpipe-opencode-warmup/" + process.pid
+const home = "/tmp/ctxpipe-opencode-warmup-" + process.pid
 const chunk = (delta, finish) => "data: " + JSON.stringify({ id: "w", object: "chat.completion.chunk", created: 0, model: "w", choices: [{ index: 0, delta, finish_reason: finish }] }) + "\\n\\n"
+let modelCalls = 0
 const model = http.createServer((req, res) => {
+  modelCalls += 1
   req.resume()
   req.on("end", () => {
     res.writeHead(200, { "content-type": "text/event-stream" })
@@ -42,7 +49,7 @@ model.listen(0, "127.0.0.1", () => {
     snapshot: false,
     agent: { title: { disable: true } },
   }))
-  const env = { ...process.env, ...START_ENV, HOME: home, XDG_CONFIG_HOME: home + "/config", XDG_DATA_HOME: home + "/data", XDG_STATE_HOME: home + "/state", XDG_CACHE_HOME: home + "/cache", OPENCODE_CONFIG: home + "/opencode.json" }
+  const env = { ...process.env, ...${JSON.stringify(WORKSPACE_CHAT_OPENCODE_START_ENV)}, HOME: home, XDG_CONFIG_HOME: home + "/config", XDG_DATA_HOME: home + "/data", XDG_STATE_HOME: home + "/state", XDG_CACHE_HOME: home + "/cache", OPENCODE_CONFIG: home + "/opencode.json" }
   for (const name of Object.keys(env)) if (/^(https?|all|no)_proxy$/i.test(name) || name === "OPENCODE_SERVER_PASSWORD") delete env[name]
   const server = spawn("opencode", ["serve", "--hostname=127.0.0.1", "--port=0"], { cwd: home + "/project", env, stdio: ["ignore", "pipe", "ignore"] })
   const stop = (code) => {
@@ -64,26 +71,25 @@ model.listen(0, "127.0.0.1", () => {
       const post = (path, body) => fetch(url + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
       const session = await (await post("/session", {})).json()
       const reply = await post("/session/" + session.id + "/message", { parts: [{ type: "text", text: "warm-up" }] })
-      stop(reply.ok ? 0 : 4)
+      // The reply body ends when the prompt ends. OpenCode answers 200 also
+      // when the model call fails, so only a model call counts.
+      await reply.text()
+      stop(reply.ok && modelCalls > 0 ? 0 : 4)
     } catch {
       stop(5)
     }
   })
 })
-`
-
-/** The shell command of the warm-up; its exit code says how it ended. */
-export const OPENCODE_WARMUP_COMMAND = `node -e '${WARMUP_SCRIPT.replace(
-  "START_ENV",
-  JSON.stringify(WORKSPACE_CHAT_OPENCODE_START_ENV),
-)}' >/dev/null 2>&1`
+' >/dev/null 2>&1`
 
 /** The warm-ups that still run, by sandbox id. */
 const running = new Map<string, Promise<void>>()
 
 /**
  * Run the warm-up in the sandbox. It never throws: a failed warm-up only
- * leaves the turn's OpenCode start slow.
+ * leaves the turn's OpenCode start slow. The provider reads the session env
+ * when the spawn starts, so a caller that sets credentials after this call
+ * does not give them to the warm-up.
  */
 export function warmOpencode(handle: SandboxHandle): Promise<void> {
   const started = Date.now()
@@ -114,13 +120,13 @@ export function warmOpencode(handle: SandboxHandle): Promise<void> {
 /**
  * Wait for the warm-up of the sandbox, if one still runs. The turn calls
  * this before it stops the agent user's processes, which would stop the
- * warm-up too.
+ * warm-up too. The pool fill calls it before its session becomes ready.
  */
-export async function opencodeWarmupDone(sandboxId: string): Promise<void> {
+export async function waitForOpencodeWarmup(sandboxId: string): Promise<void> {
   const warmup = running.get(sandboxId)
   if (!warmup) return
-  // The warm-up stops itself after 60 s; a command stream that hangs does
-  // not hold the turn longer than 30 s.
+  // The warm-up stops itself after 60 s. A command stream that hangs holds
+  // the caller for at most 30 s.
   let timer: ReturnType<typeof setTimeout> | undefined
   await Promise.race([
     warmup,

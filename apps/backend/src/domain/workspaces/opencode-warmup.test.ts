@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 import {
   OPENCODE_WARMUP_COMMAND,
-  opencodeWarmupDone,
+  waitForOpencodeWarmup,
   withOpencodeWarmup,
 } from "./opencode-warmup.js"
 
@@ -39,27 +39,30 @@ function standIn(id: string) {
       },
     },
   } as unknown as SandboxHandle
-  const provider = {
+  const provider: SandboxProvider = {
     name: "stand-in",
-    capabilities: () => ({}),
+    capabilities: () => {
+      throw new Error("The warm-up reads no capability")
+    },
     create: async () => handle,
     resume: async () => handle,
     destroy: async () => undefined,
-  } as unknown as SandboxProvider
+  }
   return { provider, commands, finish: (code: number) => finish(code) }
 }
 
 describe("the OpenCode warm-up of a new AgentCore session", () => {
-  it("starts on create, and the turn waits for it before it stops the agent's processes", async () => {
+  it("starts on create, and a wait for it ends when the warm-up ends", async () => {
     const session = standIn("ses-new")
     const handle = await withOpencodeWarmup(session.provider).create({})
     expect(session.commands).toEqual([OPENCODE_WARMUP_COMMAND])
 
     let waited = false
-    const turn = opencodeWarmupDone(handle.id).then(() => {
+    const turn = waitForOpencodeWarmup(handle.id).then(() => {
       waited = true
     })
-    await new Promise((resolve) => setTimeout(resolve, 20))
+    // Let every pending step run: the turn still waits.
+    for (let step = 0; step < 10; step++) await Promise.resolve()
     expect(waited).toBe(false)
     session.finish(0)
     await turn
@@ -67,7 +70,7 @@ describe("the OpenCode warm-up of a new AgentCore session", () => {
       expect.objectContaining({ phase: "opencode-warmup", exitCode: 0 }),
     )
     // Done: the next turn does not wait.
-    await opencodeWarmupDone(handle.id)
+    await waitForOpencodeWarmup(handle.id)
   })
 
   it("does not run for a resumed session, which already ran OpenCode", async () => {
