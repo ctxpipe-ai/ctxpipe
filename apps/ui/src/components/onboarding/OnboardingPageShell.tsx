@@ -37,7 +37,7 @@ export function OnboardingPageShell({
         }`}
       >
         <AnimatedBackground
-          filePath="/animations/onboarding/welcome-background.v1.json"
+          filePath={`${import.meta.env.BASE_URL}animations/onboarding/welcome-background.v1.json`}
           fps={30}
           scale={0.9}
           dpi={1}

@@ -1,6 +1,7 @@
 import { AuthView } from "@daveyplate/better-auth-ui"
 import { createFileRoute } from "@tanstack/react-router"
 
+import { Logo } from "@/components/Logo/Logo"
 import {
   betterAuthAuthViewClassNames,
   betterAuthEmailPlaceholder,
@@ -26,8 +27,7 @@ export function SignInRoutePage() {
       <div className="mx-auto max-w-md px-6 py-16">
         <div className="relative mx-auto max-w-sm">
           <div className="pointer-events-none absolute top-4 left-1/2 z-10 -translate-x-1/2">
-            <img
-              src="/ctx_.svg"
+            <Logo
               alt="ctxpipe"
               className="h-16 w-16 select-none"
               draggable={false}
