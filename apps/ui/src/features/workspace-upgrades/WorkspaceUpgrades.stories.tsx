@@ -6,6 +6,7 @@ import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
 import {
   expectSkeletonMatchesLoaded,
+  responseGate,
   SkeletonMatchFrame,
 } from "@/components/ui/skeletonMatchStory"
 import type { IngestionItem } from "@/features/workspaces/ingestion"
@@ -1785,8 +1786,10 @@ export const SkeletonMatchesLoaded: Story = {
   },
 }
 
-/** The play opens this gate: the automatic-upgrades setting answers then. */
-const settingGate = { open: () => {} }
+/** The automatic-upgrades setting answers when the play releases this gate. */
+const settingGate = responseGate()
+/** The upgrade list adds its path when it answers. */
+const listAnswered: string[] = []
 
 /**
  * Upgrades section of a Workspace: the upgrade list loads before the
@@ -1801,16 +1804,18 @@ export const SkeletonWaitsForSetting: Story = {
       handlers: {
         page: [
           activeMemberRoleHandler("owner"),
-          workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
+          workspaceUpgradesHandler(
+            upgradesFixture([], { formatVersion: 3 }),
+            undefined,
+            listAnswered,
+          ),
         ],
         automatic: [
           http.get(
             ({ request }) =>
               new URL(request.url).pathname.endsWith("/upgrades/automatic"),
             async () => {
-              await new Promise<void>((open) => {
-                settingGate.open = open
-              })
+              await settingGate.wait()
               return HttpResponse.json({ mode: "manual", reason: null })
             },
           ),
@@ -1818,13 +1823,18 @@ export const SkeletonWaitsForSetting: Story = {
       },
     },
   },
+  beforeEach: () => {
+    listAnswered.length = 0
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    // The upgrade list has answered: its skeleton hold has ended too.
-    await new Promise((settled) => setTimeout(settled, 500))
+    await waitFor(() => expect(listAnswered).toHaveLength(1))
+    // The response reaches the page, and the card renders the list.
+    for (let frame = 0; frame < 5; frame++)
+      await new Promise((next) => requestAnimationFrame(next))
     expect(canvas.getByText("Loading upgrades")).toBeInTheDocument()
     expect(canvas.queryByText("Format 3, the latest")).toBeNull()
-    settingGate.open()
+    await settingGate.release()
     await waitFor(() =>
       expect(
         canvas.getByRole("switch", { name: "Automatic upgrades" }),
