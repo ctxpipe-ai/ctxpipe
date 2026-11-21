@@ -18,8 +18,8 @@ import {
   AGENT_VAULT_NETWORK,
   AGENT_VAULT_NETWORK_CREATE,
   AGENT_VAULT_PROXY_PORT,
+  SANDBOX_HOST_FIREWALL,
   SANDBOX_HOST_NETWORK_DAEMON_CONFIG,
-  sandboxHostFirewall,
 } from "./sandbox-host-network"
 
 const DOCKER_TLS_PORT = 2376
@@ -556,7 +556,7 @@ function hostBootstrapScript(input: HostBootstrapInput): string[] {
     "ExecStart=",
     `ExecStart=/usr/bin/dockerd -H fd:// -H tcp://0.0.0.0:${DOCKER_TLS_PORT} --containerd=/run/containerd/containerd.sock $OPTIONS $DOCKER_STORAGE_OPTIONS $DOCKER_ADD_RUNTIMES`,
     "# The sandbox firewall (sandbox-host-network.ts), after each start of dockerd. Fails closed.",
-    ...sandboxHostFirewall().map(
+    ...SANDBOX_HOST_FIREWALL.map(
       (command) => `ExecStartPost=/bin/sh -c '${command}'`,
     ),
     "UNIT",

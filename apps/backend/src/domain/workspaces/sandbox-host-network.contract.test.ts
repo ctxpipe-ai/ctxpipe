@@ -9,8 +9,8 @@ import {
   AGENT_VAULT_NETWORK,
   AGENT_VAULT_NETWORK_CREATE,
   AGENT_VAULT_PROXY_PORT,
+  SANDBOX_HOST_FIREWALL,
   SANDBOX_HOST_NETWORK_DAEMON_CONFIG,
-  sandboxHostFirewall,
 } from "../../../../../packages/aws-cdk/src/internal/sandbox-host-network.js"
 import { testLabelArgs } from "../../../../../scripts/ci/test-containers.mjs"
 import { contractImage } from "../../test/contract-images.js"
@@ -58,7 +58,7 @@ describe.each([
         "-e",
         `DAEMON_JSON=${daemonJson}`,
         "-e",
-        `FIREWALL=${sandboxHostFirewall().join("\n")}`,
+        `FIREWALL=${SANDBOX_HOST_FIREWALL.join("\n")}`,
         "--entrypoint",
         "sh",
         dindImage,
@@ -124,9 +124,9 @@ describe.each([
         const hostIp = await inHost(
           "ip -4 -o addr show eth0 | awk '{print $4}' | cut -d/ -f1",
         )
-        const sandbox = async (sandboxName: string, ...args: string[]) =>
+        const sandbox = (sandboxName: string) =>
           inHost(
-            `docker run -d --name ${sandboxName} ${args.join(" ")} --entrypoint sh ${curl} -c 'sleep 3600'`,
+            `docker run -d --name ${sandboxName} --entrypoint sh ${curl} -c 'sleep 3600'`,
           )
         /** The CONNECT status: 407 asks for proxy auth, 429 is the gate. */
         const connect = (sandboxName: string) =>
@@ -136,6 +136,11 @@ describe.each([
         const get = (from: string, url: string) =>
           inHost(
             `docker exec ${from} curl -s -o /dev/null --max-time 5 -w '%{http_code}' ${url} || true`,
+          )
+        /** From Agent Vault's bridge: what the proxy could dial for a sandbox. */
+        const getFromVaultNetwork = (url: string) =>
+          inHost(
+            `docker run --rm --network ${AGENT_VAULT_NETWORK} ${curl} -s -o /dev/null --max-time 5 -w '%{http_code}' ${url} || true`,
           )
         await sandbox("hostile")
         await sandbox("neighbor")
@@ -193,6 +198,9 @@ describe.each([
         expect(await get("neighbor", `http://${hostIp}:18080/`)).toBe("000")
         expect(await get("neighbor", "http://1.1.1.1/")).toBe("000")
         expect(await backendToAgent()).toBe("200")
+        // Agent Vault's bridge does not reach a sandbox's published agent port
+        // either, so a sandbox cannot CONNECT through the proxy to it.
+        expect(await getFromVaultNetwork(`http://${hostIp}:18080/`)).toBe("000")
 
         // dockerd restarts (an update, a crash): systemd runs the firewall
         // again, and Docker may have moved its own rules above it.
@@ -203,6 +211,7 @@ describe.each([
         await sandbox("late")
         expect(await connect("late")).toBe("407")
         expect(await get("late", `http://${hostIp}:18080/`)).toBe("000")
+        expect(await getFromVaultNetwork(`http://${hostIp}:18080/`)).toBe("000")
         expect(await backendToAgent()).toBe("200")
       } finally {
         await docker("rm", "-f", "-v", name).catch(() => "")

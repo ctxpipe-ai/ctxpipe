@@ -512,8 +512,7 @@ describe("sandbox host", () => {
     expect(pairs.length).toBe(rules.length - pin.length)
     for (const [, checkTable, check, insertTable, insert] of pairs) {
       expect(insertTable).toBe(checkTable)
-      // Insert may add a position number after the chain name.
-      expect(insert?.replace(/^(\S+) \d+ /, "$1 ")).toBe(check)
+      expect(insert).toBe(check)
     }
   })
 
@@ -549,7 +548,7 @@ describe("sandbox host", () => {
     )
     expect(script).not.toContain("iptables -I INPUT -i ctxpipe-av -j REJECT")
     expect(script).toContain(
-      "iptables -I DOCKER-USER 1 -i ctxpipe-av -o ctxpipe-av -j REJECT",
+      "iptables -I DOCKER-USER -i ctxpipe-av -o ctxpipe-av -j REJECT",
     )
     // The master password comes from the stack's secret, never the template.
     expect(script).toContain(
@@ -560,13 +559,13 @@ describe("sandbox host", () => {
     // accept is above the reply return, because Docker's isolation rules
     // drop what DOCKER-USER returns between two bridges.
     const replies = script.indexOf(
-      "iptables -I DOCKER-USER 1 -i docker0 -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN",
+      "iptables -I DOCKER-USER -i docker0 -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN",
     )
     const proxy = script.indexOf(
-      "iptables -I DOCKER-USER 1 -i docker0 -o ctxpipe-av -p tcp --dport 14322 -j ACCEPT",
+      "iptables -I DOCKER-USER -i docker0 -o ctxpipe-av -p tcp --dport 14322 -j ACCEPT",
     )
     const reject = script.indexOf(
-      "iptables -I DOCKER-USER 1 -i docker0 -j REJECT",
+      "iptables -I DOCKER-USER -i docker0 -j REJECT",
     )
     expect(reject).toBeGreaterThan(-1)
     expect(replies).toBeGreaterThan(reject)
@@ -574,10 +573,15 @@ describe("sandbox host", () => {
     // The proxy's replies back to docker0, and past Docker 28's raw drop of
     // packets that come from another bridge.
     expect(script).toContain(
-      "iptables -I DOCKER-USER 1 -i ctxpipe-av -o docker0 -p tcp --sport 14322 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT",
+      "iptables -I DOCKER-USER -i ctxpipe-av -o docker0 -p tcp --sport 14322 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT",
     )
     expect(script).toContain(
-      "iptables -t raw -I PREROUTING 1 -i ctxpipe-av -p tcp --sport 14322 -j ACCEPT",
+      "iptables -t raw -I PREROUTING -i ctxpipe-av -p tcp --sport 14322 -j ACCEPT",
+    )
+    // Without docker-proxy, Agent Vault's connection to a sandbox's published
+    // port on the host address is forwarded to docker0: DOCKER-USER refuses it.
+    expect(script).toContain(
+      "iptables -I DOCKER-USER -i ctxpipe-av -o docker0 -m conntrack ! --ctstate ESTABLISHED,RELATED -j REJECT",
     )
     // The proxy port is the only docker0 accept, and docker0 has no INPUT
     // accept: the proxy is forwarded, not served by docker-proxy on the host.
@@ -586,7 +590,7 @@ describe("sandbox host", () => {
       .filter((l) => /-i docker0\b.*-j ACCEPT/.test(l))
     expect(accepts).toHaveLength(1)
     expect(accepts[0]).toContain(
-      "DOCKER-USER 1 -i docker0 -o ctxpipe-av -p tcp --dport 14322 -j ACCEPT",
+      "DOCKER-USER -i docker0 -o ctxpipe-av -p tcp --dport 14322 -j ACCEPT",
     )
     expect(script).not.toMatch(/INPUT -i docker0 .*-j ACCEPT/)
     expect(script.indexOf("ctxpipe-agent-vault")).toBeLessThan(

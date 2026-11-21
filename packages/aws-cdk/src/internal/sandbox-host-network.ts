@@ -2,7 +2,8 @@
  * The network of the sandbox host: the Docker daemon settings and the
  * firewall that keep sandboxes apart. The construct writes them into the boot
  * script. The backend's contract test `sandbox-host-network.contract.test.ts`
- * runs the same values in Docker-in-Docker.
+ * runs the same values in Docker-in-Docker. That test is in the backend,
+ * because only the backend's contracts lane runs Docker.
  *
  * Sandboxes are on `docker0`. Agent Vault is on its own bridge
  * (`AGENT_VAULT_NETWORK`). A sandbox dials Agent Vault's proxy on a host
@@ -48,10 +49,13 @@ export const SANDBOX_HOST_NETWORK_DAEMON_CONFIG = {
   "ip-masq": false,
 } as const
 
-/** One rule: check it with `-C`, and insert it with `-I` only when it is missing. */
-function rule(table: string, chain: string, position: string, spec: string) {
-  const t = table === "filter" ? "" : `-t ${table} `
-  return `iptables ${t}-C ${chain} ${spec} 2>/dev/null || iptables ${t}-I ${chain} ${position}${spec}`
+/**
+ * One rule: check it with `-C`, and insert it with `-I` (at the top of its
+ * chain) only when it is missing.
+ */
+function rule(table: "filter" | "raw", chain: string, spec: string) {
+  const tableFlag = table === "filter" ? "" : `-t ${table} `
+  return `iptables ${tableFlag}-C ${chain} ${spec} 2>/dev/null || iptables ${tableFlag}-I ${chain} ${spec}`
 }
 
 /**
@@ -59,69 +63,71 @@ function rule(table: string, chain: string, position: string, spec: string) {
  * of dockerd. Each one is idempotent. A rule inserted later goes above the
  * rules before it in its chain, so it is checked first.
  */
-export function sandboxHostFirewall(): string[] {
-  const av = AGENT_VAULT_NETWORK
-  const proxy = AGENT_VAULT_PROXY_PORT
-  return [
-    // Docker 25 puts its isolation jump above DOCKER-USER when dockerd
-    // restarts, and that jump drops the sandbox traffic to Agent Vault's
-    // bridge. Put DOCKER-USER first again. A second jump is safe: each rule in
-    // DOCKER-USER gives the same verdict on the second pass.
-    `iptables -S FORWARD 1 | grep -qx -- "-A FORWARD -j DOCKER-USER" || iptables -I FORWARD 1 -j DOCKER-USER`,
-    // Sandboxes never reach the host itself (other sandboxes' published agent
-    // ports, the Docker API) or instance metadata (next to the IMDS hop
-    // limit). Fails closed.
-    rule("filter", "INPUT", "", "-i docker0 -j REJECT"),
-    rule("filter", "DOCKER-USER", "", "-d 169.254.169.254/32 -j REJECT"),
-    // Sandboxes (docker0) reach only Agent Vault's proxy, published on the
-    // host and forwarded to its own bridge: no direct internet, backend, VPC,
-    // or DNS. A published port of another sandbox is forwarded to docker0, so
-    // this reject refuses it too.
-    rule("filter", "DOCKER-USER", "1 ", "-i docker0 -j REJECT"),
-    rule(
-      "filter",
-      "DOCKER-USER",
-      "1 ",
-      "-i docker0 -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN",
-    ),
-    // ACCEPT, not RETURN: Docker's isolation rules drop traffic between two
-    // bridges. This rule sits above the reply rule above, because Docker 25
-    // drops the later packets of the connection too.
-    rule(
-      "filter",
-      "DOCKER-USER",
-      "1 ",
-      `-i docker0 -o ${av} -p tcp --dport ${proxy} -j ACCEPT`,
-    ),
-    rule(
-      "filter",
-      "DOCKER-USER",
-      "1 ",
-      `-i ${av} -o docker0 -p tcp --sport ${proxy} -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT`,
-    ),
-    // Docker 28 drops a packet to a container address that comes from another
-    // bridge (raw PREROUTING), and the proxy's replies to sandboxes are such
-    // packets. This accept skips only that drop: the filter rules above still
-    // pass only replies of connections that a sandbox opened.
-    rule(
-      "raw",
-      "PREROUTING",
-      "1 ",
-      `-i ${av} -p tcp --sport ${proxy} -j ACCEPT`,
-    ),
-    // Agent Vault never reaches the host (its own management API on the
-    // host's address, the Docker API) or itself back through a published
-    // port. INPUT refuses only new connections: replies to the host's own
-    // /health check must pass.
-    rule(
-      "filter",
-      "INPUT",
-      "",
-      `-i ${av} -m conntrack ! --ctstate ESTABLISHED,RELATED -j REJECT`,
-    ),
-    rule("filter", "DOCKER-USER", "1 ", `-i ${av} -o ${av} -j REJECT`),
-  ]
-}
+export const SANDBOX_HOST_FIREWALL = [
+  // Docker 25 puts its isolation jump above DOCKER-USER when dockerd
+  // restarts, and that jump drops the sandbox traffic to Agent Vault's
+  // bridge. Put DOCKER-USER first again. A second jump is safe: each rule in
+  // DOCKER-USER gives the same verdict on the second pass.
+  `iptables -S FORWARD 1 | grep -qx -- "-A FORWARD -j DOCKER-USER" || iptables -I FORWARD 1 -j DOCKER-USER`,
+  // Sandboxes never reach the host itself (other sandboxes' published agent
+  // ports, the Docker API) or instance metadata (next to the IMDS hop limit).
+  // Fails closed.
+  rule("filter", "INPUT", "-i docker0 -j REJECT"),
+  rule("filter", "DOCKER-USER", "-d 169.254.169.254/32 -j REJECT"),
+  // Sandboxes (docker0) reach only Agent Vault's proxy, published on the host
+  // and forwarded to its own bridge: no direct internet, backend, VPC, or
+  // DNS. A published port of another sandbox is forwarded to docker0, so this
+  // reject refuses it too.
+  rule("filter", "DOCKER-USER", "-i docker0 -j REJECT"),
+  rule(
+    "filter",
+    "DOCKER-USER",
+    "-i docker0 -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN",
+  ),
+  // ACCEPT, not RETURN: Docker's isolation rules drop traffic between two
+  // bridges. This rule sits above the reply rule above, because Docker 25
+  // drops the later packets of the connection too.
+  rule(
+    "filter",
+    "DOCKER-USER",
+    `-i docker0 -o ${AGENT_VAULT_NETWORK} -p tcp --dport ${AGENT_VAULT_PROXY_PORT} -j ACCEPT`,
+  ),
+  rule(
+    "filter",
+    "DOCKER-USER",
+    `-i ${AGENT_VAULT_NETWORK} -o docker0 -p tcp --sport ${AGENT_VAULT_PROXY_PORT} -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT`,
+  ),
+  // Docker 28 drops a packet to a container address that comes from another
+  // bridge (raw PREROUTING), and the proxy's replies to sandboxes are such
+  // packets. This accept skips only that drop: the filter rules above still
+  // pass only replies of connections that a sandbox opened.
+  rule(
+    "raw",
+    "PREROUTING",
+    `-i ${AGENT_VAULT_NETWORK} -p tcp --sport ${AGENT_VAULT_PROXY_PORT} -j ACCEPT`,
+  ),
+  // Agent Vault never reaches the host (its own management API on the host's
+  // address, the Docker API), itself back through a published port, or a
+  // sandbox. INPUT refuses only new connections: replies to the host's own
+  // /health check must pass. Without docker-proxy, a connection from Agent
+  // Vault to a sandbox's published port on the host address is forwarded to
+  // docker0, so DOCKER-USER refuses new connections there too.
+  rule(
+    "filter",
+    "INPUT",
+    `-i ${AGENT_VAULT_NETWORK} -m conntrack ! --ctstate ESTABLISHED,RELATED -j REJECT`,
+  ),
+  rule(
+    "filter",
+    "DOCKER-USER",
+    `-i ${AGENT_VAULT_NETWORK} -o docker0 -m conntrack ! --ctstate ESTABLISHED,RELATED -j REJECT`,
+  ),
+  rule(
+    "filter",
+    "DOCKER-USER",
+    `-i ${AGENT_VAULT_NETWORK} -o ${AGENT_VAULT_NETWORK} -j REJECT`,
+  ),
+]
 
 /** Creates Agent Vault's bridge when it is missing. */
 export const AGENT_VAULT_NETWORK_CREATE = `docker network inspect ${AGENT_VAULT_NETWORK} >/dev/null 2>&1 || docker network create -o com.docker.network.bridge.name=${AGENT_VAULT_NETWORK} ${AGENT_VAULT_NETWORK}`
