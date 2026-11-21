@@ -367,6 +367,10 @@ export function ConnectorListItemSkeleton() {
   )
 }
 
+/**
+ * The placeholder of the connector list while the connectors page loads its
+ * connections.
+ */
 export function ConnectorListSkeleton() {
   return (
     <SkeletonChain id="connectors">

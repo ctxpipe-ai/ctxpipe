@@ -22,6 +22,10 @@ type RegisterNotionOauthStepProps = {
   onSaved?: () => void
 }
 
+/**
+ * The Notion setup step of a self-hosted deployment where the admin creates a
+ * public Notion OAuth integration and saves its credentials.
+ */
 export function RegisterNotionOauthStep({
   orgSlug,
   connectionId,

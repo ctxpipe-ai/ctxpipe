@@ -5,6 +5,11 @@ import { useState } from "react"
 
 import { Button } from "@/components/ui/Button"
 
+/**
+ * Shows a value that a person must paste into a provider console, with a
+ * button that copies it. Connector setup steps use it for callback and webhook
+ * URLs and for the Notion verification token.
+ */
 export function CopyableUrl({ url, label }: { url?: string; label: string }) {
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">(
     "idle",

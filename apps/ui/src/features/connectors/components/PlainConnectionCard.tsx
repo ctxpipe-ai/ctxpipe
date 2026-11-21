@@ -26,6 +26,12 @@ type PlainConnectionCardProps = {
   onOpenSetup: (options?: { reconnect: true }) => void
 }
 
+/**
+ * The Plain row on the connectors page. It shows the connection health and
+ * the next setup action, and lets an admin remove the connection. It tells
+ * the admin when Plain refuses the saved key or the webhook, and opens the
+ * setup again at the key.
+ */
 export function PlainConnectionCard({
   orgSlug,
   connectionId,

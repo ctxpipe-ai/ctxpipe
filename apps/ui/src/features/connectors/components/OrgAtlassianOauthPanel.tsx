@@ -168,6 +168,12 @@ function AtlassianThreeLoSetupGuide({
   )
 }
 
+/**
+ * Saves the Atlassian OAuth app (client ID and secret) of a self-hosted
+ * deployment, and gives the callback URL to copy into the Atlassian developer
+ * console. Set `embedded` to show it inside the Confluence setup wizard
+ * without its own card.
+ */
 export function OrgAtlassianOauthPanel({
   orgSlug,
   connectionId,

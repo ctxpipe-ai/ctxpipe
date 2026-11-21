@@ -434,6 +434,11 @@ interface SpacePageTreeProps {
   onChange: (value: SpaceScopeItem[]) => void
 }
 
+/**
+ * Selects the Confluence spaces and pages that a Workspace source mirrors. A
+ * person searches, selects a whole space, or opens a space and selects single
+ * pages. The Confluence source form of a Workspace uses it.
+ */
 export function SpacePageTree({
   orgSlug,
   atlassianConnectionId,

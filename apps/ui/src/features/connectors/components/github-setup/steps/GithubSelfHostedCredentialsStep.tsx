@@ -27,6 +27,11 @@ type GithubSelfHostedCredentialsStepProps = {
   onCancel: () => void
 }
 
+/**
+ * The form of the self-hosted GitHub App setup. It gives the URLs and the
+ * webhook secret to copy into the GitHub App settings. It collects the App ID,
+ * the slug and the private key (paste or drop a .pem file).
+ */
 export function GithubSelfHostedCredentialsStep({
   githubAppId,
   setGithubAppId,

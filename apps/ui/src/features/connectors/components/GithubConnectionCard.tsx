@@ -36,6 +36,12 @@ async function deleteGithubConnector(
   await readApiJson(res, { message: "Failed to remove connector" })
 }
 
+/**
+ * The GitHub App row on the connectors page. It shows the connection health
+ * and the next setup action, and lets an admin remove the connection. Its
+ * action completes the GitHub install or links the installation to a
+ * workspace.
+ */
 export function GithubConnectionCard({
   orgSlug,
   connectionId,

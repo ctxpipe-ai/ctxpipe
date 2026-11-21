@@ -12,6 +12,10 @@ type LinearConnectStepProps = {
   connectionId?: string
 }
 
+/**
+ * The Linear setup step where the person authorizes read-only access to a
+ * Linear workspace in a popup.
+ */
 export function LinearConnectStep({
   orgSlug,
   connectionId,
