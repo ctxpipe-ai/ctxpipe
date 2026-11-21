@@ -514,6 +514,12 @@ export async function openRunVault(input: {
         http_proxy: proxied.HTTP_PROXY ?? "",
         https_proxy: proxied.HTTPS_PROXY ?? "",
         no_proxy: proxied.NO_PROXY ?? "",
+        // Git sends the session in its first CONNECT. Its default
+        // (`anyauth`) first sends a CONNECT with no credentials and gets a
+        // 407. Agent Vault counts each 407 as a failure against the client
+        // address, and refuses each CONNECT after 50 failures in 5 minutes
+        // (HTTP 429). All the sandboxes of a host share one address (CTX-1470).
+        GIT_HTTP_PROXY_AUTHMETHOD: "basic",
       },
     }
   } catch (error) {

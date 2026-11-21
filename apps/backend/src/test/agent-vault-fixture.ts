@@ -129,6 +129,18 @@ type AgentVaultFixture = {
   gitToken: string
   /** Agent Vault's container name, which the test network resolves. */
   agentVaultName: string
+  /**
+   * A chat-image container on the sandbox network that stays until
+   * `remove`: its commands share one address, as on the AWS sandbox host.
+   */
+  startSandbox: (env: Record<string, string>) => Promise<{
+    process: {
+      exec: (
+        command: string,
+      ) => Promise<{ exitCode: number; stdout: string; stderr: string }>
+    }
+    remove: () => Promise<void>
+  }>
   /** Run `script` in a fresh chat-image container on the sandbox network. */
   sandbox: (
     env: Record<string, string>,
@@ -161,6 +173,11 @@ export async function withAgentVault<T>(
     closed?: boolean
     /** A port of a test backend on the Docker host: the upstream forwards its port 3000 there. */
     backendPort?: number
+    /**
+     * The window of the proxy's auth-failure gate (Agent Vault's `AUTH`
+     * tier, 5 minutes by default), for example `15s`.
+     */
+    authFailureWindow?: string
   },
   fn: (fixture: AgentVaultFixture) => Promise<T>,
 ): Promise<T> {
@@ -318,6 +335,12 @@ exec node /tmp/upstream.cjs`,
         "AGENT_VAULT_RATELIMIT_PROXY_BURST=2000",
         "-e",
         "AGENT_VAULT_RATELIMIT_PROXY_CONCURRENCY=256",
+        ...(input.authFailureWindow
+          ? [
+              "-e",
+              `AGENT_VAULT_RATELIMIT_AUTH_WINDOW=${input.authFailureWindow}`,
+            ]
+          : []),
         "-e",
         "SSL_CERT_DIR=/etc/ssl/certs:/extra-ca",
         "-e",
@@ -394,6 +417,42 @@ net.createServer((client) => {
       backend: "backend.ctxpipe.test",
       gitToken,
       agentVaultName: vaultName,
+      startSandbox: async (env) => {
+        const name = `ctxpipe-av-sandbox-${randomUUID().slice(0, 8)}`
+        const args = ["run", "-d", "--name", name, ...testLabelArgs()]
+        args.push("--network", sandboxNetwork)
+        for (const [key, value] of Object.entries(env))
+          args.push("-e", `${key}=${value}`)
+        await docker(...args, input.image, "sleep", "infinity")
+        return {
+          process: {
+            exec: async (command) => {
+              try {
+                const { stdout, stderr } = await exec(
+                  "docker",
+                  ["exec", name, "sh", "-c", command],
+                  { timeout: 180_000 },
+                )
+                return { exitCode: 0, stdout, stderr }
+              } catch (error) {
+                const failed = error as {
+                  code?: number
+                  stdout?: string
+                  stderr?: string
+                }
+                return {
+                  exitCode: typeof failed.code === "number" ? failed.code : 1,
+                  stdout: failed.stdout ?? "",
+                  stderr: failed.stderr ?? "",
+                }
+              }
+            },
+          },
+          remove: async () => {
+            await docker("rm", "-f", "-v", name).catch(() => "")
+          },
+        }
+      },
       sandbox: async (env, script) => {
         const args = [
           "run",
