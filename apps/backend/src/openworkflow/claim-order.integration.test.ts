@@ -21,15 +21,21 @@ const backends: BackendPostgres[] = []
 async function connect() {
   const pr = `pr-${Date.now()}${Math.floor(Math.random() * 1000)}`
   vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", pr)
-  namespaces.push(`preview-${pr}`)
+  const namespace = `preview-${pr}`
+  namespaces.push(namespace)
   const url = process.env.DATABASE_URL
   if (!url) throw new Error("DATABASE_URL is required")
   const backend = await connectOpenWorkflowBackend(url)
   backends.push(backend)
-  return backend
+  return { backend, namespace }
 }
 
-function createRun(backend: BackendPostgres, workflowName: string) {
+/** A new pending run. A child run names the step attempt of its parent. */
+function createRun(
+  backend: BackendPostgres,
+  workflowName: string,
+  parent?: { namespaceId: string; id: string },
+) {
   return backend.createWorkflowRun({
     workflowName,
     version: null,
@@ -37,8 +43,8 @@ function createRun(backend: BackendPostgres, workflowName: string) {
     config: {},
     context: null,
     input: null,
-    parentStepAttemptNamespaceId: null,
-    parentStepAttemptId: null,
+    parentStepAttemptNamespaceId: parent?.namespaceId ?? null,
+    parentStepAttemptId: parent?.id ?? null,
     availableAt: null,
     deadlineAt: null,
   })
@@ -63,18 +69,7 @@ async function parkParentAndCompleteChild(backend: BackendPostgres) {
     config: {},
     context: null,
   })
-  const child = await backend.createWorkflowRun({
-    workflowName: "ingestion-shard",
-    version: null,
-    idempotencyKey: null,
-    config: {},
-    context: null,
-    input: null,
-    parentStepAttemptNamespaceId: wait.namespaceId,
-    parentStepAttemptId: wait.id,
-    availableAt: null,
-    deadlineAt: null,
-  })
+  const child = await createRun(backend, "ingestion-shard", wait)
   await backend.setStepAttemptChildWorkflowRun({
     workflowRunId: parent.id,
     stepAttemptId: wait.id,
@@ -101,10 +96,10 @@ async function parkParentAndCompleteChild(backend: BackendPostgres) {
   return parent.id
 }
 
-async function setAvailableAt(id: string, at: SQL) {
+async function setAvailableAt(namespace: string, id: string, at: SQL) {
   await getSystemDb().execute(sql`
     update openworkflow.workflow_runs set available_at = ${at}
-    where namespace_id = ${namespaces.at(-1)} and id = ${id}
+    where namespace_id = ${namespace} and id = ${id}
   `)
 }
 
@@ -132,7 +127,7 @@ afterAll(async () => {
 })
 
 it("claims a woken parent before a run that was queued after the wake (CTX-1478)", async () => {
-  const backend = await connect()
+  const { backend } = await connect()
   const parent = await parkParentAndCompleteChild(backend)
   // New work arrives all the time while the slots are busy.
   await createRun(backend, "workspace-tip-check")
@@ -146,13 +141,13 @@ it("claims a woken parent before a run that was queued after the wake (CTX-1478)
 })
 
 it("claims a run that was queued before the wake before the woken parent", async () => {
-  const backend = await connect()
+  const { backend, namespace } = await connect()
   const earlier = await createRun(backend, "workspace-hydrate")
   // Keep the run out of the claims of the parent flow.
-  await setAvailableAt(earlier.id, sql`now() + interval '1 day'`)
+  await setAvailableAt(namespace, earlier.id, sql`now() + interval '1 day'`)
   const parent = await parkParentAndCompleteChild(backend)
   // The run waits since before the wake.
-  await setAvailableAt(earlier.id, sql`now() - interval '1 minute'`)
+  await setAvailableAt(namespace, earlier.id, sql`now() - interval '1 minute'`)
 
   const first = await backend.claimWorkflowRun({
     workerId: randomUUID(),
