@@ -182,7 +182,9 @@ export async function resolveSemanticConflicts(
   // the ownership fields of `current`, the default branch as it is now. A
   // person can have removed the fields of `base` there, so `base` never counts.
   // Fields that only `incoming` has count only when the host stamped them (a
-  // host or extraction origin), never when an agent controls that side.
+  // host or extraction origin), never when an agent controls that side. Then
+  // the output can keep the values of both sides: two sources that create
+  // the same shared file give a file with both sources (CTX-1471).
   // Conflict markers can hide a field from this check, so a flagged file
   // must also pass it with the whole `incoming` content.
   for (const { file, flagged } of results) {
@@ -191,19 +193,16 @@ export async function resolveSemanticConflicts(
     const contents = flagged
       ? [file.content, conflict.incoming]
       : [file.content]
+    const incomingAdded =
+      options.origin !== "agent" &&
+      conflict.incoming !== null &&
+      addedOwnershipField(conflict.base, conflict.incoming) !== null
+    const allowed = incomingAdded
+      ? [conflict.current, conflict.incoming]
+      : [conflict.current]
     for (const content of contents) {
       if (content === null) continue
-      const incomingAdded =
-        options.origin !== "agent" &&
-        conflict.incoming !== null &&
-        addedOwnershipField(conflict.base, conflict.incoming) !== null
-      if (
-        addedOwnershipField(conflict.current, content) !== null &&
-        !(
-          incomingAdded &&
-          addedOwnershipField(conflict.incoming, content) === null
-        )
-      )
+      if (addedOwnershipField(allowed, content) !== null)
         throw new Error(
           "Semantic merge added ownership fields that the default branch does not have",
         )

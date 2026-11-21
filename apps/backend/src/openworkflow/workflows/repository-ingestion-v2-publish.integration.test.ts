@@ -1166,6 +1166,72 @@ describe("ingestion v2 publish", () => {
   )
 
   it(
+    "publishes when a source is added to the Workspace between the fetch and the push of the publish (CTX-1471)",
+    { timeout: 420_000 },
+    async () => {
+      const bare = join(remotes, contexts[0] ?? "")
+      // A person adds another source while the run publishes: the commit is
+      // ready on a side branch, and the first push to the default branch of
+      // context A moves the branch to it first.
+      const work = mkdtempSync(join(folder, "source-add-"))
+      git(work, "clone", "-q", bare, ".")
+      const added = sourceFileOf(`acme/added-api-${suffix}`)
+      mkdirSync(dirname(join(work, added)), { recursive: true })
+      writeFileSync(
+        join(work, added),
+        sourceFileText(`acme/added-api-${suffix}`),
+      )
+      git(work, "add", "-A")
+      git(work, "commit", "-q", "-m", "Add a source")
+      git(work, "push", "-q", "origin", "HEAD:refs/heads/source-add")
+      const sourceAdd = git(work, "rev-parse", "HEAD")
+      const flag = join(folder, "race-source-add")
+      writeFileSync(flag, "")
+      const bin = wrapGit(
+        "race-bin-source-add",
+        [
+          `if [ -f "${flag}" ]; then`,
+          `case " $* " in *" push "*"context-a-${suffix}"*"refs/heads/main"*)`,
+          `  rm -f "${flag}"`,
+          `  "$REAL_GIT" --git-dir="${bare}" update-ref refs/heads/main ${sourceAdd} ;;`,
+          "esac",
+          "fi",
+        ].join("\n"),
+      )
+      let result: IngestionV2Output
+      let runId: string
+      try {
+        const handle = await startRun("2026-10-10T00:00:00.000Z")
+        runId = handle.workflowRun.id
+        result = await handle.result({ timeoutMs: 400_000 })
+      } finally {
+        rmSync(flag, { force: true })
+        vi.stubEnv("PATH", process.env.PATH?.replace(`${bin}:`, "") ?? "")
+        git(bare, "update-ref", "-d", "refs/heads/source-add")
+      }
+      // The push lost the race once: the publish replays the delta on the
+      // new tip and pushes again.
+      expect(git(bare, "rev-parse", "main^")).toBe(sourceAdd)
+      expect(result).toMatchObject({ status: "done" })
+      if (!("workspaces" in result)) throw new Error("The run did not finish")
+      expect(result.workspaces).toContainEqual(
+        expect.objectContaining({
+          workspaceId: workspaceIds[0],
+          published: git(bare, "rev-parse", "main"),
+          partial: 0,
+        }),
+      )
+      expect(git(bare, "log", "-1", "--format=%B", "main")).toContain(
+        `Ctxpipe-Run: ${runId}`,
+      )
+      expect(git(bare, "ls-tree", "-r", "--name-only", "main")).toContain(added)
+      expect(git(bare, "ls-tree", "-r", "--name-only", "main")).toContain(
+        "knowledge/services/billing-api.md",
+      )
+    },
+  )
+
+  it(
     "publishes the run base when assemble refuses the semantic merge of two shards",
     { timeout: 600_000 },
     async () => {
