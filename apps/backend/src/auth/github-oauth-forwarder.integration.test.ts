@@ -17,15 +17,17 @@ import { users } from "../db/schema/auth.js"
 import { getAuth, resetBetterAuthForTests } from "./config.js"
 
 // A deployment whose GitHub OAuth flows go through a forwarder (the AWS PR
-// previews, CTX-1426): the forwarder serves the authorize step and the one
-// callback URL that the GitHub App lists. It gives the state back to this
-// deployment as this deployment sent it, so Better Auth's own state check
-// still decides.
+// previews, CTX-1441): the forwarder serves the GitHub pages
+// (`GITHUB_WEB_URL`) and the one callback URL that the GitHub App lists. It
+// gives the state back to this deployment as this deployment sent it, so
+// Better Auth's own state check still decides.
 
 const base = "http://localhost:3000"
 const authPath = `${base}/.auth/api/v1/auth`
-const authorizeUrl = "https://forwarder.example.test/github/authorize/pr-12"
-const redirectUri = "https://forwarder.example.test/github/callback"
+const webUrl = "https://forwarder.example.test/.to-github/pr-12"
+const authorizeUrl = `${webUrl}/login/oauth/authorize`
+const redirectUri =
+  "https://forwarder.example.test/.auth/api/v1/auth/callback/github"
 const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
 const githubEmail = `forwarder-github-${suffix}@example.com`
 
@@ -103,7 +105,7 @@ describe("GitHub sign-in through an OAuth forwarder (Postgres)", () => {
     vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "")
     vi.stubEnv("GITHUB_CLIENT_ID", "forwarder-client")
     vi.stubEnv("GITHUB_CLIENT_SECRET", "forwarder-client-secret")
-    vi.stubEnv("GITHUB_AUTHORIZE_URL", authorizeUrl)
+    vi.stubEnv("GITHUB_WEB_URL", webUrl)
     vi.stubEnv("GITHUB_REDIRECT_URI", redirectUri)
     resetBetterAuthForTests()
   })

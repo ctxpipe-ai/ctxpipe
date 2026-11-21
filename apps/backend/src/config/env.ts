@@ -51,11 +51,13 @@ const envSchema = z
     GITHUB_CLIENT_ID: z.string().min(1).optional(),
     GITHUB_CLIENT_SECRET: z.string().min(1).optional(),
     /**
-     * The authorize URL and the redirect URI of the GitHub OAuth flows, when an
-     * OAuth forwarder serves them (both or neither). Unset: GitHub's authorize URL and
+     * When a forwarder serves the GitHub pages of the deployment's App and
+     * its OAuth callback (both or neither): the base URL in place of
+     * `https://github.com` for the authorize page and the App's install page,
+     * and the redirect URI. Unset: `https://github.com` and
      * `${AUTH_BASE_URL}/.auth/api/v1/auth/callback/github`.
      */
-    GITHUB_AUTHORIZE_URL: z.string().url().optional(),
+    GITHUB_WEB_URL: z.string().url().optional(),
     GITHUB_REDIRECT_URI: z.string().url().optional(),
     GOOGLE_CLIENT_ID: z.string().min(1).optional(),
     GOOGLE_CLIENT_SECRET: z.string().min(1).optional(),
@@ -177,11 +179,10 @@ const envSchema = z
   })
   .refine(
     (env) =>
-      (env.GITHUB_AUTHORIZE_URL === undefined) ===
+      (env.GITHUB_WEB_URL === undefined) ===
       (env.GITHUB_REDIRECT_URI === undefined),
     {
-      message:
-        "Set both GITHUB_AUTHORIZE_URL and GITHUB_REDIRECT_URI, or neither",
+      message: "Set both GITHUB_WEB_URL and GITHUB_REDIRECT_URI, or neither",
       path: ["GITHUB_REDIRECT_URI"],
     },
   )

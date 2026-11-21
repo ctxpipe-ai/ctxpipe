@@ -200,7 +200,7 @@ export function WorkspaceRepositoryPicker(props: {
               repositorySelection={repositorySelection}
               grantAccessUrl={
                 githubGrantAccessUrls({
-                  appSlug: installationQuery.data?.appSlug,
+                  installUrl: installationQuery.data?.installUrl,
                   manageUrl,
                 })[0] ?? null
               }
