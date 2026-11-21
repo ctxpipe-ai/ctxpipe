@@ -259,31 +259,44 @@ export async function withChangedBody<T>(
 }
 
 /**
+ * The provider block of a request of a ZDR pair: the block of the client
+ * with another `zdr`, and with no `only`. A ZDR pair proves `zdr` alone. Its
+ * control model can be at a trusted provider that the allowlist does not
+ * include now (ADR-070), and the allowlist pair proves `only`.
+ */
+function zdrPairProvider(provider: unknown, zdr: boolean) {
+  const { only: _only, ...block } = jsonObject.parse(provider)
+  return { ...block, zdr }
+}
+
+/**
  * The Jev request of the client, sent to the non-ZDR Decisions model. Only
- * the model and `zdr` change.
+ * the model and `zdr` change, and the pair sends no `only`
+ * (`zdrPairProvider`).
  */
 const nonZdrDecision = (zdr: boolean) =>
   withChangedBody(
     (body) => ({
       ...body,
       model: NON_ZDR_DECISIONS_MODEL,
-      provider: { ...jsonObject.parse(body.provider), zdr },
+      provider: zdrPairProvider(body.provider, zdr),
     }),
     () => decideNoul(["The sky is green."], jevQuestion, jevOptions),
   )
 
 /**
  * The embedding request of the client, sent to the non-ZDR embedding model.
- * The model and `zdr` change. The dimension goes out too, so that the
- * control model can serve the request; both requests of the pair are the
- * same apart from `zdr`.
+ * The model and `zdr` change, and the pair sends no `only`
+ * (`zdrPairProvider`). The dimension goes out too, so that the control
+ * model can serve the request; both requests of the pair are the same apart
+ * from `zdr`.
  */
 const nonZdrEmbedding = (zdr: boolean) =>
   withChangedBody(
     ({ dimensions: _dimensions, ...body }) => ({
       ...body,
       model: NON_ZDR_EMBEDDING_MODEL,
-      provider: { ...jsonObject.parse(body.provider), zdr },
+      provider: zdrPairProvider(body.provider, zdr),
     }),
     () => embedQuery("Is the sky blue?"),
   )
@@ -326,8 +339,8 @@ async function probeChecks(
 
   // The ZDR proof of an endpoint is a pair of requests to a model of that
   // endpoint that has no ZDR endpoint. Both are the request of the client,
-  // with fallback and with `data_collection: "deny"`, and they differ only in
-  // `zdr`. The control (`zdr: false`) must be served: this shows that the
+  // with fallback and with `data_collection: "deny"`, but with no `only`
+  // (`zdrPairProvider`), and they differ only in `zdr`. The control (`zdr: false`) must be served: this shows that the
   // endpoint can serve the request. The same request with `zdr: true` must
   // then be refused with "no endpoint". Thus the refusal comes from `zdr`
   // alone: the endpoint enforces it. The requests of the clients have the
@@ -421,7 +434,7 @@ async function probeChecks(
       (body) => ({
         ...body,
         model: NON_ZDR_VISION_MODEL,
-        provider: { ...jsonObject.parse(body.provider), zdr },
+        provider: zdrPairProvider(body.provider, zdr),
       }),
       () => readImage(image, { model: visionModel, backoffMs: 1 }),
     ),
