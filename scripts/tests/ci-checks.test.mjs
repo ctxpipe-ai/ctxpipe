@@ -299,6 +299,28 @@ test("a failure of the table hook never changes the query or its result", () => 
   })
 })
 
+test("a command that passes its time limit fails with a message that names the limit", async () => {
+  const { logged } = await import("../checks/log.mjs")
+  const directory = mkdtempSync(join(tmpdir(), "ctxpipe-logged-"))
+  try {
+    const run = logged(
+      join(directory, "a.log"),
+      process.execPath,
+      ["-e", "setTimeout(() => {}, 30_000)"],
+      { timeout: 300 },
+    )
+    assert.equal(
+      run.error?.message,
+      "it did not end within its time limit of 0.3 seconds",
+    )
+    // Another error keeps its own message.
+    const missing = logged(join(directory, "b.log"), "ctxpipe-no-such-program", [])
+    assert.match(missing.error?.message, /ENOENT/)
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
 test("a Vitest exit failure fails every record that has not failed", async () => {
   const { markExitFailure, suiteRecord } = await import("../checks/lanes.mjs")
   const records = [
