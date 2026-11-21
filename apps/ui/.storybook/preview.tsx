@@ -3,7 +3,6 @@ import addonDocs from "@storybook/addon-docs"
 import { definePreview } from "@storybook/react-vite"
 import { HttpResponse, isCommonAssetRequest, WebSocketHandler, ws } from "msw"
 import addonMsw from "msw-storybook-addon"
-import { mswLoader } from "msw-storybook-addon/csf3"
 import { setupWorker } from "msw/browser"
 
 import { layoutProblems } from "../src/lib/layout-checks"
@@ -50,16 +49,13 @@ const unhandledSocketHandler = ws
     unhandledRequests.push(`WS ${client.url.href}`)
     client.close(1011, "No mock answers this socket.")
   })
-// `resetHandlers()` before each story keeps this initial handler.
+// `addonMsw` removes the story handlers when a story closes. The reset keeps
+// this initial handler.
 const worker = setupWorker(unhandledSocketHandler)
 // The addon calls this function and uses the worker that it returns for
-// each story. A CSF 4 story file (`preview.meta`) adds its handlers in
+// each story. A story file (`preview.meta`) adds its handlers in
 // `beforeEach({ msw })`: `addonMsw` gives `msw`, and removes the handlers of
-// the story when the story closes. A CSF 3 story file that is not converted
-// yet sets `parameters.msw`, and `mswLoader` of `msw-storybook-addon/csf3`
-// applies it. `scripts/ci/csf3-story-files.json` lists those files, and
-// `scripts/ci/check-story-format.mjs` keeps the list. Both paths call this
-// function, so the worker starts one time.
+// the story when the story closes.
 let started: Promise<typeof worker> | undefined
 const startWorker = () =>
   (started ??= worker
@@ -83,10 +79,6 @@ const startWorker = () =>
       },
     })
     .then(() => worker))
-// The CSF 3 loader prints a deprecation warning for a CSF 4 story, so it runs
-// only for a CSF 3 story. When the list of CSF 3 files is empty, remove the
-// loader and the `worker.resetHandlers()` of the cleanup below.
-const csf3MswLoader = mswLoader(startWorker)
 
 // The check runner (scripts/checks/README.md) records which MSW handlers
 // answered a request of the story. A handler header is `<METHOD> <path>`.
@@ -119,17 +111,10 @@ export default definePreview({
     window.sessionStorage.clear()
     return () => {
       unhandledRequests.length = 0
-      // The CSF 3 loader removes the handlers of the last story only when
-      // the next CSF 3 story starts. This removes them for a CSF 4 story too.
-      worker.resetHandlers()
     }
   },
-  // `csf3MswLoader` applies `parameters.msw` of a CSF 3 story.
   // `storyRouteLoader` builds the router of `parameters.storyRoute`.
-  loaders: [
-    (context) => (context.parameters.csfFactory ? {} : csf3MswLoader(context)),
-    storyRouteLoader,
-  ],
+  loaders: [storyRouteLoader],
   // Each decorator is a no-op until the story file sets its parameter. The
   // first decorator is the innermost.
   decorators: [

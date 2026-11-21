@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { Toaster } from "sonner"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
@@ -12,6 +11,7 @@ import {
 } from "@/mocks/workspace-upgrades-handlers"
 
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
+import preview from "../../../.storybook/preview"
 import { WorkspaceFormatUpgradeBanner } from "./WorkspaceFormatUpgradeBanner"
 
 const startRequests: string[] = []
@@ -21,21 +21,15 @@ function handlers(
   role: "owner" | "member",
   upgrades: Parameters<typeof workspaceUpgradesHandler>[0],
 ) {
-  return {
-    msw: {
-      handlers: {
-        session: signedInHandlers,
-        page: [
-          activeMemberRoleHandler(role),
-          workspaceUpgradesHandler(upgrades, undefined, answered),
-          workspaceUpgradeStartHandler({ requests: startRequests }),
-        ],
-      },
-    },
-  }
+  return [
+    ...signedInHandlers,
+    activeMemberRoleHandler(role),
+    workspaceUpgradesHandler(upgrades, undefined, answered),
+    workspaceUpgradeStartHandler({ requests: startRequests }),
+  ]
 }
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Workspaces/FormatUpgradeBanner",
   component: WorkspaceFormatUpgradeBanner,
   decorators: [
@@ -46,7 +40,8 @@ const meta = {
       </div>
     ),
   ],
-  beforeEach: () => {
+  beforeEach: ({ msw }) => {
+    msw.use(...handlers("owner", upgradesFixture([upgradeItemFixture()])))
     startRequests.length = 0
     answered.length = 0
   },
@@ -57,15 +52,10 @@ const meta = {
       pattern: "orgIndex",
       orgSlug: "acme",
     } satisfies StoryRouteParams,
-    ...handlers("owner", upgradesFixture([upgradeItemFixture()])),
     review: { kind: "component" },
   },
   args: { orgSlug: "acme", workspaceSlug: "docs" },
-} satisfies Meta<typeof WorkspaceFormatUpgradeBanner>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 const title = "This Workspace needs the format upgrade"
 
@@ -74,7 +64,7 @@ const title = "This Workspace needs the format upgrade"
  * upgrade, and the owner can start it from the banner or open Upgrades to
  * review it (CTX-932).
  */
-export const OwnerCanStart: Story = {
+export const OwnerCanStart = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText(title)
@@ -94,17 +84,14 @@ export const OwnerCanStart: Story = {
       ]),
     )
   },
-}
+})
 
 /**
  * Format upgrade banner of a Workspace, for a member: the Workspace needs the
  * upgrade, and the member must ask an admin. The banner has no Start button for
  * a member.
  */
-export const MemberAsksAdmin: Story = {
-  parameters: {
-    ...handlers("member", upgradesFixture([upgradeItemFixture()])),
-  },
+export const MemberAsksAdmin = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText(title)
@@ -115,17 +102,17 @@ export const MemberAsksAdmin: Story = {
     expect(canvas.getByRole("link", { name: "Review upgrade" })).toBeVisible()
     expect(startRequests).toEqual([])
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(...handlers("member", upgradesFixture([upgradeItemFixture()])))
+  },
+})
 
 /**
  * Format upgrade banner of a Workspace: ctxpipe never read the format and has
  * no upgrade item yet, so there is no Start button. The Review upgrade link
  * opens Upgrades, where the user can check again.
  */
-export const NoItemYet: Story = {
-  parameters: {
-    ...handlers("owner", upgradesFixture([], { formatVersion: 0 })),
-  },
+export const NoItemYet = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText(title)
@@ -135,19 +122,16 @@ export const NoItemYet: Story = {
     ).toBeNull()
     expect(canvas.getByRole("link", { name: "Review upgrade" })).toBeVisible()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(...handlers("owner", upgradesFixture([], { formatVersion: 0 })))
+  },
+})
 
 /**
  * Format upgrade banner of a Workspace: ctxpipe prepares the upgrade pull
  * request now.
  */
-export const Running: Story = {
-  parameters: {
-    ...handlers(
-      "owner",
-      upgradesFixture([upgradeItemFixture({ status: "running" })]),
-    ),
-  },
+export const Running = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText(title)
@@ -158,28 +142,22 @@ export const Running: Story = {
       canvas.queryByRole("button", { name: "Start the upgrade" }),
     ).toBeNull()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...handlers(
+        "owner",
+        upgradesFixture([upgradeItemFixture({ status: "running" })]),
+      ),
+    )
+  },
+})
 
 /**
  * Format upgrade banner at the top of the Workspace page, seen by an owner:
  * ctxpipe opened the upgrade pull request, so the banner says to merge it on
  * GitHub and links to it.
  */
-export const PullRequestOpen: Story = {
-  parameters: {
-    ...handlers(
-      "owner",
-      upgradesFixture([
-        upgradeItemFixture({
-          status: "pr_open",
-          pullRequest: {
-            number: 52,
-            url: "https://github.com/acme/docs/pull/52",
-          },
-        }),
-      ]),
-    ),
-  },
+export const PullRequestOpen = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText(title)
@@ -188,30 +166,29 @@ export const PullRequestOpen: Story = {
       canvas.getByRole("link", { name: "Open pull request" }),
     ).toHaveAttribute("href", "https://github.com/acme/docs/pull/52")
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...handlers(
+        "owner",
+        upgradesFixture([
+          upgradeItemFixture({
+            status: "pr_open",
+            pullRequest: {
+              number: 52,
+              url: "https://github.com/acme/docs/pull/52",
+            },
+          }),
+        ]),
+      ),
+    )
+  },
+})
 
 /**
  * Format upgrade banner of a Workspace: the upgrade failed, and the banner
  * gives the cause and the next step instead of a Start button.
  */
-export const Failed: Story = {
-  parameters: {
-    ...handlers(
-      "owner",
-      upgradesFixture([
-        upgradeItemFixture({
-          status: "failed",
-          failureReason: "stdout maxBuffer length exceeded",
-          failure: {
-            code: "unknown",
-            step: null,
-            repository: null,
-            summary: "stdout maxBuffer length exceeded",
-          },
-        }),
-      ]),
-    ),
-  },
+export const Failed = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText("The format upgrade failed")
@@ -221,25 +198,32 @@ export const Failed: Story = {
       canvas.queryByRole("button", { name: "Start the upgrade" }),
     ).toBeNull()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...handlers(
+        "owner",
+        upgradesFixture([
+          upgradeItemFixture({
+            status: "failed",
+            failureReason: "stdout maxBuffer length exceeded",
+            failure: {
+              code: "unknown",
+              step: null,
+              repository: null,
+              summary: "stdout maxBuffer length exceeded",
+            },
+          }),
+        ]),
+      ),
+    )
+  },
+})
 
 /**
  * Format upgrade banner of a Workspace: the upgrade is blocked because the
  * GitHub App cannot write to the repository.
  */
-export const Blocked: Story = {
-  parameters: {
-    ...handlers(
-      "owner",
-      upgradesFixture([
-        upgradeItemFixture({
-          status: "blocked",
-          blockedReason: "write_access",
-          note: "The GitHub App cannot write to this repository.",
-        }),
-      ]),
-    ),
-  },
+export const Blocked = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText(title)
@@ -248,24 +232,42 @@ export const Blocked: Story = {
     ).toBeVisible()
     expect(canvas.getByRole("link", { name: "Review upgrade" })).toBeVisible()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...handlers(
+        "owner",
+        upgradesFixture([
+          upgradeItemFixture({
+            status: "blocked",
+            blockedReason: "write_access",
+            note: "The GitHub App cannot write to this repository.",
+          }),
+        ]),
+      ),
+    )
+  },
+})
 
 /**
  * Format upgrade banner of a Workspace at the newest format: the banner stays
  * hidden. The play waits for the answer of the read, so that the check does not
  * pass too early.
  */
-export const UpToDate: Story = {
+export const UpToDate = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...handlers(
+        "owner",
+        upgradesFixture([upgradeItemFixture({ status: "completed" })], {
+          formatVersion: 3,
+        }),
+      ),
+    )
+  },
   parameters: {
     visual: {
       skip: "Behavior test: at the newest format the banner renders nothing, so the screenshot is empty.",
     },
-    ...handlers(
-      "owner",
-      upgradesFixture([upgradeItemFixture({ status: "completed" })], {
-        formatVersion: 3,
-      }),
-    ),
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -274,4 +276,4 @@ export const UpToDate: Story = {
     expect(canvas.queryByText(title)).toBeNull()
     expect(canvas.queryByRole("link", { name: "Review upgrade" })).toBeNull()
   },
-}
+})

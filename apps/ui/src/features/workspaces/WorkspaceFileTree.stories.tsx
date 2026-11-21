@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { type ComponentProps, useState } from "react"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
@@ -6,6 +5,7 @@ import { Button } from "@/components/ui/Button"
 import { signedInHandlers } from "@/mocks/handlers"
 
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
+import preview from "../../../.storybook/preview"
 import { docsWorkspaceGitTree } from "./workspace-fixtures"
 import { WorkspaceFileTree } from "./WorkspaceFileTree"
 
@@ -83,7 +83,7 @@ function largeTree(): string[] {
   ]
 }
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Workspaces/FileTree",
   component: WorkspaceFileTree,
   decorators: [
@@ -93,8 +93,10 @@ const meta = {
       </div>
     ),
   ],
+  beforeEach: ({ msw }) => {
+    msw.use(...signedInHandlers)
+  },
   parameters: {
-    msw: { handlers: { session: signedInHandlers } },
     app: "root",
     review: { kind: "component" },
     layout: "centered",
@@ -111,35 +113,31 @@ const meta = {
     paths: nestedPaths,
     writable: true,
   },
-} satisfies Meta<typeof WorkspaceFileTree>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * File tree of a Workspace, where a member browses and opens files: nested
  * folders with one file selected.
  */
-export const Nested: Story = {}
+export const Nested = meta.story()
 
 /**
  * File tree of a Workspace, where a member browses and opens files: the file
  * search field is open.
  */
-export const SearchOpen: Story = {
+export const SearchOpen = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const search = await canvas.findByRole("button", { name: "Search files" })
     await userEvent.click(search)
   },
-}
+})
 
 /**
  * File tree of a Workspace, where a member browses and opens files: long file
  * names in a narrow tree are cut with an ellipsis.
  */
-export const LongNames: Story = {
+export const LongNames = meta.story({
   decorators: [
     (Story) => (
       <div className="flex h-96 w-44 flex-col bg-card">
@@ -154,32 +152,32 @@ export const LongNames: Story = {
       "knowledge/auth/a-very-long-session-handler-module-name.tsx",
     ],
   },
-}
+})
 
 /**
  * File tree of a Workspace, where a member browses and opens files: the
  * Workspace has no files yet.
  */
-export const EmptyProjection: Story = {
+export const EmptyProjection = meta.story({
   args: { paths: [], selectedPath: null },
-}
+})
 
 /**
  * File tree of a Workspace, where a member browses and opens files: the tree of
  * a real git repository with AGENTS.md selected.
  */
-export const GitShaped: Story = {
+export const GitShaped = meta.story({
   args: {
     paths: docsWorkspaceGitTree.paths,
     selectedPath: "AGENTS.md",
   },
-}
+})
 
 /**
  * File tree of a Workspace, where a member browses and opens files: added and
  * modified files show change markers and line counts.
  */
-export const GitStatus: Story = {
+export const GitStatus = meta.story({
   decorators: [
     (Story) => (
       <div className="flex h-96 w-80 flex-col bg-card">
@@ -206,19 +204,19 @@ export const GitStatus: Story = {
       },
     ],
   },
-}
+})
 
 /**
  * File tree of a Workspace, where a member browses and opens files: a large org
  * keeps one folder for each of its 40 areas, so the tree scrolls and only the
  * top folders fit.
  */
-export const LargeTree: Story = {
+export const LargeTree = meta.story({
   args: {
     paths: largeTree(),
     selectedPath: "billing/overview.md",
   },
-}
+})
 
 function findInShadows(root: ParentNode, selector: string): HTMLElement | null {
   const direct = root.querySelector(selector)
@@ -251,7 +249,7 @@ function PierreKeyboardFocusHarness(
  * File tree of a Workspace, where a member browses and opens files: the member
  * found a file with the keyboard search, and Escape put focus back on that row.
  */
-export const PierreKeyboardFocus: Story = {
+export const PierreKeyboardFocus = meta.story({
   parameters: {
     intent:
       "Catches a file tree search that loses keyboard focus. Typing then Enter selects a file, and Escape returns focus to the selected row. Not for the file list content.",
@@ -322,14 +320,14 @@ export const PierreKeyboardFocus: Story = {
     ).toBe(true)
     expect(args.onSelect).toHaveBeenCalled()
   },
-}
+})
 
 /**
  * File tree of a Workspace, where a member browses and opens files: the member
  * opened a folder, and a file deleted in this conversation shows as a
  * struck-through row.
  */
-export const DeletedFile: Story = {
+export const DeletedFile = meta.story({
   args: {
     paths: ["AGENTS.md", "knowledge/billing.md"],
     selectedPath: "knowledge/billing.md",
@@ -356,13 +354,13 @@ export const DeletedFile: Story = {
       ).toBeTruthy(),
     )
   },
-}
+})
 
 /**
  * File tree of a Workspace, where a member browses and opens files: one added,
  * one modified, and one deleted file in one folder.
  */
-export const MixedAddedModifiedDeleted: Story = {
+export const MixedAddedModifiedDeleted = meta.story({
   decorators: [
     (Story) => (
       <div className="flex h-96 w-80 flex-col bg-card">
@@ -393,13 +391,13 @@ export const MixedAddedModifiedDeleted: Story = {
       },
     ],
   },
-}
+})
 
 /**
  * File tree of a Workspace, where a member browses and opens files: a deleted
  * file with a long name deep in folders, in a narrow tree.
  */
-export const DeletedLongNestedName: Story = {
+export const DeletedLongNestedName = meta.story({
   decorators: [
     (Story) => (
       <div className="flex h-96 w-44 flex-col bg-card">
@@ -418,7 +416,7 @@ export const DeletedLongNestedName: Story = {
       },
     ],
   },
-}
+})
 
 function DeletedFileHarness(props: ComponentProps<typeof WorkspaceFileTree>) {
   const [gitStatus, setGitStatus] = useState(props.gitStatus)
@@ -438,7 +436,7 @@ const deletedRowSelector = "button[data-item-path='old-pricing.md']"
  * File tree of a Workspace, where a member browses and opens files: the change
  * was merged into the base branch, so the deleted file row is gone.
  */
-export const DeletedFileStaysUntilMerged: Story = {
+export const DeletedFileStaysUntilMerged = meta.story({
   parameters: {
     visual: {
       skip: "Behavior test: it ends on a test harness with a Merge into base branch button, which the product does not render.",
@@ -492,13 +490,13 @@ export const DeletedFileStaysUntilMerged: Story = {
     })
     expect(canvas.queryByText(/Deleted in this conversation/)).toBeNull()
   },
-}
+})
 
 /**
  * File tree of a Workspace, where a member browses and opens files: each added,
  * modified, and deleted file has its marker, and folders mark a change inside.
  */
-export const ChangeMarkers: Story = {
+export const ChangeMarkers = meta.story({
   parameters: {
     intent:
       "Catches file tree rows that miss their change markers. Added, modified, and deleted files show the right marker and counts. Not for folder expansion.",
@@ -568,7 +566,7 @@ export const ChangeMarkers: Story = {
     )
     expect(canvas.getByText(/Added in this conversation/)).toBe(summary)
   },
-}
+})
 
 function NewPathsHarness(props: ComponentProps<typeof WorkspaceFileTree>) {
   const [paths, setPaths] = useState(props.paths)
@@ -590,7 +588,7 @@ function NewPathsHarness(props: ComponentProps<typeof WorkspaceFileTree>) {
  * list loaded (for example, the sandbox tree), and the folder that the member
  * opened stays open.
  */
-export const NewPathsKeepExpandedFolders: Story = {
+export const NewPathsKeepExpandedFolders = meta.story({
   parameters: {
     visual: {
       skip: "Behavior test: it ends on a test harness with a Load new paths button, which the product does not render.",
@@ -624,4 +622,4 @@ export const NewPathsKeepExpandedFolders: Story = {
     expect(folder()).toHaveAttribute("aria-expanded", "true")
     expect(row("knowledge/auth.md")).toBeNull()
   },
-}
+})

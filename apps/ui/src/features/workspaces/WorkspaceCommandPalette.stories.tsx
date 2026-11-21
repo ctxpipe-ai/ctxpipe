@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useRouterState } from "@tanstack/react-router"
 import { delay, HttpResponse, http } from "msw"
 import { type ComponentProps, useState } from "react"
@@ -12,6 +11,7 @@ import {
 } from "@/mocks/workspace-handlers"
 
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
+import preview from "../../../.storybook/preview"
 import {
   docsWorkspace,
   readOnlyWorkspace,
@@ -60,10 +60,22 @@ function PaletteHarness(
   )
 }
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Workspaces/CommandPalette",
   component: WorkspaceCommandPalette,
   render: (args) => <PaletteHarness {...args} />,
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...signedInHandlers,
+      workspaceListHandler([
+        docsWorkspace,
+        readOnlyWorkspace,
+        longNameWorkspace,
+      ]),
+      // A palette item opens the Handbook Workspace.
+      workspaceDetailHandler(readOnlyWorkspaceDetail, "handbook"),
+    )
+  },
   parameters: {
     app: "root",
     review: { kind: "component" },
@@ -74,20 +86,6 @@ const meta = {
       workspaceSlug: "docs",
       pane: "files",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        session: signedInHandlers,
-        page: [
-          workspaceListHandler([
-            docsWorkspace,
-            readOnlyWorkspace,
-            longNameWorkspace,
-          ]),
-          // A palette item opens the Handbook Workspace.
-          workspaceDetailHandler(readOnlyWorkspaceDetail, "handbook"),
-        ],
-      },
-    },
   },
   args: {
     orgSlug: "acme",
@@ -95,11 +93,7 @@ const meta = {
     onOpenChange: fn(),
     onSelectNav: fn(),
   },
-} satisfies Meta<typeof WorkspaceCommandPalette>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 const searchField = () =>
   screen.findByRole("searchbox", { name: "Search workspaces and pages" })
@@ -116,13 +110,13 @@ const visibility = (element: Element) => getComputedStyle(element).visibility
  * Command palette, where a member searches Workspaces and pages to open one:
  * the palette is open with the full list.
  */
-export const Open: Story = {}
+export const Open = meta.story()
 
 /**
  * Command palette, where a member searches Workspaces and pages: the shortcut
  * opened and closed it, and focus is back on the trigger.
  */
-export const PaletteShortcutTogglesAndRestoresFocus: Story = {
+export const PaletteShortcutTogglesAndRestoresFocus = meta.story({
   parameters: {
     visual: {
       skip: "Behavior test: the palette closes, and it ends on a test harness, which the product does not render.",
@@ -148,13 +142,13 @@ export const PaletteShortcutTogglesAndRestoresFocus: Story = {
     )
     await waitFor(() => expect(trigger).toHaveFocus())
   },
-}
+})
 
 /**
  * Command palette, where a member searches Workspaces and pages: a search
  * matches one Workspace by its slug, and that match is active.
  */
-export const PaletteFiltersAtOnce: Story = {
+export const PaletteFiltersAtOnce = meta.story({
   parameters: {
     intent:
       "Catches a palette search that does not filter at once or miss a slug match. It reports the result count and makes the first match active. Not for navigation keys.",
@@ -179,13 +173,13 @@ export const PaletteFiltersAtOnce: Story = {
       expect(focusedItem()?.textContent).toMatch(/^Platform infrastructure/),
     )
   },
-}
+})
 
 /**
  * Command palette, where a member searches Workspaces and pages: arrow keys and
  * Enter opened a Workspace and kept the current pane.
  */
-export const PaletteArrowKeysAndEnterKeepPane: Story = {
+export const PaletteArrowKeysAndEnterKeepPane = meta.story({
   parameters: {
     visual: {
       skip: "Behavior test: the palette closes, and it ends on a test harness, which the product does not render.",
@@ -218,13 +212,13 @@ export const PaletteArrowKeysAndEnterKeepPane: Story = {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
     )
   },
-}
+})
 
 /**
  * Command palette, where a member searches Workspaces and pages: Escape cleared
  * the search, and a second Escape closed the palette.
  */
-export const PaletteEscapeClearsThenCloses: Story = {
+export const PaletteEscapeClearsThenCloses = meta.story({
   parameters: {
     visual: {
       skip: "Behavior test: the palette closes, and it ends on a test harness, which the product does not render.",
@@ -251,13 +245,13 @@ export const PaletteEscapeClearsThenCloses: Story = {
     )
     await expect(args.onOpenChange).toHaveBeenLastCalledWith(false)
   },
-}
+})
 
 /**
  * Command palette, where a member searches Workspaces and pages: the search has
  * no match, so a no results message shows.
  */
-export const PaletteNoResults: Story = {
+export const PaletteNoResults = meta.story({
   parameters: {
     intent:
       "Catches a palette search with no match that shows an empty list with no message. It shows and announces a no results text. Not for matches.",
@@ -278,27 +272,25 @@ export const PaletteNoResults: Story = {
       screen.queryByRole("menuitem", { name: /Docs|Handbook|Home/ }),
     ).not.toBeInTheDocument()
   },
-}
+})
 
 /**
  * Command palette, where a member searches Workspaces and pages: the Workspace
  * list still loads as a skeleton, and the pages stay usable.
  */
-export const PaletteLoadingKeepsPages: Story = {
+export const PaletteLoadingKeepsPages = meta.story({
   tags: ["required"],
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get("*/api/v1/workspaces", async () => {
+        await delay("infinite")
+        return HttpResponse.json({ items: [] })
+      }),
+    )
+  },
   parameters: {
     intent:
       "Catches a palette that shows a lone header or a flash while workspaces load. The header and skeleton wait for the same delay. Not for loaded results.",
-    msw: {
-      handlers: {
-        page: [
-          http.get("*/api/v1/workspaces", async () => {
-            await delay("infinite")
-            return HttpResponse.json({ items: [] })
-          }),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const loading = await screen.findByRole("region", {
@@ -342,31 +334,29 @@ export const PaletteLoadingKeepsPages: Story = {
       within(canvasElement).getByTestId("location"),
     ).toHaveTextContent("/acme/ws/docs?pane=files")
   },
-}
+})
 
 /**
  * Command palette, where a member searches Workspaces and pages: the Workspace
  * list loaded and replaced the skeleton under one header.
  */
-export const PaletteSkeletonHandsOverOnce: Story = {
+export const PaletteSkeletonHandsOverOnce = meta.story({
   tags: ["required"],
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get("*/api/v1/workspaces", async () => {
+        // Past the skeleton delay, so the bones show and then hold.
+        await delay(1200)
+        return HttpResponse.json({
+          items: [docsWorkspace, readOnlyWorkspace, longNameWorkspace],
+        })
+      }),
+    )
+  },
   parameters: {
     visual: { skip: "Behavior test: it ends in the same state as Open." },
     intent:
       "Catches a palette that shows two Workspaces headers when loading ends. The list replaces the skeleton in one step. Not for the loading delay.",
-    msw: {
-      handlers: {
-        page: [
-          http.get("*/api/v1/workspaces", async () => {
-            // Past the skeleton delay, so the bones show and then hold.
-            await delay(1200)
-            return HttpResponse.json({
-              items: [docsWorkspace, readOnlyWorkspace, longNameWorkspace],
-            })
-          }),
-        ],
-      },
-    },
   },
   play: async () => {
     await screen.findByRole("region", { name: "Loading workspaces" })
@@ -378,7 +368,7 @@ export const PaletteSkeletonHandsOverOnce: Story = {
     await expect(screen.getAllByText("Workspaces")).toHaveLength(1)
     await expect(liveStatus()).toHaveTextContent("5 results")
   },
-}
+})
 
 /** The Workspaces of a large org, one for each team, in alphabetical order. */
 const manyWorkspaces = [
@@ -449,12 +439,14 @@ const pressAndExpect = async (key: string, name: RegExp) => {
  * Workspaces; the member walked the list with the arrow keys, then typed pay,
  * so the first match is active.
  */
-export const PaletteArrowKeysWalkEveryItem: Story = {
+export const PaletteArrowKeysWalkEveryItem = meta.story({
   tags: ["required"],
+  beforeEach: ({ msw }) => {
+    msw.use(workspaceListHandler(manyWorkspaces))
+  },
   parameters: {
     intent:
       "Catches arrow keys in a long palette that skip an item, stop at a section, or fail to wrap. Home, End, and page keys keep an item active. Not for search.",
-    msw: { handlers: { page: [workspaceListHandler(manyWorkspaces)] } },
   },
   play: async () => {
     await screen.findByRole(
@@ -495,13 +487,13 @@ export const PaletteArrowKeysWalkEveryItem: Story = {
     await waitFor(() => expect(focusedItem()?.textContent).toMatch(/^Payments/))
     await expect(screen.getByRole("dialog")).toBeInTheDocument()
   },
-}
+})
 
 /**
  * Command palette, where a member searches Workspaces and pages: the pointer is
  * on one item and the keys moved to another, and only one has a fill.
  */
-export const PaletteHoverAndKeysShareOneHighlight: Story = {
+export const PaletteHoverAndKeysShareOneHighlight = meta.story({
   parameters: {
     intent:
       "Catches a palette that shows two highlighted items, one from the pointer and one from the keys. Only the active item has a fill. Not for item content.",
@@ -528,13 +520,13 @@ export const PaletteHoverAndKeysShareOneHighlight: Story = {
       "rgba(0, 0, 0, 0)",
     )
   },
-}
+})
 
 /**
  * Command palette, where a member searches Workspaces and pages: Enter after a
  * Backspace opened the first match.
  */
-export const PaletteEnterAfterDeleteRunsFirstMatch: Story = {
+export const PaletteEnterAfterDeleteRunsFirstMatch = meta.story({
   parameters: {
     visual: {
       skip: "Behavior test: the palette closes, and it ends on a test harness, which the product does not render.",
@@ -558,13 +550,13 @@ export const PaletteEnterAfterDeleteRunsFirstMatch: Story = {
       ),
     )
   },
-}
+})
 
 /**
  * Command palette, where a member searches Workspaces and pages: the shortcut
  * closed the palette for good, and focus is back on the trigger.
  */
-export const PaletteShortcutClosesAfterSyncRender: Story = {
+export const PaletteShortcutClosesAfterSyncRender = meta.story({
   parameters: {
     visual: {
       skip: "Behavior test: the palette closes, and it ends on a test harness, which the product does not render.",
@@ -596,4 +588,4 @@ export const PaletteShortcutClosesAfterSyncRender: Story = {
     )
     await waitFor(() => expect(trigger).toHaveFocus())
   },
-}
+})

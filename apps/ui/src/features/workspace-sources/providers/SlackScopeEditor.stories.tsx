@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
 import { signedInHandlers } from "@/mocks/handlers"
@@ -8,13 +7,17 @@ import {
 } from "@/mocks/slack-handlers"
 
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
+import preview from "../../../../.storybook/preview"
 import { sourceDialogStoryFrame } from "../source-dialog-story-frame"
 import { SlackScopeEditor } from "./slack"
 
-const meta = {
+const meta = preview.meta({
   title: "Components/WorkspaceSources/SlackScopeEditor",
   component: SlackScopeEditor,
   decorators: [sourceDialogStoryFrame],
+  beforeEach: ({ msw }) => {
+    msw.use(...signedInHandlers, slackChannelsHandler())
+  },
   parameters: {
     app: "root",
     review: { kind: "component" },
@@ -23,9 +26,6 @@ const meta = {
       pattern: "orgIndex",
       orgSlug: "acme",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: { session: signedInHandlers, page: [slackChannelsHandler()] },
-    },
   },
   args: {
     orgSlug: "acme",
@@ -34,17 +34,13 @@ const meta = {
     initialScope: {},
     onChange: fn(),
   },
-} satisfies Meta<typeof SlackScopeEditor>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Slack scope editor, where the user picks the channels of a Workspace source:
  * the user searches the channels and picks two of them.
  */
-export const SearchesAndPicksChannels: Story = {
+export const SearchesAndPicksChannels = meta.story({
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.type(
@@ -62,7 +58,7 @@ export const SearchesAndPicksChannels: Story = {
     })
     await expect(canvas.getByText("2 channels selected.")).toBeVisible()
   },
-}
+})
 
 /**
  * Slack scope editor in the Add source dialog: the user ticks #all-hands, a
@@ -70,7 +66,7 @@ export const SearchesAndPicksChannels: Story = {
  * invite the bot there. The user can choose the channel before the bot is
  * invited.
  */
-export const ChannelWithoutTheBotCanBeSelected: Story = {
+export const ChannelWithoutTheBotCanBeSelected = meta.story({
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
     const allHands = await canvas.findByRole("checkbox", { name: /all-hands/ })
@@ -84,14 +80,14 @@ export const ChannelWithoutTheBotCanBeSelected: Story = {
       channels: ["C0ALL0001"],
     })
   },
-}
+})
 
 /**
  * Slack scope editor, where the user picks the channels of a Workspace source:
  * a saved scope has a channel that Slack no longer lists, and the user clears
  * all channels.
  */
-export const EditsAnExistingScope: Story = {
+export const EditsAnExistingScope = meta.story({
   args: { initialScope: { channels: ["C0ENG0001", "C0GONE001"] } },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
@@ -110,17 +106,14 @@ export const EditsAnExistingScope: Story = {
     await expect(args.onChange).toHaveBeenLastCalledWith(null)
     await expect(canvas.getByText("Select at least one channel.")).toBeVisible()
   },
-}
+})
 
 /**
  * Slack scope editor in the Add source dialog: the request for the Slack
  * channels failed, so an error alert with Retry stands in place of the channel
  * list.
  */
-export const LoadError: Story = {
-  parameters: {
-    msw: { handlers: { page: [slackChannelsHandler("error")] } },
-  },
+export const LoadError = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() =>
@@ -130,21 +123,17 @@ export const LoadError: Story = {
     )
     await expect(canvas.getByRole("button", { name: "Retry" })).toBeVisible()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(slackChannelsHandler("error"))
+  },
+})
 
 /**
  * Slack scope editor, where the user picks the channels of a Workspace source:
  * Slack has more channels than the list holds, so a note says that search finds
  * only listed channels.
  */
-export const ListIsTruncated: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [slackChannelsHandler(slackStoryChannels, { truncated: true })],
-      },
-    },
-  },
+export const ListIsTruncated = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() =>
@@ -155,4 +144,7 @@ export const ListIsTruncated: Story = {
       ).toBeVisible(),
     )
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(slackChannelsHandler(slackStoryChannels, { truncated: true }))
+  },
+})

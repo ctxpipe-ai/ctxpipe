@@ -3,9 +3,21 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
+import { HttpResponse, http } from "msw"
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest"
 import { stringify } from "yaml"
 
+import { useMswServer } from "../../../test/msw.js"
+import { resolveIngestConflicts } from "../workspaces/semantic-merge.js"
 import { parseYamlObject, splitFrontMatter } from "./front-matter.js"
 import {
   cleanUpIngestRefs,
@@ -1572,6 +1584,97 @@ describe("mergeIngestPublish", () => {
       })
       expect(changes.withheld).toEqual([])
       expect(changes.files).toHaveLength(31)
+    })
+  })
+
+  describe("an area file that another source created after the pin (CTX-1471)", () => {
+    // The production resolver, with only the model faked: its ownership
+    // check refused the union of the two sources, so the publish failed.
+    const server = useMswServer()
+    afterEach(() => vi.unstubAllEnvs())
+    const AREA = "knowledge/instructions/documentation.md"
+    const OTHER = "sources/github/example-org/other-api.md"
+    const rule = (source: string, key: string, text: string) =>
+      [
+        `- ${text}`,
+        `  - topic: \`${key}\` = \`${key}-value\``,
+        `  - source \`${source}\`, documented: \`README.md\``,
+      ].join("\n")
+    const theirs = [1, 2, 3, 4, 5].map((n) =>
+      rule(OTHER, `other-${n}`, `Other rule ${n}.`),
+    )
+    const ours = [rule(SOURCE_PATH, "ours-1", "Our rule.")]
+    const area = (sources: string[], rules: string[]) =>
+      `---\n${stringify({
+        kind: "InstructionUnit",
+        name: "Documentation",
+        summary: "How the docs are written.",
+        generated_by: "ctxpipe-extract",
+        sources,
+        source_sha: "2".repeat(40),
+        skill: "instruction-areas",
+        bundle: "bundle-1",
+      })}---\n\n# Documentation\n\n## Summary\n\nHow the docs are written.\n\n## Rules\n\n${rules.join("\n\n")}\n`
+
+    it("publishes the file with the rules and the sources of both", async () => {
+      vi.stubEnv("MODEL_PROVIDER", "openai-like")
+      vi.stubEnv("MODEL_PROVIDER_API_KEY", "fixture-only")
+      vi.stubEnv("MODEL_PROVIDER_URL", "https://merge.test/v1")
+      vi.stubEnv("MODEL_HIGH_NAME", "high-model")
+      // The model keeps each rule and lists both sources, as in production.
+      const merged = area([OTHER, SOURCE_PATH], [...theirs, ...ours])
+      server.use(
+        http.post("https://merge.test/v1/chat/completions", () =>
+          HttpResponse.json({
+            id: "merge",
+            model: "fixture",
+            choices: [
+              {
+                index: 0,
+                finish_reason: "tool_calls",
+                message: {
+                  role: "assistant",
+                  content: null,
+                  tool_calls: [
+                    {
+                      id: "call_1",
+                      type: "function",
+                      function: {
+                        name: "workspace_semantic_merge",
+                        arguments: JSON.stringify({
+                          files: [{ path: AREA, content: merged }],
+                        }),
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+          }),
+        ),
+      )
+      const tip = commitOn(
+        pinned,
+        ASSEMBLED,
+        { files: { [AREA]: area([SOURCE_PATH], ours) } },
+        `Ingest step assemble:ws_alpha\n\nCtxpipe-Run: ${RUN}`,
+      )
+      const current = commitOn(pinned, "refs/heads/main", {
+        files: { [AREA]: area([OTHER], theirs) },
+      })
+      const changes = await publish({
+        tip,
+        current,
+        resolve: resolveIngestConflicts,
+      })
+      expect(changes.withheld).toEqual([])
+      expect(changes.files.map((file) => file.path)).toEqual([AREA])
+      const content = changes.files[0]?.content ?? ""
+      expect(content).toContain("Other rule 5.")
+      expect(content).toContain("Our rule.")
+      expect(
+        parseYamlObject(splitFrontMatter(content)?.yaml ?? "")?.sources,
+      ).toEqual([SOURCE_PATH, OTHER])
     })
   })
 

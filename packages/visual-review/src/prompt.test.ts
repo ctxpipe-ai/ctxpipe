@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest"
 
 import { buildPrompt, packagedRubric, type StoryInput } from "./index.ts"
+import { buildNewPrompt } from "./prompt.ts"
 
 const story: StoryInput = {
   storyId: "connectors-catalog--default",
@@ -226,5 +227,44 @@ describe("buildPrompt", () => {
 
     expect(text).toContain('<data name="brief">\n(none)\n</data>')
     expect(text).toContain('<data name="source-diff">\n(none)\n</data>')
+  })
+})
+
+describe("buildNewPrompt", () => {
+  const newStory = (rubric = packagedRubric) => ({
+    storyId: "composer--base",
+    scope: "component" as const,
+    rubric,
+    images: [{ path: "new.png", size: { width: 800, height: 500 } }],
+  })
+
+  test("new UI gets a design review that quotes the Prägnanz entry of its rubric, so the rule stays in one place (CTX-1469)", () => {
+    const pragnanz = packagedRubric.qualities.find(
+      ({ id }) => id === "pragnanz",
+    )
+    const { prefix } = buildNewPrompt(newStory())
+    expect(prefix).toContain(
+      "10. New UI has no earlier version, so review its design",
+    )
+    expect(prefix).toContain(`Prägnanz [pragnanz]: ${pragnanz?.definition}`)
+    expect(prefix).toContain("also when it is clear and usable")
+
+    // The head rubric of a PR changes the quoted text with it.
+    const head = {
+      ...packagedRubric,
+      qualities: packagedRubric.qualities.map((quality) =>
+        quality.id === "pragnanz"
+          ? { ...quality, definition: "Each block is simple." }
+          : quality,
+      ),
+    }
+    expect(buildNewPrompt(newStory(head)).prefix).toContain(
+      "Prägnanz [pragnanz]: Each block is simple.",
+    )
+  })
+
+  test("a change gets no design review rule: it has a base image to compare", () => {
+    const { prefix } = buildPrompt(story)
+    expect(prefix).not.toContain("New UI has no earlier version")
   })
 })

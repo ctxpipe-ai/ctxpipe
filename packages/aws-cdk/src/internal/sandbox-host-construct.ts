@@ -13,11 +13,16 @@ import type {
   SandboxHostConstructProps,
   SandboxHostResources,
 } from "./contracts"
+import {
+  AGENT_VAULT_API_PORT,
+  AGENT_VAULT_NETWORK,
+  AGENT_VAULT_NETWORK_CREATE,
+  AGENT_VAULT_PROXY_PORT,
+  SANDBOX_HOST_FIREWALL,
+  SANDBOX_HOST_NETWORK_DAEMON_CONFIG,
+} from "./sandbox-host-network"
 
 const DOCKER_TLS_PORT = 2376
-/** Agent Vault's API (backend and worker) and proxy (sandboxes only). */
-const AGENT_VAULT_API_PORT = 14321
-const AGENT_VAULT_PROXY_PORT = 14322
 /**
  * Linux ephemeral range on both sides: Docker publishes sandbox ports from it
  * on the host, and the backend's per-run tool bridges listen on port 0.
@@ -534,10 +539,9 @@ function hostBootstrapScript(input: HostBootstrapInput): string[] {
         tlskey: "/etc/docker/tls/server-key.pem",
         "exec-opts": ["native.cgroupdriver=systemd"],
         "cgroup-parent": "ctxpipe-sandboxes.slice",
-        // Agent ports are published for the backend, so anything that
-        // reaches the host could reach them: sandboxes must not reach each
-        // other over the bridge.
-        icc: false,
+        // Sandbox isolation, and one peer address for each sandbox at Agent
+        // Vault's proxy (sandbox-host-network.ts).
+        ...SANDBOX_HOST_NETWORK_DAEMON_CONFIG,
         "log-driver": "json-file",
         "log-opts": { "max-size": "10m", "max-file": "3" },
         "live-restore": true,
@@ -551,26 +555,10 @@ function hostBootstrapScript(input: HostBootstrapInput): string[] {
     "[Service]",
     "ExecStart=",
     `ExecStart=/usr/bin/dockerd -H fd:// -H tcp://0.0.0.0:${DOCKER_TLS_PORT} --containerd=/run/containerd/containerd.sock $OPTIONS $DOCKER_STORAGE_OPTIONS $DOCKER_ADD_RUNTIMES`,
-    "# Sandboxes never reach the host itself (other sandboxes' published agent",
-    "# ports, the Docker API) or instance metadata (next to the IMDS hop limit). Fails closed.",
-    "ExecStartPost=/bin/sh -c 'iptables -C INPUT -i docker0 -j REJECT 2>/dev/null || iptables -I INPUT -i docker0 -j REJECT'",
-    "ExecStartPost=/bin/sh -c 'iptables -C DOCKER-USER -d 169.254.169.254/32 -j REJECT 2>/dev/null || iptables -I DOCKER-USER -d 169.254.169.254/32 -j REJECT'",
-    "# Sandboxes (docker0) reach only Agent Vault's proxy, published on the host",
-    "# and forwarded to its own bridge: no direct internet, backend, VPC, or DNS.",
-    "ExecStartPost=/bin/sh -c 'iptables -C DOCKER-USER -i docker0 -j REJECT 2>/dev/null || iptables -I DOCKER-USER 1 -i docker0 -j REJECT'",
-    `ExecStartPost=/bin/sh -c 'iptables -C DOCKER-USER -i docker0 -o ctxpipe-av -p tcp --dport ${AGENT_VAULT_PROXY_PORT} -j RETURN 2>/dev/null || iptables -I DOCKER-USER 1 -i docker0 -o ctxpipe-av -p tcp --dport ${AGENT_VAULT_PROXY_PORT} -j RETURN'`,
-    "ExecStartPost=/bin/sh -c 'iptables -C DOCKER-USER -i docker0 -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN 2>/dev/null || iptables -I DOCKER-USER 1 -i docker0 -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN'",
-    "# With the default userland-proxy, Docker skips DNAT for docker0 traffic to a host IP,",
-    "# so a sandbox's connection to <host IP>:14322 reaches INPUT (docker-proxy). Insert this",
-    "# after the INPUT REJECT above so it sits above it. The DOCKER-USER RETURN above applies",
-    "# if an operator sets userland-proxy=false. No other port opens from docker0.",
-    `ExecStartPost=/bin/sh -c 'iptables -C INPUT -i docker0 -p tcp --dport ${AGENT_VAULT_PROXY_PORT} -j ACCEPT 2>/dev/null || iptables -I INPUT -i docker0 -p tcp --dport ${AGENT_VAULT_PROXY_PORT} -j ACCEPT'`,
-    "# Agent Vault never reaches the host (its own management API on the host's",
-    "# address, the Docker API) or itself back through a published port.",
-    "# INPUT refuses only new connections: replies to the host's own /health check",
-    "# (docker-proxy, then the Agent Vault bridge) must pass.",
-    "ExecStartPost=/bin/sh -c 'iptables -C INPUT -i ctxpipe-av -m conntrack ! --ctstate ESTABLISHED,RELATED -j REJECT 2>/dev/null || iptables -I INPUT -i ctxpipe-av -m conntrack ! --ctstate ESTABLISHED,RELATED -j REJECT'",
-    "ExecStartPost=/bin/sh -c 'iptables -C DOCKER-USER -i ctxpipe-av -o ctxpipe-av -j REJECT 2>/dev/null || iptables -I DOCKER-USER 1 -i ctxpipe-av -o ctxpipe-av -j REJECT'",
+    "# The sandbox firewall (sandbox-host-network.ts), after each start of dockerd. Fails closed.",
+    ...SANDBOX_HOST_FIREWALL.map(
+      (command) => `ExecStartPost=/bin/sh -c '${command}'`,
+    ),
     "UNIT",
     "systemctl daemon-reload",
     "systemctl enable --now docker",
@@ -580,12 +568,12 @@ function hostBootstrapScript(input: HostBootstrapInput): string[] {
     "# private addresses only in the backend's subnets; security groups keep the",
     "# data stores closed to this host. The login rate limit stays on; the proxy",
     "# tier is raised, because all sandboxes of a turn share one vault.",
-    "docker network inspect ctxpipe-av >/dev/null 2>&1 || docker network create -o com.docker.network.bridge.name=ctxpipe-av ctxpipe-av",
+    AGENT_VAULT_NETWORK_CREATE,
     `AGENT_VAULT_MASTER_PASSWORD="$(aws secretsmanager get-secret-value --region "$REGION" --secret-id '${input.agentVaultMasterSecretArn}' --query SecretString --output text)"`,
     "docker rm -f ctxpipe-agent-vault >/dev/null 2>&1 || true",
-    `docker run -d --name ctxpipe-agent-vault --restart unless-stopped --network ctxpipe-av -p ${AGENT_VAULT_API_PORT}:${AGENT_VAULT_API_PORT} -p ${AGENT_VAULT_PROXY_PORT}:${AGENT_VAULT_PROXY_PORT} -v ctxpipe-agent-vault:/data -e AGENT_VAULT_MASTER_PASSWORD="$AGENT_VAULT_MASTER_PASSWORD" -e AGENT_VAULT_RATELIMIT_PROXY_RATE=200 -e AGENT_VAULT_RATELIMIT_PROXY_BURST=2000 -e AGENT_VAULT_RATELIMIT_PROXY_CONCURRENCY=256 -e AGENT_VAULT_TELEMETRY=false -e AGENT_VAULT_NETWORK_ALLOWLIST='${[...input.backendSubnetCidrs, ...input.operatorAllowlist].join(",")}' infisical/agent-vault:latest`,
+    `docker run -d --name ctxpipe-agent-vault --restart unless-stopped --network ${AGENT_VAULT_NETWORK} -p ${AGENT_VAULT_API_PORT}:${AGENT_VAULT_API_PORT} -p ${AGENT_VAULT_PROXY_PORT}:${AGENT_VAULT_PROXY_PORT} -v ctxpipe-agent-vault:/data -e AGENT_VAULT_MASTER_PASSWORD="$AGENT_VAULT_MASTER_PASSWORD" -e AGENT_VAULT_RATELIMIT_PROXY_RATE=200 -e AGENT_VAULT_RATELIMIT_PROXY_BURST=2000 -e AGENT_VAULT_RATELIMIT_PROXY_CONCURRENCY=256 -e AGENT_VAULT_TELEMETRY=false -e AGENT_VAULT_NETWORK_ALLOWLIST='${[...input.backendSubnetCidrs, ...input.operatorAllowlist].join(",")}' infisical/agent-vault:latest`,
     "unset AGENT_VAULT_MASTER_PASSWORD",
-    "# While Agent Vault starts, docker-proxy accepts and then resets the connection, so retry every error.",
+    "# While Agent Vault starts, the connection is refused or reset, so retry every error.",
     `curl -sf --max-time 5 --retry 30 --retry-all-errors --retry-delay 2 http://127.0.0.1:${AGENT_VAULT_API_PORT}/health`,
 
     "# Disk and memory metrics for the CloudFormation alarms.",

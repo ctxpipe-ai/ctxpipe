@@ -1,0 +1,16 @@
+diff --git a/dist/postgres/backend.js b/dist/postgres/backend.js
+index d2cdb79bdd2ecb511f95180767067cb6c0679f3c..8c6eb492d63e3acb8ec3a97f2db7decbb588e1b7 100644
+--- a/dist/postgres/backend.js
++++ b/dist/postgres/backend.js
+@@ -366,8 +366,10 @@ export class BackendPostgres {
+           AND "status" IN ('pending', 'running', 'sleeping')
+           AND "available_at" <= NOW()
+           AND ("deadline_at" IS NULL OR "deadline_at" > NOW())
++        -- ctxpipe patch (CTX-1478): first available, first claimed. A woken
++        -- parent is 'running', so a 'pending'-first order let each newer
++        -- pending run take the free slot before it.
+         ORDER BY
+-          CASE WHEN "status" = 'pending' THEN 0 ELSE 1 END,
+           "available_at",
+           "created_at"
+         LIMIT 1

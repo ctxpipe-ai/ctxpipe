@@ -1,5 +1,3 @@
-import { generateKeyPairSync } from "node:crypto"
-
 import { delay, HttpResponse, http } from "msw"
 import { describe, expect, it, vi } from "vitest"
 
@@ -18,6 +16,7 @@ import { ModelCalls } from "../../evals/knowledge/model-calls.js"
 import { checkPanel, labelWithPanel } from "../../evals/knowledge/panel.js"
 import { buildReport, renderMarkdown } from "../../evals/knowledge/report.js"
 import { parseSettings } from "../../evals/knowledge/runner.js"
+import { madeUpPrivateKey } from "../../test/made-up-key.js"
 import { useMswServer } from "../../test/msw.js"
 import { ORCHESTRATOR_DEFAULTS } from "./orchestrator.js"
 
@@ -455,10 +454,7 @@ describe("the judge panel", () => {
   }
 
   it("scrubs each document before the prompt cuts it: a private key across the cut goes to no judge", async () => {
-    const key = generateKeyPairSync("rsa", { modulusLength: 4096 })
-      .privateKey.export({ type: "pkcs1", format: "pem" })
-      .toString()
-      .trim()
+    const key = madeUpPrivateKey(4096)
     contents.length = 0
     await labelWithPanel({
       draft: { ...draft, questions: draft.questions.slice(1, 2) },

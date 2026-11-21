@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process"
-import { createHash, generateKeyPairSync } from "node:crypto"
+import { createHash } from "node:crypto"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
@@ -23,6 +23,7 @@ import {
 import { stringify } from "yaml"
 import { z } from "zod"
 
+import { madeUpPrivateKey } from "../../test/made-up-key.js"
 import { recordSpans } from "../../test/spans.js"
 import { closeDb, getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
@@ -1341,10 +1342,7 @@ describe("projectKnowledgePlane", () => {
       const workspaceId = await newWorkspace()
       // A made-up 4096-bit key (about 3.2 KB) in one long section, longer
       // than a chunk.
-      const pem = generateKeyPairSync("rsa", { modulusLength: 4096 })
-        .privateKey.export({ type: "pkcs1", format: "pem" })
-        .toString()
-        .trim()
+      const pem = madeUpPrivateKey(4096)
       const path = "notes/setup.md"
       await run(
         remote,
@@ -1372,10 +1370,7 @@ describe("projectKnowledgePlane", () => {
     const remote = await Remote.create()
     try {
       const workspaceId = await newWorkspace()
-      const pem = generateKeyPairSync("rsa", { modulusLength: 4096 })
-        .privateKey.export({ type: "pkcs1", format: "pem" })
-        .toString()
-        .trim()
+      const pem = madeUpPrivateKey(4096)
       // One label for each line of the key.
       const labels = pem
         .split("\n")
