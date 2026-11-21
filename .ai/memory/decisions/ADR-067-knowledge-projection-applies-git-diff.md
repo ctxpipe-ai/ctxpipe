@@ -35,6 +35,7 @@ Since [CTX-1369](https://linear.app/ctxpipe/issue/CTX-1369), a hydrate writes on
    - The earlier SHAs of the list are the tips of failed runs. Their files are the files that those runs can have changed. Without them, a file that a failed run replaced and that a later commit changed back is not in the new diff, and its stale rows stay.
    - The run only adds to the list, so a crash at any point loses no SHA.
    - If the list has more than 10 SHAs, the run does a full rebuild.
+   - **Amended by [ADR-071](ADR-071-knowledge-plane-branches.md):** `attempt_shas` goes. The rows of a stopped run are tree rows above the head, which no read sees. The next run deletes them, then applies the diff from the tip of the head.
    - It does a full rebuild instead if one of the conditions below is true. A full rebuild applies every file of the tree. It also reconciles: each document in ClickHouse whose file is not in the tree becomes a tombstone (decision 6). Thus a rebuild after a missing commit does not leave removed files `active`.
 
    The conditions for a full rebuild are:
@@ -62,6 +63,7 @@ Since [CTX-1369](https://linear.app/ctxpipe/issue/CTX-1369), a hydrate writes on
    - A content error that the run records as a `failed` row counts as completed work. Only an infrastructure error stops `last_sha`.
    - `last_sha` moves to the tip only when all of the work passes. In the same update, the run clears `attempt_shas`. Nothing fails silently.
 9. **The maintenance job** is queued after each run.
+   - **Amended by [ADR-071](ADR-071-knowledge-plane-branches.md):** the job is queued only after a run of the default branch. No run of another branch starts maintenance or writes to the repository.
    - It finds `deleted`, `missing` and `failed` documents.
    - It fixes the source in Git, for example a broken link or a file that does not parse. Its fixes come back through a normal run.
    - It does not remove rows. The removal of old tombstones is a later decision.

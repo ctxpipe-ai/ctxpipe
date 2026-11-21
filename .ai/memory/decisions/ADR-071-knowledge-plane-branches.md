@@ -33,7 +33,10 @@ One fact makes branches cheap: the rows of a file depend only on that file (ADR-
 
 2. **File versions are shared by all branches.**
    - A **file version** is the rows of the content of one file: its document row, its chunks with their vectors, its outgoing relations (in `relations` and `relations_in`) and its reference keys (`doc_refs`).
-   - Its key is (org, Workspace, path, blob SHA, variant). The path is part of the key, because a relative link resolves against the path of its file. The variant is a hash of the inputs of the rows that are not in the file: the projection version (ADR-067 decision 4), and for a Markdown file the source repositories of the tree (the `CHANGED` keys of a package file come from them, ADR-066 decision 5).
+   - Its key is (org, Workspace, path, blob SHA, variant). The path is part of the key, because a relative link resolves against the path of its file.
+   - The variant adds to the key of the CTO's decision, which is (org, Workspace, path, blob SHA). Reason: some inputs of the rows are not in the file. The variant is a hash of these inputs:
+     - the projection version (ADR-067 decision 4);
+     - for a Markdown file, the source repositories of the tree. The `CHANGED` keys of a package file come from them (ADR-066 decision 5).
    - A file version never changes after its write. A new projection version gives new variants, so a rebuild writes new file versions beside the old ones, and the cleanup (decision 10) removes the old ones.
    - The branches of a Workspace share the file versions. A file version never crosses the org and Workspace walls of ADR-066 decision 9.
    - A file version holds no value that depends on a branch. The `valid_from` of a document is the time of the commit that introduced the file on the branch (ADR-067), so it goes on the tree row (decision 3). A relation whose `valid_from` comes from that commit (a claim with no time of its own) records this with a flag, and the read takes the time from the tree row.
@@ -44,12 +47,15 @@ One fact makes branches cheap: the rows of a file depend only on that file (ADR-
    - **The default branch has a full tree:** one row for each document path of its tip, and a tombstone for each path that it removed.
    - **Each other branch has an overlay** (the CTO: "B. overlay - full tree would be too large/expensive on large repos"). The overlay of branch B holds only the paths whose file version at the tip of B is different from the file version at the merge base of B and the default branch. A changed or added path gets its file version. A deleted path gets a tombstone.
    - The overlay comes from the Git diff from the merge base to the tip. Thus it changes only when B gets a commit, or when a merge of the default branch into B moves the merge base. A move of the default branch does not change the overlay of B.
+   - A path can leave the overlay: B changes a file back to its version at the merge base, or a merge of the default branch makes the path the same as at the new merge base. Then the run writes an **inherit** row for the path. An inherit row removes the path from the overlay, so the view of B takes the row of the default branch again. A tombstone is different: it removes the path from the view of B.
+   - The tree table is a sixth shared table. It has the sort key prefix `(org_id, workspace_id, …)`, the `CHECK` constraint and the row policy of ADR-066 decision 9. The writer user inserts and deletes its rows, and the reader user only reads them. `KnowledgeStore` adds the org and Workspace predicates to each `DELETE` of it, also the `DELETE`s of the branch deletion and of the cleanup job. A read joins a tree row to its file version on the org, the Workspace, the path, the blob SHA and the variant: the same path and blob can exist in two orgs.
 
 4. **A run never shows a half-written tree.**
    - Each branch has one **head**: its row of the `knowledge_state` table in Postgres (ADR-067 decision 2), with the projected tip, the tree version and, for an overlay, the merge base.
    - A run writes the tree rows of the changed paths only, with the next tree version. Then it moves the head to that version in one Postgres update.
    - A read takes, for each path, the newest tree row with a tree version that is not more than the head. Thus a reader sees the tree of the old tip or of the new tip, never a mix.
-   - A run that stops leaves rows above the head. A read does not see them, and the retry writes them again.
+   - A run that stops leaves tree rows above the head. A read does not see them. The next run of the branch first deletes the tree rows of the branch above the head (one `DELETE`). Then it applies the diff from the tip of the head to its own tip. The file versions of the stopped run stay: they never change, so the next run can use them, and the cleanup removes those that no tree uses.
+   - Thus the tree versions own the recovery from a stopped run. `attempt_shas` and the full rebuild after more than 10 attempts go (this amends ADR-067 decision 4).
 
 5. **The read rule.**
    - The view of the default branch is its tree.
@@ -59,16 +65,28 @@ One fact makes branches cheap: the rows of a file depend only on that file (ADR-
    - A tombstone of an overlay is the same as a tombstone of the default branch: a relation into its path gives a `deleted` neighbor.
    - **A `missing` target is calculated when it is read, and it is not stored** (this amends ADR-066 decision 7). A relation target with no row in the view is `missing`, as a reference key with no document is today (ADR-066 decision 5). Reason: a stored placeholder in an overlay would hide a file that the default branch adds later. A tombstone still keeps the difference between "deleted on a date" and "never existed", and the traversal still gives a `missing` neighbor to Jev.
 
-6. **Reads take one branch.** `search_knowledge`, `get_related`, `read_file`, `list_files` and the UI read one branch. Each MCP tool gets an optional `branch` argument. Its default is the default branch of the Workspace. Each member of the Workspace can read each branch. `read_file` and `list_files` read the Workspace Git at the projected tip of the branch. A query over more than one branch is possible for internal uses, for example the eval or a knowledge diff of a pull request.
+6. **Reads take one branch.**
+   - `search_knowledge`, `get_related`, `read_file`, `list_files` and the UI read one branch.
+   - Each MCP tool gets an optional `branch` argument. Its default is the default branch of the Workspace.
+   - Each member of the Workspace can read each branch, with one limit. A conversation session branch (`ctxpipe/chat/<conversation>/<n>`, [ADR-048](ADR-048-native-postgres-sandbox-ownership.md)) is readable only by the actor that can open its conversation. Reason: a conversation is private to its owner, and the plane must not show its work to other members.
+   - `read_file` and `list_files` use the same view as the search. `list_files` lists the paths of the view. `read_file` finds the file version of the path in the view and reads its blob from the Workspace Git. Thus a file of the default branch that the search finds on B is also in the file reads of B.
 
 7. **One projection run for each branch tip.**
    - Each push to a branch queues a projection run for that (Workspace, branch). The lease of a run is for each (Workspace, branch).
    - A run projects the newest tip of its branch only. A run whose tip is already old when it starts ends with no work, as on the default branch today (ADR-067 decision 3).
    - For each path of its change set, a run uses the stored file version if it exists (from another branch or an earlier commit). Else, it converts and projects the file. Thus a new branch projects only the files that no other branch holds, and a branch with no commit of its own has an empty overlay.
 
-8. **The projection makes only model calls that are cached by content.** A run on a branch does the same work as a run on the default branch: convert, chunk, embed and describe images. Each model call of the projection has a key from the content: an embedding by `embedding_key` (the model, the dimensions and the scrubbed text; ADR-067 decision 5), an image text by (blob SHA, vision model, prompt version) (ADR-066 decision 6). Thus when a branch merges, the run of the default branch finds the cached results and pays no new model cost. **Rule:** a new model call in the projection must have a key from the content in the same way, or it does not run on a branch.
+8. **The projection makes only model calls that are cached by content.**
+   - A run on a branch does the same work as a run on the default branch: convert, chunk, embed and describe images.
+   - Each model call of the projection has a key from the content:
+     - an embedding: `embedding_key` (the model, the dimensions and the scrubbed text; ADR-067 decision 5);
+     - an image text: (blob SHA, vision model, prompt version) (ADR-066 decision 6).
+   - Thus when a branch merges, the run of the default branch finds the cached results and pays no new model cost.
+   - **Rule:** a new model call in the projection must have a key from the content in the same way, or it does not run on a branch.
 
-9. **No maintenance and no write-back on a branch** (the CTO: "is for now, we may decide to add it later"). The maintenance job, the link fixes, the folder lists, the rename repairs, the semantic merges and each other step that writes to the repository run only on the default branch. The old stack (Postgres, FalkorDB) stays on the default branch only. The plane replaces it.
+9. **No maintenance and no write-back on a branch** (the CTO: "is for now, we may decide to add it later").
+   - These steps run only on the default branch: the maintenance job, the link fixes, the folder lists, the rename repairs, the semantic merges, and each other step that writes to the repository.
+   - The old stack (Postgres, FalkorDB) stays on the default branch only. The plane replaces it.
 
 10. **Lifecycle.**
     - When a branch is deleted in Git, its tree rows and its head are deleted.
@@ -76,21 +94,28 @@ One fact makes branches cheap: the rows of a file depend only on that file (ADR-
     - A live branch has no time limit. There is no limit on the count of branches (the CTO: "No limit now"). An alert watches the count of branches and the projection lag of each Workspace.
 
 11. **The default branch is a branch like the others** (the CTO: "yes default branch is branch as others, except during read when other branches apply the overlay"). It uses the same tables, keyed by its branch name. The differences are only: it has a full tree, the read of another branch applies its overlay on it, it gets the maintenance job (decision 9), and it is the default of the `branch` argument (decision 6).
-    - **A rename of the default branch** (for example `master` to `main`) follows the default branch setting of the Workspace (the CTO: "yes follow the setting, make sure you test for this scenario"). The first run of the new default branch builds its full tree. It uses the stored file versions, so it writes only tree rows. Until that run completes, reads use the tree of the earlier default branch. Then the run queues a run for each other branch, because each overlay must use the merge base with the new default branch.
+    - **A rename of the default branch** (for example `master` to `main`) follows the default branch setting of the Workspace (the CTO: "yes follow the setting, make sure you test for this scenario"). The sequence:
+      1. The setting names the new default branch. The first run of that branch builds its full tree. It uses the stored file versions, so it writes only tree rows.
+      2. Until that run moves its head, reads of the default branch use the tree of the earlier default branch. The deletion of the earlier default branch waits until then, also when Git deleted it first.
+      3. When the head moves, the new branch is the default branch for each read. Then the run queues a run for each other branch, because each overlay must use the merge base with the new default branch. The earlier default branch is then deleted (decision 10), or it becomes an overlay if Git still has it.
 
 ## Consequences
 
+- **The tables are rebuilt.** New ClickHouse migrations drop the content tables and make them in the shape of this ADR. No data moves: the rows are derived data (ADR-066 decision 11). The projection version changes too, so the next run of each Workspace is a full rebuild that writes the new tables.
+
 - **Amends [ADR-066](ADR-066-knowledge-content-in-clickhouse.md):** decision 2 (`knowledge_state` has one row for each branch), decision 3 (the content tables hold file versions, and a tree table joins them), decision 5 (the rows of a file depend on the file and its variant only), decision 7 (`missing` is calculated at read) and decision 8 (a file version is written one time; the cleanup job makes the `DELETE`s).
-- **Amends [ADR-067](ADR-067-knowledge-projection-applies-git-diff.md):** decision 1 (the trees have versions and a head), decision 2 and decision 3 (the state and the lease are for each branch), decision 5 (a changed file adds a file version and a tree row), decision 6 (a tombstone is a tree row), decision 7 (no stored `missing` row) and decision 10 (a read sees no partly applied commit).
+- **Amends [ADR-067](ADR-067-knowledge-projection-applies-git-diff.md):** decision 1 (the trees have versions and a head), decision 2 and decision 3 (the state and the lease are for each branch), decision 4 (no `attempt_shas`: the tree versions own the recovery), decision 5 (a changed file adds a file version and a tree row), decision 6 (a tombstone is a tree row), decision 7 (no stored `missing` row), decision 9 (the maintenance job runs on the default branch only) and decision 10 (a read sees no partly applied commit).
 - **Fewer mutations.** A run inserts file versions and tree rows. It deletes no content rows. Only the cleanup job and the deletion of a branch make `DELETE`s, in batches.
 - **Cost of a branch:** its overlay rows, and model calls only for file content that no branch had before. A full tree is about 6 MB for 100k files; an overlay is the size of the diff of the branch.
 - **The vector search filters by the view.** For our sizes, the search in one Workspace stays fast. A very large Workspace with many branches can need a check of the filter; the latency command of the eval measures it.
 - **A view of a branch is its tip on the current default branch.** There is no merge or conflict logic in the plane. The view of B is not the same as a full projection of the tip of B when the default branch changed after the merge base: it shows those newer files of the default branch.
 - **Tests** must prove that:
   - the default branch gives the same reads as before this ADR, and a run of one commit at a time equals a full rebuild;
-  - the read rule: a file that B changed, a file that B added, a file that B deleted, a file that the default branch changed after B forked, a file that the default branch deleted and that B did not change, a relation into a path that B deleted, and a merge of the default branch into B;
+  - the read rule: a file that B changed, a file that B added, a file that B deleted, a file that the default branch changed after B forked, a file that the default branch deleted and that B did not change, a relation into a path that B deleted, a merge of the default branch into B, and a file that B changed and then changed back;
+  - a conversation session branch is readable only by the actor that can open its conversation;
+  - the tree table has the read and insert walls of ADR-066 decision 9, and each `DELETE` of the branch deletion and of the cleanup job has the org and Workspace predicates;
   - two branches that hold the same file share its rows;
   - a deleted branch leaves no tree rows, and its own file versions go after the grace time;
   - a run on a branch starts no maintenance, and makes no model call outside the content-keyed caches;
   - a reader never sees a half-written tree;
-  - a rename of the default branch keeps the reads and builds the new tree from the stored file versions.
+  - a rename of the default branch (the new branch appears, Git deletes the earlier one, then the new branch's first run completes) keeps the reads during each step, and builds the new tree from the stored file versions.
