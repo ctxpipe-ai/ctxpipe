@@ -109,7 +109,7 @@ function BranchLabel(props: { branch: ConversationBranchChrome }) {
   // The cap keeps the width for the title, which leads the header. A phone
   // has no width for the branches next to the title and the actions.
   const labelClassName = cn(
-    "inline-flex min-w-0 items-center gap-1.5 text-xs font-normal text-muted-foreground max-sm:hidden",
+    "ml-3 inline-flex min-w-0 items-center gap-1.5 text-xs font-normal text-muted-foreground max-sm:hidden",
     base ? "max-w-72" : "max-w-48",
   )
   return href ? (
@@ -120,14 +120,14 @@ function BranchLabel(props: { branch: ConversationBranchChrome }) {
       data-branch-label=""
       className={cn(
         labelClassName,
-        "ml-3 shrink rounded-sm hover:text-teal-400",
+        "rounded-sm hover:text-teal-400",
         focusVisibleClassName,
       )}
     >
       {content}
     </AriaLink>
   ) : (
-    <span data-branch-label="" className={cn(labelClassName, "ml-3 shrink")}>
+    <span data-branch-label="" className={labelClassName}>
       {content}
     </span>
   )

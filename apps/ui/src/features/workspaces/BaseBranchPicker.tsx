@@ -20,7 +20,11 @@ import {
 import { Button } from "@/components/ui/Button"
 import { dropdownItemStylesDark } from "@/components/ui/ListBox"
 import { Popover } from "@/components/ui/Popover"
-import { SkeletonLine, useSkeletonHold } from "@/components/ui/Skeleton"
+import {
+  SKELETON_ROW_OPACITY,
+  SkeletonRow,
+  useSkeletonHold,
+} from "@/components/ui/Skeleton"
 import { cn } from "@/lib/utils"
 
 import { BranchName } from "./BranchName"
@@ -166,15 +170,8 @@ export function BaseBranchPicker(props: {
           // and the same inset as a branch row.
           <div aria-busy className="-mt-1 px-1 pb-1">
             <span className="sr-only">Loading branches</span>
-            {["opacity-75", "opacity-50", "opacity-25"].map((opacity) => (
-              <div
-                key={opacity}
-                aria-hidden
-                className={cn("flex h-7 items-center gap-2 px-3", opacity)}
-              >
-                <span className="w-4 shrink-0" />
-                <SkeletonLine className="h-3 w-1/2" />
-              </div>
+            {SKELETON_ROW_OPACITY.map((opacity) => (
+              <SkeletonRow key={opacity} className={cn("h-7 px-3", opacity)} />
             ))}
           </div>
         ) : branches.isError ? (

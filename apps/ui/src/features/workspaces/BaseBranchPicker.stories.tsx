@@ -9,28 +9,6 @@ import preview from "../../../.storybook/preview"
 import { BaseBranchPicker } from "./BaseBranchPicker"
 import { docsWorkspaceBranches } from "./workspace-fixtures"
 
-// The branches of a repository with a longer history: the search matters here.
-const manyBranches = {
-  defaultBranch: "main",
-  branches: [
-    "main",
-    "docs/api-reference",
-    "docs/billing-ledger",
-    "docs/onboarding-guide",
-    "docs/runbooks",
-    "feature/checkout-retry",
-    "feature/invoice-export",
-    "feature/sso-group-sync",
-    "fix/broken-links",
-    "fix/search-index-timeout",
-    "release/2026-07",
-    "release/2026-08",
-    "release/2026-09",
-    "release/2026-10",
-    "release/2026-11",
-  ],
-}
-
 const meta = preview.meta({
   title: "Components/Workspaces/BaseBranchPicker",
   component: BaseBranchPicker,
@@ -102,8 +80,7 @@ export const ValueShowsWhileListLoads = meta.story({
   },
   parameters: {
     visual: {
-      duplicate:
-        "The value shows before the list loads, so the closed control has the pixels of OnDefaultBranch.",
+      skip: "Behavior test: it ends in the same state as OnDefaultBranch, because the value shows before the list loads.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -157,7 +134,29 @@ export const MenuOpen = meta.story({
  */
 export const SearchFiltersLongList = meta.story({
   beforeEach: ({ msw }) => {
-    msw.use(workspaceBranchesHandler(manyBranches))
+    // A repository with a longer history: the search matters here.
+    msw.use(
+      workspaceBranchesHandler({
+        defaultBranch: "main",
+        branches: [
+          "main",
+          "docs/api-reference",
+          "docs/billing-ledger",
+          "docs/onboarding-guide",
+          "docs/runbooks",
+          "feature/checkout-retry",
+          "feature/invoice-export",
+          "feature/sso-group-sync",
+          "fix/broken-links",
+          "fix/search-index-timeout",
+          "release/2026-07",
+          "release/2026-08",
+          "release/2026-09",
+          "release/2026-10",
+          "release/2026-11",
+        ],
+      }),
+    )
   },
   play: async ({ canvasElement }) => {
     await userEvent.click(await trigger(canvasElement))

@@ -1,15 +1,19 @@
 import { cn } from "@/lib/utils"
 
 /**
- * A Git branch name on one line, in mono. A long name loses its middle, not
- * its end, so that two branches with the same prefix stay apart (for example
- * two release branches). Use it wherever the chat shows a branch.
+ * A Git branch name on one line, in mono unless the caller sets a font. A long
+ * name loses its middle, not its end, so that two branches with the same
+ * prefix stay apart (for example two release branches). The full name shows
+ * on hover. Use it wherever the chat shows a branch.
  */
 export function BranchName(props: { name: string; className?: string }) {
   const { name } = props
   const tail = branchNameTail(name)
   return (
-    <span className={cn("flex min-w-0 font-mono", props.className)}>
+    <span
+      title={name}
+      className={cn("flex min-w-0 font-mono", props.className)}
+    >
       <span className="truncate">
         {tail ? name.slice(0, -tail.length) : name}
       </span>

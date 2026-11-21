@@ -325,6 +325,7 @@
         "apps/ui/src/features/organization/OrganizationApiKeysCard.tsx",
         "apps/ui/src/features/workspace-sources/RenameSourceDialog.tsx",
         "apps/ui/src/features/workspace-sources/WorkspaceSources.tsx",
+        "apps/ui/src/features/workspaces/BaseBranchPicker.tsx",
         "apps/ui/src/features/workspaces/ConversationNameInput.tsx",
         "apps/ui/src/features/workspaces/WorkspaceCommandPalette.tsx",
         "apps/ui/src/features/workspaces/WorkspaceFilesPane.tsx",
