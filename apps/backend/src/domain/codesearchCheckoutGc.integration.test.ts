@@ -289,8 +289,9 @@ describeWithDatabase("codesearch checkout collection (Postgres)", () => {
         sql`select to_json(now()) #>> '{}' as now`,
       )
     ).rows
+    if (!clock) throw new Error("The database gave no time")
     for (const at of runEndedTimes)
-      expect(Date.parse(at)).toBeLessThanOrEqual(Date.parse(clock!.now))
+      expect(Date.parse(at)).toBeLessThanOrEqual(Date.parse(clock.now))
     const stored = await storedKeys()
     expect(stored).toContain(keys.published)
     expect(stored).not.toContain(keys.live)
