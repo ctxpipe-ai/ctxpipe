@@ -13,6 +13,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
 
+import { AGENT_VAULT_RATE_LIMIT_ENV } from "../../../../packages/aws-cdk/src/internal/agent-vault-limits.js"
 import { testLabelArgs } from "../../../../scripts/ci/test-containers.mjs"
 import type { AgentVaultAccess } from "../domain/workspaces/agent-vault.js"
 import { contractImage } from "./contract-images.js"
@@ -129,12 +130,43 @@ type AgentVaultFixture = {
   gitToken: string
   /** Agent Vault's container name, which the test network resolves. */
   agentVaultName: string
+  /**
+   * A chat-image container on the sandbox network that stays until
+   * `remove`: its commands share one address, as on the AWS sandbox host.
+   */
+  startSandbox: (env: Record<string, string>) => Promise<{
+    process: {
+      exec: (
+        command: string,
+      ) => Promise<{ exitCode: number; stdout: string; stderr: string }>
+    }
+    remove: () => Promise<void>
+  }>
   /** Run `script` in a fresh chat-image container on the sandbox network. */
   sandbox: (
     env: Record<string, string>,
     script: string,
   ) => Promise<{ exitCode: number; stdout: string; stderr: string }>
   stopAgentVault: () => Promise<void>
+}
+
+/** `docker run` arguments that set each variable of `env`. */
+function envArgs(env: Record<string, string>): string[] {
+  return Object.entries(env).flatMap(([key, value]) => [
+    "-e",
+    `${key}=${value}`,
+  ])
+}
+
+/** The deployed limits, or the stock gate with `stockAuthGateWindow`. */
+function rateLimitEnv(stockAuthGateWindow: string | undefined) {
+  if (!stockAuthGateWindow) return AGENT_VAULT_RATE_LIMIT_ENV
+  const {
+    AGENT_VAULT_RATELIMIT_AUTH_MAX: _max,
+    AGENT_VAULT_RATELIMIT_AUTH_WINDOW: _window,
+    ...rest
+  } = AGENT_VAULT_RATE_LIMIT_ENV
+  return { ...rest, AGENT_VAULT_RATELIMIT_AUTH_WINDOW: stockAuthGateWindow }
 }
 
 async function ipOn(container: string, network: string): Promise<string> {
@@ -161,6 +193,14 @@ export async function withAgentVault<T>(
     closed?: boolean
     /** A port of a test backend on the Docker host: the upstream forwards its port 3000 there. */
     backendPort?: number
+    /**
+     * The stock pre-auth gate of the proxy (Agent Vault's `AUTH` tier: 50
+     * failures for each peer address), with this window instead of 5
+     * minutes, for example `15s`. For a test of the 429 path only. Without
+     * it, Agent Vault runs with the gate off, as ctxpipe deploys it
+     * (`AGENT_VAULT_RATE_LIMIT_ENV`).
+     */
+    stockAuthGateWindow?: string
   },
   fn: (fixture: AgentVaultFixture) => Promise<T>,
 ): Promise<T> {
@@ -312,12 +352,7 @@ exec node /tmp/upstream.cjs`,
         "127.0.0.1::14321",
         "-e",
         `AGENT_VAULT_MASTER_PASSWORD=${randomBytes(16).toString("hex")}`,
-        "-e",
-        "AGENT_VAULT_RATELIMIT_PROXY_RATE=200",
-        "-e",
-        "AGENT_VAULT_RATELIMIT_PROXY_BURST=2000",
-        "-e",
-        "AGENT_VAULT_RATELIMIT_PROXY_CONCURRENCY=256",
+        ...envArgs(rateLimitEnv(input.stockAuthGateWindow)),
         "-e",
         "SSL_CERT_DIR=/etc/ssl/certs:/extra-ca",
         "-e",
@@ -394,6 +429,42 @@ net.createServer((client) => {
       backend: "backend.ctxpipe.test",
       gitToken,
       agentVaultName: vaultName,
+      startSandbox: async (env) => {
+        const name = `ctxpipe-av-sandbox-${randomUUID().slice(0, 8)}`
+        const args = ["run", "-d", "--name", name, ...testLabelArgs()]
+        args.push("--network", sandboxNetwork)
+        for (const [key, value] of Object.entries(env))
+          args.push("-e", `${key}=${value}`)
+        await docker(...args, input.image, "sleep", "infinity")
+        return {
+          process: {
+            exec: async (command) => {
+              try {
+                const { stdout, stderr } = await exec(
+                  "docker",
+                  ["exec", name, "sh", "-c", command],
+                  { timeout: 180_000 },
+                )
+                return { exitCode: 0, stdout, stderr }
+              } catch (error) {
+                const failed = error as {
+                  code?: number
+                  stdout?: string
+                  stderr?: string
+                }
+                return {
+                  exitCode: typeof failed.code === "number" ? failed.code : 1,
+                  stdout: failed.stdout ?? "",
+                  stderr: failed.stderr ?? "",
+                }
+              }
+            },
+          },
+          remove: async () => {
+            await docker("rm", "-f", "-v", name).catch(() => "")
+          },
+        }
+      },
       sandbox: async (env, script) => {
         const args = [
           "run",
@@ -442,13 +513,6 @@ net.createServer((client) => {
     await rm(tls, { recursive: true, force: true })
   }
 }
-
-/** The rate limits our deployments set (see docker-compose.yml). */
-const AGENT_VAULT_RATE_LIMIT_ENV = [
-  "AGENT_VAULT_RATELIMIT_PROXY_RATE=200",
-  "AGENT_VAULT_RATELIMIT_PROXY_BURST=2000",
-  "AGENT_VAULT_RATELIMIT_PROXY_CONCURRENCY=256",
-]
 
 async function freePort(): Promise<number> {
   const server = createServer()
@@ -502,7 +566,7 @@ export async function startTestAgentVaultEnv(
         `${proxyPort}:${proxyPort}`,
         "-e",
         `AGENT_VAULT_MASTER_PASSWORD=${randomBytes(16).toString("hex")}`,
-        ...AGENT_VAULT_RATE_LIMIT_ENV.flatMap((entry) => ["-e", entry]),
+        ...envArgs(AGENT_VAULT_RATE_LIMIT_ENV),
         "-e",
         "AGENT_VAULT_TELEMETRY=false",
         // Test only: the Docker host (the test backend) and test networks.

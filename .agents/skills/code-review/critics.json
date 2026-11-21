@@ -4,7 +4,8 @@
       "name": "spec",
       "intent": "Does the diff do what the ticket and the brief ask, and does it do it correctly: missing or partial requirements, scope creep, and wrong behavior (false cache hits, exit codes, missed inputs, edge cases). It runs on every change.",
       "inputs": [
-        ".agents/skills/code-review/SKILL.md"
+        ".agents/skills/code-review/SKILL.md",
+        ".changeset/README.md"
       ],
       "notApplicable": [],
       "triggers": [
@@ -35,7 +36,8 @@
       "inputs": [
         ".agents/skills/code-review/SKILL.md",
         "**/AGENTS.md",
-        ".ai/memory/lessons-learned.md"
+        ".ai/memory/lessons-learned.md",
+        ".changeset/README.md"
       ],
       "notApplicable": [],
       "triggers": [
@@ -62,7 +64,8 @@
       "inputs": [
         "AGENTS.md",
         ".agents/skills/simplicity-audit/REVIEW-BRIEF.md",
-        ".agents/skills/simplicity-audit/SKILL.md"
+        ".agents/skills/simplicity-audit/SKILL.md",
+        ".changeset/README.md"
       ],
       "notApplicable": [],
       "triggers": [

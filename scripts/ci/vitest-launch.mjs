@@ -41,6 +41,13 @@ export function setupSteps(lane, root) {
 // write them to that directory (see scripts/checks/trace.mjs).
 export function vitestCommand(lane, root, files, report, parts) {
   const cwd = join(root, lane.directory)
+  // VITEST_MAX_WORKERS is a cap of the host (factory check sets it to the CPUs
+  // of one host slot). Vitest applies the variable after the config, so a
+  // lane with `fileParallelism: false` would run its files in parallel. The
+  // backend lanes share one database, and their files must run in series.
+  // Vitest applies the `--maxWorkers` option before `fileParallelism`, so the
+  // cap goes in as that option.
+  const { VITEST_MAX_WORKERS: maxWorkers, ...env } = process.env
   const require = createRequire(join(cwd, "package.json"))
   const vitest = join(
     dirname(require.resolve("vitest/package.json")),
@@ -56,13 +63,14 @@ export function vitestCommand(lane, root, files, report, parts) {
       "--reporter=default",
       "--reporter=json",
       `--outputFile=${report}`,
+      ...(maxWorkers ? [`--maxWorkers=${maxWorkers}`] : []),
       ...(parts
         ? [`--reporter=${join(root, "scripts/checks/trace-reporter.mjs")}`]
         : []),
     ],
     cwd,
     env: {
-      ...process.env,
+      ...env,
       ...hostPins,
       ...(parts && { CTXPIPE_TRACE_PARTS: parts }),
     },

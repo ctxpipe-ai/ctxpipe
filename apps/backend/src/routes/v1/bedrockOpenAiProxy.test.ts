@@ -1,10 +1,10 @@
-import { generateKeyPairSync } from "node:crypto"
 import { crc32 } from "node:zlib"
 
 import { chat } from "@tanstack/ai"
 import { HttpResponse, http } from "msw"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { madeUpPrivateKey } from "../../../test/made-up-key.js"
 import { useMswServer } from "../../../test/msw.js"
 import { bedrockModelProvider } from "../../retrieval/services/providers/bedrockModelProvider.js"
 import {
@@ -74,10 +74,7 @@ function eventStreamFrame(
 describe("handleBedrockEmbedding", () => {
   it("sends no secret that is split over its inputs: they become one text", async () => {
     stubAwsCredentials()
-    const pem = generateKeyPairSync("rsa", { modulusLength: 2048 })
-      .privateKey.export({ type: "pkcs1", format: "pem" })
-      .toString()
-      .trim()
+    const pem = madeUpPrivateKey(2048)
     let sent = ""
     server.use(
       http.post(
@@ -111,10 +108,7 @@ describe("handleBedrockChatCompletion", () => {
         return HttpResponse.json({})
       }),
     )
-    const key = generateKeyPairSync("rsa", { modulusLength: 2048 })
-      .privateKey.export({ type: "pkcs1", format: "pem" })
-      .toString()
-      .trim()
+    const key = madeUpPrivateKey(2048)
     const half = Math.floor(key.length / 2)
     await expect(
       handleBedrockChatCompletion(env, {

@@ -246,6 +246,31 @@ describe("GET /github/installation/connector-bootstrap", () => {
       "https://github.com/apps/ctxpipe-agent/installations/new",
     )
   })
+
+  it("sends the install page through the forwarder of the deployment, when it has one", async () => {
+    // The AWS PR previews (CTX-1441): the forwarder marks the `state` that
+    // GitHub gives back to the App's setup URL.
+    const app = createApp(
+      parseEnv({
+        ...baseTestEnv,
+        GITHUB_APP_ID: "123",
+        GITHUB_PRIVATE_KEY:
+          "-----BEGIN RSA PRIVATE KEY-----\nMII\n-----END RSA PRIVATE KEY-----", // pragma: allowlist secret
+        GITHUB_APP_SLUG: "ctxpipe-agent-preview",
+        GITHUB_WEB_URL: "https://forwarder.example.test/.to-github/pr-12",
+        GITHUB_REDIRECT_URI:
+          "https://forwarder.example.test/.auth/api/v1/auth/callback/github",
+      }),
+    )
+    const res = await app.request("/github/installation/connector-bootstrap")
+    expect(res.status).toBe(200)
+    expect(
+      ((await res.json()) as { hostedDefaultAppInstallUrl: string | null })
+        .hostedDefaultAppInstallUrl,
+    ).toBe(
+      "https://forwarder.example.test/.to-github/pr-12/apps/ctxpipe-agent-preview/installations/new",
+    )
+  })
 })
 
 describe("POST /github/installation/draft", () => {

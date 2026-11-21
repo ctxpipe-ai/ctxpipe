@@ -1,4 +1,6 @@
-// The explainer of a Jev regression (CTX-1256, ADR-063). Jev gives no text:
+// The explainer of a Jev regression (CTX-1256, ADR-063), and the design
+// review of new UI (CTX-1469, see `reviewDesign`: it can make a verdict
+// regression minor, never more). Jev gives no text:
 // a suspected regression has an area, a region and a probability, but no
 // evidence. After a Jev `regression`, one call to a cheap vision model writes
 // the evidence and a suggestion for each flagged entry. The explainer never
@@ -7,7 +9,7 @@
 // verdict lost recall (0.74 against 0.95).
 import { z } from "zod"
 
-import { askOpenRouter } from "./adapters/openrouter.ts"
+import { askOpenRouter, judgeNewWithOpenRouter } from "./adapters/openrouter.ts"
 import { judgingRule, scopeLine, storyData, type Prompt } from "./prompt.ts"
 import type { RubricEntry } from "./rubric.ts"
 import type { NewStoryInput, StoryImage, StoryInput } from "./story.ts"
@@ -20,7 +22,20 @@ import { parseJsonReply, type Verdict } from "./verdict.ts"
  */
 export const explainerModel = "openai/gpt-6-luna"
 
-/** The story of a Jev verdict: a change, or the new screenshots of a story. */
+/**
+ * The model of the design review of new UI: a cheap vision model through
+ * OpenRouter, which gives `usage.cost` in its reply ($0.10 for each million
+ * input tokens, $0.50 for each million output tokens on 2026-11-21). In the
+ * measurement of CTX-1469 it cost about $0.0013 for each new story.
+ */
+export const designModel = "anthropic/claude-haiku-5.5"
+
+/**
+ * The story of a Jev verdict: a change, or the new screenshots of a story.
+ * The critic gives a new story to `reviewDesign`; the bake-off of the factory
+ * (`factory eval visual:bakeoff`, arm `jev-explain`) still gives one to
+ * `explainRegression`.
+ */
 export type Explained =
   | { kind: "change"; story: StoryInput }
   | { kind: "new"; story: NewStoryInput }
@@ -247,5 +262,95 @@ ${shown.map(({ role }, index) => `Image ${index + 1}: ${role}`).join("\n")}
 ${brief ? brief.replace(/<\/data/gi, "<\\/data") : "(none)"}
 </data>`,
     images: shown,
+  }
+}
+
+/**
+ * The design review of the new screenshots of one story, after the Jev
+ * `verdict` (CTX-1469, ADR-063 rule 18). Jev does not tell a clean new
+ * screenshot from a broken one (rule 13), and it answers one rubric entry at
+ * a time. The design review asks `model` the prompt of a new screenshot
+ * (`buildNewPrompt`), which compares each element with the elements around it.
+ * Its text gives the agent a direction for each new story, also when Jev is
+ * not sure. It replaces the explainer for a new story.
+ *
+ * The review can raise the verdict of Jev to `regression` with severity
+ * `minor` (a nit). It never sets another severity and never lowers the Jev
+ * verdict: only Jev gives `major` (a should-fix), and the review of a model
+ * never stops a merge. Its findings come after the findings of Jev, and its
+ * summary, findings and fixes come at the end of the summary (the factory
+ * shows only the summary). `costUsd` and `latencyMs` add the call to the Jev
+ * call; the cost is null when either one is unknown, also after a failed
+ * call. `explainer` has the cost of the call alone, for the budget of the
+ * run, as for `explainRegression`.
+ *
+ * A failed call or a reply that is not usable keeps the Jev verdict, with a
+ * sentence in the summary and no `error`: the review never fails a run. A
+ * verdict with an error comes back with no call.
+ */
+export async function reviewDesign(
+  verdict: Verdict,
+  story: NewStoryInput,
+  model: string,
+  env: Record<string, string | undefined>,
+): Promise<{ verdict: Verdict; explainer?: { costUsd: number | null } }> {
+  if (verdict.error !== undefined) return { verdict }
+  let review: Verdict
+  try {
+    review = await judgeNewWithOpenRouter(story, model, env)
+  } catch (error) {
+    return {
+      verdict: {
+        ...verdict,
+        costUsd: null,
+        summary: `${verdict.summary} The design review gave no text: ${oneLine((error as Error).message, 200)}`,
+      },
+      explainer: { costUsd: null },
+    }
+  }
+  const explainer = { costUsd: review.costUsd }
+  const costUsd =
+    verdict.costUsd === null || review.costUsd === null
+      ? null
+      : verdict.costUsd + review.costUsd
+  const latencyMs = verdict.latencyMs + review.latencyMs
+  if (review.error !== undefined)
+    return {
+      verdict: {
+        ...verdict,
+        costUsd,
+        latencyMs,
+        summary: `${verdict.summary} The design review gave no usable reply.`,
+      },
+      explainer,
+    }
+  const raises =
+    review.verdict === "regression" && verdict.verdict !== "regression"
+  const findings = review.findings.map((finding) => ({
+    ...finding,
+    evidence: oneLine(finding.evidence, 400),
+    suggestion: finding.suggestion ? oneLine(finding.suggestion, 200) : null,
+  }))
+  const sentences = findings.map(
+    ({ kind, evidence, suggestion }) =>
+      `${kind}: ${evidence}${suggestion ? ` Fix: ${suggestion}` : ""}`,
+  )
+  return {
+    verdict: {
+      ...verdict,
+      ...(raises
+        ? {
+            verdict: "regression",
+            severity: "minor",
+            confidence: review.confidence,
+          }
+        : {}),
+      costUsd,
+      latencyMs,
+      observations: review.observations,
+      findings: [...verdict.findings, ...findings],
+      summary: `${verdict.summary} Design review (${model}, ${raises ? "it makes the verdict regression minor" : `it says ${review.verdict}`}): ${[oneLine(review.summary, 400), ...sentences].join(" ")}`,
+    },
+    explainer,
   }
 }

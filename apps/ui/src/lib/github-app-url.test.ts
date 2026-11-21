@@ -6,13 +6,13 @@ describe("githubGrantAccessUrls", () => {
   it("uses the install URL, not the settings manage URL", () => {
     expect(
       githubGrantAccessUrls({
-        appSlug: "ctxpipe-agent",
+        installUrl: "https://github.com/apps/ctxpipe-agent/installations/new",
         manageUrl: "https://github.com/settings/installations/123",
       }),
     ).toEqual(["https://github.com/apps/ctxpipe-agent/installations/new"])
   })
 
-  it("falls back to the manage URL only when the app slug is missing", () => {
+  it("falls back to the manage URL only when the install URL is missing", () => {
     expect(
       githubGrantAccessUrls({
         manageUrl: "https://github.com/settings/installations/123",

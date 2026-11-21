@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import type { SandboxHandle } from "@tanstack/ai-sandbox"
+import { initLogger } from "evlog"
 import { describe, expect, it } from "vitest"
 
 import {
@@ -61,6 +62,44 @@ describe("sandbox lifecycle timing", () => {
       expect.objectContaining({ phase: "setup-opencode" }),
     ])
     expect(marks[0]?.ms).toBeGreaterThanOrEqual(0)
+  })
+
+  it("marks when a started OpenCode server listens, and passes its output on", async () => {
+    const marks: Record<string, unknown>[] = []
+    initLogger({
+      env: { service: "ctxpipe-backend", environment: "test" },
+      pretty: false,
+      drain: (ctx) => {
+        const event = ctx.event as Record<string, unknown>
+        if (event.step === "sandbox-lifecycle") marks.push(event)
+      },
+    })
+    try {
+      const output = async function* () {
+        yield "opencode server lis"
+        yield "tening on http://127.0.0.1:4096\n"
+        yield "opencode server listening again\n"
+      }
+      const handle = timedSandboxHandle({
+        process: {
+          spawn: async () => ({ stdout: output(), kill: async () => {} }),
+        },
+      } as unknown as SandboxHandle)
+      const proc = await handle.process.spawn(
+        "opencode serve --hostname=127.0.0.1 --port=4096",
+      )
+      let text = ""
+      for await (const chunk of proc.stdout) text += chunk
+      expect(text).toBe(
+        "opencode server listening on http://127.0.0.1:4096\nopencode server listening again\n",
+      )
+      expect(marks.map((mark) => mark.phase)).toEqual([
+        "opencode-serve:start",
+        "opencode-serve:ready",
+      ])
+    } finally {
+      initLogger({ enabled: false })
+    }
   })
 
   it("keeps Docker class-method snapshot and destroy after timing wrap", async () => {

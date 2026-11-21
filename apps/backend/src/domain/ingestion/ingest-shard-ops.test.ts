@@ -5,6 +5,7 @@ import {
   INGEST_STEP_LIMIT_MS,
   ingestStepCheckpoint,
   ingestStepSignal,
+  runIngestFetch,
   runIngestShardStep,
 } from "./ingest-shard-ops.js"
 
@@ -102,5 +103,107 @@ describe("ingestStepCheckpoint", () => {
     expect(limit.aborted).toBe(false)
     vi.advanceTimersByTime(60_000)
     expect(limit.aborted).toBe(true)
+  })
+})
+
+/*
+ * A clone through the egress proxy (CTX-1470). The sandbox is the
+ * environment here: its exec gives the answers of Git in order, and the
+ * Retry-After probe answers with `retryAfter`.
+ */
+function fetchSandbox(stderrs: string[], retryAfter = "") {
+  const commands: string[] = []
+  const handle: Parameters<typeof runIngestFetch>[0] = {
+    process: {
+      exec: async (command) => {
+        if (command.includes("curl -s -o /dev/null -D -"))
+          return { exitCode: 0, stdout: retryAfter, stderr: "" }
+        commands.push(command)
+        const stderr = stderrs.shift()
+        return stderr === undefined
+          ? { exitCode: 0, stdout: "done", stderr: "" }
+          : { exitCode: 128, stdout: "", stderr }
+      },
+    },
+  }
+  return { handle, commands }
+}
+
+const proxy429 =
+  "fatal: unable to access 'https://github.com/o/r.git/': CONNECT tunnel failed, response 429\n"
+const cloneStep = {
+  command: "git clone x",
+  url: "https://github.com/o/r.git",
+}
+
+describe("runIngestFetch", () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it("runs a clone again after a short burst of 429s, with the fixed waits when the proxy gives no Retry-After", async () => {
+    vi.useFakeTimers()
+    const { handle, commands } = fetchSandbox([
+      proxy429,
+      "error: RPC failed; HTTP 429 curl 22 The requested URL returned error: 429\n",
+    ])
+    const fetching = runIngestFetch(handle, cloneStep)
+    await vi.advanceTimersByTimeAsync(4_999)
+    expect(commands).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(commands).toHaveLength(2)
+    await vi.advanceTimersByTimeAsync(15_000)
+    await expect(fetching).resolves.toBe("done")
+    expect(commands).toHaveLength(3)
+  })
+
+  it("waits one second past the proxy's Retry-After", async () => {
+    vi.useFakeTimers()
+    const { handle, commands } = fetchSandbox([proxy429], "20\n")
+    const fetching = runIngestFetch(handle, cloneStep)
+    await vi.advanceTimersByTimeAsync(20_999)
+    expect(commands).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(1)
+    await expect(fetching).resolves.toBe("done")
+    expect(commands).toHaveLength(2)
+  })
+
+  it("fails at once when the Retry-After goes past its 2-minute budget", async () => {
+    const { handle, commands } = fetchSandbox([proxy429], "240\n")
+    await expect(runIngestFetch(handle, cloneStep)).rejects.toThrow(
+      /response 429/,
+    )
+    expect(commands).toHaveLength(1)
+  })
+
+  it("stops after 3 retries, so a long block still fails the step", async () => {
+    vi.useFakeTimers()
+    const { handle, commands } = fetchSandbox(Array(5).fill(proxy429))
+    const fetching = runIngestFetch(handle, cloneStep)
+    const failed = expect(fetching).rejects.toThrow(/response 429/)
+    await vi.advanceTimersByTimeAsync(50_000)
+    await failed
+    expect(commands).toHaveLength(4)
+  })
+
+  it("does not run again on another error", async () => {
+    const { handle, commands } = fetchSandbox([
+      "fatal: repository 'https://github.com/o/r.git/' not found\n",
+    ])
+    await expect(runIngestFetch(handle, cloneStep)).rejects.toThrow(/not found/)
+    expect(commands).toHaveLength(1)
+  })
+
+  it("stops its wait when the step ends", async () => {
+    const { handle, commands } = fetchSandbox([proxy429])
+    const controller = new AbortController()
+    const fetching = runIngestFetch(handle, {
+      ...cloneStep,
+      signal: controller.signal,
+    })
+    await vi.waitFor(() => expect(commands).toHaveLength(1))
+    controller.abort(new Error("step limit"))
+    await expect(fetching).rejects.toThrow(/step limit|aborted/)
+    expect(commands).toHaveLength(1)
   })
 })

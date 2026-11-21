@@ -9,6 +9,7 @@ import * as servicediscovery from "aws-cdk-lib/aws-servicediscovery"
 import * as cr from "aws-cdk-lib/custom-resources"
 import { Construct } from "constructs"
 
+import { AGENT_VAULT_RATE_LIMIT_ENV } from "./agent-vault-limits"
 import type {
   SandboxHostConstructProps,
   SandboxHostResources,
@@ -466,6 +467,9 @@ interface HostBootstrapInput {
  * name, then signals CloudFormation. Images are pulled by the backend.
  */
 function hostBootstrapScript(input: HostBootstrapInput): string[] {
+  const agentVaultLimits = Object.entries(AGENT_VAULT_RATE_LIMIT_ENV)
+    .map(([key, value]) => `-e ${key}=${value}`)
+    .join(" ")
   return [
     // Output lands in /var/log/cloud-init-output.log.
     "set -euo pipefail",
@@ -566,12 +570,11 @@ function hostBootstrapScript(input: HostBootstrapInput): string[] {
     "# Agent Vault adds sandbox credentials in flight (ADR-049). It has its own",
     "# bridge, so the DOCKER-USER rules above tell it from sandboxes. It may dial",
     "# private addresses only in the backend's subnets; security groups keep the",
-    "# data stores closed to this host. The login rate limit stays on; the proxy",
-    "# tier is raised, because all sandboxes of a turn share one vault.",
+    "# data stores closed to this host. Its rate limits: agent-vault-limits.ts.",
     AGENT_VAULT_NETWORK_CREATE,
     `AGENT_VAULT_MASTER_PASSWORD="$(aws secretsmanager get-secret-value --region "$REGION" --secret-id '${input.agentVaultMasterSecretArn}' --query SecretString --output text)"`,
     "docker rm -f ctxpipe-agent-vault >/dev/null 2>&1 || true",
-    `docker run -d --name ctxpipe-agent-vault --restart unless-stopped --network ${AGENT_VAULT_NETWORK} -p ${AGENT_VAULT_API_PORT}:${AGENT_VAULT_API_PORT} -p ${AGENT_VAULT_PROXY_PORT}:${AGENT_VAULT_PROXY_PORT} -v ctxpipe-agent-vault:/data -e AGENT_VAULT_MASTER_PASSWORD="$AGENT_VAULT_MASTER_PASSWORD" -e AGENT_VAULT_RATELIMIT_PROXY_RATE=200 -e AGENT_VAULT_RATELIMIT_PROXY_BURST=2000 -e AGENT_VAULT_RATELIMIT_PROXY_CONCURRENCY=256 -e AGENT_VAULT_TELEMETRY=false -e AGENT_VAULT_NETWORK_ALLOWLIST='${[...input.backendSubnetCidrs, ...input.operatorAllowlist].join(",")}' infisical/agent-vault:latest`,
+    `docker run -d --name ctxpipe-agent-vault --restart unless-stopped --network ${AGENT_VAULT_NETWORK} -p ${AGENT_VAULT_API_PORT}:${AGENT_VAULT_API_PORT} -p ${AGENT_VAULT_PROXY_PORT}:${AGENT_VAULT_PROXY_PORT} -v ctxpipe-agent-vault:/data -e AGENT_VAULT_MASTER_PASSWORD="$AGENT_VAULT_MASTER_PASSWORD" ${agentVaultLimits} -e AGENT_VAULT_TELEMETRY=false -e AGENT_VAULT_NETWORK_ALLOWLIST='${[...input.backendSubnetCidrs, ...input.operatorAllowlist].join(",")}' infisical/agent-vault:latest`,
     "unset AGENT_VAULT_MASTER_PASSWORD",
     "# While Agent Vault starts, the connection is refused or reset, so retry every error.",
     `curl -sf --max-time 5 --retry 30 --retry-all-errors --retry-delay 2 http://127.0.0.1:${AGENT_VAULT_API_PORT}/health`,

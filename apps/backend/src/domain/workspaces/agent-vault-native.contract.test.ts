@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest"
 
 import { withAgentVault } from "../../test/agent-vault-fixture.js"
 import {
+  retryAfterProbeCommand,
+  runIngestFetch,
+} from "../ingestion/ingest-shard-ops.js"
+import {
   AgentVaultUnavailableError,
   agentVaultAccess,
   openRunVault,
@@ -559,6 +563,103 @@ curl -sS -o /dev/null -w "%{http_code}" http://${fixture.upstream}:8080/echo/x`,
           }),
         ).rejects.toBeInstanceOf(AgentVaultUnavailableError)
       })
+    },
+  )
+
+  it(
+    "lets many parallel Git fetches from one address through the proxy, because no fetch sends a CONNECT without credentials; while the gate is closed, shard fetches wait for its Retry-After and finish (CTX-1470)",
+    { timeout: 240_000 },
+    async () => {
+      // The stock gate of Agent Vault refuses each CONNECT from an address
+      // with 50 proxy-auth failures in 5 minutes (HTTP 429). ctxpipe turns
+      // the gate off (agent-vault-limits.ts), but this test keeps it on: a
+      // 429 can still come (the global tier), and the fetch must wait it
+      // out. One container here is one address: 8 shards fetch 8 times each.
+      await withAgentVault(
+        { image, closed: true, stockAuthGateWindow: "15s" },
+        async (fixture) => {
+          const { upstream } = fixture
+          const vault = await openRunVault({
+            access: fixture.access,
+            runKey: `test:${crypto.randomUUID()}`,
+            ttlSeconds: 600,
+            rules: ingestCredentialRules(
+              {
+                repositories: [
+                  { kind: "git", host: upstream, path: "/public/repo.git" },
+                ],
+                modelProxyUrl: `http://${upstream}:8080/echo/model/v1`,
+                capability: "model-capability",
+                bridge: {
+                  url: `http://${upstream}:8080/echo/bridge`,
+                  token: "t",
+                },
+              },
+              [],
+              { fetchSource: true },
+            ),
+            unmatchedHosts: "deny",
+          })
+          try {
+            const result = await fixture.sandbox(
+              vault.env,
+              `${writeProxyCaCommand(vault.caPem)}
+for shard in 1 2 3 4 5 6 7 8; do
+  ( for fetch in 1 2 3 4 5 6 7 8; do
+      git ls-remote https://${upstream}/public/repo.git refs/heads/main >/dev/null 2>>/tmp/errors && echo ok || echo failed
+    done ) &
+done > /tmp/results
+wait
+echo "== ok"
+grep -c '^ok$' /tmp/results || true
+echo "== errors"
+sort -u /tmp/errors
+`,
+            )
+            const output = `${result.stdout}\n${result.stderr}`
+            expect(result.exitCode, output).toBe(0)
+            const sections = sectionsOf(result.stdout)
+            expect(sections.errors, output).toBe("")
+            expect(sections.ok, output).toBe("64")
+
+            // Git's default (`anyauth`) sends each CONNECT first with no
+            // credentials, so 50 fetches close the gate of this address. While
+            // it is closed, 8 shards fetch with `runIngestFetch`: each waits
+            // for the gate's Retry-After (the test window is 15 seconds) and
+            // then finishes.
+            const url = `https://${upstream}/public/repo.git`
+            const shards = await fixture.startSandbox(vault.env)
+            try {
+              const closed = await shards.process.exec(
+                `${writeProxyCaCommand(vault.caPem)}
+for fetch in $(seq 1 60); do
+  GIT_HTTP_PROXY_AUTHMETHOD=anyauth git ls-remote ${url} refs/heads/main >/dev/null 2>/tmp/error || { grep -o 'response 429' /tmp/error; break; }
+done
+${retryAfterProbeCommand(url)}`,
+              )
+              const [gate, retryAfter] = closed.stdout.trim().split("\n")
+              const closedOutput = `${closed.stdout}\n${closed.stderr}`
+              expect(gate, closedOutput).toBe("response 429")
+              expect(Number(retryAfter), closedOutput).toBeGreaterThan(0)
+              expect(Number(retryAfter), closedOutput).toBeLessThanOrEqual(15)
+              const fetched = await Promise.all(
+                Array.from({ length: 8 }, () =>
+                  runIngestFetch(shards, {
+                    command: `git ls-remote ${url} refs/heads/main`,
+                    url,
+                  }),
+                ),
+              )
+              for (const out of fetched)
+                expect(out).toContain("refs/heads/main")
+            } finally {
+              await shards.remove()
+            }
+          } finally {
+            await vault.close()
+          }
+        },
+      )
     },
   )
 })

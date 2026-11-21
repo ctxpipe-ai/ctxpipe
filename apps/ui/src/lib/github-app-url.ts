@@ -11,15 +11,15 @@ export function githubAppInstallUrl(appSlug: string): string {
 }
 
 /**
- * Grant-access links must use the App install URL. The raw installation
- * settings URL does not carry `state`, so GitHub cannot return to this app's
- * Setup URL with the popup nonce.
+ * Grant-access links must use the App install URL, which the backend gives
+ * for the installation (`installUrl`). The raw installation settings URL
+ * does not carry `state`, so GitHub cannot return to this app's Setup URL
+ * with the popup nonce.
  */
 export function githubGrantAccessUrls(args: {
-  appSlug?: string | null
+  installUrl?: string | null
   manageUrl?: string | null
 }): string[] {
-  const slug = args.appSlug?.trim()
-  if (slug) return [githubAppInstallUrl(slug)]
+  if (args.installUrl) return [args.installUrl]
   return args.manageUrl ? [args.manageUrl] : []
 }

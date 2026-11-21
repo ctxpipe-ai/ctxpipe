@@ -175,6 +175,42 @@ it("accepts ownership fields that a host write adds in a shard join", async () =
   ).resolves.toEqual(answer)
 })
 
+it("accepts the sources of both sides when two sources create the same shared file (CTX-1471)", async () => {
+  // A publish of source A created the file on the default branch after the
+  // pin; this run of source B creates it too. The merge keeps both sources.
+  const owned = (sources: string[]) =>
+    `---\nkind: InstructionUnit\nname: Documentation\ngenerated_by: ctxpipe-extract\nsources:\n${sources.map((s) => `  - ${s}\n`).join("")}---\n\n# Documentation\n`
+  const a = "sources/github/fixture/a.md"
+  const b = "sources/github/fixture/b.md"
+  answer = [
+    { path: "knowledge/instructions/documentation.md", content: owned([a, b]) },
+  ]
+  const conflict = {
+    path: "knowledge/instructions/documentation.md",
+    base: null,
+    current: owned([a]),
+    incoming: owned([b]),
+  }
+  await expect(
+    resolveSemanticConflicts([conflict], { origin: "extraction" }),
+  ).resolves.toEqual(answer)
+  // An agent controls the incoming side, so only the fields of the default
+  // branch count.
+  await expect(
+    resolveSemanticConflicts([conflict], { origin: "agent" }),
+  ).rejects.toThrow(/ownership/)
+  // A source that no side has stays refused.
+  answer = [
+    {
+      path: "knowledge/instructions/documentation.md",
+      content: owned([a, b, "sources/github/fixture/c.md"]),
+    },
+  ]
+  await expect(
+    resolveSemanticConflicts([conflict], { origin: "extraction" }),
+  ).rejects.toThrow(/ownership/)
+})
+
 it("refuses an agent write to a host-only path that does not conflict", () => {
   expect(() =>
     assertWriteOriginAllowed({
