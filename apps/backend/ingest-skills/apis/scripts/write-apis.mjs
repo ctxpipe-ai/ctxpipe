@@ -17,6 +17,7 @@ import { createHash } from "node:crypto"
 import { existsSync, readFileSync, statSync } from "node:fs"
 
 import {
+  fileClaims,
   findExisting,
   relativeTo,
   stepArgs,
@@ -274,10 +275,23 @@ for (const api of resolved) {
     op.pending = !op.exists || !text?.includes(opLine(op))
   }
   const text = api.exists ? baseText(api.path) : null
+  // A page can end after the operations and before their API file or the
+  // Service file (writeStep writes a claim target first). The next page then
+  // writes the claims that are missing.
+  const claims = text === null ? null : fileClaims(text)
+  const serviceText = service ? baseText(service) : null
+  const serviceClaims = serviceText === null ? null : fileClaims(serviceText)
   api.pending =
     !api.exists ||
     !text?.includes(apiLine) ||
-    api.operations.some((op) => op.pending)
+    api.operations.some((op) => op.pending) ||
+    api.operations.some(
+      (op) =>
+        claims?.has(`${relativeTo(api.path, op.file)} HAS_OPERATION`) === false,
+    ) ||
+    (api.operations.length > 0 &&
+      serviceClaims?.has(`${relativeTo(service, api.path)} EXPOSES_API`) ===
+        false)
 }
 
 const selected = resolved.filter((api) => api.pending)

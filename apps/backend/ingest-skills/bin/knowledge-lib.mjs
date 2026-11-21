@@ -743,6 +743,14 @@ export function writeStep(step, plans, skipped = [], options = {}) {
   return result
 }
 
+/**
+ * The claims of the text of a file, as `existingClaims` gives them: each
+ * `<to> <predicate>`, or null when the front matter cannot be read.
+ */
+export function fileClaims(text) {
+  return existingClaims(frontMatter(text) ?? "")
+}
+
 /** Relative link from one context file to another. */
 export function relativeTo(from, to) {
   return posix.relative(posix.dirname(from), to)

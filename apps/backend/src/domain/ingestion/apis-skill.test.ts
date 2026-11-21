@@ -841,8 +841,9 @@ describe("write-apis", () => {
   })
 
   it("pages by size and keeps each API file with its operations on one page (CTX-1482)", async () => {
-    // 35 API files of about 60 KiB: more than the 2 MiB of one step.
-    const body = "Written by the team.\n".repeat(2900)
+    // 35 API files of about 60 KiB: more than the 2 MiB of one step. An
+    // earlier run ingested each one: it has the Related line of the source.
+    const body = `${"Written by the team.\n".repeat(2900)}\n## Related\n\n- \`example-org/shop\` exposes it from \`apps/big\`\n`
     const context: Record<string, string> = {}
     const paths: Record<string, object> = {}
     for (let i = 0; i < 35; i++) {
@@ -868,6 +869,7 @@ describe("write-apis", () => {
     }
     const accepted: string[] = []
     let pages = 0
+    let tree = ""
     for (;;) {
       const out = s.write(plan)
       pages++
@@ -876,6 +878,7 @@ describe("write-apis", () => {
       const result = await s.validate()
       expect(result.rejections).toEqual([])
       accepted.push(...result.accepted.map((op) => op.path))
+      tree = result.tree
       await s.advance(result.tree)
       if (!out.more) break
       expect(pages).toBeLessThan(5)
@@ -887,6 +890,12 @@ describe("write-apis", () => {
     expect(
       accepted.filter((p) => p.startsWith("knowledge/operations/")),
     ).toHaveLength(35)
+    // An API file that the first page left out gets its claim on the next
+    // page, also when its operation is already on the first page.
+    for (let i = 0; i < 35; i++)
+      expect(s.show(tree, `knowledge/apis/items-${i}.md`)).toContain(
+        "predicate: HAS_OPERATION",
+      )
   })
 
   it("is deterministic: the same inputs give the same staged tree", async () => {
