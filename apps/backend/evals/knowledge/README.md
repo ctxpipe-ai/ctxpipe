@@ -108,12 +108,14 @@ Exit codes: 0 done, 2 bad setup, 3 the spend cap stopped the command.
 ### Make the public corpora
 
 ```sh
-GITHUB_TOKEN=… bun evals/knowledge/cli.ts corpus snapshot --plan fixtures/corpora-v0.plan.json --out "$TMPDIR/corpora/snapshots.json"
-GITHUB_TOKEN=… bun evals/knowledge/cli.ts corpus issues   --plan fixtures/corpora-v0.plan.json --out "$TMPDIR/corpora/issues.json"
-GITHUB_TOKEN=… bun evals/knowledge/cli.ts corpus freeze   --plan fixtures/corpora-v0.plan.json --out DATASET.json
+GITHUB_TOKEN=… DATABASE_URL=… AUTH_SECRET=… bun --no-env-file evals/knowledge/cli.ts corpus snapshot --plan fixtures/corpora-v0.plan.json --out "$TMPDIR/corpora/snapshots.json"
+GITHUB_TOKEN=… DATABASE_URL=… AUTH_SECRET=… bun --no-env-file evals/knowledge/cli.ts corpus issues   --plan fixtures/corpora-v0.plan.json --out "$TMPDIR/corpora/issues.json"
+GITHUB_TOKEN=… DATABASE_URL=… AUTH_SECRET=… bun --no-env-file evals/knowledge/cli.ts corpus freeze   --plan fixtures/corpora-v0.plan.json --out DATASET.json
 ```
 
 The plan (`fixtures/corpora-v0.plan.json`) gives the slice of each source of ADR-069 decision 2: the public repositories at fixed SHAs, the count of issues, and the issue cut-off date. The repositories that the steps make are private, in the org `owner`, with the name prefix `prefix`. `GITHUB_TOKEN` must be able to make and push to them.
+
+The steps use no database. But `cli.ts` loads the backend config when it starts, so also set `DATABASE_URL` and `AUTH_SECRET` (`DATABASE_URL` must be a URL and `AUTH_SECRET` must have at least 32 characters; the values of your local database are good). Run the commands with `bun --no-env-file` when the shell gives the token, so that no `.env` file adds another value.
 
 1. `snapshot` copies the tree of each repository at its SHA into the private repository `<prefix><corpus>-<repo>`, as one commit with no history. The commit has a fixed author ("ctxpipe evals") and the cut-off date, so it holds no personal data, and the same plan gives the same commit. A repository that holds another commit is refused.
 2. The ingest is not a command. In a product org that is only for the evals, make one Workspace for each corpus on the context repo `<prefix><corpus>-context`, and add the snapshot repositories of the corpus as its sources. The current production stack then makes the ingest output (ADR-069 decision 4).
