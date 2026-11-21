@@ -1,7 +1,6 @@
 "use client"
 import { IconCheck, IconChevronRight } from "@tabler/icons-react"
 import React from "react"
-import type { SeparatorProps } from "react-aria-components"
 import {
   Menu as AriaMenu,
   MenuItem as AriaMenuItem,
@@ -14,7 +13,6 @@ import {
   Header,
   type MenuItemProps,
   type MenuProps,
-  Separator,
 } from "react-aria-components"
 import { twMerge } from "tailwind-merge"
 
@@ -78,19 +76,6 @@ export function MenuItem(props: MenuItemProps) {
         ),
       )}
     </AriaMenuItem>
-  )
-}
-
-/**
- * A line between groups of items in a `Menu`, such as before a destructive
- * item.
- */
-export function MenuSeparator(props: SeparatorProps) {
-  return (
-    <Separator
-      {...props}
-      className="mx-3 my-1 border-b border-neutral-300 dark:border-neutral-700"
-    />
   )
 }
 

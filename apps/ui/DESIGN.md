@@ -213,7 +213,7 @@ Each state uses its house pattern. A region wait is a skeleton with the box of t
 A status is a dot and its word. The color is on the dot; the words share one restrained text color. A dot pulses only while the work runs (running, syncing, indexing); a static state has a still dot.
 <!-- /rubric -->
 
-Use the existing pill + dot ([`RepositoryStatus`](src/features/repositories/components/RepositoryStatus.tsx)).
+Use the status classes of [`src/styles.css`](src/styles.css): `ctx-indexing` with `ctx-indexing-dot` for work that runs, and `ctx-indexing-failed` with `ctx-indexing-failed-dot` for a failure. Example: [`SetupGuide`](src/features/home/setup-guide/SetupGuide.tsx).
 
 <!-- rubric: overflow -->
 Text, icons and focus rings fit their box. Nothing is cut off by a parent, nothing runs over a neighbor, and no element covers text. Long machine text (a URL, a token, an id, a stack trace, raw error text) never fills a message: a short sentence shows, and the detail is behind a disclosure or in a mono block with a capped height that scrolls. A signed URL or a value that looks like a secret never shows in full.

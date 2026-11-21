@@ -30,10 +30,6 @@ export function getRepositoryIndexingStatus(repo: {
   return repo.indexingStatus ?? (repo.indexReady ? "ready" : "running")
 }
 
-export function formatShortCommitHash(hash: string): string {
-  return hash.trim().slice(0, 7)
-}
-
 export function getRepositoryStatusDisplay(repo: {
   indexReady?: boolean
   indexingStatus?: RepositoryIndexingStatus | null
