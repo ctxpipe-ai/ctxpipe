@@ -13,7 +13,11 @@ export default defineConfig({
     teardownTimeout: 60_000,
     fileParallelism: false,
     include: ["src/**/*.upgrade.ts"],
-    globalSetup: ["src/test/global-setup-containers.ts"],
+    // The hydrate of the upgrade scrubs each unit with the file converter.
+    globalSetup: [
+      "src/test/global-setup-containers.ts",
+      "src/test/global-setup-converter.ts",
+    ],
     setupFiles: [
       "src/test/setup-test-containers.ts",
       "src/test/setup-evlog.ts",

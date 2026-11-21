@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
-import { dirname, join } from "node:path"
+import { dirname, join, relative } from "node:path"
 import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 import { gunzipSync } from "node:zlib"
@@ -356,6 +356,58 @@ it("runs in UTC with the C.UTF-8 locale", () => {
     )
   } finally {
     rmSync(file, { force: true })
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test("a host cap of Vitest workers does not run the files of a serial lane in parallel", () => {
+  // factory check sets VITEST_MAX_WORKERS to the CPUs of a host slot. The
+  // backend lanes share one database and set `fileParallelism: false`.
+  const directory = mkdtempSync(join(root, "apps/ui/.serial-lane-"))
+  const saved = process.env.VITEST_MAX_WORKERS
+  try {
+    writeFileSync(
+      join(directory, "vitest.config.mjs"),
+      `import { defineConfig } from "vitest/config"
+export default defineConfig({
+  root: import.meta.dirname,
+  test: { fileParallelism: false, include: ["*.test.mjs"] },
+})
+`,
+    )
+    // Vitest gives each worker a pool id from 1 to the worker count. With
+    // more than one worker, the two files start at the same time, and one
+    // of them gets pool id 2.
+    for (const name of ["a", "b"])
+      writeFileSync(
+        join(directory, `${name}.test.mjs`),
+        `import { expect, it } from "vitest"
+it("runs in the only worker", () => {
+  expect(process.env.VITEST_POOL_ID).toBe("1")
+})
+`,
+      )
+    process.env.VITEST_MAX_WORKERS = "4"
+    const launch = vitestCommand(
+      {
+        name: "serial",
+        directory: relative(root, directory),
+        runtime: "node",
+        config: "vitest.config.mjs",
+      },
+      root,
+      [],
+      join(directory, "report.json"),
+    )
+    const result = spawnSync(launch.command, launch.args, {
+      cwd: launch.cwd,
+      env: launch.env,
+      encoding: "utf8",
+    })
+    assert.equal(result.status, 0, result.stdout + result.stderr)
+  } finally {
+    if (saved === undefined) delete process.env.VITEST_MAX_WORKERS
+    else process.env.VITEST_MAX_WORKERS = saved
     rmSync(directory, { recursive: true, force: true })
   }
 })
