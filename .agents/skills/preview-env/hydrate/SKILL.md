@@ -60,13 +60,13 @@ Workspace **revision** prepare: `workspace-hydrate` rebuilds the projection (Pos
 **Steps**
 1. On **Settings**, watch the linked row until its chip settles.
 
-**Expect (UI)** **Indexed** (or **Indexed with issues** with a note); never stuck on **Indexing** or **Pending** beyond the budget (a stuck chip means codesearch is down or asleep).
+**Expect (UI)** **Indexed** (or **Indexed with issues** with a note); never stuck on **Indexing** or **Pending** beyond the budget (a stuck chip means codesearch is down).
 **Expect (backend)** a `repository-index` run finished; the code index answers a query: in Workspace chat ask what `loyaltyPoints(12345)` returns in `pe-{run-id}-code`; the answer is 17 and cites `src/loyalty.ts`.
 **Budget** 90 s / 5 min, link to **Indexed** (same clock as WS-6).
-**Evidence** `HYD-5-1.png`; Railway codesearch logs on a fail.
+**Evidence** `HYD-5-1.png`; codesearch's trace and logs on a fail ([observability](../../observability/SKILL.md)).
 
 ## Status
 
 - **PASS** HYD-1, HYD-3, HYD-5 `PASS`; HYD-2 `PASS`; HYD-4 `PASS` or `SKIP`.
-- **FAIL** `failed` after retry, 409 tree after ready, no projection switch after a push, or the worker never ran (attach Railway logs via [observability](../../observability/SKILL.md)).
+- **FAIL** `failed` after retry, 409 tree after ready, no projection switch after a push, or the worker never ran (attach the worker's trace and logs via [observability](../../observability/SKILL.md)).
 - **SKIP** no Workspace (later areas that need one `SKIP(blocked-by ONB-4)`).

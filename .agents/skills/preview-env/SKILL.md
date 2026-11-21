@@ -2,7 +2,7 @@
 name: preview-env
 description: >-
   preview-env critical-flow sweep of local host dev (https://app.ctxpipe.localhost)
-  or a Railway PR preview (backend-pr-N.up.railway.app), or the AWS stack
+  or an AWS PR preview (pr-N.ctxpipe.dev), or the AWS stack
   before its cutover (cutover.ctxpipe.dev), starting from a fresh
   registration. Use for the full browser + MCP suite, or one area: onboarding,
   auth, org-home, workspaces, hydrate, graph, chat, files-publish, connectors,
@@ -11,7 +11,7 @@ description: >-
 
 # preview-env
 
-Browser + HTTP run of the **critical flows** against a **disposable** target: local host dev or a Railway PR preview. The product UI is driven through the backend origin; hosted MCP is `{BASE_URL}/mcp`. This is not the Storybook required plays and not Playwright CI. The agent drives the browser from this catalogue on every run; there are no recorded scripts to replay.
+Browser + HTTP run of the **critical flows** against a **disposable** target: local host dev or an AWS PR preview. The product UI is driven through the backend origin; hosted MCP is `{BASE_URL}/mcp`. This is not the Storybook required plays and not Playwright CI. The agent drives the browser from this catalogue on every run; there are no recorded scripts to replay.
 
 Every run **starts from registration**: it creates its own accounts, organization, and Workspaces. There are no pre-seeded users. Never point a run at production.
 
@@ -45,13 +45,13 @@ Cloudflare Access protects every path of `pr-<N>.ctxpipe.dev` except the webhook
 - If `factory` says it cannot read the token, the AWS profiles of the host are older than this token: run `factory agent-host install <host>.pem` once, with the file that `factory agent-host issue` wrote for this host.
 - The token opens only the previews: a production host refuses it. It lasts 30 days, and WARP on the agent host replaces it. Details: the factory CLI README, "Previews".
 
-Only a pull request from ctxpipe-ai/ctxpipe itself into `main` gets a preview. `factory preview up` and the preview workflow refuse a PR from a fork. They refuse it before they build, push or clone anything. The [target guard](run-setup.md#target-guard) of this sweep does not admit `pr-<N>.ctxpipe.dev` yet ([CTX-1352](https://linear.app/ctxpipe/issue/CTX-1352)).
+Only a pull request from ctxpipe-ai/ctxpipe itself into `main` gets a preview. `factory preview up` and the preview workflow refuse a PR from a fork. They refuse it before they build, push or clone anything. The [target guard](run-setup.md#target-guard) admits `https://pr-<N>.ctxpipe.dev` as the mode `preview`.
 
 ## 1. Collect inputs
 
 | Input | Example |
 | --- | --- |
-| `BASE_URL` | `https://app.ctxpipe.localhost` or `https://backend-pr-280.up.railway.app` |
+| `BASE_URL` | `https://app.ctxpipe.localhost` or `https://pr-935.ctxpipe.dev` |
 | `mode` | `local`, `preview` or `aws`, derived from `BASE_URL` in [run-setup](run-setup.md#target-guard) |
 | `run-id` | UTC `YYYYMMDD-HHMMSS`, minted once per run |
 | `GH_TEST_ORG` | `ctxpipe-ai` |

@@ -12,7 +12,14 @@ curl -fsS "$BASE_URL/.status"
 
 Body must be JSON with `status` equal to `"ok"`.
 
-`preview` only: if the run includes `hydrate`, `graph`, `chat`, `files-publish`, `connectors`, or `resilience`, wake **worker** and **codesearch** on this `pr-N` environment (Railway MCP: service status, then `redeploy` / `restart-service` when `SLEEPING`). Proof is a **new deploy timestamp**, not a SUCCESS badge. Preview workers idle-exit (~180 s); waiting does not keep them warm.
+`preview` only: the request runs under `factory preview access` (Access covers `/.status` too):
+
+```bash
+factory preview access -- sh -c 'printf "CF-Access-Client-Id: %s\nCF-Access-Client-Secret: %s\n" \
+  "$CF_ACCESS_CLIENT_ID" "$CF_ACCESS_CLIENT_SECRET" | curl -fsS -H @- "$BASE_URL/.status"'
+```
+
+An AWS preview does not sleep: its worker and codesearch run until the preview goes. A 502 means the preview is not up: run `factory preview up <N>`, then wake again. Then, from `apps/backend` of a `main` checkout, run `factory preview access -- bun run src/scripts/validateTarget.ts "$BASE_URL" --no-mcp-read`, as `aws` does.
 
 `local` only: Docker infra and codesearch are up (`pnpm dev:infra`, `pnpm dev`); a missing codesearch container is a harness FAIL for the areas above. Trace export is on ([local trace export](run-setup.md#local-trace-export)): send `curl -fsS -H "x-request-id: pe-{run-id}-wake" "$BASE_URL/.status"`, then find `SpanAttributes['request.id'] = 'pe-{run-id}-wake'` in HyperDX under `local-<name>` within a minute. No span is a harness FAIL.
 
@@ -20,7 +27,7 @@ Body must be JSON with `status` equal to `"ok"`.
 
 **Done when:** `/.status` is ok, and:
 
-- `preview`: if those areas run, worker and codesearch have a deploy timestamp newer than the wake call, or they are `RUNNING` with a recent timestamp.
+- `preview`: each `validateTarget` check passed.
 - `local`: the local stack answers, and its wake request is in HyperDX.
 - `aws`: each `validateTarget` check passed.
 
@@ -28,12 +35,12 @@ Body must be JSON with `status` equal to `"ok"`.
 
 `preview` only. Fetch the HTML at `BASE_URL/`, extract the proxied `/assets/main-*.js` filename, then:
 
-1. Compare that hash to `https://app.ctxpipe.ai`'s `/assets/main-*.js`. **Same hash is a harness FAIL** (production UI leak). Check that the PR UI image rolled (`source.image` is `pr-N-*`); do not continue.
+1. Compare that hash to `https://app.ctxpipe.ai`'s `/assets/main-*.js`, when `factory preview up` built the `ui` image (its plan table says `build`). Then **the same hash is a harness FAIL** (production UI leak): do not continue. When `up` copied main's `ui` image, the same hash as production is expected; record it and go on.
 2. `grep -Fq 'ws/$workspaceSlug'` the **JS bundle** (single-quoted, `set -u`). Missing canary is a harness FAIL. Do not grep `/` HTML: TanStack SSR of `/` omits unmatched routes.
 
 `local` runs the Vite dev server: skip the hash compare and check only that `https://app.ctxpipe.localhost/.auth/sign-up` renders from this origin.
 
-**Done when:** on `preview`, the main JS hash differs from production and the bundle contains `ws/$workspaceSlug`; on `local`, the sign-up page rendered from the local origin.
+**Done when:** on `preview`, the main JS hash differs from production (or `up` copied main's `ui` image) and the bundle contains `ws/$workspaceSlug`; on `local`, the sign-up page rendered from the local origin.
 
 ## 3. Sign-up page
 
@@ -53,7 +60,7 @@ Any driver works (Cursor computer use, T3 Code preview tools, Playwright, anothe
 
 ## Flow failure
 
-Stop that flow. Attach the trace and logs via [observability](../observability/SKILL.md) (Railway MCP first on a preview whose process never exported). For a chat hang, filter `step` in `opencode.chatStream` / `tanstack-workspace-chat`. Redact tokens and emails.
+Stop that flow. Attach the trace and logs via [observability](../observability/SKILL.md) (on a preview whose process never exported, its CloudWatch log groups `pr-<N>-*` in the preview account, through the factory's read-only audit role `factory-audit`; the preview holds customer data, so nothing you read there goes into a report, a ticket or a PR). For a chat hang, filter `step` in `opencode.chatStream` / `tanstack-workspace-chat`. Redact tokens and emails.
 
 Harness-class blockers (do not continue the suite): session gone mid-run with no way back, production UI leak, worker or codesearch never woke while a later area needs it.
 

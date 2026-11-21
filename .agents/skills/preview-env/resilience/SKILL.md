@@ -1,15 +1,15 @@
 ---
 name: preview-env-resilience
-description: Backend restart mid-chat, worker sleep and wake, and inline errors instead of blank pages (preview-env).
+description: Backend restart mid-chat, and inline errors instead of blank pages (preview-env).
 disable-model-invocation: true
 ---
 
 # preview-env resilience
 
-Last area: it disturbs the target. [Harness](../harness.md) is `PASS`; run it after the other areas. Flow format: [run-setup](../run-setup.md#flow-format).
+Last area: it disturbs the target. [Harness](../harness.md) is `PASS`; run it after the other areas. Flow format: [run-setup](../run-setup.md#flow-format). RES-2 (worker sleep and wake) went with the Railway previews: no target sleeps its worker.
 
 ### RES-1 Backend restart mid-chat (`gated-restart-ok`)
-**Requires** flag `restart-ok` (a human or the run may restart the backend: `local` stop and start `pnpm dev`; `preview` Railway `restart-service` or redeploy of the backend, allowed on `pr-280` only per the [write policy](../run-setup.md#write-policy)); CHAT-2.
+**Requires** flag `restart-ok` (a human or the run may restart the backend: `local` only, stop and start `pnpm dev`, per the [write policy](../run-setup.md#write-policy)); CHAT-2.
 **Steps**
 1. Send a long-answer prompt in the Workspace 1 conversation; while it streams, restart the backend.
 2. Watch the UI until the backend is back, then reload the conversation URL.
@@ -19,18 +19,6 @@ Last area: it disturbs the target. [Harness](../harness.md) is `PASS`; run it af
 **Expect (backend)** the interrupted `chat_runs` row ends in a terminal state (not `running` forever); the conversation's sandbox is reattached or recreated from its session branch (`workspace_sandbox_instances`), not duplicated.
 **Budget** 90 s / 3 min, restart to a working follow-up.
 **Evidence** `RES-1-1.png` (outage state), `RES-1-2.png` (recovered); traces before and after; run states.
-
-### RES-2 Worker sleep and wake (`preview-only`)
-**Requires** `preview` mode; Workspace 1 hydrated; a commit pushed to the workspace repository after the wait ([HYD-3](../hydrate/SKILL.md) steps).
-**Steps**
-1. Leave the preview untouched for 4 minutes (preview workers idle-exit after about 180 s).
-2. Check the worker service status (Railway MCP).
-3. Push a commit to the workspace repository, then reload the Workspace.
-
-**Expect (UI)** the Workspace never shows a blank or failed state while the worker is asleep; hydrate shows **Hydrate pending** or **Hydrating**, then **Hydrate ready** on the new SHA once the worker wakes (or the harness wake rule is applied).
-**Expect (backend)** the worker deploy timestamp moves or the service returns to `RUNNING`; the enqueued `workspace-tip-check` and `workspace-hydrate` runs complete after the wake, none are lost.
-**Budget** 90 s / 3 min, push to **Hydrate ready**.
-**Evidence** `RES-2-1.png`; worker status before and after; run ids.
 
 ### RES-3 Errors render inline, never a blank page
 **Requires** ONB-4; accounts A and C.
@@ -46,5 +34,5 @@ Last area: it disturbs the target. [Harness](../harness.md) is `PASS`; run it af
 
 ## Status
 
-- **PASS** RES-3 `PASS`; RES-1 and RES-2 `PASS` or `SKIP`.
-- **FAIL** a blank page, an interrupted run stuck `running`, a duplicate sandbox after restart, or lost enqueued jobs after the worker slept.
+- **PASS** RES-3 `PASS`; RES-1 `PASS` or `SKIP`.
+- **FAIL** a blank page, an interrupted run stuck `running`, a duplicate sandbox after restart.
