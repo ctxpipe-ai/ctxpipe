@@ -20,10 +20,7 @@ export function FloatingPanel({
 }) {
   return (
     <div
-      className={cn(
-        "rounded-md border border-border bg-zinc-900/95",
-        className,
-      )}
+      className={cn("rounded-md border border-border bg-zinc-900", className)}
       {...(role ? { role } : {})}
       {...(ariaLabel ? { "aria-label": ariaLabel } : {})}
     >

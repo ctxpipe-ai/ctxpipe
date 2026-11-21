@@ -26,6 +26,7 @@ import {
 import { Button } from "@/components/ui/Button"
 import { cn } from "@/lib/utils"
 
+import { FloatingPanel } from "./FloatingPanel"
 import { GraphWaitState } from "./GraphWaitState"
 import { buildFocusFitTarget } from "./knowledgeGraphFocusFit"
 import {
@@ -853,12 +854,12 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
               inert={drawerOpen}
             >
               <div className="flex h-10 w-full max-w-xl items-stretch gap-3">
-                <div className="min-w-0 flex-1 rounded-md border border-border bg-zinc-900/95 px-3 py-1.5">
+                <FloatingPanel className="min-w-0 flex-1 px-3 py-1.5">
                   <FallbackGraphSearch
                     points={points}
                     onFocusIds={focusSearchIds}
                   />
-                </div>
+                </FloatingPanel>
                 {centerControls ? (
                   <div className="flex items-center" aria-hidden>
                     <div className="h-5 w-px bg-zinc-800/95" />
@@ -1132,14 +1133,9 @@ function StockPanel({
   className?: string
 }) {
   return (
-    <div
-      className={cn(
-        "rounded-md border border-border bg-zinc-900/95 p-3 text-foreground",
-        className,
-      )}
-    >
+    <FloatingPanel className={cn("p-3 text-foreground", className)}>
       {children}
-    </div>
+    </FloatingPanel>
   )
 }
 
@@ -1173,9 +1169,9 @@ function GraphControlButton({
 
 function ToolRail({ children }: { children: ReactNode }) {
   return (
-    <div className="flex flex-col items-center gap-0.5 rounded-md border border-border bg-zinc-900/95 p-0.5 text-muted-foreground">
+    <FloatingPanel className="flex flex-col items-center gap-0.5 p-0.5 text-muted-foreground">
       {children}
-    </div>
+    </FloatingPanel>
   )
 }
 
