@@ -70,22 +70,16 @@ async function runsOf(workflowName: string, workspaceId: string) {
 async function storedDocuments(f: NativeHydrationFixture) {
   const store = createKnowledgeStore(writerUrl)
   try {
-    const state = await getKnowledgeState({
-      orgId: f.org.id,
-      workspaceId: f.workspaceId,
-    })
-    if (!state?.branch || state.treeVersion === null) return {}
+    // The head that a read of the default branch uses.
+    const head = (await readyKnowledgeHeads(f.org.id, [f.workspaceId])).get(
+      f.workspaceId,
+    )
+    if (!head) return {}
     return Object.fromEntries(
       (
         await store.listDocumentStatuses({
           orgId: f.org.id,
-          heads: [
-            {
-              workspaceId: f.workspaceId,
-              branch: state.branch,
-              treeVersion: state.treeVersion,
-            },
-          ],
+          heads: [{ workspaceId: f.workspaceId, ...head }],
         })
       ).map((row) => [row.docKey, row.status]),
     )
@@ -385,7 +379,11 @@ it(
             .set({ desiredDefaultBranch: "trunk" })
             .where(eq(workspaces.id, f.workspaceId)),
         )
+        // Until the run of trunk, a read of the default branch shows the tree
+        // of main.
         expect((await defaultHead())?.branch).toBe("main")
+        const shown = await storedDocuments(f)
+        expect(Object.keys(shown).length).toBeGreaterThan(0)
         const renamed = await f.runner.runWorkflow(
           knowledgeProjection.spec,
           key,
@@ -400,6 +398,8 @@ it(
           branch: "trunk",
           sha: f.sha,
         })
+        // After it, the tree of trunk, with the same documents.
+        expect(await storedDocuments(f)).toEqual(shown)
         // The queued runs of the other branches end: the overlay of feature
         // now has trunk as its base.
         await vi.waitFor(
