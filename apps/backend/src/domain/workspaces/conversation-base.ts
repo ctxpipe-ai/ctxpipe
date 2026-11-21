@@ -22,7 +22,6 @@ import type { WorkspaceRevision } from "./revision.js"
 function isGitBranchName(name: string): boolean {
   return (
     name.length > 0 &&
-    name.length <= 255 &&
     name !== "@" &&
     !name.startsWith("-") &&
     !name.startsWith("/") &&
@@ -98,8 +97,9 @@ export async function listConversationBaseBranches(
 }
 
 /**
- * The tips that this process read last, by remote and branch, for the reads
- * that accept an older tip (`maxAgeMs`).
+ * The tips that this process read last, for the reads that accept an older
+ * tip (`maxAgeMs`). The key holds the org and the connection, so that a
+ * read gets only a tip that a read with its own credential got.
  */
 const knownTips = new Map<string, { sha: string | null; at: number }>()
 
@@ -116,7 +116,12 @@ export async function baseBranchTip(input: {
   branch: string
   maxAgeMs?: number
 }): Promise<string | null> {
-  const key = JSON.stringify([input.remote.url, input.branch])
+  const key = JSON.stringify([
+    input.orgId,
+    input.remote.connectionId,
+    input.remote.url,
+    input.branch,
+  ])
   const known = knownTips.get(key)
   if (known && input.maxAgeMs && Date.now() - known.at <= input.maxAgeMs)
     return known.sha
@@ -127,7 +132,11 @@ export async function baseBranchTip(input: {
     branch: input.branch,
   })
   const sha = tip?.sha ?? null
-  knownTips.set(key, { sha, at: Date.now() })
+  const now = Date.now()
+  // A tip older than a minute is of no use to a Files read: it goes.
+  for (const [known, entry] of knownTips)
+    if (now - entry.at > 60_000) knownTips.delete(known)
+  knownTips.set(key, { sha, at: now })
   return sha
 }
 
