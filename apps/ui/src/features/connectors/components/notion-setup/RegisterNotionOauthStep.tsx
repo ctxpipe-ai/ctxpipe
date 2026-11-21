@@ -24,8 +24,7 @@ type RegisterNotionOauthStepProps = {
 
 /**
  * The Notion setup step of a self-hosted deployment where the admin creates a
- * public Notion OAuth integration and saves its credentials. It calls
- * `onSaved` after the save.
+ * public Notion OAuth integration and saves its credentials.
  */
 export function RegisterNotionOauthStep({
   orgSlug,

@@ -43,10 +43,10 @@ type GithubSelfHostedWizardModalProps = {
 }
 
 /**
- * Connects a GitHub App that the admin creates on a self-hosted deployment.
- * It reserves a draft connection, collects the App ID, slug and private key,
- * then hands off to the GitHub install popup. Closing it before the save
- * deletes the draft.
+ * Connects a GitHub App that the admin creates on a self-hosted deployment. It
+ * reserves a draft connection and collects the App ID, slug and private key,
+ * then opens the GitHub install popup. Closing it before the save deletes the
+ * draft.
  */
 export function GithubSelfHostedWizardModal({
   orgSlug,

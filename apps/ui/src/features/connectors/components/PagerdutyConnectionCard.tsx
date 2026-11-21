@@ -26,10 +26,10 @@ type PagerdutyConnectionCardProps = {
 }
 
 /**
- * The PagerDuty row on the connectors page. It shows the connection health
- * and the next setup action, and lets an admin remove the connection. It
- * tells the admin when the authorization is revoked. Its action opens the
- * PagerDuty setup dialog.
+ * The PagerDuty row on the connectors page. It shows the connection health and
+ * the next setup action, and lets an admin remove the connection. It tells the
+ * admin when the authorization is revoked, and its action opens the PagerDuty
+ * setup dialog.
  */
 export function PagerdutyConnectionCard({
   orgSlug,

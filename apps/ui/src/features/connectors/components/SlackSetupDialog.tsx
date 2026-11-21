@@ -45,10 +45,10 @@ type SlackSetupDialogProps = {
 }
 
 /**
- * Sets up the Slack connector: connect GitHub if needed, authorize Slack,
- * then add Slack to Workspaces. After that, a mention of the ctxpipe bot
- * saves the Slack thread to the Workspaces. Pass `connectionId` to continue
- * the setup of a connection.
+ * Sets up the Slack connector: authorize Slack, connect GitHub if needed, then
+ * add Slack to Workspaces. After that, a mention of the ctxpipe bot saves the
+ * Slack thread to the Workspaces. Pass `connectionId` to continue the setup of
+ * a connection.
  */
 export function SlackSetupDialog({
   orgSlug,

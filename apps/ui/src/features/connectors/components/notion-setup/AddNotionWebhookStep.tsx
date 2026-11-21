@@ -21,8 +21,7 @@ type AddNotionWebhookStepProps = {
 
 /**
  * The Notion setup step where the admin adds a webhook with the given event
- * URL to the Notion OAuth app, so that Notion changes sync live. It calls
- * `onContinue` when the admin is done.
+ * URL to the Notion OAuth app, so that Notion changes sync live.
  */
 export function AddNotionWebhookStep({
   orgSlug,

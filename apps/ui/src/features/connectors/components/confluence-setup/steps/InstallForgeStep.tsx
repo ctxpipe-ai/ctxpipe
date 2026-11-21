@@ -45,9 +45,9 @@ function pickHttps(candidate: string | null | undefined): string | null {
 
 /**
  * The Confluence setup step that installs the ctxpipe Forge app in a
- * Confluence site. On a self-hosted deployment, the admin gives the site, the
- * Atlassian email and an API token, and ctxpipe provisions the app first. It
- * calls `onOpenedInstall` when the person opens the install.
+ * Confluence site. On a self-hosted deployment, ctxpipe first provisions the
+ * app with the site, the Atlassian email and an API token that the admin
+ * gives.
  */
 export function InstallForgeStep({
   orgSlug,

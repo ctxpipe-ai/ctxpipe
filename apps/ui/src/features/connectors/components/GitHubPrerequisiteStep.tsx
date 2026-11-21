@@ -14,9 +14,8 @@ type GitHubPrerequisiteStepProps = {
 
 /**
  * A setup step that asks the person to connect GitHub before a source
- * connector can continue, because ctxpipe writes the source content to a
- * Workspace on GitHub. It starts the GitHub connect flow and calls
- * `onConnected` when GitHub is connected.
+ * connector can continue. ctxpipe writes the source content to a Workspace on
+ * GitHub, so this connection is necessary.
  */
 export function GitHubPrerequisiteStep({
   orgSlug,
