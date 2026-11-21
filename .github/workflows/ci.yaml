@@ -708,18 +708,20 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: ./.github/actions/setup-buildx
-      # Only codesearch reads a layer cache: its toolchain stages are the slow
-      # part. This job reads it without a login. The layer-cache job writes it
-      # (see the comment there).
+      # Each image reads the layer cache of main. This job reads it without a
+      # login. The layer-cache job writes it (see the comment there). The
+      # chat sandbox shares the cache of test-shards. A BuildKit cache mount
+      # (the pnpm store) is not in a registry cache: when a layer misses, its
+      # install downloads each package again.
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: ${{ matrix.context || '.' }}
           file: ${{ matrix.dockerfile }}
           push: false
-          cache-from: ${{ matrix.name == 'codesearch' && 'type=registry,ref=ghcr.io/ctxpipe-ai/ci-cache:production-codesearch' || '' }}
+          cache-from: type=registry,ref=ghcr.io/ctxpipe-ai/ci-cache:${{ matrix.name == 'chat-sandbox' && 'chat-sandbox-arm64' || format('production-{0}', matrix.name) }}
 
   # Writes the Docker layer caches that test-shards (chat sandbox) and
-  # production-builds (codesearch) read.
+  # production-builds (each image) read.
   # - The cache is in GHCR, not in the GHA cache. The GHA cache evicts layer
   #   blobs while their manifest stays, and BuildKit then fails the build with
   #   "BlobNotFound". GHCR keeps each blob until someone deletes its version.
@@ -757,6 +759,18 @@ jobs:
             context: .
             dockerfile: apps/codesearch/Dockerfile
             cache: ghcr.io/ctxpipe-ai/ci-cache:production-codesearch
+          - name: ui
+            context: .
+            dockerfile: apps/ui/Dockerfile
+            cache: ghcr.io/ctxpipe-ai/ci-cache:production-ui
+          - name: docs
+            context: .
+            dockerfile: apps/docs/Dockerfile
+            cache: ghcr.io/ctxpipe-ai/ci-cache:production-docs
+          - name: cost-telemetry
+            context: ops/observability/cost-telemetry
+            dockerfile: ops/observability/cost-telemetry/Dockerfile
+            cache: ghcr.io/ctxpipe-ai/ci-cache:production-cost-telemetry
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:

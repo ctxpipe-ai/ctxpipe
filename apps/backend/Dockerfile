@@ -11,7 +11,9 @@ RUN bun install -g pnpm@10.12.1
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* tsconfig.json ./
 COPY patches patches
 COPY apps/backend/package.json apps/backend/package.json
-RUN pnpm install --frozen-lockfile --prod --config.confirmModulesPurge=false
+# The pnpm store is a BuildKit cache mount (scripts/checks/README.md, Builds).
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+    pnpm install --store-dir /pnpm/store --frozen-lockfile --prod --config.confirmModulesPurge=false
 
 # The MCP eval client (apps/backend/evals/mcp/run.ts) as one bundled file:
 # the AWS cutover rehearsal runs it in a one-off task of this image
@@ -19,9 +21,13 @@ RUN pnpm install --frozen-lockfile --prod --config.confirmModulesPurge=false
 # stage, and the server never loads the bundle.
 FROM deps AS evals
 COPY packages/visual-review/package.json packages/visual-review/package.json
-RUN pnpm install --frozen-lockfile --filter @ctxpipe/backend... --config.confirmModulesPurge=false
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+    pnpm install --store-dir /pnpm/store --frozen-lockfile --filter @ctxpipe/backend... --config.confirmModulesPurge=false
 COPY packages/visual-review packages/visual-review
 COPY apps/backend/evals/mcp apps/backend/evals/mcp
+# The one backend file that the bundle imports: the provider block of each
+# model call (ADR-070). A new import of the client fails this build.
+COPY apps/backend/src/retrieval/services/openRouterProvider.ts apps/backend/src/retrieval/services/openRouterProvider.ts
 RUN bun build apps/backend/evals/mcp/run.ts --target=bun --outfile /out/run.bundle.js
 
 # Production stage — Bun runs TypeScript natively, no tsc compilation needed

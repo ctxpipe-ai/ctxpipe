@@ -3,6 +3,10 @@ import { join } from "node:path"
 
 import { z } from "zod"
 
+import { withOrgDbContext } from "../../src/db/client.js"
+import { workspaceRevisionSchema } from "../../src/domain/workspaces/revision.js"
+import { workspaceRootPath } from "../../src/domain/workspaces/root-path.js"
+import { knowledgeProjectionRoot } from "../../src/knowledge-plane/change-set.js"
 import type { KnowledgeReader } from "../../src/knowledge-reader/knowledge-reader.js"
 import { legacyKnowledgeReader } from "../../src/knowledge-reader/legacy-reader.js"
 import { ORCHESTRATOR_DEFAULTS } from "../../src/knowledge-reader/orchestrator.js"
@@ -10,7 +14,12 @@ import { planeKnowledgeReader } from "../../src/knowledge-reader/plane-reader.js
 import { resolveCallWorkspace } from "../../src/mcp/framework/call-workspace.js"
 import { McpToolError } from "../../src/mcp/framework/tool-errors.js"
 import { getRelatedInputShape } from "../../src/mcp/tools/get-related.js"
-import { readyKnowledgeShas } from "../../src/models/knowledge-state.js"
+import {
+  getKnowledgeState,
+  type KnowledgeHead,
+  readyKnowledgeHeads,
+} from "../../src/models/knowledge-state.js"
+import { getWorkspaceById } from "../../src/models/workspaces.js"
 import { POSITION_STATUSES } from "../../src/retrieval/jev/disagreement.js"
 import { type Dataset, datasetSchema, type Question } from "./dataset.js"
 import {
@@ -151,11 +160,15 @@ function failure(error: unknown): string {
 
 const relatedInput = z.object(getRelatedInputShape)
 
-/** The org and the Workspace of a corpus, and the SHA that both stacks serve. */
+/**
+ * The org and the Workspace of a corpus, the SHA that both stacks serve, and
+ * the head of the plane at that SHA.
+ */
 type EvalTarget = {
   org: { id: string; slug: string }
   workspace: { id: string; slug: string }
   sha: string
+  head: KnowledgeHead
 }
 
 /**
@@ -176,18 +189,43 @@ async function resolveWorkspaces(
       )
     const org = { id: target.orgId, slug: target.orgSlug }
     const workspace = await resolveCallWorkspace(org, target.workspace)
-    const plane = (await readyKnowledgeShas(org.id, [workspace.id])).get(
+    const head = (await readyKnowledgeHeads(org.id, [workspace.id])).get(
       workspace.id,
     )
-    const { sha } = corpus.contextRepo
-    if (workspace.served?.sha !== sha || plane !== sha)
+    const plane = head?.sha
+    const { sha, root } = corpus.contextRepo
+    if (workspace.served?.sha !== sha || !head || plane !== sha)
       throw new Error(
         `Workspace ${workspace.slug} must serve the frozen SHA ${sha} of ${corpus.id} on both stacks. The old stack serves ${workspace.served?.sha ?? "nothing"}, and the plane serves ${plane ?? "nothing"}.`,
+      )
+    // The gold paths are relative to the root of the corpus, as the tools
+    // give the paths of the Workspace. Each stack must serve that root: a
+    // failed projection after a change of the root keeps the earlier one.
+    const record = await withOrgDbContext(org.id, () =>
+      getWorkspaceById(workspace.id, org.id),
+    )
+    const state = await getKnowledgeState({
+      orgId: org.id,
+      workspaceId: workspace.id,
+    })
+    const roots = {
+      workspace: workspaceRootPath(record),
+      old: workspaceRootPath(
+        workspaceRevisionSchema.safeParse(record?.activeRevision).data,
+      ),
+      plane: state?.projectionVersion
+        ? knowledgeProjectionRoot(state.projectionVersion)
+        : null,
+    }
+    if (Object.values(roots).some((served) => served !== root))
+      throw new Error(
+        `Workspace ${workspace.slug} must serve the root "${root}" of ${corpus.id} on both stacks. The Workspace has "${roots.workspace}", the old stack serves "${roots.old}", and the plane serves "${roots.plane ?? "an unknown root"}".`,
       )
     resolved.set(corpus.id, {
       org,
       workspace: { id: workspace.id, slug: workspace.slug },
       sha,
+      head,
     })
   }
   return resolved
@@ -216,7 +254,7 @@ export async function runEval(input: {
         arm === "legacy"
           ? legacyKnowledgeReader
           : planeKnowledgeReader({
-              shas: new Map([[target.workspace.id, target.sha]]),
+              heads: new Map([[target.workspace.id, target.head]]),
             })
       calls.begin(arm, question.id)
       const answer = await ask(reader, question, target, now)

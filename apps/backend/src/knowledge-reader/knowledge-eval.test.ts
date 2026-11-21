@@ -1,5 +1,5 @@
 import { delay, HttpResponse, http } from "msw"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import {
   type Dataset,
@@ -14,8 +14,10 @@ import {
 } from "../../evals/knowledge/metrics.js"
 import { ModelCalls } from "../../evals/knowledge/model-calls.js"
 import { checkPanel, labelWithPanel } from "../../evals/knowledge/panel.js"
+import { buildReport, renderMarkdown } from "../../evals/knowledge/report.js"
 import { parseSettings } from "../../evals/knowledge/runner.js"
 import { useMswServer } from "../../test/msw.js"
+import { ORCHESTRATOR_DEFAULTS } from "./orchestrator.js"
 
 /*
  * The parts of the knowledge eval harness that need no store: the dataset
@@ -218,6 +220,24 @@ describe("the spend cap", () => {
     }
   })
 
+  it("reserves an embedding batch by the size of its input", async () => {
+    sent = 0
+    const calls = new ModelCalls(BASE, 0.005)
+    const restore = calls.install()
+    try {
+      // 64 chunks of 200 bytes: $0.0064 at $0.5 for each million bytes,
+      // above the cap.
+      const batch = Array.from({ length: 64 }, () => "x".repeat(200))
+      expect((await post(`${BASE}/embeddings`, { input: batch })).status).toBe(
+        503,
+      )
+      expect(sent).toBe(0)
+      expect(calls.stopped).toBe(true)
+    } finally {
+      restore()
+    }
+  })
+
   it("counts an answer with no cost at the reserved value", async () => {
     sent = 0
     const calls = new ModelCalls(BASE, 1)
@@ -239,6 +259,76 @@ describe("the spend cap", () => {
     } finally {
       restore()
     }
+  })
+})
+
+describe("the comparison with the kept run", () => {
+  it("counts an error of this run, not of the kept run, in the guards", async () => {
+    const dataset = await readDataset(datasetFile)
+    const id = "orm-dist-tag"
+    const calls = { jev: 1, jevQuestions: 2, embedding: 1, costUsd: 0.001 }
+    const report = buildReport({
+      manifest: {
+        datasetVersion: dataset.version,
+        splits: ["dev"],
+        now: "2026-11-20T00:00:00.000Z",
+        settings: {},
+        loop: { ...ORCHESTRATOR_DEFAULTS },
+        mode: "live",
+        capUsd: 1,
+        spentUsd: 0.002,
+        stopped: false,
+      },
+      dataset: {
+        ...dataset,
+        questions: dataset.questions.filter((question) => question.id === id),
+      },
+      answers: [
+        {
+          arm: "legacy",
+          question: id,
+          search: { refs: [], scores: [], latencyMs: 10 },
+          calls: { ...calls, missing: 0 },
+        },
+        {
+          arm: "plane",
+          question: id,
+          search: { error: "internal", latencyMs: 10 },
+          calls: { ...calls, missing: 0 },
+        },
+      ],
+      kept: {
+        run: { mode: "live" },
+        questions: [
+          {
+            arm: "plane",
+            question: id,
+            metrics: {
+              recall5: 1,
+              ndcg10: 1,
+              searchRecall50: 1,
+              traversalRecall: null,
+              noAnswer: null,
+              positions: null,
+            },
+            searchMs: 10,
+            relatedMs: null,
+            jevCalls: 1,
+            jevQuestions: 2,
+            costUsd: 0.001,
+          },
+        ],
+      },
+    })
+    expect(
+      report.kept?.guards.map(({ kept, now }) => ({
+        kept: kept.errors,
+        now: now.errors,
+      })),
+    ).toEqual([{ kept: 0, now: 1 }])
+    expect(renderMarkdown(report)).toContain(
+      "| dev | 1 | errors | 0 | 1 | +1 |",
+    )
   })
 })
 
@@ -272,6 +362,7 @@ describe("the judge panel", () => {
     },
   }
   const asked: string[] = []
+  const providers: unknown[] = []
   /** From this call on, the endpoint answers 503, as the spend cap does. */
   let capAt = Number.POSITIVE_INFINITY
   useMswServer(
@@ -281,7 +372,9 @@ describe("the judge panel", () => {
       const body = (await request.json()) as {
         model: string
         messages: { content: string }[]
+        provider: unknown
       }
+      providers.push(body.provider)
       const ref = /Document <data>(.*?)<\/data>/.exec(
         body.messages[0]?.content ?? "",
       )?.[1]
@@ -307,6 +400,7 @@ describe("the judge panel", () => {
         contextRepo: {
           url: "https://example.test/repo",
           sha: "e".repeat(40),
+          root: "",
         },
         workspace: "corpus-v0",
       },
@@ -396,6 +490,29 @@ describe("the judge panel", () => {
     expect(
       labeled.votes.find((vote) => vote.ref === "noise.md")?.votes,
     ).toHaveLength(3)
+  })
+
+  it("sends each judge call with the provider block of ADR-070", async () => {
+    vi.stubEnv("MODEL_PROVIDER_ALLOWLIST", "openai,anthropic")
+    providers.length = 0
+    try {
+      await labelWithPanel({
+        draft: { ...draft, questions: draft.questions.slice(1, 2) },
+        models: Object.keys(replies),
+        read: async (_corpus, ref) => `The text of ${ref}.`,
+        env,
+        stopped: () => false,
+      })
+    } finally {
+      vi.unstubAllEnvs()
+    }
+    expect(providers).toHaveLength(3)
+    for (const provider of providers)
+      expect(provider).toEqual({
+        data_collection: "deny",
+        zdr: true,
+        only: ["openai", "anthropic"],
+      })
   })
 
   it("stops at the spend cap and keeps the votes before the stop", async () => {

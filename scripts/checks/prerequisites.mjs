@@ -402,19 +402,17 @@ export const prerequisites = {
       if (process.env.SKIP_CONVERTER_BUILD !== "1")
         step(
           "cargo",
-          [
-            "build",
-            "--release",
-            "--locked",
-            "--manifest-path",
-            "apps/backend/converter/Cargo.toml",
-          ],
-          "Install a Rust toolchain (rustup.rs) and fix the converter build.",
-          root,
+          ["build", "--release", "--locked"],
+          "Install rustup (rustup.rs) and fix the converter build.",
+          // rustup reads rust-toolchain.toml from the working directory, so
+          // Cargo runs in the converter folder: it builds with the Rust of the
+          // worker image (the pin), not the Rust of the host.
+          join(root, "apps/backend/converter"),
           // Only what Cargo needs: the build scripts of the crates get no
-          // key of the environment.
+          // key of the environment. No RUSTUP_TOOLCHAIN: it would replace the
+          // pin.
           Object.fromEntries(
-            ["PATH", "HOME", "CARGO_HOME", "RUSTUP_HOME", "RUSTUP_TOOLCHAIN"]
+            ["PATH", "HOME", "CARGO_HOME", "RUSTUP_HOME"]
               .filter((name) => process.env[name])
               .map((name) => [name, process.env[name]]),
           ),

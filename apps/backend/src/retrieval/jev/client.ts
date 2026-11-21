@@ -12,7 +12,8 @@ import { z } from "zod"
 import { assertNotInOrgDbContext } from "../../db/client.js"
 import { gatewayCost } from "../../observability/gatewayCost.js"
 import { gatewayRoutingError } from "../../observability/gatewayError.js"
-import { openRouterSettings, ZDR_PROVIDER } from "../services/modelProvider.js"
+import { openRouterSettings } from "../services/modelProvider.js"
+import { openRouterProvider } from "../services/openRouterProvider.js"
 
 /** The Jev model of the OpenRouter Decisions API. */
 export const JEV_MODEL = "typesafe/jev-1.14"
@@ -115,7 +116,7 @@ export async function decideNoul(
                 model: JEV_MODEL,
                 state,
                 questions,
-                provider: ZDR_PROVIDER,
+                provider: openRouterProvider(),
               }),
               signal,
             },

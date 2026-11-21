@@ -81,7 +81,6 @@ RUN --mount=type=bind,source=apps/codesearch/release-assets.txt,target=/release-
     apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
-    unzip \
   && rm -rf /var/lib/apt/lists/* \
   && mkdir -p /out /test-out /tmp/releases \
   && TARGETARCH="${TARGETARCH}" bash /fetch-releases.sh /release-assets.txt /tmp/releases /releases \
@@ -92,7 +91,7 @@ RUN --mount=type=bind,source=apps/codesearch/release-assets.txt,target=/release-
   && gzip -dc "rust-analyzer-${TARGETARCH}.gz" > /out/rust-analyzer \
   && cp "scip-clang-${TARGETARCH}" /out/scip-clang \
   && cp "scip-ruby-${TARGETARCH}" /out/scip-ruby \
-  && unzip -j -q "rclone-${TARGETARCH}.zip" '*/rclone' -d /test-out \
+  && tar -xzf "versitygw-${TARGETARCH}.tar.gz" -C /test-out --strip-components=1 --wildcards '*/versitygw' \
   && chmod +x /out/* /test-out/*
 
 # ── Stage 7: Install application dependencies ────────────────────────────────
@@ -107,7 +106,9 @@ RUN npm install -g pnpm@10.12.1
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* tsconfig.json ./
 COPY patches patches
 COPY apps/codesearch/package.json apps/codesearch/package.json
-RUN pnpm install --frozen-lockfile --prod --config.confirmModulesPurge=false
+# The pnpm store is a BuildKit cache mount (scripts/checks/README.md, Builds).
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+    pnpm install --store-dir /pnpm/store --frozen-lockfile --prod --config.confirmModulesPurge=false
 
 # ── Stage 8: Production runtime ──────────────────────────────────────────────
 # Keep the indexer OS contract on Bookworm. Bun's newer slim image uses
@@ -228,13 +229,14 @@ CMD ["/start.sh"]
 FROM runtime AS test
 ENV NODE_ENV=development
 # The S3-compatible server of the shard store tests (src/test/s3Server.ts).
-COPY --from=release-tools /test-out/rclone /usr/local/bin/rclone
+COPY --from=release-tools /test-out/versitygw /usr/local/bin/versitygw
 RUN npm install -g pnpm@10.12.1
 WORKDIR /app
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* tsconfig.json ./
 COPY patches patches
 COPY apps/codesearch/package.json apps/codesearch/package.json
-RUN pnpm install --frozen-lockfile --config.confirmModulesPurge=false
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+    pnpm install --store-dir /pnpm/store --frozen-lockfile --config.confirmModulesPurge=false
 COPY apps/codesearch ./apps/codesearch
 COPY scripts/ci/check-test-report.mjs ./scripts/ci/check-test-report.mjs
 # The trace and result record code (run-vitest-contracts.mjs --trace, --records).

@@ -3,6 +3,7 @@ import {
   withTransientHttpRetry,
 } from "../../../lib/withTransientHttpRetry.js"
 import { gatewayCost } from "../../../observability/gatewayCost.js"
+import { withProviderBlock } from "../openRouterProvider.js"
 import {
   HostTextAdapter,
   messageText,
@@ -29,41 +30,45 @@ export function openAiHostAdapter(
             method: "POST",
             headers: { "Content-Type": "application/json" },
             signal: options.request?.signal ?? undefined,
-            body: JSON.stringify({
-              ...params,
-              model: opts.models[0],
-              temperature: opts.temperature,
-              stream: false,
-              ...(schema
-                ? {
-                    tools: [
-                      {
+            // Each chat call to OpenRouter gets the provider block (ADR-070).
+            body: JSON.stringify(
+              withProviderBlock(provider, baseURL, {
+                ...params,
+                model: opts.models[0],
+                temperature: opts.temperature,
+                stream: false,
+                ...(schema
+                  ? {
+                      tools: [
+                        {
+                          type: "function",
+                          function: {
+                            name: opts.outputName ?? STRUCTURED_OUTPUT_TOOL,
+                            parameters: schema,
+                          },
+                        },
+                      ],
+                      tool_choice: {
                         type: "function",
                         function: {
                           name: opts.outputName ?? STRUCTURED_OUTPUT_TOOL,
-                          parameters: schema,
                         },
                       },
-                    ],
-                    tool_choice: {
-                      type: "function",
-                      function: {
-                        name: opts.outputName ?? STRUCTURED_OUTPUT_TOOL,
-                      },
-                    },
-                  }
-                : {}),
-              messages: [
-                ...(options.systemPrompts ?? []).map((prompt) => ({
-                  role: "system",
-                  content: typeof prompt === "string" ? prompt : prompt.content,
-                })),
-                ...options.messages.map((message) => ({
-                  role: message.role,
-                  content: messageText(message.content),
-                })),
-              ],
-            }),
+                    }
+                  : {}),
+                messages: [
+                  ...(options.systemPrompts ?? []).map((prompt) => ({
+                    role: "system",
+                    content:
+                      typeof prompt === "string" ? prompt : prompt.content,
+                  })),
+                  ...options.messages.map((message) => ({
+                    role: message.role,
+                    content: messageText(message.content),
+                  })),
+                ],
+              }),
+            ),
           },
         )
         if (!response.ok) {

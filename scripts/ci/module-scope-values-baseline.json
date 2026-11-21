@@ -183,12 +183,6 @@
   "apps/backend/src/retrieval/services/providers/bedrockEmbeddings.ts": [
     "COHERE_EMBED_V4_MAX_DIMENSIONS"
   ],
-  "apps/backend/src/retrieval/services/providers/openAILikeModelProvider.ts": [
-    "DEFAULT_OPENROUTER_BASE"
-  ],
-  "apps/backend/src/retrieval/services/providers/openrouterModelProvider.ts": [
-    "DEFAULT_OPENROUTER_BASE"
-  ],
   "apps/backend/src/routes/v1/atlassian-oauth-callback.ts": [
     "ATLASSIAN_ME",
     "ATLASSIAN_TOKEN"

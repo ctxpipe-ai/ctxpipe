@@ -1,32 +1,63 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 
+import { chat } from "@tanstack/ai"
 import { z } from "zod"
 
+import { COMMIT_SUBJECT_MODEL } from "../../src/domain/workspaces/commit-subject.js"
 import {
   imageTextModel,
   readImage,
 } from "../../src/knowledge-plane/image-text.js"
 import {
-  type EmbeddingInput,
+  embedQuery,
   embedTexts,
   textEmbeddingConfig,
 } from "../../src/retrieval/embeddings/textEmbeddings.js"
 import { decideNoul, JEV_MODEL } from "../../src/retrieval/jev/client.js"
+import {
+  generateEmbeddings,
+  getModel,
+  modelCallSettings,
+} from "../../src/retrieval/services/modelProvider.js"
+import { modelNameShape } from "../../src/retrieval/services/modelTierSpecs.js"
+import { providerAllowlist } from "../../src/retrieval/services/openRouterProvider.js"
 import type { ModelCalls } from "./model-calls.js"
 
 /*
- * The live provider probe (ADR-068 decision 7, ADR-063 decision 6). Before
- * the first org leaves `off`, real calls confirm that the model provider
- * applies the request settings of the knowledge plane. Each check sends its
- * request through the real client (`decideNoul`, `embedTexts`), so the
- * probe tests the request that production sends, not a copy. The recorder of
+ * The live provider probe (ADR-068 decision 7, ADR-063 decision 6, ADR-070).
+ * Real calls confirm that the model provider applies the request settings
+ * of the knowledge plane, and that each model in use answers from a
+ * provider of the allowlist (`MODEL_PROVIDER_ALLOWLIST`). Each check sends its
+ * request through the real client (`decideNoul`, `embedQuery`,
+ * `embedTexts`), so the probe tests the request that production sends, not
+ * a copy. The recorder of
  * the eval run (`ModelCalls`) keeps the status and the raw answer of each
  * call as evidence, and it applies the spend cap.
  *
  * The probe sends only fixed text that this repository holds. It never
  * sends customer data.
  */
+
+/**
+ * Put the `--setting NAME=VALUE` arguments of the probe into the
+ * environment. The factory passes no setting but the key, so the allowlist
+ * and the model names of the hosted stack come as arguments; the clients
+ * read them from the environment, as in production (ADR-070). The URL and
+ * the key are not settings: the key goes only to the provider that the code
+ * names.
+ */
+export function applyProbeSettings(settings: readonly string[]): void {
+  const names = ["MODEL_PROVIDER_ALLOWLIST", ...Object.keys(modelNameShape)]
+  for (const setting of settings) {
+    const [name = "", value = ""] = setting.split(/=(.*)/s)
+    if (!names.includes(name) || !value)
+      throw new Error(
+        `--setting takes NAME=VALUE, with NAME one of ${names.join(", ")}. Got "${name}".`,
+      )
+    process.env[name] = value
+  }
+}
 
 /** The result of one check. The evidence comes from the real answer. */
 type ProbeCheck = {
@@ -65,49 +96,56 @@ const NON_ZDR_EMBEDDING_MODEL = "openai/text-embedding-ada-002"
  */
 const NON_ZDR_VISION_MODEL = "google/gemini-2.5-flash-lite"
 
+/**
+ * The allowlist control (ADR-070): an embedding model that takes the
+ * request of the plane client and whose only ZDR endpoint is at a provider
+ * outside the hosted allowlist (on 2026-11-21: DeepInfra). If the catalog or
+ * the allowlist changes, the control check fails and says so; then pick
+ * another such model.
+ */
+const NOT_ALLOWED_EMBEDDING_MODEL = "qwen/qwen3-embedding-4b"
+
 /** The provider names of the ZDR endpoints of a model (`zdrProviders`). */
-type ZdrProvidersOf = (
-  model: string,
-  quantizations?: readonly string[],
-) => Set<string>
+type ZdrProvidersOf = (model: string) => Set<string>
 
 /**
  * The provider names of the ZDR endpoints of each model, from the OpenRouter
- * ZDR list (`GET /api/v1/endpoints/zdr`), at an allowed quantization when
- * `quantizations` is given. The model calls pin no provider, so a check
+ * ZDR list (`GET /api/v1/endpoints/zdr`). The model calls pin no provider, so a check
  * passes when the answer names one of these providers (ADR-068 decision 7).
  * The answer names only the provider, not its endpoint: when a provider has
  * more than one endpoint of a model, the name does not show which one served
- * the call. The `zdr` and `quantizations` fields of the request decide the
- * endpoint, and the refusal pairs show that OpenRouter applies `zdr`. The
+ * the call. The `zdr` field of the request decides the endpoint, and the refusal pairs show that OpenRouter applies `zdr`. The
  * list holds no input of ours, so the call goes around the recorder.
  */
 async function zdrProviders(base: string): Promise<ZdrProvidersOf> {
+  const data = await readZdrList(base)
+  return (model: string) =>
+    new Set(
+      data
+        .filter((endpoint) => endpoint.model_id === model)
+        .map((endpoint) => endpoint.provider_name),
+    )
+}
+
+/**
+ * The OpenRouter ZDR list (`GET /api/v1/endpoints/zdr`): each ZDR endpoint
+ * with its model, provider and tag.
+ */
+export async function readZdrList(base: string) {
   const response = await fetch(`${base.replace(/\/+$/, "")}/endpoints/zdr`)
   if (!response.ok)
     throw new Error(`The ZDR list answered HTTP ${response.status}`)
-  const { data } = z
+  return z
     .object({
       data: z.array(
         z.object({
           model_id: z.string(),
           provider_name: z.string(),
-          quantization: z.string().nullable().optional(),
+          tag: z.string(),
         }),
       ),
     })
-    .parse(await response.json())
-  return (model: string, quantizations?: readonly string[]) =>
-    new Set(
-      data
-        .filter(
-          (endpoint) =>
-            endpoint.model_id === model &&
-            (!quantizations ||
-              quantizations.includes(endpoint.quantization ?? "unknown")),
-        )
-        .map((endpoint) => endpoint.provider_name),
-    )
+    .parse(await response.json()).data
 }
 
 const answerSchema = z.object({
@@ -195,7 +233,7 @@ const jsonObject = z.record(z.string(), z.unknown())
  * Run `call` with one change to the JSON body of each request that it sends.
  * The real client still makes the request and reads the answer.
  */
-async function withChangedBody<T>(
+export async function withChangedBody<T>(
   change: (body: Record<string, unknown>) => Record<string, unknown>,
   call: () => Promise<T>,
 ): Promise<T> {
@@ -221,44 +259,53 @@ async function withChangedBody<T>(
 }
 
 /**
+ * The provider block of a request of a ZDR pair: the block of the client
+ * with another `zdr`, and with no `only`. A ZDR pair proves `zdr` alone. Its
+ * control model can be at a trusted provider that the allowlist does not
+ * include now (ADR-070), and the allowlist pair proves `only`.
+ */
+function zdrPairProvider(provider: unknown, zdr: boolean) {
+  const { only: _only, ...block } = jsonObject.parse(provider)
+  return { ...block, zdr }
+}
+
+/**
  * The Jev request of the client, sent to the non-ZDR Decisions model. Only
- * the model and `zdr` change.
+ * the model and `zdr` change, and the pair sends no `only`
+ * (`zdrPairProvider`).
  */
 const nonZdrDecision = (zdr: boolean) =>
   withChangedBody(
     (body) => ({
       ...body,
       model: NON_ZDR_DECISIONS_MODEL,
-      provider: { ...jsonObject.parse(body.provider), zdr },
+      provider: zdrPairProvider(body.provider, zdr),
     }),
     () => decideNoul(["The sky is green."], jevQuestion, jevOptions),
   )
 
 /**
  * The embedding request of the client, sent to the non-ZDR embedding model.
- * The model and `zdr` change. The dimension and the quantizations go out
- * too, so that the control model can serve the request; both requests of
- * the pair are the same apart from `zdr`.
+ * The model and `zdr` change, and the pair sends no `only`
+ * (`zdrPairProvider`). The dimension goes out too, so that the control
+ * model can serve the request; both requests of the pair are the same apart
+ * from `zdr`.
  */
 const nonZdrEmbedding = (zdr: boolean) =>
   withChangedBody(
-    ({ dimensions: _dimensions, ...body }) => {
-      const { quantizations: _quantizations, ...provider } = jsonObject.parse(
-        body.provider,
-      )
-      return {
-        ...body,
-        model: NON_ZDR_EMBEDDING_MODEL,
-        provider: { ...provider, zdr },
-      }
-    },
-    () => embedTexts([{ kind: "query", text: "Is the sky blue?" }]),
+    ({ dimensions: _dimensions, ...body }) => ({
+      ...body,
+      model: NON_ZDR_EMBEDDING_MODEL,
+      provider: zdrPairProvider(body.provider, zdr),
+    }),
+    () => embedQuery("Is the sky blue?"),
   )
 
 /** The checks of the probe, one after the other. */
 async function probeChecks(
   calls: ModelCalls,
   zdrProvidersOf: ZdrProvidersOf,
+  onList: OnList,
 ): Promise<ProbeCheck[]> {
   const checks: ProbeCheck[] = []
   const check = <T>(
@@ -285,14 +332,15 @@ async function probeChecks(
     served,
     served.result !== undefined &&
       served.status === 200 &&
-      jevProviders.has(served.provider ?? ""),
-    `HTTP 200, a yes/no answer, and a ZDR provider of ${JEV_MODEL} (${[...jevProviders].join(", ") || "none listed"})`,
+      jevProviders.has(served.provider ?? "") &&
+      onList.has(served.provider),
+    `HTTP 200, a yes/no answer, and a ZDR provider of ${JEV_MODEL} (${[...jevProviders].join(", ") || "none listed"})${onList.text}`,
   )
 
   // The ZDR proof of an endpoint is a pair of requests to a model of that
   // endpoint that has no ZDR endpoint. Both are the request of the client,
-  // with fallback and with `data_collection: "deny"`, and they differ only in
-  // `zdr`. The control (`zdr: false`) must be served: this shows that the
+  // with fallback and with `data_collection: "deny"`, but with no `only`
+  // (`zdrPairProvider`), and they differ only in `zdr`. The control (`zdr: false`) must be served: this shows that the
   // endpoint can serve the request. The same request with `zdr: true` must
   // then be refused with "no endpoint". Thus the refusal comes from `zdr`
   // alone: the endpoint enforces it. The requests of the clients have the
@@ -321,36 +369,41 @@ async function probeChecks(
   }
   await refusalPair("decisions", NON_ZDR_DECISIONS_MODEL, nonZdrDecision)
 
-  const { model, dimensions, batchSize, quantizations } = textEmbeddingConfig
-  const embeddingProviders = zdrProvidersOf(model, quantizations)
-  const embedded = async (name: string, inputs: EmbeddingInput[]) => {
-    const evidence = await observe(calls, () => embedTexts(inputs))
+  const { model, dimensions, maxBatchInputs } = textEmbeddingConfig
+  const embeddingProviders = zdrProvidersOf(model)
+  const embedded = async (
+    name: string,
+    count: number,
+    embed: () => Promise<number[][]>,
+  ) => {
+    const evidence = await observe(calls, embed)
     check(
       name,
       evidence,
       evidence.status === 200 &&
         embeddingProviders.has(evidence.provider ?? "") &&
-        evidence.vectors === inputs.length &&
-        evidence.result?.length === inputs.length &&
+        onList.has(evidence.provider) &&
+        evidence.vectors === count &&
+        evidence.result?.length === count &&
         evidence.result.every((vector) => vector.length === dimensions),
-      `HTTP 200, a ZDR provider of ${model} at ${quantizations.join(", ")} (${[...embeddingProviders].join(", ") || "none listed"}), and ${inputs.length} vector(s) of ${dimensions} dimensions in one answer`,
+      `HTTP 200, a ZDR provider of ${model} (${[...embeddingProviders].join(", ") || "none listed"})${onList.text}, and ${count} vector(s) of ${dimensions} dimensions in one answer`,
     )
   }
-  await embedded("embedding-query", [
-    { kind: "query", text: "Which squares of the checkerboard are red?" },
+  await embedded("embedding-query", 1, async () => [
+    await embedQuery("Which squares of the checkerboard are red?"),
   ])
-  // One full batch of document chunks in one request, as the projection
-  // sends them: this proves that a ZDR endpoint at an allowed quantization
-  // takes a batch and the configured dimension.
-  await embedded(
-    "embedding-text-batch",
-    Array.from({ length: batchSize }, (_, index) => ({
-      kind: "text" as const,
-      text: checkerboardSentence(index),
-      documentTitle: "Checkerboard",
-      chunkIndex: index,
-      chunkCount: batchSize,
-    })),
+  // One full batch of short document chunks in one request, as the
+  // projection sends them: this proves that a ZDR endpoint takes a batch of
+  // `maxBatchInputs` and the configured dimension.
+  await embedded("embedding-text-batch", maxBatchInputs, () =>
+    embedTexts(
+      Array.from({ length: maxBatchInputs }, (_, index) => ({
+        text: checkerboardSentence(index),
+        documentTitle: "Checkerboard",
+        chunkIndex: index,
+        chunkCount: maxBatchInputs,
+      })),
+    ),
   )
   await refusalPair("embedding", NON_ZDR_EMBEDDING_MODEL, nonZdrEmbedding)
 
@@ -371,20 +424,173 @@ async function probeChecks(
   check(
     "vision-read",
     vision,
-    vision.status === 200 && visionProviders.has(vision.provider ?? ""),
-    `HTTP 200 from ${visionModel} at a ZDR provider (${[...visionProviders].join(", ") || "none listed"})`,
+    vision.status === 200 &&
+      visionProviders.has(vision.provider ?? "") &&
+      onList.has(vision.provider),
+    `HTTP 200 from ${visionModel} at a ZDR provider (${[...visionProviders].join(", ") || "none listed"})${onList.text}`,
   )
   await refusalPair("vision", NON_ZDR_VISION_MODEL, (zdr) =>
     withChangedBody(
       (body) => ({
         ...body,
         model: NON_ZDR_VISION_MODEL,
-        provider: { ...jsonObject.parse(body.provider), zdr },
+        provider: zdrPairProvider(body.provider, zdr),
       }),
       () => readImage(image, { model: visionModel, backoffMs: 1 }),
     ),
   )
+
+  // The other models in use (ADR-070): each chat model of the tiers, the
+  // fixed model of the commit subjects, and the embedding model of the
+  // current stack, through the real clients. Each chat model goes out alone,
+  // with no fallback model, so that a fallback cannot hide a model with no
+  // endpoint at an allowed provider. The answer must name a provider of the
+  // allowlist.
+  const chatModels = new Map<string, string[]>()
+  const use = (model: string, by: string) =>
+    chatModels.set(model, [...(chatModels.get(model) ?? []), by])
+  for (const tier of ["fast", "medium", "high"] as const)
+    use(modelCallSettings(tier).callOpts.models[0] ?? "", `the ${tier} tier`)
+  use(COMMIT_SUBJECT_MODEL, "the commit subjects")
+  for (const [model, uses] of chatModels) {
+    const answer = await observe(calls, () =>
+      chat({
+        adapter: getModel("fast", { model }),
+        messages: [{ role: "user", content: "Answer with the word yes." }],
+        stream: false,
+      }),
+    )
+    check(
+      `chat ${model}`,
+      answer,
+      answer.status === 200 && onList.has(answer.provider),
+      `HTTP 200 from ${model} with no fallback model (${uses.join(", ")})${onList.text}`,
+    )
+  }
+  const legacy = await observe(calls, () =>
+    generateEmbeddings(["Which squares of the checkerboard are red?"]),
+  )
+  check(
+    "embedding-current-stack",
+    legacy,
+    legacy.status === 200 &&
+      legacy.result?.length === 1 &&
+      onList.has(legacy.provider),
+    `HTTP 200 and one vector from the embedding model of the current stack${onList.text}`,
+  )
+
+  // The allowlist proof: the query request of the plane client, sent to a
+  // model with ZDR endpoints only outside the allowlist. With no `only`
+  // field it must be served; with the allowlist it must be refused. The
+  // two requests differ only in `only`, so the refusal proves that OpenRouter
+  // applies the allowlist with fallback.
+  const outside = (only: boolean) =>
+    withChangedBody(
+      (body) => {
+        const { only: list, ...provider } = jsonObject.parse(body.provider)
+        return {
+          ...body,
+          model: NOT_ALLOWED_EMBEDDING_MODEL,
+          provider: only ? { ...provider, only: list } : provider,
+        }
+      },
+      () => embedQuery("Is the sky blue?"),
+    )
+  const control = await observe(calls, () => outside(false))
+  check(
+    "allowlist-control-without-only",
+    control,
+    control.status === 200 && !onList.has(control.provider),
+    `HTTP 200 from ${NOT_ALLOWED_EMBEDDING_MODEL} at a provider outside the allowlist when the request has no only list`,
+  )
+  const refused = await observe(calls, () => outside(true))
+  check(
+    "allowlist-refused-outside-list",
+    refused,
+    control.status === 200 &&
+      onList.set &&
+      refused.status === 404 &&
+      /no (endpoints|allowed providers)/i.test(refused.error ?? ""),
+    "the control passes, then HTTP 404 with a no-endpoint error when the request has the allowlist",
+  )
   return checks
+}
+
+/**
+ * The providers of the allowlist, by the name that an answer gives (the
+ * `provider` field). `set` is false with no allowlist: then each provider
+ * is on the list, and the check `provider-allowlist` fails.
+ */
+type OnList = {
+  set: boolean
+  has: (provider: string | null) => boolean
+  text: string
+}
+
+/**
+ * The allowlist of `MODEL_PROVIDER_ALLOWLIST` and the names of its
+ * providers, from the OpenRouter provider list (`GET /api/v1/providers`).
+ * An answer names its provider by name, not by slug.
+ */
+async function allowlistCheck(
+  base: string,
+): Promise<{ onList: OnList; check: ProbeCheck }> {
+  const check = (pass: boolean, error: string | null): ProbeCheck => ({
+    name: "provider-allowlist",
+    pass,
+    status: null,
+    provider: null,
+    error,
+    expects:
+      "MODEL_PROVIDER_ALLOWLIST is set (or given with --setting), and each slug is on the OpenRouter provider list (GET /providers)",
+  })
+  const any: OnList = { set: false, has: () => true, text: "" }
+  let slugs: string[] | undefined
+  try {
+    slugs = providerAllowlist()
+  } catch (error) {
+    return { onList: any, check: check(false, (error as Error).message) }
+  }
+  if (!slugs)
+    return {
+      onList: any,
+      check: check(false, "No allowlist is set: no provider was checked."),
+    }
+  const listed = await fetch(`${base.replace(/\/+$/, "")}/providers`)
+    .then((response) => (response.ok ? response.json() : null))
+    .then(
+      (data) =>
+        z
+          .object({
+            data: z.array(z.object({ name: z.string(), slug: z.string() })),
+          })
+          .safeParse(data).data?.data,
+    )
+    .catch(() => undefined)
+  const names = new Set(
+    (listed ?? [])
+      .filter((provider) => slugs.includes(provider.slug))
+      .map((provider) => provider.name),
+  )
+  const unknown = slugs.filter(
+    (slug) => !listed?.some((provider) => provider.slug === slug),
+  )
+  const onList: OnList = {
+    set: true,
+    has: (provider) => provider !== null && names.has(provider),
+    text: ` on the allowlist (${[...names].join(", ") || "none listed"})`,
+  }
+  return {
+    onList,
+    check: !listed
+      ? check(false, "The OpenRouter provider list did not answer.")
+      : check(
+          unknown.length === 0,
+          unknown.length
+            ? `Not on the provider list: ${unknown.join(", ")}.`
+            : null,
+        ),
+  }
 }
 
 /**
@@ -416,10 +622,15 @@ export async function probe(input: {
       expects: "the OpenRouter ZDR list (GET /endpoints/zdr) answers",
     })
   }
+  const allowlist = await allowlistCheck(input.base)
   const restore = calls.install()
   let checks: ProbeCheck[]
   try {
-    checks = [...listChecks, ...(await probeChecks(calls, zdrProvidersOf))]
+    checks = [
+      ...listChecks,
+      ...(await probeChecks(calls, zdrProvidersOf, allowlist.onList)),
+      allowlist.check,
+    ]
   } finally {
     restore()
   }

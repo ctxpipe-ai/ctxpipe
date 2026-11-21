@@ -2,6 +2,7 @@ import type { OpenAPIHono } from "@hono/zod-openapi"
 
 import type { AppEnv } from "../../app/env.js"
 import { getLogger } from "../../observability/logger.js"
+import { proxiedBody } from "../../retrieval/services/openRouterProvider.js"
 
 type OpenAiProxyContext = Parameters<
   Parameters<OpenAPIHono<AppEnv>["openapi"]>[1]
@@ -56,6 +57,9 @@ async function fetchOpenAiCompatibleUpstream(input: {
   ).replace(/\/+$/, "")
   const cleanOrigin = upstreamOrigin.replace(/\/v1$/, "")
   const target = `${cleanOrigin}${input.path}`
+  // The provider block goes over the provider fields of the client
+  // (ADR-070): a client cannot turn off ZDR or leave the allowlist.
+  const body = proxiedBody(input.env.MODEL_PROVIDER, upstreamOrigin, input.body)
   const startedAt = Date.now()
   try {
     const upstream = await (input.fetch ?? fetch)(target, {
@@ -64,7 +68,7 @@ async function fetchOpenAiCompatibleUpstream(input: {
         "content-type": "application/json",
         authorization,
       },
-      body: JSON.stringify(input.body),
+      body: JSON.stringify(body),
     })
     return { ok: true, upstream, target, startedAt }
   } catch {

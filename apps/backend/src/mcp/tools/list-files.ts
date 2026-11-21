@@ -218,8 +218,8 @@ export const listFilesTool = defineMcpReadTool({
     let entries: Entry[]
     let listTruncated = false
     if (input.repository === undefined) {
-      const { planeShas } = await selectKnowledgeReader(org.id, [workspace.id])
-      const planeSha = planeShas.get(workspace.id)
+      const { planeHeads } = await selectKnowledgeReader(org.id, [workspace.id])
+      const planeSha = planeHeads.get(workspace.id)?.sha
       if (planeSha) served = { ...workspaceServed, sha: planeSha }
       entries = folderEntries(
         planeSha

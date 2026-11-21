@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto"
+
 import { metrics, type Span, SpanStatusCode, trace } from "@opentelemetry/api"
 
 import { githubSourceRepositories } from "../domain/workspace-sources/github-sources.js"
@@ -9,17 +11,22 @@ import { SOURCES_FILE_PATH } from "../domain/workspace-sources/sources-file.js"
 import { servingIdForKnowledgePath } from "../domain/workspaces/hydrate.js"
 import {
   type DocumentRows,
-  type DocumentStatus,
+  type FileDocument,
+  type FileVersionKey,
+  fileVersionId,
+  type FileVersionRows,
   type KnowledgeScope,
   type KnowledgeStore,
   type MutationCounter,
-  REFERENCE_TARGET_PREFIX,
+  type TreeEntry,
+  type TreeHead,
 } from "../knowledge-store/knowledge-store.js"
 import {
   beginKnowledgeRun,
   completeKnowledgeRun,
   failKnowledgeRun,
   getKnowledgeState,
+  treeHeadOf,
 } from "../models/knowledge-state.js"
 import { getLogger } from "../observability/logger.js"
 import {
@@ -72,49 +79,45 @@ export type KnowledgeRemote = {
 
 /** What one run of the writer did. */
 type KnowledgeRunSummary =
-  /** `last_sha` is the tip, with the current projection version. */
+  /** The head is the tip, with the current projection version. */
   | { mode: "current" }
   | {
       mode: KnowledgeChangeSet["kind"]
       fullReason: KnowledgeFullReason | null
-      /** The documents that the run replaced, made `failed` or made tombstones. */
+      /** The tree rows that the run wrote: changed paths and tombstones. */
       documentsChanged: number
       /** The `failed` documents of the Workspace after the run. */
       failedCount: number
     }
 
 /**
- * The projection writer of the knowledge plane (ADR-067). It moves the
- * ClickHouse rows of one Workspace from `last_sha` to `tip`:
- * 1. `beginKnowledgeRun` adds the tip to `attempt_shas`.
+ * The projection writer of the knowledge plane (ADR-067, ADR-071). It moves
+ * the tree of the default branch of one Workspace from `last_sha` to `tip`:
+ * 1. A run after a stopped run deletes the tree rows above the head.
  * 2. The planner gives the change set: a delta, or a full rebuild.
- * 3. Each changed document file replaces the rows of its document: a
- *    knowledge file (Markdown) or an image file (its key is its path). A
- *    knowledge file that does not parse gets a `failed` document. The
- *    `valid_from` of a knowledge file is the time of the commit that
- *    introduced it, from one walk of the Git history of the tip
- *    (`fileIntroductions`).
- * 4. Each relation target with no row gets a `missing` placeholder. A
- *    reference key target gets none: the read resolves it (ADR-066
- *    decision 5).
- * 5. Each document whose file is gone gets a tombstone. A full rebuild does
- *    this for each document that the tree does not give (the reconcile).
- * 6. `completeKnowledgeRun` moves `last_sha` to the tip.
+ * 3. Each changed document file gets its file version: the stored one with
+ *    the same key (`fileVersion`), else a new one from its file. A knowledge
+ *    file (Markdown) that does not parse, or a file that does not convert,
+ *    gets a `failed` file version.
+ * 4. Each path whose file version or `valid_from` changed gets a tree row
+ *    with the next tree version. The `valid_from` of a knowledge file is the
+ *    time of the commit that introduced it, from one walk of the Git history
+ *    of the tip (`fileIntroductions`).
+ * 5. Each path whose file is gone gets a tombstone row. A full rebuild does
+ *    this for each path of the head that the tree does not give.
+ * 6. `completeKnowledgeRun` moves the head to the tip and the tree version.
+ *    No read sees the rows of the run before this.
  *
  * An infrastructure error (Git, ClickHouse, Postgres, the embedding API)
- * throws, and `failKnowledgeRun` records it. The retry applies the same
- * files again. The caller holds the knowledge projection lease of the
- * Workspace, so one run of a Workspace runs at a time.
+ * throws, and `failKnowledgeRun` records it. The caller holds the knowledge
+ * projection lease of the Workspace, so one run of a Workspace runs at a
+ * time.
  *
  * Before a file goes to the embedding model, the writer reads the stored
  * vectors of its document (`embedDocuments`): an input whose key
  * (`embeddingKey`) has a stored vector gets that vector, and only the other
- * inputs go to the model. Thus a full rebuild embeds only new content.
- *
- * The text chunks go to the embedding model in batches. An image file gets
- * a document with no chunk and no vector: ingest writes a text file beside
- * it, and that file is the searchable text (ADR-066 decision 6, ADR-068
- * decision 6). The writer reads no image bytes, and it stores no copy.
+ * inputs go to the model. The writer reads no image bytes at retrieval, and
+ * it stores no copy of them.
  */
 export async function projectKnowledgePlane(input: {
   orgId: string
@@ -122,6 +125,8 @@ export async function projectKnowledgePlane(input: {
   remote: KnowledgeRemote
   /** The Workspace root folder; `""` is the repository root. */
   root: string
+  /** The default branch of the Workspace. */
+  branch: string
   tip: string
   /** A store with the writer user. */
   store: KnowledgeStore
@@ -138,7 +143,8 @@ export async function projectKnowledgePlane(input: {
   const state = await getKnowledgeState(key)
   if (
     state?.lastSha === input.tip &&
-    state.attemptShas.length === 0 &&
+    state.runStatus === "completed" &&
+    state.branch === input.branch &&
     state.projectionVersion === projectionVersion
   )
     return { mode: "current" }
@@ -164,57 +170,66 @@ export async function projectKnowledgePlane(input: {
         images: { hits: 0, misses: 0, failures: 0, costUsd: 0 },
       }
       try {
-        await beginKnowledgeRun({ ...key, tip: input.tip })
+        await beginKnowledgeRun(key)
+        // The head of the branch, or none for a new branch. The tree rows
+        // above the head are the rows of a run that stopped: no read sees
+        // them, and this run must not show them either (ADR-071 decision
+        // 4). A run with no head starts from no rows, so that its tree
+        // versions never mix with older rows of the branch.
+        const stored = treeHeadOf(state)
+        const head = stored?.branch === input.branch ? stored : null
+        if (!head || state?.runStatus !== "completed")
+          await input.store.deleteTreeAbove(
+            key,
+            input.branch,
+            head?.treeVersion ?? 0,
+            counter,
+          )
+        const treeVersion = (head?.treeVersion ?? 0) + 1
         summary = await withGitDirectory(
           input.tip,
           async (directory) => {
-            const earlier = [
-              ...(state?.lastSha ? [state.lastSha] : []),
-              ...(state?.attemptShas ?? []),
-            ]
-            await fetchCommits(directory, input.remote, input.tip, earlier)
+            const base = state?.lastSha ?? null
+            await fetchCommits(directory, input.remote, input.tip, base)
             const plan = await planKnowledgeChangeSet({
               directory,
               root: input.root,
               state,
+              branch: input.branch,
               tip: input.tip,
               projectionVersion,
             })
-            const documentsChanged = await applyChangeSet({
+            const applied = await applyChangeSet({
               ...input,
               directory,
               plan,
+              projectionVersion,
+              head,
+              treeVersion,
               introductions: await fileIntroductions({
                 directory,
                 remote: input.remote,
                 root: input.root,
                 tip: input.tip,
-                earlier:
-                  plan.kind === "delta"
-                    ? [
-                        ...(state?.lastSha ? [state.lastSha] : []),
-                        ...(state?.attemptShas ?? []),
-                      ]
-                    : [],
+                base: plan.kind === "delta" ? base : null,
               }),
               counter,
               embedding,
               files,
             })
-            const failedCount = (
-              await input.store.listDocumentKeys(key)
-            ).filter((document) => document.status === "failed").length
             await completeKnowledgeRun({
               ...key,
               tip: input.tip,
+              branch: input.branch,
+              treeVersion,
               projectionVersion,
-              failedCount,
+              failedCount: applied.failedCount,
             })
             return {
               mode: plan.kind,
               fullReason: plan.kind === "full" ? plan.reason : null,
-              documentsChanged,
-              failedCount,
+              documentsChanged: applied.changed,
+              failedCount: applied.failedCount,
             }
           },
           undefined,
@@ -230,7 +245,7 @@ export async function projectKnowledgePlane(input: {
           await failKnowledgeRun(key)
         } catch (stateError) {
           // The run error is the cause. The next run starts from the same
-          // `last_sha` either way.
+          // head either way.
           getLogger().warn("Recording the failed knowledge run failed", {
             step: "knowledge-plane.writer",
             error: String(stateError),
@@ -260,24 +275,78 @@ export async function projectKnowledgePlane(input: {
 const FILES_PER_WRITE = 1000
 
 /**
- * The work of one change set. Returns the count of changed documents.
- * `counter` gets the count of ClickHouse mutations.
+ * The version of a file (ADR-071 decision 2): the SHA-256 (32 hex
+ * characters) of its blob SHA and its variant.
+ */
+const fileVersion = (blobSha: string, variant: string) =>
+  createHash("sha256")
+    .update(`${blobSha}\0${variant}`)
+    .digest("hex")
+    .slice(0, 32)
+
+/**
+ * The variant of a file (ADR-071 decision 2): a hash of the inputs of its
+ * rows that are not in the file. These are the projection version, and for
+ * a knowledge file:
+ * - the URL of the Workspace repository, because a blob URL of it in a link
+ *   resolves to a Workspace path (`workspaceBlobPath`);
+ * - the source repositories of the tree, because the `CHANGED` keys of a
+ *   package file come from them.
+ */
+const fileVariant = (
+  projectionVersion: string,
+  knowledge: {
+    remoteUrl: string
+    sourceRepositories: ReadonlyMap<string, string>
+  } | null,
+) =>
+  createHash("sha256")
+    .update(
+      JSON.stringify([
+        projectionVersion,
+        knowledge && [
+          knowledge.remoteUrl,
+          [...knowledge.sourceRepositories].sort(),
+        ],
+      ]),
+    )
+    .digest("hex")
+
+/** True when two tree rows give the same document. */
+const sameEntry = (a: TreeEntry | undefined, b: TreeEntry) =>
+  !!a &&
+  !a.deletedAt &&
+  a.version === b.version &&
+  a.path === b.path &&
+  (a.validFrom?.getTime() ?? null) === (b.validFrom?.getTime() ?? null)
+
+/**
+ * The work of one change set: the file versions that are not stored yet,
+ * and the tree rows of the paths that changed, with the tree version
+ * `treeVersion`. Returns the count of the tree rows and the count of the
+ * `failed` documents of the new tree. `counter` gets the count of ClickHouse
+ * mutations.
  */
 async function applyChangeSet(input: {
   orgId: string
   workspaceId: string
   remote: { url: string }
   root: string
+  branch: string
   tip: string
   store: KnowledgeStore
   observedAt: Date
   directory: string
   plan: KnowledgeChangeSet
+  projectionVersion: string
+  /** The head of the branch, or null when it has no tree yet. */
+  head: TreeHead | null
+  treeVersion: number
   introductions: FileIntroductions
   counter: MutationCounter
   embedding: EmbeddingCounter
   files: FileCounter
-}): Promise<number> {
+}): Promise<{ changed: number; failedCount: number }> {
   const { workspaceId, root, store, observedAt, directory, plan } = input
   const scope: KnowledgeScope = {
     orgId: input.orgId,
@@ -293,12 +362,26 @@ async function applyChangeSet(input: {
     tree,
     input.remote.url,
   )
-  // The status of each key. A key with a tombstone and an old row (a write
-  // that stopped between the INSERT of the tombstone and the DELETE of the
-  // old row) gives the old row, so that the run makes the tombstone again.
-  const stored = new Map<string, DocumentStatus>()
-  for (const { docKey, status } of await store.listDocumentKeys(scope))
-    if (status !== "deleted" || !stored.has(docKey)) stored.set(docKey, status)
+  const variants = {
+    knowledge: fileVariant(input.projectionVersion, {
+      remoteUrl: input.remote.url,
+      sourceRepositories,
+    }),
+    other: fileVariant(input.projectionVersion, null),
+  }
+  const keyAt = (path: string): FileVersionKey => ({
+    docKey: keyOf(path),
+    version: fileVersion(
+      tree.get(path) ?? "",
+      isKnowledgePath(path) ? variants.knowledge : variants.other,
+    ),
+  })
+  const current = new Map(
+    (input.head ? await store.readTree(scope, input.head) : []).map((entry) => [
+      entry.docKey,
+      entry,
+    ]),
+  )
   // Only regular files: a submodule, a symlink or a removed path gives no
   // document. A delta also writes each file that a commit after a fork
   // added, because its `valid_from` can change when the diff does not show
@@ -313,100 +396,132 @@ async function applyChangeSet(input: {
     .filter((path) => tree.has(path) && isDocumentPath(path))
     .sort()
 
-  /** The keys of the documents that the run wrote from a file. */
-  const written = new Set<string>()
-  const targets = new Set<string>()
-  let changed = 0
-  // One store write for each group of files, so that a run makes few
-  // mutations (ADR-066 decision 8). The last write has the tombstones and
-  // the `missing` placeholders too, because they need the keys of all
-  // groups. A run with no file makes one write for its tombstones.
-  for (let at = 0; at === 0 || at < files.length; at += FILES_PER_WRITE) {
+  /** The document keys that have a file version at the tip. */
+  const present = new Set<string>()
+  /** The tree rows of the run. */
+  const next = new Map<string, TreeEntry>()
+  for (let at = 0; at < files.length; at += FILES_PER_WRITE) {
     const group = files.slice(at, at + FILES_PER_WRITE)
+    const stored = await store.findFileVersions(scope, group.map(keyAt))
+    // Only the files with no stored file version become rows. The blobs are
+    // read 50 files at a time. The chunks of the whole group then go to the
+    // embedding client in one call, so that its requests fill to the batch
+    // limits.
     const unembedded: UnembeddedDocumentRows[] = []
-    const failed: { docKey: string; error: string }[] = []
-    // The blobs are read 50 files at a time. The chunks of the whole group
-    // then go to the embedding client in one call, so that its requests
-    // fill to `batchSize`.
-    await inBatches(group, 50, async (batch) => {
-      const rows = await projectFiles({
-        directory,
-        keyOf,
-        workspaceId,
-        blobPath,
-        sourceRepositories,
-        observedAt,
-        introducedAtByPath: input.introductions.introducedAtByPath,
-        paths: batch,
-        blobs: batch.map((path) => tree.get(path) ?? ""),
-        store,
-        scope,
-        files: input.files,
-      })
-      unembedded.push(...rows.documents)
-      failed.push(...rows.failed)
-    })
+    const failed: { path: string; error: string }[] = []
+    await inBatches(
+      group.filter((path) => !stored.has(fileVersionId(keyAt(path)))),
+      50,
+      async (batch) => {
+        const rows = await projectFiles({
+          directory,
+          workspaceId,
+          blobPath,
+          sourceRepositories,
+          observedAt,
+          paths: batch,
+          blobs: batch.map((path) => tree.get(path) ?? ""),
+          store,
+          scope,
+          files: input.files,
+        })
+        unembedded.push(...rows.documents)
+        failed.push(...rows.failed)
+      },
+    )
     const documents = await embedDocuments(
       unembedded,
       store,
       scope,
       input.embedding,
     )
-    for (const { document, relations } of documents) {
-      written.add(document.docKey)
-      for (const relation of relations)
-        if (!relation.dstDoc.startsWith(REFERENCE_TARGET_PREFIX))
-          targets.add(relation.dstDoc)
-    }
-    for (const { docKey } of failed) written.add(docKey)
-    changed += documents.length + failed.length
-
-    const last = at + FILES_PER_WRITE >= files.length
-    // A tombstone for each document whose file is gone: in a delta, the
-    // documents of the paths of the diff; in a full rebuild, each stored
-    // document (the reconcile).
-    const stale = !last
-      ? []
-      : (plan.kind === "full"
-          ? [...stored.keys()]
-          : [...plan.changed, ...plan.removed].filter(isDocumentPath).map(keyOf)
-        ).filter((docKey) => {
-          const status = stored.get(docKey)
-          return (
-            !written.has(docKey) && (status === "active" || status === "failed")
-          )
-        })
-    const deleted = new Set(stale)
-    // The store skips each target that has a row.
-    const missing = !last
-      ? []
-      : [...targets].filter(
-          (docKey) => !written.has(docKey) && !deleted.has(docKey),
-        )
-    await store.applyDocuments(
-      scope,
-      {
-        documents,
-        placeholders: [
-          ...failed.map((row) => ({
-            ...row,
-            status: "failed" as const,
-            observedAt,
-          })),
-          ...missing.map((docKey) => ({
-            docKey,
-            status: "missing" as const,
-            observedAt,
-          })),
-        ],
-        deleted: { docKeys: stale, deletedAt: observedAt },
-      },
-      input.counter,
-    )
-    changed += stale.length
+    const versions: FileVersionRows[] = [
+      ...documents.map((rows) => ({
+        ...rows,
+        ...keyAt(rows.document.path),
+      })),
+      ...failed.map(({ path, error }) => ({
+        ...keyAt(path),
+        document: failedDocument(keyOf(path), path, observedAt),
+        chunks: [],
+        relations: [],
+        error,
+      })),
+    ]
+    await store.writeFileVersions(scope, versions, input.counter)
+    for (const { document, version, error } of versions)
+      stored.set(fileVersionId({ docKey: document.docKey, version }), {
+        status: error === undefined ? "active" : "failed",
+        kind: document.kind,
+        observedAt: document.observedAt,
+        validTo: document.validTo,
+      })
+    // A knowledge file that gives no unit has no file version.
+    const entries = group.flatMap((path): TreeEntry[] => {
+      const key = keyAt(path)
+      const version = stored.get(fileVersionId(key))
+      if (!version) return []
+      present.add(key.docKey)
+      const entry: TreeEntry = {
+        ...key,
+        ...version,
+        path,
+        validFrom: isKnowledgePath(path)
+          ? dateOrNull(input.introductions.introducedAtByPath.get(path))
+          : null,
+        deletedAt: null,
+      }
+      return sameEntry(current.get(key.docKey), entry) ? [] : [entry]
+    })
+    for (const entry of entries) next.set(entry.docKey, entry)
   }
-  return changed
+
+  // A tombstone for each path whose file is gone: in a delta, the paths of
+  // the diff; in a full rebuild, each path of the head (the reconcile). It
+  // keeps the last file version of the path.
+  const tombstones = (
+    plan.kind === "full"
+      ? [...current.keys()]
+      : [...plan.changed, ...plan.removed].filter(isDocumentPath).map(keyOf)
+  ).flatMap((docKey): TreeEntry[] => {
+    const entry = current.get(docKey)
+    return entry && !entry.deletedAt && !present.has(docKey)
+      ? [{ ...entry, deletedAt: observedAt }]
+      : []
+  })
+  for (const entry of tombstones) next.set(entry.docKey, entry)
+  // All tree rows go in one INSERT at the end, just before the head moves:
+  // their `written_at` is then the time of the new head, within seconds,
+  // and the grace times of the cleanup count from it (ADR-071 decision 10).
+  await store.writeTree(scope, input.branch, input.treeVersion, [
+    ...next.values(),
+  ])
+
+  const failedCount = [...new Map([...current, ...next]).values()].filter(
+    (entry) => !entry.deletedAt && entry.status === "failed",
+  ).length
+  return { changed: next.size, failedCount }
 }
+
+/** The document fields of a `failed` file version: its path only. */
+const failedDocument = (
+  docKey: string,
+  path: string,
+  observedAt: Date,
+): FileDocument => ({
+  docKey,
+  kind: "",
+  title: "",
+  path,
+  sourceType: "",
+  source: "",
+  summary: "",
+  mime: "",
+  validTo: null,
+  observedAt,
+})
+
+const dateOrNull = (time: string | undefined) => (time ? new Date(time) : null)
 
 /** The file conversions and the image texts of one run, for its metrics. */
 type FileCounter = {
@@ -478,14 +593,10 @@ function readGroups(blobs: { blob: string; size: number; limit: number }[]): {
  */
 async function projectFiles(input: {
   directory: string
-  /** The document key of a path. */
-  keyOf: (path: string) => string
   workspaceId: string
   blobPath: ReturnType<typeof workspaceBlobPath>
   sourceRepositories: Map<string, string>
   observedAt: Date
-  /** The time of the introducing commit of each path. */
-  introducedAtByPath: ReadonlyMap<string, string>
   paths: string[]
   /** The blob id of each path. */
   blobs: string[]
@@ -494,13 +605,12 @@ async function projectFiles(input: {
   files: FileCounter
 }): Promise<{
   documents: UnembeddedDocumentRows[]
-  failed: { docKey: string; error: string }[]
+  failed: { path: string; error: string }[]
 }> {
-  const { workspaceId, keyOf, blobPath, observedAt } = input
+  const { workspaceId, blobPath, observedAt } = input
   const documents: UnembeddedDocumentRows[] = []
-  const failed: { docKey: string; error: string }[] = []
-  const fail = (path: string, error: string) =>
-    failed.push({ docKey: keyOf(path), error })
+  const failed: { path: string; error: string }[] = []
+  const fail = (path: string, error: string) => failed.push({ path, error })
   type Entry = {
     path: string
     blob: string
@@ -605,7 +715,6 @@ async function projectFiles(input: {
             unit: parsed.unit,
             references: parsed.references,
             blobPath,
-            introducedAt: input.introducedAtByPath.get(path) ?? null,
             observedAt,
           }),
         )
@@ -781,7 +890,6 @@ async function embedDocuments(
       chunk.text.trim()
         ? [
             {
-              kind: "text" as const,
               text: chunk.text,
               documentTitle: document.title,
               chunkIndex: index,
@@ -843,7 +951,7 @@ type FileIntroductions = {
   introducedAtByPath: Map<string, string>
   /**
    * The paths that a commit added on one side only of the fork between the
-   * tip and an earlier SHA.
+   * tip and `last_sha`.
    */
   addedSinceFork: string[]
 }
@@ -855,21 +963,20 @@ type FileIntroductions = {
  * so the cost does not grow with each file. Paths are relative to `root`.
  *
  * In a delta, a file can get a different introducing commit with no change
- * in the diff from an earlier SHA (`last_sha` or a SHA of a failed run): a
- * commit removed the file and a later commit added it again, a merge
- * brought an earlier add, or the tip went back to an older commit. Then the
- * introducing commit at the tip or at the earlier SHA is on one side only of
- * their fork. `addedSinceFork` gives each path that such a commit added, so
- * the delta writes the `valid_from` of a full rebuild. The walk of each
- * fork reads only the commits after it.
+ * in the diff from `last_sha`: a commit removed the file and a later commit
+ * added it again, a merge brought an earlier add, or the tip went back to an
+ * older commit. Then the introducing commit at the tip or at `last_sha` is
+ * on one side only of their fork. `addedSinceFork` gives each path that such
+ * a commit added, so the delta writes the `valid_from` of a full rebuild.
+ * The walk of the fork reads only the commits after it.
  */
 async function fileIntroductions(input: {
   directory: string
   remote: KnowledgeRemote
   root: string
   tip: string
-  /** The `last_sha` and the `attempt_shas` of a delta; empty for a full rebuild. */
-  earlier: readonly string[]
+  /** The `last_sha` of a delta; null for a full rebuild. */
+  base: string | null
 }): Promise<FileIntroductions> {
   const { directory, root, tip } = input
   await fetchGitHistory(directory, {
@@ -887,63 +994,56 @@ async function fileIntroductions(input: {
     if (path !== null) introducedAtByPath.set(path, timestamp)
   }
   const added = new Set<string>()
-  for (const sha of new Set(input.earlier))
-    if (sha !== tip)
-      for (const repositoryPath of (
-        await nativeGit(directory, [
-          "--no-lazy-fetch",
-          "log",
-          "--format=",
-          "--name-only",
-          "-z",
-          "--diff-filter=A",
-          "--no-renames",
-          `${tip}...${sha}`,
-          "--",
-          "*.md",
-        ])
-      )
-        .toString()
-        .split("\0")) {
-        // An empty format puts a newline before the paths of each commit.
-        const name = repositoryPath.replace(/^\n/, "")
-        const path = name ? workspaceRelativePath(root, name) : null
-        if (path !== null) added.add(path)
-      }
+  if (input.base && input.base !== tip)
+    for (const repositoryPath of (
+      await nativeGit(directory, [
+        "--no-lazy-fetch",
+        "log",
+        "--format=",
+        "--name-only",
+        "-z",
+        "--diff-filter=A",
+        "--no-renames",
+        `${tip}...${input.base}`,
+        "--",
+        "*.md",
+      ])
+    )
+      .toString()
+      .split("\0")) {
+      // An empty format puts a newline before the paths of each commit.
+      const name = repositoryPath.replace(/^\n/, "")
+      const path = name ? workspaceRelativePath(root, name) : null
+      if (path !== null) added.add(path)
+    }
   return { introducedAtByPath, addedSinceFork: [...added] }
 }
 
 /**
- * Fetch the tip, then the commits of earlier runs. A commit that the remote
- * does not have any more (a force-push and a Git GC) stays out, so the
- * planner sees it as missing and rebuilds in full.
+ * Fetch the tip, then `last_sha`. A commit that the remote does not have any
+ * more (a force-push and a Git GC) stays out, so the planner sees it as
+ * missing and rebuilds in full.
  */
 async function fetchCommits(
   directory: string,
   remote: KnowledgeRemote,
   tip: string,
-  earlier: string[],
+  base: string | null,
 ): Promise<void> {
   const token = await remote.token()
-  const fetch = (shas: string[]) =>
-    fetchGitCommits(directory, { url: remote.url, shas, token })
-  await fetch([tip])
-  const rest = [...new Set(earlier)].filter((sha) => sha !== tip)
-  if (rest.length === 0) return
-  try {
-    await fetch(rest)
-  } catch {
-    for (const sha of rest)
-      await fetch([sha]).catch((error: unknown) => {
-        // Only a commit that the remote does not have: any other error is
-        // an infrastructure error, and the run retries.
-        if (!/not our ref/i.test(String(error))) throw error
-        getLogger().warn(
-          "A commit of the knowledge state is not on the remote",
-          { step: "knowledge-plane.fetch", sha },
-        )
-      })
-  }
+  const fetch = (sha: string) =>
+    fetchGitCommits(directory, { url: remote.url, shas: [sha], token })
+  await fetch(tip)
+  if (!base || base === tip) return
+  await fetch(base).catch((error: unknown) => {
+    // Only a commit that the remote does not have: any other error is an
+    // infrastructure error, and the run retries.
+    if (!/not our ref/i.test(String(error))) throw error
+    getLogger().warn("A commit of the knowledge state is not on the remote", {
+      step: "knowledge-plane.fetch",
+      sha: base,
+    })
+  })
 }
 
 /** Each regular file of the root folder at `sha` → its blob id. */

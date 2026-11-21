@@ -44,15 +44,18 @@ LLM and embeddings both use OpenRouter by default. You do not need extra configu
 | `MODEL_PROVIDER_API_KEY`           | Yes\*     | -                                 | API key for OpenAI-compatible providers. Not used for native Bedrock (`MODEL_PROVIDER=bedrock`). |
 | `MODEL_PROVIDER_URL`               | No\*\*    | OpenRouter base when not `azure` | Base URL for OpenAI-compatible LLM/embeddings HTTP. **Required** for `azure`. Not required for native Bedrock. |
 | `MODEL_BEDROCK_AWS_REGION`         | No        | `AWS_REGION` / stack region     | AWS region for Bedrock Runtime when `MODEL_PROVIDER=bedrock`. |
+| `MODEL_PROVIDER_ALLOWLIST`         | No        | -                                 | OpenRouter provider slugs, separated by commas (for example `openai,anthropic,azure`). When set, each OpenRouter call goes only to these providers. When unset, OpenRouter can use any provider. It needs `MODEL_PROVIDER=openrouter` or a `MODEL_PROVIDER_URL` on `openrouter.ai`. A value that is not a slug list, or other model settings, stop the backend at start. |
 | `MODEL_FAST_NAME`                  | No        | `openai/gpt-6-luna?reasoning.effort=high`    | LLM model for the fast tier (OpenRouter slash ids).                                |
 | `MODEL_MEDIUM_NAME`                | No        | `openai/gpt-6-luna?reasoning.effort=xhigh`   | LLM model for the medium tier.                                                     |
-| `MODEL_HIGH_NAME`                  | No        | `xiaomi/mimo-v2.6-pro`                       | LLM model for the high tier.                                                       |
+| `MODEL_HIGH_NAME`                  | No        | `openai/gpt-6-luna?reasoning.effort=xhigh`   | LLM model for the high tier.                                                       |
 | `MODEL_EMBEDDING_NAME`             | No        | `openai/text-embedding-3-large`            | Embedding model ID.                                                                |
 | `MODEL_VISION_NAME`                | No        | `openai/gpt-6.1-terra`                     | The one OpenRouter model that reads the images of the knowledge plane. It must take image input and have a ZDR endpoint on OpenRouter. A value of only spaces stops the backend at start. |
 
 \*Required for each provider except `bedrock`. The backend refuses model calls without it. For a provider that needs no key, such as Ollama, set any value that is not empty.
 
 \*\*Default `MODEL_PROVIDER_URL` is `https://openrouter.ai/api/v1` for `openai-like` and `openrouter` so bundled default model IDs stay valid.
+
+Each model call to OpenRouter allows only zero data retention (ZDR) endpoints, with no data collection. A model with no ZDR endpoint fails. A call goes to OpenRouter when `MODEL_PROVIDER` is `openrouter`, or when `MODEL_PROVIDER_URL` is on `openrouter.ai`. Another OpenAI-compatible API does not get these routing fields.
 
 ## How to Pick Models
 
@@ -64,7 +67,7 @@ The service uses three tiers for different workloads:
 | ---------- | --------------------------------- | ------------------ |
 | **fast**   | Quick tasks, naming, planning     | `openai/gpt-6-luna?reasoning.effort=high` |
 | **medium** | Main agent, balanced cost/quality | `openai/gpt-6-luna?reasoning.effort=xhigh` |
-| **high**   | Complex reasoning, best quality   | `xiaomi/mimo-v2.6-pro` |
+| **high**   | Complex reasoning, best quality   | `openai/gpt-6-luna?reasoning.effort=xhigh` |
 
 Override any tier with `MODEL_FAST_NAME`, `MODEL_MEDIUM_NAME`, or `MODEL_HIGH_NAME`. Use model IDs from your provider (OpenRouter: `org/model-name`; Bedrock on AWS CDK: `vendor.model` with dot, e.g. `openai.gpt-6-luna?reasoning.effort=high`).
 

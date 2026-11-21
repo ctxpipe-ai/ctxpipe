@@ -49,7 +49,11 @@ import {
   gateThresholds,
   type RunResult,
 } from "./gate.js"
-import { openRouterClient } from "./models.js"
+import {
+  openRouterBaseUrl,
+  openRouterClient,
+  sendProviderBlock,
+} from "./models.js"
 
 const baselinePath = new URL("./baseline.json", import.meta.url)
 
@@ -103,6 +107,8 @@ async function main() {
     }
   })
 
+  // Each model call of the eval gets the provider block (ADR-070).
+  const restoreFetch = sendProviderBlock(openRouterBaseUrl(process.env))
   const manager = new MCPClientManager()
   await manager.connectToServer("ctxpipe", {
     url: values.url,
@@ -219,7 +225,7 @@ async function main() {
     ) as Baseline
     const report = evaluateGate(result, baseline, ids)
     const prices = await openRouterPrices(
-      process.env.MODEL_PROVIDER_URL || "https://openrouter.ai/api/v1",
+      openRouterBaseUrl(process.env),
       models.map(openRouterModelId),
     )
     for (const model of models)
@@ -251,6 +257,7 @@ async function main() {
     }
     process.exitCode = report.passed ? 0 : 1
   } finally {
+    restoreFetch()
     await manager.disconnectServer("ctxpipe")
   }
 }

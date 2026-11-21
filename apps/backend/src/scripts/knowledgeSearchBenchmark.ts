@@ -3,6 +3,13 @@
  * 1 million made-up chunks in one Workspace, among the chunks of other
  * Workspaces and orgs. It is not a CI check (CTX-1402).
  *
+ * Each document is a file version with a tree row of the branch `main`
+ * (ADR-071). 5% of the documents also have an older file version that a
+ * newer tree row replaced and that the cleanup did not remove yet, so the
+ * search filters by the tree view, as in a Workspace that changes. On
+ * 100k documents (200k chunks), the vector query took 68 ms where the
+ * shape before ADR-071 took 58 ms (CTX-1457).
+ *
  * Usage (apps/backend):
  *   pnpm exec tsx src/scripts/knowledgeSearchBenchmark.ts --url <server URL>
  *     [--chunks <n>] [--runs <n>]
@@ -54,8 +61,12 @@ function positiveFlag(argv: string[], name: string, fallback: number): number {
 
 /**
  * Inserts `chunks` made-up chunks into one Workspace, with one document row
- * for each `chunksPerDocument` chunks. Each chunk has a random vector and 60
- * random words of the form `w<n>`. The server makes the rows.
+ * (the file version `v1`) for each `chunksPerDocument` chunks, and a tree
+ * row of `main` at tree version 1 for each document. Each chunk has a random
+ * vector and 60 random words of the form `w<n>`. Each 20th document also
+ * has the file version `v0`, with the same count of chunks: its tree row has
+ * tree version 1, and the row of `v1` has tree version 2 (the head that
+ * `measure` reads). The server makes the rows.
  */
 async function fill(
   client: ClickHouseClient,
@@ -64,29 +75,43 @@ async function fill(
   chunks: number,
 ): Promise<void> {
   const params = { orgId, workspaceId, chunks }
-  await client.command({
-    query: `INSERT INTO documents (org_id, workspace_id, doc_key, kind, status,
-        title, path, observed_at)
-      SELECT {orgId:String}, {workspaceId:String}, concat('doc-', toString(number)),
-        'note', 'active', concat('Document w', toString(number % ${vocabulary})),
-        concat('notes/doc-', toString(number), '.md'), now64(3)
-      FROM numbers(intDiv({chunks:UInt64} + ${chunksPerDocument - 1}, ${chunksPerDocument}))`,
-    query_params: params,
-    clickhouse_settings: { [ORG_SETTING]: orgId },
-  })
-  await client.command({
-    query: `INSERT INTO chunks (org_id, workspace_id, doc_key, ordinal, text, embedding)
-      SELECT {orgId:String}, {workspaceId:String},
-        concat('doc-', toString(intDiv(number, ${chunksPerDocument}))),
-        number % ${chunksPerDocument},
-        arrayStringConcat(arrayMap(
-          i -> concat('w', toString(cityHash64(number, i) % ${vocabulary})),
-          range(60)), ' '),
-        arrayMap(i -> toBFloat16(randNormal(0, 1, number * ${dimensions} + i)), range(${dimensions}))
-      FROM numbers({chunks:UInt64})`,
-    query_params: params,
-    clickhouse_settings: { [ORG_SETTING]: orgId },
-  })
+  const documents = `intDiv({chunks:UInt64} + ${chunksPerDocument - 1}, ${chunksPerDocument})`
+  const replaced = (document: string) => `${document} % 20 = 0`
+  const run = (query: string) =>
+    client.command({
+      query,
+      query_params: params,
+      clickhouse_settings: { [ORG_SETTING]: orgId },
+    })
+  await run(`INSERT INTO documents (org_id, workspace_id, doc_key, version,
+      kind, status, title, path, observed_at)
+    SELECT {orgId:String}, {workspaceId:String},
+      concat('doc-', toString(number % ${documents})),
+      if(number < ${documents}, 'v1', 'v0'), 'note', 'active',
+      concat('Document w', toString(number % ${vocabulary})),
+      concat('notes/doc-', toString(number % ${documents}), '.md'), now64(3)
+    FROM numbers(2 * ${documents})
+    WHERE number < ${documents} OR ${replaced(`(number - ${documents})`)}`)
+  await run(`INSERT INTO trees (org_id, workspace_id, branch, doc_key,
+      tree_version, kind, path, version, status, doc_kind, observed_at)
+    SELECT {orgId:String}, {workspaceId:String}, 'main', doc_key,
+      if(version = 'v1' AND ${replaced("toUInt64(substring(doc_key, 5))")}, 2, 1),
+      'file', path, version, 'active', 'note', observed_at
+    FROM documents
+    WHERE org_id = {orgId:String} AND workspace_id = {workspaceId:String}`)
+  await run(`INSERT INTO chunks (org_id, workspace_id, doc_key, version,
+      ordinal, text, embedding)
+    SELECT {orgId:String}, {workspaceId:String},
+      concat('doc-', toString(intDiv(number % {chunks:UInt64}, ${chunksPerDocument}))),
+      if(number < {chunks:UInt64}, 'v1', 'v0'),
+      (number % {chunks:UInt64}) % ${chunksPerDocument},
+      arrayStringConcat(arrayMap(
+        i -> concat('w', toString(cityHash64(number, i) % ${vocabulary})),
+        range(60)), ' '),
+      arrayMap(i -> toBFloat16(randNormal(0, 1, number * ${dimensions} + i)), range(${dimensions}))
+    FROM numbers(2 * {chunks:UInt64})
+    WHERE number < {chunks:UInt64}
+      OR ${replaced(`intDiv(number - {chunks:UInt64}, ${chunksPerDocument})`)}`)
 }
 
 /** Drops each ClickHouse cache. */
@@ -133,7 +158,12 @@ async function measure(
   cold: boolean,
 ) {
   const store = createKnowledgeStore(url)
-  const scope = { orgId: target.orgId, workspaceIds: [target.workspaceId] }
+  const scope = {
+    orgId: target.orgId,
+    heads: [
+      { workspaceId: target.workspaceId, branch: "main", treeVersion: 2 },
+    ],
+  }
   const total: number[] = []
   let started = ""
   try {
@@ -159,7 +189,7 @@ async function measure(
       query: `SELECT
           multiIf(query LIKE '%bitHammingDistance%', 'vector',
                   query LIKE '%hasToken(%', 'lexical',
-                  query LIKE '%docKey, kind,%', 'documents', 'texts') AS part,
+                  query LIKE '%v.doc_kind AS kind%', 'documents', 'texts') AS part,
           groupArray(query_duration_ms) AS durations,
           round(avg(read_bytes) / 1048576, 1) AS readMiB
         FROM system.query_log
@@ -210,7 +240,7 @@ async function main(argv: string[]): Promise<void> {
         await fill(data, orgId, workspaceId, count)
       }
       progress("merge the parts")
-      for (const table of ["documents", "chunks"])
+      for (const table of ["documents", "chunks", "trees"])
         await data.command({ query: `OPTIMIZE TABLE ${table} FINAL` })
     } finally {
       await data.close()

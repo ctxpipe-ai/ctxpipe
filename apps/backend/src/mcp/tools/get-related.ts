@@ -290,13 +290,13 @@ export const getRelatedTool = defineMcpReadTool({
     }
     const workspace = await resolveCallWorkspace(org, input.workspace)
     const legacyServed = requireServed(workspace)
-    const { reader, planeShas } = await selectKnowledgeReader(org.id, [
+    const { reader, planeHeads } = await selectKnowledgeReader(org.id, [
       workspace.id,
     ])
     // The plane serves the SHA of its last full run.
     const served = {
       ...legacyServed,
-      sha: planeShas.get(workspace.id) ?? legacyServed.sha,
+      sha: planeHeads.get(workspace.id)?.sha ?? legacyServed.sha,
     }
     const { cursor, ...parameters } = input
     const { limit, maxTokens, explain, ...rankParameters } = parameters

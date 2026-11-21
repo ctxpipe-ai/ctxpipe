@@ -14,7 +14,10 @@ import type {
 import type { PublishedProjection } from "../domain/workspaces/revision.js"
 import type { WorkspaceGraphPayload } from "../domain/workspaces/workspace-graph.js"
 import type { CallOrg } from "../mcp/framework/tool-org.js"
-import { readyKnowledgeShas } from "../models/knowledge-state.js"
+import {
+  type KnowledgeHead,
+  readyKnowledgeHeads,
+} from "../models/knowledge-state.js"
 import { getOrgFeature } from "../models/org-features.js"
 import { legacyKnowledgeReader } from "./legacy-reader.js"
 import { planeKnowledgeReader } from "./plane-reader.js"
@@ -88,10 +91,10 @@ export type KnowledgeReader = {
 type KnowledgeSelection = {
   reader: KnowledgeReader
   /**
-   * The SHA that the plane serves for each Workspace (`knowledge_state`
-   * `last_sha`). Empty when the old stack answers.
+   * The head that the plane serves for each Workspace (`knowledge_state`:
+   * `last_sha` and the tree version). Empty when the old stack answers.
    */
-  planeShas: ReadonlyMap<string, string>
+  planeHeads: ReadonlyMap<string, KnowledgeHead>
 }
 
 const flags = new Map<
@@ -126,17 +129,17 @@ export async function selectKnowledgeReader(
   orgId: string,
   workspaceIds: readonly string[],
 ): Promise<KnowledgeSelection> {
-  const legacy = { reader: legacyKnowledgeReader, planeShas: new Map() }
+  const legacy = { reader: legacyKnowledgeReader, planeHeads: new Map() }
   const flag = await knowledgePlaneFlag(orgId)
   if (flag === "off" || workspaceIds.length === 0) return legacy
-  const shas = await readyKnowledgeShas(orgId, workspaceIds)
-  if (!workspaceIds.every((id) => shas.has(id))) return legacy
+  const heads = await readyKnowledgeHeads(orgId, workspaceIds)
+  if (!workspaceIds.every((id) => heads.has(id))) return legacy
   if (flag === "on")
-    return { reader: planeKnowledgeReader({ shas }), planeShas: shas }
+    return { reader: planeKnowledgeReader({ heads }), planeHeads: heads }
   return {
     reader: shadowKnowledgeReader(legacyKnowledgeReader, (meter) =>
-      planeKnowledgeReader({ shas, meter }),
+      planeKnowledgeReader({ heads, meter }),
     ),
-    planeShas: new Map(),
+    planeHeads: new Map(),
   }
 }

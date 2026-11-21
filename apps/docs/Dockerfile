@@ -6,7 +6,9 @@ RUN npm install -g pnpm@10.12.1
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
 COPY patches patches
 COPY apps/docs/package.json apps/docs/package.json
-RUN pnpm install --frozen-lockfile --filter @ctxpipe/docs...
+# The pnpm store is a BuildKit cache mount (scripts/checks/README.md, Builds).
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+    pnpm install --store-dir /pnpm/store --frozen-lockfile --filter @ctxpipe/docs...
 
 FROM node:26.13.1-alpine AS builder
 WORKDIR /app

@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises"
 
 import { z } from "zod"
 
+import { workspaceRootPathSchema } from "../../src/domain/workspaces/root-path.js"
 import { POSITION_STATUSES } from "../../src/retrieval/jev/disagreement.js"
 
 /*
@@ -45,6 +46,12 @@ const corpusSchema = z.strictObject({
   contextRepo: z.strictObject({
     url: z.url(),
     sha: z.string().regex(/^[0-9a-f]{40}$/),
+    /**
+     * The root folder of the Workspace in the context repo (`""` is the
+     * repository root). The gold paths are relative to it, as the tools
+     * give them.
+     */
+    root: workspaceRootPathSchema.default(""),
   }),
   /** The id of the Workspace fixture that holds the context repo. */
   workspace: id,

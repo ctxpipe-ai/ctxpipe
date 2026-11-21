@@ -12,13 +12,16 @@ import {
 import { gatewayCost } from "../../observability/gatewayCost.js"
 import { gatewayRoutingError } from "../../observability/gatewayError.js"
 import { withLlmGeneration } from "../../observability/llm-spans.js"
-import { openRouterSettings, ZDR_PROVIDER } from "../services/modelProvider.js"
+import { openRouterSettings } from "../services/modelProvider.js"
+import { openRouterProvider } from "../services/openRouterProvider.js"
 
 /*
  * The embedding client of the knowledge plane (ADR-068 decisions 1, 5 and 7).
  * One text model embeds every chunk and every search question in one vector
- * space. The client sends the chunks in batches to the OpenRouter embeddings
- * endpoint, and it returns the full vectors. ClickHouse stores each vector as
+ * space. The ingest path (`embedTexts`) sends the chunks in batches to the
+ * OpenRouter embeddings endpoint, with retries. The query path
+ * (`embedQuery`) sends one question, routed by latency, in one attempt. Both
+ * return the full vectors. ClickHouse stores each vector as
  * `Array(BFloat16)` and calculates its binary form (`chunks.embedding_bits`)
  * on the server. An image gets no vector: ingest writes a text file beside
  * it (ADR-068 decision 6).
@@ -31,33 +34,36 @@ import { openRouterSettings, ZDR_PROVIDER } from "../services/modelProvider.js"
  * stored vectors stale.
  */
 export const textEmbeddingConfig = {
-  model: "qwen/qwen3-embedding-8b",
+  /**
+   * OpenAI text-embedding-3-large (ADR-068 decision 5). It takes
+   * `dimensions` and gives a shortened vector of that length.
+   */
+  model: "openai/text-embedding-3-large",
   dimensions: 1024,
   /**
-   * The quantizations of the endpoints that may serve a request (OpenRouter
-   * `provider.quantizations`). No provider is pinned: OpenRouter routes to a
-   * ZDR endpoint of the model, with fallback (ADR-068 decision 7). A known
-   * low precision (fp8, int8, fp4) is not allowed, so that a fallback never
-   * puts the vectors of such a model into the space. `unknown` is allowed,
-   * so that a second endpoint exists for the fallback (ADR-068 decision 5).
+   * The most inputs in one request: the limit of the OpenAI and Azure
+   * embeddings APIs (2048).
    */
-  quantizations: ["bf16", "fp16", "fp32", "unknown"],
+  maxBatchInputs: 2048,
+  /*
+   * The OpenAI and Azure embeddings APIs take at most 300,000 tokens in one
+   * request, summed over its inputs, and 8192 tokens in one input. The
+   * client has no tokenizer. A token of the model is at least one byte of
+   * UTF-8, so the client limits the UTF-8 bytes to these numbers.
+   */
+  /** The most UTF-8 bytes in one request, summed over its inputs. */
+  maxBatchBytes: 300_000,
   /**
-   * The task line of a search question. The model expects an instruction
-   * before a query and none before a document (ADR-068 decision 5).
+   * The most UTF-8 bytes of one input. A longer input loses its end. A chunk
+   * has at most 2048 characters, so only a chunk with a very long title or
+   * many 4-byte characters can be longer.
    */
-  queryInstruction:
-    "Given a question, retrieve the passages of a knowledge base that answer it",
-  /**
-   * The most inputs in one request. The probe sends a batch of this size with
-   * `zdr: true` (`embedding-text-batch`).
-   */
-  batchSize: 64,
+  maxInputBytes: 8192,
   /** The most requests in flight of one `embedTexts` call. */
   concurrency: 4,
   /**
-   * The maximum number of attempts of one request (429, 5xx and network
-   * errors retry).
+   * The maximum number of attempts of one ingest request (429, 5xx and
+   * network errors retry). A query has one attempt (`embedQuery`).
    */
   maxAttempts: 5,
   /** The first backoff. Each retry doubles it, up to `maxBackoffMs`. */
@@ -67,19 +73,15 @@ export const textEmbeddingConfig = {
 
 type TextEmbeddingConfig = typeof textEmbeddingConfig
 
-/** One input to embed. */
-export type EmbeddingInput =
-  /** A search question. It gets the instruction line of the model. */
-  | { kind: "query"; text: string }
-  | {
-      kind: "text"
-      text: string
-      /** The title of the document of the chunk. */
-      documentTitle: string
-      /** The 0-based position of the chunk in its document. */
-      chunkIndex: number
-      chunkCount: number
-    }
+/** One chunk of a document to embed. */
+export type EmbeddingInput = {
+  text: string
+  /** The title of the document of the chunk. */
+  documentTitle: string
+  /** The 0-based position of the chunk in its document. */
+  chunkIndex: number
+  chunkCount: number
+}
 
 const responseSchema = z.object({
   data: z.array(
@@ -110,20 +112,21 @@ export function embeddingKey(
       JSON.stringify([
         config.model,
         config.dimensions,
-        inputText(input, config),
+        chunkText(input, config),
       ]),
     )
     .digest("hex")
 }
 
 /**
- * Embed texts in the one vector space of the knowledge plane. The result
- * has the order of `inputs`. The client sends at most `batchSize` inputs in
- * one request, and at most `concurrency` requests in flight. Every request
- * sets `provider.data_collection: "deny"`, `provider.zdr: true` and the
- * allowed quantizations, so OpenRouter routes it only to a ZDR endpoint
- * that is not of a known low precision. `onRequest` is called before each
- * HTTP request, also before each retry.
+ * Embed the chunks of documents in the one vector space of the knowledge
+ * plane (the ingest path). The result has the order of `inputs`. One request
+ * holds as many inputs as `maxBatchInputs` and `maxBatchBytes` allow, and
+ * at most `concurrency` requests are in flight. Every request sets
+ * `provider.data_collection: "deny"` and `provider.zdr: true`, so OpenRouter
+ * routes it only to a ZDR endpoint. A 429, a 5xx and a network error retry
+ * with backoff, up to `maxAttempts`.
+ * `onRequest` is called before each HTTP request, also before each retry.
  */
 export async function embedTexts(
   inputs: EmbeddingInput[],
@@ -131,32 +134,12 @@ export async function embedTexts(
   onRequest?: () => void,
 ): Promise<number[][]> {
   if (inputs.length === 0) return []
-  assertNotInOrgDbContext()
-  // The model and the provider block are of OpenRouter. A deployment whose
-  // model settings do not point at OpenRouter sends no content to it.
-  const settings = openRouterSettings()
-  if (!settings)
-    throw new Error(
-      "The knowledge embeddings need MODEL_PROVIDER openrouter or openai-like, an OpenRouter MODEL_PROVIDER_URL, and MODEL_PROVIDER_API_KEY.",
-    )
-  const url = `${settings.base.replace(/\/$/, "")}/embeddings`
 
-  const embedBatch = async (batch: EmbeddingInput[]): Promise<number[][]> => {
-    const body = JSON.stringify({
-      model: config.model,
-      input: batch.map((input) => inputText(input, config)),
-      dimensions: config.dimensions,
-      encoding_format: "float",
-      provider: { ...ZDR_PROVIDER, quantizations: config.quantizations },
-    })
+  const embedBatch = async (texts: string[]): Promise<number[][]> => {
     for (let attempt = 1; ; attempt++) {
       try {
         onRequest?.()
-        return await embedRequest(batch.length, body, {
-          url,
-          apiKey: settings.apiKey,
-          config,
-        })
+        return await embedRequest(texts, config)
       } catch (err) {
         // A 429, a 5xx and a network error of fetch (no answer) retry. The
         // message of a network error holds no input text.
@@ -169,22 +152,68 @@ export async function embedTexts(
     }
   }
 
-  const batches: EmbeddingInput[][] = []
-  for (let at = 0; at < inputs.length; at += config.batchSize)
-    batches.push(inputs.slice(at, at + config.batchSize))
+  // A batch closes before the input that would put it over a limit.
+  const batches: string[][] = []
+  let bytes = 0
+  for (const text of inputs.map((input) => chunkText(input, config))) {
+    const size = Buffer.byteLength(text, "utf8")
+    const last = batches.at(-1)
+    if (
+      last &&
+      last.length < config.maxBatchInputs &&
+      bytes + size <= config.maxBatchBytes
+    ) {
+      last.push(text)
+      bytes += size
+    } else {
+      batches.push([text])
+      bytes = size
+    }
+  }
   // After a failure, no new request starts.
   return (
     await mapWithConcurrency(batches, config.concurrency, embedBatch)
   ).flat()
 }
 
-/** One HTTP request in one span. The span holds counts, never content. */
+/**
+ * Embed one search question (the query path), as it is, up to
+ * `maxInputBytes`: the model needs no instruction line. The request has the provider block of `embedTexts`, and
+ * it asks OpenRouter to sort the ZDR endpoints by latency, with its default
+ * fallback (ADR-068 decision 7). The query has a time budget, so a failure
+ * does not retry: the search returns partial.
+ */
+export async function embedQuery(
+  text: string,
+  config: TextEmbeddingConfig = textEmbeddingConfig,
+): Promise<number[]> {
+  const [vector] = await embedRequest(
+    [fitInput(text, config.maxInputBytes)],
+    config,
+    "latency",
+  )
+  if (!vector) throw new Error("The embedding endpoint returned no vector")
+  return vector
+}
+
+/**
+ * One HTTP request with `texts`, in one span. The provider block has the ZDR
+ * fields, and `sort` when it is set. The span holds counts, never content.
+ */
 function embedRequest(
-  count: number,
-  body: string,
-  request: { url: string; apiKey: string; config: TextEmbeddingConfig },
+  texts: string[],
+  config: TextEmbeddingConfig,
+  sort?: "latency",
 ): Promise<number[][]> {
-  const { config } = request
+  assertNotInOrgDbContext()
+  // The model and the provider block are of OpenRouter. A deployment whose
+  // model settings do not point at OpenRouter sends no content to it.
+  const settings = openRouterSettings()
+  if (!settings)
+    throw new Error(
+      "The knowledge embeddings need MODEL_PROVIDER openrouter or openai-like, an OpenRouter MODEL_PROVIDER_URL, and MODEL_PROVIDER_API_KEY.",
+    )
+  const count = texts.length
   let usage: { input?: number; cost?: number } | undefined
   return withLlmGeneration(
     {
@@ -200,14 +229,26 @@ function embedRequest(
       usageSoFar: () => usage,
     },
     async () => {
-      const res = await fetch(request.url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${request.apiKey}`,
+      const res = await fetch(
+        `${settings.base.replace(/\/$/, "")}/embeddings`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${settings.apiKey}`,
+          },
+          body: JSON.stringify({
+            model: config.model,
+            input: texts,
+            dimensions: config.dimensions,
+            encoding_format: "float",
+            provider: {
+              ...openRouterProvider(),
+              ...(sort ? { sort } : {}),
+            },
+          }),
         },
-        body,
-      })
+      )
       if (!res.ok) {
         // The provider can echo the input in the body. Keep it out of the
         // error, because the span status copies the error message. Only a
@@ -240,14 +281,27 @@ function embedRequest(
   )
 }
 
-/** The text of one input (ADR-068 decision 5). */
-function inputText(input: EmbeddingInput, config: TextEmbeddingConfig): string {
-  if (input.kind === "query")
-    return `Instruct: ${config.queryInstruction}\nQuery:${input.text}`
-  // The one line of context: the document title and the chunk position.
+/**
+ * The text of one chunk: one line of context, the document title and the
+ * chunk position (ADR-068 decision 5), up to `maxInputBytes`.
+ */
+function chunkText(input: EmbeddingInput, config: TextEmbeddingConfig): string {
   const title = input.documentTitle.replace(/\s+/g, " ").trim()
   const context = `${title} (part ${input.chunkIndex + 1} of ${input.chunkCount})`
-  return `${context}\n\n${input.text}`
+  return fitInput(`${context}\n\n${input.text}`, config.maxInputBytes)
+}
+
+/** The start of `text` with at most `maxBytes` bytes of UTF-8, at a code point. */
+function fitInput(text: string, maxBytes: number): string {
+  if (Buffer.byteLength(text, "utf8") <= maxBytes) return text
+  let bytes = 0
+  let end = 0
+  for (const point of text) {
+    bytes += Buffer.byteLength(point, "utf8")
+    if (bytes > maxBytes) break
+    end += point.length
+  }
+  return text.slice(0, end)
 }
 
 /**

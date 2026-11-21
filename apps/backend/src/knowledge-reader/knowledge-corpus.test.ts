@@ -272,6 +272,7 @@ describe("importCorpusIssues and freezeCorpora", () => {
           contextRepo: {
             url: "https://github.com/evals/v0-demo-context",
             sha: git(context, "rev-parse", "main"),
+            root: "",
           },
           workspace: "demo-v0",
         },

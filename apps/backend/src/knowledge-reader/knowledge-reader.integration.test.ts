@@ -20,10 +20,7 @@ import { knowledgeState } from "../db/schema/knowledge_state.js"
 import { orgFeatures } from "../db/schema/org_features.js"
 import { workspaceKnowledgeUnits, workspaces } from "../db/schema/workspaces.js"
 import { servingIdForKnowledgePath } from "../domain/workspaces/hydrate.js"
-import {
-  createKnowledgeStore,
-  type DocumentRows,
-} from "../knowledge-store/knowledge-store.js"
+import { createKnowledgeStore } from "../knowledge-store/knowledge-store.js"
 import { migrateKnowledgeStore } from "../knowledge-store/migrate.js"
 import { getRelatedTool } from "../mcp/tools/get-related.js"
 import { searchKnowledgeTool } from "../mcp/tools/search-knowledge.js"
@@ -34,10 +31,10 @@ import {
 import { textEmbeddingConfig } from "../retrieval/embeddings/textEmbeddings.js"
 import { startClickHouse, userUrl } from "../test/clickhouse.js"
 import {
-  embedText,
-  planeInputVector,
-  planeVector,
-} from "../test/knowledge-search-fixture.js"
+  type PlaneDocument,
+  writePlaneDocuments,
+} from "../test/knowledge-plane.js"
+import { embedText, planeVector } from "../test/knowledge-search-fixture.js"
 import {
   callTool,
   connectToolClient,
@@ -75,16 +72,27 @@ let slowJevCall: number | null = null
 let jevCalls = 0
 /** Answer the embedding of the plane after the 3-second budget. */
 let slowEmbedding = false
+/** Answer the embedding of the plane with this HTTP status, or none. */
+let embeddingFailure: number | null = null
+/** The embedding requests of the plane. */
+let planeEmbeddings = 0
 
 const models = setupServer(
   http.post(`${MODEL_URL}/embeddings`, async ({ request }) => {
-    const body = (await request.json()) as { model: string; input: string[] }
-    const plane = body.model === textEmbeddingConfig.model
+    const body = (await request.json()) as {
+      input: string[]
+      dimensions?: number
+    }
+    // Both stacks use one model; the plane asks for its own dimension.
+    const plane = body.dimensions === textEmbeddingConfig.dimensions
+    if (plane) planeEmbeddings += 1
     if (slowEmbedding && plane) await delay(5_000)
+    if (embeddingFailure && plane)
+      return new HttpResponse("busy", { status: embeddingFailure })
     return HttpResponse.json({
       data: body.input.map((input, index) => ({
         index,
-        embedding: plane ? planeInputVector(input) : embedText(input),
+        embedding: plane ? planeVector(input) : embedText(input),
       })),
     })
   }),
@@ -203,7 +211,7 @@ const units: (RelatedUnit & { text: string })[] = [
 ]
 
 /** The rows of `units` in the knowledge plane for one Workspace. */
-function planeRows(workspaceId: string): DocumentRows[] {
+function planeRows(workspaceId: string): PlaneDocument[] {
   const key = (path: string) => servingIdForKnowledgePath(workspaceId, path)
   const observedAt = new Date("2026-11-01T00:00:00Z")
   return units.map((unit) => ({
@@ -275,11 +283,13 @@ async function setFlag(value: "off" | "shadow" | "on") {
 
 /** Make a Workspace ready on the plane: a run applied `planeSha` in full. */
 async function markReady(workspaceId: string) {
-  await beginKnowledgeRun({ orgId: seed.orgId, workspaceId, tip: planeSha })
+  await beginKnowledgeRun({ orgId: seed.orgId, workspaceId })
   await completeKnowledgeRun({
     orgId: seed.orgId,
     workspaceId,
     tip: planeSha,
+    branch: "main",
+    treeVersion: 1,
     projectionVersion: "test",
     failedCount: 0,
   })
@@ -400,9 +410,10 @@ describe("the knowledge reader seam", () => {
                 ),
               )
         })
-        await writer.applyDocuments(
+        await writePlaneDocuments(
+          writer,
           { orgId: seed.orgId, workspaceId },
-          { documents: planeRows(workspaceId) },
+          planeRows(workspaceId),
         )
       }
     } finally {
@@ -414,7 +425,6 @@ describe("the knowledge reader seam", () => {
     await beginKnowledgeRun({
       orgId: seed.orgId,
       workspaceId: ids.fresh as string,
-      tip: planeSha,
     })
     search = await connectToolClient(seed, searchKnowledgeTool)
     related = await connectToolClient(seed, getRelatedTool)
@@ -424,6 +434,8 @@ describe("the knowledge reader seam", () => {
     jevFails = false
     slowJevCall = null
     slowEmbedding = false
+    embeddingFailure = null
+    planeEmbeddings = 0
     jevCalls = 0
     jevRequests.length = 0
     jevParts.length = 0
@@ -732,19 +744,14 @@ describe("the knowledge reader seam", () => {
     })
     const writer = createKnowledgeStore(knowledgeUrl)
     try {
-      await writer.applyDocuments(
-        { orgId: seed.orgId, workspaceId },
-        {
-          documents: [
-            document(
-              "knowledge/old.md",
-              "Checkout owner. answer",
-              new Date("2020-01-01T00:00:00Z"),
-            ),
-            document("knowledge/new.md", "Checkout owner.", null),
-          ],
-        },
-      )
+      await writePlaneDocuments(writer, { orgId: seed.orgId, workspaceId }, [
+        document(
+          "knowledge/old.md",
+          "Checkout owner. answer",
+          new Date("2020-01-01T00:00:00Z"),
+        ),
+        document("knowledge/new.md", "Checkout owner.", null),
+      ])
     } finally {
       await writer.close()
     }
@@ -773,6 +780,34 @@ describe("the knowledge reader seam", () => {
     })
     expect(jevRequests).toEqual([])
   }, 15_000)
+
+  it("on: when the query embedding gets a 429, search_knowledge has no hits and says total_timeout at once, with no retry", async () => {
+    await setFlag("on")
+    embeddingFailure = 429
+    const result = await searchCall({ workspaces: ["ready"] })
+    expect(result.isError).toBeFalsy()
+    expect(structured(result)).toMatchObject({
+      hits: [],
+      partial: true,
+      partialReason: "total_timeout",
+    })
+    // One request and no retry. A backoff wait would end in the budget.
+    expect(planeEmbeddings).toBe(1)
+    expect(jevRequests).toEqual([])
+  })
+
+  it("on: when the query embedding gets a 503, get_related returns partial with no retry", async () => {
+    await setFlag("on")
+    embeddingFailure = 503
+    const content = structured(await relatedCall({ maxDepth: 3 }))
+    expect(content).toMatchObject({
+      results: [],
+      partial: true,
+      partialReason: "total_timeout",
+    })
+    expect(planeEmbeddings).toBe(1)
+    expect(jevRequests).toEqual([])
+  })
 
   it("on: when the time budget ends in the judge, search_knowledge gives the search order and says total_timeout", async () => {
     await setFlag("on")
@@ -956,11 +991,11 @@ describe("the knowledge reader seam", () => {
 
   it("on: the graph view and the chat walk read the plane", async () => {
     await setFlag("on")
-    const { reader, planeShas } = await selectKnowledgeReader(seed.orgId, [
+    const { reader, planeHeads } = await selectKnowledgeReader(seed.orgId, [
       ids.ready as string,
     ])
     expect(reader.stack).toBe("plane")
-    expect(planeShas.get(ids.ready as string)).toBe(planeSha)
+    expect(planeHeads.get(ids.ready as string)?.sha).toBe(planeSha)
     const key = (path: string) =>
       servingIdForKnowledgePath(ids.ready as string, path)
     const graph = await reader.graph({
@@ -1003,7 +1038,7 @@ describe("the knowledge reader seam", () => {
     })
     const key = (path: string) => servingIdForKnowledgePath(workspaceId, path)
     const observedAt = new Date("2026-11-01T00:00:00Z")
-    const imageDocument = (path: string): DocumentRows => ({
+    const imageDocument = (path: string): PlaneDocument => ({
       document: {
         docKey: key(path),
         kind: "image",
@@ -1041,32 +1076,27 @@ describe("the knowledge reader seam", () => {
     })
     const writer = createKnowledgeStore(knowledgeUrl)
     try {
-      await writer.applyDocuments(
-        { orgId: seed.orgId, workspaceId },
+      await writePlaneDocuments(writer, { orgId: seed.orgId, workspaceId }, [
         {
-          documents: [
+          document: {
+            ...imageDocument(doc).document,
+            kind: "Note",
+            title: "Flows",
+            mime: "",
+          },
+          chunks: [
             {
-              document: {
-                ...imageDocument(doc).document,
-                kind: "Note",
-                title: "Flows",
-                mime: "",
-              },
-              chunks: [
-                {
-                  ordinal: 0,
-                  text: "The flows. hub",
-                  startLine: 1,
-                  endLine: 3,
-                  embedding: planeVector("The flows. hub"),
-                },
-              ],
-              relations: [embeds(flow, "The flow")],
+              ordinal: 0,
+              text: "The flows. hub",
+              startLine: 1,
+              endLine: 3,
+              embedding: planeVector("The flows. hub"),
             },
-            imageDocument(flow),
           ],
+          relations: [embeds(flow, "The flow")],
         },
-      )
+        imageDocument(flow),
+      ])
     } finally {
       await writer.close()
     }

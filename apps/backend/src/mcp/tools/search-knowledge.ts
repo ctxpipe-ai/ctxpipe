@@ -140,13 +140,13 @@ export const searchKnowledgeTool = defineMcpReadTool({
       skipped.push({ workspace: workspace.slug, reason: "not_ready" })
       return []
     })
-    const { reader, planeShas } = await selectKnowledgeReader(
+    const { reader, planeHeads } = await selectKnowledgeReader(
       org.id,
       servedWorkspaces.map((workspace) => workspace.id),
     )
     // The plane serves the SHA of its last full run.
     const workspaces = servedWorkspaces.map((workspace) => {
-      const sha = planeShas.get(workspace.id)
+      const sha = planeHeads.get(workspace.id)?.sha
       return sha
         ? { ...workspace, served: { ...workspace.served, sha } }
         : workspace

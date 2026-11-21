@@ -15,10 +15,8 @@ import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../test/db.js"
 import { withOrgDbContext } from "../db/client.js"
 import { workspaceKnowledgeUnits, workspaces } from "../db/schema/workspaces.js"
 import { servingIdForKnowledgePath } from "../domain/workspaces/hydrate.js"
-import {
-  createKnowledgeStore,
-  type DocumentRows,
-} from "../knowledge-store/knowledge-store.js"
+import { knowledgeProjectionVersion } from "../knowledge-plane/change-set.js"
+import { createKnowledgeStore } from "../knowledge-store/knowledge-store.js"
 import { migrateKnowledgeStore } from "../knowledge-store/migrate.js"
 import {
   beginKnowledgeRun,
@@ -27,10 +25,10 @@ import {
 import { textEmbeddingConfig } from "../retrieval/embeddings/textEmbeddings.js"
 import { startClickHouse, userUrl } from "../test/clickhouse.js"
 import {
-  embedText,
-  planeInputVector,
-  planeVector,
-} from "../test/knowledge-search-fixture.js"
+  type PlaneDocument,
+  writePlaneDocuments,
+} from "../test/knowledge-plane.js"
+import { embedText, planeVector } from "../test/knowledge-search-fixture.js"
 import { dropOrgGraph, seedRelatedWorkspace } from "../test/related-fixture.js"
 
 /*
@@ -139,12 +137,16 @@ let goldTitlesByQuestion = new Map<string, string[]>()
 const models = setupServer(
   http.post(`${MODEL_URL}/embeddings`, async ({ request }) => {
     requests.embedding += 1
-    const body = (await request.json()) as { model: string; input: string[] }
-    const plane = body.model === textEmbeddingConfig.model
+    const body = (await request.json()) as {
+      input: string[]
+      dimensions?: number
+    }
+    // Both stacks use one model; the plane asks for its own dimension.
+    const plane = body.dimensions === textEmbeddingConfig.dimensions
     return HttpResponse.json({
       data: body.input.map((input, index) => ({
         index,
-        embedding: plane ? planeInputVector(input) : embedText(input),
+        embedding: plane ? planeVector(input) : embedText(input),
       })),
     })
   }),
@@ -160,13 +162,37 @@ const models = setupServer(
   }),
 )
 
+/** The root of the example corpus. */
+const root = dataset.corpora[0]?.contextRepo.root ?? ""
+let seededWorkspace: string
+
+/** Record a complete plane run of the frozen SHA at the root `of`. */
+async function projectPlane(of: string) {
+  const key = { orgId: seed.orgId, workspaceId: seededWorkspace }
+  await beginKnowledgeRun({ ...key })
+  await completeKnowledgeRun({
+    ...key,
+    tip: frozenSha,
+    branch: "main",
+    treeVersion: 1,
+    projectionVersion: knowledgeProjectionVersion({
+      embeddingModel: textEmbeddingConfig.model,
+      dimensions: textEmbeddingConfig.dimensions,
+      root: of,
+      converter: "fixture",
+      visionModel: "fixture",
+    }),
+    failedCount: 0,
+  })
+}
+
 let seed: SeededOrg
 let clickHouse: Awaited<ReturnType<typeof startClickHouse>>
 let folder: string
 let targets: Targets
 
 /** The rows of the fixture units in the knowledge plane. */
-function planeRows(workspaceId: string): DocumentRows[] {
+function planeRows(workspaceId: string): PlaneDocument[] {
   const key = (path: string) => servingIdForKnowledgePath(workspaceId, path)
   const observedAt = new Date("2026-11-01T00:00:00Z")
   const date = (value: string | null | undefined) =>
@@ -227,7 +253,8 @@ const run = async (
 describe("the knowledge eval harness", () => {
   beforeAll(async () => {
     if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required")
-    vi.stubEnv("MODEL_PROVIDER", "openai-like")
+    // As `factory eval` runs the harness.
+    vi.stubEnv("MODEL_PROVIDER", "openrouter")
     vi.stubEnv("MODEL_PROVIDER_API_KEY", "fixture-only")
     vi.stubEnv("MODEL_PROVIDER_URL", MODEL_URL)
     // ClickHouse and FalkorDB are real servers.
@@ -249,7 +276,7 @@ describe("the knowledge eval harness", () => {
     // The backend reads as the reader user, with SELECT only.
     vi.stubEnv("CLICKHOUSE_URL", userUrl(url, "ctxpipe_reader", "reader-test"))
     seed = await seedOrg()
-    const { workspaceId } = await seedRelatedWorkspace({
+    const { workspaceId, revision } = await seedRelatedWorkspace({
       seed,
       slug: "memory",
       sha: frozenSha,
@@ -264,6 +291,18 @@ describe("the knowledge eval harness", () => {
       })),
       chunks: true,
     })
+    seededWorkspace = workspaceId
+    // The gold paths are relative to the root of the corpus, and the old
+    // stack serves that root.
+    await withOrgDbContext(seed.orgId, (db) =>
+      db
+        .update(workspaces)
+        .set({
+          rootPath: root,
+          activeRevision: { ...revision, rootPath: root },
+        })
+        .where(eq(workspaces.id, workspaceId)),
+    )
     // The search of the old stack reads the claims of a unit for `validAt`.
     await withOrgDbContext(seed.orgId, async (db) => {
       for (const unit of units)
@@ -281,21 +320,15 @@ describe("the knowledge eval harness", () => {
     })
     const writer = createKnowledgeStore(url)
     try {
-      await writer.applyDocuments(
+      await writePlaneDocuments(
+        writer,
         { orgId: seed.orgId, workspaceId },
-        { documents: planeRows(workspaceId) },
+        planeRows(workspaceId),
       )
     } finally {
       await writer.close()
     }
-    await beginKnowledgeRun({ orgId: seed.orgId, workspaceId, tip: frozenSha })
-    await completeKnowledgeRun({
-      orgId: seed.orgId,
-      workspaceId,
-      tip: frozenSha,
-      projectionVersion: "test",
-      failedCount: 0,
-    })
+    await projectPlane(root)
     targets = {
       "ctxpipe-memory-v0": {
         orgId: seed.orgId,
@@ -461,6 +494,11 @@ describe("the knowledge eval harness", () => {
     expect(kept.calls.filter((call) => call.kind === "embedding")).toHaveLength(
       34,
     )
+    // Each client of both arms sent the provider block (ADR-070).
+    for (const call of kept.calls)
+      expect(call.request).toMatchObject({
+        provider: { data_collection: "deny", zdr: true },
+      })
   })
 
   it("scores a new threshold again from the kept calls, with no model call", async () => {
@@ -470,7 +508,7 @@ describe("the knowledge eval harness", () => {
       settings: { keepAt: 0.95 },
       capUsd: 0,
       kept: live,
-      replay: recorded.calls,
+      replay: { calls: recorded.calls },
     })
     expect(requests).toEqual(before)
     expect(rescored.run.mode).toBe("replay")
@@ -496,6 +534,113 @@ describe("the knowledge eval harness", () => {
           question.arm === "plane" && question.question === "billing-provider",
       )?.metrics.noAnswer,
     ).toBe(1)
+    // The keep-or-revert rule reads the plane against the kept run: the
+    // hold-out set gets worse, and a replay gives no latency guard.
+    const round = (values: Record<string, number | null>) =>
+      Object.fromEntries(
+        Object.entries(values).map(([key, value]) => [
+          key,
+          value === null ? null : Number(value.toFixed(3)),
+        ]),
+      )
+    const holdout = rescored.kept?.comparison.find(
+      (row) => row.split === "holdout" && row.category === "all",
+    )
+    expect(holdout && { ...holdout, change: round(holdout.change) })
+      .toMatchInlineSnapshot(`
+      {
+        "category": "all",
+        "change": {
+          "ndcg10": 0,
+          "noAnswer": 0,
+          "positions": -1,
+          "recall5": 0,
+          "searchRecall50": 0,
+          "traversalRecall": -1,
+        },
+        "kept": {
+          "ndcg10": 1,
+          "noAnswer": 1,
+          "positions": 1,
+          "recall5": 1,
+          "searchRecall50": 1,
+          "traversalRecall": 1,
+        },
+        "now": {
+          "ndcg10": 1,
+          "noAnswer": 1,
+          "positions": 0,
+          "recall5": 1,
+          "searchRecall50": 1,
+          "traversalRecall": 0,
+        },
+        "questions": 4,
+        "split": "holdout",
+      }
+    `)
+    // The live latency of the kept run varies; the replay has none.
+    const latency = {
+      searchP95Ms: expect.any(Number),
+      relatedP95Ms: expect.any(Number),
+    }
+    expect(
+      rescored.kept?.guards.map(({ split, questions, kept, now }) => ({
+        split,
+        questions,
+        kept: round(kept),
+        now: round(now),
+      })),
+    ).toEqual([
+      {
+        split: "dev",
+        questions: 8,
+        kept: {
+          ...latency,
+          jevCallsPerQuestion: 2.25,
+          jevQuestionsPerQuestion: 34,
+          costPerQuestionUsd: 0.004,
+          errors: 0,
+        },
+        now: {
+          searchP95Ms: null,
+          relatedP95Ms: null,
+          jevCallsPerQuestion: 1.875,
+          jevQuestionsPerQuestion: 31.75,
+          costPerQuestionUsd: 0.003,
+          errors: 0,
+        },
+      },
+      {
+        split: "holdout",
+        questions: 4,
+        kept: {
+          ...latency,
+          jevCallsPerQuestion: 3,
+          jevQuestionsPerQuestion: 39.25,
+          costPerQuestionUsd: 0.005,
+          errors: 0,
+        },
+        now: {
+          searchP95Ms: null,
+          relatedP95Ms: null,
+          jevCallsPerQuestion: 2.5,
+          jevQuestionsPerQuestion: 34,
+          costPerQuestionUsd: 0.004,
+          errors: 0,
+        },
+      },
+    ])
+    const markdown = await readFile(
+      join(folder, "rescore", "report.md"),
+      "utf8",
+    )
+    expect(markdown).toContain("## The plane against the kept run")
+    expect(markdown).toContain(
+      "| holdout | all | 4 | traversal recall | 1.000 | 0.000 | -1.000 |",
+    )
+    expect(markdown).toContain(
+      "| holdout | 4 | Jev calls / question | 3.000 | 2.500 | -0.500 |",
+    )
   })
 
   it("scores a change of a fact threshold again from the kept calls, with no model call", async () => {
@@ -507,7 +652,7 @@ describe("the knowledge eval harness", () => {
       settings: { replacesAt: 0.95 },
       capUsd: 0,
       kept: live,
-      replay: recorded.calls,
+      replay: { calls: recorded.calls },
     })
     expect(requests).toEqual(before)
     expect(rescored.incomplete).toEqual([])
@@ -558,5 +703,36 @@ describe("the knowledge eval harness", () => {
       }),
     ).rejects.toThrow(/must serve the frozen SHA f{40}/)
     expect(requests).toEqual(before)
+  })
+
+  it("refuses a Workspace whose root is not the root of the corpus", async () => {
+    const before = { ...requests }
+    await expect(
+      run("other-root", {
+        dataset: {
+          ...dataset,
+          corpora: dataset.corpora.map((corpus) => ({
+            ...corpus,
+            contextRepo: { ...corpus.contextRepo, root: "" },
+          })),
+        },
+      }),
+    ).rejects.toThrow(
+      'Workspace memory must serve the root "" of ctxpipe-memory on both stacks. The Workspace has ".ai/memory", the old stack serves ".ai/memory", and the plane serves ".ai/memory".',
+    )
+    expect(requests).toEqual(before)
+  })
+
+  it("refuses a plane that serves another root of the frozen SHA", async () => {
+    // A failed projection after a change of the root keeps the earlier
+    // projection of the same SHA.
+    await projectPlane("")
+    try {
+      await expect(run("plane-root")).rejects.toThrow(
+        'the old stack serves ".ai/memory", and the plane serves "".',
+      )
+    } finally {
+      await projectPlane(root)
+    }
   })
 })

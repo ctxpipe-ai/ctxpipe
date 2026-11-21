@@ -87,7 +87,6 @@ describe("parseKnowledgeFile", () => {
       unit,
       references: { keys: [], links: [] },
       blobPath: workspaceBlobPath(workspaceUrl, "docs"),
-      introducedAt: null,
       observedAt: new Date("2026-11-19T00:00:00.000Z"),
     })
     expect(
@@ -152,7 +151,6 @@ describe("parseKnowledgeFile", () => {
       workspaceId: "ws_parse",
       unit: note.unit,
       references: note.references,
-      introducedAt: null,
       observedAt: new Date("2026-11-19T00:00:00.000Z"),
     })
     expect(rows.refKeys).toEqual([])
