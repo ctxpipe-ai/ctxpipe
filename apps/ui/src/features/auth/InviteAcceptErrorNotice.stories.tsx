@@ -1,12 +1,12 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, fn, userEvent, within } from "storybook/test"
 
+import preview from "../../../.storybook/preview"
 import { InviteAcceptErrorNotice } from "./InviteAcceptErrorNotice"
 
 const acceptPath =
   "/.auth/accept-invitation?invitationId=invitation_1&email=member%40example.com"
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Auth/InviteAcceptErrorNotice",
   component: InviteAcceptErrorNotice,
   parameters: {
@@ -29,17 +29,13 @@ const meta = {
       </div>
     ),
   ],
-} satisfies Meta<typeof InviteAcceptErrorNotice>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Error notice on the accept invitation card: the invited email already has an
  * account, so the user must sign in.
  */
-export const AccountExists: Story = {
+export const AccountExists = meta.story({
   args: { error: { kind: "account-exists" } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -51,13 +47,13 @@ export const AccountExists: Story = {
       `/.auth/sign-in?redirectTo=${encodeURIComponent(acceptPath)}`,
     )
   },
-}
+})
 
 /**
  * Error notice on the accept invitation card: the invitation is not available,
  * so the user must ask an admin.
  */
-export const InvitationUnavailable: Story = {
+export const InvitationUnavailable = meta.story({
   args: { error: { kind: "invitation-unavailable" } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -71,14 +67,14 @@ export const InvitationUnavailable: Story = {
       canvas.getByRole("link", { name: "Go to sign in" }),
     ).toHaveAttribute("href", "/.auth/sign-in")
   },
-}
+})
 
 /**
  * Error notice on the Accept invitation card: the user opened an invitation
  * link while signed in with another email, so the notice names both emails and
  * asks to sign out.
  */
-export const WrongRecipient: Story = {
+export const WrongRecipient = meta.story({
   args: {
     error: { kind: "wrong-recipient" },
     sessionEmail: "other@example.com",
@@ -93,13 +89,13 @@ export const WrongRecipient: Story = {
       canvas.getByRole("button", { name: "Sign out to continue" }),
     ).toBeInTheDocument()
   },
-}
+})
 
 /**
  * Error notice on the accept invitation card: the server refused the
  * invitation, and there is no retry.
  */
-export const Refused: Story = {
+export const Refused = meta.story({
   args: { error: { kind: "refused" } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -114,13 +110,13 @@ export const Refused: Story = {
     ).toHaveAttribute("href", "/.auth/sign-in")
     await expect(canvas.queryByRole("button", { name: "Try again" })).toBeNull()
   },
-}
+})
 
 /**
  * Error notice on the accept invitation card: the accept request failed, and
  * the user can try again.
  */
-export const Failed: Story = {
+export const Failed = meta.story({
   args: { error: { kind: "failed" } },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
@@ -131,4 +127,4 @@ export const Failed: Story = {
     await userEvent.click(canvas.getByRole("button", { name: "Try again" }))
     await expect(args.onRetry).toHaveBeenCalledOnce()
   },
-}
+})
