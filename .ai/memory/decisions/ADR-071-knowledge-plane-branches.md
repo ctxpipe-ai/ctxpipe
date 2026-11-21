@@ -78,11 +78,11 @@ One fact makes branches cheap: the rows of a file depend only on that file (ADR-
 
 8. **The projection makes only model calls that are cached by content.**
    - A run on a branch does the same work as a run on the default branch: convert, chunk, embed and describe images.
-   - Each model call of the projection has a key from the content:
-     - an embedding: `embedding_key` (the model, the dimensions and the scrubbed text; ADR-067 decision 5);
-     - an image text: (blob SHA, vision model, prompt version) (ADR-066 decision 6).
+   - Each model call of the projection has a key from the content, in the org and the Workspace:
+     - an embedding: `embedding_key` (the model, the dimensions and the scrubbed text; ADR-067 decision 5), read only from the chunks of the same org and Workspace;
+     - an image text: (org, Workspace, blob SHA, vision model, prompt version) (ADR-066 decision 6).
    - Thus when a branch merges, the run of the default branch finds the cached results and pays no new model cost.
-   - **Rule:** a new model call in the projection must have a key from the content in the same way, or it does not run on a branch.
+   - **Rule:** a new model call in the projection must have a key from the content in the same way, or it does not run on a branch. Each cache of a model call is in the org and the Workspace, and it has the walls of ADR-066 decision 9. No cache is shared between orgs: a hit would tell one org that another org holds the same file.
 
 9. **No maintenance and no write-back on a branch** (the CTO: "is for now, we may decide to add it later").
    - These steps run only on the default branch: the maintenance job, the link fixes, the folder lists, the rename repairs, the semantic merges, and each other step that writes to the repository.
