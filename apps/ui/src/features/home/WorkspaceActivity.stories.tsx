@@ -843,7 +843,6 @@ export const AllWorkspacesPendingNote = meta.story({
           })
         },
       ),
-      ...activityByDayHandlers,
     )
   },
   play: async ({ canvasElement }) => {
@@ -910,7 +909,6 @@ export const AllWorkspacesNoneReady = meta.story({
             ],
           }),
       ),
-      ...activityByDayHandlers,
     )
   },
   play: async ({ canvasElement }) => {
