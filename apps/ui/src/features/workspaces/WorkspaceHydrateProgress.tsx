@@ -69,6 +69,10 @@ export function HydrateFailureReason(props: {
   )
 }
 
+/**
+ * Tells that ctxpipe could not prepare the Workspace, and why. The user can
+ * try again, or change the repository in settings.
+ */
 export function WorkspaceHydrateFailedBody(props: {
   orgSlug: string
   workspace: Workspace

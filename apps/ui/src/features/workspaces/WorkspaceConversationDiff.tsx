@@ -51,6 +51,12 @@ export function ConversationDiffEmpty(props: { base: string | null }) {
   )
 }
 
+/**
+ * The Diff pane of a conversation: the files that the agent changed on the
+ * conversation branch, each with its diff. With `turn`, it shows only the
+ * changes of one turn, and "Show all changes" goes back to all of them. With
+ * `focusPath`, it opens that file and scrolls to it.
+ */
 export function WorkspaceConversationDiffPane(props: {
   orgSlug: string
   conversationId: string
@@ -216,6 +222,10 @@ const OMITTED_LABEL: Record<NonNullable<ChangedFile["omitted"]>, string> = {
   not_a_file: "Not a regular file",
 }
 
+/**
+ * The icon of a changed file: added, deleted, renamed or modified. Use it
+ * beside the path of a file in a list of changes.
+ */
 export function ChangedFileStatusIcon(props: {
   status: ChangedFile["status"]
 }) {
@@ -250,6 +260,10 @@ function changedFileLabel(file: ChangedFile): string {
   return `${file.path}, ${status}`
 }
 
+/**
+ * The number of added and removed lines of a change, as "+12 −3". A screen
+ * reader reads it as words. Use it beside a changed file or a turn.
+ */
 export function LineCounts(props: {
   additions: number
   deletions: number

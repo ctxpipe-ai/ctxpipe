@@ -32,6 +32,11 @@ import { workspaceSuggestions } from "./workspace-suggestions"
 import { WorkspaceChatChrome } from "./WorkspaceChatChrome"
 import { WorkspaceChatSession } from "./WorkspaceChatSession"
 
+/**
+ * The chat column of a Workspace. Without a conversation id, it is the
+ * composer of a new chat. With an id, it loads that conversation and continues
+ * it in `WorkspaceChatSession`.
+ */
 export function WorkspaceChat(props: {
   orgSlug: string
   workspace: Workspace

@@ -3,6 +3,10 @@ import { cn } from "@/lib/utils"
 
 import { chatColumnClassName, chatUserBubbleClassName } from "../chat-column"
 
+/**
+ * The loading state of `ConversationThread`, while the messages of a chat
+ * load. It has the same column as the thread, so the page does not move.
+ */
 export function ConversationThreadSkeleton() {
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-transparent px-3">
