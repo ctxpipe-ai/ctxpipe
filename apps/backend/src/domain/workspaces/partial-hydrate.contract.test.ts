@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto"
 import { mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 
@@ -6,6 +7,7 @@ import { initLogger } from "evlog"
 import { FalkorDB } from "falkordb"
 import { expect, it, vi } from "vitest"
 
+import { madeUpPrivateKey } from "../../../test/made-up-key.js"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import {
@@ -746,4 +748,55 @@ it(
         }),
       )
     }),
+)
+
+it(
+  "the hydrate scrubs each unit before the chunker cuts it: a private key across a chunk boundary is in no stored unit, chunk or graph node",
+  { timeout: 180_000 },
+  async () => {
+    // A made-up 4096-bit key (about 3.2 KB) in one section, longer than a
+    // chunk, so the chunker would cut the key without the scrub.
+    const key = madeUpPrivateKey(4096)
+    const secretFiles = [
+      {
+        path: "setup.md",
+        body: `# Setup\n\n${"The deploy key. ".repeat(80)}\n${key}\n`,
+      },
+    ]
+    await withNativeHydrationFixture({ files: secretFiles }, async (f) => {
+      // The first hydrate of the fixture runs the hydrate workflow.
+      await f.publish()
+      expect(await f.handle.result()).toMatchObject({ hydrated: true })
+      const stored = await withOrgDbContext(f.org.id, async (db) =>
+        JSON.stringify([
+          await db
+            .select({ body: workspaceKnowledgeUnits.body })
+            .from(workspaceKnowledgeUnits)
+            .where(eq(workspaceKnowledgeUnits.workspaceId, f.workspaceId)),
+          await db
+            .select({ text: workspaceKnowledgeChunks.text })
+            .from(workspaceKnowledgeChunks)
+            .where(eq(workspaceKnowledgeChunks.workspaceId, f.workspaceId)),
+        ]),
+      )
+      expect(key.length).toBeGreaterThan(2048)
+      for (const line of key.split("\n").slice(1, -1))
+        expect(stored).not.toContain(line)
+      expect(stored).toContain("[REDACTED:betterleaks.private-key]")
+      // A partial hydrate writes the graph from the same scrubbed units as
+      // Postgres: a token on the first line, which goes into the summary of
+      // the graph node, gives the projection of a full hydrate.
+      const token = `ghp_${randomBytes(36)
+        .toString("base64")
+        .replace(/[^A-Za-z0-9]/g, "a")
+        .slice(0, 36)}`
+      await commit(f, {
+        write: { "token.md": `${token} is the deploy token.\n` },
+      })
+      await f.resolveRevision(true)
+      const partial = await hydrate(f)
+      const projection = await expectPartialEqualsFull(f, partial)
+      expect(JSON.stringify(projection)).not.toContain(token)
+    })
+  },
 )

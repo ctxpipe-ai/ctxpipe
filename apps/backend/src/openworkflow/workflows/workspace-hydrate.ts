@@ -67,6 +67,7 @@ import { listWorkspaceSourceRows } from "../../models/workspace-sources.js"
 import { reserveHydrateWrites } from "../../models/workspace-write-planning.js"
 import {
   commitHydrateProjection,
+  scrubHydrateUnits,
   embedKnowledgeChunks,
   getLinkedReadBinding,
   getDesiredWorkspaceRevision,
@@ -684,6 +685,9 @@ export function defineWorkspaceHydrateWorkflow() {
                 ),
               )
             : []
+          // The units as Postgres and the graph store them: scrubbed before
+          // the org transaction and before the chunker (ADR-072).
+          const scrubbedUnits = await scrubHydrateUnits(committedUnits)
           if (pending.postgres) {
             const formatVersion = workspaceFormatCache({
               text: formatFile,
@@ -699,7 +703,7 @@ export function defineWorkspaceHydrateWorkflow() {
                 formatVersion,
                 skipped: parsed.skipped,
                 embeddingModel: embeddingModelId(),
-                units: committedUnits,
+                units: scrubbedUnits,
                 // The commit diffs the new units against the stored rows of
                 // the active projection (a partial write), or writes all
                 // units for the reason that the base gives.
@@ -814,7 +818,7 @@ export function defineWorkspaceHydrateWorkflow() {
                       base: committed.base,
                       // The units as Postgres stores them: a full graph
                       // write reads these values from Postgres.
-                      units: committedUnits.map((unit) => ({
+                      units: scrubbedUnits.map((unit) => ({
                         servingId: unit.servingId,
                         path: unit.path,
                         kind: unit.kind ?? null,
