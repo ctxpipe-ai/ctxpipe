@@ -97,6 +97,7 @@ describe("scrubForModel", () => {
       "p@ss:12345678",
       // Digits, then text that looks like a query or a fragment.
       "2024#Summer",
+      "2024#Summer=Fun",
       "123?abc",
       // A long password.
       random(400),
@@ -127,10 +128,24 @@ describe("scrubForModel", () => {
         ).toBe(`Use ${url.replace("{}", "[REDACTED:url-credentials]")} now.`)
   })
 
-  it("redacts only the password when a host and a port come after it", async () => {
-    expect(
-      await scrubForModel("redis://u:pw12345@cache.example.test:6379?x=a@b"),
-    ).toBe("redis://u:[REDACTED:url-credentials]@cache.example.test:6379?x=a@b")
+  it("redacts through the last @ when the text cannot show where the password ends", async () => {
+    // A port and a query, or a password: the text cannot tell them apart,
+    // and a redaction that was not needed leaks nothing.
+    for (const [text, scrubbed] of [
+      [
+        "https://example.test:8443?email=alice@example.test",
+        "https://example.test:[REDACTED:url-credentials]@example.test",
+      ],
+      [
+        "postgres://app:2024#Summer=Fun@db.example.test",
+        "postgres://app:[REDACTED:url-credentials]@db.example.test",
+      ],
+      [
+        "redis://u:pw12345@cache.example.test:6379?x=a@b",
+        "redis://u:[REDACTED:url-credentials]@b",
+      ],
+    ])
+      expect(await scrubForModel(text)).toBe(scrubbed)
   })
 
   it("keeps a URL or an address with no password, and a template password, as it is", async () => {
@@ -142,8 +157,6 @@ describe("scrubForModel", () => {
       "postgres://user@db.example.test/app",
       "https://example.test:8443/a",
       "https://example.test/x?y=1:2@3",
-      // A port, then a query with a parameter and an `@`: no credentials.
-      "https://example.test:8443?email=alice@example.test",
       "The meeting is at 10:30@noon.",
       ...[
         `\${DB_PASSWORD}`,

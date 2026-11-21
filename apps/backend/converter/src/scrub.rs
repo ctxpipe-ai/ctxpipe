@@ -31,20 +31,14 @@ fn request(line: &[u8]) -> Result<(u64, Vec<String>), String> {
 /// The id of our one rule beside the rules of Kingfisher (`serve`).
 const URL_CREDENTIALS: &str = "url-credentials";
 
-/// The bytes of a match of `url-credentials` that are a password, or None
-/// for a match that holds no password:
-/// - a template (`${DB_PASSWORD}`, `$DB_PASSWORD`, `%(password)s`,
-///   `%PASSWORD%`, `{password}`, `{{password}}`, `<password>`, only `*`). A real password
-///   that only starts with one of these characters (`%21abc`, `$uperSecret`,
-///   `*abc123`) is not a template;
-/// - a port and a query with a parameter, of a URL with no credentials
-///   (`https://host:8443?email=a@b`).
-///
-/// A match runs to the last `@` of its URL. When a host, a port and then a
-/// query or a fragment follow an earlier `@` (`pw@cache:6379?x=a@b`), the
-/// password ends at that `@`. Else the `@` is a part of the password
-/// (`p@ss:12345678`).
-fn url_password_len(matched: &str) -> Option<usize> {
+/// True for a match of `url-credentials` that is a template, not a password:
+/// `${DB_PASSWORD}`, `$DB_PASSWORD`, `%(password)s`, `%PASSWORD%`,
+/// `{password}`, `{{password}}`, `<password>` or only `*`. A real password
+/// that only starts with one of these characters (`%21abc`, `$uperSecret`,
+/// `*abc123`) is not a template. Each other match is redacted, also one that
+/// might be a port and a query (`host:8443?email=a@b`): the text cannot tell
+/// them apart, and a redaction that was not needed leaks nothing.
+fn is_template(matched: &str) -> bool {
     let is_identifier = |text: &str| {
         let mut chars = text.chars();
         matches!(chars.next(), Some(c) if c.is_ascii_alphabetic() || c == '_')
@@ -55,7 +49,7 @@ fn url_password_len(matched: &str) -> Option<usize> {
             && matched.starts_with(open)
             && matched.ends_with(close)
     };
-    let is_template = matched.chars().all(|c| c == '*')
+    matched.chars().all(|c| c == '*')
         || wrapped_in("{", "}")
         || wrapped_in("<", ">")
         || wrapped_in("${", "}")
@@ -63,29 +57,7 @@ fn url_password_len(matched: &str) -> Option<usize> {
         || (wrapped_in("%", "%") && is_identifier(&matched[1..matched.len() - 1]))
         || matched.strip_prefix('$').is_some_and(|name| {
             is_identifier(name) && !name.chars().any(|c| c.is_ascii_lowercase())
-        });
-    // A port, then a query with a parameter (`8443?email=alice`). A match
-    // that only might be one (`2024#Summer`, `123?abc`) is a password.
-    let digits = matched.bytes().take_while(u8::is_ascii_digit).count();
-    let is_port_and_query = digits > 0
-        && matches!(matched.as_bytes().get(digits), Some(b'?' | b'#'))
-        && matched[digits..].contains('=');
-    if is_template || is_port_and_query {
-        return None;
-    }
-    // The first `@` after which a host, a port and a query or a fragment
-    // come (`@cache:6379?`).
-    let host_and_port = matched.match_indices('@').find(|(at, _)| {
-        let rest = &matched[at + 1..];
-        rest.split_once(':').is_some_and(|(host, after)| {
-            let port = after.bytes().take_while(u8::is_ascii_digit).count();
-            !host.is_empty()
-                && !host.contains(['@', '?', '#'])
-                && port > 0
-                && matches!(after.as_bytes().get(port), Some(b'?' | b'#'))
         })
-    });
-    Some(host_and_port.map_or(matched.len(), |(at, _)| at))
 }
 
 /// The largest request line: more than the largest model request.
@@ -110,8 +82,8 @@ pub fn serve(
     // template (`@${DB_HOST}`), a name that starts with `_`, or empty for a
     // Unix socket (`@/db?host=/var/run/postgresql`). The unnamed capture is
     // the password, so only it becomes `[REDACTED:url-credentials]`. A user
-    // with no password (`user@host`) does not match, and `scrub` keeps only
-    // the bytes that are a password (`url_password_len`). Known gap: a
+    // with no password (`user@host`) does not match, and `scrub` keeps a
+    // template password (`is_template`). Known gap: a
     // password with an unencoded `/` does not match, because a `/` also
     // starts the path of a URL with no credentials.
     rules.rules.insert(
@@ -178,15 +150,13 @@ pub fn scrub(scanner: &Scanner, text: &str) -> Result<String, String> {
     let mut spans: Vec<(usize, usize, String)> = findings
         .into_iter()
         .filter(|finding| finding.rule().visible())
-        .filter_map(|finding| {
-            let start = finding.location.start_offset;
-            let end = finding.location.end_offset.min(text.len());
-            if finding.rule_id != URL_CREDENTIALS {
-                return Some((start, end, finding.rule_id));
-            }
-            // Our URL rule: only the bytes that are a password.
-            let len = url_password_len(text.get(start..end)?)?;
-            Some((start, start + len, finding.rule_id))
+        .filter(|finding| !(finding.rule_id == URL_CREDENTIALS && is_template(&finding.secret)))
+        .map(|finding| {
+            (
+                finding.location.start_offset,
+                finding.location.end_offset.min(text.len()),
+                finding.rule_id,
+            )
         })
         .filter(|(start, end, _)| start < end)
         .collect();
