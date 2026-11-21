@@ -750,7 +750,7 @@ it(
 )
 
 it(
-  "scrubs each unit before the chunker cuts it: a private key across a chunk boundary is in no stored unit or chunk",
+  "the hydrate scrubs each unit before the chunker cuts it: a private key across a chunk boundary is in no stored unit or chunk",
   { timeout: 120_000 },
   async () => {
     // A made-up 4096-bit key (about 3.2 KB) in one section, longer than a
@@ -763,40 +763,25 @@ it(
       },
     ]
     await withNativeHydrationFixture({ files: secretFiles }, async (f) => {
-      await withOrgIdContext(f.org, async () => {
-        const { units } = hydrateKnowledgeTree({
-          workspaceId: f.workspaceId,
-          files: secretFiles.map((file) => ({
-            path: file.path,
-            content: file.body,
-          })),
-        })
-        await commitHydrateProjection({
-          orgId: f.org.id,
-          revision: f.revision,
-          displayName: null,
-          formatVersion: null,
-          units,
-          skipped: [],
-          embeddingModel: "fixture-embedding",
-        })
-        const stored = await withOrgDbContext(f.org.id, async (db) =>
-          JSON.stringify([
-            await db
-              .select({ body: workspaceKnowledgeUnits.body })
-              .from(workspaceKnowledgeUnits)
-              .where(eq(workspaceKnowledgeUnits.workspaceId, f.workspaceId)),
-            await db
-              .select({ text: workspaceKnowledgeChunks.text })
-              .from(workspaceKnowledgeChunks)
-              .where(eq(workspaceKnowledgeChunks.workspaceId, f.workspaceId)),
-          ]),
-        )
-        expect(key.length).toBeGreaterThan(2048)
-        for (const line of key.split("\n").slice(1, -1))
-          expect(stored).not.toContain(line)
-        expect(stored).toContain("[REDACTED:betterleaks.private-key]")
-      })
+      // The first hydrate of the fixture runs the hydrate workflow.
+      await f.publish()
+      expect(await f.handle.result()).toMatchObject({ hydrated: true })
+      const stored = await withOrgDbContext(f.org.id, async (db) =>
+        JSON.stringify([
+          await db
+            .select({ body: workspaceKnowledgeUnits.body })
+            .from(workspaceKnowledgeUnits)
+            .where(eq(workspaceKnowledgeUnits.workspaceId, f.workspaceId)),
+          await db
+            .select({ text: workspaceKnowledgeChunks.text })
+            .from(workspaceKnowledgeChunks)
+            .where(eq(workspaceKnowledgeChunks.workspaceId, f.workspaceId)),
+        ]),
+      )
+      expect(key.length).toBeGreaterThan(2048)
+      for (const line of key.split("\n").slice(1, -1))
+        expect(stored).not.toContain(line)
+      expect(stored).toContain("[REDACTED:betterleaks.private-key]")
     })
   },
 )
