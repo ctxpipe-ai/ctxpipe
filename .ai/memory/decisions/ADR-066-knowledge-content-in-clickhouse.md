@@ -32,7 +32,7 @@ We deferred direct S3 adjacency objects. They can take graph load off ClickHouse
    - ClickHouse holds the content: documents, chunks and relations.
    - Postgres holds the operational data about the content. For each Workspace, that is the `knowledge_state` row of [ADR-067](ADR-067-knowledge-projection-applies-git-diff.md) decision 2: `last_sha`, the SHAs of runs that did not complete, the projection version (which includes the embedding model name), the run status and the failed count. Postgres also holds the job queue and the rollout flag.
    - Postgres holds no pointers to single documents or chunks. A tool that needs content calls ClickHouse.
-   - **Amended by [ADR-071](ADR-071-knowledge-plane-branches.md):** `knowledge_state` has one row for each branch of the Workspace. The row is the head of the branch: its projected tip, its tree version and, for a branch that is not the default branch, its merge base.
+   - **Amended by [ADR-071](ADR-071-knowledge-plane-branches.md):** `knowledge_state` has one row for each branch of the Workspace. The row is the head of the branch: its projected tip, its tree version and, for a branch that is not the default branch, its merge base. `attempt_shas` goes.
 3. **Five shared tables.** All Workspaces share the same tables. There is no table or partition for each Workspace. Each table sorts by `(org_id, workspace_id, …)` first.
    - `documents`: one row for each document. It holds:
      - `status`;

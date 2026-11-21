@@ -103,15 +103,35 @@ One fact makes branches cheap: the rows of a file depend only on that file (ADR-
 
 - **The tables are rebuilt.** New ClickHouse migrations drop the content tables and make them in the shape of this ADR. No data moves: the rows are derived data (ADR-066 decision 11). The projection version changes too, so the next run of each Workspace is a full rebuild that writes the new tables.
 
-- **Amends [ADR-066](ADR-066-knowledge-content-in-clickhouse.md):** decision 2 (`knowledge_state` has one row for each branch), decision 3 (the content tables hold file versions, and a tree table joins them), decision 5 (the rows of a file depend on the file and its variant only), decision 7 (`missing` is calculated at read) and decision 8 (a file version is written one time; the cleanup job makes the `DELETE`s).
-- **Amends [ADR-067](ADR-067-knowledge-projection-applies-git-diff.md):** decision 1 (the trees have versions and a head), decision 2 and decision 3 (the state and the lease are for each branch), decision 4 (no `attempt_shas`: the tree versions own the recovery), decision 5 (a changed file adds a file version and a tree row), decision 6 (a tombstone is a tree row), decision 7 (no stored `missing` row), decision 9 (the maintenance job runs on the default branch only) and decision 10 (a read sees no partly applied commit).
+- **Amends [ADR-066](ADR-066-knowledge-content-in-clickhouse.md):**
+  - decision 2: `knowledge_state` has one row for each branch, with no `attempt_shas`;
+  - decision 3: the content tables hold file versions, and a tree table joins them;
+  - decision 5: the rows of a file depend on the file and its variant only;
+  - decision 7: `missing` is calculated at read;
+  - decision 8: a file version is written one time, and the cleanup job makes the `DELETE`s.
+- **Amends [ADR-067](ADR-067-knowledge-projection-applies-git-diff.md):**
+  - decision 1: the trees have versions and a head;
+  - decisions 2 and 3: the state and the lease are for each branch;
+  - decision 4: no `attempt_shas`, because the tree versions own the recovery;
+  - decision 5: a changed file adds a file version and a tree row;
+  - decision 6: a tombstone is a tree row;
+  - decision 7: no stored `missing` row;
+  - decision 8: a run retries from the head, and a content error makes a `failed` file version;
+  - decision 9: the maintenance job runs on the default branch only;
+  - decision 10: a read sees no partly applied commit.
 - **Fewer mutations.** A run inserts file versions and tree rows. It deletes no content rows. Only the cleanup job and the deletion of a branch make `DELETE`s, in batches.
 - **Cost of a branch:** its overlay rows, and model calls only for file content that no branch had before. A full tree is about 6 MB for 100k files; an overlay is the size of the diff of the branch.
 - **The vector search filters by the view.** For our sizes, the search in one Workspace stays fast. A very large Workspace with many branches can need a check of the filter; the latency command of the eval measures it.
 - **A view of a branch is its tip on the current default branch.** There is no merge or conflict logic in the plane. The view of B is not the same as a full projection of the tip of B when the default branch changed after the merge base: it shows those newer files of the default branch.
 - **Tests** must prove that:
   - the default branch gives the same reads as before this ADR, and a run of one commit at a time equals a full rebuild;
-  - the read rule: a file that B changed, a file that B added, a file that B deleted, a file that the default branch changed after B forked, a file that the default branch deleted and that B did not change, a relation into a path that B deleted, a merge of the default branch into B, and a file that B changed and then changed back;
+  - the read rule, for each of these cases:
+    - a file that B changed, added or deleted;
+    - a file that the default branch changed after B forked;
+    - a file that the default branch deleted and that B did not change;
+    - a relation into a path that B deleted;
+    - a merge of the default branch into B;
+    - a file that B changed and then changed back;
   - a conversation session branch is readable only by the actor that can open its conversation;
   - the tree table has the read and insert walls of ADR-066 decision 9, and each `DELETE` of the branch deletion and of the cleanup job has the org and Workspace predicates;
   - two branches that hold the same file share its rows;

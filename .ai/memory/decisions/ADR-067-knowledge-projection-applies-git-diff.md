@@ -25,7 +25,7 @@ Since [CTX-1369](https://linear.app/ctxpipe/issue/CTX-1369), a hydrate writes on
    - the projection version (decision 4), which includes the embedding model name;
    - the run status;
    - the failed count.
-   - **Amended by [ADR-071](ADR-071-knowledge-plane-branches.md):** there is one row for each (Workspace, branch). It also holds the tree version of the head and, for a branch that is not the default branch, its merge base with the default branch.
+   - **Amended by [ADR-071](ADR-071-knowledge-plane-branches.md):** there is one row for each (Workspace, branch). It also holds the tree version of the head and, for a branch that is not the default branch, its merge base with the default branch. `attempt_shas` goes (decision 4).
 3. **The queue.** Each commit or webhook queues a hydrate run. After the hydrate releases the Workspace hydrate lock, it queues one `knowledge-projection` run. One projection run for each Workspace runs at a time, under its own lease. The queued runs for a Workspace merge, because each run goes to the current tip (the ADR-046 rule): the run reads the tip that the Workspace wants when it starts, not the SHA of its trigger.
    - The projection does not run inside the hydrate lock. Thus a ClickHouse outage or a slow embedding API does not delay the old stack ([ADR-069](ADR-069-knowledge-plane-evals-and-rollout.md) decision 9).
    - A run that finds the lease busy sleeps and tries again. A sleeping run holds no worker slot.
@@ -35,13 +35,14 @@ Since [CTX-1369](https://linear.app/ctxpipe/issue/CTX-1369), a hydrate writes on
    - The earlier SHAs of the list are the tips of failed runs. Their files are the files that those runs can have changed. Without them, a file that a failed run replaced and that a later commit changed back is not in the new diff, and its stale rows stay.
    - The run only adds to the list, so a crash at any point loses no SHA.
    - If the list has more than 10 SHAs, the run does a full rebuild.
-   - **Amended by [ADR-071](ADR-071-knowledge-plane-branches.md):** `attempt_shas` goes. The rows of a stopped run are tree rows above the head, which no read sees. The next run deletes them, then applies the diff from the tip of the head.
    - It does a full rebuild instead if one of the conditions below is true. A full rebuild applies every file of the tree. It also reconciles: each document in ClickHouse whose file is not in the tree becomes a tombstone (decision 6). Thus a rebuild after a missing commit does not leave removed files `active`.
 
    The conditions for a full rebuild are:
    - the projection version in the code is different; or
    - the old commit is missing; or
    - the sources config file ([ADR-050](ADR-050-workspace-sources-config-file.md)) changed.
+
+   **Amended by [ADR-071](ADR-071-knowledge-plane-branches.md):** `attempt_shas` goes. The rows of a stopped run are tree rows above the head, which no read sees. The next run deletes them, then applies the diff from the tip of the head.
 
    The projection version is a number in our code, plus the embedding model name. It changes when the parser, the chunking or the model changes. These are changes that the Workspace diff cannot show. It also holds the version of the file converter (`ctxpipe-convert --version`: its package version and a hash of its lock file, its source, its font and the `rustc --version` of its compiler) and the prompt version of the image text ([CTX-1433](https://linear.app/ctxpipe/issue/CTX-1433)), because a new parser or prompt gives other text for the same bytes.
 5. **A changed file replaces its state.** The run deletes all rows of the document (the document, its chunks and its outgoing relations), then inserts the new rows. Delete before insert makes a retry safe.
@@ -62,6 +63,7 @@ Since [CTX-1369](https://linear.app/ctxpipe/issue/CTX-1369), a hydrate writes on
    - A content error makes a `failed` placeholder with the error and an alert, for example a file that does not parse or embed, a file type with no converter, a file that the converter cannot read (encrypted, malformed, too large, no PDF text layer), or an image that the vision model refuses. The run continues, so that one bad file does not block the Workspace. An outage of the vision model is an infrastructure error, as an outage of the embedding API is.
    - A content error that the run records as a `failed` row counts as completed work. Only an infrastructure error stops `last_sha`.
    - `last_sha` moves to the tip only when all of the work passes. In the same update, the run clears `attempt_shas`. Nothing fails silently.
+   - **Amended by [ADR-071](ADR-071-knowledge-plane-branches.md):** a run retries from the tip of the head of its branch. `last_sha` and the tree version of the head move in one update, and there is no `attempt_shas`. A content error makes a `failed` file version, which the branches share.
 9. **The maintenance job** is queued after each run.
    - **Amended by [ADR-071](ADR-071-knowledge-plane-branches.md):** the job is queued only after a run of the default branch. No run of another branch starts maintenance or writes to the repository.
    - It finds `deleted`, `missing` and `failed` documents.
