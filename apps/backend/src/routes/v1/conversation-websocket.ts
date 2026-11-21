@@ -9,6 +9,7 @@ import { getSystemDb } from "../../db/client.js"
 import { members, organizations } from "../../db/schema/auth.js"
 import {
   type ConversationChatRequest,
+  chatRequestErrorMessage,
   parseConversationChatRequest,
 } from "../../domain/conversations/transport.js"
 import { stoppingSandboxWhenDone } from "../../domain/workspaces/conversation-sandbox-lifecycle.js"
@@ -256,7 +257,9 @@ async function* streamWorkspaceChatSocketTurn(input: {
       step: "workspace-chat-ws-parse",
       message: error instanceof Error ? error.message : String(error),
     })
-    yield workspaceChatRunError("Invalid AG-UI frame")
+    yield workspaceChatRunError(
+      chatRequestErrorMessage(error, "Invalid AG-UI frame"),
+    )
     return
   }
   if (!parsed.prompt || !parsed.workspaceId.trim()) {
@@ -281,6 +284,7 @@ async function* streamWorkspaceChatSocketTurn(input: {
         conversationId: input.conversationId,
         workspaceId: parsed.workspaceId,
         source: parsed.source,
+        baseBranch: parsed.baseBranch,
       }),
     onUserPersist: () =>
       persistWorkspaceChatUserTurnListed(input.conversationId),

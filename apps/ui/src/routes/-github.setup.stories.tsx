@@ -1,8 +1,8 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse } from "msw"
 import { expect, waitFor, within } from "storybook/test"
 
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
+import preview from "../../.storybook/preview"
 import {
   githubInstallationRegisterHandler,
   organizationFullWithOrgHandler,
@@ -11,11 +11,13 @@ import {
 import { workspaceListHandler } from "../mocks/workspace-handlers"
 import { ConnectGithubView } from "./[.]github.setup"
 
-const meta = {
+const meta = preview.meta({
   title: "Pages/GitHub setup",
   tags: ["page"],
+  beforeEach: ({ msw }) => {
+    msw.use(...signedInHandlers)
+  },
   parameters: {
-    msw: { handlers: { session: signedInHandlers } },
     app: "root",
     layout: "fullscreen",
     route: "/.github/setup",
@@ -26,42 +28,34 @@ const meta = {
     } satisfies StoryRouteParams,
     review: { kind: "page" },
   },
-} satisfies Meta
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * GitHub setup screen after the App install, which registers the installation:
  * the linked GitHub account cannot access the installation, so the page stops
  * and says why. It does not keep the "Registering installation…" spinner.
  */
-export const RegistrationRefused: Story = {
+export const RegistrationRefused = meta.story({
   render: () => (
     <ConnectGithubView installationId={42} selectedOrganizationSlug="acme" />
   ),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          organizationFullWithOrgHandler,
-          workspaceListHandler([]),
-          githubInstallationRegisterHandler(() =>
-            HttpResponse.json(
-              {
-                error:
-                  "Your GitHub account cannot access this GitHub App installation",
-                message:
-                  "Your GitHub account cannot access this GitHub App installation",
-                why: "github_installation_not_accessible",
-              },
-              { status: 403 },
-            ),
-          ),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      organizationFullWithOrgHandler,
+      workspaceListHandler([]),
+      githubInstallationRegisterHandler(() =>
+        HttpResponse.json(
+          {
+            error:
+              "Your GitHub account cannot access this GitHub App installation",
+            message:
+              "Your GitHub account cannot access this GitHub App installation",
+            why: "github_installation_not_accessible",
+          },
+          { status: 403 },
+        ),
+      ),
+    )
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -78,36 +72,32 @@ export const RegistrationRefused: Story = {
       canvas.getByRole("button", { name: "Open Connectors" }),
     ).toBeVisible()
   },
-}
+})
 
 /**
  * GitHub setup screen after the App install, on a deployment without a GitHub
  * App client: ctxpipe cannot ask GitHub whether the user can access the
  * installation, so the page points to the organization's own App.
  */
-export const AuthorizationUnavailableShowsOwnApp: Story = {
+export const AuthorizationUnavailableShowsOwnApp = meta.story({
   render: () => (
     <ConnectGithubView installationId={42} selectedOrganizationSlug="acme" />
   ),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          organizationFullWithOrgHandler,
-          workspaceListHandler([]),
-          githubInstallationRegisterHandler(() =>
-            HttpResponse.json(
-              {
-                error:
-                  "This deployment cannot confirm GitHub access. Use your organization's own GitHub App",
-                why: "github_authorization_unavailable",
-              },
-              { status: 403 },
-            ),
-          ),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      organizationFullWithOrgHandler,
+      workspaceListHandler([]),
+      githubInstallationRegisterHandler(() =>
+        HttpResponse.json(
+          {
+            error:
+              "This deployment cannot confirm GitHub access. Use your organization's own GitHub App",
+            why: "github_authorization_unavailable",
+          },
+          { status: 403 },
+        ),
+      ),
+    )
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -125,7 +115,7 @@ export const AuthorizationUnavailableShowsOwnApp: Story = {
       ).not.toBeInTheDocument()
     })
   },
-}
+})
 
 /**
  * GitHub setup screen after the App install, when the user's linked GitHub
@@ -134,30 +124,26 @@ export const AuthorizationUnavailableShowsOwnApp: Story = {
  * does not go to GitHub without that click, because another person can send
  * this address.
  */
-export const AuthorizationRequiredAsksToConfirm: Story = {
+export const AuthorizationRequiredAsksToConfirm = meta.story({
   render: () => (
     <ConnectGithubView installationId={42} selectedOrganizationSlug="acme" />
   ),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          organizationFullWithOrgHandler,
-          workspaceListHandler([]),
-          githubInstallationRegisterHandler(() =>
-            HttpResponse.json(
-              {
-                error: "Authorize the GitHub App to confirm your access",
-                why: "github_authorization_required",
-                authorizeUrl:
-                  "https://github.com/login/oauth/authorize?client_id=Iv1.story&state=gh-installation.story",
-              },
-              { status: 403 },
-            ),
-          ),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      organizationFullWithOrgHandler,
+      workspaceListHandler([]),
+      githubInstallationRegisterHandler(() =>
+        HttpResponse.json(
+          {
+            error: "Authorize the GitHub App to confirm your access",
+            why: "github_authorization_required",
+            authorizeUrl:
+              "https://github.com/login/oauth/authorize?client_id=Iv1.story&state=gh-installation.story",
+          },
+          { status: 403 },
+        ),
+      ),
+    )
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -169,4 +155,4 @@ export const AuthorizationRequiredAsksToConfirm: Story = {
       "https://github.com/login/oauth/authorize?client_id=Iv1.story&state=gh-installation.story",
     )
   },
-}
+})

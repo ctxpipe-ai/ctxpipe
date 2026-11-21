@@ -45,6 +45,8 @@ export type ConversationListItem = {
   source: string | null
   lastMessageAt: string | null
   lastTurn?: ConversationLastTurn | null
+  /** The branch that the conversation starts from; null: the default branch. */
+  baseBranch?: string | null
   lastBranch?: string | null
   lastChatPrNumber?: number | null
   lastChatPrUrl?: string | null

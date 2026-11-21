@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
 import { Toaster } from "sonner"
 import { expect, userEvent, waitFor, within } from "storybook/test"
@@ -25,6 +24,7 @@ import {
 } from "@/mocks/workspace-upgrades-handlers"
 
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
+import preview from "../../.storybook/preview"
 import { OrgHomePageContent } from "./$orgSlug.index"
 
 const handbook = {
@@ -38,11 +38,13 @@ const answered: string[] = []
 const perWorkspaceReads: string[] = []
 const requests: string[] = []
 
-const meta = {
+const meta = preview.meta({
   title: "Pages/Home/Notices",
   tags: ["page"],
   render: () => <OrgHomePageContent orgSlug="acme" />,
-  beforeEach: () => {
+  beforeEach: ({ msw }) => {
+    msw.use(...signedInHandlers, ...workspaceIngestionHandlers({}))
+
     answered.length = 0
     perWorkspaceReads.length = 0
     requests.length = 0
@@ -50,12 +52,6 @@ const meta = {
     window.localStorage.removeItem("ctxpipe:userPreferences")
   },
   parameters: {
-    msw: {
-      handlers: {
-        session: signedInHandlers,
-        ingestion: workspaceIngestionHandlers({}),
-      },
-    },
     app: "org",
     layout: "fullscreen",
     review: { kind: "page" },
@@ -65,11 +61,7 @@ const meta = {
       orgSlug: "acme",
     } satisfies StoryRouteParams,
   },
-} satisfies Meta
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 const reingest = upgradeItemFixture({
   key: "reingest-bundle-2",
@@ -91,49 +83,40 @@ function homeHandlers(
   } = {},
 ) {
   const { skippedFiles = {}, automaticJob, onStarted } = options
-  return {
-    msw: {
-      handlers: {
-        // The global default answers "no pending upgrade"; this key replaces it.
-        pendingUpgrades: [pendingWorkspaceUpgradesHandler(items, answered)],
-        page: [
-          // The setup guide reads of the org: GitHub is linked and connected.
-          ...setupGuideHandlers({
-            role,
-            github: githubInstallationLinkedHandler,
-            connectors: orgConnectionsHandler([
-              { id: "con_gh", type: "github" },
-            ]),
-          }),
-          // The detail of each Workspace, with its skipped files.
-          http.get(/\/api\/v1\/workspaces\/([^/]+)$/, ({ request }) => {
-            const slug = new URL(request.url).pathname.split("/").pop() ?? ""
-            const workspace = [docsWorkspace, handbook].find(
-              (entry) => entry.slug === slug,
-            )
-            if (!workspace)
-              return HttpResponse.json({ error: "not found" }, { status: 404 })
-            return HttpResponse.json({
-              ...docsWorkspaceDetail,
-              ...workspace,
-              skippedFiles: skippedFiles[slug] ?? [],
-            })
-          }),
-          workspaceUpgradeStartHandler({ requests, onStarted }),
-          ...workspaceUpgradeAutomaticHandlers({
-            requests,
-            ...(automaticJob ? { job: automaticJob } : {}),
-          }),
-          // The home reads the org once. A read of one Workspace fails the story.
-          http.get(/\/workspaces\/[^/]+\/upgrades$/, () => {
-            perWorkspaceReads.push("upgrades")
-            return HttpResponse.json({ error: "Not expected" }, { status: 500 })
-          }),
-          ...workspaceShellHandlers({ workspaces: [docsWorkspace, handbook] }),
-        ],
-      },
-    },
-  }
+  return [
+    pendingWorkspaceUpgradesHandler(items, answered),
+    // The setup guide reads of the org: GitHub is linked and connected.
+    ...setupGuideHandlers({
+      role,
+      github: githubInstallationLinkedHandler,
+      connectors: orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
+    }),
+    // The detail of each Workspace, with its skipped files.
+    http.get(/\/api\/v1\/workspaces\/([^/]+)$/, ({ request }) => {
+      const slug = new URL(request.url).pathname.split("/").pop() ?? ""
+      const workspace = [docsWorkspace, handbook].find(
+        (entry) => entry.slug === slug,
+      )
+      if (!workspace)
+        return HttpResponse.json({ error: "not found" }, { status: 404 })
+      return HttpResponse.json({
+        ...docsWorkspaceDetail,
+        ...workspace,
+        skippedFiles: skippedFiles[slug] ?? [],
+      })
+    }),
+    workspaceUpgradeStartHandler({ requests, onStarted }),
+    ...workspaceUpgradeAutomaticHandlers({
+      requests,
+      ...(automaticJob ? { job: automaticJob } : {}),
+    }),
+    // The home reads the org once. A read of one Workspace fails the story.
+    http.get(/\/workspaces\/[^/]+\/upgrades$/, () => {
+      perWorkspaceReads.push("upgrades")
+      return HttpResponse.json({ error: "Not expected" }, { status: 500 })
+    }),
+    ...workspaceShellHandlers({ workspaces: [docsWorkspace, handbook] }),
+  ]
 }
 
 const threeItems = {
@@ -162,12 +145,14 @@ function frontTitle(canvasElement: HTMLElement) {
  * and Dismiss. The play proves one read for the org and no read for each
  * Workspace.
  */
-export const SingleToast: Story = {
-  parameters: {
-    ...homeHandlers("owner", {
-      docs: [upgradeItemFixture()],
-      handbook: [upgradeItemFixture({ status: "completed" })],
-    }),
+export const SingleToast = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...homeHandlers("owner", {
+        docs: [upgradeItemFixture()],
+        handbook: [upgradeItemFixture({ status: "completed" })],
+      }),
+    )
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -200,16 +185,16 @@ export const SingleToast: Story = {
     expect(answered).not.toHaveLength(0)
     expect(perWorkspaceReads).toEqual([])
   },
-}
+})
 
 /**
  * Org home page with upgrade and problem notices as toasts: the user dismissed
  * the toast, and the composer moved back up with no gap. The toast is a title
  * and one short line, so it does not cover the composer (CTX-939).
  */
-export const ToastTakesNoSpaceAfterItGoes: Story = {
-  parameters: {
-    ...homeHandlers("owner", { docs: [upgradeItemFixture()] }),
+export const ToastTakesNoSpaceAfterItGoes = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(...homeHandlers("owner", { docs: [upgradeItemFixture()] }))
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -244,7 +229,7 @@ export const ToastTakesNoSpaceAfterItGoes: Story = {
       expect(composerTop()).toBeLessThanOrEqual(before - toast.height),
     )
   },
-}
+})
 
 /** The pending items of UpdateOnce: the start queues the item. */
 const updateOnceItems = { docs: [upgradeItemFixture()] }
@@ -254,8 +239,16 @@ const updateOnceItems = { docs: [upgradeItemFixture()] }
  * queued, the toast went away, and a message says that ctxpipe prepares a pull
  * request. Update once uses the existing start API.
  */
-export const UpdateOnce: Story = {
-  beforeEach: () => {
+export const UpdateOnce = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...homeHandlers("owner", updateOnceItems, {
+        onStarted: () => {
+          updateOnceItems.docs = [upgradeItemFixture({ status: "queued" })]
+        },
+      }),
+    )
+
     updateOnceItems.docs = [upgradeItemFixture()]
   },
   decorators: [
@@ -267,13 +260,6 @@ export const UpdateOnce: Story = {
       </>
     ),
   ],
-  parameters: {
-    ...homeHandlers("owner", updateOnceItems, {
-      onStarted: () => {
-        updateOnceItems.docs = [upgradeItemFixture({ status: "queued" })]
-      },
-    }),
-  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(
@@ -296,16 +282,16 @@ export const UpdateOnce: Story = {
       ).toBeNull(),
     )
   },
-}
+})
 
 /**
  * Org home page with upgrade and problem notices as toasts: the owner pressed
  * Always update, and the toast shows the progress of the save. The server saves
  * the setting and starts the upgrade, so the browser sends no start request.
  */
-export const AlwaysUpdate: Story = {
-  parameters: {
-    ...homeHandlers("owner", { docs: [upgradeItemFixture()] }),
+export const AlwaysUpdate = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(...homeHandlers("owner", { docs: [upgradeItemFixture()] }))
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -327,20 +313,22 @@ export const AlwaysUpdate: Story = {
     ])
     expect(requests.some((path) => path.endsWith("/start"))).toBe(false)
   },
-}
+})
 
 /**
  * Org home page with upgrade and problem notices as toasts: the Always update
  * save is slow, so the toast says that the server saves and starts the upgrade.
  * The other buttons stay usable, and Dismiss still works.
  */
-export const AlwaysUpdateSlowSave: Story = {
-  parameters: {
-    ...homeHandlers(
-      "owner",
-      { docs: [upgradeItemFixture()] },
-      { automaticJob: { status: "running", failureReason: null } },
-    ),
+export const AlwaysUpdateSlowSave = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...homeHandlers(
+        "owner",
+        { docs: [upgradeItemFixture()] },
+        { automaticJob: { status: "running", failureReason: null } },
+      ),
+    )
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -358,26 +346,28 @@ export const AlwaysUpdateSlowSave: Story = {
     // The save runs on the server: nothing starts in the browser.
     expect(requests.some((path) => path.endsWith("/start"))).toBe(false)
   },
-}
+})
 
 /**
  * Home with an upgrade toast: the owner pressed Always update and the setting
  * did not save, so the toast gives the next steps and the cause as raw error
  * text. Update once stays available.
  */
-export const AlwaysUpdateSaveFails: Story = {
-  parameters: {
-    ...homeHandlers(
-      "owner",
-      { docs: [upgradeItemFixture()] },
-      {
-        automaticJob: {
-          status: "failed",
-          failureReason:
-            "The write stopped before it finished. stdout maxBuffer length exceeded",
+export const AlwaysUpdateSaveFails = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...homeHandlers(
+        "owner",
+        { docs: [upgradeItemFixture()] },
+        {
+          automaticJob: {
+            status: "failed",
+            failureReason:
+              "The write stopped before it finished. stdout maxBuffer length exceeded",
+          },
         },
-      },
-    ),
+      ),
+    )
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -406,7 +396,7 @@ export const AlwaysUpdateSaveFails: Story = {
       ).toBeEnabled(),
     )
   },
-}
+})
 
 // The server names this Git error a known cause: the repository is too large.
 const failedUpgrade = upgradeItemFixture({
@@ -425,9 +415,9 @@ const failedUpgrade = upgradeItemFixture({
  * agent, so the composer of that Workspace holds a prompt with the cause. The
  * cause can repeat, so the toast offers no Update once and no Always update.
  */
-export const FailedUpgrade: Story = {
-  parameters: {
-    ...homeHandlers("owner", { docs: [failedUpgrade] }),
+export const FailedUpgrade = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(...homeHandlers("owner", { docs: [failedUpgrade] }))
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -463,16 +453,16 @@ export const FailedUpgrade: Story = {
     )
     expect(requests).toEqual([])
   },
-}
+})
 
 /**
  * Org home page with upgrade and problem notices as toasts: an upgrade failed,
  * and a member also sees the cause, Ask the agent and the review link. The
  * toast offers no Update once.
  */
-export const FailedUpgradeMember: Story = {
-  parameters: {
-    ...homeHandlers("member", { docs: [failedUpgrade] }),
+export const FailedUpgradeMember = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(...homeHandlers("member", { docs: [failedUpgrade] }))
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -491,17 +481,19 @@ export const FailedUpgradeMember: Story = {
       within(region).queryByRole("button", { name: /Update once/ }),
     ).toBeNull()
   },
-}
+})
 
 /**
  * Org home page with upgrade and problem notices as toasts: the user dismissed
  * the toast in this browser and nothing started. The toast collapses to an
  * upgrade icon with a count, and a press on it shows the toast again.
  */
-export const Dismiss: Story = {
+export const Dismiss = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(...homeHandlers("owner", { docs: [upgradeItemFixture()] }))
+  },
   parameters: {
     visual: { skip: "Behavior test: it ends in the same state as UpdateOnce." },
-    ...homeHandlers("owner", { docs: [upgradeItemFixture()] }),
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -532,16 +524,16 @@ export const Dismiss: Story = {
       expect(canvas.queryByRole("button", { name: /Show notices/ })).toBeNull(),
     )
   },
-}
+})
 
 /**
  * Org home page with upgrade and problem notices as toasts: the user dismissed
  * two toasts, so they collapsed to one icon with a count, and then pressed the
  * icon. All three toasts are back in the stack.
  */
-export const DismissedCollapseToIcon: Story = {
-  parameters: {
-    ...homeHandlers("owner", threeItems),
+export const DismissedCollapseToIcon = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(...homeHandlers("owner", threeItems))
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -575,7 +567,7 @@ export const DismissedCollapseToIcon: Story = {
       expect(canvas.queryByRole("button", { name: /Show notices/ })).toBeNull(),
     )
   },
-}
+})
 
 /**
  * Org home page with upgrade and problem notices as toasts: three toasts in one
@@ -583,9 +575,9 @@ export const DismissedCollapseToIcon: Story = {
  * The pointer opens the stack, and here Tab moved the focus to a toast behind
  * the front one, so the stack is open.
  */
-export const StackOfThree: Story = {
-  parameters: {
-    ...homeHandlers("owner", threeItems),
+export const StackOfThree = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(...homeHandlers("owner", threeItems))
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -634,15 +626,15 @@ export const StackOfThree: Story = {
       expect(canvas.getByText("Handbook upgrade available")).toBeVisible(),
     )
   },
-}
+})
 
 /**
  * Org home page with upgrade and problem notices as toasts: a member sees the
  * toasts with the quiet line "Ask an admin" and no button.
  */
-export const MemberView: Story = {
-  parameters: {
-    ...homeHandlers("member", threeItems),
+export const MemberView = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(...homeHandlers("member", threeItems))
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -656,16 +648,16 @@ export const MemberView: Story = {
       expect(within(region).queryAllByRole("button")).toHaveLength(0),
     )
   },
-}
+})
 
 /**
  * Org home page with upgrade and problem notices as toasts: the user prefers
  * reduced motion, and the pointer opened the stack with no transition.
  */
-export const ReducedMotion: Story = {
+export const ReducedMotion = meta.story({
   tags: ["reduced-motion"],
-  parameters: {
-    ...homeHandlers("owner", threeItems),
+  beforeEach: ({ msw }) => {
+    msw.use(...homeHandlers("owner", threeItems))
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -680,25 +672,29 @@ export const ReducedMotion: Story = {
       expect(canvas.getByText("Handbook upgrade available")).toBeVisible(),
     )
   },
-}
+})
 
 /**
  * Org home page with upgrade and problem notices as toasts: no item can start
  * now (it is running, has an open pull request, or is blocked), so no toast
  * shows.
  */
-export const NoToastWhenNothingToStart: Story = {
+export const NoToastWhenNothingToStart = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...homeHandlers("owner", {
+        docs: [
+          upgradeItemFixture({ status: "running" }),
+          { ...reingest, status: "blocked", blockedReason: "needs_format" },
+        ],
+        handbook: [upgradeItemFixture({ status: "pr_open" })],
+      }),
+    )
+  },
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as the Populated story of the Home page.",
     },
-    ...homeHandlers("owner", {
-      docs: [
-        upgradeItemFixture({ status: "running" }),
-        { ...reingest, status: "blocked", blockedReason: "needs_format" },
-      ],
-      handbook: [upgradeItemFixture({ status: "pr_open" })],
-    }),
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -713,7 +709,7 @@ export const NoToastWhenNothingToStart: Story = {
       ).toBeNull(),
     )
   },
-}
+})
 
 const taxFile: WorkspaceSkippedFile = {
   path: "knowledge/billing/tax.md",
@@ -726,9 +722,11 @@ const taxFile: WorkspaceSkippedFile = {
  * so the composer of that Workspace holds the fix prompt, and the problem
  * stays.
  */
-export const ProblemOnly: Story = {
-  parameters: {
-    ...homeHandlers("owner", {}, { skippedFiles: { handbook: [taxFile] } }),
+export const ProblemOnly = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...homeHandlers("owner", {}, { skippedFiles: { handbook: [taxFile] } }),
+    )
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -766,7 +764,7 @@ export const ProblemOnly: Story = {
     // The problem stays until hydrate reads the file.
     expect(canvas.getByText("Handbook: hydrate skipped 1 file")).toBeVisible()
   },
-}
+})
 
 /**
  * Org home page with upgrade and problem notices as toasts: the front problem
@@ -774,13 +772,15 @@ export const ProblemOnly: Story = {
  * the repository fixes the overlay file, so Fix using agent gives the agent
  * only the file of Git.
  */
-export const ProblemLegacyOverlayAndFile: Story = {
-  parameters: {
-    ...homeHandlers(
-      "owner",
-      {},
-      { skippedFiles: { handbook: [taxFile, legacyOverlaySkippedFile] } },
-    ),
+export const ProblemLegacyOverlayAndFile = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...homeHandlers(
+        "owner",
+        {},
+        { skippedFiles: { handbook: [taxFile, legacyOverlaySkippedFile] } },
+      ),
+    )
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -819,20 +819,22 @@ export const ProblemLegacyOverlayAndFile: Story = {
       ),
     )
   },
-}
+})
 
 /**
  * Org home page with upgrade and problem notices as toasts: only a legacy
  * overlay file has a problem, so no fix exists and the toast offers Open
  * settings in place of Fix using agent.
  */
-export const ProblemLegacyOverlayOnly: Story = {
-  parameters: {
-    ...homeHandlers(
-      "owner",
-      {},
-      { skippedFiles: { handbook: [legacyOverlaySkippedFile] } },
-    ),
+export const ProblemLegacyOverlayOnly = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...homeHandlers(
+        "owner",
+        {},
+        { skippedFiles: { handbook: [legacyOverlaySkippedFile] } },
+      ),
+    )
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -847,27 +849,29 @@ export const ProblemLegacyOverlayOnly: Story = {
       within(region).getByRole("button", { name: "Open settings: Handbook" }),
     ).toBeVisible()
   },
-}
+})
 
 /**
  * Home with two notices in one toast stack, a skipped-files problem in front of
  * an upgrade: the user moved the pointer onto the stack, so it opened and shows
  * both.
  */
-export const MixedStack: Story = {
-  parameters: {
-    ...homeHandlers(
-      "owner",
-      { docs: [upgradeItemFixture()] },
-      {
-        skippedFiles: {
-          handbook: [
-            taxFile,
-            { path: "knowledge/legal.md", reason: "malformed" },
-          ],
+export const MixedStack = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...homeHandlers(
+        "owner",
+        { docs: [upgradeItemFixture()] },
+        {
+          skippedFiles: {
+            handbook: [
+              taxFile,
+              { path: "knowledge/legal.md", reason: "malformed" },
+            ],
+          },
         },
-      },
-    ),
+      ),
+    )
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -891,20 +895,22 @@ export const MixedStack: Story = {
       expect(canvas.getByText("Docs upgrade available")).toBeVisible(),
     )
   },
-}
+})
 
 /**
  * Org home page with upgrade and problem notices as toasts: dismissed notices
  * of both types collapse to one button with an icon and a count for each type.
  * The user then pressed it, so the stack shows all three toasts again.
  */
-export const CollapsedBothTypes: Story = {
-  parameters: {
-    ...homeHandlers(
-      "owner",
-      { docs: [upgradeItemFixture(), reingest] },
-      { skippedFiles: { handbook: [taxFile] } },
-    ),
+export const CollapsedBothTypes = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...homeHandlers(
+        "owner",
+        { docs: [upgradeItemFixture(), reingest] },
+        { skippedFiles: { handbook: [taxFile] } },
+      ),
+    )
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -934,4 +940,4 @@ export const CollapsedBothTypes: Story = {
       expect(canvas.queryByRole("button", { name: /Show notices/ })).toBeNull(),
     )
   },
-}
+})

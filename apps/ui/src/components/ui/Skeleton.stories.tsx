@@ -1,7 +1,7 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { type CSSProperties, use, useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
+import preview from "../../../.storybook/preview"
 import { Button } from "./Button"
 import {
   PageBodySkeleton,
@@ -40,46 +40,42 @@ const allHidden = (root: HTMLElement) =>
   bones(root).length > 0 &&
   bones(root).every((bone) => getComputedStyle(bone).visibility === "hidden")
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Skeleton",
   component: Skeleton,
   parameters: {
     layout: "centered",
     review: { kind: "component" },
   },
-} satisfies Meta<typeof Skeleton>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Skeleton placeholder that holds the place of content while it loads: one
  * plain bone.
  */
-export const Bone: Story = {
+export const Bone = meta.story({
   args: {
     className: "h-4 w-40",
   },
-}
+})
 
 /**
  * Skeleton placeholder that holds the place of content while it loads: one row
  * of a list.
  */
-export const Row: Story = {
+export const Row = meta.story({
   render: () => (
     <div className="w-64 bg-zinc-950 py-2">
       <SkeletonRow />
     </div>
   ),
-}
+})
 
 /**
  * Skeleton placeholder that holds the place of content while it loads: three
  * tall rows of the connector catalog.
  */
-export const Catalog: Story = {
+export const Catalog = meta.story({
   render: () => (
     <div className="w-md divide-y divide-white/[0.06] bg-zinc-950" aria-busy>
       <span className="sr-only">Loading connectors</span>
@@ -88,25 +84,25 @@ export const Catalog: Story = {
       <SkeletonRow size="catalog" />
     </div>
   ),
-}
+})
 
 /**
  * Skeleton placeholder that holds the place of content while it loads: the body
  * of a page.
  */
-export const PageBody: Story = {
+export const PageBody = meta.story({
   render: () => (
     <div className="w-md bg-zinc-950 p-8">
       <PageBodySkeleton label="Loading page" />
     </div>
   ),
-}
+})
 
 /**
  * Skeleton placeholder that holds the place of content while it loads: three
  * text lines of less and less width.
  */
-export const Lines: Story = {
+export const Lines = meta.story({
   render: () => (
     <div className="flex w-80 flex-col gap-2">
       <SkeletonLine className="h-4 w-full" />
@@ -114,7 +110,7 @@ export const Lines: Story = {
       <SkeletonLine className="h-4 w-[60%]" />
     </div>
   ),
-}
+})
 
 /**
  * The CSS wait animation that runs the delay. The play test sets its time
@@ -138,7 +134,7 @@ const waitAnimation = (bone: HTMLElement) => {
  * row kept. The play pauses the wait animation: one millisecond before the
  * delay the bones are hidden, and at the delay they show.
  */
-export const WaitsForDelay: Story = {
+export const WaitsForDelay = meta.story({
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as Row.",
@@ -178,7 +174,7 @@ export const WaitsForDelay: Story = {
     expect(allVisible(canvasElement)).toBe(true)
     expect(row.getBoundingClientRect().height).toBe(height)
   },
-}
+})
 
 function HoldDemo() {
   const [pending, setPending] = useState(false)
@@ -204,7 +200,7 @@ const button = (canvasElement: HTMLElement, name: string) =>
  * the delay, so the content shows at once. The story runs on a manual clock
  * (`skeletonClockStory`), so it does not depend on the speed of the machine.
  */
-export const FastLoadSkipsSkeleton: Story = {
+export const FastLoadSkipsSkeleton = meta.story({
   parameters: {
     visual: {
       skip: "Behavior test of the skeleton timing on a test panel that the product does not render.",
@@ -231,7 +227,7 @@ export const FastLoadSkipsSkeleton: Story = {
       clock.restore()
     }
   },
-}
+})
 
 /**
  * Test panel for the skeleton hold, with load buttons: the skeleton stayed for
@@ -239,7 +235,7 @@ export const FastLoadSkipsSkeleton: Story = {
  * `SKELETON_MIN_MS` from when the skeleton showed, not from when the data
  * arrived. The story runs on a manual clock.
  */
-export const VisibleSkeletonHoldsMinimum: Story = {
+export const VisibleSkeletonHoldsMinimum = meta.story({
   parameters: {
     visual: {
       skip: "Behavior test of the skeleton timing on a test panel that the product does not render.",
@@ -268,14 +264,14 @@ export const VisibleSkeletonHoldsMinimum: Story = {
       clock.restore()
     }
   },
-}
+})
 
 /**
  * Test panel for the skeleton hold, with load buttons: the load ended after the
  * hold, so the content shows at once. No second hold starts after the minimum
  * time is over. The story runs on a manual clock.
  */
-export const NoSecondHoldAfterMinimum: Story = {
+export const NoSecondHoldAfterMinimum = meta.story({
   parameters: {
     visual: {
       skip: "Behavior test of the skeleton timing on a test panel that the product does not render.",
@@ -301,7 +297,7 @@ export const NoSecondHoldAfterMinimum: Story = {
       clock.restore()
     }
   },
-}
+})
 
 let release: () => void = () => {}
 let content: Promise<void> = Promise.resolve()
@@ -333,7 +329,7 @@ function SuspenseDemo() {
  * visible fallback for the minimum time, also when the content is ready
  * earlier.
  */
-export const SuspenseHoldsMinimum: Story = {
+export const SuspenseHoldsMinimum = meta.story({
   parameters: {
     visual: {
       skip: "Behavior test of the skeleton timing on a test panel that the product does not render.",
@@ -365,14 +361,14 @@ export const SuspenseHoldsMinimum: Story = {
       clock.restore()
     }
   },
-}
+})
 
 /**
  * Skeleton row that holds the place of content while it loads: the bones are
  * still hidden at first paint while the delay runs. CSS starts the delay, so
  * the delay runs from the first paint of server HTML, not from hydration.
  */
-export const DelayStartsAtFirstPaint: Story = {
+export const DelayStartsAtFirstPaint = meta.story({
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as Row.",
@@ -392,7 +388,7 @@ export const DelayStartsAtFirstPaint: Story = {
       expect(getComputedStyle(bone).visibility).toBe("hidden")
     }
   },
-}
+})
 
 function HandOverDemo(props: { firstStyle?: CSSProperties; idle?: boolean }) {
   return (
@@ -470,7 +466,7 @@ function HandOverDemoBody(props: {
  * skeleton took over and stays visible. A visible skeleton that hands over to
  * another one never goes blank, at any frame.
  */
-export const HandOverStaysVisible: Story = {
+export const HandOverStaysVisible = meta.story({
   parameters: {
     visual: {
       skip: "Behavior test of the skeleton timing on a test panel that the product does not render.",
@@ -492,7 +488,7 @@ export const HandOverStaysVisible: Story = {
       await sleep(25)
     }
   },
-}
+})
 
 /**
  * The next three stories run on a manual clock (`skeletonClockStory`). The
@@ -508,7 +504,7 @@ const waitOf = (bone: HTMLElement) =>
  * start time, so the second skeleton waits only for the rest of the first
  * delay.
  */
-export const HandOverKeepsDelayStart: Story = {
+export const HandOverKeepsDelayStart = meta.story({
   parameters: {
     visual: {
       skip: "Behavior test of the skeleton timing on a test panel that the product does not render.",
@@ -535,14 +531,14 @@ export const HandOverKeepsDelayStart: Story = {
       clock.restore()
     }
   },
-}
+})
 
 /**
  * Test panel for the hand-over from one skeleton to the next: a fast load in
  * another chain started and stopped again. That load does not inherit the start
  * of the other chain, so its skeleton keeps its own delay and stays hidden.
  */
-export const UnrelatedLoadKeepsItsDelay: Story = {
+export const UnrelatedLoadKeepsItsDelay = meta.story({
   parameters: {
     visual: {
       skip: "Behavior test of the skeleton timing on a test panel that the product does not render.",
@@ -564,14 +560,14 @@ export const UnrelatedLoadKeepsItsDelay: Story = {
     await userEvent.click(canvas.getByRole("button", { name: "Quick load" }))
     expect(canvas.queryByTestId("quick")).not.toBeInTheDocument()
   },
-}
+})
 
 /**
  * Test panel for the hand-over from one skeleton to the next: a query skeleton
  * took over, held, and then the content shows. The hold counts from when the
  * first skeleton showed.
  */
-export const HandOverHoldsMinimum: Story = {
+export const HandOverHoldsMinimum = meta.story({
   parameters: {
     visual: {
       skip: "Behavior test of the skeleton timing on a test panel that the product does not render.",
@@ -603,7 +599,7 @@ export const HandOverHoldsMinimum: Story = {
       clock.restore()
     }
   },
-}
+})
 
 /**
  * Test panel for the hand-over from one skeleton to the next: the first bone
@@ -611,7 +607,7 @@ export const HandOverHoldsMinimum: Story = {
  * from the CSS animation of the first bone, which began 600 ms before the
  * mount, so the second waits only 400 ms.
  */
-export const HandOverUsesPaintStart: Story = {
+export const HandOverUsesPaintStart = meta.story({
   parameters: {
     visual: {
       skip: "Behavior test of the skeleton timing on a test panel that the product does not render.",
@@ -635,4 +631,4 @@ export const HandOverUsesPaintStart: Story = {
       clock.restore()
     }
   },
-}
+})

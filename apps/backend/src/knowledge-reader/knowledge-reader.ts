@@ -163,6 +163,31 @@ export async function selectKnowledgeReader(
   }
 }
 
+/**
+ * The reader of the first branch of `branches` that the plane serves for
+ * each Workspace, else the reader of the default branch (ADR-071, the chat
+ * branch selector). A conversation reads its session branch, then its base
+ * branch: a session branch has a projection only after a push of it.
+ * `branch` names the branch that the selection serves.
+ */
+export async function selectFirstKnowledgeBranch(
+  orgId: string,
+  workspaceIds: readonly string[],
+  branches: readonly string[],
+): Promise<KnowledgeSelection & { branch?: string }> {
+  if (workspaceIds.length > 0 && (await knowledgePlaneFlag(orgId)) === "on")
+    for (const branch of branches) {
+      const heads = await readyKnowledgeHeads(orgId, workspaceIds, branch)
+      if (workspaceIds.every((id) => heads.has(id)))
+        return {
+          reader: planeKnowledgeReader({ heads }),
+          planeHeads: heads,
+          branch,
+        }
+    }
+  return selectKnowledgeReader(orgId, workspaceIds)
+}
+
 /** The error for a branch with no projection. */
 const unknownBranch = (branch: string) =>
   new McpToolError(

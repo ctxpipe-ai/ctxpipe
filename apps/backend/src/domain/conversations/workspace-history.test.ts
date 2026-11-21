@@ -2,6 +2,7 @@ import { chatParamsFromRequestBody, uiMessagesToWire } from "@tanstack/ai"
 import { describe, expect, it } from "vitest"
 
 import {
+  ChatAttachmentError,
   ConversationUiMessagesTimeoutError,
   clientConversationId,
   parseConversationChatRequest,
@@ -111,6 +112,54 @@ describe("workspaceChatStreamResponse", () => {
     })
     expect(parsed.prompt).toBe("next turn")
   })
+
+  it.each([
+    [
+      "an AG-UI binary part",
+      {
+        content: [
+          { type: "text", text: "Summarize the file." },
+          { type: "binary", mimeType: "application/pdf", data: "JVBERi0=" },
+        ],
+      },
+    ],
+    [
+      "a UI message document part",
+      {
+        parts: [
+          { type: "text", content: "Summarize the file." },
+          {
+            type: "document",
+            source: {
+              type: "data",
+              value: "JVBERi0=",
+              mimeType: "application/pdf",
+            },
+          },
+        ],
+      },
+    ],
+  ])(
+    "refuses a user message with %s: the chat takes only text (CTX-1454)",
+    async (_name, fields) => {
+      const body = {
+        threadId: "conv_1",
+        runId: "run_file",
+        messages: [{ id: "m1", role: "user" as const, ...fields }],
+        tools: [],
+        context: [],
+        forwardedProps: { workspaceId: "ws_1", source: "ui" },
+      }
+      await expect(parseConversationChatRequest(body)).rejects.toThrow(
+        ChatAttachmentError,
+      )
+      // Without threadId and runId, the fallback parser refuses it too.
+      const { threadId: _thread, runId: _run, ...firstMessage } = body
+      await expect(parseConversationChatRequest(firstMessage)).rejects.toThrow(
+        /The chat takes only text/,
+      )
+    },
+  )
 
   it("reads the UI first-message body when official AG-UI params reject", async () => {
     const firstMessageBody = {

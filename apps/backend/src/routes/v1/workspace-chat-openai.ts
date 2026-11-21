@@ -22,6 +22,7 @@ import {
 import { workspaceChatBearerToken } from "../../domain/workspaces/workspace-chat-token.js"
 import { applyAttribution } from "../../observability/attribution.js"
 import { getLogger } from "../../observability/logger.js"
+import { convertFileParts } from "../../retrieval/services/convertFileParts.js"
 import { lowerOpenAiChatCompletionsParams } from "../../retrieval/services/providers/openAILikeModelProvider.js"
 import {
   scrubForModel,
@@ -78,13 +79,23 @@ const chatRoute = createRoute({
   },
   responses: {
     200: { description: "Upstream chat-completion response (JSON or SSE)" },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description:
+        "A file part or an image data URL that the proxy cannot convert to text",
+    },
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Unauthorized",
     },
+    429: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Each file conversion slot is taken",
+    },
     503: {
       content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Workspace chat model is not configured",
+      description:
+        "Workspace chat model is not configured, or the file converter cannot start",
     },
   },
 })
@@ -179,12 +190,21 @@ export const workspaceChatOpenaiRoutes = new OpenAPIHono<AppEnv>()
         503,
       )
     }
+    // Each PDF file part becomes the text of our converter, and each other
+    // file part fails the request (CTX-1454).
+    const converted = await convertFileParts(
+      await c.req.json().catch(() => ({})),
+    )
+    if (!converted.ok)
+      return c.json({ error: converted.error }, converted.status)
     // The body goes to a model: each secret in it is removed first, and a
     // part that the scrubber cannot read is refused (ADR-072).
-    const raw: unknown = await c.req.json().catch(() => ({}))
-    const unreadable = unreadableContentPart(raw)
+    const unreadable = unreadableContentPart(converted.body)
     if (unreadable) return c.json({ error: unreadable }, 400)
-    const body = (await scrubForModel(raw)) as Record<string, unknown>
+    const body = (await scrubForModel(converted.body)) as Record<
+      string,
+      unknown
+    >
     // The request's `model` of an ingest step is its tier name. Each other
     // value from the sandbox (also a configured model name) gets the fast
     // tier. A chat turn always uses the fast tier.

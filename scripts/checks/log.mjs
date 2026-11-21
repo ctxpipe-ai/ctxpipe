@@ -27,11 +27,19 @@ export function logFile(name) {
 }
 
 // Runs a command with its output in the log, and returns the spawnSync result.
+// When the command passes its `timeout`, the error message names the time
+// limit: spawnSync gives only the code ETIMEDOUT.
 export function logged(log, command, args, options = {}) {
   writeFileSync(log, `$ ${command} ${args.join(" ")}\n`, { flag: "a" })
   const fd = openSync(log, "a")
   try {
-    return spawnSync(command, args, { stdio: ["ignore", fd, fd], ...options })
+    const run = spawnSync(command, args, {
+      stdio: ["ignore", fd, fd],
+      ...options,
+    })
+    if (run.error?.code === "ETIMEDOUT")
+      run.error.message = `it did not end within its time limit of ${options.timeout / 1000} seconds`
+    return run
   } finally {
     closeSync(fd)
   }

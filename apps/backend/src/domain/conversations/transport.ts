@@ -23,6 +23,8 @@ export type ConversationChatRequest = {
   workspaceId: string
   source?: string
   conversationId?: string
+  /** The base branch that the user picked for a new conversation (ADR-071). */
+  baseBranch?: string
   messages?: TanstackWorkspaceChatInput["messages"]
   threadId?: string
   runId?: string
@@ -254,8 +256,8 @@ function incomingMessageFields(value: unknown): {
   return value as { content?: unknown; parts?: unknown[] }
 }
 
-function lastUserPrompt(messages: unknown[]): string {
-  const last = [...messages].reverse().find((message) => {
+function lastUserMessage(messages: unknown[]): unknown {
+  return [...messages].reverse().find((message) => {
     return (
       !!message &&
       typeof message === "object" &&
@@ -263,7 +265,41 @@ function lastUserPrompt(messages: unknown[]): string {
       message.role === "user"
     )
   })
+}
+
+function lastUserPrompt(messages: unknown[]): string {
+  const last = lastUserMessage(messages)
   return last ? toPromptFromIncomingMessage(incomingMessageFields(last)) : ""
+}
+
+/**
+ * A chat message with a part that is not text (a file, an image). The chat
+ * sends the agent only the text of a message, so such a part would be lost
+ * with no error. No file part goes to a model before our converter
+ * (CTX-1454), and the chat has no attachments: the request fails.
+ */
+export class ChatAttachmentError extends Error {
+  constructor() {
+    super(
+      "The chat takes only text. Add the file to the Workspace, and ask about it in the chat.",
+    )
+    this.name = "ChatAttachmentError"
+  }
+}
+
+/** The message for the client when `parseConversationChatRequest` fails. */
+export function chatRequestErrorMessage(
+  error: unknown,
+  fallback: string,
+): string {
+  return error instanceof ChatAttachmentError ? error.message : fallback
+}
+
+function hasAttachment(message: unknown): boolean {
+  const { content, parts } = incomingMessageFields(message)
+  return [...(Array.isArray(content) ? content : []), ...(parts ?? [])].some(
+    (part) => (part as { type?: unknown } | null)?.type !== "text",
+  )
 }
 
 const CLIENT_CONVERSATION_ID = /^conv_[a-z0-9]{8,64}$/
@@ -297,6 +333,7 @@ function forwardedChatFields(record: Record<string, unknown>): {
   workspaceId: string
   source: string | undefined
   conversationId?: string
+  baseBranch?: string
 } {
   const forwarded =
     record.forwardedProps && typeof record.forwardedProps === "object"
@@ -316,9 +353,17 @@ function forwardedChatFields(record: Record<string, unknown>): {
   const conversationId =
     clientConversationId(forwarded.conversationId) ??
     clientConversationId(record.conversationId)
-  return { workspaceId, source, conversationId }
+  const baseBranch =
+    typeof forwarded.baseBranch === "string" ? forwarded.baseBranch : undefined
+  return {
+    workspaceId,
+    source,
+    conversationId,
+    ...(baseBranch ? { baseBranch } : {}),
+  }
 }
 
+/** Throws `ChatAttachmentError` for a user message with a part that is not text. */
 export async function parseConversationChatRequest(
   body: unknown,
 ): Promise<ConversationChatRequest> {
@@ -330,6 +375,11 @@ export async function parseConversationChatRequest(
       createdAt?: unknown
     }>,
   )
+  if (
+    hasAttachment(lastUserMessage(rawMessages)) ||
+    hasAttachment(record.message)
+  )
+    throw new ChatAttachmentError()
   const rawPrompt =
     lastUserPrompt(rawMessages) ||
     toPromptFromIncomingMessage(incomingMessageFields(record.message))
@@ -342,6 +392,7 @@ export async function parseConversationChatRequest(
     workspaceId: raw.workspaceId,
     source: raw.source,
     conversationId: raw.conversationId,
+    baseBranch: raw.baseBranch,
     messages:
       rawMessages.length > 0
         ? (rawMessages as ConversationChatRequest["messages"])
@@ -373,6 +424,7 @@ export async function parseConversationChatRequest(
         source,
         conversationId:
           clientConversationId(forwarded.conversationId) ?? raw.conversationId,
+        baseBranch: raw.baseBranch,
         messages: params.messages,
         threadId: params.threadId,
         runId: params.runId,

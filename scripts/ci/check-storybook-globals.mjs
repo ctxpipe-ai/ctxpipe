@@ -5,13 +5,13 @@
 //
 // The check reads the files of apps/ui/.storybook and fails when:
 //   - `preview.tsx` sets `parameters.msw` (a handler for every story);
-//   - `initialize()` of msw-storybook-addon gets an initial handler other
-//     than `unhandledSocketHandler`. That handler answers no socket: it
+//   - `setupWorker()` of the MSW worker gets an initial handler other than
+//     `unhandledSocketHandler`. That handler answers no socket: it
 //     closes a socket that no story handler matches, so that the story
 //     fails (see preview.tsx);
 //   - a file of .storybook imports the shared mocks (`src/mocks`), makes an
 //     MSW handler (`http.*`, `graphql.*`) or adds one to the worker
-//     (`worker.use(...)`, `getWorker().use(...)`);
+//     (`worker.use(...)`, or `msw.use(...)` of the story context);
 //   - a global decorator of `preview.tsx` is not
 //     `optIn(["<parameter>", ...], decorator)`. `optIn` renders the story as
 //     it is until the story file sets one of the parameters.
@@ -85,16 +85,13 @@ for (const path of files) {
       errors.push(
         `${where(source, node)}: makes an MSW handler (${callee.expression.text}.${callee.name.text}). A handler belongs to a story file.`,
       )
-    const worker = callee.expression
     if (
       callee.name.text === "use" &&
-      ((ts.isIdentifier(worker) && worker.text === "worker") ||
-        (ts.isCallExpression(worker) &&
-          ts.isIdentifier(worker.expression) &&
-          worker.expression.text === "getWorker"))
+      ts.isIdentifier(callee.expression) &&
+      ["worker", "msw"].includes(callee.expression.text)
     )
       errors.push(
-        `${where(source, node)}: adds a handler to the worker (.use). A story file sets its handlers in parameters.msw.`,
+        `${where(source, node)}: adds a handler to the worker (.use). A story file adds its handlers in the beforeEach of its meta or its stories.`,
       )
   })
 }
@@ -114,19 +111,15 @@ visit(preview, (node) => {
   if (
     ts.isCallExpression(node) &&
     ts.isIdentifier(node.expression) &&
-    node.expression.text === "initialize"
+    node.expression.text === "setupWorker"
   ) {
-    const handlers = node.arguments[1]
-    if (!handlers) return
-    const allowed =
-      ts.isArrayLiteralExpression(handlers) &&
-      handlers.elements.every(
-        (element) =>
-          ts.isIdentifier(element) && element.text === "unhandledSocketHandler",
-      )
+    const allowed = node.arguments.every(
+      (handler) =>
+        ts.isIdentifier(handler) && handler.text === "unhandledSocketHandler",
+    )
     if (!allowed)
       errors.push(
-        `${where(preview, handlers)}: initialize() gets initial handlers. Only unhandledSocketHandler (it answers no socket) may be there; a story file sets its handlers in parameters.msw.`,
+        `${where(preview, node)}: setupWorker() gets initial handlers. Only unhandledSocketHandler (it answers no socket) may be there; a story file adds its handlers in the beforeEach of its meta or its stories.`,
       )
   }
 })

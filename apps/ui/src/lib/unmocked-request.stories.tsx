@@ -1,6 +1,7 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { ws } from "msw"
 import { expect } from "storybook/test"
+
+import preview from "../../.storybook/preview"
 
 // A request that no MSW handler answers fails the story (the storybook
 // skill, "Mock every request"). The preview (.storybook/preview.tsx) records
@@ -18,32 +19,27 @@ import { expect } from "storybook/test"
 
 type UnhandledWindow = Window & { __ctxpipeUnhandledRequests?: string[] }
 
-const meta = {
+const meta = preview.meta({
   title: "Testing/Unmocked request",
   render: () => <p>A request with no mock fails the story.</p>,
   parameters: { review: { kind: "component" } },
-} satisfies Meta
-
-export default meta
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Test fixture that proves a request with no mock fails: one line of text, and
  * the play sends the requests.
  */
-export const RequestWithNoMockFails: Story = {
+export const RequestWithNoMockFails = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      // An unrelated socket mock: MSW then gives each socket to the `ws`
+      // handlers and does not call `onUnhandledRequest` for it.
+      ws
+        .link(/\/api\/v1\/other-socket$/)
+        .addEventListener("connection", () => {}),
+    )
+  },
   parameters: {
-    msw: {
-      handlers: {
-        // An unrelated socket mock: MSW then gives each socket to the `ws`
-        // handlers and does not call `onUnhandledRequest` for it.
-        socket: [
-          ws
-            .link(/\/api\/v1\/other-socket$/)
-            .addEventListener("connection", () => {}),
-        ],
-      },
-    },
     visual: {
       skip: "Behavior test: it ends on a test fixture, which the product does not render.",
     },
@@ -68,4 +64,4 @@ export const RequestWithNoMockFails: Story = {
     await expect(record).toEqual([`GET ${url}`, `WS ${socketUrl}`])
     record?.splice(0)
   },
-}
+})

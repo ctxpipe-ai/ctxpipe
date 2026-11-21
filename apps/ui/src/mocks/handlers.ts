@@ -11,8 +11,6 @@ export const authConfigHandler = http.get("*/.auth/api/config", () =>
   HttpResponse.json({ providers: [] }),
 )
 
-const sessionSignedOut = HttpResponse.json(null)
-
 const sessionSignedIn = (user: {
   id: string
   email?: string
@@ -33,9 +31,8 @@ const sessionSignedIn = (user: {
     },
   })
 
-export const sessionSignedOutHandler = http.get(
-  `${authBase}/get-session`,
-  () => sessionSignedOut,
+export const sessionSignedOutHandler = http.get(`${authBase}/get-session`, () =>
+  HttpResponse.json(null),
 )
 
 export function sessionSignedInHandler(user: {

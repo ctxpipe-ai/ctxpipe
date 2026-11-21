@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import {
   createMemoryHistory,
   createRootRoute,
@@ -11,17 +10,14 @@ import { expect, userEvent, waitFor, within } from "storybook/test"
 
 import { ApiError } from "@/lib/api-result"
 
+import preview from "../../../.storybook/preview"
 import { OrgGateError } from "./OrgGateError"
 import { OrgOutletError } from "./OrgOutletError"
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Org/OutletError",
   component: OrgOutletError,
-} satisfies Meta<typeof OrgOutletError>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Error alert in the body of an org page: the connections read failed with a
@@ -29,7 +25,7 @@ type Story = StoryObj<typeof meta>
  * where it failed and the next step, and it does not repeat the title with the
  * fallback message of the query.
  */
-export const ConnectorsFailed: Story = {
+export const ConnectorsFailed = meta.story({
   parameters: {
     review: {
       kind: "component",
@@ -52,14 +48,14 @@ export const ConnectorsFailed: Story = {
       canvas.queryByText("Failed to load connections"),
     ).not.toBeInTheDocument()
   },
-}
+})
 
 /**
  * Error alert in the body of an org page: the product fetch hit its own timeout
  * (ApiError status 0). The alert does not blame the network connection, and the
  * fetch error shows.
  */
-export const RequestTimedOut: Story = {
+export const RequestTimedOut = meta.story({
   parameters: {
     review: {
       kind: "component",
@@ -82,13 +78,13 @@ export const RequestTimedOut: Story = {
       canvas.queryByText(/could not reach the server/),
     ).not.toBeInTheDocument()
   },
-}
+})
 
 /**
  * Error alert in the body of an org page, where the user can try the load
  * again: the org check timed out during the server render.
  */
-export const OrgGateFailed: Story = {
+export const OrgGateFailed = meta.story({
   parameters: {
     review: {
       kind: "component",
@@ -99,14 +95,14 @@ export const OrgGateFailed: Story = {
     error: new Error("The operation timed out."),
     reset: () => undefined,
   },
-}
+})
 
 /**
  * Error screen of the org check in a test router: the first load failed, and
  * the user pressed Try again. The loader ran again, and the org page text
  * shows.
  */
-export const OrgGateTryAgainLoads: Story = {
+export const OrgGateTryAgainLoads = meta.story({
   parameters: {
     visual: {
       skip: "Behavior test: it ends on a story route marker, which the product does not render.",
@@ -118,7 +114,7 @@ export const OrgGateTryAgainLoads: Story = {
     },
   },
   tags: ["required"],
-  args: OrgGateFailed.args,
+  args: OrgGateFailed.input.args,
   render: () => <OrgGateRetryRouter />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -128,7 +124,7 @@ export const OrgGateTryAgainLoads: Story = {
     await userEvent.click(canvas.getByRole("button", { name: "Try again" }))
     await waitFor(() => expect(canvas.getByText("Org page")).toBeVisible())
   },
-}
+})
 
 function OrgGateRetryRouter() {
   const [router] = useState(() => {

@@ -43,7 +43,10 @@ import {
   type RelatedUnit,
   seedRelatedWorkspace,
 } from "../test/related-fixture.js"
-import { selectKnowledgeReader } from "./knowledge-reader.js"
+import {
+  selectFirstKnowledgeBranch,
+  selectKnowledgeReader,
+} from "./knowledge-reader.js"
 
 /*
  * The knowledge reader seam behind the org flag (ADR-069 decision 9), through
@@ -355,6 +358,37 @@ async function markBranchReady(
   })
 }
 
+/** A document of a branch whose text answers the search of `searchCall`. */
+const branchPlaneDocument = (
+  workspaceId: string,
+  path: string,
+  title: string,
+): PlaneDocument => ({
+  document: {
+    docKey: servingIdForKnowledgePath(workspaceId, path),
+    kind: "Note",
+    title,
+    path,
+    sourceType: "docs",
+    source: "",
+    summary: title,
+    mime: "",
+    validFrom: null,
+    validTo: null,
+    observedAt: new Date("2026-11-01T00:00:00Z"),
+  },
+  chunks: [
+    {
+      ordinal: 0,
+      text: `${title}\n\nThe plan of the branch. answer`,
+      startLine: 1,
+      endLine: 2,
+      embedding: planeVector(`${title} The plan of the branch. answer`),
+    },
+  ],
+  relations: [],
+})
+
 const structured = (result: CallToolResult) =>
   result.structuredContent as Record<string, unknown>
 const searchCall = (args: Record<string, unknown>) =>
@@ -555,31 +589,8 @@ describe("the knowledge reader seam", () => {
   it("on: a branch reads its overlay on the default branch, and each reader of the Workspace reads the session branch of any conversation", async () => {
     await setFlag("on")
     const workspaceId = ids.ready as string
-    const branchDocument = (path: string, title: string): PlaneDocument => ({
-      document: {
-        docKey: servingIdForKnowledgePath(workspaceId, path),
-        kind: "Note",
-        title,
-        path,
-        sourceType: "docs",
-        source: "",
-        summary: title,
-        mime: "",
-        validFrom: null,
-        validTo: null,
-        observedAt: new Date("2026-11-01T00:00:00Z"),
-      },
-      chunks: [
-        {
-          ordinal: 0,
-          text: `${title}\n\nThe plan of the branch. answer`,
-          startLine: 1,
-          endLine: 2,
-          embedding: planeVector(`${title} The plan of the branch. answer`),
-        },
-      ],
-      relations: [],
-    })
+    const branchDocument = (path: string, title: string) =>
+      branchPlaneDocument(workspaceId, path, title)
     const refsOf = (result: CallToolResult) =>
       (structured(result).hits as { ref: string }[]).map((hit) => hit.ref)
     await markBranchReady(workspaceId, "feature", [
@@ -643,6 +654,37 @@ describe("the knowledge reader seam", () => {
     expect(JSON.stringify(shadow.content)).toContain(
       "needs the knowledge plane",
     )
+  })
+
+  it("a chat call reads its session branch when it has a projection, else its base branch, else the default branch", async () => {
+    await setFlag("on")
+    const workspaceId = ids.ready as string
+    const suffix = Math.random().toString(36).slice(2, 8)
+    const base = `base-${suffix}`
+    const session = `ctxpipe/chat/conv_${suffix}/1`
+    const served = async () => {
+      const selection = await selectFirstKnowledgeBranch(
+        seed.orgId,
+        [workspaceId],
+        [session, base],
+      )
+      return {
+        branch: selection.branch,
+        sha: selection.planeHeads.get(workspaceId)?.sha,
+      }
+    }
+    expect(await served()).toEqual({ branch: undefined, sha: planeSha })
+    await markBranchReady(workspaceId, base, [
+      branchPlaneDocument(workspaceId, "knowledge/base.md", "Base plan"),
+    ])
+    expect((await served()).branch).toBe(base)
+    await markBranchReady(workspaceId, session, [
+      branchPlaneDocument(workspaceId, "knowledge/session.md", "Session plan"),
+    ])
+    expect((await served()).branch).toBe(session)
+    // The old stack serves only the default branch.
+    await setFlag("shadow")
+    expect(await served()).toEqual({ branch: undefined, sha: undefined })
   })
 
   it("on: a Workspace before its first full run uses the old stack", async () => {

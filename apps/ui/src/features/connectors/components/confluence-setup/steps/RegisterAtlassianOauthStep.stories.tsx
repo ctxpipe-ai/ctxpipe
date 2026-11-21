@@ -1,5 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
-
 import {
   atlassianOauthHandler,
   atlassianOauthSaveHandler,
@@ -7,12 +5,13 @@ import {
 import { signedInHandlers } from "@/mocks/handlers"
 
 import type { StoryRouteParams } from "../../../../../../.storybook/decorators/with-story-route"
+import preview from "../../../../../../.storybook/preview"
 import { RegisterAtlassianOauthStep } from "./RegisterAtlassianOauthStep"
 
 const orgSlug = "acme"
 const atlassianConnectionId = "conn_forge_story"
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Connections/Atlassian/Steps/RegisterOAuth",
   component: RegisterAtlassianOauthStep,
   decorators: [
@@ -22,8 +21,10 @@ const meta = {
       </div>
     ),
   ],
+  beforeEach: ({ msw }) => {
+    msw.use(...signedInHandlers)
+  },
   parameters: {
-    msw: { handlers: { session: signedInHandlers } },
     app: "root",
     layout: "centered",
     storyRoute: {
@@ -31,11 +32,7 @@ const meta = {
       orgSlug,
     } satisfies StoryRouteParams,
   },
-} satisfies Meta<typeof RegisterAtlassianOauthStep>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 const step = () => (
   <RegisterAtlassianOauthStep
@@ -48,23 +45,18 @@ const step = () => (
  * Step of the self-hosted Confluence setup where the org registers its
  * Atlassian OAuth app: the empty form, no app saved yet.
  */
-export const RegisterOAuth: Story = {
+export const RegisterOAuth = meta.story({
   name: "3LO credential form",
   render: step,
+  beforeEach: ({ msw }) => {
+    msw.use(
+      atlassianOauthHandler({ oauthAppSaved: false }, atlassianConnectionId),
+      atlassianOauthSaveHandler(atlassianConnectionId),
+    )
+  },
   parameters: {
     review: {
       kind: "component",
     },
-    msw: {
-      handlers: {
-        page: [
-          atlassianOauthHandler(
-            { oauthAppSaved: false },
-            atlassianConnectionId,
-          ),
-          atlassianOauthSaveHandler(atlassianConnectionId),
-        ],
-      },
-    },
   },
-}
+})

@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import type { ReactNode } from "react"
 import { expect, fn, userEvent, within } from "storybook/test"
@@ -12,6 +11,7 @@ import {
 import { pendingWorkspaceUpgradesHandler } from "@/mocks/workspace-upgrades-handlers"
 
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
+import preview from "../../../../.storybook/preview"
 import {
   pendingSetupHandlers,
   playPendingSetup,
@@ -57,7 +57,7 @@ function pagerdutyStatus(status: object) {
   )
 }
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Connections/PagerdutyCard",
   component: PagerdutyConnectionCard,
   args: {
@@ -65,35 +65,29 @@ const meta = {
     connectionId,
     onOpenSetup: () => {},
   },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...signedInHandlers,
+      activeMemberRoleHandler("admin"),
+      pendingWorkspaceUpgradesHandler({}),
+      connectionUsageHandler([
+        connectionUsageItem({
+          workspaceSlug: "docs",
+          workspaceName: "Docs",
+        }),
+      ]),
+    )
+  },
   parameters: {
     app: "root",
     review: { kind: "component" },
-    msw: {
-      handlers: {
-        session: signedInHandlers,
-        role: [activeMemberRoleHandler("admin")],
-        pendingUpgrades: [pendingWorkspaceUpgradesHandler({})],
-        usage: [
-          connectionUsageHandler([
-            connectionUsageItem({
-              workspaceSlug: "docs",
-              workspaceName: "Docs",
-            }),
-          ]),
-        ],
-      },
-    },
     layout: "fullscreen",
     storyRoute: {
       pattern: "orgIndex",
       orgSlug,
     } satisfies StoryRouteParams,
   },
-} satisfies Meta<typeof PagerdutyConnectionCard>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 const shell = (story: ReactNode) => <div className="max-w-xl p-6">{story}</div>
 
@@ -113,61 +107,53 @@ function card() {
  * PagerDuty card on the Connectors page, collapsed: the PagerDuty account is
  * connected, so the status is Connected.
  */
-export const Connected: Story = {
+export const Connected = meta.story({
   render: () => shell(card()),
-  parameters: {
-    msw: { handlers: { page: [pagerdutyStatus(statusComplete)] } },
+  beforeEach: ({ msw }) => {
+    msw.use(pagerdutyStatus(statusComplete))
   },
-}
+})
 
 /**
  * PagerDuty connection card on the Connectors page: the status request is still
  * loading.
  */
-export const Checking: Story = {
+export const Checking = meta.story({
   render: () => shell(card()),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname.includes(
-                "/api/v1/connectors/pagerduty/status",
-              ),
-            async () => {
-              await delay("infinite")
-              return HttpResponse.json(statusComplete)
-            },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(
+        ({ request }) =>
+          new URL(request.url).pathname.includes(
+            "/api/v1/connectors/pagerduty/status",
           ),
-        ],
-      },
-    },
+        async () => {
+          await delay("infinite")
+          return HttpResponse.json(statusComplete)
+        },
+      ),
+    )
   },
-}
+})
 
 /**
  * PagerDuty connection card on the Connectors page: the status request failed,
  * so the card cannot show the connection.
  */
-export const CouldntLoad: Story = {
+export const CouldntLoad = meta.story({
   render: () => shell(card()),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname.includes(
-                "/api/v1/connectors/pagerduty/status",
-              ),
-            () => new HttpResponse(null, { status: 500 }),
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(
+        ({ request }) =>
+          new URL(request.url).pathname.includes(
+            "/api/v1/connectors/pagerduty/status",
           ),
-        ],
-      },
-    },
+        () => new HttpResponse(null, { status: 500 }),
+      ),
+    )
   },
-}
+})
 
 const statusReads = fn()
 const deleted = fn()
@@ -176,35 +162,31 @@ const deleted = fn()
  * PagerDuty connection card on the Connectors page: the setup is not complete,
  * so the card offers to continue or delete the draft.
  */
-export const PendingSetup: Story = {
+export const PendingSetup = meta.story({
   render: () => shell(card()),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          ...pendingSetupHandlers({
-            orgSlug,
-            provider: "pagerduty",
-            statusReads,
-            deleted,
-          }),
-          pagerdutyStatus({
-            isInstalled: false,
-            installationStatus: null,
-            accountName: null,
-            accountSubdomain: null,
-            region: null,
-            isGithubLinked: false,
-            selectedServiceCount: 0,
-            syncTargetConfigured: false,
-            setupPhase: "draft",
-            pendingConfigPullUrl: null,
-            pendingConfigPrCreating: false,
-            syncTarget: null,
-          }),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...pendingSetupHandlers({
+        orgSlug,
+        provider: "pagerduty",
+        statusReads,
+        deleted,
+      }),
+      pagerdutyStatus({
+        isInstalled: false,
+        installationStatus: null,
+        accountName: null,
+        accountSubdomain: null,
+        region: null,
+        isGithubLinked: false,
+        selectedServiceCount: 0,
+        syncTargetConfigured: false,
+        setupPhase: "draft",
+        pendingConfigPullUrl: null,
+        pendingConfigPrCreating: false,
+        syncTarget: null,
+      }),
+    )
   },
   play: ({ canvasElement }) =>
     playPendingSetup({
@@ -214,26 +196,22 @@ export const PendingSetup: Story = {
       statusReads,
       deleted,
     }),
-}
+})
 
 /**
  * PagerDuty connection card on the Connectors page: PagerDuty revoked the
  * access, so the card shows Needs reconnect instead of Connected.
  */
-export const RevokedLive: Story = {
+export const RevokedLive = meta.story({
   render: () => shell(card()),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          pagerdutyStatus({
-            ...statusComplete,
-            isInstalled: false,
-            installationStatus: "revoked",
-          }),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      pagerdutyStatus({
+        ...statusComplete,
+        isInstalled: false,
+        installationStatus: "revoked",
+      }),
+    )
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -243,31 +221,29 @@ export const RevokedLive: Story = {
       canvas.getByRole("button", { name: "PagerDuty connector actions" }),
     ).toBeVisible()
   },
-}
+})
 
 /**
  * PagerDuty connection card on the Connectors page: auth is done and each
  * Workspace sets its own scope, so the card shows no scope.
  */
-export const ConnectedWithoutSyncRepository: Story = {
+export const ConnectedWithoutSyncRepository = meta.story({
   name: "Connected, scope set in each Workspace",
   render: () => shell(card()),
+  beforeEach: ({ msw }) => {
+    msw.use(
+      pagerdutyStatus({
+        ...statusComplete,
+        setupPhase: "draft",
+        isGithubLinked: false,
+        selectedServiceCount: null,
+        syncTargetConfigured: false,
+        syncTarget: null,
+      }),
+    )
+  },
   parameters: {
     visual: { skip: "Behavior test: it ends in the same state as Connected." },
-    msw: {
-      handlers: {
-        page: [
-          pagerdutyStatus({
-            ...statusComplete,
-            setupPhase: "draft",
-            isGithubLinked: false,
-            selectedServiceCount: null,
-            syncTargetConfigured: false,
-            syncTarget: null,
-          }),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
@@ -281,27 +257,23 @@ export const ConnectedWithoutSyncRepository: Story = {
       }),
     ).toBeNull()
   },
-}
+})
 
 /**
  * PagerDuty connection card on the Connectors page: the access is revoked, and
  * the admin opens the menu to pick Reconnect PagerDuty.
  */
-export const RevokedOpensReconnect: Story = {
+export const RevokedOpensReconnect = meta.story({
   name: "Revoked, reconnect opens setup",
   render: () => shell(card()),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          pagerdutyStatus({
-            ...statusComplete,
-            isInstalled: false,
-            installationStatus: "revoked",
-          }),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      pagerdutyStatus({
+        ...statusComplete,
+        isInstalled: false,
+        installationStatus: "revoked",
+      }),
+    )
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
@@ -315,4 +287,4 @@ export const RevokedOpensReconnect: Story = {
     await userEvent.click(reconnect)
     await expect(onOpenSetup).toHaveBeenCalledTimes(1)
   },
-}
+})

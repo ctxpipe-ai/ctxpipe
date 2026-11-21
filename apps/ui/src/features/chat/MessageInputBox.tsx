@@ -1,7 +1,7 @@
 "use client"
 
 import { IconArrowUp, IconChevronRight } from "@tabler/icons-react"
-import { type RefObject, useEffect, useRef } from "react"
+import { type ReactNode, type RefObject, useEffect, useRef } from "react"
 import { Disclosure, DisclosurePanel } from "react-aria-components"
 
 import {
@@ -44,6 +44,8 @@ export function MessageInputBox(props: {
   contentClassName?: string
   /** Example prompts under the composer. Picking one fills the composer; it does not send. */
   suggestions?: readonly string[]
+  /** Controls at the leading edge of the footer, such as the base branch picker. */
+  tools?: ReactNode
 }) {
   const {
     sendMessage,
@@ -56,6 +58,7 @@ export function MessageInputBox(props: {
     draftKey,
     contentClassName,
     suggestions,
+    tools,
   } = props
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const isGenerating = status === "submitted" || status === "streaming"
@@ -105,7 +108,7 @@ export function MessageInputBox(props: {
             />
           </PromptInputBody>
           <PromptInputFooter className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 border-0 bg-transparent px-3 pb-3 pt-0 shadow-none">
-            <PromptInputTools />
+            <PromptInputTools>{tools}</PromptInputTools>
             <PromptInputSubmit
               size="icon-sm"
               variant="primary"

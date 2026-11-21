@@ -16,6 +16,7 @@ import { MessageInputBox } from "@/features/chat/MessageInputBox"
 import type { ConversationListInfiniteData } from "@/features/chat/types"
 import { cn } from "@/lib/utils"
 
+import { BaseBranchPicker } from "./BaseBranchPicker"
 import { type ParsedPane, paneSearchForOtherConversation } from "./pane"
 import {
   workspaceChatPrepareOptions,
@@ -83,6 +84,9 @@ export function WorkspaceChat(props: {
   )
 }
 
+/** The conversation that the first message starts, and its base branch. */
+type ComposeTarget = { conversationId: string; baseBranch?: string }
+
 function WorkspaceComposeChat(props: {
   orgSlug: string
   workspace: Workspace
@@ -97,6 +101,9 @@ function WorkspaceComposeChat(props: {
   // that opening starts.
   // The id lives in the query cache, so a remount of this composer keeps it
   // and does not prepare a second sandbox. Send clears it.
+  // The prepare records the base branch that the member picked. Until the
+  // first message, a new pick prepares the same conversation again: the
+  // server replaces the sandbox of the old base branch (ADR-071).
   const { orgSlug } = props
   const workspaceId = props.workspace.id
   const composeKey = [
@@ -104,18 +111,24 @@ function WorkspaceComposeChat(props: {
     props.orgSlug,
     props.workspace.id,
   ]
-  const [conversationId] = useState(() => {
-    const kept = queryClient.getQueryData<string>(composeKey)
+  const [target, setTarget] = useState<ComposeTarget>(() => {
+    const kept = queryClient.getQueryData<ComposeTarget>(composeKey)
     if (kept) return kept
-    const id = newUiConversationId()
-    queryClient.setQueryData(composeKey, id)
-    return id
+    const created: ComposeTarget = { conversationId: newUiConversationId() }
+    queryClient.setQueryData(composeKey, created)
+    return created
   })
+  const { conversationId, baseBranch } = target
   useEffect(() => {
     void queryClient.prefetchQuery(
-      workspaceChatPrepareOptions(orgSlug, conversationId, workspaceId),
+      workspaceChatPrepareOptions(
+        orgSlug,
+        conversationId,
+        workspaceId,
+        baseBranch,
+      ),
     )
-  }, [queryClient, orgSlug, conversationId, workspaceId])
+  }, [queryClient, orgSlug, conversationId, workspaceId, baseBranch])
   return (
     <WorkspaceChatChrome
       workspace={props.workspace}
@@ -147,8 +160,38 @@ function WorkspaceComposeChat(props: {
                 workspace: props.workspace,
                 text,
                 conversationId,
+                baseBranch,
               })
             }}
+            tools={
+              <BaseBranchPicker
+                orgSlug={orgSlug}
+                workspaceSlug={props.workspace.slug}
+                value={baseBranch}
+                onChange={(branch) => {
+                  if (branch === baseBranch) return
+                  const next: ComposeTarget = {
+                    conversationId,
+                    baseBranch: branch,
+                  }
+                  queryClient.setQueryData(composeKey, next)
+                  setTarget(next)
+                  // A prepare that still runs would answer this fetch too:
+                  // cancel it, so the new base branch reaches the server.
+                  const prepare = workspaceChatPrepareOptions(
+                    orgSlug,
+                    conversationId,
+                    workspaceId,
+                    branch,
+                  )
+                  void queryClient
+                    .cancelQueries({ queryKey: prepare.queryKey })
+                    .then(() =>
+                      queryClient.fetchQuery({ ...prepare, staleTime: 0 }),
+                    )
+                }}
+              />
+            }
             placeholder="What should ctxpipe do in this Workspace?"
             suggestions={workspaceSuggestions}
           />

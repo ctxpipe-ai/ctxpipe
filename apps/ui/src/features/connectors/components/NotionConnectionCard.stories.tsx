@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import type { ReactNode } from "react"
 import { expect, fn, userEvent, within } from "storybook/test"
@@ -12,6 +11,7 @@ import {
 import { pendingWorkspaceUpgradesHandler } from "@/mocks/workspace-upgrades-handlers"
 
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
+import preview from "../../../../.storybook/preview"
 import { notionOauthAppHandler } from "../mocks/notion-oauth-app-msw"
 import {
   pendingSetupHandlers,
@@ -50,39 +50,33 @@ function notionStatus(status: object) {
   )
 }
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Connections/NotionCard",
   component: NotionConnectionCard,
   args: { orgSlug, connectionId, onOpenSetup: () => {} },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...signedInHandlers,
+      activeMemberRoleHandler("admin"),
+      pendingWorkspaceUpgradesHandler({}),
+      connectionUsageHandler([
+        connectionUsageItem({
+          workspaceSlug: "docs",
+          workspaceName: "Docs",
+        }),
+      ]),
+    )
+  },
   parameters: {
     app: "root",
     review: { kind: "component" },
-    msw: {
-      handlers: {
-        session: signedInHandlers,
-        role: [activeMemberRoleHandler("admin")],
-        pendingUpgrades: [pendingWorkspaceUpgradesHandler({})],
-        usage: [
-          connectionUsageHandler([
-            connectionUsageItem({
-              workspaceSlug: "docs",
-              workspaceName: "Docs",
-            }),
-          ]),
-        ],
-      },
-    },
     layout: "fullscreen",
     storyRoute: {
       pattern: "orgIndex",
       orgSlug,
     } satisfies StoryRouteParams,
   },
-} satisfies Meta<typeof NotionConnectionCard>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 const shell = (story: ReactNode) => <div className="max-w-xl p-6">{story}</div>
 
@@ -102,61 +96,53 @@ function card() {
  * Notion connection card on the Connectors page: the Notion workspace is
  * connected and syncs to a context repository.
  */
-export const Connected: Story = {
+export const Connected = meta.story({
   render: () => shell(card()),
-  parameters: {
-    msw: { handlers: { page: [notionStatus(statusComplete)] } },
+  beforeEach: ({ msw }) => {
+    msw.use(notionStatus(statusComplete))
   },
-}
+})
 
 /**
  * Notion connection card on the Connectors page: the status request is still
  * loading.
  */
-export const Checking: Story = {
+export const Checking = meta.story({
   render: () => shell(card()),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname.includes(
-                "/api/v1/connectors/notion/status",
-              ),
-            async () => {
-              await delay("infinite")
-              return HttpResponse.json(statusComplete)
-            },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(
+        ({ request }) =>
+          new URL(request.url).pathname.includes(
+            "/api/v1/connectors/notion/status",
           ),
-        ],
-      },
-    },
+        async () => {
+          await delay("infinite")
+          return HttpResponse.json(statusComplete)
+        },
+      ),
+    )
   },
-}
+})
 
 /**
  * Notion card on the Connectors page: the status read failed, so a row under
  * the head gives the cause and a Retry button without a click.
  */
-export const CouldntLoad: Story = {
+export const CouldntLoad = meta.story({
   render: () => shell(card()),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname.includes(
-                "/api/v1/connectors/notion/status",
-              ),
-            () => new HttpResponse(null, { status: 500 }),
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(
+        ({ request }) =>
+          new URL(request.url).pathname.includes(
+            "/api/v1/connectors/notion/status",
           ),
-        ],
-      },
-    },
+        () => new HttpResponse(null, { status: 500 }),
+      ),
+    )
   },
-}
+})
 
 const statusReads = fn()
 const deleted = fn()
@@ -165,39 +151,35 @@ const deleted = fn()
  * Notion card on the Connectors page: the admin started the setup but did not
  * finish it, so the card offers Remove and the next step, Register OAuth app.
  */
-export const PendingSetup: Story = {
+export const PendingSetup = meta.story({
   render: () => shell(card()),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          ...pendingSetupHandlers({
-            orgSlug,
-            provider: "notion",
-            statusReads,
-            deleted,
-          }),
-          notionStatus({
-            isInstalled: false,
-            installationStatus: null,
-            workspaceName: null,
-            isGithubLinked: false,
-            selectedResourceCount: 0,
-            syncTargetConfigured: false,
-            setupPhase: "draft",
-            pendingConfigPullUrl: null,
-            pendingConfigPrCreating: false,
-            syncTarget: null,
-          }),
-          notionOauthAppHandler({
-            orgSlug,
-            connectionId,
-            oauthAppSaved: false,
-            globalNotionOAuthConfigured: false,
-          }),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...pendingSetupHandlers({
+        orgSlug,
+        provider: "notion",
+        statusReads,
+        deleted,
+      }),
+      notionStatus({
+        isInstalled: false,
+        installationStatus: null,
+        workspaceName: null,
+        isGithubLinked: false,
+        selectedResourceCount: 0,
+        syncTargetConfigured: false,
+        setupPhase: "draft",
+        pendingConfigPullUrl: null,
+        pendingConfigPrCreating: false,
+        syncTarget: null,
+      }),
+      notionOauthAppHandler({
+        orgSlug,
+        connectionId,
+        oauthAppSaved: false,
+        globalNotionOAuthConfigured: false,
+      }),
+    )
   },
   play: ({ canvasElement }) =>
     playPendingSetup({
@@ -207,30 +189,28 @@ export const PendingSetup: Story = {
       statusReads,
       deleted,
     }),
-}
+})
 
 /**
  * Notion connection card on the Connectors page: auth is done and each
  * Workspace sets its own scope, so the card shows no scope.
  */
-export const ConnectedWithoutSyncRepository: Story = {
+export const ConnectedWithoutSyncRepository = meta.story({
   name: "Connected, scope set in each Workspace",
   render: () => shell(card()),
+  beforeEach: ({ msw }) => {
+    msw.use(
+      notionStatus({
+        ...statusComplete,
+        setupPhase: "draft",
+        isGithubLinked: false,
+        syncTargetConfigured: false,
+        syncTarget: null,
+      }),
+    )
+  },
   parameters: {
     visual: { skip: "Behavior test: it ends in the same state as Connected." },
-    msw: {
-      handlers: {
-        page: [
-          notionStatus({
-            ...statusComplete,
-            setupPhase: "draft",
-            isGithubLinked: false,
-            syncTargetConfigured: false,
-            syncTarget: null,
-          }),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
@@ -244,33 +224,29 @@ export const ConnectedWithoutSyncRepository: Story = {
       }),
     ).toBeNull()
   },
-}
+})
 
 /**
  * Notion connection card on the Connectors page: Notion revoked the access, so
  * the card asks the admin to reconnect.
  */
-export const RevokedNeedsReconnect: Story = {
+export const RevokedNeedsReconnect = meta.story({
   name: "Revoked, needs reconnect",
   render: () => shell(card()),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          notionStatus({
-            ...statusComplete,
-            isInstalled: false,
-            installationStatus: "revoked",
-          }),
-          notionOauthAppHandler({
-            orgSlug,
-            connectionId,
-            oauthAppSaved: false,
-            globalNotionOAuthConfigured: true,
-          }),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      notionStatus({
+        ...statusComplete,
+        isInstalled: false,
+        installationStatus: "revoked",
+      }),
+      notionOauthAppHandler({
+        orgSlug,
+        connectionId,
+        oauthAppSaved: false,
+        globalNotionOAuthConfigured: true,
+      }),
+    )
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
@@ -284,4 +260,4 @@ export const RevokedNeedsReconnect: Story = {
     await userEvent.click(connect)
     await expect(onOpenSetup).toHaveBeenCalledTimes(1)
   },
-}
+})

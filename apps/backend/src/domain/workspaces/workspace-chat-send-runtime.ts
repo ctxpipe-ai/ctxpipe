@@ -1,8 +1,9 @@
-import {
-  ensureConversation,
-  touchConversationLastMessage,
-} from "../../models/conversations.js"
+import { touchConversationLastMessage } from "../../models/conversations.js"
 import { getWorkspaceById } from "../../models/workspaces.js"
+import {
+  ensureConversationOnBase,
+  parseBaseBranch,
+} from "./conversation-base.js"
 import type { TanstackWorkspaceChatInput } from "./tanstack-workspace-chat.js"
 import { resolveWorkspaceChatTurnRuntime } from "./workspace-chat-turn-runtime.js"
 
@@ -10,11 +11,15 @@ export async function resolveWorkspaceChatSendRuntime(input: {
   conversationId: string
   workspaceId: string
   source?: string
+  baseBranch?: string
 }): Promise<Partial<TanstackWorkspaceChatInput>> {
-  const conversation = await ensureConversation({
+  // A first message that names another base branch than the prepare that
+  // came before it replaces the base branch (ADR-071).
+  const conversation = await ensureConversationOnBase({
     id: input.conversationId,
     source: input.source,
     workspaceId: input.workspaceId,
+    baseBranch: parseBaseBranch(input.baseBranch),
   })
   const workspace = conversation.workspaceId
     ? await getWorkspaceById(conversation.workspaceId)
@@ -43,6 +48,7 @@ export async function resolveWorkspaceChatSendRuntime(input: {
     desiredGeneration: runtime.desiredGeneration,
     writeStatus: runtime.writeStatus,
     defaultBranch: runtime.defaultBranch,
+    baseBranch: runtime.baseBranch,
     lastBranch: runtime.lastBranch,
     ref: runtime.cloneRef || runtime.desiredSha || "HEAD",
     githubConnectionId: runtime.githubConnectionId,

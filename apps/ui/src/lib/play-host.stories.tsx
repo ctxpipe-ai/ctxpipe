@@ -1,6 +1,7 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { expect } from "storybook/test"
+
+import preview from "../../.storybook/preview"
 
 // The play runner (scripts/ci/storybook-play.mjs) pins the time zone, the
 // locale, the pixel ratio and the device that a story can read. Thus a play
@@ -22,7 +23,7 @@ import { expect } from "storybook/test"
 // a delay, so the font is not loaded until the runner waits for it.
 const lateFont = "/play-host-late-font.woff2"
 
-const meta = {
+const meta = preview.meta({
   title: "Testing/Play host",
   render: () => (
     <>
@@ -36,29 +37,24 @@ const meta = {
       </span>
     </>
   ),
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(lateFont, async () => {
+        await delay(500)
+        return new HttpResponse(null, { status: 404 })
+      }),
+    )
+  },
   parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.get(lateFont, async () => {
-            await delay(500)
-            return new HttpResponse(null, { status: 404 })
-          }),
-        ],
-      },
-    },
     review: { kind: "component" },
   },
-} satisfies Meta
-
-export default meta
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Test fixture that proves the play runner pins the host values: a text, an
  * input and a spinner after the page settled.
  */
-export const PinnedHost: Story = {
+export const PinnedHost = meta.story({
   play: async ({ canvas }) => {
     const page = window as Window & {
       __CTXPIPE_PLAY__?: { afterSettle?: () => void }
@@ -103,4 +99,4 @@ export const PinnedHost: Story = {
       expect(document.fonts.status).toBe("loaded")
     }
   },
-}
+})

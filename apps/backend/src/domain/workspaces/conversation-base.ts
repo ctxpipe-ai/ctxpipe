@@ -1,0 +1,208 @@
+import { createError } from "evlog"
+import { z } from "zod"
+
+import type { Env } from "../../config/env.js"
+import {
+  type ConversationRecord,
+  ensureConversation,
+  getConversation,
+  setUnstartedConversationBase,
+} from "../../models/conversations.js"
+import { listGitRemoteBranches } from "../../services/git/clone-tree.js"
+import { isChatSessionBranch } from "./chat-lifecycle.js"
+import { resolveRepositoryReadCredential } from "./resolve-revision.js"
+import type { WorkspaceRevision } from "./revision.js"
+import { withDestroyedConversationSandboxes } from "./workspace-sandbox-cleanup.js"
+
+/*
+ * The base branch of a conversation (ADR-071, the chat branch selector). The
+ * user picks it before the first message. The session branch starts from
+ * it, each turn rebases on its tip, and the pull request targets it. A
+ * conversation with no base branch uses the default branch.
+ */
+
+/**
+ * True for a name that Git accepts as a branch (the rules of
+ * `git check-ref-format --branch`). A name that starts with "-" is also
+ * refused, so that no Git command reads it as an option.
+ */
+function isGitBranchName(name: string): boolean {
+  return (
+    name.length > 0 &&
+    name !== "@" &&
+    !name.startsWith("-") &&
+    !name.startsWith("/") &&
+    !name.endsWith("/") &&
+    !name.includes("..") &&
+    !name.includes("//") &&
+    !name.includes("@{") &&
+    // Control characters, space and the characters that Git refuses.
+    // oxlint-disable-next-line no-control-regex -- Git refuses control characters
+    !/[\u0000- \u007f~^:?*[\\]/.test(name) &&
+    name
+      .split("/")
+      .every(
+        (part) =>
+          !part.startsWith(".") &&
+          !part.endsWith(".") &&
+          !part.endsWith(".lock"),
+      )
+  )
+}
+
+/**
+ * A branch name that a conversation may start from: a Git branch name that
+ * is not a session branch of a conversation. The remote says if the branch
+ * exists.
+ */
+export const baseBranchSchema = z
+  .string()
+  .refine(
+    (name) => isGitBranchName(name) && !isChatSessionBranch(name),
+    "A base branch is a Git branch name, and not a session branch of a conversation",
+  )
+
+/** A requested base branch, checked; throws a 400 error for a bad name. */
+export function parseBaseBranch(name: string | undefined): string | undefined {
+  if (name === undefined) return undefined
+  const parsed = baseBranchSchema.safeParse(name)
+  if (!parsed.success)
+    throw createError({
+      message: "Invalid base branch",
+      status: 400,
+      why: "A base branch is a Git branch name, and not a session branch of a conversation",
+    })
+  return parsed.data
+}
+
+type RepositoryRead = {
+  orgId: string
+  env: Env
+  revision: WorkspaceRevision
+}
+
+/**
+ * The branches that a conversation of the Workspace can start from: the
+ * default branch first, then the others by name. A session branch of a
+ * conversation is not in the list.
+ */
+export async function listConversationBaseBranches(
+  input: RepositoryRead,
+): Promise<string[]> {
+  const token = await resolveRepositoryReadCredential({
+    ...input,
+    remote: input.revision.remote,
+  })
+  const branches = await listGitRemoteBranches({
+    url: input.revision.remote.url,
+    token,
+  })
+  const others = branches
+    .map((branch) => branch.name)
+    .filter(
+      (name) =>
+        name !== input.revision.defaultBranch &&
+        baseBranchSchema.safeParse(name).success,
+    )
+  return [input.revision.defaultBranch, ...others]
+}
+
+/**
+ * The tips that this process read last, for the reads that accept an older
+ * tip (`maxAgeMs`). The key holds the org and the connection, so that a
+ * read gets only a tip that a read with its own credential got.
+ */
+const knownTips = new Map<string, { sha: string | null; at: number }>()
+
+/**
+ * The tip of a base branch on the remote, or null when it has no such
+ * branch. A prepare and a turn read it from the remote. A Files read takes
+ * a tip that is at most `maxAgeMs` old, so that a status poll does not ask
+ * the remote each time.
+ */
+export async function baseBranchTip(input: {
+  orgId: string
+  env: Env
+  remote: WorkspaceRevision["remote"]
+  branch: string
+  maxAgeMs?: number
+}): Promise<string | null> {
+  const key = JSON.stringify([
+    input.orgId,
+    input.remote.connectionId,
+    input.remote.url,
+    input.branch,
+  ])
+  const known = knownTips.get(key)
+  if (known && input.maxAgeMs && Date.now() - known.at <= input.maxAgeMs)
+    return known.sha
+  const token = await resolveRepositoryReadCredential(input)
+  const [tip] = await listGitRemoteBranches({
+    url: input.remote.url,
+    token,
+    branch: input.branch,
+  })
+  const sha = tip?.sha ?? null
+  const now = Date.now()
+  // A tip older than a minute is of no use to a Files read: it goes.
+  for (const [staleKey, entry] of knownTips)
+    if (now - entry.at > 60_000) knownTips.delete(staleKey)
+  knownTips.set(key, { sha, at: now })
+  return sha
+}
+
+/**
+ * The revision that a conversation builds on: the Workspace revision, or for
+ * a base branch that is not the default branch the same binding at the tip
+ * of that branch. Null: the remote has no such branch.
+ */
+export async function conversationRevision(
+  input: RepositoryRead & { baseBranch: string | null },
+): Promise<WorkspaceRevision | null> {
+  const { revision, baseBranch } = input
+  if (!baseBranch || baseBranch === revision.defaultBranch) return revision
+  const sha = await baseBranchTip({
+    ...input,
+    remote: revision.remote,
+    branch: baseBranch,
+  })
+  return sha ? { ...revision, baseBranch, sha } : null
+}
+
+/**
+ * The conversation of a prepare or of a first message, on the base branch
+ * that the user picked. A new conversation gets it. Until the first
+ * message, another base branch replaces the old one, and the sandbox of the
+ * old base branch goes, so that the next prepare or turn starts a sandbox
+ * on the new one. `underLock` runs that removal: the prepare runs it under
+ * the lock of the conversation, so that a prepare of the old base branch
+ * that still runs ends first.
+ */
+export async function ensureConversationOnBase(input: {
+  id: string
+  source?: string
+  workspaceId: string
+  baseBranch?: string
+  underLock?: (remove: () => Promise<void>, orgId: string) => Promise<void>
+}): Promise<ConversationRecord> {
+  const ensured = await ensureConversation(input)
+  const changed =
+    input.baseBranch !== undefined &&
+    (await setUnstartedConversationBase({
+      conversationId: input.id,
+      baseBranch: input.baseBranch,
+    }))
+  if (!changed) return ensured
+  const remove = async () => {
+    await withDestroyedConversationSandboxes(
+      {
+        conversationId: input.id,
+        orgId: ensured.orgId,
+        workspaceId: input.workspaceId,
+      },
+      async () => {},
+    )
+  }
+  await (input.underLock ? input.underLock(remove, ensured.orgId) : remove())
+  return (await getConversation(input.id)) ?? ensured
+}

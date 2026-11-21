@@ -1,5 +1,6 @@
 import {
   IconCloudUpload,
+  IconArrowRight,
   IconGitBranch,
   IconGitPullRequest,
 } from "@tabler/icons-react"
@@ -71,18 +72,36 @@ function ChromeTooltip(props: {
 
 type ConversationBranchChrome = {
   shortName: string
+  /**
+   * The base branch when it is not the default branch (ADR-071): the
+   * session branch starts from it, and its pull request targets it.
+   */
+  base?: string | null
   href?: string | null
 }
 
 /** The branch name as a label with a git-branch icon. */
 function BranchLabel(props: { branch: ConversationBranchChrome }) {
-  const { shortName, href } = props.branch
-  const labelClassName =
-    "ml-3 inline-flex min-w-0 max-w-40 shrink items-center gap-1.5 rounded-md border border-border bg-zinc-800 px-2 py-0.5 font-mono text-xs font-normal text-muted-foreground"
+  const { shortName, base, href } = props.branch
+  const labelClassName = cn(
+    "ml-3 inline-flex min-w-0 shrink items-center gap-1.5 rounded-md border border-border bg-zinc-800 px-2 py-0.5 font-mono text-xs font-normal text-muted-foreground",
+    base ? "max-w-72" : "max-w-40",
+  )
   const content = (
     <>
       <IconGitBranch className="size-3 shrink-0" stroke={1.8} aria-hidden />
-      <span className="truncate">{shortName}</span>
+      {base ? (
+        <>
+          <span className="min-w-0 truncate">{base}</span>
+          <IconArrowRight
+            className="size-3 shrink-0"
+            stroke={1.8}
+            aria-hidden
+          />
+          <span className="sr-only">to</span>
+        </>
+      ) : null}
+      <span className={base ? "shrink-0" : "truncate"}>{shortName}</span>
     </>
   )
   return (
