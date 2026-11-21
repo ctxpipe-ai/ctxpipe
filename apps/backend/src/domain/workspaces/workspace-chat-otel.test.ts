@@ -6,7 +6,16 @@ import {
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 import { chat } from "@tanstack/ai"
 import { BaseTextAdapter } from "@tanstack/ai/adapters"
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest"
 
 import { AttributionUrlSpanProcessor } from "../../observability/otel.js"
 import {
@@ -153,6 +162,49 @@ describe("workspace chat otel turn summary", () => {
     )
     expect(summary?.tools.map((item) => item.name)).toEqual(["bash"])
     expect(summary?.ttftMs).toBeGreaterThanOrEqual(0)
+  })
+
+  describe("time to the first model call", () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it("measures from the send to the agent's first model request", () => {
+      beginWorkspaceChatTurn("conv_first_call", "run_first_call")
+      vi.advanceTimersByTime(4_200)
+      beginWorkspaceChatProxyGeneration("run_first_call")
+      vi.advanceTimersByTime(900)
+      recordWorkspaceChatProxyGeneration("run_first_call", {
+        ttfbMs: 900,
+        durationMs: 900,
+        finishReason: "tool_calls",
+        tools: ["read"],
+      })
+      vi.advanceTimersByTime(300)
+      beginWorkspaceChatProxyGeneration("run_first_call")
+      const summary = finishWorkspaceChatTurn("run_first_call")
+      expect(summary?.firstCallMs).toBe(4_200)
+      const root = exporter
+        .getFinishedSpans()
+        .find((span) => span.name === "workspace-chat.turn")
+      expect(root?.attributes["workspace_chat.first_call_ms"]).toBe(4_200)
+    })
+
+    it("records no first call for a turn that sent no model request", () => {
+      beginWorkspaceChatTurn("conv_no_call", "run_no_call")
+      vi.advanceTimersByTime(30_000)
+      const summary = finishWorkspaceChatTurn("run_no_call", {
+        error: "sandbox start failed",
+      })
+      expect(summary?.firstCallMs).toBeNull()
+      const root = exporter
+        .getFinishedSpans()
+        .find((span) => span.name === "workspace-chat.turn")
+      expect(root?.attributes["workspace_chat.first_call_ms"]).toBeUndefined()
+    })
   })
 
   it("keeps overlapping conversation turns on separate run ids", () => {

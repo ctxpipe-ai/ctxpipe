@@ -35,6 +35,8 @@ type WorkspaceChatTurnState = {
   conversationId: string
   turnId: string
   startedAt: number
+  /** When the agent sent its first model request through the proxy. */
+  firstModelCallAt: number | null
   firstShownTokenAt: number | null
   generations: WorkspaceChatGenerationRecord[]
   tools: WorkspaceChatToolRecord[]
@@ -133,6 +135,7 @@ export function beginWorkspaceChatTurn(
     conversationId,
     turnId,
     startedAt: Date.now(),
+    firstModelCallAt: null,
     firstShownTokenAt: null,
     generations: [],
     tools: [],
@@ -196,6 +199,7 @@ export function beginWorkspaceChatProxyGeneration(
 ): void {
   const state = turns.get(turnId)
   if (!state) return
+  state.firstModelCallAt ??= Date.now()
   if (state.pendingToolsStartedAt && state.pendingTools.length > 0) {
     const durationMs = Math.max(0, Date.now() - state.pendingToolsStartedAt)
     for (const [index, name] of state.pendingTools.entries()) {
@@ -313,6 +317,7 @@ export function finishWorkspaceChatTurn(
 ): {
   loops: number
   ttftMs: number | null
+  firstCallMs: number | null
   generations: WorkspaceChatGenerationRecord[]
   tools: WorkspaceChatToolRecord[]
 } | null {
@@ -323,11 +328,20 @@ export function finishWorkspaceChatTurn(
     state.firstShownTokenAt == null
       ? null
       : state.firstShownTokenAt - state.startedAt
+  // From the send to the agent's first model request: the sandbox start,
+  // the clone, and the agent start (CTX-1322).
+  const firstCallMs =
+    state.firstModelCallAt == null
+      ? null
+      : state.firstModelCallAt - state.startedAt
   for (const span of state.pendingToolSpans) span.end()
   state.generationSpan?.end()
   state.rootSpan.setAttributes({
     "tanstack.ai.iterations": state.generations.length,
     ...(ttftMs != null ? { "workspace_chat.ttft_ms": ttftMs } : {}),
+    ...(firstCallMs != null
+      ? { "workspace_chat.first_call_ms": firstCallMs }
+      : {}),
     ...(input?.error ? { "error.type": input.error } : {}),
   })
   if (input?.error)
@@ -353,17 +367,19 @@ export function finishWorkspaceChatTurn(
       turnId,
       loops: state.generations.length,
       ttftMs,
+      firstCallMs,
       generations: state.generations.map(
         ({ text: _text, ...generation }) => generation,
       ),
       tools: state.tools,
       error: input?.error,
-      message: `workspace chat turn loops=${state.generations.length} ttftMs=${ttftMs ?? "none"} generations=${generationSummary || "-"} tools=${toolSummary || "-"}`,
+      message: `workspace chat turn loops=${state.generations.length} firstCallMs=${firstCallMs ?? "none"} ttftMs=${ttftMs ?? "none"} generations=${generationSummary || "-"} tools=${toolSummary || "-"}`,
     }),
   )
   return {
     loops: state.generations.length,
     ttftMs,
+    firstCallMs,
     generations: state.generations,
     tools: state.tools,
   }
