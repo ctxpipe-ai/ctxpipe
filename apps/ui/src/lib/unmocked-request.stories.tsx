@@ -56,7 +56,7 @@ export const RequestWithNoMockFails: Story = {
     await expect(fetch(url)).rejects.toThrow()
     await expect(record).toEqual([`GET ${url}`])
     // A static asset of the Storybook server is not a request to mock.
-    const font = await fetch("/fonts/Geist-Variable.woff2")
+    const font = await fetch("fonts/Geist-Variable.woff2")
     await expect(font.ok).toBe(true)
     await expect(record).toHaveLength(1)
     // A socket that no handler matches is recorded and closed with an error.

@@ -67,16 +67,16 @@ export default defineMain({
   // No usage events: `storybook tools` and the build then make no outbound
   // request, so an agent runs them in its sandbox.
   core: { disableTelemetry: true },
-  staticDirs: ["../public"],
   async viteFinal(viteConfig) {
     const withoutTanStackApp = {
       ...viteConfig,
       plugins: stripTanStackAppPlugins(viteConfig.plugins as PluginOption[]),
     }
+    // Vite keeps its default public dir (`public/`). Vite serves it in dev,
+    // and the builder copies it into a build. Vite also writes CSS
+    // `url("/fonts/...")` relative to the base "./", so a build under any
+    // path prefix loads the fonts.
     return mergeConfig(withoutTanStackApp, {
-      // `staticDirs` copies public/ into the build. Vite must not copy it a
-      // second time: two writers in one folder fail with EEXIST.
-      publicDir: false,
       server: {
         allowedHosts: true,
         host: true,

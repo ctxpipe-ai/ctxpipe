@@ -4,6 +4,7 @@ import { createFileRoute } from "@tanstack/react-router"
 import type { FormEvent } from "react"
 import { useEffect, useMemo, useRef, useState } from "react"
 
+import { AuthLogoBadge } from "@/components/Logo/Logo"
 import { Button } from "@/components/ui/Button"
 import { PageBodySkeleton } from "@/components/ui/Skeleton"
 import { Spinner } from "@/components/ui/spinner"
@@ -355,14 +356,7 @@ function EmailVerificationSent() {
     <main className="hero-gradient min-h-screen bg-zinc-950 text-foreground">
       <div className="mx-auto max-w-md px-6 py-16">
         <div className="relative mx-auto max-w-sm">
-          <div className="pointer-events-none absolute top-4 left-1/2 z-10 -translate-x-1/2">
-            <img
-              src="/ctx_.svg"
-              alt="ctxpipe"
-              className="h-16 w-16 select-none"
-              draggable={false}
-            />
-          </div>
+          <AuthLogoBadge />
           <div className="ctx-border ctx-surface shadow-none px-6 pt-24 pb-6 text-center">
             <h2 className="text-lg font-medium text-teal-400">
               Email verification sent
@@ -478,14 +472,7 @@ function AuthViewRoute() {
       <main className="hero-gradient min-h-screen bg-zinc-950 text-foreground">
         <div className="mx-auto max-w-md px-6 py-16">
           <div className="relative mx-auto max-w-sm">
-            <div className="pointer-events-none absolute top-4 left-1/2 z-10 -translate-x-1/2">
-              <img
-                src="/ctx_.svg"
-                alt="ctxpipe"
-                className="h-16 w-16 select-none"
-                draggable={false}
-              />
-            </div>
+            <AuthLogoBadge />
             <div className="ctx-border ctx-surface shadow-none px-6 pt-24 pb-6">
               <h2 className="mb-3 text-lg font-medium text-zinc-100">
                 Accept invitation
@@ -502,14 +489,7 @@ function AuthViewRoute() {
       <main className="hero-gradient min-h-screen bg-zinc-950 text-foreground">
         <div className="mx-auto max-w-md px-6 py-16">
           <div className="relative mx-auto max-w-sm">
-            <div className="pointer-events-none absolute top-4 left-1/2 z-10 -translate-x-1/2">
-              <img
-                src="/ctx_.svg"
-                alt="ctxpipe"
-                className="h-16 w-16 select-none"
-                draggable={false}
-              />
-            </div>
+            <AuthLogoBadge />
             <div className="ctx-border ctx-surface shadow-none px-6 pt-24 pb-6">
               <h2 className="mb-3 text-lg font-medium text-zinc-100">
                 Join organization
@@ -532,16 +512,7 @@ function AuthViewRoute() {
     <main className="hero-gradient min-h-screen bg-zinc-950 text-foreground">
       <div className="mx-auto max-w-md px-6 py-16">
         <div className="relative mx-auto max-w-sm">
-          {showBranding ? (
-            <div className="pointer-events-none absolute top-4 left-1/2 z-10 -translate-x-1/2">
-              <img
-                src="/ctx_.svg"
-                alt="ctxpipe"
-                className="h-16 w-16 select-none"
-                draggable={false}
-              />
-            </div>
-          ) : null}
+          {showBranding ? <AuthLogoBadge /> : null}
           {!socialPending && (
             <AuthView
               pathname={authView}
