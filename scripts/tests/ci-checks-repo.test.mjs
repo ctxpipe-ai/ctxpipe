@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
-import { dirname, join } from "node:path"
+import { dirname, join, relative } from "node:path"
 import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 import { gunzipSync } from "node:zlib"
@@ -356,6 +356,71 @@ it("runs in UTC with the C.UTF-8 locale", () => {
     )
   } finally {
     rmSync(file, { force: true })
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test("a host cap of Vitest workers does not run the files of a serial lane in parallel", () => {
+  // factory check sets VITEST_MAX_WORKERS to the CPUs of a host slot. The
+  // backend lanes share one database and set `fileParallelism: false`.
+  const directory = mkdtempSync(join(root, "apps/ui/.serial-lane-"))
+  const saved = process.env.VITEST_MAX_WORKERS
+  try {
+    writeFileSync(
+      join(directory, "vitest.config.mjs"),
+      `import { defineConfig } from "vitest/config"
+export default defineConfig({
+  root: import.meta.dirname,
+  test: { fileParallelism: false, include: ["*.test.mjs"] },
+})
+`,
+    )
+    // Each file is marked as running for 3 seconds. A file fails when it
+    // sees the mark of the other file.
+    for (const [own, other] of [
+      ["a", "b"],
+      ["b", "a"],
+    ])
+      writeFileSync(
+        join(directory, `${own}.test.mjs`),
+        `import { existsSync, rmSync, writeFileSync } from "node:fs"
+import { join } from "node:path"
+import { expect, it } from "vitest"
+it("runs alone", async () => {
+  const mark = join(import.meta.dirname, "${own}.running")
+  writeFileSync(mark, "")
+  try {
+    for (const end = Date.now() + 3000; Date.now() < end; ) {
+      expect(existsSync(join(import.meta.dirname, "${other}.running"))).toBe(false)
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+  } finally {
+    rmSync(mark)
+  }
+})
+`,
+      )
+    process.env.VITEST_MAX_WORKERS = "4"
+    const launch = vitestCommand(
+      {
+        name: "serial",
+        directory: relative(root, directory),
+        runtime: "node",
+        config: "vitest.config.mjs",
+      },
+      root,
+      [],
+      join(directory, "report.json"),
+    )
+    const result = spawnSync(launch.command, launch.args, {
+      cwd: launch.cwd,
+      env: launch.env,
+      encoding: "utf8",
+    })
+    assert.equal(result.status, 0, result.stdout + result.stderr)
+  } finally {
+    if (saved === undefined) delete process.env.VITEST_MAX_WORKERS
+    else process.env.VITEST_MAX_WORKERS = saved
     rmSync(directory, { recursive: true, force: true })
   }
 })
