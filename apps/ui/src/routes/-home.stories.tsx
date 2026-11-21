@@ -147,7 +147,6 @@ function dismissGuide() {
       },
     }),
   )
-  return () => window.localStorage.removeItem("ctxpipe:userPreferences")
 }
 
 /**
@@ -160,7 +159,7 @@ export const Empty = meta.story({
   render: () => <OrgHomePageContent orgSlug="acme" />,
   beforeEach: ({ msw }) => {
     msw.use(workspaceListHandler([]), orgActivityHandler())
-    return dismissGuide()
+    dismissGuide()
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -272,7 +271,7 @@ export const EmptyRecentWhileActivityLoads = meta.story({
         },
       ),
     )
-    return dismissGuide()
+    dismissGuide()
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)

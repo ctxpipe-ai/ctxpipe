@@ -21,7 +21,6 @@ import {
   githubInstallationLinkedHandler,
   organizationListHandler,
   sessionSignedInHandler,
-  signedInHandlers,
 } from "@/mocks/handlers"
 import { setupGuideHandlers } from "@/mocks/setup-guide-handlers"
 import {
@@ -128,8 +127,8 @@ const meta = preview.meta({
   title: "Pages/Home/Setup guide",
   tags: ["page"],
   beforeEach: ({ msw }) => {
+    // Each story adds its session (`sessionDefaults`).
     msw.use(
-      ...signedInHandlers,
       pendingWorkspaceUpgradesHandler({}),
       ...workspaceIngestionHandlers({}),
     )
