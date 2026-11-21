@@ -1,6 +1,6 @@
 # ADR-067: The knowledge projection applies the Git diff, with eventual consistency
 
-**Status:** Accepted (the CTO, 2026-11-19; the writer, the state and the maintenance job are built) | **Date:** 2026-11-19 (revised 2026-11-20: the projection runs as its own workflow, outside the hydrate lock) | **Tags:** knowledge, clickhouse, hydrate, consistency, git
+**Status:** Accepted (the CTO, 2026-11-19; the writer, the state and the maintenance job are built) | **Date:** 2026-11-19 (revised 2026-11-20: the projection runs as its own workflow, outside the hydrate lock; amended 2026-11-21 by [ADR-071](ADR-071-knowledge-plane-branches.md): one projection for each branch) | **Tags:** knowledge, clickhouse, hydrate, consistency, git
 
 ## Context
 
@@ -18,16 +18,19 @@ Since [CTX-1369](https://linear.app/ctxpipe/issue/CTX-1369), a hydrate writes on
 ## Decision
 
 1. **The tables hold the current state only.** There are no row versions, no published pointer and no GC of versions.
+   - **Amended by [ADR-071](ADR-071-knowledge-plane-branches.md):** the content rows are file versions that the branches share, and each branch has a tree with a tree version and a head. A run writes the tree rows of the new tip, then moves the head. A cleanup job removes the file versions and tree rows that no head can see, after a grace time.
 2. **The operational state lives in Postgres.** For each Workspace, a `knowledge_state` row holds:
    - `last_sha`, the last commit that a run applied in full;
    - `attempt_shas`, the tips of the runs that started after `last_sha` and did not complete (an empty list after a run that passes);
    - the projection version (decision 4), which includes the embedding model name;
    - the run status;
    - the failed count.
+   - **Amended by [ADR-071](ADR-071-knowledge-plane-branches.md):** there is one row for each (Workspace, branch). It also holds the tree version of the head and, for a branch that is not the default branch, its merge base with the default branch.
 3. **The queue.** Each commit or webhook queues a hydrate run. After the hydrate releases the Workspace hydrate lock, it queues one `knowledge-projection` run. One projection run for each Workspace runs at a time, under its own lease. The queued runs for a Workspace merge, because each run goes to the current tip (the ADR-046 rule): the run reads the tip that the Workspace wants when it starts, not the SHA of its trigger.
    - The projection does not run inside the hydrate lock. Thus a ClickHouse outage or a slow embedding API does not delay the old stack ([ADR-069](ADR-069-knowledge-plane-evals-and-rollout.md) decision 9).
    - A run that finds the lease busy sleeps and tries again. A sleeping run holds no worker slot.
    - The projection run retries by itself, for about 5 minutes. When an outage is longer, the run fails, and the next hydrate of the Workspace queues a new run. Until then, the lag metric (decision 11) shows it.
+   - **Amended by [ADR-071](ADR-071-knowledge-plane-branches.md):** each push to any branch queues a run for that (Workspace, branch), and the lease is for each (Workspace, branch). The tip rule is the same on each branch.
 4. **The diff.** Before a run writes any row, it adds its tip to `attempt_shas`. It then applies each file that is in the Git diff from `last_sha` to any SHA of `attempt_shas`. The list includes its own tip.
    - The earlier SHAs of the list are the tips of failed runs. Their files are the files that those runs can have changed. Without them, a file that a failed run replaced and that a later commit changed back is not in the new diff, and its stale rows stay.
    - The run only adds to the list, so a crash at any point loses no SHA.
@@ -45,11 +48,14 @@ Since [CTX-1369](https://linear.app/ctxpipe/issue/CTX-1369), a hydrate writes on
    - **Why this store:** the chunk rows that the run is about to replace already hold the vectors. The lookup happens before the `DELETE` of the batch, so a parser-only rebuild finds each unchanged chunk. A separate cache table would need its own walls, grants and cleanup. The lookup goes through `KnowledgeStore`, so it has both read walls of ADR-066 decision 9, and it reads no row of another Workspace or org.
    - **What misses:** a model or a dimension change (each key changes, so the run embeds all again), a renamed file (its document key changes), a chunk whose context line changed (for example a new title or a new chunk count), the rows from before the column (an empty key), and the rows that a crashed run deleted before its `INSERT`. A miss costs only the request.
    - **The crash-safety order stays:** the lookup is a `SELECT` before the `DELETE`, and the write is the same `DELETE`, then `INSERT`. A stored vector is the `BFloat16` value, and a write of a `BFloat16` value stores the same value. Thus a run with reuse writes the same rows as a run without it, and a retry gives the same tables.
+   - **Amended by [ADR-071](ADR-071-knowledge-plane-branches.md):** a changed file adds a file version (or uses the stored one with the same key) and a tree row. It deletes no rows. The vector lookup and its keys stay the same.
 6. **A removed file leaves a tombstone.**
    - The document row gets `status = deleted` and `deleted_at`.
    - Its chunks and outgoing relations are deleted.
    - The relations that other documents point at it stay. If the file comes back, the next run makes the row `active` again, and those relations work at once.
+   - **Amended by [ADR-071](ADR-071-knowledge-plane-branches.md):** the tombstone is a tree row of the branch. The file version stays for the other branches.
 7. **A missing target gets a placeholder.** A relation whose target has no row gets a `missing` document. When the file appears, the run replaces the placeholder with an `active` row.
+   - **Amended by [ADR-071](ADR-071-knowledge-plane-branches.md):** no `missing` row is stored. A relation target with no row in the view of the branch is `missing` when it is read.
 8. **Errors.**
    - An infrastructure error throws, for example ClickHouse or the embedding API is down. The run retries from the same `last_sha`. An insert waits until the data is stored, so a reported success means stored rows.
    - A content error makes a `failed` placeholder with the error and an alert, for example a file that does not parse or embed, a file type with no converter, a file that the converter cannot read (encrypted, malformed, too large, no PDF text layer), or an image that the vision model refuses. The run continues, so that one bad file does not block the Workspace. An outage of the vision model is an infrastructure error, as an outage of the embedding API is.
@@ -60,6 +66,7 @@ Since [CTX-1369](https://linear.app/ctxpipe/issue/CTX-1369), a hydrate writes on
    - It fixes the source in Git, for example a broken link or a file that does not parse. Its fixes come back through a normal run.
    - It does not remove rows. The removal of old tombstones is a later decision.
 10. **Reads during a run** can see a commit that is only partly applied, for a few seconds. We accept this.
+    - **Amended by [ADR-071](ADR-071-knowledge-plane-branches.md):** a read takes the tree at the head of the branch, so it sees the old tip or the new tip, never a mix.
 11. **Alerts and metrics:**
     - the lag of each Workspace (the main alert): the wall-clock time since the hydrate of the oldest tip that no completed run applied. A current Workspace has no lag. The alert measures it from the hydrate result logs and the run spans (`knowledge.projection.apply`). The writer records no lag metric. A metric that a run records has no point when no run starts. The time between two commits is not the lag either: after a quiet week it reads days while the projection is current;
     - the failed count;

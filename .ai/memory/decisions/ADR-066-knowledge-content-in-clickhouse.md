@@ -1,6 +1,6 @@
 # ADR-066: Knowledge content lives in ClickHouse; Postgres keeps the operational data
 
-**Status:** Accepted (the CTO, 2026-11-19; the code does not implement it yet; the PoC and the evals of [ADR-069](ADR-069-knowledge-plane-evals-and-rollout.md) validate it) | **Date:** 2026-11-19 | **Tags:** knowledge, clickhouse, search, graph, storage, self-host, security
+**Status:** Accepted (the CTO, 2026-11-19; the code does not implement it yet; the PoC and the evals of [ADR-069](ADR-069-knowledge-plane-evals-and-rollout.md) validate it; amended by [ADR-071](ADR-071-knowledge-plane-branches.md): every branch is projected) | **Date:** 2026-11-19 | **Tags:** knowledge, clickhouse, search, graph, storage, self-host, security
 
 ## Context
 
@@ -32,6 +32,7 @@ We deferred direct S3 adjacency objects. They can take graph load off ClickHouse
    - ClickHouse holds the content: documents, chunks and relations.
    - Postgres holds the operational data about the content. For each Workspace, that is the `knowledge_state` row of [ADR-067](ADR-067-knowledge-projection-applies-git-diff.md) decision 2: `last_sha`, the SHAs of runs that did not complete, the projection version (which includes the embedding model name), the run status and the failed count. Postgres also holds the job queue and the rollout flag.
    - Postgres holds no pointers to single documents or chunks. A tool that needs content calls ClickHouse.
+   - **Amended by [ADR-071](ADR-071-knowledge-plane-branches.md):** `knowledge_state` has one row for each branch of the Workspace. The row is the head of the branch: its projected tip, its tree version and, for a branch that is not the default branch, its merge base.
 3. **Five shared tables.** All Workspaces share the same tables. There is no table or partition for each Workspace. Each table sorts by `(org_id, workspace_id, …)` first.
    - `documents`: one row for each document. It holds:
      - `status`;
@@ -44,6 +45,7 @@ We deferred direct S3 adjacency objects. They can take graph load off ClickHouse
    - `relations_in`: the same rows, sorted by `(org_id, workspace_id, dst_doc, predicate, src_doc)`, for the incoming relations. `KnowledgeStore` writes and deletes both tables.
    - `doc_refs`: `(org_id, workspace_id, ref_key, doc_key)`, sorted by `ref_key`. Each row is a reference key that a file states for itself (decision 5). `KnowledgeStore` writes and deletes it together with the other rows of the file. It has the same `CHECK` constraint and row policy as the other tables (decision 9). It comes with [CTX-1400](https://linear.app/ctxpipe/issue/CTX-1400).
    - Why a second table and not a projection ([CTX-1391](https://linear.app/ctxpipe/issue/CTX-1391)): one patch part anywhere in a table stops every read from using any projection of that table, until a merge removes the patch. A `DELETE` on a table with a projection also rewrites whole parts. A second table does not have these limits: with a patch part present, it read the same 29 granules as a clean projection (12 ms warm).
+   - **Amended by [ADR-071](ADR-071-knowledge-plane-branches.md):** the content tables hold file versions, keyed by (org, Workspace, path, blob SHA, variant), which all branches share. A tree table says which file version each branch holds at each path. The default branch has a full tree, and each other branch has an overlay on it.
 4. **The grain.** Search finds chunks. The traversal moves between documents. A relation records the chunk that states it (`src_chunk`), so the provenance points to a section.
 5. **A relation belongs to the document that states it.**
    - Its target is a document key that is resolved when it is read.
@@ -55,6 +57,7 @@ We deferred direct S3 adjacency objects. They can take graph load off ClickHouse
    - A file cannot see which package roots exist. Thus a merged pull request has a `CHANGED` relation to each package whose root holds a changed file, and to its Repository. The old stack picks only the deepest root, and the Repository only for a file outside each root.
    - A Linear URL key holds the Linear workspace of the URL, so a URL of another Linear workspace does not resolve. A Confluence URL key holds only the page id, because a mirror file does not name its site.
    - The `source_type` of a document is its source authority kind (`adr`, `merged-pr`, `docs`, `issue`, `open-pr`, `chat` or `other`), which the mapper takes from the file alone: its path, its kind and its own front matter. [ADR-068](ADR-068-knowledge-retrieval-jev-layers.md) decision 4 ranks it ([CTX-1410](https://linear.app/ctxpipe/issue/CTX-1410)).
+   - **Amended by [ADR-071](ADR-071-knowledge-plane-branches.md):** the rows of a file depend only on the file and its variant. The variant is a hash of the projection version and, for a Markdown file, of the source repositories of the tree. The `valid_from` that comes from the introducing commit goes on the tree row, because it depends on the branch.
 6. **An image is a Git file like any other**, of kind `image`.
    - Its key is its path. A changed image file replaces its rows, and a removed image file becomes a tombstone, the same as any file.
    - A file that shows an image states only an `EMBEDS_IMAGE` relation to the image's path, with the alt text on the relation. If the image has no row, the target is a `missing` placeholder. Thus the rows of a file do not depend on the bytes of an image (decision 5).
@@ -74,6 +77,8 @@ We deferred direct S3 adjacency objects. They can take graph load off ClickHouse
    Search returns only `active` documents. The traversal sees all four. Thus, a relation always has a target ([ADR-067](ADR-067-knowledge-projection-applies-git-diff.md)).
 
    The CTO chose stored placeholder rows (2026-11-19), not only a target key that is missing at read time. Reasons: the maintenance job finds them with one status query, Jev sees "does not exist" as a fact of the candidate, and a stored row keeps the difference between "deleted on a date" and "never existed".
+
+   **Amended by [ADR-071](ADR-071-knowledge-plane-branches.md) decision 5:** a `missing` target is calculated when it is read, and it is not stored. A stored placeholder in the overlay of a branch would hide a file that the default branch adds later. A tombstone is a tree row, so it keeps the difference between "deleted on a date" and "never existed". The traversal still gives a `missing` neighbor to Jev. A `failed` document is a `failed` file version.
 8. **Each change is a `DELETE`, then an `INSERT`.** The `DELETE` is the classic lightweight `DELETE` (the `_row_exists` mask), and it is synchronous. There is no `UPDATE`: a tombstone reads the document row, deletes it, and inserts it again with `status = deleted` and `deleted_at`. We pin ClickHouse 26.10.6.18. The text index became generally available (GA) in 26.2 ([CTX-1391](https://linear.app/ctxpipe/issue/CTX-1391)). We do not depend on the experimental transactions, which also are not in the cloud product.
    - **Why not patch parts** ([CTX-1401](https://linear.app/ctxpipe/issue/CTX-1401)). A `DELETE` with `lightweight_delete_mode = 'lightweight_update'` and the lightweight `UPDATE` write patch parts. On 26.10.6.18, reads can miss them. We ran 100 rounds of insert, change and read, with background merges only:
      - a `DELETE` in a patch part: 35 reads still returned the deleted row;
@@ -82,6 +87,7 @@ We deferred direct S3 adjacency objects. They can take graph load off ClickHouse
    - **The trigger:** the changed rows are in a part that a merge made, and the read moves a filter to `PREWHERE` (the default). The stale row stays until a later merge. In one test, it stayed for more than 45 s with no writes. A review comment on ClickHouse PR [#112947](https://github.com/ClickHouse/ClickHouse/pull/112947) describes this gap. A contract test reproduces it, and it fails when a ClickHouse version fixes the gap.
    - **The cost:** each `DELETE` is a mutation. It rewrites the `_row_exists` mask of each part that it touches, also of parts on S3. The mutations of one table run in order, so many small `DELETE`s form a queue. Thus `KnowledgeStore` deletes in batches: one write deletes the rows of all its keys with one `DELETE` for each table, with an `IN` list of at most 1,000 keys in a query parameter. The `DELETE`s of `relations_in` and `doc_refs` also filter by the link targets and the reference keys of those keys (their sort keys), and take one more `DELETE` for each more 1,000 of them. The writer makes one write for each group of 1,000 changed files ([CTX-1413](https://linear.app/ctxpipe/issue/CTX-1413)).
    - Only patch parts need the block number and block offset columns, so the tables do not make them.
+   - **Amended by [ADR-071](ADR-071-knowledge-plane-branches.md):** a file version and a tree row are written one time, with an `INSERT` only. The cleanup job and the deletion of a branch make the `DELETE`s, in batches, with the same rules.
 9. **Org isolation.** `KnowledgeStore` is the only ClickHouse client. Each query session sets its org. Reads and writes need different walls, because a ClickHouse row policy filters reads only: unlike Postgres RLS `WITH CHECK`, it does not check the rows that a session inserts.
    - **Reads have two walls:**
      - every statement has `org_id` and `workspace_id` in its `WHERE` clause;
