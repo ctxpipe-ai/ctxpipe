@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # preview-env hydrate
 
-Workspace **revision** prepare: `workspace-hydrate` rebuilds the projection (Postgres knowledge units, graph, embeddings) and `workspace-index` the code index. Not `POST /repositories`. [Harness](../harness.md) is `PASS`; worker and codesearch were woken. Flow format: [run-setup](../run-setup.md#flow-format). Use browser plus curl with a cookie jar exported from account A's session (`COOKIE_JAR`).
+Workspace **revision** prepare: `workspace-hydrate` rebuilds the projection (Postgres knowledge units, graph, embeddings) and `workspace-index` the code index. Not `POST /repositories`. [Harness](../harness.md) is `PASS`. Flow format: [run-setup](../run-setup.md#flow-format). Use browser plus curl with a cookie jar exported from account A's session (`COOKIE_JAR`).
 
 ### HYD-1 New Workspace reaches an active projection
 **Requires** ONB-4 (Workspace 1 from the knowledge template).
@@ -17,7 +17,7 @@ Workspace **revision** prepare: `workspace-hydrate` rebuilds the projection (Pos
 
 **Expect (UI)** chip **Hydrate ready** matching the JSON; **Files** shows the tree with `AGENTS.md`, the 4 knowledge files, the malformed file, and `.agents/skills/ctxpipe-knowledge/SKILL.md` from the bootstrap commit.
 **Expect (backend)** `workspace_commit_projections` row for the head SHA; exactly 4 `workspace_knowledge_units` rows (one per valid knowledge file; `AGENTS.md`, `.agents/`, and the malformed file have none); `activeProjectionSha` equals `desiredSha`; `workspace-hydrate` then `workspace-index` runs succeeded; the bootstrap commit from [ONB-4](../onboarding/SKILL.md) is part of the projected revision.
-**Budget** 60 s / 3 min, Workspace created to `hydrateStatus === "ready"`. If the worker deploy timestamp did not move after enqueue, wake again ([harness](../harness.md#1-wake)) and keep polling.
+**Budget** 60 s / 3 min, Workspace created to `hydrateStatus === "ready"`.
 **Evidence** `HYD-1-1.png` (Settings chips), `HYD-1-2.png` (Files); JSON status; trace and `openworkflow.run.id` of both runs.
 
 ### HYD-2 Malformed file is skipped, not fatal
@@ -60,13 +60,13 @@ Workspace **revision** prepare: `workspace-hydrate` rebuilds the projection (Pos
 **Steps**
 1. On **Settings**, watch the linked row until its chip settles.
 
-**Expect (UI)** **Indexed** (or **Indexed with issues** with a note); never stuck on **Indexing** or **Pending** beyond the budget (a stuck chip means codesearch is down or asleep).
+**Expect (UI)** **Indexed** (or **Indexed with issues** with a note); never stuck on **Indexing** or **Pending** beyond the budget (a stuck chip means codesearch is down).
 **Expect (backend)** a `repository-index` run finished; the code index answers a query: in Workspace chat ask what `loyaltyPoints(12345)` returns in `pe-{run-id}-code`; the answer is 17 and cites `src/loyalty.ts`.
 **Budget** 90 s / 5 min, link to **Indexed** (same clock as WS-6).
-**Evidence** `HYD-5-1.png`; Railway codesearch logs on a fail.
+**Evidence** `HYD-5-1.png`; codesearch's trace and logs on a fail ([observability](../../observability/SKILL.md)).
 
 ## Status
 
 - **PASS** HYD-1, HYD-3, HYD-5 `PASS`; HYD-2 `PASS`; HYD-4 `PASS` or `SKIP`.
-- **FAIL** `failed` after retry, 409 tree after ready, no projection switch after a push, or the worker never ran (attach Railway logs via [observability](../../observability/SKILL.md)).
+- **FAIL** `failed` after retry, 409 tree after ready, no projection switch after a push, or the worker never ran (attach the worker's trace and logs via [observability](../../observability/SKILL.md)).
 - **SKIP** no Workspace (later areas that need one `SKIP(blocked-by ONB-4)`).
