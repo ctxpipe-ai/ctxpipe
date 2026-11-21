@@ -28,7 +28,6 @@ function rowsOf(
     workspaceId: WS,
     unit,
     references: NO_REFERENCES,
-    introducedAt: null,
     observedAt: OBSERVED,
   })
   // The writer makes an image document from each image file that Git has.
@@ -94,7 +93,6 @@ describe("knowledgeRows", () => {
           source: "",
           summary: "See [ledger](../billing/ledger.md).",
           mime: "",
-          validFrom: null,
           validTo: null,
           observedAt: OBSERVED,
         },
@@ -113,6 +111,7 @@ describe("knowledgeRows", () => {
             dstDoc: ledger,
             confidence: 0.5,
             validFrom: null,
+            validFromIntroduced: true,
             validTo: null,
             source: "",
             altText: "",
@@ -124,6 +123,7 @@ describe("knowledgeRows", () => {
             dstDoc: ledger,
             confidence: 1,
             validFrom: null,
+            validFromIntroduced: false,
             validTo: null,
             source: "git",
             altText: "",
@@ -185,12 +185,12 @@ describe("knowledgeRows", () => {
     })
     const [unit] = units
     if (!unit) throw new Error("no unit")
-    // A Git SHA as `valid_from` becomes the time of the introducing commit.
+    // A Git SHA as `valid_from` takes the time of the introducing commit,
+    // which the tree row of the branch holds.
     const rows = knowledgeRows({
       workspaceId: WS,
       unit,
       references: NO_REFERENCES,
-      introducedAt: "2026-02-03T04:05:06.000Z",
       observedAt: OBSERVED,
     })
     expect(rows?.chunks).toEqual([
@@ -214,6 +214,7 @@ describe("knowledgeRows", () => {
         dstDoc: key("knowledge/billing/ledger.md"),
         confidence: 0.9,
         validFrom: new Date("2026-01-01T00:00:00.000Z"),
+        validFromIntroduced: false,
         validTo: new Date("2026-06-30T12:00:00.000Z"),
         source: "https://example.com/rfc/7",
         altText: "",
@@ -225,7 +226,8 @@ describe("knowledgeRows", () => {
         predicate: "USES",
         dstDoc: key("knowledge/payments/rates.md"),
         confidence: 0.5,
-        validFrom: new Date("2026-02-03T04:05:06.000Z"),
+        validFrom: null,
+        validFromIntroduced: true,
         validTo: null,
       }),
       expect.objectContaining({
@@ -236,7 +238,7 @@ describe("knowledgeRows", () => {
     ])
   })
 
-  it("gives the document, and each claim with no time of its own, the time of the commit that introduced the file", () => {
+  it("marks each claim with no time of its own, so that it takes the time of the commit that introduced the file on the branch", () => {
     const path = "knowledge/payments/fees.md"
     const content = `---\n${stringify({
       claims: [
@@ -249,50 +251,43 @@ describe("knowledgeRows", () => {
       files: [{ path, content }],
     }).units
     if (!unit) throw new Error("no unit")
-    const rowsAt = (introducedAt: string | null) =>
-      knowledgeRows({
-        workspaceId: WS,
-        unit,
-        references: NO_REFERENCES,
-        introducedAt,
-        observedAt: OBSERVED,
-      })
-    const validity = (rows: ReturnType<typeof rowsAt>) =>
-      rows.relations.map(({ predicate, dstDoc, validFrom }) => ({
-        predicate,
-        dstDoc,
-        validFrom,
-      }))
-
-    const introduced = rowsAt("2026-03-04T05:06:07.000Z")
-    expect(introduced.document.validFrom).toEqual(
-      new Date("2026-03-04T05:06:07.000Z"),
-    )
+    const rows = knowledgeRows({
+      workspaceId: WS,
+      unit,
+      references: NO_REFERENCES,
+      observedAt: OBSERVED,
+    })
+    // The rows hold no time that depends on the branch (ADR-071 decision 2).
+    expect("validFrom" in rows.document).toBe(false)
     // A body link states no validity.
-    expect(validity(introduced)).toEqual([
+    expect(
+      rows.relations.map(
+        ({ predicate, dstDoc, validFrom, validFromIntroduced }) => ({
+          predicate,
+          dstDoc,
+          validFrom,
+          validFromIntroduced,
+        }),
+      ),
+    ).toEqual([
       {
         predicate: "USES",
         dstDoc: key("knowledge/payments/rates.md"),
-        validFrom: new Date("2026-03-04T05:06:07.000Z"),
+        validFrom: null,
+        validFromIntroduced: true,
       },
       {
         predicate: "USES",
         dstDoc: key("knowledge/payments/ledger.md"),
         validFrom: new Date("2025-05-05T00:00:00.000Z"),
+        validFromIntroduced: false,
       },
       {
         predicate: "LINKS_TO",
         dstDoc: key("knowledge/payments/cap.md"),
         validFrom: null,
+        validFromIntroduced: false,
       },
-    ])
-    // With no introducing commit, only the time of the content stays.
-    const unknown = rowsAt(null)
-    expect(unknown.document.validFrom).toBeNull()
-    expect(validity(unknown).map(({ validFrom }) => validFrom)).toEqual([
-      null,
-      new Date("2025-05-05T00:00:00.000Z"),
-      null,
     ])
   })
 
@@ -324,7 +319,6 @@ describe("knowledgeRows", () => {
           source: "",
           summary: "",
           mime: "image/png",
-          validFrom: null,
           validTo: null,
           observedAt: OBSERVED,
         },

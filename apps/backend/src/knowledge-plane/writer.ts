@@ -173,13 +173,13 @@ export async function projectKnowledgePlane(input: {
         // The head of the branch, or none for a new branch. The tree rows
         // above the head are the rows of a run that stopped: no read sees
         // them, and this run must not show them either (ADR-071 decision
-        // 4). A branch that is not the head branch starts again from no
-        // rows.
+        // 4). A run with no head starts from no rows, so that its tree
+        // versions never mix with older rows of the branch.
         const head =
           state?.branch === input.branch && state.treeVersion !== null
             ? { branch: input.branch, treeVersion: state.treeVersion }
             : null
-        if (state && (state.runStatus !== "completed" || !head))
+        if (!head || state?.runStatus !== "completed")
           await input.store.deleteTreeAbove(
             key,
             input.branch,
