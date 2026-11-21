@@ -66,6 +66,60 @@ export const ComposeEmpty: Story = {
   },
 }
 
+const preparedBases: (string | undefined)[] = []
+
+/**
+ * Chat panel of a Workspace with the composer of a new conversation: the
+ * member picked the branch release/2026-11 as the base, so the conversation
+ * starts from that branch and its pull request targets it.
+ */
+export const ComposeOnBaseBranch: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          http.post(
+            ({ request }) =>
+              /\/api\/v1\/conversations\/[^/]+\/prepare$/.test(
+                new URL(request.url).pathname,
+              ),
+            async ({ request }) => {
+              const body = (await request.json()) as { baseBranch?: string }
+              preparedBases.push(body.baseBranch)
+              return new HttpResponse(null, { status: 204 })
+            },
+          ),
+          ...workspaceShellHandlers(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    preparedBases.length = 0
+    const canvas = within(canvasElement)
+    const page = within(canvasElement.ownerDocument.body)
+    const base = await canvas.findByRole("combobox", { name: "Base" })
+    await waitFor(() => expect(base).toHaveValue("main"))
+    await waitFor(() => expect(preparedBases).toEqual([undefined]))
+    await userEvent.type(base, "2026-11", {
+      initialSelectionStart: 0,
+      initialSelectionEnd: "main".length,
+    })
+    await userEvent.click(
+      await page.findByRole("option", { name: "release/2026-11" }),
+    )
+    // A new base branch prepares a new conversation that records it.
+    await waitFor(() =>
+      expect(preparedBases).toEqual([undefined, "release/2026-11"]),
+    )
+    await waitFor(() =>
+      expect(canvas.getByRole("combobox", { name: "Base" })).toHaveValue(
+        "release/2026-11",
+      ),
+    )
+  },
+}
+
 /**
  * Chat panel of a Workspace, where a member talks to the ctxpipe agent: the
  * conversation detail is still loading.

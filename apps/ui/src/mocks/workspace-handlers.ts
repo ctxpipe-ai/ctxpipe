@@ -25,6 +25,7 @@ import {
   docsConversations,
   docsWorkspace,
   docsWorkspaceActivity,
+  docsWorkspaceBranches,
   docsWorkspaceDetail,
   docsWorkspaceFiles,
   docsWorkspaceGitBlobs,
@@ -302,6 +303,17 @@ export function conversationDetailHandler(detail: ConversationDetail | null) {
       }
       return HttpResponse.json(detail)
     },
+  )
+}
+
+/** `GET /workspaces/:slug/branches`: the base branches of a new conversation. */
+export function workspaceBranchesHandler(
+  branches: MockState<typeof docsWorkspaceBranches> = docsWorkspaceBranches,
+) {
+  return http.get(
+    ({ request }) =>
+      /\/api\/v1\/workspaces\/[^/]+\/branches$/.test(pathnameOf(request)),
+    () => mockResponse(branches, (data) => HttpResponse.json(data)),
   )
 }
 
@@ -636,6 +648,7 @@ export function workspaceShellHandlers(input?: {
     workspaceFilesHandler(input?.files ?? docsWorkspaceFiles),
     workspaceGraphHandler(input?.graph ?? docsWorkspaceGraph),
     workspaceActivityHandler(),
+    workspaceBranchesHandler(),
     conversationPrepareHandler(),
     conversationGitTreeHandler(input?.gitTree ?? docsWorkspaceGitTree),
     conversationGitBlobHandler(input?.gitBlobs ?? docsWorkspaceGitBlobs),

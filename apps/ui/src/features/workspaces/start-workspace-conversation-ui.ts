@@ -57,6 +57,8 @@ export function seedWorkspaceConversation(input: {
   orgSlug: string
   workspaceId: string
   conversationId: string
+  /** The base branch that the composer picked; absent: the default branch. */
+  baseBranch?: string
 }): ConversationDetail {
   const now = new Date().toISOString()
   const detail: ConversationDetail = {
@@ -68,6 +70,7 @@ export function seedWorkspaceConversation(input: {
       orgId: "",
       userId: null,
       workspaceId: input.workspaceId,
+      baseBranch: input.baseBranch ?? null,
       createdAt: now,
       updatedAt: now,
     },
@@ -105,6 +108,8 @@ export function openWorkspaceConversation(input: {
   text: string
   /** The id the composer already prepared a sandbox for. */
   conversationId?: string
+  /** The base branch of the conversation; absent: the default branch. */
+  baseBranch?: string
 }): void {
   const conversationId = input.conversationId ?? newUiConversationId()
   seedWorkspaceConversation({
@@ -112,6 +117,7 @@ export function openWorkspaceConversation(input: {
     orgSlug: input.orgSlug,
     workspaceId: input.workspace.id,
     conversationId,
+    baseBranch: input.baseBranch,
   })
   seedWorkspaceDetailFromList({
     queryClient: input.queryClient,

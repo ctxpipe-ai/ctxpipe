@@ -68,6 +68,8 @@ export const workspaceKeys = {
     ["workspace-graph", orgSlug, slug] as const,
   chatPrepare: (orgSlug: string, conversationId: string, workspaceId: string) =>
     ["workspace-chat-prepare", orgSlug, conversationId, workspaceId] as const,
+  branches: (orgSlug: string, slug: string) =>
+    ["workspace-branches", orgSlug, slug] as const,
   activity: (orgSlug: string, workspaceSlug: string, date: string | null) =>
     ["workspace-activity", orgSlug, workspaceSlug, date] as const,
   orgActivity: (orgSlug: string, date: string | null) =>
@@ -174,15 +176,27 @@ export async function deleteConversation(
   })
 }
 
+/**
+ * Prepare the sandbox of a conversation. `baseBranch` is the branch that a
+ * new conversation starts from; the server keeps the base branch of an
+ * existing conversation. A new base branch gets a new conversation id, so
+ * the key does not hold it.
+ */
 export function workspaceChatPrepareOptions(
   orgSlug: string,
   conversationId: string,
   workspaceId: string,
+  baseBranch?: string,
 ) {
   return queryOptions({
     queryKey: workspaceKeys.chatPrepare(orgSlug, conversationId, workspaceId),
     queryFn: async () => {
-      await prepareWorkspaceChat(orgSlug, conversationId, workspaceId)
+      await prepareWorkspaceChat(
+        orgSlug,
+        conversationId,
+        workspaceId,
+        baseBranch,
+      )
       return null
     },
     staleTime: Number.POSITIVE_INFINITY,
@@ -198,6 +212,7 @@ async function prepareWorkspaceChat(
   orgSlug: string,
   conversationId: string,
   workspaceId: string,
+  baseBranch?: string,
 ): Promise<void> {
   const client = await getApiClient()
   const res = await client[":orgSlug"].api.v1.conversations[
@@ -205,7 +220,7 @@ async function prepareWorkspaceChat(
   ].prepare.$post(
     {
       param: { orgSlug, conversationId },
-      json: { workspaceId },
+      json: { workspaceId, ...(baseBranch ? { baseBranch } : {}) },
     },
     {
       // The answer comes when the sandbox is ready. A new hosted sandbox
@@ -317,6 +332,28 @@ async function fetchWorkspace(
     emptyOn: [404],
     empty: null,
     message: "Failed to load Workspace",
+  })
+}
+
+/**
+ * The branches that a new conversation can start from (ADR-071): the
+ * default branch first. The server reads them from the repository.
+ */
+export function workspaceBranchesOptions(
+  orgSlug: string,
+  workspaceSlug: string,
+) {
+  return queryOptions({
+    queryKey: workspaceKeys.branches(orgSlug, workspaceSlug),
+    queryFn: async () => {
+      const client = await getApiClient()
+      const res = await client[":orgSlug"].api.v1.workspaces[
+        ":workspaceSlug"
+      ].branches.$get({ param: { orgSlug, workspaceSlug } })
+      return readApiJson(res, { message: "Failed to list the branches" })
+    },
+    staleTime: 60_000,
+    retry: false,
   })
 }
 

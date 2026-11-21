@@ -1512,3 +1512,20 @@ export const rootFolderWorkspaceDetail: WorkspaceDetail = {
   workspaceRepositoryUrl: "https://github.com/acme/platform",
   rootPath: "docs/context",
 }
+
+/**
+ * The branches of the docs repository that a new conversation can start
+ * from: the default branch first, then the others by name.
+ */
+export const docsWorkspaceBranches = {
+  defaultBranch: "main",
+  branches: [
+    "main",
+    "docs/api-reference",
+    "docs/onboarding-guide",
+    "feature/checkout-retry",
+    "fix/broken-links",
+    "release/2026-10",
+    "release/2026-11",
+  ],
+}
