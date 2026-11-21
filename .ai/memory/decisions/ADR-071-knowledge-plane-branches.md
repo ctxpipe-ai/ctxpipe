@@ -68,7 +68,7 @@ One fact makes branches cheap: the rows of a file depend only on that file (ADR-
 6. **Reads take one branch.**
    - `search_knowledge`, `get_related`, `read_file`, `list_files` and the UI read one branch.
    - Each MCP tool gets an optional `branch` argument. Its default is the default branch of the Workspace.
-   - Each member of the Workspace can read each branch, with one limit. A conversation session branch (`ctxpipe/chat/<conversation>/<n>`, [ADR-048](ADR-048-native-postgres-sandbox-ownership.md)) is readable only by the actor that can open its conversation. Reason: a conversation is private to its owner, and the plane must not show its work to other members.
+   - Each member of the Workspace can read each branch (the CTO: "everyone in the workspace"). Who can read a conversation session branch is an open question for the CTO (see "Open questions").
    - `read_file` and `list_files` use the same view as the search. `list_files` lists the paths of the view. `read_file` finds the file version of the path in the view and reads its blob from the Workspace Git. Thus a file of the default branch that the search finds on B is also in the file reads of B.
 
 7. **One projection run for each branch tip.**
@@ -132,10 +132,19 @@ One fact makes branches cheap: the rows of a file depend only on that file (ADR-
     - a relation into a path that B deleted;
     - a merge of the default branch into B;
     - a file that B changed and then changed back;
-  - a conversation session branch is readable only by the actor that can open its conversation;
+  - the read rule for a conversation session branch, after the CTO answers the open question;
   - the tree table has the read and insert walls of ADR-066 decision 9, and each `DELETE` of the branch deletion and of the cleanup job has the org and Workspace predicates;
   - two branches that hold the same file share its rows;
   - a deleted branch leaves no tree rows, and its own file versions go after the grace time;
   - a run on a branch starts no maintenance, and makes no model call outside the content-keyed caches;
   - a reader never sees a half-written tree;
   - a rename of the default branch (the new branch appears, Git deletes the earlier one, then the new branch's first run completes) keeps the reads during each step, and builds the new tree from the stored file versions.
+
+## Open questions
+
+1. **Who can read a conversation session branch?** The chat agent pushes the work of a conversation to the session branch `ctxpipe/chat/<conversation>/<n>` ([ADR-048](ADR-048-native-postgres-sandbox-ownership.md)). Today only the owner of a conversation can open it. If each member of the Workspace can read each branch, each member can read the committed work of another user's private conversation through `search_knowledge` or `read_file`. The Security review asked for a limit. The options:
+   - **A.** A conversation session branch is readable only by the actor that can open its conversation: its owner, or the org MCP actor for an MCP conversation. Each other branch is readable by each member of the Workspace. This keeps the privacy of a conversation, and the chat agent still gets the graph of its own work.
+   - **B.** Each member of the Workspace can read each branch, also a conversation session branch. The committed work of a conversation becomes visible to the Workspace.
+
+   No reader serves a branch that is not the default branch until the overlays are built. That work keeps the rule in one place, and it does not merge until the CTO answers.
+
