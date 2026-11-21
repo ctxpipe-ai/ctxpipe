@@ -26,7 +26,6 @@ function isGitBranchName(name: string): boolean {
     !name.startsWith("-") &&
     !name.startsWith("/") &&
     !name.endsWith("/") &&
-    !name.endsWith(".") &&
     !name.includes("..") &&
     !name.includes("//") &&
     !name.includes("@{") &&
@@ -35,7 +34,12 @@ function isGitBranchName(name: string): boolean {
     !/[\u0000- \u007f~^:?*[\\]/.test(name) &&
     name
       .split("/")
-      .every((part) => !part.startsWith(".") && !part.endsWith(".lock"))
+      .every(
+        (part) =>
+          !part.startsWith(".") &&
+          !part.endsWith(".") &&
+          !part.endsWith(".lock"),
+      )
   )
 }
 
