@@ -56,7 +56,7 @@ The task definition sets the first three as plain env. Each provider input (the 
 | `CLOUDFLARE_ACCOUNT_ID` | The Cloudflare account id. |
 | `LINEAR_CLIENT_ID`, `LINEAR_CLIENT_SECRET` | The client id and secret of the `factory` Linear OAuth app (the agent hosts' app, keychain service `factory-linear`). Each run gets a token with the client credentials grant. The scopes are fixed in `src/providers/linear.ts`: they must be the same as the agent hosts' scopes, because Linear revokes all tokens of the app when a request asks for other scopes. |
 
-OpenRouter management keys and Blacksmith organization tokens also permit management actions. Neither provider has a read-only token for these APIs.
+OpenRouter management keys and Blacksmith organization tokens also permit management actions. Neither provider has a read-only token for these APIs. The token of the `factory` Linear app can also write issues and comments, as the agents' identity: the job reuses the app and its fixed scopes, because a token request with other scopes revokes the app's other tokens.
 
 AWS has no keys: the SDK default credential chain gives the ECS task role. It reads the provider input secrets (`secretsmanager:GetSecretValue` on `cost-telemetry/*`) and assumes `arn:aws:iam::007664619564:role/ctxpipe-cost-explorer-read` (a read-only `ce:GetCostAndUsage` role in the management account; factory aws-core) through STS. The role is a constant in `src/providers/aws.ts`, not an env var: the factory policy pack forbids the ARN of another account in the task definition.
 

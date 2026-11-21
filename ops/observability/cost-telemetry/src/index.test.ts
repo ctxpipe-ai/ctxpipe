@@ -364,7 +364,7 @@ function providers() {
       HttpResponse.json({ data: { viewer: { accounts: [{}] } } }),
     ),
     http.post("https://api.linear.app/oauth/token", () =>
-      HttpResponse.json({ access_token: "app-token", expires_in: 2_591_999 }),
+      HttpResponse.json({ access_token: "app-token" }),
     ),
     http.post("https://api.linear.app/graphql", () =>
       HttpResponse.json({

@@ -2,7 +2,6 @@ import {
   afterAll,
   afterEach,
   beforeAll,
-  beforeEach,
   describe,
   expect,
   test,
@@ -21,14 +20,11 @@ const TOKEN = "https://api.linear.app/oauth/token"
 // February 2026 has 28 days, March has 31.
 const DAYS = ["2026-02-28", "2026-03-01"]
 
-const server = setupServer()
+const server = setupServer(appToken())
 useEnv({ LINEAR_CLIENT_ID: "lin-id", LINEAR_CLIENT_SECRET: "lin-secret" })
 
 beforeAll(() => {
   server.listen({ onUnhandledRequest: "error" })
-})
-beforeEach(() => {
-  server.use(appToken())
 })
 afterEach(() => {
   server.resetHandlers()
@@ -103,7 +99,6 @@ describe("linear rows", () => {
     })
     server.resetHandlers()
     server.use(
-      appToken(),
       http.post(LINEAR, () =>
         subscription({
           type: "basic_yearly",
@@ -145,7 +140,6 @@ describe("linear rows", () => {
     // A type without its billing variant does not say which price applies.
     server.resetHandlers()
     server.use(
-      appToken(),
       http.post(LINEAR, () =>
         subscription({
           type: "basic",
@@ -168,18 +162,12 @@ describe("linear rows", () => {
     )
     await expect(rows(DAYS)).rejects.toThrow("Authentication required")
     server.resetHandlers()
-    server.use(
-      appToken(),
-      http.post(LINEAR, () => HttpResponse.json({ data: {} })),
-    )
+    server.use(http.post(LINEAR, () => HttpResponse.json({ data: {} })))
     await expect(rows(DAYS)).rejects.toThrow(
       "Linear response was missing organization",
     )
     server.resetHandlers()
-    server.use(
-      appToken(),
-      http.post(LINEAR, () => subscription({ type: "basic_yearly" })),
-    )
+    server.use(http.post(LINEAR, () => subscription({ type: "basic_yearly" })))
     await expect(rows(DAYS)).rejects.toThrow(
       "Linear response was missing subscription.seats",
     )
@@ -192,7 +180,7 @@ describe("linear rows", () => {
       http.post(TOKEN, async ({ request }) => {
         authorization = request.headers.get("Authorization")
         grant = new URLSearchParams(await request.text())
-        return HttpResponse.json({ access_token: "app-token", expires_in: 1 })
+        return HttpResponse.json({ access_token: "app-token" })
       }),
       http.post(LINEAR, () => subscription({ type: "basic_yearly", seats: 1 })),
     )
@@ -227,7 +215,7 @@ describe("linear rows", () => {
 
 function appToken() {
   return http.post(TOKEN, () =>
-    HttpResponse.json({ access_token: "app-token", expires_in: 2_591_999 }),
+    HttpResponse.json({ access_token: "app-token" }),
   )
 }
 
