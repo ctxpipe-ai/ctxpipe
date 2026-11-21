@@ -11,7 +11,10 @@ import { orgFeatures } from "../../db/schema/org_features.js"
 import { servingIdForKnowledgePath } from "../../domain/workspaces/hydrate.js"
 import { createKnowledgeStore } from "../../knowledge-store/knowledge-store.js"
 import { migrateKnowledgeStore } from "../../knowledge-store/migrate.js"
-import { getKnowledgeState } from "../../models/knowledge-state.js"
+import {
+  getKnowledgeState,
+  readyKnowledgeHeads,
+} from "../../models/knowledge-state.js"
 import { startClickHouse, userUrl } from "../../test/clickhouse.js"
 import {
   type NativeHydrationFixture,
@@ -276,6 +279,58 @@ it(
         expect(await storedDocuments(f)).not.toHaveProperty(
           servingIdForKnowledgePath(f.workspaceId, "d.md"),
         )
+      },
+    ),
+)
+
+it(
+  "a run of a branch makes its overlay and queues no maintenance; when Git deletes the branch, the next run removes its head",
+  { timeout: 180_000 },
+  async () =>
+    withNativeHydrationFixture(
+      { files, knowledgePlane: { clickhouseUrl: writerUrl } },
+      async (f) => {
+        await f.publish()
+        await waitForKnowledgeState(f, { lastSha: f.sha })
+        const maintenance = (
+          await runsOf("knowledge-maintenance", f.workspaceId)
+        ).length
+        f.git("checkout", "--", ".")
+        f.git("checkout", "-q", "-b", "feature")
+        writeFileSync(join(f.directory, "b.md"), "# Beta on the branch\n")
+        f.git("add", "-A")
+        f.git("commit", "-q", "-m", "Add b on the branch")
+        f.git("push", "-q", f.remote, "HEAD:refs/heads/feature")
+        const key = { orgId: f.org.id, workspaceId: f.workspaceId }
+        const handle = await f.runner.runWorkflow(knowledgeProjection.spec, {
+          ...key,
+          branch: "feature",
+        })
+        expect(await handle.result({ timeoutMs: 90_000 })).toMatchObject({
+          isDefault: false,
+          summary: { mode: "overlay" },
+        })
+        expect(
+          (await readyKnowledgeHeads(f.org.id, [f.workspaceId], "feature")).get(
+            f.workspaceId,
+          ),
+        ).toMatchObject({ branch: "feature", base: { sha: f.sha } })
+        // ADR-071 decision 9: no maintenance for a branch.
+        expect(
+          await runsOf("knowledge-maintenance", f.workspaceId),
+        ).toHaveLength(maintenance)
+
+        f.git("push", "-q", f.remote, ":refs/heads/feature")
+        const deleted = await f.runner.runWorkflow(knowledgeProjection.spec, {
+          ...key,
+          branch: "feature",
+        })
+        expect(await deleted.result({ timeoutMs: 90_000 })).toMatchObject({
+          summary: { mode: "deleted" },
+        })
+        expect(
+          await readyKnowledgeHeads(f.org.id, [f.workspaceId], "feature"),
+        ).toEqual(new Map())
       },
     ),
 )
