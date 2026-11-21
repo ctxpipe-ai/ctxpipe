@@ -375,28 +375,15 @@ export default defineConfig({
 })
 `,
     )
-    // Each file is marked as running for 3 seconds. A file fails when it
-    // sees the mark of the other file.
-    for (const [own, other] of [
-      ["a", "b"],
-      ["b", "a"],
-    ])
+    // Vitest gives each worker a pool id from 1 to the worker count. With
+    // more than one worker, the two files start at the same time, and one
+    // of them gets pool id 2.
+    for (const name of ["a", "b"])
       writeFileSync(
-        join(directory, `${own}.test.mjs`),
-        `import { existsSync, rmSync, writeFileSync } from "node:fs"
-import { join } from "node:path"
-import { expect, it } from "vitest"
-it("runs alone", async () => {
-  const mark = join(import.meta.dirname, "${own}.running")
-  writeFileSync(mark, "")
-  try {
-    for (const end = Date.now() + 3000; Date.now() < end; ) {
-      expect(existsSync(join(import.meta.dirname, "${other}.running"))).toBe(false)
-      await new Promise((resolve) => setTimeout(resolve, 50))
-    }
-  } finally {
-    rmSync(mark)
-  }
+        join(directory, `${name}.test.mjs`),
+        `import { expect, it } from "vitest"
+it("runs in the only worker", () => {
+  expect(process.env.VITEST_POOL_ID).toBe("1")
 })
 `,
       )
