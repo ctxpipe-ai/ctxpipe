@@ -11,6 +11,7 @@ import { promisify } from "node:util"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 import pins from "../../../../../scripts/ci/service-pins.json" with { type: "json" }
+import { testLabelArgs } from "../../../../../scripts/ci/test-containers.mjs"
 import {
   compareGraphSnapshots,
   fetchRdb,
@@ -44,6 +45,7 @@ async function startFalkorDb(dataDir?: string) {
   containers.push(name)
   await docker(
     "create",
+    ...testLabelArgs(),
     "--name",
     name,
     "-p",

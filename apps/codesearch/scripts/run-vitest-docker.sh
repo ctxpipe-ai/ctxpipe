@@ -47,7 +47,15 @@ esac
 context=()
 [ ! -d "${ROOT}/.release-cache" ] || context=(--build-context "releases=${ROOT}/.release-cache")
 docker build --platform "${platform}" ${context[@]+"${context[@]}"} -f "${ROOT}/apps/codesearch/Dockerfile" --target test -t "${IMAGE}" "${ROOT}"
-docker run --platform "${platform}" --rm ${mount[@]+"${mount[@]}"} "${IMAGE}" ${args[@]+"${args[@]}"}
+# The label of a test container (scripts/ci/test-containers.mjs). --init lets
+# a signal stop the tests (Node as PID 1 ignores it), and the trap removes the
+# container when a signal stops this script.
+owner="${CTXPIPE_TEST_OWNER:-$(hostname)/$$}"
+name="ctxpipe-codesearch-test-$$"
+trap 'docker rm --force --volumes "${name}" >/dev/null 2>&1 || true' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+docker run --platform "${platform}" --init --rm --name "${name}" --label "ai.ctxpipe.test=${owner}" ${mount[@]+"${mount[@]}"} "${IMAGE}" ${args[@]+"${args[@]}"}
 if [ "$selected" -eq 0 ]; then
   bash "${ROOT}/apps/codesearch/scripts/oom-simulation.sh" "${IMAGE}"
 fi

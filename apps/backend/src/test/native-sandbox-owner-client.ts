@@ -6,6 +6,8 @@ import { closeDb, initDb } from "../db/client.js"
 import { postgresSandboxInstanceStore } from "../domain/workspaces/sandbox-instance-store.js"
 import { postgresSandboxLocks } from "../domain/workspaces/sandbox-lock-store.js"
 import { contractImage } from "./contract-images.js"
+// This Bun process is not a Vitest worker: label its containers too.
+import "./setup-test-containers.js"
 
 initLogger({ enabled: false })
 const [orgId, workspaceId, runId, mode] = process.argv.slice(2)

@@ -6,6 +6,7 @@ import { promisify } from "node:util"
 import pg from "pg"
 
 import pins from "../../../../scripts/ci/service-pins.json" with { type: "json" }
+import { testLabelArgs } from "../../../../scripts/ci/test-containers.mjs"
 
 /*
  * Two Postgres 17 servers in containers, with the role models of the cutover
@@ -72,6 +73,7 @@ async function startServer(superuser: string): Promise<Server> {
     "run",
     "-d",
     "--rm",
+    ...testLabelArgs(),
     "-e",
     `POSTGRES_USER=${superuser}`,
     "-e",
@@ -196,7 +198,7 @@ export async function clientToolsDirectory(workRoot: string): Promise<string> {
       path,
       [
         "#!/bin/sh",
-        `exec docker run --rm --network host --user ${uid.trim()}:${gid.trim()} -e PGPASSWORD -v "${workRoot}:${workRoot}" ${POSTGRES_IMAGE} ${tool} "$@"`,
+        `exec docker run --rm ${testLabelArgs().join(" ")} --network host --user ${uid.trim()}:${gid.trim()} -e PGPASSWORD -v "${workRoot}:${workRoot}" ${POSTGRES_IMAGE} ${tool} "$@"`,
         "",
       ].join("\n"),
     )

@@ -5,6 +5,7 @@ import { promisify } from "node:util"
 
 import { expect, it } from "vitest"
 
+import { testLabelArgs } from "../../../../../scripts/ci/test-containers.mjs"
 import { withAgentVault } from "../../test/agent-vault-fixture.js"
 import { contractImage } from "../../test/contract-images.js"
 import { openRunVault, writeProxyCaCommand } from "./agent-vault.js"
@@ -31,6 +32,7 @@ it(
         await docker(
           "run",
           "-d",
+          ...testLabelArgs(),
           "--privileged",
           "--name",
           name,
