@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { QueryClientContext } from "@tanstack/react-query"
+import { WebSocketHandler } from "msw"
 import { useContext } from "react"
 import { expect } from "storybook/test"
 
@@ -40,8 +41,18 @@ export const NoOptIn: Story = {
     await expect(probe?.tagName).toBe("P")
     await expect(probe).toHaveAttribute("data-query-client", "no")
     // The only handler of the worker is the socket handler that fails an
-    // unmatched socket (it answers no socket).
-    await expect(msw.listHandlers()).toHaveLength(1)
+    // unmatched socket (it answers no socket). MSW adds to each `ws.link`
+    // handler an HTTP handler with a predicate: it answers only the upgrade
+    // request of a socket, which a browser page cannot send.
+    const handlers = msw.listHandlers()
+    await expect(
+      handlers.filter((handler) => handler instanceof WebSocketHandler),
+    ).toHaveLength(1)
+    await expect(
+      handlers.flatMap((handler) =>
+        handler instanceof WebSocketHandler ? [] : [handler.info.header],
+      ),
+    ).toEqual(["GET [custom predicate]"])
   },
 }
 
