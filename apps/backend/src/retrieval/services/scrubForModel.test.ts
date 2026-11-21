@@ -109,6 +109,9 @@ describe("scrubForModel", () => {
       "postgres://app:{}@{{host}}/app",
       "postgres://app:{}@%(host)s/app",
       "postgres://app:{}@_db/app",
+      // An empty host: a Unix socket.
+      "postgresql://app:{}@/db?host=/var/run/postgresql",
+      "mysql+pymysql://app:{}@/db?unix_socket=/cloudsql/p:r:i",
       // A long scheme.
       `${"a".repeat(40)}+ssh://git:{}@host.example.test`,
       "x://u:{}@host.example.test",

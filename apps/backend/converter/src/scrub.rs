@@ -76,8 +76,9 @@ pub fn serve(
     // empty (`redis://:password@host`) or an email address. The password
     // runs to the last `@` before the host, so it can hold `@`, `%`, `?`,
     // `#` and `'` (each valid in the userinfo of a URI). The scheme, the user
-    // and the password have no length limit, and the host can be a template
-    // (`@${DB_HOST}`, `@{{host}}`, `@%(host)s`) or start with `_`. The unnamed capture is the password, so only it becomes
+    // and the password have no length limit. The host can be any text: a
+    // template (`@${DB_HOST}`), a name that starts with `_`, or empty for a
+    // Unix socket (`@/db?host=/var/run/postgresql`). The unnamed capture is the password, so only it becomes
     // `[REDACTED:url-credentials]`. A user with no password (`user@host`)
     // does not match, and `scrub` drops a template password (`is_template`).
     rules.rules.insert(
@@ -85,7 +86,7 @@ pub fn serve(
         RuleSyntax::new(
             URL_CREDENTIALS,
             "Credentials in a URL",
-            r#"(?i)\b[a-z][a-z0-9+.\-]*://[^\s:/?#"<>]*:([^\s/"<>]+)@[a-z0-9._\-\[\]$%{<]"#,
+            r#"(?i)\b[a-z][a-z0-9+.\-]*://[^\s:/?#"<>]*:([^\s/"<>]+)@[^\s"<>]"#,
         ),
     );
     let database = RulesDatabase::from_rule_collection_with_cache(
