@@ -112,10 +112,16 @@ const nativePrerequisites = [
 // belongs to the contracts lane (the "not portable" group of
 // scripts/ci/contracts.json). `programs`: the host tools that the lane runs;
 // the key holds their versions.
+// `timeout`: the time limit of the lane run in ms (else 45 minutes). The
+// backend and contracts lanes run their files in series, because the files
+// share one database. On the agent host, the full backend lane took 48
+// minutes and the full contracts lane 43 minutes in series (CTX-1480).
+// CTX-1481 runs them in shards, each with its own database.
 const lanes = {
   backend: {
     directory: "apps/backend",
     runtime: "node",
+    timeout: 7_200_000,
     inputs: [...backendInputs, ...nativeInputs],
     traceInputs: backendTraceInputs,
     env: backendEnv,
@@ -130,6 +136,7 @@ const lanes = {
   contracts: {
     directory: "apps/backend",
     runtime: "node",
+    timeout: 7_200_000,
     inputs: [...backendInputs, ...nativeInputs],
     traceInputs: backendTraceInputs,
     env: [...backendEnv, { name: "DOCKER_DEFAULT_PLATFORM", mode: "value" }],
@@ -422,7 +429,7 @@ export function runVitest(checks, trace) {
       run = logged(log.path, launch.command, launch.args, {
         cwd: launch.cwd,
         env: launch.env,
-        timeout: 2_700_000,
+        timeout: laneConfig.timeout ?? 2_700_000,
       })
       try {
         suites = reportSuites(report)
