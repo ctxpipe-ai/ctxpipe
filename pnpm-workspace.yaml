@@ -17,3 +17,8 @@ patchedDependencies:
   # dependency build script. The launcher runs the binary of the platform
   # package that the lockfile installed, so the postinstall is not needed.
   'opencode-ai@1.19.5': patches/opencode-ai@1.19.5.patch
+  # CTX-1478: claim runs in the order they became available. Upstream (0.10.1
+  # and 0.11.0) claims each pending run first, so a parent that a child woke
+  # waited for a free slot while newer pending runs took it, for up to 32
+  # minutes in production.
+  'openworkflow@0.10.1': patches/openworkflow@0.10.1.patch
