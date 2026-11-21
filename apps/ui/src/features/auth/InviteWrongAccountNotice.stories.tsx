@@ -1,25 +1,20 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
-
+import preview from "../../../.storybook/preview"
 import { InviteWrongAccountNotice } from "./InviteWrongAccountNotice"
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Auth/InviteWrongAccountNotice",
   component: InviteWrongAccountNotice,
   parameters: {
     layout: "centered",
     review: { kind: "component" },
   },
-} satisfies Meta<typeof InviteWrongAccountNotice>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Notice on the join organization card: the user is signed in with an email
  * other than the invited one.
  */
-export const WrongAccount: Story = {
+export const WrongAccount = meta.story({
   args: {
     sessionEmail: "other@example.com",
     invitationEmail: "member@example.com",
@@ -36,4 +31,4 @@ export const WrongAccount: Story = {
       </div>
     ),
   ],
-}
+})

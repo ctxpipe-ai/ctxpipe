@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
 import {
@@ -12,9 +11,10 @@ import {
 } from "@/mocks/handlers"
 
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
+import preview from "../../../.storybook/preview"
 import { OrganizationApiKeysCard } from "./OrganizationApiKeysCard"
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Organization/ApiKeys",
   component: OrganizationApiKeysCard,
   decorators: [
@@ -24,8 +24,10 @@ const meta = {
       </div>
     ),
   ],
+  beforeEach: ({ msw }) => {
+    msw.use(...signedInHandlers)
+  },
   parameters: {
-    msw: { handlers: { session: signedInHandlers } },
     app: "root",
     layout: "fullscreen",
     storyRoute: {
@@ -37,56 +39,40 @@ const meta = {
   args: {
     organizationId: "org_storybook",
   },
-} satisfies Meta<typeof OrganizationApiKeysCard>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Organization API keys card, where an admin makes keys for CI and shared
  * agents: the org has no keys yet.
  */
-export const Empty: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [orgApiKeysListEmptyHandler],
-      },
-    },
+export const Empty = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(orgApiKeysListEmptyHandler)
   },
-}
+})
 
 /**
  * Organization API keys card, where an admin makes keys for CI and shared
  * agents: the org has keys in the list.
  */
-export const Populated: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          orgApiKeysListPopulatedHandler,
-          orgApiKeysCreateHandler(),
-          orgApiKeysUpdateHandler(),
-          orgApiKeysDeleteHandler(),
-        ],
-      },
-    },
+export const Populated = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      orgApiKeysListPopulatedHandler,
+      orgApiKeysCreateHandler(),
+      orgApiKeysUpdateHandler(),
+      orgApiKeysDeleteHandler(),
+    )
   },
-}
+})
 
 /**
  * Organization API keys card, where an admin makes keys for CI and shared
  * agents: the user is not an admin or owner.
  */
-export const Forbidden: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [orgApiKeysListForbiddenHandler],
-      },
-    },
+export const Forbidden = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(orgApiKeysListForbiddenHandler)
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -95,7 +81,7 @@ export const Forbidden: Story = {
     )
     await expect(canvas.queryByText("ci-mcp")).toBeNull()
   },
-}
+})
 
 /**
  * Organization API keys card, where an admin makes keys for CI and shared
@@ -103,17 +89,13 @@ export const Forbidden: Story = {
  * reject a configId that is not `organization` (400), so a create here proves
  * that the card never uses the personal `"default"` configId.
  */
-export const CreateNamedKey: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          orgApiKeysListEmptyHandler,
-          orgApiKeysCreateHandler(),
-          orgApiKeysUpdateHandler(),
-        ],
-      },
-    },
+export const CreateNamedKey = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      orgApiKeysListEmptyHandler,
+      orgApiKeysCreateHandler(),
+      orgApiKeysUpdateHandler(),
+    )
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -151,20 +133,18 @@ export const CreateNamedKey: Story = {
     await expect(page.getByText("org_plaintext_shown_once")).toBeVisible()
     await expect(page.getAllByText(/CTXPIPE_API_KEY/).length).toBeGreaterThan(0)
   },
-}
+})
 
 /**
  * Organization API keys card, where an admin makes keys for CI and shared
  * agents: the admin revoked a key from the list.
  */
-export const RevokeKey: Story = {
+export const RevokeKey = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(orgApiKeysListPopulatedHandler, orgApiKeysDeleteHandler())
+  },
   parameters: {
     visual: { skip: "Behavior test: it ends in the same state as Populated." },
-    msw: {
-      handlers: {
-        page: [orgApiKeysListPopulatedHandler, orgApiKeysDeleteHandler()],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -179,4 +159,4 @@ export const RevokeKey: Story = {
     // Handler only succeeds for configId=organization; errors would stay visible.
     await expect(canvas.queryByText(/Expected configId/)).toBeNull()
   },
-}
+})

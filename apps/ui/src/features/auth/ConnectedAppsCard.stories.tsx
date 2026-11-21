@@ -1,13 +1,13 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
 import { expect, within } from "storybook/test"
 
 import { responseGate } from "@/components/ui/skeletonMatchStory"
 
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
+import preview from "../../../.storybook/preview"
 import { ConnectedAppsCard } from "./ConnectedAppsCard"
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Auth/Connected Apps Card",
   component: ConnectedAppsCard,
   parameters: {
@@ -20,11 +20,7 @@ const meta = {
     } satisfies StoryRouteParams,
     review: { kind: "component" },
   },
-} satisfies Meta<typeof ConnectedAppsCard>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 const gate = responseGate()
 
@@ -34,41 +30,35 @@ const gate = responseGate()
  * skeleton row has the box of a loaded row: the same height, and the same
  * position and size for the two action buttons.
  */
-export const SkeletonRowMatchesLoadedRow: Story = {
+export const SkeletonRowMatchesLoadedRow = meta.story({
   tags: ["required"],
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(
+        ({ request }) =>
+          new URL(request.url).pathname.endsWith("/api/v1/me/connected-apps"),
+        async () => {
+          await gate.wait()
+          return HttpResponse.json({
+            apps: [
+              {
+                id: "consent_1",
+                legacy: false,
+                clientId: "client_1",
+                clientName: "Example MCP client",
+                scopes: ["ctxpipe:read"],
+                organizations: [{ id: "org_a", slug: "acme", name: "Acme" }],
+                connectedAt: null,
+              },
+            ],
+          })
+        },
+      ),
+    )
+  },
   parameters: {
     intent:
       "Catches a connected apps skeleton row whose size or action buttons differ from the loaded row. This causes layout shift. Not for app data or revoke actions.",
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname.endsWith(
-                "/api/v1/me/connected-apps",
-              ),
-            async () => {
-              await gate.wait()
-              return HttpResponse.json({
-                apps: [
-                  {
-                    id: "consent_1",
-                    legacy: false,
-                    clientId: "client_1",
-                    clientName: "Example MCP client",
-                    scopes: ["ctxpipe:read"],
-                    organizations: [
-                      { id: "org_a", slug: "acme", name: "Acme" },
-                    ],
-                    connectedAt: null,
-                  },
-                ],
-              })
-            },
-          ),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     // Measure both rows with the same fonts.
@@ -102,4 +92,4 @@ export const SkeletonRowMatchesLoadedRow: Story = {
     expect(loaded.actions).toHaveLength(2)
     expect(skeleton).toEqual(loaded)
   },
-}
+})

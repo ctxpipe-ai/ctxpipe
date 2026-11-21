@@ -1,6 +1,6 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
+import preview from "../../../.storybook/preview"
 import { NodeDetailDrawer } from "./NodeDetailDrawer"
 import { colorForKind } from "./theme"
 import type { KnowledgeGraphNode, NodeFacts } from "./types"
@@ -51,7 +51,7 @@ const kindColors = new Map<string, string>([
   ["Pattern", colorForKind("Pattern")],
 ])
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Knowledge Graph/Node Detail",
   component: NodeDetailDrawer,
   decorators: [
@@ -75,11 +75,7 @@ const meta = {
     onNeighborSelect: fn(),
     onOpenSource: fn(),
   },
-} satisfies Meta<typeof NodeDetailDrawer>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Node drawer of the knowledge graph, which opens when the user clicks a node:
@@ -87,7 +83,7 @@ type Story = StoryObj<typeof meta>
  * and links. Section labels use the mono label style, and a faint hairline is
  * above each section but the first.
  */
-export const Populated: Story = {
+export const Populated = meta.story({
   play: async ({ canvasElement }) => {
     const headings = within(canvasElement).getAllByRole("heading", {
       level: 3,
@@ -115,14 +111,14 @@ export const Populated: Story = {
       expect(new Set(dates).size).toBe(2)
     })
   },
-}
+})
 
 /**
  * Node detail drawer of the knowledge graph, which tells a user about one node
  * and its links: the node has a `kn_` id, and the Path row shows its file. The
  * user pressed Go to definition on the file path, which opens that file.
  */
-export const SourceLink: Story = {
+export const SourceLink = meta.story({
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement)
     await expect(
@@ -135,14 +131,14 @@ export const SourceLink: Story = {
       "knowledge/connectors/linear.md",
     )
   },
-}
+})
 
 /**
  * Node detail drawer of the knowledge graph, which tells a user about one node
  * and its links: the node has few peers to compare its degree with.
  */
-export const Isolated: Story = {
+export const Isolated = meta.story({
   args: {
     peerDegrees: [1],
   },
-}
+})
