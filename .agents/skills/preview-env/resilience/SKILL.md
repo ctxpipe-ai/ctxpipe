@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # preview-env resilience
 
-Last area: it disturbs the target. [Harness](../harness.md) is `PASS`; run it after the other areas. Flow format: [run-setup](../run-setup.md#flow-format). RES-2 (worker sleep and wake) went with the Railway previews: no target sleeps its worker.
+Last area: it disturbs the target. [Harness](../harness.md) is `PASS`; run it after the other areas. Flow format: [run-setup](../run-setup.md#flow-format).
 
 ### RES-1 Backend restart mid-chat (`gated-restart-ok`)
 **Requires** flag `restart-ok` (a human or the run may restart the backend: `local` only, stop and start `pnpm dev`, per the [write policy](../run-setup.md#write-policy)); CHAT-2.
@@ -35,4 +35,4 @@ Last area: it disturbs the target. [Harness](../harness.md) is `PASS`; run it af
 ## Status
 
 - **PASS** RES-3 `PASS`; RES-1 `PASS` or `SKIP`.
-- **FAIL** a blank page, an interrupted run stuck `running`, a duplicate sandbox after restart.
+- **FAIL** a blank page, an interrupted run stuck `running`, or a duplicate sandbox after restart.

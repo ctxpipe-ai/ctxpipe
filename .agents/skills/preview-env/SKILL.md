@@ -95,7 +95,7 @@ Load **only** the chosen area files; each lists its flows in the [fixed format](
 - [mcp](mcp/SKILL.md)
 - [resilience](resilience/SKILL.md)
 
-A flow `FAIL` stops **that flow**; continue with the next flow unless it `Requires` the failed one (then `SKIP(blocked-by FLOW-ID)`). Stop the suite only for a harness-class blocker (session gone, production UI leak, worker never wakes while a later area needs it).
+A flow `FAIL` stops **that flow**; continue with the next flow unless it `Requires` the failed one (then `SKIP(blocked-by FLOW-ID)`). Stop the suite only for a harness-class blocker (session gone, production UI leak, worker or codesearch down while a later area needs it).
 
 **Done when:** every flow in every chosen area has `PASS`, `FAIL`, or `SKIP(reason)`.
 

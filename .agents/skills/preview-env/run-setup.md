@@ -12,7 +12,7 @@ Shared by every [preview-env](SKILL.md) run and every area. Complete it before t
 | `preview` | `https://pr-<N>.ctxpipe.dev` | The AWS PR preview of ctxpipe PR `<N>`, from `factory preview up <N>` ([AWS PR previews](SKILL.md#aws-pr-previews)); its database is a copy-on-write clone of production, so it holds **customer data**. Cloudflare Access protects every path but `/api/v1/webhook/*`: each HTTP request runs under `factory preview access`, and the browser sends the Access cookie ([reach a preview with no person](SKILL.md#reach-a-preview-with-no-person-temporary), [browser driver](harness.md#browser-driver)). Use only an Access token that only the previews admit, never the `agents` token: PR code runs behind these hosts |
 | `aws` | `https://cutover.ctxpipe.dev` | The AWS production stack before the go/no-go G4 of [CTX-1217](https://linear.app/ctxpipe/issue/CTX-1217), with rehearsal secrets and an empty database or a rehearsal copy. In this phase, `AUTH_BASE_URL` and `AUTH_ALLOWED_ORIGINS` name `https://cutover.ctxpipe.dev`, so sign-in and the OAuth callbacks stay on this host. In the cutover window, `AUTH_BASE_URL` is `https://app.ctxpipe.ai`: then only `validateTarget` runs against that origin, and the sweep does not run. Cloudflare Access protects the host: the agent host uses WARP, or the HTTP requests send the Access service token and the browser sends the Access cookie (see the [harness](harness.md#1-wake) and the [browser driver](harness.md#browser-driver)). The guard admits this host only before G4. At G4, the edge stack removes the `cutover.ctxpipe.dev` route |
 
-`<N>` is digits only. Any other host, including `app.ctxpipe.ai` and the Railway hosts `backend-pr-<N>.up.railway.app` (Railway previews are gone), is a **harness FAIL**: stop before opening a browser. A raw UI host or port misses the session cookie; always drive the backend origin.
+`<N>` is digits only. Any other host, including `app.ctxpipe.ai`, is a **harness FAIL**: stop before opening a browser. A raw UI host or port misses the session cookie; always drive the backend origin.
 
 ## Test data
 
@@ -107,7 +107,7 @@ Status of a flow:
 
 - `PASS` every Expect met and time at or under the fail budget (note `SLOW` between target and fail).
 - `FAIL` an Expect unmet, or time over the fail budget.
-- `SKIP(reason)` with one of `needs-human`, `needs-ticket-NN`, `blocked-by FLOW-ID`, `hosted-only`, `preview-only`, `gated-<flag>`, `no-fixture`, `needs-inbox`, `contract-test`.
+- `SKIP(reason)` with one of `needs-human`, `needs-ticket-NN`, `blocked-by FLOW-ID`, `hosted-only`, `gated-<flag>`, `no-fixture`, `needs-inbox`, `contract-test`.
 
 ### Human checkpoints
 
