@@ -16,7 +16,8 @@ import { McpToolError } from "../../src/mcp/framework/tool-errors.js"
 import { getRelatedInputShape } from "../../src/mcp/tools/get-related.js"
 import {
   getKnowledgeState,
-  readyKnowledgeShas,
+  type KnowledgeHead,
+  readyKnowledgeHeads,
 } from "../../src/models/knowledge-state.js"
 import { getWorkspaceById } from "../../src/models/workspaces.js"
 import { POSITION_STATUSES } from "../../src/retrieval/jev/disagreement.js"
@@ -159,11 +160,15 @@ function failure(error: unknown): string {
 
 const relatedInput = z.object(getRelatedInputShape)
 
-/** The org and the Workspace of a corpus, and the SHA that both stacks serve. */
+/**
+ * The org and the Workspace of a corpus, the SHA that both stacks serve, and
+ * the head of the plane at that SHA.
+ */
 type EvalTarget = {
   org: { id: string; slug: string }
   workspace: { id: string; slug: string }
   sha: string
+  head: KnowledgeHead
 }
 
 /**
@@ -184,11 +189,12 @@ async function resolveWorkspaces(
       )
     const org = { id: target.orgId, slug: target.orgSlug }
     const workspace = await resolveCallWorkspace(org, target.workspace)
-    const plane = (await readyKnowledgeShas(org.id, [workspace.id])).get(
+    const head = (await readyKnowledgeHeads(org.id, [workspace.id])).get(
       workspace.id,
     )
+    const plane = head?.sha
     const { sha, root } = corpus.contextRepo
-    if (workspace.served?.sha !== sha || plane !== sha)
+    if (workspace.served?.sha !== sha || !head || plane !== sha)
       throw new Error(
         `Workspace ${workspace.slug} must serve the frozen SHA ${sha} of ${corpus.id} on both stacks. The old stack serves ${workspace.served?.sha ?? "nothing"}, and the plane serves ${plane ?? "nothing"}.`,
       )
@@ -219,6 +225,7 @@ async function resolveWorkspaces(
       org,
       workspace: { id: workspace.id, slug: workspace.slug },
       sha,
+      head,
     })
   }
   return resolved
@@ -247,7 +254,7 @@ export async function runEval(input: {
         arm === "legacy"
           ? legacyKnowledgeReader
           : planeKnowledgeReader({
-              shas: new Map([[target.workspace.id, target.sha]]),
+              heads: new Map([[target.workspace.id, target.head]]),
             })
       calls.begin(arm, question.id)
       const answer = await ask(reader, question, target, now)

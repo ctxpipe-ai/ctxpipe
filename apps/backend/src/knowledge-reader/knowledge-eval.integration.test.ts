@@ -16,10 +16,7 @@ import { withOrgDbContext } from "../db/client.js"
 import { workspaceKnowledgeUnits, workspaces } from "../db/schema/workspaces.js"
 import { servingIdForKnowledgePath } from "../domain/workspaces/hydrate.js"
 import { knowledgeProjectionVersion } from "../knowledge-plane/change-set.js"
-import {
-  createKnowledgeStore,
-  type DocumentRows,
-} from "../knowledge-store/knowledge-store.js"
+import { createKnowledgeStore } from "../knowledge-store/knowledge-store.js"
 import { migrateKnowledgeStore } from "../knowledge-store/migrate.js"
 import {
   beginKnowledgeRun,
@@ -27,6 +24,10 @@ import {
 } from "../models/knowledge-state.js"
 import { textEmbeddingConfig } from "../retrieval/embeddings/textEmbeddings.js"
 import { startClickHouse, userUrl } from "../test/clickhouse.js"
+import {
+  type PlaneDocument,
+  writePlaneDocuments,
+} from "../test/knowledge-plane.js"
 import { embedText, planeVector } from "../test/knowledge-search-fixture.js"
 import { dropOrgGraph, seedRelatedWorkspace } from "../test/related-fixture.js"
 
@@ -168,10 +169,12 @@ let seededWorkspace: string
 /** Record a complete plane run of the frozen SHA at the root `of`. */
 async function projectPlane(of: string) {
   const key = { orgId: seed.orgId, workspaceId: seededWorkspace }
-  await beginKnowledgeRun({ ...key, tip: frozenSha })
+  await beginKnowledgeRun({ ...key })
   await completeKnowledgeRun({
     ...key,
     tip: frozenSha,
+    branch: "main",
+    treeVersion: 1,
     projectionVersion: knowledgeProjectionVersion({
       embeddingModel: textEmbeddingConfig.model,
       dimensions: textEmbeddingConfig.dimensions,
@@ -189,7 +192,7 @@ let folder: string
 let targets: Targets
 
 /** The rows of the fixture units in the knowledge plane. */
-function planeRows(workspaceId: string): DocumentRows[] {
+function planeRows(workspaceId: string): PlaneDocument[] {
   const key = (path: string) => servingIdForKnowledgePath(workspaceId, path)
   const observedAt = new Date("2026-11-01T00:00:00Z")
   const date = (value: string | null | undefined) =>
@@ -317,9 +320,10 @@ describe("the knowledge eval harness", () => {
     })
     const writer = createKnowledgeStore(url)
     try {
-      await writer.applyDocuments(
+      await writePlaneDocuments(
+        writer,
         { orgId: seed.orgId, workspaceId },
-        { documents: planeRows(workspaceId) },
+        planeRows(workspaceId),
       )
     } finally {
       await writer.close()

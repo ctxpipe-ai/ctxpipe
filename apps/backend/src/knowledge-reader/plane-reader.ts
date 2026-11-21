@@ -25,6 +25,7 @@ import {
   documentId,
   type FrontierRelation,
   type KnowledgeDocument,
+  type KnowledgeReadScope,
   type KnowledgeRelation,
   type KnowledgeStore,
 } from "../knowledge-store/knowledge-store.js"
@@ -32,6 +33,7 @@ import { isRetryableFetchFailure } from "../lib/withTransientHttpRetry.js"
 import { truncateText } from "../mcp/framework/budget.js"
 import { checkPath } from "../mcp/framework/refs.js"
 import { McpToolError } from "../mcp/framework/tool-errors.js"
+import type { KnowledgeHead } from "../models/knowledge-state.js"
 import { embedQuery } from "../retrieval/embeddings/textEmbeddings.js"
 import { JevError } from "../retrieval/jev/client.js"
 import {
@@ -73,13 +75,28 @@ export function knowledgeStore(): KnowledgeStore {
 }
 
 /**
- * The plane reader of one request. `shas` is the served SHA of each
- * Workspace. `meter` counts the model calls.
+ * The plane reader of one request. `heads` is the served head of each
+ * Workspace (ADR-071 decision 4). `meter` counts the model calls.
  */
 export function planeKnowledgeReader(input: {
-  shas: ReadonlyMap<string, string>
+  heads: ReadonlyMap<string, KnowledgeHead>
   meter?: ModelMeter
 }): KnowledgeReader {
+  /** The read scope of `workspaceIds`, with the head of each one. */
+  const scopeOf = (
+    orgId: string,
+    workspaceIds: readonly string[],
+  ): KnowledgeReadScope => ({
+    orgId,
+    heads: workspaceIds.map((workspaceId) => {
+      const head = input.heads.get(workspaceId)
+      if (!head)
+        throw new Error(
+          `The Workspace ${workspaceId} has no head on the knowledge plane`,
+        )
+      return { workspaceId, ...head }
+    }),
+  })
   const meter = input.meter ?? {
     jevCalls: 0,
     jevCandidates: 0,
@@ -100,12 +117,25 @@ export function planeKnowledgeReader(input: {
   }
   return {
     stack: "plane",
-    search: (request) => search(request, input.shas, embed, meter),
-    related: (request) => related(request, embed, meter),
+    search: (request) =>
+      search(
+        request,
+        scopeOf(request.orgId, request.workspaceIds),
+        input.heads,
+        embed,
+        meter,
+      ),
+    related: (request) =>
+      related(
+        request,
+        scopeOf(request.org.id, [request.workspace.id]),
+        embed,
+        meter,
+      ),
     graph: async ({ orgId, workspaceId }) => {
       // The graph view shows at most 5,000 documents and relations.
       const graph = await knowledgeStore().readGraph(
-        { orgId, workspaceId },
+        scopeOf(orgId, [workspaceId]),
         5_000,
       )
       const documents = graph.documents.filter(
@@ -144,7 +174,7 @@ export function planeKnowledgeReader(input: {
       return payload
     },
     expand: ({ orgId, workspaceId, params }) =>
-      expand(orgId, workspaceId, params),
+      expand(scopeOf(orgId, [workspaceId]), workspaceId, params),
   }
 }
 
@@ -182,7 +212,8 @@ function queryTerms(query: string): string[] {
  */
 async function search(
   request: SearchRequest,
-  shas: ReadonlyMap<string, string>,
+  scope: KnowledgeReadScope,
+  heads: ReadonlyMap<string, KnowledgeHead>,
   embed: (text: string) => Promise<number[]>,
   meter: ModelMeter,
 ): Promise<SearchResult> {
@@ -191,10 +222,6 @@ async function search(
   const queryTime = request.validAt ?? request.now ?? new Date()
   const deadline = performance.now() + ORCHESTRATOR_DEFAULTS.timeBudgetMs
   const store = knowledgeStore()
-  const scope = {
-    orgId: request.orgId,
-    workspaceIds: [...request.workspaceIds],
-  }
   // The store applies each filter before it cuts the candidates. With no
   // time left for the search itself, there is no hit to give.
   let found: Awaited<ReturnType<KnowledgeStore["search"]>>
@@ -250,7 +277,7 @@ async function search(
   const hits = found.flatMap(
     (hit, index): (KnowledgeHit & { order: number; valid: boolean })[] => {
       const chunk = hit.chunks[0]
-      const sha = shas.get(hit.workspaceId)
+      const sha = heads.get(hit.workspaceId)?.sha
       if (!chunk || !sha) return []
       return [
         {
@@ -323,13 +350,13 @@ function claimsByDocument(
  * `judge_unavailable`.
  */
 async function related(
-  { org, workspace, input, now }: RelatedRequest,
+  { workspace, input, now }: RelatedRequest,
+  scope: KnowledgeReadScope,
   embed: (text: string) => Promise<number[]>,
   meter: ModelMeter,
 ): Promise<Ranking> {
   const deadline = performance.now() + ORCHESTRATOR_DEFAULTS.timeBudgetMs
   const store = knowledgeStore()
-  const scope = { orgId: org.id, workspaceIds: [workspace.id] }
   const paths = [...new Set(input.seeds.map((ref) => checkPath(ref, ref)))]
   const question =
     input.query ??
@@ -562,7 +589,7 @@ function relatedResult(node: TraversalNode): RelatedResult {
  * document (highest confidence first). It has no judge.
  */
 async function expand(
-  orgId: string,
+  scope: KnowledgeReadScope,
   workspaceId: string,
   params: {
     seeds: string[]
@@ -571,7 +598,6 @@ async function expand(
   },
 ): Promise<GraphExpansion> {
   const store = knowledgeStore()
-  const scope = { orgId, workspaceIds: [workspaceId] }
   // The default of the old walk (`expandWorkspaceGraph`).
   const maxFanOut = params.maxFanOut ?? 50
   const seeds = await store.readDocuments(

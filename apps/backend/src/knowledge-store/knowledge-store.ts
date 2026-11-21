@@ -77,68 +77,82 @@ export type KnowledgeRelation = {
 }
 
 /**
- * The fields of a document that its file gives. The store sets `status`,
- * `deletedAt` and `error` itself: each mutation makes one status.
+ * The head of the tree of one branch (ADR-071 decision 4): the branch and
+ * the tree version that its last completed run wrote.
  */
-export type ActiveDocument = Omit<
+export type TreeHead = { branch: string; treeVersion: number }
+
+/** The head that a read uses for one Workspace. */
+export type WorkspaceHead = TreeHead & { workspaceId: string }
+
+/**
+ * The key of a file version (ADR-071 decision 2): the document key of its
+ * path, and its version (a hash of the blob SHA and the variant).
+ */
+export type FileVersionKey = { docKey: string; version: string }
+
+/**
+ * The fields of a document that the content of its file gives. The tree
+ * gives the status of the path, `deletedAt` and `validFrom` (ADR-071
+ * decision 3).
+ */
+export type FileDocument = Omit<
   KnowledgeDocument,
-  "status" | "deletedAt" | "error"
+  "status" | "deletedAt" | "error" | "validFrom"
 >
+
+/**
+ * A relation that a file version states. With `validFromIntroduced`, the
+ * read takes `validFrom` from the tree row of the source: the time of the
+ * commit that introduced the file on the branch.
+ */
+export type FileRelation = Omit<KnowledgeRelation, "srcDoc"> & {
+  validFromIntroduced: boolean
+}
 
 /** The rows of one document: the relations that it states are its own. */
 export type DocumentRows = {
-  document: ActiveDocument
+  document: FileDocument
   chunks: KnowledgeChunk[]
-  relations: Omit<KnowledgeRelation, "srcDoc">[]
+  relations: FileRelation[]
   /** The reference keys that the document states for itself. Absent: none. */
   refKeys?: string[]
 }
 
 /**
- * A document row with no content (ADR-066 decision 7): `missing` for a link
- * target that does not exist in Git, `failed` for a file that did not parse
- * or embed.
+ * The rows of one file version. With `error`, it is a `failed` file version
+ * (ADR-067 decision 8): it has no chunks and no relations.
  */
-type Placeholder = { docKey: string; observedAt: Date } & (
-  | { status: "missing" }
-  | { status: "failed"; error: string }
-)
+export type FileVersionRows = DocumentRows & {
+  version: string
+  error?: string
+}
+
+/** The fields of a stored file version that a tree row copies. */
+export type StoredFileVersion = {
+  status: "active" | "failed"
+  kind: string
+  observedAt: Date
+  validTo: Date | null
+}
+
+/**
+ * One tree row (ADR-071 decision 3): the file version of a path on a
+ * branch, or a tombstone (`deletedAt` is set) that keeps the last file
+ * version of the path.
+ */
+export type TreeEntry = FileVersionKey &
+  StoredFileVersion & {
+    path: string
+    validFrom: Date | null
+    deletedAt: Date | null
+  }
 
 /** The count of the mutations (DELETEs) that a caller made. */
 export type MutationCounter = { mutations: number }
 
-/**
- * The changes of one write. A key is in one list only. Each list can be
- * empty or absent.
- */
-export type DocumentChanges = {
-  /** Each document replaces the state of its key, with status `active`. */
-  documents?: DocumentRows[]
-  /**
-   * A `failed` placeholder replaces the state of its key. A `missing`
-   * placeholder is only for a key with no row (ADR-067 decision 7): it never
-   * replaces a document or a tombstone.
-   */
-  placeholders?: Placeholder[]
-  /** Each key becomes a tombstone (ADR-067 decision 6). */
-  deleted?: { docKeys: string[]; deletedAt: Date }
-}
-
-type DocumentKey = { docKey: string; status: DocumentStatus }
-
-type StoredDocument = {
-  document: KnowledgeDocument
-  chunks: KnowledgeChunk[]
-  /** The relations that this document states. */
-  outgoing: KnowledgeRelation[]
-  /** The relations of other documents (and this one) that point at it. */
-  incoming: KnowledgeRelation[]
-  /** The reference keys that the document states for itself. */
-  refKeys: string[]
-}
-
-/** The org and the Workspaces of a read. A read can span Workspaces. */
-export type KnowledgeReadScope = { orgId: string; workspaceIds: string[] }
+/** The org and the heads of a read. A read can span Workspaces. */
+export type KnowledgeReadScope = { orgId: string; heads: WorkspaceHead[] }
 
 /** One document of a Workspace. */
 export type DocumentRef = { workspaceId: string; docKey: string }
@@ -181,16 +195,15 @@ type SearchHit = {
 /**
  * A relation of a frontier document, and the document at its other end. A
  * relation to a reference key comes one time for each document of the key,
- * with that document as `dstDoc`. A key with no document comes one time,
- * with the key as `dstDoc` and a `missing` neighbor.
+ * with that document as `dstDoc`. A target with no tree row is a `missing`
+ * neighbor (ADR-071 decision 5).
  */
 export type FrontierRelation = {
   /** `out`: the frontier document is `srcDoc`. `in`: it is `dstDoc`. */
   direction: "out" | "in"
   workspaceId: string
   relation: KnowledgeRelation
-  /** `null` when the neighbor has no document row. */
-  neighbor: KnowledgeDocument | null
+  neighbor: KnowledgeDocument
 }
 
 /** A document with its chunks closest to the query vector, closest first. */
@@ -216,6 +229,9 @@ export type ImageTextRow = {
   reading: string
 }
 
+/** What one cleanup deleted. */
+type CleanupCounts = { treeRows: number; fileVersions: number }
+
 /**
  * The only ClickHouse client of the knowledge content (ADR-066). Each
  * function takes the org and one or more Workspaces of it, and each statement
@@ -225,50 +241,84 @@ export type ImageTextRow = {
  * - Inserts: this module sets `org_id` and `workspace_id` of each row from
  *   the scope, and the CHECK constraint refuses a row of another org.
  * - DELETE: ClickHouse applies neither the row policy nor the CHECK
- *   constraint. Thus a caller gives only document keys, and
- *   {@link deleteWhere} adds the org and Workspace predicates to each
- *   statement. The backend connects as a user with SELECT only (ADR-066
- *   decision 9).
+ *   constraint. Thus a caller gives only keys, and {@link deleteWhere} adds
+ *   the org and Workspace predicates to each statement. The backend connects
+ *   as a user with SELECT only (ADR-066 decision 9).
  *
- * Each change is a DELETE, then an INSERT. There is no UPDATE (ADR-066
- * decision 8). Each DELETE is a mutation of its table, so one write deletes
- * the rows of all its keys with one DELETE for each table. A retry after a
- * failure is safe (ADR-067 decision 5).
+ * The content tables hold file versions, and the tree table says which file
+ * version each branch holds at each path (ADR-071). A file version and a
+ * tree row are written one time. Only the deletion of the rows of a stopped
+ * run ({@link KnowledgeStore.deleteTreeAbove}) and the cleanup make DELETEs.
  */
 export type KnowledgeStore = {
   /**
-   * Applies `changes` with one DELETE for each table, for each slice of at
-   * most {@link IN_LIST_CAP} keys (ADR-066 decision 8). The DELETE of
-   * `relations_in` (and of `doc_refs`) also filters by the link targets
-   * (and the reference keys) of the slice, and takes one more DELETE for
-   * each more {@link IN_LIST_CAP} of them. Each DELETE is a mutation, and
-   * the mutations of one table run in order, so a caller gives all changes
-   * of a run in as few calls as it can. Each DELETE adds 1 to
-   * `counter.mutations`, also when a later statement fails.
-   *
-   * - A document or a `failed` placeholder: deletes all rows of its key,
-   *   then inserts the new rows.
-   * - A tombstone gets status `deleted` and `deletedAt`, with the other
-   *   fields of its row. Its chunks, outgoing relations and reference keys
-   *   are deleted. The relations of other documents that point at it stay.
-   *   A key with no row gets a tombstone with empty fields. A key that has
-   *   a tombstone keeps it, with the date of the first deletion.
-   *
-   * The tombstones go in before the DELETEs, so a failure between the two
-   * leaves both rows, never no row: a retry keeps the tombstone and deletes
-   * the old row. Until the retry, the key has two rows.
+   * The stored file versions of `keys`, by {@link fileVersionId}, with the
+   * fields that a tree row copies. A file version whose document row is not
+   * stored is not stored: a write inserts that row last.
    */
-  applyDocuments(
+  findFileVersions(
     scope: KnowledgeScope,
-    changes: DocumentChanges,
+    keys: FileVersionKey[],
+  ): Promise<Map<string, StoredFileVersion>>
+  /**
+   * Inserts the rows of each file version. A version with rows but no
+   * document row is the rest of a write that stopped: those rows are
+   * deleted first, so that a retry does not store them two times. The
+   * document row goes in last.
+   */
+  writeFileVersions(
+    scope: KnowledgeScope,
+    versions: FileVersionRows[],
     counter?: MutationCounter,
   ): Promise<void>
-  /** The key and the status of each document of the Workspace. */
-  listDocumentKeys(scope: KnowledgeScope): Promise<DocumentKey[]>
+  /** The tree rows that `head` shows: one row for each path that has one. */
+  readTree(scope: KnowledgeScope, head: TreeHead): Promise<TreeEntry[]>
+  /**
+   * Inserts `entries` with the tree version `treeVersion` of `branch`. No
+   * read sees them until the head of the branch moves to that version.
+   */
+  writeTree(
+    scope: KnowledgeScope,
+    branch: string,
+    treeVersion: number,
+    entries: TreeEntry[],
+  ): Promise<void>
+  /**
+   * Deletes the tree rows of `branch` above `treeVersion`: the rows of a run
+   * that stopped before it moved the head (ADR-071 decision 4).
+   */
+  deleteTreeAbove(
+    scope: KnowledgeScope,
+    branch: string,
+    treeVersion: number,
+    counter?: MutationCounter,
+  ): Promise<void>
+  /**
+   * Deletes (ADR-071 decision 10):
+   * - the tree rows of a branch that is not in `heads`, when its newest row
+   *   was written before `replacedBefore`;
+   * - each tree row that a newer row at or below the head replaced, when
+   *   that newer row was written before `replacedBefore`;
+   * - each file version that no tree row uses, when its newest row was
+   *   written before `unusedBefore`.
+   * The writer inserts all tree rows of a run in one INSERT, just before it
+   * moves the head (`applyChangeSet`, then `completeKnowledgeRun`). Thus the
+   * `written_at` of a tree row is the time when its tree version became
+   * visible, within the time of one Postgres update, and each grace time
+   * counts from the publication of a head. The caller holds the projection
+   * lease of the Workspace, so that no run uses a file version while it is
+   * deleted.
+   */
+  cleanUp(
+    scope: KnowledgeScope,
+    input: { heads: TreeHead[]; replacedBefore: Date; unusedBefore: Date },
+    counter?: MutationCounter,
+  ): Promise<CleanupCounts>
   /**
    * The stored vector of each key of `embeddingKeys` that a chunk of a
-   * document of `docKeys` has, in the Workspace of `scope` only. The vector
-   * is the stored BFloat16 value, so a write of it stores the same value.
+   * document of `docKeys` has (any file version), in the Workspace of
+   * `scope` only. The vector is the stored BFloat16 value, so a write of it
+   * stores the same value.
    */
   readEmbeddings(
     scope: KnowledgeScope,
@@ -289,17 +339,20 @@ export type KnowledgeStore = {
   /** Stores the readings `rows` for the Workspace of `scope`. */
   writeImageTexts(scope: KnowledgeScope, rows: ImageTextRow[]): Promise<void>
   /**
-   * Each relation target that is a reference key with no document in
-   * `doc_refs` (`ref:<key>`), with each document that states it. Such a key
-   * has no `missing` row: it is a missing link of its own kind.
+   * The key and the status of each document of the view: each tree row, and
+   * each relation target with no tree row as `missing` (ADR-071 decision 5).
+   */
+  listDocumentStatuses(
+    scope: KnowledgeReadScope,
+  ): Promise<{ docKey: string; status: DocumentStatus }[]>
+  /**
+   * Each relation target that is a reference key with no document of the
+   * view (`ref:<key>`), with each document that states it. Such a key has
+   * no row: it is a missing link of its own kind.
    */
   listUnresolvedReferences(
-    scope: KnowledgeScope,
+    scope: KnowledgeReadScope,
   ): Promise<{ srcDoc: string; dstDoc: string }[]>
-  readDocument(
-    scope: KnowledgeScope,
-    docKey: string,
-  ): Promise<StoredDocument | null>
   /** The hybrid search of ADR-068 decision 1. */
   search(scope: KnowledgeReadScope, query: SearchQuery): Promise<SearchHit[]>
   /** The out-relations and in-relations of the documents `refs`. */
@@ -321,12 +374,12 @@ export type KnowledgeStore = {
     chunksPerDocument: number,
   ): Promise<Evidence[]>
   /**
-   * The documents and relations of a Workspace, at most `limit` of each. A
+   * The documents and relations of the view, at most `limit` of each. A
    * relation to a reference key comes one time for each document of the
    * key, with that document as `dstDoc`. A key with no document keeps the
    * key as `dstDoc`.
    */
-  readGraph(scope: KnowledgeScope, limit: number): Promise<KnowledgeGraph>
+  readGraph(scope: KnowledgeReadScope, limit: number): Promise<KnowledgeGraph>
   close(): Promise<void>
 }
 
@@ -352,18 +405,33 @@ export function createKnowledgeStore(url: string | undefined): KnowledgeStore {
       "CLICKHOUSE_URL is not set. The knowledge store needs a ClickHouse server (ADR-066).",
     )
   const client = createClickHouseClient(url)
+  const counted = (counter?: MutationCounter) => counter ?? { mutations: 0 }
   return {
-    applyDocuments: (scope, changes, counter) =>
-      applyDocuments(client, scope, changes, counter ?? { mutations: 0 }),
-    listDocumentKeys: (scope) => listDocumentKeys(client, scope),
+    findFileVersions: (scope, keys) => findFileVersions(client, scope, keys),
+    writeFileVersions: (scope, versions, counter) =>
+      writeFileVersions(client, scope, versions, counted(counter)),
+    readTree: (scope, head) => readTree(client, scope, head),
+    writeTree: (scope, branch, treeVersion, entries) =>
+      writeTree(client, scope, branch, treeVersion, entries),
+    deleteTreeAbove: (scope, branch, treeVersion, counter) =>
+      deleteCounted(
+        client,
+        scope,
+        counted(counter),
+        "trees",
+        "branch = {branch:String} AND tree_version > {treeVersion:UInt64}",
+        { branch, treeVersion },
+      ),
+    cleanUp: (scope, input, counter) =>
+      cleanUp(client, scope, input, counted(counter)),
     readEmbeddings: (scope, docKeys, embeddingKeys) =>
       readEmbeddings(client, scope, docKeys, embeddingKeys),
     readImageTexts: (scope, blobShas, model, promptVersion) =>
       readImageTexts(client, scope, blobShas, model, promptVersion),
     writeImageTexts: (scope, rows) => writeImageTexts(client, scope, rows),
+    listDocumentStatuses: (scope) => listDocumentStatuses(client, scope),
     listUnresolvedReferences: (scope) =>
       listUnresolvedReferences(client, scope),
-    readDocument: (scope, docKey) => readDocument(client, scope, docKey),
     search: (scope, query) => search(client, scope, query),
     readFrontier: (scope, refs, validAt) =>
       readFrontier(client, scope, refs, validAt),
@@ -374,6 +442,10 @@ export function createKnowledgeStore(url: string | undefined): KnowledgeStore {
     close: () => client.close(),
   }
 }
+
+/** The key of a file version in a map or a set. */
+export const fileVersionId = (key: FileVersionKey) =>
+  `${key.docKey}\0${key.version}`
 
 function assertScope(scope: KnowledgeScope): void {
   if (!scope.orgId || !scope.workspaceId)
@@ -393,7 +465,7 @@ const scopeParams = (
   workspaceId: scope.workspaceId,
 })
 
-/** Runs one read for the Workspace of `scope` (`scoped`). */
+/** Runs one read for the Workspace of `scope` (`scoped`), with no tree. */
 async function select<T>(
   client: ClickHouseClient,
   scope: KnowledgeScope,
@@ -401,12 +473,16 @@ async function select<T>(
   params: Record<string, unknown> = {},
 ): Promise<T[]> {
   assertScope(scope)
-  return selectIn<T>(
-    client,
-    { orgId: scope.orgId, workspaceIds: [scope.workspaceId] },
+  const result = await client.query({
     query,
-    scopeParams(scope, params),
-  )
+    query_params: scopeParams(scope, params),
+    format: "JSONEachRow",
+    clickhouse_settings: {
+      [ORG_SETTING]: scope.orgId,
+      date_time_output_format: "iso",
+    },
+  })
+  return result.json<T>()
 }
 
 /**
@@ -439,6 +515,19 @@ async function deleteWhere(
   })
 }
 
+/** {@link deleteWhere}, and 1 more mutation in `counter`. */
+async function deleteCounted(
+  client: ClickHouseClient,
+  scope: KnowledgeScope,
+  counter: MutationCounter,
+  table: keyof TableRows,
+  where: string,
+  params: Record<string, unknown>,
+): Promise<void> {
+  await deleteWhere(client, scope, table, where, params)
+  counter.mutations++
+}
+
 /**
  * At most this many values go in one IN list. ClickHouse takes the query
  * parameters of a DELETE in the URL, and keeps the URL below
@@ -451,224 +540,471 @@ const slices = <T>(items: T[]): T[][] =>
     items.slice(index * IN_LIST_CAP, (index + 1) * IN_LIST_CAP),
   )
 
+/** The value of a `{keys:Array(Tuple(String, String))}` parameter. */
+const keyTuples = (keys: FileVersionKey[]) =>
+  keys.map((key) => new TupleParam([key.docKey, key.version]))
+
 /**
- * Deletes the rows of the keys `replaced` and the content of the keys
- * `deleted`, with one DELETE for each table and each slice of keys:
- * - chunks, the outgoing relations (from `relations` and from
- *   `relations_in`) and the reference keys of each key;
- * - each document row of a key of `replaced`, and each row of a key of
- *   `deleted` that is not a tombstone.
+ * Deletes all rows of the file versions `keys`, with one DELETE for each
+ * table and each slice of keys. The document rows go first, so that a stop
+ * at any point leaves no document row of a part of a file version: a write
+ * sees the version as not stored and deletes the rest first. The chunks go
+ * last, so that the rest of a stopped DELETE always has chunks, and the
+ * cleanup finds it. `relations_in` goes before `relations`, because its
+ * DELETE finds its rows through the targets of `relations` (its sort key).
  */
-async function deleteRows(
+async function deleteVersions(
   client: ClickHouseClient,
   scope: KnowledgeScope,
-  replaced: string[],
-  deleted: string[],
+  keys: FileVersionKey[],
   counter: MutationCounter,
 ): Promise<void> {
-  const remove = async (
+  const remove = (
     table: keyof TableRows,
     where: string,
     params: Record<string, unknown>,
-  ) => {
-    await deleteWhere(client, scope, table, where, params)
-    counter.mutations++
-  }
-  const deletedKeys = new Set(deleted)
-  for (const docKeys of slices([...replaced, ...deleted])) {
-    // relations_in sorts by dst_doc, and doc_refs by ref_key. Their DELETEs
-    // filter by the targets and the keys of the documents too, so that they
-    // use the sort key (CTX-1391). Most documents state no key, and then no
-    // DELETE of doc_refs runs.
+  ) => deleteCounted(client, scope, counter, table, where, params)
+  const inKeys = "(doc_key, version) IN {keys:Array(Tuple(String, String))}"
+  const inSources =
+    "(src_doc, src_version) IN {keys:Array(Tuple(String, String))}"
+  for (const slice of slices(keys)) {
+    const params = { keys: keyTuples(slice) }
     const targets = await select<{ dstDoc: string }>(
       client,
       scope,
       `SELECT DISTINCT dst_doc AS dstDoc FROM relations
-       WHERE ${scoped} AND src_doc IN {docKeys:Array(String)}`,
-      { docKeys },
+       WHERE ${scoped} AND ${inSources}`,
+      params,
     )
     const refKeys = await select<{ refKey: string }>(
       client,
       scope,
       `SELECT DISTINCT ref_key AS refKey FROM doc_refs
-       WHERE ${scoped} AND doc_key IN {docKeys:Array(String)}`,
-      { docKeys },
+       WHERE ${scoped} AND ${inKeys}`,
+      params,
     )
-    await remove("chunks", "doc_key IN {docKeys:Array(String)}", { docKeys })
-    // relations_in first: while a row stays in relations, a retry after a
-    // failure finds its target again.
+    await remove("documents", inKeys, params)
     for (const dstDocs of slices(targets.map((target) => target.dstDoc)))
       await remove(
         "relations_in",
-        "dst_doc IN {dstDocs:Array(String)} AND src_doc IN {docKeys:Array(String)}",
-        { docKeys, dstDocs },
+        `dst_doc IN {dstDocs:Array(String)} AND ${inSources}`,
+        { ...params, dstDocs },
       )
-    await remove("relations", "src_doc IN {docKeys:Array(String)}", {
-      docKeys,
-    })
-    for (const keys of slices(refKeys.map((row) => row.refKey)))
+    await remove("relations", inSources, params)
+    for (const keySlice of slices(refKeys.map((row) => row.refKey)))
       await remove(
         "doc_refs",
-        "ref_key IN {refKeys:Array(String)} AND doc_key IN {docKeys:Array(String)}",
-        { docKeys, refKeys: keys },
+        `ref_key IN {refKeys:Array(String)} AND ${inKeys}`,
+        { ...params, refKeys: keySlice },
       )
-    // The document rows last: while a document row stays, a retry finds
-    // the key again.
-    await remove(
-      "documents",
-      "doc_key IN {replaced:Array(String)} OR (doc_key IN {deleted:Array(String)} AND status != 'deleted')",
-      {
-        replaced: docKeys.filter((docKey) => !deletedKeys.has(docKey)),
-        deleted: docKeys.filter((docKey) => deletedKeys.has(docKey)),
-      },
-    )
+    await remove("chunks", inKeys, params)
   }
 }
 
-type StoredRows = Omit<DocumentRows, "document"> & {
-  document: KnowledgeDocument
+type StoredVersionRecord = FileVersionKey & {
+  status: "active" | "failed"
+  kind: string
+  observedAt: string
+  validTo: string | null
 }
 
-async function applyDocuments(
+async function findFileVersions(
   client: ClickHouseClient,
   scope: KnowledgeScope,
-  changes: DocumentChanges,
+  keys: FileVersionKey[],
+): Promise<Map<string, StoredFileVersion>> {
+  const found = new Map<string, StoredFileVersion>()
+  for (const slice of slices(keys))
+    for (const row of await select<StoredVersionRecord>(
+      client,
+      scope,
+      `SELECT doc_key AS docKey, version, status, kind,
+         observed_at AS observedAt, valid_to AS validTo
+       FROM documents
+       WHERE ${scoped}
+         AND (doc_key, version) IN {keys:Array(Tuple(String, String))}`,
+      { keys: keyTuples(slice) },
+    ))
+      found.set(fileVersionId(row), {
+        status: row.status,
+        kind: row.kind,
+        observedAt: new Date(row.observedAt),
+        validTo: toDate(row.validTo),
+      })
+  return found
+}
+
+async function writeFileVersions(
+  client: ClickHouseClient,
+  scope: KnowledgeScope,
+  versions: FileVersionRows[],
   counter: MutationCounter,
 ): Promise<void> {
   assertScope(scope)
-  const documents = changes.documents ?? []
-  const placeholders = changes.placeholders ?? []
-  const deleted = changes.deleted?.docKeys ?? []
-  const missing = placeholders
-    .filter((placeholder) => placeholder.status === "missing")
-    .map((placeholder) => placeholder.docKey)
-  const allKeys = [
-    ...documents.map((rows) => rows.document.docKey),
-    ...placeholders.map((placeholder) => placeholder.docKey),
-    ...deleted,
-  ]
-  if (new Set(allKeys).size !== allKeys.length)
-    throw new Error("A write has the same document key two times")
-  if (allKeys.length === 0) return
-
-  const stored = await storedDocuments(client, scope, [...missing, ...deleted])
-  const deletedAt = changes.deleted?.deletedAt
-  const tombstones: StoredRows[] = deletedAt
-    ? deleted
-        .filter((docKey) => stored.get(docKey)?.status !== "deleted")
-        .map((docKey) => ({
-          document: {
-            ...(stored.get(docKey) ??
-              emptyDocument(docKey, "deleted", deletedAt)),
-            status: "deleted",
-            deletedAt,
-            error: "",
-          },
-          chunks: [],
-          relations: [],
-        }))
-    : []
-  const replacing: StoredRows[] = [
-    ...documents.map(({ document, chunks, relations, refKeys }) => ({
-      document: {
-        ...document,
-        status: "active" as const,
-        deletedAt: null,
-        error: "",
-      },
-      chunks,
-      relations,
-      refKeys,
-    })),
-    ...placeholders
-      .filter(
-        (placeholder) =>
-          placeholder.status === "failed" || !stored.has(placeholder.docKey),
-      )
-      .map((placeholder) => ({
-        document: {
-          ...emptyDocument(
-            placeholder.docKey,
-            placeholder.status,
-            placeholder.observedAt,
-          ),
-          error: placeholder.status === "failed" ? placeholder.error : "",
-        },
-        chunks: [],
-        relations: [],
-      })),
-  ]
-
-  await insertRows(client, scope, tombstones)
-  // A key with no document row has no other row: each write deletes the
-  // document row last and inserts it first. Thus a `missing` placeholder
-  // needs no DELETE.
-  await deleteRows(
-    client,
-    scope,
-    replacing
-      .map((rows) => rows.document)
-      .filter((document) => document.status !== "missing")
-      .map((document) => document.docKey),
-    deleted,
-    counter,
+  if (versions.length === 0) return
+  const ids = versions.map((rows) =>
+    fileVersionId({ docKey: rows.document.docKey, version: rows.version }),
   )
-  await insertRows(client, scope, replacing)
+  if (new Set(ids).size !== ids.length)
+    throw new Error("A write has the same file version two times")
+  // A write inserts the chunks first and the document row last, and each
+  // active file version has a chunk. Thus the rest of a stopped write has
+  // chunks.
+  const leftovers: FileVersionKey[] = []
+  for (const slice of slices(
+    versions.map((rows) => ({
+      docKey: rows.document.docKey,
+      version: rows.version,
+    })),
+  ))
+    leftovers.push(
+      ...(await select<FileVersionKey>(
+        client,
+        scope,
+        `SELECT DISTINCT doc_key AS docKey, version FROM chunks
+         WHERE ${scoped}
+           AND (doc_key, version) IN {keys:Array(Tuple(String, String))}`,
+        { keys: keyTuples(slice) },
+      )),
+    )
+  if (leftovers.length > 0)
+    await deleteVersions(client, scope, leftovers, counter)
+  await insertRows(client, scope, versions)
 }
 
-/** A document row with no content fields. */
-const emptyDocument = (
-  docKey: string,
-  status: DocumentStatus,
-  observedAt: Date,
-): KnowledgeDocument => ({
-  docKey,
-  kind: "",
-  status,
-  deletedAt: null,
-  error: "",
-  title: "",
-  path: "",
-  sourceType: "",
-  source: "",
-  summary: "",
-  mime: "",
-  validFrom: null,
-  validTo: null,
-  observedAt,
-})
+/** The columns of each table, as an insert sends them. */
+type ScopeColumns = { org_id: string; workspace_id: string }
+type RelationColumns = ScopeColumns & {
+  src_doc: string
+  src_version: string
+  src_chunk: number
+  predicate: string
+  dst_doc: string
+  confidence: number
+  valid_from: string | null
+  valid_from_introduced: boolean
+  valid_to: string | null
+  source: string
+  alt_text: string
+  observed_at: string
+}
+type TableRows = {
+  documents: ScopeColumns & {
+    doc_key: string
+    version: string
+    kind: string
+    status: "active" | "failed"
+    error: string
+    title: string
+    path: string
+    source_type: string
+    source: string
+    summary: string
+    mime: string
+    valid_to: string | null
+    observed_at: string
+  }
+  chunks: ScopeColumns & {
+    doc_key: string
+    version: string
+    ordinal: number
+    text: string
+    start_line: number
+    end_line: number
+    embedding: number[]
+    embedding_key: string
+  }
+  relations: RelationColumns
+  relations_in: RelationColumns
+  doc_refs: ScopeColumns & { ref_key: string; doc_key: string; version: string }
+  trees: ScopeColumns & {
+    branch: string
+    doc_key: string
+    tree_version: number
+    kind: "file" | "deleted"
+    path: string
+    version: string
+    status: "active" | "failed"
+    doc_kind: string
+    observed_at: string
+    valid_from: string | null
+    valid_to: string | null
+    deleted_at: string | null
+  }
+}
 
 /**
- * The stored document row of each key that has one. A key with a tombstone
- * and an old row (a write that stopped between the INSERT of the tombstone
- * and the DELETE of the old row) gives the tombstone.
+ * Inserts `values` into `table`. The insert wall of this module: each row is
+ * made field by field from the scope and the typed input, so a value that a
+ * caller puts in a row does not get into the insert.
  */
-async function storedDocuments(
+async function insert<T extends keyof TableRows>(
   client: ClickHouseClient,
   scope: KnowledgeScope,
-  docKeys: string[],
-): Promise<Map<string, KnowledgeDocument>> {
-  const stored = new Map<string, KnowledgeDocument>()
-  for (const keys of slices(docKeys))
-    for (const record of await select<DocumentRecord>(
-      client,
-      scope,
-      `SELECT ${documentColumns} FROM documents
-       WHERE ${scoped} AND doc_key IN {docKeys:Array(String)}`,
-      { docKeys: keys },
-    ))
-      if (stored.get(record.docKey)?.status !== "deleted")
-        stored.set(record.docKey, toDocument(record))
-  return stored
+  table: T,
+  values: TableRows[T][],
+): Promise<void> {
+  if (values.length === 0) return
+  await client.insert({
+    table,
+    values,
+    format: "JSONEachRow",
+    clickhouse_settings: {
+      [ORG_SETTING]: scope.orgId,
+      // With 0, an async insert that the server refuses fails silently.
+      wait_for_async_insert: 1,
+      date_time_input_format: "best_effort",
+    },
+  })
 }
 
-const listDocumentKeys = (client: ClickHouseClient, scope: KnowledgeScope) =>
-  select<DocumentKey>(
+const isoOrNull = (time: Date | null) => time?.toISOString() ?? null
+
+async function insertRows(
+  client: ClickHouseClient,
+  scope: KnowledgeScope,
+  versions: FileVersionRows[],
+): Promise<void> {
+  const owner: ScopeColumns = {
+    org_id: scope.orgId,
+    workspace_id: scope.workspaceId,
+  }
+  await insert(
     client,
     scope,
-    `SELECT doc_key AS docKey, status FROM documents WHERE ${scoped}
-     ORDER BY doc_key`,
+    "chunks",
+    versions.flatMap(({ document, version, chunks }) =>
+      chunks.map((chunk) => ({
+        ...owner,
+        doc_key: document.docKey,
+        version,
+        ordinal: chunk.ordinal,
+        text: chunk.text,
+        start_line: chunk.startLine,
+        end_line: chunk.endLine,
+        embedding: chunk.embedding,
+        embedding_key: chunk.embeddingKey ?? "",
+      })),
+    ),
   )
+  const relations = versions.flatMap(({ document, version, relations }) =>
+    relations.map((relation) => ({
+      ...owner,
+      src_doc: document.docKey,
+      src_version: version,
+      src_chunk: relation.srcChunk,
+      predicate: relation.predicate,
+      dst_doc: relation.dstDoc,
+      confidence: relation.confidence,
+      valid_from: isoOrNull(relation.validFrom),
+      valid_from_introduced: relation.validFromIntroduced,
+      valid_to: isoOrNull(relation.validTo),
+      source: relation.source,
+      alt_text: relation.altText,
+      observed_at: relation.observedAt.toISOString(),
+    })),
+  )
+  // relations first: deleteVersions finds the rows of relations_in through
+  // relations.
+  await insert(client, scope, "relations", relations)
+  await insert(client, scope, "relations_in", relations)
+  await insert(
+    client,
+    scope,
+    "doc_refs",
+    versions.flatMap(({ document, version, refKeys = [] }) =>
+      [...new Set(refKeys)].map((refKey) => ({
+        ...owner,
+        ref_key: refKey,
+        doc_key: document.docKey,
+        version,
+      })),
+    ),
+  )
+  // The document row last: it says that the file version is stored.
+  await insert(
+    client,
+    scope,
+    "documents",
+    versions.map(({ document, version, error }) => ({
+      ...owner,
+      doc_key: document.docKey,
+      version,
+      kind: document.kind,
+      status: error === undefined ? ("active" as const) : ("failed" as const),
+      error: error ?? "",
+      title: document.title,
+      path: document.path,
+      source_type: document.sourceType,
+      source: document.source,
+      summary: document.summary,
+      mime: document.mime,
+      valid_to: isoOrNull(document.validTo),
+      observed_at: document.observedAt.toISOString(),
+    })),
+  )
+}
+
+async function writeTree(
+  client: ClickHouseClient,
+  scope: KnowledgeScope,
+  branch: string,
+  treeVersion: number,
+  entries: TreeEntry[],
+): Promise<void> {
+  assertScope(scope)
+  if (!branch) throw new Error("A tree row needs a branch")
+  await insert(
+    client,
+    scope,
+    "trees",
+    entries.map((entry) => ({
+      org_id: scope.orgId,
+      workspace_id: scope.workspaceId,
+      branch,
+      doc_key: entry.docKey,
+      tree_version: treeVersion,
+      kind: entry.deletedAt ? ("deleted" as const) : ("file" as const),
+      path: entry.path,
+      version: entry.version,
+      status: entry.status,
+      doc_kind: entry.kind,
+      observed_at: entry.observedAt.toISOString(),
+      valid_from: isoOrNull(entry.validFrom),
+      valid_to: isoOrNull(entry.validTo),
+      deleted_at: isoOrNull(entry.deletedAt),
+    })),
+  )
+}
+
+type TreeRecord = FileVersionKey & {
+  path: string
+  status: "active" | "failed"
+  kind: string
+  observedAt: string
+  validFrom: string | null
+  validTo: string | null
+  deletedAt: string | null
+}
+
+async function readTree(
+  client: ClickHouseClient,
+  scope: KnowledgeScope,
+  head: TreeHead,
+): Promise<TreeEntry[]> {
+  assertScope(scope)
+  const rows = await selectIn<TreeRecord>(
+    client,
+    {
+      orgId: scope.orgId,
+      heads: [{ workspaceId: scope.workspaceId, ...head }],
+    },
+    `WITH tree_view AS (${treeView})
+     SELECT doc_key AS docKey, version, path, status, doc_kind AS kind,
+       observed_at AS observedAt, valid_from AS validFrom,
+       valid_to AS validTo, deleted_at AS deletedAt
+     FROM tree_view ORDER BY docKey`,
+    {},
+  )
+  return rows.map((row) => ({
+    ...row,
+    observedAt: new Date(row.observedAt),
+    validFrom: toDate(row.validFrom),
+    validTo: toDate(row.validTo),
+    deletedAt: toDate(row.deletedAt),
+  }))
+}
+
+async function cleanUp(
+  client: ClickHouseClient,
+  scope: KnowledgeScope,
+  input: { heads: TreeHead[]; replacedBefore: Date; unusedBefore: Date },
+  counter: MutationCounter,
+): Promise<CleanupCounts> {
+  assertScope(scope)
+  const counts: CleanupCounts = { treeRows: 0, fileVersions: 0 }
+  const remove = (
+    table: keyof TableRows,
+    where: string,
+    params: Record<string, unknown>,
+  ) => deleteCounted(client, scope, counter, table, where, params)
+  const replacedBefore = clickHouseTime(input.replacedBefore)
+  const branches = input.heads.map((head) => head.branch)
+  // The branches with no head, for example the earlier name of a renamed
+  // default branch. A head left such a branch when it moved to a tree of a
+  // branch of `heads`, and each row of that tree was written at that time
+  // or later. Thus when the oldest row of the trees of `heads` is older
+  // than the grace time, no read can still use a head of these branches.
+  const orphans = await select<{ branch: string; rows: string }>(
+    client,
+    scope,
+    `SELECT branch, count() AS rows FROM trees
+     WHERE ${scoped} AND branch NOT IN {branches:Array(String)}
+       AND (SELECT min(written_at) FROM trees
+            WHERE ${scoped} AND branch IN {branches:Array(String)})
+         < {replacedBefore:DateTime64(3, 'UTC')}
+     GROUP BY branch`,
+    { branches, replacedBefore },
+  )
+  for (const slice of slices(orphans)) {
+    await remove("trees", "branch IN {orphans:Array(String)}", {
+      orphans: slice.map((row) => row.branch),
+    })
+    for (const { rows } of slice) counts.treeRows += Number(rows)
+  }
+  for (const head of input.heads) {
+    const replaced = await select<{ docKey: string; treeVersion: string }>(
+      client,
+      scope,
+      `SELECT t.doc_key AS docKey, t.tree_version AS treeVersion
+       FROM trees AS t
+       INNER JOIN (
+         SELECT doc_key, max(tree_version) AS newest,
+           argMax(written_at, tree_version) AS newest_written
+         FROM trees
+         WHERE ${scoped} AND branch = {branch:String}
+           AND tree_version <= {treeVersion:UInt64}
+         GROUP BY doc_key
+       ) AS latest ON latest.doc_key = t.doc_key
+       WHERE t.org_id = {orgId:String} AND t.workspace_id = {workspaceId:String}
+         AND t.branch = {branch:String} AND t.tree_version < latest.newest
+         AND latest.newest_written < {replacedBefore:DateTime64(3, 'UTC')}`,
+      { ...head, replacedBefore },
+    )
+    for (const slice of slices(replaced)) {
+      await remove(
+        "trees",
+        "branch = {branch:String} AND (doc_key, tree_version) IN {rows:Array(Tuple(String, UInt64))}",
+        {
+          branch: head.branch,
+          rows: slice.map(
+            (row) => new TupleParam([row.docKey, Number(row.treeVersion)]),
+          ),
+        },
+      )
+      counts.treeRows += slice.length
+    }
+  }
+  // A file version that no tree row uses. The chunks give the rest of a
+  // stopped write or DELETE, which has no document row.
+  const unused = await select<FileVersionKey>(
+    client,
+    scope,
+    `SELECT doc_key AS docKey, version FROM (
+       SELECT doc_key, version, written_at FROM documents WHERE ${scoped}
+       UNION ALL
+       SELECT doc_key, version, written_at FROM chunks WHERE ${scoped}
+     )
+     GROUP BY doc_key, version
+     HAVING max(written_at) < {unusedBefore:DateTime64(3, 'UTC')}
+       AND (doc_key, version) NOT IN (
+         SELECT doc_key, version FROM trees WHERE ${scoped})`,
+    { unusedBefore: clickHouseTime(input.unusedBefore) },
+  )
+  await deleteVersions(client, scope, unused, counter)
+  counts.fileVersions = unused.length
+  return counts
+}
 
 /**
  * The chunk sort key starts with `doc_key`, so the filter by `docKeys` reads
@@ -730,7 +1066,7 @@ async function writeImageTexts(
 ): Promise<void> {
   assertScope(scope)
   if (rows.length === 0) return
-  // As in insertRows: each row is made field by field, and the org and
+  // As in insert: each row is made field by field, and the org and
   // Workspace columns come only from the scope.
   await client.insert({
     table: "image_texts",
@@ -750,238 +1086,16 @@ async function writeImageTexts(
   })
 }
 
-const listUnresolvedReferences = (
-  client: ClickHouseClient,
-  scope: KnowledgeScope,
-) =>
-  select<{ srcDoc: string; dstDoc: string }>(
-    client,
-    scope,
-    `SELECT DISTINCT src_doc AS srcDoc, dst_doc AS dstDoc FROM relations
-     WHERE ${scoped} AND startsWith(dst_doc, {prefix:String})
-       AND substring(dst_doc, length({prefix:String}) + 1) NOT IN (
-         SELECT ref_key FROM doc_refs WHERE ${scoped})
-     ORDER BY srcDoc, dstDoc`,
-    { prefix: REFERENCE_TARGET_PREFIX },
-  )
-
-/** The columns of each table, as an insert sends them. */
-type ScopeColumns = { org_id: string; workspace_id: string }
-type RelationColumns = ScopeColumns & {
-  src_doc: string
-  src_chunk: number
-  predicate: string
-  dst_doc: string
-  confidence: number
-  valid_from: string | null
-  valid_to: string | null
-  source: string
-  alt_text: string
-  observed_at: string
-}
-type TableRows = {
-  documents: ScopeColumns & {
-    doc_key: string
-    kind: string
-    status: DocumentStatus
-    deleted_at: string | null
-    error: string
-    title: string
-    path: string
-    source_type: string
-    source: string
-    summary: string
-    mime: string
-    valid_from: string | null
-    valid_to: string | null
-    observed_at: string
-  }
-  chunks: ScopeColumns & {
-    doc_key: string
-    ordinal: number
-    text: string
-    start_line: number
-    end_line: number
-    embedding: number[]
-    embedding_key: string
-  }
-  relations: RelationColumns
-  relations_in: RelationColumns
-  doc_refs: ScopeColumns & { ref_key: string; doc_key: string }
-}
-
-async function insertRows(
-  client: ClickHouseClient,
-  scope: KnowledgeScope,
-  rows: StoredRows[],
-): Promise<void> {
-  // The insert wall of this module: each row is made field by field, and the
-  // org and Workspace columns come only from the scope. A value that a caller
-  // puts in a row does not get into the insert.
-  const owner: ScopeColumns = {
-    org_id: scope.orgId,
-    workspace_id: scope.workspaceId,
-  }
-  const insert = async <T extends keyof TableRows>(
-    table: T,
-    values: TableRows[T][],
-  ) => {
-    if (values.length === 0) return
-    await client.insert({
-      table,
-      values,
-      format: "JSONEachRow",
-      clickhouse_settings: {
-        [ORG_SETTING]: scope.orgId,
-        // With 0, an async insert that the server refuses fails silently.
-        wait_for_async_insert: 1,
-        date_time_input_format: "best_effort",
-      },
-    })
-  }
-  await insert(
-    "documents",
-    rows.map(({ document }) => ({
-      ...owner,
-      doc_key: document.docKey,
-      kind: document.kind,
-      status: document.status,
-      deleted_at: document.deletedAt?.toISOString() ?? null,
-      error: document.error,
-      title: document.title,
-      path: document.path,
-      source_type: document.sourceType,
-      source: document.source,
-      summary: document.summary,
-      mime: document.mime,
-      valid_from: document.validFrom?.toISOString() ?? null,
-      valid_to: document.validTo?.toISOString() ?? null,
-      observed_at: document.observedAt.toISOString(),
-    })),
-  )
-  await insert(
-    "chunks",
-    rows.flatMap(({ document, chunks }) =>
-      chunks.map((chunk) => ({
-        ...owner,
-        doc_key: document.docKey,
-        ordinal: chunk.ordinal,
-        text: chunk.text,
-        start_line: chunk.startLine,
-        end_line: chunk.endLine,
-        embedding: chunk.embedding,
-        embedding_key: chunk.embeddingKey ?? "",
-      })),
-    ),
-  )
-  const relations = rows.flatMap(({ document, relations }) =>
-    relations.map((relation) => ({
-      ...owner,
-      src_doc: document.docKey,
-      src_chunk: relation.srcChunk,
-      predicate: relation.predicate,
-      dst_doc: relation.dstDoc,
-      confidence: relation.confidence,
-      valid_from: relation.validFrom?.toISOString() ?? null,
-      valid_to: relation.validTo?.toISOString() ?? null,
-      source: relation.source,
-      alt_text: relation.altText,
-      observed_at: relation.observedAt.toISOString(),
-    })),
-  )
-  // relations first: deleteContent finds the rows of relations_in through
-  // relations, so a failure between the two inserts leaves no row that a
-  // retry cannot find.
-  await insert("relations", relations)
-  await insert("relations_in", relations)
-  await insert(
-    "doc_refs",
-    rows.flatMap(({ document, refKeys = [] }) =>
-      [...new Set(refKeys)].map((refKey) => ({
-        ...owner,
-        ref_key: refKey,
-        doc_key: document.docKey,
-      })),
-    ),
-  )
-}
-
-const documentColumns = `doc_key AS docKey, kind, status,
-  deleted_at AS deletedAt, error, title, path, source_type AS sourceType,
-  source, summary, mime, valid_from AS validFrom,
-  valid_to AS validTo, observed_at AS observedAt`
-
-const relationColumns = `src_doc AS srcDoc, src_chunk AS srcChunk, predicate,
-  dst_doc AS dstDoc, confidence, valid_from AS validFrom, valid_to AS validTo,
-  source, alt_text AS altText, observed_at AS observedAt`
-
-async function readDocument(
-  client: ClickHouseClient,
-  scope: KnowledgeScope,
-  docKey: string,
-): Promise<StoredDocument | null> {
-  const params = { docKey }
-  const [documents, chunks, outgoing, incoming, refKeys] = await Promise.all([
-    select<DocumentRecord>(
-      client,
-      scope,
-      `SELECT ${documentColumns} FROM documents
-       WHERE ${scoped} AND doc_key = {docKey:String}`,
-      params,
-    ),
-    select<KnowledgeChunk>(
-      client,
-      scope,
-      `SELECT ordinal, text, start_line AS startLine, end_line AS endLine,
-         embedding FROM chunks
-       WHERE ${scoped} AND doc_key = {docKey:String} ORDER BY ordinal`,
-      params,
-    ),
-    select<RelationRecord>(
-      client,
-      scope,
-      `SELECT ${relationColumns} FROM relations
-       WHERE ${scoped} AND src_doc = {docKey:String}
-       ORDER BY src_chunk, predicate, dst_doc`,
-      params,
-    ),
-    select<RelationRecord>(
-      client,
-      scope,
-      `SELECT ${relationColumns} FROM relations_in
-       WHERE ${scoped} AND dst_doc = {docKey:String}
-       ORDER BY src_doc, src_chunk, predicate`,
-      params,
-    ),
-    select<{ refKey: string }>(
-      client,
-      scope,
-      `SELECT ref_key AS refKey FROM doc_refs
-       WHERE ${scoped} AND doc_key = {docKey:String} ORDER BY ref_key`,
-      params,
-    ),
-  ])
-  const [document] = documents
-  if (!document) return null
-  return {
-    document: toDocument(document),
-    chunks,
-    outgoing: outgoing.map(toRelation),
-    incoming: incoming.map(toRelation),
-    refKeys: refKeys.map((row) => row.refKey),
-  }
-}
-
 // ---------------------------------------------------------------------------
-// Reads for the retrieval (ADR-068). A read can span several Workspaces of one
-// org. Each one goes through `selectIn`, which sets the org of the row policy,
-// and each WHERE clause has `org_id` and `workspace_id`. Values go in
+// Reads of the view (ADR-068, ADR-071). A read can span several Workspaces of
+// one org. Each one goes through `selectIn`, which sets the org of the row
+// policy, and each WHERE clause has `org_id` and `workspace_id`. Values go in
 // `query_params` only, never into the SQL text.
 
 /**
- * Runs one read for the Workspaces of `scope`. The org and the Workspaces
- * come last in the parameters, so that the WHERE clause and the row policy
- * use the same org.
+ * Runs one read for the heads of `scope`. The org, the Workspaces and the
+ * heads come last in the parameters, so that the WHERE clause, the tree view
+ * and the row policy use the same org.
  */
 async function selectIn<T>(
   client: ClickHouseClient,
@@ -995,7 +1109,13 @@ async function selectIn<T>(
     query_params: {
       ...params,
       orgId: scope.orgId,
-      workspaceIds: scope.workspaceIds,
+      workspaceIds: scope.heads.map((head) => head.workspaceId),
+      treeBranches: scope.heads.map(
+        (head) => new TupleParam([head.workspaceId, head.branch]),
+      ),
+      treeVersions: new Map(
+        scope.heads.map((head) => [head.workspaceId, head.treeVersion]),
+      ),
     },
     format: "JSONEachRow",
     clickhouse_settings: {
@@ -1008,8 +1128,92 @@ async function selectIn<T>(
   return result.json<T>()
 }
 
+function assertReadScope(scope: KnowledgeReadScope): void {
+  const workspaceIds = scope.heads.map((head) => head.workspaceId)
+  if (
+    !scope.orgId ||
+    workspaceIds.length === 0 ||
+    scope.heads.some((head) => !head.workspaceId || !head.branch) ||
+    new Set(workspaceIds).size !== workspaceIds.length
+  )
+    throw new Error(
+      "A knowledge read needs an org and one head for each of its Workspaces",
+    )
+}
+
 const inWorkspaces =
   "org_id = {orgId:String} AND workspace_id IN {workspaceIds:Array(String)}"
+
+/**
+ * The tree view of the heads of a read (ADR-071 decision 4): for each
+ * document key, the newest tree row of the branch of its Workspace at or
+ * below the head. A row above the head is the row of a run that did not
+ * complete, so no read sees it. `LIMIT 1 BY` follows the sort key of the
+ * table: it cost 12 ms on 100k paths, `argMax` with `GROUP BY` 60 ms.
+ *
+ * This is the one place of the tree rule. Each read of the view starts with
+ * `WITH tree_view AS (${treeView})`.
+ */
+const treeView = `SELECT workspace_id, doc_key, kind, path, version, status,
+    doc_kind, observed_at, valid_from, valid_to, deleted_at
+  FROM trees
+  WHERE ${inWorkspaces}
+    AND (workspace_id, branch) IN {treeBranches:Array(Tuple(String, String))}
+    AND tree_version <= {treeVersions:Map(String, UInt64)}[workspace_id]
+  ORDER BY workspace_id, doc_key, tree_version DESC
+  LIMIT 1 BY workspace_id, doc_key`
+
+/** The tree rows of the view that hold a file version (not a tombstone). */
+const viewFiles = `SELECT workspace_id, doc_key, version, valid_from
+  FROM tree_view WHERE kind = 'file'`
+
+/**
+ * The FROM clause of the documents of the tree rows that pass `filter` (a
+ * condition on the columns of `tree_view`): each row `v` with the fields of
+ * its file version `d`. The columns of {@link viewDocumentColumns} read it.
+ */
+const viewDocumentsFrom = (filter: string) => `
+  (SELECT * FROM tree_view WHERE ${filter}) AS v
+  LEFT JOIN (
+    SELECT workspace_id, doc_key, version, error, title, source_type, source,
+      summary, mime
+    FROM documents
+    WHERE ${inWorkspaces} AND (workspace_id, doc_key, version) IN (
+      SELECT workspace_id, doc_key, version FROM tree_view WHERE ${filter})
+  ) AS d
+    ON d.workspace_id = v.workspace_id AND d.doc_key = v.doc_key
+    AND d.version = v.version`
+
+/**
+ * The fields of a {@link KnowledgeDocument} from `v` and `d` of
+ * {@link viewDocumentsFrom}. A tombstone is `deleted` with no error.
+ */
+const viewDocumentColumns = `v.doc_key AS docKey, v.doc_kind AS kind,
+  if(v.kind = 'deleted', 'deleted', toString(v.status)) AS status,
+  v.deleted_at AS deletedAt, if(v.kind = 'deleted', '', d.error) AS error,
+  d.title AS title, v.path AS path, d.source_type AS sourceType,
+  d.source AS source, d.summary AS summary, d.mime AS mime,
+  v.valid_from AS validFrom, v.valid_to AS validTo,
+  v.observed_at AS observedAt`
+
+/**
+ * The relations of the file versions of `sources` (a subquery with the
+ * columns of {@link viewFiles}), with the columns of a relation. A relation
+ * with `valid_from_introduced` takes `valid_from` of its source row.
+ */
+const relationsOf = (table: "relations" | "relations_in", sources: string) =>
+  `SELECT r.workspace_id AS workspace_id, r.src_doc AS src_doc,
+     r.src_chunk AS src_chunk, r.predicate AS predicate, r.dst_doc AS dst_doc,
+     r.confidence AS confidence,
+     if(r.valid_from_introduced, s.valid_from, r.valid_from) AS valid_from,
+     r.valid_to AS valid_to, r.source AS source, r.alt_text AS alt_text,
+     r.observed_at AS observed_at
+   FROM ${table} AS r
+   INNER JOIN (${sources}) AS s
+     ON s.workspace_id = r.workspace_id AND s.doc_key = r.src_doc
+     AND s.version = r.src_version
+   WHERE r.org_id = {orgId:String}
+     AND r.workspace_id IN {workspaceIds:Array(String)}`
 
 /** A time in the text form of a `DateTime64(3, 'UTC')` parameter. */
 const clickHouseTime = (time: Date) =>
@@ -1021,15 +1225,6 @@ const validDuring = (alias = "") =>
     (${alias}valid_from IS NULL OR ${alias}valid_from <= {validAt:Nullable(DateTime64(3, 'UTC'))})
     AND (${alias}valid_to IS NULL OR ${alias}valid_to > {validAt:Nullable(DateTime64(3, 'UTC'))})))`
 
-function assertReadScope(scope: KnowledgeReadScope): void {
-  if (
-    !scope.orgId ||
-    scope.workspaceIds.length === 0 ||
-    scope.workspaceIds.some((workspaceId) => !workspaceId)
-  )
-    throw new Error("A knowledge read needs an org and its Workspaces")
-}
-
 /** The binary form of a vector, as hex: the same bits as `embedding_bits`. */
 function vectorBits(vector: number[]): string {
   const bytes = new Uint8Array(Math.ceil(vector.length / 8))
@@ -1040,9 +1235,14 @@ function vectorBits(vector: number[]): string {
   return Buffer.from(bytes).toString("hex")
 }
 
-type ChunkKey = { workspaceId: string; docKey: string; ordinal: number }
+type ChunkKey = {
+  workspaceId: string
+  docKey: string
+  version: string
+  ordinal: number
+}
 const chunkId = (key: ChunkKey) =>
-  JSON.stringify([key.workspaceId, key.docKey, key.ordinal])
+  JSON.stringify([key.workspaceId, key.docKey, key.version, key.ordinal])
 /** The key of a document of a read: its Workspace and its document key. */
 export const documentId = (ref: DocumentRef) =>
   JSON.stringify([ref.workspaceId, ref.docKey])
@@ -1051,7 +1251,8 @@ const refTuples = (refs: DocumentRef[]) =>
   refs.map((ref) => new TupleParam([ref.workspaceId, ref.docKey]))
 
 /**
- * The hybrid search of ADR-068 decision 1:
+ * The hybrid search of ADR-068 decision 1, on the active file versions of
+ * the view:
  * 1. Vector: a Hamming scan of `embedding_bits` keeps the top 500, then the
  *    cosine distance on `embedding` orders them. Both stages are one query,
  *    so ClickHouse reads `embedding` for the 500 rows only (lazy
@@ -1062,7 +1263,8 @@ const refTuples = (refs: DocumentRef[]) =>
  *    in the SELECT list would read the full text column.
  * 3. RRF (k = 60) fuses the two orders. The top 50 chunks are grouped by
  *    document.
- * Only `active` documents that pass the filters are found.
+ * The filters use the copies on the tree rows, so the search does not join
+ * the documents table before the cut.
  */
 async function search(
   client: ClickHouseClient,
@@ -1099,9 +1301,9 @@ async function search(
     validAt: validAt && clickHouseTime(validAt),
     ...Object.fromEntries(uniqueTerms.map((term, i) => [`term${i}`, term])),
   }
-  // The documents that the search can find: active, and in the filters.
-  const searchable = `${inWorkspaces} AND status = 'active'
-    AND (empty({kinds:Array(String)}) OR has({kinds:Array(String)}, kind))
+  // The tree rows that the search can find: active, and in the filters.
+  const searchable = `kind = 'file' AND status = 'active'
+    AND (empty({kinds:Array(String)}) OR has({kinds:Array(String)}, doc_kind))
     AND startsWith(path, {pathPrefix:String})
     AND (empty({sources:Array(String)}) OR has({sources:Array(String)},
       ifNull(arrayFirst(root -> path = root OR startsWith(path, concat(root, '/')),
@@ -1109,14 +1311,14 @@ async function search(
     AND ({observedAfter:Nullable(DateTime64(3, 'UTC'))} IS NULL
       OR observed_at > {observedAfter:Nullable(DateTime64(3, 'UTC'))})
     AND ${validDuring()}`
-  const inSearchable = `(workspace_id, doc_key) IN (
-    SELECT workspace_id, doc_key FROM documents WHERE ${searchable})`
+  const inSearchable = `(workspace_id, doc_key, version) IN (
+    SELECT workspace_id, doc_key, version FROM tree_view WHERE ${searchable})`
   // One branch for each term, each with at most 1000 chunks of searchable
   // documents: the cap before the score. Only the parameter names go into the
   // SQL text.
   const termMatches = uniqueTerms
     .map(
-      (_, i) => `SELECT workspace_id, doc_key, ordinal FROM chunks
+      (_, i) => `SELECT workspace_id, doc_key, version, ordinal FROM chunks
         WHERE ${inWorkspaces} AND hasToken(text, {term${i}:String})
           AND ${inSearchable}
         LIMIT 1000`,
@@ -1130,9 +1332,10 @@ async function search(
       // cap of each term), so that a narrow filter still finds chunks. Index
       // analysis of the large set cost more than it saved: 60 ms against
       // 34 ms on 1 million chunks.
-      `SELECT workspace_id AS workspaceId, doc_key AS docKey, ordinal
+      `WITH tree_view AS (${treeView})
+       SELECT workspace_id AS workspaceId, doc_key AS docKey, version, ordinal
        FROM (
-         SELECT workspace_id, doc_key, ordinal, embedding FROM chunks
+         SELECT workspace_id, doc_key, version, ordinal, embedding FROM chunks
          WHERE ${inWorkspaces} AND ${inSearchable}
          ORDER BY bitHammingDistance(embedding_bits, unhex({queryBits:String}))
          LIMIT 500
@@ -1149,19 +1352,22 @@ async function search(
           scope,
           // The score: the matched terms of the chunk, plus the query terms in
           // the title of its document (the title boost).
-          `SELECT matches.workspace_id AS workspaceId,
-             matches.doc_key AS docKey, matches.ordinal AS ordinal
+          `WITH tree_view AS (${treeView})
+           SELECT matches.workspace_id AS workspaceId,
+             matches.doc_key AS docKey, matches.version AS version,
+             matches.ordinal AS ordinal
            FROM (
-             SELECT workspace_id, doc_key, ordinal, count() AS matched
+             SELECT workspace_id, doc_key, version, ordinal, count() AS matched
              FROM (${termMatches})
-             GROUP BY workspace_id, doc_key, ordinal
+             GROUP BY workspace_id, doc_key, version, ordinal
            ) AS matches
            INNER JOIN (
-             SELECT workspace_id, doc_key, title FROM documents
+             SELECT workspace_id, doc_key, version, title FROM documents
              WHERE ${inWorkspaces}
            ) AS documents
              ON documents.workspace_id = matches.workspace_id
              AND documents.doc_key = matches.doc_key
+             AND documents.version = matches.version
            ORDER BY matches.matched + length(arrayIntersect(
                splitByNonAlpha(documents.title), {terms:Array(String)})) DESC,
              workspaceId, docKey, ordinal
@@ -1182,54 +1388,61 @@ async function search(
   if (top.length === 0) return []
 
   const [documents, texts] = await Promise.all([
-    selectIn<DocumentRecord & { workspaceId: string }>(
+    selectIn<DocumentRecord & { workspaceId: string; version: string }>(
       client,
       scope,
-      `SELECT workspace_id AS workspaceId, ${documentColumns} FROM documents
-       WHERE ${inWorkspaces} AND status = 'active'
-         AND (workspace_id, doc_key) IN {refs:Array(Tuple(String, String))}`,
-      {
-        refs: refTuples(top),
-      },
+      `WITH tree_view AS (${treeView})
+       SELECT v.workspace_id AS workspaceId, v.version AS version,
+         ${viewDocumentColumns}
+       FROM ${viewDocumentsFrom(`kind = 'file' AND status = 'active'
+         AND (workspace_id, doc_key) IN {refs:Array(Tuple(String, String))}`)}`,
+      { refs: refTuples(top) },
     ),
     selectIn<ChunkKey & ChunkLines>(
       client,
       scope,
-      `SELECT workspace_id AS workspaceId, doc_key AS docKey, ordinal, text,
-         start_line AS startLine, end_line AS endLine
+      `SELECT workspace_id AS workspaceId, doc_key AS docKey, version, ordinal,
+         text, start_line AS startLine, end_line AS endLine
        FROM chunks WHERE ${inWorkspaces}
-         AND (workspace_id, doc_key, ordinal) IN {keys:Array(Tuple(String, String, UInt32))}`,
+         AND (workspace_id, doc_key, version, ordinal) IN {keys:Array(Tuple(String, String, String, UInt32))}`,
       {
         keys: top.map(
-          (hit) => new TupleParam([hit.workspaceId, hit.docKey, hit.ordinal]),
+          (hit) =>
+            new TupleParam([
+              hit.workspaceId,
+              hit.docKey,
+              hit.version,
+              hit.ordinal,
+            ]),
         ),
       },
     ),
   ])
   const documentById = new Map(
-    documents.map(({ workspaceId, ...record }) => [
+    documents.map(({ workspaceId, version, ...record }) => [
       documentId({ workspaceId, docKey: record.docKey }),
-      record,
+      { version, record },
     ]),
   )
   const textById = new Map(texts.map((row) => [chunkId(row), row]))
   const hits = new Map<string, SearchHit>()
   for (const chunk of top) {
     const id = documentId(chunk)
-    const record = documentById.get(id)
-    // A document that changed after the first query is not a hit.
-    if (!record) continue
+    const found = documentById.get(id)
+    // A chunk of a file version that the view does not show any more is
+    // not a hit.
+    if (!found || found.version !== chunk.version) continue
     const hit = hits.get(id) ?? {
       workspaceId: chunk.workspaceId,
-      document: toDocument(record),
+      document: toDocument(found.record),
       chunks: [],
     }
-    const found = textById.get(chunkId(chunk))
+    const text = textById.get(chunkId(chunk))
     hit.chunks.push({
       ordinal: chunk.ordinal,
-      text: found?.text ?? "",
-      startLine: found?.startLine ?? 0,
-      endLine: found?.endLine ?? 0,
+      text: text?.text ?? "",
+      startLine: text?.startLine ?? 0,
+      endLine: text?.endLine ?? 0,
       score: chunk.score,
     })
     hits.set(id, hit)
@@ -1238,13 +1451,16 @@ async function search(
 }
 
 /**
- * The reference keys of `doc_refs` that pass `where`, each as the relation
- * target that names it (`ref:<key>`), with its document. The frontier read
- * and the graph read find the documents of a key target with it.
+ * The reference keys of the file versions of the view that pass `where` (a
+ * condition on `doc_refs`), each as the relation target that names it
+ * (`ref:<key>`), with its document.
  */
 const keyTargets = (where: string) =>
   `SELECT workspace_id, concat({prefix:String}, ref_key) AS target, doc_key
-   FROM doc_refs WHERE ${where}`
+   FROM doc_refs
+   WHERE ${inWorkspaces} AND (${where})
+     AND (workspace_id, doc_key, version) IN (
+       SELECT workspace_id, doc_key, version FROM tree_view WHERE kind = 'file')`
 
 /**
  * The target of the relation `alias` after the join with `keyTargets AS
@@ -1257,9 +1473,11 @@ const resolvedTarget = (alias: string) =>
 /**
  * The relations of the frontier `refs` in both directions, in one query: the
  * out-relations from `relations` and the in-relations from `relations_in`
- * (sorted by `dst_doc`). Each relation has the document row of its neighbor,
- * or `null` when the neighbor has no row. With `validAt`, a relation or a
- * neighbor that is not valid at that time is not returned.
+ * (sorted by `dst_doc`). Only the relations of the file versions of the view
+ * count. Each relation has the document of its neighbor in the view, or a
+ * `missing` document when the view has no row for it (ADR-071 decision 5).
+ * With `validAt`, a relation or a neighbor that is not valid at that time is
+ * not returned.
  *
  * A relation to a reference key resolves through `doc_refs` (ADR-066
  * decision 5): an out-relation comes one time for each document of the key,
@@ -1275,11 +1493,11 @@ async function readFrontier(
 ): Promise<FrontierRelation[]> {
   assertReadScope(scope)
   if (refs.length === 0) return []
-  // relations_in has the columns of relations, sorted by dst_doc. A UNION
-  // ALL takes the columns of each branch in this order.
   const edgeColumns = `workspace_id, src_doc, src_chunk, predicate, dst_doc,
     confidence, valid_from, valid_to, source, alt_text, observed_at`
   const isKey = (column: string) => `startsWith(${column}, {prefix:String})`
+  const inRefs = (columns: string) =>
+    `(${columns}) IN {refs:Array(Tuple(String, String))}`
   const rows = await selectIn<
     RelationRecord & {
       direction: "out" | "in"
@@ -1289,15 +1507,29 @@ async function readFrontier(
   >(
     client,
     scope,
-    `WITH out_edges AS (
-       SELECT ${edgeColumns} FROM relations
-       WHERE ${inWorkspaces}
-         AND (workspace_id, src_doc) IN {refs:Array(Tuple(String, String))}
-         AND ${validDuring()}
+    `WITH tree_view AS (${treeView}),
+     frontier AS (
+       ${viewFiles} AND ${inRefs("workspace_id, doc_key")}
+     ),
+     out_edges AS (
+       SELECT * FROM (
+         ${relationsOf("relations", "SELECT * FROM frontier")}
+           AND ${inRefs("r.workspace_id, r.src_doc")}
+       ) WHERE ${validDuring()}
      ),
      own_keys AS (
-       ${keyTargets(`${inWorkspaces}
-         AND (workspace_id, doc_key) IN {refs:Array(Tuple(String, String))}`)}
+       SELECT workspace_id, concat({prefix:String}, ref_key) AS target, doc_key
+       FROM doc_refs
+       WHERE ${inWorkspaces} AND (workspace_id, doc_key, version) IN (
+         SELECT workspace_id, doc_key, version FROM frontier)
+     ),
+     in_edges AS (
+       SELECT * FROM (
+         ${relationsOf("relations_in", viewFiles)}
+           AND (${inRefs("r.workspace_id, r.dst_doc")}
+             OR (r.workspace_id, r.dst_doc) IN (
+               SELECT workspace_id, target FROM own_keys))
+       ) WHERE ${validDuring()}
      ),
      edges AS (
        SELECT 'out' AS direction, dst_doc AS neighbor_doc, ${edgeColumns}
@@ -1309,7 +1541,7 @@ async function readFrontier(
          o.valid_from, o.valid_to, o.source, o.alt_text, o.observed_at
        FROM out_edges AS o
        LEFT JOIN (
-         ${keyTargets(`${inWorkspaces} AND ref_key IN (
+         ${keyTargets(`ref_key IN (
            SELECT substring(dst_doc, length({prefix:String}) + 1)
            FROM out_edges WHERE ${isKey("dst_doc")})`)}
        ) AS keys
@@ -1317,22 +1549,14 @@ async function readFrontier(
        WHERE ${isKey("o.dst_doc")}
        UNION ALL
        SELECT 'in', src_doc, ${edgeColumns}
-       FROM relations_in
-       WHERE ${inWorkspaces}
-         AND (workspace_id, dst_doc) IN {refs:Array(Tuple(String, String))}
-         AND ${validDuring()}
+       FROM in_edges WHERE ${inRefs("workspace_id, dst_doc")}
        UNION ALL
        SELECT 'in', i.src_doc, i.workspace_id, i.src_doc, i.src_chunk,
          i.predicate, k.doc_key, i.confidence, i.valid_from, i.valid_to,
          i.source, i.alt_text, i.observed_at
-       FROM relations_in AS i
+       FROM in_edges AS i
        INNER JOIN own_keys AS k
          ON k.workspace_id = i.workspace_id AND k.target = i.dst_doc
-       WHERE i.org_id = {orgId:String}
-         AND i.workspace_id IN {workspaceIds:Array(String)}
-         AND (i.workspace_id, i.dst_doc) IN (
-           SELECT workspace_id, target FROM own_keys)
-         AND ${validDuring("i.")}
      )
      SELECT DISTINCT edges.direction AS direction,
        edges.workspace_id AS workspaceId,
@@ -1344,11 +1568,11 @@ async function readFrontier(
        edges.observed_at AS observedAt, neighbors.document AS neighbor
      FROM edges
      LEFT JOIN (
-       SELECT workspace_id, doc_key, valid_from, valid_to,
-         tuple(${documentColumns}) AS document
-       FROM documents
-       WHERE ${inWorkspaces} AND (workspace_id, doc_key) IN (
-         SELECT workspace_id, neighbor_doc FROM edges)
+       SELECT v.workspace_id AS workspace_id, v.doc_key AS doc_key,
+         v.valid_from AS valid_from, v.valid_to AS valid_to,
+         tuple(${viewDocumentColumns}) AS document
+       FROM ${viewDocumentsFrom(`(workspace_id, doc_key) IN (
+         SELECT workspace_id, neighbor_doc FROM edges)`)}
      ) AS neighbors
        ON neighbors.workspace_id = edges.workspace_id
        AND neighbors.doc_key = edges.neighbor_doc
@@ -1364,21 +1588,36 @@ async function readFrontier(
     direction,
     workspaceId,
     relation: toRelation(relation),
-    // Without a match, the LEFT JOIN gives a tuple of default values. A
-    // reference key with no document is a `missing` target.
+    // Without a match, the LEFT JOIN gives a tuple of default values: the
+    // view has no row for the target, so it is `missing`.
     neighbor: neighbor.docKey
       ? toDocument(neighbor)
-      : relation.dstDoc.startsWith(REFERENCE_TARGET_PREFIX)
-        ? emptyDocument(
-            relation.dstDoc,
-            "missing",
-            new Date(relation.observedAt),
-          )
-        : null,
+      : missingDocument(relation.dstDoc, new Date(relation.observedAt)),
   }))
 }
 
-/** The document row of each of `refs` that has one, in one query. */
+/** A `missing` document: a target with no row in the view. */
+const missingDocument = (
+  docKey: string,
+  observedAt: Date,
+): KnowledgeDocument => ({
+  docKey,
+  kind: "",
+  status: "missing",
+  deletedAt: null,
+  error: "",
+  title: "",
+  path: "",
+  sourceType: "",
+  source: "",
+  summary: "",
+  mime: "",
+  validFrom: null,
+  validTo: null,
+  observedAt,
+})
+
+/** The document of each of `refs` that the view has, in one query. */
 async function readDocuments(
   client: ClickHouseClient,
   scope: KnowledgeReadScope,
@@ -1389,9 +1628,11 @@ async function readDocuments(
   const rows = await selectIn<DocumentRecord & { workspaceId: string }>(
     client,
     scope,
-    `SELECT workspace_id AS workspaceId, ${documentColumns} FROM documents
-     WHERE ${inWorkspaces}
-       AND (workspace_id, doc_key) IN {refs:Array(Tuple(String, String))}
+    `WITH tree_view AS (${treeView})
+     SELECT v.workspace_id AS workspaceId, ${viewDocumentColumns}
+     FROM ${viewDocumentsFrom(
+       "(workspace_id, doc_key) IN {refs:Array(Tuple(String, String))}",
+     )}
      ORDER BY workspaceId, docKey`,
     { refs: refTuples(refs) },
   )
@@ -1402,8 +1643,9 @@ async function readDocuments(
 }
 
 /**
- * The evidence of the documents `refs`: each document row with its
- * `chunksPerDocument` chunks closest to `vector` (cosine distance).
+ * The evidence of the documents `refs`: each document of the view with the
+ * `chunksPerDocument` chunks of its file version closest to `vector`
+ * (cosine distance).
  */
 async function readEvidence(
   client: ClickHouseClient,
@@ -1425,17 +1667,22 @@ async function readEvidence(
     selectIn<DocumentRecord & { workspaceId: string }>(
       client,
       scope,
-      `SELECT workspace_id AS workspaceId, ${documentColumns} FROM documents
-       WHERE ${inWorkspaces} AND ${inRefs}`,
+      `WITH tree_view AS (${treeView})
+       SELECT v.workspace_id AS workspaceId, ${viewDocumentColumns}
+       FROM ${viewDocumentsFrom(inRefs)}`,
       params,
     ),
-    selectIn<ChunkKey & ChunkLines & { distance: number }>(
+    selectIn<DocumentRef & ChunkLines & { distance: number }>(
       client,
       scope,
-      `SELECT workspace_id AS workspaceId, doc_key AS docKey, ordinal, text,
+      `WITH tree_view AS (${treeView})
+       SELECT workspace_id AS workspaceId, doc_key AS docKey, ordinal, text,
          start_line AS startLine, end_line AS endLine,
          cosineDistance(embedding, {queryVector:Array(Float32)}) AS distance
-       FROM chunks WHERE ${inWorkspaces} AND ${inRefs}
+       FROM chunks WHERE ${inWorkspaces}
+         AND (workspace_id, doc_key, version) IN (
+           SELECT workspace_id, doc_key, version FROM tree_view
+           WHERE kind = 'file' AND ${inRefs})
        ORDER BY distance, ordinal
        LIMIT {chunksPerDocument:UInt32} BY workspace_id, doc_key`,
       params,
@@ -1453,44 +1700,43 @@ async function readEvidence(
 }
 
 /**
- * The documents and the relations of one Workspace for the graph view, each
- * list cut at `limit` rows. `truncated` is true when a list was cut.
+ * The documents and the relations of the view for the graph view, each list
+ * cut at `limit` rows. `truncated` is true when a list was cut.
  */
 async function readGraph(
   client: ClickHouseClient,
-  scope: KnowledgeScope,
+  scope: KnowledgeReadScope,
   limit: number,
 ): Promise<KnowledgeGraph> {
-  const params = { limit: limit + 1 }
+  assertReadScope(scope)
+  const params = { limit: limit + 1, prefix: REFERENCE_TARGET_PREFIX }
   const [documents, relations] = await Promise.all([
-    select<DocumentRecord>(
+    selectIn<DocumentRecord>(
       client,
       scope,
-      `SELECT ${documentColumns} FROM documents WHERE ${scoped}
-       ORDER BY doc_key LIMIT {limit:UInt32}`,
+      `WITH tree_view AS (${treeView})
+       SELECT ${viewDocumentColumns} FROM ${viewDocumentsFrom("1")}
+       ORDER BY docKey LIMIT {limit:UInt32}`,
       params,
     ),
     // A relation to a reference key gets the documents of the key
     // (ADR-066 decision 5). Two keys of one target give one relation when
     // all its fields are the same.
-    select<RelationRecord>(
+    selectIn<RelationRecord>(
       client,
       scope,
-      `SELECT DISTINCT rel.src_doc AS srcDoc, rel.src_chunk AS srcChunk,
+      `WITH tree_view AS (${treeView})
+       SELECT DISTINCT rel.src_doc AS srcDoc, rel.src_chunk AS srcChunk,
          rel.predicate AS predicate, ${resolvedTarget("rel")} AS dstDoc,
          rel.confidence AS confidence, rel.valid_from AS validFrom,
          rel.valid_to AS validTo, rel.source AS source,
          rel.alt_text AS altText, rel.observed_at AS observedAt
-       FROM (
-         SELECT src_doc, src_chunk, predicate, dst_doc, confidence,
-           valid_from, valid_to, source, alt_text, observed_at
-         FROM relations WHERE ${scoped}
-       ) AS rel
-       LEFT JOIN (${keyTargets(scoped)}) AS keys
-         ON keys.target = rel.dst_doc
+       FROM (${relationsOf("relations", viewFiles)}) AS rel
+       LEFT JOIN (${keyTargets("1")}) AS keys
+         ON keys.workspace_id = rel.workspace_id AND keys.target = rel.dst_doc
        ORDER BY srcDoc, srcChunk, predicate, dstDoc
        LIMIT {limit:UInt32}`,
-      { ...params, prefix: REFERENCE_TARGET_PREFIX },
+      params,
     ),
   ])
   return {
@@ -1499,6 +1745,48 @@ async function readGraph(
     truncated: documents.length > limit || relations.length > limit,
   }
 }
+
+const listDocumentStatuses = (
+  client: ClickHouseClient,
+  scope: KnowledgeReadScope,
+) =>
+  selectIn<{ docKey: string; status: DocumentStatus }>(
+    client,
+    scope,
+    // An ORDER BY after a UNION ALL sorts only its last SELECT, so the
+    // union is a subquery.
+    `WITH tree_view AS (${treeView})
+     SELECT docKey, status FROM (
+       SELECT doc_key AS docKey,
+         if(kind = 'deleted', 'deleted', toString(status)) AS status
+       FROM tree_view
+       UNION ALL
+       SELECT DISTINCT rel.dst_doc AS docKey, 'missing' AS status
+       FROM (${relationsOf("relations", viewFiles)}) AS rel
+       WHERE NOT startsWith(rel.dst_doc, {prefix:String})
+         AND (rel.workspace_id, rel.dst_doc) NOT IN (
+           SELECT workspace_id, doc_key FROM tree_view)
+     )
+     ORDER BY docKey`,
+    { prefix: REFERENCE_TARGET_PREFIX },
+  )
+
+const listUnresolvedReferences = (
+  client: ClickHouseClient,
+  scope: KnowledgeReadScope,
+) =>
+  selectIn<{ srcDoc: string; dstDoc: string }>(
+    client,
+    scope,
+    `WITH tree_view AS (${treeView})
+     SELECT DISTINCT rel.src_doc AS srcDoc, rel.dst_doc AS dstDoc
+     FROM (${relationsOf("relations", viewFiles)}) AS rel
+     WHERE startsWith(rel.dst_doc, {prefix:String})
+       AND (rel.workspace_id, rel.dst_doc) NOT IN (
+         SELECT workspace_id, target FROM (${keyTargets("1")}))
+     ORDER BY srcDoc, dstDoc`,
+    { prefix: REFERENCE_TARGET_PREFIX },
+  )
 
 /** `T` with the fields `K` as the ISO date strings that ClickHouse returns. */
 type WithDateStrings<T, K extends keyof T> = Omit<T, K> & {

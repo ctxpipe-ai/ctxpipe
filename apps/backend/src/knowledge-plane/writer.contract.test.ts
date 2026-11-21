@@ -31,6 +31,7 @@ import { workspaces } from "../db/schema/workspaces.js"
 import { servingIdForKnowledgePath } from "../domain/workspaces/hydrate.js"
 import {
   createKnowledgeStore,
+  type KnowledgeReadScope,
   type KnowledgeStore,
   ORG_SETTING,
   REFERENCE_TARGET_PREFIX,
@@ -45,10 +46,10 @@ import { startClickHouse, userUrl } from "../test/clickhouse.js"
 import { projectKnowledgePlane } from "./writer.js"
 
 /*
- * The projection writer of ADR-067 against real collaborators: a real Git
- * remote (`file://`), Postgres (`knowledge_state`), and ClickHouse of the
- * pinned image as the writer user. msw answers the embedding API and the
- * vision model. The file converter is the real CLI of this checkout.
+ * The projection writer of ADR-067 and ADR-071 against real collaborators: a
+ * real Git remote (`file://`), Postgres (`knowledge_state`), and ClickHouse
+ * of the pinned image as the writer user. msw answers the embedding API and
+ * the vision model. The file converter is the real CLI of this checkout.
  */
 
 const here = fileURLToPath(new URL(".", import.meta.url))
@@ -153,6 +154,8 @@ const msw = setupServer(
       new URL(request.url).searchParams.get("query") ??
       (await request.clone().text())
     ).trim()
+    if (/^(INSERT|DELETE)/.test(statement))
+      fault.writes.push(statement.split(/\s+/).slice(0, 3).join(" "))
     const fail =
       fault.match.test(statement) && ++fault.statements === fault.failAt
     // Without a content length, the client waits for the end of the body
@@ -193,6 +196,7 @@ const msw = setupServer(
  * gets to ClickHouse, or with `after`, when ClickHouse applied it. With
  * `failAt` 0, no statement fails. `deletes` counts the DELETEs that got a
  * success, so not the DELETE that fails after ClickHouse applied it.
+ * `writes` holds the start of each INSERT and DELETE, in order.
  */
 const fault = {
   match: /./,
@@ -200,6 +204,7 @@ const fault = {
   after: false,
   statements: 0,
   deletes: 0,
+  writes: [] as string[],
 }
 let clickHouseOrigin: string | undefined
 
@@ -260,6 +265,7 @@ beforeEach(() => {
     after: false,
     statements: 0,
     deletes: 0,
+    writes: [],
   })
 })
 
@@ -372,6 +378,7 @@ function run(
       workspaceId,
       remote: { url: remote.url, token: async () => undefined },
       root: options.root ?? "",
+      branch: "main",
       tip,
       store: options.store ?? store,
       observedAt,
@@ -382,7 +389,7 @@ function run(
 type Row = Record<string, unknown>
 type Table = (typeof tables)[number]
 
-/** All rows of a Workspace in each table, as the admin user reads them. */
+/** All rows of a Workspace in each content table, as the admin user reads them. */
 async function snapshot(workspaceId: string): Promise<Record<Table, Row[]>> {
   const result = {} as Record<Table, Row[]>
   for (const table of tables)
@@ -399,12 +406,75 @@ async function snapshot(workspaceId: string): Promise<Record<Table, Row[]>> {
   return result
 }
 
+/** The head of a Workspace (ADR-071 decision 4). */
+async function headOf(workspaceId: string) {
+  const state = await getKnowledgeState({ orgId, workspaceId })
+  if (!state?.branch || state.treeVersion === null)
+    throw new Error(`The Workspace ${workspaceId} has no head`)
+  return { branch: state.branch, treeVersion: state.treeVersion }
+}
+
+/** The read scope of the head of a Workspace. */
+async function viewOf(workspaceId: string): Promise<KnowledgeReadScope> {
+  return { orgId, heads: [{ workspaceId, ...(await headOf(workspaceId)) }] }
+}
+
 /**
- * The rows with content, with each key of `workspaceId` written as its path:
- * the documents that are `active` or `failed`, and all chunks and relations.
- * A tombstone and a `missing` placeholder have no content. A Workspace that
- * applied a history keeps a tombstone for each removed file, and a new
- * Workspace has none, so `empty` lists them apart.
+ * The rows that the head of a Workspace shows, in the shape of the tables
+ * before ADR-071: the file versions of the tree rows that hold a file, with
+ * the `valid_from` of the tree row. Only the rows of the view count, so a
+ * file version of another tree version is not in it.
+ */
+async function viewRows(workspaceId: string): Promise<Record<Table, Row[]>> {
+  const head = await headOf(workspaceId)
+  const view = `SELECT doc_key, version, valid_from FROM (
+      SELECT doc_key, kind, version, valid_from FROM trees
+      WHERE org_id = {orgId:String} AND workspace_id = {workspaceId:String}
+        AND branch = {branch:String} AND tree_version <= {treeVersion:UInt64}
+      ORDER BY doc_key, tree_version DESC LIMIT 1 BY doc_key)
+    WHERE kind = 'file'`
+  const queries: Record<Table, string> = {
+    documents: `SELECT d.* EXCEPT (org_id, workspace_id, written_at, version),
+        v.valid_from AS valid_from
+      FROM documents AS d INNER JOIN (${view}) AS v
+        ON v.doc_key = d.doc_key AND v.version = d.version
+      WHERE d.org_id = {orgId:String} AND d.workspace_id = {workspaceId:String}`,
+    chunks: `SELECT c.* EXCEPT (org_id, workspace_id, written_at, version)
+      FROM chunks AS c INNER JOIN (${view}) AS v
+        ON v.doc_key = c.doc_key AND v.version = c.version
+      WHERE c.org_id = {orgId:String} AND c.workspace_id = {workspaceId:String}`,
+    relations: "",
+    relations_in: "",
+    doc_refs: `SELECT r.* EXCEPT (org_id, workspace_id, written_at, version)
+      FROM doc_refs AS r INNER JOIN (${view}) AS v
+        ON v.doc_key = r.doc_key AND v.version = r.version
+      WHERE r.org_id = {orgId:String} AND r.workspace_id = {workspaceId:String}`,
+  }
+  for (const table of ["relations", "relations_in"] as const)
+    queries[table] = `SELECT r.* EXCEPT (org_id, workspace_id, written_at,
+        src_version, valid_from, valid_from_introduced),
+        if(r.valid_from_introduced, v.valid_from, r.valid_from) AS valid_from
+      FROM ${table} AS r INNER JOIN (${view}) AS v
+        ON v.doc_key = r.src_doc AND v.version = r.src_version
+      WHERE r.org_id = {orgId:String} AND r.workspace_id = {workspaceId:String}`
+  const result = {} as Record<Table, Row[]>
+  for (const table of tables)
+    result[table] = await (
+      await admin.query({
+        query: `SELECT * FROM (${queries[table]}) ORDER BY ALL`,
+        query_params: { orgId, workspaceId, ...head },
+        format: "JSONEachRow",
+        clickhouse_settings: { [ORG_SETTING]: orgId },
+      })
+    ).json<Row>()
+  return result
+}
+
+/**
+ * The rows that the head shows (`viewRows`), with each key of `workspaceId`
+ * written as its path. A Workspace that applied a history keeps a tombstone
+ * for each removed file, and a new Workspace has none, so `empty` lists
+ * them apart.
  */
 async function content(workspaceId: string, paths: string[]) {
   const pathOf = new Map(
@@ -417,13 +487,10 @@ async function content(workspaceId: string, paths: string[]) {
     if (path === undefined) throw new Error(`No path for the key ${key}`)
     return path
   }
-  const rows = await snapshot(workspaceId)
-  const hasContent = (row: Row) =>
-    row.status === "active" || row.status === "failed"
+  const rows = await viewRows(workspaceId)
   const result = {} as Record<Table, Row[]>
   for (const table of tables)
     result[table] = rows[table]
-      .filter((row) => table !== "documents" || hasContent(row))
       .map((row) => {
         const out: Row = { ...row }
         for (const column of ["doc_key", "src_doc", "dst_doc"])
@@ -433,10 +500,11 @@ async function content(workspaceId: string, paths: string[]) {
       .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))
   return {
     ...result,
-    /** The paths whose document has no content. */
-    empty: rows.documents
-      .filter((row) => !hasContent(row))
-      .map((row) => named(row.doc_key))
+    /** The paths whose tree row is a tombstone. */
+    empty: Object.entries(await statusOf(workspaceId))
+      .flatMap(([docKey, status]) =>
+        status === "deleted" ? [named(docKey)] : [],
+      )
       .sort(),
   }
 }
@@ -455,52 +523,43 @@ function validFromOf(rows: Awaited<ReturnType<typeof content>>) {
   )
 }
 
-async function statusOf(workspaceId: string) {
-  return Object.fromEntries(
-    (await store.listDocumentKeys({ orgId, workspaceId })).map((row) => [
-      row.docKey,
-      row.status,
-    ]),
-  )
-}
-
-/** Each row of the documents table: its key and its status. */
-async function keysOf(workspaceId: string) {
-  return (await store.listDocumentKeys({ orgId, workspaceId }))
-    .map(({ docKey, status }) => [docKey, status])
-    .sort()
+/**
+ * The status of each document of the head, and each relation target with
+ * no row as `missing` (ADR-071 decision 5).
+ */
+async function statusOf(workspaceId: string): Promise<Record<string, string>> {
+  const rows = await store.listDocumentStatuses(await viewOf(workspaceId))
+  return Object.fromEntries(rows.map((row) => [row.docKey, row.status]))
 }
 
 /**
- * The writer store, with a crash before the first DELETE of a run: after
- * the INSERT of the tombstones, the tombstone and the old row both stay.
+ * A document of the head, with the chunks of its file version in order and
+ * the relations that point at it.
  */
-function halfTombstones(): KnowledgeStore {
-  Object.assign(fault, {
-    match: /^DELETE/,
-    failAt: 1,
-    after: false,
-    statements: 0,
-  })
-  return store
+async function readOne(workspaceId: string, docKey: string) {
+  const scope = await viewOf(workspaceId)
+  const ref = { workspaceId, docKey }
+  const [found] = await store.readDocuments(scope, [ref])
+  if (!found) return null
+  const [evidence] = await store.readEvidence(
+    scope,
+    [ref],
+    Array.from({ length: textEmbeddingConfig.dimensions }, () => 1),
+    1000,
+  )
+  return {
+    document: found.document,
+    chunks: [...(evidence?.chunks ?? [])]
+      .sort((a, b) => a.ordinal - b.ordinal)
+      .map(({ distance: _distance, ...chunk }) => chunk),
+    incoming: (await store.readFrontier(scope, [ref]))
+      .filter((row) => row.direction === "in")
+      .map((row) => row.relation),
+  }
 }
 
 const key = (workspaceId: string, path: string) =>
   servingIdForKnowledgePath(workspaceId, path)
-
-/** Make the stored projection version old, so the next run is a full rebuild. */
-const staleVersion = (workspaceId: string) =>
-  withOrgDbContext(orgId, (db) =>
-    db
-      .update(knowledgeState)
-      .set({ projectionVersion: "old" })
-      .where(
-        and(
-          eq(knowledgeState.organizationId, orgId),
-          eq(knowledgeState.workspaceId, workspaceId),
-        ),
-      ),
-  )
 
 /** A PNG header (400 × 300 px), then `seed`, so that each seed gives other bytes. */
 const png = (seed: string) => {
@@ -752,15 +811,15 @@ describe("projectKnowledgePlane", () => {
           )
           .map(validFromAt),
       ).toEqual([time(0)])
-      // A link target with no content has a row in both: a tombstone after
-      // the history, a `missing` placeholder after the rebuild.
-      expect(left.empty).toEqual([
-        "b.md",
-        "f.md",
-        "img/old.png",
-        "sources/repo.md",
-      ])
-      expect(right.empty).toEqual(["b.md", "sources/repo.md"])
+      // A removed file has a tombstone after the history. A link target with
+      // no file has no row: it is `missing` when it is read (ADR-071
+      // decision 5).
+      expect(left.empty).toEqual(["b.md", "f.md", "img/old.png"])
+      expect(right.empty).toEqual([])
+      expect(await statusOf(rebuilt)).toMatchObject({
+        [key(rebuilt, "b.md")]: "missing",
+        [key(rebuilt, "sources/repo.md")]: "missing",
+      })
       expect(await statusOf(stepwise)).toMatchObject({
         [key(stepwise, "b.md")]: "deleted",
         [key(stepwise, "f.md")]: "deleted",
@@ -768,8 +827,10 @@ describe("projectKnowledgePlane", () => {
         [key(stepwise, "sources/repo.md")]: "missing",
       })
 
-      // A full rebuild on top of the history changes no row of any table.
+      // A full rebuild on top of the history uses the stored file versions:
+      // it adds no row to a content table, and the head shows the same rows.
       const before = await snapshot(stepwise)
+      const shown = await content(stepwise, historyPaths)
       await withOrgDbContext(orgId, (db) =>
         db
           .delete(knowledgeState)
@@ -780,8 +841,19 @@ describe("projectKnowledgePlane", () => {
             ),
           ),
       )
+      embeddings.requests = 0
+      vision.calls = 0
       expect(await run(remote, stepwise, tip)).toMatchObject({ mode: "full" })
       expect(await snapshot(stepwise)).toEqual(before)
+      const after = await content(stepwise, historyPaths)
+      for (const table of tables)
+        expect(after[table], table).toEqual(shown[table])
+      expect({ embeddings: embeddings.requests, vision: vision.calls }).toEqual(
+        {
+          embeddings: 0,
+          vision: 0,
+        },
+      )
     } finally {
       await remote.remove()
     }
@@ -860,6 +932,8 @@ describe("projectKnowledgePlane", () => {
       await run(remote, workspaceId, base)
       return { base, failedTip, tip, workspaceId }
     }
+    /** The statuses that the head of `base` shows. */
+    let baseStatus: Record<string, string> = {}
     const writes = /^(INSERT|DELETE)/
 
     // Count the INSERTs and DELETEs of the failed run.
@@ -887,6 +961,8 @@ describe("projectKnowledgePlane", () => {
       const remote = await Remote.create()
       try {
         const { base, failedTip, tip, workspaceId } = await scenario(remote)
+        // The keys hold the Workspace id, so each scenario has its own.
+        baseStatus = await statusOf(workspaceId)
         if (at === 0) embeddings.failAt = embeddings.requests + 1
         else Object.assign(fault, { match: writes, failAt: at, after })
         Object.assign(fault, { statements: 0, deletes: 0 })
@@ -911,16 +987,18 @@ describe("projectKnowledgePlane", () => {
         })
         expect(await getKnowledgeState({ orgId, workspaceId })).toMatchObject({
           lastSha: base,
-          attemptShas: [failedTip],
+          treeVersion: 1,
           runStatus: "failed",
         })
+        // A read sees the tree of `base`: the head did not move.
+        expect(await statusOf(workspaceId), point).toEqual(baseStatus)
 
         expect(await run(remote, workspaceId, tip)).toMatchObject({
           mode: "delta",
         })
         expect(await getKnowledgeState({ orgId, workspaceId })).toMatchObject({
           lastSha: tip,
-          attemptShas: [],
+          treeVersion: 2,
           runStatus: "completed",
         })
         const rebuilt = await newWorkspace()
@@ -938,20 +1016,18 @@ describe("projectKnowledgePlane", () => {
         const right = await content(rebuilt, paths)
         for (const table of [...tables])
           expect(left[table], `${point}, ${table}`).toEqual(right[table])
-        // The file of b.md is gone: its key keeps one row, a tombstone.
+        // The file of b.md is gone: its key has a tombstone.
         expect(
-          (await keysOf(workspaceId)).filter(
-            ([docKey]) => docKey === key(workspaceId, "b.md"),
-          ),
+          (await statusOf(workspaceId))[key(workspaceId, "b.md")],
           point,
-        ).toEqual([[key(workspaceId, "b.md"), "deleted"]])
+        ).toBe("deleted")
       } finally {
         await remote.remove()
       }
     }
   }, 600_000)
 
-  it("deletes the rows of a run of 200 changed documents with at most one DELETE for each table", async () => {
+  it("a run of 200 changed documents writes new file versions and tree rows, and makes no mutation", async () => {
     const remote = await Remote.create()
     try {
       const files = (version: string) =>
@@ -973,89 +1049,95 @@ describe("projectKnowledgePlane", () => {
 
       // ClickHouse lists each mutation, with the Workspace in its command.
       const mutations = async () =>
-        Object.fromEntries(
-          (
-            await (
-              await admin.query({
-                query: `SELECT table, count() AS count FROM system.mutations
-                        WHERE database = currentDatabase()
-                          AND position(command, {workspaceId:String}) > 0
-                        GROUP BY table`,
-                query_params: { workspaceId },
-                format: "JSONEachRow",
-              })
-            ).json<{ table: string; count: number }>()
-          ).map(({ table, count }) => [table, count]),
-        )
+        (
+          await (
+            await admin.query({
+              query: `SELECT count() AS count FROM system.mutations
+                      WHERE database = currentDatabase()
+                        AND position(command, {workspaceId:String}) > 0`,
+              query_params: { workspaceId },
+              format: "JSONEachRow",
+            })
+          ).json<{ count: string }>()
+        )[0]?.count
       const before = await mutations()
+      spans.reset()
+      fault.writes = []
       expect(await run(remote, workspaceId, tip)).toMatchObject({
         mode: "delta",
         documentsChanged: 200,
       })
-      const after = await mutations()
-      expect(
-        Object.fromEntries(
-          tables.map((table) => [
-            table,
-            (after[table] ?? 0) - (before[table] ?? 0),
-          ]),
-        ),
-      ).toEqual(Object.fromEntries(tables.map((table) => [table, 1])))
+      expect(await mutations()).toBe(before)
+      // The tree rows go in one INSERT, the last write of the run, so that
+      // their time is the time of the new head (ADR-071 decision 10).
+      expect(fault.writes.filter((write) => write.includes("trees"))).toEqual([
+        "INSERT INTO trees",
+      ])
+      expect(fault.writes.at(-1)).toBe("INSERT INTO trees")
       expect(
         spans.spanNamed("knowledge.projection.apply")?.attributes,
       ).toMatchObject({
         "ctxpipe.knowledge.outcome": "completed",
-        "ctxpipe.knowledge.mutations": 5,
+        "ctxpipe.knowledge.mutations": 0,
       })
     } finally {
       await remote.remove()
     }
   })
 
-  it("a retry ends a tombstone that a crash left between its INSERT and the DELETE of the old row", async () => {
+  it("a run that stopped after its tree rows shows nothing of them, and the retry deletes them with one DELETE", async () => {
     const remote = await Remote.create()
     try {
       const workspaceId = await newWorkspace()
-      const scope = { orgId, workspaceId }
       const base = await remote.commit({
         "a.md": "# Alpha\n\nSee [b](b.md) and ![e](img/e.png).\n",
         "b.md": "# Beta\n",
         "img/e.png": png("e"),
       })
       await run(remote, workspaceId, base)
-      const tip = await remote.commit({ "b.md": null, "img/e.png": null })
-      await expect(
-        run(remote, workspaceId, tip, { store: halfTombstones() }),
-      ).rejects.toThrow("the worker crashed")
-      expect(await keysOf(workspaceId)).toEqual(
-        [
-          [key(workspaceId, "a.md"), "active"],
-          [key(workspaceId, "b.md"), "active"],
-          [key(workspaceId, "b.md"), "deleted"],
-          [key(workspaceId, "img/e.png"), "active"],
-          [key(workspaceId, "img/e.png"), "deleted"],
-        ].sort(),
+      const before = await statusOf(workspaceId)
+      const tip = await remote.commit({
+        "a.md": "# Alpha two\n",
+        "b.md": null,
+        "img/e.png": null,
+      })
+      // The worker dies after ClickHouse stored the tree rows, before the
+      // head moves.
+      Object.assign(fault, {
+        match: /INSERT INTO trees/,
+        failAt: 1,
+        after: true,
+        statements: 0,
+      })
+      await expect(run(remote, workspaceId, tip)).rejects.toThrow(
+        "the worker crashed",
       )
+      fault.failAt = 0
+      expect(await statusOf(workspaceId)).toEqual(before)
+      expect(
+        (await readOne(workspaceId, key(workspaceId, "a.md")))?.document.title,
+      ).toBe("Alpha")
 
-      await run(remote, workspaceId, tip)
-      expect(await keysOf(workspaceId)).toEqual(
-        [
-          [key(workspaceId, "a.md"), "active"],
-          [key(workspaceId, "b.md"), "deleted"],
-          [key(workspaceId, "img/e.png"), "deleted"],
-        ].sort(),
-      )
-      const tombstone = await store.readDocument(
-        scope,
-        key(workspaceId, "b.md"),
-      )
+      spans.reset()
+      expect(await run(remote, workspaceId, tip)).toMatchObject({
+        mode: "delta",
+      })
+      expect(
+        spans.spanNamed("knowledge.projection.apply")?.attributes,
+      ).toMatchObject({ "ctxpipe.knowledge.mutations": 1 })
+      expect(await statusOf(workspaceId)).toEqual({
+        [key(workspaceId, "a.md")]: "active",
+        [key(workspaceId, "b.md")]: "deleted",
+        [key(workspaceId, "img/e.png")]: "deleted",
+      })
+      const tombstone = await readOne(workspaceId, key(workspaceId, "b.md"))
       expect(tombstone?.document).toMatchObject({
         title: "Beta",
         path: "b.md",
         deletedAt: observedAt,
       })
-      // The relation of a.md still points at the tombstone.
-      expect(tombstone?.incoming).toHaveLength(1)
+      // a.md does not link to b.md any more.
+      expect(tombstone?.incoming).toEqual([])
     } finally {
       await remote.remove()
     }
@@ -1084,37 +1166,17 @@ describe("projectKnowledgePlane", () => {
       remote.git("gc", "-q", "--prune=now")
       expect(() => remote.git("cat-file", "-e", old)).toThrow()
 
-      // The first attempt stops in the reconcile, between the INSERT of the
-      // tombstone and the DELETE of the old row.
-      await expect(
-        run(remote, workspaceId, tip, { store: halfTombstones() }),
-      ).rejects.toThrow("the worker crashed")
       expect(await run(remote, workspaceId, tip)).toMatchObject({
         mode: "full",
         fullReason: "missing_commit",
       })
-      expect(await keysOf(workspaceId)).toEqual(
-        [
-          [key(workspaceId, "a.md"), "active"],
-          [key(workspaceId, "b.md"), "deleted"],
-        ].sort(),
-      )
+      expect(await statusOf(workspaceId)).toEqual({
+        [key(workspaceId, "a.md")]: "active",
+        [key(workspaceId, "b.md")]: "deleted",
+      })
       expect(
-        (
-          await store.readDocument(
-            { orgId, workspaceId },
-            key(workspaceId, "b.md"),
-          )
-        )?.document.title,
-      ).toBe("Beta")
-      expect(
-        (
-          await store.readDocument(
-            { orgId, workspaceId },
-            key(workspaceId, "b.md"),
-          )
-        )?.document.deletedAt,
-      ).toEqual(observedAt)
+        (await readOne(workspaceId, key(workspaceId, "b.md")))?.document,
+      ).toMatchObject({ title: "Beta", deletedAt: observedAt })
     } finally {
       await remote.remove()
     }
@@ -1141,9 +1203,7 @@ describe("projectKnowledgePlane", () => {
         [b]: "missing",
         [e]: "failed",
       })
-      expect((await store.readDocument(scope, e))?.document.error).toBe(
-        "malformed",
-      )
+      expect((await readOne(workspaceId, e))?.document.error).toBe("malformed")
       expect(await getKnowledgeState(scope)).toMatchObject({
         lastSha: one,
         runStatus: "completed",
@@ -1169,7 +1229,7 @@ describe("projectKnowledgePlane", () => {
       // active → deleted: the relation of a.md stays.
       const three = await remote.commit({ "b.md": null })
       await run(remote, workspaceId, three)
-      const tombstone = await store.readDocument(scope, b)
+      const tombstone = await readOne(workspaceId, b)
       expect(tombstone?.document).toMatchObject({
         status: "deleted",
         title: "Beta",
@@ -1179,7 +1239,7 @@ describe("projectKnowledgePlane", () => {
         key(workspaceId, "a.md"),
       ])
 
-      // A failed run: the state keeps `last_sha`, and adds the tip.
+      // A failed run: the state keeps `last_sha` and the head.
       const four = await remote.commit({ "b.md": "# Beta again\n" })
       embeddings.failAt = embeddings.requests + 1
       await expect(run(remote, workspaceId, four)).rejects.toThrow(
@@ -1187,13 +1247,13 @@ describe("projectKnowledgePlane", () => {
       )
       expect(await getKnowledgeState(scope)).toMatchObject({
         lastSha: three,
-        attemptShas: [four],
+        treeVersion: 3,
         runStatus: "failed",
       })
 
       // deleted → active, and the relation of a.md works at once.
       await run(remote, workspaceId, four)
-      const back = await store.readDocument(scope, b)
+      const back = await readOne(workspaceId, b)
       expect(back?.document).toMatchObject({
         status: "active",
         deletedAt: null,
@@ -1202,7 +1262,7 @@ describe("projectKnowledgePlane", () => {
       expect(back?.incoming).toHaveLength(1)
       expect(await getKnowledgeState(scope)).toMatchObject({
         lastSha: four,
-        attemptShas: [],
+        treeVersion: 4,
         runStatus: "completed",
       })
     } finally {
@@ -1254,7 +1314,6 @@ describe("projectKnowledgePlane", () => {
     const remote = await Remote.create()
     try {
       const workspaceId = await newWorkspace()
-      const scope = { orgId, workspaceId }
       const pdf = await readFile(
         fileURLToPath(
           new URL("./fixtures/convert/sample.pdf", import.meta.url),
@@ -1285,10 +1344,7 @@ describe("projectKnowledgePlane", () => {
       expect(
         await run(remote, workspaceId, tip, { root: "docs" }),
       ).toMatchObject({ mode: "full", failedCount: 2 })
-      const image = await store.readDocument(
-        scope,
-        key(workspaceId, "img/d.png"),
-      )
+      const image = await readOne(workspaceId, key(workspaceId, "img/d.png"))
       expect(image?.document).toMatchObject({
         kind: "image",
         status: "active",
@@ -1300,7 +1356,7 @@ describe("projectKnowledgePlane", () => {
       )
       // The SVG goes to the model as the PNG of the converter, and its
       // labels are part of its text.
-      const logo = await store.readDocument(scope, key(workspaceId, "logo.svg"))
+      const logo = await readOne(workspaceId, key(workspaceId, "logo.svg"))
       expect(logo?.document).toMatchObject({
         kind: "image",
         mime: "image/svg+xml",
@@ -1310,11 +1366,11 @@ describe("projectKnowledgePlane", () => {
       )
       expect(
         (
-          await store.readDocument(scope, key(workspaceId, "copy/logo.svg"))
+          await readOne(workspaceId, key(workspaceId, "copy/logo.svg"))
         )?.chunks.map((chunk) => chunk.text),
       ).toEqual(logo?.chunks.map((chunk) => chunk.text))
-      const runbook = await store.readDocument(
-        scope,
+      const runbook = await readOne(
+        workspaceId,
         key(workspaceId, "runbook.pdf"),
       )
       expect(runbook?.document).toMatchObject({
@@ -1326,19 +1382,17 @@ describe("projectKnowledgePlane", () => {
       )
       expect(
         (
-          await store.readDocument(scope, key(workspaceId, "copy/runbook.pdf"))
+          await readOne(workspaceId, key(workspaceId, "copy/runbook.pdf"))
         )?.chunks.map((chunk) => chunk.text),
       ).toEqual(runbook?.chunks.map((chunk) => chunk.text))
       expect(
-        (await store.readDocument(scope, key(workspaceId, "fake.png")))
-          ?.document,
+        (await readOne(workspaceId, key(workspaceId, "fake.png")))?.document,
       ).toMatchObject({
         status: "failed",
         error: "The vision model answered 400.",
       })
       expect(
-        (await store.readDocument(scope, key(workspaceId, "old.doc")))
-          ?.document,
+        (await readOne(workspaceId, key(workspaceId, "old.doc")))?.document,
       ).toMatchObject({
         status: "failed",
         error: "No converter takes .doc files.",
@@ -1370,18 +1424,23 @@ describe("projectKnowledgePlane", () => {
       // call. The JPEG and the refused PNG: one call each.
       expect(vision.calls).toBe(4)
 
-      // A full rebuild reads the image texts from the cache: no vision call
-      // for the images that it read, and the same text.
-      await staleVersion(workspaceId)
-      vision.calls = 0
-      expect(
-        await run(remote, workspaceId, tip, { root: "docs" }),
-      ).toMatchObject({ mode: "full", fullReason: "projection_version" })
-      expect(vision.calls).toBe(1)
-      expect(
-        (await store.readDocument(scope, key(workspaceId, "img/d.png")))
-          ?.chunks,
-      ).toEqual(image?.chunks)
+      // A full rebuild with new file versions (a new embedding model) reads
+      // the image texts from the cache: no vision call for the images that
+      // it read, and the same text. The refused image has no cached text.
+      const model = textEmbeddingConfig.model
+      textEmbeddingConfig.model = "test/other-embedding"
+      try {
+        vision.calls = 0
+        expect(
+          await run(remote, workspaceId, tip, { root: "docs" }),
+        ).toMatchObject({ mode: "full", fullReason: "projection_version" })
+        expect(vision.calls).toBe(1)
+        expect(
+          (await readOne(workspaceId, key(workspaceId, "img/d.png")))?.chunks,
+        ).toEqual(image?.chunks)
+      } finally {
+        textEmbeddingConfig.model = model
+      }
     } finally {
       await remote.remove()
     }
@@ -1394,10 +1453,9 @@ describe("projectKnowledgePlane", () => {
  * target) and the status of the neighbor.
  */
 async function frontierOf(workspaceId: string, path: string) {
-  const relations = await store.readFrontier(
-    { orgId, workspaceIds: [workspaceId] },
-    [{ workspaceId, docKey: key(workspaceId, path) }],
-  )
+  const relations = await store.readFrontier(await viewOf(workspaceId), [
+    { workspaceId, docKey: key(workspaceId, path) },
+  ])
   return relations
     .map(({ direction, relation, neighbor }) => ({
       direction,
@@ -1452,7 +1510,7 @@ describe("reference keys (CTX-1400)", () => {
           status: "active",
         },
       ])
-      const graph = await store.readGraph({ orgId, workspaceId }, 100)
+      const graph = await store.readGraph(await viewOf(workspaceId), 100)
       expect(
         graph.relations
           .filter((relation) => relation.srcDoc === key(workspaceId, pull.path))
@@ -1495,10 +1553,7 @@ describe("reference keys (CTX-1400)", () => {
         key(workspaceId, pull.path),
       ])
 
-      const before = await store.readDocument(
-        { orgId, workspaceId },
-        key(workspaceId, pull.path),
-      )
+      const before = await readOne(workspaceId, key(workspaceId, pull.path))
       expect(
         await run(
           remote,
@@ -1506,12 +1561,9 @@ describe("reference keys (CTX-1400)", () => {
           await remote.commit({ [issue.path]: issue.content }),
         ),
       ).toMatchObject({ mode: "delta", documentsChanged: 1 })
-      expect(
-        await store.readDocument(
-          { orgId, workspaceId },
-          key(workspaceId, pull.path),
-        ),
-      ).toEqual(before)
+      expect(await readOne(workspaceId, key(workspaceId, pull.path))).toEqual(
+        before,
+      )
       expect(await frontierOf(workspaceId, pull.path)).toEqual(resolved)
     } finally {
       await remote.remove()
@@ -1551,15 +1603,12 @@ describe("reference keys (CTX-1400)", () => {
           status: "missing",
         },
       ])
-      // The tombstone of the issue file states no key.
+      // The issue file is a tombstone: its keys resolve no link, as the
+      // `missing` neighbors above show.
       expect(
-        (
-          await store.readDocument(
-            { orgId, workspaceId },
-            key(workspaceId, issue.path),
-          )
-        )?.refKeys,
-      ).toEqual([])
+        (await readOne(workspaceId, key(workspaceId, issue.path)))?.document
+          .status,
+      ).toBe("deleted")
     } finally {
       await remote.remove()
     }
@@ -1581,10 +1630,9 @@ describe("reference keys (CTX-1400)", () => {
           [changes.path]: changes.content,
         }),
       )
-      const relations = await store.readFrontier(
-        { orgId, workspaceIds: [workspaceId] },
-        [{ workspaceId, docKey: key(workspaceId, changes.path) }],
-      )
+      const relations = await store.readFrontier(await viewOf(workspaceId), [
+        { workspaceId, docKey: key(workspaceId, changes.path) },
+      ])
       expect(
         relations
           .filter(({ relation }) => relation.predicate === "CHANGED")
@@ -1654,7 +1702,9 @@ describe("vector reuse (CTX-1428)", () => {
         "b.md": "# Beta\n\nSee [a](a.md) again.\n",
         "n.md": "# New\n\nA new file.\n",
       })
-      await staleVersion(workspaceId)
+      // A new vision model is a new projection version, so each file gets a
+      // new file version, as after a change of the parser.
+      vi.stubEnv("MODEL_VISION_NAME", "vendor/other-vision")
       embeddings.requests = 0
       embeddings.inputs = []
       spans.reset()
@@ -1708,7 +1758,7 @@ describe("vector reuse (CTX-1428)", () => {
     }
   })
 
-  it("a retry after a run that failed after its first write of 1000 files embeds only the files of the later writes", async () => {
+  it("a retry after a run that failed after its first write of 1000 files uses the file versions of that write and embeds only the files of the later writes", async () => {
     const remote = await Remote.create()
     try {
       // 1005 files: the first write has 1000 files, the second 5.
@@ -1731,7 +1781,7 @@ describe("vector reuse (CTX-1428)", () => {
       expect(embeddings.requests).toBe(2)
       expect(await getKnowledgeState({ orgId, workspaceId })).toMatchObject({
         lastSha: null,
-        attemptShas: [tip],
+        runStatus: "failed",
       })
 
       embeddings.failAt = 0
@@ -1747,9 +1797,11 @@ describe("vector reuse (CTX-1428)", () => {
           expect.stringContaining(`The text of file ${1000 + index}.`),
         ),
       )
+      // The 1000 file versions of the first write are stored, so the retry
+      // uses them and embeds nothing of them.
       expect(embeddingOf()).toMatchObject({
         "ctxpipe.knowledge.outcome": "completed",
-        "ctxpipe.knowledge.embedding_hits": 1000,
+        "ctxpipe.knowledge.embedding_hits": 0,
         "ctxpipe.knowledge.embedding_misses": 5,
         "ctxpipe.knowledge.embedding_requests": 1,
       })
