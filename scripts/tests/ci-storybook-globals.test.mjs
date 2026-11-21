@@ -31,13 +31,12 @@ const preview = ({
   decorators = '[optIn(["app"], withApp), optIn(["queryClient", "app"], withQueryClient)]',
 } = {}) => `
 import { setupWorker } from "msw/browser"
-import { mswLoader } from "msw-storybook-addon/csf3"
+import addonMsw from "msw-storybook-addon"
 import { optIn } from "./decorators/opt-in"
 const unhandledSocketHandler = ws.link(/.*/)
 const worker = ${setup}
 export default definePreview({
-  addons: [],
-  loaders: [mswLoader(async () => worker)],
+  addons: [addonMsw(async () => worker)],
   decorators: ${decorators},
   parameters: ${parameters},
 })
