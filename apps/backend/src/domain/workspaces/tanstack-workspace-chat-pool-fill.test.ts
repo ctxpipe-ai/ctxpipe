@@ -13,7 +13,7 @@ let dir: string
 let sha: string
 
 beforeAll(() => {
-  dir = mkdtempSync(join(tmpdir(), "conversation-sandbox-definition-"))
+  dir = mkdtempSync(join(tmpdir(), "tanstack-workspace-chat-pool-fill-"))
   const git = (...args: string[]) =>
     execFileSync("git", args, { cwd: dir, encoding: "utf8" }).trim()
   git("init", "-q", "-b", "main")
