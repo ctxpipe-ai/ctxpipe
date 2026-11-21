@@ -9,6 +9,7 @@ import {
 } from "../framework/call-workspace.js"
 import { decodeCursor, encodeCursor } from "../framework/cursor.js"
 import {
+  branchArgument,
   type Skipped,
   servedSchema,
   skippedSchema,
@@ -72,6 +73,7 @@ export const searchKnowledgeTool = defineMcpReadTool({
       .describe(
         "Workspace slugs from list_workspaces. Omit it to search all Workspaces of the org (at most 8; Workspaces that are not ready are skipped).",
       ),
+    branch: branchArgument,
     kinds: z
       .array(z.string().min(1))
       .max(50)
@@ -143,12 +145,19 @@ export const searchKnowledgeTool = defineMcpReadTool({
     const { reader, planeHeads } = await selectKnowledgeReader(
       org.id,
       servedWorkspaces.map((workspace) => workspace.id),
+      input.branch,
     )
-    // The plane serves the SHA of its last full run.
+    // The plane serves the SHA of its last full run of the branch.
     const workspaces = servedWorkspaces.map((workspace) => {
-      const sha = planeHeads.get(workspace.id)?.sha
-      return sha
-        ? { ...workspace, served: { ...workspace.served, sha } }
+      const head = planeHeads.get(workspace.id)
+      return head
+        ? {
+            ...workspace,
+            served: {
+              branch: input.branch ?? workspace.served.branch,
+              sha: head.sha,
+            },
+          }
         : workspace
     })
     const { hits, partialReason } =

@@ -543,7 +543,6 @@ async function applyChangeSet(input: {
         ...key,
         ...version,
         path,
-        blobSha: tree.get(path) ?? "",
         validFrom: isKnowledgePath(path)
           ? dateOrNull(input.introductions.introducedAtByPath.get(path))
           : null,

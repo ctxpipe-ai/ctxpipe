@@ -31,6 +31,7 @@ import { formatRef, parseRef } from "../framework/refs.js"
 import {
   excludeRepositoriesSchema,
   servedSchema,
+  branchArgument,
   workspaceArgument,
 } from "../framework/schemas.js"
 import { McpToolError } from "../framework/tool-errors.js"
@@ -186,7 +187,6 @@ async function readPlaneUnitFile(
   head: KnowledgeHead,
   path: string,
 ): Promise<Awaited<ReturnType<typeof readUnit>>> {
-  const { sha } = head
   const read = await readPlaneUnit({
     orgId: org.id,
     workspaceId: workspace.id,
@@ -194,7 +194,7 @@ async function readPlaneUnitFile(
     path,
   })
   if (!read) return null
-  const { unit, updatedAt } = read
+  const { unit, updatedAt, sha } = read
   return {
     text: unit.body,
     lineOffset: (unit.bodyStartLine ?? 1) - 1,
@@ -257,6 +257,9 @@ export const readFileInputShape = {
       "Workspace slug from list_workspaces. Needed for a unit path. For <handle>:<path> it limits the read to repositories this Workspace links.",
     ),
   ref: z.string().min(1).max(1_024).describe("Unit path or <handle>:<path>."),
+  branch: branchArgument.describe(
+    "For a unit path: a branch of the Workspace repository. Default: the default branch. A branch can be read after a commit on it is projected.",
+  ),
   startLine: z
     .number()
     .int()
@@ -330,7 +333,11 @@ export async function readFileByRef(
   if (ref.kind === "unit") {
     if (!workspace) throw new Error("A unit ref has a Workspace")
     const workspaceServed = requireServed(workspace)
-    const { planeHeads } = await selectKnowledgeReader(org.id, [workspace.id])
+    const { planeHeads } = await selectKnowledgeReader(
+      org.id,
+      [workspace.id],
+      input.branch,
+    )
     const planeHead = planeHeads.get(workspace.id)
     const unit = planeHead
       ? await readPlaneUnitFile(org, workspace, planeHead, ref.path)
@@ -339,7 +346,7 @@ export async function readFileByRef(
     frontMatter = unit?.frontMatter
     lineOffset = unit?.lineOffset ?? 0
     served = {
-      branch: workspaceServed.branch,
+      branch: input.branch ?? workspaceServed.branch,
       sha: unit?.sha ?? workspaceServed.sha,
     }
   } else {

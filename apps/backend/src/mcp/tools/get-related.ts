@@ -12,7 +12,11 @@ import {
   resolveCallWorkspace,
 } from "../framework/call-workspace.js"
 import { decodeCursorWithAnchor, encodeCursor } from "../framework/cursor.js"
-import { servedSchema, workspaceArgument } from "../framework/schemas.js"
+import {
+  branchArgument,
+  servedSchema,
+  workspaceArgument,
+} from "../framework/schemas.js"
 import { McpToolError } from "../framework/tool-errors.js"
 import { defineMcpReadTool } from "../framework/tool-registry.js"
 
@@ -28,6 +32,7 @@ const name = z.string().min(1).max(64)
  */
 export const getRelatedInputShape = {
   workspace: workspaceArgument,
+  branch: branchArgument,
   seeds: z
     .array(z.string().min(1).max(1_024))
     .min(1)
@@ -290,12 +295,14 @@ export const getRelatedTool = defineMcpReadTool({
     }
     const workspace = await resolveCallWorkspace(org, input.workspace)
     const legacyServed = requireServed(workspace)
-    const { reader, planeHeads } = await selectKnowledgeReader(org.id, [
-      workspace.id,
-    ])
-    // The plane serves the SHA of its last full run.
+    const { reader, planeHeads } = await selectKnowledgeReader(
+      org.id,
+      [workspace.id],
+      input.branch,
+    )
+    // The plane serves the SHA of its last full run of the branch.
     const served = {
-      ...legacyServed,
+      branch: input.branch ?? legacyServed.branch,
       sha: planeHeads.get(workspace.id)?.sha ?? legacyServed.sha,
     }
     const { cursor, ...parameters } = input

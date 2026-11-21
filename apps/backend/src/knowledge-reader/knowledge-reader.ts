@@ -13,7 +13,9 @@ import type {
 } from "../domain/workspaces/related-ranking.js"
 import type { PublishedProjection } from "../domain/workspaces/revision.js"
 import type { WorkspaceGraphPayload } from "../domain/workspaces/workspace-graph.js"
+import { McpToolError } from "../mcp/framework/tool-errors.js"
 import type { CallOrg } from "../mcp/framework/tool-org.js"
+import { getConversation } from "../models/conversations.js"
 import {
   type KnowledgeHead,
   readyKnowledgeHeads,
@@ -128,9 +130,27 @@ function knowledgePlaneFlag(orgId: string): Promise<"off" | "shadow" | "on"> {
 export async function selectKnowledgeReader(
   orgId: string,
   workspaceIds: readonly string[],
+  /**
+   * The branch of the read (ADR-071 decision 6); absent: the default branch.
+   * Only the plane serves a named branch.
+   */
+  branch?: string,
 ): Promise<KnowledgeSelection> {
   const legacy = { reader: legacyKnowledgeReader, planeHeads: new Map() }
   const flag = await knowledgePlaneFlag(orgId)
+  if (branch !== undefined) {
+    if (flag !== "on")
+      throw new McpToolError(
+        "invalid_argument",
+        "A read of a branch needs the knowledge plane, which is not on for this org. Omit branch to read the default branch.",
+      )
+    for (const workspaceId of workspaceIds)
+      await resolveReadBranch({ workspaceId, branch })
+    const heads = await readyKnowledgeHeads(orgId, workspaceIds, branch)
+    const missing = workspaceIds.filter((id) => !heads.has(id))
+    if (missing.length > 0) throw unknownBranch(branch)
+    return { reader: planeKnowledgeReader({ heads }), planeHeads: heads }
+  }
   if (flag === "off" || workspaceIds.length === 0) return legacy
   const heads = await readyKnowledgeHeads(orgId, workspaceIds)
   if (!workspaceIds.every((id) => heads.has(id))) return legacy
@@ -143,3 +163,38 @@ export async function selectKnowledgeReader(
     planeHeads: new Map(),
   }
 }
+
+/** The prefix of the session branch of a conversation (ADR-048). */
+const CONVERSATION_BRANCH = /^ctxpipe\/chat\/([^/]+)\//
+
+/**
+ * The error for a branch that the caller cannot read: the same for a branch
+ * with no projection and for the session branch of a conversation of
+ * another user, so that it does not tell whether that conversation exists.
+ */
+const unknownBranch = (branch: string) =>
+  new McpToolError(
+    "invalid_argument",
+    `The branch ${branch} has no knowledge projection that this call can read. A branch is projected after a commit on it; check the name, or omit branch to read the default branch.`,
+  )
+
+/**
+ * The read rule of a branch (ADR-071 decision 6), in one place. Each member
+ * of the Workspace can read each branch, except the session branch of a
+ * conversation (`ctxpipe/chat/<conversation>/<n>`): only the actor that can
+ * open the conversation reads it. This is option A of the open question of
+ * ADR-071 for the CTO, and it does not merge before the CTO answers.
+ * Call it in the org context of the request.
+ */
+export async function resolveReadBranch(input: {
+  workspaceId: string
+  branch: string
+}): Promise<void> {
+  const conversationId = CONVERSATION_BRANCH.exec(input.branch)?.[1]
+  if (!conversationId) return
+  const conversation = await getConversation(conversationId, {
+    workspaceId: input.workspaceId,
+  })
+  if (!conversation) throw unknownBranch(input.branch)
+}
+

@@ -152,8 +152,6 @@ export type StoredFileVersion = {
 export type TreeEntry = FileVersionKey &
   StoredFileVersion & {
     path: string
-    /** The blob of the file version, for a read of the file from Git. */
-    blobSha: string
     validFrom: Date | null
     deletedAt: Date | null
     /**
@@ -376,6 +374,16 @@ export type KnowledgeStore = {
     refs: DocumentRef[],
     validAt?: Date | null,
   ): Promise<FrontierRelation[]>
+  /**
+   * The path of each file of the view whose path starts with `prefix`, with
+   * the branch of its tree row: the branch of the read for a row of its
+   * overlay, else the default branch. A file read takes the file from Git
+   * at the tip of that branch (ADR-071 decision 6).
+   */
+  listViewFiles(
+    scope: KnowledgeReadScope,
+    prefix: string,
+  ): Promise<{ workspaceId: string; path: string; branch: string }[]>
   /** The document rows of `refs`, with no chunks. */
   readDocuments(
     scope: KnowledgeReadScope,
@@ -451,6 +459,16 @@ export function createKnowledgeStore(url: string | undefined): KnowledgeStore {
     readFrontier: (scope, refs, validAt) =>
       readFrontier(client, scope, refs, validAt),
     readDocuments: (scope, refs) => readDocuments(client, scope, refs),
+    listViewFiles: (scope, prefix) =>
+      selectIn<{ workspaceId: string; path: string; branch: string }>(
+        client,
+        scope,
+        `WITH tree_view AS (${treeView})
+         SELECT workspace_id AS workspaceId, path, branch FROM tree_view
+         WHERE kind = 'file' AND startsWith(path, {prefix:String})
+         ORDER BY workspaceId, path`,
+        { prefix },
+      ),
     readEvidence: (scope, refs, vector, chunksPerDocument) =>
       readEvidence(client, scope, refs, vector, chunksPerDocument),
     readGraph: (scope, limit) => readGraph(client, scope, limit),
@@ -739,7 +757,6 @@ type TableRows = {
     kind: "file" | "deleted" | "inherit"
     path: string
     version: string
-    blob_sha: string
     status: "active" | "failed"
     doc_kind: string
     observed_at: string
@@ -887,7 +904,6 @@ async function writeTree(
           : ("file" as const),
       path: entry.path,
       version: entry.version,
-      blob_sha: entry.blobSha,
       status: entry.status,
       doc_kind: entry.kind,
       observed_at: entry.observedAt.toISOString(),
@@ -900,7 +916,6 @@ async function writeTree(
 
 type TreeRecord = FileVersionKey & {
   path: string
-  blobSha: string
   inherit: boolean
   status: "active" | "failed"
   kind: string
@@ -923,7 +938,7 @@ async function readTree(
       heads: [{ workspaceId: scope.workspaceId, ...head }],
     },
     // The rows of the tree itself, with its `inherit` rows: no view.
-    `SELECT doc_key AS docKey, version, path, blob_sha AS blobSha, status,
+    `SELECT doc_key AS docKey, version, path, status,
        doc_kind AS kind, observed_at AS observedAt, valid_from AS validFrom,
        valid_to AS validTo, deleted_at AS deletedAt,
        kind = 'inherit' AS inherit
@@ -1188,7 +1203,7 @@ const inWorkspaces =
   "org_id = {orgId:String} AND workspace_id IN {workspaceIds:Array(String)}"
 
 /** The columns of a row of the tree view. */
-const treeColumns = `workspace_id, doc_key, kind, path, version, blob_sha,
+const treeColumns = `workspace_id, branch, doc_key, kind, path, version,
   status, doc_kind, observed_at, valid_from, valid_to, deleted_at`
 
 /**

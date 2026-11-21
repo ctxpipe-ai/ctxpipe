@@ -77,7 +77,7 @@ export async function listBranchHeads(key: KnowledgeStateKey) {
 export type KnowledgeHead = TreeHead & {
   /** The tip that the last completed run of the branch applied. */
   sha: string
-  base?: TreeHead
+  base?: TreeHead & { sha: string }
 }
 
 type HeadRow = typeof knowledgeBranchHeads.$inferSelect
@@ -150,7 +150,7 @@ export async function readyKnowledgeHeads(
         sha: overlay.lastSha,
         branch,
         treeVersion: overlay.treeVersion,
-        base: baseHead,
+        base: { ...baseHead, sha: base.lastSha ?? "" },
       })
   }
   return heads

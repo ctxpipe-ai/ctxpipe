@@ -28,12 +28,11 @@ export function knowledgeProjectionVersion(input: {
   // introduced the file (CTX-1421). 6: one text vector space, and an image
   // document has no chunk (CTX-1431). 7: files become text at projection
   // time (CTX-1433). 8: file versions and trees (ADR-071): the ClickHouse
-  // migration 0010 made the tables again, empty. 9: the tree rows hold the
-  // blob SHA (migration 0011). The converter version, the
+  // migration 0010 made the tables again, empty. The converter version, the
   // vision model and the prompt version of the image text are part of it
   // too: a new parser, model or prompt gives other text for the same bytes.
   return JSON.stringify([
-    9,
+    8,
     input.embeddingModel,
     input.dimensions,
     input.root,

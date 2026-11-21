@@ -30,6 +30,7 @@ import { maybeActivateLinearSyncOnConfigPush } from "./github-linear-push.js"
 import { maybeEnqueueNotionSyncOnConfigPush } from "./github-notion-push.js"
 import { maybeActivatePagerdutySyncOnConfigPush } from "./github-pagerduty-push.js"
 import { maybeEnqueueGithubPrMirror } from "./github-pr-mirror-events.js"
+import { enqueueKnowledgeBranchRuns } from "./github-knowledge-branch-push.js"
 import { enqueuePushTipChecks } from "./github-push-tip-check.js"
 import { maybeEnqueueUpgradeScanForPullRequest } from "./github-upgrade-pr.js"
 import {
@@ -277,6 +278,12 @@ async function processPushEvent(
     repository: repo.full_name,
     ref,
     defaultBranch,
+  })
+  await enqueueKnowledgeBranchRuns({
+    orgIds: installationRows.map((row) => row.orgId),
+    repository: repo.full_name,
+    ref,
+    after,
   })
 
   if (!onDefaultBranch) return

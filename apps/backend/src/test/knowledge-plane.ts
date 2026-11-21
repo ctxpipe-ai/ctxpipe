@@ -59,7 +59,6 @@ export async function writePlaneDocuments(
       docKey: document.docKey,
       version,
       path: document.path,
-      blobSha: "",
       status: "active",
       kind: document.kind,
       observedAt: document.observedAt,

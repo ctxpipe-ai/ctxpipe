@@ -27,6 +27,7 @@ import { checkPath, checkRepositoryPath } from "../framework/refs.js"
 import {
   excludeRepositoriesSchema,
   servedSchema,
+  branchArgument,
   workspaceArgument,
 } from "../framework/schemas.js"
 import { McpToolError } from "../framework/tool-errors.js"
@@ -130,6 +131,9 @@ export const listFilesTool = defineMcpReadTool({
   org: "required",
   inputShape: {
     workspace: workspaceArgument,
+    branch: branchArgument.describe(
+      "For the Workspace repository: a branch of it. Default: the default branch. A branch can be listed after a commit on it is projected.",
+    ),
     repository: z
       .string()
       .min(1)
@@ -218,15 +222,23 @@ export const listFilesTool = defineMcpReadTool({
     let entries: Entry[]
     let listTruncated = false
     if (input.repository === undefined) {
-      const { planeHeads } = await selectKnowledgeReader(org.id, [workspace.id])
-      const planeSha = planeHeads.get(workspace.id)?.sha
-      if (planeSha) served = { ...workspaceServed, sha: planeSha }
+      const { planeHeads } = await selectKnowledgeReader(
+        org.id,
+        [workspace.id],
+        input.branch,
+      )
+      const planeHead = planeHeads.get(workspace.id)
+      if (planeHead)
+        served = {
+          branch: input.branch ?? workspaceServed.branch,
+          sha: planeHead.sha,
+        }
       entries = folderEntries(
-        planeSha
+        planeHead
           ? await listPlaneUnitFiles({
               orgId: org.id,
               workspaceId: workspace.id,
-              sha: planeSha,
+              head: planeHead,
               folder,
             })
           : await listUnitRows(org.id, workspace.id, folder),
