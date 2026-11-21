@@ -1,6 +1,6 @@
 # ADR-071: The knowledge plane projects every branch: shared file versions, a full tree for the default branch, an overlay for each other branch
 
-**Status:** Accepted (the CTO, 2026-11-21; [CTX-1457](https://linear.app/ctxpipe/issue/CTX-1457): the file versions, the tree and the head of the default branch, and the cleanup are built; the overlays of other branches are not built yet) | **Date:** 2026-11-21 | **Tags:** knowledge, clickhouse, branches, git, mcp, consistency
+**Status:** Accepted (the CTO, 2026-11-21; [CTX-1457](https://linear.app/ctxpipe/issue/CTX-1457): built: the file versions, the trees and heads of all branches, the overlays, branch runs from GitHub pushes, the MCP `branch` argument, branch deletion and the cleanup; the read rule of a conversation session branch waits for the CTO's answer to the open question) | **Date:** 2026-11-21 | **Tags:** knowledge, clickhouse, branches, git, mcp, consistency
 
 ## Context
 
