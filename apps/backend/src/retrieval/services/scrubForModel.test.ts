@@ -93,6 +93,8 @@ describe("scrubForModel", () => {
       "p@ssw0rd",
       "S3cr#t!",
       "pa'ssw0rd",
+      // An `@` and then text that looks like a host and a port.
+      "p@ss:12345678",
       // A long password.
       random(400),
     ]

@@ -34,14 +34,16 @@ const URL_CREDENTIALS: &str = "url-credentials";
 /// The bytes of a match of `url-credentials` that are a password, or None
 /// for a match that holds no password:
 /// - a template (`${DB_PASSWORD}`, `$DB_PASSWORD`, `%(password)s`,
-///   `%PASSWORD%`, `{password}`, `{{password}}`, only `*`). A real password
+///   `%PASSWORD%`, `{password}`, `{{password}}`, `<password>`, only `*`). A real password
 ///   that only starts with one of these characters (`%21abc`, `$uperSecret`,
 ///   `*abc123`) is not a template;
 /// - a port and a query or a fragment, of a URL with no credentials
 ///   (`https://host:8443?email=a@b`).
 ///
-/// A match runs to the last `@` of its URL. When a host and a port follow
-/// an earlier `@` (`pw@cache:6379?x=a@b`), the password ends at that `@`.
+/// A match runs to the last `@` of its URL. When a host, a port and then a
+/// query or a fragment follow an earlier `@` (`pw@cache:6379?x=a@b`), the
+/// password ends at that `@`. Else the `@` is a part of the password
+/// (`p@ss:12345678`).
 fn url_password_len(matched: &str) -> Option<usize> {
     let is_identifier = |text: &str| {
         let mut chars = text.chars();
@@ -55,6 +57,7 @@ fn url_password_len(matched: &str) -> Option<usize> {
     };
     let is_template = matched.chars().all(|c| c == '*')
         || wrapped_in("{", "}")
+        || wrapped_in("<", ">")
         || wrapped_in("${", "}")
         || wrapped_in("%(", ")s")
         || (wrapped_in("%", "%") && is_identifier(&matched[1..matched.len() - 1]))
@@ -67,13 +70,16 @@ fn url_password_len(matched: &str) -> Option<usize> {
     if is_template || is_port_and_query {
         return None;
     }
-    // The first `@` after which a host and a port come (`@cache:6379`).
+    // The first `@` after which a host, a port and a query or a fragment
+    // come (`@cache:6379?`).
     let host_and_port = matched.match_indices('@').find(|(at, _)| {
         let rest = &matched[at + 1..];
         rest.split_once(':').is_some_and(|(host, after)| {
+            let port = after.bytes().take_while(u8::is_ascii_digit).count();
             !host.is_empty()
                 && !host.contains(['@', '?', '#'])
-                && after.bytes().next().is_some_and(|b| b.is_ascii_digit())
+                && port > 0
+                && matches!(after.as_bytes().get(port), Some(b'?' | b'#'))
         })
     });
     Some(host_and_port.map_or(matched.len(), |(at, _)| at))
