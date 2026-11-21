@@ -122,6 +122,7 @@ Start the clock at the triggering action (click, send, navigation) and stop it w
 - Artifacts go to `/tmp/preview-env/{run-id}/` (not the repository): screenshots `{FLOW-ID}-{step}.png`, one recording per area `{area}.webm` of the working path only.
 - **Trace** per flow, in each mode: after the flow, find the trace for its key request with [observability](../observability/SKILL.md): environment `pr-<N>` (`preview`), `local-<name>` (`local`) or the `DeploymentEnvironment` of the AWS stack (`aws`), `ctxpipe.org.slug={orgSlug}`, the flow's time window, then the `TraceId`. For a curl step, take `x-request-id` from the response (`curl -D -`) and search by `request.id`. Record `trace: {TraceId} (env, org, HH:MM:SSZ)` plus the HyperDX link. For a job, record `openworkflow.run.id`.
 - Redact tokens, passwords, and emails in anything pasted outside `/tmp`.
+- On `preview` and `aws`, a response to a request with the Access service token sets the `CF_Authorization` cookie, which opens the target. So a step there that reads response headers (`curl -D -`, here and in the areas) writes them to a private `mktemp` file instead, and keeps only the lines it needs (for example `x-request-id` or `www-authenticate`), never `set-cookie`.
 
 ### Local trace export
 
