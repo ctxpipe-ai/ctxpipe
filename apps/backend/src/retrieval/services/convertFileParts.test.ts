@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url"
 
 import { describe, expect, it } from "vitest"
 
-import { convertFileParts } from "./convertFileParts.js"
+import { ConversionSlots, convertFileParts } from "./convertFileParts.js"
 
 const fixture = (name: string) =>
   readFileSync(
@@ -209,5 +209,54 @@ describe("convertFileParts", () => {
     expect(await convertFileParts(input)).toEqual({ ok: true, body: input })
     const plain = { messages: [{ role: "user", content: "hi" }] }
     expect(await convertFileParts(plain)).toEqual({ ok: true, body: plain })
+  })
+
+  it("refuses a PDF with a 429 while each conversion slot is taken, and does not wait", async () => {
+    const slots = new ConversionSlots(1)
+    const pdf = body({
+      type: "file",
+      file: {
+        filename: "sample.pdf",
+        file_data: dataUrl("application/pdf", fixture("sample.pdf")),
+      },
+    })
+    // Both calls start at once: the first takes the one slot.
+    const [first, second] = await Promise.all([
+      convertFileParts(pdf, slots),
+      convertFileParts(pdf, slots),
+    ])
+    expect(first.ok).toBe(true)
+    expect(second).toEqual({
+      ok: false,
+      status: 429,
+      error: expect.stringContaining("too many files"),
+    })
+    // The slot is free again after a conversion, also after a failed one.
+    const broken = body({
+      type: "file",
+      file: {
+        filename: "truncated.pdf",
+        file_data: dataUrl("application/pdf", fixture("truncated.pdf")),
+      },
+    })
+    expect(await convertFileParts(broken, slots)).toMatchObject({
+      status: 400,
+    })
+    expect((await convertFileParts(pdf, slots)).ok).toBe(true)
+  })
+})
+
+describe("ConversionSlots", () => {
+  it("gives at most its size of slots, and a slot is freed once", () => {
+    const slots = new ConversionSlots(2)
+    const a = slots.take()
+    const b = slots.take()
+    expect(a).not.toBeNull()
+    expect(b).not.toBeNull()
+    expect(slots.take()).toBeNull()
+    a?.()
+    a?.()
+    expect(slots.take()).not.toBeNull()
+    expect(slots.take()).toBeNull()
   })
 })

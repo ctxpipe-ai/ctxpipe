@@ -27,7 +27,33 @@ const notImagePartSchema = z.object({
   image_url: z.union([notImage, z.object({ url: notImage })]),
 })
 
-type Refusal = { ok: false; status: 400 | 503; error: string }
+type Refusal = { ok: false; status: 400 | 429 | 503; error: string }
+
+/**
+ * A count of the conversions that run at the same time. A caller that gets
+ * no slot does not wait: the request fails with a 429, so many PDFs at once
+ * cannot start a converter (up to 512 MiB each) for each of them.
+ */
+export class ConversionSlots {
+  private active = 0
+
+  constructor(private readonly size: number) {}
+
+  /** A function that frees the slot, or null when each slot is taken. */
+  take(): (() => void) | null {
+    if (this.active >= this.size) return null
+    this.active += 1
+    let freed = false
+    return () => {
+      if (freed) return
+      freed = true
+      this.active -= 1
+    }
+  }
+}
+
+/** The conversions of the two proxies in this process. */
+const proxySlots = new ConversionSlots(4)
 
 /**
  * `body` (an OpenAI-compatible chat request) with each PDF file part of its
@@ -35,10 +61,12 @@ type Refusal = { ok: false; status: 400 | 503; error: string }
  * other file part (another file type, a file id, a URL, a malformed part, a
  * PDF that the converter cannot convert), and an image part with a data URL
  * that is not an image, gives a 400 that the caller sends back to the
- * client. A converter that cannot start gives a 503.
+ * client. A converter that cannot start gives a 503, and a conversion with
+ * no free slot gives a 429.
  */
 export async function convertFileParts<T>(
   body: T,
+  slots: ConversionSlots = proxySlots,
 ): Promise<{ ok: true; body: T } | Refusal> {
   const messages = (body as { messages?: unknown } | null)?.messages
   if (!Array.isArray(messages)) return { ok: true, body }
@@ -72,7 +100,7 @@ export async function convertFileParts<T>(
         return refuse(
           'A file part is malformed. Send { type: "file", file: { filename, file_data } }.',
         )
-      const text = await pdfText(file.data.file)
+      const text = await pdfText(file.data.file, slots)
       if (!("text" in text)) return text
       parts.push({ type: "text", text: text.text })
     }
@@ -88,6 +116,7 @@ function refuse(error: string): Refusal {
 /** The text of the file of a PDF file part, or why the request fails. */
 async function pdfText(
   file: z.infer<typeof filePartSchema>["file"],
+  slots: ConversionSlots,
 ): Promise<{ text: string } | Refusal> {
   // The name goes into the wrapper of the text: it must not end it.
   const filename = (file.filename ?? "file").replace(/["<>\r\n]/g, "_")
@@ -106,6 +135,13 @@ async function pdfText(
     return refuse(
       `The file "${filename}" is not a PDF. The model proxy accepts only PDF file parts, and it converts them to text. Send other files as text.`,
     )
+  const free = slots.take()
+  if (!free)
+    return {
+      ok: false,
+      status: 429,
+      error: "The server converts too many files now. Try again later.",
+    }
   let conversion: Awaited<ReturnType<typeof convertFile>>
   try {
     conversion = await convertFile("pdf", Buffer.from(data[2] ?? "", "base64"))
@@ -119,6 +155,8 @@ async function pdfText(
       status: 503,
       error: "The file converter of the server cannot start.",
     }
+  } finally {
+    free()
   }
   if (conversion.kind !== "text")
     return refuse(

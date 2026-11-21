@@ -83,7 +83,11 @@ const chatRoute = createRoute({
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Org not found",
     },
-    429: { description: "Upstream rate limited" },
+    429: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description:
+        "Upstream rate limited, or each file conversion slot is taken",
+    },
     503: {
       content: { "application/json": { schema: UnavailableResponseSchema } },
       description: "Hosted model proxy not configured on this server",
@@ -192,7 +196,7 @@ export const openaiRoutes = new OpenAPIHono<AppEnv>()
     if (!converted.ok)
       return converted.status === 503
         ? c.json(unavailableResponse("no-file-converter", converted.error), 503)
-        : c.json({ error: converted.error }, 400)
+        : c.json({ error: converted.error }, converted.status)
     // The body goes to a model: each secret in it is removed first, and a
     // part that the scrubber cannot read is refused (ADR-072).
     const unreadable = unreadableContentPart(converted.body)

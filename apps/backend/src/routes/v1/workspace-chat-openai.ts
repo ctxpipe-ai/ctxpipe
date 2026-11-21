@@ -88,9 +88,14 @@ const chatRoute = createRoute({
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Unauthorized",
     },
+    429: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Each file conversion slot is taken",
+    },
     503: {
       content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Workspace chat model is not configured",
+      description:
+        "Workspace chat model is not configured, or the file converter cannot start",
     },
   },
 })
