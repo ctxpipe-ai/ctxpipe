@@ -1,6 +1,6 @@
 {
   "name": "@ctxpipe/aws-cdk",
-  "version": "3.3.0",
+  "version": "3.4.0",
   "private": false,
   "description": "AWS CDK construct library for self-hosting ctxpipe",
   "keywords": [

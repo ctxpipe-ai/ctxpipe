@@ -1,5 +1,13 @@
 # ctxpipe
 
+## 0.5.3
+
+### Patch Changes
+
+- 7f886a8: `ctxpipe init` and `ctxpipe mcp add` now write the generic `/mcp` URL without the `?orgSlug=` query. The server ignores that query, and each tool call names its organization.
+- 12ed995: The README links to the new API keys page for how to set `CTXPIPE_API_KEY`. The old link went to a section that no longer exists.
+- 9318ff6: Build the package with TypeScript 6.
+
 ## 0.5.2
 
 ### Patch Changes
