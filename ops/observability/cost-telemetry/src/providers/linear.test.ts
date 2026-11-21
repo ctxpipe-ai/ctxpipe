@@ -175,7 +175,7 @@ describe("linear rows", () => {
 
   test("asks for the app token with the client credentials and the fixed scopes of the app", async () => {
     let grant: URLSearchParams | undefined
-    let authorization: string | null = null
+    let authorization = null as string | null
     server.use(
       http.post(TOKEN, async ({ request }) => {
         authorization = request.headers.get("Authorization")
