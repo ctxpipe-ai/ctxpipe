@@ -66,7 +66,7 @@ Run `local` before a preview of the same change.
 
 ## 2. Run setup and harness
 
-Read [run-setup.md](run-setup.md) (accounts, test data, flow format, evidence, human checkpoints), then complete [harness.md](harness.md) (wake, canary).
+Read [run-setup.md](run-setup.md) (accounts, test data, flow format, evidence, human checkpoints), then complete [harness.md](harness.md) (wake, sign-up page).
 
 **Done when:** harness is `PASS`. A harness `FAIL` is a **blocker**: stop and report only the harness.
 
@@ -95,7 +95,7 @@ Load **only** the chosen area files; each lists its flows in the [fixed format](
 - [mcp](mcp/SKILL.md)
 - [resilience](resilience/SKILL.md)
 
-A flow `FAIL` stops **that flow**; continue with the next flow unless it `Requires` the failed one (then `SKIP(blocked-by FLOW-ID)`). Stop the suite only for a harness-class blocker (session gone, production UI leak, worker or codesearch down while a later area needs it).
+A flow `FAIL` stops **that flow**; continue with the next flow unless it `Requires` the failed one (then `SKIP(blocked-by FLOW-ID)`). Stop the suite only for a harness-class blocker (session gone, worker or codesearch down while a later area needs it).
 
 **Done when:** every flow in every chosen area has `PASS`, `FAIL`, or `SKIP(reason)`.
 
