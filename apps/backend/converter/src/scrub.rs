@@ -7,7 +7,8 @@
 //! caller checks the id, so an answer never goes to another request.
 //!
 //! Kingfisher (MongoDB, Apache-2.0) finds the secrets with its built-in rules
-//! (medium confidence and higher). Detection only: no rule sends a found
+//! (medium confidence and higher) and one rule of ours, for the password of a
+//! URL (`url-credentials`). Detection only: no rule sends a found
 //! secret to its provider. Each found secret becomes `[REDACTED:<rule id>]`.
 //! The same input gives the same output: the scan keeps no state between
 //! requests, and the order of the replacements is fixed.
@@ -27,18 +28,35 @@ fn request(line: &[u8]) -> Result<(u64, Vec<String>), String> {
     Ok((id, texts))
 }
 
-/// Our one rule beside the rules of Kingfisher, which do not find the
-/// password of a plain URL: `scheme://user:password@host` of any scheme.
-/// The user can be empty (`redis://:password@host`). The unnamed capture is
-/// the password, so only it becomes `[REDACTED:url-credentials]`. A user
-/// with no password (`user@host`) does not match, and neither does a
-/// template value: a password that starts with `$`, `%`, `{`, `<` or `*`
-/// (`${DB_PASSWORD}`, `<password>`, `***`).
-const URL_CREDENTIALS: (&str, &str, &str) = (
-    "url-credentials",
-    "Credentials in a URL",
-    r#"(?i)\b[a-z][a-z0-9+.\-]{1,30}://[^\s:/?#@'"<>]{0,128}:([^\s/?#@'"<>$%{*][^\s/?#@'"<>]{0,255})@[a-z0-9.\-\[\]]"#,
-);
+/// The id of our one rule beside the rules of Kingfisher (`serve`).
+const URL_CREDENTIALS: &str = "url-credentials";
+
+/// True for a password of a URL that is a template, not a secret:
+/// `${DB_PASSWORD}`, `$DB_PASSWORD`, `%(password)s`, `%PASSWORD%`,
+/// `{{password}}`, `{password}`, `<password>` or only `*`. A real password
+/// that only starts with one of these characters (`%21abc`, `$uperSecret`,
+/// `*abc123`) is not a template.
+fn is_template(password: &str) -> bool {
+    let name = |text: &str| {
+        let mut chars = text.chars();
+        matches!(chars.next(), Some(c) if c.is_ascii_alphabetic() || c == '_')
+            && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+    };
+    let env_name = |text: &str| name(text) && !text.chars().any(|c| c.is_ascii_lowercase());
+    let inner = |open: &str, close: &str| {
+        password.len() > open.len() + close.len()
+            && password.starts_with(open)
+            && password.ends_with(close)
+    };
+    password.chars().all(|c| c == '*')
+        || inner("${", "}")
+        || inner("{{", "}}")
+        || inner("{", "}")
+        || inner("<", ">")
+        || inner("%(", ")s")
+        || (inner("%", "%") && name(&password[1..password.len() - 1]))
+        || password.strip_prefix('$').is_some_and(env_name)
+}
 
 /// The largest request line: more than the largest model request.
 const MAX_LINE_BYTES: u64 = 64 * 1024 * 1024;
@@ -53,9 +71,20 @@ pub fn serve(
     sandbox: impl FnOnce() -> Result<(), String>,
 ) -> Result<(), String> {
     let mut rules = get_builtin_rules(None).map_err(|error| error.to_string())?;
+    // Our one rule: Kingfisher's rules do not find the password of a plain
+    // URL, `scheme://user:password@host` of any scheme. The user can be
+    // empty (`redis://:password@host`) or an email address. The password
+    // runs to the last `@` before the host, so it can hold `@`, `%`, `?` and
+    // `#`. The unnamed capture is the password, so only it becomes
+    // `[REDACTED:url-credentials]`. A user with no password (`user@host`)
+    // does not match, and `scrub` drops a template password (`is_template`).
     rules.rules.insert(
-        URL_CREDENTIALS.0.into(),
-        RuleSyntax::new(URL_CREDENTIALS.0, URL_CREDENTIALS.1, URL_CREDENTIALS.2),
+        URL_CREDENTIALS.into(),
+        RuleSyntax::new(
+            URL_CREDENTIALS,
+            "Credentials in a URL",
+            r#"(?i)\b[a-z][a-z0-9+.\-]{0,30}://[^\s:/?#'"<>]{0,128}:([^\s/'"<>]{1,256})@[a-z0-9.\-\[\]]"#,
+        ),
     );
     let database = RulesDatabase::from_rule_collection_with_cache(
         rules,
@@ -113,6 +142,7 @@ pub fn scrub(scanner: &Scanner, text: &str) -> Result<String, String> {
     let mut spans: Vec<(usize, usize, String)> = findings
         .into_iter()
         .filter(|finding| finding.rule().visible())
+        .filter(|finding| !(finding.rule_id == URL_CREDENTIALS && is_template(&finding.secret)))
         .map(|finding| {
             (
                 finding.location.start_offset,

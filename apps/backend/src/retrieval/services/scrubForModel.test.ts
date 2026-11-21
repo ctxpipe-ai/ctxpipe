@@ -82,32 +82,52 @@ describe("scrubForModel", () => {
   })
 
   it("replaces the password of a URL of any scheme, and only the password", async () => {
-    // Made-up passwords, made at run time.
+    // Made-up passwords: a random one, one that a person chose, and real
+    // passwords that start or hold a symbol.
+    const passwords = [
+      random(16),
+      "hunter2",
+      "%21abc%40x",
+      "$uperSecret",
+      "*abc123",
+      "p@ssw0rd",
+      "S3cr#t!",
+    ]
     for (const url of [
       "postgres://app:{}@db.example.test:5432/app",
       "mysql://root:{}@10.0.0.5/db",
       "redis://:{}@cache.example.test:6379",
       "amqp://guest:{}@rabbit.example.test:5672/",
       "https://bob:{}@git.example.test/repo.git",
-    ]) {
-      const password = random(16)
-      expect(
-        await scrubForModel(`Use ${url.replace("{}", password)} now.`),
-      ).toBe(`Use ${url.replace("{}", "[REDACTED:url-credentials]")} now.`)
-    }
+      "smtps://me@mail.example.test:{}@smtp.example.test",
+      "x://u:{}@host.example.test",
+    ])
+      for (const password of passwords)
+        expect(
+          await scrubForModel(`Use ${url.replace("{}", password)} now.`),
+        ).toBe(`Use ${url.replace("{}", "[REDACTED:url-credentials]")} now.`)
   })
 
-  it("keeps a URL or an address with no password as it is", async () => {
+  it("keeps a URL or an address with no password, and a template password, as it is", async () => {
     const texts = [
       "user@host",
       "https://example.test/path?a=b",
       "mailto:someone@example.test",
       "git@github.com:org/repo.git",
       "postgres://user@db.example.test/app",
-      `postgres://\${DB_USER}:\${DB_PASSWORD}@db.example.test/app`,
-      "postgres://user:<password>@db.example.test/app",
       "https://example.test:8443/a",
+      "https://example.test/x?y=1:2@3",
       "The meeting is at 10:30@noon.",
+      ...[
+        `\${DB_PASSWORD}`,
+        "$DB_PASSWORD",
+        "%(password)s",
+        "%PASSWORD%",
+        "{{password}}",
+        "{password}",
+        "****",
+        "<password>",
+      ].map((password) => `postgres://user:${password}@db.example.test/app`),
     ]
     expect(await scrubForModel(texts)).toEqual(texts)
   })
