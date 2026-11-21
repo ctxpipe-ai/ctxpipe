@@ -46,6 +46,7 @@ import {
 } from "../../openworkflow/enqueue-workspace-hydrate.js"
 import { enqueueWorkspaceTipCheck } from "../../openworkflow/enqueue-workspace-tip-check.js"
 import { workspaceActivityRoutes } from "./workspace-activity-routes.js"
+import { workspaceBranchesRoutes } from "./workspace-branches-routes.js"
 import { workspaceFilesRoutes } from "./workspace-files-routes.js"
 import { workspaceGraphRoutes } from "./workspace-graph-routes.js"
 import { workspaceIngestionRoutes } from "./workspace-ingestion-routes.js"
@@ -766,6 +767,7 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     return c.json(serializeWorkspace(current), 200)
   })
   .route("/", workspaceActivityRoutes)
+  .route("/", workspaceBranchesRoutes)
   .route("/", workspaceIngestionRoutes)
   .route("/", workspaceFilesRoutes)
   .route("/", workspaceGraphRoutes)

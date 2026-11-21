@@ -194,32 +194,7 @@ export async function resolveGitRemoteTip(input: {
         `refs/tags/${requested}`,
       ]
     : ["HEAD"]
-  const { stdout } = await gitExec(
-    [
-      "ls-remote",
-      "--symref",
-      "--",
-      input.url,
-      ...(requested ? refs : ["HEAD"]),
-    ],
-    {
-      timeout: 60_000,
-      env: input.env ?? gitRemoteEnvironment(input),
-    },
-  ).catch((error: unknown) => {
-    const stderr = String((error as { stderr?: unknown }).stderr ?? "")
-    if (
-      /could not read (?:Username|Password)|Authentication failed|Repository not found|returned error: 40[134]/i.test(
-        stderr,
-      )
-    )
-      throw new GitRemoteAccessError({
-        hasCredential: Boolean(input.token),
-        stderr,
-      })
-    throw error
-  })
-  const lines = stdout.toString("utf8").trim().split("\n")
+  const lines = await lsRemote(input, ["--symref", "--", input.url, ...refs])
   const found = new Map(
     lines
       .map((line) => line.split("\t"))
@@ -236,6 +211,57 @@ export async function resolveGitRemoteTip(input: {
       )
       ?.slice("ref: refs/heads/".length, -"\tHEAD".length)
   return sha && branch ? { sha, branch } : null
+}
+
+/** The output lines of `git ls-remote` with `args`. */
+async function lsRemote(
+  input: { url: string; token?: string; env?: NodeJS.ProcessEnv },
+  args: string[],
+): Promise<string[]> {
+  const { stdout } = await gitExec(["ls-remote", ...args], {
+    timeout: 60_000,
+    env: input.env ?? gitRemoteEnvironment(input),
+  }).catch((error: unknown) => {
+    const stderr = String((error as { stderr?: unknown }).stderr ?? "")
+    if (
+      /could not read (?:Username|Password)|Authentication failed|Repository not found|returned error: 40[134]/i.test(
+        stderr,
+      )
+    )
+      throw new GitRemoteAccessError({
+        hasCredential: Boolean(input.token),
+        stderr,
+      })
+    throw error
+  })
+  return stdout.toString("utf8").trim().split("\n")
+}
+
+/**
+ * The branches of a remote with their tips, sorted by name. With `branch`,
+ * only that branch: never a tag of the same name.
+ */
+export async function listGitRemoteBranches(input: {
+  url: string
+  token?: string
+  branch?: string
+}): Promise<{ name: string; sha: string }[]> {
+  const lines = await lsRemote(input, [
+    "--heads",
+    "--",
+    input.url,
+    ...(input.branch ? [`refs/heads/${input.branch}`] : []),
+  ])
+  return lines
+    .flatMap((line) => {
+      const [sha = "", ref = ""] = line.split("\t")
+      return /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(sha) &&
+        ref.startsWith("refs/heads/")
+        ? [{ name: ref.slice("refs/heads/".length), sha }]
+        : []
+    })
+    .filter((found) => !input.branch || found.name === input.branch)
+    .sort((a, b) => a.name.localeCompare(b.name))
 }
 
 export function gitRemoteEnvironment(input: {

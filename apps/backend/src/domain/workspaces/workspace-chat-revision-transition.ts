@@ -14,9 +14,10 @@ import {
 } from "./conversation-session-branch.js"
 import { SANDBOX_GIT_GUARD } from "./job-sandbox.js"
 import {
+  revisionBaseBranch,
   sameWorkspaceBinding,
-  sameWorkspaceRevision,
   type WorkspaceRevision,
+  workspaceAdmitsRevision,
 } from "./revision.js"
 
 /**
@@ -67,7 +68,7 @@ export async function updateConversationSandboxRevision(input: {
   const current = await withOrgDbContext(input.orgId, () =>
     getDesiredWorkspaceRevision(desired.workspaceId),
   )
-  if (!current || !sameWorkspaceRevision(current, desired)) {
+  if (!current || !workspaceAdmitsRevision(current, desired)) {
     if (base) await record({ ...previousRevision, sha: base })
     return { effective: previousRevision }
   }
@@ -239,7 +240,7 @@ git update-ref refs/remotes/ctxpipe/base "$NEW_SHA"
       env: {
         OLD_SHA: previousRevision.sha,
         NEW_SHA: desired.sha,
-        DEFAULT_BRANCH: previousRevision.defaultBranch,
+        DEFAULT_BRANCH: revisionBaseBranch(previousRevision),
       },
     },
   )

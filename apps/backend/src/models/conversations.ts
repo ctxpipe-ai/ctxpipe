@@ -101,6 +101,11 @@ export async function ensureConversation(input: {
   id: string
   source?: string
   workspaceId?: string
+  /**
+   * The base branch that the user picked (ADR-071). Only the request that
+   * creates the conversation sets it; it never changes after that.
+   */
+  baseBranch?: string
 }): Promise<ConversationRecord> {
   return orgSql(async () => {
     const orgId = requireCurrentOrgId()
@@ -163,6 +168,7 @@ export async function ensureConversation(input: {
         workspaceId: input.workspaceId ?? null,
         source: input.source ?? (userId == null ? "mcp" : null),
         name: "New conversation",
+        baseBranch: input.baseBranch ?? null,
       })
       .onConflictDoNothing()
       .returning(conversationFieldsWithCurrentPr())
@@ -204,6 +210,8 @@ export async function persistConversationPublication(input: {
     const orgId = requireCurrentOrgId()
     const userId = requireCurrentUserId()
     const db = getOrgDb()
+    // A revision on another base branch (ADR-071) holds a tip of that
+    // branch, which the Workspace row does not hold: only the binding counts.
     const [binding] = await db
       .select({ id: workspaces.id })
       .from(workspaces)
@@ -213,7 +221,7 @@ export async function persistConversationPublication(input: {
               and ${workspaces.workspaceRepositoryUrl} = ${input.revision.remote.url}
               and ${workspaces.githubConnectionId} is not distinct from ${input.revision.remote.connectionId}
               and ${workspaces.desiredDefaultBranch} = ${input.revision.defaultBranch}
-              and ${workspaces.desiredSha} = ${input.revision.sha}`)
+              and (${input.revision.baseBranch != null} or ${workspaces.desiredSha} = ${input.revision.sha})`)
       .for("update")
     if (!binding) return false
     const [row] = await db
@@ -248,6 +256,7 @@ export async function getConversationSession(
   conversationId: string,
 ): Promise<{
   workspaceId: string | null
+  baseBranch: string | null
   lastBranch: string | null
   lastPushedSha: string | null
   lastChatPrNumber: number | null
@@ -257,6 +266,7 @@ export async function getConversationSession(
     const [row] = await db
       .select({
         workspaceId: conversations.workspaceId,
+        baseBranch: conversations.baseBranch,
         lastBranch: conversations.lastBranch,
         lastPushedSha: conversations.lastPushedSha,
         lastChatPrNumber: conversations.lastChatPrNumber,

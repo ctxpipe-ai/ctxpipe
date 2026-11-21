@@ -19,6 +19,12 @@ export const workspaceRevisionSchema = z
     generation: z.number().int().positive(),
     remote: repositoryRemoteSchema,
     defaultBranch: z.string().min(1),
+    /**
+     * A conversation on another branch than the default branch (ADR-071):
+     * its session branch starts from this branch, and `sha` is a tip of this
+     * branch. Absent: the default branch.
+     */
+    baseBranch: z.string().min(1).optional(),
     sha: gitObjectIdSchema,
     access: z.enum(["read", "publish-session", "write-default"]),
     /**
@@ -95,7 +101,32 @@ export function sameWorkspaceRevision(
   a: WorkspaceRevision | null | undefined,
   b: WorkspaceRevision,
 ): boolean {
-  return sameWorkspaceBinding(a, b) && a?.sha === b.sha && a.access === b.access
+  return (
+    sameWorkspaceBinding(a, b) &&
+    a?.baseBranch === b.baseBranch &&
+    a?.sha === b.sha &&
+    a?.access === b.access
+  )
+}
+
+/** The branch that `revision.sha` is a tip of, and that a pull request targets. */
+export function revisionBaseBranch(revision: WorkspaceRevision): string {
+  return revision.baseBranch ?? revision.defaultBranch
+}
+
+/**
+ * The current Workspace revision `current` still admits `target`: the same
+ * binding and access, and for a target on the default branch the same
+ * commit. The Workspace row holds no tip of another base branch, so for a
+ * target on one only the binding and the access count.
+ */
+export function workspaceAdmitsRevision(
+  current: WorkspaceRevision | null | undefined,
+  target: WorkspaceRevision,
+): boolean {
+  return target.baseBranch
+    ? sameWorkspaceBinding(current, target) && current?.access === target.access
+    : sameWorkspaceRevision(current, target)
 }
 
 export function publishedProjection(

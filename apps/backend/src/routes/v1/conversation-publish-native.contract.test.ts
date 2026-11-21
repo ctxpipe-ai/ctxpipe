@@ -622,3 +622,140 @@ it(
     )
   },
 )
+
+it(
+  "opens the pull request of a conversation on another base branch into that branch",
+  { timeout: 60_000 },
+  async () => {
+    const pullRequests: unknown[] = []
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        onGithubPullRequest: async (body) => {
+          pullRequests.push(body)
+        },
+      },
+      async (f) => {
+        const conversationId = `conv_${f.id}`
+        const userId = `user_${f.id}`
+        // The base branch has a commit that the default branch does not have.
+        f.git("checkout", "-q", "-b", "release")
+        writeFileSync(join(f.directory, "release.md"), "# Release\n")
+        f.git("add", "release.md")
+        f.git("commit", "-q", "-m", "Release notes")
+        const releaseTip = f.git("rev-parse", "HEAD")
+        f.git("push", "-q", f.remote, "release")
+        f.git("checkout", "-q", "main")
+        const previousProvider = process.env.SANDBOX_PROVIDER
+        process.env.SANDBOX_PROVIDER = "unsandboxed"
+        const app = new OpenAPIHono<AppEnv>()
+        app.use(contextStorage())
+        app.use(withTestRequestLogger)
+        app.use("*", async (c, next) => {
+          c.set("user", { id: userId } as AppEnv["Variables"]["user"])
+          c.set("session", {
+            id: `sess_${f.id}`,
+          } as AppEnv["Variables"]["session"])
+          await withOrgIdContext(f.org, next)
+        })
+        app.route("/conversations", conversationRoutes)
+        try {
+          await withOrgDbContext(f.org.id, (db) =>
+            db.insert(conversations).values({
+              id: conversationId,
+              userId,
+              orgId: f.org.id,
+              workspaceId: f.workspaceId,
+              name: "Release changes",
+              baseBranch: "release",
+            }),
+          )
+          const prepared = await app.request(
+            `/conversations/${conversationId}/prepare`,
+            {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ workspaceId: f.workspaceId }),
+            },
+          )
+          expect(prepared.status).toBe(204)
+          const { withUserIdContext } = await import("../../auth/context.js")
+          const { readySandboxHandle } =
+            await import("./conversation-files-routes.js")
+          const [conversation, workspace] = await withOrgIdContext(f.org, () =>
+            withUserIdContext(userId, async () => {
+              const { getWorkspaceById } =
+                await import("../../models/workspaces.js")
+              return Promise.all([
+                getConversation(conversationId),
+                getWorkspaceById(f.workspaceId),
+              ])
+            }),
+          )
+          if (!conversation || !workspace) throw new Error("No conversation")
+          const ready = await withOrgIdContext(f.org, () =>
+            readySandboxHandle({ conversation, workspace, existingOnly: true }),
+          )
+          if (!ready.ok) throw new Error(ready.error)
+          // The sandbox starts on the base branch at its tip.
+          expect(
+            (await ready.handle.exec("git rev-parse HEAD", { env: {} })).stdout,
+          ).toBe(`${releaseTip}\n`)
+          const committed = await ready.handle.exec(
+            "printf '# Saved conversation\\n' > notes.md && git add notes.md && git -c user.name=Agent -c user.email=agent@example.test commit -q -m 'Save notes'",
+            { env: {} },
+          )
+          expect(committed.exitCode).toBe(0)
+          const response = await app.request(
+            `/conversations/${conversationId}/pull-request`,
+            {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ title: "Release changes" }),
+            },
+          )
+          const branch = conversationSessionBranch(conversationId)
+          expect({
+            status: response.status,
+            body: await response.json(),
+          }).toMatchObject({ status: 200, body: { branch, prNumber: 41 } })
+          expect(pullRequests).toEqual([
+            expect.objectContaining({ head: branch, base: "release" }),
+          ])
+          // The session branch builds on the base branch, and no default or
+          // base branch moved.
+          expect(f.git("--git-dir", f.remote, "rev-parse", `${branch}^`)).toBe(
+            releaseTip,
+          )
+          expect(f.git("--git-dir", f.remote, "rev-parse", "release")).toBe(
+            releaseTip,
+          )
+          expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(f.sha)
+          expect(
+            await withOrgIdContext(f.org, () =>
+              withUserIdContext(userId, () => getConversation(conversationId)),
+            ),
+          ).toMatchObject({
+            baseBranch: "release",
+            lastBranch: branch,
+            lastChatPrNumber: 41,
+          })
+        } finally {
+          await withOrgIdContext(f.org, () =>
+            destroySandboxesForConversation(conversationId),
+          )
+          if (previousProvider === undefined)
+            delete process.env.SANDBOX_PROVIDER
+          else process.env.SANDBOX_PROVIDER = previousProvider
+          await withOrgDbContext(f.org.id, (db) =>
+            db
+              .delete(conversations)
+              .where(eq(conversations.id, conversationId)),
+          )
+        }
+      },
+    )
+  },
+)

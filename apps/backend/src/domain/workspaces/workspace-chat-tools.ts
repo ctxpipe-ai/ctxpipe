@@ -2,15 +2,17 @@ import type { ToolExecutionContext } from "@tanstack/ai"
 import { z } from "zod"
 
 import { withOrgDbContext } from "../../db/client.js"
-import { selectKnowledgeReader } from "../../knowledge-reader/knowledge-reader.js"
+import { selectFirstKnowledgeBranch } from "../../knowledge-reader/knowledge-reader.js"
 import { toToon } from "../../lib/agentToolRuntime.js"
 import { runBridgeToolCall } from "../../mcp/correlation.js"
+import { getConversationSession } from "../../models/conversations.js"
 import {
   getWorkspaceProjectionSnapshot,
   type WorkspaceProjectionSnapshot,
 } from "../../models/workspaces.js"
 import { codeSearch } from "../../retrieval/services/codeSearch.js"
 import { listRepositoriesTool } from "../../tools/listRepositories.js"
+import { conversationSessionBranch } from "./chat-lifecycle.js"
 import { decayWorkspaceSignal } from "./claim-confidence.js"
 import {
   CODE_TOOLS,
@@ -56,10 +58,38 @@ export function workspaceChatToolAllowed(input: {
   return input.allowedRepositoryIds.has(repositoryId)
 }
 
+/**
+ * The knowledge reader of one tool call of a conversation (ADR-071): its
+ * session branch when that has a knowledge projection, else its base
+ * branch, else the default branch. Each call picks it again, as an MCP tool
+ * call does, so a push of the session branch reaches the next call.
+ */
+async function selectChatKnowledgeReader(input: {
+  orgId: string
+  workspaceId: string
+  conversationId?: string
+}) {
+  const conversation = input.conversationId
+    ? await getConversationSession(input.orgId, input.conversationId)
+    : null
+  const branches =
+    input.conversationId && conversation
+      ? [
+          conversationSessionBranch(
+            input.conversationId,
+            conversation.lastBranch,
+          ),
+          ...(conversation.baseBranch ? [conversation.baseBranch] : []),
+        ]
+      : []
+  return selectFirstKnowledgeBranch(input.orgId, [input.workspaceId], branches)
+}
+
 export async function workspaceChatTools(input: {
   orgId: string
   orgSlug: string
   workspaceId: string
+  conversationId?: string
   snapshot: WorkspaceProjectionSnapshot
 }): Promise<WorkspaceChatTanstackTool[]> {
   const projection = publishedProjection(input.snapshot.projection)
@@ -68,11 +98,9 @@ export async function workspaceChatTools(input: {
     projection.kind === "active" ? projection.revision.sha : projection.sha
   const boundRepositories = input.snapshot.repositories
   const allowed = new Set(boundRepositories.map((repo) => repo.id))
-  // Each call picks the knowledge reader, as an MCP tool call does.
   const expand = async (params: GraphExpandParams) => {
-    const { reader, planeHeads } = await selectKnowledgeReader(input.orgId, [
-      input.workspaceId,
-    ])
+    const { reader, planeHeads, branch } =
+      await selectChatKnowledgeReader(input)
     return {
       graph: await reader.expand({
         orgId: input.orgId,
@@ -82,6 +110,7 @@ export async function workspaceChatTools(input: {
         params,
       }),
       sha: planeHeads.get(input.workspaceId)?.sha ?? sha,
+      branch: branch ?? DEFAULT_BRANCH_LABEL,
     }
   }
   const explorer = [
@@ -100,8 +129,7 @@ export async function workspaceChatTools(input: {
   )
   tools.unshift(
     hybridSearchTool({
-      orgId: input.orgId,
-      workspaceId: input.workspaceId,
+      ...input,
       activeProjectionSha: sha,
     }),
   )
@@ -124,9 +152,13 @@ export function withToolCallSpan(
   }
 }
 
+/** The branch that a read names when it serves the default branch. */
+const DEFAULT_BRANCH_LABEL = "the default branch"
+
 function hybridSearchTool(input: {
   orgId: string
   workspaceId: string
+  conversationId?: string
   activeProjectionSha: string
 }): WorkspaceChatTanstackTool {
   return {
@@ -139,9 +171,8 @@ function hybridSearchTool(input: {
           ? (args as { query: string }).query
           : ""
       if (!query.trim()) return "No search query."
-      const { reader, planeHeads } = await selectKnowledgeReader(input.orgId, [
-        input.workspaceId,
-      ])
+      const { reader, planeHeads, branch } =
+        await selectChatKnowledgeReader(input)
       const { hits } = await reader.search({
         orgId: input.orgId,
         workspaceIds: [input.workspaceId],
@@ -153,7 +184,7 @@ function hybridSearchTool(input: {
       const sha =
         planeHeads.get(input.workspaceId)?.sha ?? input.activeProjectionSha
       return [
-        `Workspace projection context (${sha}):`,
+        `Workspace projection context (${branch ?? DEFAULT_BRANCH_LABEL} at ${sha}):`,
         ...hits.map((hit) => {
           const claims = hit.claims
             .map((claim) => `- ${claim.predicate ?? "related"} ${claim.to}`)
@@ -228,10 +259,10 @@ function wrapExplorerTool(input: {
 }
 
 type ChatGraphTool = {
-  /** The walk, and the SHA that the stack of the walk serves. */
+  /** The walk, and the branch and the SHA that the stack of the walk serves. */
   expand: (
     params: GraphExpandParams,
-  ) => Promise<{ graph: GraphExpansion; sha: string }>
+  ) => Promise<{ graph: GraphExpansion; sha: string; branch: string }>
 }
 
 function graphLookupTool(input: ChatGraphTool): WorkspaceChatTanstackTool {
@@ -246,6 +277,7 @@ function graphLookupTool(input: ChatGraphTool): WorkspaceChatTanstackTool {
       if (!("graph" in walked)) return toToon(walked)
       const node = walked.graph.nodes[0]
       return toToon({
+        projectionBranch: walked.branch,
         projectionSha: walked.sha,
         node: node
           ? {
@@ -304,7 +336,11 @@ function graphNeighborsTool(input: ChatGraphTool): WorkspaceChatTanstackTool {
             confidence,
           }
         })
-      return toToon({ projectionSha: walked.sha, neighbors })
+      return toToon({
+        projectionBranch: walked.branch,
+        projectionSha: walked.sha,
+        neighbors,
+      })
     },
   }
 }
@@ -365,6 +401,8 @@ const chatToolScope = z.object({
   orgId: z.string().min(1),
   orgSlug: z.string().min(1),
   workspaceId: z.string().min(1),
+  /** The graph reads use the branches of the conversation (ADR-071). */
+  conversationId: z.string().min(1).optional(),
 })
 
 /** Static catalogue. Tenant-bound data is read only on an actual tool invocation. */

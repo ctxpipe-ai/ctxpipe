@@ -281,6 +281,7 @@ async function* streamWorkspaceChatSocketTurn(input: {
         conversationId: input.conversationId,
         workspaceId: parsed.workspaceId,
         source: parsed.source,
+        baseBranch: parsed.baseBranch,
       }),
     onUserPersist: () =>
       persistWorkspaceChatUserTurnListed(input.conversationId),

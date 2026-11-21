@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto"
 import { open } from "node:fs/promises"
 import { join } from "node:path"
 
-import type { Env } from "../../config/env.js"
+import { type Env, parseEnv } from "../../config/env.js"
 import {
   type ConversationPushTrigger,
   type ConversationSync,
@@ -41,6 +41,7 @@ import {
 } from "./chat-lifecycle.js"
 import { COMMIT_IDENTITY } from "./chat-runtime.js"
 import { workspaceAllowsConversationEdits } from "./chat-sandbox-policy.js"
+import { conversationRevision } from "./conversation-base.js"
 import {
   getConversationSandboxBinding,
   sanitizeGitRemoteError,
@@ -58,7 +59,8 @@ import {
 import { resolveRepositoryReadCredential } from "./resolve-revision.js"
 import {
   gitObjectIdSchema,
-  sameWorkspaceRevision,
+  revisionBaseBranch,
+  workspaceAdmitsRevision,
   type WorkspaceRevision,
 } from "./revision.js"
 import {
@@ -127,6 +129,8 @@ export type SessionPublishSkip =
   | "stale_binding"
   /** The session branch name would reach the default branch. */
   | "default_branch"
+  /** The repository no longer has the base branch of the conversation. */
+  | "base_branch_missing"
   /** The sandbox is on a branch that is not this conversation's. */
   | "other_branch"
   /** An option-D update is unfinished or a rebase is in progress. */
@@ -179,7 +183,7 @@ export type PublishTarget = {
   branch: string
   /** The tip ctxpipe last pushed; only that tip may be replaced. */
   pushedSha: string | null
-  /** A default-branch commit the sandbox builds on and GitHub has. */
+  /** A commit of the base branch that the sandbox builds on and GitHub has. */
   baseSha: string
 }
 
@@ -215,7 +219,14 @@ export async function resolvePublishTarget(input: {
     )
   )
     return { ok: false, reason: "read_only" }
-  const revision = { ...admission.revision, access: "publish-session" as const }
+  // A conversation on another base branch builds on the tip of that branch.
+  const revision = await conversationRevision({
+    orgId: input.orgId,
+    env: parseEnv(process.env as Record<string, string | undefined>),
+    revision: { ...admission.revision, access: "publish-session" },
+    baseBranch: conversation.baseBranch,
+  })
+  if (!revision) return { ok: false, reason: "base_branch_missing" }
   const repositoryName = githubRepoFullNameFromWorkspaceUrl(revision.remote.url)
   const connectionId = revision.remote.connectionId
   if (!repositoryName || !connectionId)
@@ -268,7 +279,7 @@ async function assertStillBound(target: PublishTarget): Promise<void> {
   if (
     conversation?.workspaceId !== target.workspaceId ||
     !current ||
-    !sameWorkspaceRevision(current.revision, {
+    !workspaceAdmitsRevision(current.revision, {
       ...target.revision,
       access: current.revision.access,
     }) ||
@@ -363,13 +374,13 @@ export async function pushConversationSession(input: {
       !(await switchToSessionBranch({
         handle: input.handle,
         branch: target.branch,
-        defaultBranch: target.revision.defaultBranch,
+        baseBranch: revisionBaseBranch(target.revision),
       }))
     )
       throw new Error("Cannot check out the session branch")
-    // The switch leaves any branch but the default where it is.
+    // The switch leaves any branch but the base branch where it is.
     if (
-      state.branch !== target.revision.defaultBranch &&
+      state.branch !== revisionBaseBranch(target.revision) &&
       state.branch !== target.branch
     )
       return { status: "skipped", reason: "other_branch", dirty }
@@ -858,7 +869,7 @@ export async function describeSessionPullRequest(input: {
     repositoryName: target.repositoryName,
     env,
     githubConnectionId: target.connectionId,
-    base: target.revision.defaultBranch,
+    base: revisionBaseBranch(target.revision),
     head: target.branch,
   }).catch((error: unknown): BranchChanges => {
     log.warn({

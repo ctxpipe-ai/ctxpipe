@@ -1,0 +1,1 @@
+ALTER TABLE "conversations" ADD COLUMN "base_branch" text;

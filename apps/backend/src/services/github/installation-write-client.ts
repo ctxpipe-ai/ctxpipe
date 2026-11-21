@@ -1,8 +1,8 @@
 import type { Env } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import {
-  sameWorkspaceRevision,
   type WorkspaceRevision,
+  workspaceAdmitsRevision,
 } from "../../domain/workspaces/revision.js"
 import { workspaceRootPath } from "../../domain/workspaces/root-path.js"
 import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
@@ -1024,7 +1024,7 @@ export async function createPullRequestFromBranch(
   try {
     const response = await withTransientGitHubRetry(async () => {
       if (
-        !sameWorkspaceRevision(
+        !workspaceAdmitsRevision(
           await getDesiredWorkspaceRevision(
             input.revision.workspaceId,
             "publish-session",

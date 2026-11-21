@@ -532,6 +532,7 @@ type ConversationSandboxAttachInput = {
     orgId: string
     workspaceId: string | null
     lastBranch: string | null
+    baseBranch: string | null
   }
   workspace: {
     id: string
@@ -570,6 +571,7 @@ export async function readySandboxHandle(
       desiredSha: runtime.desiredSha,
       desiredGeneration: runtime.desiredGeneration,
       defaultBranch: runtime.defaultBranch,
+      baseBranch: runtime.baseBranch,
       lastBranch: runtime.lastBranch,
       ref: runtime.cloneRef || runtime.desiredSha || "HEAD",
       writeStatus: runtime.writeStatus,
@@ -584,16 +586,31 @@ export async function readySandboxHandle(
   return {
     ok: true as const,
     handle: adaptTanstackHandle(warmed.handle, input.abortSignal),
+    /** The commit that the conversation builds on now: a tip of its base. */
+    desiredSha: runtime.desiredSha,
   }
+}
+
+/** The branch that the conversation's changes are compared with (ADR-071). */
+function conversationBaseBranch(loaded: {
+  conversation: { baseBranch: string | null }
+  workspace: { desiredDefaultBranch?: string | null }
+}): string {
+  return (
+    loaded.conversation.baseBranch ||
+    loaded.workspace.desiredDefaultBranch?.trim() ||
+    "main"
+  )
 }
 
 async function conversationFileSnapshot(input: {
   handle: JobSandboxHandle
   conversationId: string
-  lastBranch: string | null
+  conversation: { lastBranch: string | null; baseBranch: string | null }
   workspace: { id: string; desiredDefaultBranch?: string | null }
+  desiredSha: string | null
 }) {
-  const defaultBranch = input.workspace.desiredDefaultBranch?.trim() || "main"
+  const defaultBranch = conversationBaseBranch(input)
   const [paths, branchResult, status, worktreeVersion, revision] =
     await Promise.all([
       listConversationSandboxPaths(input.handle),
@@ -603,7 +620,7 @@ async function conversationFileSnapshot(input: {
         defaultBranch,
         sessionBranch: sessionBranchName(
           input.conversationId,
-          input.lastBranch,
+          input.conversation.lastBranch,
         ),
       }),
       conversationWorktreeVersion(input.handle),
@@ -630,7 +647,7 @@ async function conversationFileSnapshot(input: {
       ...conversationRevisionStatus({
         ...status,
         sha: binding?.desiredSha ?? null,
-        desiredSha: revision?.sha ?? null,
+        desiredSha: input.desiredSha,
       }),
       worktreeVersion,
     },
@@ -853,8 +870,7 @@ export const conversationFileRoutes = fileRoutes
     const ready = await readySandboxHandle({ ...loaded, existingOnly: true })
     if (!ready.ok) return c.json({ error: ready.error }, ready.status)
     const { handle } = ready
-    const defaultBranch =
-      loaded.workspace.desiredDefaultBranch?.trim() || "main"
+    const defaultBranch = conversationBaseBranch(loaded)
     const [status, worktreeVersion, revision] = await Promise.all([
       conversationSandboxStatus({
         handle,
@@ -877,7 +893,7 @@ export const conversationFileRoutes = fileRoutes
         ...conversationRevisionStatus({
           ...status,
           sha: binding?.desiredSha ?? null,
-          desiredSha: revision?.sha ?? null,
+          desiredSha: ready.desiredSha,
         }),
         worktreeVersion,
       },
@@ -892,8 +908,7 @@ export const conversationFileRoutes = fileRoutes
       c.get("sandboxAbortSignal"),
     )
     if (!loaded) return c.json({ error: "Not found" }, 404)
-    const defaultBranch =
-      loaded.workspace.desiredDefaultBranch?.trim() || "main"
+    const defaultBranch = conversationBaseBranch(loaded)
     const ready = await readySandboxHandle(loaded)
     if (!ready.ok) return c.json({ error: ready.error }, ready.status)
     const { handle } = ready
@@ -996,8 +1011,9 @@ export const conversationFileRoutes = fileRoutes
     const snapshot = await conversationFileSnapshot({
       handle,
       conversationId,
-      lastBranch: loaded.conversation.lastBranch,
+      conversation: loaded.conversation,
       workspace: loaded.workspace,
+      desiredSha: ready.desiredSha,
     })
     return c.json(
       {

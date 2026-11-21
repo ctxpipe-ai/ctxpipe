@@ -917,6 +917,7 @@ it(
               orgId: f.org.id,
               workspaceId: f.workspaceId,
               lastBranch: "ctxpipe/chat/conv_warm/1",
+              baseBranch: null,
             },
             workspace,
           }
