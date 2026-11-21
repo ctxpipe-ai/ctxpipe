@@ -217,14 +217,17 @@ export const workspaceChatDockerOwnership = {
  * conversation keeps its sandbox while the default branch moves (option D)
  * and when its Workspace gets a new base.
  */
-function conversationSandboxDefinition(input: {
+export function conversationSandboxDefinition(input: {
   provider: SandboxProvider
   workspace: WorkspaceDefinition
   image: string
   revision: WorkspaceRevision
   conversationId: string
-  /** Runs after the sandbox is ready; it must not throw. */
-  onReady?: () => void
+  /**
+   * Runs after each `ensure` that gives a sandbox: the prepare's and the
+   * turn's (`withSandbox` calls this `ensure`). It must not throw.
+   */
+  onEnsured?: () => void
 }) {
   const definition = defineSandbox({
     // A relinked Workspace (new generation or connection) gets new sandboxes.
@@ -247,17 +250,18 @@ function conversationSandboxDefinition(input: {
           conversationId: input.conversationId,
           sandboxId: ready.id,
         })
-        input.onReady?.()
       },
     },
   })
   const ensure = definition.ensure.bind(definition)
   const ensureExisting = definition.ensureExisting.bind(definition)
-  definition.ensure = ((ctx) => {
+  definition.ensure = (async (ctx) => {
     workspaceChatDockerOwnership.ensures += 1
-    return timeSandboxLifecycle("ensure", () => ensure(ctx), {
+    const handle = await timeSandboxLifecycle("ensure", () => ensure(ctx), {
       conversationId: ctx.threadId,
     })
+    input.onEnsured?.()
+    return handle
   }) as typeof definition.ensure
   definition.ensureExisting = ((ctx) => {
     workspaceChatDockerOwnership.ensures += 1
@@ -1421,11 +1425,12 @@ async function buildWorkspaceChatSandbox(
       image,
       revision: revision.data,
       conversationId: input.conversationId,
-      // AgentCore: chat use keeps a warm session ready for the Workspace's
-      // next new conversation. A Files read (no label) fills nothing.
+      // AgentCore: chat use (a prepare or a turn) keeps a warm session ready
+      // for the Workspace's next new conversation (ADR-061 decision 18). A
+      // Files read (no label) fills nothing.
       ...(selectedProvider === "agentcore" && cloneLabel
         ? {
-            onReady: () =>
+            onEnsured: () =>
               requestChatSandboxPoolFill({
                 ...pool,
                 provider: (caPem) =>
