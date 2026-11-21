@@ -3,7 +3,6 @@ CREATE TABLE "knowledge_branch_heads" (
 	"organization_id" text NOT NULL,
 	"branch" text,
 	"last_sha" text,
-	"merge_base" text,
 	"base_branch" text,
 	"tree_version" bigint DEFAULT 0 NOT NULL,
 	"projection_version" text,

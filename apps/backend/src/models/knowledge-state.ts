@@ -87,6 +87,14 @@ export type KnowledgeHead = TreeHead & {
   base?: TreeHead & { sha: string }
 }
 
+/**
+ * The key of the view of a head, for the binding of a cursor or a cache: the
+ * tip of the branch, and for an overlay also the tip of its base, because a
+ * new tip of the default branch changes the view of an overlay too.
+ */
+export const knowledgeViewKey = (head: KnowledgeHead) =>
+  head.base ? `${head.sha}+${head.base.sha}` : head.sha
+
 type HeadRow = typeof knowledgeBranchHeads.$inferSelect
 
 /** The tree head of a completed head row, or null before its first run. */
@@ -152,7 +160,7 @@ export async function readyKnowledgeHeads(
       (row) =>
         row.workspaceId === workspaceId &&
         row.branch === branch &&
-        row.mergeBase !== null,
+        row.baseBranch !== null,
     )
     if (overlay?.lastSha)
       heads.set(workspaceId, {
@@ -226,15 +234,13 @@ export async function beginKnowledgeRun(
  * Record a run that applied all of its work: the head of the branch moves
  * to the tip and to the tree version of the run, in one transaction.
  * Until then, no read sees the tree rows of the run. A run of the default
- * branch (a full tree, `mergeBase` null) also sets `default_at` and the
+ * branch (a full tree, `baseBranch` null) also sets `default_at` and the
  * `knowledge_state` row of the previous release.
  */
 export async function completeKnowledgeRun(
   input: BranchKey & {
     tip: string
     treeVersion: number
-    /** The merge base of an overlay; null for the full tree of the default branch. */
-    mergeBase: string | null
     /** The default branch of the tree of an overlay; null for a full tree. */
     baseBranch: string | null
     projectionVersion: string
@@ -250,18 +256,17 @@ export async function completeKnowledgeRun(
         .set({
           lastSha: input.tip,
           treeVersion: input.treeVersion,
-          mergeBase: input.mergeBase,
           baseBranch: input.baseBranch,
           projectionVersion: input.projectionVersion,
           runStatus: "completed",
           failedCount: input.failedCount,
-          defaultAt: input.mergeBase === null ? now : null,
+          defaultAt: input.baseBranch === null ? now : null,
           updatedAt: now,
         })
         .where(headRow(input))
         .returning({ branch: knowledgeBranchHeads.branch })
       requireRun(updated, input)
-      if (input.mergeBase === null)
+      if (input.baseBranch === null)
         await tx
           .update(knowledgeState)
           .set({

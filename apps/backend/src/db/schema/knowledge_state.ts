@@ -74,12 +74,7 @@ export const knowledgeBranchHeads = pgTable.withRLS(
     /** The last tip that a run of the branch applied in full; null before the first. */
     lastSha: text("last_sha"),
     /**
-     * The merge base of the tip with the default branch, for an overlay;
-     * null for a full tree.
-     */
-    mergeBase: text("merge_base"),
-    /**
-     * The default branch whose tree the overlay was made against; null for
+     * For an overlay: the default branch whose tree it was made on. Null for
      * a full tree. A new default branch (a rename) makes the overlay again.
      */
     baseBranch: text("base_branch"),

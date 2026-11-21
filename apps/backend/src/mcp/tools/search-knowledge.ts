@@ -1,6 +1,7 @@
 import { z } from "zod"
 
 import { selectKnowledgeReader } from "../../knowledge-reader/knowledge-reader.js"
+import { knowledgeViewKey } from "../../models/knowledge-state.js"
 import { fitPage, truncateText } from "../framework/budget.js"
 import {
   listOrgWorkspaceSlugs,
@@ -183,7 +184,13 @@ export const searchKnowledgeTool = defineMcpReadTool({
       stack: reader.stack,
       scope: JSON.stringify(["search_knowledge", parameters]),
       sha: JSON.stringify([
-        workspaces.map((workspace) => [workspace.id, workspace.served.sha]),
+        workspaces.map((workspace) => {
+          const head = planeHeads.get(workspace.id)
+          return [
+            workspace.id,
+            head ? knowledgeViewKey(head) : workspace.served.sha,
+          ]
+        }),
         [
           ...new Set(
             hits.map((hit) => `${hit.workspaceId}:${hit.projectionSha}`),

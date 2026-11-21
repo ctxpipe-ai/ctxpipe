@@ -80,7 +80,7 @@ function plan(
 
 /** The state after a completed run of the full tree at `lastSha`. */
 function started(lastSha: string) {
-  return { lastSha, mergeBase: null, projectionVersion: version }
+  return { lastSha, baseBranch: null, projectionVersion: version }
 }
 
 describe("planKnowledgeChangeSet", () => {
@@ -124,7 +124,7 @@ describe("planKnowledgeChangeSet", () => {
     })
     expect(
       await plan(
-        { lastSha: null, mergeBase: null, projectionVersion: null },
+        { lastSha: null, baseBranch: null, projectionVersion: null },
         tip,
       ),
     ).toMatchObject({ kind: "full", reason: "first_run" })
@@ -149,7 +149,7 @@ describe("planKnowledgeChangeSet", () => {
   it("rebuilds in full when the tree of the branch was an overlay (the branch is now the default branch)", async () => {
     const base = await commit({ "a.md": "a1" })
     const tip = await commit({ "b.md": "b1" })
-    expect(await plan({ ...started(base), mergeBase: base }, tip)).toEqual({
+    expect(await plan({ ...started(base), baseBranch: "main" }, tip)).toEqual({
       kind: "full",
       reason: "branch",
       files: ["a.md", "b.md"],

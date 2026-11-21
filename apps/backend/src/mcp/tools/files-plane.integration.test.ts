@@ -141,7 +141,6 @@ async function setReady(ready: boolean) {
     tip: servedSha,
     branch: "main",
     treeVersion: 1,
-    mergeBase: null,
     baseBranch: null,
     projectionVersion: "test",
     failedCount: 0,

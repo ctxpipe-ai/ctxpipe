@@ -285,7 +285,6 @@ export async function projectKnowledgePlane(input: {
               ...branchKey,
               tip: input.tip,
               treeVersion,
-              mergeBase,
               baseBranch: base?.branch ?? null,
               projectionVersion,
               failedCount: applied.failedCount,
@@ -618,9 +617,13 @@ async function overlayEnds(input: {
       entry,
     ]),
   )
+  // An `inherit` row holds no file version, so that the cleanup can remove
+  // the file version that the branch does not use any more.
   const inherit = (docKey: string): TreeEntry[] => {
     const entry = current.get(docKey)
-    return entry && !entry.inherit ? [{ ...entry, inherit: true }] : []
+    return entry && !entry.inherit
+      ? [{ ...entry, version: "", inherit: true }]
+      : []
   }
   const ends = new Map<string, TreeEntry[]>()
   // A changed path with no file version (a knowledge file that gives no
@@ -634,14 +637,27 @@ async function overlayEnds(input: {
     const own = current.get(docKey)
     const below = base.get(docKey)
     const kept = [below, own].find((entry) => entry && !entry.inherit)
-    // A tombstone of the branch stays as it is, with its first date.
+    // A tombstone of the branch stays as it is, with its first date. With
+    // no stored row of the path, the tombstone has no file version: the
+    // path has a tombstone with no fields.
     if (own?.deletedAt && !own.inherit) ends.set(docKey, [])
-    else if (kept)
+    else
       ends.set(docKey, [
-        { ...kept, inherit: false, deletedAt: input.observedAt },
+        {
+          ...(kept ?? {
+            docKey,
+            version: "",
+            path,
+            status: "active" as const,
+            kind: "",
+            observedAt: input.observedAt,
+            validFrom: null,
+            validTo: null,
+          }),
+          inherit: false,
+          deletedAt: input.observedAt,
+        },
       ])
-    // No row of the path anywhere: the view has no such path.
-    else ends.set(docKey, inherit(docKey))
   }
   const inOverlay = new Set([
     ...present,

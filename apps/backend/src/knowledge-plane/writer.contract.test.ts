@@ -1727,8 +1727,20 @@ describe("vector reuse (CTX-1428)", () => {
         "b.md": "# Beta\n\nSee [a](a.md) again.\n",
         "n.md": "# New\n\nA new file.\n",
       })
+      // The cleanup after the grace times keeps the file versions that the
+      // tree uses, so the rebuild below still finds their vectors.
+      await withLogger(createLogger({}), () =>
+        cleanUpKnowledgePlane({
+          orgId,
+          workspaceId,
+          store,
+          now: new Date(Date.now() + 2 * 86_400_000),
+        }),
+      )
       // A new vision model is a new projection version, so each file gets a
-      // new file version, as after a change of the parser.
+      // new file version (a new variant, the same text), as after a change
+      // of the parser. The rebuild reuses the vectors of the earlier file
+      // versions by `embedding_key`.
       vi.stubEnv("MODEL_VISION_NAME", "vendor/other-vision")
       embeddings.requests = 0
       embeddings.inputs = []
@@ -1996,6 +2008,31 @@ describe("branches (ADR-071)", () => {
       // B changes x.md back: the path leaves the overlay (an inherit row).
       const reverted = await remote.commit({ "x.md": "# X\n" })
       await run(remote, workspaceId, reverted, overlay("feature", base))
+      // The cleanup after the grace times removes the file version that B
+      // does not use any more: the inherit row holds none.
+      const titlesStored = async () =>
+        (
+          await (
+            await admin.query({
+              query: `SELECT title FROM documents
+                      WHERE org_id = {orgId:String} AND workspace_id = {workspaceId:String}
+                      ORDER BY title`,
+              query_params: { orgId, workspaceId },
+              format: "JSONEachRow",
+              clickhouse_settings: { [ORG_SETTING]: orgId },
+            })
+          ).json<{ title: string }>()
+        ).map((row) => row.title)
+      expect(await titlesStored()).toContain("X on B")
+      await withLogger(createLogger({}), () =>
+        cleanUpKnowledgePlane({
+          orgId,
+          workspaceId,
+          store,
+          now: new Date(Date.now() + 2 * 86_400_000),
+        }),
+      )
+      expect(await titlesStored()).not.toContain("X on B")
       // Main then changes x.md: B shows the newer file of main.
       remote.git("checkout", "-q", "-f", "main")
       const mainTip = await remote.commit({
@@ -2076,6 +2113,39 @@ describe("branches (ADR-071)", () => {
       })
       expect(await titles(workspaceId, ["r.md"], "feature")).toEqual({
         "r.md": "deleted: R",
+      })
+    } finally {
+      await remote.remove()
+    }
+  })
+
+  it("a path that the branch deleted gets a tombstone also when the default branch never had a row of it", async () => {
+    const remote = await Remote.create()
+    try {
+      await remote.commit({ "q.md": "# Q\n", "s.md": "# S\n" })
+      remote.git("checkout", "-q", "-f", "-b", "feature")
+      const branchTip = await remote.commit({ "q.md": null })
+      remote.git("checkout", "-q", "-f", "main")
+      // The first run of main comes after main deleted q.md: its tree has no
+      // row of q.md.
+      const mainTip = await remote.commit({ "q.md": null })
+      const workspaceId = await newWorkspace()
+      await run(remote, workspaceId, mainTip)
+      await run(remote, workspaceId, branchTip, overlay("feature", mainTip))
+      expect(await statusOf(workspaceId, "feature")).toMatchObject({
+        [key(workspaceId, "q.md")]: "deleted",
+      })
+      // Main adds q.md again: B keeps its deletion.
+      await run(
+        remote,
+        workspaceId,
+        await remote.commit({ "q.md": "# Q again\n" }),
+      )
+      expect(await titles(workspaceId, ["q.md"])).toEqual({
+        "q.md": "active: Q again",
+      })
+      expect(await statusOf(workspaceId, "feature")).toMatchObject({
+        [key(workspaceId, "q.md")]: "deleted",
       })
     } finally {
       await remote.remove()

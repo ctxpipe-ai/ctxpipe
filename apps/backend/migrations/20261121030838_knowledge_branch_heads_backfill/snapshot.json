@@ -1,6 +1,6 @@
 {
-  "id": "3c31cac3-3e8d-484f-a185-ef13673e61f2",
-  "prevIds": ["f82b130e-4ef8-4f90-9113-8018e726edef"],
+  "id": "12c5d640-54ea-4791-a50a-6f6cdb09cad3",
+  "prevIds": ["ad4e13b4-90cc-4d66-b5c4-6f802cc5e656"],
   "version": "8",
   "dialect": "postgres",
   "ddl": [
@@ -4082,19 +4082,6 @@
       "generated": null,
       "identity": null,
       "name": "last_sha",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "knowledge_branch_heads"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "merge_base",
       "entityType": "columns",
       "schema": "public",
       "table": "knowledge_branch_heads"

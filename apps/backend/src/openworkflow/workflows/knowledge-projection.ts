@@ -139,16 +139,24 @@ export const knowledgeProjection = defineWorkflow(
             // Under the same lease, so that no run uses a file version
             // while the cleanup deletes it (ADR-071 decision 10).
             await cleanUpKnowledgePlane({ ...key, store, now: new Date() })
+            // After a run of the default branch: each other branch whose
+            // overlay is not on this branch (after a rename, or the earlier
+            // default branch itself) needs the merge base with it, and each
+            // branch that waits for a base gets its run. The rows say it,
+            // so a retry of this step queues them too.
             const after = (
               await readyKnowledgeHeads(input.orgId, [input.workspaceId])
             ).get(input.workspaceId)
-            // The head of the default branch moved to another branch: each
-            // other branch needs the merge base with it.
             const others =
-              isDefault && after?.branch === branch && before?.branch !== branch
+              isDefault && after?.branch === branch
                 ? (await listBranchHeads(key))
+                    .filter(
+                      (row) =>
+                        row.branch !== branch &&
+                        (row.runStatus === "waiting" ||
+                          row.baseBranch !== branch),
+                    )
                     .map((row) => row.branch)
-                    .filter((name) => name !== branch)
                 : []
             return { tip, isDefault, summary, others }
           } finally {

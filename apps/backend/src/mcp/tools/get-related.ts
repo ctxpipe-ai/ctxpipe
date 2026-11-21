@@ -5,6 +5,7 @@ import { z } from "zod"
 import { RELEVANCE_INTENTS } from "../../domain/workspaces/graph-relevance.js"
 import type { Ranking } from "../../domain/workspaces/related-ranking.js"
 import { selectKnowledgeReader } from "../../knowledge-reader/knowledge-reader.js"
+import { knowledgeViewKey } from "../../models/knowledge-state.js"
 import { STATUS_RULES } from "../../retrieval/jev/disagreement.js"
 import { fitPage } from "../framework/budget.js"
 import {
@@ -301,17 +302,19 @@ export const getRelatedTool = defineMcpReadTool({
       input.branch,
     )
     // The plane serves the SHA of its last full run of the branch.
+    const planeHead = planeHeads.get(workspace.id)
     const served = {
       branch: input.branch ?? legacyServed.branch,
-      sha: planeHeads.get(workspace.id)?.sha ?? legacyServed.sha,
+      sha: planeHead?.sha ?? legacyServed.sha,
     }
+    const viewKey = planeHead ? knowledgeViewKey(planeHead) : served.sha
     const { cursor, ...parameters } = input
     const { limit, maxTokens, explain, ...rankParameters } = parameters
     const binding = {
       orgId: org.id,
       workspaceId: workspace.id,
       scope: JSON.stringify(["get_related", parameters]),
-      sha: served.sha,
+      sha: viewKey,
       stack: reader.stack,
     }
     const decoded = cursor ? decodeCursorWithAnchor(cursor, binding) : null
@@ -324,7 +327,7 @@ export const getRelatedTool = defineMcpReadTool({
           reader.stack,
           org.id,
           workspace.id,
-          served.sha,
+          viewKey,
           rankParameters,
           now,
         ]),

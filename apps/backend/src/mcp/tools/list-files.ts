@@ -12,6 +12,7 @@ import {
   listPlaneUnitFiles,
   type UnitFile,
 } from "../../knowledge-reader/plane-files.js"
+import { knowledgeViewKey } from "../../models/knowledge-state.js"
 import { log } from "../../observability/logger.js"
 import { fitPage } from "../framework/budget.js"
 import {
@@ -219,6 +220,8 @@ export const listFilesTool = defineMcpReadTool({
 
     let handle: string | null = null
     let served: z.infer<typeof servedSchema> = workspaceServed
+    // The key of the listed view, for the cursor (`knowledgeViewKey`).
+    let viewKey = workspaceServed.sha
     let entries: Entry[]
     let listTruncated = false
     if (input.repository === undefined) {
@@ -228,11 +231,13 @@ export const listFilesTool = defineMcpReadTool({
         input.branch,
       )
       const planeHead = planeHeads.get(workspace.id)
-      if (planeHead)
+      if (planeHead) {
+        viewKey = knowledgeViewKey(planeHead)
         served = {
           branch: input.branch ?? workspaceServed.branch,
           sha: planeHead.sha,
         }
+      }
       entries = folderEntries(
         planeHead
           ? await listPlaneUnitFiles({
@@ -254,6 +259,7 @@ export const listFilesTool = defineMcpReadTool({
       )
       handle = repository.handle
       served = { branch: repository.branch, sha: repository.sha }
+      viewKey = repository.sha
       try {
         const found = await globCheckoutFiles({
           repositoryId: repository.repositoryId,
@@ -315,7 +321,7 @@ export const listFilesTool = defineMcpReadTool({
     const binding = {
       orgId: org.id,
       workspaceId: workspace.id,
-      sha: served.sha,
+      sha: viewKey,
       scope: JSON.stringify([
         "list_files",
         handle,

@@ -175,7 +175,6 @@ async function projectPlane(of: string) {
     tip: frozenSha,
     branch: "main",
     treeVersion: 1,
-    mergeBase: null,
     baseBranch: null,
     projectionVersion: knowledgeProjectionVersion({
       embeddingModel: textEmbeddingConfig.model,

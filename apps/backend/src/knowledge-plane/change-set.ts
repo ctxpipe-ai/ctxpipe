@@ -89,8 +89,8 @@ export type KnowledgeChangeSet =
 /** The values of the `knowledge_state` row that the planner reads. */
 export type KnowledgePlanState = {
   lastSha: string | null
-  /** The merge base of an overlay; null for a full tree. */
-  mergeBase: string | null
+  /** The default branch of the tree of an overlay; null for a full tree. */
+  baseBranch: string | null
   projectionVersion: string | null
 }
 
@@ -124,7 +124,7 @@ export async function planKnowledgeChangeSet(input: {
   if (!state?.lastSha) return full("first_run")
   if (state.projectionVersion !== input.projectionVersion)
     return full("projection_version")
-  if (state.mergeBase !== null) return full("branch")
+  if (state.baseBranch !== null) return full("branch")
   const base = state.lastSha
   if (!(await hasCommits(directory, [base, tip]))) return full("missing_commit")
 

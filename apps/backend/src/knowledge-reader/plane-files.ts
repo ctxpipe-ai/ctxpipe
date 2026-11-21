@@ -195,11 +195,15 @@ export async function listPlaneUnitFiles(input: {
     scopeOf(orgId, workspaceId, head),
     folder ? `${folder}/` : "",
   )
-  // The branch of the row of each path of the view.
+  // The branch of the row of each path of the view. A tip that gives no
+  // path of the view is not read: an empty overlay reads one tip.
   const layer = new Map(view.map((file) => [file.path, file.branch]))
-  const [own, below] = await Promise.all([unitsAt(head.sha), unitsAt(base.sha)])
-  return [
-    ...own.filter((unit) => layer.get(unit.path) === head.branch),
-    ...below.filter((unit) => layer.get(unit.path) === base.branch),
-  ].sort((a, b) => a.path.localeCompare(b.path))
+  const from = async (tip: { branch: string; sha: string }) =>
+    view.some((file) => file.branch === tip.branch)
+      ? (await unitsAt(tip.sha)).filter(
+          (unit) => layer.get(unit.path) === tip.branch,
+        )
+      : []
+  const [own, below] = await Promise.all([from(head), from(base)])
+  return [...own, ...below].sort((a, b) => a.path.localeCompare(b.path))
 }
