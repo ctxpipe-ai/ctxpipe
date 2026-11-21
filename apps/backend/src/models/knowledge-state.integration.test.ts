@@ -85,6 +85,7 @@ describe("knowledge_state (Postgres)", () => {
         tip: "sha-x",
         treeVersion: 1,
         mergeBase: null,
+        baseBranch: null,
         projectionVersion: "1:test-model",
         failedCount: 0,
       }),
@@ -115,6 +116,7 @@ describe("knowledge_state (Postgres)", () => {
       tip: "sha-main",
       treeVersion: 1,
       mergeBase: null,
+      baseBranch: null,
       projectionVersion: "1:test-model",
       failedCount: 2,
     })
@@ -142,6 +144,7 @@ describe("knowledge_state (Postgres)", () => {
       tip: "sha-feature",
       treeVersion: 1,
       mergeBase: "sha-base",
+      baseBranch: "main",
       projectionVersion: "1:test-model",
       failedCount: 0,
     })
@@ -187,6 +190,7 @@ describe("knowledge_state (Postgres)", () => {
       tip: "sha-main",
       treeVersion: 1,
       mergeBase: null,
+      baseBranch: null,
       projectionVersion: "1:test-model",
       failedCount: 0,
     })

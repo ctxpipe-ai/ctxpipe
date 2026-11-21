@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../../test/db.js"
 import { withOrgDbContext } from "../../db/client.js"
-import { knowledgeState } from "../../db/schema/knowledge_state.js"
+import { knowledgeBranchHeads } from "../../db/schema/knowledge_state.js"
 import { orgFeatures } from "../../db/schema/org_features.js"
 import {
   workspaceKnowledgeUnits,
@@ -117,13 +117,14 @@ async function setFlag(value: "off" | "shadow" | "on") {
 }
 
 async function setReady(ready: boolean) {
+  // The reader reads only the heads (ADR-071 decision 4).
   await withOrgDbContext(seed.orgId, (db) =>
     db
-      .delete(knowledgeState)
+      .delete(knowledgeBranchHeads)
       .where(
         and(
-          eq(knowledgeState.organizationId, seed.orgId),
-          eq(knowledgeState.workspaceId, workspaceId),
+          eq(knowledgeBranchHeads.organizationId, seed.orgId),
+          eq(knowledgeBranchHeads.workspaceId, workspaceId),
         ),
       ),
   )
@@ -141,6 +142,7 @@ async function setReady(ready: boolean) {
     branch: "main",
     treeVersion: 1,
     mergeBase: null,
+    baseBranch: null,
     projectionVersion: "test",
     failedCount: 0,
   })

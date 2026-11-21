@@ -228,9 +228,6 @@ export async function planOverlay(input: {
   }
 }
 
-/** The object id of the empty tree of Git (SHA-1). */
-const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
-
 /**
  * The merge base of `tip` and `defaultTip`. A branch with no commit in
  * common with the default branch has the empty tree as its base, so its
@@ -252,5 +249,6 @@ export async function mergeBaseOf(
     if ((error as { code?: unknown }).code === 1) return Buffer.from("")
     throw error
   })
-  return output.toString().trim() || EMPTY_TREE
+  // The object id of the empty tree of Git (SHA-1).
+  return output.toString().trim() || "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 }

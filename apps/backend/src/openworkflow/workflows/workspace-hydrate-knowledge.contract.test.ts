@@ -8,11 +8,13 @@ import { afterAll, beforeAll, expect, it, vi } from "vitest"
 
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { orgFeatures } from "../../db/schema/org_features.js"
+import { workspaces } from "../../db/schema/workspaces.js"
 import { servingIdForKnowledgePath } from "../../domain/workspaces/hydrate.js"
 import { createKnowledgeStore } from "../../knowledge-store/knowledge-store.js"
 import { migrateKnowledgeStore } from "../../knowledge-store/migrate.js"
 import {
   getKnowledgeState,
+  listBranchHeads,
   readyKnowledgeHeads,
 } from "../../models/knowledge-state.js"
 import { startClickHouse, userUrl } from "../../test/clickhouse.js"
@@ -331,6 +333,92 @@ it(
         expect(
           await readyKnowledgeHeads(f.org.id, [f.workspaceId], "feature"),
         ).toEqual(new Map())
+      },
+    ),
+)
+
+it(
+  "a rename of the default branch: reads stay on the earlier tree until the new default branch has its tree; it then queues each other branch, and the earlier default branch leaves when Git deletes it",
+  { timeout: 240_000 },
+  async () =>
+    withNativeHydrationFixture(
+      { files, knowledgePlane: { clickhouseUrl: writerUrl } },
+      async (f) => {
+        await f.publish()
+        await waitForKnowledgeState(f, { lastSha: f.sha })
+        const key = { orgId: f.org.id, workspaceId: f.workspaceId }
+        const defaultHead = async () =>
+          (await readyKnowledgeHeads(f.org.id, [f.workspaceId])).get(
+            f.workspaceId,
+          )
+        f.git("checkout", "--", ".")
+        f.git("checkout", "-q", "-b", "feature")
+        writeFileSync(join(f.directory, "b.md"), "# Beta on the branch\n")
+        f.git("add", "-A")
+        f.git("commit", "-q", "-m", "Add b on the branch")
+        f.git("push", "-q", f.remote, "HEAD:refs/heads/feature")
+        await (
+          await f.runner.runWorkflow(knowledgeProjection.spec, {
+            ...key,
+            branch: "feature",
+          })
+        ).result({ timeoutMs: 90_000 })
+
+        // The rename: `trunk` at the tip of main, and the setting names it.
+        f.git("push", "-q", f.remote, "main:refs/heads/trunk")
+        f.git("--git-dir", f.remote, "symbolic-ref", "HEAD", "refs/heads/trunk")
+        await withOrgDbContext(f.org.id, (db) =>
+          db
+            .update(workspaces)
+            .set({ desiredDefaultBranch: "trunk" })
+            .where(eq(workspaces.id, f.workspaceId)),
+        )
+        expect((await defaultHead())?.branch).toBe("main")
+        const renamed = await f.runner.runWorkflow(
+          knowledgeProjection.spec,
+          key,
+        )
+        const result = (await renamed.result({ timeoutMs: 90_000 })) as {
+          isDefault: boolean
+          others: string[]
+        }
+        expect(result.isDefault).toBe(true)
+        expect([...result.others].sort()).toEqual(["feature", "main"])
+        expect(await defaultHead()).toMatchObject({
+          branch: "trunk",
+          sha: f.sha,
+        })
+        // The queued runs of the other branches end: the overlay of feature
+        // now has trunk as its base.
+        await vi.waitFor(
+          async () =>
+            expect(
+              (await runsOf("knowledge-projection", f.workspaceId)).every(
+                (run) => run.status === "completed",
+              ),
+            ).toBe(true),
+          { timeout: 150_000, interval: 1_000 },
+        )
+        expect(
+          (await readyKnowledgeHeads(f.org.id, [f.workspaceId], "feature")).get(
+            f.workspaceId,
+          ),
+        ).toMatchObject({ base: { branch: "trunk" } })
+        // Git deletes main: its run removes its head.
+        f.git("push", "-q", f.remote, ":refs/heads/main")
+        const gone = await f.runner.runWorkflow(knowledgeProjection.spec, {
+          ...key,
+          branch: "main",
+        })
+        expect(await gone.result({ timeoutMs: 90_000 })).toMatchObject({
+          summary: { mode: "deleted" },
+        })
+        expect(
+          await readyKnowledgeHeads(f.org.id, [f.workspaceId], "main"),
+        ).toEqual(new Map())
+        expect(
+          (await listBranchHeads(key)).map((row) => row.branch).sort(),
+        ).toEqual(["feature", "trunk"])
       },
     ),
 )

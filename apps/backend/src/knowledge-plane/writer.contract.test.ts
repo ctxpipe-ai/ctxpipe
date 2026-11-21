@@ -40,6 +40,7 @@ import { migrateKnowledgeStore } from "../knowledge-store/migrate.js"
 import {
   deleteBranchHead,
   getKnowledgeState,
+  listBranchHeads,
   readyKnowledgeHeads,
 } from "../models/knowledge-state.js"
 import { createLogger, withLogger } from "../observability/logger.js"
@@ -2038,6 +2039,43 @@ describe("branches (ADR-071)", () => {
       )
       expect(await titles(workspaceId, ["z.md"])).toEqual({
         "z.md": "active: Z on B",
+      })
+    } finally {
+      await remote.remove()
+    }
+  })
+
+  it("a branch run before the first head of the default branch waits; a path that the branch deleted stays deleted when the default branch deletes it and adds it again", async () => {
+    const remote = await Remote.create()
+    try {
+      const base = await remote.commit({ "r.md": "# R\n", "s.md": "# S\n" })
+      const workspaceId = await newWorkspace()
+      // No head of the default branch yet: the branch waits, and its row
+      // tells the first run of the default branch to queue it again.
+      expect(
+        await run(remote, workspaceId, base, overlay("feature", base)),
+      ).toEqual({ mode: "waiting" })
+      expect(
+        (await listBranchHeads({ orgId, workspaceId })).map((row) => [
+          row.branch,
+          row.runStatus,
+          row.lastSha,
+        ]),
+      ).toEqual([["feature", "waiting", null]])
+      await run(remote, workspaceId, base)
+
+      remote.git("checkout", "-q", "-f", "-b", "feature")
+      const deleted = await remote.commit({ "r.md": null })
+      await run(remote, workspaceId, deleted, overlay("feature", base))
+      remote.git("checkout", "-q", "-f", "main")
+      await run(remote, workspaceId, await remote.commit({ "r.md": null }))
+      const back = await remote.commit({ "r.md": "# R back on main\n" })
+      await run(remote, workspaceId, back)
+      expect(await titles(workspaceId, ["r.md"])).toEqual({
+        "r.md": "active: R back on main",
+      })
+      expect(await titles(workspaceId, ["r.md"], "feature")).toEqual({
+        "r.md": "deleted: R",
       })
     } finally {
       await remote.remove()

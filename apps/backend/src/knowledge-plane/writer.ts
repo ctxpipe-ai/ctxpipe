@@ -26,6 +26,7 @@ import {
   completeKnowledgeRun,
   failKnowledgeRun,
   getBranchHead,
+  markBranchWaiting,
   readyKnowledgeHeads,
   treeHeadOf,
 } from "../models/knowledge-state.js"
@@ -161,26 +162,28 @@ export async function projectKnowledgePlane(input: {
     converter: await converterVersion(),
     visionModel: imageTextModel(),
   })
-  const state = await getBranchHead(branchKey)
-  if (
-    state?.lastSha === input.tip &&
-    state.runStatus === "completed" &&
-    state.projectionVersion === projectionVersion &&
-    // The tree is of the right kind: full for the default branch, an
-    // overlay for each other branch.
-    (state.mergeBase === null) === isDefault
-  )
-    return { mode: "current" }
   // The base of an overlay: the head of the default branch. During a rename
-  // of the default branch, that can be this branch: it waits for the first
-  // run of the new default branch, which queues it again.
+  // of the default branch, that can be this branch. Then the branch waits
+  // for the first completed run of the default branch, which queues it again.
   const base = isDefault
     ? null
     : ((await readyKnowledgeHeads(input.orgId, [input.workspaceId])).get(
         input.workspaceId,
       ) ?? null)
-  if (!isDefault && (!base || base.branch === input.branch))
+  if (!isDefault && (!base || base.branch === input.branch)) {
+    await markBranchWaiting(branchKey)
     return { mode: "waiting" }
+  }
+  const state = await getBranchHead(branchKey)
+  if (
+    state?.lastSha === input.tip &&
+    state.runStatus === "completed" &&
+    state.projectionVersion === projectionVersion &&
+    // The tree is of the right kind: a full tree for the default branch, an
+    // overlay on the current default branch for each other branch.
+    state.baseBranch === (base?.branch ?? null)
+  )
+    return { mode: "current" }
 
   const started = performance.now()
   return trace
@@ -229,15 +232,22 @@ export async function projectKnowledgePlane(input: {
               input.tip,
               input.defaultTip ?? lastSha,
             )
-            const mergeBase = input.defaultTip
-              ? await withHistory(directory, input, input.defaultTip).then(() =>
-                  mergeBaseOf(
-                    directory,
-                    input.tip,
-                    input.defaultTip ?? input.tip,
-                  ),
-                )
-              : null
+            // The history of both tips in one fetch, so that `git
+            // merge-base` can walk them. `fileIntroductions` then finds the
+            // history of the tip already there.
+            let mergeBase: string | null = null
+            if (input.defaultTip) {
+              await fetchGitHistory(directory, {
+                url: input.remote.url,
+                sha: [input.tip, input.defaultTip],
+                token: await input.remote.token(),
+              })
+              mergeBase = await mergeBaseOf(
+                directory,
+                input.tip,
+                input.defaultTip,
+              )
+            }
             const plan = mergeBase
               ? await planOverlay({
                   directory,
@@ -276,6 +286,7 @@ export async function projectKnowledgePlane(input: {
               tip: input.tip,
               treeVersion,
               mergeBase,
+              baseBranch: base?.branch ?? null,
               projectionVersion,
               failedCount: applied.failedCount,
             })
@@ -318,23 +329,6 @@ export async function projectKnowledgePlane(input: {
         span.end()
       }
     })
-}
-
-/**
- * Fetch the history (no blobs) of `tip` and of `defaultTip` in one fetch,
- * so that `git merge-base` can walk both. `fileIntroductions` then finds
- * the history of the tip already there.
- */
-async function withHistory(
-  directory: string,
-  input: { remote: KnowledgeRemote; tip: string },
-  defaultTip: string,
-): Promise<void> {
-  await fetchGitHistory(directory, {
-    url: input.remote.url,
-    sha: [input.tip, defaultTip],
-    token: await input.remote.token(),
-  })
 }
 
 /**
@@ -596,10 +590,10 @@ async function applyChangeSet(input: {
 
 /**
  * The rows that end paths of an overlay (ADR-071 decisions 3 and 5):
- * - a path that the tip removed gets a tombstone, which keeps the file
- *   version of the default branch at the path, so that the view of the
- *   branch removes it. When the default branch has no file at the path
- *   either, the path needs no tombstone.
+ * - a path that the tip removed gets a tombstone, so that the view of the
+ *   branch removes it, also when the default branch deletes the path and
+ *   then adds it again. It keeps a file version of the path: the one of the
+ *   default branch, else the earlier one of the branch.
  * - a path that left the overlay (the tip has it as at the merge base) gets
  *   an `inherit` row, so that the view shows the row of the default branch.
  */
@@ -637,15 +631,17 @@ async function overlayEnds(input: {
   ]
   for (const path of gone.filter(input.isDocumentPath)) {
     const docKey = keyOf(path)
-    const below = base.get(docKey)
     const own = current.get(docKey)
-    if (!below || below.deletedAt || below.inherit)
-      ends.set(docKey, inherit(docKey))
-    else if (!own?.deletedAt || own.version !== below.version)
+    const below = base.get(docKey)
+    const kept = [below, own].find((entry) => entry && !entry.inherit)
+    // A tombstone of the branch stays as it is, with its first date.
+    if (own?.deletedAt && !own.inherit) ends.set(docKey, [])
+    else if (kept)
       ends.set(docKey, [
-        { ...below, inherit: false, deletedAt: input.observedAt },
+        { ...kept, inherit: false, deletedAt: input.observedAt },
       ])
-    else ends.set(docKey, [])
+    // No row of the path anywhere: the view has no such path.
+    else ends.set(docKey, inherit(docKey))
   }
   const inOverlay = new Set([
     ...present,

@@ -21,20 +21,27 @@ import type { TreeHead } from "../knowledge-store/knowledge-store.js"
 type KnowledgeStateKey = { orgId: string; workspaceId: string }
 type BranchKey = KnowledgeStateKey & { branch: string }
 
+function stateRow({ orgId, workspaceId }: KnowledgeStateKey) {
+  return and(
+    eq(knowledgeState.organizationId, orgId),
+    eq(knowledgeState.workspaceId, workspaceId),
+  )
+}
+
 /** The `knowledge_state` row of a Workspace (the previous release's view). */
 export async function getKnowledgeState(key: KnowledgeStateKey) {
   const [row] = await withOrgDbContext(key.orgId, (db) =>
-    db
-      .select()
-      .from(knowledgeState)
-      .where(
-        and(
-          eq(knowledgeState.organizationId, key.orgId),
-          eq(knowledgeState.workspaceId, key.workspaceId),
-        ),
-      ),
+    db.select().from(knowledgeState).where(stateRow(key)),
   )
   return row ?? null
+}
+
+/** Throw when an update found no head row: no run of the branch began. */
+function requireRun(updated: unknown[], key: BranchKey): void {
+  if (!updated.length)
+    throw new Error(
+      `The branch ${key.branch} of ${key.workspaceId} has no knowledge run; call beginKnowledgeRun first`,
+    )
 }
 
 function headRow({ orgId, workspaceId, branch }: BranchKey) {
@@ -159,41 +166,47 @@ export async function readyKnowledgeHeads(
 }
 
 /**
+ * Insert or update the head row of a branch with `runStatus`. The Workspace
+ * must belong to the org: the foreign key does not check the org, so without
+ * this check an org could take the row of a Workspace of another org.
+ */
+async function upsertHeadStatus(
+  db: Parameters<Parameters<typeof withOrgDbContext>[1]>[0],
+  key: BranchKey,
+  runStatus: "running" | "waiting",
+): Promise<void> {
+  const [workspace] = await db
+    .select({ id: workspaces.id })
+    .from(workspaces)
+    .where(
+      and(eq(workspaces.orgId, key.orgId), eq(workspaces.id, key.workspaceId)),
+    )
+  if (!workspace)
+    throw new Error(`The org ${key.orgId} has no Workspace ${key.workspaceId}`)
+  await db
+    .insert(knowledgeBranchHeads)
+    .values({
+      workspaceId: key.workspaceId,
+      organizationId: key.orgId,
+      branch: key.branch,
+      runStatus,
+    })
+    .onConflictDoUpdate({
+      target: [knowledgeBranchHeads.workspaceId, knowledgeBranchHeads.branch],
+      set: { runStatus, updatedAt: new Date() },
+    })
+}
+
+/**
  * Mark the run of a branch as `running` before it writes a row; for the
- * default branch, also `knowledge_state`. The Workspace must belong to the
- * org: the foreign key does not check the org, so without this check an
- * org could take the row of a Workspace of another org.
+ * default branch, also `knowledge_state`.
  */
 export async function beginKnowledgeRun(
   input: BranchKey & { isDefault: boolean },
 ): Promise<void> {
   await withOrgDbContext(input.orgId, async (db) => {
-    const [workspace] = await db
-      .select({ id: workspaces.id })
-      .from(workspaces)
-      .where(
-        and(
-          eq(workspaces.orgId, input.orgId),
-          eq(workspaces.id, input.workspaceId),
-        ),
-      )
-    if (!workspace)
-      throw new Error(
-        `The org ${input.orgId} has no Workspace ${input.workspaceId}`,
-      )
+    await upsertHeadStatus(db, input, "running")
     const now = new Date()
-    await db
-      .insert(knowledgeBranchHeads)
-      .values({
-        workspaceId: input.workspaceId,
-        organizationId: input.orgId,
-        branch: input.branch,
-        runStatus: "running",
-      })
-      .onConflictDoUpdate({
-        target: [knowledgeBranchHeads.workspaceId, knowledgeBranchHeads.branch],
-        set: { runStatus: "running", updatedAt: now },
-      })
     if (input.isDefault)
       await db
         .insert(knowledgeState)
@@ -222,6 +235,8 @@ export async function completeKnowledgeRun(
     treeVersion: number
     /** The merge base of an overlay; null for the full tree of the default branch. */
     mergeBase: string | null
+    /** The default branch of the tree of an overlay; null for a full tree. */
+    baseBranch: string | null
     projectionVersion: string
     /** The count of `failed` documents (ADR-067 decisions 8 and 11). */
     failedCount: number
@@ -236,6 +251,7 @@ export async function completeKnowledgeRun(
           lastSha: input.tip,
           treeVersion: input.treeVersion,
           mergeBase: input.mergeBase,
+          baseBranch: input.baseBranch,
           projectionVersion: input.projectionVersion,
           runStatus: "completed",
           failedCount: input.failedCount,
@@ -244,10 +260,7 @@ export async function completeKnowledgeRun(
         })
         .where(headRow(input))
         .returning({ branch: knowledgeBranchHeads.branch })
-      if (!updated.length)
-        throw new Error(
-          `The branch ${input.branch} of ${input.workspaceId} has no knowledge run; call beginKnowledgeRun first`,
-        )
+      requireRun(updated, input)
       if (input.mergeBase === null)
         await tx
           .update(knowledgeState)
@@ -261,12 +274,7 @@ export async function completeKnowledgeRun(
             failedCount: input.failedCount,
             updatedAt: now,
           })
-          .where(
-            and(
-              eq(knowledgeState.organizationId, input.orgId),
-              eq(knowledgeState.workspaceId, input.workspaceId),
-            ),
-          )
+          .where(stateRow(input))
     })
   })
 }
@@ -286,21 +294,24 @@ export async function failKnowledgeRun(
       .set({ runStatus: "failed", updatedAt: now })
       .where(headRow(input))
       .returning({ branch: knowledgeBranchHeads.branch })
-    if (!updated.length)
-      throw new Error(
-        `The branch ${input.branch} of ${input.workspaceId} has no knowledge run; call beginKnowledgeRun first`,
-      )
+    requireRun(updated, input)
     if (input.isDefault)
       await db
         .update(knowledgeState)
         .set({ runStatus: "failed", updatedAt: now })
-        .where(
-          and(
-            eq(knowledgeState.organizationId, input.orgId),
-            eq(knowledgeState.workspaceId, input.workspaceId),
-          ),
-        )
+        .where(stateRow(input))
   })
+}
+
+/**
+ * Record a branch that waits for the first head of the default branch, its
+ * base: the first completed run of the default branch queues it again. Its
+ * head does not change.
+ */
+export async function markBranchWaiting(key: BranchKey): Promise<void> {
+  await withOrgDbContext(key.orgId, (db) =>
+    upsertHeadStatus(db, key, "waiting"),
+  )
 }
 
 /** Delete the head row of a branch that Git no longer has (ADR-071 decision 10). */

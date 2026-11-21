@@ -176,6 +176,7 @@ async function projectPlane(of: string) {
     branch: "main",
     treeVersion: 1,
     mergeBase: null,
+    baseBranch: null,
     projectionVersion: knowledgeProjectionVersion({
       embeddingModel: textEmbeddingConfig.model,
       dimensions: textEmbeddingConfig.dimensions,

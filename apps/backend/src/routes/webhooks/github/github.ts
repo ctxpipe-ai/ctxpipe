@@ -190,6 +190,7 @@ async function processPushEvent(
   payload: unknown,
   ctx: GithubWebhookContext,
   githubConnectionId?: string,
+  deliveryId?: string,
 ) {
   const parsed = pushPayloadSchema.safeParse(payload)
   if (!parsed.success) {
@@ -283,6 +284,8 @@ async function processPushEvent(
     orgIds: installationRows.map((row) => row.orgId),
     repository: repo.full_name,
     ref,
+    deliveryId,
+    before,
     after,
   })
 
@@ -437,7 +440,7 @@ export async function processGithubWebhookPayload(
     case "ping":
       return
     case "push":
-      await processPushEvent(payload, ctx, opts?.connectionId)
+      await processPushEvent(payload, ctx, opts?.connectionId, opts?.deliveryId)
       return
     case "repository":
       await processRepositoryEvent(payload, ctx, opts?.connectionId)

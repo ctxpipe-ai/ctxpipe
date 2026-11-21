@@ -83,33 +83,37 @@ async function queued() {
   return rows.map((row) => row.input)
 }
 
-const push = (ref: string, after: string) =>
+const zero = "0".repeat(40)
+const push = (ref: string, deliveryId: string, after = "b".repeat(40)) =>
   withLogger(createLogger({}), () =>
     enqueueKnowledgeBranchRuns({
       orgIds: [on, off],
       // GitHub can give the name in another case.
       repository: "Example-Org/Notes",
       ref,
+      deliveryId,
+      before: zero,
       after,
     }),
   )
 
-it("queues one run of the pushed branch for each org that has the plane, and none for the default branch or a tag", async () => {
-  await push("refs/heads/main", "a".repeat(40))
-  await push("refs/tags/v1", "a".repeat(40))
+it("queues one run of the pushed branch for each push and each org that has the plane, and none for the default branch or a tag", async () => {
+  const run = { orgId: on, workspaceId, branch: "feature" }
+  await push("refs/heads/main", "delivery-1")
+  await push("refs/tags/v1", "delivery-2")
   expect(await queued()).toEqual([])
 
-  await push("refs/heads/feature", "b".repeat(40))
+  await push("refs/heads/feature", "delivery-3")
   // A redelivery of the same push queues no second run.
-  await push("refs/heads/feature", "b".repeat(40))
-  expect(await queued()).toEqual([
-    { orgId: on, workspaceId, branch: "feature" },
-  ])
+  await push("refs/heads/feature", "delivery-3")
+  expect(await queued()).toEqual([run])
 
   // The push that deletes the branch queues a run too: it removes the head.
-  await push("refs/heads/feature", "0".repeat(40))
-  expect(await queued()).toEqual([
-    { orgId: on, workspaceId, branch: "feature" },
-    { orgId: on, workspaceId, branch: "feature" },
-  ])
+  await push("refs/heads/feature", "delivery-4", zero)
+  expect(await queued()).toEqual([run, run])
+  // Each later push queues its own run, also one with the same SHAs as an
+  // earlier push (the branch comes back and is deleted again).
+  await push("refs/heads/feature", "delivery-5")
+  await push("refs/heads/feature", "delivery-6", zero)
+  expect(await queued()).toHaveLength(4)
 })

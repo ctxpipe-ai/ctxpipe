@@ -297,6 +297,7 @@ async function markReady(workspaceId: string) {
     branch: "main",
     treeVersion: 1,
     mergeBase: null,
+    baseBranch: null,
     projectionVersion: "test",
     failedCount: 0,
   })
@@ -342,6 +343,7 @@ async function markBranchReady(
     tip: "b".repeat(40),
     treeVersion: 1,
     mergeBase: planeSha,
+    baseBranch: "main",
     projectionVersion: "test",
     failedCount: 0,
   })
@@ -543,7 +545,7 @@ describe("the knowledge reader seam", () => {
     ).toBe("OWNS knowledge/services/checkout.md")
   })
 
-  it("on: a branch reads its overlay on the default branch, and the session branch of a conversation only for the actor that can open it", async () => {
+  it("on: a branch reads its overlay on the default branch, and each reader of the Workspace reads the session branch of any conversation", async () => {
     await setFlag("on")
     const workspaceId = ids.ready as string
     const branchDocument = (path: string, title: string): PlaneDocument => ({
@@ -599,47 +601,30 @@ describe("the knowledge reader seam", () => {
       "has no knowledge projection",
     )
 
-    // The session branch of the conversation of a user: the org API key of
-    // the call cannot open it, so it gets the same error as for no branch.
-    const suffix = Math.random().toString(36).slice(2, 8)
-    const userConversation = `conv_user_${suffix}`
-    const mcpConversation = `conv_mcp_${suffix}`
+    // The session branch of the conversation of a user: each actor that can
+    // read the Workspace reads it, here the org API key (the CTO: "anyone
+    // who can read the workspace can read any branch, because they can read
+    // git anyways"). The conversation itself stays private.
+    const conversationId = `conv_user_${Math.random().toString(36).slice(2, 8)}`
     await withOrgDbContext(seed.orgId, (db) =>
-      db.insert(conversations).values([
-        {
-          id: userConversation,
-          orgId: seed.orgId,
-          workspaceId,
-          userId: seed.userId,
-          source: "web",
-        },
-        {
-          id: mcpConversation,
-          orgId: seed.orgId,
-          workspaceId,
-          userId: null,
-          source: "mcp",
-        },
-      ]),
+      db.insert(conversations).values({
+        id: conversationId,
+        orgId: seed.orgId,
+        workspaceId,
+        userId: seed.userId,
+        source: "web",
+      }),
     )
-    for (const id of [userConversation, mcpConversation])
-      await markBranchReady(workspaceId, `ctxpipe/chat/${id}/1`, [
-        branchDocument(`knowledge/branch/${id}.md`, `Work of ${id}`),
-      ])
+    const sessionBranch = `ctxpipe/chat/${conversationId}/1`
+    await markBranchReady(workspaceId, sessionBranch, [
+      branchDocument(`knowledge/branch/${conversationId}.md`, "Session work"),
+    ])
     const ofUser = await searchCall({
       workspaces: ["ready"],
-      branch: `ctxpipe/chat/${userConversation}/1`,
+      branch: sessionBranch,
     })
-    expect(ofUser.isError).toBe(true)
-    expect(JSON.stringify(ofUser.content)).toContain(
-      "has no knowledge projection",
-    )
-    const ofMcp = await searchCall({
-      workspaces: ["ready"],
-      branch: `ctxpipe/chat/${mcpConversation}/1`,
-    })
-    expect(ofMcp.isError).toBeFalsy()
-    expect(refsOf(ofMcp)).toContain(`knowledge/branch/${mcpConversation}.md`)
+    expect(ofUser.isError).toBeFalsy()
+    expect(refsOf(ofUser)).toContain(`knowledge/branch/${conversationId}.md`)
 
     // The old stack serves no branch.
     await setFlag("shadow")

@@ -78,14 +78,24 @@ export const knowledgeBranchHeads = pgTable.withRLS(
      * null for a full tree.
      */
     mergeBase: text("merge_base"),
+    /**
+     * The default branch whose tree the overlay was made against; null for
+     * a full tree. A new default branch (a rename) makes the overlay again.
+     */
+    baseBranch: text("base_branch"),
     /** The tree version that the last completed run wrote; 0 before the first. */
     treeVersion: bigint("tree_version", { mode: "number" })
       .notNull()
       .default(0),
     /** The projection version of the last completed run. */
     projectionVersion: text("projection_version"),
+    /**
+     * `waiting`: a run of a branch that is not the default branch found no
+     * head of the default branch to be its base. The first completed run of
+     * the default branch queues each such branch again.
+     */
     runStatus: text("run_status")
-      .$type<"running" | "completed" | "failed">()
+      .$type<"running" | "completed" | "failed" | "waiting">()
       .notNull(),
     /** The count of `failed` documents after the last completed run. */
     failedCount: integer("failed_count").notNull().default(0),

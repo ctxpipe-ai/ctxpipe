@@ -4,6 +4,7 @@ CREATE TABLE "knowledge_branch_heads" (
 	"branch" text,
 	"last_sha" text,
 	"merge_base" text,
+	"base_branch" text,
 	"tree_version" bigint DEFAULT 0 NOT NULL,
 	"projection_version" text,
 	"run_status" text NOT NULL,
