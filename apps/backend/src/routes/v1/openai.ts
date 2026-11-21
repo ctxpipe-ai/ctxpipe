@@ -11,6 +11,10 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { modelSpecBase } from "../../retrieval/services/parseModelSpec.js"
 import {
+  scrubForModel,
+  unreadableContentPart,
+} from "../../retrieval/services/scrubForModel.js"
+import {
   handleBedrockChatCompletion,
   handleBedrockEmbedding,
 } from "./bedrockOpenAiProxy.js"
@@ -46,7 +50,8 @@ const ChatCompletionRequestSchema = z
 const EmbeddingRequestSchema = z
   .object({
     model: z.string().min(1),
-    input: z.unknown(),
+    // Only text: the scrubber cannot read token ids (ADR-072).
+    input: z.union([z.string(), z.array(z.string())]),
   })
   .passthrough()
   .openapi("OpenAIProxyEmbeddingRequest")
@@ -155,7 +160,12 @@ export const openaiRoutes = new OpenAPIHono<AppEnv>()
         503,
       )
     }
-    const body = (await c.req.json().catch(() => ({}))) as {
+    // The body goes to a model: each secret in it is removed first, and a
+    // part that the scrubber cannot read is refused (ADR-072).
+    const raw: unknown = await c.req.json().catch(() => ({}))
+    const unreadable = unreadableContentPart(raw)
+    if (unreadable) return c.json({ error: unreadable }, 400)
+    const body = (await scrubForModel(raw)) as {
       model?: unknown
       stream?: unknown
       messages?: unknown[]
@@ -205,10 +215,24 @@ export const openaiRoutes = new OpenAPIHono<AppEnv>()
         503,
       )
     }
-    const body = (await c.req.json().catch(() => ({}))) as {
+    // The body goes to a model: each secret in it is removed first (ADR-072).
+    const body = (await scrubForModel(
+      await c.req.json().catch(() => ({})),
+    )) as {
       model?: unknown
       input?: unknown
     }
+    // Only text: the scrubber cannot read token ids (numbers), so an input
+    // of token ids could hold a secret (ADR-072).
+    const input = body.input
+    if (
+      typeof input !== "string" &&
+      !(Array.isArray(input) && input.every((item) => typeof item === "string"))
+    )
+      return c.json(
+        { error: "input must be a string or an array of strings" },
+        400,
+      )
     const allowed = allowedEmbeddingModels(env)
     const embeddingSpec =
       typeof env.MODEL_EMBEDDING_NAME === "string" &&

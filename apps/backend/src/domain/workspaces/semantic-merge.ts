@@ -15,7 +15,7 @@ import {
 import { addedOwnershipField, isHostOnlyPath } from "./host-only.js"
 
 const MERGE_DEADLINE_MS = 120_000
-const MERGE_ATTEMPTS = 3
+export const MERGE_ATTEMPTS = 3
 
 const resolutionSchema = z
   .object({

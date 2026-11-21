@@ -31,6 +31,7 @@ import type {
   ModelTier,
   ProviderCallOpts,
 } from "./providers/providerTypes.js"
+import { scrubForModel } from "./scrubForModel.js"
 
 const EMBEDDING_DIMENSIONS = 2000
 
@@ -286,11 +287,12 @@ export function embeddingModelId(): string {
 }
 
 export async function generateEmbeddings(
-  texts: string[],
+  rawTexts: string[],
   signal?: AbortSignal,
 ): Promise<number[][]> {
-  if (texts.length === 0) return []
+  if (rawTexts.length === 0) return []
   assertNotInOrgDbContext()
+  const texts = await scrubForModel(rawTexts)
 
   const env = modelEnvSchema.parse(process.env)
   const embedUrl = `${resolveChatBaseUrl(env.MODEL_PROVIDER, env.MODEL_PROVIDER_URL).replace(/\/$/, "")}/embeddings`

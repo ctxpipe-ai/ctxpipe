@@ -1,6 +1,7 @@
 import { chat } from "@tanstack/ai"
 import { z } from "zod"
 
+import { scrubForModel } from "../../retrieval/services/scrubForModel.js"
 import { greenfieldKnowledgePath } from "./layout.js"
 
 /** Distinct connector-target rows: created_at, then id. */
@@ -43,8 +44,15 @@ export function shouldExportClaim(input: {
 const UNKEYED_COLLISION_TIMEOUT_MS = 8_000
 const UNKEYED_COLLISION_EXCERPT_CHARS = 400
 
-export function unkeyedCollisionExcerpt(text: string): string {
-  return text.trim().slice(0, UNKEYED_COLLISION_EXCERPT_CHARS)
+/**
+ * The start of `text` for the model. The text is scrubbed before the cut:
+ * a cut can remove the end of a secret, and then no rule finds it (ADR-072).
+ */
+export async function unkeyedCollisionExcerpt(text: string): Promise<string> {
+  return (await scrubForModel(text.trim())).slice(
+    0,
+    UNKEYED_COLLISION_EXCERPT_CHARS,
+  )
 }
 
 function unkeyedCollisionPrompt(input: {

@@ -36,6 +36,7 @@ export function bedrockModelProvider(
           new ConverseCommand({
             ...bedrockConverseInput(
               primary,
+              // HostTextAdapter.call scrubbed them (ADR-072).
               [
                 ...(options.systemPrompts ?? []).map((prompt) => ({
                   role: "system",

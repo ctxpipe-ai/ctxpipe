@@ -5,6 +5,7 @@ import {
   nameUnnamedConversation,
 } from "../../models/conversations.js"
 import { getModel } from "../../retrieval/services/modelProvider.js"
+import { scrubForModel } from "../../retrieval/services/scrubForModel.js"
 import { maskCredentials } from "./mask-credentials.js"
 
 const titlePrompt =
@@ -69,8 +70,11 @@ export async function nameConversationIfUnnamed(input: {
   if (!conversation || !isUnnamedConversation(conversation.name)) return null
   let raw = ""
   try {
+    // Scrubbed before the cut: a cut can remove the end of a secret, and
+    // then no rule finds it (ADR-072).
+    const head = (await scrubForModel(input.prompt)).slice(0, 200)
     if (input.generate) {
-      raw = await input.generate(titlePrompt + input.prompt.slice(0, 200))
+      raw = await input.generate(titlePrompt + head)
     } else {
       const model = getModel("fast", {
         temperature: 0.5,
@@ -81,7 +85,7 @@ export async function nameConversationIfUnnamed(input: {
         messages: [
           {
             role: "user",
-            content: titlePrompt + input.prompt.slice(0, 200).trim(),
+            content: titlePrompt + head.trim(),
           },
         ],
         stream: false,

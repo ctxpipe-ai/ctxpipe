@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT"
 publish = false
-description = "Converts one file (PDF, DOCX, PPTX, XLSX, HTML, SVG) to text for the ctxpipe knowledge plane"
+description = "Converts one file (PDF, DOCX, PPTX, XLSX, HTML, SVG) to text for the ctxpipe knowledge plane, and removes secrets from the text of each model call"
 
 # Exact versions: the same bytes give the same text only with the same
 # parsers. build.rs puts a hash of Cargo.lock, the source, the font and the
@@ -18,6 +18,11 @@ resvg = "=0.50.0"
 roxmltree = "=0.21.2"
 base64 = "=0.23.1"
 serde_json = "=1.0.154"
+# The secret scrubber (`--scrub`). Its rules are in kingfisher-rules, so
+# these versions and Cargo.lock fix the rule set. kingfisher-rules also gives
+# the cache of the compiled rules.
+kingfisher-scanner = "=4.0.0"
+kingfisher-rules = "=3.2.1"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
@@ -28,8 +33,9 @@ seccompiler = "=0.5.0"
 [build-dependencies]
 sha2 = "=0.11.1"
 
+# No LTO: it took most of a build after a change of the source (2 minutes in
+# Docker), and it made the conversions no faster.
 [profile.release]
-lto = "thin"
 strip = "symbols"
 codegen-units = 1
 panic = "abort"

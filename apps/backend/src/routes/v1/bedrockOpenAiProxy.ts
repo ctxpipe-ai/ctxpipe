@@ -16,6 +16,7 @@ import {
   withBedrockClient,
 } from "../../retrieval/services/providers/bedrockConverse.js"
 import { invokeBedrockEmbedding } from "../../retrieval/services/providers/bedrockEmbeddings.js"
+import { scrubForModel } from "../../retrieval/services/scrubForModel.js"
 
 type OpenAiChatBody = {
   model?: string
@@ -140,9 +141,13 @@ export async function handleBedrockChatCompletion(
   }
 
   const tierSpec = resolveTierSpecForModel(env, modelName)
-  const input = bedrockConverseInput(
-    modelName,
-    (Array.isArray(body.messages) ? body.messages : []).map((raw) => {
+  // Converse gets each message as text: content that is not a string (also
+  // an image part) becomes JSON text. That text is scrubbed again, because
+  // an image data URL in it is text now, not an image (ADR-072). Converse
+  // joins the messages of one role, so a secret split over them fails the
+  // call (the conversation check of `scrubForModel`).
+  const { messages } = await scrubForModel({
+    messages: (Array.isArray(body.messages) ? body.messages : []).map((raw) => {
       const message = raw as { role?: string; content?: unknown }
       return {
         role: message.role,
@@ -152,6 +157,10 @@ export async function handleBedrockChatCompletion(
             : JSON.stringify(message.content ?? ""),
       }
     }),
+  })
+  const input = bedrockConverseInput(
+    modelName,
+    messages,
     body.temperature,
     tierSpec ? modelParamsFromSpec(tierSpec) : undefined,
   )
@@ -201,12 +210,15 @@ export async function handleBedrockEmbedding(
   }
 
   const input = body.input
-  const text =
+  // The inputs become one text, which is scrubbed again: a secret split over
+  // two inputs is whole in it (ADR-072).
+  const text = await scrubForModel(
     typeof input === "string"
       ? input
       : Array.isArray(input)
         ? input.map(String).join("\n")
-        : String(input ?? "")
+        : String(input ?? ""),
+  )
 
   const embedding = await invokeBedrockEmbedding(text, modelId, {
     MODEL_BEDROCK_AWS_REGION: env.MODEL_BEDROCK_AWS_REGION,

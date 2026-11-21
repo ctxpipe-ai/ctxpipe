@@ -23,6 +23,10 @@ import { workspaceChatBearerToken } from "../../domain/workspaces/workspace-chat
 import { applyAttribution } from "../../observability/attribution.js"
 import { getLogger } from "../../observability/logger.js"
 import { lowerOpenAiChatCompletionsParams } from "../../retrieval/services/providers/openAILikeModelProvider.js"
+import {
+  scrubForModel,
+  unreadableContentPart,
+} from "../../retrieval/services/scrubForModel.js"
 import { handleBedrockChatCompletion } from "./bedrockOpenAiProxy.js"
 import {
   forwardToUpstream,
@@ -175,10 +179,12 @@ export const workspaceChatOpenaiRoutes = new OpenAPIHono<AppEnv>()
         503,
       )
     }
-    const body = (await c.req.json().catch(() => ({}))) as Record<
-      string,
-      unknown
-    >
+    // The body goes to a model: each secret in it is removed first, and a
+    // part that the scrubber cannot read is refused (ADR-072).
+    const raw: unknown = await c.req.json().catch(() => ({}))
+    const unreadable = unreadableContentPart(raw)
+    if (unreadable) return c.json({ error: unreadable }, 400)
+    const body = (await scrubForModel(raw)) as Record<string, unknown>
     // The request's `model` of an ingest step is its tier name. Each other
     // value from the sandbox (also a configured model name) gets the fast
     // tier. A chat turn always uses the fast tier.

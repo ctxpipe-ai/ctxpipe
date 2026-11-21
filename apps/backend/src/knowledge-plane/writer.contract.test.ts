@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process"
-import { createHash } from "node:crypto"
+import { createHash, generateKeyPairSync } from "node:crypto"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
@@ -1330,6 +1330,74 @@ describe("projectKnowledgePlane", () => {
           /^Note 7 \(part 1 of 1\)\n\n[^]*Text of note 7\./,
         ),
       )
+    } finally {
+      await remote.remove()
+    }
+  })
+
+  it("scrubs a file before the chunker cuts it: a private key across a chunk boundary goes to no model and to no row", async () => {
+    const remote = await Remote.create()
+    try {
+      const workspaceId = await newWorkspace()
+      // A made-up 4096-bit key (about 3.2 KB) in one long section, longer
+      // than a chunk.
+      const pem = generateKeyPairSync("rsa", { modulusLength: 4096 })
+        .privateKey.export({ type: "pkcs1", format: "pem" })
+        .toString()
+        .trim()
+      const path = "notes/setup.md"
+      await run(
+        remote,
+        workspaceId,
+        await remote.commit({
+          [path]: `# Setup\n\n${"The deploy key. ".repeat(80)}\n${pem}\n`,
+        }),
+      )
+      const rows = await content(workspaceId, [path])
+      const sent = JSON.stringify(embeddings.inputs)
+      const stored = JSON.stringify(rows.chunks)
+      // Unscrubbed, the chunker (at most 2,048 characters) would cut the key.
+      expect(pem.length).toBeGreaterThan(2048)
+      for (const line of pem.split("\n").slice(1, -1)) {
+        expect(sent).not.toContain(line)
+        expect(stored).not.toContain(line)
+      }
+      expect(stored).toContain("[REDACTED:betterleaks.private-key]")
+    } finally {
+      await remote.remove()
+    }
+  })
+
+  it("scrubs the text of an image before the chunker cuts it: a private key in the labels of an SVG goes to no model and to no row", async () => {
+    const remote = await Remote.create()
+    try {
+      const workspaceId = await newWorkspace()
+      const pem = generateKeyPairSync("rsa", { modulusLength: 4096 })
+        .privateKey.export({ type: "pkcs1", format: "pem" })
+        .toString()
+        .trim()
+      // One label for each line of the key.
+      const labels = pem
+        .split("\n")
+        .map((line, at) => `<text x="0" y="${10 + at * 12}">${line}</text>`)
+        .join("")
+      const path = "diagrams/keys.svg"
+      await run(
+        remote,
+        workspaceId,
+        await remote.commit({
+          [path]: `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="1000">${labels}</svg>`,
+        }),
+      )
+      const rows = await content(workspaceId, [path])
+      const sent = JSON.stringify(embeddings.inputs)
+      const stored = JSON.stringify(rows)
+      expect(pem.length).toBeGreaterThan(2048)
+      for (const line of pem.split("\n").slice(1, -1)) {
+        expect(sent).not.toContain(line)
+        expect(stored).not.toContain(line)
+      }
+      expect(stored).toContain("[REDACTED:betterleaks.private-key]")
     } finally {
       await remote.remove()
     }

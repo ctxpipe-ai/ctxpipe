@@ -1,3 +1,5 @@
+import { generateKeyPairSync } from "node:crypto"
+
 import { delay, HttpResponse, http } from "msw"
 import { describe, expect, it, vi } from "vitest"
 
@@ -363,6 +365,7 @@ describe("the judge panel", () => {
   }
   const asked: string[] = []
   const providers: unknown[] = []
+  const contents: string[] = []
   /** From this call on, the endpoint answers 503, as the spend cap does. */
   let capAt = Number.POSITIVE_INFINITY
   useMswServer(
@@ -375,6 +378,7 @@ describe("the judge panel", () => {
         provider: unknown
       }
       providers.push(body.provider)
+      contents.push(body.messages[0]?.content ?? "")
       const ref = /Document <data>(.*?)<\/data>/.exec(
         body.messages[0]?.content ?? "",
       )?.[1]
@@ -449,6 +453,26 @@ describe("the judge panel", () => {
     MODEL_PROVIDER_API_KEY: "fixture-only",
     MODEL_PROVIDER_URL: BASE,
   }
+
+  it("scrubs each document before the prompt cuts it: a private key across the cut goes to no judge", async () => {
+    const key = generateKeyPairSync("rsa", { modulusLength: 4096 })
+      .privateKey.export({ type: "pkcs1", format: "pem" })
+      .toString()
+      .trim()
+    contents.length = 0
+    await labelWithPanel({
+      draft: { ...draft, questions: draft.questions.slice(1, 2) },
+      models: Object.keys(replies),
+      // The cut (12,000 characters) falls inside the key.
+      read: async () => `${"x".repeat(10_000)}\n${key}\n`,
+      env,
+      stopped: () => false,
+    })
+    expect(contents).toHaveLength(3)
+    for (const content of contents)
+      for (const line of key.split("\n").slice(1, -1))
+        expect(content).not.toContain(line)
+  })
 
   it("keeps the gold documents and the statuses that most models give", async () => {
     asked.length = 0
