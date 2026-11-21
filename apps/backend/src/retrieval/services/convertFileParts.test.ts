@@ -151,6 +151,23 @@ describe("convertFileParts", () => {
     expect(result.ok).toBe(true)
   })
 
+  it("refuses a PDF over 64 MiB before it decodes it", async () => {
+    const result = await convertFileParts(
+      body({
+        type: "file",
+        file: {
+          filename: "big.pdf",
+          file_data: `data:application/pdf;base64,${"A".repeat(Math.ceil((64 * 1024 * 1024) / 3) * 4 + 4)}`,
+        },
+      }),
+    )
+    expect(result).toEqual({
+      ok: false,
+      status: 400,
+      error: expect.stringContaining("larger than 64 MiB"),
+    })
+  })
+
   it("reads a data URL with parameters, and keeps the name from ending the wrapper", async () => {
     const result = await convertFileParts(
       body({

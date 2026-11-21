@@ -135,6 +135,12 @@ async function pdfText(
     return refuse(
       `The file "${filename}" is not a PDF. The model proxy accepts only PDF file parts, and it converts them to text. Send other files as text.`,
     )
+  // The converter takes at most 64 MiB: a larger file is refused before
+  // its base64 text is decoded into a second copy.
+  if ((data[2]?.length ?? 0) > Math.ceil((64 * 1024 * 1024) / 3) * 4)
+    return refuse(
+      `The PDF "${filename}" is larger than 64 MiB, the limit of the converter.`,
+    )
   const free = slots.take()
   if (!free)
     return {
