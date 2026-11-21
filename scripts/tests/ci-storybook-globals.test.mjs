@@ -26,17 +26,18 @@ function check(files) {
 }
 
 const preview = ({
-  initialize = "initialize({}, [unhandledSocketHandler])",
+  setup = "setupWorker(unhandledSocketHandler)",
   parameters = "{ controls: {} }",
   decorators = '[optIn(["app"], withApp), optIn(["queryClient", "app"], withQueryClient)]',
 } = {}) => `
-import { initialize, mswLoader } from "msw-storybook-addon"
+import { setupWorker } from "msw/browser"
+import { mswLoader } from "msw-storybook-addon/csf3"
 import { optIn } from "./decorators/opt-in"
 const unhandledSocketHandler = ws.link(/.*/)
-${initialize}
+const worker = ${setup}
 export default definePreview({
   addons: [],
-  loaders: [mswLoader],
+  loaders: [mswLoader(async () => worker)],
   decorators: ${decorators},
   parameters: ${parameters},
 })
@@ -61,12 +62,12 @@ test("MSW handlers in the preview parameters fail", () => {
 test("an initial handler other than the socket enforcement fails", () => {
   const result = check({
     "preview.tsx": preview({
-      initialize:
-        "initialize({}, [organizationFullWithOrgHandler, unhandledSocketHandler])",
+      setup:
+        "setupWorker(organizationFullWithOrgHandler, unhandledSocketHandler)",
     }),
   })
   assert.equal(result.status, 1)
-  assert.match(result.stderr, /initialize\(\) gets initial handlers/)
+  assert.match(result.stderr, /setupWorker\(\) gets initial handlers/)
 })
 
 test("a global decorator that is not optIn with a list of parameters fails", () => {
@@ -88,9 +89,8 @@ test("a file of .storybook that imports, makes or adds a handler fails", () => {
     "decorators/with-session.tsx": `
 import { signedInHandlers } from "@/mocks/handlers"
 import { http, HttpResponse } from "msw"
-import { getWorker } from "msw-storybook-addon"
-export const loader = () => {
-  getWorker().use(http.get("*/api/config", () => HttpResponse.json({})))
+export const beforeEach = ({ msw }) => {
+  msw.use(http.get("*/api/config", () => HttpResponse.json({})))
 }
 `,
   })

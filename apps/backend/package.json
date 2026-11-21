@@ -118,7 +118,7 @@
     "@types/react": "^19.2.14",
     "@vitest/coverage-v8": "^4.0.18",
     "drizzle-kit": "beta",
-    "msw": "^2.13.6",
+    "msw": "^2.15.0",
     "tsx": "4.23.15",
     "typescript": "^6.0.3",
     "vitest": "^4.0.18"

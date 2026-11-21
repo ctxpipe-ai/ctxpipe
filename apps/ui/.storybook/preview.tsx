@@ -2,7 +2,8 @@ import addonA11y from "@storybook/addon-a11y"
 import addonDocs from "@storybook/addon-docs"
 import { definePreview } from "@storybook/react-vite"
 import { HttpResponse, isCommonAssetRequest, WebSocketHandler, ws } from "msw"
-import { getWorker, initialize, mswLoader } from "msw-storybook-addon"
+import { mswLoader } from "msw-storybook-addon/csf3"
+import { setupWorker } from "msw/browser"
 
 import { layoutProblems } from "../src/lib/layout-checks"
 import { optIn } from "./decorators/opt-in"
@@ -36,7 +37,7 @@ const unhandledRequests: string[] = []
 const unhandledSocketHandler = ws
   .link(/.*/)
   .addEventListener("connection", ({ client }) => {
-    const handled = getWorker()
+    const handled = worker
       .listHandlers()
       .some(
         (handler) =>
@@ -48,8 +49,13 @@ const unhandledSocketHandler = ws
     unhandledRequests.push(`WS ${client.url.href}`)
     client.close(1011, "No mock answers this socket.")
   })
-initialize(
-  {
+// `resetHandlers()` before each story keeps this initial handler.
+const worker = setupWorker(unhandledSocketHandler)
+// The stories are CSF 3, so the addon applies `parameters.msw` through
+// `mswLoader` of `msw-storybook-addon/csf3`. The loader calls this function
+// once and uses the worker that it returns for each story.
+const startWorker = async () => {
+  await worker.start({
     // A relative URL: a build served below a path (a PR preview at
     // https://storybook.ctxpipe.dev/commit/<sha>/) registers its own worker
     // there, so its stories get their mock data too.
@@ -67,9 +73,9 @@ initialize(
       // error, so the request never reaches a server.
       throw HttpResponse.error()
     },
-  },
-  [unhandledSocketHandler],
-)
+  })
+  return worker
+}
 
 // The check runner (scripts/checks/README.md) records which MSW handlers
 // answered a request of the story. A handler header is `<METHOD> <path>`.
@@ -79,7 +85,7 @@ Object.assign(window, {
   __ctxpipeLayoutProblems: layoutProblems,
   __ctxpipeUnhandledRequests: unhandledRequests,
   __ctxpipeMswHandlers: () =>
-    getWorker()
+    worker
       .listHandlers()
       .flatMap((handler) =>
         "isUsed" in handler && handler.isUsed ? [handler.info.header] : [],
@@ -106,7 +112,7 @@ export default definePreview({
   },
   // `mswLoader` applies the handlers of the story (`parameters.msw`).
   // `storyRouteLoader` builds the router of `parameters.storyRoute`.
-  loaders: [mswLoader, storyRouteLoader],
+  loaders: [mswLoader(startWorker), storyRouteLoader],
   // Each decorator is a no-op until the story file sets its parameter. The
   // first decorator is the innermost.
   decorators: [
