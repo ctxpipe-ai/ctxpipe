@@ -11,30 +11,29 @@ import { InstallForgeStep } from "./InstallForgeStep"
 const orgSlug = "acme"
 const atlassianConnectionId = "install_step_conn"
 
-// A function: a Response body can be read only once, and each request needs
-// its own Response.
-const connectorStatusOk = () =>
-  HttpResponse.json({
-    isLinked: true,
-    isInstalled: false,
-    installationStatus: null,
-    setupPhase: "draft",
-    isGithubLinked: false,
-    selectedSpaceCount: 0,
-    syncTargetConfigured: false,
-    syncTarget: null,
-    selectedSpaces: [],
-    pendingConfigPullUrl: null,
-    pendingConfigPrCreating: false,
-  })
-
 function statusHandler() {
-  return http.get(({ request }) => {
-    const u = new URL(request.url)
-    if (!u.pathname.includes("/api/v1/connectors/atlassian/status"))
-      return false
-    return u.searchParams.get("connectionId") === atlassianConnectionId
-  }, connectorStatusOk)
+  return http.get(
+    ({ request }) => {
+      const u = new URL(request.url)
+      if (!u.pathname.includes("/api/v1/connectors/atlassian/status"))
+        return false
+      return u.searchParams.get("connectionId") === atlassianConnectionId
+    },
+    () =>
+      HttpResponse.json({
+        isLinked: true,
+        isInstalled: false,
+        installationStatus: null,
+        setupPhase: "draft",
+        isGithubLinked: false,
+        selectedSpaceCount: 0,
+        syncTargetConfigured: false,
+        syncTarget: null,
+        selectedSpaces: [],
+        pendingConfigPullUrl: null,
+        pendingConfigPrCreating: false,
+      }),
+  )
 }
 
 function provisionStatusHandler(payload: Record<string, unknown>) {
