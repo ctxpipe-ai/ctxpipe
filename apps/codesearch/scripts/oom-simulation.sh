@@ -13,13 +13,16 @@ CONTAINER_NAME="ctxpipe-codesearch-oom-sim-$$"
 MEMORY_LIMIT="32m"
 
 cleanup() {
-  docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true
+  docker rm -f -v "${CONTAINER_NAME}" >/dev/null 2>&1 || true
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 set +e
 docker run \
   --name "${CONTAINER_NAME}" \
+  --label "ai.ctxpipe.test=${CTXPIPE_TEST_OWNER:-$(hostname)/$$}" \
   --memory "${MEMORY_LIMIT}" \
   --memory-swap "${MEMORY_LIMIT}" \
   "${IMAGE}" \

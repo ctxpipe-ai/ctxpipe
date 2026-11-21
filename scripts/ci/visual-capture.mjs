@@ -24,6 +24,7 @@ import {
 import { componentClip, storyBoxes } from "./visual-component-box.mjs"
 import { growToContent, maxHeight } from "./visual-full-page.mjs"
 import pin from "./visual-container.json" with { type: "json" }
+import { ownTestContainers, testLabelArgs } from "./test-containers.mjs"
 
 // Takes a screenshot of each named story, in the pinned Playwright image
 // (scripts/ci/visual-container.json). Mac and Linux render text differently,
@@ -307,6 +308,9 @@ async function runInContainer(script, args, out, files, cpus) {
   prepared ??= prepare(["visual-container"])
   const failed = (await prepared).get("visual-container")
   if (failed) throw new Error(failed)
+  // The `finally` below does not run when a signal stops the capture: then
+  // the owner removes the container (scripts/ci/test-containers.mjs).
+  ownTestContainers()
   const name = `ctxpipe-visual-capture-${process.pid}-${Date.now()}-${(containers += 1)}`
   mkdirSync(out, { recursive: true })
   try {
@@ -317,6 +321,7 @@ async function runInContainer(script, args, out, files, cpus) {
     // (storybook-play.mjs), with a message that names it.
     docker([
       "create",
+      ...testLabelArgs(),
       "--name",
       name,
       "--platform",
@@ -357,7 +362,9 @@ async function runInContainer(script, args, out, files, cpus) {
           : `The capture container exited with ${status}; some stories did not run.\n`,
       )
   } finally {
-    spawnSync("docker", ["rm", "--force", name], { stdio: "ignore" })
+    spawnSync("docker", ["rm", "--force", "--volumes", name], {
+      stdio: "ignore",
+    })
   }
 }
 

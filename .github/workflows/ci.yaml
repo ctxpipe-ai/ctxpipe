@@ -386,6 +386,9 @@ jobs:
           path: .ci-results/
           include-hidden-files: true
           if-no-files-found: error
+      - name: Remove FalkorDB
+        if: always()
+        run: docker rm --force --volumes falkordb || true
 
   package-tests:
     timeout-minutes: 30
@@ -1560,6 +1563,9 @@ jobs:
           else
             bash .github/actions/falkordb/diagnose.sh
           fi
+      - name: Remove FalkorDB
+        if: always()
+        run: docker rm --force --volumes falkordb || true
 
   # The merge gate (scripts/checks/README.md, Merge gate) in shadow mode: the
   # full run gates, and these jobs publish beside it what a gated run would

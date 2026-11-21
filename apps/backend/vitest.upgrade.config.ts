@@ -13,7 +13,9 @@ export default defineConfig({
     teardownTimeout: 60_000,
     fileParallelism: false,
     include: ["src/**/*.upgrade.ts"],
+    globalSetup: ["src/test/global-setup-containers.ts"],
     setupFiles: [
+      "src/test/setup-test-containers.ts",
       "src/test/setup-evlog.ts",
       "src/test/setup-openworkflow-runs.ts",
     ],
