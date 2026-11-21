@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
@@ -6,6 +5,7 @@ import { sideNavHandlers } from "@/mocks/workspace-handlers"
 import { workspaceIngestionHandlers } from "@/mocks/workspace-ingestion-handlers"
 
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
+import preview from "../../.storybook/preview"
 import {
   organizationFullWithOrgHandler,
   authConfigHandler,
@@ -17,16 +17,13 @@ import {
 } from "../mocks/handlers"
 import { AccountSettingsBody } from "./[.]auth.account.$accountView"
 
-const meta = {
+const meta = preview.meta({
   title: "Pages/User account",
   component: AccountSettingsBody,
+  beforeEach: ({ msw }) => {
+    msw.use(...signedInHandlers, ...workspaceIngestionHandlers({}))
+  },
   parameters: {
-    msw: {
-      handlers: {
-        session: signedInHandlers,
-        ingestion: workspaceIngestionHandlers({}),
-      },
-    },
     app: "root",
     layout: "fullscreen",
     storyRoute: {
@@ -38,30 +35,20 @@ const meta = {
   args: {
     accountView: "api-keys",
   },
-} satisfies Meta<typeof AccountSettingsBody>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Body of the user account API keys view, where a user makes personal keys: the
  * user has no keys yet.
  */
-export const ApiKeysEmpty: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.get("*/.auth/api/v1/auth/api-key/list", () =>
-            HttpResponse.json({ apiKeys: [], total: 0 }),
-          ),
-          http.get("*/api/v1/me/api-keys", () =>
-            HttpResponse.json({ keys: [] }),
-          ),
-        ],
-      },
-    },
+export const ApiKeysEmpty = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get("*/.auth/api/v1/auth/api-key/list", () =>
+        HttpResponse.json({ apiKeys: [], total: 0 }),
+      ),
+      http.get("*/api/v1/me/api-keys", () => HttpResponse.json({ keys: [] })),
+    )
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -81,16 +68,21 @@ export const ApiKeysEmpty: Story = {
       createButton.closest('[data-slot="card-footer"]'),
     ).not.toBeNull()
   },
-}
+})
 
 /**
  * User account page with the app shell, where a user edits the name and email:
  * the user opened Settings from the user menu, so the Account view shows. The
  * index route `/.auth/account/` opens this view.
  */
-export const Settings: Story = {
+export const Settings = meta.story({
   tags: ["page"],
   args: { accountView: "settings" },
+  beforeEach: ({ msw }) => {
+    // The app shell lists the Workspaces of the org. The user has no
+    // invitation.
+    msw.use(...sideNavHandlers(), userInvitationsEmptyHandler)
+  },
   parameters: {
     app: "org",
     review: { kind: "page" },
@@ -99,13 +91,6 @@ export const Settings: Story = {
       pattern: "flat",
       path: "/.auth/account",
     } satisfies StoryRouteParams,
-    // The app shell lists the Workspaces of the org. The user has no
-    // invitation.
-    msw: {
-      handlers: {
-        page: [...sideNavHandlers(), userInvitationsEmptyHandler],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -115,16 +100,21 @@ export const Settings: Story = {
       ).toBeVisible(),
     )
   },
-}
+})
 
 /**
  * User account page with the app shell, where a user manages the account: the
  * Organizations view is open, with the shell, the account nav and the view
  * together.
  */
-export const OrganizationsView: Story = {
+export const OrganizationsView = meta.story({
   tags: ["page"],
   args: { accountView: "organizations" },
+  beforeEach: ({ msw }) => {
+    // The app shell lists the Workspaces of the org. The user has no
+    // invitation.
+    msw.use(...sideNavHandlers(), userInvitationsEmptyHandler)
+  },
   parameters: {
     app: "org",
     review: { kind: "page" },
@@ -133,13 +123,6 @@ export const OrganizationsView: Story = {
       pattern: "flat",
       path: "/.auth/account/organizations",
     } satisfies StoryRouteParams,
-    // The app shell lists the Workspaces of the org. The user has no
-    // invitation.
-    msw: {
-      handlers: {
-        page: [...sideNavHandlers(), userInvitationsEmptyHandler],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -149,7 +132,7 @@ export const OrganizationsView: Story = {
       ).toBeVisible(),
     )
   },
-}
+})
 
 const connectedApp = {
   id: "ocs_story_agent",
@@ -242,10 +225,13 @@ const editBackend = connectedAppsHandlers()
  * organizations of one app in a dialog, and a legacy app shows a reconnect
  * hint.
  */
-export const ConnectedAppsEditOrgs: Story = {
+export const ConnectedAppsEditOrgs = meta.story({
   tags: ["required"],
   args: { accountView: "connected-apps" },
-  beforeEach: editBackend.reset,
+  beforeEach: ({ msw }) => {
+    msw.use(...editBackend.handlers)
+    return editBackend.reset()
+  },
   parameters: {
     intent:
       "Catches a connected app edit that cannot change its organizations, or a legacy app that offers Edit. Legacy apps show a reconnect hint instead. Not for revoke.",
@@ -253,7 +239,6 @@ export const ConnectedAppsEditOrgs: Story = {
       pattern: "flat",
       path: "/.auth/account/connected-apps",
     } satisfies StoryRouteParams,
-    msw: { handlers: { session: editBackend.handlers } },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -290,7 +275,7 @@ export const ConnectedAppsEditOrgs: Story = {
     await waitFor(() => expect(canvas.queryByText("north-labs")).toBeNull())
     await expect(canvas.getAllByText("harbor-systems")).toHaveLength(2)
   },
-}
+})
 
 const revokeBackend = connectedAppsHandlers()
 
@@ -299,10 +284,13 @@ const revokeBackend = connectedAppsHandlers()
  * OAuth apps: the user revoked one app in its dialog, and the list keeps the
  * other app.
  */
-export const ConnectedAppsRevoke: Story = {
+export const ConnectedAppsRevoke = meta.story({
   tags: ["required"],
   args: { accountView: "connected-apps" },
-  beforeEach: revokeBackend.reset,
+  beforeEach: ({ msw }) => {
+    msw.use(...revokeBackend.handlers)
+    return revokeBackend.reset()
+  },
   parameters: {
     intent:
       "Catches a revoke that leaves the app in the list or leaves the dialog open. Confirming sends a DELETE request and removes only that app. Not for revoke errors.",
@@ -310,7 +298,6 @@ export const ConnectedAppsRevoke: Story = {
       pattern: "flat",
       path: "/.auth/account/connected-apps",
     } satisfies StoryRouteParams,
-    msw: { handlers: { session: revokeBackend.handlers } },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -325,7 +312,7 @@ export const ConnectedAppsRevoke: Story = {
     await expect(revokeBackend.requests).toContainEqual({ method: "DELETE" })
     await expect(body.queryByRole("alertdialog")).toBeNull()
   },
-}
+})
 
 const failingRevokeBackend = connectedAppsHandlers({ failRevoke: true })
 
@@ -333,10 +320,13 @@ const failingRevokeBackend = connectedAppsHandlers({ failRevoke: true })
  * Revoke dialog of the Connected apps view: the user pressed Revoke app and the
  * server had an error, so the dialog stays open with the cause and a retry.
  */
-export const ConnectedAppsRevokeError: Story = {
+export const ConnectedAppsRevokeError = meta.story({
   tags: ["required"],
   args: { accountView: "connected-apps" },
-  beforeEach: failingRevokeBackend.reset,
+  beforeEach: ({ msw }) => {
+    msw.use(...failingRevokeBackend.handlers)
+    return failingRevokeBackend.reset()
+  },
   parameters: {
     intent:
       "Catches a failed revoke that closes the dialog or removes the app. The dialog stays open with the error and the app stays listed. Not for a successful revoke.",
@@ -344,7 +334,6 @@ export const ConnectedAppsRevokeError: Story = {
       pattern: "flat",
       path: "/.auth/account/connected-apps",
     } satisfies StoryRouteParams,
-    msw: { handlers: { session: failingRevokeBackend.handlers } },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -366,28 +355,26 @@ export const ConnectedAppsRevokeError: Story = {
     // End with the pointer off the button, so its color is the idle one.
     await userEvent.unhover(revoke)
   },
-}
+})
 
 /**
  * Body of the user account Connected apps view, which lists the apps with
  * access: the user has no connected apps.
  */
-export const ConnectedAppsEmpty: Story = {
+export const ConnectedAppsEmpty = meta.story({
   args: { accountView: "connected-apps" },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get("*/api/v1/me/connected-apps", () =>
+        HttpResponse.json({ apps: [] }),
+      ),
+    )
+  },
   parameters: {
     storyRoute: {
       pattern: "flat",
       path: "/.auth/account/connected-apps",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: [
-          http.get("*/api/v1/me/connected-apps", () =>
-            HttpResponse.json({ apps: [] }),
-          ),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -398,7 +385,7 @@ export const ConnectedAppsEmpty: Story = {
       canvas.getByRole("link", { name: "Connected apps" }),
     ).toBeVisible()
   },
-}
+})
 
 type StoryKey = {
   id: string
@@ -507,10 +494,10 @@ const createKeyBackend = personalKeysHandlers()
  * dialog, picks one organization, and sees the new key one time. The play
  * proves that Create stays off until the user picks at least one organization.
  */
-export const ApiKeysCreateWithOrganizations: Story = {
-  beforeEach: createKeyBackend.reset,
-  parameters: {
-    msw: { handlers: { session: createKeyBackend.handlers } },
+export const ApiKeysCreateWithOrganizations = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(...createKeyBackend.handlers)
+    return createKeyBackend.reset()
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -553,7 +540,7 @@ export const ApiKeysCreateWithOrganizations: Story = {
       expect(canvas.getByText("harbor-systems")).toBeInTheDocument(),
     )
   },
-}
+})
 
 const editKeyBackend = personalKeysHandlers()
 
@@ -562,10 +549,10 @@ const editKeyBackend = personalKeysHandlers()
  * a key in a dialog. The list shows the organizations of each key, and a key
  * from before organization sets reaches all organizations.
  */
-export const ApiKeysEditOrganizations: Story = {
-  beforeEach: editKeyBackend.reset,
-  parameters: {
-    msw: { handlers: { session: editKeyBackend.handlers } },
+export const ApiKeysEditOrganizations = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(...editKeyBackend.handlers)
+    return editKeyBackend.reset()
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -601,7 +588,7 @@ export const ApiKeysEditOrganizations: Story = {
     await waitFor(() => expect(canvas.queryByText("north-labs")).toBeNull())
     await expect(canvas.getByText("harbor-systems")).toBeVisible()
   },
-}
+})
 
 /**
  * The user deleted an organization, and the stored selection still names it.
@@ -654,10 +641,13 @@ const staleSelectionBackend = deletedOrganizationBackend([
  * organization delete dialog: the stored organization was deleted, so the shell
  * opens the first other organization. The page does not show the error screen.
  */
-export const OrganizationDeletedStaleSelection: Story = {
+export const OrganizationDeletedStaleSelection = meta.story({
   tags: ["required"],
   args: { accountView: "organizations" },
-  beforeEach: staleSelectionBackend.reset,
+  beforeEach: ({ msw }) => {
+    msw.use(...staleSelectionBackend.handlers, ...staleSelectionBackend.page)
+    return staleSelectionBackend.reset()
+  },
   parameters: {
     app: "org",
     review: { kind: "page" },
@@ -667,12 +657,6 @@ export const OrganizationDeletedStaleSelection: Story = {
       pattern: "flat",
       path: "/.auth/account/organizations",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        session: staleSelectionBackend.handlers,
-        page: staleSelectionBackend.page,
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -691,7 +675,7 @@ export const OrganizationDeletedStaleSelection: Story = {
       expect(canvas.queryByText("Something went wrong")).toBeNull()
     })
   },
-}
+})
 
 const lastOrganizationBackend = deletedOrganizationBackend([])
 
@@ -700,10 +684,16 @@ const lastOrganizationBackend = deletedOrganizationBackend([])
  * to onboarding, which this story shows as a plain route marker. The play
  * proves that the app does not request the deleted organization.
  */
-export const LastOrganizationDeleted: Story = {
+export const LastOrganizationDeleted = meta.story({
   tags: ["required"],
   args: { accountView: "organizations" },
-  beforeEach: lastOrganizationBackend.reset,
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...lastOrganizationBackend.handlers,
+      ...lastOrganizationBackend.page,
+    )
+    return lastOrganizationBackend.reset()
+  },
   parameters: {
     app: "org",
     visual: {
@@ -715,12 +705,6 @@ export const LastOrganizationDeleted: Story = {
       pattern: "flat",
       path: "/.auth/account/organizations",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        session: lastOrganizationBackend.handlers,
-        page: lastOrganizationBackend.page,
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -732,4 +716,4 @@ export const LastOrganizationDeleted: Story = {
       expect(canvas.queryByText("Something went wrong")).toBeNull()
     })
   },
-}
+})

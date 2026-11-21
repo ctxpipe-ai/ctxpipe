@@ -1,27 +1,23 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, within } from "storybook/test"
 
+import preview from "../../../.storybook/preview"
 import { InlineAlert } from "./InlineAlert"
 import { TechnicalDetail } from "./TechnicalDetail"
 
-const meta = {
+const meta = preview.meta({
   title: "Components/TechnicalDetail",
   component: TechnicalDetail,
   parameters: {
     layout: "centered",
     review: { kind: "component" },
   },
-} satisfies Meta<typeof TechnicalDetail>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Raw server reason in an error alert after a Workspace failed to load: the
  * clone URL in the reason holds a GitHub token, and the block hides the token.
  */
-export const ReasonWithToken: Story = {
+export const ReasonWithToken = meta.story({
   args: {
     tone: "error",
     children:
@@ -40,4 +36,4 @@ export const ReasonWithToken: Story = {
     await expect(detail).not.toHaveTextContent("ghs_0123456789")
     await expect(detail).toHaveTextContent("returned 403")
   },
-}
+})

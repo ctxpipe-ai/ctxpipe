@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useLocation } from "@tanstack/react-router"
 import { delay, HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
@@ -33,6 +32,7 @@ import {
 } from "@/mocks/workspace-upgrades-handlers"
 
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
+import preview from "../../.storybook/preview"
 import {
   NewWorkspaceGate,
   NewWorkspacePageContent,
@@ -41,9 +41,21 @@ import {
 
 const orgSlug = "acme"
 
-const meta = {
+const meta = preview.meta({
   title: "Pages/Workspaces/New",
   tags: ["page"],
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...signedInHandlers,
+      ...workspaceIngestionHandlers({}),
+      // Only an owner or admin sees the repository pickers.
+      activeMemberRoleHandler("owner"),
+      workspaceListHandler([]),
+      orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
+      githubInstallationReposHandler(),
+      ...githubAppInstalledHandlers,
+    )
+  },
   parameters: {
     app: "org",
     layout: "fullscreen",
@@ -53,32 +65,14 @@ const meta = {
       pattern: "orgWorkspaceNew",
       orgSlug,
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        session: signedInHandlers,
-        ingestion: workspaceIngestionHandlers({}),
-        // Only an owner or admin sees the repository pickers.
-        role: [activeMemberRoleHandler("owner")],
-        page: [
-          workspaceListHandler([]),
-          orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
-          githubInstallationReposHandler(),
-        ],
-        github: githubAppInstalledHandlers,
-      },
-    },
   },
-} satisfies Meta
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Add Workspace page, where an admin picks the Workspace repository and adds
  * sources: the session is still loading, so step 1 shows its skeleton.
  */
-export const Loading: Story = {
+export const Loading = meta.story({
   render: () => <NewWorkspaceSessionFallback />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -89,38 +83,38 @@ export const Loading: Story = {
     expect(canvas.getByText(/saves this Workspace’s knowledge/)).toBeVisible()
     expect(canvas.getByText("Loading repositories")).toBeInTheDocument()
   },
-}
+})
 
 /**
  * Add Workspace page, where an admin picks the Workspace repository and adds
  * sources: step 1 with the Paste URL tab open.
  */
-export const PasteUrl: Story = {
+export const PasteUrl = meta.story({
   render: () => <NewWorkspacePageContent orgSlug={orgSlug} />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(canvas.getByRole("tab", { name: /paste url/i }))
   },
-}
+})
 
 /**
  * Add Workspace page, where an admin creates a Workspace in two steps: step 1,
  * where the admin picks the Workspace repository from the GitHub repositories
  * of the org.
  */
-export const SelectGitHub: Story = {
+export const SelectGitHub = meta.story({
   render: () => <NewWorkspacePageContent orgSlug={orgSlug} />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByRole("list", { name: /repositories/i })
   },
-}
+})
 
 /**
  * Add Workspace page, where an admin picks the Workspace repository and adds
  * sources: step 1 with the Create on GitHub tab open.
  */
-export const CreateOnGitHub: Story = {
+export const CreateOnGitHub = meta.story({
   render: () => <NewWorkspacePageContent orgSlug={orgSlug} />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -128,7 +122,7 @@ export const CreateOnGitHub: Story = {
       canvas.getByRole("tab", { name: /create on github/i }),
     )
   },
-}
+})
 
 /** How many Workspaces the story created, as the API saw it. */
 const creates = { count: 0 }
@@ -190,14 +184,16 @@ const slowSessionDefaults = [
  * the create, so step 2 opens to add repositories. Step 1 is gone, and no
  * Workspace is created.
  */
-export const StepTwoFromUrl: Story = {
+export const StepTwoFromUrl = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(...stepTwoHandlers)
+  },
   parameters: {
     storyRoute: {
       pattern: "orgWorkspaceNew",
       orgSlug,
       search: "?workspace=handbook",
     } satisfies StoryRouteParams,
-    msw: { handlers: { page: stepTwoHandlers } },
   },
   render: () => <NewWorkspacePageContent orgSlug={orgSlug} />,
   play: async ({ canvasElement }) => {
@@ -214,19 +210,21 @@ export const StepTwoFromUrl: Story = {
     await expect(canvas.queryByRole("tab", { name: /paste url/i })).toBeNull()
     expect(creates.count).toBe(0)
   },
-}
+})
 
 /**
  * Add Workspace page, where an admin picks the Workspace repository and adds
  * sources: the user creates the Workspace in step 1, so the address changes and
  * step 2 shows.
  */
-export const CreateMovesToStepTwoUrl: Story = {
+export const CreateMovesToStepTwoUrl = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(...stepTwoHandlers)
+  },
   parameters: {
     visual: {
       skip: "Behavior test: it ends on the location probe. StepTwoFromUrl shows step 2.",
     },
-    msw: { handlers: { page: stepTwoHandlers } },
   },
   render: () => (
     <>
@@ -251,14 +249,17 @@ export const CreateMovesToStepTwoUrl: Story = {
     )
     expect(creates.count).toBe(1)
   },
-}
+})
 
 /**
  * Add Workspace page, where an admin picks the Workspace repository and adds
  * sources: the address names a Workspace that does not exist or is not the
  * user's. Start again goes back to step 1 and clears the address.
  */
-export const UnknownWorkspaceInUrl: Story = {
+export const UnknownWorkspaceInUrl = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(workspaceDetailHandler(null), ...stepTwoHandlers)
+  },
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as SelectGitHub.",
@@ -268,11 +269,6 @@ export const UnknownWorkspaceInUrl: Story = {
       orgSlug,
       search: "?workspace=missing",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: [workspaceDetailHandler(null), ...stepTwoHandlers],
-      },
-    },
   },
   render: () => (
     <>
@@ -293,14 +289,17 @@ export const UnknownWorkspaceInUrl: Story = {
       expect(canvas.getByTestId("location-search")).toHaveTextContent(/^$/),
     )
   },
-}
+})
 
 /**
  * Add Workspace page, where an admin picks the Workspace repository and adds
  * sources: the user reloads at the step 2 address, so the session fallback
  * already shows step 2. Step 1 never flashes before it.
  */
-export const LoadingStepTwo: Story = {
+export const LoadingStepTwo = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(...slowSessionDefaults, ...stepTwoHandlers)
+  },
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as StepTwoFromUrl.",
@@ -310,9 +309,6 @@ export const LoadingStepTwo: Story = {
       orgSlug,
       search: "?workspace=handbook",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: { session: slowSessionDefaults, page: stepTwoHandlers },
-    },
   },
   render: () => <NewWorkspaceGate orgSlug={orgSlug} />,
   play: async ({ canvasElement }) => {
@@ -332,27 +328,22 @@ export const LoadingStepTwo: Story = {
       canvas.getByText("Add code repositories and tools").closest("li"),
     ).toHaveAttribute("aria-current", "step")
   },
-}
+})
 
 /** How many times a story has read the upgrades of the Workspace. */
 const upgradeReads = { count: 0 }
 
 /** Step 2 with the upgrades read of a story, ahead of the default one. */
 function stepTwoWith(upgradesHandler: ReturnType<typeof http.get>) {
-  return {
-    storyRoute: {
-      pattern: "orgWorkspaceNew",
-      orgSlug,
-      search: "?workspace=handbook",
-    } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        // The first matching handler answers, so the story handler comes first.
-        page: [upgradesHandler, ...stepTwoHandlers],
-      },
-    },
-  }
+  // The first matching handler answers, so the story handler comes first.
+  return [upgradesHandler, ...stepTwoHandlers]
 }
+
+const stepTwoRoute = {
+  pattern: "orgWorkspaceNew",
+  orgSlug,
+  search: "?workspace=handbook",
+} satisfies StoryRouteParams
 
 /**
  * Add Workspace page, where an admin picks the Workspace repository and adds
@@ -360,11 +351,16 @@ function stepTwoWith(upgradesHandler: ReturnType<typeof http.get>) {
  * file, so it asks for an upgrade first. Review upgrades opens the Workspace
  * settings.
  */
-export const StepTwoNeedsUpgrade: Story = {
+export const StepTwoNeedsUpgrade = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...stepTwoWith(
+        workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 0 })),
+      ),
+    )
+  },
   parameters: {
-    ...stepTwoWith(
-      workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 0 })),
-    ),
+    storyRoute: stepTwoRoute,
   },
   render: () => <NewWorkspacePageContent orgSlug={orgSlug} />,
   play: async ({ canvasElement, loaded }) => {
@@ -388,18 +384,23 @@ export const StepTwoNeedsUpgrade: Story = {
       expect(router.state.location.search).toMatchObject({ pane: "settings" })
     })
   },
-}
+})
 
 /**
  * Add Workspace page, step 2: the admin picked a repository whose format file
  * is not valid, so the Workspace is read-only and the notice names the fix in
  * the file. An upgrade does not fix it, so no upgrade text shows.
  */
-export const StepTwoFormatNotValid: Story = {
+export const StepTwoFormatNotValid = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...stepTwoWith(
+        workspaceUpgradesHandler(upgradesFixture([], { formatVersion: -1 })),
+      ),
+    )
+  },
   parameters: {
-    ...stepTwoWith(
-      workspaceUpgradesHandler(upgradesFixture([], { formatVersion: -1 })),
-    ),
+    storyRoute: stepTwoRoute,
   },
   render: () => <NewWorkspacePageContent orgSlug={orgSlug} />,
   play: async ({ canvasElement }) => {
@@ -412,18 +413,23 @@ export const StepTwoFormatNotValid: Story = {
       canvas.queryByRole("button", { name: "Add repositories" }),
     ).toBeNull()
   },
-}
+})
 
 /**
  * Add Workspace page, where an admin picks the Workspace repository and adds
  * sources: step 2 for a repository with a newer format than ctxpipe reads, so
  * the Workspace is read-only and offers no upgrade.
  */
-export const StepTwoFormatAhead: Story = {
+export const StepTwoFormatAhead = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...stepTwoWith(
+        workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 4 })),
+      ),
+    )
+  },
   parameters: {
-    ...stepTwoWith(
-      workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 4 })),
-    ),
+    storyRoute: stepTwoRoute,
   },
   render: () => <NewWorkspacePageContent orgSlug={orgSlug} />,
   play: async ({ canvasElement }) => {
@@ -436,31 +442,37 @@ export const StepTwoFormatAhead: Story = {
       canvas.queryByRole("button", { name: "Add repositories" }),
     ).toBeNull()
   },
-}
+})
 
 /**
  * Add Workspace page, where an admin picks the Workspace repository and adds
  * sources: step 2 after the first read of the upgrades failed. Retry reads
  * again, and the sources show.
  */
-export const StepTwoUpgradesReadFails: Story = {
-  beforeEach: () => {
+export const StepTwoUpgradesReadFails = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...stepTwoWith(
+        http.get(
+          ({ request }) =>
+            /\/workspaces\/[^/]+\/upgrades$/.test(
+              new URL(request.url).pathname,
+            ),
+          () =>
+            upgradeReads.count++ === 0
+              ? HttpResponse.json({ error: "Server error" }, { status: 500 })
+              : HttpResponse.json(upgradesFixture([], { formatVersion: 3 })),
+        ),
+      ),
+    )
+
     upgradeReads.count = 0
   },
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as StepTwoFromUrl.",
     },
-    ...stepTwoWith(
-      http.get(
-        ({ request }) =>
-          /\/workspaces\/[^/]+\/upgrades$/.test(new URL(request.url).pathname),
-        () =>
-          upgradeReads.count++ === 0
-            ? HttpResponse.json({ error: "Server error" }, { status: 500 })
-            : HttpResponse.json(upgradesFixture([], { formatVersion: 3 })),
-      ),
-    ),
+    storyRoute: stepTwoRoute,
   },
   render: () => <NewWorkspacePageContent orgSlug={orgSlug} />,
   play: async ({ canvasElement }) => {
@@ -475,29 +487,33 @@ export const StepTwoUpgradesReadFails: Story = {
       expect(canvas.queryByText("Could not load the Workspace")).toBeNull(),
     )
   },
-}
+})
 
 /**
  * Add Workspace page, where an admin picks the Workspace repository and adds
  * sources: step 2 for a new empty repository waits for its format file, which
  * lands a few seconds after the create. Then the sources show.
  */
-export const StepTwoWaitsForFormat: Story = {
-  beforeEach: () => {
+export const StepTwoWaitsForFormat = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...stepTwoWith(
+        // The first read has no format yet; the next reads have format 3.
+        workspaceUpgradesHandler(() =>
+          upgradesFixture([], {
+            formatVersion: upgradeReads.count++ === 0 ? null : 3,
+          }),
+        ),
+      ),
+    )
+
     upgradeReads.count = 0
   },
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as StepTwoFromUrl.",
     },
-    ...stepTwoWith(
-      // The first read has no format yet; the next reads have format 3.
-      workspaceUpgradesHandler(() =>
-        upgradesFixture([], {
-          formatVersion: upgradeReads.count++ === 0 ? null : 3,
-        }),
-      ),
-    ),
+    storyRoute: stepTwoRoute,
   },
   render: () => <NewWorkspacePageContent orgSlug={orgSlug} />,
   play: async ({ canvasElement }) => {
@@ -516,7 +532,7 @@ export const StepTwoWaitsForFormat: Story = {
       canvas.queryByText("Setting up the Workspace repository"),
     ).toBeNull()
   },
-}
+})
 
 type Placement = { heading: number; card: number }
 
@@ -538,31 +554,26 @@ function placement(canvas: ReturnType<typeof within>): Placement {
  * play proves that the heading and the step card keep their top through each
  * state.
  */
-export const KeepsPlaceBetweenSteps: Story = {
+export const KeepsPlaceBetweenSteps = meta.story({
   tags: ["required"],
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...slowSessionDefaults,
+      // The repository list and the new Workspace load slowly.
+      slowAnswer(
+        (path) => path.endsWith("/api/v1/github/installation/repositories"),
+        1500,
+      ),
+      slowAnswer((path) => /\/api\/v1\/workspaces\/[^/]+$/.test(path), 1500),
+      ...stepTwoHandlers,
+    )
+  },
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as StepTwoFromUrl.",
     },
     intent:
       "Catches layout shift between the loading skeleton and the loaded steps of the new workspace page. The step keeps its place while data loads. Not for step content.",
-    msw: {
-      handlers: {
-        session: slowSessionDefaults,
-        page: [
-          // The repository list and the new Workspace load slowly.
-          slowAnswer(
-            (path) => path.endsWith("/api/v1/github/installation/repositories"),
-            1500,
-          ),
-          slowAnswer(
-            (path) => /\/api\/v1\/workspaces\/[^/]+$/.test(path),
-            1500,
-          ),
-          ...stepTwoHandlers,
-        ],
-      },
-    },
   },
   render: () => <NewWorkspaceGate orgSlug={orgSlug} />,
   play: async ({ canvasElement }) => {
@@ -628,4 +639,4 @@ export const KeepsPlaceBetweenSteps: Story = {
     await measure()
     for (const place of seen) expect(place).toEqual(seen[0])
   },
-}
+})

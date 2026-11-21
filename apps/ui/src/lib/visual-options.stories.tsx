@@ -1,9 +1,9 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useEffect, useRef, useState } from "react"
 import { expect } from "storybook/test"
 
 import { Button } from "@/components/ui/Button"
 
+import preview from "../../.storybook/preview"
 import { snapshot } from "./visual-snapshot"
 
 // This story proves the screenshot options of a story
@@ -72,23 +72,20 @@ function Card() {
   )
 }
 
-const meta = {
+const meta = preview.meta({
   title: "Testing/Visual options",
   component: Card,
   parameters: {
     visual: { masks: ["[data-testid='noise']"] },
     review: { kind: "component" },
   },
-} satisfies Meta<typeof Card>
-
-export default meta
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Test fixture that proves the screenshot masks and named snapshots: the menu
  * opened and the user pressed Save.
  */
-export const NamedSnapshots: Story = {
+export const NamedSnapshots = meta.story({
   play: async ({ canvas, userEvent }) => {
     await snapshot("closed")
     await userEvent.click(canvas.getByRole("button", { name: "Open menu" }))
@@ -98,7 +95,7 @@ export const NamedSnapshots: Story = {
     await userEvent.click(canvas.getByRole("button", { name: "Save" }))
     await expect(canvas.getByText("Saved")).toBeVisible()
   },
-}
+})
 
 function PaneLayout() {
   return (
@@ -129,9 +126,9 @@ function PaneLayout() {
  * Test fixture that proves the full-page screenshot: a layout with the viewport
  * height and a pane that scrolls inside, with all 60 rows in the baseline.
  */
-export const PaneScrollsInside: Story = {
+export const PaneScrollsInside = meta.story({
   render: () => <PaneLayout />,
   play: async ({ canvas }) => {
     await expect(canvas.getByText("Pane row 60")).toBeInTheDocument()
   },
-}
+})

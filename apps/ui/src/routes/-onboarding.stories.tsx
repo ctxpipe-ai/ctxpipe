@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useLocation } from "@tanstack/react-router"
 import { delay, HttpResponse, http, type RequestHandler } from "msw"
 import { Toaster } from "sonner"
@@ -20,14 +19,17 @@ import { workspaceListHandler } from "@/mocks/workspace-handlers"
 import { activeMemberRoleHandler } from "@/mocks/workspace-sources-handlers"
 
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
+import preview from "../../.storybook/preview"
 import { IndexRoutePage } from "./index"
 import { OnboardingPageContent } from "./onboarding"
 
-const meta = {
+const meta = preview.meta({
   title: "Pages/Onboarding",
   tags: ["page"],
+  beforeEach: ({ msw }) => {
+    msw.use(...signedInHandlers)
+  },
   parameters: {
-    msw: { handlers: { session: signedInHandlers } },
     app: "root",
     layout: "fullscreen",
     review: { kind: "page" },
@@ -37,59 +39,47 @@ const meta = {
       path: "/onboarding",
     } satisfies StoryRouteParams,
   },
-} satisfies Meta
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Onboarding screen, where a new user learns ctxpipe and an admin creates the
  * organization: the session and the organizations are still loading.
  */
-export const Loading: Story = {
+export const Loading = meta.story({
   render: () => <OnboardingPageContent />,
-  parameters: {
-    msw: {
-      // This story replaces the `session` handlers of the meta: the
-      // session and the organizations never load.
-      handlers: {
-        session: [
-          authConfigHandler,
-          http.get("*/.auth/api/v1/auth/get-session", async () => {
-            await delay("infinite")
-            return HttpResponse.json(null)
-          }),
-          http.get("*/.auth/api/v1/auth/organization/list", async () => {
-            await delay("infinite")
-            return HttpResponse.json([])
-          }),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    // These handlers come after the session of the meta, so they win: the
+    // session and the organizations never load.
+    msw.use(
+      authConfigHandler,
+      http.get("*/.auth/api/v1/auth/get-session", async () => {
+        await delay("infinite")
+        return HttpResponse.json(null)
+      }),
+      http.get("*/.auth/api/v1/auth/organization/list", async () => {
+        await delay("infinite")
+        return HttpResponse.json([])
+      }),
+    )
   },
-}
+})
 
 /**
  * Onboarding screen, where a new user learns ctxpipe and an admin creates the
  * organization: a new admin with no organization sees the first slide, the
  * welcome.
  */
-export const AdminFlowHowItWorks: Story = {
+export const AdminFlowHowItWorks = meta.story({
   render: () => <OnboardingPageContent />,
-  parameters: {
-    msw: {
-      handlers: {
-        session: [
-          authConfigHandler,
-          sessionSignedInOnboardingHandler,
-          organizationListEmptyHandler,
-          organizationFullWithOrgHandler,
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      authConfigHandler,
+      sessionSignedInOnboardingHandler,
+      organizationListEmptyHandler,
+      organizationFullWithOrgHandler,
+    )
   },
-}
+})
 
 const onboardingJourneyRoute = {
   pattern: "flat",
@@ -164,10 +154,19 @@ const joinerSession = onboardingSession()
  * where the setup guide is (AUTH-5). This story shows the landing as a plain
  * route marker.
  */
-export const JoinerFinishLandsInApp: Story = {
+export const JoinerFinishLandsInApp = meta.story({
   tags: ["required"],
   render: () => <OnboardingJourney />,
-  beforeEach: joinerSession.reset,
+  beforeEach: ({ msw }) => {
+    msw.use(
+      authConfigHandler,
+      ...joinerSession.handlers({ completes: true }),
+      organizationListWithOrgHandler,
+      organizationFullWithOrgHandler,
+      workspaceListHandler([docsWorkspace]),
+    )
+    return joinerSession.reset()
+  },
   parameters: {
     visual: {
       skip: "Behavior test: it ends on a story route marker, which the product does not render.",
@@ -176,17 +175,6 @@ export const JoinerFinishLandsInApp: Story = {
     intent:
       "Catches a joiner who finishes onboarding and does not reach the app. The finish step completes onboarding and opens the organization. Not for the create-organization flow.",
     storyRoute: onboardingJourneyRoute,
-    msw: {
-      handlers: {
-        session: [
-          authConfigHandler,
-          ...joinerSession.handlers({ completes: true }),
-          organizationListWithOrgHandler,
-          organizationFullWithOrgHandler,
-          workspaceListHandler([docsWorkspace]),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     await finishJoiner(canvasElement)
@@ -198,7 +186,7 @@ export const JoinerFinishLandsInApp: Story = {
       },
     )
   },
-}
+})
 
 const staleSession = onboardingSession()
 /**
@@ -206,7 +194,7 @@ const staleSession = onboardingSession()
  * but the session still shows onboarding as open. The welcome slide stays, with
  * an error toast that gives the next steps.
  */
-export const JoinerFinishStaysWhenSessionIsStale: Story = {
+export const JoinerFinishStaysWhenSessionIsStale = meta.story({
   render: () => <OnboardingJourney />,
   decorators: [
     (Story) => (
@@ -216,20 +204,18 @@ export const JoinerFinishStaysWhenSessionIsStale: Story = {
       </>
     ),
   ],
-  beforeEach: staleSession.reset,
+  beforeEach: ({ msw }) => {
+    msw.use(
+      authConfigHandler,
+      ...staleSession.handlers({ completes: false }),
+      organizationListWithOrgHandler,
+      organizationFullWithOrgHandler,
+      workspaceListHandler([docsWorkspace]),
+    )
+    return staleSession.reset()
+  },
   parameters: {
     storyRoute: onboardingJourneyRoute,
-    msw: {
-      handlers: {
-        session: [
-          authConfigHandler,
-          ...staleSession.handlers({ completes: false }),
-          organizationListWithOrgHandler,
-          organizationFullWithOrgHandler,
-          workspaceListHandler([docsWorkspace]),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     await finishJoiner(canvasElement)
@@ -248,7 +234,7 @@ export const JoinerFinishStaysWhenSessionIsStale: Story = {
       ).toBeVisible(),
     )
   },
-}
+})
 
 /** Handlers for an admin who has no organization on arrival. */
 function creatorHandlers(
@@ -299,10 +285,16 @@ const creatorState = { orgCreated: false, orgCompleted: false }
  * Onboarding has no Connect GitHub slide, because the Get started guide on Home
  * has that step.
  */
-export const AdminFlowCreateOrgLandsOnHome: Story = {
+export const AdminFlowCreateOrgLandsOnHome = meta.story({
   tags: ["required"],
   render: () => <OnboardingJourney />,
-  beforeEach: () => {
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...creatorHandlers(creatorSession, creatorState, [
+        workspaceListHandler([]),
+      ]),
+    )
+
     creatorSession.reset()
     creatorState.orgCreated = false
     creatorState.orgCompleted = false
@@ -315,13 +307,6 @@ export const AdminFlowCreateOrgLandsOnHome: Story = {
     intent:
       "Catches an admin onboarding that does not create the organization or open its home. Two steps, with the name and slug taken from the session email. Not for the joiner flow.",
     storyRoute: onboardingJourneyRoute,
-    msw: {
-      handlers: {
-        session: creatorHandlers(creatorSession, creatorState, [
-          workspaceListHandler([]),
-        ]),
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -351,7 +336,7 @@ export const AdminFlowCreateOrgLandsOnHome: Story = {
     // The owner's finish also completes the organization.
     expect(creatorState.orgCompleted).toBe(true)
   },
-}
+})
 
 const retrySession = onboardingSession()
 const retryState = { orgCreated: false, orgCompleted: false }
@@ -362,7 +347,7 @@ const retryCreate = fn()
  * second create. The user lands on the org home, shown as a plain route marker,
  * with one error toast.
  */
-export const AdminFinishFailureContinues: Story = {
+export const AdminFinishFailureContinues = meta.story({
   render: () => <OnboardingJourney />,
   decorators: [
     (Story) => (
@@ -375,7 +360,21 @@ export const AdminFinishFailureContinues: Story = {
       </>
     ),
   ],
-  beforeEach: () => {
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.post(
+        "*/api/v1/onboarding/user/complete",
+        () => HttpResponse.json({ error: "failed" }, { status: 500 }),
+        { once: true },
+      ),
+      // Counts each request that creates an organization, then the next
+      // handler answers it.
+      http.post("*/.auth/api/v1/auth/organization/create", () => {
+        retryCreate()
+      }),
+      ...creatorHandlers(retrySession, retryState, [workspaceListHandler([])]),
+    )
+
     retrySession.reset()
     retryState.orgCreated = false
     retryState.orgCompleted = false
@@ -387,25 +386,6 @@ export const AdminFinishFailureContinues: Story = {
     },
     review: { kind: "component" },
     storyRoute: onboardingJourneyRoute,
-    msw: {
-      handlers: {
-        session: [
-          http.post(
-            "*/api/v1/onboarding/user/complete",
-            () => HttpResponse.json({ error: "failed" }, { status: 500 }),
-            { once: true },
-          ),
-          // Counts each request that creates an organization, then the next
-          // handler answers it.
-          http.post("*/.auth/api/v1/auth/organization/create", () => {
-            retryCreate()
-          }),
-          ...creatorHandlers(retrySession, retryState, [
-            workspaceListHandler([]),
-          ]),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -442,7 +422,7 @@ export const AdminFinishFailureContinues: Story = {
       ),
     ).toHaveLength(1)
   },
-}
+})
 
 const doubleClickCreate = fn()
 /**
@@ -451,29 +431,26 @@ const doubleClickCreate = fn()
  * organization form and created nothing. The second click can land on the
  * button of the next slide, so it must not count.
  */
-export const DoubleClickMovesOneSlide: Story = {
+export const DoubleClickMovesOneSlide = meta.story({
   tags: ["required"],
   render: () => <OnboardingPageContent />,
-  beforeEach: () => {
+  beforeEach: ({ msw }) => {
+    msw.use(
+      authConfigHandler,
+      sessionSignedInOnboardingHandler,
+      organizationListEmptyHandler,
+      organizationFullWithOrgHandler,
+      http.post("*/.auth/api/v1/auth/organization/create", () => {
+        doubleClickCreate()
+        return HttpResponse.json({ error: "not expected" }, { status: 500 })
+      }),
+    )
+
     doubleClickCreate.mockClear()
   },
   parameters: {
     intent:
       "Catches a fast double click on Next that skips a slide or creates an organization. One double click moves one slide and sends no create request. Not for the slide content.",
-    msw: {
-      handlers: {
-        session: [
-          authConfigHandler,
-          sessionSignedInOnboardingHandler,
-          organizationListEmptyHandler,
-          organizationFullWithOrgHandler,
-          http.post("*/.auth/api/v1/auth/organization/create", () => {
-            doubleClickCreate()
-            return HttpResponse.json({ error: "not expected" }, { status: 500 })
-          }),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -492,4 +469,4 @@ export const DoubleClickMovesOneSlide: Story = {
     ).toBeEnabled()
     expect(doubleClickCreate).not.toHaveBeenCalled()
   },
-}
+})

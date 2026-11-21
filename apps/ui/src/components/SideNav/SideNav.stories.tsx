@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { Link } from "react-aria-components"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
@@ -19,8 +18,9 @@ import {
 import { workspaceIngestionHandlers } from "@/mocks/workspace-ingestion-handlers"
 
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
+import preview from "../../../.storybook/preview"
 
-const meta = {
+const meta = preview.meta({
   title: "App/SideNav",
   component: SideNav,
   decorators: [
@@ -34,28 +34,28 @@ const meta = {
       </ShellLayoutProvider>
     ),
   ],
+  beforeEach: ({ msw }) => {
+    msw.use(...signedInHandlers, ...workspaceIngestionHandlers({}))
+  },
   parameters: {
-    msw: {
-      handlers: {
-        session: signedInHandlers,
-        ingestion: workspaceIngestionHandlers({}),
-      },
-    },
     app: "root",
     layout: "fullscreen",
     review: { kind: "component" },
   },
-} satisfies Meta<typeof SideNav>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Main navigation of an org: the org has one Workspace and the Workspace page
  * is current.
  */
-export const SingleWorkspace: Story = {
+export const SingleWorkspace = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceListHandler([docsWorkspace]),
+      conversationsListHandler(docsConversations),
+      githubInstallationReposHandler(),
+    )
+  },
   parameters: {
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     storyRoute: {
@@ -63,22 +63,20 @@ export const SingleWorkspace: Story = {
       orgSlug: "acme",
       workspaceSlug: "docs",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: [
-          workspaceListHandler([docsWorkspace]),
-          conversationsListHandler(docsConversations),
-          githubInstallationReposHandler(),
-        ],
-      },
-    },
   },
-}
+})
 
 /**
  * Main navigation of an org: the org has two Workspaces, one of them read-only.
  */
-export const MultipleWorkspaces: Story = {
+export const MultipleWorkspaces = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceListHandler([docsWorkspace, readOnlyWorkspace]),
+      conversationsListHandler(docsConversations),
+      githubInstallationReposHandler(),
+    )
+  },
   parameters: {
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     storyRoute: {
@@ -86,23 +84,21 @@ export const MultipleWorkspaces: Story = {
       orgSlug: "acme",
       workspaceSlug: "docs",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: [
-          workspaceListHandler([docsWorkspace, readOnlyWorkspace]),
-          conversationsListHandler(docsConversations),
-          githubInstallationReposHandler(),
-        ],
-      },
-    },
   },
-}
+})
 
 /**
  * Main navigation of an org: the user collapsed the nav to the narrow icon
  * rail.
  */
-export const Collapsed: Story = {
+export const Collapsed = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceListHandler([docsWorkspace, readOnlyWorkspace]),
+      conversationsListHandler(docsConversations),
+      githubInstallationReposHandler(),
+    )
+  },
   parameters: {
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     storyRoute: {
@@ -110,15 +106,6 @@ export const Collapsed: Story = {
       orgSlug: "acme",
       workspaceSlug: "docs",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: [
-          workspaceListHandler([docsWorkspace, readOnlyWorkspace]),
-          conversationsListHandler(docsConversations),
-          githubInstallationReposHandler(),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -126,16 +113,17 @@ export const Collapsed: Story = {
       canvas.getByRole("button", { name: /collapse navigation/i }),
     )
   },
-}
+})
 
 /**
  * Main navigation of an org: the nav starts expanded, after the story before it
  * collapsed the nav and stored that choice. This story is the proof for the
  * global story reset.
  */
-export const ExpandedAfterCollapsedStory: Story = {
+export const ExpandedAfterCollapsedStory = meta.story({
+  beforeEach: Collapsed.input.beforeEach,
   parameters: {
-    ...Collapsed.parameters,
+    ...Collapsed.input.parameters,
     visual: {
       skip: "Behavior test: it ends in the same state as SingleWorkspace.",
     },
@@ -147,14 +135,14 @@ export const ExpandedAfterCollapsedStory: Story = {
       canvas.queryByRole("button", { name: /expand navigation/i }),
     ).not.toBeInTheDocument()
   },
-}
+})
 
 /**
  * App shell with the main navigation and a test link in the page body: the user
  * clicked the link, and Connectors became the current nav item. The shell stays
  * mounted while the current item moves from the Workspace to Connectors.
  */
-export const PlainLinkMovesCurrentNav: Story = {
+export const PlainLinkMovesCurrentNav = meta.story({
   tags: ["required"],
   render: () => (
     <AppShell>
@@ -163,6 +151,13 @@ export const PlainLinkMovesCurrentNav: Story = {
       </Link>
     </AppShell>
   ),
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceListHandler([docsWorkspace]),
+      conversationsListHandler(docsConversations),
+      githubInstallationReposHandler(),
+    )
+  },
   parameters: {
     visual: {
       skip: "Behavior test: the page body is a test link, which the product does not render.",
@@ -174,15 +169,6 @@ export const PlainLinkMovesCurrentNav: Story = {
       path: "/acme/ws/docs",
       alsoAt: ["/acme/connectors"],
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: [
-          workspaceListHandler([docsWorkspace]),
-          conversationsListHandler(docsConversations),
-          githubInstallationReposHandler(),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -202,15 +188,16 @@ export const PlainLinkMovesCurrentNav: Story = {
       ).toHaveAttribute("aria-current", "page"),
     )
   },
-}
+})
 
 /**
  * Main navigation of an org: the nav is collapsed to the icon rail after a
  * check of the Docs link.
  */
-export const DocsLinkOpensProductDocs: Story = {
+export const DocsLinkOpensProductDocs = meta.story({
+  beforeEach: SingleWorkspace.input.beforeEach,
   parameters: {
-    ...SingleWorkspace.parameters,
+    ...SingleWorkspace.input.parameters,
     visual: { skip: "Behavior test: it ends in the same state as Collapsed." },
     intent:
       "Catches a Docs link that is missing from the Help list of the main navigation. Also catches a Docs link that does not open the product docs in a new tab, or that has no name in the collapsed rail. Not for the other footer items.",
@@ -232,18 +219,20 @@ export const DocsLinkOpensProductDocs: Story = {
       within(nav).getByRole("link", { name: "Docs" }),
     ).toHaveAttribute("href", "https://docs.ctxpipe.ai")
   },
-}
+})
 
 /**
  * Side nav of an org: the user pressed their name at the bottom, and the user
  * menu opened with Settings, Connected apps and Sign out, the focus on
  * Settings.
  */
-export const UserMenuLinksConnectedApps: Story = {
+export const UserMenuLinksConnectedApps = meta.story({
   tags: ["required"],
+  beforeEach: SingleWorkspace.input.beforeEach,
   parameters: {
+    ...SingleWorkspace.input.parameters,
+    // A literal: the screenshot checks read the story file, not the spread.
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
-    ...SingleWorkspace.parameters,
     intent:
       "Catches a user menu whose Connected apps item does not link to the connected apps page in the auth area. Not for other menu items or account data.",
   },
@@ -270,4 +259,4 @@ export const UserMenuLinksConnectedApps: Story = {
     first.focus()
     await waitFor(() => expect(first).toHaveFocus())
   },
-}
+})

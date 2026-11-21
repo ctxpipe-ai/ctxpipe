@@ -1,8 +1,9 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { QueryClientContext } from "@tanstack/react-query"
 import { WebSocketHandler } from "msw"
 import { useContext } from "react"
 import { expect } from "storybook/test"
+
+import preview from "../../.storybook/preview"
 
 // The globals of the preview (.storybook/preview.tsx) add no mock, add
 // nothing to the DOM and change no behavior that a story sees (the storybook
@@ -15,7 +16,7 @@ function QueryClientProbe() {
   return <p data-query-client={queryClient}>A story with no opt-in.</p>
 }
 
-const meta = {
+const meta = preview.meta({
   title: "Testing/Preview globals",
   render: () => <QueryClientProbe />,
   parameters: {
@@ -24,16 +25,13 @@ const meta = {
       skip: "Behavior test: it ends on a test fixture, which the product does not render.",
     },
   },
-} satisfies Meta
-
-export default meta
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Test fixture that proves the globals of the preview add nothing: one line of
  * text, with no wrapper, no Query client and no mock.
  */
-export const NoOptIn: Story = {
+export const NoOptIn = meta.story({
   play: async ({ canvasElement, msw }) => {
     // The story element is the only child of the root: no global wrapper.
     await expect(canvasElement.children).toHaveLength(1)
@@ -54,13 +52,13 @@ export const NoOptIn: Story = {
       ),
     ).toEqual(["GET [custom predicate]"])
   },
-}
+})
 
 /**
  * Test fixture that proves the opt-in of the Query client: one line of text,
  * and the story file sets parameters.queryClient.
  */
-export const QueryClientOptIn: Story = {
+export const QueryClientOptIn = meta.story({
   parameters: {
     queryClient: true,
   },
@@ -70,4 +68,4 @@ export const QueryClientOptIn: Story = {
       "yes",
     )
   },
-}
+})

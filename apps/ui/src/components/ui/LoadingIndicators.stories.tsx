@@ -1,20 +1,16 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, within } from "storybook/test"
 
+import preview from "../../../.storybook/preview"
 import { Skeleton } from "./Skeleton"
 import { Spinner } from "./spinner"
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Loading indicators",
   parameters: {
     layout: "centered",
     review: { kind: "component" },
   },
-} satisfies Meta
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 function expectLooping(style: CSSStyleDeclaration) {
   expect(style.animationName).not.toBe("none")
@@ -27,7 +23,7 @@ function expectLooping(style: CSSStyleDeclaration) {
  * prefers reduced motion, and each one still loops. The play runner opens this
  * story with `prefers-reduced-motion: reduce` (DESIGN.md "Motion").
  */
-export const LoadingUnderReducedMotion: Story = {
+export const LoadingUnderReducedMotion = meta.story({
   parameters: {
     intent:
       "Catches loading indicators that stop looping when the user prefers reduced motion. The spinner and the skeleton must keep a visible loop. Not for color or size.",
@@ -47,4 +43,4 @@ export const LoadingUnderReducedMotion: Story = {
     expectLooping(getComputedStyle(canvas.getByRole("status")))
     expectLooping(getComputedStyle(canvas.getByTestId("skeleton"), "::before"))
   },
-}
+})

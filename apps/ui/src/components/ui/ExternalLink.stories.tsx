@@ -1,27 +1,23 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, within } from "storybook/test"
 
+import preview from "../../../.storybook/preview"
 import { ExternalLink } from "./ExternalLink"
 
-const meta = {
+const meta = preview.meta({
   title: "Components/ExternalLink",
   component: ExternalLink,
   parameters: {
     layout: "centered",
     review: { kind: "component" },
   },
-} satisfies Meta<typeof ExternalLink>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Link in a connector setup step that the admin follows to a page outside
  * ctxpipe: the icon and the screen reader name tell that the Atlassian
  * developer console opens in a new tab.
  */
-export const OpensInNewTab: Story = {
+export const OpensInNewTab = meta.story({
   args: {
     href: "https://developer.atlassian.com/console/myapps/create-3lo-app",
     children: "Atlassian developer console",
@@ -40,4 +36,4 @@ export const OpensInNewTab: Story = {
       "Atlassian developer console (opens in a new tab)",
     )
   },
-}
+})

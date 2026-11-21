@@ -1,10 +1,10 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { IconCheck, IconInfoCircle } from "@tabler/icons-react"
 import { expect } from "storybook/test"
 
 import { Card } from "@/components/ui/Card"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 
+import preview from "../../.storybook/preview"
 import { layoutProblems } from "./layout-checks"
 
 // These stories prove the layout checks of the screenshot capture
@@ -103,12 +103,9 @@ function Text({ className }: { className: string }) {
   )
 }
 
-const meta = {
+const meta = preview.meta({
   title: "Testing/Layout checks",
-} satisfies Meta
-
-export default meta
-type Story = StoryObj<typeof meta>
+})
 
 const problemsIn = async (root: Element) => {
   await document.fonts.ready
@@ -119,7 +116,7 @@ const problemsIn = async (root: Element) => {
  * Test fixture that proves the overflow layout check: an alert URL and a card
  * label run out of their boxes.
  */
-export const OverflowFound: Story = {
+export const OverflowFound = meta.story({
   render: () => <Overflow fixed={false} />,
   parameters: {
     visual: {
@@ -150,13 +147,13 @@ export const OverflowFound: Story = {
       /^text of a positioned layer runs [\d.]+ px past the right edge of div/,
     )
   },
-}
+})
 
 /**
  * Test fixture that proves the overflow layout check: the alert URL wraps and
  * the card label stays in its card.
  */
-export const OverflowFixed: Story = {
+export const OverflowFixed = meta.story({
   parameters: {
     review: {
       kind: "component",
@@ -167,13 +164,13 @@ export const OverflowFixed: Story = {
     // The ellipsis line and the scroll box overflow on purpose.
     await expect(await problemsIn(canvasElement)).toEqual([])
   },
-}
+})
 
 /**
  * Test fixture that proves the axes layout check: the checklist boxes sit 2 px
  * off the axis of the header icon.
  */
-export const AxesFound: Story = {
+export const AxesFound = meta.story({
   render: () => <Checklist box="size-5" />,
   parameters: {
     visual: {
@@ -196,13 +193,13 @@ export const AxesFound: Story = {
       /^4 leading markers sit on 2 near axes \(center x [\d.]+, [\d.]+\): the centers differ by 2 px\. First: svg/,
     )
   },
-}
+})
 
 /**
  * Test fixture that proves the axes layout check: the checklist boxes sit on
  * the same axis as the header icon.
  */
-export const AxesFixed: Story = {
+export const AxesFixed = meta.story({
   parameters: {
     review: {
       kind: "component",
@@ -212,13 +209,13 @@ export const AxesFixed: Story = {
   play: async ({ canvasElement }) => {
     await expect(await problemsIn(canvasElement)).toEqual([])
   },
-}
+})
 
 /**
  * Test fixture that proves the contrast layout check: a line of text has too
  * little contrast.
  */
-export const ContrastFound: Story = {
+export const ContrastFound = meta.story({
   render: () => <Text className="text-zinc-600" />,
   parameters: {
     visual: {
@@ -238,13 +235,13 @@ export const ContrastFound: Story = {
     )
     await expect(problems[0].detail).toMatch(/is below 4\.5:1/)
   },
-}
+})
 
 /**
  * Test fixture that proves the contrast layout check: the same line of text has
  * enough contrast.
  */
-export const ContrastFixed: Story = {
+export const ContrastFixed = meta.story({
   parameters: {
     review: {
       kind: "component",
@@ -254,4 +251,4 @@ export const ContrastFixed: Story = {
   play: async ({ canvasElement }) => {
     await expect(await problemsIn(canvasElement)).toEqual([])
   },
-}
+})

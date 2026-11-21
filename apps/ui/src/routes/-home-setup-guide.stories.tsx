@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http, type RequestHandler } from "msw"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
@@ -46,6 +45,7 @@ import {
 } from "@/mocks/workspace-upgrades-handlers"
 
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
+import preview from "../../.storybook/preview"
 import { OrgHomePageContent } from "./$orgSlug.index"
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -124,19 +124,19 @@ function clearPreferences() {
   window.localStorage.removeItem("ctxpipe:userPreferences")
 }
 
-const meta = {
+const meta = preview.meta({
   title: "Pages/Home/Setup guide",
   tags: ["page"],
-  beforeEach: clearPreferences,
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...signedInHandlers,
+      pendingWorkspaceUpgradesHandler({}),
+      ...workspaceIngestionHandlers({}),
+    )
+    return clearPreferences()
+  },
   render: () => <OrgHomePageContent orgSlug="acme" />,
   parameters: {
-    msw: {
-      handlers: {
-        session: signedInHandlers,
-        pendingUpgrades: [pendingWorkspaceUpgradesHandler({})],
-        ingestion: workspaceIngestionHandlers({}),
-      },
-    },
     app: "org",
     layout: "fullscreen",
     review: { kind: "page" },
@@ -146,11 +146,7 @@ const meta = {
       orgSlug: "acme",
     } satisfies StoryRouteParams,
   },
-} satisfies Meta
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 // The guide shows after a chain of mocked reads (the session, the Workspace
 // list, then the reads of the landing Workspace) and a view transition. On a
@@ -171,21 +167,19 @@ async function findGuide(canvasElement: HTMLElement) {
  * steps: a new admin has no Workspace, so the guide replaces the composer and
  * no step is done. The empty activity of the org shows below the guide.
  */
-export const GuideAdminNewOrg: Story = {
+export const GuideAdminNewOrg = meta.story({
   tags: ["required"],
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...sessionDefaults(1),
+      ...adminGuide({}),
+      workspaceListHandler([]),
+      orgActivityHandler(),
+    )
+  },
   parameters: {
     intent:
       "Catches a setup guide for a new organization that shows the wrong progress or action. It shows zero of six done and one Connect GitHub action. Not for later steps.",
-    msw: {
-      handlers: {
-        session: sessionDefaults(1),
-        page: [
-          ...adminGuide({}),
-          workspaceListHandler([]),
-          orgActivityHandler(),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const guide = await findGuide(canvasElement)
@@ -202,7 +196,7 @@ export const GuideAdminNewOrg: Story = {
       ).toBeVisible(),
     )
   },
-}
+})
 
 /**
  * Org home page with the setup guide, which leads a new org through its first
@@ -210,18 +204,14 @@ export const GuideAdminNewOrg: Story = {
  * of the user. This step is a main step, not under "More". Storybook is not the
  * hosted origin, so the command has `--base-url`.
  */
-export const GuideEditorStepCopiesCommand: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        session: sessionDefaults(1),
-        page: [
-          ...adminGuide({}),
-          workspaceListHandler([]),
-          orgActivityHandler(),
-        ],
-      },
-    },
+export const GuideEditorStepCopiesCommand = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...sessionDefaults(1),
+      ...adminGuide({}),
+      workspaceListHandler([]),
+      orgActivityHandler(),
+    )
   },
   play: async ({ canvasElement }) => {
     const guide = await findGuide(canvasElement)
@@ -260,30 +250,28 @@ export const GuideEditorStepCopiesCommand: Story = {
       ).toBeVisible(),
     )
   },
-}
+})
 
 /**
  * Org home page with the setup guide, which leads a new org through its first
  * steps: GitHub is connected and the first Workspace still builds, at build
  * step 2 of 2. The composer stays above the guide.
  */
-export const GuideAdminWorkspaceBuilding: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        session: sessionDefaults(1),
-        page: homeHandlers(
-          adminGuide({
-            github: githubInstallationLinkedHandler,
-            connectors: orgConnectionsHandler([
-              { id: "con_story_0", type: "github" },
-            ]),
-            detail: { ...emptyLinkedWorkspaceDetail, ...buildingWorkspace },
-          }),
-          [buildingWorkspace],
-        ),
-      },
-    },
+export const GuideAdminWorkspaceBuilding = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...sessionDefaults(1),
+      ...homeHandlers(
+        adminGuide({
+          github: githubInstallationLinkedHandler,
+          connectors: orgConnectionsHandler([
+            { id: "con_story_0", type: "github" },
+          ]),
+          detail: { ...emptyLinkedWorkspaceDetail, ...buildingWorkspace },
+        }),
+        [buildingWorkspace],
+      ),
+    )
   },
   play: async ({ canvasElement }) => {
     const guide = await findGuide(canvasElement)
@@ -303,7 +291,7 @@ export const GuideAdminWorkspaceBuilding: Story = {
       within(canvasElement).getByLabelText("Select workspace"),
     ).toBeVisible()
   },
-}
+})
 
 const waitingWorkspace: Workspace = {
   ...waitingForTipWorkspace,
@@ -314,23 +302,21 @@ const waitingWorkspace: Workspace = {
  * steps: the first Workspace waits for its first commit, at build step 1 of 2,
  * so the row says that it reads the Workspace repository.
  */
-export const GuideAdminWorkspaceReadingRepository: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        session: sessionDefaults(1),
-        page: homeHandlers(
-          adminGuide({
-            github: githubInstallationLinkedHandler,
-            connectors: orgConnectionsHandler([
-              { id: "con_story_0", type: "github" },
-            ]),
-            detail: { ...emptyLinkedWorkspaceDetail, ...waitingWorkspace },
-          }),
-          [waitingWorkspace],
-        ),
-      },
-    },
+export const GuideAdminWorkspaceReadingRepository = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...sessionDefaults(1),
+      ...homeHandlers(
+        adminGuide({
+          github: githubInstallationLinkedHandler,
+          connectors: orgConnectionsHandler([
+            { id: "con_story_0", type: "github" },
+          ]),
+          detail: { ...emptyLinkedWorkspaceDetail, ...waitingWorkspace },
+        }),
+        [waitingWorkspace],
+      ),
+    )
   },
   play: async ({ canvasElement }) => {
     const guide = await findGuide(canvasElement)
@@ -338,7 +324,7 @@ export const GuideAdminWorkspaceReadingRepository: Story = {
     expect(guide.getByText("· step 1 of 2")).toBeVisible()
     expect(guide.getByText("Reading the Workspace repository.")).toBeVisible()
   },
-}
+})
 
 const failedWorkspace: Workspace = {
   ...failedHydrateWorkspace,
@@ -349,24 +335,24 @@ const failedWorkspace: Workspace = {
  * steps: the build of the first Workspace failed, so the row says so and links
  * to the error.
  */
-export const GuideAdminWorkspaceBuildFailed: Story = {
+export const GuideAdminWorkspaceBuildFailed = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...sessionDefaults(1),
+      ...homeHandlers(
+        adminGuide({
+          github: githubInstallationLinkedHandler,
+          connectors: orgConnectionsHandler([
+            { id: "con_story_0", type: "github" },
+          ]),
+          detail: { ...emptyLinkedWorkspaceDetail, ...failedWorkspace },
+        }),
+        [failedWorkspace],
+      ),
+    )
+  },
   parameters: {
     visual: { allow: { overflow: "A layout defect on main (CTX-1279)." } },
-    msw: {
-      handlers: {
-        session: sessionDefaults(1),
-        page: homeHandlers(
-          adminGuide({
-            github: githubInstallationLinkedHandler,
-            connectors: orgConnectionsHandler([
-              { id: "con_story_0", type: "github" },
-            ]),
-            detail: { ...emptyLinkedWorkspaceDetail, ...failedWorkspace },
-          }),
-          [failedWorkspace],
-        ),
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const guide = await findGuide(canvasElement)
@@ -375,7 +361,7 @@ export const GuideAdminWorkspaceBuildFailed: Story = {
     expect(guide.getByRole("button", { name: "See the error" })).toBeVisible()
     expect(guide.queryByText("Building")).not.toBeInTheDocument()
   },
-}
+})
 
 /**
  * The state of the Add Workspace overlay and modal, for the message of a
@@ -439,49 +425,44 @@ const workspacesPath = ({ request }: { request: Request }) =>
  * Workspace from the guide in Add Workspace on Home. After Done, its row is
  * done and shows the build, and Link code repositories is next.
  */
-export const GuideAdminCreatesWorkspaceOnHome: Story = {
+export const GuideAdminCreatesWorkspaceOnHome = meta.story({
   tags: ["required"],
-  beforeEach: () => {
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...sessionDefaults(1),
+      http.get(workspacesPath, () =>
+        HttpResponse.json({
+          items: createState.created ? [createdWorkspace] : [],
+          lastUsedWorkspaceId: createState.created ? createdWorkspace.id : null,
+        }),
+      ),
+      http.post(workspacesPath, () => {
+        createState.created = true
+        return HttpResponse.json(createdWorkspace, { status: 201 })
+      }),
+      ...adminGuide({
+        github: githubInstallationLinkedHandler,
+        connectors: orgConnectionsHandler([
+          { id: "con_gh", type: "github", displayName: "acme" },
+        ]),
+        detail: createdWritableWorkspaceDetail,
+      }),
+      githubInstallationReposHandler(),
+      workspaceSourcesHandler(workspaceSourceList()),
+      // Without this, the read goes to the network and fails at a random time.
+      workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
+      orgActivityHandler(),
+      ...workspaceShellHandlers({
+        workspaces: [createdWorkspace],
+        detail: createdWritableWorkspaceDetail,
+      }),
+    )
+
     createState.created = false
   },
   parameters: {
     intent:
       "Catches a first workspace creation on the home page that does not update the guide and home. Create must add the workspace and move the guide forward. Not for the guide copy.",
-    msw: {
-      handlers: {
-        session: sessionDefaults(1),
-        page: [
-          http.get(workspacesPath, () =>
-            HttpResponse.json({
-              items: createState.created ? [createdWorkspace] : [],
-              lastUsedWorkspaceId: createState.created
-                ? createdWorkspace.id
-                : null,
-            }),
-          ),
-          http.post(workspacesPath, () => {
-            createState.created = true
-            return HttpResponse.json(createdWorkspace, { status: 201 })
-          }),
-          ...adminGuide({
-            github: githubInstallationLinkedHandler,
-            connectors: orgConnectionsHandler([
-              { id: "con_gh", type: "github", displayName: "acme" },
-            ]),
-            detail: createdWritableWorkspaceDetail,
-          }),
-          githubInstallationReposHandler(),
-          workspaceSourcesHandler(workspaceSourceList()),
-          // Without this, the read goes to the network and fails at a random time.
-          workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
-          orgActivityHandler(),
-          ...workspaceShellHandlers({
-            workspaces: [createdWorkspace],
-            detail: createdWritableWorkspaceDetail,
-          }),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const guide = await findGuide(canvasElement)
@@ -551,7 +532,7 @@ export const GuideAdminCreatesWorkspaceOnHome: Story = {
       ).toBeVisible(),
     )
   },
-}
+})
 
 const linkState = { opened: false }
 const sourcesPath = ({ request }: { request: Request }) =>
@@ -561,65 +542,60 @@ const sourcesPath = ({ request }: { request: Request }) =>
  * steps: Link repositories opened a dialog with the focus in it, and after the
  * pull request the row shows Awaiting merge (CTX-864).
  */
-export const GuideAdminLinksRepositoriesOnHome: Story = {
-  beforeEach: () => {
-    linkState.opened = false
-  },
-  parameters: {
-    msw: {
-      handlers: {
-        session: sessionDefaults(1),
-        page: [
-          ...adminGuide({
-            github: githubInstallationLinkedHandler,
-            connectors: orgConnectionsHandler([
-              { id: "con_gh", type: "github", displayName: "acme" },
-            ]),
-            detail: emptyLinkedWorkspaceDetail,
-          }),
-          http.get(sourcesPath, () =>
-            HttpResponse.json(
-              workspaceSourceList(
-                linkState.opened
-                  ? {
-                      pendingChanges: [
-                        {
-                          path: "sources/github/acme/api.md",
-                          provider: "github",
-                          action: "add",
-                          pullRequestUrl: "https://github.com/acme/docs/pull/9",
-                          createdAt: "2026-10-18T00:00:00.000Z",
-                        },
-                      ],
-                    }
-                  : {},
-              ),
-            ),
+export const GuideAdminLinksRepositoriesOnHome = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...sessionDefaults(1),
+      ...adminGuide({
+        github: githubInstallationLinkedHandler,
+        connectors: orgConnectionsHandler([
+          { id: "con_gh", type: "github", displayName: "acme" },
+        ]),
+        detail: emptyLinkedWorkspaceDetail,
+      }),
+      http.get(sourcesPath, () =>
+        HttpResponse.json(
+          workspaceSourceList(
+            linkState.opened
+              ? {
+                  pendingChanges: [
+                    {
+                      path: "sources/github/acme/api.md",
+                      provider: "github",
+                      action: "add",
+                      pullRequestUrl: "https://github.com/acme/docs/pull/9",
+                      createdAt: "2026-10-18T00:00:00.000Z",
+                    },
+                  ],
+                }
+              : {},
           ),
-          http.post(sourcesPath, () => {
-            linkState.opened = true
-            return HttpResponse.json({
-              outcome: "pull_request",
-              path: "sources/github/acme/api.md",
-              pullRequestUrl: "https://github.com/acme/docs/pull/9",
-            })
-          }),
-          githubInstallationReposHandler([
-            {
-              name: "api",
-              clone_url: "https://github.com/acme/api.git",
-              full_name: "acme/api",
-            },
-          ]),
-          workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
-          orgActivityHandler(),
-          ...workspaceShellHandlers({
-            workspaces: [quietWorkspace],
-            detail: emptyLinkedWorkspaceDetail,
-          }),
-        ],
-      },
-    },
+        ),
+      ),
+      http.post(sourcesPath, () => {
+        linkState.opened = true
+        return HttpResponse.json({
+          outcome: "pull_request",
+          path: "sources/github/acme/api.md",
+          pullRequestUrl: "https://github.com/acme/docs/pull/9",
+        })
+      }),
+      githubInstallationReposHandler([
+        {
+          name: "api",
+          clone_url: "https://github.com/acme/api.git",
+          full_name: "acme/api",
+        },
+      ]),
+      workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
+      orgActivityHandler(),
+      ...workspaceShellHandlers({
+        workspaces: [quietWorkspace],
+        detail: emptyLinkedWorkspaceDetail,
+      }),
+    )
+
+    linkState.opened = false
   },
   play: async ({ canvasElement }) => {
     const guide = await findGuide(canvasElement)
@@ -655,7 +631,7 @@ export const GuideAdminLinksRepositoriesOnHome: Story = {
     )
     await expect(after.getByText("2 of 6 done")).toBeVisible()
   },
-}
+})
 
 /**
  * The handlers of a Home guide whose Workspace cannot take repositories. The
@@ -718,18 +694,16 @@ async function openLinkRepositories(canvasElement: HTMLElement) {
  * Workspace settings. It offers no repository list and no pull request
  * (CTX-865).
  */
-export const GuideRepositoriesReadOnlyShowsReason: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        session: sessionDefaults(1),
-        page: repositoriesGateHandlers({
-          detail: readOnlyWorkspaceDetail,
-          canEdit: false,
-          formatVersion: 3,
-        }),
-      },
-    },
+export const GuideRepositoriesReadOnlyShowsReason = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...sessionDefaults(1),
+      ...repositoriesGateHandlers({
+        detail: readOnlyWorkspaceDetail,
+        canEdit: false,
+        formatVersion: 3,
+      }),
+    )
   },
   play: async ({ canvasElement }) => {
     const dialog = await openLinkRepositories(canvasElement)
@@ -744,7 +718,7 @@ export const GuideRepositoriesReadOnlyShowsReason: Story = {
       dialog.queryByRole("button", { name: "Open a pull request" }),
     ).not.toBeInTheDocument()
   },
-}
+})
 
 /**
  * Org home page with the setup guide, which leads a new org through its first
@@ -752,18 +726,16 @@ export const GuideRepositoriesReadOnlyShowsReason: Story = {
  * upgrade first and links to the upgrades, as Add Workspace step 2 does
  * (CTX-865).
  */
-export const GuideRepositoriesNeedUpgradeFirst: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        session: sessionDefaults(1),
-        page: repositoriesGateHandlers({
-          detail: emptyLinkedWorkspaceDetail,
-          canEdit: true,
-          formatVersion: 1,
-        }),
-      },
-    },
+export const GuideRepositoriesNeedUpgradeFirst = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...sessionDefaults(1),
+      ...repositoriesGateHandlers({
+        detail: emptyLinkedWorkspaceDetail,
+        canEdit: true,
+        formatVersion: 1,
+      }),
+    )
   },
   play: async ({ canvasElement }) => {
     const dialog = await openLinkRepositories(canvasElement)
@@ -780,26 +752,24 @@ export const GuideRepositoriesNeedUpgradeFirst: Story = {
       dialog.queryByRole("button", { name: "Open a pull request" }),
     ).not.toBeInTheDocument()
   },
-}
+})
 
 /**
  * Org home page with the setup guide, which leads a new org through its first
  * steps: the org has no GitHub connection yet, so the repositories dialog links
  * to the Connectors page.
  */
-export const GuideRepositoriesWithoutConnectionLinksToConnectors: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        session: sessionDefaults(1),
-        page: repositoriesGateHandlers({
-          detail: emptyLinkedWorkspaceDetail,
-          canEdit: true,
-          formatVersion: 3,
-          connected: false,
-        }),
-      },
-    },
+export const GuideRepositoriesWithoutConnectionLinksToConnectors = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...sessionDefaults(1),
+      ...repositoriesGateHandlers({
+        detail: emptyLinkedWorkspaceDetail,
+        canEdit: true,
+        formatVersion: 3,
+        connected: false,
+      }),
+    )
   },
   play: async ({ canvasElement }) => {
     const dialog = await openLinkRepositories(canvasElement)
@@ -814,7 +784,7 @@ export const GuideRepositoriesWithoutConnectionLinksToConnectors: Story = {
       ).toHaveAttribute("href", "/acme/connectors"),
     )
   },
-}
+})
 
 let connectionReads = 0
 
@@ -823,35 +793,30 @@ let connectionReads = 0
  * steps: the connections failed to load, so the repositories dialog shows
  * Retry, not the "connect first" link.
  */
-export const GuideRepositoriesConnectionsFailedShowsRetry: Story = {
-  beforeEach: () => {
+export const GuideRepositoriesConnectionsFailedShowsRetry = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...sessionDefaults(1),
+      // The guide reads the list first and gets no connection. The
+      // dialog reads it again and the read fails.
+      http.get(
+        ({ request }) =>
+          new URL(request.url).pathname.endsWith("/api/v1/connectors"),
+        () => {
+          connectionReads += 1
+          return connectionReads === 1
+            ? HttpResponse.json({ items: [] })
+            : HttpResponse.json({ error: "failed" }, { status: 500 })
+        },
+      ),
+      ...repositoriesGateHandlers({
+        detail: emptyLinkedWorkspaceDetail,
+        canEdit: true,
+        formatVersion: 3,
+      }),
+    )
+
     connectionReads = 0
-  },
-  parameters: {
-    msw: {
-      handlers: {
-        session: sessionDefaults(1),
-        page: [
-          // The guide reads the list first and gets no connection. The
-          // dialog reads it again and the read fails.
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname.endsWith("/api/v1/connectors"),
-            () => {
-              connectionReads += 1
-              return connectionReads === 1
-                ? HttpResponse.json({ items: [] })
-                : HttpResponse.json({ error: "failed" }, { status: 500 })
-            },
-          ),
-          ...repositoriesGateHandlers({
-            detail: emptyLinkedWorkspaceDetail,
-            canEdit: true,
-            formatVersion: 3,
-          }),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const dialog = await openLinkRepositories(canvasElement)
@@ -861,7 +826,7 @@ export const GuideRepositoriesConnectionsFailedShowsRetry: Story = {
       dialog.queryByText("Connect GitHub on the Connectors page first."),
     ).not.toBeInTheDocument()
   },
-}
+})
 
 /**
  * Org home page with the setup guide, which leads a new org through its first
@@ -869,26 +834,26 @@ export const GuideRepositoriesConnectionsFailedShowsRetry: Story = {
  * user expanded it, so all rows show, and the guide keeps that choice for the
  * next visit.
  */
-export const GuideAdminAfterFirstQuestion: Story = {
+export const GuideAdminAfterFirstQuestion = meta.story({
   tags: ["required"],
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...sessionDefaults(2),
+      ...homeHandlers(
+        adminGuide({
+          github: githubInstallationLinkedHandler,
+          connectors: orgConnectionsHandler([
+            { id: "con_story_0", type: "github" },
+          ]),
+          detail: docsWorkspaceDetail,
+        }),
+        [docsWorkspace],
+      ),
+    )
+  },
   parameters: {
     intent:
       "Catches a guide after the first question that shows the wrong progress or ignores the user's collapse choice. It starts collapsed and keeps the choice. Not for new organizations.",
-    msw: {
-      handlers: {
-        session: sessionDefaults(2),
-        page: homeHandlers(
-          adminGuide({
-            github: githubInstallationLinkedHandler,
-            connectors: orgConnectionsHandler([
-              { id: "con_story_0", type: "github" },
-            ]),
-            detail: docsWorkspaceDetail,
-          }),
-          [docsWorkspace],
-        ),
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const guide = await findGuide(canvasElement)
@@ -910,27 +875,24 @@ export const GuideAdminAfterFirstQuestion: Story = {
       collapsed: false,
     })
   },
-}
+})
 
 /**
  * Home with the Get started guide of a member: the guide lists only the steps
  * that a member can do, with no GitHub, tool or invite row. The member pressed
  * Ask, which put a question into the composer.
  */
-export const GuideMemberView: Story = {
+export const GuideMemberView = meta.story({
   tags: ["required"],
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...sessionDefaults(1),
+      ...homeHandlers([activeMemberRoleHandler("member")], [quietWorkspace]),
+    )
+  },
   parameters: {
     intent:
       "Catches a member guide that shows admin steps. A member sees only the two member steps, and Ask fills and focuses the composer each time. Not for admin guides.",
-    msw: {
-      handlers: {
-        session: sessionDefaults(1),
-        page: homeHandlers(
-          [activeMemberRoleHandler("member")],
-          [quietWorkspace],
-        ),
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const guide = await findGuide(canvasElement)
@@ -960,32 +922,30 @@ export const GuideMemberView: Story = {
       expect(composer()).toHaveFocus()
     }
   },
-}
+})
 
 /**
  * Org home page with the setup guide, which leads a new org through its first
  * steps: every counted step is done, so the guide shows its complete line on
  * this load.
  */
-export const GuideAllDone: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        session: sessionDefaults(3),
-        page: homeHandlers(
-          adminGuide({
-            github: githubInstallationLinkedHandler,
-            connectors: orgConnectionsHandler([
-              { id: "con_story_0", type: "github" },
-              { id: "con_story_1", type: "linear" },
-            ]),
-            invitations: ["canceled", "pending"],
-            detail: docsWorkspaceDetail,
-          }),
-          [docsWorkspace],
-        ),
-      },
-    },
+export const GuideAllDone = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...sessionDefaults(3),
+      ...homeHandlers(
+        adminGuide({
+          github: githubInstallationLinkedHandler,
+          connectors: orgConnectionsHandler([
+            { id: "con_story_0", type: "github" },
+            { id: "con_story_1", type: "linear" },
+          ]),
+          invitations: ["canceled", "pending"],
+          detail: docsWorkspaceDetail,
+        }),
+        [docsWorkspace],
+      ),
+    )
   },
   play: async ({ canvasElement }) => {
     const guide = await findGuide(canvasElement)
@@ -1000,24 +960,24 @@ export const GuideAllDone: Story = {
       expect(stored.orgGuides?.[`${userId}:acme`]?.completedAt).toBeTruthy()
     })
   },
-}
+})
 
 /**
  * Org home page with the setup guide, which leads a new org through its first
  * steps: the user dismissed the guide, so it is gone and Home stays with the
  * Workspace selector.
  */
-export const GuideDismissRemovesIt: Story = {
+export const GuideDismissRemovesIt = meta.story({
   tags: ["required"],
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...sessionDefaults(1),
+      ...homeHandlers(adminGuide({}), [quietWorkspace]),
+    )
+  },
   parameters: {
     intent:
       "Catches a dismissed guide that stays on the home page. Dismiss removes the guide and shows the workspace selector. Not for guide progress.",
-    msw: {
-      handlers: {
-        session: sessionDefaults(1),
-        page: homeHandlers(adminGuide({}), [quietWorkspace]),
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const guide = await findGuide(canvasElement)
@@ -1030,31 +990,31 @@ export const GuideDismissRemovesIt: Story = {
     )
     expect(canvas.getByLabelText("Select workspace")).toBeVisible()
   },
-}
+})
 
 /**
  * Org home page with the setup guide, which leads a new org through its first
  * steps: the guide signal queries failed and count as not done, and Home still
  * works.
  */
-export const GuideSignalFailureKeepsHome: Story = {
+export const GuideSignalFailureKeepsHome = meta.story({
   tags: ["required"],
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...sessionDefaults(1),
+      ...homeHandlers(
+        adminGuide({
+          github: failed("/api/v1/github/installation"),
+          connectors: failed("/api/v1/connectors"),
+          detail: docsWorkspaceDetail,
+        }),
+        [docsWorkspace],
+      ),
+    )
+  },
   parameters: {
     intent:
       "Catches a failed guide signal query that breaks the home page. A failed signal counts as not done and home still works. Not for loaded signals.",
-    msw: {
-      handlers: {
-        session: sessionDefaults(1),
-        page: homeHandlers(
-          adminGuide({
-            github: failed("/api/v1/github/installation"),
-            connectors: failed("/api/v1/connectors"),
-            detail: docsWorkspaceDetail,
-          }),
-          [docsWorkspace],
-        ),
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const guide = await findGuide(canvasElement)
@@ -1063,7 +1023,7 @@ export const GuideSignalFailureKeepsHome: Story = {
     expect(canvas.getByLabelText("Select workspace")).toBeVisible()
     await waitFor(() => expect(canvas.getByText("Activity")).toBeVisible())
   },
-}
+})
 
 const loadingGate = responseGate()
 /**
@@ -1072,29 +1032,27 @@ const loadingGate = responseGate()
  * appears. Its view transition moves the blocks below with transforms, never
  * with height.
  */
-export const GuideReservesNoSpaceWhileLoading: Story = {
+export const GuideReservesNoSpaceWhileLoading = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...sessionDefaults(1),
+      http.get(
+        ({ request }) =>
+          new URL(request.url).pathname.endsWith("/api/v1/connectors"),
+        async () => {
+          await loadingGate.wait()
+          return HttpResponse.json({ items: [] })
+        },
+      ),
+      ...adminGuide({}),
+      workspaceListHandler([]),
+      // The activity loads too, so its loading text shows first.
+      orgActivityHandler("loading"),
+    )
+  },
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as FadesInAfterOnboarding.",
-    },
-    msw: {
-      handlers: {
-        session: sessionDefaults(1),
-        page: [
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname.endsWith("/api/v1/connectors"),
-            async () => {
-              await loadingGate.wait()
-              return HttpResponse.json({ items: [] })
-            },
-          ),
-          ...adminGuide({}),
-          workspaceListHandler([]),
-          // The activity loads too, so its loading text shows first.
-          orgActivityHandler("loading"),
-        ],
-      },
     },
   },
   play: async ({ canvasElement }) => {
@@ -1106,7 +1064,7 @@ export const GuideReservesNoSpaceWhileLoading: Story = {
     const guide = await findGuide(canvasElement)
     await waitFor(() => expect(guide.getByText("0 of 6 done")).toBeVisible())
   },
-}
+})
 
 /** The activity read of Home never answers, as for a slow unrelated read. */
 const activityNeverAnswers = orgActivityHandler("loading")
@@ -1119,27 +1077,23 @@ const handOffGate = responseGate()
  * slow activity read does not keep Home hidden. Then the hand-off flag is gone,
  * so a reload does not hide Home again.
  */
-export const FadesInAfterOnboarding: Story = {
-  beforeEach: () => onboardingHandOffFlag.set(),
-  parameters: {
-    msw: {
-      handlers: {
-        session: sessionDefaults(0),
-        page: [
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname.endsWith("/api/v1/connectors"),
-            async () => {
-              await handOffGate.wait()
-              return HttpResponse.json({ items: [] })
-            },
-          ),
-          ...adminGuide({}),
-          workspaceListHandler([]),
-          activityNeverAnswers,
-        ],
-      },
-    },
+export const FadesInAfterOnboarding = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...sessionDefaults(0),
+      http.get(
+        ({ request }) =>
+          new URL(request.url).pathname.endsWith("/api/v1/connectors"),
+        async () => {
+          await handOffGate.wait()
+          return HttpResponse.json({ items: [] })
+        },
+      ),
+      ...adminGuide({}),
+      workspaceListHandler([]),
+      activityNeverAnswers,
+    )
+    return onboardingHandOffFlag.set()
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1165,34 +1119,30 @@ export const FadesInAfterOnboarding: Story = {
     expect(body).not.toHaveAttribute("aria-busy")
     await waitFor(() => expect(onboardingHandOffFlag.isSet()).toBe(false))
   },
-}
+})
 
 /**
  * Org home page with the setup guide, which leads a new org through its first
  * steps: after onboarding a guide read is slow, so Home shows after 1 second
  * without the guide. Home does not stay hidden, and the hand-off flag is gone.
  */
-export const HandOffShowsHomeWhenDataIsSlow: Story = {
-  beforeEach: () => onboardingHandOffFlag.set(),
-  parameters: {
-    msw: {
-      handlers: {
-        session: sessionDefaults(0),
-        page: [
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname.endsWith("/api/v1/connectors"),
-            async () => {
-              await delay("infinite")
-              return HttpResponse.json({ items: [] })
-            },
-          ),
-          ...adminGuide({}),
-          workspaceListHandler([]),
-          orgActivityHandler(),
-        ],
-      },
-    },
+export const HandOffShowsHomeWhenDataIsSlow = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...sessionDefaults(0),
+      http.get(
+        ({ request }) =>
+          new URL(request.url).pathname.endsWith("/api/v1/connectors"),
+        async () => {
+          await delay("infinite")
+          return HttpResponse.json({ items: [] })
+        },
+      ),
+      ...adminGuide({}),
+      workspaceListHandler([]),
+      orgActivityHandler(),
+    )
+    return onboardingHandOffFlag.set()
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1207,7 +1157,7 @@ export const HandOffShowsHomeWhenDataIsSlow: Story = {
     expect(canvas.queryByRole("region", { name: "Get started" })).toBeNull()
     await waitFor(() => expect(onboardingHandOffFlag.isSet()).toBe(false))
   },
-}
+})
 
 /**
  * Org home page with the setup guide, which leads a new org through its first
@@ -1215,19 +1165,15 @@ export const HandOffShowsHomeWhenDataIsSlow: Story = {
  * normal error with Retry. Home does not stay blank, and the hand-off flag is
  * gone.
  */
-export const HandOffShowsHomeWhenReadFails: Story = {
-  beforeEach: () => onboardingHandOffFlag.set(),
-  parameters: {
-    msw: {
-      handlers: {
-        session: sessionDefaults(0),
-        page: [
-          ...adminGuide({}),
-          failed("/api/v1/workspaces"),
-          orgActivityHandler(),
-        ],
-      },
-    },
+export const HandOffShowsHomeWhenReadFails = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...sessionDefaults(0),
+      ...adminGuide({}),
+      failed("/api/v1/workspaces"),
+      orgActivityHandler(),
+    )
+    return onboardingHandOffFlag.set()
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1239,20 +1185,18 @@ export const HandOffShowsHomeWhenReadFails: Story = {
     )
     await waitFor(() => expect(onboardingHandOffFlag.isSet()).toBe(false))
   },
-}
+})
 
 /**
  * Org home page with the setup guide, which leads a new org through its first
  * steps: the role query failed, so the guide is hidden and Home still works.
  */
-export const GuideRoleFailureHidesIt: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        session: sessionDefaults(1),
-        page: homeHandlers([activeMemberRoleHandler("error")], [docsWorkspace]),
-      },
-    },
+export const GuideRoleFailureHidesIt = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...sessionDefaults(1),
+      ...homeHandlers([activeMemberRoleHandler("error")], [docsWorkspace]),
+    )
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1264,24 +1208,24 @@ export const GuideRoleFailureHidesIt: Story = {
       canvas.queryByRole("region", { name: "Get started" }),
     ).not.toBeInTheDocument()
   },
-}
+})
 
 /**
  * Org home page with the setup guide, which leads a new org through its first
  * steps: the user finished onboarding more than 14 days ago in an old org, so
  * no guide and no guide skeleton show.
  */
-export const GuideEstablishedUserHidden: Story = {
+export const GuideEstablishedUserHidden = meta.story({
   tags: ["required"],
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...sessionDefaults(30),
+      ...homeHandlers(adminGuide({}), [quietWorkspace]),
+    )
+  },
   parameters: {
     intent:
       "Catches a guide that shows for an established user in an old organization. It stays hidden with no skeleton. Not for new organizations or empty ones.",
-    msw: {
-      handlers: {
-        session: sessionDefaults(30),
-        page: homeHandlers(adminGuide({}), [quietWorkspace]),
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1294,62 +1238,60 @@ export const GuideEstablishedUserHidden: Story = {
       canvas.queryByRole("region", { name: "Get started" }),
     ).not.toBeInTheDocument()
   },
-}
+})
 
 /**
  * Org home page with the setup guide, which leads a new org through its first
  * steps: an established user is in an org that is less than 14 days old, so the
  * guide shows, also after the first Workspace.
  */
-export const GuideEstablishedUserNewOrg: Story = {
+export const GuideEstablishedUserNewOrg = meta.story({
   tags: ["required"],
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...sessionDefaults(30, 2),
+      ...homeHandlers(
+        adminGuide({
+          github: githubInstallationLinkedHandler,
+          connectors: orgConnectionsHandler([
+            { id: "con_story_0", type: "github" },
+          ]),
+        }),
+        [quietWorkspace],
+      ),
+    )
+  },
   parameters: {
     intent:
       "Catches a guide that hides for an established user in a new organization. It shows for the first 14 days, also after the first workspace. Not for old organizations.",
-    msw: {
-      handlers: {
-        session: sessionDefaults(30, 2),
-        page: homeHandlers(
-          adminGuide({
-            github: githubInstallationLinkedHandler,
-            connectors: orgConnectionsHandler([
-              { id: "con_story_0", type: "github" },
-            ]),
-          }),
-          [quietWorkspace],
-        ),
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const guide = await findGuide(canvasElement)
     await waitFor(() => expect(guide.getByText("2 of 6 done")).toBeVisible())
   },
-}
+})
 
 /**
  * Org home page with the setup guide, which leads a new org through its first
  * steps: an older org has no Workspace, so it is still at its start and the
  * guide shows with the empty activity below.
  */
-export const GuideEstablishedUserEmptyOrg: Story = {
+export const GuideEstablishedUserEmptyOrg = meta.story({
   tags: ["required"],
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...sessionDefaults(30),
+      ...adminGuide({}),
+      workspaceListHandler([]),
+      orgActivityHandler(),
+    )
+  },
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as GuideAdminNewOrg.",
     },
     intent:
       "Catches a guide that hides in an old organization with no workspace. The guide shows with the empty activity below it. Not for organizations with workspaces.",
-    msw: {
-      handlers: {
-        session: sessionDefaults(30),
-        page: [
-          ...adminGuide({}),
-          workspaceListHandler([]),
-          orgActivityHandler(),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const guide = await findGuide(canvasElement)
@@ -1357,41 +1299,41 @@ export const GuideEstablishedUserEmptyOrg: Story = {
     const canvas = within(canvasElement)
     await waitFor(() => expect(canvas.getByText("Activity")).toBeVisible())
   },
-}
+})
 
 /**
  * Org home page with the setup guide, which leads a new org through its first
  * steps: an older org has a first Workspace from the last 14 days, so the guide
  * stays and does not go away in the middle of the setup.
  */
-export const GuideStaysAfterFirstWorkspace: Story = {
+export const GuideStaysAfterFirstWorkspace = meta.story({
   tags: ["required"],
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...sessionDefaults(30),
+      ...homeHandlers(
+        adminGuide({
+          github: githubInstallationLinkedHandler,
+          connectors: orgConnectionsHandler([
+            { id: "con_story_0", type: "github" },
+          ]),
+        }),
+        [{ ...quietWorkspace, createdAt: daysAgo(1) }],
+      ),
+    )
+  },
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as GuideEstablishedUserNewOrg.",
     },
     intent:
       "Catches a guide that disappears when an old organization makes its first workspace in the last 14 days. It stays during the setup. Not for older workspaces.",
-    msw: {
-      handlers: {
-        session: sessionDefaults(30),
-        page: homeHandlers(
-          adminGuide({
-            github: githubInstallationLinkedHandler,
-            connectors: orgConnectionsHandler([
-              { id: "con_story_0", type: "github" },
-            ]),
-          }),
-          [{ ...quietWorkspace, createdAt: daysAgo(1) }],
-        ),
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const guide = await findGuide(canvasElement)
     await waitFor(() => expect(guide.getByText("2 of 6 done")).toBeVisible())
   },
-}
+})
 
 /**
  * Home with the Get started guide of a member in an org with no Workspace: only
@@ -1399,14 +1341,12 @@ export const GuideStaysAfterFirstWorkspace: Story = {
  * to ask an admin and has no Create button. The empty activity of the org shows
  * below.
  */
-export const GuideMemberNoWorkspace: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        session: sessionDefaults(1),
-        page: homeHandlers([activeMemberRoleHandler("member")], []),
-      },
-    },
+export const GuideMemberNoWorkspace = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...sessionDefaults(1),
+      ...homeHandlers([activeMemberRoleHandler("member")], []),
+    )
   },
   play: async ({ canvasElement }) => {
     const guide = await findGuide(canvasElement)
@@ -1424,7 +1364,7 @@ export const GuideMemberNoWorkspace: Story = {
       ).not.toBeInTheDocument(),
     )
   },
-}
+})
 
 const openPopup = fn()
 /**
@@ -1433,8 +1373,15 @@ const openPopup = fn()
  * App install, with the flow nonce as `state`. The user does not have to press
  * Connect GitHub a second time.
  */
-export const GuideConnectGithubOpensInstallPopup: Story = {
-  beforeEach: () => {
+export const GuideConnectGithubOpensInstallPopup = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...sessionDefaults(1),
+      ...adminGuide({}),
+      workspaceListHandler([]),
+      orgActivityHandler(),
+    )
+
     openPopup.mockClear()
     const open = window.open
     // A popup that stays open, so the page does not fall back to a redirect.
@@ -1445,18 +1392,6 @@ export const GuideConnectGithubOpensInstallPopup: Story = {
     return () => {
       window.open = open
     }
-  },
-  parameters: {
-    msw: {
-      handlers: {
-        session: sessionDefaults(1),
-        page: [
-          ...adminGuide({}),
-          workspaceListHandler([]),
-          orgActivityHandler(),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const guide = await findGuide(canvasElement)
@@ -1471,4 +1406,4 @@ export const GuideConnectGithubOpensInstallPopup: Story = {
     )
     await expect(url.searchParams.get("state")).toBeTruthy()
   },
-}
+})
