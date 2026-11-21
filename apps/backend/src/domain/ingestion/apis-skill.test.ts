@@ -800,7 +800,7 @@ describe("write-apis", () => {
     )
   })
 
-  it("pages a large plan, and each page continues where the last stopped", async () => {
+  it("writes a plan of 45 operations on one page, with no file count (CTX-1482)", async () => {
     const paths: Record<string, object> = {}
     for (let i = 0; i < 45; i++) paths[`/items/${i}`] = { get: {} }
     const s = await fixture(
@@ -822,25 +822,18 @@ describe("write-apis", () => {
         },
       ],
     }
-    const seen = new Set<string>()
-    let pages = 0
-    for (;;) {
-      const out = s.write(plan)
-      pages++
-      expect(out.ops.length).toBeLessThanOrEqual(30)
-      const result = await s.validate()
-      expect(result.rejections).toEqual([])
-      for (const op of result.accepted)
-        if (op.op === "create") expect(seen.has(op.path)).toBe(false)
-      for (const op of result.accepted) seen.add(op.path)
-      await s.advance(result.tree)
-      if (!out.more) break
-      expect(pages).toBeLessThan(5)
-    }
-    expect(pages).toBe(2)
+    const out = s.write(plan)
+    expect(out.more).toBe(false)
+    const result = await s.validate()
+    expect(result.rejections).toEqual([])
+    // The API file, its 45 operations, and the Service file.
+    expect(result.accepted).toHaveLength(47)
     expect(
-      [...seen].filter((p) => p.startsWith("knowledge/operations/")),
+      result.accepted.filter((op) =>
+        op.path.startsWith("knowledge/operations/"),
+      ),
     ).toHaveLength(45)
+    await s.advance(result.tree)
     // A third run on the finished base changes nothing.
     const again = s.write(plan)
     expect(again.ops).toEqual([])

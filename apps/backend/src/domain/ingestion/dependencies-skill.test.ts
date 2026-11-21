@@ -1080,7 +1080,7 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
     )
   })
 
-  it("writes at most 28 stream files in one step", async () => {
+  it("writes each stream file of one step, with no file count (CTX-1482)", async () => {
     const calls = Array.from(
       { length: 40 },
       (_, i) => `producer.send({ topic: "stream.n${i}", messages: [] })`,
@@ -1095,8 +1095,8 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
     const out = s.apply(resolutions, null)
     expect(
       out.ops.filter((o) => o.path.startsWith("knowledge/streams/")),
-    ).toHaveLength(28)
-    expect(out.skipped.length).toBe(12)
+    ).toHaveLength(40)
+    expect(out.skipped).toEqual([])
     expect(out.more).toBe(false)
   })
 })

@@ -9,7 +9,7 @@
 // validator accepts that for each file, also for a file that a human or
 // another source owns.
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs"
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs"
 import { posix } from "node:path"
 
 import { MAX_ROOTS, safePath } from "../discover-roots/scripts/roots-lib.mjs"
@@ -20,7 +20,9 @@ import {
   ensureParent,
   fail,
   parseArgs,
+  readDeletes,
   stagedFile,
+  stagedPaths,
   writePatch,
 } from "./stage-lib.mjs"
 
@@ -601,8 +603,10 @@ function mergeFile(text, { claims, related }) {
  * at the path must have that name; letters and digits only, unless
  * `exactName` is set (then the same text, in any letter case). Plans for one path are joined.
  *
- * A step writes at most 30 files: 30 files at the 64 KiB file cap stay below
- * the 2 MiB that the validator takes from one step. `more` is true when a plan waits
+ * A page has no file count (CTX-1482). It ends only before a file that the
+ * validator could not take in this step: it takes at most 2 MiB of staged
+ * files, and a patch.json of at most 1 MiB and 10,000 ops (patch-validator.ts).
+ * The files that the step staged before count too. `more` is true when a plan waits
  * for the next page: the host runs the skill again on the new base until
  * `more` is false. A file that already has a claim or a line does not
  * change again, so each page continues where the last one stopped.
@@ -625,7 +629,28 @@ export function writeStep(step, plans, skipped = [], options = {}) {
         related: [...same.related, ...plan.related],
       })
   }
-  let changed = 0
+  // patch.json has an indent: each op line gets 4 more spaces, and the
+  // `more` and `stats` of the patch get room at the end.
+  const opBytes = (op) =>
+    Buffer.byteLength(JSON.stringify(op, null, 2)) + 4 * 6 + 2
+  const room = {
+    staged: 2 * 1024 * 1024,
+    patch: 1024 * 1024 - 64 * 1024,
+    ops: 10_000,
+  }
+  const take = (stagedBytes, op) => {
+    room.staged -= stagedBytes
+    room.patch -= opBytes(op)
+    room.ops -= 1
+  }
+  for (const path of stagedPaths(step))
+    take(statSync(stagedFile(step, path)).size, {
+      op: "update",
+      path,
+      baseBlob: "0".repeat(40),
+    })
+  for (const [path, entry] of Object.entries(readDeletes(step)))
+    take(0, { op: "delete", path, ...entry })
   let more = false
   const sorted = [...byPath.values()].sort((a, b) => (a.path < b.path ? -1 : 1))
   for (const plan of sorted) {
@@ -667,14 +692,16 @@ export function writeStep(step, plans, skipped = [], options = {}) {
       continue
     }
     if (text === before) continue
-    if (changed >= 30) {
+    const op = { op: "update", path: plan.path, baseBlob: "0".repeat(40) }
+    const size = Buffer.byteLength(text)
+    if (size > room.staged || opBytes(op) > room.patch || room.ops < 1) {
       more = true
       break
     }
+    take(size, op)
     const file = stagedFile(step, plan.path)
     ensureParent(file)
     writeFileSync(file, text)
-    changed++
   }
   more ||= options.more === true
   const ops = writePatch(step, { more, stats: options.stats }).map(
