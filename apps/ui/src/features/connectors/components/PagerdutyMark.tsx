@@ -2,6 +2,10 @@ type PagerdutyMarkProps = {
   className?: string
 }
 
+/**
+ * The PagerDuty logo, in the current text color. Use it as the icon of
+ * PagerDuty in the connector UI.
+ */
 export function PagerdutyMark({ className }: PagerdutyMarkProps) {
   return (
     <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden>

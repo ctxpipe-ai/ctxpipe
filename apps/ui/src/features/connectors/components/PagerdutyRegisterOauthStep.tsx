@@ -90,6 +90,11 @@ function CopyableUrl({
   )
 }
 
+/**
+ * The PagerDuty setup step of a self-hosted deployment. The admin creates a
+ * scoped OAuth app in PagerDuty with the given callback URL and saves its
+ * credentials here.
+ */
 export function PagerdutyRegisterOauthStep({
   orgSlug,
   connectionId,

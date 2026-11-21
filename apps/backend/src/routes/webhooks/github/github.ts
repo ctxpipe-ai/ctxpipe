@@ -26,6 +26,7 @@ import {
   maybeEnqueueGithubIssueBackfillsOnPermissionsAccepted,
   maybeEnqueueGithubIssueMirror,
 } from "./github-issue-mirror-events.js"
+import { enqueueKnowledgeBranchRuns } from "./github-knowledge-branch-push.js"
 import { maybeActivateLinearSyncOnConfigPush } from "./github-linear-push.js"
 import { maybeEnqueueNotionSyncOnConfigPush } from "./github-notion-push.js"
 import { maybeActivatePagerdutySyncOnConfigPush } from "./github-pagerduty-push.js"
@@ -189,6 +190,7 @@ async function processPushEvent(
   payload: unknown,
   ctx: GithubWebhookContext,
   githubConnectionId?: string,
+  deliveryId?: string,
 ) {
   const parsed = pushPayloadSchema.safeParse(payload)
   if (!parsed.success) {
@@ -277,6 +279,14 @@ async function processPushEvent(
     repository: repo.full_name,
     ref,
     defaultBranch,
+  })
+  await enqueueKnowledgeBranchRuns({
+    orgIds: installationRows.map((row) => row.orgId),
+    repository: repo.full_name,
+    ref,
+    deliveryId,
+    before,
+    after,
   })
 
   if (!onDefaultBranch) return
@@ -430,7 +440,7 @@ export async function processGithubWebhookPayload(
     case "ping":
       return
     case "push":
-      await processPushEvent(payload, ctx, opts?.connectionId)
+      await processPushEvent(payload, ctx, opts?.connectionId, opts?.deliveryId)
       return
     case "repository":
       await processRepositoryEvent(payload, ctx, opts?.connectionId)

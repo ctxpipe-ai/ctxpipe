@@ -2,6 +2,10 @@ type LinearMarkProps = {
   className?: string
 }
 
+/**
+ * The Linear logo, in the current text color. Use it as the icon of Linear in
+ * the connector UI.
+ */
 export function LinearMark({ className }: LinearMarkProps) {
   return (
     <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden>

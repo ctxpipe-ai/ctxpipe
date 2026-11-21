@@ -35,6 +35,11 @@ type LinkAtlassianStepProps = {
   atlassianConnectionId: string
 }
 
+/**
+ * The Confluence setup step where the person signs in with the Atlassian
+ * account that installs the Forge app. The sign-in leaves the page; the
+ * connectors page opens the wizard again after it.
+ */
 export function LinkAtlassianStep({
   orgSlug,
   atlassianConnectionId,

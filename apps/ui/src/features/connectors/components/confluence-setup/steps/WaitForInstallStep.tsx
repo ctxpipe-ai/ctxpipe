@@ -1,5 +1,9 @@
 import { InlineLoader } from "@/components/ui/InlineLoader"
 
+/**
+ * The Confluence setup step that waits until Atlassian confirms the Forge app
+ * install. The wizard goes to the next step when the confirmation comes.
+ */
 export function WaitForInstallStep() {
   return (
     <div className="space-y-4">

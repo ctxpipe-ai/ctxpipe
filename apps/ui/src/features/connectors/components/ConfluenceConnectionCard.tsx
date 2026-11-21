@@ -30,6 +30,11 @@ type ConfluenceConnectionCardProps = {
   onOpenWizard: () => void
 }
 
+/**
+ * The Confluence row on the connectors page. It shows the connection health
+ * and the next setup action, and lets an admin remove the connection. Its
+ * action opens the Confluence setup wizard at the step that is not done.
+ */
 export function ConfluenceConnectionCard({
   orgSlug,
   connectionId,

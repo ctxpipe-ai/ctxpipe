@@ -12,6 +12,11 @@ type GitHubPrerequisiteStepProps = {
   onConnected?: () => void | Promise<void>
 }
 
+/**
+ * A setup step that asks the person to connect GitHub before a source
+ * connector can continue. ctxpipe writes the source content to a Workspace on
+ * GitHub, so this connection is necessary.
+ */
 export function GitHubPrerequisiteStep({
   orgSlug,
   sourceName,

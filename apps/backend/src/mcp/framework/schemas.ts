@@ -7,6 +7,20 @@ export const workspaceArgument = z
   .max(64)
   .describe("Workspace slug from list_workspaces.")
 
+/**
+ * The branch argument of a knowledge read (ADR-071 decision 6). Absent: the
+ * default branch of the Workspace.
+ */
+export const branchArgument = z
+  .string()
+  .trim()
+  .min(1)
+  .max(255)
+  .optional()
+  .describe(
+    "A branch of the Workspace repository. Default: the default branch. A branch can be read after a commit on it is projected.",
+  )
+
 /** `excludeRepositories`: the repositories the agent has open locally. */
 export const excludeRepositoriesSchema = z
   .array(z.string().min(1).max(512))

@@ -5,6 +5,7 @@ import { z } from "zod"
 import { RELEVANCE_INTENTS } from "../../domain/workspaces/graph-relevance.js"
 import type { Ranking } from "../../domain/workspaces/related-ranking.js"
 import { selectKnowledgeReader } from "../../knowledge-reader/knowledge-reader.js"
+import { knowledgeViewKey } from "../../models/knowledge-state.js"
 import { STATUS_RULES } from "../../retrieval/jev/disagreement.js"
 import { fitPage } from "../framework/budget.js"
 import {
@@ -12,7 +13,11 @@ import {
   resolveCallWorkspace,
 } from "../framework/call-workspace.js"
 import { decodeCursorWithAnchor, encodeCursor } from "../framework/cursor.js"
-import { servedSchema, workspaceArgument } from "../framework/schemas.js"
+import {
+  branchArgument,
+  servedSchema,
+  workspaceArgument,
+} from "../framework/schemas.js"
 import { McpToolError } from "../framework/tool-errors.js"
 import { defineMcpReadTool } from "../framework/tool-registry.js"
 
@@ -28,6 +33,7 @@ const name = z.string().min(1).max(64)
  */
 export const getRelatedInputShape = {
   workspace: workspaceArgument,
+  branch: branchArgument,
   seeds: z
     .array(z.string().min(1).max(1_024))
     .min(1)
@@ -290,21 +296,25 @@ export const getRelatedTool = defineMcpReadTool({
     }
     const workspace = await resolveCallWorkspace(org, input.workspace)
     const legacyServed = requireServed(workspace)
-    const { reader, planeHeads } = await selectKnowledgeReader(org.id, [
-      workspace.id,
-    ])
-    // The plane serves the SHA of its last full run.
+    const { reader, planeHeads } = await selectKnowledgeReader(
+      org.id,
+      [workspace.id],
+      input.branch,
+    )
+    // The plane serves the SHA of its last full run of the branch.
+    const planeHead = planeHeads.get(workspace.id)
     const served = {
-      ...legacyServed,
-      sha: planeHeads.get(workspace.id)?.sha ?? legacyServed.sha,
+      branch: input.branch ?? legacyServed.branch,
+      sha: planeHead?.sha ?? legacyServed.sha,
     }
+    const viewKey = planeHead ? knowledgeViewKey(planeHead) : served.sha
     const { cursor, ...parameters } = input
     const { limit, maxTokens, explain, ...rankParameters } = parameters
     const binding = {
       orgId: org.id,
       workspaceId: workspace.id,
       scope: JSON.stringify(["get_related", parameters]),
-      sha: served.sha,
+      sha: viewKey,
       stack: reader.stack,
     }
     const decoded = cursor ? decodeCursorWithAnchor(cursor, binding) : null
@@ -317,7 +327,7 @@ export const getRelatedTool = defineMcpReadTool({
           reader.stack,
           org.id,
           workspace.id,
-          served.sha,
+          viewKey,
           rankParameters,
           now,
         ]),

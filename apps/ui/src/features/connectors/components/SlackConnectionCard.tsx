@@ -25,6 +25,12 @@ type SlackConnectionCardProps = {
   marked?: boolean
 }
 
+/**
+ * The Slack row on the connectors page. It shows the connection health and
+ * the next setup action, and lets an admin remove the connection. It tells
+ * the admin how to invite the bot to a channel, and opens the Slack setup
+ * dialog itself.
+ */
 export function SlackConnectionCard({
   orgSlug,
   connectionId,

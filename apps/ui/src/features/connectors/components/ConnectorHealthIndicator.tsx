@@ -13,6 +13,12 @@ const DOT: Record<ConnectorHealth, { dot: string; pulse: boolean }> = {
   config_failed: { dot: "bg-red-400", pulse: false },
 }
 
+/**
+ * Shows the health of a connection as a colored dot and a short name, for
+ * example connected, syncing or reconnect. The connector rows and the
+ * connector catalog use it. Give `label` to show a count in place of the
+ * name.
+ */
 export function ConnectorHealthIndicator({
   health,
   label,

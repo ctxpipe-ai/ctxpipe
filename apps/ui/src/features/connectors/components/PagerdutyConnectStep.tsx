@@ -13,6 +13,11 @@ type PagerdutyConnectStepProps = {
   revoked?: boolean
 }
 
+/**
+ * The PagerDuty setup step where the person authorizes read-only access to a
+ * PagerDuty account in a popup. With `revoked`, it asks the person to
+ * reconnect.
+ */
 export function PagerdutyConnectStep({
   orgSlug,
   connectionId,

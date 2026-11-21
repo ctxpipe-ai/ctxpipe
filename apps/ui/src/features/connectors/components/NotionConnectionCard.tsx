@@ -26,6 +26,11 @@ type NotionConnectionCardProps = {
   onOpenSetup: () => void
 }
 
+/**
+ * The Notion row on the connectors page. It shows the connection health and
+ * the next setup action, and lets an admin remove the connection. Its action
+ * opens the Notion setup dialog.
+ */
 export function NotionConnectionCard({
   orgSlug,
   connectionId,

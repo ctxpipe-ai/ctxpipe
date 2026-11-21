@@ -7,6 +7,10 @@ type RegisterAtlassianOauthStepProps = {
   atlassianConnectionId: string
 }
 
+/**
+ * The Confluence setup step of a self-hosted deployment where the admin
+ * registers the Atlassian OAuth app before an account link.
+ */
 export function RegisterAtlassianOauthStep({
   orgSlug,
   atlassianConnectionId,

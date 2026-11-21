@@ -7,6 +7,10 @@ type RegisterLinearOauthStepProps = {
   connectionId: string
 }
 
+/**
+ * The Linear setup step of a self-hosted deployment where the admin creates a
+ * Linear application and saves its credentials before connecting a workspace.
+ */
 export function RegisterLinearOauthStep({
   orgSlug,
   connectionId,

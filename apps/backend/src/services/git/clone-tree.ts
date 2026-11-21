@@ -506,6 +506,11 @@ export async function listMarkdownFilesAtGitSha(input: {
    */
   prefix?: string
   /**
+   * Read only these Markdown paths (relative to `root`). The fetch then gets
+   * the trees and only their blobs.
+   */
+  onlyPaths?: ReadonlySet<string>
+  /**
    * Workspace root folder. Only files below it are read, and every path
    * (including `extraPaths`, `extraFolders` and `prefix`) is relative to it.
    */
@@ -520,9 +525,9 @@ export async function listMarkdownFilesAtGitSha(input: {
     lastCommitTimestamp?: string
   }>
 > {
-  const { prefix } = input
+  const { prefix, onlyPaths } = input
   return withFetchedGitSha(
-    { ...input, treesOnly: !!prefix },
+    { ...input, treesOnly: !!prefix || !!onlyPaths },
     async (dir, fetchBlobs) => {
       const inFolder = (path: string) =>
         input.extraFolders?.some((folder) => path.startsWith(folder)) ?? false
@@ -536,6 +541,7 @@ export async function listMarkdownFilesAtGitSha(input: {
         return path !== null &&
           isRegularFile(entry) &&
           (!prefix || path.startsWith(prefix)) &&
+          (!onlyPaths || onlyPaths.has(path)) &&
           (path.endsWith(".md") ||
             input.extraPaths?.includes(path) ||
             inFolder(path))
@@ -648,19 +654,25 @@ export async function readFileAtGitSha(input: {
 }
 
 /**
- * Fetch the commits and the trees of the whole history of `sha` into `dir`,
- * also when an earlier fetch was shallow. The history walk
+ * Fetch the commits and the trees of the whole history of `sha` (one SHA or
+ * more) into `dir`, also when an earlier fetch was shallow. The history walk
  * (`readMarkdownHistory`) needs no old blob, and the blobs of a large history
  * are most of its bytes. The blobs that `dir` has stay, so the fetch adds
  * only the rest.
  */
 export async function fetchGitHistory(
   dir: string,
-  input: { url: string; sha: string; token?: string },
+  input: { url: string; sha: string | readonly string[]; token?: string },
 ): Promise<void> {
   // A remote that exists for this command only: a filtered fetch needs a
   // named promisor remote, and the settings of `dir` do not change.
   const remote = "ctxpipe-history"
+  // Git refuses `--unshallow` for a repository that is not shallow, for
+  // example after an earlier fetch of the history.
+  const shallow =
+    (await gitExec(["-C", dir, "rev-parse", "--is-shallow-repository"])).stdout
+      .toString()
+      .trim() === "true"
   await measuredGitFetch("git.fetch-history", (traced) =>
     gitExec(
       [
@@ -675,9 +687,9 @@ export async function fetchGitHistory(
         "fetch",
         "--no-tags",
         "--filter=blob:none",
-        "--unshallow",
+        ...(shallow ? ["--unshallow"] : []),
         remote,
-        input.sha,
+        ...(typeof input.sha === "string" ? [input.sha] : input.sha),
       ],
       // The full history of a large repository takes much longer than
       // its newest commit.

@@ -16,7 +16,8 @@ import {
 
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../test/db.js"
 import { withOrgDbContext } from "../db/client.js"
-import { knowledgeState } from "../db/schema/knowledge_state.js"
+import { conversations } from "../db/schema/conversations.js"
+import { knowledgeBranchHeads } from "../db/schema/knowledge_state.js"
 import { orgFeatures } from "../db/schema/org_features.js"
 import { workspaceKnowledgeUnits, workspaces } from "../db/schema/workspaces.js"
 import { servingIdForKnowledgePath } from "../domain/workspaces/hydrate.js"
@@ -70,6 +71,11 @@ let jevFails: false | "all" | "disagreement" = false
 /** Answer this Jev call (from 1) after the 3-second budget, or none. */
 let slowJevCall: number | null = null
 let jevCalls = 0
+/**
+ * The test that a Jev call started in. A slow call ends after its test, so
+ * it records nothing in the counters of a later test.
+ */
+let jevTest = 0
 /** Answer the embedding of the plane after the 3-second budget. */
 let slowEmbedding = false
 /** Answer the embedding of the plane with this HTTP status, or none. */
@@ -104,7 +110,10 @@ const models = setupServer(
         questions: Record<string, unknown>
       }
       jevCalls += 1
+      const startedIn = jevTest
       if (jevCalls === slowJevCall) await delay(5_000)
+      if (startedIn !== jevTest)
+        return HttpResponse.json({ error: "test ended" }, { status: 503 })
       const keys = Object.keys(body.questions)
       const disagreement = !keys.some((key) => /^(answers|explore)\./.test(key))
       if (jevFails === "all" || (jevFails === "disagreement" && disagreement))
@@ -283,13 +292,19 @@ async function setFlag(value: "off" | "shadow" | "on") {
 
 /** Make a Workspace ready on the plane: a run applied `planeSha` in full. */
 async function markReady(workspaceId: string) {
-  await beginKnowledgeRun({ orgId: seed.orgId, workspaceId })
+  await beginKnowledgeRun({
+    orgId: seed.orgId,
+    workspaceId,
+    branch: "main",
+    isDefault: true,
+  })
   await completeKnowledgeRun({
     orgId: seed.orgId,
     workspaceId,
     tip: planeSha,
     branch: "main",
     treeVersion: 1,
+    baseBranch: null,
     projectionVersion: "test",
     failedCount: 0,
   })
@@ -298,14 +313,46 @@ async function markReady(workspaceId: string) {
 async function markNotReady(workspaceId: string) {
   await withOrgDbContext(seed.orgId, (db) =>
     db
-      .delete(knowledgeState)
+      .delete(knowledgeBranchHeads)
       .where(
         and(
-          eq(knowledgeState.organizationId, seed.orgId),
-          eq(knowledgeState.workspaceId, workspaceId),
+          eq(knowledgeBranchHeads.organizationId, seed.orgId),
+          eq(knowledgeBranchHeads.workspaceId, workspaceId),
         ),
       ),
   )
+}
+
+/**
+ * Write `documents` as the overlay of `branch` on the default branch of a
+ * ready Workspace, and complete its run.
+ */
+async function markBranchReady(
+  workspaceId: string,
+  branch: string,
+  documents: PlaneDocument[],
+) {
+  const writer = createKnowledgeStore(knowledgeUrl)
+  try {
+    await writePlaneDocuments(
+      writer,
+      { orgId: seed.orgId, workspaceId },
+      documents,
+      { branch },
+    )
+  } finally {
+    await writer.close()
+  }
+  const key = { orgId: seed.orgId, workspaceId, branch }
+  await beginKnowledgeRun({ ...key, isDefault: false })
+  await completeKnowledgeRun({
+    ...key,
+    tip: "b".repeat(40),
+    treeVersion: 1,
+    baseBranch: "main",
+    projectionVersion: "test",
+    failedCount: 0,
+  })
 }
 
 const structured = (result: CallToolResult) =>
@@ -425,12 +472,15 @@ describe("the knowledge reader seam", () => {
     await beginKnowledgeRun({
       orgId: seed.orgId,
       workspaceId: ids.fresh as string,
+      branch: "main",
+      isDefault: true,
     })
     search = await connectToolClient(seed, searchKnowledgeTool)
     related = await connectToolClient(seed, getRelatedTool)
   }, 240_000)
 
   beforeEach(() => {
+    jevTest += 1
     jevFails = false
     slowJevCall = null
     slowEmbedding = false
@@ -500,6 +550,99 @@ describe("the knowledge reader seam", () => {
     expect(
       hits.find((hit) => hit.ref === "knowledge/teams/payments.md")?.claims,
     ).toBe("OWNS knowledge/services/checkout.md")
+  })
+
+  it("on: a branch reads its overlay on the default branch, and each reader of the Workspace reads the session branch of any conversation", async () => {
+    await setFlag("on")
+    const workspaceId = ids.ready as string
+    const branchDocument = (path: string, title: string): PlaneDocument => ({
+      document: {
+        docKey: servingIdForKnowledgePath(workspaceId, path),
+        kind: "Note",
+        title,
+        path,
+        sourceType: "docs",
+        source: "",
+        summary: title,
+        mime: "",
+        validFrom: null,
+        validTo: null,
+        observedAt: new Date("2026-11-01T00:00:00Z"),
+      },
+      chunks: [
+        {
+          ordinal: 0,
+          text: `${title}\n\nThe plan of the branch. answer`,
+          startLine: 1,
+          endLine: 2,
+          embedding: planeVector(`${title} The plan of the branch. answer`),
+        },
+      ],
+      relations: [],
+    })
+    const refsOf = (result: CallToolResult) =>
+      (structured(result).hits as { ref: string }[]).map((hit) => hit.ref)
+    await markBranchReady(workspaceId, "feature", [
+      branchDocument("knowledge/branch/plan.md", "Feature plan"),
+    ])
+    const onBranch = await searchCall({
+      workspaces: ["ready"],
+      branch: "feature",
+    })
+    expect(onBranch.isError).toBeFalsy()
+    expect(refsOf(onBranch)).toContain("knowledge/branch/plan.md")
+    // The overlay adds to the default branch: its files stay.
+    expect(refsOf(onBranch)).toContain("knowledge/decisions/adr-7.md")
+    expect(
+      (structured(onBranch).hits as { served: { branch: string } }[])[0]?.served
+        .branch,
+    ).toBe("feature")
+    // The default branch does not see the overlay.
+    expect(refsOf(await searchCall({ workspaces: ["ready"] }))).not.toContain(
+      "knowledge/branch/plan.md",
+    )
+    // A branch with no projection.
+    const unknown = await searchCall({ workspaces: ["ready"], branch: "nope" })
+    expect(unknown.isError).toBe(true)
+    expect(JSON.stringify(unknown.content)).toContain(
+      "has no knowledge projection",
+    )
+
+    // The session branch of the conversation of a user: each actor that can
+    // read the Workspace reads it, here the org API key (the CTO: "anyone
+    // who can read the workspace can read any branch, because they can read
+    // git anyways"). The conversation itself stays private.
+    const conversationId = `conv_user_${Math.random().toString(36).slice(2, 8)}`
+    await withOrgDbContext(seed.orgId, (db) =>
+      db.insert(conversations).values({
+        id: conversationId,
+        orgId: seed.orgId,
+        workspaceId,
+        userId: seed.userId,
+        source: "web",
+      }),
+    )
+    const sessionBranch = `ctxpipe/chat/${conversationId}/1`
+    await markBranchReady(workspaceId, sessionBranch, [
+      branchDocument(`knowledge/branch/${conversationId}.md`, "Session work"),
+    ])
+    const ofUser = await searchCall({
+      workspaces: ["ready"],
+      branch: sessionBranch,
+    })
+    expect(ofUser.isError).toBeFalsy()
+    expect(refsOf(ofUser)).toContain(`knowledge/branch/${conversationId}.md`)
+
+    // The old stack serves no branch.
+    await setFlag("shadow")
+    const shadow = await searchCall({
+      workspaces: ["ready"],
+      branch: "feature",
+    })
+    expect(shadow.isError).toBe(true)
+    expect(JSON.stringify(shadow.content)).toContain(
+      "needs the knowledge plane",
+    )
   })
 
   it("on: a Workspace before its first full run uses the old stack", async () => {

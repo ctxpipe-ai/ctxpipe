@@ -84,6 +84,11 @@ function CopyableUrl({ label, value }: { label: string; value?: string }) {
   )
 }
 
+/**
+ * Saves or updates the Linear OAuth app of a self-hosted deployment: client
+ * ID, client secret and webhook signing secret. It gives the redirect URIs to
+ * copy into Linear.
+ */
 export function LinearOauthAppPanel({
   orgSlug,
   connectionId,

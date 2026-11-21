@@ -92,6 +92,11 @@ function StepMarker({
   )
 }
 
+/**
+ * The numbered step list of a connector setup dialog or wizard. It shows which
+ * steps are done and which step is current, and lets a person go back to a
+ * done step. The Workspace create form uses it too.
+ */
 export function ConnectorSetupStepper({
   steps,
   currentIndex,

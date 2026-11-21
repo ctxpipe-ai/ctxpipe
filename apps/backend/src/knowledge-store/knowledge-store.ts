@@ -83,7 +83,15 @@ export type KnowledgeRelation = {
 export type TreeHead = { branch: string; treeVersion: number }
 
 /** The head that a read uses for one Workspace. */
-export type WorkspaceHead = TreeHead & { workspaceId: string }
+export type WorkspaceHead = TreeHead & {
+  workspaceId: string
+  /**
+   * For a branch that is not the default branch: the head of the default
+   * branch. The tree of `branch` is then an overlay on it (ADR-071
+   * decision 5).
+   */
+  base?: TreeHead
+}
 
 /**
  * The key of a file version (ADR-071 decision 2): the document key of its
@@ -146,6 +154,11 @@ export type TreeEntry = FileVersionKey &
     path: string
     validFrom: Date | null
     deletedAt: Date | null
+    /**
+     * An overlay row that takes the path out of the overlay: the view of
+     * the branch shows the row of the default branch (ADR-071 decision 3).
+     */
+    inherit?: boolean
   }
 
 /** The count of the mutations (DELETEs) that a caller made. */
@@ -361,6 +374,16 @@ export type KnowledgeStore = {
     refs: DocumentRef[],
     validAt?: Date | null,
   ): Promise<FrontierRelation[]>
+  /**
+   * The path of each file of the view whose path starts with `prefix`, with
+   * the branch of its tree row: the branch of the read for a row of its
+   * overlay, else the default branch. A file read takes the file from Git
+   * at the tip of that branch (ADR-071 decision 6).
+   */
+  listViewFiles(
+    scope: KnowledgeReadScope,
+    prefix: string,
+  ): Promise<{ workspaceId: string; path: string; branch: string }[]>
   /** The document rows of `refs`, with no chunks. */
   readDocuments(
     scope: KnowledgeReadScope,
@@ -436,6 +459,16 @@ export function createKnowledgeStore(url: string | undefined): KnowledgeStore {
     readFrontier: (scope, refs, validAt) =>
       readFrontier(client, scope, refs, validAt),
     readDocuments: (scope, refs) => readDocuments(client, scope, refs),
+    listViewFiles: (scope, prefix) =>
+      selectIn<{ workspaceId: string; path: string; branch: string }>(
+        client,
+        scope,
+        `WITH tree_view AS (${treeView})
+         SELECT workspace_id AS workspaceId, path, branch FROM tree_view
+         WHERE kind = 'file' AND startsWith(path, {prefix:String})
+         ORDER BY workspaceId, path`,
+        { prefix },
+      ),
     readEvidence: (scope, refs, vector, chunksPerDocument) =>
       readEvidence(client, scope, refs, vector, chunksPerDocument),
     readGraph: (scope, limit) => readGraph(client, scope, limit),
@@ -721,7 +754,7 @@ type TableRows = {
     branch: string
     doc_key: string
     tree_version: number
-    kind: "file" | "deleted"
+    kind: "file" | "deleted" | "inherit"
     path: string
     version: string
     status: "active" | "failed"
@@ -864,7 +897,11 @@ async function writeTree(
       branch,
       doc_key: entry.docKey,
       tree_version: treeVersion,
-      kind: entry.deletedAt ? ("deleted" as const) : ("file" as const),
+      kind: entry.inherit
+        ? ("inherit" as const)
+        : entry.deletedAt
+          ? ("deleted" as const)
+          : ("file" as const),
       path: entry.path,
       version: entry.version,
       status: entry.status,
@@ -879,6 +916,7 @@ async function writeTree(
 
 type TreeRecord = FileVersionKey & {
   path: string
+  inherit: boolean
   status: "active" | "failed"
   kind: string
   observedAt: string
@@ -899,11 +937,12 @@ async function readTree(
       orgId: scope.orgId,
       heads: [{ workspaceId: scope.workspaceId, ...head }],
     },
-    `WITH tree_view AS (${treeView})
-     SELECT doc_key AS docKey, version, path, status, doc_kind AS kind,
-       observed_at AS observedAt, valid_from AS validFrom,
-       valid_to AS validTo, deleted_at AS deletedAt
-     FROM tree_view ORDER BY docKey`,
+    // The rows of the tree itself, with its `inherit` rows: no view.
+    `SELECT doc_key AS docKey, version, path, status,
+       doc_kind AS kind, observed_at AS observedAt, valid_from AS validFrom,
+       valid_to AS validTo, deleted_at AS deletedAt,
+       kind = 'inherit' AS inherit
+     FROM (${newestRows("treeBranches", "treeVersions")}) ORDER BY docKey`,
     {},
   )
   return rows.map((row) => ({
@@ -1110,11 +1149,25 @@ async function selectIn<T>(
       ...params,
       orgId: scope.orgId,
       workspaceIds: scope.heads.map((head) => head.workspaceId),
+      // The full tree of each Workspace: the base of an overlay, else the
+      // tree of the branch itself.
       treeBranches: scope.heads.map(
-        (head) => new TupleParam([head.workspaceId, head.branch]),
+        (head) =>
+          new TupleParam([head.workspaceId, (head.base ?? head).branch]),
       ),
       treeVersions: new Map(
-        scope.heads.map((head) => [head.workspaceId, head.treeVersion]),
+        scope.heads.map((head) => [
+          head.workspaceId,
+          (head.base ?? head).treeVersion,
+        ]),
+      ),
+      overlayBranches: scope.heads.flatMap((head) =>
+        head.base ? [new TupleParam([head.workspaceId, head.branch])] : [],
+      ),
+      overlayVersions: new Map(
+        scope.heads.flatMap((head) =>
+          head.base ? [[head.workspaceId, head.treeVersion] as const] : [],
+        ),
       ),
     },
     format: "JSONEachRow",
@@ -1133,7 +1186,12 @@ function assertReadScope(scope: KnowledgeReadScope): void {
   if (
     !scope.orgId ||
     workspaceIds.length === 0 ||
-    scope.heads.some((head) => !head.workspaceId || !head.branch) ||
+    scope.heads.some(
+      (head) =>
+        !head.workspaceId ||
+        !head.branch ||
+        (head.base && (!head.base.branch || head.base.branch === head.branch)),
+    ) ||
     new Set(workspaceIds).size !== workspaceIds.length
   )
     throw new Error(
@@ -1144,23 +1202,49 @@ function assertReadScope(scope: KnowledgeReadScope): void {
 const inWorkspaces =
   "org_id = {orgId:String} AND workspace_id IN {workspaceIds:Array(String)}"
 
+/** The columns of a row of the tree view. */
+const treeColumns = `workspace_id, branch, doc_key, kind, path, version,
+  status, doc_kind, observed_at, valid_from, valid_to, deleted_at`
+
 /**
- * The tree view of the heads of a read (ADR-071 decision 4): for each
- * document key, the newest tree row of the branch of its Workspace at or
- * below the head. A row above the head is the row of a run that did not
- * complete, so no read sees it. `LIMIT 1 BY` follows the sort key of the
- * table: it cost 12 ms on 100k paths, `argMax` with `GROUP BY` 60 ms.
+ * The newest tree row of each document key of the branches `branches` at
+ * or below the tree versions `versions` (two parameter names). A row above
+ * the head is the row of a run that did not complete, so no read sees it.
+ * `LIMIT 1 BY` follows the sort key of the table: it cost 12 ms on 100k
+ * paths, `argMax` with `GROUP BY` 60 ms.
+ */
+const newestRows = (branches: string, versions: string) =>
+  `SELECT ${treeColumns} FROM trees
+   WHERE ${inWorkspaces}
+     AND (workspace_id, branch) IN {${branches}:Array(Tuple(String, String))}
+     AND tree_version <= {${versions}:Map(String, UInt64)}[workspace_id]
+   ORDER BY workspace_id, doc_key, tree_version DESC
+   LIMIT 1 BY workspace_id, doc_key`
+
+/**
+ * The tree view of the heads of a read (ADR-071 decisions 4 and 5). The
+ * view of the default branch is its tree. The view of another branch B is
+ * the view of the default branch, minus each path of the overlay of B, plus
+ * the overlay rows of B: an overlay row wins (layer 1), and an `inherit`
+ * row leaves the overlay, so the row of the default branch shows (layer 2).
+ * A tombstone of the overlay is a row of the view, so it removes the path.
+ * A read with no overlay has no layer 1. A full tree can keep an `inherit`
+ * row from the time when it was an overlay (a branch that became the
+ * default branch): its path is not in the tree, so the view drops it too.
  *
  * This is the one place of the tree rule. Each read of the view starts with
  * `WITH tree_view AS (${treeView})`.
  */
-const treeView = `SELECT workspace_id, doc_key, kind, path, version, status,
-    doc_kind, observed_at, valid_from, valid_to, deleted_at
-  FROM trees
-  WHERE ${inWorkspaces}
-    AND (workspace_id, branch) IN {treeBranches:Array(Tuple(String, String))}
-    AND tree_version <= {treeVersions:Map(String, UInt64)}[workspace_id]
-  ORDER BY workspace_id, doc_key, tree_version DESC
+const treeView = `SELECT ${treeColumns} FROM (
+    SELECT ${treeColumns}, 1 AS layer FROM (
+      ${newestRows("overlayBranches", "overlayVersions")}
+    ) WHERE kind != 'inherit'
+    UNION ALL
+    SELECT ${treeColumns}, 2 AS layer FROM (
+      ${newestRows("treeBranches", "treeVersions")}
+    ) WHERE kind != 'inherit'
+  )
+  ORDER BY workspace_id, doc_key, layer
   LIMIT 1 BY workspace_id, doc_key`
 
 /** The tree rows of the view that hold a file version (not a tombstone). */

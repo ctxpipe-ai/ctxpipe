@@ -12,6 +12,7 @@ import {
   listPlaneUnitFiles,
   type UnitFile,
 } from "../../knowledge-reader/plane-files.js"
+import { knowledgeViewKey } from "../../models/knowledge-state.js"
 import { log } from "../../observability/logger.js"
 import { fitPage } from "../framework/budget.js"
 import {
@@ -27,6 +28,7 @@ import { checkPath, checkRepositoryPath } from "../framework/refs.js"
 import {
   excludeRepositoriesSchema,
   servedSchema,
+  branchArgument,
   workspaceArgument,
 } from "../framework/schemas.js"
 import { McpToolError } from "../framework/tool-errors.js"
@@ -130,6 +132,9 @@ export const listFilesTool = defineMcpReadTool({
   org: "required",
   inputShape: {
     workspace: workspaceArgument,
+    branch: branchArgument.describe(
+      "For the Workspace repository: a branch of it. Default: the default branch. A branch can be listed after a commit on it is projected.",
+    ),
     repository: z
       .string()
       .min(1)
@@ -215,18 +220,30 @@ export const listFilesTool = defineMcpReadTool({
 
     let handle: string | null = null
     let served: z.infer<typeof servedSchema> = workspaceServed
+    // The key of the listed view, for the cursor (`knowledgeViewKey`).
+    let viewKey = workspaceServed.sha
     let entries: Entry[]
     let listTruncated = false
     if (input.repository === undefined) {
-      const { planeHeads } = await selectKnowledgeReader(org.id, [workspace.id])
-      const planeSha = planeHeads.get(workspace.id)?.sha
-      if (planeSha) served = { ...workspaceServed, sha: planeSha }
+      const { planeHeads } = await selectKnowledgeReader(
+        org.id,
+        [workspace.id],
+        input.branch,
+      )
+      const planeHead = planeHeads.get(workspace.id)
+      if (planeHead) {
+        viewKey = knowledgeViewKey(planeHead)
+        served = {
+          branch: input.branch ?? workspaceServed.branch,
+          sha: planeHead.sha,
+        }
+      }
       entries = folderEntries(
-        planeSha
+        planeHead
           ? await listPlaneUnitFiles({
               orgId: org.id,
               workspaceId: workspace.id,
-              sha: planeSha,
+              head: planeHead,
               folder,
             })
           : await listUnitRows(org.id, workspace.id, folder),
@@ -242,6 +259,7 @@ export const listFilesTool = defineMcpReadTool({
       )
       handle = repository.handle
       served = { branch: repository.branch, sha: repository.sha }
+      viewKey = repository.sha
       try {
         const found = await globCheckoutFiles({
           repositoryId: repository.repositoryId,
@@ -303,7 +321,7 @@ export const listFilesTool = defineMcpReadTool({
     const binding = {
       orgId: org.id,
       workspaceId: workspace.id,
-      sha: served.sha,
+      sha: viewKey,
       scope: JSON.stringify([
         "list_files",
         handle,

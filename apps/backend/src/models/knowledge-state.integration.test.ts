@@ -12,7 +12,10 @@ import {
   beginKnowledgeRun,
   completeKnowledgeRun,
   failKnowledgeRun,
+  deleteBranchHead,
+  getBranchHead,
   getKnowledgeState,
+  listBranchHeads,
   readyKnowledgeHeads,
 } from "./knowledge-state.js"
 
@@ -61,84 +64,142 @@ describe("knowledge_state (Postgres)", () => {
   })
 
   it("refuses a run of a Workspace of another org, and an update without a run", async () => {
+    const main = { ...workspace, branch: "main" }
     // Before the owning org has a row: no other org can take it.
     await expect(
-      beginKnowledgeRun({ orgId: otherOrgId, workspaceId }),
+      beginKnowledgeRun({
+        orgId: otherOrgId,
+        workspaceId,
+        branch: "main",
+        isDefault: true,
+      }),
     ).rejects.toThrow(`has no Workspace ${workspaceId}`)
+    expect(await getBranchHead(main)).toBeNull()
     expect(await getKnowledgeState(workspace)).toBeNull()
-    expect(
-      await getKnowledgeState({ orgId: otherOrgId, workspaceId }),
-    ).toBeNull()
-    await expect(failKnowledgeRun(workspace)).rejects.toThrow(
-      "call beginKnowledgeRun first",
-    )
+    await expect(
+      failKnowledgeRun({ ...main, isDefault: true }),
+    ).rejects.toThrow("call beginKnowledgeRun first")
     await expect(
       completeKnowledgeRun({
-        ...workspace,
+        ...main,
         tip: "sha-x",
-        branch: "main",
         treeVersion: 1,
+        baseBranch: null,
         projectionVersion: "1:test-model",
         failedCount: 0,
       }),
     ).rejects.toThrow("call beginKnowledgeRun first")
   })
 
-  it("marks a run as running, and moves the head (last_sha, branch and tree version) in one update", async () => {
-    expect(await getKnowledgeState(workspace)).toBeNull()
+  it("moves the head of each branch in one update, mirrors the default branch in knowledge_state, and follows the newest default tree", async () => {
+    const main = { ...workspace, branch: "main" }
+    const feature = { ...workspace, branch: "feature" }
     expect(await readyKnowledgeHeads(orgId, [workspaceId])).toEqual(new Map())
 
-    await beginKnowledgeRun(workspace)
-    expect(await getKnowledgeState(workspace)).toMatchObject({
+    await beginKnowledgeRun({ ...main, isDefault: true })
+    expect(await getBranchHead(main)).toMatchObject({
       lastSha: null,
-      branch: null,
-      treeVersion: null,
-      projectionVersion: null,
+      treeVersion: 0,
       runStatus: "running",
-      failedCount: 0,
     })
-    await failKnowledgeRun(workspace)
     expect(await getKnowledgeState(workspace)).toMatchObject({
-      lastSha: null,
-      runStatus: "failed",
+      runStatus: "running",
     })
+    await failKnowledgeRun({ ...main, isDefault: true })
     // A Workspace before its first completed run is not ready.
     expect(await readyKnowledgeHeads(orgId, [workspaceId])).toEqual(new Map())
 
-    await beginKnowledgeRun(workspace)
+    await beginKnowledgeRun({ ...main, isDefault: true })
     await completeKnowledgeRun({
-      ...workspace,
-      tip: "sha-2",
-      branch: "main",
+      ...main,
+      tip: "sha-main",
       treeVersion: 1,
+      baseBranch: null,
       projectionVersion: "1:test-model",
       failedCount: 2,
     })
     expect(await getKnowledgeState(workspace)).toMatchObject({
-      lastSha: "sha-2",
+      lastSha: "sha-main",
       branch: "main",
       treeVersion: 1,
-      projectionVersion: "1:test-model",
       runStatus: "completed",
       failedCount: 2,
     })
+    const mainHead = { sha: "sha-main", branch: "main", treeVersion: 1 }
     expect(await readyKnowledgeHeads(orgId, [workspaceId])).toEqual(
-      new Map([
-        [workspaceId, { sha: "sha-2", branch: "main", treeVersion: 1 }],
-      ]),
+      new Map([[workspaceId, mainHead]]),
+    )
+    // A branch before its first run has no head.
+    expect(await readyKnowledgeHeads(orgId, [workspaceId], "feature")).toEqual(
+      new Map(),
     )
 
-    // A failed run after it keeps the head: a read still sees tree version 1.
-    await beginKnowledgeRun(workspace)
-    await failKnowledgeRun(workspace)
-    expect(await getKnowledgeState(workspace)).toMatchObject({
-      lastSha: "sha-2",
+    // An overlay: its head has the default branch as its base, and it does
+    // not change knowledge_state.
+    await beginKnowledgeRun({ ...feature, isDefault: false })
+    await completeKnowledgeRun({
+      ...feature,
+      tip: "sha-feature",
       treeVersion: 1,
-      runStatus: "failed",
+      baseBranch: "main",
+      projectionVersion: "1:test-model",
+      failedCount: 0,
     })
     expect(
+      (await readyKnowledgeHeads(orgId, [workspaceId], "feature")).get(
+        workspaceId,
+      ),
+    ).toEqual({
+      sha: "sha-feature",
+      branch: "feature",
+      treeVersion: 1,
+      base: mainHead,
+    })
+    expect(await getKnowledgeState(workspace)).toMatchObject({
+      lastSha: "sha-main",
+      branch: "main",
+    })
+    // The default branch by name is the default head.
+    expect(
+      (await readyKnowledgeHeads(orgId, [workspaceId], "main")).get(
+        workspaceId,
+      ),
+    ).toEqual(mainHead)
+
+    // A failed run keeps the head: a read still sees tree version 1.
+    await beginKnowledgeRun({ ...feature, isDefault: false })
+    await failKnowledgeRun({ ...feature, isDefault: false })
+    expect(
+      (await readyKnowledgeHeads(orgId, [workspaceId], "feature")).get(
+        workspaceId,
+      )?.treeVersion,
+    ).toBe(1)
+
+    // A rename: the first completed full tree of `trunk` becomes the head
+    // of the default branch.
+    const trunk = { ...workspace, branch: "trunk" }
+    await beginKnowledgeRun({ ...trunk, isDefault: true })
+    expect(
       (await readyKnowledgeHeads(orgId, [workspaceId])).get(workspaceId),
-    ).toEqual({ sha: "sha-2", branch: "main", treeVersion: 1 })
+    ).toEqual(mainHead)
+    await completeKnowledgeRun({
+      ...trunk,
+      tip: "sha-main",
+      treeVersion: 1,
+      baseBranch: null,
+      projectionVersion: "1:test-model",
+      failedCount: 0,
+    })
+    expect(
+      (await readyKnowledgeHeads(orgId, [workspaceId])).get(workspaceId)
+        ?.branch,
+    ).toBe("trunk")
+    expect(
+      (await listBranchHeads(workspace)).map((row) => row.branch).sort(),
+    ).toEqual(["feature", "main", "trunk"])
+
+    await deleteBranchHead(feature)
+    expect(await getBranchHead(feature)).toBeNull()
     // The head is only for the org of the Workspace.
     expect(await readyKnowledgeHeads(otherOrgId, [workspaceId])).toEqual(
       new Map(),
