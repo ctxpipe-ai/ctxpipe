@@ -16,7 +16,7 @@ use std::io::{BufRead, Read, Write};
 use std::sync::Arc;
 
 use kingfisher_rules::RuleCacheConfig;
-use kingfisher_scanner::{RulesDatabase, Scanner, ScannerConfig, get_builtin_rules};
+use kingfisher_scanner::{RuleSyntax, RulesDatabase, Scanner, ScannerConfig, get_builtin_rules};
 use serde_json::{Value, json};
 
 /// One request line: its id and its texts.
@@ -26,6 +26,19 @@ fn request(line: &[u8]) -> Result<(u64, Vec<String>), String> {
     let texts = serde_json::from_value(value["texts"].take()).map_err(|error| error.to_string())?;
     Ok((id, texts))
 }
+
+/// Our one rule beside the rules of Kingfisher, which do not find the
+/// password of a plain URL: `scheme://user:password@host` of any scheme.
+/// The user can be empty (`redis://:password@host`). The unnamed capture is
+/// the password, so only it becomes `[REDACTED:url-credentials]`. A user
+/// with no password (`user@host`) does not match, and neither does a
+/// template value: a password that starts with `$`, `%`, `{`, `<` or `*`
+/// (`${DB_PASSWORD}`, `<password>`, `***`).
+const URL_CREDENTIALS: (&str, &str, &str) = (
+    "url-credentials",
+    "Credentials in a URL",
+    r#"(?i)\b[a-z][a-z0-9+.\-]{1,30}://[^\s:/?#@'"<>]{0,128}:([^\s/?#@'"<>$%{*][^\s/?#@'"<>]{0,255})@[a-z0-9.\-\[\]]"#,
+);
 
 /// The largest request line: more than the largest model request.
 const MAX_LINE_BYTES: u64 = 64 * 1024 * 1024;
@@ -39,7 +52,11 @@ pub fn serve(
     rule_cache: Option<String>,
     sandbox: impl FnOnce() -> Result<(), String>,
 ) -> Result<(), String> {
-    let rules = get_builtin_rules(None).map_err(|error| error.to_string())?;
+    let mut rules = get_builtin_rules(None).map_err(|error| error.to_string())?;
+    rules.rules.insert(
+        URL_CREDENTIALS.0.into(),
+        RuleSyntax::new(URL_CREDENTIALS.0, URL_CREDENTIALS.1, URL_CREDENTIALS.2),
+    );
     let database = RulesDatabase::from_rule_collection_with_cache(
         rules,
         &RuleCacheConfig::new(rule_cache.unwrap_or_default()),

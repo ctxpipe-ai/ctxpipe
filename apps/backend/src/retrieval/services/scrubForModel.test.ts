@@ -83,6 +83,37 @@ describe("scrubForModel", () => {
       )
   })
 
+  it("replaces the password of a URL of any scheme, and only the password", async () => {
+    // Made-up passwords, made at run time.
+    for (const url of [
+      "postgres://app:{}@db.example.test:5432/app",
+      "mysql://root:{}@10.0.0.5/db",
+      "redis://:{}@cache.example.test:6379",
+      "amqp://guest:{}@rabbit.example.test:5672/",
+      "https://bob:{}@git.example.test/repo.git",
+    ]) {
+      const password = random(16)
+      expect(
+        await scrubForModel(`Use ${url.replace("{}", password)} now.`),
+      ).toBe(`Use ${url.replace("{}", "[REDACTED:url-credentials]")} now.`)
+    }
+  })
+
+  it("keeps a URL or an address with no password as it is", async () => {
+    const texts = [
+      "user@host",
+      "https://example.test/path?a=b",
+      "mailto:someone@example.test",
+      "git@github.com:org/repo.git",
+      "postgres://user@db.example.test/app",
+      "postgres://${DB_USER}:${DB_PASSWORD}@db.example.test/app",
+      "postgres://user:<password>@db.example.test/app",
+      "https://example.test:8443/a",
+      "The meeting is at 10:30@noon.",
+    ]
+    expect(await scrubForModel(texts)).toEqual(texts)
+  })
+
   it("replaces each occurrence of a secret", async () => {
     const github = secretOf("betterleaks.github-pat")
     const text = `a ${github} b ${github} c`
