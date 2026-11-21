@@ -3,7 +3,7 @@ import { createFileRoute } from "@tanstack/react-router"
 import type { FormEvent } from "react"
 import { useEffect, useRef, useState } from "react"
 
-import { Logo } from "@/components/Logo/Logo"
+import { AuthLogoBadge } from "@/components/Logo/Logo"
 import { Button } from "@/components/ui/Button"
 import { Spinner } from "@/components/ui/spinner"
 import { authClient, useSession } from "@/lib/auth-client"
@@ -106,13 +106,7 @@ export function DeviceAuthorizationPage() {
     <main className="hero-gradient min-h-screen bg-zinc-950 text-foreground">
       <div className="mx-auto flex min-h-screen max-w-md items-center px-6 py-16">
         <div className="relative mx-auto w-full max-w-sm">
-          <div className="pointer-events-none absolute top-4 left-1/2 z-10 -translate-x-1/2">
-            <Logo
-              alt="ctxpipe"
-              className="h-16 w-16 select-none"
-              draggable={false}
-            />
-          </div>
+          <AuthLogoBadge />
           <section className="ctx-border ctx-surface px-6 pt-24 pb-6 shadow-none">
             <div className="space-y-2 text-center">
               <h1 className="text-lg font-semibold text-zinc-100">
