@@ -12,6 +12,7 @@ vi.mock("@aws-sdk/client-bedrock-runtime", () => {
   }
   class MockBedrockRuntimeClient {
     send = mockBedrockSend
+    destroy() {}
   }
   return {
     BedrockRuntimeClient: MockBedrockRuntimeClient,

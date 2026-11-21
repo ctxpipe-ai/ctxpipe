@@ -13,6 +13,7 @@ import {
   isAllowedProvider,
   openRouterProvider,
 } from "../../src/retrieval/services/openRouterProvider.js"
+import { scrubForModel } from "../../src/retrieval/services/scrubForModel.js"
 import { percentile } from "./metrics.js"
 import type { ModelCalls } from "./model-calls.js"
 import { readZdrList, withChangedBody } from "./probe.js"
@@ -150,7 +151,7 @@ export async function measureLatency(input: {
         authorization: `Bearer ${process.env.MODEL_PROVIDER_API_KEY ?? ""}`,
         "content-type": "application/json",
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify(await scrubForModel(body)),
     })
     const text = await response.text()
     if (!response.ok) throw new Error(`HTTP ${response.status}: ${text}`)

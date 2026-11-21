@@ -2,6 +2,25 @@
 FROM node:26.13.1-alpine AS opencode
 RUN npm install -g opencode-ai@1.19.5
 
+# The converter of the knowledge plane (apps/backend/converter, CTX-1433),
+# also the secret scrubber of each model call (`--scrub`, ADR-072): one
+# static musl binary, so the runtime image needs no Rust and no library.
+# Two layers: the dependencies (Kingfisher, vectorscan, the parsers) build
+# from Cargo.toml and Cargo.lock with an empty main, so a change of the
+# source rebuilds only the converter crate. g++ gives the static C++ runtime
+# that vectorscan links; curl downloads the vectorscan prebuilt, which its
+# build script checks by SHA-256.
+FROM rust:1.99.1-alpine3.22 AS converter
+RUN apk add --no-cache musl-dev g++ curl
+WORKDIR /converter
+COPY apps/backend/converter/Cargo.toml apps/backend/converter/Cargo.lock apps/backend/converter/rust-toolchain.toml ./
+RUN mkdir src && echo 'fn main() {}' > src/main.rs \
+  && cargo build --release --locked && rm -rf src
+COPY apps/backend/converter ./
+# COPY keeps the times of the files, which can be older than the build of
+# the empty main: touch them, so that Cargo builds the real source.
+RUN touch build.rs src/*.rs && cargo build --release --locked
+
 FROM oven/bun:1.4.4-alpine AS deps
 WORKDIR /app
 ENV CI=true
@@ -48,6 +67,9 @@ COPY --from=opencode /usr/local/bin/ /usr/local/bin/
 COPY --from=opencode /usr/local/lib/node_modules/ /usr/local/lib/node_modules/
 # The build fails here, not a process at start, when a library of node is missing.
 RUN node --version
+# The server starts the secret scrubber of this binary before it serves.
+COPY --from=converter /converter/target/release/ctxpipe-convert /usr/local/bin/ctxpipe-convert
+RUN ctxpipe-convert --version
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps/backend/node_modules ./apps/backend/node_modules
 COPY tsconfig.json ./

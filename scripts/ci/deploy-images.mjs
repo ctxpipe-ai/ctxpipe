@@ -67,6 +67,9 @@ export const images = [
       // The MCP eval bundle of the `evals` stage (CTX-1217).
       "apps/backend/evals/mcp",
       "packages/visual-review",
+      // The secret scrubber of each model call is a mode of the converter
+      // (ADR-072).
+      "apps/backend/converter",
     ],
   },
   {

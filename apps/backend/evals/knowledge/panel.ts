@@ -7,6 +7,7 @@ import {
   DEFAULT_OPENROUTER_BASE,
   openRouterProvider,
 } from "../../src/retrieval/services/openRouterProvider.js"
+import { scrubForModel } from "../../src/retrieval/services/scrubForModel.js"
 import {
   type Dataset,
   type Position,
@@ -105,19 +106,22 @@ async function ask(
       authorization: `Bearer ${apiKey}`,
       "content-type": "application/json",
     },
-    body: JSON.stringify({
-      model: openRouterModelId(model),
-      messages: [{ role: "user", content }],
-      response_format: {
-        type: "json_schema",
-        json_schema: {
-          name: "gold_label",
-          strict: true,
-          schema: verdictJsonSchema,
+    // The judge gets the scrubbed text, as each model of the product does.
+    body: JSON.stringify(
+      await scrubForModel({
+        model: openRouterModelId(model),
+        messages: [{ role: "user", content }],
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "gold_label",
+            strict: true,
+            schema: verdictJsonSchema,
+          },
         },
-      },
-      provider: openRouterProvider(),
-    }),
+        provider: openRouterProvider(),
+      }),
+    ),
   })
   if (!response.ok)
     throw new Error(`OpenRouter answered ${response.status} for ${model}.`)
@@ -204,10 +208,12 @@ export async function labelWithPanel(input: {
   for (const question of input.draft.questions) {
     const labeled: PanelVote[] = []
     for (const ref of question.gold) {
+      // The prompt cuts the document: it is scrubbed whole before the cut
+      // (ADR-072).
       const content = prompt(
         question,
         ref,
-        await input.read(question.corpus, ref),
+        await scrubForModel(await input.read(question.corpus, ref)),
       )
       const verdicts: PanelVote["votes"] = []
       for (const model of input.models) {

@@ -3,6 +3,7 @@ import {
   type ToolInputSchema,
 } from "@aws-sdk/client-bedrock-runtime"
 
+import { scrubForModel } from "../scrubForModel.js"
 import { bedrockConverseInput, withBedrockClient } from "./bedrockConverse.js"
 import { invokeBedrockEmbedding } from "./bedrockEmbeddings.js"
 import {
@@ -31,21 +32,27 @@ export function bedrockModelProvider(
 
   return {
     chat: new HostTextAdapter(opts, "bedrock", async (options, schema) => {
+      // Scrubbed as one conversation (ADR-072), in the order that Converse
+      // groups it. HostTextAdapter.call scrubbed the parts already; each
+      // client that sends a model request scrubs it itself.
+      const { messages } = await scrubForModel({
+        messages: [
+          ...(options.systemPrompts ?? []).map((prompt) => ({
+            role: "system",
+            content: typeof prompt === "string" ? prompt : prompt.content,
+          })),
+          ...options.messages.map((message) => ({
+            role: message.role,
+            content: messageText(message.content),
+          })),
+        ],
+      })
       const response = await withBedrockClient(opts.env, (client) =>
         client.send(
           new ConverseCommand({
             ...bedrockConverseInput(
               primary,
-              [
-                ...(options.systemPrompts ?? []).map((prompt) => ({
-                  role: "system",
-                  content: typeof prompt === "string" ? prompt : prompt.content,
-                })),
-                ...options.messages.map((message) => ({
-                  role: message.role,
-                  content: messageText(message.content),
-                })),
-              ],
+              messages,
               opts.temperature,
               opts.modelParams,
             ),

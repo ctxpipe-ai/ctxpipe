@@ -72,6 +72,9 @@ it("keeps a model subject that arrives after 7 s", async () => {
     }),
   )
   const subject = generateCommitSubject(input)
+  // The prompt goes through the secret scrubber (a process) first, so the
+  // request arrives after real I/O, not in the same tick.
+  await vi.waitFor(() => expect(signals).toHaveLength(1))
   await vi.advanceTimersByTimeAsync(7_000)
   await expect(subject).resolves.toBe("ctxpipe - Slow but valid subject")
   // A completed request must not receive a later cancellation from a leftover deadline.
@@ -81,11 +84,13 @@ it("keeps a model subject that arrives after 7 s", async () => {
 
 it("aborts a hung subject request and uses the deterministic fallback", async () => {
   let aborted = false
+  let received = false
   server.use(
     http.post(
       completions,
       ({ request }) =>
         new Promise<Response>((_, reject) => {
+          received = true
           request.signal.addEventListener(
             "abort",
             () => {
@@ -98,6 +103,7 @@ it("aborts a hung subject request and uses the deterministic fallback", async ()
     ),
   )
   const subject = generateCommitSubject(input)
+  await vi.waitFor(() => expect(received).toBe(true))
   await vi.advanceTimersByTimeAsync(15_000)
   await expect(subject).resolves.toBe(
     "ctxpipe - Knowledge update of knowledge from ui_file_edit",

@@ -29,6 +29,7 @@ import { gatewayCost } from "../observability/gatewayCost.js"
 import { openRouterSettings } from "../retrieval/services/modelProvider.js"
 import { visionModelFromEnv } from "../retrieval/services/modelTierSpecs.js"
 import { openRouterProvider } from "../retrieval/services/openRouterProvider.js"
+import { scrubForModel } from "../retrieval/services/scrubForModel.js"
 
 /**
  * The version of the prompt and the reading schema. A change of either
@@ -267,33 +268,36 @@ export async function readImage(
       "config",
       "The vision model needs MODEL_PROVIDER openrouter or openai-like, an OpenRouter MODEL_PROVIDER_URL, and MODEL_PROVIDER_API_KEY.",
     )
-  const body = JSON.stringify({
-    model: options.model,
-    messages: [
-      { role: "system", content: PROMPT },
-      {
-        role: "user",
-        content: [
-          {
-            type: "image_url",
-            image_url: {
-              url: `data:${image.mimeType};base64,${image.bytes.toString("base64")}`,
+  // The image stays as it is (ADR-072); the prompt text is scrubbed.
+  const body = JSON.stringify(
+    await scrubForModel({
+      model: options.model,
+      messages: [
+        { role: "system", content: PROMPT },
+        {
+          role: "user",
+          content: [
+            {
+              type: "image_url",
+              image_url: {
+                url: `data:${image.mimeType};base64,${image.bytes.toString("base64")}`,
+              },
             },
-          },
-        ],
+          ],
+        },
+      ],
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "image_reading",
+          strict: true,
+          schema: z.toJSONSchema(readingSchema),
+        },
       },
-    ],
-    response_format: {
-      type: "json_schema",
-      json_schema: {
-        name: "image_reading",
-        strict: true,
-        schema: z.toJSONSchema(readingSchema),
-      },
-    },
-    // Each ZDR endpoint of the model that takes the JSON schema can answer.
-    provider: { ...openRouterProvider(), require_parameters: true },
-  })
+      // Each ZDR endpoint of the model that takes the JSON schema can answer.
+      provider: { ...openRouterProvider(), require_parameters: true },
+    }),
+  )
   try {
     return await withTransientHttpRetry(
       () =>

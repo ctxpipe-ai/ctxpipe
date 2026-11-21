@@ -759,6 +759,16 @@ jobs:
             context: .
             dockerfile: apps/codesearch/Dockerfile
             cache: ghcr.io/ctxpipe-ai/ci-cache:production-codesearch
+          # The Rust converter stage (Kingfisher and vectorscan, ADR-072) is
+          # the slow part of backend and worker.
+          - name: backend
+            context: .
+            dockerfile: apps/backend/Dockerfile
+            cache: ghcr.io/ctxpipe-ai/ci-cache:production-backend
+          - name: worker
+            context: .
+            dockerfile: apps/backend/Dockerfile.worker
+            cache: ghcr.io/ctxpipe-ai/ci-cache:production-worker
           - name: ui
             context: .
             dockerfile: apps/ui/Dockerfile

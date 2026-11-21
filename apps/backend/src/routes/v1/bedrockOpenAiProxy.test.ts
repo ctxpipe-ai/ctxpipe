@@ -1,3 +1,4 @@
+import { generateKeyPairSync } from "node:crypto"
 import { crc32 } from "node:zlib"
 
 import { chat } from "@tanstack/ai"
@@ -6,7 +7,10 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { useMswServer } from "../../../test/msw.js"
 import { bedrockModelProvider } from "../../retrieval/services/providers/bedrockModelProvider.js"
-import { handleBedrockChatCompletion } from "./bedrockOpenAiProxy.js"
+import {
+  handleBedrockChatCompletion,
+  handleBedrockEmbedding,
+} from "./bedrockOpenAiProxy.js"
 
 const server = useMswServer()
 afterEach(() => vi.unstubAllEnvs())
@@ -67,7 +71,96 @@ function eventStreamFrame(
   return frame
 }
 
+describe("handleBedrockEmbedding", () => {
+  it("sends no secret that is split over its inputs: they become one text", async () => {
+    stubAwsCredentials()
+    const pem = generateKeyPairSync("rsa", { modulusLength: 2048 })
+      .privateKey.export({ type: "pkcs1", format: "pem" })
+      .toString()
+      .trim()
+    let sent = ""
+    server.use(
+      http.post(
+        "https://bedrock-runtime.us-east-1.amazonaws.com/model/cohere.embed-v4/invoke",
+        async ({ request }) => {
+          sent = await request.text()
+          return HttpResponse.json({
+            embeddings: { float: [Array<number>(1536).fill(0.5)] },
+          })
+        },
+      ),
+    )
+    const response = await handleBedrockEmbedding(env, {
+      model: "cohere.embed-v4",
+      input: pem.split("\n"),
+    })
+    expect(response.status).toBe(200)
+    for (const line of pem.split("\n").slice(1, -1))
+      expect(sent).not.toContain(line)
+    expect(sent).toContain("[REDACTED:betterleaks.private-key]")
+  })
+})
+
 describe("handleBedrockChatCompletion", () => {
+  it("sends nothing for a secret split over two messages of one role, which Converse joins", async () => {
+    stubAwsCredentials()
+    let called = false
+    server.use(
+      http.post(converseUrl("fast-model"), () => {
+        called = true
+        return HttpResponse.json({})
+      }),
+    )
+    const key = generateKeyPairSync("rsa", { modulusLength: 2048 })
+      .privateKey.export({ type: "pkcs1", format: "pem" })
+      .toString()
+      .trim()
+    const half = Math.floor(key.length / 2)
+    await expect(
+      handleBedrockChatCompletion(env, {
+        model: "fast-model",
+        messages: [
+          { role: "user", content: key.slice(0, half) },
+          { role: "user", content: key.slice(half) },
+        ],
+      }),
+    ).rejects.toThrow(/split over two texts/)
+    expect(called).toBe(false)
+  })
+
+  it("sends no secret that an image part holds: the part becomes text", async () => {
+    stubAwsCredentials()
+    // A made-up AWS access key id in the place of an image data URL.
+    const key = `AKIA${"ABCDEFGHIJKLMNOP".split("").reverse().join("")}`
+    let sent = ""
+    server.use(
+      http.post(converseUrl("fast-model"), async ({ request }) => {
+        sent = await request.text()
+        return HttpResponse.json({
+          output: { message: { role: "assistant", content: [{ text: "ok" }] } },
+          stopReason: "end_turn",
+        })
+      }),
+    )
+    const response = await handleBedrockChatCompletion(env, {
+      model: "fast-model",
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image_url",
+              image_url: { url: `data:image/png;base64,${key}` },
+            },
+          ],
+        },
+      ],
+    })
+    expect(response.status).toBe(200)
+    expect(sent).not.toContain(key)
+    expect(sent).toContain("[REDACTED:betterleaks.aws-access-token]")
+  })
+
   it.each(["end_turn", "max_tokens"])(
     "answers a non-streaming request with stop reason %s",
     async (stopReason) => {

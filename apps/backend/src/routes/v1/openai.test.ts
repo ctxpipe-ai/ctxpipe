@@ -515,6 +515,63 @@ describe("v1/openai proxy", () => {
     expect(seen).not.toHaveProperty("provider")
   })
 
+  it("refuses a chat message part that the scrubber cannot read, such as a file", async () => {
+    let called = false
+    upstream = await startUpstream(() => {
+      called = true
+      return { body: {} }
+    })
+    const app = appWithRoutes({
+      authed: true,
+      orgId: "org_acme",
+      upstreamUrl: upstream.origin,
+      apiKey: "sk-upstream",
+    })
+    const res = await app.request("/acme/api/v1/openai/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-5.4-nano",
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "file",
+                file: { file_data: "data:application/pdf;base64,JVBERi0=" },
+              },
+            ],
+          },
+        ],
+      }),
+    })
+    expect(res.status).toBe(400)
+    expect(called).toBe(false)
+  })
+
+  it("refuses an embedding input of token ids, which the scrubber cannot read", async () => {
+    let called = false
+    upstream = await startUpstream(() => {
+      called = true
+      return { body: {} }
+    })
+    const app = appWithRoutes({
+      authed: true,
+      orgId: "org_acme",
+      upstreamUrl: upstream.origin,
+      apiKey: "sk-upstream",
+    })
+    for (const input of [[1, 2, 3], [[1, 2, 3]]]) {
+      const res = await app.request("/acme/api/v1/openai/v1/embeddings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ model: "text-embedding-3-small", input }),
+      })
+      expect(res.status).toBe(400)
+    }
+    expect(called).toBe(false)
+  })
+
   it("handles Bedrock embeddings via native InvokeModel", async () => {
     const embedding = new Array(1536).fill(0.03)
     mockBedrockSend.mockResolvedValue({

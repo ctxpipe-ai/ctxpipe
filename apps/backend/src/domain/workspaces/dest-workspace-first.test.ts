@@ -94,11 +94,11 @@ describe("shouldExportClaim", () => {
 })
 
 describe("classifyUnkeyedKnowledgeCollision", () => {
-  it("parses merge vs new_name and treats garbage as new_name", () => {
+  it("parses merge vs new_name and treats garbage as new_name", async () => {
     expect(parseUnkeyedCollisionReply("merge")).toBe("merge")
     expect(parseUnkeyedCollisionReply("NEW_NAME")).toBe("new_name")
     expect(parseUnkeyedCollisionReply("sure, merge them")).toBe("garbage")
-    expect(unkeyedCollisionExcerpt("x".repeat(500)).length).toBe(400)
+    expect((await unkeyedCollisionExcerpt("x".repeat(500))).length).toBe(400)
   })
 
   it("always asks the classifier, including identical excerpts", async () => {

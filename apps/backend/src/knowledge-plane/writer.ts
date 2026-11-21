@@ -37,6 +37,7 @@ import {
   embedTexts,
   textEmbeddingConfig,
 } from "../retrieval/embeddings/textEmbeddings.js"
+import { scrubForModel } from "../retrieval/services/scrubForModel.js"
 import {
   fetchGitHistory,
   readMarkdownHistory,
@@ -854,14 +855,19 @@ async function projectFiles(input: {
       }
       for (const { type, paths } of pathsOf.values())
         if (type) await projectFile({ paths, blob, type, bytes })
-        else for (const path of paths) projectKnowledgeFile(path, bytes)
+        else {
+          // The text is scrubbed before the parser and the chunker read it,
+          // so a secret across a chunk boundary is found (ADR-072).
+          const content = await scrubForModel(bytes.toString("utf8"))
+          for (const path of paths) projectKnowledgeFile(path, content)
+        }
       if (imageBytes > IMAGE_BATCH_BYTES) await projectImages()
     }
     await projectImages()
   }
   return { documents, failed }
 
-  function projectKnowledgeFile(path: string, bytes: Buffer): void {
+  function projectKnowledgeFile(path: string, content: string): void {
     // The parse and the mapper read no Git and no network: an error here
     // is a content error of the file.
     try {
@@ -869,7 +875,7 @@ async function projectFiles(input: {
         workspaceId,
         blobPath,
         path,
-        content: bytes.toString("utf8"),
+        content,
         sourceRepositories: input.sourceRepositories,
       })
       if (parsed.kind === "failed") fail(path, parsed.error)
@@ -907,6 +913,9 @@ async function projectFiles(input: {
       return
     }
     const conversion = await convertFile(type.format, bytes)
+    // As for a Markdown file: scrubbed before the chunker reads it.
+    const text =
+      conversion.kind === "text" ? await scrubForModel(conversion.text) : ""
     for (const path of paths) {
       count(
         type.format,
@@ -921,7 +930,7 @@ async function projectFiles(input: {
             path,
             kind: "document",
             mime: type.mime,
-            text: conversion.text,
+            text,
             summary: conversion.imageOnlyPages.length
               ? `The pages ${conversion.imageOnlyPages.join(", ")} have no text layer.`
               : "",
@@ -955,6 +964,10 @@ async function projectFiles(input: {
     imageBytes = 0
     for (const { paths, mime, blobSha } of images.splice(0)) {
       const text = texts.get(blobSha)
+      // The text of an image (the reading and the labels of an SVG) is
+      // scrubbed before the chunker reads it, as a file text is.
+      const scrubbed =
+        text && !("error" in text) ? await scrubForModel(text.text) : ""
       for (const path of paths)
         if (!text || "error" in text)
           fail(path, text?.error ?? "The image has no text.")
@@ -965,7 +978,7 @@ async function projectFiles(input: {
               path,
               kind: "image",
               mime,
-              text: text.text,
+              text: scrubbed,
               observedAt,
             }),
           )
@@ -1050,18 +1063,21 @@ async function embedDocuments(
   scope: KnowledgeScope,
   counter: EmbeddingCounter,
 ): Promise<DocumentRows[]> {
-  const inputs: EmbeddingInput[] = documents.flatMap(({ document, chunks }) =>
-    chunks.flatMap((chunk, index) =>
-      chunk.text.trim()
-        ? [
-            {
-              text: chunk.text,
-              documentTitle: document.title,
-              chunkIndex: index,
-              chunkCount: chunks.length,
-            },
-          ]
-        : [],
+  // The key hashes the scrubbed text, which is the text that the model gets.
+  const inputs = await scrubForModel(
+    documents.flatMap(({ document, chunks }) =>
+      chunks.flatMap((chunk, index) =>
+        chunk.text.trim()
+          ? [
+              {
+                text: chunk.text,
+                documentTitle: document.title,
+                chunkIndex: index,
+                chunkCount: chunks.length,
+              },
+            ]
+          : [],
+      ),
     ),
   )
   const keys = inputs.map((input) => embeddingKey(input, textEmbeddingConfig))

@@ -279,11 +279,25 @@ const definitions = () => [
   // cache never reuses it, but the selector selects it by its inputs. The release and deploy images come only from the
   // deploy workflows, never from this check.
   ...[
-    ["backend", "apps/backend/Dockerfile", ["apps/backend/**", "shared/**"]],
+    // The layer cache of the Rust converter stage (Kingfisher and vectorscan,
+    // ADR-072), as for codesearch below.
+    [
+      "backend",
+      "apps/backend/Dockerfile",
+      ["apps/backend/**", "shared/**"],
+      [
+        "--cache-from",
+        "type=registry,ref=ghcr.io/ctxpipe-ai/ci-cache:production-backend",
+      ],
+    ],
     [
       "worker",
       "apps/backend/Dockerfile.worker",
       ["apps/backend/**", "shared/**"],
+      [
+        "--cache-from",
+        "type=registry,ref=ghcr.io/ctxpipe-ai/ci-cache:production-worker",
+      ],
     ],
     [
       "ui",

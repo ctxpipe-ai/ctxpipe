@@ -14,6 +14,7 @@ import { gatewayRoutingError } from "../../observability/gatewayError.js"
 import { withLlmGeneration } from "../../observability/llm-spans.js"
 import { openRouterSettings } from "../services/modelProvider.js"
 import { openRouterProvider } from "../services/openRouterProvider.js"
+import { scrubForModel } from "../services/scrubForModel.js"
 
 /*
  * The embedding client of the knowledge plane (ADR-068 decisions 1, 5 and 7).
@@ -101,7 +102,9 @@ const responseSchema = z.object({
  * dimensions and the text that the request sends. Two inputs with the same
  * key get the same vector, so the writer reuses a stored vector of the key
  * (ADR-067 decision 5). A change of the model or the dimensions changes each
- * key.
+ * key. The request sends the scrubbed text (ADR-072), so the input must be
+ * scrubbed first (`scrubForModel`): then a new scrubber gives a new
+ * key for each text that it changes.
  */
 export function embeddingKey(
   input: EmbeddingInput,
@@ -129,11 +132,14 @@ export function embeddingKey(
  * `onRequest` is called before each HTTP request, also before each retry.
  */
 export async function embedTexts(
-  inputs: EmbeddingInput[],
+  rawInputs: EmbeddingInput[],
   config: TextEmbeddingConfig = textEmbeddingConfig,
   onRequest?: () => void,
 ): Promise<number[][]> {
-  if (inputs.length === 0) return []
+  if (rawInputs.length === 0) return []
+  // Scrubbed whole, before `chunkText` cuts an input to `maxInputBytes`: a
+  // cut can remove the end of a secret, and then no rule finds it.
+  const inputs = await scrubForModel(rawInputs)
 
   const embedBatch = async (texts: string[]): Promise<number[][]> => {
     for (let attempt = 1; ; attempt++) {
@@ -187,8 +193,9 @@ export async function embedQuery(
   text: string,
   config: TextEmbeddingConfig = textEmbeddingConfig,
 ): Promise<number[]> {
+  // Scrubbed whole before the cut, as in `embedTexts`.
   const [vector] = await embedRequest(
-    [fitInput(text, config.maxInputBytes)],
+    [fitInput(await scrubForModel(text), config.maxInputBytes)],
     config,
     "latency",
   )
@@ -200,12 +207,13 @@ export async function embedQuery(
  * One HTTP request with `texts`, in one span. The provider block has the ZDR
  * fields, and `sort` when it is set. The span holds counts, never content.
  */
-function embedRequest(
-  texts: string[],
+async function embedRequest(
+  rawTexts: string[],
   config: TextEmbeddingConfig,
   sort?: "latency",
 ): Promise<number[][]> {
   assertNotInOrgDbContext()
+  const texts = await scrubForModel(rawTexts)
   // The model and the provider block are of OpenRouter. A deployment whose
   // model settings do not point at OpenRouter sends no content to it.
   const settings = openRouterSettings()

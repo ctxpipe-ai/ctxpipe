@@ -3,7 +3,7 @@ import { afterEach, expect, it, vi } from "vitest"
 
 import { useMswServer } from "../../../test/msw.js"
 import { classifyUnkeyedKnowledgeCollision } from "./dest-workspace-first.js"
-import { resolveSemanticConflicts } from "./semantic-merge.js"
+import { MERGE_ATTEMPTS, resolveSemanticConflicts } from "./semantic-merge.js"
 
 const server = useMswServer()
 afterEach(() => vi.unstubAllEnvs())
@@ -90,14 +90,20 @@ it("resolves each conflicting file with one forced structured call on the high t
 
 it("rejects a resolution that misses a conflicting path", async () => {
   configureModel()
-  replyWithToolCall({ files: [{ path: "a.md", content: "merged" }] }, [])
+  const requests: Record<string, unknown>[] = []
+  replyWithToolCall({ files: [{ path: "a.md", content: "merged" }] }, requests)
   await expect(
     resolveSemanticConflicts(conflicts, { origin: "agent" }),
   ).rejects.toThrow("did not resolve exactly")
+  // The calls of b.md are still in flight (each request passes the secret
+  // scrubber first): wait for all of them, so none reaches a later test.
+  // a.md takes one call, and b.md takes each of its attempts.
+  await vi.waitFor(() => expect(requests).toHaveLength(1 + MERGE_ATTEMPTS))
 })
 
 it("rejects a resolution that adds a path outside the conflicts", async () => {
   configureModel()
+  const requests: Record<string, unknown>[] = []
   replyWithToolCall(
     {
       files: [
@@ -105,11 +111,13 @@ it("rejects a resolution that adds a path outside the conflicts", async () => {
         { path: "c.md", content: "extra" },
       ],
     },
-    [],
+    requests,
   )
   await expect(
     resolveSemanticConflicts(conflicts, { origin: "agent" }),
   ).rejects.toThrow("did not resolve exactly")
+  // As above: wait for each call. Each file takes each of its attempts.
+  await vi.waitFor(() => expect(requests).toHaveLength(2 * MERGE_ATTEMPTS))
 })
 
 it.each([

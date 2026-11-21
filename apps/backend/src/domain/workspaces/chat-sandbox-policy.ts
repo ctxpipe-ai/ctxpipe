@@ -1,6 +1,7 @@
 import { chat } from "@tanstack/ai"
 import type { PermissionHandler } from "@tanstack/ai-opencode"
 
+import { scrubForModel } from "../../retrieval/services/scrubForModel.js"
 import { WRITE_STATUS_REASONS } from "./write-status.js"
 
 export const CHAT_PERMISSION_MODE = "acceptEdits" as const
@@ -365,7 +366,15 @@ export async function judgeChatToolWithFastModel(
     const text = await chat({
       adapter: model,
       messages: [
-        { role: "user", content: chatJudgePrompt(toolName, argsExcerpt) },
+        {
+          role: "user",
+          // The prompt cuts the tool name: it is scrubbed before the cut
+          // (ADR-072). The excerpt is scrubbed before the prompt escapes it.
+          content: chatJudgePrompt(
+            await scrubForModel(toolName),
+            await scrubForModel(argsExcerpt),
+          ),
+        },
       ],
       abortController: cancellation,
       stream: false,

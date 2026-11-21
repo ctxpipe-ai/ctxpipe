@@ -4,6 +4,7 @@ import {
 } from "../../../lib/withTransientHttpRetry.js"
 import { gatewayCost } from "../../../observability/gatewayCost.js"
 import { withProviderBlock } from "../openRouterProvider.js"
+import { scrubForModel } from "../scrubForModel.js"
 import {
   HostTextAdapter,
   messageText,
@@ -22,6 +23,47 @@ export function openAiHostAdapter(
   params?: Record<string, unknown>,
 ): HostTextAdapter {
   return new HostTextAdapter(opts, provider, async (options, schema) => {
+    // Each chat call to OpenRouter gets the provider block (ADR-070). The
+    // body is scrubbed (ADR-072); HostTextAdapter.call scrubbed its parts.
+    const body = JSON.stringify(
+      await scrubForModel(
+        withProviderBlock(provider, baseURL, {
+          ...params,
+          model: opts.models[0],
+          temperature: opts.temperature,
+          stream: false,
+          ...(schema
+            ? {
+                tools: [
+                  {
+                    type: "function",
+                    function: {
+                      name: opts.outputName ?? STRUCTURED_OUTPUT_TOOL,
+                      parameters: schema,
+                    },
+                  },
+                ],
+                tool_choice: {
+                  type: "function",
+                  function: {
+                    name: opts.outputName ?? STRUCTURED_OUTPUT_TOOL,
+                  },
+                },
+              }
+            : {}),
+          messages: [
+            ...(options.systemPrompts ?? []).map((prompt) => ({
+              role: "system",
+              content: typeof prompt === "string" ? prompt : prompt.content,
+            })),
+            ...options.messages.map((message) => ({
+              role: message.role,
+              content: messageText(message.content),
+            })),
+          ],
+        }),
+      ),
+    )
     const response = await withTransientHttpRetry(
       async () => {
         const response = await doFetch(
@@ -30,45 +72,7 @@ export function openAiHostAdapter(
             method: "POST",
             headers: { "Content-Type": "application/json" },
             signal: options.request?.signal ?? undefined,
-            // Each chat call to OpenRouter gets the provider block (ADR-070).
-            body: JSON.stringify(
-              withProviderBlock(provider, baseURL, {
-                ...params,
-                model: opts.models[0],
-                temperature: opts.temperature,
-                stream: false,
-                ...(schema
-                  ? {
-                      tools: [
-                        {
-                          type: "function",
-                          function: {
-                            name: opts.outputName ?? STRUCTURED_OUTPUT_TOOL,
-                            parameters: schema,
-                          },
-                        },
-                      ],
-                      tool_choice: {
-                        type: "function",
-                        function: {
-                          name: opts.outputName ?? STRUCTURED_OUTPUT_TOOL,
-                        },
-                      },
-                    }
-                  : {}),
-                messages: [
-                  ...(options.systemPrompts ?? []).map((prompt) => ({
-                    role: "system",
-                    content:
-                      typeof prompt === "string" ? prompt : prompt.content,
-                  })),
-                  ...options.messages.map((message) => ({
-                    role: message.role,
-                    content: messageText(message.content),
-                  })),
-                ],
-              }),
-            ),
+            body,
           },
         )
         if (!response.ok) {
