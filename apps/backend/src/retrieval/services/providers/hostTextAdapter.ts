@@ -9,6 +9,7 @@ import type { StructuredOutputOptions } from "@tanstack/ai/adapters"
 import { BaseTextAdapter } from "@tanstack/ai/adapters"
 
 import { withLlmGeneration } from "../../../observability/llm-spans.js"
+import { scrubForModel } from "../scrubForModel.js"
 import type { ProviderCallOpts } from "./providerTypes.js"
 
 /** Name of the forced tool that carries a structured reply. */
@@ -57,8 +58,24 @@ export class HostTextAdapter extends BaseTextAdapter<
     super({}, opts.models[0] ?? "")
   }
 
-  /** One request, recorded as one generation span. */
-  private call(options: TextOptions, schema?: JSONSchema) {
+  /**
+   * One request, recorded as one generation span. The system prompts, the
+   * messages and the output schema are scrubbed first (ADR-072), so that
+   * neither the provider nor the span gets a secret.
+   */
+  private async call(raw: TextOptions, rawSchema?: JSONSchema) {
+    // Each message becomes the one text that the providers send
+    // (`messageText`) before the scrub: a secret split over two text parts
+    // is whole in it.
+    const { systemPrompts, messages, schema } = await scrubForModel({
+      systemPrompts: raw.systemPrompts,
+      messages: raw.messages.map((message) => ({
+        ...message,
+        content: messageText(message.content),
+      })),
+      schema: rawSchema,
+    })
+    const options = { ...raw, systemPrompts, messages }
     return withLlmGeneration(
       {
         name: this.generationName,

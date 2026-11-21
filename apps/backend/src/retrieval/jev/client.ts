@@ -14,6 +14,7 @@ import { gatewayCost } from "../../observability/gatewayCost.js"
 import { gatewayRoutingError } from "../../observability/gatewayError.js"
 import { openRouterSettings } from "../services/modelProvider.js"
 import { openRouterProvider } from "../services/openRouterProvider.js"
+import { scrubForModel } from "../services/scrubForModel.js"
 
 /** The Jev model of the OpenRouter Decisions API. */
 export const JEV_MODEL = "typesafe/jev-1.14"
@@ -100,6 +101,12 @@ export async function decideNoul(
             "Jev needs MODEL_PROVIDER openrouter or openai-like, an OpenRouter MODEL_PROVIDER_URL, and MODEL_PROVIDER_API_KEY.",
           )
         const { base, apiKey } = settings
+        const request = await scrubForModel({
+          model: JEV_MODEL,
+          state,
+          questions,
+          provider: openRouterProvider(),
+        })
         const signal = AbortSignal.timeout(options.timeoutMs)
         let status: number
         let body: string
@@ -112,12 +119,7 @@ export async function decideNoul(
                 authorization: `Bearer ${apiKey}`,
                 "content-type": "application/json",
               },
-              body: JSON.stringify({
-                model: JEV_MODEL,
-                state,
-                questions,
-                provider: openRouterProvider(),
-              }),
+              body: JSON.stringify(request),
               signal,
             },
           )

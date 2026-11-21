@@ -7,6 +7,7 @@ import { parseEnv } from "../../config/env.js"
 import {
   type ConversationChatMessage,
   type ConversationChatRequest,
+  chatRequestErrorMessage,
   ConversationUiMessagesTimeoutError,
   loadConversationUiMessagesBounded,
   parseConversationChatRequest,
@@ -1293,8 +1294,13 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     let parsed: ConversationChatRequest
     try {
       parsed = await parseConversationChatRequest(raw)
-    } catch {
-      return c.json({ error: "Message text is required" }, 400)
+    } catch (error) {
+      return c.json(
+        {
+          error: chatRequestErrorMessage(error, "Message text is required"),
+        },
+        400,
+      )
     }
     if (parsed.prompt.length === 0) {
       return c.json({ error: "Message text is required" }, 400)
@@ -1344,8 +1350,13 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     let parsed: ConversationChatRequest
     try {
       parsed = await parseConversationChatRequest(await c.req.json())
-    } catch {
-      return c.json({ error: "Message text is required" }, 400)
+    } catch (error) {
+      return c.json(
+        {
+          error: chatRequestErrorMessage(error, "Message text is required"),
+        },
+        400,
+      )
     }
     if (parsed.prompt.length === 0) {
       return c.json({ error: "Message text is required" }, 400)

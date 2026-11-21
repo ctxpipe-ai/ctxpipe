@@ -11,6 +11,7 @@ import {
 import { flushEvlog } from "./observability/logger.js"
 import { shutdownOtel } from "./observability/otel.js"
 import { shutdownGraphClients } from "./platform/graph/index.js"
+import { scrubForModel } from "./retrieval/services/scrubForModel.js"
 import {
   handleWebSocketProxy,
   type UiProxyWebSocketData,
@@ -29,6 +30,11 @@ const app = createApp()
 // Before the server serves a request: `createApp` opened the database. The
 // top-level await holds the export, so Bun does not listen on a refusal.
 await refuseVercelSandboxRows()
+// The secret scrubber compiles its rules at start (about 3 s). Start it
+// before the first request, so that no model call waits for it. When it
+// cannot start, the server does not start: no model call can go out
+// unscrubbed (ADR-072).
+await scrubForModel("")
 let shuttingDown = false
 
 async function shutdownResources() {

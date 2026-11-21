@@ -9,7 +9,12 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 
 import type { AppEnv } from "../../app/env.js"
+import { convertFileParts } from "../../retrieval/services/convertFileParts.js"
 import { modelSpecBase } from "../../retrieval/services/parseModelSpec.js"
+import {
+  scrubForModel,
+  unreadableContentPart,
+} from "../../retrieval/services/scrubForModel.js"
 import {
   handleBedrockChatCompletion,
   handleBedrockEmbedding,
@@ -46,7 +51,8 @@ const ChatCompletionRequestSchema = z
 const EmbeddingRequestSchema = z
   .object({
     model: z.string().min(1),
-    input: z.unknown(),
+    // Only text: the scrubber cannot read token ids (ADR-072).
+    input: z.union([z.string(), z.array(z.string())]),
   })
   .passthrough()
   .openapi("OpenAIProxyEmbeddingRequest")
@@ -66,7 +72,8 @@ const chatRoute = createRoute({
     200: { description: "Upstream chat-completion response (JSON or SSE)" },
     400: {
       content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Model not allowed",
+      description:
+        "Model not allowed, or a file part or an image data URL that the proxy cannot convert to text",
     },
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -76,7 +83,11 @@ const chatRoute = createRoute({
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Org not found",
     },
-    429: { description: "Upstream rate limited" },
+    429: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description:
+        "Upstream rate limited, or each file conversion slot is taken",
+    },
     503: {
       content: { "application/json": { schema: UnavailableResponseSchema } },
       description: "Hosted model proxy not configured on this server",
@@ -155,12 +166,7 @@ export const openaiRoutes = new OpenAPIHono<AppEnv>()
         503,
       )
     }
-    const body = (await c.req.json().catch(() => ({}))) as {
-      model?: unknown
-      stream?: unknown
-      messages?: unknown[]
-      temperature?: number
-    }
+    const raw = (await c.req.json().catch(() => ({}))) as { model?: unknown }
     const allowed = allowedChatModels(env)
     const configured = configuredChatModelSpecs(env)
     if (allowed.length === 0) {
@@ -173,8 +179,8 @@ export const openaiRoutes = new OpenAPIHono<AppEnv>()
       )
     }
     if (
-      typeof body.model === "string" &&
-      !isModelAllowed(body.model, configured)
+      typeof raw.model === "string" &&
+      !isModelAllowed(raw.model, configured)
     ) {
       return c.json(
         {
@@ -183,6 +189,23 @@ export const openaiRoutes = new OpenAPIHono<AppEnv>()
         },
         400,
       )
+    }
+    // Each PDF file part becomes the text of our converter, and each other
+    // file part fails the request (CTX-1454).
+    const converted = await convertFileParts(raw)
+    if (!converted.ok)
+      return converted.status === 503
+        ? c.json(unavailableResponse("no-file-converter", converted.error), 503)
+        : c.json({ error: converted.error }, converted.status)
+    // The body goes to a model: each secret in it is removed first, and a
+    // part that the scrubber cannot read is refused (ADR-072).
+    const unreadable = unreadableContentPart(converted.body)
+    if (unreadable) return c.json({ error: unreadable }, 400)
+    const body = (await scrubForModel(converted.body)) as {
+      model?: unknown
+      stream?: unknown
+      messages?: unknown[]
+      temperature?: number
     }
     if (env.MODEL_PROVIDER === "bedrock") {
       return handleNativeBedrockResponse(
@@ -205,10 +228,24 @@ export const openaiRoutes = new OpenAPIHono<AppEnv>()
         503,
       )
     }
-    const body = (await c.req.json().catch(() => ({}))) as {
+    // The body goes to a model: each secret in it is removed first (ADR-072).
+    const body = (await scrubForModel(
+      await c.req.json().catch(() => ({})),
+    )) as {
       model?: unknown
       input?: unknown
     }
+    // Only text: the scrubber cannot read token ids (numbers), so an input
+    // of token ids could hold a secret (ADR-072).
+    const input = body.input
+    if (
+      typeof input !== "string" &&
+      !(Array.isArray(input) && input.every((item) => typeof item === "string"))
+    )
+      return c.json(
+        { error: "input must be a string or an array of strings" },
+        400,
+      )
     const allowed = allowedEmbeddingModels(env)
     const embeddingSpec =
       typeof env.MODEL_EMBEDDING_NAME === "string" &&

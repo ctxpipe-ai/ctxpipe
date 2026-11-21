@@ -15,6 +15,10 @@ for port in 3000 3001 3002 6070; do
   fi
 done
 
+# The backend starts the secret scrubber of the converter binary before it
+# serves (ADR-072), and the worker converts files with it: build it first.
+node scripts/checks/prerequisites.mjs converter
+
 exec pnpm exec concurrently -k -n codesearch,backend,worker,ui \
   "bash scripts/codesearch-host-dev.sh" \
   "cd apps/backend && bun --env-file=.env.local run --hot src/server.ts" \

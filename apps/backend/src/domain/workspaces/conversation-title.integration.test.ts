@@ -68,6 +68,29 @@ describe("automatic conversation title (Postgres)", () => {
     expect(stored?.name).toBe("My billing notes")
   })
 
+  it("scrubs the prompt before its cut: a token across the cut goes to the model as no fragment", async () => {
+    const id = generateObjectId("conv")
+    // A made-up token, in two parts so that the secret scanner of a Git
+    // host does not refuse the push. The 200-character cut would remove
+    // only its last character.
+    const token = `ghp_${"aB3dE6gH9jK2mN5pQ8sT1vW4yZ7cF0iL3oR6"}`
+    const prompt = `${"x".repeat(160)} ${token}`
+    let sent = ""
+    await asUser(async () => {
+      await ensureConversation({ id, source: "ui" })
+      return nameConversationIfUnnamed({
+        conversationId: id,
+        prompt,
+        generate: async (text) => {
+          sent = text
+          return "Token"
+        },
+      })
+    })
+    expect(sent).not.toContain(token.slice(0, -1))
+    expect(sent).toContain("[REDACTED:")
+  })
+
   it("names a conversation that is still unnamed", async () => {
     const result = await asUser(async () => {
       await ensureConversation({ id: unnamedId, source: "ui" })

@@ -13,9 +13,6 @@ patchedDependencies:
   # CTX-576: open a tool call when its input is known, not at the empty "pending" state.
   # CTX-1061: resolve a prompt only at the session idle after its reply, because a late message update can show the reply finished before its text.
   '@tanstack/ai-opencode@0.4.14': patches/@tanstack__ai-opencode@0.4.14.patch
-  # The worker of the addon applies the msw WebSocket handlers too; the patch
-  # lets its types take them (the Storybook 11 pilot, CTX-1357).
-  'msw-storybook-addon@2.0.7': patches/msw-storybook-addon@2.0.7.patch
   # The checks run OpenCode from the root devDependency, and pnpm runs no
   # dependency build script. The launcher runs the binary of the platform
   # package that the lockfile installed, so the postinstall is not needed.

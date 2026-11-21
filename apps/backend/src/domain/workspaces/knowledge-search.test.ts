@@ -1,7 +1,8 @@
 import { http } from "msw"
-import { describe, expect, it, vi } from "vitest"
+import { beforeAll, describe, expect, it, vi } from "vitest"
 
 import { useMswServer } from "../../../test/msw.js"
+import { scrubForModel } from "../../retrieval/services/scrubForModel.js"
 import { searchKnowledge, vectorScanSettings } from "./knowledge-search.js"
 
 describe("vectorScanSettings", () => {
@@ -46,6 +47,10 @@ describe("searchKnowledge deadline", () => {
       }),
     ).rejects.toMatchObject({ name: "TimeoutError" })
   })
+
+  // The server starts the secret scrubber before it serves; so does this
+  // test, so that the 100 ms deadline holds the request, not the start.
+  beforeAll(() => scrubForModel(""))
 
   it("aborts a slow embedding request and does not start SQL after the deadline", async () => {
     vi.stubEnv("MODEL_PROVIDER", "openai-like")

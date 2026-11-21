@@ -1,4 +1,3 @@
-import type { HttpHandler, RequestHandler, WebSocketHandler } from "msw"
 import { definePreviewAddon } from "storybook/internal/csf"
 
 import type { FileRoutesById } from "../src/routeTree.gen"
@@ -9,9 +8,6 @@ import type { StoryRouteParams } from "./decorators/with-story-route"
 // file (`preview.meta(...)`, `meta.story(...)`) with a wrong value fails the
 // typecheck. The addon has no annotations: the decorators and loaders stay in
 // preview.tsx. A CSF 3 story file does not get these types.
-
-/** MSW `http.*` returns `HttpHandler`, `ws.link(...)` a `WebSocketHandler`. */
-type MswHandlers = RequestHandler | HttpHandler | WebSocketHandler
 
 type StoryParameters = {
   /**
@@ -40,12 +36,6 @@ type StoryParameters = {
   route?: keyof FileRoutesById
   /** What a behavior test catches, for the check runner. */
   intent?: string
-  /** The MSW handlers of the story, applied by `mswLoader`. */
-  msw?:
-    | MswHandlers[]
-    | {
-        handlers: MswHandlers[] | Record<string, MswHandlers | MswHandlers[]>
-      }
   // The opt-ins of the global decorators of preview.tsx.
   /** The providers of the app (`"root"`), and also the org `AppShell` (`"org"`). */
   app?: "root" | "org"

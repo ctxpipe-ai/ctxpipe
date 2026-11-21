@@ -1,9 +1,7 @@
-import {
-  BedrockRuntimeClient,
-  InvokeModelCommand,
-} from "@aws-sdk/client-bedrock-runtime"
+import { InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime"
 
-import { resolveBedrockRegion } from "./bedrockRegion.js"
+import { scrubForModel } from "../scrubForModel.js"
+import { withBedrockClient } from "./bedrockConverse.js"
 import type { ProviderCallEnv } from "./providerTypes.js"
 
 const TARGET_EMBEDDING_DIMENSIONS = 2000
@@ -41,11 +39,8 @@ export async function invokeBedrockEmbedding(
   env: ProviderCallEnv,
   signal?: AbortSignal,
 ): Promise<number[]> {
-  const region = resolveBedrockRegion(env)
-  const client = new BedrockRuntimeClient({ region })
-
   const requestBody: Record<string, unknown> = {
-    texts: [text],
+    texts: [await scrubForModel(text)],
     input_type: "search_document",
     embedding_types: ["float"],
   }
@@ -54,14 +49,17 @@ export async function invokeBedrockEmbedding(
     requestBody.output_dimension = COHERE_EMBED_V4_MAX_DIMENSIONS
   }
 
-  const response = await client.send(
-    new InvokeModelCommand({
-      modelId,
-      contentType: "application/json",
-      accept: "application/json",
-      body: JSON.stringify(requestBody),
-    }),
-    { abortSignal: signal },
+  // The client of the Converse calls: HTTP/1.1, and closed after the call.
+  const response = await withBedrockClient(env, (client) =>
+    client.send(
+      new InvokeModelCommand({
+        modelId,
+        contentType: "application/json",
+        accept: "application/json",
+        body: JSON.stringify(requestBody),
+      }),
+      { abortSignal: signal },
+    ),
   )
 
   const raw = response.body

@@ -11,20 +11,6 @@ import { InstallForgeStep } from "./InstallForgeStep"
 const orgSlug = "acme"
 const atlassianConnectionId = "install_step_conn"
 
-const connectorStatusOk = HttpResponse.json({
-  isLinked: true,
-  isInstalled: false,
-  installationStatus: null,
-  setupPhase: "draft",
-  isGithubLinked: false,
-  selectedSpaceCount: 0,
-  syncTargetConfigured: false,
-  syncTarget: null,
-  selectedSpaces: [],
-  pendingConfigPullUrl: null,
-  pendingConfigPrCreating: false,
-})
-
 function statusHandler() {
   return http.get(
     ({ request }) => {
@@ -33,7 +19,20 @@ function statusHandler() {
         return false
       return u.searchParams.get("connectionId") === atlassianConnectionId
     },
-    () => connectorStatusOk,
+    () =>
+      HttpResponse.json({
+        isLinked: true,
+        isInstalled: false,
+        installationStatus: null,
+        setupPhase: "draft",
+        isGithubLinked: false,
+        selectedSpaceCount: 0,
+        syncTargetConfigured: false,
+        syncTarget: null,
+        selectedSpaces: [],
+        pendingConfigPullUrl: null,
+        pendingConfigPrCreating: false,
+      }),
   )
 }
 

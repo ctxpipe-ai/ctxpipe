@@ -41,6 +41,7 @@ import {
   type WorkspaceUpgradeItem,
   type WorkspaceUpgrades as WorkspaceUpgradesData,
   workspaceUpgradeKeys,
+  workspaceUpgradeModeOptions,
   workspaceUpgradesOptions,
 } from "./queries"
 import {
@@ -813,7 +814,10 @@ export function WorkspaceUpgrades(props: {
   const { orgSlug, workspaceSlug } = props
   const upgrades = useUpgradeGroups(orgSlug, workspaceSlug)
   const { query, data, formatVersion, expired, lists, groupOf } = upgrades
-  const loading = useSkeletonHold(query.isPending)
+  // The switch row reads its own setting. The skeleton waits for it too, so
+  // the card does not grow a second time (CTX-1466).
+  const setting = useQuery(workspaceUpgradeModeOptions(orgSlug, workspaceSlug))
+  const loading = useSkeletonHold(query.isPending || setting.isPending)
   const isAdmin = useIsOrgAdmin(orgSlug)
   const needsYou = !loading && upgrades.needsYou
   // The rows say "needs you" and "working". The header says what they do not.

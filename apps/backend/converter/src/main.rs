@@ -5,6 +5,7 @@
 //!   ctxpipe-convert --format <pdf|docx|pptx|xlsx|html|svg>
 //!                   --max-memory-mb N --max-cpu-seconds N
 //!   ctxpipe-convert --version
+//!   ctxpipe-convert --scrub --max-memory-mb N [--rule-cache DIR]   (scrub.rs)
 //!
 //! The input is untrusted. The process sets its own memory and CPU limits
 //! before it reads the input, and each parser has size limits. The caller
@@ -17,6 +18,8 @@
 
 use std::io::{Read, Write};
 use std::process::ExitCode;
+
+mod scrub;
 
 use base64::Engine;
 use serde_json::{Value, json};
@@ -70,6 +73,21 @@ fn main() -> ExitCode {
             .cloned()
     };
     let number = |name: &str| value(name).and_then(|text| text.parse::<u64>().ok());
+    // The secret scrubber stays alive, so it has no CPU limit.
+    if args.iter().any(|arg| arg == "--scrub") {
+        let Some(memory_mb) = number("--max-memory-mb") else {
+            eprintln!("Give --max-memory-mb.");
+            return ExitCode::FAILURE;
+        };
+        set_limits(memory_mb, u64::MAX);
+        return match scrub::serve(value("--rule-cache"), sandbox) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("{error}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     // The caller sets the limits, in one place.
     let (Some(memory_mb), Some(cpu_seconds)) =
         (number("--max-memory-mb"), number("--max-cpu-seconds"))

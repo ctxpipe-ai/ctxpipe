@@ -1,10 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { WRITE_STATUS_REASONS } from "backend/domain/workspaces/write-status"
+import { HttpResponse, http } from "msw"
 import { Toaster } from "sonner"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
 import {
   expectSkeletonMatchesLoaded,
+  responseGate,
   SkeletonMatchFrame,
 } from "@/components/ui/skeletonMatchStory"
 import type { IngestionItem } from "@/features/workspaces/ingestion"
@@ -1781,6 +1783,64 @@ export const SkeletonMatchesLoaded: Story = {
     )
     expect(canvas.getByText("Loading upgrades")).toBeInTheDocument()
     await expectSkeletonMatchesLoaded(canvasElement)
+  },
+}
+
+/** The automatic-upgrades setting answers when the play releases this gate. */
+const settingGate = responseGate()
+/** The upgrade list adds its path when it answers. */
+const listAnswered: string[] = []
+
+/**
+ * Upgrades section of a Workspace: the upgrade list loads before the
+ * automatic-upgrades setting, and the card keeps its skeleton until both have
+ * loaded. A card without the switch row is 22 px lower, and its growth moved
+ * the scroll position of the settings pane (CTX-1466).
+ */
+export const SkeletonWaitsForSetting: Story = {
+  parameters: {
+    visual: { skip: "Behavior test: it ends in the same state as UpToDate." },
+    msw: {
+      handlers: {
+        page: [
+          activeMemberRoleHandler("owner"),
+          workspaceUpgradesHandler(
+            upgradesFixture([], { formatVersion: 3 }),
+            undefined,
+            listAnswered,
+          ),
+        ],
+        automatic: [
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname.endsWith("/upgrades/automatic"),
+            async () => {
+              await settingGate.wait()
+              return HttpResponse.json({ mode: "manual", reason: null })
+            },
+          ),
+        ],
+      },
+    },
+  },
+  beforeEach: () => {
+    listAnswered.length = 0
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => expect(listAnswered).toHaveLength(1))
+    // The response reaches the page, and the card renders the list.
+    for (let frame = 0; frame < 5; frame++)
+      await new Promise((next) => requestAnimationFrame(next))
+    expect(canvas.getByText("Loading upgrades")).toBeInTheDocument()
+    expect(canvas.queryByText("Format 3, the latest")).toBeNull()
+    await settingGate.release()
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("switch", { name: "Automatic upgrades" }),
+      ).toBeVisible(),
+    )
+    await expectUpToDate(canvas)
   },
 }
 

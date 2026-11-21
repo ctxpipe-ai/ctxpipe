@@ -919,8 +919,8 @@ async function allocateUnkeyedKnowledgePath(input: {
     const decision = await classifyUnkeyedKnowledgeCollision({
       existingPath: occupant.path,
       incomingPath: preferred,
-      existingExcerpt: unkeyedCollisionExcerpt(occupant.content),
-      incomingExcerpt: unkeyedCollisionExcerpt(input.incomingBody),
+      existingExcerpt: await unkeyedCollisionExcerpt(occupant.content),
+      incomingExcerpt: await unkeyedCollisionExcerpt(input.incomingBody),
       classify: input.classifyUnkeyed,
     })
     if (decision === "merge") {
