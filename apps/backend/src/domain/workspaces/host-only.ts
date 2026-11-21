@@ -56,24 +56,32 @@ type OwnershipField = Extract<
  * The ownership field that an agent write adds or changes, or null. Only the
  * host sets these fields. An agent can remove them, or remove an entry from
  * `sources`, because that gives the file to people. `before` is null for a
- * new file.
+ * new file. When `before` is a list, a value that one of its files has is
+ * not added: a merge of two host versions can keep the sources of both
+ * (CTX-1471).
  */
 export function addedOwnershipField(
-  before: string | null,
+  before: string | null | ReadonlyArray<string | null>,
   after: string,
 ): OwnershipField | null {
   const front = splitFrontMatter(after)
   const next = front ? parseYamlObject(front.yaml) : null
   if (!next) return null
-  const baseFront = before === null ? null : splitFrontMatter(before)
-  const base = (baseFront ? parseYamlObject(baseFront.yaml) : null) ?? {}
+  const bases = (Array.isArray(before) ? before : [before]).map((text) => {
+    const baseFront = text === null ? null : splitFrontMatter(text)
+    return (baseFront ? parseYamlObject(baseFront.yaml) : null) ?? {}
+  })
   if (
     "generated_by" in next &&
-    !isDeepStrictEqual(next.generated_by, base.generated_by)
+    !bases.some((base) =>
+      isDeepStrictEqual(next.generated_by, base.generated_by),
+    )
   )
     return "generated_by"
   if (!("sources" in next)) return null
-  const kept = Array.isArray(base.sources) ? base.sources : []
+  const kept = bases.flatMap((base) =>
+    Array.isArray(base.sources) ? base.sources : [],
+  )
   return Array.isArray(next.sources) &&
     next.sources.every((source) =>
       kept.some((old) => isDeepStrictEqual(old, source)),
