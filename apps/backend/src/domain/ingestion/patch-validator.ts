@@ -49,7 +49,6 @@ export type PatchRule =
   | "link"
   | "content"
   | "size_cap"
-  | "op_cap"
   | "delete_cap"
   | "heading_denylist"
   | "suspected_injection"
@@ -90,14 +89,6 @@ export type PatchStepInput = {
    * null when it is not a file or is too large to read.
    */
   readSourceFile: (path: string) => Promise<string | null>
-  /** Ops that earlier steps of this run already wrote to this Workspace. */
-  workspaceOpsBefore?: number
-  /**
-   * The op cap of this step, with `MAX_STEP_OPS` as the default. The
-   * Workspace cap applies too. A merge of files that the run's steps
-   * already counted uses the Workspace cap only (CTX-1102).
-   */
-  maxOps?: number
   /** The step's root is gone, so the delete cap does not apply. */
   rootGone?: boolean
   /** Repositories that the Workspace knows (sources and linked repositories). */
@@ -152,8 +143,6 @@ const CONFIDENCE = { script: 0.7, model: 0.5 } as const
 const MAX_FILE_BYTES = 64 * 1024
 const MAX_STAGED_BYTES = 2 * 1024 * 1024
 const MAX_PATCH_JSON_BYTES = 1024 * 1024
-export const MAX_STEP_OPS = 30
-export const MAX_WORKSPACE_OPS = 300
 const MAX_DELETE_SHARE = 0.2
 /** A source file above this size is not read to check a quote or a pattern. */
 export const MAX_SOURCE_READ_BYTES = 1024 * 1024
@@ -450,13 +439,6 @@ export async function validatePatchStep(
     foldedStaged.set(key, (foldedStaged.get(key) ?? 0) + 1)
   }
 
-  const opLimit = Math.max(
-    0,
-    Math.min(
-      input.maxOps ?? MAX_STEP_OPS,
-      MAX_WORKSPACE_OPS - (input.workspaceOpsBefore ?? 0),
-    ),
-  )
   const baseBlobs = await readBlobs(
     input.repoDir,
     [...baseEntries]
@@ -560,15 +542,7 @@ export async function validatePatchStep(
   }
 
   let candidates: Candidate[] = []
-  for (const [index, op] of ops.entries()) {
-    if (index >= opLimit) {
-      reject(
-        op.path,
-        "op_cap",
-        `A step writes at most ${MAX_STEP_OPS} ops and a Workspace at most ${MAX_WORKSPACE_OPS} in a run`,
-      )
-      continue
-    }
+  for (const op of ops) {
     if (findSuspectedSecret(op.path.replaceAll("/", "\n"))) {
       reject(
         op.path,

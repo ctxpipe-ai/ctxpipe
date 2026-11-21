@@ -116,6 +116,12 @@ const sameFile = {
  * p21 (shard 1) both write `knowledge/services/shared.md`.
  */
 const wideName = `acme/wide-monorepo-${suffix}`
+/**
+ * A source whose one root step writes more files than the old op caps let
+ * through (30 for each step, 300 for each Workspace in a run, CTX-1482).
+ */
+const floodName = `acme/flood-monorepo-${suffix}`
+const FLOOD_FILES = 310
 const MERGE_MODEL_URL = "https://merge-model.test/v1"
 
 const server = setupServer(
@@ -124,7 +130,19 @@ const server = setupServer(
     const body = (await request.json()) as {
       root: string | null
       workspaceId: string
+      args?: string[]
     }
+    if (body.args?.includes(`https://github.com/${floodName}`))
+      return HttpResponse.json({
+        more: false,
+        files: Array.from({ length: FLOOD_FILES }, (_, i) => {
+          const name = `flood-${String(i).padStart(3, "0")}`
+          return {
+            path: `knowledge/services/${name}.md`,
+            content: `---\nkind: Service\nname: ${name}\n---\n# ${name}\n\nThe ${name} service sends invoices.\n`,
+          }
+        }),
+      })
     if (body.workspaceId === workspaceIds[1] && !human.pushed) {
       human.pushed = true
       human.sha = humanCommit(contexts[1] ?? "")
@@ -228,6 +246,7 @@ let parent: ReturnType<typeof defineRepositoryIngestionV2Workflow>
 const workspaceExtractIngest = defineWorkspaceExtractIngestWorkflow()
 let sourceSha: string
 let wideSha: string
+let floodSha: string
 const pinned: string[] = []
 
 function git(cwd: string, ...args: string[]): string {
@@ -473,8 +492,12 @@ beforeAll(async () => {
         [format.path]: format.content,
         [sourceFileOf(sourceName)]: sourceFileText(sourceName),
         [sourceFileOf(wideName)]: sourceFileText(wideName),
+        [sourceFileOf(floodName)]: sourceFileText(floodName),
       }),
     )
+  floodSha = remote(floodName, {
+    "package.json": '{ "name": "flood-monorepo" }\n',
+  })
   wideSha = remote(wideName, {
     "pnpm-workspace.yaml": 'packages:\n  - "packages/*"\n',
     ...Object.fromEntries(
@@ -542,7 +565,7 @@ beforeAll(async () => {
       revision: pinned[i] ?? "",
       // One GitHub source file for each repository (ADR-050 revision
       // 2026-10-16).
-      rows: [sourceName, wideName].map((repository) => {
+      rows: [sourceName, wideName, floodName].map((repository) => {
         return {
           sourceKey: sourceFileOf(repository),
           provider: "github" as const,
@@ -645,6 +668,38 @@ describe("ingestion v2 publish", () => {
       expect(
         git(join(remotes, contexts[1] ?? ""), "show", "main:notes/human.md"),
       ).toBe("# Notes from a person")
+    },
+  )
+
+  it(
+    "publishes each file of a run with more than 300 ops (CTX-1482)",
+    { timeout: 420_000 },
+    async () => {
+      const handle = await startRun(
+        "2026-10-05T00:00:00.000Z",
+        floodName,
+        floodSha,
+      )
+      const result = await handle.result({ timeoutMs: 400_000 })
+      expect(result).toMatchObject({ status: "done" })
+      if (!("workspaces" in result)) throw new Error("The run did not finish")
+      for (const [i, name] of contexts.entries()) {
+        const bare = join(remotes, name)
+        // The root step's files and the repository unit.
+        expect(result.workspaces).toContainEqual(
+          expect.objectContaining({
+            workspaceId: workspaceIds[i],
+            ops: FLOOD_FILES + 1,
+            rejects: 0,
+            partial: 0,
+            published: git(bare, "rev-parse", "main"),
+          }),
+        )
+        const services = git(bare, "ls-tree", "-r", "--name-only", "main")
+          .split("\n")
+          .filter((path) => path.startsWith("knowledge/services/flood-"))
+        expect(services).toHaveLength(FLOOD_FILES)
+      }
     },
   )
 
@@ -1018,26 +1073,38 @@ describe("ingestion v2 publish", () => {
   )
   /**
    * The wide run: assemble of context A refuses or fails, so context A
-   * publishes only the run base (the repository step). Context B has no
-   * conflict and publishes all of the run.
+   * publishes nothing, not even the run base (CTX-1482). The run span is an
+   * error with the fixed codes of the cause. Context B has no conflict and
+   * publishes all of the run.
    */
-  function expectRunBaseOnContextA(result: IngestionV2Output, runId: string) {
+  function expectNoPublishOnContextA(
+    result: IngestionV2Output,
+    runId: string,
+    rules: string[],
+  ) {
     expect(result).toMatchObject({ status: "partial", shards: 2 })
     if (!("workspaces" in result)) throw new Error("The run did not finish")
     const bare = join(remotes, contexts[0] ?? "")
     const entry = result.workspaces.find(
       (w) => w.workspaceId === workspaceIds[0],
     )
-    expect(entry?.partial).toBeGreaterThan(0)
-    expect(entry?.published).toBe(git(bare, "rev-parse", "main"))
-    expect(git(bare, "rev-parse", "main^")).toBe(pinned[0])
-    const changed = git(bare, "diff", "--name-only", pinned[0] ?? "", "main")
-      .split("\n")
-      .filter(Boolean)
-    expect(changed.length).toBeGreaterThan(0)
-    expect(
-      changed.filter((path) => path.startsWith("knowledge/services/")),
-    ).toEqual([])
+    expect(entry).toMatchObject({ assembled: null, partial: 1, rules })
+    expect(entry).not.toHaveProperty("published")
+    expect(git(bare, "rev-parse", "main")).toBe(pinned[0])
+    const runSpan = spanExporter
+      .getFinishedSpans()
+      .find(
+        (span) =>
+          span.name === "ingestion.run" &&
+          span.attributes["ctxpipe.ingest.run.id"] === runId,
+      )
+    expect(runSpan?.status.code).toBe(2)
+    expect(runSpan?.attributes).toMatchObject({
+      "ctxpipe.ingest.status": "partial",
+      "error.type": "workspace_refused",
+      "ctxpipe.ingest.refused": 1,
+      "ctxpipe.ingest.refused.rules": rules,
+    })
     const other = join(remotes, contexts[1] ?? "")
     expect(git(other, "log", "-1", "--format=%B", "main")).toContain(
       `Ctxpipe-Run: ${runId}`,
@@ -1232,7 +1299,7 @@ describe("ingestion v2 publish", () => {
   )
 
   it(
-    "publishes the run base when assemble refuses the semantic merge of two shards",
+    "publishes nothing to a Workspace whose assemble refuses the semantic merge of two shards",
     { timeout: 600_000 },
     async () => {
       stubMergeModel()
@@ -1247,7 +1314,9 @@ describe("ingestion v2 publish", () => {
       )
       const result = await handle.result({ timeoutMs: 580_000 })
       const runId = handle.workflowRun.id
-      const entry = expectRunBaseOnContextA(result, runId)
+      const entry = expectNoPublishOnContextA(result, runId, [
+        "suspected_injection",
+      ])
       expect(entry?.refused).toMatch(
         /knowledge\/services\/shared\.md: suspected_injection/,
       )
@@ -1268,7 +1337,7 @@ describe("ingestion v2 publish", () => {
   )
 
   it(
-    "publishes the run base, marks the Workspace partial, and keeps its refs when the resolver throws at assemble",
+    "publishes nothing, marks the Workspace partial, and keeps its refs when the resolver throws at assemble",
     { timeout: 600_000 },
     async () => {
       stubMergeModel()
@@ -1281,7 +1350,7 @@ describe("ingestion v2 publish", () => {
       )
       const result = await handle.result({ timeoutMs: 580_000 })
       const runId = handle.workflowRun.id
-      const entry = expectRunBaseOnContextA(result, runId)
+      const entry = expectNoPublishOnContextA(result, runId, ["merge_model"])
       expect(entry?.refused).toMatch(/semantic merge failed/)
       // The tip check deletes the refs of context A later.
       expect(refsOf(contexts[0] ?? "", runId)).not.toEqual([])

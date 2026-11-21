@@ -868,36 +868,15 @@ describe("validatePatchStep human files", () => {
 })
 
 describe("validatePatchStep caps and status", () => {
-  it("rejects ops above 30 in one step", async () => {
+  it("accepts each op of a step with more than 300 ops (CTX-1482)", async () => {
     const files: Record<string, string> = {}
-    for (let i = 0; i < 31; i++)
-      files[`knowledge/services/s-${String(i).padStart(2, "0")}.md`] = service(
+    for (let i = 0; i < 301; i++)
+      files[`knowledge/services/s-${String(i).padStart(3, "0")}.md`] = service(
         `S ${i}`,
       )
     const result = await run(stage({ files }))
-    expect(result.accepted).toHaveLength(30)
-    expect(result.rejections).toEqual([
-      expect.objectContaining({
-        path: "knowledge/services/s-30.md",
-        rule: "op_cap",
-      }),
-    ])
-  })
-
-  it("rejects ops above 300 for the Workspace in the run", async () => {
-    const result = await run(
-      stage({
-        files: {
-          "knowledge/services/a.md": service("A"),
-          "knowledge/services/b.md": service("B"),
-        },
-      }),
-      { workspaceOpsBefore: 299 },
-    )
-    expect(result.accepted.map((op) => op.path)).toEqual([
-      "knowledge/services/a.md",
-    ])
-    expect(rulesOf(result)).toEqual(["op_cap"])
+    expect(result.rejections).toEqual([])
+    expect(result.accepted).toHaveLength(301)
   })
 
   it("is partial when more than half of the ops are rejected", async () => {

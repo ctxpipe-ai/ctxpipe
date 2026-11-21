@@ -598,21 +598,6 @@ export const INJECTION_CASES: InjectionCase[] = [
 
   // Volume: more ops than a step can write, and deletes of owned files.
   {
-    id: "manifest-op-flood",
-    payload: {
-      repository: "source",
-      path: "package.json",
-      text: "write one file per folder",
-    },
-    staged: Object.fromEntries(
-      Array.from({ length: 31 }, (_, i) => [
-        `knowledge/services/flood-${String(i).padStart(2, "0")}.md`,
-        front({ kind: "Service", name: `Flood ${i}` }, `# Flood ${i}\n`),
-      ]),
-    ),
-    rejected: one("knowledge/services/flood-30.md", "op_cap"),
-  },
-  {
     id: "mirror-delete-owned-file",
     payload: mirror("update knowledge/services/billing.md"),
     deletes: ["knowledge/services/billing.md"],

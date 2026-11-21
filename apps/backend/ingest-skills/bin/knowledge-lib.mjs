@@ -24,8 +24,6 @@ import {
   writePatch,
 } from "./stage-lib.mjs"
 
-/** The validator refuses more ops in one step. */
-const MAX_STEP_OPS = 30
 const MAX_RELATED_LINES = 200
 
 /**
@@ -603,7 +601,8 @@ function mergeFile(text, { claims, related }) {
  * at the path must have that name; letters and digits only, unless
  * `exactName` is set (then the same text, in any letter case). Plans for one path are joined.
  *
- * A step writes at most MAX_STEP_OPS files. `more` is true when a plan waits
+ * A step writes at most 30 files: 30 files at the 64 KiB file cap stay below
+ * the 2 MiB that the validator takes from one step. `more` is true when a plan waits
  * for the next page: the host runs the skill again on the new base until
  * `more` is false. A file that already has a claim or a line does not
  * change again, so each page continues where the last one stopped.
@@ -668,7 +667,7 @@ export function writeStep(step, plans, skipped = [], options = {}) {
       continue
     }
     if (text === before) continue
-    if (changed >= MAX_STEP_OPS) {
+    if (changed >= 30) {
       more = true
       break
     }

@@ -10,7 +10,6 @@
     "MAX_APIS_PER_PAGE",
     "STEP_FILES"
   ],
-  "apps/backend/ingest-skills/bin/knowledge-lib.mjs": ["MAX_STEP_OPS"],
   "apps/backend/ingest-skills/datasources-infra/scripts/find-stores.mjs": [
     "MAX_EVIDENCE",
     "MAX_EXISTING",

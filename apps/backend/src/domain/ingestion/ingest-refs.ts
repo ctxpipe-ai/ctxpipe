@@ -11,7 +11,6 @@ import { parseYamlObject, splitFrontMatter } from "./front-matter.js"
 import {
   disallowedPathReason,
   HOST_FIELDS,
-  MAX_WORKSPACE_OPS,
   type PatchRejection,
   type PatchRule,
   type PatchStepInput,
@@ -205,8 +204,7 @@ export async function pushIngestStep(
  * pinned revision plus the ops of each shard. Each op must be a valid path
  * against the pinned revision. Two shards that change one path are a conflict:
  * the broker refuses, and the run sends them to the semantic merge child.
- * There is no per-step op cap; the run cap of a Workspace applies, and it
- * counts the `opsBefore` that the run wrote before the shards.
+ * There is no op cap (CTX-1482).
  */
 export async function pushIngestAssemble(input: {
   job: IngestJob
@@ -219,8 +217,6 @@ export async function pushIngestAssemble(input: {
   shards: Array<{ shard: string; tip: string | null }>
   /** The assembled ref tip that the job expects; null for a new ref. */
   oldTip: string | null
-  /** The accepted ops of the run in the Workspace before the shards. */
-  opsBefore?: number
   remote: IngestRemote
   commit: IngestStepCommit
   /** Workspace root folder; `""` (the default) is the repository root. */
@@ -351,11 +347,6 @@ export async function pushIngestAssemble(input: {
     const conflicts = [...changes.values()].filter((c) => c.versions.length > 1)
     if (conflicts.length && !input.semanticMerge)
       throw new IngestAssembleConflictError(conflicts.map((c) => c.path))
-    const opsBefore = input.opsBefore ?? 0
-    if (opsBefore + changes.size > MAX_WORKSPACE_OPS)
-      throw new IngestRefRefusedError(
-        `The run writes ${opsBefore + changes.size} ops; a Workspace takes at most ${MAX_WORKSPACE_OPS} in a run`,
-      )
 
     const indexEnv = { GIT_INDEX_FILE: join(repoDir, "assemble.index") }
     await runGit(repoDir, ["read-tree", input.pinnedRevision], {
@@ -376,7 +367,6 @@ export async function pushIngestAssemble(input: {
         pinnedRevision: input.pinnedRevision,
         tree,
         conflicts,
-        opsBefore: opsBefore + changes.size - conflicts.length,
         bundle: input.commit.bundle,
         merge: input.semanticMerge,
         rootPath,
@@ -498,8 +488,6 @@ export async function mergeIngestPublish(input: {
         pinnedRevision: input.pinnedRevision,
         tree,
         conflicts,
-        // The run cap counted these paths in the run's steps.
-        opsBefore: 0,
         bundle: input.bundle,
         merge: input.semanticMerge,
         // The publish reads whole-repository paths.
@@ -1049,9 +1037,7 @@ export type IngestConflictResolver = (
  * further version: round `n` merges version `n` into the result so far.
  * Then the patch validator checks the merged files as one step on `tree`
  * (the pinned revision plus the other shards' ops). A model wrote them, so
- * they get the same checks as a step's files. The run's steps already
- * counted them, so only the Workspace cap applies, not the step cap. The
- * merged files get the host fields of the file on the step's base, and the
+ * they get the same checks as a step's files. The merged files get the host fields of the file on the step's base, and the
  * validator stamps them again.
  * Returns
  * the validated tree and the rejections. A rejected file keeps its version
@@ -1064,7 +1050,6 @@ async function mergeConflicts(
     pinnedRevision: string
     tree: string
     conflicts: Array<{ path: string; versions: Array<string | null> }>
-    opsBefore: number
     bundle: string
     merge: NonNullable<
       Parameters<typeof pushIngestAssemble>[0]["semanticMerge"]
@@ -1127,7 +1112,6 @@ async function mergeConflicts(
     groups.set(root, [...(groups.get(root) ?? []), conflict])
   }
   let tree = input.tree
-  let opsBefore = input.opsBefore
   const rejections: PatchRejection[] = []
   for (const [root, conflicts] of groups) {
     const baseCommit = (
@@ -1191,15 +1175,11 @@ async function mergeConflicts(
         readSourceFile: input.merge.readSourceFile,
         skill: "semantic-merge",
         bundle: input.bundle,
-        workspaceOpsBefore: opsBefore,
-        // The run's steps counted these files: no step cap (CTX-1102).
-        maxOps: MAX_WORKSPACE_OPS,
         rootPath: input.rootPath,
         ...(root === undefined ? {} : { root }),
       })
       rejections.push(...result.rejections)
       tree = result.tree
-      opsBefore += ops.length
     } finally {
       await rm(stagedDir, { recursive: true, force: true })
     }

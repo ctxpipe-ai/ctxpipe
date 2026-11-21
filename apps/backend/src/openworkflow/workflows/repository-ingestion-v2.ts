@@ -102,8 +102,9 @@ import { workspaceExtractIngest } from "./workspace-extract-ingest.js"
  * withheld file makes the Workspace `partial`; the output counts the
  * withheld files. A `partial` Workspace publishes its accepted ops, but the
  * deletes of a failed root stay out: a failed root gets no retraction. A
- * refused assemble publishes the run base; so does an assemble whose merge
- * model fails. A publish that fails (the merge model fails, or the default
+ * refused assemble drops the shards' ops, so its Workspace gets no
+ * repository-wide step and no publish (CTX-1482); so does an assemble whose
+ * merge model fails. A publish that fails (the merge model fails, or the default
  * branch wins each push race) also makes the Workspace `partial`, and the
  * other Workspaces publish. Then `delete-refs` deletes the run's refs, but
  * not the refs of a Workspace whose merge model or publish failed. The tip
@@ -138,6 +139,8 @@ export type IngestionV2Output =
         /** The steps that failed after their retries, by cause (CTX-896). */
         stepFailures?: IngestStepFailures
         refused?: string
+        /** The fixed codes of the cause of a refused assemble. */
+        rules?: string[]
         /** The merged files that the publish withheld, with the validator rules. */
         withheld?: WithheldFile[]
         /** The commit on the default branch; null for no change. */
@@ -223,6 +226,20 @@ export function defineRepositoryIngestionV2Workflow(
                   (sum, w) => sum + (w.withheld?.length ?? 0),
                   0,
                 ),
+              })
+            // A refused Workspace did not get the run's output: the span is
+            // an error, with the fixed codes of the causes (CTX-1482).
+            const refused =
+              "workspaces" in output
+                ? output.workspaces.filter((w) => w.refused !== undefined)
+                : []
+            if (refused.length)
+              Object.assign(attributes, {
+                "error.type": "workspace_refused",
+                "ctxpipe.ingest.refused": refused.length,
+                "ctxpipe.ingest.refused.rules": [
+                  ...new Set(refused.flatMap((w) => w.rules ?? [])),
+                ].sort(),
               })
             return output
           },
@@ -530,7 +547,13 @@ export function defineRepositoryIngestionV2Workflow(
             },
             async (): Promise<
               | { tip: string; ops: number }
-              | { tip: null; ops: 0; refused: string; keepRefs?: true }
+              | {
+                  tip: null
+                  ops: 0
+                  refused: string
+                  rules: string[]
+                  keepRefs?: true
+                }
             > => {
               try {
                 const result = await withIngestionOrg(input.orgId, () =>
@@ -553,9 +576,6 @@ export function defineRepositoryIngestionV2Workflow(
                       // the assembled ref's tip after the repository step.
                       pinnedRevision: base,
                       oldTip: runBase[destination.workspaceId]?.tip ?? null,
-                      // The run cap of the Workspace counts the ops of
-                      // the repository step too.
-                      opsBefore: runBase[destination.workspaceId]?.ops ?? 0,
                       commit: {
                         step: assembleStep,
                         bundle: scope.bundle,
@@ -609,6 +629,7 @@ export function defineRepositoryIngestionV2Workflow(
                   tip: null,
                   ops: 0,
                   refused: error.message.slice(0, 300),
+                  rules: failed ? ["merge_model"] : [...error.rules],
                   ...(failed ? { keepRefs: true as const } : {}),
                 }
               }
@@ -620,10 +641,10 @@ export function defineRepositoryIngestionV2Workflow(
           )
           workspaces.push({
             workspaceId: destination.workspaceId,
-            // A refused assemble drops the shards' ops. The run base (the
-            // repository step's ops) is still accepted, so it publishes.
-            assembled:
-              assembled.tip ?? runBase[destination.workspaceId]?.tip ?? null,
+            // A refused assemble drops the shards' ops. The Workspace then
+            // publishes nothing: a publish of the run base alone would
+            // read as a full publish (CTX-1482).
+            assembled: assembled.tip,
             ops: assembled.ops + (firstPart?.ops ?? 0),
             rejects:
               parts.reduce((sum, p) => sum + p.rejects, 0) +
@@ -638,7 +659,9 @@ export function defineRepositoryIngestionV2Workflow(
               ...parts.map((p) => p.stepFailures),
               firstPart?.stepFailures,
             ),
-            ...("refused" in assembled ? { refused: assembled.refused } : {}),
+            ...("refused" in assembled
+              ? { refused: assembled.refused, rules: assembled.rules }
+              : {}),
           })
         }
 
