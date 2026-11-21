@@ -50,7 +50,7 @@ The ctxpipe MCP server gives you facts with stable refs. You do the reasoning. T
 
 ## Exclude your repository
 
-`search_code` and `find_symbol` need `excludeRepositories`. Put the handle or git URL of the repository you work in there. Use `[]` when you work in no linked repository. The other tools accept it too. `read_file` refuses an excluded repository with `excluded_repository`.
+`search_code` and `find_symbol` need `excludeRepositories`. Put the handle or git URL of the repository you work in there. Use `[]` when you work in no linked repository. `read_file` and `list_files` accept it as an optional argument. `search_knowledge`, `get_related`, and `list_workspaces` do not take it. `read_file` refuses an excluded repository with `excluded_repository`.
 
 ## Pages and limits
 
