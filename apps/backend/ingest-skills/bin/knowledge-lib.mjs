@@ -657,7 +657,26 @@ export function writeStep(step, plans, skipped = [], options = {}) {
     room.ops -= 1
   }
   let more = false
-  const sorted = [...byPath.values()].sort((a, b) => (a.path < b.path ? -1 : 1))
+  // Path order, but each plan comes after the plans of this step that its
+  // claims link to. A page that ends at a size limit then has no claim to a
+  // file that the page does not write (an API file and its operations).
+  const sorted = []
+  const placed = new Set()
+  const place = (plan) => {
+    if (placed.has(plan.path)) return
+    placed.add(plan.path)
+    for (const claim of plan.claims) {
+      const target = byPath.get(
+        posix.normalize(posix.join(posix.dirname(plan.path), claim.to)),
+      )
+      if (target) place(target)
+    }
+    sorted.push(plan)
+  }
+  for (const plan of [...byPath.values()].sort((a, b) =>
+    a.path < b.path ? -1 : 1,
+  ))
+    place(plan)
   for (const plan of sorted) {
     const claims = [
       ...new Map(

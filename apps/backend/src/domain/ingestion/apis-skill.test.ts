@@ -840,6 +840,55 @@ describe("write-apis", () => {
     expect(again.more).toBe(false)
   })
 
+  it("pages by size and keeps each API file with its operations on one page (CTX-1482)", async () => {
+    // 35 API files of about 60 KiB: more than the 2 MiB of one step.
+    const body = "Written by the team.\n".repeat(2900)
+    const context: Record<string, string> = {}
+    const paths: Record<string, object> = {}
+    for (let i = 0; i < 35; i++) {
+      context[`knowledge/apis/items-${i}.md`] = front(
+        { kind: "API", name: `Items ${i} API`, summary: "Items." },
+        `# Items ${i} API\n\n${body}`,
+      )
+      paths[`/items/${i}`] = { get: {} }
+    }
+    const s = await fixture(
+      {
+        "apps/big/openapi.json": JSON.stringify({ openapi: "3.0.0", paths }),
+      },
+      context,
+    )
+    const plan: Plan = {
+      root: "apps/big",
+      apis: Array.from({ length: 35 }, (_, i) => ({
+        name: `Items ${i} API`,
+        existing: `knowledge/apis/items-${i}.md`,
+        operations: [{ method: "GET", path: `/items/${i}` }],
+      })),
+    }
+    const accepted: string[] = []
+    let pages = 0
+    for (;;) {
+      const out = s.write(plan)
+      pages++
+      // The validator rejects no claim: each API file of a page has its
+      // operation on the same page or an earlier one.
+      const result = await s.validate()
+      expect(result.rejections).toEqual([])
+      accepted.push(...result.accepted.map((op) => op.path))
+      await s.advance(result.tree)
+      if (!out.more) break
+      expect(pages).toBeLessThan(5)
+    }
+    expect(pages).toBe(2)
+    expect(
+      accepted.filter((p) => p.startsWith("knowledge/apis/")),
+    ).toHaveLength(35)
+    expect(
+      accepted.filter((p) => p.startsWith("knowledge/operations/")),
+    ).toHaveLength(35)
+  })
+
   it("is deterministic: the same inputs give the same staged tree", async () => {
     const plan: Plan = {
       root: "apps/billing",
