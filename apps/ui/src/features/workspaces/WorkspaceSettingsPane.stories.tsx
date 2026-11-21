@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { Toaster } from "sonner"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
@@ -37,6 +36,7 @@ import {
 import { OrgHomePageContent } from "@/routes/$orgSlug.index"
 
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
+import preview from "../../../.storybook/preview"
 import {
   docsWorkspace,
   docsWorkspaceDetail,
@@ -50,7 +50,7 @@ import {
 } from "./workspace-fixtures"
 import { WorkspaceSettingsPane } from "./WorkspaceSettingsPane"
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Workspaces/SettingsPane",
   component: WorkspaceSettingsPane,
   decorators: [
@@ -60,6 +60,23 @@ const meta = {
       </div>
     ),
   ],
+  beforeEach: ({ msw }) => {
+    // Upgrades wait for a start by hand.
+    // The org has the GitHub App installed.
+    msw.use(
+      ...signedInHandlers,
+      activeMemberRoleHandler("admin"),
+      ...workspaceIngestionHandlers({}),
+      pendingWorkspaceUpgradesHandler({}),
+      workspaceListHandler([docsWorkspace]),
+      githubInstallationReposHandler(),
+      workspaceSourcesHandler(workspaceSourceList()),
+      orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
+      workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
+      ...workspaceUpgradeAutomaticHandlers(),
+      githubInstallationLinkedHandler,
+    )
+  },
   parameters: {
     app: "root",
     review: { kind: "component" },
@@ -68,47 +85,20 @@ const meta = {
       pattern: "orgIndex",
       orgSlug: "acme",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        session: signedInHandlers,
-        role: [activeMemberRoleHandler("admin")],
-        ingestion: workspaceIngestionHandlers({}),
-        pendingUpgrades: [pendingWorkspaceUpgradesHandler({})],
-        page: [
-          workspaceListHandler([docsWorkspace]),
-          githubInstallationReposHandler(),
-        ],
-        sources: [
-          workspaceSourcesHandler(workspaceSourceList()),
-          orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
-        ],
-        upgrades: [
-          workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
-        ],
-        // Upgrades wait for a start by hand.
-        automaticUpgrades: workspaceUpgradeAutomaticHandlers(),
-        // The org has the GitHub App installed.
-        github: [githubInstallationLinkedHandler],
-      },
-    },
   },
   args: {
     orgSlug: "acme",
     workspace: docsWorkspaceDetail,
     onOpenFile: fn(),
   },
-} satisfies Meta<typeof WorkspaceSettingsPane>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Settings pane of a Workspace, where an owner manages its upgrades, sources,
  * graph and repository: everything is up to date, and one GitHub repository is
  * a source.
  */
-export const Settings: Story = {}
+export const Settings = meta.story()
 
 /**
  * Settings pane of a Workspace, where an owner manages its repository, sources,
@@ -116,49 +106,7 @@ export const Settings: Story = {}
  * Knowledge graph, Repository, Workspace, and Danger zone. Each card gives its
  * state in its body, and the Sources card has three providers.
  */
-export const Populated: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        sources: [
-          workspaceSourcesHandler(
-            workspaceSourceList({
-              items: [
-                workspaceSourceFixture({
-                  path: "product-repos",
-                  provider: "github",
-                  connectionId: "con_gh1",
-                  connectionName: "acme-gh",
-                  scope: { repositories: ["acme/api", "acme/web"] },
-                  scopeSummary: "2 repositories",
-                }),
-                workspaceSourceFixture({
-                  path: "eng-docs",
-                  provider: "confluence",
-                  connectionId: "con_cf1",
-                  connectionName: "acme.atlassian.net",
-                  scopeSummary: "3 spaces",
-                }),
-                workspaceSourceFixture({
-                  path: "eng-issues",
-                  provider: "linear",
-                  connectionId: "con_li1",
-                  connectionName: "Acme Linear",
-                  scope: { teams: ["ENG"] },
-                  scopeSummary: "1 team",
-                }),
-              ],
-            }),
-          ),
-          orgConnectionsHandler([
-            { id: "con_gh1", type: "github", displayName: "acme-gh" },
-            { id: "con_cf1", type: "forge" },
-            { id: "con_li1", type: "linear" },
-          ]),
-        ],
-      },
-    },
-  },
+export const Populated = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText("acme/api")
@@ -202,7 +150,45 @@ export const Populated: Story = {
       canvas.getByRole("heading", { level: 3, name: "Delete this Workspace" }),
     ).toBeVisible()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceSourcesHandler(
+        workspaceSourceList({
+          items: [
+            workspaceSourceFixture({
+              path: "product-repos",
+              provider: "github",
+              connectionId: "con_gh1",
+              connectionName: "acme-gh",
+              scope: { repositories: ["acme/api", "acme/web"] },
+              scopeSummary: "2 repositories",
+            }),
+            workspaceSourceFixture({
+              path: "eng-docs",
+              provider: "confluence",
+              connectionId: "con_cf1",
+              connectionName: "acme.atlassian.net",
+              scopeSummary: "3 spaces",
+            }),
+            workspaceSourceFixture({
+              path: "eng-issues",
+              provider: "linear",
+              connectionId: "con_li1",
+              connectionName: "Acme Linear",
+              scope: { teams: ["ENG"] },
+              scopeSummary: "1 team",
+            }),
+          ],
+        }),
+      ),
+      orgConnectionsHandler([
+        { id: "con_gh1", type: "github", displayName: "acme-gh" },
+        { id: "con_cf1", type: "forge" },
+        { id: "con_li1", type: "linear" },
+      ]),
+    )
+  },
+})
 
 /**
  * Settings pane of a Workspace, where an owner checks the knowledge graph. The
@@ -210,7 +196,7 @@ export const Populated: Story = {
  * mark, and the card lists each file with its cause. A legacy overlay file has
  * no fix button, because no edit of the Workspace repository changes it.
  */
-export const SkippedFiles: Story = {
+export const SkippedFiles = meta.story({
   args: {
     workspace: skippedFilesWorkspaceDetail,
     onFixWithAgent: fn(),
@@ -260,14 +246,14 @@ export const SkippedFiles: Story = {
       "Hydrate skipped knowledge/billing/tax.md: Front matter is not valid. Fix the front matter of this file so that it is valid, then open the change.",
     )
   },
-}
+})
 
 /**
  * Settings pane of a Workspace, where an owner manages its repository, sources,
  * and upgrades. A link with the upgrades hash landed on the Upgrades card and
  * put the focus on it.
  */
-export const LandsOnUpgrades: Story = {
+export const LandsOnUpgrades = meta.story({
   parameters: {
     storyRoute: {
       pattern: "orgIndex",
@@ -282,23 +268,23 @@ export const LandsOnUpgrades: Story = {
       ).toHaveFocus(),
     )
   },
-}
+})
 
 /**
  * Settings pane of a Workspace, where an owner manages its repository, sources,
  * and upgrades: the Workspace repository is read-only.
  */
-export const ReadOnly: Story = {
+export const ReadOnly = meta.story({
   args: {
     workspace: readOnlyWorkspaceDetail,
   },
-}
+})
 
 /**
  * Settings pane of a Workspace. The default branch is protected, so a neutral
  * note says that changes go by pull request. No warning and no "fix it" show.
  */
-export const ProtectedDefaultBranch: Story = {
+export const ProtectedDefaultBranch = meta.story({
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as EmptyLinkedRepos.",
@@ -322,17 +308,14 @@ export const ProtectedDefaultBranch: Story = {
     await waitFor(() => expect(canvas.queryByText(/fix it/)).toBeNull())
     await waitFor(() => expect(canvas.queryByText("Read-only")).toBeNull())
   },
-}
+})
 
 /**
  * Settings pane of a Paste Workspace that no GitHub connection reads. The owner
  * clicked "Select the repository again", and the context repository dialog is
  * open, where Select GitHub binds the repository.
  */
-export const ReadOnlyWithoutConnection: Story = {
-  parameters: {
-    msw: { handlers: { github: [githubInstallationNoneHandler] } },
-  },
+export const ReadOnlyWithoutConnection = meta.story({
   args: {
     workspace: {
       ...readOnlyWorkspaceDetail,
@@ -356,13 +339,18 @@ export const ReadOnlyWithoutConnection: Story = {
       ).toBeVisible(),
     )
   },
-}
+  beforeEach: ({ msw }) => {
+    // The handler of no installation also matches the repository list, so
+    // the list handler comes first.
+    msw.use(githubInstallationReposHandler(), githubInstallationNoneHandler)
+  },
+})
 
 /**
  * Settings pane of a Workspace: a new repository still loads, so a note says
  * answers still come from the old one.
  */
-export const ProjectionLag: Story = {
+export const ProjectionLag = meta.story({
   args: {
     workspace: projectionLagWorkspaceDetail,
   },
@@ -373,23 +361,23 @@ export const ProjectionLag: Story = {
       canvas.getByText(/until the new repository finishes loading/),
     ).toBeVisible()
   },
-}
+})
 
 /**
  * Settings pane of a Workspace, where an owner manages its repository, sources,
  * and upgrades: the Workspace has no linked repositories.
  */
-export const EmptyLinkedRepos: Story = {
+export const EmptyLinkedRepos = meta.story({
   args: {
     workspace: emptyLinkedWorkspaceDetail,
   },
-}
+})
 
 /**
  * Settings pane of a Workspace: a linked repository was indexed with issues,
  * because one of six projects could not be indexed.
  */
-export const LinkedRepositoryWithIssues: Story = {
+export const LinkedRepositoryWithIssues = meta.story({
   args: {
     workspace: {
       ...docsWorkspaceDetail,
@@ -412,29 +400,16 @@ export const LinkedRepositoryWithIssues: Story = {
     await canvas.findByText("Indexed with issues")
     await canvas.findByText(/1 of 6 projects could not be indexed/)
   },
-}
+})
 
 /**
  * Settings pane of a Workspace. The owner opened the context repository picker
  * and then the Add repositories dialog, which lists the repositories. The two
  * dialogs share one cached repository query.
  */
-export const AddRepositories: Story = {
+export const AddRepositories = meta.story({
   args: {
     workspace: emptyLinkedWorkspaceDetail,
-  },
-  parameters: {
-    // Only an owner or admin sees the repository pickers. The Add
-    // repositories dialog reads the Workspace and its format (2 or higher).
-    msw: {
-      handlers: {
-        role: [activeMemberRoleHandler("owner")],
-        detail: [workspaceDetailHandler(emptyLinkedWorkspaceDetail)],
-        upgrades: [
-          workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -459,24 +434,33 @@ export const AddRepositories: Story = {
       await within(dialog).findByText("acme/handbook"),
     ).toBeInTheDocument()
   },
-}
+  beforeEach: ({ msw }) => {
+    // Only an owner or admin sees the repository pickers. The Add
+    // repositories dialog reads the Workspace and its format (2 or higher).
+    msw.use(
+      activeMemberRoleHandler("owner"),
+      workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
+      workspaceDetailHandler(emptyLinkedWorkspaceDetail),
+    )
+  },
+})
 
 /**
  * Settings pane of a Workspace, where an owner manages its repository, sources,
  * and upgrades: the knowledge graph still loads.
  */
-export const Hydrating: Story = {
+export const Hydrating = meta.story({
   args: {
     workspace: hydratingWorkspaceDetail,
   },
-}
+})
 
 /**
  * Settings pane of a Workspace, where an owner checks the knowledge graph. The
  * graph did not load, so the Knowledge graph card gives the next step and the
  * raw reason, and the summary links to the card.
  */
-export const HydrateFailed: Story = {
+export const HydrateFailed = meta.story({
   args: {
     workspace: failedHydrateWorkspaceDetail,
   },
@@ -490,14 +474,14 @@ export const HydrateFailed: Story = {
       ).toBeVisible(),
     )
   },
-}
+})
 
 /**
  * Settings pane of a Workspace, where an owner checks the knowledge graph. The
  * load of a new commit failed while the older graph still answers. No Prepare
  * failed page shows, so the card has its own Try again.
  */
-export const HydrateFailedWithReadyGraph: Story = {
+export const HydrateFailedWithReadyGraph = meta.story({
   args: {
     workspace: {
       ...failedHydrateWorkspaceDetail,
@@ -512,7 +496,7 @@ export const HydrateFailedWithReadyGraph: Story = {
     // The card sits below the fold of the pane: show it in the screenshot.
     retry.scrollIntoView({ block: "center" })
   },
-}
+})
 
 /** A GitHub source of acme/app and a Linear source. */
 const appAndLinearSources = (linearStatus: "ok" | "out_of_access") =>
@@ -601,21 +585,7 @@ const busyIngestion = workspaceIngestionHandlers({
  * run. The Knowledge graph card shows the hydrate, and the summary names the
  * parts at work. A press on a part of the summary moves the focus to its card.
  */
-export const LiveWorkInSources: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        sources: [
-          workspaceSourcesHandler(appAndLinearSources("ok")),
-          orgConnectionsHandler([
-            { id: "con_gh", type: "github", displayName: "acme" },
-            { id: "con_li", type: "linear", displayName: "Acme Linear" },
-          ]),
-        ],
-        ingestion: busyIngestion,
-      },
-    },
-  },
+export const LiveWorkInSources = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const sources = within(
@@ -642,28 +612,24 @@ export const LiveWorkInSources: Story = {
       canvas.getByRole("region", { name: "Knowledge graph" }),
     ).toHaveFocus()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...busyIngestion,
+      workspaceSourcesHandler(appAndLinearSources("ok")),
+      orgConnectionsHandler([
+        { id: "con_gh", type: "github", displayName: "acme" },
+        { id: "con_li", type: "linear", displayName: "Acme Linear" },
+      ]),
+    )
+  },
+})
 
 /**
  * Settings pane of a Workspace. A source has a problem while its sync runs, and
  * the problem still shows. The summary counts the sources that need the owner:
  * the source with the problem and the source that waits for its merge.
  */
-export const SourceProblemsNeedYou: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        sources: [
-          workspaceSourcesHandler(appAndLinearSources("out_of_access")),
-          orgConnectionsHandler([
-            { id: "con_gh", type: "github", displayName: "acme" },
-            { id: "con_li", type: "linear", displayName: "Acme Linear" },
-          ]),
-        ],
-        ingestion: busyIngestion,
-      },
-    },
-  },
+export const SourceProblemsNeedYou = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const sources = within(
@@ -684,7 +650,17 @@ export const SourceProblemsNeedYou: Story = {
     )
     await expect(canvas.getByRole("link", { name: "Sources" })).toBeVisible()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...busyIngestion,
+      workspaceSourcesHandler(appAndLinearSources("out_of_access")),
+      orgConnectionsHandler([
+        { id: "con_gh", type: "github", displayName: "acme" },
+        { id: "con_li", type: "linear", displayName: "Acme Linear" },
+      ]),
+    )
+  },
+})
 
 /** Twelve applied upgrades, one each 3 days back from Oct 21. */
 const longHistory = Array.from({ length: 12 }, (_, index) =>
@@ -707,18 +683,7 @@ const longHistory = Array.from({ length: 12 }, (_, index) =>
  * short with five rows. The member clicked "Show all" to show all 12 rows, and
  * opened the newest row, which gives what it showed when the upgrade ran.
  */
-export const LongUpgradeHistory: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        upgrades: [
-          workspaceUpgradesHandler(
-            upgradesFixture(longHistory, { formatVersion: 3 }),
-          ),
-        ],
-      },
-    },
-  },
+export const LongUpgradeHistory = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(
@@ -744,7 +709,14 @@ export const LongUpgradeHistory: Story = {
       expect(newest.getByText(/This uses model calls/)).toBeVisible(),
     )
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceUpgradesHandler(
+        upgradesFixture(longHistory, { formatVersion: 3 }),
+      ),
+    )
+  },
+})
 
 const rootFolderPatches: unknown[] = []
 
@@ -754,7 +726,7 @@ const rootFolderPatches: unknown[] = []
  * The owner saved a new root folder after the field refused a path outside the
  * repository.
  */
-export const RootFolder: Story = {
+export const RootFolder = meta.story({
   args: {
     workspace: rootFolderWorkspaceDetail,
   },
@@ -766,30 +738,6 @@ export const RootFolder: Story = {
       </>
     ),
   ],
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceListHandler([docsWorkspace]),
-          githubInstallationReposHandler(),
-          http.patch(
-            ({ request }) =>
-              /\/api\/v1\/workspaces\/[^/]+$/.test(
-                new URL(request.url).pathname,
-              ),
-            async ({ request }) => {
-              const body = (await request.json()) as { rootPath?: string }
-              rootFolderPatches.push(body)
-              return HttpResponse.json({
-                ...rootFolderWorkspaceDetail,
-                rootPath: body.rootPath ?? rootFolderWorkspaceDetail.rootPath,
-              })
-            },
-          ),
-        ],
-      },
-    },
-  },
   play: async ({ canvasElement }) => {
     rootFolderPatches.length = 0
     const canvas = within(canvasElement)
@@ -826,34 +774,31 @@ export const RootFolder: Story = {
     // End with the pointer off the button, so its color is the idle one.
     await userEvent.unhover(save)
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceListHandler([docsWorkspace]),
+      githubInstallationReposHandler(),
+      http.patch(
+        ({ request }) =>
+          /\/api\/v1\/workspaces\/[^/]+$/.test(new URL(request.url).pathname),
+        async ({ request }) => {
+          const body = (await request.json()) as { rootPath?: string }
+          rootFolderPatches.push(body)
+          return HttpResponse.json({
+            ...rootFolderWorkspaceDetail,
+            rootPath: body.rootPath ?? rootFolderWorkspaceDetail.rootPath,
+          })
+        },
+      ),
+    )
+  },
+})
 
 /**
  * Settings pane of a Workspace: the context repository dialog could not save a
  * pasted git URL, so an error shows.
  */
-export const RelinkError: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceListHandler([docsWorkspace]),
-          githubInstallationReposHandler(),
-          http.patch(
-            ({ request }) =>
-              /\/api\/v1\/workspaces\/[^/]+$/.test(
-                new URL(request.url).pathname,
-              ),
-            () =>
-              HttpResponse.json(
-                { error: "That git URL is already used by another Workspace." },
-                { status: 409 },
-              ),
-          ),
-        ],
-      },
-    },
-  },
+export const RelinkError = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(
@@ -875,14 +820,29 @@ export const RelinkError: Story = {
     // End with the pointer off the button, so its color is the idle one.
     await userEvent.unhover(save)
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceListHandler([docsWorkspace]),
+      githubInstallationReposHandler(),
+      http.patch(
+        ({ request }) =>
+          /\/api\/v1\/workspaces\/[^/]+$/.test(new URL(request.url).pathname),
+        () =>
+          HttpResponse.json(
+            { error: "That git URL is already used by another Workspace." },
+            { status: 409 },
+          ),
+      ),
+    )
+  },
+})
 
 /**
  * Settings pane of a Workspace. The server refused a rename that it cannot
  * write to AGENTS.md (WS-5), so a message gives the reason, and the URL name
  * (slug) stays the same.
  */
-export const RenameRefused: Story = {
+export const RenameRefused = meta.story({
   decorators: [
     (Story) => (
       <>
@@ -891,30 +851,6 @@ export const RenameRefused: Story = {
       </>
     ),
   ],
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceListHandler([docsWorkspace]),
-          githubInstallationReposHandler(),
-          http.patch(
-            ({ request }) =>
-              /\/api\/v1\/workspaces\/[^/]+$/.test(
-                new URL(request.url).pathname,
-              ),
-            () =>
-              HttpResponse.json(
-                {
-                  error:
-                    "The display name is stored in the Workspace repository, and the rename could not be scheduled there. Connect the repository through GitHub, then try again.",
-                },
-                { status: 409 },
-              ),
-          ),
-        ],
-      },
-    },
-  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const name = canvas.getByRole("textbox", { name: /^name$/i })
@@ -930,31 +866,45 @@ export const RenameRefused: Story = {
     // End with the pointer off the button, so its color is the idle one.
     await userEvent.unhover(save)
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceListHandler([docsWorkspace]),
+      githubInstallationReposHandler(),
+      http.patch(
+        ({ request }) =>
+          /\/api\/v1\/workspaces\/[^/]+$/.test(new URL(request.url).pathname),
+        () =>
+          HttpResponse.json(
+            {
+              error:
+                "The display name is stored in the Workspace repository, and the rename could not be scheduled there. Connect the repository through GitHub, then try again.",
+            },
+            { status: 409 },
+          ),
+      ),
+    )
+  },
+})
 
 /**
  * Settings pane of a Workspace: the owner typed the Workspace name in the
  * delete dialog and confirmed, so the dialog closed and the delete starts.
  */
-export const DeleteConfirmOpen: Story = {
+export const DeleteConfirmOpen = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceListHandler([docsWorkspace]),
+      githubInstallationReposHandler(),
+      http.delete(
+        ({ request }) =>
+          /\/api\/v1\/workspaces\/[^/]+$/.test(new URL(request.url).pathname),
+        () => new HttpResponse(null, { status: 204 }),
+      ),
+    )
+  },
   parameters: {
     visual: {
       skip: "Behavior test: it ends after the delete, when the product leaves this page for Home; DeleteConfirmPending shows the confirmed dialog.",
-    },
-    msw: {
-      handlers: {
-        page: [
-          workspaceListHandler([docsWorkspace]),
-          githubInstallationReposHandler(),
-          http.delete(
-            ({ request }) =>
-              /\/api\/v1\/workspaces\/[^/]+$/.test(
-                new URL(request.url).pathname,
-              ),
-            () => new HttpResponse(null, { status: 204 }),
-          ),
-        ],
-      },
     },
   },
   play: async ({ canvasElement }) => {
@@ -984,33 +934,13 @@ export const DeleteConfirmOpen: Story = {
       expect(body.queryByRole("alertdialog")).not.toBeInTheDocument()
     })
   },
-}
+})
 
 /**
  * Settings pane of a Workspace: the owner confirmed the delete dialog, and the
  * delete request still runs, so the button shows a spinner.
  */
-export const DeleteConfirmPending: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceListHandler([docsWorkspace]),
-          githubInstallationReposHandler(),
-          http.delete(
-            ({ request }) =>
-              /\/api\/v1\/workspaces\/[^/]+$/.test(
-                new URL(request.url).pathname,
-              ),
-            async () => {
-              await delay("infinite")
-              return new HttpResponse(null, { status: 204 })
-            },
-          ),
-        ],
-      },
-    },
-  },
+export const DeleteConfirmPending = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(
@@ -1028,7 +958,21 @@ export const DeleteConfirmPending: Story = {
       ).toBeInTheDocument()
     })
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceListHandler([docsWorkspace]),
+      githubInstallationReposHandler(),
+      http.delete(
+        ({ request }) =>
+          /\/api\/v1\/workspaces\/[^/]+$/.test(new URL(request.url).pathname),
+        async () => {
+          await delay("infinite")
+          return new HttpResponse(null, { status: 204 })
+        },
+      ),
+    )
+  },
+})
 
 /**
  * Settings pane of a Workspace above the org home body. The owner, who
@@ -1036,10 +980,50 @@ export const DeleteConfirmPending: Story = {
  * list cache and shows zero Workspaces at once, also when the list request does
  * not complete.
  */
-export const DeleteLastWorkspaceEmptiesHome: Story = {
-  // The owner dismissed the setup guide, so Home with no Workspace shows
-  // Create Workspace and not the guide.
-  beforeEach: () => {
+export const DeleteLastWorkspaceEmptiesHome = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...(() => {
+        let deleted = false
+        return [
+          http.get(
+            ({ request }) =>
+              /\/api\/v1\/workspaces$/.test(new URL(request.url).pathname),
+            async () => {
+              if (deleted) await delay("infinite")
+              return HttpResponse.json({
+                items: [docsWorkspace],
+                lastUsedWorkspaceId: docsWorkspace.id,
+              })
+            },
+          ),
+          workspaceActivityHandler(),
+          // With no Workspace left, Home shows the activity of the organization.
+          orgActivityHandler(),
+          githubInstallationReposHandler(),
+          // Home reads the landing Workspace and the setup guide signals.
+          workspaceDetailHandler(docsWorkspaceDetail),
+          ...setupGuideHandlers({
+            github: githubInstallationLinkedHandler,
+            connectors: orgConnectionsHandler([
+              { id: "con_gh", type: "github" },
+            ]),
+          }),
+          http.delete(
+            ({ request }) =>
+              /\/api\/v1\/workspaces\/[^/]+$/.test(
+                new URL(request.url).pathname,
+              ),
+            () => {
+              deleted = true
+              return new HttpResponse(null, { status: 204 })
+            },
+          ),
+        ]
+      })(),
+    )
+    // The owner dismissed the setup guide, so Home with no Workspace shows
+    // Create Workspace and not the guide.
     window.localStorage.setItem(
       "ctxpipe:userPreferences",
       JSON.stringify({
@@ -1055,50 +1039,6 @@ export const DeleteLastWorkspaceEmptiesHome: Story = {
       <OrgHomePageContent orgSlug="acme" />
     </>
   ),
-  parameters: {
-    msw: {
-      handlers: {
-        page: (() => {
-          let deleted = false
-          return [
-            http.get(
-              ({ request }) =>
-                /\/api\/v1\/workspaces$/.test(new URL(request.url).pathname),
-              async () => {
-                if (deleted) await delay("infinite")
-                return HttpResponse.json({
-                  items: [docsWorkspace],
-                  lastUsedWorkspaceId: docsWorkspace.id,
-                })
-              },
-            ),
-            workspaceActivityHandler(),
-            // With no Workspace left, Home shows the activity of the organization.
-            orgActivityHandler(),
-            githubInstallationReposHandler(),
-            // Home reads the landing Workspace and the setup guide signals.
-            workspaceDetailHandler(docsWorkspaceDetail),
-            ...setupGuideHandlers({
-              github: githubInstallationLinkedHandler,
-              connectors: orgConnectionsHandler([
-                { id: "con_gh", type: "github" },
-              ]),
-            }),
-            http.delete(
-              ({ request }) =>
-                /\/api\/v1\/workspaces\/[^/]+$/.test(
-                  new URL(request.url).pathname,
-                ),
-              () => {
-                deleted = true
-                return new HttpResponse(null, { status: 204 })
-              },
-            ),
-          ]
-        })(),
-      },
-    },
-  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     // Query again on each try: Home swaps the disabled composer for a new one when the list loads.
@@ -1146,4 +1086,4 @@ export const DeleteLastWorkspaceEmptiesHome: Story = {
       .getByRole("button", { name: "Create Workspace" })
       .scrollIntoView({ block: "center" })
   },
-}
+})

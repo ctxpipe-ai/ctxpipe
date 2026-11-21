@@ -1,7 +1,7 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
+import preview from "../../../.storybook/preview"
 import { docsWorkspaceGitBlobs } from "./workspace-fixtures"
 import { WorkspacePierreFile } from "./WorkspacePierreFile"
 
@@ -16,7 +16,7 @@ function findInShadows(root: ParentNode, selector: string): Element | null {
   return null
 }
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Workspaces/FilePreview",
   component: WorkspacePierreFile,
   decorators: [
@@ -32,34 +32,30 @@ const meta = {
     body: docsWorkspaceGitBlobs["knowledge/billing/ledger.md"] ?? "",
     cacheKey: "story:knowledge/billing/ledger.md",
   },
-} satisfies Meta<typeof WorkspacePierreFile>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * File preview of a Workspace, where a member reads a file: a Markdown file.
  */
-export const Markdown: Story = {}
+export const Markdown = meta.story()
 
 /**
  * File preview of a Workspace, where a member reads a file: a short TypeScript
  * file with syntax colors.
  */
-export const TypeScript: Story = {
+export const TypeScript = meta.story({
   args: {
     path: "apps/ui/src/main.tsx",
     body: 'export function boot() {\n  return "ok"\n}\n',
     cacheKey: "story:apps/ui/src/main.tsx",
   },
-}
+})
 
 /**
  * File preview of a Workspace, where a member reads a file: a local edit shows
  * as a diff against the head version.
  */
-export const DiffVsHead: Story = {
+export const DiffVsHead = meta.story({
   parameters: {
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
@@ -69,21 +65,21 @@ export const DiffVsHead: Story = {
     oldBody: docsWorkspaceGitBlobs["knowledge/billing/ledger.md"] ?? "",
     cacheKey: "story:diff:knowledge/billing/ledger.md",
   },
-}
+})
 
 /**
  * File preview of a Workspace, where a member reads and edits a file: the
  * member opened a short Markdown file that the conversation can change, so it
  * opens in the editor.
  */
-export const Editable: Story = {
+export const Editable = meta.story({
   args: {
     path: "AGENTS.md",
     body: docsWorkspaceGitBlobs["AGENTS.md"] ?? "",
     cacheKey: "story:edit:AGENTS.md",
     editable: true,
   },
-}
+})
 
 /** A handbook page that is longer and wider than the preview. */
 const handbookBody = [
@@ -136,13 +132,13 @@ const handbookBody = [
  * File preview of a Workspace, where a member reads a file: a long handbook
  * page with a wide table at its end, so the preview scrolls down and across.
  */
-export const LongFile: Story = {
+export const LongFile = meta.story({
   args: {
     path: "knowledge/handbook.md",
     body: handbookBody,
     cacheKey: "story:long:knowledge/handbook.md",
   },
-}
+})
 
 const draftHead = docsWorkspaceGitBlobs["AGENTS.md"] ?? ""
 
@@ -197,7 +193,7 @@ async function expectView(canvasElement: HTMLElement, view: "diff" | "file") {
  * diff. The member saved the draft, so no change is left, and the diff view
  * changed back to the plain file view.
  */
-export const DraftSavedShowsFile: Story = {
+export const DraftSavedShowsFile = meta.story({
   parameters: {
     visual: {
       skip: "Behavior test: it ends on a test harness with Save draft and Revert draft buttons, which the product does not render.",
@@ -214,13 +210,13 @@ export const DraftSavedShowsFile: Story = {
     )
     await expectView(canvasElement, "file")
   },
-}
+})
 
 /**
  * File preview of a Workspace, where a member edits a file: the member reverted
  * a draft, so the diff view changed back to the file view.
  */
-export const DraftRevertedShowsFile: Story = {
+export const DraftRevertedShowsFile = meta.story({
   parameters: {
     visual: {
       skip: "Behavior test: it ends on a test harness with Save draft and Revert draft buttons, which the product does not render.",
@@ -237,4 +233,4 @@ export const DraftRevertedShowsFile: Story = {
     )
     await expectView(canvasElement, "file")
   },
-}
+})

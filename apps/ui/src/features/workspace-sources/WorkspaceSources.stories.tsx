@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import {
   focusManager,
   QueryClient,
@@ -33,9 +32,10 @@ import {
 } from "@/mocks/workspace-upgrades-handlers"
 
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
+import preview from "../../../.storybook/preview"
 import { WorkspaceSources } from "./WorkspaceSources"
 
-const meta = {
+const meta = preview.meta({
   title: "Components/WorkspaceSources/Sources",
   component: WorkspaceSources,
   // The width of the Sources card in the Workspace settings pane, and no
@@ -48,6 +48,17 @@ const meta = {
       </div>
     ),
   ],
+  beforeEach: ({ msw }) => {
+    // Only an owner or admin sees the pickers. The Add repositories dialog
+    // reads the Workspace and its format. A story handler for another role,
+    // Workspace or format wins over these.
+    msw.use(
+      ...signedInHandlers,
+      activeMemberRoleHandler("owner"),
+      workspaceDetailHandler(emptyLinkedWorkspaceDetail),
+      workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
+    )
+  },
   parameters: {
     app: "root",
     review: { kind: "component" },
@@ -56,27 +67,9 @@ const meta = {
       pattern: "orgIndex",
       orgSlug: "acme",
     } satisfies StoryRouteParams,
-    // Only an owner or admin sees the pickers. A member story sets `role`.
-    // The Add repositories dialog reads the Workspace and its format. A
-    // story that needs another answer sets `detail` or `upgrades`.
-    msw: {
-      handlers: {
-        session: signedInHandlers,
-        role: [activeMemberRoleHandler("owner")],
-        detail: [workspaceDetailHandler(emptyLinkedWorkspaceDetail)],
-        upgrades: [
-          workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
-        ],
-      },
-    },
   },
   args: { orgSlug: "acme", workspaceSlug: "docs" },
-} satisfies Meta<typeof WorkspaceSources>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
-
+})
 type ChangeCall = { method: string; path: string; body: unknown }
 const editCalls: ChangeCall[] = []
 const addCalls: ChangeCall[] = []
@@ -98,6 +91,7 @@ const githubSource = workspaceSourceFixture({
   scopeSummary: "acme/api",
   description: "The public API service. Its docs link here.",
 })
+
 const githubWebSource = workspaceSourceFixture({
   path: "sources/github/acme/web.md",
   provider: "github",
@@ -106,6 +100,7 @@ const githubWebSource = workspaceSourceFixture({
   scope: { repository: "acme/web" },
   scopeSummary: "acme/web",
 })
+
 const confluenceSource = workspaceSourceFixture({
   path: "sources/confluence/eng-docs.md",
   provider: "confluence",
@@ -113,6 +108,7 @@ const confluenceSource = workspaceSourceFixture({
   connectionName: "acme.atlassian.net",
   scopeSummary: "3 spaces",
 })
+
 const linearSource = workspaceSourceFixture({
   path: "sources/linear/eng-issues.md",
   provider: "linear",
@@ -127,35 +123,23 @@ const linearSource = workspaceSourceFixture({
  * Sources section of the Workspace settings, which lists the sources of a
  * Workspace: the source list still loads.
  */
-export const Loading: Story = {
-  parameters: {
-    msw: {
-      handlers: { page: [workspaceSourcesHandler("loading"), connected] },
-    },
-  },
+export const Loading = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText("Loading sources")
     await expect(canvas.queryByText(/No sources yet/)).toBeNull()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(workspaceSourcesHandler("loading"), connected)
+  },
+})
 
 /**
  * Sources section of the Workspace settings, which lists the sources of a
  * Workspace: the Workspace has no sources and the org has no connections, so a
  * link goes to Connectors.
  */
-export const Empty: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceSourcesHandler(workspaceSourceList()),
-          orgConnectionsHandler([]),
-        ],
-      },
-    },
-  },
+export const Empty = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText(/No sources yet\. Connect a tool/)
@@ -168,21 +152,20 @@ export const Empty: Story = {
     await expect(canvas.queryByText("Add another connection")).toBeNull()
     await expect(canvas.queryByText("sources/")).toBeNull()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceSourcesHandler(workspaceSourceList()),
+      orgConnectionsHandler([]),
+    )
+  },
+})
 
 /**
  * Sources section of the Workspace settings, which lists the sources of a
  * Workspace: the org has GitHub, Confluence and Linear connections, but the
  * Workspace has no sources yet.
  */
-export const ConnectedWithoutSources: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [workspaceSourcesHandler(workspaceSourceList()), connected],
-      },
-    },
-  },
+export const ConnectedWithoutSources = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByRole("button", { name: "Add repositories" })
@@ -198,35 +181,36 @@ export const ConnectedWithoutSources: Story = {
       canvas.getByRole("link", { name: "Add another connection" }),
     ).toHaveAttribute("href", "/acme/connectors")
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(workspaceSourcesHandler(workspaceSourceList()), connected)
+  },
+})
 
 /**
  * Sources section of the Workspace settings, which lists the sources of a
  * Workspace: four sources from GitHub, Confluence and Linear, with paths,
  * descriptions and the connector count.
  */
-export const SeveralProviders: Story = {
+export const SeveralProviders = meta.story({
   tags: ["required"],
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceSourcesHandler(
+        workspaceSourceList({
+          items: [
+            githubSource,
+            githubWebSource,
+            confluenceSource,
+            linearSource,
+          ],
+        }),
+      ),
+      connected,
+    )
+  },
   parameters: {
     intent:
       "Catches a source list that drops a provider or misstates the totals. It must show every source with its path and description and the connector count. Not for edits or empty states.",
-    msw: {
-      handlers: {
-        page: [
-          workspaceSourcesHandler(
-            workspaceSourceList({
-              items: [
-                githubSource,
-                githubWebSource,
-                confluenceSource,
-                linearSource,
-              ],
-            }),
-          ),
-          connected,
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -257,44 +241,13 @@ export const SeveralProviders: Story = {
       canvas.getByRole("link", { name: "Add another connection" }),
     ).toBeVisible()
   },
-}
+})
 
 /**
  * Sources section of the Workspace settings, which lists the sources of a
  * Workspace: three Linear sources from two Linear connections in one group.
  */
-export const OneProviderSeveralSources: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceSourcesHandler(
-            workspaceSourceList({
-              items: [
-                linearSource,
-                {
-                  ...linearSource,
-                  path: "sources/linear/ops-issues.md",
-                  scopeSummary: "2 teams",
-                },
-                {
-                  ...linearSource,
-                  path: "sources/linear/labs-issues.md",
-                  connectionId: "con_li2",
-                  connectionName: "Labs Linear",
-                  scopeSummary: "3 teams",
-                },
-              ],
-            }),
-          ),
-          orgConnectionsHandler([
-            { id: "con_li1", type: "linear" },
-            { id: "con_li2", type: "linear" },
-          ]),
-        ],
-      },
-    },
-  },
+export const OneProviderSeveralSources = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText("3 sources from 2 connectors")
@@ -309,7 +262,34 @@ export const OneProviderSeveralSources: Story = {
     ).toBeVisible()
     await expect(canvas.getAllByRole("heading", { level: 3 })).toHaveLength(1)
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceSourcesHandler(
+        workspaceSourceList({
+          items: [
+            linearSource,
+            {
+              ...linearSource,
+              path: "sources/linear/ops-issues.md",
+              scopeSummary: "2 teams",
+            },
+            {
+              ...linearSource,
+              path: "sources/linear/labs-issues.md",
+              connectionId: "con_li2",
+              connectionName: "Labs Linear",
+              scopeSummary: "3 teams",
+            },
+          ],
+        }),
+      ),
+      orgConnectionsHandler([
+        { id: "con_li1", type: "linear" },
+        { id: "con_li2", type: "linear" },
+      ]),
+    )
+  },
+})
 
 const goneLinearSources = ["old-issues", "old-projects"].map((name) =>
   workspaceSourceFixture({
@@ -329,21 +309,7 @@ const goneLinearSources = ["old-issues", "old-projects"].map((name) =>
  * header gives the reason once, with the count, and the rows do not repeat it.
  * The wide section has the table columns.
  */
-export const SharedReasonShowsOnce: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceSourcesHandler(
-            workspaceSourceList({
-              items: [linearSource, ...goneLinearSources],
-            }),
-          ),
-          connected,
-        ],
-      },
-    },
-  },
+export const SharedReasonShowsOnce = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText("3 sources from 1 connector · 2 need attention")
@@ -357,14 +323,24 @@ export const SharedReasonShowsOnce: Story = {
     await expect(group.getAllByText("Connection missing")).toHaveLength(2)
     await expect(canvas.getByText("File", { exact: true })).toBeVisible()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceSourcesHandler(
+        workspaceSourceList({
+          items: [linearSource, ...goneLinearSources],
+        }),
+      ),
+      connected,
+    )
+  },
+})
 
 /**
  * Sources section of the Workspace settings in a narrow pane: the table folds,
  * so it has no column header, and the Linear row puts its connection and file
  * under the title, with the status and the row actions on the right.
  */
-export const NarrowPaneFoldsTable: Story = {
+export const NarrowPaneFoldsTable = meta.story({
   decorators: [
     (Story) => (
       <div className="w-[30rem]">
@@ -372,18 +348,6 @@ export const NarrowPaneFoldsTable: Story = {
       </div>
     ),
   ],
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceSourcesHandler(
-            workspaceSourceList({ items: [linearSource] }),
-          ),
-          connected,
-        ],
-      },
-    },
-  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText("sources/linear/eng-issues.md")
@@ -393,40 +357,20 @@ export const NarrowPaneFoldsTable: Story = {
       canvas.getByRole("button", { name: "Edit sources/linear/eng-issues.md" }),
     ).toBeVisible()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceSourcesHandler(workspaceSourceList({ items: [linearSource] })),
+      connected,
+    )
+  },
+})
 
 /**
  * Sources section of the Workspace settings, which lists the sources of a
  * Workspace: one Linear source has a missing connection, so the summary and its
  * group say it needs attention.
  */
-export const NeedsAttention: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceSourcesHandler(
-            workspaceSourceList({
-              items: [
-                githubSource,
-                linearSource,
-                workspaceSourceFixture({
-                  path: "sources/linear/old-issues.md",
-                  provider: "linear",
-                  connectionId: "con_gone",
-                  connectionName: null,
-                  status: "connection_missing",
-                  statusDetail: "The connection con_gone does not exist",
-                  scopeSummary: "2 teams",
-                }),
-              ],
-            }),
-          ),
-          connected,
-        ],
-      },
-    },
-  },
+export const NeedsAttention = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText("3 sources from 2 connectors · 1 needs attention")
@@ -439,36 +383,36 @@ export const NeedsAttention: Story = {
       group.getByText("The connection con_gone does not exist"),
     ).toBeVisible()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceSourcesHandler(
+        workspaceSourceList({
+          items: [
+            githubSource,
+            linearSource,
+            workspaceSourceFixture({
+              path: "sources/linear/old-issues.md",
+              provider: "linear",
+              connectionId: "con_gone",
+              connectionName: null,
+              status: "connection_missing",
+              statusDetail: "The connection con_gone does not exist",
+              scopeSummary: "2 teams",
+            }),
+          ],
+        }),
+      ),
+      connected,
+    )
+  },
+})
 
 /**
  * Sources section of the Workspace settings, which lists the sources of a
  * Workspace: no sources yet, and a new Confluence source waits for its pull
  * request to merge.
  */
-export const PendingAdd: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceSourcesHandler(
-            workspaceSourceList({
-              pendingChanges: [
-                {
-                  path: "sources/confluence/eng-docs.md",
-                  provider: "confluence",
-                  action: "add",
-                  pullRequestUrl: "https://github.com/acme/docs/pull/5",
-                  createdAt: "2026-10-10T10:00:00.000Z",
-                },
-              ],
-            }),
-          ),
-          connected,
-        ],
-      },
-    },
-  },
+export const PendingAdd = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText("No sources yet · 1 change awaiting merge")
@@ -490,60 +434,32 @@ export const PendingAdd: Story = {
     await expect(link).toHaveAttribute("target", "_blank")
     await expect(link.querySelector("svg")).not.toBeNull()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceSourcesHandler(
+        workspaceSourceList({
+          pendingChanges: [
+            {
+              path: "sources/confluence/eng-docs.md",
+              provider: "confluence",
+              action: "add",
+              pullRequestUrl: "https://github.com/acme/docs/pull/5",
+              createdAt: "2026-10-10T10:00:00.000Z",
+            },
+          ],
+        }),
+      ),
+      connected,
+    )
+  },
+})
 
 /**
  * Sources section of the Workspace settings, which lists the sources of a
  * Workspace: sources in each status: OK, not valid, connection missing, out of
  * access, and OK with a warning.
  */
-export const EachStatus: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceSourcesHandler(
-            workspaceSourceList({
-              items: [
-                confluenceSource,
-                workspaceSourceFixture({
-                  path: "sources/linear/bad-shape.md",
-                  provider: "linear",
-                  status: "invalid",
-                  statusDetail: "teams: Expected an array",
-                  scopeSummary: "Linear",
-                }),
-                workspaceSourceFixture({
-                  path: "sources/linear/old-linear.md",
-                  provider: "linear",
-                  connectionId: "con_gone",
-                  connectionName: null,
-                  status: "connection_missing",
-                  statusDetail: "The connection con_gone does not exist",
-                  scopeSummary: "1 team",
-                }),
-                workspaceSourceFixture({
-                  path: "sources/slack/eng-channels.md",
-                  provider: "slack",
-                  status: "ok",
-                  statusDetail: "Channel #old is archived",
-                  scopeSummary: "2 Slack channels",
-                }),
-                workspaceSourceFixture({
-                  path: "sources/confluence/secret-space.md",
-                  provider: "confluence",
-                  status: "out_of_access",
-                  statusDetail: "The connection cannot read the space SEC",
-                  scopeSummary: "1 space",
-                }),
-              ],
-            }),
-          ),
-          connected,
-        ],
-      },
-    },
-  },
+export const EachStatus = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findAllByText("OK")
@@ -555,51 +471,56 @@ export const EachStatus: Story = {
     // An ok source that is usable in part names its bad channels.
     await expect(canvas.getByText("Channel #old is archived")).toBeVisible()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceSourcesHandler(
+        workspaceSourceList({
+          items: [
+            confluenceSource,
+            workspaceSourceFixture({
+              path: "sources/linear/bad-shape.md",
+              provider: "linear",
+              status: "invalid",
+              statusDetail: "teams: Expected an array",
+              scopeSummary: "Linear",
+            }),
+            workspaceSourceFixture({
+              path: "sources/linear/old-linear.md",
+              provider: "linear",
+              connectionId: "con_gone",
+              connectionName: null,
+              status: "connection_missing",
+              statusDetail: "The connection con_gone does not exist",
+              scopeSummary: "1 team",
+            }),
+            workspaceSourceFixture({
+              path: "sources/slack/eng-channels.md",
+              provider: "slack",
+              status: "ok",
+              statusDetail: "Channel #old is archived",
+              scopeSummary: "2 Slack channels",
+            }),
+            workspaceSourceFixture({
+              path: "sources/confluence/secret-space.md",
+              provider: "confluence",
+              status: "out_of_access",
+              statusDetail: "The connection cannot read the space SEC",
+              scopeSummary: "1 space",
+            }),
+          ],
+        }),
+      ),
+      connected,
+    )
+  },
+})
 
 /**
  * Sources section of the Workspace settings, which lists the sources of a
  * Workspace: an edit, a removal and an add each wait for a pull request to
  * merge, with links to them.
  */
-export const AwaitingMerge: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceSourcesHandler(
-            workspaceSourceList({
-              items: [githubSource, linearSource],
-              pendingChanges: [
-                {
-                  path: "sources/github/acme/api.md",
-                  provider: "github",
-                  action: "edit",
-                  pullRequestUrl: "https://github.com/acme/docs/pull/3",
-                  createdAt: "2026-10-10T10:00:00.000Z",
-                },
-                {
-                  path: "sources/linear/eng-issues.md",
-                  provider: "linear",
-                  action: "remove",
-                  pullRequestUrl: "https://github.com/acme/docs/pull/4",
-                  createdAt: "2026-10-10T10:00:00.000Z",
-                },
-                {
-                  path: "sources/confluence/eng-docs.md",
-                  provider: "confluence",
-                  action: "add",
-                  pullRequestUrl: "https://github.com/acme/docs/pull/5",
-                  createdAt: "2026-10-10T10:00:00.000Z",
-                },
-              ],
-            }),
-          ),
-          connected,
-        ],
-      },
-    },
-  },
+export const AwaitingMerge = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const links = await canvas.findAllByRole("link", {
@@ -614,13 +535,46 @@ export const AwaitingMerge: Story = {
     ).toHaveAttribute("href", "https://github.com/acme/docs/pull/4")
     await expect(canvas.getByText("New source")).toBeVisible()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceSourcesHandler(
+        workspaceSourceList({
+          items: [githubSource, linearSource],
+          pendingChanges: [
+            {
+              path: "sources/github/acme/api.md",
+              provider: "github",
+              action: "edit",
+              pullRequestUrl: "https://github.com/acme/docs/pull/3",
+              createdAt: "2026-10-10T10:00:00.000Z",
+            },
+            {
+              path: "sources/linear/eng-issues.md",
+              provider: "linear",
+              action: "remove",
+              pullRequestUrl: "https://github.com/acme/docs/pull/4",
+              createdAt: "2026-10-10T10:00:00.000Z",
+            },
+            {
+              path: "sources/confluence/eng-docs.md",
+              provider: "confluence",
+              action: "add",
+              pullRequestUrl: "https://github.com/acme/docs/pull/5",
+              createdAt: "2026-10-10T10:00:00.000Z",
+            },
+          ],
+        }),
+      ),
+      connected,
+    )
+  },
+})
 
 /**
  * Sources section of the Workspace settings, which lists the sources of a
  * Workspace: the URL names the Confluence section, so the list scrolls to it.
  */
-export const ScrollsToSourceAnchor: Story = {
+export const ScrollsToSourceAnchor = meta.story({
   tags: ["required"],
   decorators: [
     (Story) => (
@@ -629,40 +583,36 @@ export const ScrollsToSourceAnchor: Story = {
       </div>
     ),
   ],
-  beforeEach: () => {
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceSourcesHandler(
+        workspaceSourceList({
+          items: [
+            githubSource,
+            { ...githubSource, path: "sources/github/acme/more-repos.md" },
+            {
+              ...githubSource,
+              path: "sources/github/acme/even-more-repos.md",
+            },
+            confluenceSource,
+            {
+              ...confluenceSource,
+              path: "sources/confluence/more-docs.md",
+            },
+            linearSource,
+            { ...linearSource, path: "sources/linear/more-issues.md" },
+            { ...linearSource, path: "sources/linear/even-more-issues.md" },
+          ],
+        }),
+      ),
+      connected,
+    )
     window.history.replaceState(null, "", "#source-confluence")
     return () => window.history.replaceState(null, "", "#")
   },
   parameters: {
     intent:
       "Catches a source list that ignores the URL hash. The page must scroll the matching provider section into view. Not for the list content or edits.",
-    msw: {
-      handlers: {
-        page: [
-          workspaceSourcesHandler(
-            workspaceSourceList({
-              items: [
-                githubSource,
-                { ...githubSource, path: "sources/github/acme/more-repos.md" },
-                {
-                  ...githubSource,
-                  path: "sources/github/acme/even-more-repos.md",
-                },
-                confluenceSource,
-                {
-                  ...confluenceSource,
-                  path: "sources/confluence/more-docs.md",
-                },
-                linearSource,
-                { ...linearSource, path: "sources/linear/more-issues.md" },
-                { ...linearSource, path: "sources/linear/even-more-issues.md" },
-              ],
-            }),
-          ),
-          connected,
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -677,32 +627,26 @@ export const ScrollsToSourceAnchor: Story = {
       section.getBoundingClientRect().top - root.getBoundingClientRect().top
     await expect(Math.abs(offset)).toBeLessThan(40)
   },
-}
+})
 
 /**
  * Sources section of the Workspace settings, which lists the sources of a
  * Workspace: the edit dialog of a Linear source is open, and the user adds a
  * team and opens a pull request.
  */
-export const EditSendsChange: Story = {
+export const EditSendsChange = meta.story({
   tags: ["required"],
   parameters: {
     intent:
       "Catches a source edit that sends the wrong change. The edit dialog must start from the saved scope and send a PUT with the new scope. Not for adding sources.",
-    msw: {
-      handlers: {
-        page: [
-          workspaceSourcesHandler(
-            workspaceSourceList({ items: [linearSource] }),
-          ),
-          connected,
-          linearAvailableScopesHandler(),
-          ...workspaceSourceChangeHandlers(editCalls),
-        ],
-      },
-    },
   },
-  beforeEach: () => {
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceSourcesHandler(workspaceSourceList({ items: [linearSource] })),
+      connected,
+      linearAvailableScopesHandler(),
+      ...workspaceSourceChangeHandlers(editCalls),
+    )
     editCalls.length = 0
   },
   play: async ({ canvasElement }) => {
@@ -738,28 +682,20 @@ export const EditSendsChange: Story = {
     })
     await within(document.body).findByText(/Pull request opened/)
   },
-}
+})
 
 /**
  * Sources section of the Workspace settings, which lists the sources of a
  * Workspace: the user unlinks a GitHub repository, which opens a pull request
  * that deletes its source file.
  */
-export const UnlinkSendsChange: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceSourcesHandler(
-            workspaceSourceList({ items: [githubSource] }),
-          ),
-          connected,
-          ...workspaceSourceChangeHandlers(editCalls),
-        ],
-      },
-    },
-  },
-  beforeEach: () => {
+export const UnlinkSendsChange = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceSourcesHandler(workspaceSourceList({ items: [githubSource] })),
+      connected,
+      ...workspaceSourceChangeHandlers(editCalls),
+    )
     editCalls.length = 0
   },
   play: async ({ canvasElement }) => {
@@ -778,46 +714,14 @@ export const UnlinkSendsChange: Story = {
     })
     await within(document.body).findByText(/Pull request opened/)
   },
-}
+})
 
 /**
  * Sources section of the Workspace settings: a GitHub and a Confluence row come
  * from the legacy `.ctxpipe/sources.yaml` file, so each has a note to edit that
  * file and no row actions. A delete cannot name a file for such a row.
  */
-export const LegacyYamlRowNotRemovable: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceSourcesHandler(
-            workspaceSourceList({
-              items: [
-                workspaceSourceFixture({
-                  path: "product-repos",
-                  provider: "github",
-                  connectionId: "con_gh1",
-                  connectionName: "acme-gh",
-                  scope: { repositories: ["acme/api"] },
-                  scopeSummary: "1 linked repository",
-                  removable: false,
-                }),
-                workspaceSourceFixture({
-                  path: "eng-docs",
-                  provider: "confluence",
-                  connectionId: "con_cf1",
-                  connectionName: "acme.atlassian.net",
-                  scopeSummary: "3 spaces",
-                  removable: false,
-                }),
-              ],
-            }),
-          ),
-          connected,
-        ],
-      },
-    },
-  },
+export const LegacyYamlRowNotRemovable = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText("acme/api")
@@ -835,7 +739,35 @@ export const LegacyYamlRowNotRemovable: Story = {
         canvas.queryByRole("button", { name: `${action} eng-docs` }),
       ).toBeNull()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceSourcesHandler(
+        workspaceSourceList({
+          items: [
+            workspaceSourceFixture({
+              path: "product-repos",
+              provider: "github",
+              connectionId: "con_gh1",
+              connectionName: "acme-gh",
+              scope: { repositories: ["acme/api"] },
+              scopeSummary: "1 linked repository",
+              removable: false,
+            }),
+            workspaceSourceFixture({
+              path: "eng-docs",
+              provider: "confluence",
+              connectionId: "con_cf1",
+              connectionName: "acme.atlassian.net",
+              scopeSummary: "3 spaces",
+              removable: false,
+            }),
+          ],
+        }),
+      ),
+      connected,
+    )
+  },
+})
 
 const unlinkCalls: ChangeCall[] = []
 
@@ -845,7 +777,7 @@ const unlinkCalls: ChangeCall[] = []
  * only the file delete goes out. The unlink command does not run too, because
  * the file change covers it.
  */
-export const UnlinkDeletesTheSourceFile: Story = {
+export const UnlinkDeletesTheSourceFile = meta.story({
   args: {
     linkedRepositories: [
       {
@@ -859,43 +791,37 @@ export const UnlinkDeletesTheSourceFile: Story = {
       },
     ],
   },
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceSourcesHandler(
-            workspaceSourceList({
-              items: [
-                {
-                  ...githubSource,
-                  scope: { repository: "acme/api" },
-                  scopeSummary: "acme/api",
-                },
-              ],
-            }),
-          ),
-          connected,
-          ...workspaceSourceChangeHandlers(unlinkCalls),
-          http.delete(
-            "*/api/v1/workspaces/:workspaceSlug/linked-repositories/:linkedId",
-            ({ request }) => {
-              unlinkCalls.push({
-                method: "DELETE",
-                path: new URL(request.url).pathname,
-                body: null,
-              })
-              return HttpResponse.json({
-                outcome: "pull_request",
-                path: "sources/github/acme/api.md",
-                pullRequestUrl: "https://github.com/acme/docs/pull/7",
-              })
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceSourcesHandler(
+        workspaceSourceList({
+          items: [
+            {
+              ...githubSource,
+              scope: { repository: "acme/api" },
+              scopeSummary: "acme/api",
             },
-          ),
-        ],
-      },
-    },
-  },
-  beforeEach: () => {
+          ],
+        }),
+      ),
+      connected,
+      ...workspaceSourceChangeHandlers(unlinkCalls),
+      http.delete(
+        "*/api/v1/workspaces/:workspaceSlug/linked-repositories/:linkedId",
+        ({ request }) => {
+          unlinkCalls.push({
+            method: "DELETE",
+            path: new URL(request.url).pathname,
+            body: null,
+          })
+          return HttpResponse.json({
+            outcome: "pull_request",
+            path: "sources/github/acme/api.md",
+            pullRequestUrl: "https://github.com/acme/docs/pull/7",
+          })
+        },
+      ),
+    )
     unlinkCalls.length = 0
   },
   play: async ({ canvasElement }) => {
@@ -914,14 +840,14 @@ export const UnlinkDeletesTheSourceFile: Story = {
       }),
     ])
   },
-}
+})
 
 /**
  * Sources section of the Workspace settings, which lists the sources of a
  * Workspace: a linked repository with no source file is in the GitHub list next
  * to a repository with a file.
  */
-export const LinkedRepositoryWithoutSourceShows: Story = {
+export const LinkedRepositoryWithoutSourceShows = meta.story({
   args: {
     linkedRepositories: [
       {
@@ -935,18 +861,6 @@ export const LinkedRepositoryWithoutSourceShows: Story = {
       },
     ],
   },
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceSourcesHandler(
-            workspaceSourceList({ items: [githubSource] }),
-          ),
-          connected,
-        ],
-      },
-    },
-  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const list = within(
@@ -957,50 +871,49 @@ export const LinkedRepositoryWithoutSourceShows: Story = {
     await expect(list.getByText("Indexed")).toBeVisible()
     await expect(list.getByText("Linked by a repositories file")).toBeVisible()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceSourcesHandler(workspaceSourceList({ items: [githubSource] })),
+      connected,
+    )
+  },
+})
 
 /**
  * Sources section of the Workspace settings: in the Add repositories dialog the
  * user picked acme/api and pressed Open a pull request, so the list shows the
  * change as awaiting merge and a toast links to the pull request.
  */
-export const AddSendsChange: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          // After the add, the server lists the change of the pull request.
-          workspaceSourcesHandler(() =>
-            workspaceSourceList(
-              addCalls.length === 0
-                ? {}
-                : {
-                    pendingChanges: [
-                      {
-                        path: "sources/github/acme/api.md",
-                        provider: "github",
-                        action: "add",
-                        pullRequestUrl: "https://github.com/acme/docs/pull/7",
-                        createdAt: "2026-10-10T10:00:00.000Z",
-                      },
-                    ],
+export const AddSendsChange = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceSourcesHandler(() =>
+        workspaceSourceList(
+          addCalls.length === 0
+            ? {}
+            : {
+                pendingChanges: [
+                  {
+                    path: "sources/github/acme/api.md",
+                    provider: "github",
+                    action: "add",
+                    pullRequestUrl: "https://github.com/acme/docs/pull/7",
+                    createdAt: "2026-10-10T10:00:00.000Z",
                   },
-            ),
-          ),
-          connected,
-          githubInstallationReposHandler([
-            {
-              name: "api",
-              clone_url: "https://github.com/acme/api.git",
-              full_name: "acme/api",
-            },
-          ]),
-          ...workspaceSourceChangeHandlers(addCalls),
-        ],
-      },
-    },
-  },
-  beforeEach: () => {
+                ],
+              },
+        ),
+      ),
+      connected,
+      githubInstallationReposHandler([
+        {
+          name: "api",
+          clone_url: "https://github.com/acme/api.git",
+          full_name: "acme/api",
+        },
+      ]),
+      ...workspaceSourceChangeHandlers(addCalls),
+    )
     addCalls.length = 0
   },
   play: async ({ canvasElement }) => {
@@ -1038,14 +951,14 @@ export const AddSendsChange: Story = {
     // The list reads the sources again and shows the change of the pull request.
     await canvas.findByText("No sources yet · 1 change awaiting merge")
   },
-}
+})
 
 /**
  * Sources section of the Workspace settings, which lists the sources of a
  * Workspace: in the Add repositories dialog, the user picks two repositories.
  * They go to the server in one batch request, so in one pull request.
  */
-export const AddSeveralSendsOneBatch: Story = {
+export const AddSeveralSendsOneBatch = meta.story({
   tags: ["required"],
   parameters: {
     visual: {
@@ -1053,29 +966,25 @@ export const AddSeveralSendsOneBatch: Story = {
     },
     intent:
       "Catches an add of several repositories that sends one request per repository. It must send one batch request, so one pull request. Not for the repository list.",
-    msw: {
-      handlers: {
-        page: [
-          workspaceSourcesHandler(workspaceSourceList()),
-          connected,
-          githubInstallationReposHandler([
-            {
-              name: "api",
-              clone_url: "https://github.com/acme/api.git",
-              full_name: "acme/api",
-            },
-            {
-              name: "web",
-              clone_url: "https://github.com/acme/web.git",
-              full_name: "acme/web",
-            },
-          ]),
-          ...workspaceSourceChangeHandlers(addCalls),
-        ],
-      },
-    },
   },
-  beforeEach: () => {
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceSourcesHandler(workspaceSourceList()),
+      connected,
+      githubInstallationReposHandler([
+        {
+          name: "api",
+          clone_url: "https://github.com/acme/api.git",
+          full_name: "acme/api",
+        },
+        {
+          name: "web",
+          clone_url: "https://github.com/acme/web.git",
+          full_name: "acme/web",
+        },
+      ]),
+      ...workspaceSourceChangeHandlers(addCalls),
+    )
     addCalls.length = 0
   },
   play: async ({ canvasElement }) => {
@@ -1104,7 +1013,7 @@ export const AddSeveralSendsOneBatch: Story = {
       },
     })
   },
-}
+})
 
 /**
  * Sources section of the Workspace settings: the Paste URL tab of the Add
@@ -1112,23 +1021,19 @@ export const AddSeveralSendsOneBatch: Story = {
  * checks the URL when the user leaves the field, and sends a `git` source with
  * no connection.
  */
-export const AddByUrlSendsGitSource: Story = {
+export const AddByUrlSendsGitSource = meta.story({
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as AddSendsChange.",
     },
-    msw: {
-      handlers: {
-        page: [
-          workspaceSourcesHandler(workspaceSourceList()),
-          connected,
-          githubInstallationReposHandler([]),
-          ...workspaceSourceChangeHandlers(addCalls),
-        ],
-      },
-    },
   },
-  beforeEach: () => {
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceSourcesHandler(workspaceSourceList()),
+      connected,
+      githubInstallationReposHandler([]),
+      ...workspaceSourceChangeHandlers(addCalls),
+    )
     addCalls.length = 0
   },
   play: async ({ canvasElement }) => {
@@ -1172,34 +1077,14 @@ export const AddByUrlSendsGitSource: Story = {
       name: "View pull request",
     })
   },
-}
+})
 
 /**
  * Sources section of the Workspace settings: the Paste URL tab of the Add
  * repositories dialog gives the server refusal of a URL under the field. The
  * dialog stays open, so the user can fix the URL.
  */
-export const AddByUrlShowsRefusal: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceSourcesHandler(workspaceSourceList()),
-          connected,
-          githubInstallationReposHandler([]),
-          http.post("*/api/v1/workspaces/docs/sources", () =>
-            HttpResponse.json(
-              {
-                error:
-                  "The host git.inside.example of the plain git URL has no public address. Plain git sources must use an https:// URL. ssh (git@… or ssh://), git:// and file:// are not supported.",
-              },
-              { status: 400 },
-            ),
-          ),
-        ],
-      },
-    },
-  },
+export const AddByUrlShowsRefusal = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(
@@ -1221,28 +1106,38 @@ export const AddByUrlShowsRefusal: Story = {
       dialog.getByRole("heading", { name: "Add repositories" }),
     ).toBeVisible()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceSourcesHandler(workspaceSourceList()),
+      connected,
+      githubInstallationReposHandler([]),
+      http.post("*/api/v1/workspaces/docs/sources", () =>
+        HttpResponse.json(
+          {
+            error:
+              "The host git.inside.example of the plain git URL has no public address. Plain git sources must use an https:// URL. ssh (git@… or ssh://), git:// and file:// are not supported.",
+          },
+          { status: 400 },
+        ),
+      ),
+    )
+  },
+})
 
 /**
  * Sources section of the Workspace settings, which lists the sources of a
  * Workspace: the remove dialog of a Confluence source is open, and the user
  * confirms with a pull request.
  */
-export const RemoveSendsChange: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceSourcesHandler(
-            workspaceSourceList({ items: [confluenceSource] }),
-          ),
-          connected,
-          ...workspaceSourceChangeHandlers(removeCalls),
-        ],
-      },
-    },
-  },
-  beforeEach: () => {
+export const RemoveSendsChange = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceSourcesHandler(
+        workspaceSourceList({ items: [confluenceSource] }),
+      ),
+      connected,
+      ...workspaceSourceChangeHandlers(removeCalls),
+    )
     removeCalls.length = 0
   },
   play: async ({ canvasElement }) => {
@@ -1263,76 +1158,37 @@ export const RemoveSendsChange: Story = {
       query: { path: "sources/confluence/eng-docs.md" },
     })
   },
-}
+})
+
 /**
  * Sources section of the Workspace settings, which lists the sources of a
  * Workspace: the legacy sources file is not valid, so an error names the
  * problem.
  */
-export const FileNotValid: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceSourcesHandler(
-            workspaceSourceList({
-              fileError: "version: Expected 1",
-            }),
-          ),
-          connected,
-        ],
-      },
-    },
-  },
+export const FileNotValid = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText("The legacy sources file is not valid")
     await expect(canvas.getByText("version: Expected 1")).toBeVisible()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceSourcesHandler(
+        workspaceSourceList({
+          fileError: "version: Expected 1",
+        }),
+      ),
+      connected,
+    )
+  },
+})
 
 /**
  * Sources section of the Workspace settings, which lists the sources of a
  * Workspace: a source with an unknown provider and a refused repository file
  * give their errors.
  */
-export const RefusedRepositoryFile: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceSourcesHandler(
-            workspaceSourceList({
-              items: [
-                linearSource,
-                workspaceSourceFixture({
-                  path: "old-entry",
-                  provider: null,
-                  connectionId: null,
-                  connectionName: null,
-                  status: "invalid",
-                  statusDetail: "The provider is not known",
-                  scopeSummary: "Unknown provider",
-                }),
-                workspaceSourceFixture({
-                  path: "repositories/tools.md",
-                  provider: null,
-                  connectionId: null,
-                  connectionName: null,
-                  status: "invalid",
-                  statusDetail:
-                    "repositories/tools.md: ctxpipe links only GitHub repositories. Move the link into .ctxpipe/sources.yaml or remove the file.",
-                  scopeSummary: "Repository file",
-                  removable: false,
-                }),
-              ],
-            }),
-          ),
-          connected,
-        ],
-      },
-    },
-  },
+export const RefusedRepositoryFile = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     // The repository file shows its error, but a remove cannot name it.
@@ -1348,40 +1204,71 @@ export const RefusedRepositoryFile: Story = {
       canvas.getByRole("button", { name: "Remove old-entry" }),
     ).toBeVisible()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceSourcesHandler(
+        workspaceSourceList({
+          items: [
+            linearSource,
+            workspaceSourceFixture({
+              path: "old-entry",
+              provider: null,
+              connectionId: null,
+              connectionName: null,
+              status: "invalid",
+              statusDetail: "The provider is not known",
+              scopeSummary: "Unknown provider",
+            }),
+            workspaceSourceFixture({
+              path: "repositories/tools.md",
+              provider: null,
+              connectionId: null,
+              connectionName: null,
+              status: "invalid",
+              statusDetail:
+                "repositories/tools.md: ctxpipe links only GitHub repositories. Move the link into .ctxpipe/sources.yaml or remove the file.",
+              scopeSummary: "Repository file",
+              removable: false,
+            }),
+          ],
+        }),
+      ),
+      connected,
+    )
+  },
+})
 
 /**
  * Sources section of the Workspace settings card: the request for the source
  * list failed, so an error line with Retry below it stands in place of the
  * list.
  */
-export const LoadFailed: Story = {
-  parameters: {
-    msw: {
-      handlers: { page: [workspaceSourcesHandler("error"), connected] },
-    },
-  },
+export const LoadFailed = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText("Could not load the sources of this Workspace.")
     await expect(canvas.getByRole("button", { name: "Retry" })).toBeVisible()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(workspaceSourcesHandler("error"), connected)
+  },
+})
 
 /**
  * Sources section of the Workspace settings: the format upgrade check did not
  * load, so an error with Retry is visible and no Add button. The page cannot
  * tell if the Workspace can take a source, so it does not say "No sources yet".
  */
-export const UpgradesLoadFailed: Story = {
+export const UpgradesLoadFailed = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceUpgradesHandler("error"),
+      workspaceSourcesHandler(workspaceSourceList()),
+      connected,
+    )
+  },
   parameters: {
     visual: { skip: "Behavior test: it ends in the same state as LoadFailed." },
-    msw: {
-      handlers: {
-        upgrades: [workspaceUpgradesHandler("error")],
-        page: [workspaceSourcesHandler(workspaceSourceList()), connected],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1393,31 +1280,29 @@ export const UpgradesLoadFailed: Story = {
       canvas.queryByRole("button", { name: "Add repositories" }),
     ).toBeNull()
   },
-}
+})
 
 /**
  * Sources section of the Workspace settings, which lists the sources of a
  * Workspace: the user cannot edit this Workspace, so the list has no add,
  * unlink or remove buttons.
  */
-export const ReadOnlyHidesChanges: Story = {
+export const ReadOnlyHidesChanges = meta.story({
   tags: ["required"],
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceSourcesHandler(
+        workspaceSourceList({
+          items: [githubSource, linearSource],
+          canEdit: false,
+        }),
+      ),
+      connected,
+    )
+  },
   parameters: {
     intent:
       "Catches a read-only workspace that shows source actions. Add, unlink, and remove buttons must not appear when the user cannot edit. Not for the source list content.",
-    msw: {
-      handlers: {
-        page: [
-          workspaceSourcesHandler(
-            workspaceSourceList({
-              items: [githubSource, linearSource],
-              canEdit: false,
-            }),
-          ),
-          connected,
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1434,7 +1319,7 @@ export const ReadOnlyHidesChanges: Story = {
       }),
     ).toBeNull()
   },
-}
+})
 
 const pickerCalls: ChangeCall[] = []
 
@@ -1466,26 +1351,22 @@ const reposPerConnection = http.get(
  * the repositories of two GitHub connections, and the user picks one from each
  * and opens one pull request.
  */
-export const PickerShowsConnectionNames: Story = {
+export const PickerShowsConnectionNames = meta.story({
   tags: ["required"],
   parameters: {
     intent:
       "Catches a repository picker that mixes several GitHub connections. It lists the repositories of each connection and sends each repository with its own connection id. Not for the source list.",
-    msw: {
-      handlers: {
-        page: [
-          workspaceSourcesHandler(workspaceSourceList()),
-          orgConnectionsHandler([
-            { id: "con_gh1", type: "github", displayName: "acme-gh" },
-            { id: "con_gh2", type: "github", displayName: "acme-labs" },
-          ]),
-          reposPerConnection,
-          ...workspaceSourceChangeHandlers(pickerCalls),
-        ],
-      },
-    },
   },
-  beforeEach: () => {
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceSourcesHandler(workspaceSourceList()),
+      orgConnectionsHandler([
+        { id: "con_gh1", type: "github", displayName: "acme-gh" },
+        { id: "con_gh2", type: "github", displayName: "acme-labs" },
+      ]),
+      reposPerConnection,
+      ...workspaceSourceChangeHandlers(pickerCalls),
+    )
     pickerCalls.length = 0
   },
   play: async ({ canvasElement }) => {
@@ -1525,26 +1406,14 @@ export const PickerShowsConnectionNames: Story = {
       ]),
     )
   },
-}
+})
 
 /**
  * Sources section of the Workspace settings, which lists the sources of a
  * Workspace: the GitHub group has no repositories yet, with one primary Add
  * repositories button and a short note (CTX-864).
  */
-export const GithubNoRepositories: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceSourcesHandler(workspaceSourceList()),
-          connected,
-          // The Add repositories dialog lists the repositories of the App.
-          githubInstallationReposHandler(),
-        ],
-      },
-    },
-  },
+export const GithubNoRepositories = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText(
@@ -1566,7 +1435,14 @@ export const GithubNoRepositories: Story = {
       name: "Add repositories",
     })
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceSourcesHandler(workspaceSourceList()),
+      connected,
+      githubInstallationReposHandler(),
+    )
+  },
+})
 
 /** The repositories of the GitHub App. The Workspace repository is acme/docs. */
 const reposWithWorkspaceRepository = githubInstallationReposHandler([
@@ -1603,18 +1479,7 @@ async function openAddRepositories(canvasElement: HTMLElement) {
  * what ctxpipe does with a repository and what "Open a pull request" does.
  * Under the list, a hint links to the GitHub App access.
  */
-export const AddRepositoriesExplains: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceSourcesHandler(workspaceSourceList()),
-          connected,
-          reposWithWorkspaceRepository,
-        ],
-      },
-    },
-  },
+export const AddRepositoriesExplains = meta.story({
   play: async ({ canvasElement }) => {
     const dialog = await openAddRepositories(canvasElement)
     await dialog.findByText(
@@ -1639,25 +1504,21 @@ export const AddRepositoriesExplains: Story = {
       "https://github.com/organizations/acme/settings/installations/123",
     )
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceSourcesHandler(workspaceSourceList()),
+      connected,
+      reposWithWorkspaceRepository,
+    )
+  },
+})
 
 /**
  * Sources section of the Workspace settings: a search in the Add repositories
  * dialog has no match, so a hint gives the next step, with a link to give
  * ctxpipe access on GitHub, not a dead end.
  */
-export const AddRepositoriesEmptySearchHint: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceSourcesHandler(workspaceSourceList()),
-          connected,
-          reposWithWorkspaceRepository,
-        ],
-      },
-    },
-  },
+export const AddRepositoriesEmptySearchHint = meta.story({
   play: async ({ canvasElement }) => {
     const dialog = await openAddRepositories(canvasElement)
     await dialog.findByRole("checkbox", { name: "acme/api" })
@@ -1672,26 +1533,31 @@ export const AddRepositoriesEmptySearchHint: Story = {
       ).toBeVisible(),
     )
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceSourcesHandler(workspaceSourceList()),
+      connected,
+      reposWithWorkspaceRepository,
+    )
+  },
+})
 
 /**
  * Sources section of the Workspace settings: the Add repositories dialog lists
  * the Workspace repository as disabled, with a label. The match ignores the
  * letter case of the repository name.
  */
-export const AddRepositoriesWorkspaceRepositoryDisabled: Story = {
+export const AddRepositoriesWorkspaceRepositoryDisabled = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceSourcesHandler(workspaceSourceList()),
+      connected,
+      reposWithWorkspaceRepository,
+    )
+  },
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as AddRepositoriesExplains.",
-    },
-    msw: {
-      handlers: {
-        page: [
-          workspaceSourcesHandler(workspaceSourceList()),
-          connected,
-          reposWithWorkspaceRepository,
-        ],
-      },
     },
   },
   play: async ({ canvasElement }) => {
@@ -1708,7 +1574,7 @@ export const AddRepositoriesWorkspaceRepositoryDisabled: Story = {
       dialog.getByRole("button", { name: "Open a pull request" }),
     ).toBeDisabled()
   },
-}
+})
 
 const accessReads = { count: 0 }
 const realDateNow = Date.now
@@ -1720,7 +1586,7 @@ const realDateNow = Date.now
  * The query client keeps data fresh for 60 seconds, as the app does, and the
  * user is away for a minute, so the cached dialog list is stale.
  */
-export const AddRepositoriesRefreshesOnReturn: Story = {
+export const AddRepositoriesRefreshesOnReturn = meta.story({
   decorators: [
     (Story) => {
       const [client] = useState(
@@ -1736,7 +1602,47 @@ export const AddRepositoriesRefreshesOnReturn: Story = {
       )
     },
   ],
-  beforeEach: () => {
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceSourcesHandler(workspaceSourceList()),
+      connected,
+      ...workspaceSourceChangeHandlers(addCalls),
+      http.get(
+        ({ request }) =>
+          new URL(request.url).pathname.endsWith(
+            "/api/v1/github/installation/repositories",
+          ),
+        () => {
+          accessReads.count += 1
+          const repositories = [
+            ...(accessReads.count > 1
+              ? [
+                  {
+                    name: "billing",
+                    clone_url: "https://github.com/acme/billing.git",
+                    full_name: "acme/billing",
+                    pushed_at: "2026-10-18T00:00:00Z",
+                  },
+                ]
+              : []),
+            {
+              name: "api",
+              clone_url: "https://github.com/acme/api.git",
+              full_name: "acme/api",
+              pushed_at: "2026-10-01T00:00:00Z",
+            },
+          ]
+          return HttpResponse.json({
+            repositories,
+            repositorySelection: "selected",
+            manageUrl:
+              "https://github.com/organizations/acme/settings/installations/123",
+            hasMore: false,
+            totalCount: repositories.length,
+          })
+        },
+      ),
+    )
     accessReads.count = 0
     addCalls.length = 0
     return () => {
@@ -1747,50 +1653,6 @@ export const AddRepositoriesRefreshesOnReturn: Story = {
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as AddSendsChange.",
-    },
-    msw: {
-      handlers: {
-        page: [
-          workspaceSourcesHandler(workspaceSourceList()),
-          connected,
-          ...workspaceSourceChangeHandlers(addCalls),
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname.endsWith(
-                "/api/v1/github/installation/repositories",
-              ),
-            () => {
-              accessReads.count += 1
-              const repositories = [
-                ...(accessReads.count > 1
-                  ? [
-                      {
-                        name: "billing",
-                        clone_url: "https://github.com/acme/billing.git",
-                        full_name: "acme/billing",
-                        pushed_at: "2026-10-18T00:00:00Z",
-                      },
-                    ]
-                  : []),
-                {
-                  name: "api",
-                  clone_url: "https://github.com/acme/api.git",
-                  full_name: "acme/api",
-                  pushed_at: "2026-10-01T00:00:00Z",
-                },
-              ]
-              return HttpResponse.json({
-                repositories,
-                repositorySelection: "selected",
-                manageUrl:
-                  "https://github.com/organizations/acme/settings/installations/123",
-                hasMore: false,
-                totalCount: repositories.length,
-              })
-            },
-          ),
-        ],
-      },
     },
   },
   play: async ({ canvasElement }) => {
@@ -1823,7 +1685,7 @@ export const AddRepositoriesRefreshesOnReturn: Story = {
       body: { source: { scope: { repository: "acme/api" } } },
     })
   },
-}
+})
 
 const ownerLine =
   "Only an owner of the GitHub organization can give access. If you are not an owner, ask one to do it."
@@ -1833,38 +1695,7 @@ const ownerLine =
  * access link for each of two GitHub connections, named after the connection. A
  * line tells a user who is not an owner what to do.
  */
-export const AddRepositoriesHintLinksEachConnection: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceSourcesHandler(workspaceSourceList()),
-          orgConnectionsHandler([
-            { id: "con_gh1", type: "github", displayName: "acme-gh" },
-            { id: "con_gh2", type: "github", displayName: "acme-labs" },
-          ]),
-          http.get(/\/github\/installation\/repositories$/, ({ request }) => {
-            const second =
-              new URL(request.url).searchParams.get("connectionId") ===
-              "con_gh2"
-            return HttpResponse.json({
-              repositories: [
-                {
-                  name: second ? "tool" : "api",
-                  full_name: second ? "labs/tool" : "acme/api",
-                  clone_url: `https://github.com/${second ? "labs/tool" : "acme/api"}.git`,
-                },
-              ],
-              repositorySelection: "selected",
-              manageUrl: `https://github.com/organizations/${second ? "labs" : "acme"}/settings/installations/${second ? 2 : 1}`,
-              hasMore: false,
-              totalCount: 1,
-            })
-          }),
-        ],
-      },
-    },
-  },
+export const AddRepositoriesHintLinksEachConnection = meta.story({
   play: async ({ canvasElement }) => {
     const dialog = await openAddRepositories(canvasElement)
     await dialog.findByRole("checkbox", { name: "labs/tool" })
@@ -1884,28 +1715,52 @@ export const AddRepositoriesHintLinksEachConnection: Story = {
       expect(dialog.getByText(ownerLine)).toBeVisible()
     })
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceSourcesHandler(workspaceSourceList()),
+      orgConnectionsHandler([
+        { id: "con_gh1", type: "github", displayName: "acme-gh" },
+        { id: "con_gh2", type: "github", displayName: "acme-labs" },
+      ]),
+      http.get(/\/github\/installation\/repositories$/, ({ request }) => {
+        const second =
+          new URL(request.url).searchParams.get("connectionId") === "con_gh2"
+        return HttpResponse.json({
+          repositories: [
+            {
+              name: second ? "tool" : "api",
+              full_name: second ? "labs/tool" : "acme/api",
+              clone_url: `https://github.com/${second ? "labs/tool" : "acme/api"}.git`,
+            },
+          ],
+          repositorySelection: "selected",
+          manageUrl: `https://github.com/organizations/${second ? "labs" : "acme"}/settings/installations/${second ? 2 : 1}`,
+          hasMore: false,
+          totalCount: 1,
+        })
+      }),
+    )
+  },
+})
 
 /**
  * Sources section of the Workspace settings: the Add repositories list did not
  * load, but the hint stays, with a link to the Connectors page, because the
  * access link comes with the list.
  */
-export const AddRepositoriesListFailsKeepsHint: Story = {
+export const AddRepositoriesListFailsKeepsHint = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceSourcesHandler(workspaceSourceList()),
+      connected,
+      http.get(/\/github\/installation\/repositories$/, () =>
+        HttpResponse.json({ error: "failed" }, { status: 500 }),
+      ),
+    )
+  },
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as GithubNoRepositories.",
-    },
-    msw: {
-      handlers: {
-        page: [
-          workspaceSourcesHandler(workspaceSourceList()),
-          connected,
-          http.get(/\/github\/installation\/repositories$/, () =>
-            HttpResponse.json({ error: "failed" }, { status: 500 }),
-          ),
-        ],
-      },
     },
   },
   play: async ({ canvasElement }) => {
@@ -1918,7 +1773,7 @@ export const AddRepositoriesListFailsKeepsHint: Story = {
     ).toHaveAttribute("href", "/acme/connectors")
     await waitFor(() => expect(dialog.getByText(ownerLine)).toBeVisible())
   },
-}
+})
 
 const beforeUpgrade = (
   items: Parameters<typeof upgradesFixture>[0] = [upgradeItemFixture()],
@@ -1930,32 +1785,24 @@ const beforeUpgrade = (
  * say "No sources yet". After the admin pressed Start the upgrade, the notice
  * says that ctxpipe prepares it (CTX-934, CTX-935).
  */
-export const BeforeFormatUpgrade: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        // After the start, the server lists the upgrade as queued.
-        upgrades: [
-          workspaceUpgradesHandler(() =>
-            upgradesFixture(
-              [
-                upgradeItemFixture(
-                  upgradeStartRequests.length > 0 ? { status: "queued" } : {},
-                ),
-              ],
-              { formatVersion: 0 },
+export const BeforeFormatUpgrade = meta.story({
+  beforeEach: ({ msw }) => {
+    // After the start, the server lists the upgrade as queued.
+    msw.use(
+      workspaceUpgradesHandler(() =>
+        upgradesFixture(
+          [
+            upgradeItemFixture(
+              upgradeStartRequests.length > 0 ? { status: "queued" } : {},
             ),
-          ),
-        ],
-        page: [
-          workspaceSourcesHandler(workspaceSourceList()),
-          connected,
-          workspaceUpgradeStartHandler({ requests: upgradeStartRequests }),
-        ],
-      },
-    },
-  },
-  beforeEach: () => {
+          ],
+          { formatVersion: 0 },
+        ),
+      ),
+      workspaceSourcesHandler(workspaceSourceList()),
+      connected,
+      workspaceUpgradeStartHandler({ requests: upgradeStartRequests }),
+    )
     upgradeStartRequests.length = 0
   },
   play: async ({ canvasElement }) => {
@@ -1987,23 +1834,14 @@ export const BeforeFormatUpgrade: Story = {
       canvas.queryByRole("button", { name: "Start the upgrade" }),
     ).toBeNull()
   },
-}
+})
 
 /**
  * Sources section of the Workspace settings, seen by a member: the Workspace
  * needs the format upgrade, so the section has only the notice, with Review
  * upgrade and "Ask an admin" in place of Start.
  */
-export const BeforeFormatUpgradeMember: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        role: [activeMemberRoleHandler("member")],
-        upgrades: [beforeUpgrade()],
-        page: [workspaceSourcesHandler(workspaceSourceList()), connected],
-      },
-    },
-  },
+export const BeforeFormatUpgradeMember = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText("Sources move with the format upgrade")
@@ -2013,26 +1851,21 @@ export const BeforeFormatUpgradeMember: Story = {
     ).toBeNull()
     await expect(canvas.queryByRole("button", { name: /Add/ })).toBeNull()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      activeMemberRoleHandler("member"),
+      beforeUpgrade(),
+      workspaceSourcesHandler(workspaceSourceList()),
+      connected,
+    )
+  },
+})
 
 /**
  * Sources section of the Workspace settings: the Workspace needs the format
  * upgrade, so its sources still list, but with no Add, Unlink or Edit.
  */
-export const BeforeFormatUpgradeWithSources: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        upgrades: [beforeUpgrade([upgradeItemFixture({ status: "pr_open" })])],
-        page: [
-          workspaceSourcesHandler(
-            workspaceSourceList({ items: [linearSource] }),
-          ),
-          connected,
-        ],
-      },
-    },
-  },
+export const BeforeFormatUpgradeWithSources = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText("Sources move with the format upgrade")
@@ -2045,40 +1878,21 @@ export const BeforeFormatUpgradeWithSources: Story = {
       canvas.queryByRole("link", { name: "Add another connection" }),
     ).toBeNull()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      beforeUpgrade([upgradeItemFixture({ status: "pr_open" })]),
+      workspaceSourcesHandler(workspaceSourceList({ items: [linearSource] })),
+      connected,
+    )
+  },
+})
 
 /**
  * Sources section of the Workspace settings: the GitHub group has three
  * repositories, each in its own source file, all visible with no filter and no
  * Show all, and ctxpipe has not read them yet.
  */
-export const GithubThreeRepositories: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceSourcesHandler(
-            workspaceSourceList({
-              // Add repositories writes one source file for each repository.
-              items: [
-                githubSource,
-                githubWebSource,
-                workspaceSourceFixture({
-                  path: "sources/github/acme/cli.md",
-                  provider: "github",
-                  connectionId: "con_gh1",
-                  connectionName: "acme-gh",
-                  scope: { repository: "acme/cli" },
-                  scopeSummary: "acme/cli",
-                }),
-              ],
-            }),
-          ),
-          connected,
-        ],
-      },
-    },
-  },
+export const GithubThreeRepositories = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const list = within(
@@ -2092,14 +1906,36 @@ export const GithubThreeRepositories: Story = {
       canvas.getByRole("button", { name: "Unlink acme/cli" }),
     ).toBeVisible()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceSourcesHandler(
+        workspaceSourceList({
+          // Add repositories writes one source file for each repository.
+          items: [
+            githubSource,
+            githubWebSource,
+            workspaceSourceFixture({
+              path: "sources/github/acme/cli.md",
+              provider: "github",
+              connectionId: "con_gh1",
+              connectionName: "acme-gh",
+              scope: { repository: "acme/cli" },
+              scopeSummary: "acme/cli",
+            }),
+          ],
+        }),
+      ),
+      connected,
+    )
+  },
+})
 
 /**
  * Sources section of the Workspace settings: the GitHub App installation lost
  * one of two repositories, so that row comes first, says it is not indexed, and
  * tells the user how to give access back. The other repository is indexed.
  */
-export const GithubRepositoryLostAccess: Story = {
+export const GithubRepositoryLostAccess = meta.story({
   args: {
     linkedRepositories: [
       {
@@ -2125,26 +1961,6 @@ export const GithubRepositoryLostAccess: Story = {
       },
     ],
   },
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceSourcesHandler(
-            workspaceSourceList({
-              items: [
-                {
-                  ...githubSource,
-                  scope: { repositories: ["acme/api", "acme/web"] },
-                  scopeSummary: "2 repositories",
-                },
-              ],
-            }),
-          ),
-          connected,
-        ],
-      },
-    },
-  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const list = within(
@@ -2163,7 +1979,23 @@ export const GithubRepositoryLostAccess: Story = {
       within(rows[1] as HTMLElement).getByText("Indexed"),
     ).toBeVisible()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceSourcesHandler(
+        workspaceSourceList({
+          items: [
+            {
+              ...githubSource,
+              scope: { repositories: ["acme/api", "acme/web"] },
+              scopeSummary: "2 repositories",
+            },
+          ],
+        }),
+      ),
+      connected,
+    )
+  },
+})
 
 const manyLinkedRepositories = Array.from({ length: 312 }, (_, index) => {
   const name = `acme/service-${String(index + 1).padStart(3, "0")}`
@@ -2191,32 +2023,8 @@ const manyLinkedRepositories = Array.from({ length: 312 }, (_, index) => {
  * Show all and a filter. The play opens and closes Show all, then types a
  * filter with no match, so the list says that no repository matches.
  */
-export const GithubManyRepositories: Story = {
+export const GithubManyRepositories = meta.story({
   args: { linkedRepositories: manyLinkedRepositories },
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceSourcesHandler(
-            workspaceSourceList({
-              items: [
-                {
-                  ...githubSource,
-                  scope: {
-                    repositories: manyLinkedRepositories.map((repo) =>
-                      repo.gitUrl.replace("https://github.com/", ""),
-                    ),
-                  },
-                  scopeSummary: "312 repositories",
-                },
-              ],
-            }),
-          ),
-          connected,
-        ],
-      },
-    },
-  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText("312 repositories · 4 need attention")
@@ -2265,40 +2073,34 @@ export const GithubManyRepositories: Story = {
       ).toBeVisible(),
     )
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceSourcesHandler(
+        workspaceSourceList({
+          items: [
+            {
+              ...githubSource,
+              scope: {
+                repositories: manyLinkedRepositories.map((repo) =>
+                  repo.gitUrl.replace("https://github.com/", ""),
+                ),
+              },
+              scopeSummary: "312 repositories",
+            },
+          ],
+        }),
+      ),
+      connected,
+    )
+  },
+})
 
 /**
  * Sources section of the Workspace settings: one of two Linear source files
  * does not parse, so its row has the Not valid status and the parse error. The
  * invalid file is a real file, so the user can still edit or remove it.
  */
-export const InvalidFile: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceSourcesHandler(
-            workspaceSourceList({
-              items: [
-                linearSource,
-                workspaceSourceFixture({
-                  path: "sources/linear/broken.md",
-                  provider: "linear",
-                  connectionId: "con_li1",
-                  connectionName: "Acme Linear",
-                  status: "invalid",
-                  statusDetail:
-                    "sources/linear/broken.md: teams: Expected an array",
-                  scopeSummary: "Linear",
-                }),
-              ],
-            }),
-          ),
-          connected,
-        ],
-      },
-    },
-  },
+export const InvalidFile = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText("2 sources from 1 connector · 1 needs attention")
@@ -2311,37 +2113,36 @@ export const InvalidFile: Story = {
       canvas.getByRole("button", { name: "Remove sources/linear/broken.md" }),
     ).toBeVisible()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceSourcesHandler(
+        workspaceSourceList({
+          items: [
+            linearSource,
+            workspaceSourceFixture({
+              path: "sources/linear/broken.md",
+              provider: "linear",
+              connectionId: "con_li1",
+              connectionName: "Acme Linear",
+              status: "invalid",
+              statusDetail:
+                "sources/linear/broken.md: teams: Expected an array",
+              scopeSummary: "Linear",
+            }),
+          ],
+        }),
+      ),
+      connected,
+    )
+  },
+})
 
 /**
  * Sources section of the Workspace settings: the user renamed a Linear source,
  * so its row keeps the old path until the merge and links to the open rename
  * pull request.
  */
-export const PendingRename: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceSourcesHandler(
-            workspaceSourceList({
-              items: [linearSource],
-              pendingChanges: [
-                {
-                  path: "sources/linear/eng-issues.md",
-                  provider: "linear",
-                  action: "rename",
-                  pullRequestUrl: "https://github.com/acme/docs/pull/8",
-                  createdAt: "2026-10-10T10:00:00.000Z",
-                },
-              ],
-            }),
-          ),
-          connected,
-        ],
-      },
-    },
-  },
+export const PendingRename = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() =>
@@ -2353,7 +2154,26 @@ export const PendingRename: Story = {
       canvas.getByText("1 change awaiting merge", { exact: false }),
     ).toBeVisible()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceSourcesHandler(
+        workspaceSourceList({
+          items: [linearSource],
+          pendingChanges: [
+            {
+              path: "sources/linear/eng-issues.md",
+              provider: "linear",
+              action: "rename",
+              pullRequestUrl: "https://github.com/acme/docs/pull/8",
+              createdAt: "2026-10-10T10:00:00.000Z",
+            },
+          ],
+        }),
+      ),
+      connected,
+    )
+  },
+})
 
 const renameCalls: ChangeCall[] = []
 
@@ -2362,24 +2182,18 @@ const renameCalls: ChangeCall[] = []
  * source is open, and it sends a new name in the same provider folder. The same
  * name as before counts as no change.
  */
-export const RenameSendsChange: Story = {
+export const RenameSendsChange = meta.story({
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as EditSendsChange.",
     },
-    msw: {
-      handlers: {
-        page: [
-          workspaceSourcesHandler(
-            workspaceSourceList({ items: [linearSource] }),
-          ),
-          connected,
-          ...workspaceSourceChangeHandlers(renameCalls),
-        ],
-      },
-    },
   },
-  beforeEach: () => {
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceSourcesHandler(workspaceSourceList({ items: [linearSource] })),
+      connected,
+      ...workspaceSourceChangeHandlers(renameCalls),
+    )
     renameCalls.length = 0
   },
   play: async ({ canvasElement }) => {
@@ -2411,7 +2225,7 @@ export const RenameSendsChange: Story = {
       },
     })
   },
-}
+})
 
 const describeCalls: ChangeCall[] = []
 
@@ -2420,25 +2234,19 @@ const describeCalls: ChangeCall[] = []
  * is open, and the user changes the description. The editor sends the
  * description with the change.
  */
-export const EditDescriptionSendsChange: Story = {
+export const EditDescriptionSendsChange = meta.story({
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as EditSendsChange.",
     },
-    msw: {
-      handlers: {
-        page: [
-          workspaceSourcesHandler(
-            workspaceSourceList({ items: [linearSource] }),
-          ),
-          connected,
-          linearAvailableScopesHandler(),
-          ...workspaceSourceChangeHandlers(describeCalls),
-        ],
-      },
-    },
   },
-  beforeEach: () => {
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceSourcesHandler(workspaceSourceList({ items: [linearSource] })),
+      connected,
+      linearAvailableScopesHandler(),
+      ...workspaceSourceChangeHandlers(describeCalls),
+    )
     describeCalls.length = 0
   },
   play: async ({ canvasElement }) => {
@@ -2469,7 +2277,7 @@ export const EditDescriptionSendsChange: Story = {
       },
     })
   },
-}
+})
 
 const nameCalls: ChangeCall[] = []
 
@@ -2478,20 +2286,14 @@ const nameCalls: ChangeCall[] = []
  * open, and the user picks a team and gives the file a name. When the user
  * gives no name, the server names the file.
  */
-export const AddWithFileName: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceSourcesHandler(workspaceSourceList()),
-          connected,
-          linearAvailableScopesHandler(),
-          ...workspaceSourceChangeHandlers(nameCalls),
-        ],
-      },
-    },
-  },
-  beforeEach: () => {
+export const AddWithFileName = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceSourcesHandler(workspaceSourceList()),
+      connected,
+      linearAvailableScopesHandler(),
+      ...workspaceSourceChangeHandlers(nameCalls),
+    )
     nameCalls.length = 0
   },
   play: async ({ canvasElement }) => {
@@ -2516,7 +2318,7 @@ export const AddWithFileName: Story = {
       body: { path: "sources/linear/eng-issues.md" },
     })
   },
-}
+})
 
 const linkedRepository = (
   name: string,
@@ -2536,33 +2338,13 @@ const linkedRepository = (
  * such as Indexing or Pending, has a tooltip on hover and on keyboard focus. A
  * screen reader gets the same text with the status.
  */
-export const StatusExplainsItself: Story = {
+export const StatusExplainsItself = meta.story({
   args: {
     linkedRepositories: [
       linkedRepository("api", { desired: null, indexed: null }),
       linkedRepository("web", { desired: "def", indexed: "abc" }),
       linkedRepository("cli", { desired: "abc", indexed: "abc" }),
     ],
-  },
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceSourcesHandler(
-            workspaceSourceList({
-              items: [
-                {
-                  ...githubSource,
-                  scope: { repositories: ["acme/api", "acme/web", "acme/cli"] },
-                  scopeSummary: "3 repositories",
-                },
-              ],
-            }),
-          ),
-          connected,
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -2602,7 +2384,23 @@ export const StatusExplainsItself: Story = {
       }),
     ).toBeVisible()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceSourcesHandler(
+        workspaceSourceList({
+          items: [
+            {
+              ...githubSource,
+              scope: { repositories: ["acme/api", "acme/web", "acme/cli"] },
+              scopeSummary: "3 repositories",
+            },
+          ],
+        }),
+      ),
+      connected,
+    )
+  },
+})
 
 /** The list requests of the picker that a member must not send. */
 const memberPickerReads: string[] = []
@@ -2622,22 +2420,14 @@ const recordPickerRead = http.get(
  * a Linear source, and a note asks for an admin. Only an owner or admin can
  * list the Linear teams and projects, so the dialog sends no list request.
  */
-export const MemberEditAsksAnAdmin: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        role: [activeMemberRoleHandler("member")],
-        page: [
-          workspaceSourcesHandler(
-            workspaceSourceList({ items: [linearSource] }),
-          ),
-          connected,
-          recordPickerRead,
-        ],
-      },
-    },
-  },
-  beforeEach: () => {
+export const MemberEditAsksAnAdmin = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      activeMemberRoleHandler("member"),
+      workspaceSourcesHandler(workspaceSourceList({ items: [linearSource] })),
+      connected,
+      recordPickerRead,
+    )
     memberPickerReads.length = 0
   },
   play: async ({ canvasElement }) => {
@@ -2657,26 +2447,20 @@ export const MemberEditAsksAnAdmin: Story = {
     )
     expect(memberPickerReads).toEqual([])
   },
-}
+})
 
 /**
  * Sources section of the Workspace settings: a member opens the Add
  * repositories dialog, and a note asks for an admin. No list request goes out.
  */
-export const MemberAddRepositoriesAsksAnAdmin: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        role: [activeMemberRoleHandler("member")],
-        page: [
-          workspaceSourcesHandler(workspaceSourceList()),
-          connected,
-          recordPickerRead,
-        ],
-      },
-    },
-  },
-  beforeEach: () => {
+export const MemberAddRepositoriesAsksAnAdmin = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      activeMemberRoleHandler("member"),
+      workspaceSourcesHandler(workspaceSourceList()),
+      connected,
+      recordPickerRead,
+    )
     memberPickerReads.length = 0
   },
   play: async ({ canvasElement }) => {
@@ -2693,4 +2477,4 @@ export const MemberAddRepositoriesAsksAnAdmin: Story = {
     )
     expect(memberPickerReads).toEqual([])
   },
-}
+})

@@ -1,6 +1,6 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
+import preview from "../../../.storybook/preview"
 import {
   IMAGE_PREVIEW_MAX_BYTES,
   RAW_FILE_MAX_BYTES,
@@ -17,7 +17,7 @@ const diagramSvg = `data:image/svg+xml,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="240" height="120"><rect width="240" height="120" fill="#18181b"/><circle cx="60" cy="60" r="36" fill="#40e0d0"/><rect x="120" y="30" width="90" height="60" fill="#f4f4f5"/></svg>',
 )}`
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Workspaces/WorkspaceBinaryFile",
   component: WorkspaceBinaryFile,
   decorators: [
@@ -31,17 +31,13 @@ const meta = {
   parameters: {
     review: { kind: "component" },
   },
-} satisfies Meta<typeof WorkspaceBinaryFile>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Image preview in the Files pane, where a member views or downloads a file:
  * the member chose Actual size, so a small PNG shows at its own 96 × 64 px.
  */
-export const ImagePreview: Story = {
+export const ImagePreview = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const image = await canvas.findByRole("img", { name: "logo.png" })
@@ -61,13 +57,13 @@ export const ImagePreview: Story = {
       ),
     )
   },
-}
+})
 
 /**
  * Binary file view in the Files pane, which previews or downloads a file. An
  * SVG image shows as an image through `<img>`, never as markup in the page.
  */
-export const SvgPreview: Story = {
+export const SvgPreview = meta.story({
   args: { path: "docs/diagram.svg", size: 412, rawUrl: diagramSvg },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -76,14 +72,14 @@ export const SvgPreview: Story = {
     await canvas.findByText("240 × 120 px")
     await expect(canvasElement.querySelector("circle")).toBeNull()
   },
-}
+})
 
 /**
  * Binary file view in the Files pane, which previews or downloads a file. A
  * normal SVG is a text file, but the pane shows the image first, through
  * `<img>`. The View source button opens the text view.
  */
-export const SvgTextWithSource: Story = {
+export const SvgTextWithSource = meta.story({
   args: {
     path: "docs/diagram.svg",
     size: undefined,
@@ -107,13 +103,13 @@ export const SvgTextWithSource: Story = {
     await canvas.findByRole("img", { name: "diagram.svg" })
     await expect(canvasElement.querySelector("circle")).toBeNull()
   },
-}
+})
 
 /**
  * Binary file view in the Files pane, which previews or downloads a file: a zip
  * file has no preview, so only a Download link shows.
  */
-export const DownloadBinaryFile: Story = {
+export const DownloadBinaryFile = meta.story({
   args: {
     path: "dist/bundle.zip",
     size: 48_213,
@@ -140,14 +136,14 @@ export const DownloadBinaryFile: Story = {
     ).toBeVisible()
     await expect(canvas.queryByRole("img")).toBeNull()
   },
-}
+})
 
 /**
  * Binary file view in the Files pane, which previews or downloads a file. The
  * image is over the 5 MB preview limit, so the pane does not load it and gives
  * only a Download link.
  */
-export const ImageOverPreviewLimit: Story = {
+export const ImageOverPreviewLimit = meta.story({
   args: {
     path: "assets/photo.jpg",
     size: IMAGE_PREVIEW_MAX_BYTES + 1024 * 1024,
@@ -174,14 +170,14 @@ export const ImageOverPreviewLimit: Story = {
     ).toBeVisible()
     await expect(canvas.queryByRole("img")).toBeNull()
   },
-}
+})
 
 /**
  * Binary file view in the Files pane, which previews or downloads a file. The
  * video is over the 10 MB raw file limit, so it cannot download here. An alert
  * tells the user to clone the repository.
  */
-export const FileOverDownloadLimit: Story = {
+export const FileOverDownloadLimit = meta.story({
   args: {
     path: "media/demo.mp4",
     size: RAW_FILE_MAX_BYTES + 2 * 1024 * 1024,
@@ -195,14 +191,14 @@ export const FileOverDownloadLimit: Story = {
     )
     await expect(canvas.queryByRole("link")).toBeNull()
   },
-}
+})
 
 /**
  * Binary file view in the Files pane, which previews or downloads a file. The
  * image did not load, but the Download link stays, so the user can still get
  * the file.
  */
-export const ImageLoadError: Story = {
+export const ImageLoadError = meta.story({
   args: { rawUrl: "data:image/png;base64,AAAA" },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -212,4 +208,4 @@ export const ImageLoadError: Story = {
       canvas.getByRole("link", { name: "Download logo.png" }),
     ).toBeVisible()
   },
-}
+})

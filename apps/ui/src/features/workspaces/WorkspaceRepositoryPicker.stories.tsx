@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
@@ -18,10 +17,11 @@ import {
 } from "@/mocks/workspace-sources-handlers"
 
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
+import preview from "../../../.storybook/preview"
 import { docsWorkspace } from "./workspace-fixtures"
 import { WorkspaceRepositoryPicker } from "./WorkspaceRepositoryPicker"
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Workspaces/RepositoryPicker",
   component: WorkspaceRepositoryPicker,
   decorators: [
@@ -31,6 +31,17 @@ const meta = {
       </div>
     ),
   ],
+  beforeEach: ({ msw }) => {
+    // Only an owner or admin sees the repository pickers.
+    msw.use(
+      ...signedInHandlers,
+      activeMemberRoleHandler("owner"),
+      workspaceListHandler([docsWorkspace]),
+      orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
+      githubInstallationReposHandler(),
+      ...githubAppInstalledHandlers,
+    )
+  },
   parameters: {
     app: "root",
     review: { kind: "component" },
@@ -39,63 +50,42 @@ const meta = {
       pattern: "orgIndex",
       orgSlug: "acme",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        session: signedInHandlers,
-        // Only an owner or admin sees the repository pickers.
-        role: [activeMemberRoleHandler("owner")],
-        page: [
-          workspaceListHandler([docsWorkspace]),
-          orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
-          githubInstallationReposHandler(),
-        ],
-        github: githubAppInstalledHandlers,
-      },
-    },
   },
   args: {
     orgSlug: "acme",
     submitLabel: "Create Workspace",
     onSubmit: fn(),
   },
-} satisfies Meta<typeof WorkspaceRepositoryPicker>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Repository picker, where an owner chooses the Workspace repository: the
  * GitHub repository list still loads.
  */
-export const Loading: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceListHandler([docsWorkspace]),
-          orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname.endsWith(
-                "/api/v1/github/installation/repositories",
-              ),
-            async () => {
-              await delay("infinite")
-              return HttpResponse.json({ repositories: [] })
-            },
+export const Loading = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceListHandler([docsWorkspace]),
+      orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
+      http.get(
+        ({ request }) =>
+          new URL(request.url).pathname.endsWith(
+            "/api/v1/github/installation/repositories",
           ),
-        ],
-      },
-    },
+        async () => {
+          await delay("infinite")
+          return HttpResponse.json({ repositories: [] })
+        },
+      ),
+    )
   },
-}
+})
 
 /**
  * Repository picker, where an owner chooses the Workspace repository: the owner
  * picked a GitHub repository, so Create Workspace shows.
  */
-export const SelectGitHub: Story = {
+export const SelectGitHub = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByRole("list", { name: /repositories/i })
@@ -111,49 +101,43 @@ export const SelectGitHub: Story = {
       ).toBeVisible(),
     )
   },
-}
+})
 
 /**
  * Repository picker, where an owner chooses the Workspace repository: the
  * GitHub App sees no free repository, so the tab says how to give it access or
  * paste a URL.
  */
-export const SelectGitHubEmpty: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceListHandler([docsWorkspace]),
-          orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
-          githubInstallationReposHandler([]),
-        ],
-      },
-    },
-  },
+export const SelectGitHubEmpty = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText(/no repository is free to use/i)
     await canvas.findByRole("link", { name: /change access/i })
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceListHandler([docsWorkspace]),
+      orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
+      githubInstallationReposHandler([]),
+    )
+  },
+})
 
 /**
  * Repository picker, where an owner chooses the Workspace repository. The org
  * has no GitHub connection, so the GitHub tab offers "Connect GitHub" in place.
  * The owner clicked "Paste a git URL", and the Paste URL tab is open.
  */
-export const NoGithubConnection: Story = {
+export const NoGithubConnection = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceListHandler([docsWorkspace]),
+      orgConnectionsHandler([]),
+      ...githubAppMissingHandlers,
+    )
+  },
   parameters: {
     visual: { skip: "Behavior test: it ends in the same state as PasteUrl." },
-    msw: {
-      handlers: {
-        page: [
-          workspaceListHandler([docsWorkspace]),
-          orgConnectionsHandler([]),
-          ...githubAppMissingHandlers,
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -167,32 +151,28 @@ export const NoGithubConnection: Story = {
     )
     await waitFor(() => expect(canvas.getByLabelText(/git url/i)).toBeVisible())
   },
-}
+})
 
 /**
  * Repository picker, where an owner chooses the Workspace repository: the
  * GitHub App can see all repositories of the org.
  */
-export const SelectGitHubAllAccess: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceListHandler([docsWorkspace]),
-          orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
-          githubInstallationReposHandler(undefined, {
-            repositorySelection: "all",
-          }),
-        ],
-      },
-    },
-  },
+export const SelectGitHubAllAccess = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText(/all repositories/i)
     await canvas.findByRole("link", { name: /change access/i })
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceListHandler([docsWorkspace]),
+      orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
+      githubInstallationReposHandler(undefined, {
+        repositorySelection: "all",
+      }),
+    )
+  },
+})
 
 /**
  * Repository picker, where an owner chooses the Workspace repository. The app
@@ -200,19 +180,7 @@ export const SelectGitHubAllAccess: Story = {
  * owner on GitHub and link to the app access. The owner read the steps and
  * clicked "Select the repository" to go back to the list.
  */
-export const CreateOnGitHub: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceListHandler([docsWorkspace]),
-          orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
-          githubInstallationReposHandler(),
-          githubInstallationLinkedHandler,
-        ],
-      },
-    },
-  },
+export const CreateOnGitHub = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByRole("list", { name: /repositories/i })
@@ -240,28 +208,22 @@ export const CreateOnGitHub: Story = {
       canvas.getByRole("tab", { name: /select github/i }),
     ).toHaveAttribute("aria-selected", "true")
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceListHandler([docsWorkspace]),
+      orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
+      githubInstallationReposHandler(),
+      githubInstallationLinkedHandler,
+    )
+  },
+})
 
 /**
  * Repository picker, where an owner chooses the Workspace repository. The
  * Create on GitHub tab has no access step, because the GitHub App sees all
  * repositories.
  */
-export const CreateOnGitHubAllAccess: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceListHandler([docsWorkspace]),
-          orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
-          githubInstallationReposHandler(undefined, {
-            repositorySelection: "all",
-          }),
-          githubInstallationLinkedHandler,
-        ],
-      },
-    },
-  },
+export const CreateOnGitHubAllAccess = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByRole("list", { name: /repositories/i })
@@ -277,25 +239,24 @@ export const CreateOnGitHubAllAccess: Story = {
       }),
     ).toBeNull()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceListHandler([docsWorkspace]),
+      orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
+      githubInstallationReposHandler(undefined, {
+        repositorySelection: "all",
+      }),
+      githubInstallationLinkedHandler,
+    )
+  },
+})
 
 /**
  * Repository picker, where an owner chooses the Workspace repository. The org
  * has no GitHub connection, so in the Create on GitHub tab, step 2 connects
  * GitHub in place.
  */
-export const CreateOnGitHubNoConnection: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceListHandler([docsWorkspace]),
-          orgConnectionsHandler([]),
-          ...githubAppMissingHandlers,
-        ],
-      },
-    },
-  },
+export const CreateOnGitHubNoConnection = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByRole("heading", { name: "Connect GitHub" })
@@ -312,18 +273,25 @@ export const CreateOnGitHubNoConnection: Story = {
       canvas.getByRole("button", { name: "Connect GitHub" }),
     ).toBeVisible()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceListHandler([docsWorkspace]),
+      orgConnectionsHandler([]),
+      ...githubAppMissingHandlers,
+    )
+  },
+})
 
 /**
  * Repository picker, where an owner chooses the Workspace repository: the Paste
  * URL tab is open with an empty git URL field.
  */
-export const PasteUrl: Story = {
+export const PasteUrl = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(canvas.getByRole("tab", { name: /paste url/i }))
   },
-}
+})
 
 /**
  * Repository picker, where an owner chooses the Workspace repository. The owner
@@ -331,7 +299,7 @@ export const PasteUrl: Story = {
  * Workspace is in a folder of a larger repository, so the root folder goes with
  * the choice.
  */
-export const PasteUrlWithRootFolder: Story = {
+export const PasteUrlWithRootFolder = meta.story({
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement)
     await waitFor(() =>
@@ -357,14 +325,14 @@ export const PasteUrlWithRootFolder: Story = {
       rootPath: "docs/context",
     })
   },
-}
+})
 
 /**
  * Repository picker, where an owner chooses the Workspace repository. The owner
  * pasted a git URL and left the optional root folder empty. The choice sends
  * "", so the Workspace uses the whole repository.
  */
-export const PasteUrlWithEmptyRootFolder: Story = {
+export const PasteUrlWithEmptyRootFolder = meta.story({
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement)
     await waitFor(() =>
@@ -386,17 +354,17 @@ export const PasteUrlWithEmptyRootFolder: Story = {
       rootPath: "",
     })
   },
-}
+})
 
 /**
  * Repository picker, where an owner chooses the Workspace repository: the save
  * failed because another Workspace already uses the git URL.
  */
-export const SaveError: Story = {
+export const SaveError = meta.story({
   args: {
     error: "That git URL is already used by another Workspace.",
   },
-}
+})
 
 const memberRepoReads: string[] = []
 
@@ -406,31 +374,27 @@ const memberRepoReads: string[] = []
  * Select GitHub asks for an admin, and no tab reads the list. Paste URL still
  * works, and it is open.
  */
-export const MemberAsksAnAdmin: Story = {
+export const MemberAsksAnAdmin = meta.story({
   parameters: {
     visual: { skip: "Behavior test: it ends in the same state as PasteUrl." },
-    msw: {
-      handlers: {
-        role: [activeMemberRoleHandler("member")],
-        page: [
-          workspaceListHandler([docsWorkspace]),
-          orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
-          githubInstallationLinkedHandler,
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname.endsWith(
-                "/api/v1/github/installation/repositories",
-              ),
-            ({ request }) => {
-              memberRepoReads.push(new URL(request.url).pathname)
-              return HttpResponse.json({ error: "Forbidden" }, { status: 403 })
-            },
-          ),
-        ],
-      },
-    },
   },
-  beforeEach: () => {
+  beforeEach: ({ msw }) => {
+    msw.use(
+      activeMemberRoleHandler("member"),
+      workspaceListHandler([docsWorkspace]),
+      orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
+      githubInstallationLinkedHandler,
+      http.get(
+        ({ request }) =>
+          new URL(request.url).pathname.endsWith(
+            "/api/v1/github/installation/repositories",
+          ),
+        ({ request }) => {
+          memberRepoReads.push(new URL(request.url).pathname)
+          return HttpResponse.json({ error: "Forbidden" }, { status: 403 })
+        },
+      ),
+    )
     memberRepoReads.length = 0
   },
   play: async ({ canvasElement }) => {
@@ -454,4 +418,4 @@ export const MemberAsksAnAdmin: Story = {
     )
     expect(memberRepoReads).toEqual([])
   },
-}
+})

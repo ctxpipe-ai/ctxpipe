@@ -1,5 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
-
 import { AppShell } from "@/components/AppShell"
 import {
   expectSkeletonMatchesLoaded,
@@ -10,10 +8,11 @@ import { workspaceListHandler } from "@/mocks/workspace-handlers"
 import { workspaceIngestionHandlers } from "@/mocks/workspace-ingestion-handlers"
 
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
+import preview from "../../../.storybook/preview"
 import { GithubWorkspaceDestination } from "./GithubWorkspaceDestination"
 import { docsWorkspace, readOnlyWorkspace } from "./workspace-fixtures"
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Workspaces/GithubDestination",
   component: GithubWorkspaceDestination,
   decorators: [
@@ -25,13 +24,10 @@ const meta = {
       </AppShell>
     ),
   ],
+  beforeEach: ({ msw }) => {
+    msw.use(...signedInHandlers, ...workspaceIngestionHandlers({}))
+  },
   parameters: {
-    msw: {
-      handlers: {
-        session: signedInHandlers,
-        ingestion: workspaceIngestionHandlers({}),
-      },
-    },
     app: "root",
     layout: "fullscreen",
     storyRoute: {
@@ -47,57 +43,53 @@ const meta = {
     onClose: () => undefined,
     onRetry: () => undefined,
   },
-} satisfies Meta<typeof GithubWorkspaceDestination>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * GitHub destination page in the app shell, where a member picks or creates a
  * Workspace: the org has no Workspaces yet.
  */
-export const Empty: Story = {
+export const Empty = meta.story({
   args: {
     status: "ready",
     workspaces: [],
   },
-  parameters: {
+  beforeEach: ({ msw }) => {
     // The app shell lists the same Workspaces as the page.
-    msw: { handlers: { page: [workspaceListHandler([])] } },
+    msw.use(workspaceListHandler([]))
   },
-}
+})
 
 /**
  * GitHub setup page after GitHub connects, where a member creates a Workspace
  * or opens one to add repositories: the Workspace list still loads, so skeleton
  * rows show.
  */
-export const Loading: Story = {
+export const Loading = meta.story({
   args: {
     status: "loading",
     workspaces: [],
   },
-  parameters: {
+  beforeEach: ({ msw }) => {
     // The app shell lists the same Workspaces as the page.
-    msw: { handlers: { page: [workspaceListHandler("loading")] } },
+    msw.use(workspaceListHandler("loading"))
   },
-}
+})
 
 /**
  * GitHub destination page in the app shell, where a member picks or creates a
  * Workspace: the Workspace list did not load.
  */
-export const LoadError: Story = {
+export const LoadError = meta.story({
   args: {
     status: "error",
     workspaces: [],
   },
-  parameters: {
+  beforeEach: ({ msw }) => {
     // The app shell lists the same Workspaces as the page.
-    msw: { handlers: { page: [workspaceListHandler("error")] } },
+    msw.use(workspaceListHandler("error"))
   },
-}
+})
 
 /** A second Workspace that keeps its knowledge in its own repository. */
 const handbookWorkspace = {
@@ -113,46 +105,44 @@ const handbookWorkspace = {
  * or opens one to add repositories: the org has two Workspaces, each row opens
  * its settings.
  */
-export const Populated: Story = {
+export const Populated = meta.story({
   args: {
     status: "ready",
     workspaces: [docsWorkspace, handbookWorkspace],
   },
-  parameters: {
+  beforeEach: ({ msw }) => {
     // The app shell lists the same Workspaces as the page.
-    msw: {
-      handlers: {
-        page: [workspaceListHandler([docsWorkspace, handbookWorkspace])],
-      },
-    },
+    msw.use(workspaceListHandler([docsWorkspace, handbookWorkspace]))
   },
-}
+})
 
 /**
  * GitHub destination in the onboarding layout, where a new member creates a
  * first Workspace: the org has no Workspaces yet.
  */
-export const OnboardingEmpty: Story = {
+export const OnboardingEmpty = meta.story({
   args: {
     variant: "onboarding",
     status: "ready",
     workspaces: [],
   },
-  parameters: {
+  beforeEach: ({ msw }) => {
     // The app shell lists the same Workspaces as the page.
-    msw: { handlers: { page: [workspaceListHandler([])] } },
+    msw.use(workspaceListHandler([]))
   },
-}
+})
 
 /**
  * Loading skeleton of the GitHub destination, next to its loaded list of three
  * Workspaces. The two boxes must have the same size: the button, the cards, and
  * the close button.
  */
-export const LoadingSkeletonMatches: Story = {
-  parameters: {
+export const LoadingSkeletonMatches = meta.story({
+  beforeEach: ({ msw }) => {
     // The app shell lists the same Workspaces as the page.
-    msw: { handlers: { page: [workspaceListHandler("loading")] } },
+    msw.use(workspaceListHandler("loading"))
+  },
+  parameters: {
     intent:
       "Catches a workspace destination skeleton whose size differs from the loaded list. This causes layout shift. Not for workspace data or selection.",
     review: {
@@ -183,4 +173,4 @@ export const LoadingSkeletonMatches: Story = {
   play: async ({ canvasElement }) => {
     await expectSkeletonMatchesLoaded(canvasElement)
   },
-}
+})

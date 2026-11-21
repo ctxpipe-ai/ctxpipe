@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useLocation } from "@tanstack/react-router"
 import { delay, HttpResponse, http } from "msw"
 import { useEffect, useState } from "react"
@@ -35,6 +34,7 @@ import {
 } from "@/mocks/workspace-upgrades-handlers"
 
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
+import preview from "../../../.storybook/preview"
 import type { IngestionItem } from "./ingestion"
 import {
   docsConversationDetail,
@@ -53,18 +53,18 @@ import { WorkspaceSurface } from "./WorkspaceSurface"
 const orgSlug = "acme"
 const workspaceSlug = "docs"
 
-const meta = {
+const meta = preview.meta({
   title: "Pages/Workspaces",
   tags: ["page"],
   component: WorkspaceSurface,
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...signedInHandlers,
+      activeMemberRoleHandler("admin"),
+      ...workspaceIngestionHandlers({}),
+    )
+  },
   parameters: {
-    msw: {
-      handlers: {
-        session: signedInHandlers,
-        role: [activeMemberRoleHandler("admin")],
-        ingestion: workspaceIngestionHandlers({}),
-      },
-    },
     app: "org",
     layout: "fullscreen",
     route: "/$orgSlug/ws/$workspaceSlug",
@@ -74,11 +74,7 @@ const meta = {
     orgSlug,
     workspaceSlug,
   },
-} satisfies Meta<typeof WorkspaceSurface>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 function workspaceRoute(input?: {
   conversationId?: string
@@ -99,14 +95,12 @@ function workspaceRoute(input?: {
  * Workspace page in the org shell, where a member chats with the agent and
  * opens the tools pane: the Workspace detail is still loading.
  */
-export const Loading: Story = {
+export const Loading = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(workspaceDetailLoadingHandler(), ...workspaceShellHandlers())
+  },
   parameters: {
     storyRoute: workspaceRoute(),
-    msw: {
-      handlers: {
-        page: [workspaceDetailLoadingHandler(), ...workspaceShellHandlers()],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -120,7 +114,7 @@ export const Loading: Story = {
     )
     expect(canvas.getByText("Loading workspace")).toBeInTheDocument()
   },
-}
+})
 
 const surfaceGate = responseGate()
 
@@ -139,31 +133,27 @@ const columnBox = (column: Element | null | undefined) => {
  * skeleton has the same chat and pane columns as the loaded page, so nothing
  * moves when the Workspace arrives.
  */
-export const SurfaceSkeletonMatches: Story = {
+export const SurfaceSkeletonMatches = meta.story({
   tags: ["required"],
   args: { paneParam: "files" },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(
+        ({ request }) =>
+          /\/api\/v1\/workspaces\/[^/]+$/.test(new URL(request.url).pathname),
+        async () => {
+          // No response: MSW falls through to the shell handler.
+          await surfaceGate.wait()
+        },
+      ),
+      ...workspaceShellHandlers(),
+    )
+  },
   parameters: {
     visual: { skip: "Behavior test: it ends in the same state as FilesPane." },
     intent:
       "Catches a workspace loading skeleton whose chat and pane columns differ from the loaded layout. This causes layout shift. Not for workspace data.",
     storyRoute: workspaceRoute({ pane: "files" }),
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) =>
-              /\/api\/v1\/workspaces\/[^/]+$/.test(
-                new URL(request.url).pathname,
-              ),
-            async () => {
-              // No response: MSW falls through to the shell handler.
-              await surfaceGate.wait()
-            },
-          ),
-          ...workspaceShellHandlers(),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -183,22 +173,20 @@ export const SurfaceSkeletonMatches: Story = {
     expect(columnBox(surface?.children[0])).toEqual(chatBefore)
     expect(columnBox(surface?.children[1])).toEqual(paneBefore)
   },
-}
+})
 
 /**
  * Workspace page in the org shell, where a member chats with the agent: the
  * Workspace does not exist, so a not found state shows.
  */
-export const NotFound: Story = {
+export const NotFound = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(...workspaceShellHandlers({ detail: null }))
+  },
   parameters: {
     storyRoute: workspaceRoute(),
-    msw: {
-      handlers: {
-        page: workspaceShellHandlers({ detail: null }),
-      },
-    },
   },
-}
+})
 
 const failedTouch = { count: 0, rejections: [] as unknown[] }
 
@@ -207,26 +195,22 @@ const failedTouch = { count: 0, rejections: [] as unknown[] }
  * last-used request fails with 404, as it can for an old slug just after a slug
  * rename. The page stays, and the failure is not an uncaught error.
  */
-export const FailedTouchIsCaught: Story = {
+export const FailedTouchIsCaught = meta.story({
   tags: ["required"],
   parameters: {
     visual: { skip: "Behavior test: it ends in the same state as Compose." },
     intent:
       "Catches a failed workspace touch request that raises an unhandled promise rejection. The page must catch the 404. Not for visible errors or touch success.",
     storyRoute: workspaceRoute(),
-    msw: {
-      handlers: {
-        page: [
-          http.post(/\/api\/v1\/workspaces\/[^/]+\/touch$/, () => {
-            failedTouch.count += 1
-            return HttpResponse.json({ error: "Not found" }, { status: 404 })
-          }),
-          ...workspaceShellHandlers(),
-        ],
-      },
-    },
   },
-  beforeEach: () => {
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.post(/\/api\/v1\/workspaces\/[^/]+\/touch$/, () => {
+        failedTouch.count += 1
+        return HttpResponse.json({ error: "Not found" }, { status: 404 })
+      }),
+      ...workspaceShellHandlers(),
+    )
     failedTouch.count = 0
     failedTouch.rejections = []
     const onRejection = (event: PromiseRejectionEvent) => {
@@ -240,123 +224,117 @@ export const FailedTouchIsCaught: Story = {
     await new Promise((resolve) => setTimeout(resolve, 300))
     expect(failedTouch.rejections).toEqual([])
   },
-}
+})
 
 /**
  * Workspace page in the org shell, where a member chats with the agent: the
  * Workspace detail did not load, so an error state shows.
  */
-export const LoadError: Story = {
+export const LoadError = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(workspaceDetailErrorHandler(), ...workspaceShellHandlers())
+  },
   parameters: {
     storyRoute: workspaceRoute(),
-    msw: {
-      handlers: {
-        page: [workspaceDetailErrorHandler(), ...workspaceShellHandlers()],
-      },
-    },
   },
-}
+})
 
 /**
  * Workspace page in the org shell, where a member chats with the agent: ctxpipe
  * still reads the repository into this Workspace for the first time.
  */
-export const Hydrating: Story = {
+export const Hydrating = meta.story({
   args: { workspaceSlug: "knowledge" },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...workspaceShellHandlers({
+        workspaces: [hydratingWorkspaceDetail, docsWorkspace],
+        detail: hydratingWorkspaceDetail,
+      }),
+    )
+  },
   parameters: {
     storyRoute: {
       pattern: "orgWorkspace",
       orgSlug,
       workspaceSlug: "knowledge",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: workspaceShellHandlers({
-          workspaces: [hydratingWorkspaceDetail, docsWorkspace],
-          detail: hydratingWorkspaceDetail,
-        }),
-      },
-    },
   },
-}
+})
 
 /**
  * Workspace page in the org shell, where a member chats with the agent: the
  * Workspace waits for the newest commit of its branch.
  */
-export const WaitingForTip: Story = {
+export const WaitingForTip = meta.story({
   args: { workspaceSlug: "waiting-tip" },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...workspaceShellHandlers({
+        workspaces: [waitingForTipWorkspaceDetail, docsWorkspace],
+        detail: waitingForTipWorkspaceDetail,
+      }),
+    )
+  },
   parameters: {
     storyRoute: {
       pattern: "orgWorkspace",
       orgSlug,
       workspaceSlug: "waiting-tip",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: workspaceShellHandlers({
-          workspaces: [waitingForTipWorkspaceDetail, docsWorkspace],
-          detail: waitingForTipWorkspaceDetail,
-        }),
-      },
-    },
   },
-}
+})
 
 /**
  * Workspace page in the org shell, where a member chats with the agent: ctxpipe
  * could not read the repository, so Prepare failed shows Try again and the raw
  * reason beside the settings.
  */
-export const PrepareFailed: Story = {
+export const PrepareFailed = meta.story({
   args: { workspaceSlug: "knowledge-failed" },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.post(
+        ({ request }) =>
+          /\/api\/v1\/workspaces\/[^/]+\/retry-prepare$/.test(
+            new URL(request.url).pathname,
+          ),
+        () =>
+          HttpResponse.json({
+            ...failedHydrateWorkspace,
+            hydrateStatus: "pending",
+            hydrateError: null,
+          }),
+      ),
+      ...workspaceShellHandlers({
+        workspaces: [failedHydrateWorkspace, docsWorkspace],
+        detail: failedHydrateWorkspaceDetail,
+      }),
+      githubInstallationReposHandler(),
+    )
+  },
   parameters: {
     storyRoute: {
       pattern: "orgWorkspace",
       orgSlug,
       workspaceSlug: "knowledge-failed",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: [
-          http.post(
-            ({ request }) =>
-              /\/api\/v1\/workspaces\/[^/]+\/retry-prepare$/.test(
-                new URL(request.url).pathname,
-              ),
-            () =>
-              HttpResponse.json({
-                ...failedHydrateWorkspace,
-                hydrateStatus: "pending",
-                hydrateError: null,
-              }),
-          ),
-          ...workspaceShellHandlers({
-            workspaces: [failedHydrateWorkspace, docsWorkspace],
-            detail: failedHydrateWorkspaceDetail,
-          }),
-          githubInstallationReposHandler(),
-        ],
-      },
-    },
   },
-}
+})
 
 /**
  * Workspace page in the org shell, where a member chats with the agent: no
  * conversation is open, so the composer for a new conversation shows.
  */
-export const Compose: Story = {
+export const Compose = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(...workspaceShellHandlers())
+  },
   parameters: {
     route: "/$orgSlug/ws/$workspaceSlug/",
     storyRoute: workspaceRoute(),
-    msw: {
-      handlers: {
-        page: workspaceShellHandlers(),
-      },
-    },
   },
-}
+})
 
 /**
  * Workspace page in the org shell, with the new conversation composer. The
@@ -364,19 +342,17 @@ export const Compose: Story = {
  * offers to start the upgrade (CTX-932). The banner is where the user works,
  * not only in Settings.
  */
-export const ComposeNeedsFormatUpgrade: Story = {
+export const ComposeNeedsFormatUpgrade = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      activeMemberRoleHandler("owner"),
+      workspaceUpgradesHandler(upgradesFixture([upgradeItemFixture()])),
+      ...workspaceShellHandlers(),
+    )
+  },
   parameters: {
     route: "/$orgSlug/ws/$workspaceSlug/",
     storyRoute: workspaceRoute(),
-    msw: {
-      handlers: {
-        role: [activeMemberRoleHandler("owner")],
-        page: [
-          workspaceUpgradesHandler(upgradesFixture([upgradeItemFixture()])),
-          ...workspaceShellHandlers(),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -390,27 +366,25 @@ export const ComposeNeedsFormatUpgrade: Story = {
       canvas.getByPlaceholderText(/what should ctxpipe do in this workspace/i),
     ).toBeVisible()
   },
-}
+})
 
 /**
  * Workspace page in the org shell, with an open conversation. The Workspace
  * needs the format upgrade, so the banner stands above the conversation and
  * tells a member to ask an admin.
  */
-export const ConversationNeedsFormatUpgrade: Story = {
+export const ConversationNeedsFormatUpgrade = meta.story({
   args: { conversationId: "conv_1" },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      activeMemberRoleHandler("member"),
+      workspaceUpgradesHandler(upgradesFixture([upgradeItemFixture()])),
+      ...workspaceShellHandlers(),
+    )
+  },
   parameters: {
     route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
     storyRoute: workspaceRoute({ conversationId: "conv_1" }),
-    msw: {
-      handlers: {
-        role: [activeMemberRoleHandler("member")],
-        page: [
-          workspaceUpgradesHandler(upgradesFixture([upgradeItemFixture()])),
-          ...workspaceShellHandlers(),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -420,24 +394,22 @@ export const ConversationNeedsFormatUpgrade: Story = {
       canvas.queryByRole("button", { name: "Start the upgrade" }),
     ).toBeNull()
   },
-}
+})
 
 /**
  * Workspace page in the org shell, where a member chats with the agent: a
  * stored conversation is open with its messages.
  */
-export const Conversation: Story = {
+export const Conversation = meta.story({
   args: { conversationId: "conv_1" },
+  beforeEach: ({ msw }) => {
+    msw.use(...workspaceShellHandlers())
+  },
   parameters: {
     route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
     storyRoute: workspaceRoute({ conversationId: "conv_1" }),
-    msw: {
-      handlers: {
-        page: workspaceShellHandlers(),
-      },
-    },
   },
-}
+})
 
 /** The status of a sandbox that is on an older commit than the Workspace. */
 function workspaceMovedStatus(ownChanges: boolean) {
@@ -464,16 +436,14 @@ function workspaceMovedStatus(ownChanges: boolean) {
  * new commits, but the conversation has no changes of its own. Its next turn
  * moves it to the new commit, so no notice shows.
  */
-export const ConversationWorkspaceMovedNoChanges: Story = {
+export const ConversationWorkspaceMovedNoChanges = meta.story({
   args: { conversationId: "conv_1" },
+  beforeEach: ({ msw }) => {
+    msw.use(workspaceMovedStatus(false), ...workspaceShellHandlers())
+  },
   parameters: {
     route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
     storyRoute: workspaceRoute({ conversationId: "conv_1" }),
-    msw: {
-      handlers: {
-        page: [workspaceMovedStatus(false), ...workspaceShellHandlers()],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -484,23 +454,21 @@ export const ConversationWorkspaceMovedNoChanges: Story = {
     expect(canvas.queryByRole("alert")).not.toBeInTheDocument()
     expect(canvas.queryByText(/rebase|conflict/i)).not.toBeInTheDocument()
   },
-}
+})
 
 /**
  * Workspace page in the org shell, with an open conversation. The Workspace has
  * new commits under the changes of the conversation. A notice says to send a
  * message first, and it does not name a conflict.
  */
-export const ConversationWorkspaceMovedWithChanges: Story = {
+export const ConversationWorkspaceMovedWithChanges = meta.story({
   args: { conversationId: "conv_1" },
+  beforeEach: ({ msw }) => {
+    msw.use(workspaceMovedStatus(true), ...workspaceShellHandlers())
+  },
   parameters: {
     route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
     storyRoute: workspaceRoute({ conversationId: "conv_1" }),
-    msw: {
-      handlers: {
-        page: [workspaceMovedStatus(true), ...workspaceShellHandlers()],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -517,22 +485,20 @@ export const ConversationWorkspaceMovedWithChanges: Story = {
     )
     expect(notice).not.toHaveTextContent(/conflict|rebase/i)
   },
-}
+})
 
 /**
  * Workspace page in the org shell, where a member chats with the agent: the
  * conversation is still loading, and its title link shows.
  */
-export const ConversationLoading: Story = {
+export const ConversationLoading = meta.story({
   args: { conversationId: "conv_1" },
+  beforeEach: ({ msw }) => {
+    msw.use(conversationDetailLoadingHandler(), ...workspaceShellHandlers())
+  },
   parameters: {
     route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
     storyRoute: workspaceRoute({ conversationId: "conv_1" }),
-    msw: {
-      handlers: {
-        page: [conversationDetailLoadingHandler(), ...workspaceShellHandlers()],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -557,24 +523,22 @@ export const ConversationLoading: Story = {
       expect(canvas.getByRole("link", { name: "Repo layout" })).toBeVisible(),
     )
   },
-}
+})
 
 /**
  * Workspace page in the org shell, where a member chats with the agent: the
  * user opens a conversation from the nav, and the tools pane stays closed.
  */
-export const ConversationNavIsChatOnly: Story = {
+export const ConversationNavIsChatOnly = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(...workspaceShellHandlers())
+  },
   parameters: {
     visual: {
       // At the mobile width the screenshot is the same as Compose.
       viewports: ["desktop"],
     },
     storyRoute: workspaceRoute(),
-    msw: {
-      handlers: {
-        page: workspaceShellHandlers(),
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -603,20 +567,18 @@ export const ConversationNavIsChatOnly: Story = {
     expect(canvas.queryByLabelText("Workspace files")).toBeNull()
     expect(canvas.queryByText("Loading workspace")).not.toBeInTheDocument()
   },
-}
+})
 
 /**
  * Workspace page in the org shell, with the Files pane open: the user opens a
  * conversation, and the Files pane stays open.
  */
-export const ConversationKeepsExplicitPaneSearch: Story = {
+export const ConversationKeepsExplicitPaneSearch = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(...workspaceShellHandlers())
+  },
   parameters: {
     storyRoute: workspaceRoute({ pane: "files" }),
-    msw: {
-      handlers: {
-        page: workspaceShellHandlers(),
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -638,24 +600,22 @@ export const ConversationKeepsExplicitPaneSearch: Story = {
       expect(canvas.getByLabelText("Workspace files")).toBeVisible(),
     )
   },
-}
+})
 
 /**
  * Workspace page in the org shell, where a member chats with the agent: the
  * conversation does not exist, so a not found state shows.
  */
-export const ConversationMissing: Story = {
+export const ConversationMissing = meta.story({
   args: { conversationId: "conv_missing" },
+  beforeEach: ({ msw }) => {
+    msw.use(...workspaceShellHandlers({ conversation: null }))
+  },
   parameters: {
     route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
     storyRoute: workspaceRoute({ conversationId: "conv_missing" }),
-    msw: {
-      handlers: {
-        page: workspaceShellHandlers({ conversation: null }),
-      },
-    },
   },
-}
+})
 
 /**
  * True when the viewport is at least `width` wide. From `lg` (64rem) up, the
@@ -702,7 +662,7 @@ const cleanAheadStatus = () =>
  * The member pressed Sync during a turn, so the push failed, and an error toast
  * says why.
  */
-export const PublishErrorsToast: Story = {
+export const PublishErrorsToast = meta.story({
   tags: ["required"],
   args: { conversationId: "conv_1", paneParam: "files" },
   decorators: [
@@ -713,25 +673,23 @@ export const PublishErrorsToast: Story = {
       </>
     ),
   ],
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.post(
+        ({ request }) =>
+          /\/api\/v1\/conversations\/[^/]+\/push$/.test(
+            new URL(request.url).pathname,
+          ),
+        () => HttpResponse.json({ error: "turn_running" }, { status: 409 }),
+      ),
+      ...noPrHandlers(),
+    )
+  },
   parameters: {
     intent:
       "Catches a failed push that shows no error to the user. A rejected push must show a toast with the cause. Not for a successful push or PR creation.",
     route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
     storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
-    msw: {
-      handlers: {
-        page: [
-          http.post(
-            ({ request }) =>
-              /\/api\/v1\/conversations\/[^/]+\/push$/.test(
-                new URL(request.url).pathname,
-              ),
-            () => HttpResponse.json({ error: "turn_running" }, { status: 409 }),
-          ),
-          ...noPrHandlers(),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const page = within(canvasElement.ownerDocument.body)
@@ -766,37 +724,35 @@ export const PublishErrorsToast: Story = {
       { timeout: 10_000 },
     )
   },
-}
+})
 
 /**
  * Workspace page in the org shell, with a conversation and the Files pane open.
  * Create PR failed because a GitHub App permission is missing, and a toast says
  * why.
  */
-export const PublishPrErrorToast: Story = {
+export const PublishPrErrorToast = meta.story({
   tags: ["required"],
   args: { conversationId: "conv_1", paneParam: "files" },
-  decorators: PublishErrorsToast.decorators,
+  decorators: PublishErrorsToast.input.decorators,
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.post(
+        ({ request }) =>
+          /\/api\/v1\/conversations\/[^/]+\/pull-request$/.test(
+            new URL(request.url).pathname,
+          ),
+        () => HttpResponse.json({ error: "no_pr_access" }, { status: 400 }),
+      ),
+      cleanAheadStatus(),
+      ...noPrHandlers(),
+    )
+  },
   parameters: {
     intent:
       "Catches a failed pull request creation that shows no error to the user. A rejected request must show a toast with the cause. Not for push errors.",
     route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
     storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
-    msw: {
-      handlers: {
-        page: [
-          http.post(
-            ({ request }) =>
-              /\/api\/v1\/conversations\/[^/]+\/pull-request$/.test(
-                new URL(request.url).pathname,
-              ),
-            () => HttpResponse.json({ error: "no_pr_access" }, { status: 400 }),
-          ),
-          cleanAheadStatus(),
-          ...noPrHandlers(),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const page = within(canvasElement.ownerDocument.body)
@@ -817,7 +773,7 @@ export const PublishPrErrorToast: Story = {
       { timeout: 10_000 },
     )
   },
-}
+})
 
 /**
  * Workspace page in the org shell, with an open conversation. The member
@@ -825,7 +781,7 @@ export const PublishPrErrorToast: Story = {
  * stored Sync again and adds a push entry after the last turn, with a link to
  * the branch on GitHub.
  */
-export const SyncAddsThreadEntry: Story = {
+export const SyncAddsThreadEntry = meta.story({
   tags: ["required"],
   args: { conversationId: "conv_1" },
   decorators: [
@@ -836,56 +792,56 @@ export const SyncAddsThreadEntry: Story = {
       </>
     ),
   ],
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...(() => {
+        let synced = false
+        const branch = "ctxpipe/chat/conv_1/1"
+        const treeUrl = `https://github.com/acme/docs/tree/${branch}`
+        return [
+          http.post(
+            ({ request }) =>
+              /\/api\/v1\/conversations\/[^/]+\/push$/.test(
+                new URL(request.url).pathname,
+              ),
+            () => {
+              synced = true
+              return HttpResponse.json({ branch, treeUrl })
+            },
+          ),
+          http.get(
+            ({ request }) =>
+              /\/api\/v1\/conversations\/conv_1\/turns$/.test(
+                new URL(request.url).pathname,
+              ),
+            () =>
+              HttpResponse.json({
+                items: [],
+                syncs: synced
+                  ? [
+                      {
+                        trigger: "sync",
+                        branch,
+                        sha: "8eb1704c2d1f0a5b6e3c9d7f4a2b1c0d9e8f7a6b",
+                        files: 3,
+                        treeUrl,
+                        turn: 1,
+                        syncedAt: "2026-08-16T10:05:00.000Z",
+                      },
+                    ]
+                  : [],
+              }),
+          ),
+          ...workspaceShellHandlers(),
+        ]
+      })(),
+    )
+  },
   parameters: {
     intent:
       "Catches a successful sync that adds no entry to the conversation. The thread shows a push entry that links the branch. Not for failed syncs or PRs.",
     route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
     storyRoute: workspaceRoute({ conversationId: "conv_1" }),
-    msw: {
-      handlers: {
-        page: (() => {
-          let synced = false
-          const branch = "ctxpipe/chat/conv_1/1"
-          const treeUrl = `https://github.com/acme/docs/tree/${branch}`
-          return [
-            http.post(
-              ({ request }) =>
-                /\/api\/v1\/conversations\/[^/]+\/push$/.test(
-                  new URL(request.url).pathname,
-                ),
-              () => {
-                synced = true
-                return HttpResponse.json({ branch, treeUrl })
-              },
-            ),
-            http.get(
-              ({ request }) =>
-                /\/api\/v1\/conversations\/conv_1\/turns$/.test(
-                  new URL(request.url).pathname,
-                ),
-              () =>
-                HttpResponse.json({
-                  items: [],
-                  syncs: synced
-                    ? [
-                        {
-                          trigger: "sync",
-                          branch,
-                          sha: "8eb1704c2d1f0a5b6e3c9d7f4a2b1c0d9e8f7a6b",
-                          files: 3,
-                          treeUrl,
-                          turn: 1,
-                          syncedAt: "2026-08-16T10:05:00.000Z",
-                        },
-                      ]
-                    : [],
-                }),
-            ),
-            ...workspaceShellHandlers(),
-          ]
-        })(),
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const page = within(canvasElement.ownerDocument.body)
@@ -929,7 +885,7 @@ export const SyncAddsThreadEntry: Story = {
       canvasElement.ownerDocument.querySelector("[data-sonner-toast]"),
     ).toBeNull()
   },
-}
+})
 
 /**
  * Workspace page in the org shell, with a conversation and the Files pane open.
@@ -937,9 +893,27 @@ export const SyncAddsThreadEntry: Story = {
  * in the conversation header when the pane is beside it, and in the pane header
  * when the pane is maximized.
  */
-export const SharedPublishPending: Story = {
+export const SharedPublishPending = meta.story({
   tags: ["required"],
   args: { conversationId: "conv_1", paneParam: "files" },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.post(
+        ({ request }) =>
+          /\/api\/v1\/conversations\/[^/]+\/push$/.test(
+            new URL(request.url).pathname,
+          ),
+        async () => {
+          await delay("infinite")
+          return HttpResponse.json({
+            branch: "ctxpipe/chat/conv_1/1",
+            treeUrl: "https://github.com/acme/docs/tree/ctxpipe/chat/conv_1/1",
+          })
+        },
+      ),
+      ...workspaceShellHandlers(),
+    )
+  },
   parameters: {
     visual: {
       allow: {
@@ -950,27 +924,6 @@ export const SharedPublishPending: Story = {
       "Catches two publish buttons that do not share one pending state. While a push runs, every Sync button is pending and disabled. Not for push results.",
     route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
     storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
-    msw: {
-      handlers: {
-        page: [
-          http.post(
-            ({ request }) =>
-              /\/api\/v1\/conversations\/[^/]+\/push$/.test(
-                new URL(request.url).pathname,
-              ),
-            async () => {
-              await delay("infinite")
-              return HttpResponse.json({
-                branch: "ctxpipe/chat/conv_1/1",
-                treeUrl:
-                  "https://github.com/acme/docs/tree/ctxpipe/chat/conv_1/1",
-              })
-            },
-          ),
-          ...workspaceShellHandlers(),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const page = within(canvasElement.ownerDocument.body)
@@ -1046,28 +999,26 @@ export const SharedPublishPending: Story = {
       expect(pending[0]).toHaveAttribute("data-pending", "true")
     })
   },
-}
+})
 
 /**
  * Workspace page in the org shell, with a conversation and the Files pane open.
  * Create PR shows one time, at the top right of the conversation header, with
  * its git-pull-request icon. The buttons there have no border.
  */
-export const SingleCreatePr: Story = {
+export const SingleCreatePr = meta.story({
   tags: ["required"],
   args: { conversationId: "conv_1", paneParam: "files" },
+  beforeEach: ({ msw }) => {
+    // Clean and ahead: Create PR is the only publish action. A dirty
+    // status adds Sync when it loads.
+    msw.use(cleanAheadStatus(), ...noPrHandlers())
+  },
   parameters: {
     intent:
       "Catches a second Create PR button when the pane is open. Only the conversation header has the button. Not for a closed pane or PR creation.",
     route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
     storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
-    msw: {
-      handlers: {
-        // Clean and ahead: Create PR is the only publish action. A dirty
-        // status adds Sync when it loads.
-        page: [cleanAheadStatus(), ...noPrHandlers()],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const page = within(canvasElement.ownerDocument.body)
@@ -1113,28 +1064,26 @@ export const SingleCreatePr: Story = {
       ).toBeVisible()
     })
   },
-}
+})
 
 /**
  * Workspace page in the org shell, with an open conversation and the tools pane
  * closed. The branch is synced and has no pull request, so Create PR shows one
  * time, in the conversation header.
  */
-export const SingleCreatePrPaneClosed: Story = {
+export const SingleCreatePrPaneClosed = meta.story({
   tags: ["required"],
   args: { conversationId: "conv_1" },
+  beforeEach: ({ msw }) => {
+    // Clean and ahead: Create PR is the only publish action. A dirty
+    // status adds Sync when it loads.
+    msw.use(cleanAheadStatus(), ...noPrHandlers())
+  },
   parameters: {
     intent:
       "Catches a closed pane that hides Create PR or shows it twice. One button shows with a PR icon, and pane triggers have no border. Not for an open pane.",
     route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
     storyRoute: workspaceRoute({ conversationId: "conv_1" }),
-    msw: {
-      handlers: {
-        // Clean and ahead: Create PR is the only publish action. A dirty
-        // status adds Sync when it loads.
-        page: [cleanAheadStatus(), ...noPrHandlers()],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const page = within(canvasElement.ownerDocument.body)
@@ -1155,15 +1104,18 @@ export const SingleCreatePrPaneClosed: Story = {
         getComputedStyle(page.getByRole("button", { name })).borderTopColor,
       ).toBe("rgba(0, 0, 0, 0)")
   },
-}
+})
 
 /**
  * Workspace page in the org shell, with the tools pane closed. Create PR and
  * the pane triggers sit in one header row, and they look the same.
  */
-export const CreatePrMatchesPaneTriggers: Story = {
+export const CreatePrMatchesPaneTriggers = meta.story({
   tags: ["required"],
   args: { conversationId: "conv_1" },
+  beforeEach: ({ msw }) => {
+    msw.use(cleanAheadStatus(), ...noPrHandlers())
+  },
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as SingleCreatePrPaneClosed.",
@@ -1172,11 +1124,6 @@ export const CreatePrMatchesPaneTriggers: Story = {
       "Catches a Create PR button that sits in another row from the pane triggers, or has the wrong size. It shares the header row and is smaller. Not for PR creation.",
     route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
     storyRoute: workspaceRoute({ conversationId: "conv_1" }),
-    msw: {
-      handlers: {
-        page: [cleanAheadStatus(), ...noPrHandlers()],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const page = within(canvasElement.ownerDocument.body)
@@ -1207,26 +1154,24 @@ export const CreatePrMatchesPaneTriggers: Story = {
     expect(getComputedStyle(createPr).fontSize).toBe("12px")
     expect(getComputedStyle(createPr).fontWeight).toBe("400")
   },
-}
+})
 
 /**
  * Workspace page in the org shell, with the tools pane closed. The branch
  * changed, so a Diff trigger with the file-diff icon shows beside Files, Graph,
  * and Settings, in the same style.
  */
-export const DiffTriggerPaneClosed: Story = {
+export const DiffTriggerPaneClosed = meta.story({
   tags: ["required"],
   args: { conversationId: "conv_1" },
+  beforeEach: ({ msw }) => {
+    msw.use(...workspaceShellHandlers(), conversationGitDiffHandler())
+  },
   parameters: {
     intent:
       "Catches a Diff trigger that is missing from a closed pane, or styled unlike the Files trigger. Both share one parent and class. Not for the diff content.",
     route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
     storyRoute: workspaceRoute({ conversationId: "conv_1" }),
-    msw: {
-      handlers: {
-        page: [...workspaceShellHandlers(), conversationGitDiffHandler()],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const page = within(canvasElement.ownerDocument.body)
@@ -1260,26 +1205,24 @@ export const DiffTriggerPaneClosed: Story = {
       { timeout: 15_000 },
     )
   },
-}
+})
 
 /**
  * Workspace page in the org shell, with a conversation and the tools pane open.
  * The branch has no changes, but the Diff tab still shows. The member opened
  * it, and the Diff pane has the empty state "No changes on this branch".
  */
-export const DiffTriggerNoChanges: Story = {
+export const DiffTriggerNoChanges = meta.story({
   tags: ["required"],
   args: { conversationId: "conv_1", paneParam: "files" },
+  beforeEach: ({ msw }) => {
+    msw.use(...workspaceShellHandlers(), conversationGitDiffHandler([]))
+  },
   parameters: {
     intent:
       "Catches a Diff tab on a branch with no changes that shows a blank pane. It shows that there are no changes on the branch. Not for diffs with files.",
     route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
     storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
-    msw: {
-      handlers: {
-        page: [...workspaceShellHandlers(), conversationGitDiffHandler([])],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const page = within(canvasElement.ownerDocument.body)
@@ -1292,7 +1235,7 @@ export const DiffTriggerNoChanges: Story = {
       { timeout: 15_000 },
     )
   },
-}
+})
 
 /**
  * Workspace page in the org shell, with a conversation and the Files pane open.
@@ -1300,19 +1243,17 @@ export const DiffTriggerNoChanges: Story = {
  * trigger keeps its x, y, width, and height. The active tab grows only to join
  * the card.
  */
-export const PaneTabsStayInPlace: Story = {
+export const PaneTabsStayInPlace = meta.story({
   tags: ["required"],
   args: { conversationId: "conv_1", paneParam: "files" },
+  beforeEach: ({ msw }) => {
+    msw.use(...workspaceShellHandlers(), conversationGitDiffHandler())
+  },
   parameters: {
     intent:
       "Catches a tab switch that moves other tabs. Each trigger keeps its box and the new active tab keeps its x and width. Not for tab content.",
     route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
     storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
-    msw: {
-      handlers: {
-        page: [...workspaceShellHandlers(), conversationGitDiffHandler()],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const page = within(canvasElement.ownerDocument.body)
@@ -1353,16 +1294,19 @@ export const PaneTabsStayInPlace: Story = {
       }
     }
   },
-}
+})
 
 /**
  * Workspace page in the org shell, with a conversation and the Diff pane open.
  * The Diff tab has the file-diff icon. When it is active, the top-left corner
  * of the pane card is round, as it is when Graph is active.
  */
-export const DiffTabRoundedCorner: Story = {
+export const DiffTabRoundedCorner = meta.story({
   tags: ["required"],
   args: { conversationId: "conv_1", paneParam: "diff" },
+  beforeEach: ({ msw }) => {
+    msw.use(...workspaceShellHandlers(), conversationGitDiffHandler())
+  },
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as PaneTabsStayInPlace.",
@@ -1371,11 +1315,6 @@ export const DiffTabRoundedCorner: Story = {
       "Catches a wrong joined corner on the pane card. The Diff and Graph tabs give the same rounded corner, and the first tab, Files, keeps it square. Not for tab content.",
     route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
     storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "diff" }),
-    msw: {
-      handlers: {
-        page: [...workspaceShellHandlers(), conversationGitDiffHandler()],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const page = within(canvasElement.ownerDocument.body)
@@ -1400,7 +1339,7 @@ export const DiffTabRoundedCorner: Story = {
     await userEvent.click(page.getByRole("tab", { name: "Files" }))
     await waitFor(() => expect(radius()).toBe("0px"))
   },
-}
+})
 
 /**
  * The names of the publish actions in one header. With `hidden`, also in a
@@ -1418,9 +1357,22 @@ const publishActionNames = (root: HTMLElement, hidden = false) =>
  * maximized. No sandbox runs and the branch is on GitHub, so the pane header
  * has the same Create PR action as the conversation header.
  */
-export const MaximizedPaneMatchesHeader: Story = {
+export const MaximizedPaneMatchesHeader = meta.story({
   tags: ["required"],
   args: { conversationId: "conv_1", paneParam: "files" },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(
+        ({ request }) =>
+          /\/api\/v1\/conversations\/[^/]+\/files\/status$/.test(
+            new URL(request.url).pathname,
+          ),
+        () =>
+          HttpResponse.json({ error: "sandbox_not_running" }, { status: 409 }),
+      ),
+      ...noPrHandlers(),
+    )
+  },
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as SingleCreatePr.",
@@ -1429,24 +1381,6 @@ export const MaximizedPaneMatchesHeader: Story = {
       "Catches a maximized pane whose header differs from the conversation header. The Create PR call to action shows in the pane header with the same layout. Not for PR creation.",
     route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
     storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) =>
-              /\/api\/v1\/conversations\/[^/]+\/files\/status$/.test(
-                new URL(request.url).pathname,
-              ),
-            () =>
-              HttpResponse.json(
-                { error: "sandbox_not_running" },
-                { status: 409 },
-              ),
-          ),
-          ...noPrHandlers(),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const document = canvasElement.ownerDocument
@@ -1487,7 +1421,7 @@ export const MaximizedPaneMatchesHeader: Story = {
       ).toBeVisible()
     })
   },
-}
+})
 
 const idleBudget = { conversation: 0, tree: 0, status: 0, chat: 0, diff: 0 }
 
@@ -1495,7 +1429,7 @@ const idleBudget = { conversation: 0, tree: 0, status: 0, chat: 0, diff: 0 }
  * Workspace page in the org shell, with a conversation and the Files pane open:
  * the page is idle, and its request count stays fixed.
  */
-export const StableRequestBudget: Story = {
+export const StableRequestBudget = meta.story({
   tags: ["required"],
   args: { conversationId: "conv_1", paneParam: "files" },
   decorators: [
@@ -1505,95 +1439,93 @@ export const StableRequestBudget: Story = {
       </div>
     ),
   ],
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(
+        ({ request }) =>
+          /\/api\/v1\/conversations\/[^/]+$/.test(
+            new URL(request.url).pathname,
+          ),
+        () => {
+          idleBudget.conversation += 1
+          return HttpResponse.json(docsConversationDetail)
+        },
+      ),
+      http.get(
+        ({ request }) =>
+          /\/api\/v1\/conversations\/[^/]+\/files\/tree$/.test(
+            new URL(request.url).pathname,
+          ),
+        () => {
+          idleBudget.tree += 1
+          return HttpResponse.json({
+            ...docsWorkspaceGitTree,
+            branch: "ctxpipe/chat/conv_1/1",
+            worktreeVersion: "wt-0",
+          })
+        },
+      ),
+      http.get(
+        ({ request }) =>
+          /\/api\/v1\/conversations\/[^/]+\/files\/status$/.test(
+            new URL(request.url).pathname,
+          ),
+        () => {
+          idleBudget.status += 1
+          return HttpResponse.json({
+            source: "sandbox",
+            branch: "ctxpipe/chat/conv_1/1",
+            dirty: true,
+            differsFromDefault: true,
+            unpushed: true,
+            published: false,
+            ahead: 1,
+            behind: 0,
+            items: [],
+            worktreeVersion: "wt-0",
+          })
+        },
+      ),
+      http.get(
+        ({ request }) =>
+          /\/api\/v1\/conversations\/[^/]+\/chat$/.test(
+            new URL(request.url).pathname,
+          ),
+        () => {
+          idleBudget.chat += 1
+          return HttpResponse.json({
+            messages: docsConversationDetail.messages,
+            activeRun: null,
+          })
+        },
+      ),
+      http.get(
+        ({ request }) =>
+          /\/api\/v1\/conversations\/[^/]+\/files\/diff$/.test(
+            new URL(request.url).pathname,
+          ),
+        () => {
+          idleBudget.diff += 1
+          return HttpResponse.json({
+            items: [
+              {
+                path: "knowledge/billing/ledger.md",
+                oldBody: "old",
+                body: "new",
+              },
+            ],
+          })
+        },
+      ),
+      conversationGitDiffHandler(),
+      ...workspaceShellHandlers(),
+    )
+  },
   parameters: {
     intent:
       "Catches an idle workspace page that keeps sending requests. Conversation, tree, and status reads must stay at a fixed count. Not for response content.",
     route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
     storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) =>
-              /\/api\/v1\/conversations\/[^/]+$/.test(
-                new URL(request.url).pathname,
-              ),
-            () => {
-              idleBudget.conversation += 1
-              return HttpResponse.json(docsConversationDetail)
-            },
-          ),
-          http.get(
-            ({ request }) =>
-              /\/api\/v1\/conversations\/[^/]+\/files\/tree$/.test(
-                new URL(request.url).pathname,
-              ),
-            () => {
-              idleBudget.tree += 1
-              return HttpResponse.json({
-                ...docsWorkspaceGitTree,
-                branch: "ctxpipe/chat/conv_1/1",
-                worktreeVersion: "wt-0",
-              })
-            },
-          ),
-          http.get(
-            ({ request }) =>
-              /\/api\/v1\/conversations\/[^/]+\/files\/status$/.test(
-                new URL(request.url).pathname,
-              ),
-            () => {
-              idleBudget.status += 1
-              return HttpResponse.json({
-                source: "sandbox",
-                branch: "ctxpipe/chat/conv_1/1",
-                dirty: true,
-                differsFromDefault: true,
-                unpushed: true,
-                published: false,
-                ahead: 1,
-                behind: 0,
-                items: [],
-                worktreeVersion: "wt-0",
-              })
-            },
-          ),
-          http.get(
-            ({ request }) =>
-              /\/api\/v1\/conversations\/[^/]+\/chat$/.test(
-                new URL(request.url).pathname,
-              ),
-            () => {
-              idleBudget.chat += 1
-              return HttpResponse.json({
-                messages: docsConversationDetail.messages,
-                activeRun: null,
-              })
-            },
-          ),
-          http.get(
-            ({ request }) =>
-              /\/api\/v1\/conversations\/[^/]+\/files\/diff$/.test(
-                new URL(request.url).pathname,
-              ),
-            () => {
-              idleBudget.diff += 1
-              return HttpResponse.json({
-                items: [
-                  {
-                    path: "knowledge/billing/ledger.md",
-                    oldBody: "old",
-                    body: "new",
-                  },
-                ],
-              })
-            },
-          ),
-          conversationGitDiffHandler(),
-          ...workspaceShellHandlers(),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     idleBudget.conversation = 0
@@ -1642,29 +1574,30 @@ export const StableRequestBudget: Story = {
     })
     expect(idleBudget).toEqual(frozen)
   },
-}
+})
 
 /**
  * Workspace page in the org shell, where a member chats with the agent: the
  * Files pane is open next to the new conversation composer.
  */
-export const FilesPane: Story = {
+export const FilesPane = meta.story({
   args: { paneParam: "files" },
+  beforeEach: ({ msw }) => {
+    msw.use(...workspaceShellHandlers())
+  },
   parameters: {
     storyRoute: workspaceRoute({ pane: "files" }),
-    msw: {
-      handlers: {
-        page: workspaceShellHandlers(),
-      },
-    },
   },
-}
+})
 
 /**
  * Workspace page in the org shell, where a member chats with the agent: the
  * Graph pane is open and shows the knowledge graph.
  */
-export const GraphPane: Story = {
+export const GraphPane = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(...workspaceShellHandlers())
+  },
   // With reduced motion the layout runs a fixed number of steps before the
   // graph shows. The play waits for it: without the wait, the screenshot
   // showed a loading stage of the graph that depended on the host speed.
@@ -1672,11 +1605,6 @@ export const GraphPane: Story = {
   args: { paneParam: "graph" },
   parameters: {
     storyRoute: workspaceRoute({ pane: "graph" }),
-    msw: {
-      handlers: {
-        page: workspaceShellHandlers(),
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const body = canvasElement.ownerDocument.body
@@ -1685,42 +1613,40 @@ export const GraphPane: Story = {
     await waitForGraphReady(body)
     within(body).getByRole("button", { name: "Play layout" })
   },
-}
+})
 
 /**
  * Workspace page in the org shell, where a member chats with the agent: the
  * Settings pane is open.
  */
-export const SettingsPane: Story = {
+export const SettingsPane = meta.story({
   args: { paneParam: "settings" },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...workspaceShellHandlers({
+        workspaces: [docsWorkspace, readOnlyWorkspace],
+      }),
+    )
+  },
   parameters: {
     storyRoute: workspaceRoute({ pane: "settings" }),
-    msw: {
-      handlers: {
-        page: workspaceShellHandlers({
-          workspaces: [docsWorkspace, readOnlyWorkspace],
-        }),
-      },
-    },
   },
-}
+})
 
 /**
  * Workspace page in the org shell, with the Settings pane open. A link from
  * Home lands on the upgrades in the Status group. Only the scroll area of the
  * pane moves, so no outer box scrolls and the pane keeps filling the panel.
  */
-export const SettingsPaneLandsOnUpgrades: Story = {
+export const SettingsPaneLandsOnUpgrades = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceUpgradesHandler(upgradesFixture([upgradeItemFixture()])),
+      ...workspaceShellHandlers(),
+    )
+  },
   parameters: {
     storyRoute: workspaceRoute({ pane: "settings", hash: "upgrades" }),
-    msw: {
-      handlers: {
-        page: [
-          workspaceUpgradesHandler(upgradesFixture([upgradeItemFixture()])),
-          ...workspaceShellHandlers(),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const group = await waitFor(() => {
@@ -1749,23 +1675,19 @@ export const SettingsPaneLandsOnUpgrades: Story = {
       }
     })
   },
-}
+})
 
 /**
  * Workspace page in the org shell, with the Settings pane open. The user clicks
  * Fix using agent for a skipped file. The composer of a new conversation fills
  * with a fix request, and the Settings pane stays open.
  */
-export const FixUsingAgentOpensChat: Story = {
+export const FixUsingAgentOpensChat = meta.story({
   parameters: {
     storyRoute: workspaceRoute({ pane: "settings" }),
-    msw: {
-      handlers: {
-        page: workspaceShellHandlers({ detail: skippedFilesWorkspaceDetail }),
-      },
-    },
   },
-  beforeEach: () => {
+  beforeEach: ({ msw }) => {
+    msw.use(...workspaceShellHandlers({ detail: skippedFilesWorkspaceDetail }))
     const key = chatDraftKey(orgSlug, docsWorkspace.id)
     writeChatDraft(key, "")
     return () => writeChatDraft(key, "")
@@ -1788,7 +1710,7 @@ export const FixUsingAgentOpensChat: Story = {
     )
     await expect(canvas.getByText("Workspace settings")).toBeVisible()
   },
-}
+})
 
 const writeCheck = {
   phase: "failed" as "failed" | "checking" | "stuck",
@@ -1809,10 +1731,50 @@ async function expectNoDetailPoll() {
  * Workspace page in the org shell, with the Settings pane open: the GitHub
  * write access check failed, so polling stops and a Check again alert shows.
  */
-export const WriteCheckFailedStopsPolling: Story = {
+export const WriteCheckFailedStopsPolling = meta.story({
   tags: ["required"],
   args: { paneParam: "settings" },
-  beforeEach: () => {
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(
+        ({ request }) =>
+          /\/api\/v1\/workspaces\/[^/]+$/.test(new URL(request.url).pathname),
+        () => {
+          writeCheck.detailReads += 1
+          if (writeCheck.phase === "failed") {
+            return HttpResponse.json({
+              ...docsWorkspaceDetail,
+              writeStatus: "unknown",
+              readOnlyReason: writeCheckFailedReason,
+            })
+          }
+          // The new check resolves after two polls.
+          writeCheck.readsWhileChecking += 1
+          return HttpResponse.json({
+            ...docsWorkspaceDetail,
+            writeStatus:
+              writeCheck.readsWhileChecking > 2 ? "writable" : "unknown",
+            readOnlyReason: null,
+          })
+        },
+      ),
+      http.post(
+        ({ request }) =>
+          /\/api\/v1\/workspaces\/[^/]+\/check-write-access$/.test(
+            new URL(request.url).pathname,
+          ),
+        () => {
+          writeCheck.phase = "checking"
+          return HttpResponse.json({
+            ...docsWorkspace,
+            writeStatus: "unknown",
+            readOnlyReason: null,
+          })
+        },
+      ),
+      ...workspaceShellHandlers(),
+      githubInstallationReposHandler(),
+    )
     writeCheck.phase = "failed"
     writeCheck.detailReads = 0
     writeCheck.readsWhileChecking = 0
@@ -1825,52 +1787,6 @@ export const WriteCheckFailedStopsPolling: Story = {
     intent:
       "Catches a failed write access check that polls the workspace forever. Polling stops and the failure reason shows. Not for a stalled check.",
     storyRoute: workspaceRoute({ pane: "settings" }),
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) =>
-              /\/api\/v1\/workspaces\/[^/]+$/.test(
-                new URL(request.url).pathname,
-              ),
-            () => {
-              writeCheck.detailReads += 1
-              if (writeCheck.phase === "failed") {
-                return HttpResponse.json({
-                  ...docsWorkspaceDetail,
-                  writeStatus: "unknown",
-                  readOnlyReason: writeCheckFailedReason,
-                })
-              }
-              // The new check resolves after two polls.
-              writeCheck.readsWhileChecking += 1
-              return HttpResponse.json({
-                ...docsWorkspaceDetail,
-                writeStatus:
-                  writeCheck.readsWhileChecking > 2 ? "writable" : "unknown",
-                readOnlyReason: null,
-              })
-            },
-          ),
-          http.post(
-            ({ request }) =>
-              /\/api\/v1\/workspaces\/[^/]+\/check-write-access$/.test(
-                new URL(request.url).pathname,
-              ),
-            () => {
-              writeCheck.phase = "checking"
-              return HttpResponse.json({
-                ...docsWorkspace,
-                writeStatus: "unknown",
-                readOnlyReason: null,
-              })
-            },
-          ),
-          ...workspaceShellHandlers(),
-          githubInstallationReposHandler(),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1902,18 +1818,46 @@ export const WriteCheckFailedStopsPolling: Story = {
     await expect(canvas.queryByText("Could not check write access")).toBeNull()
     await expectNoDetailPoll()
   },
-}
+})
 
 /**
  * Workspace page in the org shell, with the Settings pane open: the GitHub
  * write access check stalls, so polling stops at the cap with a Check again
  * button.
  */
-export const WriteCheckStallStopsPolling: Story = {
+export const WriteCheckStallStopsPolling = meta.story({
   tags: ["required"],
   // A short cap, so the story does not wait three minutes.
   args: { paneParam: "settings", writeCheckPollCapMs: 3000 },
-  beforeEach: () => {
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(
+        ({ request }) =>
+          /\/api\/v1\/workspaces\/[^/]+$/.test(new URL(request.url).pathname),
+        () => {
+          writeCheck.detailReads += 1
+          return HttpResponse.json({
+            ...docsWorkspaceDetail,
+            writeStatus: "unknown",
+            readOnlyReason: null,
+          })
+        },
+      ),
+      http.post(
+        ({ request }) =>
+          /\/api\/v1\/workspaces\/[^/]+\/check-write-access$/.test(
+            new URL(request.url).pathname,
+          ),
+        () =>
+          HttpResponse.json({
+            ...docsWorkspace,
+            writeStatus: "unknown",
+            readOnlyReason: null,
+          }),
+      ),
+      ...workspaceShellHandlers(),
+      githubInstallationReposHandler(),
+    )
     writeCheck.phase = "stuck"
     writeCheck.detailReads = 0
   },
@@ -1921,40 +1865,6 @@ export const WriteCheckStallStopsPolling: Story = {
     intent:
       "Catches a write access check that never ends and polls forever. Polling stops at the cap and the page stops showing a check in progress. Not for failed checks.",
     storyRoute: workspaceRoute({ pane: "settings" }),
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) =>
-              /\/api\/v1\/workspaces\/[^/]+$/.test(
-                new URL(request.url).pathname,
-              ),
-            () => {
-              writeCheck.detailReads += 1
-              return HttpResponse.json({
-                ...docsWorkspaceDetail,
-                writeStatus: "unknown",
-                readOnlyReason: null,
-              })
-            },
-          ),
-          http.post(
-            ({ request }) =>
-              /\/api\/v1\/workspaces\/[^/]+\/check-write-access$/.test(
-                new URL(request.url).pathname,
-              ),
-            () =>
-              HttpResponse.json({
-                ...docsWorkspace,
-                writeStatus: "unknown",
-                readOnlyReason: null,
-              }),
-          ),
-          ...workspaceShellHandlers(),
-          githubInstallationReposHandler(),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1991,30 +1901,30 @@ export const WriteCheckStallStopsPolling: Story = {
       { timeout: 10_000 },
     )
   },
-}
+})
 
 /**
  * Workspace page in the org shell, where a member chats with the agent: the
  * GitHub App cannot write to the repository, so the Workspace is read-only.
  */
-export const ReadOnly: Story = {
+export const ReadOnly = meta.story({
   args: { workspaceSlug: "handbook" },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...workspaceShellHandlers({
+        workspaces: [docsWorkspace, readOnlyWorkspace],
+        detail: { ...readOnlyWorkspace, linkedRepositories: [] },
+      }),
+    )
+  },
   parameters: {
     storyRoute: {
       pattern: "orgWorkspace",
       orgSlug,
       workspaceSlug: "handbook",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: workspaceShellHandlers({
-          workspaces: [docsWorkspace, readOnlyWorkspace],
-          detail: { ...readOnlyWorkspace, linkedRepositories: [] },
-        }),
-      },
-    },
   },
-}
+})
 
 /**
  * Shows the Workspace until the URL is Home, as the real route tree does. The
@@ -2126,11 +2036,14 @@ const deleteFlowDecorators = [
  * Test stage of the Workspace delete flow from Settings. The user deleted the
  * open Workspace, and the stage goes Home with a toast and no error page.
  */
-export const DeleteWorkspaceShowsNoError: Story = {
+export const DeleteWorkspaceShowsNoError = meta.story({
   tags: ["required", "!page"],
   args: { paneParam: "settings" },
   render: (args) => <DeleteFlowStage {...args} />,
   decorators: deleteFlowDecorators,
+  beforeEach: ({ msw }) => {
+    msw.use(...deleteFlowHandlers([readOnlyWorkspace]))
+  },
   parameters: {
     visual: {
       skip: "Behavior test: it ends on a test stage, which the product does not render.",
@@ -2142,53 +2055,54 @@ export const DeleteWorkspaceShowsNoError: Story = {
       path: `/${orgSlug}/ws/${workspaceSlug}`,
       alsoAt: [`/${orgSlug}`],
     } satisfies StoryRouteParams,
-    msw: { handlers: { page: deleteFlowHandlers([readOnlyWorkspace]) } },
     review: {
       kind: "component",
     },
   },
   play: ({ canvasElement }) => deleteOpenWorkspace(canvasElement),
-}
+})
 
 /**
  * Test stage of the Workspace delete flow from Settings. The user deleted the
  * last Workspace of the org, and the stage goes Home with no error page.
  */
-export const DeleteLastWorkspaceShowsNoError: Story = {
-  ...DeleteWorkspaceShowsNoError,
+export const DeleteLastWorkspaceShowsNoError = meta.story({
+  ...DeleteWorkspaceShowsNoError.input,
   tags: ["required", "!page"],
   play: ({ canvasElement }) => deleteOpenWorkspace(canvasElement),
+  beforeEach: ({ msw }) => {
+    msw.use(...deleteFlowHandlers([]))
+  },
   parameters: {
+    ...DeleteWorkspaceShowsNoError.input.parameters,
     visual: {
       skip: "Behavior test: it ends on a test stage, which the product does not render.",
     },
     intent:
       "Catches a delete of the last workspace that flashes an error screen. The page leaves with no error. Not for other workspaces.",
-    ...DeleteWorkspaceShowsNoError.parameters,
-    msw: { handlers: { page: deleteFlowHandlers([]) } },
     review: {
       kind: "component",
     },
   },
-}
+})
 
 /**
  * Test stage of the Workspace delete flow from Settings. The user deleted the
  * Workspace from a conversation URL, and the stage goes Home with no error
  * page.
  */
-export const DeleteFromConversationShowsNoError: Story = {
-  ...DeleteWorkspaceShowsNoError,
+export const DeleteFromConversationShowsNoError = meta.story({
+  ...DeleteWorkspaceShowsNoError.input,
   tags: ["required", "!page"],
   play: ({ canvasElement }) => deleteOpenWorkspace(canvasElement),
   args: { paneParam: "settings", conversationId: "conv_1" },
   parameters: {
+    ...DeleteWorkspaceShowsNoError.input.parameters,
     visual: {
       skip: "Behavior test: it ends on a test stage, which the product does not render.",
     },
     intent:
       "Catches a workspace delete from a conversation URL that flashes an error screen. The page leaves with no error. Not for workspace-level URLs.",
-    ...DeleteWorkspaceShowsNoError.parameters,
     storyRoute: {
       pattern: "flat",
       path: `/${orgSlug}/ws/${workspaceSlug}/conv_1`,
@@ -2198,7 +2112,7 @@ export const DeleteFromConversationShowsNoError: Story = {
       kind: "component",
     },
   },
-}
+})
 
 let demoStart = 0
 
@@ -2264,8 +2178,19 @@ function ingestionDemoState(seconds: number): Record<string, IngestionItem[]> {
  * move. The work list empties when the work ends, after about 30 seconds. The
  * state changes with time, on each read.
  */
-export const IngestingDemo: Story = {
-  beforeEach: () => {
+export const IngestingDemo = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      activeMemberRoleHandler("owner"),
+      ...workspaceIngestionHandlers(() =>
+        ingestionDemoState((Date.now() - demoStart) / 1000),
+      ),
+      workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
+      workspaceSourcesHandler(workspaceSourceList()),
+      orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
+      githubInstallationReposHandler(),
+      ...workspaceShellHandlers(),
+    )
     demoStart = Date.now()
   },
   parameters: {
@@ -2274,20 +2199,5 @@ export const IngestingDemo: Story = {
       viewports: ["desktop"],
     },
     storyRoute: workspaceRoute(),
-    msw: {
-      handlers: {
-        role: [activeMemberRoleHandler("owner")],
-        page: [
-          workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
-          workspaceSourcesHandler(workspaceSourceList()),
-          orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
-          githubInstallationReposHandler(),
-          ...workspaceShellHandlers(),
-        ],
-        ingestion: workspaceIngestionHandlers(() =>
-          ingestionDemoState((Date.now() - demoStart) / 1000),
-        ),
-      },
-    },
   },
-}
+})

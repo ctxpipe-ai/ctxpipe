@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
+import type { StoryContext } from "@storybook/react-vite"
 import { HttpResponse, delay, http } from "msw"
 import { Toaster } from "sonner"
 import { expect, userEvent, waitFor, within } from "storybook/test"
@@ -14,6 +14,7 @@ import {
 } from "@/mocks/workspace-upgrades-handlers"
 
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
+import preview from "../../../.storybook/preview"
 import { checkingFormatExpired } from "./checking-format-clock"
 import { WorkspaceUpgrades } from "./WorkspaceUpgrades"
 
@@ -28,7 +29,7 @@ const pullRequest = {
   url: "https://github.com/acme/docs/pull/42",
 }
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Workspaces/Upgrades/Progress",
   component: WorkspaceUpgrades,
   decorators: [
@@ -39,7 +40,9 @@ const meta = {
       </div>
     ),
   ],
-  beforeEach: () => {
+  beforeEach: ({ msw }) => {
+    // Upgrades wait for a start by hand.
+    msw.use(...signedInHandlers, ...workspaceUpgradeAutomaticHandlers())
     checkRequests.length = 0
     state.checked = false
   },
@@ -51,43 +54,26 @@ const meta = {
       pattern: "orgIndex",
       orgSlug: "acme",
     } satisfies StoryRouteParams,
-    // Upgrades wait for a start by hand.
-    msw: {
-      handlers: {
-        session: signedInHandlers,
-        automatic: workspaceUpgradeAutomaticHandlers(),
-      },
-    },
   },
   args: { orgSlug: "acme", workspaceSlug: "docs" },
-} satisfies Meta<typeof WorkspaceUpgrades>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 function withUpgrades(
   upgrades: Parameters<typeof workspaceUpgradesHandler>[0],
   role: "owner" | "member" = "owner",
   ...more: ReturnType<typeof http.post>[]
 ) {
-  return {
-    msw: {
-      handlers: {
-        page: [
-          activeMemberRoleHandler(role),
-          workspaceUpgradesHandler(upgrades),
-          workspaceUpgradeCheckHandler({
-            requests: checkRequests,
-            onChecked: () => {
-              state.checked = true
-            },
-          }),
-          ...more,
-        ],
+  return [
+    activeMemberRoleHandler(role),
+    workspaceUpgradesHandler(upgrades),
+    workspaceUpgradeCheckHandler({
+      requests: checkRequests,
+      onChecked: () => {
+        state.checked = true
       },
-    },
-  }
+    }),
+    ...more,
+  ]
 }
 
 /**
@@ -95,14 +81,7 @@ function withUpgrades(
  * started a stage. The card gives the time so far and tells the user that they
  * can leave the page.
  */
-export const Queued: Story = {
-  parameters: {
-    ...withUpgrades(
-      upgradesFixture([
-        upgradeItemFixture({ status: "queued", approvedAt: minutesAgo(0.2) }),
-      ]),
-    ),
-  },
+export const Queued = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const progress = await canvas.findByRole("region", {
@@ -118,25 +97,23 @@ export const Queued: Story = {
     expect(within(progress).getByText(/Time so far:/)).toBeVisible()
     expect(within(progress).getByText(/You can leave this page/)).toBeVisible()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...withUpgrades(
+        upgradesFixture([
+          upgradeItemFixture({ status: "queued", approvedAt: minutesAgo(0.2) }),
+        ]),
+      ),
+    )
+  },
+})
 
 /**
  * Progress card of a Workspace format upgrade: the run is in its second stage,
  * with the step, the progress bar, the time so far, and the note that the user
  * can leave the page.
  */
-export const RunningStage: Story = {
-  parameters: {
-    ...withUpgrades(
-      upgradesFixture([
-        upgradeItemFixture({
-          status: "running",
-          approvedAt: minutesAgo(1.3),
-          runStage: { name: "build", since: minutesAgo(1) },
-        }),
-      ]),
-    ),
-  },
+export const RunningStage = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const progress = await canvas.findByRole("region", {
@@ -154,41 +131,26 @@ export const RunningStage: Story = {
     expect(within(progress).getByText(/You can leave this page/)).toBeVisible()
     expect(canvas.getByText("Preparing the pull request")).toBeVisible()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...withUpgrades(
+        upgradesFixture([
+          upgradeItemFixture({
+            status: "running",
+            approvedAt: minutesAgo(1.3),
+            runStage: { name: "build", since: minutesAgo(1) },
+          }),
+        ]),
+      ),
+    )
+  },
+})
 
 /**
  * Progress card of a Workspace re-ingestion: one of three source repositories
  * is done, and the card names the repository that ctxpipe reads now.
  */
-export const ReingestProgress: Story = {
-  parameters: {
-    ...withUpgrades(
-      // A re-ingestion runs only on format 3.
-      upgradesFixture(
-        [
-          upgradeItemFixture({
-            kind: "reingest",
-            status: "running",
-            approvedAt: minutesAgo(7),
-            repositories: [
-              ["acme/api", "done"],
-              ["acme/web", "pending"],
-              ["acme/docs", "pending"],
-            ].map(([repository, status]) => ({
-              repository: repository as string,
-              status: status as "done" | "pending",
-              sha: null,
-              runId: null,
-              report: [],
-              spendUsd: null,
-              spendUnknown: false,
-            })),
-          }),
-        ],
-        { formatVersion: 3 },
-      ),
-    ),
-  },
+export const ReingestProgress = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const progress = await canvas.findByRole("region", {
@@ -205,29 +167,44 @@ export const ReingestProgress: Story = {
     expect(within(progress).getByText(/7 min/)).toBeVisible()
     expect(within(progress).getByText(/You can leave this page/)).toBeVisible()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...withUpgrades(
+        // A re-ingestion runs only on format 3.
+        upgradesFixture(
+          [
+            upgradeItemFixture({
+              kind: "reingest",
+              status: "running",
+              approvedAt: minutesAgo(7),
+              repositories: [
+                ["acme/api", "done"],
+                ["acme/web", "pending"],
+                ["acme/docs", "pending"],
+              ].map(([repository, status]) => ({
+                repository: repository as string,
+                status: status as "done" | "pending",
+                sha: null,
+                runId: null,
+                report: [],
+                spendUsd: null,
+                spendUnknown: false,
+              })),
+            }),
+          ],
+          { formatVersion: 3 },
+        ),
+      ),
+    )
+  },
+})
 
 /**
  * Re-ingestion item in the Upgrades card, seconds after the admin pressed
  * Start: ctxpipe plans the run and has no repository count yet, so the progress
  * bar pulses with no value.
  */
-export const ReingestPlanning: Story = {
-  parameters: {
-    ...withUpgrades(
-      // A re-ingestion runs only on format 3.
-      upgradesFixture(
-        [
-          upgradeItemFixture({
-            kind: "reingest",
-            status: "running",
-            approvedAt: minutesAgo(0.1),
-          }),
-        ],
-        { formatVersion: 3 },
-      ),
-    ),
-  },
+export const ReingestPlanning = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(async () =>
@@ -235,45 +212,59 @@ export const ReingestPlanning: Story = {
     )
     expect(canvas.getByRole("progressbar")).not.toHaveAttribute("aria-valuenow")
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...withUpgrades(
+        // A re-ingestion runs only on format 3.
+        upgradesFixture(
+          [
+            upgradeItemFixture({
+              kind: "reingest",
+              status: "running",
+              approvedAt: minutesAgo(0.1),
+            }),
+          ],
+          { formatVersion: 3 },
+        ),
+      ),
+    )
+  },
+})
 
 /**
  * Format upgrade item in the Upgrades card: the admin merged the upgrade pull
  * request two minutes ago, so a progress block says that ctxpipe reads the new
  * format, how long it has taken, and what comes next.
  */
-export const MergedReadingFormat: Story = {
+export const MergedReadingFormat = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(
+        "*/.auth/api/v1/auth/organization/get-active-member-role",
+        async () => {
+          await delay(1_000)
+          return HttpResponse.json({ role: "owner" })
+        },
+      ),
+      ...withUpgrades(
+        upgradesFixture(
+          [
+            upgradeItemFixture({
+              status: "pr_open",
+              pullRequest,
+              mergedAt: minutesAgo(2),
+              checkedAt: minutesAgo(2),
+            }),
+          ],
+          // ctxpipe has not read the new format yet: the Workspace
+          // still has the format that the upgrade starts from.
+          { formatVersion: 0 },
+        ),
+      ),
+    )
+  },
   parameters: {
     visual: { allow: { axes: "A layout defect on main (CTX-1279)." } },
-    msw: {
-      handlers: {
-        page: [
-          // The first match wins: the role answers late, so the action shows after the card text.
-          http.get(
-            "*/.auth/api/v1/auth/organization/get-active-member-role",
-            async () => {
-              await delay(1_000)
-              return HttpResponse.json({ role: "owner" })
-            },
-          ),
-          ...withUpgrades(
-            upgradesFixture(
-              [
-                upgradeItemFixture({
-                  status: "pr_open",
-                  pullRequest,
-                  mergedAt: minutesAgo(2),
-                  checkedAt: minutesAgo(2),
-                }),
-              ],
-              // ctxpipe has not read the new format yet: the Workspace
-              // still has the format that the upgrade starts from.
-              { formatVersion: 0 },
-            ),
-          ).msw.handlers.page,
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -299,27 +290,31 @@ export const MergedReadingFormat: Story = {
       ).toBeVisible(),
     )
   },
-}
+})
 
 /**
  * Progress card of a Workspace format upgrade: the user pressed Check again,
  * and the pull request is still open. The card and a toast both say that the
  * check ran and what it found.
  */
-export const CheckAgainStillOpen: Story = {
-  parameters: {
-    ...withUpgrades(() =>
-      upgradesFixture(
-        [
-          upgradeItemFixture({
-            status: "pr_open",
-            pullRequest,
-            checkedAt: state.checked ? new Date().toISOString() : null,
-          }),
-        ],
-        { formatVersion: 2 },
+export const CheckAgainStillOpen = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...withUpgrades(() =>
+        upgradesFixture(
+          [
+            upgradeItemFixture({
+              status: "pr_open",
+              pullRequest,
+              checkedAt: state.checked ? new Date().toISOString() : null,
+            }),
+          ],
+          { formatVersion: 2 },
+        ),
       ),
-    ),
+    )
+  },
+  parameters: {
     visual: { allow: { axes: "A layout defect on main (CTX-1279)." } },
   },
   play: async ({ canvasElement }) => {
@@ -339,31 +334,35 @@ export const CheckAgainStillOpen: Story = {
       { timeout: 10_000 },
     )
   },
-}
+})
 
 /**
  * Progress card of a Workspace format upgrade: the user pressed Check again,
  * and it found the merge, so the card changed to the merged state.
  */
-export const CheckAgainFindsMerge: Story = {
-  parameters: {
-    ...withUpgrades(() =>
-      upgradesFixture(
-        [
-          upgradeItemFixture({
-            status: "pr_open",
-            pullRequest,
-            ...(state.checked
-              ? {
-                  checkedAt: new Date().toISOString(),
-                  mergedAt: new Date().toISOString(),
-                }
-              : {}),
-          }),
-        ],
-        { formatVersion: 2 },
+export const CheckAgainFindsMerge = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...withUpgrades(() =>
+        upgradesFixture(
+          [
+            upgradeItemFixture({
+              status: "pr_open",
+              pullRequest,
+              ...(state.checked
+                ? {
+                    checkedAt: new Date().toISOString(),
+                    mergedAt: new Date().toISOString(),
+                  }
+                : {}),
+            }),
+          ],
+          { formatVersion: 2 },
+        ),
       ),
-    ),
+    )
+  },
+  parameters: {
     visual: { allow: { axes: "A layout defect on main (CTX-1279)." } },
   },
   play: async ({ canvasElement }) => {
@@ -384,30 +383,28 @@ export const CheckAgainFindsMerge: Story = {
       ).length,
     ).toBeGreaterThan(0)
   },
-}
+})
 
 /**
  * Progress card of a Workspace format upgrade: the user pressed Check again,
  * and the check failed. A message gives the cause and the next step.
  */
-export const CheckAgainFails: Story = {
+export const CheckAgainFails = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      activeMemberRoleHandler("owner"),
+      workspaceUpgradesHandler(
+        upgradesFixture([
+          upgradeItemFixture({ status: "pr_open", pullRequest }),
+        ]),
+      ),
+      http.post(/\/upgrades\/check$/, () =>
+        HttpResponse.json({ error: "Server error" }, { status: 500 }),
+      ),
+    )
+  },
   parameters: {
     visual: { allow: { axes: "A layout defect on main (CTX-1279)." } },
-    msw: {
-      handlers: {
-        page: [
-          activeMemberRoleHandler("owner"),
-          workspaceUpgradesHandler(
-            upgradesFixture([
-              upgradeItemFixture({ status: "pr_open", pullRequest }),
-            ]),
-          ),
-          http.post(/\/upgrades\/check$/, () =>
-            HttpResponse.json({ error: "Server error" }, { status: 500 }),
-          ),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -422,7 +419,7 @@ export const CheckAgainFails: Story = {
       ).toBeVisible(),
     )
   },
-}
+})
 
 const checkingScope = "acme/docs/reingest-bundle"
 
@@ -441,20 +438,22 @@ const checkingFormatItem = upgradeItemFixture({
  * checking state 59.5 s ago, so it ends within a second: the blocked line
  * comes back with the right control (CTX-949).
  */
-function checkingFormatTimesOut(role: "owner" | "member"): Story {
+function checkingFormatTimesOut(role: "owner" | "member") {
   return {
-    parameters: withUpgrades(
-      upgradesFixture([checkingFormatItem], { formatVersion: 3 }),
-      role,
-    ),
-    beforeEach: () => {
+    beforeEach: ({ msw }: StoryContext) => {
+      msw.use(
+        ...withUpgrades(
+          upgradesFixture([checkingFormatItem], { formatVersion: 3 }),
+          role,
+        ),
+      )
       checkingFormatExpired(checkingScope, false)
       checkingFormatExpired(checkingScope, true, Date.now() - 59_500)
       return () => {
         checkingFormatExpired(checkingScope, false)
       }
     },
-    play: async ({ canvasElement }) => {
+    play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
       const canvas = within(canvasElement)
       await waitFor(
         async () =>
@@ -493,20 +492,14 @@ function checkingFormatTimesOut(role: "owner" | "member"): Story {
  * format 3, but the check after the hydrate did not finish in a minute, so a
  * stale block asks for Check again.
  */
-export const CheckingFormatTimesOutAdmin: Story = {
-  ...checkingFormatTimesOut("owner"),
-  parameters: {
-    ...checkingFormatTimesOut("owner").parameters,
-  },
-}
+export const CheckingFormatTimesOutAdmin = meta.story(
+  checkingFormatTimesOut("owner"),
+)
 
 /**
  * Re-ingestion card in the Upgrades section, for a member: the format check
  * timed out, so the blocked line comes back with no Check again.
  */
-export const CheckingFormatTimesOutMember: Story = {
-  ...checkingFormatTimesOut("member"),
-  parameters: {
-    ...checkingFormatTimesOut("member").parameters,
-  },
-}
+export const CheckingFormatTimesOutMember = meta.story(
+  checkingFormatTimesOut("member"),
+)
