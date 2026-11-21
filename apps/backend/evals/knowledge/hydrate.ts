@@ -14,7 +14,7 @@ import { workspaces } from "../../src/db/schema/workspaces.js"
 import { resolveWorkspaceReadRevision } from "../../src/domain/workspaces/resolve-revision.js"
 import {
   getKnowledgeState,
-  readyKnowledgeShas,
+  readyKnowledgeHeads,
 } from "../../src/models/knowledge-state.js"
 import { getWorkspaceProjection } from "../../src/models/workspaces.js"
 import { openWorkflowNamespaceId } from "../../src/openworkflow/namespace.js"
@@ -314,9 +314,9 @@ async function waitForBothStacks(input: {
           throw new Error(
             `The old stack has the state ${result.kind} for its ${store} of ${workspaceId}${result.kind === "failed" ? `: ${result.message}` : ""}.`,
           )
-      const plane = (await readyKnowledgeShas(org.id, [workspaceId])).get(
+      const plane = (await readyKnowledgeHeads(org.id, [workspaceId])).get(
         workspaceId,
-      )
+      )?.sha
       if (plane !== sha)
         throw new Error(
           `The plane serves ${plane ?? "nothing"} for ${workspaceId} after the hydrate, not ${sha}.`,

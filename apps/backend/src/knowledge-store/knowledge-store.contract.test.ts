@@ -16,15 +16,19 @@ import {
 import {
   createKnowledgeStore,
   type DocumentRows,
+  type KnowledgeReadScope,
   type KnowledgeScope,
+  type KnowledgeStore,
   ORG_SETTING,
+  type TreeEntry,
 } from "./knowledge-store.js"
 import { migrateKnowledgeStore } from "./migrate.js"
 
 /*
- * The two org walls of ADR-066 decision 9, against a real ClickHouse of the
- * pinned image. Each test that removes a wall uses its own database, so that
- * the other tests keep both walls.
+ * The two org walls of ADR-066 decision 9, and the writes of file versions
+ * and trees of ADR-071, against a real ClickHouse of the pinned image. Each
+ * test that removes a wall uses its own database, so that the other tests
+ * keep both walls.
  *
  * Read walls: (1) the WHERE clause of KnowledgeStore, (2) the row policy.
  * Insert walls: (1) KnowledgeStore sets the org columns, (2) the CHECK
@@ -37,6 +41,7 @@ const tables = [
   "relations",
   "relations_in",
   "doc_refs",
+  "trees",
 ] as const
 const orgA: KnowledgeScope = { orgId: "org_wall_a", workspaceId: "ws_same" }
 // The same Workspace id in both orgs: only the org can separate the rows.
@@ -79,7 +84,6 @@ function rowsOf(
       source: "workspace",
       summary: `${title} summary`,
       mime: "",
-      validFrom: new Date("2026-01-01T00:00:00.000Z"),
       validTo: null,
       observedAt,
     },
@@ -106,6 +110,7 @@ function rowsOf(
         dstDoc,
         confidence: 0.75,
         validFrom: null,
+        validFromIntroduced: false,
         validTo: null,
         source: "link",
         altText: "",
@@ -116,13 +121,95 @@ function rowsOf(
   }
 }
 
-/** The document as the store keeps it after a replace. */
+/** The tree row of the file version `version` of `rows`. */
+const entryOf = (rows: DocumentRows, version: string): TreeEntry => ({
+  docKey: rows.document.docKey,
+  version,
+  path: rows.document.path,
+  status: "active",
+  kind: rows.document.kind,
+  observedAt: rows.document.observedAt,
+  validFrom: new Date("2026-01-01T00:00:00.000Z"),
+  validTo: rows.document.validTo,
+  deletedAt: null,
+})
+
+/**
+ * Writes the file version `version` of each of `documents` and its tree row
+ * of `branch` with the tree version `treeVersion`.
+ */
+async function put(
+  store: KnowledgeStore,
+  scope: KnowledgeScope,
+  documents: DocumentRows[],
+  { version = "v1", treeVersion = 1, branch = "main" } = {},
+): Promise<void> {
+  await store.writeFileVersions(
+    scope,
+    documents.map((rows) => ({ ...rows, version, blobSha: `blob-${version}` })),
+  )
+  await store.writeTree(
+    scope,
+    branch,
+    treeVersion,
+    documents.map((rows) => entryOf(rows, version)),
+  )
+}
+
+/** The read scope of `scope` at the head `treeVersion` of `main`. */
+const at = (scope: KnowledgeScope, treeVersion = 1): KnowledgeReadScope => ({
+  orgId: scope.orgId,
+  heads: [{ workspaceId: scope.workspaceId, branch: "main", treeVersion }],
+})
+
+/**
+ * The document of `docKey` in the view of `scope`, with its chunks in order
+ * and its relations in both directions, or null.
+ */
+async function readOne(
+  store: KnowledgeStore,
+  scope: KnowledgeReadScope,
+  docKey: string,
+) {
+  const workspaceId = scope.heads[0]?.workspaceId ?? ""
+  const ref = { workspaceId, docKey }
+  const [found] = await store.readDocuments(scope, [ref])
+  if (!found) return null
+  const [evidence] = await store.readEvidence(scope, [ref], [1, 0, 0], 100)
+  const relations = await store.readFrontier(scope, [ref])
+  return {
+    document: found.document,
+    chunks: [...(evidence?.chunks ?? [])]
+      .sort((a, b) => a.ordinal - b.ordinal)
+      .map(({ distance: _distance, ...chunk }) => chunk),
+    outgoing: relations
+      .filter((row) => row.direction === "out")
+      .map((row) => row.relation),
+    incoming: relations
+      .filter((row) => row.direction === "in")
+      .map((row) => row.relation),
+  }
+}
+
+/** The document as a read gives it: active, with the tree's `valid_from`. */
 const active = (rows: DocumentRows) => ({
   ...rows.document,
   status: "active",
   deletedAt: null,
   error: "",
+  validFrom: new Date("2026-01-01T00:00:00.000Z"),
 })
+
+/** A chunk as a read gives it: no vector. */
+const chunkLines = (rows: DocumentRows) =>
+  rows.chunks.map(({ embedding: _embedding, ...chunk }) => chunk)
+
+/** A relation as a read gives it. */
+const relationOf = (rows: DocumentRows) =>
+  rows.relations.map(({ validFromIntroduced: _flag, ...relation }) => ({
+    ...relation,
+    srcDoc: rows.document.docKey,
+  }))
 
 beforeAll(async () => {
   clickHouse = await startClickHouse()
@@ -142,21 +229,24 @@ describe("KnowledgeStore", () => {
   it("refuses a statement without an org or a Workspace", async () => {
     const store = createKnowledgeStore(serverUrl)
     try {
-      await expect(
-        store.readDocument({ orgId: "", workspaceId: "ws" }, "a.md"),
-      ).rejects.toThrow(/org and a Workspace/)
       const noWorkspace = { orgId: "org", workspaceId: "" }
-      for (const mutation of [
-        store.applyDocuments(noWorkspace, { documents: [rowsOf("x")] }),
-        store.applyDocuments(noWorkspace, {
-          deleted: { docKeys: ["x.md"], deletedAt: observedAt },
+      const noOrg = { orgId: "", workspaceId: "ws" }
+      const head = { branch: "main", treeVersion: 1 }
+      for (const statement of [
+        store.writeFileVersions(noWorkspace, [
+          { ...rowsOf("x"), version: "v1", blobSha: "b" },
+        ]),
+        store.writeTree(noWorkspace, "main", 1, [entryOf(rowsOf("x"), "v1")]),
+        store.deleteTreeAbove(noWorkspace, "main", 0),
+        store.cleanUp(noOrg, {
+          heads: [head],
+          replacedBefore: observedAt,
+          unusedBefore: observedAt,
         }),
-        store.applyDocuments(noWorkspace, {
-          placeholders: [{ docKey: "x.md", status: "missing", observedAt }],
-        }),
-        store.listDocumentKeys({ orgId: "", workspaceId: "ws" }),
+        store.findFileVersions(noOrg, [{ docKey: "x.md", version: "v1" }]),
+        store.readTree(noOrg, head),
       ])
-        await expect(mutation).rejects.toThrow(/org and a Workspace/)
+        await expect(statement).rejects.toThrow(/org and a Workspace/)
     } finally {
       await store.close()
     }
@@ -179,6 +269,7 @@ describe("KnowledgeStore", () => {
       "0007_cold_parts_by_age.sql",
       "0008_chunk_embedding_key.sql",
       "0009_image_texts.sql",
+      "0010_file_versions_and_trees.sql",
     ])
   })
 
@@ -187,19 +278,15 @@ describe("KnowledgeStore", () => {
     try {
       const source = rowsOf("Source", "source.md", "target.md")
       const target = rowsOf("Target", "target.md", "other.md")
-      await store.applyDocuments(orgA, { documents: [source, target] })
+      await put(store, orgA, [source, target])
 
-      expect(await store.readDocument(orgA, "missing.md")).toBeNull()
-      const stored = await store.readDocument(orgA, "target.md")
+      expect(await readOne(store, at(orgA), "missing.md")).toBeNull()
+      const stored = await readOne(store, at(orgA), "target.md")
       expect(stored?.document).toEqual(active(target))
-      expect(stored?.chunks).toEqual(target.chunks)
-      expect(stored?.outgoing).toEqual([
-        { ...target.relations[0], srcDoc: "target.md" },
-      ])
+      expect(stored?.chunks).toEqual(chunkLines(target))
+      expect(stored?.outgoing).toEqual(relationOf(target))
       // relations_in, sorted by dst_doc, gives the incoming relations.
-      expect(stored?.incoming).toEqual([
-        { ...source.relations[0], srcDoc: "source.md" },
-      ])
+      expect(stored?.incoming).toEqual(relationOf(source))
     } finally {
       await store.close()
     }
@@ -219,7 +306,7 @@ describe("KnowledgeStore", () => {
           embedding: [1, -1, 1, -1, 0, 0, 0, 0.5, -2, 2, 2, 2, 2, 2, 2, 2, 3],
         },
       ]
-      await store.applyDocuments(orgA, { documents: [rows] })
+      await put(store, orgA, [rows])
     } finally {
       await store.close()
     }
@@ -251,31 +338,29 @@ describe("readEmbeddings (CTX-1428)", () => {
     return rows
   }
 
-  it("reads the vector of a key only in the documents, the Workspace and the org of the scope", async () => {
+  it("reads the vector of a key only in the documents, the Workspace and the org of the scope, of any file version", async () => {
     const store = createKnowledgeStore(await freshDatabase())
     const otherWorkspace = { ...orgA, workspaceId: "ws_other" }
     try {
-      await store.applyDocuments(orgA, {
-        documents: [
-          keyed("shared.md", "k1", [1, -1, 0.5]),
-          keyed("other.md", "k2", [0.5, 0.5, 0.5]),
-        ],
-      })
-      await store.applyDocuments(orgB, {
-        documents: [keyed("shared.md", "k1", [-2, 2, 0])],
-      })
-      await store.applyDocuments(otherWorkspace, {
-        documents: [keyed("shared.md", "k1", [4, 4, 4])],
-      })
+      await put(store, orgA, [
+        keyed("shared.md", "k1", [1, -1, 0.5]),
+        keyed("other.md", "k2", [0.5, 0.5, 0.5]),
+      ])
+      // An older file version of shared.md, with no tree row.
+      await store.writeFileVersions(orgA, [
+        { ...keyed("shared.md", "k3", [3, 3, 3]), version: "v0", blobSha: "b" },
+      ])
+      await put(store, orgB, [keyed("shared.md", "k1", [-2, 2, 0])])
+      await put(store, otherWorkspace, [keyed("shared.md", "k1", [4, 4, 4])])
       const read = async (scope: KnowledgeScope, docKeys: string[]) =>
         Object.fromEntries(
           await store.readEmbeddings(scope, docKeys, ["k1", "k2", "k3", ""]),
         )
-      expect(await read(orgA, ["shared.md"])).toEqual({ k1: [1, -1, 0.5] })
-      expect(await read(orgA, ["shared.md", "other.md"])).toEqual({
+      expect(await read(orgA, ["shared.md"])).toEqual({
         k1: [1, -1, 0.5],
-        k2: [0.5, 0.5, 0.5],
+        k3: [3, 3, 3],
       })
+      expect(await read(orgA, ["other.md"])).toEqual({ k2: [0.5, 0.5, 0.5] })
       expect(await read(orgB, ["shared.md", "other.md"])).toEqual({
         k1: [-2, 2, 0],
       })
@@ -289,26 +374,26 @@ describe("readEmbeddings (CTX-1428)", () => {
   })
 
   it("gives the stored BFloat16 value, and a write of it stores the same value", async () => {
-    const store = createKnowledgeStore(await freshDatabase())
+    const url = await freshDatabase()
+    const store = createKnowledgeStore(url)
     try {
       const vector = [0.1, -1 / 3, 1234.5678, 1e-7]
-      await store.applyDocuments(orgA, {
-        documents: [keyed("first.md", "k", vector)],
-      })
+      await put(store, orgA, [keyed("first.md", "k", vector)])
       const stored = (
         await store.readEmbeddings(orgA, ["first.md"], ["k"])
       ).get("k")
       expect(stored).toHaveLength(vector.length)
       expect(stored).not.toEqual(vector)
-      await store.applyDocuments(orgA, {
-        documents: [keyed("second.md", "k", stored ?? [])],
-      })
-      const chunks = async (docKey: string) =>
-        (await store.readDocument(orgA, docKey))?.chunks.map(
-          (chunk) => chunk.embedding,
-        )
-      expect(await chunks("second.md")).toEqual(await chunks("first.md"))
-      expect(await chunks("first.md")).toEqual([stored])
+      await put(store, orgA, [keyed("second.md", "k", stored ?? [])])
+      const vectors = await rawRows<{ docKey: string; embedding: number[] }>(
+        rawClient(url),
+        "SELECT doc_key AS docKey, embedding FROM chunks ORDER BY doc_key",
+        orgA.orgId,
+      )
+      expect(vectors).toEqual([
+        { docKey: "first.md", embedding: stored },
+        { docKey: "second.md", embedding: stored },
+      ])
     } finally {
       await store.close()
     }
@@ -386,8 +471,8 @@ describe("org isolation of reads", () => {
     url = await freshDatabase()
     const store = createKnowledgeStore(url)
     try {
-      await store.applyDocuments(orgA, { documents: [rowsOf("Org A")] })
-      await store.applyDocuments(orgB, { documents: [rowsOf("Org B")] })
+      await put(store, orgA, [rowsOf("Org A")])
+      await put(store, orgB, [rowsOf("Org B")])
     } finally {
       await store.close()
     }
@@ -396,15 +481,20 @@ describe("org isolation of reads", () => {
   it("both walls: KnowledgeStore returns only the rows of the org of the scope", async () => {
     const store = createKnowledgeStore(url)
     try {
-      const forB = await store.readDocument(orgB, "shared.md")
+      const forB = await readOne(store, at(orgB), "shared.md")
       expect(forB?.document.title).toBe("Org B")
       expect(forB?.chunks.map((chunk) => chunk.text)).toEqual([
         "Org B first section",
         "Org B second section",
       ])
       expect(forB?.outgoing).toHaveLength(1)
-      const forA = await store.readDocument(orgA, "shared.md")
+      const forA = await readOne(store, at(orgA), "shared.md")
       expect(forA?.document.title).toBe("Org A")
+      expect(
+        (await store.readTree(orgB, { branch: "main", treeVersion: 1 })).map(
+          (entry) => entry.docKey,
+        ),
+      ).toEqual(["shared.md"])
     } finally {
       await store.close()
     }
@@ -448,18 +538,14 @@ describe("org isolation of reads", () => {
       })
     const store = createKnowledgeStore(policyFree)
     try {
-      await store.applyDocuments(orgA, {
-        documents: [rowsOf("Org A", "shared.md")],
-      })
-      await store.applyDocuments(orgA, {
-        documents: [rowsOf("Org A source", "a.md")],
-      })
-      await store.applyDocuments(orgB, {
-        documents: [rowsOf("Org B", "shared.md")],
-      })
-      await store.applyDocuments(orgB, {
-        documents: [rowsOf("Org B target", "target.md", "other.md")],
-      })
+      await put(store, orgA, [
+        rowsOf("Org A", "shared.md"),
+        rowsOf("Org A source", "a.md"),
+      ])
+      await put(store, orgB, [
+        rowsOf("Org B", "shared.md"),
+        rowsOf("Org B target", "target.md", "other.md"),
+      ])
       // Without the policy, a statement for org B sees both orgs.
       const all = await rawRows<{ org_id: string }>(
         client,
@@ -468,7 +554,7 @@ describe("org isolation of reads", () => {
       )
       expect(all.map((row) => row.org_id)).toEqual([orgA.orgId, orgB.orgId])
 
-      const forB = await store.readDocument(orgB, "shared.md")
+      const forB = await readOne(store, at(orgB), "shared.md")
       expect(forB?.document.title).toBe("Org B")
       expect(forB?.chunks.map((chunk) => chunk.text)).toEqual([
         "Org B first section",
@@ -477,13 +563,20 @@ describe("org isolation of reads", () => {
       expect(forB?.outgoing.map((relation) => relation.dstDoc)).toEqual([
         "target.md",
       ])
-      expect(await store.readDocument(orgB, "a.md")).toBeNull()
+      expect(await readOne(store, at(orgB), "a.md")).toBeNull()
       // Org A's shared.md and a.md also point at target.md.
-      const target = await store.readDocument(orgB, "target.md")
+      const target = await readOne(store, at(orgB), "target.md")
       expect(target?.document.title).toBe("Org B target")
       expect(target?.incoming.map((relation) => relation.srcDoc)).toEqual([
         "shared.md",
       ])
+      // The same file version key in two orgs: the tree of org B joins only
+      // the file versions of org B.
+      expect(
+        (await store.findFileVersions(orgB, [
+          { docKey: "a.md", version: "v1" },
+        ])).size,
+      ).toBe(0)
     } finally {
       await store.close()
     }
@@ -496,6 +589,7 @@ describe("org isolation of inserts", () => {
     const client = rawClient(url)
     const relationRow = {
       src_doc: "x.md",
+      src_version: "v1",
       src_chunk: 0,
       predicate: "REFERENCES",
       dst_doc: "y.md",
@@ -505,14 +599,31 @@ describe("org isolation of inserts", () => {
     const rows = {
       documents: {
         doc_key: "x.md",
+        version: "v1",
         kind: "note",
         status: "active",
         observed_at: "2026-11-19 10:11:12.345",
       },
-      chunks: { doc_key: "x.md", ordinal: 0, text: "x", embedding: [1] },
+      chunks: {
+        doc_key: "x.md",
+        version: "v1",
+        ordinal: 0,
+        text: "x",
+        embedding: [1],
+      },
       relations: relationRow,
       relations_in: relationRow,
-      doc_refs: { ref_key: "key:x.md", doc_key: "x.md" },
+      doc_refs: { ref_key: "key:x.md", doc_key: "x.md", version: "v1" },
+      trees: {
+        branch: "main",
+        doc_key: "x.md",
+        tree_version: 1,
+        kind: "file",
+        path: "x.md",
+        version: "v1",
+        status: "active",
+        observed_at: "2026-11-19 10:11:12.345",
+      },
     }
     for (const table of tables) {
       await expect(
@@ -561,10 +672,15 @@ describe("org isolation of inserts", () => {
     for (const relation of rows.relations) Object.assign(relation, smuggle)
     const store = createKnowledgeStore(url)
     try {
-      await store.applyDocuments(orgA, { documents: [rows] })
-      expect(await store.readDocument(orgB, "shared.md")).toBeNull()
+      await store.writeFileVersions(orgA, [
+        { ...rows, version: "v1", blobSha: "b" },
+      ])
+      await store.writeTree(orgA, "main", 1, [
+        { ...entryOf(rows, "v1"), ...smuggle },
+      ])
+      expect(await readOne(store, at(orgB), "shared.md")).toBeNull()
       expect(
-        (await store.readDocument(orgA, "shared.md"))?.chunks,
+        (await readOne(store, at(orgA), "shared.md"))?.chunks,
       ).toHaveLength(2)
     } finally {
       await store.close()
@@ -658,13 +774,13 @@ describe("known gap: the row policy does not filter changes", () => {
     const url = await freshDatabase()
     const store = createKnowledgeStore(url)
     try {
-      await store.applyDocuments(orgA, { documents: [rowsOf("Org A")] })
-      await store.applyDocuments(orgB, { documents: [rowsOf("Org B")] })
+      await put(store, orgA, [rowsOf("Org A")])
+      await put(store, orgB, [rowsOf("Org B")])
       await rawClient(url).command({
-        query: "DELETE FROM documents WHERE doc_key = 'shared.md'",
+        query: "DELETE FROM trees WHERE doc_key = 'shared.md'",
         clickhouse_settings: { [ORG_SETTING]: orgA.orgId },
       })
-      expect(await store.readDocument(orgB, "shared.md")).toBeNull()
+      expect(await readOne(store, at(orgB), "shared.md")).toBeNull()
     } finally {
       await store.close()
     }
@@ -672,10 +788,11 @@ describe("known gap: the row policy does not filter changes", () => {
 })
 
 /*
- * The users that the migration makes (ADR-066 decision 9), and the mutation
- * API. The mutations run as the writer user of the worker, and the reads as
- * the reader user of the backend. The users are global to the server, so
- * these tests share one database.
+ * The users that the migration makes (ADR-066 decision 9), the writes of
+ * file versions and trees, and the cleanup (ADR-071). The writes run as the
+ * writer user of the worker, and the reads as the reader user of the
+ * backend. The users are global to the server, so these tests share one
+ * database.
  */
 describe("users and mutations", () => {
   const passwords = { reader: "reader-test", writer: "writer-test" }
@@ -709,6 +826,14 @@ describe("users and mutations", () => {
     expect(rows.relations_in).toEqual(rows.relations)
   }
 
+  /** The count of rows of each table of a scope. */
+  async function counts(scope: KnowledgeScope) {
+    const rows = await snapshot(scope)
+    return Object.fromEntries(
+      Object.entries(rows).map(([table, list]) => [table, list.length]),
+    )
+  }
+
   beforeAll(async () => {
     adminUrl = await freshDatabase()
     await migrateKnowledgeStore(adminUrl, passwords)
@@ -725,29 +850,28 @@ describe("users and mutations", () => {
 
   it("the reader user can read, and cannot insert, update or delete", async () => {
     const scope = { orgId: "org_users", workspaceId: "ws_reader" }
-    await writer.applyDocuments(scope, {
-      documents: [rowsOf("Reader", "r.md")],
-    })
-    expect((await reader.readDocument(scope, "r.md"))?.document.title).toBe(
+    await put(writer, scope, [rowsOf("Reader", "r.md")])
+    expect((await readOne(reader, at(scope), "r.md"))?.document.title).toBe(
       "Reader",
     )
-    expect(await reader.listDocumentKeys(scope)).toEqual([
+    expect(await reader.listDocumentStatuses(at(scope))).toEqual([
       { docKey: "r.md", status: "active" },
+      { docKey: "target.md", status: "missing" },
     ])
 
     await expect(
-      reader.applyDocuments(scope, { documents: [rowsOf("Changed", "r.md")] }),
+      reader.writeFileVersions(scope, [
+        { ...rowsOf("Changed", "r.md"), version: "v2", blobSha: "b" },
+      ]),
     ).rejects.toThrow(denied)
     await expect(
-      reader.applyDocuments(scope, {
-        deleted: { docKeys: ["r.md"], deletedAt: observedAt },
-      }),
+      reader.writeTree(scope, "main", 2, [
+        { ...entryOf(rowsOf("Changed", "r.md"), "v1"), deletedAt: observedAt },
+      ]),
     ).rejects.toThrow(denied)
-    await expect(
-      reader.applyDocuments(scope, {
-        placeholders: [{ docKey: "p.md", status: "missing", observedAt }],
-      }),
-    ).rejects.toThrow(denied)
+    await expect(reader.deleteTreeAbove(scope, "main", 0)).rejects.toThrow(
+      denied,
+    )
     const client = rawClient(readerUrl)
     const settings = { [ORG_SETTING]: scope.orgId }
     for (const table of tables) {
@@ -774,7 +898,7 @@ describe("users and mutations", () => {
         clickhouse_settings: settings,
       }),
     ).rejects.toThrow(denied)
-    expect(await reader.readDocument(scope, "r.md")).toMatchObject({
+    expect(await readOne(reader, at(scope), "r.md")).toMatchObject({
       document: { title: "Reader", status: "active" },
     })
   })
@@ -807,6 +931,7 @@ describe("users and mutations", () => {
       "ALTER USER ctxpipe_writer SETTINGS readonly = 0",
       // KnowledgeStore never runs an UPDATE (ADR-066 decision 8).
       "UPDATE documents SET title = 'x' WHERE org_id = 'org_m_a'",
+      "UPDATE trees SET kind = 'deleted' WHERE org_id = 'org_m_a'",
       "INSERT INTO knowledge_schema_migrations (name) VALUES ('9999_x.sql')",
     ])
       await expect(client.command({ query }), query).rejects.toThrow(denied)
@@ -839,10 +964,10 @@ describe("users and mutations", () => {
       ).rejects.toThrow(/password is incorrect/)
       const rotated = rawClient(userUrl("ctxpipe_reader", "reader-rotated"))
       await expect(
-        rawRows(rotated, "SELECT count() AS rows FROM documents", "org_none"),
+        rawRows(rotated, "SELECT count() AS rows FROM trees", "org_none"),
       ).resolves.toEqual([{ rows: 0 }])
       await expect(
-        rotated.command({ query: "DELETE FROM documents WHERE 1" }),
+        rotated.command({ query: "DELETE FROM trees WHERE 1" }),
       ).rejects.toThrow(denied)
     } finally {
       // Back to the first password for the other tests.
@@ -850,17 +975,29 @@ describe("users and mutations", () => {
     }
   })
 
-  describe("each mutation keeps the org and Workspace scope", () => {
+  describe("each write keeps the org and Workspace scope", () => {
     let run = 0
     let target: KnowledgeScope
-    // The same document keys in another Workspace of the same org, and in the
-    // same Workspace id of another org.
+    // The same keys in another Workspace of the same org, and in the same
+    // Workspace id of another org.
     let others: KnowledgeScope[]
     let before: Awaited<ReturnType<typeof snapshot>>[]
     const seed = () => [
       rowsOf("Doc", "doc.md", "target.md"),
       rowsOf("Target", "target.md", "doc.md"),
     ]
+    const head1 = { branch: "main", treeVersion: 1 }
+    /** A cleanup with each grace time over. */
+    const cleanNow = (heads = [head1], counter?: { mutations: number }) =>
+      writer.cleanUp(
+        target,
+        {
+          heads,
+          replacedBefore: new Date(Date.now() + 60_000),
+          unusedBefore: new Date(Date.now() + 60_000),
+        },
+        counter,
+      )
 
     beforeEach(async () => {
       run += 1
@@ -869,8 +1006,15 @@ describe("users and mutations", () => {
         { orgId: "org_m_a", workspaceId: `ws_m_${run}_other` },
         { orgId: "org_m_b", workspaceId: `ws_m_${run}` },
       ]
-      for (const scope of [target, ...others])
-        await writer.applyDocuments(scope, { documents: seed() })
+      for (const scope of [target, ...others]) {
+        await put(writer, scope, seed())
+        // A second file version of doc.md at tree version 2, above the head
+        // of the cleanups below.
+        await put(writer, scope, [rowsOf("Doc v2", "doc.md", "new.md")], {
+          version: "v2",
+          treeVersion: 2,
+        })
+      }
       before = await Promise.all(others.map(snapshot))
     })
 
@@ -880,43 +1024,97 @@ describe("users and mutations", () => {
       await expectSameRelations(target)
     })
 
-    it("a document replaces the document, its chunks and its outgoing relations", async () => {
-      const next = rowsOf("Doc v2", "doc.md", "new-target.md")
-      next.chunks = [
-        {
-          ordinal: 0,
-          text: "only section",
-          startLine: 1,
-          endLine: 2,
-          embedding: [1],
-        },
-      ]
-      next.refKeys = ["key:doc-v2"]
-      await writer.applyDocuments(target, { documents: [next] })
-
-      const stored = await reader.readDocument(target, "doc.md")
-      expect(stored?.document).toEqual(active(next))
-      expect(stored?.refKeys).toEqual(["key:doc-v2"])
-      expect(stored?.chunks).toEqual(next.chunks)
-      expect(stored?.outgoing).toEqual([
-        { ...next.relations[0], srcDoc: "doc.md" },
+    it("finds the stored file versions, with the fields that a tree row copies", async () => {
+      const found = await writer.findFileVersions(target, [
+        { docKey: "doc.md", version: "v1" },
+        { docKey: "doc.md", version: "v2" },
+        { docKey: "doc.md", version: "v3" },
       ])
-      expect(
-        (await reader.readDocument(target, "target.md"))?.incoming,
-      ).toEqual([])
-      // A second run of the same replace (a retry) gives the same rows.
-      const once = await snapshot(target)
-      await writer.applyDocuments(target, { documents: [next] })
-      expect(await snapshot(target)).toEqual(once)
+      expect([...found.keys()]).toEqual(["doc.md\0v1", "doc.md\0v2"])
+      expect(found.get("doc.md\0v1")).toEqual({
+        status: "active",
+        kind: "note",
+        observedAt,
+        validTo: null,
+      })
     })
 
-    it("a tombstone keeps the fields of the document and the relations that point at it", async () => {
-      const deletedAt = new Date("2026-11-20T08:00:00.123Z")
-      await writer.applyDocuments(target, {
-        deleted: { docKeys: ["target.md"], deletedAt: deletedAt },
+    it("a retry of a write that stopped before its document row stores each row one time", async () => {
+      const next = { ...rowsOf("Doc v3", "doc.md"), version: "v3", blobSha: "b" }
+      // The rest of a stopped write: chunks and relations, no document row.
+      await writer.writeFileVersions(target, [next])
+      await rawClient(adminUrl).command({
+        query: `DELETE FROM documents WHERE org_id = '${target.orgId}'
+          AND workspace_id = '${target.workspaceId}' AND version = 'v3'`,
+        clickhouse_settings: { [ORG_SETTING]: target.orgId },
       })
+      expect(
+        (await writer.findFileVersions(target, [
+          { docKey: "doc.md", version: "v3" },
+        ])).size,
+      ).toBe(0)
+      const counter = { mutations: 0 }
+      await writer.writeFileVersions(target, [next], counter)
+      // One DELETE for each table of the rest.
+      expect(counter.mutations).toBe(5)
+      const rows = await snapshot(target)
+      const ofV3 = (table: string) =>
+        (rows[table] as { version?: string; src_version?: string }[]).filter(
+          (row) => (row.version ?? row.src_version) === "v3",
+        ).length
+      expect(
+        Object.fromEntries(
+          ["documents", "chunks", "relations", "doc_refs"].map((table) => [
+            table,
+            ofV3(table),
+          ]),
+        ),
+      ).toEqual({ documents: 1, chunks: 2, relations: 1, doc_refs: 1 })
+    })
 
-      const stored = await reader.readDocument(target, "target.md")
+    it("refuses a write with the same file version two times", async () => {
+      const unchanged = await snapshot(target)
+      const version = { ...rowsOf("A", "doc.md"), version: "v9", blobSha: "b" }
+      await expect(
+        writer.writeFileVersions(target, [version, version]),
+      ).rejects.toThrow(/two times/)
+      expect(await snapshot(target)).toEqual(unchanged)
+    })
+
+    it("a read takes the newest tree row at or below the head; deleteTreeAbove removes the rows above it", async () => {
+      expect(
+        (await readOne(reader, at(target, 1), "doc.md"))?.document.title,
+      ).toBe("Doc")
+      expect(
+        (await readOne(reader, at(target, 2), "doc.md"))?.document.title,
+      ).toBe("Doc v2")
+      expect(
+        (await writer.readTree(target, head1)).map((entry) => entry.version),
+      ).toEqual(["v1", "v1"])
+      const counter = { mutations: 0 }
+      await writer.deleteTreeAbove(target, "main", 1, counter)
+      expect(counter.mutations).toBe(1)
+      expect(
+        (await readOne(reader, at(target, 2), "doc.md"))?.document.title,
+      ).toBe("Doc")
+      // The file version stays: only the cleanup removes it.
+      expect(
+        (await writer.findFileVersions(target, [
+          { docKey: "doc.md", version: "v2" },
+        ])).size,
+      ).toBe(1)
+    })
+
+    it("a tombstone keeps the fields of its last file version and the relations that point at it", async () => {
+      const deletedAt = new Date("2026-11-20T08:00:00.123Z")
+      const [targetEntry] = (await writer.readTree(target, head1)).filter(
+        (entry) => entry.docKey === "target.md",
+      )
+      if (!targetEntry) throw new Error("No tree row of target.md")
+      await writer.writeTree(target, "main", 3, [
+        { ...targetEntry, deletedAt },
+      ])
+      const stored = await readOne(reader, at(target, 3), "target.md")
       expect(stored?.document).toMatchObject({
         title: "Target",
         status: "deleted",
@@ -925,182 +1123,107 @@ describe("users and mutations", () => {
       })
       expect(stored?.chunks).toEqual([])
       expect(stored?.outgoing).toEqual([])
-      expect(stored?.refKeys).toEqual([])
-      // doc.md still points at the tombstone.
-      expect(stored?.incoming.map((relation) => relation.srcDoc)).toEqual([
-        "doc.md",
-      ])
-      expect((await reader.readDocument(target, "doc.md"))?.incoming).toEqual(
-        [],
-      )
-      expect(await reader.listDocumentKeys(target)).toEqual([
-        { docKey: "doc.md", status: "active" },
-        { docKey: "target.md", status: "deleted" },
-      ])
-      // A retry keeps the date of the first deletion.
-      await writer.applyDocuments(target, {
-        deleted: { docKeys: ["target.md"], deletedAt: observedAt },
-      })
+      // At tree version 1, doc.md points at target.md. Its file version v2 of
+      // tree version 2 points at new.md instead.
       expect(
-        (await reader.readDocument(target, "target.md"))?.document.deletedAt,
-      ).toEqual(deletedAt)
-      // A key with no row: a retry after a failure between the DELETE and
-      // the INSERT of a tombstone still makes the tombstone.
-      await writer.applyDocuments(target, {
-        deleted: { docKeys: ["gone.md"], deletedAt: deletedAt },
-      })
-      expect(
-        (await reader.readDocument(target, "gone.md"))?.document,
-      ).toMatchObject({ status: "deleted", deletedAt, title: "" })
-      // The file comes back: a replace makes the row active again.
-      await writer.applyDocuments(target, { documents: seed() })
-      expect(
-        (await reader.readDocument(target, "target.md"))?.document.status,
-      ).toBe("active")
-    })
-
-    it("a placeholder replaces each document with a missing or failed row", async () => {
-      await writer.applyDocuments(target, {
-        placeholders: [
-          { docKey: "nowhere.md", status: "missing", observedAt },
-          {
-            docKey: "doc.md",
-            status: "failed",
-            error: "parse error",
-            observedAt,
-          },
-        ],
-      })
-      expect(await reader.listDocumentKeys(target)).toEqual([
-        { docKey: "doc.md", status: "failed" },
-        { docKey: "nowhere.md", status: "missing" },
-        { docKey: "target.md", status: "active" },
-      ])
-      const failed = await reader.readDocument(target, "doc.md")
-      expect(failed?.document).toMatchObject({
-        status: "failed",
-        error: "parse error",
-        title: "",
-      })
-      expect(failed?.chunks).toEqual([])
-      expect(failed?.outgoing).toEqual([])
-      expect(
-        (await reader.readDocument(target, "nowhere.md"))?.document,
-      ).toMatchObject({ status: "missing", error: "", deletedAt: null })
-    })
-
-    it("a missing placeholder does not replace a document or a tombstone", async () => {
-      const deletedAt = new Date("2026-11-20T08:00:00.123Z")
-      await writer.applyDocuments(target, {
-        deleted: { docKeys: ["gone.md"], deletedAt: deletedAt },
-      })
-      const unchanged = await snapshot(target)
-      await writer.applyDocuments(target, {
-        placeholders: [
-          { docKey: "target.md", status: "missing", observedAt },
-          { docKey: "gone.md", status: "missing", observedAt },
-        ],
-      })
-      expect(await snapshot(target)).toEqual(unchanged)
-      expect(
-        (await reader.readDocument(target, "gone.md"))?.document,
-      ).toMatchObject({ status: "deleted", deletedAt })
-    })
-
-    it("applies documents, placeholders and tombstones with one DELETE for each table", async () => {
-      const deletedAt = new Date("2026-11-20T08:00:00.123Z")
-      const counter = { mutations: 0 }
-      await writer.applyDocuments(
-        target,
-        {
-          documents: [rowsOf("Doc v2", "doc.md", "new.md")],
-          placeholders: [
-            { docKey: "new.md", status: "missing", observedAt },
-            { docKey: "broken.md", status: "failed", error: "no", observedAt },
-          ],
-          deleted: { docKeys: ["target.md"], deletedAt },
-        },
-        counter,
-      )
-      expect(counter).toEqual({ mutations: 5 })
-      expect(await reader.listDocumentKeys(target)).toEqual([
-        { docKey: "broken.md", status: "failed" },
+        (await readOne(reader, at(target, 1), "target.md"))?.incoming.map(
+          (relation) => relation.srcDoc,
+        ),
+      ).toEqual(["doc.md"])
+      expect(stored?.incoming).toEqual([])
+      expect(await reader.listDocumentStatuses(at(target, 3))).toEqual([
         { docKey: "doc.md", status: "active" },
         { docKey: "new.md", status: "missing" },
         { docKey: "target.md", status: "deleted" },
       ])
-      expect(
-        (await reader.readDocument(target, "target.md"))?.document,
-      ).toMatchObject({ title: "Target", deletedAt })
-      // Only `missing` placeholders: no DELETE.
-      await writer.applyDocuments(
-        target,
+    })
+
+    it("a failed file version has its error and no content", async () => {
+      await writer.writeFileVersions(target, [
         {
-          placeholders: [{ docKey: "other.md", status: "missing", observedAt }],
+          ...rowsOf("", "broken.md"),
+          chunks: [],
+          relations: [],
+          refKeys: [],
+          version: "v1",
+          blobSha: "b",
+          error: "parse error",
         },
-        counter,
-      )
-      expect(counter).toEqual({ mutations: 5 })
-    })
-
-    it("splits a write of more than 1000 keys into a DELETE for each slice of 1000 keys", async () => {
-      const docKeys = Array.from({ length: 1500 }, (_, index) => `n${index}.md`)
-      // Each slice: chunks, relations and documents. No key has a relation
-      // or a reference key, so no DELETE of relations_in or doc_refs runs.
-      const counter = { mutations: 0 }
-      await writer.applyDocuments(
-        target,
-        { deleted: { docKeys, deletedAt: observedAt } },
-        counter,
-      )
-      expect(counter).toEqual({ mutations: 6 })
-      expect(
-        (await reader.listDocumentKeys(target)).filter(
-          (key) => key.status === "deleted",
-        ),
-      ).toHaveLength(1500)
-    })
-
-    it("a document key cannot change the predicates of a statement", async () => {
-      const injected = "x') OR (1 = 1"
-      await writer.applyDocuments(target, {
-        deleted: { docKeys: [injected], deletedAt: observedAt },
-      })
-      await writer.applyDocuments(target, {
-        placeholders: [{ docKey: injected, status: "missing", observedAt }],
-      })
-      await writer.applyDocuments(target, {
-        documents: [rowsOf("Injected", injected)],
-      })
-      expect(await reader.listDocumentKeys(target)).toEqual([
-        { docKey: "doc.md", status: "active" },
-        { docKey: "target.md", status: "active" },
-        { docKey: injected, status: "active" },
       ])
+      await writer.writeTree(target, "main", 3, [
+        { ...entryOf(rowsOf("", "broken.md"), "v1"), status: "failed" },
+      ])
+      const failed = await readOne(reader, at(target, 3), "broken.md")
+      expect(failed?.document).toMatchObject({
+        status: "failed",
+        error: "parse error",
+      })
+      expect(failed?.chunks).toEqual([])
+      expect(failed?.outgoing).toEqual([])
     })
 
-    it("refuses a write with the same document key two times, also in two lists", async () => {
-      const unchanged = await snapshot(target)
-      await expect(
-        writer.applyDocuments(target, {
-          documents: [rowsOf("A", "doc.md"), rowsOf("B", "doc.md")],
+    it("the cleanup deletes replaced tree rows, the rows of a branch with no head and unused file versions, after their grace times", async () => {
+      // A branch with no head, for example the earlier name of a renamed
+      // default branch.
+      await put(writer, target, seed(), { branch: "master" })
+      const counter = { mutations: 0 }
+      const head2 = { branch: "main", treeVersion: 2 }
+      // Before the grace times end, nothing goes.
+      expect(
+        await writer.cleanUp(target, {
+          heads: [head2],
+          replacedBefore: new Date("2026-01-01T00:00:00.000Z"),
+          unusedBefore: new Date("2026-01-01T00:00:00.000Z"),
         }),
-      ).rejects.toThrow(/two times/)
-      await expect(
-        writer.applyDocuments(target, {
-          placeholders: [
-            { docKey: "new.md", status: "missing", observedAt },
-            { docKey: "new.md", status: "missing", observedAt },
-          ],
-        }),
-      ).rejects.toThrow(/two times/)
-      await expect(
-        writer.applyDocuments(target, {
-          documents: [rowsOf("A", "doc.md")],
-          deleted: { docKeys: ["doc.md"], deletedAt: observedAt },
-        }),
-      ).rejects.toThrow(/two times/)
-      expect(await snapshot(target)).toEqual(unchanged)
+      ).toEqual({ treeRows: 0, fileVersions: 0 })
+      const view = await readOne(reader, at(target, 2), "doc.md")
+      // The tree row of doc.md at tree version 1 is replaced, and the branch
+      // `master` goes. Then no tree row uses the file version v1 of doc.md,
+      // so it goes too. A second pass finds nothing.
+      expect(await cleanNow([head2], counter)).toEqual({
+        treeRows: 3,
+        fileVersions: 1,
+      })
+      expect(await cleanNow([head2], counter)).toEqual({
+        treeRows: 0,
+        fileVersions: 0,
+      })
+      expect(await readOne(reader, at(target, 2), "doc.md")).toEqual(view)
+      expect(
+        [
+          ...(await writer.findFileVersions(target, [
+            { docKey: "doc.md", version: "v1" },
+            { docKey: "doc.md", version: "v2" },
+            { docKey: "target.md", version: "v1" },
+          ])).keys(),
+        ].sort(),
+      ).toEqual(["doc.md\0v2", "target.md\0v1"])
+      expect(await counts(target)).toEqual({
+        documents: 2,
+        chunks: 4,
+        relations: 2,
+        relations_in: 2,
+        doc_refs: 2,
+        trees: 2,
+      })
+      // Two DELETEs of trees, then one for each table of the file version
+      // (doc_refs too, because doc.md states a key).
+      expect(counter.mutations).toBe(2 + 5)
+    })
+
+    it("a key cannot change the predicates of a statement", async () => {
+      const injected = "x') OR (1 = 1"
+      await put(writer, target, [rowsOf("Injected", injected)], {
+        version: injected,
+        treeVersion: 3,
+      })
+      await writer.deleteTreeAbove(target, injected, 0)
+      await cleanNow([{ branch: "main", treeVersion: 3 }])
+      expect(
+        (await reader.listDocumentStatuses(at(target, 3))).map(
+          (row) => row.docKey,
+        ),
+      ).toEqual(expect.arrayContaining(["doc.md", "target.md", injected]))
     })
   })
 
@@ -1129,23 +1252,27 @@ describe("users and mutations", () => {
 })
 
 describe("reference keys", () => {
-  it("lists each reference key target that no document states, with its source", async () => {
+  it("lists each reference key target that no document of the view states, with its source", async () => {
     const store = createKnowledgeStore(await freshDatabase())
     try {
       // `key:target.md` is a key of target.md; `key:gone` is a key of no
-      // document.
-      await store.applyDocuments(orgA, {
-        documents: [
-          rowsOf("Source", "source.md", "ref:key:target.md"),
-          rowsOf("Other", "other.md", "ref:key:gone"),
-          rowsOf("Target", "target.md", "plain.md"),
-        ],
-      })
-      expect(await store.listUnresolvedReferences(orgA)).toEqual([
+      // document; `key:hidden.md` is a key of a file version with no tree
+      // row.
+      await put(store, orgA, [
+        rowsOf("Source", "source.md", "ref:key:target.md"),
+        rowsOf("Other", "other.md", "ref:key:gone"),
+        rowsOf("Target", "target.md", "plain.md"),
+        rowsOf("Seeker", "seeker.md", "ref:key:hidden.md"),
+      ])
+      await store.writeFileVersions(orgA, [
+        { ...rowsOf("Hidden", "hidden.md"), version: "v1", blobSha: "b" },
+      ])
+      expect(await store.listUnresolvedReferences(at(orgA))).toEqual([
         { srcDoc: "other.md", dstDoc: "ref:key:gone" },
+        { srcDoc: "seeker.md", dstDoc: "ref:key:hidden.md" },
       ])
       // The read is only for the Workspace of the scope.
-      expect(await store.listUnresolvedReferences(orgB)).toEqual([])
+      expect(await store.listUnresolvedReferences(at(orgB))).toEqual([])
     } finally {
       await store.close()
     }

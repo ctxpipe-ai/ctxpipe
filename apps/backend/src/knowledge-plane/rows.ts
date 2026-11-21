@@ -1,6 +1,6 @@
 import { connectorMirrorRoot } from "../domain/codeIngestion/connectorMirrorPaths.js"
 import {
-  effectiveValidFrom,
+  looksLikeGitSha,
   normalizeValidityBound,
 } from "../domain/workspaces/hydrate-phases.js"
 import {
@@ -15,8 +15,8 @@ import { imageContentType } from "../domain/workspaces/raw-file.js"
 import { workspaceGraphNodes } from "../domain/workspaces/workspace-graph.js"
 import {
   type DocumentRows,
+  type FileRelation,
   type KnowledgeChunk,
-  type KnowledgeRelation,
   REFERENCE_TARGET_PREFIX,
 } from "../knowledge-store/knowledge-store.js"
 import type { FileReferences } from "./reference-keys.js"
@@ -40,12 +40,14 @@ export type UnembeddedDocumentRows = Omit<DocumentRows, "chunks"> & {
  * that names a reference key targets the key (`ref:<key>`), and the
  * document states its own keys (`refKeys`).
  *
- * The rows depend only on the unit, its references and `introducedAt`. Give
- * a unit and its references from `parseKnowledgeFile`, which parses one file
- * alone (CTX-1400). `introducedAt` is the `valid_from` of the document, and
- * of each claim whose own `valid_from` is empty or a Git SHA, as in the old
- * stack (`effectiveValidFrom`). A validity bound that is not a time becomes
- * null.
+ * The rows depend only on the unit and its references, so all branches can
+ * share them (ADR-071 decision 2). Give a unit and its references from
+ * `parseKnowledgeFile`, which parses one file alone (CTX-1400). The time of
+ * the commit that introduced the file depends on the branch, so it is not in
+ * the rows: the tree row holds it as the `valid_from` of the document. A
+ * claim whose own `valid_from` is empty or a Git SHA takes that time too, as
+ * in the old stack (`effectiveValidFrom`): its relation has
+ * `validFromIntroduced`. A validity bound that is not a time becomes null.
  */
 export function knowledgeRows(input: {
   workspaceId: string
@@ -58,11 +60,6 @@ export function knowledgeRows(input: {
   blobPath?: (url: string) => string | null
   /** The reference keys of the file (`parseKnowledgeFile`). */
   references: FileReferences
-  /**
-   * The time of the commit that introduced the file (`readMarkdownHistory`),
-   * or null when the history does not give one.
-   */
-  introducedAt: string | null
   observedAt: Date
 }): UnembeddedDocumentRows {
   const { workspaceId, unit, observedAt } = input
@@ -165,12 +162,18 @@ export function knowledgeRows(input: {
   // The target is a Workspace path. A reference key target comes below.
   const relation = (
     target: string,
-    row: Pick<KnowledgeRelation, "predicate" | "confidence" | "source"> &
-      Partial<Pick<KnowledgeRelation, "validFrom" | "validTo" | "altText">>,
-  ): Omit<KnowledgeRelation, "srcDoc"> => ({
+    row: Pick<FileRelation, "predicate" | "confidence" | "source"> &
+      Partial<
+        Pick<
+          FileRelation,
+          "validFrom" | "validFromIntroduced" | "validTo" | "altText"
+        >
+      >,
+  ): FileRelation => ({
     srcChunk: chunkOf(target),
     dstDoc: keyOf(target),
     validFrom: null,
+    validFromIntroduced: false,
     validTo: null,
     altText: "",
     observedAt,
@@ -187,20 +190,19 @@ export function knowledgeRows(input: {
       if (shown.has(target) || linked.has(target)) return []
       linked.add(target)
     }
+    // A claim with no time of its own (empty or a Git SHA) takes the time
+    // of the commit that introduced the file (`effectiveValidFrom`).
+    const recorded = entry.validFrom?.trim() ?? ""
+    const introduced =
+      entry.from === "claim" && (!recorded || looksLikeGitSha(recorded))
     return [
       relation(target, {
         predicate: entry.predicate,
         confidence: entry.confidence,
-        validFrom: dateOrNull(
-          normalizeValidityBound(
-            entry.from === "claim"
-              ? effectiveValidFrom({
-                  recorded: entry.validFrom,
-                  introducingCommitTimestamp: input.introducedAt,
-                })
-              : entry.validFrom,
-          ),
-        ),
+        validFrom: introduced
+          ? null
+          : dateOrNull(normalizeValidityBound(entry.validFrom)),
+        validFromIntroduced: introduced,
         validTo: dateOrNull(normalizeValidityBound(entry.validTo)),
         source: entry.source ?? "",
       }),
@@ -248,6 +250,7 @@ export function knowledgeRows(input: {
       dstDoc: `${REFERENCE_TARGET_PREFIX}${link.key}`,
       confidence: 1,
       validFrom: dateOrNull(normalizeValidityBound(link.validFrom)),
+      validFromIntroduced: false,
       validTo: null,
       altText: "",
       observedAt,
@@ -259,7 +262,6 @@ export function knowledgeRows(input: {
     refKeys: input.references.keys,
     document: {
       ...documentDefaults(observedAt),
-      validFrom: input.introducedAt ? new Date(input.introducedAt) : null,
       docKey: unit.servingId,
       kind: node.kind,
       title,
@@ -376,7 +378,6 @@ function documentDefaults(observedAt: Date) {
     source: "",
     summary: "",
     mime: "",
-    validFrom: null,
     validTo: null,
     observedAt,
   }

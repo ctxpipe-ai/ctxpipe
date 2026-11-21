@@ -5,6 +5,7 @@ import { withOrgDbContext } from "../../db/client.js"
 import { workspaceGitRead } from "../../domain/workspaces/resolve-revision.js"
 import { workspaceRootPath } from "../../domain/workspaces/root-path.js"
 import { withSandboxLockIfFree } from "../../domain/workspaces/sandbox-lock-store.js"
+import { cleanUpKnowledgePlane } from "../../knowledge-plane/cleanup.js"
 import { projectKnowledgePlane } from "../../knowledge-plane/writer.js"
 import { createKnowledgeStore } from "../../knowledge-store/knowledge-store.js"
 import { getOrgFeature } from "../../models/org-features.js"
@@ -70,7 +71,8 @@ export const knowledgeProjection = defineWorkflow(
           )
           // A Workspace that is gone, or that has no tip yet: its hydrate
           // queues a run when it has one.
-          if (!workspace?.desiredSha) return null
+          if (!workspace?.desiredSha || !workspace.desiredDefaultBranch)
+            return null
           const tip = workspace.desiredSha
           const store = createKnowledgeStore(env.CLICKHOUSE_URL)
           try {
@@ -86,9 +88,18 @@ export const knowledgeProjection = defineWorkflow(
                 },
               }),
               root: workspaceRootPath(workspace),
+              branch: workspace.desiredDefaultBranch,
               tip,
               store,
               observedAt: new Date(),
+            })
+            // Under the same lease, so that no run uses a file version
+            // while the cleanup deletes it (ADR-071 decision 10).
+            await cleanUpKnowledgePlane({
+              orgId: input.orgId,
+              workspaceId: input.workspaceId,
+              store,
+              now: new Date(),
             })
             return { tip, summary }
           } finally {

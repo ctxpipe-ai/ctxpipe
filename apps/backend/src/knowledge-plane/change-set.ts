@@ -26,11 +26,12 @@ export function knowledgeProjectionVersion(input: {
   // the tables again, empty (CTX-1417). 5: `valid_from` from the commit that
   // introduced the file (CTX-1421). 6: one text vector space, and an image
   // document has no chunk (CTX-1431). 7: files become text at projection
-  // time (CTX-1433). The converter version, the vision model and the prompt
-  // version of the image text are part of it too: a new parser, model or
-  // prompt gives other text for the same bytes.
+  // time (CTX-1433). 8: file versions and trees (ADR-071): the ClickHouse
+  // migration 0010 made the tables again, empty. The converter version, the
+  // vision model and the prompt version of the image text are part of it
+  // too: a new parser, model or prompt gives other text for the same bytes.
   return JSON.stringify([
-    7,
+    8,
     input.embeddingModel,
     input.dimensions,
     input.root,
@@ -61,9 +62,9 @@ export type KnowledgeFullReason =
   | "first_run"
   /** The projection version of the code is not the stored version. */
   | "projection_version"
-  /** More than 10 runs started after `last_sha` and did not complete. */
-  | "attempts"
-  /** Git does not have `last_sha` or a SHA of `attempt_shas`. */
+  /** The default branch of the Workspace is not the branch of the head. */
+  | "branch"
+  /** Git does not have `last_sha`. */
   | "missing_commit"
   /** A diff changes the sources (ADR-050): `.ctxpipe/sources.yaml` or `sources/`. */
   | "sources_config"
@@ -81,17 +82,15 @@ export type KnowledgeChangeSet =
 /** The values of the `knowledge_state` row that the planner reads. */
 export type KnowledgePlanState = {
   lastSha: string | null
-  attemptShas: readonly string[]
+  branch: string | null
   projectionVersion: string | null
 }
 
 /**
- * Plan the change set of a knowledge run (ADR-067 decision 4). The run must
- * add `tip` to `attempt_shas` before it writes (`beginKnowledgeRun`). The
- * delta is the union of the diffs from `last_sha` to each SHA of
- * `attempt_shas` and to `tip`. The diffs to the SHAs of failed runs give the
- * files that those runs can have changed, also when a later commit changed a
- * file back.
+ * Plan the change set of a knowledge run (ADR-067 decision 4): the diff from
+ * `last_sha` to `tip`. A run that stopped wrote only tree rows above the
+ * head, which the next run deletes first (ADR-071 decision 4), so the diff
+ * from the head is complete.
  */
 export async function planKnowledgeChangeSet(input: {
   /** A Git directory that has the commits of the state and the tip. */
@@ -100,6 +99,8 @@ export async function planKnowledgeChangeSet(input: {
   root: string
   /** The state row, or null when the Workspace has no row. */
   state: KnowledgePlanState | null
+  /** The branch of the run: the default branch of the Workspace. */
+  branch: string
   tip: string
   /** The current version (`knowledgeProjectionVersion`). */
   projectionVersion: string
@@ -117,31 +118,17 @@ export async function planKnowledgeChangeSet(input: {
   if (!state?.lastSha) return full("first_run")
   if (state.projectionVersion !== input.projectionVersion)
     return full("projection_version")
-  const targets = [...new Set([...state.attemptShas, tip])]
-  if (targets.length > 10) return full("attempts")
+  if (state.branch !== input.branch) return full("branch")
   const base = state.lastSha
-  if (!(await hasCommits(directory, [base, ...targets])))
-    return full("missing_commit")
+  if (!(await hasCommits(directory, [base, tip]))) return full("missing_commit")
 
-  // The status of each path in the diff to the tip, and in the diffs to the
-  // other SHAs. `--no-renames` gives a rename as a removal and an addition.
+  // `--no-renames` gives a rename as a removal and an addition.
   const toTip = await diffPaths(directory, root, base, tip)
-  const others = new Map<string, DiffStatus>()
-  for (const sha of targets)
-    if (sha !== tip)
-      for (const [path, status] of await diffPaths(directory, root, base, sha))
-        if (!toTip.has(path)) others.set(path, status)
-  if ([...toTip.keys(), ...others.keys()].some(isSourcesTreePath))
-    return full("sources_config")
-
+  if ([...toTip.keys()].some(isSourcesTreePath)) return full("sources_config")
   const changed: string[] = []
   const removed: string[] = []
   for (const [path, status] of toTip)
     (status === "D" ? removed : changed).push(path)
-  // A path that only a failed run changed is the same at the tip as at
-  // `last_sha`. When that run added it, the tip does not have it.
-  for (const [path, status] of others)
-    (status === "A" ? removed : changed).push(path)
   return { kind: "delta", changed: changed.sort(), removed: removed.sort() }
 }
 

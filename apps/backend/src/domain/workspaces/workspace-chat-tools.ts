@@ -70,7 +70,7 @@ export async function workspaceChatTools(input: {
   const allowed = new Set(boundRepositories.map((repo) => repo.id))
   // Each call picks the knowledge reader, as an MCP tool call does.
   const expand = async (params: GraphExpandParams) => {
-    const { reader, planeShas } = await selectKnowledgeReader(input.orgId, [
+    const { reader, planeHeads } = await selectKnowledgeReader(input.orgId, [
       input.workspaceId,
     ])
     return {
@@ -81,7 +81,7 @@ export async function workspaceChatTools(input: {
         projection,
         params,
       }),
-      sha: planeShas.get(input.workspaceId) ?? sha,
+      sha: planeHeads.get(input.workspaceId)?.sha ?? sha,
     }
   }
   const explorer = [
@@ -139,7 +139,7 @@ function hybridSearchTool(input: {
           ? (args as { query: string }).query
           : ""
       if (!query.trim()) return "No search query."
-      const { reader, planeShas } = await selectKnowledgeReader(input.orgId, [
+      const { reader, planeHeads } = await selectKnowledgeReader(input.orgId, [
         input.workspaceId,
       ])
       const { hits } = await reader.search({
@@ -150,7 +150,8 @@ function hybridSearchTool(input: {
       })
       if (hits.length === 0)
         return "No matching knowledge in the active projection."
-      const sha = planeShas.get(input.workspaceId) ?? input.activeProjectionSha
+      const sha =
+        planeHeads.get(input.workspaceId)?.sha ?? input.activeProjectionSha
       return [
         `Workspace projection context (${sha}):`,
         ...hits.map((hit) => {

@@ -14,6 +14,7 @@ import {
 import type {
   DocumentStatus,
   KnowledgeStore,
+  TreeHead,
 } from "../knowledge-store/knowledge-store.js"
 import {
   fetchGitCommits,
@@ -67,10 +68,12 @@ export async function findKnowledgeRepairs(input: {
   /** The Workspace root folder; `""` is the repository root. */
   root: string
   sha: string
+  /** The head of the default branch, whose tip is `sha`. */
+  head: TreeHead
   /** The job only reads. */
   store: Pick<
     KnowledgeStore,
-    | "listDocumentKeys"
+    | "listDocumentStatuses"
     | "readFrontier"
     | "listUnresolvedReferences"
     | "readDocuments"
@@ -83,15 +86,12 @@ export async function findKnowledgeRepairs(input: {
   files: { path: string; content: string }[]
 }> {
   const { orgId, workspaceId, sha, store } = input
-  // A key with a tombstone and an old row gives the old row, as in the
-  // writer.
+  const scope = { orgId, heads: [{ workspaceId, ...input.head }] }
+  // The documents of the view, and each relation target with no row as
+  // `missing` (ADR-071 decision 5).
   const statuses = new Map<string, DocumentStatus>()
-  for (const { docKey, status } of await store.listDocumentKeys({
-    orgId,
-    workspaceId,
-  }))
-    if (status !== "deleted" || !statuses.has(docKey))
-      statuses.set(docKey, status)
+  for (const { docKey, status } of await store.listDocumentStatuses(scope))
+    statuses.set(docKey, status)
   const keysWith = (status: DocumentStatus) =>
     [...statuses].flatMap(([key, value]) => (value === status ? [key] : []))
   const counts = {
@@ -111,7 +111,7 @@ export async function findKnowledgeRepairs(input: {
   const targets = [...keysWith("missing"), ...keysWith("deleted")]
   await inBatches(targets, 500, async (batch) => {
     const relations = await store.readFrontier(
-      { orgId, workspaceIds: [workspaceId] },
+      scope,
       batch.map((docKey) => ({ workspaceId, docKey })),
     )
     for (const { direction, relation, neighbor } of relations) {
@@ -119,17 +119,14 @@ export async function findKnowledgeRepairs(input: {
         refer(neighbor.path, relation.dstDoc)
     }
   })
-  const unresolved = await store.listUnresolvedReferences({
-    orgId,
-    workspaceId,
-  })
+  const unresolved = await store.listUnresolvedReferences(scope)
   counts.missingKeys = new Set(unresolved.map((row) => row.dstDoc)).size
   await inBatches(unresolved, 500, async (batch) => {
     const targetsOf = new Map<string, string[]>()
     for (const { srcDoc, dstDoc } of batch)
       targetsOf.set(srcDoc, [...(targetsOf.get(srcDoc) ?? []), dstDoc])
     for (const { document } of await store.readDocuments(
-      { orgId, workspaceIds: [workspaceId] },
+      scope,
       [...targetsOf.keys()].map((docKey) => ({ workspaceId, docKey })),
     ))
       if (document.status === "active")

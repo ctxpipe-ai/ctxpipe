@@ -20,6 +20,7 @@ import {
   workspaceRootPath,
 } from "../domain/workspaces/root-path.js"
 import { McpToolError } from "../mcp/framework/tool-errors.js"
+import type { KnowledgeHead } from "../models/knowledge-state.js"
 import { log } from "../observability/logger.js"
 import {
   listMarkdownFilesAtGitSha,
@@ -92,11 +93,13 @@ async function gitRead<T>(
 export async function readPlaneUnit(input: {
   orgId: string
   workspaceId: string
-  sha: string
+  /** The head that the plane serves: Git is read at its SHA. */
+  head: KnowledgeHead
   /** The path from the Workspace root. */
   path: string
 }): Promise<{ unit: HydrateUnit; updatedAt: Date } | null> {
-  const { orgId, workspaceId, sha, path } = input
+  const { orgId, workspaceId, head, path } = input
+  const { sha } = head
   const repository = await workspaceRepository(orgId, workspaceId)
   // The `CHANGED` and `FROM_SOURCE` claims of a unit come from the files
   // under `sources/`, so the parse gets them too, as the hydrate does.
@@ -135,7 +138,12 @@ export async function readPlaneUnit(input: {
   }).units.find((parsed) => parsed.path === path)
   if (!unit) return null
   const [document] = await knowledgeStore().readDocuments(
-    { orgId, workspaceIds: [workspaceId] },
+    {
+      orgId,
+      heads: [
+        { workspaceId, branch: head.branch, treeVersion: head.treeVersion },
+      ],
+    },
     [{ workspaceId, docKey: servingIdForKnowledgePath(workspaceId, path) }],
   )
   return { unit, updatedAt: document?.document.observedAt ?? new Date() }

@@ -60,7 +60,13 @@ export const knowledgeMaintenance = defineWorkflow(
       ])
       // A later tip, or a Workspace or org that is gone: the run has
       // nothing to check.
-      if (state?.lastSha !== input.sha || !workspace || !org) {
+      if (
+        state?.lastSha !== input.sha ||
+        !state.branch ||
+        state.treeVersion === null ||
+        !workspace ||
+        !org
+      ) {
         getLogger().set({
           step: "knowledge-maintenance",
           knowledgeMaintenance: { sha: input.sha, outcome: "superseded" },
@@ -82,6 +88,7 @@ export const knowledgeMaintenance = defineWorkflow(
         }),
         root: workspaceRootPath(workspace),
         sha: input.sha,
+        head: { branch: state.branch, treeVersion: state.treeVersion },
         store,
       }).finally(() => store.close())
 

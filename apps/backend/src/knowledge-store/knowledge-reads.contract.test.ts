@@ -5,31 +5,35 @@ import { startClickHouse, userUrl } from "../test/clickhouse.js"
 import {
   createKnowledgeStore,
   type DocumentRows,
+  type FileRelation,
   type KnowledgeReadScope,
-  type KnowledgeRelation,
+  type KnowledgeScope,
+  type KnowledgeStore,
   ORG_SETTING,
   type SearchQuery,
+  type TreeEntry,
 } from "./knowledge-store.js"
 import { migrateKnowledgeStore } from "./migrate.js"
 
 /*
- * The reads of KnowledgeStore (ADR-068) against a real ClickHouse of the
- * pinned image: the hybrid search, the frontier relations, the evidence read
- * and the graph view read. Org B has the same Workspace id and the same
- * document keys as org A, and its text says "Org B", so a row that crosses
- * the org wall shows in each result.
+ * The reads of KnowledgeStore (ADR-068, ADR-071) against a real ClickHouse
+ * of the pinned image: the hybrid search, the frontier relations, the
+ * evidence read and the graph view read, each on the tree view of a head.
+ * Org B has the same Workspace id and the same document keys as org A, and
+ * its text says "Org B", so a row that crosses the org wall shows in each
+ * result.
  */
 
 const workspace = "ws_main"
 const otherWorkspace = "ws_other"
-const orgA: KnowledgeReadScope = {
-  orgId: "org_read_a",
-  workspaceIds: [workspace],
-}
+/** The head of `ws_main` of org A: tree version 2 has the tombstone. */
+const head = { workspaceId: workspace, branch: "main", treeVersion: 2 }
+const orgA: KnowledgeReadScope = { orgId: "org_read_a", heads: [head] }
 const orgB: KnowledgeReadScope = {
   orgId: "org_read_b",
-  workspaceIds: [workspace],
+  heads: [{ ...head, treeVersion: 1 }],
 }
+const otherHead = { workspaceId: otherWorkspace, branch: "main", treeVersion: 1 }
 
 const dimensions = 16
 /** The query vector. No dimension is 0. */
@@ -48,15 +52,20 @@ const nearQuery = (seed: number) =>
 
 const observedAt = new Date("2026-11-19T10:11:12.345Z")
 
+/** The rows of a document, and the `valid_from` of its tree row. */
+type Seeded = DocumentRows & { validFrom: Date | null }
+
 function document(
   docKey: string,
   chunks: { text: string; embedding: number[] }[],
   options: Partial<DocumentRows["document"]> & {
-    relations?: Partial<Omit<KnowledgeRelation, "srcDoc">>[]
+    validFrom?: Date | null
+    relations?: Partial<FileRelation>[]
   } = {},
-): DocumentRows {
-  const { relations = [], ...fields } = options
+): Seeded {
+  const { relations = [], validFrom = null, ...fields } = options
   return {
+    validFrom,
     document: {
       docKey,
       kind: "note",
@@ -66,7 +75,6 @@ function document(
       source: "workspace",
       summary: "",
       mime: "",
-      validFrom: null,
       validTo: null,
       observedAt,
       ...fields,
@@ -84,6 +92,7 @@ function document(
       dstDoc: "",
       confidence: 1,
       validFrom: null,
+      validFromIntroduced: false,
       validTo: null,
       source: "link",
       altText: "",
@@ -94,7 +103,7 @@ function document(
 }
 
 /** The documents of org A in `ws_main`. */
-const orgADocuments: DocumentRows[] = [
+const orgADocuments: Seeded[] = [
   // The closest vector. No query term.
   document(
     "vector.md",
@@ -156,14 +165,25 @@ const orgADocuments: DocumentRows[] = [
                     validTo: new Date("2021-01-01T00:00:00.000Z"),
                   },
                 ]
-              : [],
+              : i === 3
+                ? // A claim with no time of its own: it takes the time of
+                  // the commit that introduced its file on the branch.
+                  [
+                    {
+                      dstDoc: "vector.md",
+                      predicate: "SUPPORTS",
+                      validFromIntroduced: true,
+                    },
+                  ]
+                : [],
+        ...(i === 3 ? { validFrom: new Date("2030-01-01T00:00:00.000Z") } : {}),
       },
     ),
   ),
 ]
 
 /** Org B: the same Workspace id and keys, other text. */
-const orgBDocuments: DocumentRows[] = [
+const orgBDocuments: Seeded[] = [
   document("vector.md", [{ text: "Org B zebracorn", embedding: queryVector }], {
     title: "Org B vector",
     relations: [{ dstDoc: "org-b-target.md" }],
@@ -191,6 +211,45 @@ const rawClient = (url: string) => clickHouse.client(url)
 /** The reader password of the backend user (`ctxpipe_reader`). */
 const readerPassword = "reader-test"
 
+/** The tree row of the file version `version` of `rows`. */
+const entryOf = (rows: Seeded, version: string): TreeEntry => ({
+  docKey: rows.document.docKey,
+  version,
+  path: rows.document.path,
+  status: "active",
+  kind: rows.document.kind,
+  observedAt: rows.document.observedAt,
+  validFrom: rows.validFrom,
+  validTo: rows.document.validTo,
+  deletedAt: null,
+})
+
+/**
+ * Writes the file version `version` of each of `documents`, and its tree row
+ * of `main` with the tree version `treeVersion`.
+ */
+async function seed(
+  store: KnowledgeStore,
+  scope: KnowledgeScope,
+  documents: Seeded[],
+  { version = "v1", treeVersion = 1 } = {},
+): Promise<void> {
+  await store.writeFileVersions(
+    scope,
+    documents.map(({ validFrom: _validFrom, ...rows }) => ({
+      ...rows,
+      version,
+      blobSha: `blob-${version}`,
+    })),
+  )
+  await store.writeTree(
+    scope,
+    "main",
+    treeVersion,
+    documents.map((rows) => entryOf(rows, version)),
+  )
+}
+
 /**
  * A database with the documents of both orgs. `prepare` runs on the empty
  * tables. Returns its URL.
@@ -204,44 +263,46 @@ async function seededDatabase(
   const store = createKnowledgeStore(url)
   try {
     const inMain = { orgId: orgA.orgId, workspaceId: workspace }
-    await store.applyDocuments(inMain, { documents: orgADocuments })
-    await store.applyDocuments(inMain, {
-      deleted: { docKeys: ["deleted.md"], deletedAt: observedAt },
-    })
-    await store.applyDocuments(
-      { orgId: orgA.orgId, workspaceId: otherWorkspace },
-      {
-        documents: [
-          document("other.md", [
-            { text: "zebracorn elsewhere", embedding: queryVector },
-          ]),
-        ],
-      },
+    await seed(store, inMain, orgADocuments)
+    // Tree version 2: `deleted.md` becomes a tombstone. Its file version
+    // keeps its chunks, and the search must still not find them.
+    const deleted = orgADocuments.find(
+      (rows) => rows.document.docKey === "deleted.md",
     )
-    await store.applyDocuments(
+    if (!deleted) throw new Error("No deleted.md")
+    await store.writeTree(inMain, "main", 2, [
+      { ...entryOf(deleted, "v1"), deletedAt: observedAt },
+    ])
+    // Tree version 3, above the head: a run that did not complete. No read
+    // sees its rows.
+    await seed(
+      store,
+      inMain,
+      [
+        document("unfinished.md", [
+          { text: "zebracorn unfinished", embedding: queryVector },
+        ]),
+        document(
+          "lexical.md",
+          [{ text: "the zebracorn term changed", embedding: queryVector }],
+          { title: "Unfinished lexical" },
+        ),
+      ],
+      { version: "v2", treeVersion: 3 },
+    )
+    await seed(store, { orgId: orgA.orgId, workspaceId: otherWorkspace }, [
+      document("other.md", [
+        { text: "zebracorn elsewhere", embedding: queryVector },
+      ]),
+    ])
+    await seed(
+      store,
       { orgId: orgB.orgId, workspaceId: workspace },
-      { documents: orgBDocuments },
+      orgBDocuments,
     )
   } finally {
     await store.close()
   }
-  // A chunk that a tombstone must not have (ADR-067 decision 6), for example
-  // from a run that stopped part way. The search must still not find it.
-  await client.insert({
-    table: "chunks",
-    values: [
-      {
-        org_id: orgA.orgId,
-        workspace_id: workspace,
-        doc_key: "deleted.md",
-        ordinal: 0,
-        text: "zebracorn deleted",
-        embedding: queryVector,
-      },
-    ],
-    format: "JSONEachRow",
-    clickhouse_settings: { [ORG_SETTING]: orgA.orgId },
-  })
   return url
 }
 
@@ -342,21 +403,29 @@ describe("search", () => {
         text,
         vector,
       }
+      const docKey = `concat({prefix:String}, leftPad(toString(number), 5, '0'), '.md')`
       await client.command({
-        query: `INSERT INTO documents (org_id, workspace_id, doc_key, kind,
-            status, title, path, observed_at)
-          SELECT {orgId:String}, {workspace:String},
-            concat({prefix:String}, leftPad(toString(number), 5, '0'), '.md'),
+        query: `INSERT INTO documents (org_id, workspace_id, doc_key, version,
+            kind, status, title, path, observed_at)
+          SELECT {orgId:String}, {workspace:String}, ${docKey}, 'v1',
             {kind:String}, 'active', '', '', now64(3)
           FROM numbers({count:UInt32})`,
         query_params: params,
         clickhouse_settings: settings,
       })
       await client.command({
-        query: `INSERT INTO chunks (org_id, workspace_id, doc_key, ordinal,
-            text, embedding)
-          SELECT {orgId:String}, {workspace:String},
-            concat({prefix:String}, leftPad(toString(number), 5, '0'), '.md'),
+        query: `INSERT INTO trees (org_id, workspace_id, branch, doc_key,
+            tree_version, kind, path, version, status, doc_kind, observed_at)
+          SELECT {orgId:String}, {workspace:String}, 'main', ${docKey}, 1,
+            'file', '', 'v1', 'active', {kind:String}, now64(3)
+          FROM numbers({count:UInt32})`,
+        query_params: params,
+        clickhouse_settings: settings,
+      })
+      await client.command({
+        query: `INSERT INTO chunks (org_id, workspace_id, doc_key, version,
+            ordinal, text, embedding)
+          SELECT {orgId:String}, {workspace:String}, ${docKey}, 'v1',
             0, {text:String}, {vector:Array(Float32)}
           FROM numbers({count:UInt32})`,
         query_params: params,
@@ -367,8 +436,9 @@ describe("search", () => {
     await fill("guide", "m-near-", 600, "near", queryVector)
     await fill("guide", "z-target-", 1, "capword", opposite)
     const reader = createKnowledgeStore(url)
+    const scope = { ...orgA, heads: [{ ...head, treeVersion: 1 }] }
     try {
-      const hits = await reader.search(orgA, {
+      const hits = await reader.search(scope, {
         vector: queryVector,
         terms: ["capword"],
         kinds: ["guide"],
@@ -377,7 +447,7 @@ describe("search", () => {
       // Without the term, the vector part alone does not find it.
       expect(
         hitKeys(
-          await reader.search(orgA, {
+          await reader.search(scope, {
             vector: queryVector,
             terms: [],
             kinds: ["guide"],
@@ -445,23 +515,79 @@ describe("search", () => {
     )
     const hits = await search(
       { terms: ["elsewhere"] },
-      { orgId: orgA.orgId, workspaceIds: [workspace, otherWorkspace] },
+      { orgId: orgA.orgId, heads: [head, otherHead] },
     )
     expect(
       hits.find((hit) => hit.document.docKey === "other.md")?.workspaceId,
     ).toBe(otherWorkspace)
   })
 
-  it("refuses a read without an org or a Workspace", async () => {
+  it("refuses a read without an org, a Workspace or a branch", async () => {
+    const refused = /one head for each of its Workspaces/
     await expect(
       store.search(
-        { orgId: orgA.orgId, workspaceIds: [] },
+        { orgId: orgA.orgId, heads: [] },
         { vector: queryVector, terms: [] },
       ),
-    ).rejects.toThrow(/org and its Workspaces/)
+    ).rejects.toThrow(refused)
     await expect(
-      store.readFrontier({ orgId: "", workspaceIds: [workspace] }, []),
-    ).rejects.toThrow(/org and its Workspaces/)
+      store.readFrontier({ orgId: "", heads: [head] }, []),
+    ).rejects.toThrow(refused)
+    await expect(
+      store.readDocuments({ orgId: orgA.orgId, heads: [{ ...head, branch: "" }] }, []),
+    ).rejects.toThrow(refused)
+  })
+})
+
+describe("tree view (ADR-071 decision 4)", () => {
+  it("shows the tree at the head: a row above the head is not seen until the head moves", async () => {
+    const unfinished = [
+      { workspaceId: workspace, docKey: "unfinished.md" },
+      { workspaceId: workspace, docKey: "lexical.md" },
+    ]
+    expect(
+      (await store.readDocuments(orgA, unfinished)).map(
+        ({ document }) => document.title,
+      ),
+    ).toEqual(["lexical.md"])
+    expect(hitKeys(await search({ terms: ["unfinished"] }))).not.toContain(
+      "unfinished.md",
+    )
+    // At tree version 3, the rows of the run show, and its new file version
+    // of lexical.md replaces the old one.
+    const moved = { ...orgA, heads: [{ ...head, treeVersion: 3 }] }
+    expect(
+      (await store.readDocuments(moved, unfinished)).map(
+        ({ document }) => document.title,
+      ),
+    ).toEqual(["Unfinished lexical", "unfinished.md"])
+    expect(
+      hitKeys(await search({ terms: ["unfinished"] }, moved)),
+    ).toContain("unfinished.md")
+    const hits = await search({ terms: ["zebracorn"] }, moved)
+    expect(
+      hits.find((hit) => hit.document.docKey === "lexical.md")?.chunks[0]?.text,
+    ).toBe("the zebracorn term changed")
+    // At tree version 1, the tombstone of tree version 2 is not there yet.
+    const earlier = { ...orgA, heads: [{ ...head, treeVersion: 1 }] }
+    expect(hitKeys(await search({ terms: ["deleted"] }, earlier))).toContain(
+      "deleted.md",
+    )
+  })
+
+  it("gives each document the status, the deletion time and the valid_from of its tree row", async () => {
+    const [deleted] = await store.readDocuments(orgA, [
+      { workspaceId: workspace, docKey: "deleted.md" },
+    ])
+    expect(deleted?.document).toMatchObject({
+      status: "deleted",
+      deletedAt: observedAt,
+      title: "deleted.md",
+    })
+    const [old] = await store.readDocuments(orgA, [
+      { workspaceId: workspace, docKey: "old.md" },
+    ])
+    expect(old?.document.validFrom).toEqual(new Date("2020-01-01T00:00:00.000Z"))
   })
 })
 
@@ -481,15 +607,16 @@ describe("frontier relations", () => {
         row.relation.srcDoc,
         row.relation.predicate,
         row.relation.dstDoc,
-        row.neighbor?.title ?? null,
+        row.neighbor.status,
       ]),
     ).toEqual([
-      // A target with no document row.
-      ["out", "vector.md", "MENTIONS", "ghost.md", null],
-      ["out", "vector.md", "REFERENCES", "lexical.md", "lexical.md"],
-      ["in", "filler-01.md", "DEPENDS_ON", "vector.md", "filler-01.md"],
-      ["in", "filler-02.md", "REFERENCES", "vector.md", "filler-02.md"],
-      ["in", "old.md", "REFERENCES", "vector.md", "old.md"],
+      // A target with no tree row is `missing` (ADR-071 decision 5).
+      ["out", "vector.md", "MENTIONS", "ghost.md", "missing"],
+      ["out", "vector.md", "REFERENCES", "lexical.md", "active"],
+      ["in", "filler-01.md", "DEPENDS_ON", "vector.md", "active"],
+      ["in", "filler-02.md", "REFERENCES", "vector.md", "active"],
+      ["in", "filler-03.md", "SUPPORTS", "vector.md", "active"],
+      ["in", "old.md", "REFERENCES", "vector.md", "active"],
     ])
     expect(relations.every((row) => row.workspaceId === workspace)).toBe(true)
     expect(relations.map((row) => row.relation.altText)).toEqual([
@@ -498,12 +625,19 @@ describe("frontier relations", () => {
       "",
       "",
       "",
+      "",
     ])
+    // The claim of filler-03 has the `valid_from` of its tree row.
+    expect(
+      relations.find((row) => row.relation.srcDoc === "filler-03.md")?.relation
+        .validFrom,
+    ).toEqual(new Date("2030-01-01T00:00:00.000Z"))
     expect(relations[1]?.neighbor).toEqual({
       ...orgADocuments[1]?.document,
       status: "active",
       deletedAt: null,
       error: "",
+      validFrom: null,
     })
   })
 
@@ -574,21 +708,15 @@ describe("evidence read", () => {
 
 describe("graph view read", () => {
   it("returns the documents and relations of the Workspace, cut at the limit", async () => {
-    const all = await store.readGraph(
-      { orgId: orgA.orgId, workspaceId: workspace },
-      1000,
-    )
+    const all = await store.readGraph(orgA, 1000)
     expect(all.truncated).toBe(false)
     expect(all.documents).toHaveLength(orgADocuments.length)
-    expect(all.relations).toHaveLength(5)
+    expect(all.relations).toHaveLength(6)
     expect(
       all.relations.find((relation) => relation.dstDoc === "lexical.md")
         ?.altText,
     ).toBe("The lexical diagram")
-    const cut = await store.readGraph(
-      { orgId: orgA.orgId, workspaceId: workspace },
-      3,
-    )
+    const cut = await store.readGraph(orgA, 3)
     expect(cut.documents).toHaveLength(3)
     expect(cut.truncated).toBe(true)
   })
@@ -610,7 +738,7 @@ async function readAllForOrgA(
     await reader.readFrontier(orgA, refs),
     await reader.readDocuments(orgA, refs),
     await reader.readEvidence(orgA, refs, queryVector, 3),
-    await reader.readGraph({ orgId: orgA.orgId, workspaceId: workspace }, 1000),
+    await reader.readGraph(orgA, 1000),
   ])
 }
 
@@ -634,7 +762,13 @@ describe("org isolation of reads", () => {
 
   it("WHERE clause alone: with the row policies removed, no read for org A returns a row of org B", async () => {
     const url = await seededDatabase(async (client) => {
-      for (const table of ["documents", "chunks", "relations", "relations_in"])
+      for (const table of [
+        "documents",
+        "chunks",
+        "relations",
+        "relations_in",
+        "trees",
+      ])
         await client.command({
           query: `DROP ROW POLICY knowledge_org_wall ON ${table}`,
         })

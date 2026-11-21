@@ -12,6 +12,7 @@ import type { HydrateClaim } from "../../domain/workspaces/hydrate.js"
 import { chunkKnowledgeBody } from "../../domain/workspaces/knowledge-chunks.js"
 import { selectKnowledgeReader } from "../../knowledge-reader/knowledge-reader.js"
 import { readPlaneUnit } from "../../knowledge-reader/plane-files.js"
+import type { KnowledgeHead } from "../../models/knowledge-state.js"
 import { activeProjectionSha } from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
 import { fitPage, measureResult, truncateText } from "../framework/budget.js"
@@ -182,13 +183,14 @@ async function readUnit(
 async function readPlaneUnitFile(
   org: CallOrg,
   workspace: CallWorkspace,
-  sha: string,
+  head: KnowledgeHead,
   path: string,
 ): Promise<Awaited<ReturnType<typeof readUnit>>> {
+  const { sha } = head
   const read = await readPlaneUnit({
     orgId: org.id,
     workspaceId: workspace.id,
-    sha,
+    head,
     path,
   })
   if (!read) return null
@@ -328,10 +330,10 @@ export async function readFileByRef(
   if (ref.kind === "unit") {
     if (!workspace) throw new Error("A unit ref has a Workspace")
     const workspaceServed = requireServed(workspace)
-    const { planeShas } = await selectKnowledgeReader(org.id, [workspace.id])
-    const planeSha = planeShas.get(workspace.id)
-    const unit = planeSha
-      ? await readPlaneUnitFile(org, workspace, planeSha, ref.path)
+    const { planeHeads } = await selectKnowledgeReader(org.id, [workspace.id])
+    const planeHead = planeHeads.get(workspace.id)
+    const unit = planeHead
+      ? await readPlaneUnitFile(org, workspace, planeHead, ref.path)
       : await readUnit(org, workspace, ref.path)
     text = unit?.text ?? null
     frontMatter = unit?.frontMatter
