@@ -24,7 +24,7 @@ export const conversations = pgTable.withRLS(
     /**
      * The branch that the session branch starts from and that its pull
      * request targets (ADR-071). Null: the default branch of the Workspace.
-     * The first request of the conversation sets it, and it never changes.
+     * A prepare can change it until the first message; after that it is fixed.
      */
     baseBranch: text("base_branch"),
     lastBranch: text("last_branch"),

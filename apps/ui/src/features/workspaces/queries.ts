@@ -177,10 +177,11 @@ export async function deleteConversation(
 }
 
 /**
- * Prepare the sandbox of a conversation. `baseBranch` is the branch that a
- * new conversation starts from; the server keeps the base branch of an
- * existing conversation. A new base branch gets a new conversation id, so
- * the key does not hold it.
+ * Prepare the sandbox of a conversation. `baseBranch` is the branch that the
+ * conversation starts from; until the first message, a prepare with another
+ * base branch changes it. The key does not hold it: the session observes
+ * this query with no base branch, and must not prepare again. So the
+ * composer fetches it again by hand after a new pick.
  */
 export function workspaceChatPrepareOptions(
   orgSlug: string,
