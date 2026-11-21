@@ -82,8 +82,8 @@ describe("scrubForModel", () => {
   })
 
   it("replaces the whole userinfo of a URL of any scheme, up to its last @", async () => {
-    // Made-up passwords: a random one, one that a person chose, and real
-    // passwords that hold symbols.
+    // Made-up passwords: a random one, one that a person chose, and
+    // passwords with symbols, of the kind that people use.
     const passwords = [
       random(16),
       "hunter2",
@@ -129,6 +129,19 @@ describe("scrubForModel", () => {
       [
         "redis://u:pw12345@cache.example.test:6379?x=a@b",
         "redis://[REDACTED:url-credentials]@b",
+      ],
+      // A scheme right after a word character.
+      [
+        "_postgres://app:pw12345@db.example.test_",
+        "_postgres://[REDACTED:url-credentials]@db.example.test_",
+      ],
+      [
+        "1redis://:pw12345@cache.example.test",
+        "1redis://[REDACTED:url-credentials]@cache.example.test",
+      ],
+      [
+        "接続先はpostgres://app:pw12345@db.example.testです",
+        "接続先はpostgres://[REDACTED:url-credentials]@db.example.testです",
       ],
     ])
       expect(await scrubForModel(text)).toBe(scrubbed)

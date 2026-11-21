@@ -48,7 +48,8 @@ pub fn serve(
     // URL. For `scheme://userinfo@` of any scheme, the whole userinfo up to
     // the last `@` of the token becomes `[REDACTED:url-credentials]`, when
     // it holds a `:` (a password part). The token ends at whitespace, `"`,
-    // `<`, `>` or a backtick. It fails safe: a part that only looks like a
+    // `<`, `>` or a backtick. The scheme can follow any character (`_x://`,
+    // `1x://`, text with no spaces). It fails safe: a part that only looks like a
     // password (a port and a query, a template) is redacted too, because a
     // redaction that was not needed leaks nothing, and a miss leaks a secret.
     rules.rules.insert(
@@ -56,7 +57,7 @@ pub fn serve(
         RuleSyntax::new(
             URL_CREDENTIALS,
             "Credentials in a URL",
-            r#"(?i)\b[a-z][a-z0-9+.\-]*://([^\s"<>`]*:[^\s"<>`]*)@"#,
+            r#"(?i)[a-z][a-z0-9+.\-]*://([^\s"<>`]*:[^\s"<>`]*)@"#,
         ),
     );
     let database = RulesDatabase::from_rule_collection_with_cache(
