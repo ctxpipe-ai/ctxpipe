@@ -305,9 +305,13 @@ export const prerequisites = {
       // The label of a test container (scripts/ci/test-containers.mjs, which
       // this file does not import: it would become a check definition). The
       // `finally` removes the container also after a time-out of the client.
-      // When a signal stops this process first, the next backend test run
-      // removes the container of an owner that is gone.
+      // A signal waits for the end of the synchronous docker call, so that the
+      // `finally` runs; then the signal ends the process as before.
       const probe = `ctxpipe-test-visual-probe-${process.pid}`
+      const signals = []
+      const held = (signal) => signals.push(signal)
+      for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"])
+        process.on(signal, held)
       let present
       try {
         present = quiet(
@@ -331,6 +335,12 @@ export const prerequisites = {
       } finally {
         spawnSync("docker", ["rm", "--force", "--volumes", probe], {
           stdio: "ignore",
+        })
+        // Node runs a signal listener only after the synchronous call.
+        setImmediate(() => {
+          for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"])
+            process.off(signal, held)
+          if (signals[0]) process.kill(process.pid, signals[0])
         })
       }
       const missing = browsers
