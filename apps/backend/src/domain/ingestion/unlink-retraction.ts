@@ -310,43 +310,52 @@ async function validateDeletes(
         // Root-relative paths, as `readGitFiles` gives them.
         (await listPackBlobs(repoDir, pack)).map((b) => [b.path, b.sha]),
       )
-      const stagedDir = await mkdtemp(join(tmpdir(), "ctxpipe-unlink-"))
-      try {
-        await mkdir(join(stagedDir, "files"), { recursive: true })
-        await writeFile(
-          join(stagedDir, "patch.json"),
-          JSON.stringify({
-            ops: paths.map((path) => ({
-              op: "delete",
-              path,
-              baseBlob: blobs.get(path),
-            })),
-          }),
-        )
-        const result = await validatePatchStep({
-          repoDir,
-          baseCommit: pack.sha,
-          stagedDir,
-          // A delete stamps no source revision; the Workspace commit
-          // stands in.
-          source: { url: source.sourceUrl, sha: pack.sha },
-          sourcePath: source.sourcePath,
-          skill: "unlink-retraction",
-          bundle: "host",
-          sourcePathExists: async () => false,
-          readSourceFile: async () => null,
-          rootGone: true,
-          rootPath: pack.root ?? "",
-        })
-        if (result.rejections.length || result.accepted.length !== paths.length)
-          throw new Error(
-            `The unlink retraction fails the patch validator: ${result.rejections
-              .slice(0, 5)
-              .map((r) => `${r.path}: ${r.rule}`)
-              .join("; ")}`,
+      // A `patch.json` takes at most 10,000 ops and 1 MiB, so the deletes go
+      // in batches on the same base. A delete does not depend on another one.
+      const batchSize = 500
+      for (let at = 0; at < paths.length; at += batchSize) {
+        const batch = paths.slice(at, at + batchSize)
+        const stagedDir = await mkdtemp(join(tmpdir(), "ctxpipe-unlink-"))
+        try {
+          await mkdir(join(stagedDir, "files"), { recursive: true })
+          await writeFile(
+            join(stagedDir, "patch.json"),
+            JSON.stringify({
+              ops: batch.map((path) => ({
+                op: "delete",
+                path,
+                baseBlob: blobs.get(path),
+              })),
+            }),
           )
-      } finally {
-        await rm(stagedDir, { recursive: true, force: true })
+          const result = await validatePatchStep({
+            repoDir,
+            baseCommit: pack.sha,
+            stagedDir,
+            // A delete stamps no source revision; the Workspace commit
+            // stands in.
+            source: { url: source.sourceUrl, sha: pack.sha },
+            sourcePath: source.sourcePath,
+            skill: "unlink-retraction",
+            bundle: "host",
+            sourcePathExists: async () => false,
+            readSourceFile: async () => null,
+            rootGone: true,
+            rootPath: pack.root ?? "",
+          })
+          if (
+            result.rejections.length ||
+            result.accepted.length !== batch.length
+          )
+            throw new Error(
+              `The unlink retraction fails the patch validator: ${result.rejections
+                .slice(0, 5)
+                .map((r) => `${r.path}: ${r.rule}`)
+                .join("; ")}`,
+            )
+        } finally {
+          await rm(stagedDir, { recursive: true, force: true })
+        }
       }
     },
     pack,

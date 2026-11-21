@@ -1521,7 +1521,7 @@ describe("mergeIngestPublish", () => {
       ).toEqual(["CALLS", "USES"])
     })
 
-    it("withholds no file when it merges more than 30 files", async () => {
+    it("withholds no file when a publish merges 31 files", async () => {
       const names = Array.from(
         { length: 31 },
         (_, i) => `Svc${String(i).padStart(2, "0")}`,

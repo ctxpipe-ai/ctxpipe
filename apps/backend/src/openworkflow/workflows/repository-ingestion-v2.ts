@@ -8,6 +8,7 @@ import {
 } from "../../domain/codesearchCheckoutGc.js"
 import {
   IngestRefRefusedError,
+  type IngestRefusalRule,
   ingestRefName,
   type WithheldFile,
 } from "../../domain/ingestion/ingest-refs.js"
@@ -122,6 +123,25 @@ export function ingestPublishJobId(runId: string, workspaceId: string): string {
 /** Shards run in parallel, a few at a time. */
 const SHARD_BATCH = 4
 
+/**
+ * The fixed code of the cause of a refused Workspace: a code of the
+ * validator or the broker, `merge_model` for a failed merge model,
+ * `publish_failed` for a publish that failed, `relinked` for a binding that
+ * changed, and `refused` for a refusal with no code.
+ */
+type WorkspaceRefusalRule =
+  | IngestRefusalRule
+  | "merge_model"
+  | "publish_failed"
+  | "relinked"
+  | "refused"
+
+function refusalRules(
+  rules: readonly IngestRefusalRule[] | undefined,
+): WorkspaceRefusalRule[] {
+  return rules?.length ? [...rules] : ["refused"]
+}
+
 export type IngestionV2Output =
   | { status: "skipped"; reason: string }
   | { status: "partial"; reason: string }
@@ -139,8 +159,8 @@ export type IngestionV2Output =
         /** The steps that failed after their retries, by cause (CTX-896). */
         stepFailures?: IngestStepFailures
         refused?: string
-        /** The fixed codes of the cause of a refused assemble. */
-        rules?: string[]
+        /** The fixed codes of the cause of `refused`. */
+        rules?: WorkspaceRefusalRule[]
         /** The merged files that the publish withheld, with the validator rules. */
         withheld?: WithheldFile[]
         /** The commit on the default branch; null for no change. */
@@ -551,7 +571,7 @@ export function defineRepositoryIngestionV2Workflow(
                   tip: null
                   ops: 0
                   refused: string
-                  rules: string[]
+                  rules: WorkspaceRefusalRule[]
                   keepRefs?: true
                 }
             > => {
@@ -615,21 +635,21 @@ export function defineRepositoryIngestionV2Workflow(
                 const failed = error instanceof SemanticResolveError
                 if (!(error instanceof IngestRefRefusedError) && !failed)
                   throw error
+                const rules: WorkspaceRefusalRule[] = failed
+                  ? ["merge_model"]
+                  : refusalRules(error.rules)
                 logIngestEvent("warn", "ingestion-v2.partial", {
                   ingestionRunId: run.id,
                   ingestStep: assembleStep,
                   workspaceId: destination.workspaceId,
                   reason: capIngestText(error.message),
-                  // Fixed codes of the validator or the broker.
-                  ...(error instanceof IngestRefRefusedError
-                    ? { rules: error.rules }
-                    : {}),
+                  rules,
                 })
                 return {
                   tip: null,
                   ops: 0,
                   refused: error.message.slice(0, 300),
-                  rules: failed ? ["merge_model"] : [...error.rules],
+                  rules,
                   ...(failed ? { keepRefs: true as const } : {}),
                 }
               }
@@ -816,6 +836,10 @@ export function defineRepositoryIngestionV2Workflow(
                     published.reason === "refused"
                       ? published.refused
                       : published.failed
+                  entry.rules =
+                    published.reason === "refused"
+                      ? refusalRules(published.rules)
+                      : ["publish_failed"]
                   entry.partial += 1
                 }
               } else if ("skip" in target && target.skip === "below_format") {
@@ -828,6 +852,7 @@ export function defineRepositoryIngestionV2Workflow(
                 })
               } else {
                 entry.refused = "The Workspace binding changed before publish"
+                entry.rules = ["relinked"]
                 entry.partial += 1
                 logIngestEvent("warn", "ingestion-v2.partial", {
                   ingestionRunId: run.id,

@@ -52,7 +52,11 @@ export type IngestRemote = { url: string; env?: NodeJS.ProcessEnv }
  * validator, or a check of the broker. The message can hold model or
  * customer text; the code holds none.
  */
-type IngestRefusalRule = PatchRule | "admission" | "run_tip" | "merge_paths"
+export type IngestRefusalRule =
+  | PatchRule
+  | "admission"
+  | "run_tip"
+  | "merge_paths"
 
 /**
  * A merged file that a publish withholds (CTX-1081): the file keeps its
@@ -257,7 +261,9 @@ export async function pushIngestAssemble(input: {
       if (!onRemote) {
         // A shard that pushed nothing, in any execution, has no ref.
         if (tip === null) continue
-        throw new IngestRefRefusedError(`The shard ref ${shard} is missing`)
+        throw new IngestRefRefusedError(`The shard ref ${shard} is missing`, [
+          "run_tip",
+        ])
       }
       resolved.push({
         shard,
@@ -324,6 +330,7 @@ export async function pushIngestAssemble(input: {
       if (!descends)
         throw new IngestRefRefusedError(
           `The shard ${shard} does not start at the pinned revision`,
+          ["run_tip"],
         )
       for (const change of await diffTree(repoDir, input.pinnedRevision, tip)) {
         const relative = workspaceRelativePath(rootPath, change.path)
@@ -332,7 +339,8 @@ export async function pushIngestAssemble(input: {
             ? "The path is outside the Workspace root folder"
             : (disallowedPathReason(relative) ??
               (change.regularFile ? null : "Only regular files are allowed"))
-        if (reason) throw new IngestRefRefusedError(`${change.path}: ${reason}`)
+        if (reason)
+          throw new IngestRefRefusedError(`${change.path}: ${reason}`, ["path"])
         const key = change.path.toLowerCase()
         const same = changes.get(key)
         if (same) same.versions.push(change.blob)
@@ -612,6 +620,7 @@ async function assertRunTip(
   if ((await stepTrailers(repoDir, input.tip)).run !== input.runId)
     throw new IngestRefRefusedError(
       `The tip of ${input.label} is not a commit of the run`,
+      ["run_tip"],
     )
   if (input.since === null) return
   const holds = await runGit(repoDir, [
@@ -626,6 +635,7 @@ async function assertRunTip(
   if (!holds)
     throw new IngestRefRefusedError(
       `The ${input.label} does not hold the given tip`,
+      ["run_tip"],
     )
 }
 
@@ -1037,10 +1047,9 @@ export type IngestConflictResolver = (
  * further version: round `n` merges version `n` into the result so far.
  * Then the patch validator checks the merged files as one step on `tree`
  * (the pinned revision plus the other shards' ops). A model wrote them, so
- * they get the same checks as a step's files. The merged files get the host fields of the file on the step's base, and the
- * validator stamps them again.
- * Returns
- * the validated tree and the rejections. A rejected file keeps its version
+ * they get the same checks as a step's files. The merged files get the
+ * host fields of the file on the step's base, and the validator stamps them
+ * again. Returns the validated tree and the rejections. A rejected file keeps its version
  * on `tree`; the caller decides whether a rejection refuses the job or
  * withholds the file.
  */

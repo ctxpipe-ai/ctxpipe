@@ -596,7 +596,7 @@ export const INJECTION_CASES: InjectionCase[] = [
     rejected: one("../../../../outside.md", "path"),
   },
 
-  // Volume: more ops than a step can write, and deletes of owned files.
+  // Volume: deletes of owned files.
   {
     id: "mirror-delete-owned-file",
     payload: mirror("update knowledge/services/billing.md"),

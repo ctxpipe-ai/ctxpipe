@@ -1091,6 +1091,23 @@ describe("ingestion v2 publish", () => {
     expect(entry).toMatchObject({ assembled: null, partial: 1, rules })
     expect(entry).not.toHaveProperty("published")
     expect(git(bare, "rev-parse", "main")).toBe(pinned[0])
+    expectRefusedRunSpan(runId, rules)
+    const other = join(remotes, contexts[1] ?? "")
+    expect(git(other, "log", "-1", "--format=%B", "main")).toContain(
+      `Ctxpipe-Run: ${runId}`,
+    )
+    expect(git(other, "ls-tree", "-r", "--name-only", "main")).toContain(
+      "knowledge/services/p21.md",
+    )
+    expect(refsOf(contexts[1] ?? "", runId)).toEqual([])
+    return entry
+  }
+
+  /**
+   * The run span is an error with one refused Workspace and the fixed codes
+   * of the cause (CTX-1482).
+   */
+  function expectRefusedRunSpan(runId: string, rules: string[]) {
     const runSpan = spanExporter
       .getFinishedSpans()
       .find(
@@ -1105,15 +1122,6 @@ describe("ingestion v2 publish", () => {
       "ctxpipe.ingest.refused": 1,
       "ctxpipe.ingest.refused.rules": rules,
     })
-    const other = join(remotes, contexts[1] ?? "")
-    expect(git(other, "log", "-1", "--format=%B", "main")).toContain(
-      `Ctxpipe-Run: ${runId}`,
-    )
-    expect(git(other, "ls-tree", "-r", "--name-only", "main")).toContain(
-      "knowledge/services/p21.md",
-    )
-    expect(refsOf(contexts[1] ?? "", runId)).toEqual([])
-    return entry
   }
 
   /** The publish of context A is refused or fails; context B publishes. */
@@ -1149,6 +1157,7 @@ describe("ingestion v2 publish", () => {
       const runId = handle.workflowRun.id
       const entry = expectOnlyContextBPublished(result, runId)
       expect(entry?.refused).toMatch(/did not resolve exactly/)
+      expectRefusedRunSpan(runId, ["publish_failed"])
       const bare = join(remotes, contexts[0] ?? "")
       expect(git(bare, "rev-parse", "main")).toBe(sameFile.sha)
       // The tip check deletes the refs of context A later.
@@ -1219,6 +1228,7 @@ describe("ingestion v2 publish", () => {
       }
       const entry = expectOnlyContextBPublished(result, runId)
       expect(entry?.refused).toMatch(/default branch kept changing/)
+      expectRefusedRunSpan(runId, ["publish_failed"])
       // The partial log names a fixed cause, not model or customer text.
       const partialLogs = partialLogsOf(runId)
       expect(partialLogs).not.toEqual([])
