@@ -6,67 +6,104 @@
 // The text then goes through the secret scrubber like any other text
 // (ADR-071). Each other file part makes the request fail. Image parts stay:
 // the provider allowlist covers them.
+import { z } from "zod"
+
 import { fileExtension } from "../../domain/workspaces/raw-file.js"
 import { convertFile } from "../../knowledge-plane/convert-file.js"
 
+const chatRequestSchema = z
+  .object({
+    messages: z.array(
+      z.union([
+        z
+          .object({ content: z.array(z.unknown()) })
+          .passthrough()
+          .transform((message) => ({ kind: "parts" as const, message })),
+        z
+          .unknown()
+          .transform((message) => ({ kind: "other" as const, message })),
+      ]),
+    ),
+  })
+  .passthrough()
+
+const filePartSchema = z.object({
+  // `input_file` is the file part of the Responses API. The proxies serve
+  // only Chat Completions, so it is refused, not converted.
+  type: z.enum(["file", "input_file"]),
+  file: z
+    .object({
+      filename: z.string().optional(),
+      file_data: z.string().optional(),
+    })
+    .optional(),
+})
+
+/** An image part with a data URL that is not an image (for example a PDF). */
+const notImageSchema = z.object({
+  type: z.enum(["image_url", "input_image"]),
+  image_url: z.union([
+    z.string().regex(/^data:(?!image\/)/),
+    z.object({ url: z.string().regex(/^data:(?!image\/)/) }),
+  ]),
+})
+
 /**
- * `body` (an OpenAI-compatible chat request) with each file part of its
- * messages (`type` `file` or `input_file`) replaced by a text part that
- * holds the text of the PDF. A file part that is not a PDF, that has no
- * base64 data URL, or that the converter cannot convert gives an error
- * that the caller sends back to the client.
+ * `body` (an OpenAI-compatible chat request) with each PDF file part of its
+ * messages replaced by a text part that holds the text of the PDF. Each
+ * other file part (another file type, a file id, a URL, a PDF that the
+ * converter cannot convert), and an image part with a data URL that is not
+ * an image, gives an error that the caller sends back to the client.
  */
 export async function convertFileParts<T>(
   body: T,
 ): Promise<{ ok: true; body: T } | { ok: false; error: string }> {
-  const messages = (body as { messages?: unknown } | null)?.messages
-  if (!Array.isArray(messages)) return { ok: true, body }
-  const converted: unknown[] = []
-  for (const message of messages) {
-    const content = (message as { content?: unknown } | null)?.content
-    if (!Array.isArray(content) || !content.some(isFilePart)) {
-      converted.push(message)
+  const request = chatRequestSchema.safeParse(body)
+  if (!request.success) return { ok: true, body }
+  const messages: unknown[] = []
+  for (const { kind, message } of request.data.messages) {
+    if (kind === "other") {
+      messages.push(message)
       continue
     }
-    const parts: unknown[] = []
-    for (const part of content) {
-      if (!isFilePart(part)) {
-        parts.push(part)
+    const content: unknown[] = []
+    for (const part of message.content) {
+      if (notImageSchema.safeParse(part).success)
+        return {
+          ok: false,
+          error:
+            "An image part holds a data URL that is not an image. Send a PDF as a file part.",
+        }
+      const file = filePartSchema.safeParse(part)
+      if (!file.success) {
+        content.push(part)
         continue
       }
-      const text = await pdfText(part)
+      const text = await pdfText(file.data)
       if ("error" in text) return { ok: false, error: text.error }
-      parts.push({ type: "text", text: text.text })
+      content.push({ type: "text", text: text.text })
     }
-    converted.push({ ...(message as object), content: parts })
+    messages.push({ ...message, content })
   }
-  return { ok: true, body: { ...body, messages: converted } }
-}
-
-function isFilePart(part: unknown): part is Record<string, unknown> {
-  const type = (part as { type?: unknown } | null)?.type
-  return type === "file" || type === "input_file"
+  return { ok: true, body: { ...body, messages } }
 }
 
 /** The text of a PDF file part, or why the request fails. */
 async function pdfText(
-  part: Record<string, unknown>,
+  part: z.infer<typeof filePartSchema>,
 ): Promise<{ text: string } | { error: string }> {
-  // The Chat Completions part holds its fields in `file`; the Responses
-  // API part (`input_file`) holds them itself.
-  const fields = (part.type === "file" ? part.file : part) as {
-    filename?: unknown
-    file_data?: unknown
-  } | null
-  const filename =
-    typeof fields?.filename === "string" ? fields.filename : "file"
+  // The name goes into the wrapper of the text: it must not end it.
+  const filename = (part.file?.filename ?? "file").replace(/["<>\r\n]/g, "_")
+  // A data URL can have parameters before `;base64` (RFC 2397).
   const data =
-    typeof fields?.file_data === "string"
-      ? /^data:([^;,]*);base64,(.*)$/s.exec(fields.file_data)
+    part.type === "file"
+      ? /^data:([^;,]*)(?:;[^;,]*)*;base64,(.*)$/s.exec(
+          part.file?.file_data ?? "",
+        )
       : null
   if (!data)
     return {
-      error: `The file part "${filename}" has no base64 data URL in file_data. Send the file itself, not a file id or a URL.`,
+      error: `The file part "${filename}" has no file_data of the form data:<media type>;base64,<data>. Send the file itself in a Chat Completions file part, not a file id or a URL.`,
     }
   if (data[1] !== "application/pdf" && fileExtension(filename) !== "pdf")
     return {

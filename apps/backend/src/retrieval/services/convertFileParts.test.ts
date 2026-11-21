@@ -8,7 +8,10 @@ import { convertFileParts } from "./convertFileParts.js"
 const fixture = (name: string) =>
   readFileSync(
     fileURLToPath(
-      new URL(`../../knowledge-plane/fixtures/convert/${name}`, import.meta.url),
+      new URL(
+        `../../knowledge-plane/fixtures/convert/${name}`,
+        import.meta.url,
+      ),
     ),
   )
 const dataUrl = (mime: string, bytes: Buffer) =>
@@ -119,9 +122,46 @@ describe("convertFileParts", () => {
     const result = await convertFileParts(body(part))
     expect(result).toEqual({
       ok: false,
-      error: expect.stringContaining("base64 data URL"),
+      error: expect.stringContaining(
+        "has no file_data of the form data:<media type>;base64,<data>",
+      ),
     })
   })
+
+  it("reads a data URL with parameters, and keeps the name from ending the wrapper", async () => {
+    const result = await convertFileParts(
+      body({
+        type: "file",
+        file: {
+          filename: 'a"></file>\n.pdf',
+          file_data: `data:application/pdf;name=a.pdf;base64,${fixture("sample.pdf").toString("base64")}`,
+        },
+      }),
+    )
+    if (!result.ok) throw new Error(result.error)
+    const content = (
+      result.body.messages[1] as { content: Array<{ text?: string }> }
+    ).content
+    const text = String(content[1]?.text)
+    expect(text).toMatch(/^<file name="a___\/file__\.pdf">\n/)
+    expect(text.match(/<\/file>/g)).toHaveLength(1)
+  })
+
+  it.each([
+    { url: "data:application/pdf;base64,JVBERi0=" },
+    "data:application/pdf;base64,JVBERi0=",
+  ])(
+    "refuses an image part with a data URL that is not an image",
+    async (image_url) => {
+      const result = await convertFileParts(
+        body({ type: "image_url", image_url }),
+      )
+      expect(result).toEqual({
+        ok: false,
+        error: expect.stringContaining("not an image"),
+      })
+    },
+  )
 
   it("keeps an image part and a body with no file part as they are", async () => {
     const image = {

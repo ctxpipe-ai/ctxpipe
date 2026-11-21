@@ -8,6 +8,7 @@ import type { Env } from "../../config/env.js"
 import { getSystemDb } from "../../db/client.js"
 import { members, organizations } from "../../db/schema/auth.js"
 import {
+  ChatAttachmentError,
   type ConversationChatRequest,
   parseConversationChatRequest,
 } from "../../domain/conversations/transport.js"
@@ -256,7 +257,11 @@ async function* streamWorkspaceChatSocketTurn(input: {
       step: "workspace-chat-ws-parse",
       message: error instanceof Error ? error.message : String(error),
     })
-    yield workspaceChatRunError("Invalid AG-UI frame")
+    yield workspaceChatRunError(
+      error instanceof ChatAttachmentError
+        ? error.message
+        : "Invalid AG-UI frame",
+    )
     return
   }
   if (!parsed.prompt || !parsed.workspaceId.trim()) {
