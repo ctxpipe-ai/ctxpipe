@@ -93,6 +93,8 @@ describe("scrubForModel", () => {
       "p@ssw0rd",
       "S3cr#t!",
       "pa'ssw0rd",
+      // A long password.
+      random(400),
     ]
     for (const url of [
       "postgres://app:{}@db.example.test:5432/app",
@@ -102,6 +104,13 @@ describe("scrubForModel", () => {
       "https://bob:{}@git.example.test/repo.git",
       "smtps://me@mail.example.test:{}@smtp.example.test",
       "ftp://o'brien:{}@files.example.test",
+      // A host that is a template, or starts with `_`.
+      `postgres://app:{}@\${DB_HOST}:5432/app`,
+      "postgres://app:{}@{{host}}/app",
+      "postgres://app:{}@%(host)s/app",
+      "postgres://app:{}@_db/app",
+      // A long scheme.
+      `${"a".repeat(40)}+ssh://git:{}@host.example.test`,
       "x://u:{}@host.example.test",
     ])
       for (const password of passwords)
