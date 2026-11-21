@@ -1,4 +1,4 @@
-import { generateKeyPairSync, randomBytes } from "node:crypto"
+import { randomBytes } from "node:crypto"
 import { readdirSync, readFileSync, statSync } from "node:fs"
 import { join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -8,6 +8,7 @@ import { HttpResponse, http } from "msw"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { z } from "zod"
 
+import { madeUpPrivateKey } from "../../../test/made-up-key.js"
 import { useMswServer } from "../../../test/msw.js"
 import {
   embeddingKey,
@@ -67,10 +68,7 @@ function secrets() {
     },
     {
       rule: "betterleaks.private-key",
-      value: generateKeyPairSync("rsa", { modulusLength: 2048 })
-        .privateKey.export({ type: "pkcs1", format: "pem" })
-        .toString()
-        .trim(),
+      value: madeUpPrivateKey(2048),
     },
   ]
 }
@@ -81,6 +79,86 @@ describe("scrubForModel", () => {
       expect(await scrubForModel(`Set the key to ${value} — ünïcödé.`)).toBe(
         `Set the key to [REDACTED:${rule}] — ünïcödé.`,
       )
+  })
+
+  it("replaces the whole userinfo of a URL of any scheme, up to its last @", async () => {
+    // Made-up passwords: a random one, one that a person chose, and
+    // passwords with symbols, of the kind that people use.
+    const passwords = [
+      random(16),
+      "hunter2",
+      "%21abc%40x",
+      "$uperSecret",
+      "p@ssw0rd",
+      "S3cr#t!",
+      "pa'ssw0rd",
+      "ab/Cd+e=",
+      random(400),
+    ]
+    for (const [url, host] of [
+      ["postgres://app:{}", "db.example.test:5432/app"],
+      ["mysql://root:{}", "10.0.0.5/db"],
+      ["redis://:{}", "cache.example.test:6379"],
+      ["amqp://guest:{}", "rabbit.example.test:5672/"],
+      ["https://bob:{}", "git.example.test/repo.git"],
+      ["smtps://me@mail.example.test:{}", "smtp.example.test"],
+      ["x://u:{}", "/db?host=/var/run/postgresql"],
+    ] as const)
+      for (const password of passwords)
+        expect(
+          await scrubForModel(
+            `Use ${url.replace("{}", password)}@${host} now.`,
+          ),
+        ).toBe(
+          `Use ${url.slice(0, url.indexOf("://") + 3)}[REDACTED:url-credentials]@${host} now.`,
+        )
+  })
+
+  it("fails safe: a userinfo that only looks like a password is redacted too", async () => {
+    // A redaction that was not needed costs a placeholder; a miss leaks a
+    // secret. These are accepted false positives.
+    for (const [text, scrubbed] of [
+      [
+        "https://example.test:8443?email=alice@example.test",
+        "https://[REDACTED:url-credentials]@example.test",
+      ],
+      [
+        `postgres://user:\${DB_PASSWORD}@db.example.test/app`,
+        "postgres://[REDACTED:url-credentials]@db.example.test/app",
+      ],
+      [
+        "redis://u:pw12345@cache.example.test:6379?x=a@b",
+        "redis://[REDACTED:url-credentials]@b",
+      ],
+      // A scheme right after a word character.
+      [
+        "_postgres://app:pw12345@db.example.test_",
+        "_postgres://[REDACTED:url-credentials]@db.example.test_",
+      ],
+      [
+        "1redis://:pw12345@cache.example.test",
+        "1redis://[REDACTED:url-credentials]@cache.example.test",
+      ],
+      [
+        "接続先はpostgres://app:pw12345@db.example.testです",
+        "接続先はpostgres://[REDACTED:url-credentials]@db.example.testです",
+      ],
+    ])
+      expect(await scrubForModel(text)).toBe(scrubbed)
+  })
+
+  it("keeps an address and a URL with no password part as they are", async () => {
+    const texts = [
+      "user@host",
+      "https://user@host.example.test/path",
+      "postgres://user@db.example.test/app",
+      "https://example.test/path?a=b",
+      "https://example.test:8443/a",
+      "mailto:someone@example.test",
+      "git@github.com:org/repo.git",
+      "The meeting is at 10:30@noon.",
+    ]
+    expect(await scrubForModel(texts)).toEqual(texts)
   })
 
   it("replaces each occurrence of a secret", async () => {
@@ -95,7 +173,11 @@ describe("scrubForModel", () => {
     const texts = [
       "",
       "The sky is blue on a clear day.",
-      readFileSync(fileURLToPath(import.meta.url), "utf8").slice(0, 4000),
+      // Source code: the scrubber module itself.
+      readFileSync(
+        fileURLToPath(new URL("./scrubForModel.ts", import.meta.url)),
+        "utf8",
+      ),
       readFileSync(
         fileURLToPath(new URL("../../../package.json", import.meta.url)),
         "utf8",
@@ -418,7 +500,7 @@ describe("the model clients", () => {
     return sent
   }
 
-  it("send no secret to a model: LLM tiers, embeddings, the plane and Jev", async () => {
+  it("sends no secret to a model: LLM tiers, embeddings, the plane and Jev", async () => {
     settings()
     const sent = provider()
     const all = secrets()
@@ -503,10 +585,7 @@ describe("the model clients", () => {
   it("scrubs a search question before the cut to the input limit of the model", async () => {
     settings()
     const sent = provider()
-    const pem = generateKeyPairSync("rsa", { modulusLength: 4096 })
-      .privateKey.export({ type: "pkcs1", format: "pem" })
-      .toString()
-      .trim()
+    const pem = madeUpPrivateKey(4096)
     // The cut (8,192 bytes) falls inside the key and removes its END line.
     const question = `${"é".repeat(3_000)}\n${pem}`
     expect(

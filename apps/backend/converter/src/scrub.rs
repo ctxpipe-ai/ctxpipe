@@ -7,7 +7,8 @@
 //! caller checks the id, so an answer never goes to another request.
 //!
 //! Kingfisher (MongoDB, Apache-2.0) finds the secrets with its built-in rules
-//! (medium confidence and higher). Detection only: no rule sends a found
+//! (medium confidence and higher) and one rule of ours, for the password of a
+//! URL (`url-credentials`). Detection only: no rule sends a found
 //! secret to its provider. Each found secret becomes `[REDACTED:<rule id>]`.
 //! The same input gives the same output: the scan keeps no state between
 //! requests, and the order of the replacements is fixed.
@@ -16,7 +17,7 @@ use std::io::{BufRead, Read, Write};
 use std::sync::Arc;
 
 use kingfisher_rules::RuleCacheConfig;
-use kingfisher_scanner::{RulesDatabase, Scanner, ScannerConfig, get_builtin_rules};
+use kingfisher_scanner::{RuleSyntax, RulesDatabase, Scanner, ScannerConfig, get_builtin_rules};
 use serde_json::{Value, json};
 
 /// One request line: its id and its texts.
@@ -26,6 +27,9 @@ fn request(line: &[u8]) -> Result<(u64, Vec<String>), String> {
     let texts = serde_json::from_value(value["texts"].take()).map_err(|error| error.to_string())?;
     Ok((id, texts))
 }
+
+/// The id of our one rule beside the rules of Kingfisher (`serve`).
+const URL_CREDENTIALS: &str = "url-credentials";
 
 /// The largest request line: more than the largest model request.
 const MAX_LINE_BYTES: u64 = 64 * 1024 * 1024;
@@ -39,7 +43,25 @@ pub fn serve(
     rule_cache: Option<String>,
     sandbox: impl FnOnce() -> Result<(), String>,
 ) -> Result<(), String> {
-    let rules = get_builtin_rules(None).map_err(|error| error.to_string())?;
+    let mut rules = get_builtin_rules(None).map_err(|error| error.to_string())?;
+    // Our one rule: Kingfisher's rules do not find the password of a plain
+    // URL. For `scheme://userinfo@` of any scheme, the whole userinfo up to
+    // the last `@` of the token becomes `[REDACTED:url-credentials]`, when
+    // it holds a `:` (a password part). The token ends at whitespace, `"`,
+    // `<`, `>` or a backtick. The scheme starts with a letter (RFC 3986),
+    // and it can come right after any other character: `_postgres://`,
+    // `1redis://` (the scheme is `redis`), or text with no spaces. It fails
+    // safe: a part that only looks like a
+    // password (a port and a query, a template) is redacted too, because a
+    // redaction that was not needed leaks nothing, and a miss leaks a secret.
+    rules.rules.insert(
+        URL_CREDENTIALS.into(),
+        RuleSyntax::new(
+            URL_CREDENTIALS,
+            "Credentials in a URL",
+            r#"(?i)[a-z][a-z0-9+.\-]*://([^\s"<>`]*:[^\s"<>`]*)@"#,
+        ),
+    );
     let database = RulesDatabase::from_rule_collection_with_cache(
         rules,
         &RuleCacheConfig::new(rule_cache.unwrap_or_default()),
