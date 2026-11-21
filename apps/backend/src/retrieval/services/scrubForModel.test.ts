@@ -92,6 +92,7 @@ describe("scrubForModel", () => {
       "*abc123",
       "p@ssw0rd",
       "S3cr#t!",
+      "pa'ssw0rd",
     ]
     for (const url of [
       "postgres://app:{}@db.example.test:5432/app",
@@ -100,6 +101,7 @@ describe("scrubForModel", () => {
       "amqp://guest:{}@rabbit.example.test:5672/",
       "https://bob:{}@git.example.test/repo.git",
       "smtps://me@mail.example.test:{}@smtp.example.test",
+      "ftp://o'brien:{}@files.example.test",
       "x://u:{}@host.example.test",
     ])
       for (const password of passwords)

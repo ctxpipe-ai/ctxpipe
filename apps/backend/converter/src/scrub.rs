@@ -74,8 +74,8 @@ pub fn serve(
     // Our one rule: Kingfisher's rules do not find the password of a plain
     // URL, `scheme://user:password@host` of any scheme. The user can be
     // empty (`redis://:password@host`) or an email address. The password
-    // runs to the last `@` before the host, so it can hold `@`, `%`, `?` and
-    // `#`. The unnamed capture is the password, so only it becomes
+    // runs to the last `@` before the host, so it can hold `@`, `%`, `?`,
+    // `#` and `'` (each valid in the userinfo of a URI). The unnamed capture is the password, so only it becomes
     // `[REDACTED:url-credentials]`. A user with no password (`user@host`)
     // does not match, and `scrub` drops a template password (`is_template`).
     rules.rules.insert(
@@ -83,7 +83,7 @@ pub fn serve(
         RuleSyntax::new(
             URL_CREDENTIALS,
             "Credentials in a URL",
-            r#"(?i)\b[a-z][a-z0-9+.\-]{0,30}://[^\s:/?#'"<>]{0,128}:([^\s/'"<>]{1,256})@[a-z0-9.\-\[\]]"#,
+            r#"(?i)\b[a-z][a-z0-9+.\-]{0,30}://[^\s:/?#"<>]{0,128}:([^\s/"<>]{1,256})@[a-z0-9.\-\[\]]"#,
         ),
     );
     let database = RulesDatabase::from_rule_collection_with_cache(
