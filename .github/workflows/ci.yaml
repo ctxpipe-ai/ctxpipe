@@ -904,21 +904,28 @@ jobs:
   # preview): `factory deploy storybook` publishes the Storybook build at
   # https://storybook.ctxpipe.dev/commit/<head sha>/. The build is the one
   # that an agent's `factory check` stored (the select job got it), else the
-  # one of the Storybook build job. The job holds the R2 key of the preview
-  # bucket (workbench), so it runs no repository script and no package: only
-  # the selector release, checked against the pin of the base revision. It
-  # never fails the run.
+  # one of the Storybook build job. A full run (the gate inputs changed) has
+  # no selection, so it publishes the build of the Storybook build job. The
+  # job holds the R2 key of the preview bucket (workbench), so it runs no
+  # repository script and no package: only the selector release of the
+  # critics job, checked against the pin of the base revision. It never
+  # fails the run.
   # outside-gate: it publishes the preview of the PR; it checks nothing, and each step continues on an error
   storybook-preview:
     timeout-minutes: 10
     name: Storybook preview
-    needs: [merge-gate-select, storybook-build]
+    needs: [merge-gate-manifest, merge-gate-select, merge-gate-critics, storybook-build]
     if: |
       !cancelled() && github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      needs.merge-gate-select.outputs.storybook-preview != ''
+      (needs.merge-gate-select.outputs.storybook-preview != '' ||
+      (needs.merge-gate-manifest.outputs.mode == 'full' &&
+      needs.storybook-build.outputs.storybook-static-id != ''))
     continue-on-error: true
     environment: workbench
+    env:
+      # `cache` or `build` from the selection, else `build` in a full run.
+      PREVIEW: ${{ needs.merge-gate-select.outputs.storybook-preview || (needs.merge-gate-manifest.outputs.mode == 'full' && 'build') || '' }}
     # github-hosted: a short job without Docker (ADR-065)
     runs-on: ubuntu-24.04-arm
     permissions:
@@ -936,10 +943,14 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/gate/.github"
           git show HEAD^1:.github/merge-gate.json > "$RUNNER_TEMP/gate/.github/merge-gate.json"
+      # The critics job runs on each same-repo PR, also in a full run, when
+      # the select job does not run. Download by id: a job that runs PR code
+      # can upload an artifact with the same name.
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         continue-on-error: true
         with:
-          name: factory-release
+          artifact-ids: ${{ needs.merge-gate-critics.outputs.release-artifact-id }}
+          merge-multiple: true
           path: ${{ runner.temp }}/release
       - name: Selector release, checked against the pin
         continue-on-error: true
@@ -949,7 +960,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/bin"
           tar -xzf "$RUNNER_TEMP/release/factory.tar.gz" -C "$RUNNER_TEMP/bin" factory
       - name: Download the cached Storybook build
-        if: needs.merge-gate-select.outputs.storybook-preview == 'cache'
+        if: env.PREVIEW == 'cache'
         continue-on-error: true
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -957,7 +968,7 @@ jobs:
           merge-multiple: true
           path: ${{ runner.temp }}/cached
       - name: Download the Storybook build of this run
-        if: needs.merge-gate-select.outputs.storybook-preview == 'build' && needs.storybook-build.outputs.storybook-static-id != ''
+        if: env.PREVIEW == 'build' && needs.storybook-build.outputs.storybook-static-id != ''
         continue-on-error: true
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -969,7 +980,6 @@ jobs:
         continue-on-error: true
         env:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          PREVIEW: ${{ needs.merge-gate-select.outputs.storybook-preview }}
           STORYBOOK_R2_ACCESS_KEY_ID: ${{ secrets.STORYBOOK_R2_ACCESS_KEY_ID }}
           STORYBOOK_R2_SECRET_ACCESS_KEY: ${{ secrets.STORYBOOK_R2_SECRET_ACCESS_KEY }}
         run: |
@@ -2007,6 +2017,8 @@ jobs:
       id-token: write
     outputs:
       artifact-id: ${{ steps.preserve.outputs.artifact-id }}
+      # The Storybook preview job takes the factory release from here.
+      release-artifact-id: ${{ steps.release.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -2045,6 +2057,15 @@ jobs:
           echo "the factory release did not unpack" > "$cause"
           mkdir -p "$RUNNER_TEMP/bin"
           tar -xzf "$RUNNER_TEMP/factory.tar.gz" -C "$RUNNER_TEMP/bin" factory
+      - name: Keep the factory release for the Storybook preview job
+        id: release
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: factory-release-critics
+          path: ${{ runner.temp }}/factory.tar.gz
+          retention-days: 1
+          if-no-files-found: error
       # The step never fails the job: the Merge gate job decides, and a
       # lookup that could not run is a cause, not a missing critic.
       - name: Look up the review critics

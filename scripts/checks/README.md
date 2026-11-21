@@ -409,11 +409,11 @@ Known gaps: the toolchain record holds one environment for all lanes. `.node-ver
 
 ## Storybook preview
 
-Each same-repo PR whose selection holds a Storybook check gets a public preview of its Storybook build at `https://storybook.ctxpipe.dev/commit/<head sha>/`, with no login. The PR links it as a GitHub Deployment (environment `storybook`). The factory repo holds the hosting (an R2 bucket and one read-only Worker, `machines/cloudflare-edge`) and the publish command (`factory deploy storybook`, `machines/cli`).
+Each same-repo PR whose selection holds a Storybook check, and each same-repo PR with a full run, gets a public preview of its Storybook build at `https://storybook.ctxpipe.dev/commit/<head sha>/`, with no login. The PR links it as a GitHub Deployment (environment `storybook`). The factory repo holds the hosting (an R2 bucket and one read-only Worker, `machines/cloudflare-edge`) and the publish command (`factory deploy storybook`, `machines/cli`).
 
 1. **Cache.** The manifest names the Storybook build as an artifact (`artifacts` in [`manifest.v1.schema.json`](schema/manifest.v1.schema.json), from [`storybook.mjs`](storybook.mjs)): the prerequisite `storybook-build`, the folder `apps/ui/storybook-static`, and its inputs. When `factory check` runs a Storybook check on a clean tree, it stores the build that the prerequisite made in the private result store, keyed by the content of the inputs and the toolchain. `factory check` publishes nothing.
 2. **Select.** The selection record gives the key of the build, whether it is cached, and the writer of the cached build as the SHA-256 of its name (the selector skips a quarantined writer). The select job gets that build with its reader role.
-3. **Build.** Without a cached build, the plan starts the Storybook build job, also when no Storybook check runs in CI.
+3. **Build.** Without a cached build, the plan starts the Storybook build job, also when no Storybook check runs in CI. A full run (the gate inputs changed) has no selection: it publishes the build of the Storybook build job.
 4. **Publish.** The Storybook preview job (environment `workbench`, the R2 key of the preview bucket) runs `factory deploy storybook` on the build. It runs no repository script and no package, and it never fails the run. The command leaves out the source maps and `manifests/` (they hold host paths), and it refuses a build that holds a home path, a `.localhost` host or a key pattern.
 5. **Link.** The same job makes a GitHub Deployment of the head commit to the environment `storybook`: the PR shows "deployed to storybook" with the preview URL. The earlier `storybook` deployments of the PR become inactive. The environment is only a deployment record: it has no secret and no protection rule.
 
