@@ -2,10 +2,17 @@ import { createError } from "evlog"
 import { z } from "zod"
 
 import type { Env } from "../../config/env.js"
+import {
+  type ConversationRecord,
+  ensureConversation,
+  getConversation,
+  setUnstartedConversationBase,
+} from "../../models/conversations.js"
 import { listGitRemoteBranches } from "../../services/git/clone-tree.js"
 import { isChatSessionBranch } from "./chat-lifecycle.js"
 import { resolveRepositoryReadCredential } from "./resolve-revision.js"
 import type { WorkspaceRevision } from "./revision.js"
+import { withDestroyedConversationSandboxes } from "./workspace-sandbox-cleanup.js"
 
 /*
  * The base branch of a conversation (ADR-071, the chat branch selector). The
@@ -160,4 +167,42 @@ export async function conversationRevision(
     branch: baseBranch,
   })
   return sha ? { ...revision, baseBranch, sha } : null
+}
+
+/**
+ * The conversation of a prepare or of a first message, on the base branch
+ * that the user picked. A new conversation gets it. Until the first
+ * message, another base branch replaces the old one, and the sandbox of the
+ * old base branch goes, so that the next prepare or turn starts a sandbox
+ * on the new one. `underLock` runs that removal: the prepare runs it under
+ * the lock of the conversation, so that a prepare of the old base branch
+ * that still runs ends first.
+ */
+export async function ensureConversationOnBase(input: {
+  id: string
+  source?: string
+  workspaceId: string
+  baseBranch?: string
+  underLock?: (remove: () => Promise<void>, orgId: string) => Promise<void>
+}): Promise<ConversationRecord> {
+  const ensured = await ensureConversation(input)
+  const changed =
+    input.baseBranch !== undefined &&
+    (await setUnstartedConversationBase({
+      conversationId: input.id,
+      baseBranch: input.baseBranch,
+    }))
+  if (!changed) return ensured
+  const remove = async () => {
+    await withDestroyedConversationSandboxes(
+      {
+        conversationId: input.id,
+        orgId: ensured.orgId,
+        workspaceId: input.workspaceId,
+      },
+      async () => {},
+    )
+  }
+  await (input.underLock ? input.underLock(remove, ensured.orgId) : remove())
+  return (await getConversation(input.id)) ?? ensured
 }

@@ -14,7 +14,10 @@ import {
   workspaceChatStreamResponse,
 } from "../../domain/conversations/transport.js"
 import { conversationSessionBranch } from "../../domain/workspaces/chat-lifecycle.js"
-import { baseBranchSchema } from "../../domain/workspaces/conversation-base.js"
+import {
+  baseBranchSchema,
+  ensureConversationOnBase,
+} from "../../domain/workspaces/conversation-base.js"
 import {
   describeSessionPullRequest,
   pushConversationSession,
@@ -60,12 +63,10 @@ import {
   type ConversationRecord,
   deleteConversation,
   discardUnstartedConversation,
-  ensureConversation,
   getConversation,
   getLastTurns,
   listConversationsPaginated,
   persistConversationPublication,
-  setUnstartedConversationBase,
   updateConversation,
 } from "../../models/conversations.js"
 import { getWorkspaceById } from "../../models/workspaces.js"
@@ -1370,22 +1371,18 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     applyAttribution({ "ctxpipe.conversation.id": conversationId })
     const body = PrepareConversationRequestSchema.safeParse(await c.req.json())
     if (!body.success) return c.json({ error: "invalid_request" }, 400)
-    const ensured = await ensureConversation({
+    // The user may pick another base branch before the first message.
+    const conversation = await ensureConversationOnBase({
       id: conversationId,
       source: "ui",
       workspaceId: body.data.workspaceId,
       baseBranch: body.data.baseBranch,
+      underLock: (remove, orgId) =>
+        postgresSandboxLocks(orgId).withLock(
+          `chat-thread:${conversationId}`,
+          remove,
+        ),
     })
-    // The user picked another base branch before the first message: the
-    // sandbox of the old base branch goes, and a new one starts.
-    const baseChanged =
-      body.data.baseBranch !== undefined &&
-      (await setUnstartedConversationBase({
-        conversationId,
-        baseBranch: body.data.baseBranch,
-      }))
-    const conversation =
-      (baseChanged && (await getConversation(conversationId))) || ensured
     const workspace = conversation.workspaceId
       ? await getWorkspaceById(conversation.workspaceId)
       : null
@@ -1399,7 +1396,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     if (!runtime.desiredUrl) {
       return c.json({ error: "workspace_required" }, 400)
     }
-    const chatInput = {
+    const warmed = await warmTanstackWorkspaceChat({
       conversationId,
       prompt: "prepare",
       orgId: runtime.orgId,
@@ -1413,27 +1410,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       ref: runtime.cloneRef || runtime.desiredSha || "HEAD",
       writeStatus: runtime.writeStatus,
       githubConnectionId: runtime.githubConnectionId,
-    }
-    // Under the lock of the conversation, a prepare of the old base branch
-    // that still runs ends first; then its sandbox goes.
-    const warmed = baseChanged
-      ? await postgresSandboxLocks(runtime.orgId).withLock(
-          `chat-thread:${conversationId}`,
-          async () => {
-            await withDestroyedConversationSandboxes(
-              {
-                conversationId,
-                orgId: runtime.orgId,
-                workspaceId: chatInput.workspaceId,
-              },
-              async () => {},
-            )
-            return warmTanstackWorkspaceChat(chatInput, {
-              transcriptLocked: true,
-            })
-          },
-        )
-      : await warmTanstackWorkspaceChat(chatInput)
+    })
     if (!warmed.ok)
       return warmed.status === 429
         ? c.json({ error: warmed.error }, 429)

@@ -1,14 +1,11 @@
-import {
-  ensureConversation,
-  getConversation,
-  setUnstartedConversationBase,
-  touchConversationLastMessage,
-} from "../../models/conversations.js"
+import { touchConversationLastMessage } from "../../models/conversations.js"
 import { getWorkspaceById } from "../../models/workspaces.js"
-import { parseBaseBranch } from "./conversation-base.js"
+import {
+  ensureConversationOnBase,
+  parseBaseBranch,
+} from "./conversation-base.js"
 import type { TanstackWorkspaceChatInput } from "./tanstack-workspace-chat.js"
 import { resolveWorkspaceChatTurnRuntime } from "./workspace-chat-turn-runtime.js"
-import { withDestroyedConversationSandboxes } from "./workspace-sandbox-cleanup.js"
 
 export async function resolveWorkspaceChatSendRuntime(input: {
   conversationId: string
@@ -16,32 +13,14 @@ export async function resolveWorkspaceChatSendRuntime(input: {
   source?: string
   baseBranch?: string
 }): Promise<Partial<TanstackWorkspaceChatInput>> {
-  const baseBranch = parseBaseBranch(input.baseBranch)
-  const ensured = await ensureConversation({
+  // A first message that names another base branch than the prepare that
+  // came before it replaces the base branch (ADR-071).
+  const conversation = await ensureConversationOnBase({
     id: input.conversationId,
     source: input.source,
     workspaceId: input.workspaceId,
-    baseBranch,
+    baseBranch: parseBaseBranch(input.baseBranch),
   })
-  // The first message names another base branch than a prepare that came
-  // before it: the sandbox of the old base branch goes (ADR-071).
-  const baseChanged =
-    baseBranch !== undefined &&
-    (await setUnstartedConversationBase({
-      conversationId: input.conversationId,
-      baseBranch,
-    }))
-  if (baseChanged && ensured.workspaceId)
-    await withDestroyedConversationSandboxes(
-      {
-        conversationId: input.conversationId,
-        orgId: ensured.orgId,
-        workspaceId: ensured.workspaceId,
-      },
-      async () => {},
-    )
-  const conversation =
-    (baseChanged && (await getConversation(input.conversationId))) || ensured
   const workspace = conversation.workspaceId
     ? await getWorkspaceById(conversation.workspaceId)
     : null
