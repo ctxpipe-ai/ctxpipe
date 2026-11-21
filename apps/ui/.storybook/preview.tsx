@@ -2,6 +2,7 @@ import addonA11y from "@storybook/addon-a11y"
 import addonDocs from "@storybook/addon-docs"
 import { definePreview } from "@storybook/react-vite"
 import { HttpResponse, isCommonAssetRequest, WebSocketHandler, ws } from "msw"
+import addonMsw from "msw-storybook-addon"
 import { mswLoader } from "msw-storybook-addon/csf3"
 import { setupWorker } from "msw/browser"
 
@@ -51,31 +52,41 @@ const unhandledSocketHandler = ws
   })
 // `resetHandlers()` before each story keeps this initial handler.
 const worker = setupWorker(unhandledSocketHandler)
-// The stories are CSF 3, so the addon applies `parameters.msw` through
-// `mswLoader` of `msw-storybook-addon/csf3`. The loader calls this function
-// once and uses the worker that it returns for each story.
-const startWorker = async () => {
-  await worker.start({
-    // A relative URL: a build served below a path (a PR preview at
-    // https://storybook.ctxpipe.dev/commit/<sha>/) registers its own worker
-    // there, so its stories get their mock data too.
-    serviceWorker: { url: "./mockServiceWorker.js" },
-    onUnhandledRequest(request, print) {
-      const { pathname } = new URL(request.url)
-      if (
-        (isCommonAssetRequest(request) || pathname.endsWith(".wasm")) &&
-        !pathname.includes("/api/")
-      )
-        return
-      unhandledRequests.push(`${request.method} ${request.url}`)
-      print.error()
-      // MSW resolves the request with what the callback throws: a network
-      // error, so the request never reaches a server.
-      throw HttpResponse.error()
-    },
-  })
-  return worker
-}
+// The addon calls this function and uses the worker that it returns for
+// each story. A CSF 4 story file (`preview.meta`) adds its handlers in
+// `beforeEach({ msw })`: `addonMsw` gives `msw`, and removes the handlers of
+// the story when the story closes. A CSF 3 story file that is not converted
+// yet sets `parameters.msw`, and `mswLoader` of `msw-storybook-addon/csf3`
+// applies it. `scripts/ci/csf3-story-files.json` lists those files, and
+// `scripts/ci/check-story-format.mjs` keeps the list. Both paths call this
+// function, so the worker starts one time.
+let started: Promise<typeof worker> | undefined
+const startWorker = () =>
+  (started ??= worker
+    .start({
+      // A relative URL: a build served below a path (a PR preview at
+      // https://storybook.ctxpipe.dev/commit/<sha>/) registers its own
+      // worker there, so its stories get their mock data too.
+      serviceWorker: { url: "./mockServiceWorker.js" },
+      onUnhandledRequest(request, print) {
+        const { pathname } = new URL(request.url)
+        if (
+          (isCommonAssetRequest(request) || pathname.endsWith(".wasm")) &&
+          !pathname.includes("/api/")
+        )
+          return
+        unhandledRequests.push(`${request.method} ${request.url}`)
+        print.error()
+        // MSW resolves the request with what the callback throws: a network
+        // error, so the request never reaches a server.
+        throw HttpResponse.error()
+      },
+    })
+    .then(() => worker))
+// The CSF 3 loader prints a deprecation warning for a CSF 4 story, so it runs
+// only for a CSF 3 story. When the list of CSF 3 files is empty, remove the
+// loader and the `worker.resetHandlers()` of the cleanup below.
+const csf3MswLoader = mswLoader(startWorker)
 
 // The check runner (scripts/checks/README.md) records which MSW handlers
 // answered a request of the story. A handler header is `<METHOD> <path>`.
@@ -96,7 +107,7 @@ Object.assign(window, {
 // gives the types of its parameters. `parametersAddon` gives the ctxpipe
 // parameters.
 export default definePreview({
-  addons: [addonA11y(), addonDocs(), parametersAddon()],
+  addons: [addonA11y(), addonDocs(), addonMsw(startWorker), parametersAddon()],
   // One browser runs every story, so stored UI state would leak to the next
   // story. The user preferences hold the SideNav width and collapse, the
   // setup-guide dismissal and the seen hints. Session storage holds drafts.
@@ -108,11 +119,17 @@ export default definePreview({
     window.sessionStorage.clear()
     return () => {
       unhandledRequests.length = 0
+      // The CSF 3 loader removes the handlers of the last story only when
+      // the next CSF 3 story starts. This removes them for a CSF 4 story too.
+      worker.resetHandlers()
     }
   },
-  // `mswLoader` applies the handlers of the story (`parameters.msw`).
+  // `csf3MswLoader` applies `parameters.msw` of a CSF 3 story.
   // `storyRouteLoader` builds the router of `parameters.storyRoute`.
-  loaders: [mswLoader(startWorker), storyRouteLoader],
+  loaders: [
+    (context) => (context.parameters.csfFactory ? {} : csf3MswLoader(context)),
+    storyRouteLoader,
+  ],
   // Each decorator is a no-op until the story file sets its parameter. The
   // first decorator is the innermost.
   decorators: [

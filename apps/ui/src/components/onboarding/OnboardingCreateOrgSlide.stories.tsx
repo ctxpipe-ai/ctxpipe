@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
 import { OnboardingCreateOrgSlide } from "@/components/onboarding/OnboardingCreateOrgSlide"
@@ -12,13 +11,9 @@ import {
 } from "@/mocks/handlers"
 
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
+import preview from "../../../.storybook/preview"
 
-const createOrgBaseMsw = [
-  sessionSignedInOnboardingHandler,
-  organizationListEmptyHandler,
-]
-
-const meta = {
+const meta = preview.meta({
   title: "Components/Onboarding/Slides/CreateOrg",
   component: OnboardingCreateOrgSlide,
   decorators: [
@@ -28,8 +23,16 @@ const meta = {
       </div>
     ),
   ],
+  beforeEach: ({ msw }) => {
+    // A new user in onboarding with no organization. The first handler that
+    // matches wins, so these come before the signed-in session.
+    msw.use(
+      sessionSignedInOnboardingHandler,
+      organizationListEmptyHandler,
+      ...signedInHandlers,
+    )
+  },
   parameters: {
-    msw: { handlers: { session: signedInHandlers } },
     app: "root",
     layout: "centered",
     storyRoute: {
@@ -41,38 +44,19 @@ const meta = {
   args: {
     onFinish: fn(),
   },
-} satisfies Meta<typeof OnboardingCreateOrgSlide>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Onboarding slide where a new user creates the first organization: the form is
  * empty.
  */
-export const Empty: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: createOrgBaseMsw,
-      },
-    },
-  },
-}
+export const Empty = meta.story({})
 
 /**
  * Onboarding slide where a new user creates the first organization: the user
  * submitted with no name, and the form asks for one.
  */
-export const ValidationError: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: createOrgBaseMsw,
-      },
-    },
-  },
+export const ValidationError = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(
@@ -85,20 +69,13 @@ export const ValidationError: Story = {
       ).toBeVisible(),
     )
   },
-}
+})
 
 /**
  * Onboarding slide where a new user creates the first organization: the slug
  * starts with a hyphen, and the create button is disabled.
  */
-export const InvalidSlug: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: createOrgBaseMsw,
-      },
-    },
-  },
+export const InvalidSlug = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.type(
@@ -122,19 +99,15 @@ export const InvalidSlug: Story = {
       canvas.getByRole("button", { name: /create organization/i }),
     ).toBeDisabled()
   },
-}
+})
 
 /**
  * Onboarding slide where a new user creates the first organization: the create
  * request failed, and an error shows.
  */
-export const CreateFailed: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [...createOrgBaseMsw, organizationCreateErrorHandler()],
-      },
-    },
+export const CreateFailed = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(organizationCreateErrorHandler())
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -153,7 +126,7 @@ export const CreateFailed: Story = {
       expect(canvas.getByText(/failed to create organization/i)).toBeVisible(),
     )
   },
-}
+})
 
 /** Records `set-active` calls. Create already makes the new org active. */
 const setActive = fn()
@@ -161,20 +134,16 @@ const setActive = fn()
  * Onboarding slide where a new user creates the first organization: the slow
  * create request succeeded and the slide finished.
  */
-export const CreatingOrganization: Story = {
-  beforeEach: () => {
+export const CreatingOrganization = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      organizationCreateSlowSuccessHandler(),
+      organizationSetActiveHandler(setActive),
+    )
+
     setActive.mockClear()
   },
   parameters: {
-    msw: {
-      handlers: {
-        page: [
-          ...createOrgBaseMsw,
-          organizationCreateSlowSuccessHandler(),
-          organizationSetActiveHandler(setActive),
-        ],
-      },
-    },
     docs: {
       description: {
         story:
@@ -201,22 +170,15 @@ export const CreatingOrganization: Story = {
     // Each auth round trip costs seconds on a hosted deploy (ONB-2).
     await expect(setActive).not.toHaveBeenCalled()
   },
-}
+})
 
 /**
  * Onboarding slide where a new user creates the first organization: a work
  * email filled the name, and the user then edited the slug. The slug follows
  * the name until the user edits it, and then the slug stays.
  */
-export const PrefilledFromWorkEmail: Story = {
+export const PrefilledFromWorkEmail = meta.story({
   args: { userEmail: "pat@initech.io" },
-  parameters: {
-    msw: {
-      handlers: {
-        page: createOrgBaseMsw,
-      },
-    },
-  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const name = await canvas.findByRole("textbox", {
@@ -240,4 +202,4 @@ export const PrefilledFromWorkEmail: Story = {
       ),
     )
   },
-}
+})

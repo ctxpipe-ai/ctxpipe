@@ -17,7 +17,6 @@ export const storyParameterTypes = [
       route: "/$orgSlug/connectors",
       storyRoute: { pattern: "orgConnectors", orgSlug: "acme" },
       queryClient: true,
-      msw: { handlers: { page: [] } },
       visual: { viewports: ["desktop"], allow: { contrast: "A reason." } },
     },
   }),
@@ -33,6 +32,8 @@ export const storyParameterTypes = [
   meta.story({ parameters: { storyRoute: { pattern: "orgIndex" } } }),
   // @ts-expect-error queryClient is a boolean.
   meta.story({ parameters: { queryClient: "yes" } }),
-  // @ts-expect-error The msw handlers are a list or { handlers }.
-  meta.story({ parameters: { msw: { page: [] } } }),
+  // A story adds its MSW handlers to the worker of the addon.
+  meta.story({ beforeEach: ({ msw }) => msw.use() }),
+  // @ts-expect-error `msw.use` takes MSW handlers.
+  meta.story({ beforeEach: ({ msw }) => msw.use("GET /api") }),
 ]

@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useParams } from "@tanstack/react-router"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
@@ -18,21 +17,19 @@ import { sideNavHandlers } from "@/mocks/workspace-handlers"
 import { workspaceIngestionHandlers } from "@/mocks/workspace-ingestion-handlers"
 
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
+import preview from "../../.storybook/preview"
 import {
   OrganizationSettingsBody,
   OrganizationSettingsShell,
 } from "./$orgSlug.organization.$organizationView"
 
-const meta = {
+const meta = preview.meta({
   title: "Pages/Organization settings",
   component: OrganizationSettingsBody,
+  beforeEach: ({ msw }) => {
+    msw.use(...signedInHandlers, ...workspaceIngestionHandlers({}))
+  },
   parameters: {
-    msw: {
-      handlers: {
-        session: signedInHandlers,
-        ingestion: workspaceIngestionHandlers({}),
-      },
-    },
     app: "root",
     layout: "fullscreen",
     storyRoute: {
@@ -46,37 +43,31 @@ const meta = {
     organizationView: "api-keys",
     organizationId: "org_storybook",
   },
-} satisfies Meta<typeof OrganizationSettingsBody>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Organization settings page with the org shell, where an admin manages the
  * organization: the Settings view is open, with the org shell, the settings
  * frame and the sub-menu.
  */
-export const Settings: Story = {
+export const Settings = meta.story({
   tags: ["page"],
   args: {
     organizationView: "settings",
+  },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      organizationListWithOrgHandler,
+      organizationFullWithOrgHandler,
+      // The admin may change the org.
+      organizationPermissionHandler(true),
+      ...sideNavHandlers(),
+    )
   },
   parameters: {
     app: "org",
     review: { kind: "page" },
     route: "/$orgSlug/organization/$organizationView",
-    msw: {
-      handlers: {
-        page: [
-          organizationListWithOrgHandler,
-          organizationFullWithOrgHandler,
-          // The admin may change the org.
-          organizationPermissionHandler(true),
-          ...sideNavHandlers(),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -88,23 +79,19 @@ export const Settings: Story = {
     await expect(nav).toHaveTextContent("Members")
     await expect(nav).toHaveTextContent("API Keys")
   },
-}
+})
 
 /**
  * Body of the organization settings page, where an admin manages the org API
  * keys: the org has no API keys yet.
  */
-export const ApiKeysEmpty: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          organizationListWithOrgHandler,
-          organizationFullWithOrgHandler,
-          orgApiKeysListEmptyHandler,
-        ],
-      },
-    },
+export const ApiKeysEmpty = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      organizationListWithOrgHandler,
+      organizationFullWithOrgHandler,
+      orgApiKeysListEmptyHandler,
+    )
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -117,43 +104,35 @@ export const ApiKeysEmpty: Story = {
       expect(canvas.getByText("No organization keys")).toBeVisible(),
     )
   },
-}
+})
 
 /**
  * Body of the organization settings page, where an admin manages the org API
  * keys: the org has a list of API keys.
  */
-export const ApiKeysPopulated: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          organizationListWithOrgHandler,
-          organizationFullWithOrgHandler,
-          orgApiKeysListPopulatedHandler,
-        ],
-      },
-    },
+export const ApiKeysPopulated = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      organizationListWithOrgHandler,
+      organizationFullWithOrgHandler,
+      orgApiKeysListPopulatedHandler,
+    )
   },
-}
+})
 
 /**
  * Body of the organization settings page, where an admin manages the org API
  * keys: the user is a member and may not see the keys.
  */
-export const ApiKeysMemberForbidden: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          organizationListWithOrgHandler,
-          organizationFullWithOrgHandler,
-          orgApiKeysListForbiddenHandler,
-        ],
-      },
-    },
+export const ApiKeysMemberForbidden = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      organizationListWithOrgHandler,
+      organizationFullWithOrgHandler,
+      orgApiKeysListForbiddenHandler,
+    )
   },
-}
+})
 
 const subPageHandlers = [
   organizationListWithOrgHandler,
@@ -197,14 +176,16 @@ function expectSharedFrame(canvasElement: HTMLElement) {
  * user moved from Settings to Members to API Keys and back to Settings. The
  * play proves that the title and the sub-menu stay in the same position.
  */
-export const SubPagesKeepOnePosition: Story = {
+export const SubPagesKeepOnePosition = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(...subPageHandlers)
+  },
   parameters: {
     storyRoute: {
       pattern: "orgOrganizationView",
       orgSlug: "acme",
       view: "settings",
     } satisfies StoryRouteParams,
-    msw: { handlers: { page: subPageHandlers } },
   },
   render: (args) => {
     // oxlint-disable-next-line react-hooks/rules-of-hooks -- a Storybook render function, not a component
@@ -259,14 +240,14 @@ export const SubPagesKeepOnePosition: Story = {
       })
     }
   },
-}
+})
 
 /**
  * Frame of the organization settings page, with the title and the sub-menu: the
  * Members view is still loading and shows a skeleton. The loading state uses
  * the same frame as the loaded views.
  */
-export const LoadingKeepsFrame: Story = {
+export const LoadingKeepsFrame = meta.story({
   args: { organizationView: "members" },
   render: (args) => (
     <OrganizationSettingsShell
@@ -282,4 +263,4 @@ export const LoadingKeepsFrame: Story = {
     await canvas.findByText("Loading organization settings")
     await waitFor(() => expectSharedFrame(canvasElement))
   },
-}
+})

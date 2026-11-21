@@ -1,9 +1,10 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
 import { OnboardingHowItWorksSlide } from "@/components/onboarding/OnboardingHowItWorksSlide"
 
-const meta = {
+import preview from "../../../.storybook/preview"
+
+const meta = preview.meta({
   title: "Components/Onboarding/Slides/HowItWorks",
   component: OnboardingHowItWorksSlide,
   decorators: [
@@ -21,11 +22,7 @@ const meta = {
     actionLabel: "Next",
     onNext: fn(),
   },
-} satisfies Meta<typeof OnboardingHowItWorksSlide>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 const STEP_TITLES = [
   "Link your code and tools. ctxpipe keeps them current as Markdown in your git.",
@@ -51,7 +48,7 @@ function slideRows(canvasElement: HTMLElement) {
  * three steps: a user with no org pressed Next, which opens the step that
  * creates the org.
  */
-export const NewOrganization: Story = {
+export const NewOrganization = meta.story({
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() =>
@@ -69,14 +66,14 @@ export const NewOrganization: Story = {
     await userEvent.click(canvas.getByRole("button", { name: "Next" }))
     await expect(args.onNext).toHaveBeenCalledTimes(1)
   },
-}
+})
 
 /**
  * Welcome slide of onboarding that explains how ctxpipe works in three steps:
  * the rows faded in one after another. Each row has the short fade (100 ms) and
  * starts after the row above it. The last delay is 150 ms at most.
  */
-export const RowsFadeInInOrder: Story = {
+export const RowsFadeInInOrder = meta.story({
   play: async ({ canvasElement }) => {
     await within(canvasElement).findByRole("heading", {
       name: WELCOME_TITLE,
@@ -95,7 +92,7 @@ export const RowsFadeInInOrder: Story = {
     expect(delays).toEqual([0, 0.03, 0.06, 0.09, 0.12])
     for (const row of rows) await waitFor(() => expect(row).toBeVisible())
   },
-}
+})
 
 /**
  * Welcome slide of onboarding that explains how ctxpipe works in three steps:
@@ -103,7 +100,7 @@ export const RowsFadeInInOrder: Story = {
  * makes each animation last no time, and each row shows when its short delay
  * ends.
  */
-export const RowsWithReducedMotion: Story = {
+export const RowsWithReducedMotion = meta.story({
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as RowsFadeInInOrder.",
@@ -121,13 +118,13 @@ export const RowsWithReducedMotion: Story = {
       await waitFor(() => expect(row).toBeVisible())
     }
   },
-}
+})
 
 /**
  * Welcome slide of onboarding, which tells a new user how ctxpipe works in
  * three steps: a user who joined an org reads it, and Get started finishes
  * onboarding and opens Home.
  */
-export const Joiner: Story = {
+export const Joiner = meta.story({
   args: { actionLabel: "Get started" },
-}
+})

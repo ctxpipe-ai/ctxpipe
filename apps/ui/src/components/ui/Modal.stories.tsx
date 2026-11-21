@@ -1,8 +1,8 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useEffect, useState } from "react"
 import { Heading } from "react-aria-components"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
+import preview from "../../../.storybook/preview"
 import { Button } from "./Button"
 import { Dialog } from "./Dialog"
 import { Modal } from "./Modal"
@@ -43,21 +43,17 @@ function PageGrowsDuringExit() {
   )
 }
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Modal",
   component: PageGrowsDuringExit,
-} satisfies Meta<typeof PageGrowsDuringExit>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Modal dialog over a tall test page: the user closed it while the page grew,
  * and the modal is gone. A height transition on the overlay would get a cancel
  * from the next change, and React Aria then waits for it without end.
  */
-export const LeavesWhenThePageGrowsDuringExit: Story = {
+export const LeavesWhenThePageGrowsDuringExit = meta.story({
   parameters: {
     visual: {
       skip: "Behavior test: it ends on an empty test page after the modal closes.",
@@ -78,4 +74,4 @@ export const LeavesWhenThePageGrowsDuringExit: Story = {
       ).not.toBeInTheDocument(),
     )
   },
-}
+})

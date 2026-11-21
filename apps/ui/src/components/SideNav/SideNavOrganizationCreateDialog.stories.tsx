@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useRouterState } from "@tanstack/react-router"
 import { HttpResponse, http } from "msw"
 import { useState } from "react"
@@ -11,12 +10,15 @@ import {
 } from "@/mocks/handlers"
 
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
+import preview from "../../../.storybook/preview"
 import { SideNavOrganizationCreateDialog } from "./SideNavOrganizationCreateDialog"
 
-const meta = {
+const meta = preview.meta({
   title: "App/SideNav/Create organization",
+  beforeEach: ({ msw }) => {
+    msw.use(...signedInHandlers)
+  },
   parameters: {
-    msw: { handlers: { session: signedInHandlers } },
     app: "root",
     layout: "fullscreen",
     storyRoute: {
@@ -25,11 +27,7 @@ const meta = {
     } satisfies StoryRouteParams,
     review: { kind: "component" },
   },
-} satisfies Meta
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /** The dialog, with the current path so a play can see where it went. */
 function CreateOrganizationPage() {
@@ -53,10 +51,19 @@ const userOnboardingCompleted = { value: false }
  * guide. The slug follows the name until the user edits it. There is no
  * separate setup page.
  */
-export const CreateOpensHome: Story = {
+export const CreateOpensHome = meta.story({
   tags: ["required"],
   render: () => <CreateOrganizationPage />,
-  beforeEach: () => {
+  beforeEach: ({ msw }) => {
+    msw.use(
+      organizationCreateSuccessHandler(),
+      organizationSetActiveHandler(),
+      http.post("*/api/v1/onboarding/user/complete", () => {
+        userOnboardingCompleted.value = true
+        return HttpResponse.json({ completedAt: new Date().toISOString() })
+      }),
+    )
+
     userOnboardingCompleted.value = false
   },
   parameters: {
@@ -65,18 +72,6 @@ export const CreateOpensHome: Story = {
     },
     intent:
       "Catches organization creation that does not open the new organization home, or that marks the user's own onboarding as complete. Not for form validation or slug rules.",
-    msw: {
-      handlers: {
-        page: [
-          organizationCreateSuccessHandler(),
-          organizationSetActiveHandler(),
-          http.post("*/api/v1/onboarding/user/complete", () => {
-            userOnboardingCompleted.value = true
-            return HttpResponse.json({ completedAt: new Date().toISOString() })
-          }),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -98,4 +93,4 @@ export const CreateOpensHome: Story = {
     // user's own onboarding date stays as it is.
     expect(userOnboardingCompleted.value).toBe(false)
   },
-}
+})

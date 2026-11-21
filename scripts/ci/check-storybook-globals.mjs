@@ -91,7 +91,7 @@ for (const path of files) {
       ["worker", "msw"].includes(callee.expression.text)
     )
       errors.push(
-        `${where(source, node)}: adds a handler to the worker (.use). A story file sets its handlers in parameters.msw.`,
+        `${where(source, node)}: adds a handler to the worker (.use). A story file adds its handlers in the beforeEach of its meta or its stories.`,
       )
   })
 }
@@ -119,7 +119,7 @@ visit(preview, (node) => {
     )
     if (!allowed)
       errors.push(
-        `${where(preview, node)}: setupWorker() gets initial handlers. Only unhandledSocketHandler (it answers no socket) may be there; a story file sets its handlers in parameters.msw.`,
+        `${where(preview, node)}: setupWorker() gets initial handlers. Only unhandledSocketHandler (it answers no socket) may be there; a story file adds its handlers in the beforeEach of its meta or its stories.`,
       )
   }
 })

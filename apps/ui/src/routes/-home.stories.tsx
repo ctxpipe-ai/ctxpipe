@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
@@ -20,31 +19,28 @@ import { activeMemberRoleHandler } from "@/mocks/workspace-sources-handlers"
 import { pendingWorkspaceUpgradesHandler } from "@/mocks/workspace-upgrades-handlers"
 
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
+import preview from "../../.storybook/preview"
 import { OrgHomePageContent } from "./$orgSlug.index"
 
-const meta = {
+const meta = preview.meta({
   title: "Pages/Home",
   tags: ["page"],
+  beforeEach: ({ msw }) => {
+    // The user is a member, so the setup guide of an admin does not load.
+    msw.use(
+      ...signedInHandlers,
+      activeMemberRoleHandler("member"),
+      pendingWorkspaceUpgradesHandler({}),
+      ...workspaceIngestionHandlers({}),
+    )
+  },
   parameters: {
     app: "org",
     layout: "fullscreen",
     review: { kind: "page" },
     route: "/$orgSlug/",
-    // The user is a member, so the setup guide of an admin does not load.
-    msw: {
-      handlers: {
-        session: signedInHandlers,
-        role: [activeMemberRoleHandler("member")],
-        pendingUpgrades: [pendingWorkspaceUpgradesHandler({})],
-        ingestion: workspaceIngestionHandlers({}),
-      },
-    },
   },
-} satisfies Meta
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 const homeRoute = {
   pattern: "orgIndex",
@@ -55,7 +51,7 @@ const homeRoute = {
  * Org home page, where a member asks the agent and opens a Workspace: the
  * session is still loading.
  */
-export const Loading: Story = {
+export const Loading = meta.story({
   tags: ["required"],
   render: () => <OrgHomePageContent orgSlug="acme" />,
   play: async ({ canvasElement }) => {
@@ -74,26 +70,24 @@ export const Loading: Story = {
       canvas.queryByRole("button", { name: "Create Workspace" }),
     ).not.toBeInTheDocument()
   },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      // Wins over the signed-in user of the meta so the session request hangs.
+      authConfigHandler,
+      http.get("*/.auth/api/v1/auth/get-session", async () => {
+        await delay("infinite")
+        return HttpResponse.json(null)
+      }),
+      organizationListWithOrgHandler,
+      workspaceListHandler([]),
+    )
+  },
   parameters: {
     intent:
       "Catches an org home that shows content or a Create button while the session loads. The shell shows the selector and the activity loading text. Not for loaded data.",
     storyRoute: homeRoute,
-    msw: {
-      handlers: {
-        // Replaces the signed-in user of the meta so the session request hangs.
-        session: [
-          authConfigHandler,
-          http.get("*/.auth/api/v1/auth/get-session", async () => {
-            await delay("infinite")
-            return HttpResponse.json(null)
-          }),
-          organizationListWithOrgHandler,
-        ],
-        page: [workspaceListHandler([])],
-      },
-    },
   },
-}
+})
 
 /**
  * Home, where a member asks the agent and sees the commits of a Workspace: the
@@ -101,7 +95,7 @@ export const Loading: Story = {
  * composer and the activity skeleton hold their place, and no Create Workspace
  * button shows.
  */
-export const WorkspacesLoading: Story = {
+export const WorkspacesLoading = meta.story({
   tags: ["required"],
   render: () => <OrgHomePageContent orgSlug="acme" />,
   play: async ({ canvasElement }) => {
@@ -122,27 +116,37 @@ export const WorkspacesLoading: Story = {
       canvas.queryByRole("button", { name: "Create Workspace" }),
     ).not.toBeInTheDocument()
   },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(
+        ({ request }) =>
+          /\/api\/v1\/workspaces$/.test(new URL(request.url).pathname),
+        async () => {
+          await delay("infinite")
+          return HttpResponse.json({ items: [], lastUsedWorkspaceId: null })
+        },
+      ),
+    )
+  },
   parameters: {
     // At the mobile width the screenshot is the same as Loading.
     visual: { viewports: ["desktop"] },
     intent:
       "Catches an org home that shows a Create button while workspaces load. It shows the selector and the activity loading text. Not for loaded workspaces or errors.",
     storyRoute: homeRoute,
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) =>
-              /\/api\/v1\/workspaces$/.test(new URL(request.url).pathname),
-            async () => {
-              await delay("infinite")
-              return HttpResponse.json({ items: [], lastUsedWorkspaceId: null })
-            },
-          ),
-        ],
-      },
-    },
   },
+})
+
+/** The user dismissed the setup guide of the org. */
+function dismissGuide() {
+  window.localStorage.setItem(
+    "ctxpipe:userPreferences",
+    JSON.stringify({
+      orgGuides: {
+        "user_storybook:acme": { dismissedAt: "2026-01-01T00:00:00.000Z" },
+      },
+    }),
+  )
 }
 
 /**
@@ -150,19 +154,12 @@ export const WorkspacesLoading: Story = {
  * has no Workspace and the user dismissed the guide, so the Create Workspace
  * button shows above the empty activity.
  */
-export const Empty: Story = {
+export const Empty = meta.story({
   tags: ["required"],
   render: () => <OrgHomePageContent orgSlug="acme" />,
-  beforeEach: () => {
-    window.localStorage.setItem(
-      "ctxpipe:userPreferences",
-      JSON.stringify({
-        orgGuides: {
-          "user_storybook:acme": { dismissedAt: "2026-01-01T00:00:00.000Z" },
-        },
-      }),
-    )
-    return () => window.localStorage.removeItem("ctxpipe:userPreferences")
+  beforeEach: ({ msw }) => {
+    msw.use(workspaceListHandler([]), orgActivityHandler())
+    dismissGuide()
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -191,13 +188,8 @@ export const Empty: Story = {
     intent:
       "Catches an org home with no workspace that shows no way to start. It shows Create Workspace and the empty activity. Not for populated homes or the guide.",
     storyRoute: homeRoute,
-    msw: {
-      handlers: {
-        page: [workspaceListHandler([]), orgActivityHandler()],
-      },
-    },
   },
-}
+})
 
 let listReadFails = true
 
@@ -207,10 +199,22 @@ let listReadFails = true
  * Create Workspace button and no setup guide, because they would say that the
  * org has no Workspace.
  */
-export const WorkspacesLoadFails: Story = {
+export const WorkspacesLoadFails = meta.story({
   tags: ["required"],
   render: () => <OrgHomePageContent orgSlug="acme" />,
-  beforeEach: () => {
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(
+        ({ request }) =>
+          /\/api\/v1\/workspaces$/.test(new URL(request.url).pathname),
+        () =>
+          listReadFails
+            ? HttpResponse.json({ error: "boom" }, { status: 500 })
+            : HttpResponse.json({ items: [], lastUsedWorkspaceId: null }),
+      ),
+      orgActivityHandler(),
+    )
+
     listReadFails = true
   },
   play: async ({ canvasElement }) => {
@@ -244,33 +248,31 @@ export const WorkspacesLoadFails: Story = {
     intent:
       "Catches a failed workspace list that shows the guide or a Create button. It shows an alert with Retry, and Retry loads the home again. Not for loaded lists.",
     storyRoute: homeRoute,
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) =>
-              /\/api\/v1\/workspaces$/.test(new URL(request.url).pathname),
-            () =>
-              listReadFails
-                ? HttpResponse.json({ error: "boom" }, { status: 500 })
-                : HttpResponse.json({ items: [], lastUsedWorkspaceId: null }),
-          ),
-          orgActivityHandler(),
-        ],
-      },
-    },
   },
-}
+})
 
 /**
  * Org home page, where a member asks the agent and opens a Workspace: the org
  * has no Workspace, so Recent shows its empty text at once while the activity
  * heatmap still loads. Recent shows no commit rows that then go away.
  */
-export const EmptyRecentWhileActivityLoads: Story = {
+export const EmptyRecentWhileActivityLoads = meta.story({
   tags: ["required"],
   render: () => <OrgHomePageContent orgSlug="acme" />,
-  beforeEach: Empty.beforeEach,
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceListHandler([]),
+      http.get(
+        ({ request }) =>
+          /\/api\/v1\/activity$/.test(new URL(request.url).pathname),
+        async () => {
+          await delay("infinite")
+          return HttpResponse.json(emptyWorkspaceActivity)
+        },
+      ),
+    )
+    dismissGuide()
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     // The story router renders its first route after an async load.
@@ -295,29 +297,14 @@ export const EmptyRecentWhileActivityLoads: Story = {
     intent:
       "Catches a recent commits area that shows a loading state when the workspace list is empty. The empty text shows while activity still loads. Not for populated homes.",
     storyRoute: homeRoute,
-    msw: {
-      handlers: {
-        page: [
-          workspaceListHandler([]),
-          http.get(
-            ({ request }) =>
-              /\/api\/v1\/activity$/.test(new URL(request.url).pathname),
-            async () => {
-              await delay("infinite")
-              return HttpResponse.json(emptyWorkspaceActivity)
-            },
-          ),
-        ],
-      },
-    },
   },
-}
+})
 
 /**
  * Org home page, where a member asks the agent and opens a Workspace: the org
  * has Workspaces with activity and recent commits.
  */
-export const Populated: Story = {
+export const Populated = meta.story({
   tags: ["required"],
   render: () => <OrgHomePageContent orgSlug="acme" />,
   play: async ({ canvasElement }) => {
@@ -340,24 +327,22 @@ export const Populated: Story = {
       expect(canvas.getByText("Document billing ledger rules")).toBeVisible(),
     )
   },
+  beforeEach: ({ msw }) => {
+    msw.use(...workspaceShellHandlers())
+  },
   parameters: {
     intent:
       "Catches an org home that shows wrong headings or no commits. It shows the selector, Activity and Recent headings in the plain style, and recent commits. Not for loading states.",
     storyRoute: homeRoute,
-    msw: {
-      handlers: {
-        page: workspaceShellHandlers(),
-      },
-    },
   },
-}
+})
 
 /**
  * Org home page, where a member asks the agent and opens a Workspace: Activity
  * and Recent keep the same 40 px gap as the other Home blocks. The
  * view-transition wrapper around them must not remove that gap.
  */
-export const ActivityAndRecentKeepTheirGap: Story = {
+export const ActivityAndRecentKeepTheirGap = meta.story({
   render: () => <OrgHomePageContent orgSlug="acme" />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -372,22 +357,20 @@ export const ActivityAndRecentKeepTheirGap: Story = {
       activity.getBoundingClientRect().bottom
     expect(gap).toBeGreaterThanOrEqual(39.5)
   },
+  beforeEach: ({ msw }) => {
+    msw.use(...workspaceShellHandlers())
+  },
   parameters: {
     visual: { skip: "Behavior test: it ends in the same state as Populated." },
     storyRoute: homeRoute,
-    msw: {
-      handlers: {
-        page: workspaceShellHandlers(),
-      },
-    },
   },
-}
+})
 
 /**
  * Org home page, where a member asks the agent and opens a Workspace: the
  * activity is still loading while the selector shows.
  */
-export const ActivityLoading: Story = {
+export const ActivityLoading = meta.story({
   tags: ["required"],
   render: () => <OrgHomePageContent orgSlug="acme" />,
   play: async ({ canvasElement }) => {
@@ -404,26 +387,27 @@ export const ActivityLoading: Story = {
     expect(await canvas.findByText("Loading activity")).toBeInTheDocument()
     expect(canvas.queryByText("Loading…")).not.toBeInTheDocument()
   },
+  beforeEach: ({ msw }) => {
+    msw.use(workspaceActivityLoadingHandler(), ...workspaceShellHandlers())
+  },
   parameters: {
     intent:
       "Catches an activity area that shows a bare Loading text. It shows the activity loading text while the selector is already visible. Not for loaded activity.",
     storyRoute: homeRoute,
-    msw: {
-      handlers: {
-        page: [workspaceActivityLoadingHandler(), ...workspaceShellHandlers()],
-      },
-    },
   },
-}
+})
 
 /**
  * Org home page, where a member asks the agent and opens a Workspace: the user
  * sends a first message from the composer, and the new conversation opens and
  * sends the message.
  */
-export const FirstMessageOpensConversation: Story = {
+export const FirstMessageOpensConversation = meta.story({
   tags: ["required"],
   render: () => <OrgHomePageContent orgSlug="acme" />,
+  beforeEach: ({ msw }) => {
+    msw.use(...workspaceShellHandlers())
+  },
   parameters: {
     visual: {
       skip: "Behavior test: it ends on a story route with no page, so the screenshot is empty.",
@@ -431,11 +415,6 @@ export const FirstMessageOpensConversation: Story = {
     intent:
       "Catches a first message in the home composer that does not open a new conversation. Sending opens the conversation with the message. Not for the composer layout.",
     storyRoute: homeRoute,
-    msw: {
-      handlers: {
-        page: [...workspaceShellHandlers()],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -472,13 +451,13 @@ export const FirstMessageOpensConversation: Story = {
       ).toBeNull(),
     )
   },
-}
+})
 
 /**
  * Org home page, where a member asks the agent and opens a Workspace: the
  * Workspace has no commit history, so the empty commits text shows at once.
  */
-export const NoHistory: Story = {
+export const NoHistory = meta.story({
   tags: ["required"],
   render: () => <OrgHomePageContent orgSlug="acme" />,
   play: async ({ canvasElement }) => {
@@ -497,32 +476,30 @@ export const NoHistory: Story = {
       ).toBeVisible(),
     )
   },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      // The heatmap read has no commits, so Recent needs no list read:
+      // the list read hangs, and the empty text shows at once.
+      http.get(
+        ({ request }) => {
+          const url = new URL(request.url)
+          return (
+            /\/api\/v1\/workspaces\/[^/]+\/activity$/.test(url.pathname) &&
+            url.searchParams.has("limit")
+          )
+        },
+        async () => {
+          await delay("infinite")
+          return HttpResponse.json(emptyWorkspaceActivity)
+        },
+      ),
+      workspaceActivityHandler(emptyWorkspaceActivity),
+      ...workspaceShellHandlers(),
+    )
+  },
   parameters: {
     intent:
       "Catches an org home with no commit history that waits on a hanging list read. The empty commits text shows at once. Not for populated commits.",
     storyRoute: homeRoute,
-    msw: {
-      handlers: {
-        page: [
-          // The heatmap read has no commits, so Recent needs no list read:
-          // the list read hangs, and the empty text shows at once.
-          http.get(
-            ({ request }) => {
-              const url = new URL(request.url)
-              return (
-                /\/api\/v1\/workspaces\/[^/]+\/activity$/.test(url.pathname) &&
-                url.searchParams.has("limit")
-              )
-            },
-            async () => {
-              await delay("infinite")
-              return HttpResponse.json(emptyWorkspaceActivity)
-            },
-          ),
-          workspaceActivityHandler(emptyWorkspaceActivity),
-          ...workspaceShellHandlers(),
-        ],
-      },
-    },
   },
-}
+})

@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { expect, waitFor, within } from "storybook/test"
 
@@ -15,12 +14,22 @@ import {
 import { workspaceIngestionHandlers } from "@/mocks/workspace-ingestion-handlers"
 
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
+import preview from "../../.storybook/preview"
 import { GitHubSetupPageContent } from "./$orgSlug.github.setup"
 
-const meta = {
+const meta = preview.meta({
   title: "Pages/Org GitHub setup",
   tags: ["page"],
   render: () => <GitHubSetupPageContent orgSlug="acme" />,
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...signedInHandlers,
+      ...workspaceIngestionHandlers({}),
+      // A story adds its handlers after these, so they win.
+      // The side nav lists the Workspaces of the org and their chats.
+      ...sideNavHandlers(),
+    )
+  },
   parameters: {
     app: "org",
     layout: "fullscreen",
@@ -31,45 +40,27 @@ const meta = {
       search: "?returnTo=connectors",
     } satisfies StoryRouteParams,
     review: { kind: "page" },
-    msw: {
-      handlers: {
-        session: signedInHandlers,
-        ingestion: workspaceIngestionHandlers({}),
-        // A story sets `page`. It comes first, so it wins over `shell`.
-        page: [],
-        // The side nav lists the Workspaces of the org and their chats.
-        shell: [...sideNavHandlers()],
-      },
-    },
   },
-} satisfies Meta
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Org GitHub setup page, where the user picks a Workspace for the GitHub App:
  * the installation check is still running, so the page shows its loading state.
  */
-export const Checking: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) =>
-              /\/api\/v1\/github\/installation$/.test(
-                new URL(request.url).pathname,
-              ),
-            async () => {
-              await delay("infinite")
-              return HttpResponse.json(null)
-            },
+export const Checking = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(
+        ({ request }) =>
+          /\/api\/v1\/github\/installation$/.test(
+            new URL(request.url).pathname,
           ),
-        ],
-      },
-    },
+        async () => {
+          await delay("infinite")
+          return HttpResponse.json(null)
+        },
+      ),
+    )
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -79,16 +70,16 @@ export const Checking: Story = {
       ).toBeInTheDocument(),
     )
   },
-}
+})
 
 /**
  * GitHub setup page, which opens after the GitHub App install, where an admin
  * picks a Workspace: the App is not installed, so the page sends the admin back
  * to Connectors.
  */
-export const NotInstalled: Story = {
-  parameters: {
-    msw: { handlers: { page: [githubInstallationNoneHandler] } },
+export const NotInstalled = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(githubInstallationNoneHandler)
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -98,28 +89,24 @@ export const NotInstalled: Story = {
       ).toBeVisible(),
     )
   },
-}
+})
 
 /**
  * GitHub setup page, which opens after the GitHub App install, where an admin
  * picks a Workspace: the check of the install failed, so the page gives the
  * cause and Retry.
  */
-export const CheckFails: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) =>
-              /\/api\/v1\/github\/installation$/.test(
-                new URL(request.url).pathname,
-              ),
-            () => HttpResponse.json({ error: "boom" }, { status: 500 }),
+export const CheckFails = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(
+        ({ request }) =>
+          /\/api\/v1\/github\/installation$/.test(
+            new URL(request.url).pathname,
           ),
-        ],
-      },
-    },
+        () => HttpResponse.json({ error: "boom" }, { status: 500 }),
+      ),
+    )
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -137,23 +124,19 @@ export const CheckFails: Story = {
       ).toBeVisible(),
     )
   },
-}
+})
 
 /**
  * Org GitHub setup page, where the user picks a Workspace for the GitHub App:
  * the App is installed, so the user picks an existing Workspace as the
  * destination.
  */
-export const ChooseWorkspace: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          githubInstallationLinkedHandler,
-          workspaceListHandler([docsWorkspace]),
-        ],
-      },
-    },
+export const ChooseWorkspace = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      githubInstallationLinkedHandler,
+      workspaceListHandler([docsWorkspace]),
+    )
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -168,4 +151,4 @@ export const ChooseWorkspace: Story = {
       ).toBeVisible(),
     )
   },
-}
+})

@@ -1,7 +1,7 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useEffect, useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
+import preview from "../../.storybook/preview"
 import { useRevealOnce } from "./useRevealOnce"
 
 let second: ViewTransition | null = null
@@ -28,17 +28,13 @@ function RevealThenSkip() {
   )
 }
 
-const meta = {
+const meta = preview.meta({
   title: "Lib/View transitions",
   render: () => <RevealThenSkip />,
   beforeEach: () => {
     second = null
   },
-} satisfies Meta
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Test block that reveals content with a view transition: the user pressed
@@ -46,7 +42,7 @@ type Story = StoryObj<typeof meta>
  * `useRevealOnce`, and the AbortError of its `ready` promise must not become an
  * unhandled rejection.
  */
-export const SkippedTransitionRejectsNothingUnhandled: Story = {
+export const SkippedTransitionRejectsNothingUnhandled = meta.story({
   parameters: {
     review: {
       kind: "component",
@@ -73,4 +69,4 @@ export const SkippedTransitionRejectsNothingUnhandled: Story = {
       window.removeEventListener("unhandledrejection", onRejection)
     }
   },
-}
+})
