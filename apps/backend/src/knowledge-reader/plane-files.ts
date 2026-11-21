@@ -84,22 +84,39 @@ async function gitRead<T>(
   }
 }
 
+/** The read scope of one Workspace at `head`. */
+const scopeOf = (orgId: string, workspaceId: string, head: KnowledgeHead) => ({
+  orgId,
+  heads: [{ workspaceId, ...head }],
+})
+
 /**
- * The unit at `path` in the Workspace Git at `sha`, or null when the file is
- * not there or is not a unit. `updatedAt` is the time that the plane
- * observed the document, as in the other results of the plane; without a
- * document row it is the time of the read.
+ * The unit at `path` in the view of `head`, from the Workspace Git at the tip
+ * that the view takes the file from, or null when the file is not there or
+ * is not a unit. `updatedAt` is the time that the plane observed the
+ * document, as in the other results of the plane; without a document row it
+ * is the time of the read. `sha` is the tip of the read.
  */
 export async function readPlaneUnit(input: {
   orgId: string
   workspaceId: string
-  /** The head that the plane serves: Git is read at its SHA. */
+  /** The head that the plane serves. */
   head: KnowledgeHead
   /** The path from the Workspace root. */
   path: string
-}): Promise<{ unit: HydrateUnit; updatedAt: Date } | null> {
+}): Promise<{ unit: HydrateUnit; updatedAt: Date; sha: string } | null> {
   const { orgId, workspaceId, head, path } = input
-  const { sha } = head
+  const scope = scopeOf(orgId, workspaceId, head)
+  let sha = head.sha
+  if (head.base) {
+    const row = (await knowledgeStore().listViewFiles(scope, path)).find(
+      (file) => file.path === path,
+    )
+    if (!row) return null
+    // The tip of the branch for a row of its overlay, else the tip of the
+    // default branch (ADR-071 decision 6).
+    if (row.branch !== head.branch) sha = head.base.sha
+  }
   const repository = await workspaceRepository(orgId, workspaceId)
   // The `CHANGED` and `FROM_SOURCE` claims of a unit come from the files
   // under `sources/`, so the parse gets them too, as the hydrate does.
@@ -137,36 +154,57 @@ export async function readPlaneUnit(input: {
     sourceFiles: sources.sourceFiles,
   }).units.find((parsed) => parsed.path === path)
   if (!unit) return null
-  const [document] = await knowledgeStore().readDocuments(
-    {
-      orgId,
-      heads: [{ workspaceId, ...head }],
-    },
-    [{ workspaceId, docKey: servingIdForKnowledgePath(workspaceId, path) }],
-  )
-  return { unit, updatedAt: document?.document.observedAt ?? new Date() }
+  const [document] = await knowledgeStore().readDocuments(scope, [
+    { workspaceId, docKey: servingIdForKnowledgePath(workspaceId, path) },
+  ])
+  return { unit, updatedAt: document?.document.observedAt ?? new Date(), sha }
 }
 
-/** The unit files below `folder` (`""` is the root) in the Workspace Git at `sha`. */
+/**
+ * The unit files below `folder` (`""` is the root) in the view of `head`.
+ * For the default branch, the units of the Workspace Git at its tip. For an
+ * overlay, the files of the view, each from the units at the tip that the
+ * view takes it from.
+ */
 export async function listPlaneUnitFiles(input: {
   orgId: string
   workspaceId: string
-  sha: string
+  head: KnowledgeHead
   folder: string
 }): Promise<UnitFile[]> {
-  const { orgId, workspaceId, sha, folder } = input
+  const { orgId, workspaceId, head, folder } = input
   const repository = await workspaceRepository(orgId, workspaceId)
-  const files = await gitRead("mcp.list_files.git_failed", workspaceId, () =>
-    listMarkdownFilesAtGitSha({
-      url: repository.url,
-      sha,
-      token: repository.token,
-      root: repository.root,
-      ...(folder ? { prefix: `${folder}/` } : {}),
-    }),
+  /** The units at `sha`; with `onlyPaths`, of these paths only. */
+  const unitsAt = async (sha: string, onlyPaths?: ReadonlySet<string>) => {
+    const files = await gitRead("mcp.list_files.git_failed", workspaceId, () =>
+      listMarkdownFilesAtGitSha({
+        url: repository.url,
+        sha,
+        token: repository.token,
+        root: repository.root,
+        ...(folder ? { prefix: `${folder}/` } : {}),
+        ...(onlyPaths ? { onlyPaths } : {}),
+      }),
+    )
+    return hydrateKnowledgeTree({ workspaceId, files }).units.map((unit) => ({
+      path: unit.path,
+      size: Buffer.byteLength(unit.body),
+    }))
+  }
+  const { base } = head
+  if (!base) return unitsAt(head.sha)
+  const view = await knowledgeStore().listViewFiles(
+    scopeOf(orgId, workspaceId, head),
+    folder ? `${folder}/` : "",
   )
-  return hydrateKnowledgeTree({ workspaceId, files }).units.map((unit) => ({
-    path: unit.path,
-    size: Buffer.byteLength(unit.body),
-  }))
+  // Each tip gives only the paths whose row of the view is of its branch,
+  // and a tip that gives none is not read.
+  const from = async (tip: { branch: string; sha: string }) => {
+    const paths = new Set(
+      view.flatMap((file) => (file.branch === tip.branch ? [file.path] : [])),
+    )
+    return paths.size > 0 ? unitsAt(tip.sha, paths) : []
+  }
+  const [own, below] = await Promise.all([from(head), from(base)])
+  return [...own, ...below].sort((a, b) => a.path.localeCompare(b.path))
 }

@@ -26,7 +26,7 @@ import { z } from "zod"
 import { recordSpans } from "../../test/spans.js"
 import { closeDb, getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
-import { knowledgeState } from "../db/schema/knowledge_state.js"
+import { knowledgeBranchHeads } from "../db/schema/knowledge_state.js"
 import { workspaces } from "../db/schema/workspaces.js"
 import { servingIdForKnowledgePath } from "../domain/workspaces/hydrate.js"
 import {
@@ -37,12 +37,18 @@ import {
   REFERENCE_TARGET_PREFIX,
 } from "../knowledge-store/knowledge-store.js"
 import { migrateKnowledgeStore } from "../knowledge-store/migrate.js"
-import { getKnowledgeState } from "../models/knowledge-state.js"
+import {
+  deleteBranchHead,
+  getKnowledgeState,
+  listBranchHeads,
+  readyKnowledgeHeads,
+} from "../models/knowledge-state.js"
 import { createLogger, withLogger } from "../observability/logger.js"
 import { textEmbeddingConfig } from "../retrieval/embeddings/textEmbeddings.js"
 import { renderGithubPullRequest } from "../services/github/pull-request-mirror/converter.js"
 import { renderLinearIssue } from "../services/linear/converter.js"
 import { startClickHouse, userUrl } from "../test/clickhouse.js"
+import { cleanUpKnowledgePlane } from "./cleanup.js"
 import { projectKnowledgePlane } from "./writer.js"
 
 /*
@@ -369,7 +375,12 @@ function run(
   remote: Remote,
   workspaceId: string,
   tip: string,
-  options: { store?: KnowledgeStore; root?: string } = {},
+  options: {
+    store?: KnowledgeStore
+    root?: string
+    /** A branch that is not the default branch, with the tip of `main`. */
+    overlay?: { branch: string; defaultTip: string }
+  } = {},
 ) {
   // The hydrate workflow gives the writer its logger.
   return withLogger(createLogger({}), () =>
@@ -378,7 +389,8 @@ function run(
       workspaceId,
       remote: { url: remote.url, token: async () => undefined },
       root: options.root ?? "",
-      branch: "main",
+      branch: options.overlay?.branch ?? "main",
+      defaultTip: options.overlay?.defaultTip ?? null,
       tip,
       store: options.store ?? store,
       observedAt,
@@ -407,16 +419,24 @@ async function snapshot(workspaceId: string): Promise<Record<Table, Row[]>> {
 }
 
 /** The head of a Workspace (ADR-071 decision 4). */
-async function headOf(workspaceId: string) {
-  const state = await getKnowledgeState({ orgId, workspaceId })
-  if (!state?.branch || state.treeVersion === null)
-    throw new Error(`The Workspace ${workspaceId} has no head`)
-  return { branch: state.branch, treeVersion: state.treeVersion }
+async function headOf(workspaceId: string, branch?: string) {
+  const head = (await readyKnowledgeHeads(orgId, [workspaceId], branch)).get(
+    workspaceId,
+  )
+  if (!head)
+    throw new Error(`The Workspace ${workspaceId} has no head of ${branch}`)
+  return head
 }
 
-/** The read scope of the head of a Workspace. */
-async function viewOf(workspaceId: string): Promise<KnowledgeReadScope> {
-  return { orgId, heads: [{ workspaceId, ...(await headOf(workspaceId)) }] }
+/** The read scope of the head of a branch (absent: the default branch). */
+async function viewOf(
+  workspaceId: string,
+  branch?: string,
+): Promise<KnowledgeReadScope> {
+  return {
+    orgId,
+    heads: [{ workspaceId, ...(await headOf(workspaceId, branch)) }],
+  }
 }
 
 /**
@@ -527,8 +547,13 @@ function validFromOf(rows: Awaited<ReturnType<typeof content>>) {
  * The status of each document of the head, and each relation target with
  * no row as `missing` (ADR-071 decision 5).
  */
-async function statusOf(workspaceId: string): Promise<Record<string, string>> {
-  const rows = await store.listDocumentStatuses(await viewOf(workspaceId))
+async function statusOf(
+  workspaceId: string,
+  branch?: string,
+): Promise<Record<string, string>> {
+  const rows = await store.listDocumentStatuses(
+    await viewOf(workspaceId, branch),
+  )
   return Object.fromEntries(rows.map((row) => [row.docKey, row.status]))
 }
 
@@ -536,8 +561,8 @@ async function statusOf(workspaceId: string): Promise<Record<string, string>> {
  * A document of the head, with the chunks of its file version in order and
  * the relations that point at it.
  */
-async function readOne(workspaceId: string, docKey: string) {
-  const scope = await viewOf(workspaceId)
+async function readOne(workspaceId: string, docKey: string, branch?: string) {
+  const scope = await viewOf(workspaceId, branch)
   const ref = { workspaceId, docKey }
   const [found] = await store.readDocuments(scope, [ref])
   if (!found) return null
@@ -833,11 +858,11 @@ describe("projectKnowledgePlane", () => {
       const shown = await content(stepwise, historyPaths)
       await withOrgDbContext(orgId, (db) =>
         db
-          .delete(knowledgeState)
+          .delete(knowledgeBranchHeads)
           .where(
             and(
-              eq(knowledgeState.organizationId, orgId),
-              eq(knowledgeState.workspaceId, stepwise),
+              eq(knowledgeBranchHeads.organizationId, orgId),
+              eq(knowledgeBranchHeads.workspaceId, stepwise),
             ),
           ),
       )
@@ -1702,8 +1727,20 @@ describe("vector reuse (CTX-1428)", () => {
         "b.md": "# Beta\n\nSee [a](a.md) again.\n",
         "n.md": "# New\n\nA new file.\n",
       })
+      // The cleanup after the grace times keeps the file versions that the
+      // tree uses, so the rebuild below still finds their vectors.
+      await withLogger(createLogger({}), () =>
+        cleanUpKnowledgePlane({
+          orgId,
+          workspaceId,
+          store,
+          now: new Date(Date.now() + 2 * 86_400_000),
+        }),
+      )
       // A new vision model is a new projection version, so each file gets a
-      // new file version, as after a change of the parser.
+      // new file version (a new variant, the same text), as after a change
+      // of the parser. The rebuild reuses the vectors of the earlier file
+      // versions by `embedding_key`.
       vi.stubEnv("MODEL_VISION_NAME", "vendor/other-vision")
       embeddings.requests = 0
       embeddings.inputs = []
@@ -1835,6 +1872,400 @@ describe("vector reuse (CTX-1428)", () => {
       })
     } finally {
       textEmbeddingConfig.model = model
+      await remote.remove()
+    }
+  })
+})
+
+describe("branches (ADR-071)", () => {
+  /** The title of each document of the view of `branch`, by path. */
+  const titles = async (
+    workspaceId: string,
+    paths: string[],
+    branch?: string,
+  ) =>
+    Object.fromEntries(
+      (
+        await store.readDocuments(
+          await viewOf(workspaceId, branch),
+          paths.map((path) => ({
+            workspaceId,
+            docKey: key(workspaceId, path),
+          })),
+        )
+      ).map(({ document }) => [
+        document.path,
+        `${document.status}: ${document.title}`,
+      ]),
+    )
+  const overlay = (branch: string, defaultTip: string) => ({
+    overlay: { branch, defaultTip },
+  })
+
+  it("the view of a branch is the default branch, minus its overlay paths, plus its overlay rows", async () => {
+    const remote = await Remote.create()
+    try {
+      const base = await remote.commit({
+        "a.md": "# A\n\nSee [d](d.md).\n",
+        "b.md": "# B\n",
+        "c.md": "# C\n",
+        "d.md": "# D\n",
+        "e.md": "# E\n",
+        "f.md": "# F\n",
+      })
+      const workspaceId = await newWorkspace()
+      await run(remote, workspaceId, base)
+      // B changes a.md (it still links d.md), adds n.md, deletes d.md, and
+      // changes f.md.
+      remote.git("checkout", "-q", "-f", "-b", "feature")
+      const branchTip = await remote.commit({
+        "a.md": "# A on B\n\nSee [d](d.md).\n",
+        "n.md": "# N on B\n",
+        "d.md": null,
+        "f.md": "# F on B\n",
+      })
+      // After the fork, main changes b.md and f.md, and deletes c.md.
+      remote.git("checkout", "-q", "-f", "main")
+      const mainTip = await remote.commit({
+        "b.md": "# B newer on main\n",
+        "c.md": null,
+        "f.md": "# F on main\n",
+      })
+      await run(remote, workspaceId, mainTip)
+      embeddings.inputs = []
+      expect(
+        await run(remote, workspaceId, branchTip, overlay("feature", mainTip)),
+      ).toMatchObject({ mode: "overlay" })
+      // Only the content that no branch had goes to the model.
+      expect(embeddings.inputs.flat().sort()).toEqual([
+        expect.stringContaining("A on B"),
+        expect.stringContaining("F on B"),
+        expect.stringContaining("N on B"),
+      ])
+
+      const paths = ["a.md", "b.md", "c.md", "d.md", "e.md", "f.md", "n.md"]
+      expect(await titles(workspaceId, paths, "feature")).toEqual({
+        // A file that B changed, and a file that both changed: B wins.
+        "a.md": "active: A on B",
+        "f.md": "active: F on B",
+        // A file that B added.
+        "n.md": "active: N on B",
+        // A file that B deleted.
+        "d.md": "deleted: D",
+        // A file that main changed after B forked.
+        "b.md": "active: B newer on main",
+        // A file that main deleted and that B did not change.
+        "c.md": "deleted: C",
+        "e.md": "active: E",
+      })
+      // The default branch does not see the overlay.
+      expect(await titles(workspaceId, paths)).toEqual({
+        "a.md": "active: A",
+        "b.md": "active: B newer on main",
+        "c.md": "deleted: C",
+        "d.md": "active: D",
+        "e.md": "active: E",
+        "f.md": "active: F on main",
+      })
+      // A relation into the path that B deleted gives a `deleted` neighbor
+      // on B, as a tombstone of the default branch does.
+      const intoD = await store.readFrontier(
+        await viewOf(workspaceId, "feature"),
+        [{ workspaceId, docKey: key(workspaceId, "d.md") }],
+      )
+      expect(
+        intoD.map(({ direction, relation, neighbor }) => [
+          direction,
+          relation.srcDoc,
+          neighbor.title,
+        ]),
+      ).toEqual([["in", key(workspaceId, "a.md"), "A on B"]])
+      // Search on B finds B's text and not the deleted file.
+      const view = await viewOf(workspaceId, "feature")
+      const searched = await store.search(view, {
+        vector: vectorOf("x"),
+        terms: ["B", "D"],
+      })
+      expect(searched.map((hit) => hit.document.path)).not.toContain("d.md")
+      expect(searched.map((hit) => hit.document.path)).toContain("n.md")
+    } finally {
+      await remote.remove()
+    }
+  })
+
+  it("a revert leaves the overlay, a merge of main moves the merge base, and a merge into main makes no new model call", async () => {
+    const remote = await Remote.create()
+    try {
+      const base = await remote.commit({ "x.md": "# X\n", "y.md": "# Y\n" })
+      const workspaceId = await newWorkspace()
+      await run(remote, workspaceId, base)
+      remote.git("checkout", "-q", "-f", "-b", "feature")
+      const changed = await remote.commit({ "x.md": "# X on B\n" })
+      await run(remote, workspaceId, changed, overlay("feature", base))
+      expect(await titles(workspaceId, ["x.md"], "feature")).toEqual({
+        "x.md": "active: X on B",
+      })
+      // B changes x.md back: the path leaves the overlay (an inherit row).
+      const reverted = await remote.commit({ "x.md": "# X\n" })
+      await run(remote, workspaceId, reverted, overlay("feature", base))
+      // The cleanup after the grace times removes the file version that B
+      // does not use any more: the inherit row holds none.
+      const titlesStored = async () =>
+        (
+          await (
+            await admin.query({
+              query: `SELECT title FROM documents
+                      WHERE org_id = {orgId:String} AND workspace_id = {workspaceId:String}
+                      ORDER BY title`,
+              query_params: { orgId, workspaceId },
+              format: "JSONEachRow",
+              clickhouse_settings: { [ORG_SETTING]: orgId },
+            })
+          ).json<{ title: string }>()
+        ).map((row) => row.title)
+      expect(await titlesStored()).toContain("X on B")
+      await withLogger(createLogger({}), () =>
+        cleanUpKnowledgePlane({
+          orgId,
+          workspaceId,
+          store,
+          now: new Date(Date.now() + 2 * 86_400_000),
+        }),
+      )
+      expect(await titlesStored()).not.toContain("X on B")
+      // Main then changes x.md: B shows the newer file of main.
+      remote.git("checkout", "-q", "-f", "main")
+      const mainTip = await remote.commit({
+        "x.md": "# X newer on main\n",
+        "y.md": "# Y newer on main\n",
+      })
+      await run(remote, workspaceId, mainTip)
+      expect(await titles(workspaceId, ["x.md", "y.md"], "feature")).toEqual({
+        "x.md": "active: X newer on main",
+        "y.md": "active: Y newer on main",
+      })
+
+      // B adds z.md and merges main: the merge base is the tip of main.
+      remote.git("checkout", "-q", "-f", "feature")
+      await remote.commit({ "z.md": "# Z on B\n" })
+      remote.git("merge", "-q", "--no-edit", "main")
+      const merged = remote.git("rev-parse", "HEAD")
+      expect(
+        await run(remote, workspaceId, merged, overlay("feature", mainTip)),
+      ).toMatchObject({ mode: "overlay" })
+      expect(await statusOf(workspaceId, "feature")).toEqual({
+        ...(await statusOf(workspaceId)),
+        [key(workspaceId, "z.md")]: "active",
+      })
+
+      // Main merges B: the run of main finds the file versions of B, so it
+      // makes no model call.
+      remote.git("checkout", "-q", "-f", "main")
+      remote.git("merge", "-q", "--no-edit", "feature")
+      const landed = remote.git("rev-parse", "HEAD")
+      embeddings.requests = 0
+      vision.calls = 0
+      expect(await run(remote, workspaceId, landed)).toMatchObject({
+        mode: "delta",
+      })
+      expect({ embeddings: embeddings.requests, vision: vision.calls }).toEqual(
+        {
+          embeddings: 0,
+          vision: 0,
+        },
+      )
+      expect(await titles(workspaceId, ["z.md"])).toEqual({
+        "z.md": "active: Z on B",
+      })
+    } finally {
+      await remote.remove()
+    }
+  })
+
+  it("a branch run before the first head of the default branch waits; a path that the branch deleted stays deleted when the default branch deletes it and adds it again", async () => {
+    const remote = await Remote.create()
+    try {
+      const base = await remote.commit({ "r.md": "# R\n", "s.md": "# S\n" })
+      const workspaceId = await newWorkspace()
+      // No head of the default branch yet: the branch waits, and its row
+      // tells the first run of the default branch to queue it again.
+      expect(
+        await run(remote, workspaceId, base, overlay("feature", base)),
+      ).toEqual({ mode: "waiting" })
+      expect(
+        (await listBranchHeads({ orgId, workspaceId })).map((row) => [
+          row.branch,
+          row.runStatus,
+          row.lastSha,
+        ]),
+      ).toEqual([["feature", "waiting", null]])
+      await run(remote, workspaceId, base)
+
+      remote.git("checkout", "-q", "-f", "-b", "feature")
+      const deleted = await remote.commit({ "r.md": null })
+      await run(remote, workspaceId, deleted, overlay("feature", base))
+      remote.git("checkout", "-q", "-f", "main")
+      await run(remote, workspaceId, await remote.commit({ "r.md": null }))
+      const back = await remote.commit({ "r.md": "# R back on main\n" })
+      await run(remote, workspaceId, back)
+      expect(await titles(workspaceId, ["r.md"])).toEqual({
+        "r.md": "active: R back on main",
+      })
+      expect(await titles(workspaceId, ["r.md"], "feature")).toEqual({
+        "r.md": "deleted: R",
+      })
+    } finally {
+      await remote.remove()
+    }
+  })
+
+  it("a path that the branch deleted gets a tombstone also when the default branch never had a row of it", async () => {
+    const remote = await Remote.create()
+    try {
+      await remote.commit({ "q.md": "# Q\n", "s.md": "# S\n" })
+      remote.git("checkout", "-q", "-f", "-b", "feature")
+      const branchTip = await remote.commit({ "q.md": null })
+      remote.git("checkout", "-q", "-f", "main")
+      // The first run of main comes after main deleted q.md: its tree has no
+      // row of q.md.
+      const mainTip = await remote.commit({ "q.md": null })
+      const workspaceId = await newWorkspace()
+      await run(remote, workspaceId, mainTip)
+      await run(remote, workspaceId, branchTip, overlay("feature", mainTip))
+      expect(await statusOf(workspaceId, "feature")).toMatchObject({
+        [key(workspaceId, "q.md")]: "deleted",
+      })
+      // Main adds q.md again: B keeps its deletion.
+      await run(
+        remote,
+        workspaceId,
+        await remote.commit({ "q.md": "# Q again\n" }),
+      )
+      expect(await titles(workspaceId, ["q.md"])).toEqual({
+        "q.md": "active: Q again",
+      })
+      expect(await statusOf(workspaceId, "feature")).toMatchObject({
+        [key(workspaceId, "q.md")]: "deleted",
+      })
+    } finally {
+      await remote.remove()
+    }
+  })
+
+  it("a deleted branch loses its head, and the cleanup deletes its tree rows and its own file versions", async () => {
+    const remote = await Remote.create()
+    try {
+      const base = await remote.commit({ "a.md": "# A\n" })
+      const workspaceId = await newWorkspace()
+      await run(remote, workspaceId, base)
+      remote.git("checkout", "-q", "-f", "-b", "feature")
+      const tip = await remote.commit({ "only-b.md": "# Only on B\n" })
+      await run(remote, workspaceId, tip, overlay("feature", base))
+      const scope = { orgId, workspaceId }
+      const versionsOf = async () =>
+        (
+          await (
+            await admin.query({
+              query: `SELECT DISTINCT doc_key AS docKey FROM documents
+                      WHERE org_id = {orgId:String} AND workspace_id = {workspaceId:String}`,
+              query_params: scope,
+              format: "JSONEachRow",
+              clickhouse_settings: { [ORG_SETTING]: orgId },
+            })
+          ).json<{ docKey: string }>()
+        )
+          .map((row) => row.docKey)
+          .sort()
+      expect(await versionsOf()).toEqual(
+        [key(workspaceId, "a.md"), key(workspaceId, "only-b.md")].sort(),
+      )
+      await deleteBranchHead({ ...scope, branch: "feature" })
+      expect(
+        (await readyKnowledgeHeads(orgId, [workspaceId], "feature")).size,
+      ).toBe(0)
+      // After the grace times.
+      await withLogger(createLogger({}), () =>
+        cleanUpKnowledgePlane({
+          ...scope,
+          store,
+          now: new Date(Date.now() + 2 * 86_400_000),
+        }),
+      )
+      const branches = await (
+        await admin.query({
+          query: `SELECT DISTINCT branch FROM trees
+                  WHERE org_id = {orgId:String} AND workspace_id = {workspaceId:String}`,
+          query_params: scope,
+          format: "JSONEachRow",
+          clickhouse_settings: { [ORG_SETTING]: orgId },
+        })
+      ).json<{ branch: string }>()
+      expect(branches).toEqual([{ branch: "main" }])
+      expect(await versionsOf()).toEqual([key(workspaceId, "a.md")])
+      expect(await statusOf(workspaceId)).toEqual({
+        [key(workspaceId, "a.md")]: "active",
+      })
+    } finally {
+      await remote.remove()
+    }
+  })
+
+  it("a rename of the default branch keeps the reads on the earlier tree until the new tree is built from the stored file versions", async () => {
+    const remote = await Remote.create()
+    try {
+      const base = await remote.commit({ "a.md": "# A\n", "b.md": "# B\n" })
+      const workspaceId = await newWorkspace()
+      await run(remote, workspaceId, base)
+      // The setting names `trunk` now, at the same commit. Until its first
+      // run completes, a read of the default branch uses the tree of main.
+      remote.git("branch", "trunk")
+      expect((await headOf(workspaceId)).branch).toBe("main")
+      // A run of main as a branch that is not the default waits: it would
+      // be its own base.
+      expect(
+        await run(remote, workspaceId, base, overlay("main", base)),
+      ).toEqual({ mode: "waiting" })
+      embeddings.requests = 0
+      vision.calls = 0
+      await withLogger(createLogger({}), () =>
+        projectKnowledgePlane({
+          orgId,
+          workspaceId,
+          remote: { url: remote.url, token: async () => undefined },
+          root: "",
+          branch: "trunk",
+          defaultTip: null,
+          tip: base,
+          store,
+          observedAt,
+        }),
+      )
+      // The new tree comes from the stored file versions: no model call.
+      expect({ embeddings: embeddings.requests, vision: vision.calls }).toEqual(
+        {
+          embeddings: 0,
+          vision: 0,
+        },
+      )
+      const head = await headOf(workspaceId)
+      expect(head.branch).toBe("trunk")
+      expect(await statusOf(workspaceId)).toEqual({
+        [key(workspaceId, "a.md")]: "active",
+        [key(workspaceId, "b.md")]: "active",
+      })
+      expect(await getKnowledgeState({ orgId, workspaceId })).toMatchObject({
+        branch: "trunk",
+        lastSha: base,
+      })
+      // Main is now a branch like the others: its tree becomes an empty
+      // overlay on trunk.
+      expect(
+        await run(remote, workspaceId, base, overlay("main", base)),
+      ).toMatchObject({ mode: "overlay" })
+      expect(await statusOf(workspaceId, "main")).toEqual(
+        await statusOf(workspaceId),
+      )
+    } finally {
       await remote.remove()
     }
   })

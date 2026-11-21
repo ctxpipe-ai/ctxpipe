@@ -10,7 +10,7 @@ import { enqueueWorkspaceTipCheck } from "../../../openworkflow/enqueue-workspac
 const MINUTE_MS = 60_000
 
 /** `owner/name` of a repository URL, in lower case, on any host. */
-function repositoryPath(url: string): string | null {
+export function repositoryPath(url: string): string | null {
   const normalized = normalizeWorkspaceRepositoryUrl(url)
   return URL.canParse(normalized)
     ? new URL(normalized).pathname.replace(/^\/+/, "").toLowerCase()

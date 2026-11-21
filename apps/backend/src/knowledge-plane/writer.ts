@@ -25,7 +25,9 @@ import {
   beginKnowledgeRun,
   completeKnowledgeRun,
   failKnowledgeRun,
-  getKnowledgeState,
+  getBranchHead,
+  markBranchWaiting,
+  readyKnowledgeHeads,
   treeHeadOf,
 } from "../models/knowledge-state.js"
 import { getLogger } from "../observability/logger.js"
@@ -51,7 +53,9 @@ import {
   type KnowledgeChangeSet,
   type KnowledgeFullReason,
   knowledgeProjectionVersion,
+  mergeBaseOf,
   planKnowledgeChangeSet,
+  planOverlay,
 } from "./change-set.js"
 import {
   convertFile,
@@ -81,20 +85,30 @@ export type KnowledgeRemote = {
 type KnowledgeRunSummary =
   /** The head is the tip, with the current projection version. */
   | { mode: "current" }
+  /**
+   * A branch that is not the default branch, while the default branch has
+   * no head to be its base: the first run of the default branch queues a
+   * run of this branch again.
+   */
+  | { mode: "waiting" }
   | {
       mode: KnowledgeChangeSet["kind"]
       fullReason: KnowledgeFullReason | null
       /** The tree rows that the run wrote: changed paths and tombstones. */
       documentsChanged: number
-      /** The `failed` documents of the Workspace after the run. */
+      /** The `failed` documents of the tree of the branch after the run. */
       failedCount: number
     }
 
 /**
  * The projection writer of the knowledge plane (ADR-067, ADR-071). It moves
- * the tree of the default branch of one Workspace from `last_sha` to `tip`:
+ * the tree of one branch of one Workspace from `last_sha` to `tip`. The
+ * default branch has a full tree; each other branch has an overlay on the
+ * tree of the default branch (ADR-071 decision 3):
  * 1. A run after a stopped run deletes the tree rows above the head.
- * 2. The planner gives the change set: a delta, or a full rebuild.
+ * 2. The planner gives the change set: a delta or a full rebuild for the
+ *    default branch, the overlay (the diff from the merge base) for another
+ *    branch.
  * 3. Each changed document file gets its file version: the stored one with
  *    the same key (`fileVersion`), else a new one from its file. A knowledge
  *    file (Markdown) that does not parse, or a file that does not convert,
@@ -104,14 +118,15 @@ type KnowledgeRunSummary =
  *    time of the commit that introduced it, from one walk of the Git history
  *    of the tip (`fileIntroductions`).
  * 5. Each path whose file is gone gets a tombstone row. A full rebuild does
- *    this for each path of the head that the tree does not give.
+ *    this for each path of the head that the tree does not give. An overlay
+ *    gets an `inherit` row for each path that left it.
  * 6. `completeKnowledgeRun` moves the head to the tip and the tree version.
  *    No read sees the rows of the run before this.
  *
  * An infrastructure error (Git, ClickHouse, Postgres, the embedding API)
  * throws, and `failKnowledgeRun` records it. The caller holds the knowledge
  * projection lease of the Workspace, so one run of a Workspace runs at a
- * time.
+ * time, for all its branches (ADR-071 decision 7).
  *
  * Before a file goes to the embedding model, the writer reads the stored
  * vectors of its document (`embedDocuments`): an input whose key
@@ -125,14 +140,21 @@ export async function projectKnowledgePlane(input: {
   remote: KnowledgeRemote
   /** The Workspace root folder; `""` is the repository root. */
   root: string
-  /** The default branch of the Workspace. */
   branch: string
   tip: string
+  /**
+   * The tip of the default branch in Git, for a branch that is not the
+   * default branch (the merge base of its overlay). Null for a run of the
+   * default branch.
+   */
+  defaultTip: string | null
   /** A store with the writer user. */
   store: KnowledgeStore
   observedAt: Date
 }): Promise<KnowledgeRunSummary> {
   const key = { orgId: input.orgId, workspaceId: input.workspaceId }
+  const branchKey = { ...key, branch: input.branch }
+  const isDefault = input.defaultTip === null
   const projectionVersion = knowledgeProjectionVersion({
     embeddingModel: textEmbeddingConfig.model,
     dimensions: textEmbeddingConfig.dimensions,
@@ -140,12 +162,26 @@ export async function projectKnowledgePlane(input: {
     converter: await converterVersion(),
     visionModel: imageTextModel(),
   })
-  const state = await getKnowledgeState(key)
+  // The base of an overlay: the head of the default branch. During a rename
+  // of the default branch, that can be this branch. Then the branch waits
+  // for the first completed run of the default branch, which queues it again.
+  const base = isDefault
+    ? null
+    : ((await readyKnowledgeHeads(input.orgId, [input.workspaceId])).get(
+        input.workspaceId,
+      ) ?? null)
+  if (!isDefault && (!base || base.branch === input.branch)) {
+    await markBranchWaiting(branchKey)
+    return { mode: "waiting" }
+  }
+  const state = await getBranchHead(branchKey)
   if (
     state?.lastSha === input.tip &&
     state.runStatus === "completed" &&
-    state.branch === input.branch &&
-    state.projectionVersion === projectionVersion
+    state.projectionVersion === projectionVersion &&
+    // The tree is of the right kind: a full tree for the default branch, an
+    // overlay on the current default branch for each other branch.
+    state.baseBranch === (base?.branch ?? null)
   )
     return { mode: "current" }
 
@@ -156,6 +192,7 @@ export async function projectKnowledgePlane(input: {
       span.setAttributes({
         "ctxpipe.org.id": input.orgId,
         "ctxpipe.workspace.id": input.workspaceId,
+        "ctxpipe.knowledge.default_branch": isDefault,
       })
       let summary: KnowledgeRunSummary | undefined
       const counter: MutationCounter = { mutations: 0 }
@@ -170,14 +207,13 @@ export async function projectKnowledgePlane(input: {
         images: { hits: 0, misses: 0, failures: 0, costUsd: 0 },
       }
       try {
-        await beginKnowledgeRun(key)
-        // The head of the branch, or none for a new branch. The tree rows
-        // above the head are the rows of a run that stopped: no read sees
-        // them, and this run must not show them either (ADR-071 decision
-        // 4). A run with no head starts from no rows, so that its tree
-        // versions never mix with older rows of the branch.
-        const stored = treeHeadOf(state)
-        const head = stored?.branch === input.branch ? stored : null
+        await beginKnowledgeRun({ ...branchKey, isDefault })
+        // The head of the branch, or none before its first run. The tree
+        // rows above the head are the rows of a run that stopped: no read
+        // sees them, and this run must not show them either (ADR-071
+        // decision 4). A run with no head starts from no rows, so that its
+        // tree versions never mix with older rows of the branch.
+        const head = treeHeadOf(state)
         if (!head || state?.runStatus !== "completed")
           await input.store.deleteTreeAbove(
             key,
@@ -189,39 +225,67 @@ export async function projectKnowledgePlane(input: {
         summary = await withGitDirectory(
           input.tip,
           async (directory) => {
-            const base = state?.lastSha ?? null
-            await fetchCommits(directory, input.remote, input.tip, base)
-            const plan = await planKnowledgeChangeSet({
+            const lastSha = state?.lastSha ?? null
+            await fetchCommits(
               directory,
-              root: input.root,
-              state,
-              branch: input.branch,
-              tip: input.tip,
-              projectionVersion,
-            })
+              input.remote,
+              input.tip,
+              input.defaultTip ?? lastSha,
+            )
+            // The history of both tips in one fetch, so that `git
+            // merge-base` can walk them. `fileIntroductions` then finds the
+            // history of the tip already there.
+            let mergeBase: string | null = null
+            if (input.defaultTip) {
+              await fetchGitHistory(directory, {
+                url: input.remote.url,
+                sha: [input.tip, input.defaultTip],
+                token: await input.remote.token(),
+              })
+              mergeBase = await mergeBaseOf(
+                directory,
+                input.tip,
+                input.defaultTip,
+              )
+            }
+            const plan = mergeBase
+              ? await planOverlay({
+                  directory,
+                  root: input.root,
+                  mergeBase,
+                  tip: input.tip,
+                })
+              : await planKnowledgeChangeSet({
+                  directory,
+                  root: input.root,
+                  state,
+                  tip: input.tip,
+                  projectionVersion,
+                })
             const applied = await applyChangeSet({
               ...input,
               directory,
               plan,
               projectionVersion,
               head,
+              base,
               treeVersion,
               introductions: await fileIntroductions({
                 directory,
                 remote: input.remote,
                 root: input.root,
                 tip: input.tip,
-                base: plan.kind === "delta" ? base : null,
+                base: plan.kind === "delta" ? lastSha : null,
               }),
               counter,
               embedding,
               files,
             })
             await completeKnowledgeRun({
-              ...key,
+              ...branchKey,
               tip: input.tip,
-              branch: input.branch,
               treeVersion,
+              baseBranch: base?.branch ?? null,
               projectionVersion,
               failedCount: applied.failedCount,
             })
@@ -242,7 +306,7 @@ export async function projectKnowledgePlane(input: {
           message: error instanceof Error ? error.message : String(error),
         })
         try {
-          await failKnowledgeRun(key)
+          await failKnowledgeRun({ ...branchKey, isDefault })
         } catch (stateError) {
           // The run error is the cause. The next run starts from the same
           // head either way.
@@ -316,6 +380,7 @@ const fileVariant = (
 const sameEntry = (a: TreeEntry | undefined, b: TreeEntry) =>
   !!a &&
   !a.deletedAt &&
+  !a.inherit &&
   a.version === b.version &&
   a.path === b.path &&
   (a.validFrom?.getTime() ?? null) === (b.validFrom?.getTime() ?? null)
@@ -341,6 +406,8 @@ async function applyChangeSet(input: {
   projectionVersion: string
   /** The head of the branch, or null when it has no tree yet. */
   head: TreeHead | null
+  /** For an overlay: the head of the default branch, its base. */
+  base: TreeHead | null
   treeVersion: number
   introductions: FileIntroductions
   counter: MutationCounter
@@ -390,7 +457,9 @@ async function applyChangeSet(input: {
     ...new Set(
       plan.kind === "full"
         ? plan.files
-        : [...plan.changed, ...input.introductions.addedSinceFork],
+        : plan.kind === "overlay"
+          ? plan.changed
+          : [...plan.changed, ...input.introductions.addedSinceFork],
     ),
   ]
     .filter((path) => tree.has(path) && isDocumentPath(path))
@@ -476,20 +545,35 @@ async function applyChangeSet(input: {
     for (const entry of entries) next.set(entry.docKey, entry)
   }
 
-  // A tombstone for each path whose file is gone: in a delta, the paths of
-  // the diff; in a full rebuild, each path of the head (the reconcile). It
-  // keeps the last file version of the path.
-  const tombstones = (
-    plan.kind === "full"
-      ? [...current.keys()]
-      : [...plan.changed, ...plan.removed].filter(isDocumentPath).map(keyOf)
-  ).flatMap((docKey): TreeEntry[] => {
-    const entry = current.get(docKey)
-    return entry && !entry.deletedAt && !present.has(docKey)
-      ? [{ ...entry, deletedAt: observedAt }]
-      : []
-  })
-  for (const entry of tombstones) next.set(entry.docKey, entry)
+  const ends =
+    plan.kind === "overlay"
+      ? await overlayEnds({
+          store,
+          scope,
+          plan,
+          base: input.base,
+          current,
+          present,
+          keyOf,
+          isDocumentPath,
+          observedAt,
+        })
+      : // A tombstone for each path whose file is gone: in a delta, the
+        // paths of the diff; in a full rebuild, each path of the head (the
+        // reconcile). It keeps the last file version of the path.
+        (plan.kind === "full"
+          ? [...current.keys()]
+          : [...plan.changed, ...plan.removed].filter(isDocumentPath).map(keyOf)
+        ).flatMap((docKey): TreeEntry[] => {
+          const entry = current.get(docKey)
+          return entry &&
+            !entry.deletedAt &&
+            !entry.inherit &&
+            !present.has(docKey)
+            ? [{ ...entry, deletedAt: observedAt }]
+            : []
+        })
+  for (const entry of ends) next.set(entry.docKey, entry)
   // All tree rows go in one INSERT at the end, just before the head moves:
   // their `written_at` is then the time of the new head, within seconds,
   // and the grace times of the cleanup count from it (ADR-071 decision 10).
@@ -498,9 +582,90 @@ async function applyChangeSet(input: {
   ])
 
   const failedCount = [...new Map([...current, ...next]).values()].filter(
-    (entry) => !entry.deletedAt && entry.status === "failed",
+    (entry) => !entry.deletedAt && !entry.inherit && entry.status === "failed",
   ).length
   return { changed: next.size, failedCount }
+}
+
+/**
+ * The rows that end paths of an overlay (ADR-071 decisions 3 and 5):
+ * - a path that the tip removed gets a tombstone, so that the view of the
+ *   branch removes it, also when the default branch deletes the path and
+ *   then adds it again. It keeps a file version of the path: the one of the
+ *   default branch, else the earlier one of the branch.
+ * - a path that left the overlay (the tip has it as at the merge base) gets
+ *   an `inherit` row, so that the view shows the row of the default branch.
+ */
+async function overlayEnds(input: {
+  store: KnowledgeStore
+  scope: KnowledgeScope
+  plan: Extract<KnowledgeChangeSet, { kind: "overlay" }>
+  base: TreeHead | null
+  current: ReadonlyMap<string, TreeEntry>
+  /** The document keys that the overlay holds a file version for. */
+  present: ReadonlySet<string>
+  keyOf: (path: string) => string
+  isDocumentPath: (path: string) => boolean
+  observedAt: Date
+}): Promise<TreeEntry[]> {
+  const { current, present, keyOf } = input
+  if (!input.base)
+    throw new Error("An overlay needs the head of the default branch")
+  const base = new Map(
+    (await input.store.readTree(input.scope, input.base)).map((entry) => [
+      entry.docKey,
+      entry,
+    ]),
+  )
+  // An `inherit` row holds no file version, so that the cleanup can remove
+  // the file version that the branch does not use any more.
+  const inherit = (docKey: string): TreeEntry[] => {
+    const entry = current.get(docKey)
+    return entry && !entry.inherit
+      ? [{ ...entry, version: "", inherit: true }]
+      : []
+  }
+  const ends = new Map<string, TreeEntry[]>()
+  // A changed path with no file version (a knowledge file that gives no
+  // unit) is no document on the branch, as a removed path.
+  const gone = [
+    ...input.plan.removed,
+    ...input.plan.changed.filter((path) => !present.has(keyOf(path))),
+  ]
+  for (const path of gone.filter(input.isDocumentPath)) {
+    const docKey = keyOf(path)
+    const own = current.get(docKey)
+    const below = base.get(docKey)
+    const kept = [below, own].find((entry) => entry && !entry.inherit)
+    // A tombstone of the branch stays as it is, with its first date. With
+    // no stored row of the path, the tombstone has no file version: the
+    // path has a tombstone with no fields.
+    if (own?.deletedAt && !own.inherit) ends.set(docKey, [])
+    else
+      ends.set(docKey, [
+        {
+          ...(kept ?? {
+            docKey,
+            version: "",
+            path,
+            status: "active" as const,
+            kind: "",
+            observedAt: input.observedAt,
+            validFrom: null,
+            validTo: null,
+          }),
+          inherit: false,
+          deletedAt: input.observedAt,
+        },
+      ])
+  }
+  const inOverlay = new Set([
+    ...present,
+    ...gone.filter(input.isDocumentPath).map(keyOf),
+  ])
+  for (const docKey of current.keys())
+    if (!inOverlay.has(docKey)) ends.set(docKey, inherit(docKey))
+  return [...ends.values()].flat()
 }
 
 /** The document fields of a `failed` file version: its path only. */

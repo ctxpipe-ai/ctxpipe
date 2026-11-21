@@ -73,15 +73,14 @@ function plan(
     directory,
     root: options.root ?? "",
     state,
-    branch: "main",
     tip,
     projectionVersion: options.projectionVersion ?? version,
   })
 }
 
-/** The state after a completed run of `main` at `lastSha`. */
+/** The state after a completed run of the full tree at `lastSha`. */
 function started(lastSha: string) {
-  return { lastSha, branch: "main", projectionVersion: version }
+  return { lastSha, baseBranch: null, projectionVersion: version }
 }
 
 describe("planKnowledgeChangeSet", () => {
@@ -124,7 +123,10 @@ describe("planKnowledgeChangeSet", () => {
       files: ["a.md", "notes/b.md"],
     })
     expect(
-      await plan({ lastSha: null, branch: null, projectionVersion: null }, tip),
+      await plan(
+        { lastSha: null, baseBranch: null, projectionVersion: null },
+        tip,
+      ),
     ).toMatchObject({ kind: "full", reason: "first_run" })
   })
 
@@ -144,10 +146,10 @@ describe("planKnowledgeChangeSet", () => {
     })
   })
 
-  it("rebuilds in full when the default branch is not the branch of the head", async () => {
+  it("rebuilds in full when the tree of the branch was an overlay (the branch is now the default branch)", async () => {
     const base = await commit({ "a.md": "a1" })
     const tip = await commit({ "b.md": "b1" })
-    expect(await plan({ ...started(base), branch: "master" }, tip)).toEqual({
+    expect(await plan({ ...started(base), baseBranch: "main" }, tip)).toEqual({
       kind: "full",
       reason: "branch",
       files: ["a.md", "b.md"],

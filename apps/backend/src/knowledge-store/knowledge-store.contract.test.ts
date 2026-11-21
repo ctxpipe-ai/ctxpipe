@@ -270,6 +270,7 @@ describe("KnowledgeStore", () => {
       "0008_chunk_embedding_key.sql",
       "0009_image_texts.sql",
       "0010_file_versions_and_trees.sql",
+      "0011_tree_overlays.sql",
     ])
   })
 

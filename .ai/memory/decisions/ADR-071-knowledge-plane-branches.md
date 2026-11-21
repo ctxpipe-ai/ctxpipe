@@ -1,6 +1,6 @@
 # ADR-071: The knowledge plane projects every branch: shared file versions, a full tree for the default branch, an overlay for each other branch
 
-**Status:** Accepted (the CTO, 2026-11-21; [CTX-1457](https://linear.app/ctxpipe/issue/CTX-1457): the file versions, the tree and the head of the default branch, and the cleanup are built; the overlays of other branches are not built yet) | **Date:** 2026-11-21 | **Tags:** knowledge, clickhouse, branches, git, mcp, consistency
+**Status:** Accepted (the CTO, 2026-11-21; [CTX-1457](https://linear.app/ctxpipe/issue/CTX-1457): built: the file versions, the trees and heads of all branches, the overlays, branch runs from GitHub pushes, the MCP `branch` argument, branch deletion and the cleanup) | **Date:** 2026-11-21 | **Tags:** knowledge, clickhouse, branches, git, mcp, consistency
 
 ## Context
 
@@ -51,7 +51,8 @@ One fact makes branches cheap: the rows of a file depend only on that file (ADR-
    - The tree table is a sixth shared table. It has the sort key prefix `(org_id, workspace_id, …)`, the `CHECK` constraint and the row policy of ADR-066 decision 9. The writer user inserts and deletes its rows, and the reader user only reads them. `KnowledgeStore` adds the org and Workspace predicates to each `DELETE` of it, also the `DELETE`s of the branch deletion and of the cleanup job. A read joins a tree row to its file version on the org, the Workspace, the path, the blob SHA and the variant: the same path and blob can exist in two orgs.
 
 4. **A run never shows a half-written tree.**
-   - Each branch has one **head**: its row of the `knowledge_state` table in Postgres (ADR-067 decision 2), with the projected tip, the tree version and, for an overlay, the merge base.
+   - Each branch has one **head**: its row of the Postgres table `knowledge_branch_heads` (org, Workspace, branch), with the projected tip, the tree version and, for an overlay, the default branch that it was made on. The reader and the writer use only this table, also for the default branch.
+   - `knowledge_state` (ADR-067 decision 2) stays only as the view of the default branch for the previous release: the writer updates it in the same transaction as the head of the default branch. ADR-053 lets a minor release only add, so its key cannot change to (Workspace, branch). The next major release retires it, together with its unused column `attempt_shas`.
    - A run writes the tree rows of the changed paths only, with the next tree version. Then it moves the head to that version in one Postgres update.
    - A read takes, for each path, the newest tree row with a tree version that is not more than the head. Thus a reader sees the tree of the old tip or of the new tip, never a mix.
    - A run that stops leaves tree rows above the head. A read does not see them. The next run of the branch first deletes the tree rows of the branch above the head (one `DELETE`). Then it applies the diff from the tip of the head to its own tip. The file versions of the stopped run stay: they never change, so the next run can use them, and the cleanup removes those that no tree uses.
@@ -68,11 +69,13 @@ One fact makes branches cheap: the rows of a file depend only on that file (ADR-
 6. **Reads take one branch.**
    - `search_knowledge`, `get_related`, `read_file`, `list_files` and the UI read one branch.
    - Each MCP tool gets an optional `branch` argument. Its default is the default branch of the Workspace.
-   - Each member of the Workspace can read each branch (the CTO: "everyone in the workspace"). Who can read a conversation session branch is an open question for the CTO (see "Open questions").
+   - Each actor that can read the Workspace can read each branch, also the session branch of a conversation (`ctxpipe/chat/<conversation>/<n>`, [ADR-048](ADR-048-native-postgres-sandbox-ownership.md)). The CTO (2026-11-21): "anyone who can read the workspace can read any branch, because they can read git anyways. Conversation itself stays private". The Security review had asked for a limit, because a conversation is private to its owner; the answer is that the committed work is in Git, which each reader of the Workspace can read. The messages of a conversation stay private, as today.
    - `read_file` and `list_files` use the same view as the search. `list_files` lists the paths of the view. `read_file` finds the file version of the path in the view and reads its blob from the Workspace Git. Thus a file of the default branch that the search finds on B is also in the file reads of B.
 
 7. **One projection run for each branch tip.**
-   - Each push to a branch queues a projection run for that (Workspace, branch). The lease of a run is for each (Workspace, branch).
+   - Each push to a branch queues a projection run for that (Workspace, branch). The GitHub push webhook queues it. A Workspace repository that is not on GitHub has no branch projection yet: only its default branch is projected, with its current triggers.
+   - **One projection lease for each Workspace**, for all its branches (the lead, 2026-11-21, which amends the first version of this decision: a lease for each branch). Reason: with a lease for each branch, the cleanup can delete an old file version that no tree row uses while a run of another branch is about to use it (for example a revert to an old blob). With one lease, the runs and the cleanup of a Workspace go one at a time. A branch run is small, so the order costs little; the projection lag of each Workspace shows the wait.
+   - A push that deletes a branch queues the same run. The run finds no tip in Git, and it deletes the head and the tree rows of the branch (decision 10).
    - A run projects the newest tip of its branch only. A run whose tip is already old when it starts ends with no work, as on the default branch today (ADR-067 decision 3).
    - For each path of its change set, a run uses the stored file version if it exists (from another branch or an earlier commit). Else, it converts and projects the file. Thus a new branch projects only the files that no other branch holds, and a branch with no commit of its own has an empty overlay.
 
@@ -95,12 +98,13 @@ One fact makes branches cheap: the rows of a file depend only on that file (ADR-
 
 11. **The default branch is a branch like the others** (the CTO: "yes default branch is branch as others, except during read when other branches apply the overlay"). It uses the same tables, keyed by its branch name. The differences are only: it has a full tree, the read of another branch applies its overlay on it, it gets the maintenance job (decision 9), and it is the default of the `branch` argument (decision 6).
     - **A rename of the default branch** (for example `master` to `main`) follows the default branch setting of the Workspace (the CTO: "yes follow the setting, make sure you test for this scenario"). The sequence:
-      1. The setting names the new default branch. The first run of that branch builds its full tree. It uses the stored file versions, so it writes only tree rows.
-      2. Until that run moves its head, reads of the default branch use the tree of the earlier default branch. The deletion of the earlier default branch waits until then, also when Git deleted it first.
-      3. When the head moves, the new branch is the default branch for each read. Then the run queues a run for each other branch, because each overlay must use the merge base with the new default branch. The earlier default branch is then deleted (decision 10), or it becomes an overlay if Git still has it.
+      1. The setting names the new default branch. Only the setting moves. The first run of that branch builds its full tree. It uses the stored file versions, so it writes only tree rows. The head of a full tree records the time when it became the tree of the default branch.
+      2. Until that run moves its head, reads of the default branch use the head with the newest such time: the tree of the earlier default branch. The deletion of the earlier default branch waits until then, also when Git deleted it first.
+      3. When the head moves, the new branch is the default branch for each read. Then the run queues a run for each other branch, because each overlay must use the merge base with the new default branch. The run of the earlier default branch then deletes it (decision 10), or makes it an overlay if Git still has it.
 
 ## Consequences
 
+- **Waits for the next major release:** the retirement of `knowledge_state` and of its column `attempt_shas` (decision 4, ADR-053).
 - **The tables are rebuilt.** New ClickHouse migrations drop the content tables and make them in the shape of this ADR. No data moves: the rows are derived data (ADR-066 decision 11). The projection version changes too, so the next run of each Workspace is a full rebuild that writes the new tables.
 
 - **Amends [ADR-066](ADR-066-knowledge-content-in-clickhouse.md):**
@@ -132,7 +136,7 @@ One fact makes branches cheap: the rows of a file depend only on that file (ADR-
     - a relation into a path that B deleted;
     - a merge of the default branch into B;
     - a file that B changed and then changed back;
-  - the read rule for a conversation session branch, after the CTO answers the open question;
+  - each reader of the Workspace reads the session branch of a conversation of another user;
   - the tree table has the read and insert walls of ADR-066 decision 9, and each `DELETE` of the branch deletion and of the cleanup job has the org and Workspace predicates;
   - two branches that hold the same file share its rows;
   - a deleted branch leaves no tree rows, and its own file versions go after the grace time;
@@ -140,11 +144,6 @@ One fact makes branches cheap: the rows of a file depend only on that file (ADR-
   - a reader never sees a half-written tree;
   - a rename of the default branch (the new branch appears, Git deletes the earlier one, then the new branch's first run completes) keeps the reads during each step, and builds the new tree from the stored file versions.
 
-## Open questions
+## Follow-ups
 
-1. **Who can read a conversation session branch?** The chat agent pushes the work of a conversation to the session branch `ctxpipe/chat/<conversation>/<n>` ([ADR-048](ADR-048-native-postgres-sandbox-ownership.md)). Today only the owner of a conversation can open it. If each member of the Workspace can read each branch, each member can read the committed work of another user's private conversation through `search_knowledge` or `read_file`. The Security review asked for a limit. The options:
-   - **A.** A conversation session branch is readable only by the actor that can open its conversation: its owner, or the org MCP actor for an MCP conversation. Each other branch is readable by each member of the Workspace. This keeps the privacy of a conversation, and the chat agent still gets the graph of its own work.
-   - **B.** Each member of the Workspace can read each branch, also a conversation session branch. The committed work of a conversation becomes visible to the Workspace.
-
-   No reader serves a branch that is not the default branch until the overlays are built. That work keeps the rule in one place, and it does not merge until the CTO answers.
-
+- **The branch selector of the chat (phase 4).** The CTO (2026-11-21): "replicate what's common in claude code/codex/T3/.... and other coding agent tools". The user picks a base branch, the conversation works on its own session branch from it (the model of ADR-048 today), and the user publishes from there.

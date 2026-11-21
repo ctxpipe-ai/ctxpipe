@@ -13,6 +13,7 @@ import type {
 } from "../domain/workspaces/related-ranking.js"
 import type { PublishedProjection } from "../domain/workspaces/revision.js"
 import type { WorkspaceGraphPayload } from "../domain/workspaces/workspace-graph.js"
+import { McpToolError } from "../mcp/framework/tool-errors.js"
 import type { CallOrg } from "../mcp/framework/tool-org.js"
 import {
   type KnowledgeHead,
@@ -128,9 +129,27 @@ function knowledgePlaneFlag(orgId: string): Promise<"off" | "shadow" | "on"> {
 export async function selectKnowledgeReader(
   orgId: string,
   workspaceIds: readonly string[],
+  /**
+   * The branch of the read (ADR-071 decision 6); absent: the default branch.
+   * Only the plane serves a named branch.
+   */
+  branch?: string,
 ): Promise<KnowledgeSelection> {
   const legacy = { reader: legacyKnowledgeReader, planeHeads: new Map() }
   const flag = await knowledgePlaneFlag(orgId)
+  if (branch !== undefined) {
+    if (flag !== "on")
+      throw new McpToolError(
+        "invalid_argument",
+        "A read of a branch needs the knowledge plane, which is not on for this org. Omit branch to read the default branch.",
+      )
+    // Each actor that can read the Workspace can read each of its branches,
+    // also the session branch of a conversation (ADR-071 decision 6).
+    const heads = await readyKnowledgeHeads(orgId, workspaceIds, branch)
+    const missing = workspaceIds.filter((id) => !heads.has(id))
+    if (missing.length > 0) throw unknownBranch(branch)
+    return { reader: planeKnowledgeReader({ heads }), planeHeads: heads }
+  }
   if (flag === "off" || workspaceIds.length === 0) return legacy
   const heads = await readyKnowledgeHeads(orgId, workspaceIds)
   if (!workspaceIds.every((id) => heads.has(id))) return legacy
@@ -143,3 +162,10 @@ export async function selectKnowledgeReader(
     planeHeads: new Map(),
   }
 }
+
+/** The error for a branch with no projection. */
+const unknownBranch = (branch: string) =>
+  new McpToolError(
+    "invalid_argument",
+    `The branch ${branch} has no knowledge projection. A branch is projected after a commit on it; check the name, or omit branch to read the default branch.`,
+  )
