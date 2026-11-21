@@ -1,20 +1,21 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
-
 import { signedInHandlers } from "@/mocks/handlers"
 import { linearOauthAppHandler } from "@/mocks/linear-handlers"
 
 import type { StoryRouteParams } from "../../../../../.storybook/decorators/with-story-route"
+import preview from "../../../../../.storybook/preview"
 import { RegisterLinearOauthStep } from "./RegisterLinearOauthStep"
 
 const orgSlug = "acme"
 const connectionId = "linear_story"
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Connections/Linear/RegisterOauthStep",
   component: RegisterLinearOauthStep,
   args: { orgSlug, connectionId },
+  beforeEach: ({ msw }) => {
+    msw.use(...signedInHandlers)
+  },
   parameters: {
-    msw: { handlers: { session: signedInHandlers } },
     app: "root",
     layout: "padded",
     review: { kind: "component" },
@@ -23,47 +24,35 @@ const meta = {
       orgSlug,
     } satisfies StoryRouteParams,
   },
-} satisfies Meta<typeof RegisterLinearOauthStep>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Linear setup step where the admin registers a private Linear OAuth app: no
  * OAuth app is saved yet.
  */
-export const Unsaved: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          linearOauthAppHandler({
-            globalLinearOauthConfigured: false,
-            oauthAppSaved: false,
-          }),
-        ],
-      },
-    },
+export const Unsaved = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      linearOauthAppHandler({
+        globalLinearOauthConfigured: false,
+        oauthAppSaved: false,
+      }),
+    )
   },
-}
+})
 
 /**
  * Linear setup step where the admin registers a private Linear OAuth app: the
  * OAuth app is already saved.
  */
-export const Saved: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          linearOauthAppHandler({
-            globalLinearOauthConfigured: false,
-            oauthAppSaved: true,
-            oauthClientId: "lin_client",
-          }),
-        ],
-      },
-    },
+export const Saved = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      linearOauthAppHandler({
+        globalLinearOauthConfigured: false,
+        oauthAppSaved: true,
+        oauthClientId: "lin_client",
+      }),
+    )
   },
-}
+})

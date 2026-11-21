@@ -1,8 +1,7 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
-
 import { signedInHandlers } from "@/mocks/handlers"
 
 import type { StoryRouteParams } from "../../../../../.storybook/decorators/with-story-route"
+import preview from "../../../../../.storybook/preview"
 import {
   notionOauthAppHandler,
   notionOauthAppPutHandler,
@@ -12,7 +11,7 @@ import { RegisterNotionOauthStep } from "./RegisterNotionOauthStep"
 const orgSlug = "acme"
 const connectionId = "con_story_notion"
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Connections/Notion/Steps/RegisterOAuth",
   component: RegisterNotionOauthStep,
   args: {
@@ -26,8 +25,10 @@ const meta = {
       </div>
     ),
   ],
+  beforeEach: ({ msw }) => {
+    msw.use(...signedInHandlers)
+  },
   parameters: {
-    msw: { handlers: { session: signedInHandlers } },
     app: "root",
     layout: "centered",
     review: { kind: "component" },
@@ -36,34 +37,26 @@ const meta = {
       orgSlug,
     } satisfies StoryRouteParams,
   },
-} satisfies Meta<typeof RegisterNotionOauthStep>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Notion setup step where the admin registers a private Notion OAuth app: the
  * empty form, with no OAuth app saved yet.
  */
-export const RegisterOAuth: Story = {
+export const RegisterOAuth = meta.story({
   name: "Private OAuth app form",
   render: () => (
     <RegisterNotionOauthStep orgSlug={orgSlug} connectionId={connectionId} />
   ),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          notionOauthAppHandler({
-            orgSlug,
-            connectionId,
-            oauthAppSaved: false,
-            globalNotionOAuthConfigured: false,
-          }),
-          notionOauthAppPutHandler({ orgSlug, connectionId }),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      notionOauthAppHandler({
+        orgSlug,
+        connectionId,
+        oauthAppSaved: false,
+        globalNotionOAuthConfigured: false,
+      }),
+      notionOauthAppPutHandler({ orgSlug, connectionId }),
+    )
   },
-}
+})

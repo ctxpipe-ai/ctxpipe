@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useQuery } from "@tanstack/react-query"
 import { delay, HttpResponse, http } from "msw"
 import { type ComponentProps, useState } from "react"
@@ -26,6 +25,7 @@ import {
 import { pendingWorkspaceUpgradesHandler } from "@/mocks/workspace-upgrades-handlers"
 
 import type { StoryRouteParams } from "../../../../../.storybook/decorators/with-story-route"
+import preview from "../../../../../.storybook/preview"
 import type { LinearConnectorStatus } from "../../queries/linear-connector"
 import { LinearSetupWizard } from "./LinearSetupWizard"
 
@@ -43,7 +43,7 @@ function statusHandler(status: LinearConnectorStatus) {
   )
 }
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Connections/Linear/SetupWizard",
   component: LinearSetupWizard,
   args: {
@@ -53,13 +53,10 @@ const meta = {
     onOpenChange: fn(),
     onConnectionIdChange: fn(),
   },
+  beforeEach: ({ msw }) => {
+    msw.use(...signedInHandlers, pendingWorkspaceUpgradesHandler({}))
+  },
   parameters: {
-    msw: {
-      handlers: {
-        session: signedInHandlers,
-        pendingUpgrades: [pendingWorkspaceUpgradesHandler({})],
-      },
-    },
     app: "root",
     review: { kind: "component" },
     layout: "fullscreen",
@@ -68,110 +65,90 @@ const meta = {
       orgSlug,
     } satisfies StoryRouteParams,
   },
-} satisfies Meta<typeof LinearSetupWizard>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Linear setup wizard, which connects Linear and adds its teams to Workspaces:
  * the status request is still loading.
  */
-export const Loading: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.get(`/${orgSlug}/api/v1/connectors/linear/status`, async () => {
-            await delay("infinite")
-            return HttpResponse.json(baseStatus)
-          }),
-          linearOauthAppHandler(),
-        ],
-      },
-    },
+export const Loading = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(`/${orgSlug}/api/v1/connectors/linear/status`, async () => {
+        await delay("infinite")
+        return HttpResponse.json(baseStatus)
+      }),
+      linearOauthAppHandler(),
+    )
   },
-}
+})
 
 /**
  * Linear setup wizard for a new connection on the hosted product, where ctxpipe
  * supplies the OAuth app: the first step, which connects a Linear workspace.
  */
-export const ConnectWorkspace: Story = {
+export const ConnectWorkspace = meta.story({
   args: { connectionId: undefined },
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          linearOauthAppHandler({
-            globalLinearOauthConfigured: true,
-            oauthAppSaved: false,
-          }),
-          statusHandler({
-            ...baseStatus,
-            isInstalled: false,
-            installationStatus: null,
-            workspaceName: null,
-          }),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      linearOauthAppHandler({
+        globalLinearOauthConfigured: true,
+        oauthAppSaved: false,
+      }),
+      statusHandler({
+        ...baseStatus,
+        isInstalled: false,
+        installationStatus: null,
+        workspaceName: null,
+      }),
+    )
   },
-}
+})
 
 /**
  * Linear setup wizard on a self-hosted install: the step where the admin
  * registers a private Linear OAuth app, with no app saved yet.
  */
-export const RegisterOauthApp: Story = {
+export const RegisterOauthApp = meta.story({
   args: { connectionId },
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          linearOauthAppHandler({
-            globalLinearOauthConfigured: false,
-            oauthAppSaved: false,
-          }),
-          statusHandler({
-            ...baseStatus,
-            isInstalled: false,
-            installationStatus: null,
-            workspaceName: null,
-          }),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      linearOauthAppHandler({
+        globalLinearOauthConfigured: false,
+        oauthAppSaved: false,
+      }),
+      statusHandler({
+        ...baseStatus,
+        isInstalled: false,
+        installationStatus: null,
+        workspaceName: null,
+      }),
+    )
   },
-}
+})
 
 /**
  * Linear setup wizard on a self-hosted install: the private Linear OAuth app is
  * saved and the admin can connect Linear.
  */
-export const RegisterOauthAppSaved: Story = {
+export const RegisterOauthAppSaved = meta.story({
   args: { connectionId },
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          linearOauthAppHandler({
-            globalLinearOauthConfigured: false,
-            oauthAppSaved: true,
-            oauthClientId: "lin_client",
-          }),
-          statusHandler({
-            ...baseStatus,
-            isInstalled: false,
-            installationStatus: null,
-            workspaceName: null,
-          }),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      linearOauthAppHandler({
+        globalLinearOauthConfigured: false,
+        oauthAppSaved: true,
+        oauthClientId: "lin_client",
+      }),
+      statusHandler({
+        ...baseStatus,
+        isInstalled: false,
+        installationStatus: null,
+        workspaceName: null,
+      }),
+    )
   },
-}
+})
 
 const addCalls: { method: string; path: string; body: unknown }[] = []
 const onOpenChange = fn()
@@ -181,26 +158,21 @@ const onOpenChange = fn()
  * connection into Workspaces: the admin adds a Linear team to a Workspace, and
  * the wizard moves to the merge step.
  */
-export const ChooseWorkspaces: Story = {
+export const ChooseWorkspaces = meta.story({
   args: { onOpenChange },
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          linearOauthAppHandler({
-            globalLinearOauthConfigured: true,
-            oauthAppSaved: false,
-          }),
-          statusHandler(baseStatus),
-          workspaceListHandler([docsWorkspace]),
-          linearAvailableScopesHandler(),
-          connectionUsageHandler([]),
-          ...workspaceSourceAddHandlers(addCalls),
-        ],
-      },
-    },
-  },
-  beforeEach: () => {
+  beforeEach: ({ msw }) => {
+    msw.use(
+      linearOauthAppHandler({
+        globalLinearOauthConfigured: true,
+        oauthAppSaved: false,
+      }),
+      statusHandler(baseStatus),
+      workspaceListHandler([docsWorkspace]),
+      linearAvailableScopesHandler(),
+      connectionUsageHandler([]),
+      ...workspaceSourceAddHandlers(addCalls),
+    )
+
     addCalls.length = 0
     onOpenChange.mockClear()
   },
@@ -239,7 +211,7 @@ export const ChooseWorkspaces: Story = {
     ).toHaveAttribute("href", "https://github.com/acme/docs/pull/7")
     await expect(onOpenChange).not.toHaveBeenCalled()
   },
-}
+})
 
 const pullRequestUrl = "https://github.com/acme/docs/pull/7"
 /** Whether the story user merged the pull request on GitHub. */
@@ -250,57 +222,52 @@ let merged = false
  * GitHub. The step reads the Workspace sources again and changes to Pull
  * request merged.
  */
-export const MergeStepShowsTheMerge: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          linearOauthAppHandler({
-            globalLinearOauthConfigured: true,
-            oauthAppSaved: false,
-          }),
-          statusHandler(baseStatus),
-          workspaceListHandler([docsWorkspace]),
-          linearAvailableScopesHandler(),
-          connectionUsageHandler([]),
-          http.post(`/${orgSlug}/api/v1/workspaces/docs/sources`, () =>
-            HttpResponse.json({
-              outcome: "pull_request",
-              path: "sources/linear/linear.md",
-              pullRequestUrl,
-            }),
-          ),
-          http.get(`/${orgSlug}/api/v1/workspaces/docs/sources`, () =>
-            HttpResponse.json(
-              merged
-                ? workspaceSourceList({
-                    items: [
-                      workspaceSourceFixture({
-                        path: "sources/linear/linear.md",
-                        provider: "linear",
-                        connectionId,
-                        scope: { teams: ["ENG"] },
-                      }),
-                    ],
-                  })
-                : workspaceSourceList({
-                    pendingChanges: [
-                      {
-                        path: "sources/linear/linear.md",
-                        provider: "linear",
-                        action: "add",
-                        pullRequestUrl,
-                        createdAt: "2026-10-14T11:53:09Z",
-                      },
-                    ],
+export const MergeStepShowsTheMerge = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      linearOauthAppHandler({
+        globalLinearOauthConfigured: true,
+        oauthAppSaved: false,
+      }),
+      statusHandler(baseStatus),
+      workspaceListHandler([docsWorkspace]),
+      linearAvailableScopesHandler(),
+      connectionUsageHandler([]),
+      http.post(`/${orgSlug}/api/v1/workspaces/docs/sources`, () =>
+        HttpResponse.json({
+          outcome: "pull_request",
+          path: "sources/linear/linear.md",
+          pullRequestUrl,
+        }),
+      ),
+      http.get(`/${orgSlug}/api/v1/workspaces/docs/sources`, () =>
+        HttpResponse.json(
+          merged
+            ? workspaceSourceList({
+                items: [
+                  workspaceSourceFixture({
+                    path: "sources/linear/linear.md",
+                    provider: "linear",
+                    connectionId,
+                    scope: { teams: ["ENG"] },
                   }),
-            ),
-          ),
-        ],
-      },
-    },
-  },
-  beforeEach: () => {
+                ],
+              })
+            : workspaceSourceList({
+                pendingChanges: [
+                  {
+                    path: "sources/linear/linear.md",
+                    provider: "linear",
+                    action: "add",
+                    pullRequestUrl,
+                    createdAt: "2026-10-14T11:53:09Z",
+                  },
+                ],
+              }),
+        ),
+      ),
+    )
+
     merged = false
   },
   play: async ({ canvasElement }) => {
@@ -333,7 +300,7 @@ export const MergeStepShowsTheMerge: Story = {
       body.getByRole("link", { name: /^acme\/docs#7/ }),
     ).toHaveAttribute("href", pullRequestUrl)
   },
-}
+})
 
 const manageCalls: typeof addCalls = []
 
@@ -342,53 +309,50 @@ const manageCalls: typeof addCalls = []
  * Engineering team, so the wizard starts with that Workspace and team checked.
  * The admin saves one more team.
  */
-export const ManageKeepsTheCurrentScope: Story = {
+export const ManageKeepsTheCurrentScope = meta.story({
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as ChooseWorkspaces.",
     },
-    msw: {
-      handlers: {
-        page: [
-          linearOauthAppHandler({
-            globalLinearOauthConfigured: true,
-            oauthAppSaved: false,
-          }),
-          statusHandler(baseStatus),
-          workspaceListHandler([docsWorkspace]),
-          linearAvailableScopesHandler(),
-          connectionUsageHandler([
-            connectionUsageItem({
-              workspaceSlug: docsWorkspace.slug,
-              workspaceName: docsWorkspace.displayName,
-              sources: [
-                {
-                  path: "sources/linear/linear-3.md",
-                  provider: "linear",
-                  status: "ok",
-                  scopeSummary: "1 Linear team",
-                },
-              ],
-            }),
-          ]),
-          workspaceSourcesHandler(
-            workspaceSourceList({
-              items: [
-                workspaceSourceFixture({
-                  path: "sources/linear/linear-3.md",
-                  provider: "linear",
-                  connectionId,
-                  scope: { teams: ["ENG"] },
-                }),
-              ],
-            }),
-          ),
-          ...workspaceSourceChangeHandlers(manageCalls),
-        ],
-      },
-    },
   },
-  beforeEach: () => {
+  beforeEach: ({ msw }) => {
+    msw.use(
+      linearOauthAppHandler({
+        globalLinearOauthConfigured: true,
+        oauthAppSaved: false,
+      }),
+      statusHandler(baseStatus),
+      workspaceListHandler([docsWorkspace]),
+      linearAvailableScopesHandler(),
+      connectionUsageHandler([
+        connectionUsageItem({
+          workspaceSlug: docsWorkspace.slug,
+          workspaceName: docsWorkspace.displayName,
+          sources: [
+            {
+              path: "sources/linear/linear-3.md",
+              provider: "linear",
+              status: "ok",
+              scopeSummary: "1 Linear team",
+            },
+          ],
+        }),
+      ]),
+      workspaceSourcesHandler(
+        workspaceSourceList({
+          items: [
+            workspaceSourceFixture({
+              path: "sources/linear/linear-3.md",
+              provider: "linear",
+              connectionId,
+              scope: { teams: ["ENG"] },
+            }),
+          ],
+        }),
+      ),
+      ...workspaceSourceChangeHandlers(manageCalls),
+    )
+
     manageCalls.length = 0
   },
   play: async ({ canvasElement }) => {
@@ -419,7 +383,7 @@ export const ManageKeepsTheCurrentScope: Story = {
       },
     })
   },
-}
+})
 
 /** The Linear teams of the Docs source on the server. */
 let currentTeams = ["ENG"]
@@ -445,56 +409,51 @@ function ManageButton(props: ComponentProps<typeof LinearSetupWizard>) {
  * saved scope to Operations while the dialog was closed. Add to Workspaces
  * reads the new scope, not the scope of the first open.
  */
-export const ManageAgainShowsTheNewScope: Story = {
+export const ManageAgainShowsTheNewScope = meta.story({
   // The close fade and the open fade of the dialog overlap on a slow runner,
   // and the step then keeps the scope of the first open. Reduced motion
   // removes the fades, so the dialog unmounts at once.
   tags: ["reduced-motion"],
   render: (args) => <ManageButton {...args} />,
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          linearOauthAppHandler({
-            globalLinearOauthConfigured: true,
-            oauthAppSaved: false,
-          }),
-          statusHandler(baseStatus),
-          workspaceListHandler([docsWorkspace]),
-          linearAvailableScopesHandler(),
-          connectionUsageHandler([
-            connectionUsageItem({
-              workspaceSlug: docsWorkspace.slug,
-              workspaceName: docsWorkspace.displayName,
-              sources: [
-                {
-                  path: "sources/linear/linear-3.md",
-                  provider: "linear",
-                  status: "ok",
-                  scopeSummary: "1 Linear team",
-                },
-              ],
-            }),
-          ]),
-          http.get(`/${orgSlug}/api/v1/workspaces/docs/sources`, () =>
-            HttpResponse.json(
-              workspaceSourceList({
-                items: [
-                  workspaceSourceFixture({
-                    path: "sources/linear/linear-3.md",
-                    provider: "linear",
-                    connectionId,
-                    scope: { teams: currentTeams },
-                  }),
-                ],
+  beforeEach: ({ msw }) => {
+    msw.use(
+      linearOauthAppHandler({
+        globalLinearOauthConfigured: true,
+        oauthAppSaved: false,
+      }),
+      statusHandler(baseStatus),
+      workspaceListHandler([docsWorkspace]),
+      linearAvailableScopesHandler(),
+      connectionUsageHandler([
+        connectionUsageItem({
+          workspaceSlug: docsWorkspace.slug,
+          workspaceName: docsWorkspace.displayName,
+          sources: [
+            {
+              path: "sources/linear/linear-3.md",
+              provider: "linear",
+              status: "ok",
+              scopeSummary: "1 Linear team",
+            },
+          ],
+        }),
+      ]),
+      http.get(`/${orgSlug}/api/v1/workspaces/docs/sources`, () =>
+        HttpResponse.json(
+          workspaceSourceList({
+            items: [
+              workspaceSourceFixture({
+                path: "sources/linear/linear-3.md",
+                provider: "linear",
+                connectionId,
+                scope: { teams: currentTeams },
               }),
-            ),
-          ),
-        ],
-      },
-    },
-  },
-  beforeEach: () => {
+            ],
+          }),
+        ),
+      ),
+    )
+
     currentTeams = ["ENG"]
   },
   play: async ({ canvasElement }) => {
@@ -527,4 +486,4 @@ export const ManageAgainShowsTheNewScope: Story = {
       expect(body.getByRole("button", { name: "Save changes" })).toBeDisabled(),
     )
   },
-}
+})

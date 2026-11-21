@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
@@ -12,6 +11,7 @@ import {
 import { pendingWorkspaceUpgradesHandler } from "@/mocks/workspace-upgrades-handlers"
 
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
+import preview from "../../../../.storybook/preview"
 import { docsWorkspace } from "../../workspaces/workspace-fixtures"
 import { PagerdutySetupDialog } from "./PagerdutySetupDialog"
 
@@ -26,7 +26,7 @@ const hostedOauth = {
     "https://app.example.com/api/v1/integrations/pagerduty/callback",
 }
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Connections/PagerdutySetupDialog",
   component: PagerdutySetupDialog,
   args: {
@@ -35,13 +35,10 @@ const meta = {
     onOpenChange: () => {},
     onConnectionIdChange: () => {},
   },
+  beforeEach: ({ msw }) => {
+    msw.use(...signedInHandlers, pendingWorkspaceUpgradesHandler({}))
+  },
   parameters: {
-    msw: {
-      handlers: {
-        session: signedInHandlers,
-        pendingUpgrades: [pendingWorkspaceUpgradesHandler({})],
-      },
-    },
     app: "root",
     review: { kind: "component" },
     layout: "fullscreen",
@@ -50,17 +47,13 @@ const meta = {
       orgSlug,
     } satisfies StoryRouteParams,
   },
-} satisfies Meta<typeof PagerdutySetupDialog>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * PagerDuty setup dialog on a self-hosted install: the admin saves a private
  * OAuth app, and the secret field clears after the save.
  */
-export const RegisterOAuthApp: Story = {
+export const RegisterOAuthApp = meta.story({
   render: () => (
     <PagerdutySetupDialog
       orgSlug={orgSlug}
@@ -70,47 +63,43 @@ export const RegisterOAuthApp: Story = {
       onConnectionIdChange={() => {}}
     />
   ),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname.includes(
-                "/api/v1/connectors/pagerduty/status",
-              ),
-            () =>
-              HttpResponse.json({
-                isInstalled: false,
-                installationStatus: "pending",
-                accountName: null,
-                accountSubdomain: null,
-                region: null,
-                isGithubLinked: false,
-                selectedServiceCount: null,
-                syncTargetConfigured: false,
-                setupPhase: "draft",
-                pendingConfigPullUrl: null,
-                pendingConfigPrCreating: false,
-                syncTarget: null,
-                oauthAppSaved: false,
-                globalPagerdutyOAuthConfigured: false,
-                oauthCallbackUrl: hostedOauth.oauthCallbackUrl,
-              }),
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(
+        ({ request }) =>
+          new URL(request.url).pathname.includes(
+            "/api/v1/connectors/pagerduty/status",
           ),
-          http.put(
-            ({ request }) =>
-              new URL(request.url).pathname.includes(
-                "/api/v1/connectors/pagerduty/oauth-app",
-              ),
-            async ({ request }) => {
-              saveOauthAppRequest(await request.json())
-              return new HttpResponse(null, { status: 204 })
-            },
+        () =>
+          HttpResponse.json({
+            isInstalled: false,
+            installationStatus: "pending",
+            accountName: null,
+            accountSubdomain: null,
+            region: null,
+            isGithubLinked: false,
+            selectedServiceCount: null,
+            syncTargetConfigured: false,
+            setupPhase: "draft",
+            pendingConfigPullUrl: null,
+            pendingConfigPrCreating: false,
+            syncTarget: null,
+            oauthAppSaved: false,
+            globalPagerdutyOAuthConfigured: false,
+            oauthCallbackUrl: hostedOauth.oauthCallbackUrl,
+          }),
+      ),
+      http.put(
+        ({ request }) =>
+          new URL(request.url).pathname.includes(
+            "/api/v1/connectors/pagerduty/oauth-app",
           ),
-        ],
-      },
-    },
+        async ({ request }) => {
+          saveOauthAppRequest(await request.json())
+          return new HttpResponse(null, { status: 204 })
+        },
+      ),
+    )
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
@@ -130,13 +119,13 @@ export const RegisterOAuthApp: Story = {
     )
     await expect(canvas.getByLabelText("Client secret")).toHaveValue("")
   },
-}
+})
 
 /**
  * PagerDuty setup dialog for a new connection on the hosted product: the first
  * step, with the Connect PagerDuty button and the step list.
  */
-export const ConnectAccount: Story = {
+export const ConnectAccount = meta.story({
   render: () => (
     <PagerdutySetupDialog
       orgSlug={orgSlug}
@@ -145,24 +134,19 @@ export const ConnectAccount: Story = {
       onConnectionIdChange={() => {}}
     />
   ),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname.endsWith(
-                "/api/v1/connectors/pagerduty/oauth/start",
-              ),
-            () =>
-              HttpResponse.json({
-                authorizationUrl:
-                  "https://identity.pagerduty.com/oauth/authorize",
-              }),
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(
+        ({ request }) =>
+          new URL(request.url).pathname.endsWith(
+            "/api/v1/connectors/pagerduty/oauth/start",
           ),
-        ],
-      },
-    },
+        () =>
+          HttpResponse.json({
+            authorizationUrl: "https://identity.pagerduty.com/oauth/authorize",
+          }),
+      ),
+    )
   },
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body)
@@ -174,7 +158,7 @@ export const ConnectAccount: Story = {
     expect(stepper.getByText("Connect PagerDuty")).toBeVisible()
     expect(stepper.getByText("Add to Workspaces")).toBeVisible()
   },
-}
+})
 
 const installedStatus = {
   isInstalled: true,
@@ -228,11 +212,11 @@ const installedHandlers = [
  * PagerDuty setup dialog after the connect: the admin adds a PagerDuty service
  * to a Workspace, and the dialog links the pull request to merge.
  */
-export const AddToWorkspaces: Story = {
+export const AddToWorkspaces = meta.story({
   name: "Add PagerDuty to Workspaces",
   render: () => dialog(),
-  parameters: {
-    msw: { handlers: { page: installedHandlers } },
+  beforeEach: ({ msw }) => {
+    msw.use(...installedHandlers)
   },
   play: async ({ canvasElement }) => {
     addCalls.length = 0
@@ -277,29 +261,25 @@ export const AddToWorkspaces: Story = {
       },
     ])
   },
-}
+})
 
 /**
  * PagerDuty setup dialog at Add to Workspaces for a connection from an earlier
  * setup: a warning says ctxpipe no longer uses its open configuration pull
  * request.
  */
-export const ReplacedSetup: Story = {
+export const ReplacedSetup = meta.story({
   name: "Replaced setup with a config pull request",
   render: () => dialog(),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          pagerdutyStatus({
-            ...installedStatus,
-            setupPhase: "awaiting_merge",
-            pendingConfigPullUrl: "https://github.com/acme/on-call/pull/4",
-          }),
-          ...installedHandlers.slice(1),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      pagerdutyStatus({
+        ...installedStatus,
+        setupPhase: "awaiting_merge",
+        pendingConfigPullUrl: "https://github.com/acme/on-call/pull/4",
+      }),
+      ...installedHandlers.slice(1),
+    )
   },
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body)
@@ -310,4 +290,4 @@ export const ReplacedSetup: Story = {
       body.getByRole("link", { name: /^configuration pull request/ }),
     ).toHaveAttribute("href", "https://github.com/acme/on-call/pull/4")
   },
-}
+})

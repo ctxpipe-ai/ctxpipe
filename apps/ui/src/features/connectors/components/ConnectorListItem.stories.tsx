@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { IconBrandGithub } from "@tabler/icons-react"
 import { expect, userEvent, within } from "storybook/test"
 
@@ -7,13 +6,14 @@ import {
   SkeletonMatchFrame,
 } from "@/components/ui/skeletonMatchStory"
 
+import preview from "../../../../.storybook/preview"
 import { ConfluenceMark } from "./ConfluenceMark"
 import {
   ConnectorListItem,
   ConnectorListItemSkeleton,
 } from "./ConnectorListItem"
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Connections/ListItem",
   component: ConnectorListItem,
   parameters: {
@@ -27,11 +27,7 @@ const meta = {
       </div>
     ),
   ],
-} satisfies Meta<typeof ConnectorListItem>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 const shared = {
   connectionId: "con_story_github",
@@ -50,19 +46,19 @@ const shared = {
  * Connector row on the Connectors page, with health and actions for one
  * connection: a connected GitHub row, expanded to show its details.
  */
-export const Expanded: Story = {
+export const Expanded = meta.story({
   args: {
     ...shared,
     health: "connected",
     defaultExpanded: true,
   },
-}
+})
 
 /**
  * Connector row on the Connectors page, with health and actions for one
  * connection: GitHub setup is not finished, the row is open.
  */
-export const PendingSetup: Story = {
+export const PendingSetup = meta.story({
   args: {
     ...shared,
     health: "setup_pending",
@@ -89,14 +85,14 @@ export const PendingSetup: Story = {
       canvas.getAllByRole("button", { name: /Complete GitHub install/ }),
     ).toHaveLength(1)
   },
-}
+})
 
 /**
  * Connector row on the Connectors page at phone width: the Confluence setup is
  * not finished. The name keeps its room, the status moves under the name, and
  * Remove and the next step wrap below.
  */
-export const PendingSetupNarrow: Story = {
+export const PendingSetupNarrow = meta.story({
   args: {
     ...shared,
     name: "Confluence",
@@ -136,13 +132,13 @@ export const PendingSetupNarrow: Story = {
     })
     expect(action.scrollHeight).toBeLessThanOrEqual(action.clientHeight)
   },
-}
+})
 
 /**
  * Connector row on the Connectors page, with health and actions for one
  * connection: the content sync failed, the row is open.
  */
-export const SyncFailed: Story = {
+export const SyncFailed = meta.story({
   args: {
     ...shared,
     health: "sync_failed",
@@ -154,13 +150,13 @@ export const SyncFailed: Story = {
       </p>
     ),
   },
-}
+})
 
 /**
  * Connector row on the Connectors page, with health and actions for one
  * connection: the configuration pull request failed, the row is open.
  */
-export const ConfigPrFailed: Story = {
+export const ConfigPrFailed = meta.story({
   args: {
     ...shared,
     health: "config_failed",
@@ -172,14 +168,14 @@ export const ConfigPrFailed: Story = {
       </p>
     ),
   },
-}
+})
 
 /**
  * Connectors page list: the loading skeleton row above a loaded, collapsed
  * GitHub row. The test proves that both rows have the same box, so the list
  * does not jump when it loads.
  */
-export const ConnectorRowSkeletonMatches: Story = {
+export const ConnectorRowSkeletonMatches = meta.story({
   parameters: {
     intent:
       "Catches a connector list skeleton row whose size differs from the loaded row. This causes layout shift. Not for connector data or health states.",
@@ -199,4 +195,4 @@ export const ConnectorRowSkeletonMatches: Story = {
   play: async ({ canvasElement }) => {
     await expectSkeletonMatchesLoaded(canvasElement)
   },
-}
+})

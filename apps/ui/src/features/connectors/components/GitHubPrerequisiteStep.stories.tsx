@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
@@ -14,13 +13,17 @@ import {
 } from "@/mocks/handlers"
 
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
+import preview from "../../../../.storybook/preview"
 import { GitHubPrerequisiteStep } from "./GitHubPrerequisiteStep"
 
 const orgSlug = "acme"
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Connections/GitHubPrerequisiteStep",
   component: GitHubPrerequisiteStep,
+  beforeEach: ({ msw }) => {
+    msw.use(...signedInHandlers, ...githubAppMissingHandlers)
+  },
   parameters: {
     app: "root",
     layout: "centered",
@@ -29,21 +32,14 @@ const meta = {
       orgSlug,
     } satisfies StoryRouteParams,
     review: { kind: "component" },
-    msw: {
-      handlers: { session: signedInHandlers, github: githubAppMissingHandlers },
-    },
   },
-} satisfies Meta<typeof GitHubPrerequisiteStep>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Step of the Slack setup dialog that asks the admin to connect GitHub first,
  * because ctxpipe writes the saved threads to a Workspace repository on GitHub.
  */
-export const Slack: Story = {
+export const Slack = meta.story({
   args: {
     orgSlug,
     sourceName: "Slack",
@@ -53,7 +49,7 @@ export const Slack: Story = {
       <GitHubPrerequisiteStep {...args} />
     </div>
   ),
-}
+})
 
 /**
  * Presses "Connect GitHub" with `popup` in place of `window.open`. It stops
@@ -109,16 +105,14 @@ function popupReturnsInstallation() {
  */
 function installFlow(register: () => Response) {
   const reads = { count: 0 }
-  const handlers = {
-    github: [
-      hostedGithubAppBootstrapHandler,
-      http.get(`*/${orgSlug}/api/v1/github/installation`, () => {
-        reads.count += 1
-        return HttpResponse.json(null)
-      }),
-      githubInstallationRegisterHandler(register),
-    ],
-  }
+  const handlers = [
+    hostedGithubAppBootstrapHandler,
+    http.get(`*/${orgSlug}/api/v1/github/installation`, () => {
+      reads.count += 1
+      return HttpResponse.json(null)
+    }),
+    githubInstallationRegisterHandler(register),
+  ]
   return { reads, handlers }
 }
 
@@ -152,9 +146,11 @@ const redirectFlow = installFlow(() =>
  * GitHub setup to prove access. The button stays in progress until the page
  * unloads.
  */
-export const RedirectKeepsPending: Story = {
-  ...Slack,
-  parameters: { msw: { handlers: redirectFlow.handlers } },
+export const RedirectKeepsPending = meta.story({
+  ...Slack.input,
+  beforeEach: ({ msw }) => {
+    msw.use(...redirectFlow.handlers)
+  },
   play: async ({ canvasElement }) => {
     redirectFlow.reads.count = 0
     const { destinations, release } = await pressConnect(
@@ -170,11 +166,11 @@ export const RedirectKeepsPending: Story = {
       release()
     }
   },
-}
+})
 
 /** The browser blocked the popup, so the page itself goes to GitHub. */
-export const BlockedPopupKeepsPending: Story = {
-  ...Slack,
+export const BlockedPopupKeepsPending = meta.story({
+  ...Slack.input,
   parameters: {
     visual: { skip: "Behavior test: it ends in the same state as Slack." },
   },
@@ -198,7 +194,7 @@ export const BlockedPopupKeepsPending: Story = {
       ).not.toHaveAttribute("data-pending"),
     )
   },
-}
+})
 
 const registerFlow = installFlow(() => HttpResponse.json({ ok: true }))
 
@@ -206,19 +202,21 @@ const registerFlow = installFlow(() => HttpResponse.json({ ok: true }))
  * GitHub connected in the popup, and the caller opens the next step. The
  * button stays in progress while that step loads.
  */
-export const RegisteredKeepsPending: Story = {
-  ...Slack,
+export const RegisteredKeepsPending = meta.story({
+  ...Slack.input,
   args: {
-    ...Slack.args,
+    ...Slack.input.args,
     // The next step is a page load that does not end while the story runs.
     onConnected: () =>
       new Promise<void>(() => window.location.assign("/acme/next-step")),
+  },
+  beforeEach: ({ msw }) => {
+    msw.use(...registerFlow.handlers)
   },
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as RedirectKeepsPending.",
     },
-    msw: { handlers: registerFlow.handlers },
   },
   play: async ({ canvasElement }) => {
     registerFlow.reads.count = 0
@@ -235,4 +233,4 @@ export const RegisteredKeepsPending: Story = {
       release()
     }
   },
-}
+})
