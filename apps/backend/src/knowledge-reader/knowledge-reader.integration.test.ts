@@ -71,6 +71,11 @@ let jevFails: false | "all" | "disagreement" = false
 /** Answer this Jev call (from 1) after the 3-second budget, or none. */
 let slowJevCall: number | null = null
 let jevCalls = 0
+/**
+ * The test that a Jev call started in. A slow call ends after its test, so
+ * it records nothing in the counters of a later test.
+ */
+let jevTest = 0
 /** Answer the embedding of the plane after the 3-second budget. */
 let slowEmbedding = false
 /** Answer the embedding of the plane with this HTTP status, or none. */
@@ -105,7 +110,10 @@ const models = setupServer(
         questions: Record<string, unknown>
       }
       jevCalls += 1
+      const startedIn = jevTest
       if (jevCalls === slowJevCall) await delay(5_000)
+      if (startedIn !== jevTest)
+        return HttpResponse.json({ error: "test ended" }, { status: 503 })
       const keys = Object.keys(body.questions)
       const disagreement = !keys.some((key) => /^(answers|explore)\./.test(key))
       if (jevFails === "all" || (jevFails === "disagreement" && disagreement))
@@ -472,6 +480,7 @@ describe("the knowledge reader seam", () => {
   }, 240_000)
 
   beforeEach(() => {
+    jevTest += 1
     jevFails = false
     slowJevCall = null
     slowEmbedding = false
