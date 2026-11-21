@@ -827,32 +827,6 @@ describe("pushIngestAssemble", () => {
     expect(merged).toContain("root: services/a")
   })
 
-  it("counts the run's ops before the shards against the run cap of the Workspace", async () => {
-    const tips = await shards([
-      { "knowledge/services/a.md": service("A") },
-      { "knowledge/services/b.md": service("B") },
-    ])
-    const assembled = (opsBefore: number) =>
-      pushIngestAssemble({
-        job: { runId: RUN, workspaceId: WORKSPACE },
-        pinnedRevision: pinned,
-        shards: tips,
-        oldTip: null,
-        opsBefore,
-        remote: { url: remote },
-        commit: {
-          step: "assemble:ws_alpha",
-          bundle: "bundle-1",
-          authorTime: AUTHOR_TIME,
-        },
-      })
-    await expect(assembled(299)).rejects.toThrow(
-      /The run writes 301 ops; a Workspace takes at most 300/,
-    )
-    expect(remoteRefs(remote).has(ASSEMBLED)).toBe(false)
-    await expect(assembled(298)).resolves.toMatchObject({ ops: 2 })
-  })
-
   async function shards(
     files: Array<Record<string, string>>,
     root?: string,
@@ -1547,7 +1521,7 @@ describe("mergeIngestPublish", () => {
       ).toEqual(["CALLS", "USES"])
     })
 
-    it("withholds no file for the op cap when it merges more than 30 files", async () => {
+    it("withholds no file when a publish merges 31 files", async () => {
       const names = Array.from(
         { length: 31 },
         (_, i) => `Svc${String(i).padStart(2, "0")}`,

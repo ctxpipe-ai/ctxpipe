@@ -13,5 +13,5 @@ The host runs this skill as a plain command, once for each repository, on the as
 4. A rule with a pattern or an owner that the script cannot quote safely is listed in `skipped`. It stays as a rule with no owner, so an earlier rule does not take its roots.
 5. The team file gets an `OWNS` claim to each mapped file of the root. Only a mapped file whose `sources` hold the source path (`--source-path`) counts.
 6. For each team, the script finds the context file of kind `Team` with the name `org/team` in the context index, and adds new claims and new `## Related` lines to it. When there is no such file, it creates `knowledge/teams/<org>-<team>.md`. When a file with another name has that path, or two teams get one file, the script skips the team and lists it in `skipped`.
-7. It writes at most 30 files in a step. When more files wait, the result has `"more": true`, and the host runs the skill again on the new base.
+7. A page ends only at the step limits of the host validator (2 MiB of files, and a patch.json of 1 MiB and 10,000 ops). When more files wait, the result has `"more": true`, and the host runs the skill again on the new base.
 8. It writes the staged tree and `/ctxpipe/out/patch.json`, and a summary that matches `schema.json` to stdout.

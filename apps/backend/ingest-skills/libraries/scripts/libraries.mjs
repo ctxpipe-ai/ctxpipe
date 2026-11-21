@@ -4,8 +4,8 @@
 // each root, and writes one knowledge/libraries/<id>.md file for each. A file
 // that already describes the library gets new Related lines. Each mapped
 // root file of kind Service or Repository gets a USES_LIBRARY claim to the
-// library file. No model runs. A step writes at most 30 files; the host runs
-// it again while the result has `more: true`.
+// library file. No model runs. A step ends at the step limits of the host
+// validator; the host runs it again while the result has `more: true`.
 //
 // node libraries.mjs --root /ctxpipe --source /ctxpipe/source/<handle> \
 //   --source-url <url> --source-path <path> --roots <root-to-file map>

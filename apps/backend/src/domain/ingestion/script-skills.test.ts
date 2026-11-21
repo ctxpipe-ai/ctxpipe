@@ -490,35 +490,40 @@ describe("libraries skill", () => {
     expect(shop).toMatch(/predicate: USES_LIBRARY/)
   })
 
-  it("writes at most 30 files in a step and continues on the next page", async () => {
+  it("ends a page at the 2 MiB of staged files, not at a file count, and continues on the next page (CTX-1482)", async () => {
     const services: Record<string, string> = {}
+    // About 60 KiB for each file: 40 files are more than 2 MiB.
+    const body = "The service handles orders.\n".repeat(2200)
     const source: Record<string, string> = {
       "package.json": pkg("shop", { private: true }),
       "pnpm-workspace.yaml": "packages:\n  - apps/*\n",
     }
     const map: Record<string, string[]> = {}
-    for (let i = 0; i < 35; i++) {
+    for (let i = 0; i < 40; i++) {
       source[`apps/s${i}/package.json`] = pkg(`s${i}`, {
         dependencies: { zod: "^3.0.0" },
       })
       const file = `knowledge/services/s${i}.md`
       services[file] = front(
         { kind: "Service", name: `S${i}`, sources: [SOURCE_PATH] },
-        `# S${i}\n`,
+        `# S${i}\n\n${body}`,
       )
       map[`apps/s${i}`] = [file]
     }
     const s = step(source, services)
     s.mapFiles(map)
     const first = s.run("libraries")
-    expect(first.ops).toHaveLength(30)
+    expect(first.ops.length).toBeGreaterThan(30)
+    expect(first.ops.length).toBeLessThan(41)
     expect(first.more).toBe(true)
+    // The validator takes the whole page: no file passes the staged cap.
     const page = await s.validate("libraries")
     expect(page.rejections).toEqual([])
+    expect(page.accepted).toHaveLength(first.ops.length)
     s.advance(page.tree)
     const second = s.run("libraries")
     expect(second.more).toBe(false)
-    expect(second.ops).toHaveLength(6)
+    expect(second.ops).toHaveLength(41 - first.ops.length)
     expect([...first.ops, ...second.ops].map((op) => op.path).sort()).toEqual(
       ["knowledge/libraries/zod.md", ...Object.keys(services)].sort(),
     )

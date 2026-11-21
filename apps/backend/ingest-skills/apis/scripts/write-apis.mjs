@@ -17,6 +17,7 @@ import { createHash } from "node:crypto"
 import { existsSync, readFileSync, statSync } from "node:fs"
 
 import {
+  fileClaims,
   findExisting,
   relativeTo,
   stepArgs,
@@ -44,9 +45,6 @@ import {
 const MAX_PLAN_BYTES = 256 * 1024
 const MAX_APIS = 50
 const MAX_OPERATIONS_PER_API = 100
-/** The validator refuses more ops in one step (ADR-052). */
-const STEP_FILES = 30
-const MAX_APIS_PER_PAGE = 5
 const API_NAME = /^[A-Za-z0-9][A-Za-z0-9 ._()-]{0,79}$/
 const METHOD_SET = new Set(HTTP_METHODS)
 
@@ -171,7 +169,7 @@ for (const input of plan.apis.slice(0, MAX_APIS)) {
     skip(null, "An API name has characters that the script does not write")
     continue
   }
-  const api = { name, operations: [], deferred: false }
+  const api = { name, operations: [] }
   let existing = null
   if (input.existing !== undefined && input.existing !== null) {
     const entry = entryByPath.get(input.existing)
@@ -277,38 +275,32 @@ for (const api of resolved) {
     op.pending = !op.exists || !text?.includes(opLine(op))
   }
   const text = api.exists ? baseText(api.path) : null
+  // A page can end after the operations and before their API file or the
+  // Service file (writeStep writes a claim target first). The next page then
+  // writes the claims that are missing.
+  const claims = text === null ? null : fileClaims(text)
+  const serviceText = service ? baseText(service) : null
+  const serviceClaims = serviceText === null ? null : fileClaims(serviceText)
   api.pending =
     !api.exists ||
     !text?.includes(apiLine) ||
-    api.operations.some((op) => op.pending)
+    api.operations.some((op) => op.pending) ||
+    api.operations.some(
+      (op) =>
+        claims?.has(`${relativeTo(api.path, op.file)} HAS_OPERATION`) === false,
+    ) ||
+    (api.operations.length > 0 &&
+      serviceClaims?.has(`${relativeTo(service, api.path)} EXPOSES_API`) ===
+        false)
 }
 
-let more = false
-const selected = []
-for (const api of resolved) {
-  if (!api.pending) continue
-  if (selected.length >= MAX_APIS_PER_PAGE) {
-    more = true
-    continue
-  }
-  selected.push(api)
-}
-let room = Math.max(1, STEP_FILES - selected.length - (service ? 1 : 0))
-for (const api of selected)
-  for (const op of api.operations) {
-    if (!op.pending) continue
-    if (room <= 0) {
-      op.deferred = true
-      more = true
-    } else room--
-  }
+const selected = resolved.filter((api) => api.pending)
 
 // --- plans for the shared writer ------------------------------------------------
 
 const plans = []
 for (const api of selected) {
-  const written = api.operations.filter((op) => !op.deferred)
-  const specs = [...new Set(written.map((op) => op.evidence.path))]
+  const specs = [...new Set(api.operations.map((op) => op.evidence.path))]
   plans.push({
     path: api.path,
     expectName: api.exists ? undefined : api.name,
@@ -320,13 +312,13 @@ for (const api of selected) {
       intro: api.summary,
     },
     related: [apiLine, ...specs.map((path) => specLine(path))],
-    claims: written.map((op) => ({
+    claims: api.operations.map((op) => ({
       to: relativeTo(api.path, op.file),
       predicate: "HAS_OPERATION",
       evidence: op.evidence,
     })),
   })
-  for (const op of written)
+  for (const op of api.operations)
     plans.push({
       path: op.file,
       expectName: op.name,
@@ -340,7 +332,7 @@ for (const api of selected) {
       claims: [],
       related: [opLine(op)],
     })
-  if (service && written.length > 0)
+  if (service && api.operations.length > 0)
     plans.push({
       path: service,
       create: null,
@@ -349,10 +341,10 @@ for (const api of selected) {
         {
           to: relativeTo(service, api.path),
           predicate: "EXPOSES_API",
-          evidence: written[0].evidence,
+          evidence: api.operations[0].evidence,
         },
       ],
     })
 }
 
-writeStep(step, plans, skipped, { more })
+writeStep(step, plans, skipped)

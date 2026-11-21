@@ -113,8 +113,7 @@ and instructions as knowledge files.
       comment;
     - the file is larger than 64 KiB.
 
-    A step can change at most 30 files, and it can delete at most 20% of the
-    files that its source owns.
+    A step can delete at most 20% of the files that its source owns.
   </Step>
 
   <Step>
@@ -128,8 +127,7 @@ and instructions as knowledge files.
   </Step>
 </Steps>
 
-A Workspace takes at most 300 file changes from one run. Extraction publishes
-only to a Workspace at
+Extraction publishes only to a Workspace at
 [format 3](/docs/workspaces/settings#repository-format) or later that ctxpipe
 can write to. Below format 3, the knowledge that the Workspace has stays
 readable.

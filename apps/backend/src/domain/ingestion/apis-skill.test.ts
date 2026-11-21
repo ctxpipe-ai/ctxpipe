@@ -800,7 +800,7 @@ describe("write-apis", () => {
     )
   })
 
-  it("pages a large plan, and each page continues where the last stopped", async () => {
+  it("writes a plan of 45 operations on one page, with no file count (CTX-1482)", async () => {
     const paths: Record<string, object> = {}
     for (let i = 0; i < 45; i++) paths[`/items/${i}`] = { get: {} }
     const s = await fixture(
@@ -822,29 +822,80 @@ describe("write-apis", () => {
         },
       ],
     }
-    const seen = new Set<string>()
+    const out = s.write(plan)
+    expect(out.more).toBe(false)
+    const result = await s.validate()
+    expect(result.rejections).toEqual([])
+    // The API file, its 45 operations, and the Service file.
+    expect(result.accepted).toHaveLength(47)
+    expect(
+      result.accepted.filter((op) =>
+        op.path.startsWith("knowledge/operations/"),
+      ),
+    ).toHaveLength(45)
+    await s.advance(result.tree)
+    // A second run on the finished base changes nothing.
+    const again = s.write(plan)
+    expect(again.ops).toEqual([])
+    expect(again.more).toBe(false)
+  })
+
+  it("pages by size and keeps each API file with its operations on one page (CTX-1482)", async () => {
+    // 35 API files of about 60 KiB: more than the 2 MiB of one step. An
+    // earlier run ingested each one: it has the Related line of the source.
+    const body = `${"Written by the team.\n".repeat(2900)}\n## Related\n\n- \`example-org/shop\` exposes it from \`apps/big\`\n`
+    const context: Record<string, string> = {}
+    const paths: Record<string, object> = {}
+    for (let i = 0; i < 35; i++) {
+      context[`knowledge/apis/items-${i}.md`] = front(
+        { kind: "API", name: `Items ${i} API`, summary: "Items." },
+        `# Items ${i} API\n\n${body}`,
+      )
+      paths[`/items/${i}`] = { get: {} }
+    }
+    const s = await fixture(
+      {
+        "apps/big/openapi.json": JSON.stringify({ openapi: "3.0.0", paths }),
+      },
+      context,
+    )
+    const plan: Plan = {
+      root: "apps/big",
+      apis: Array.from({ length: 35 }, (_, i) => ({
+        name: `Items ${i} API`,
+        existing: `knowledge/apis/items-${i}.md`,
+        operations: [{ method: "GET", path: `/items/${i}` }],
+      })),
+    }
+    const accepted: string[] = []
     let pages = 0
+    let tree = ""
     for (;;) {
       const out = s.write(plan)
       pages++
-      expect(out.ops.length).toBeLessThanOrEqual(30)
+      // The validator rejects no claim: each API file of a page has its
+      // operation on the same page or an earlier one.
       const result = await s.validate()
       expect(result.rejections).toEqual([])
-      for (const op of result.accepted)
-        if (op.op === "create") expect(seen.has(op.path)).toBe(false)
-      for (const op of result.accepted) seen.add(op.path)
+      accepted.push(...result.accepted.map((op) => op.path))
+      tree = result.tree
       await s.advance(result.tree)
       if (!out.more) break
       expect(pages).toBeLessThan(5)
     }
     expect(pages).toBe(2)
     expect(
-      [...seen].filter((p) => p.startsWith("knowledge/operations/")),
-    ).toHaveLength(45)
-    // A third run on the finished base changes nothing.
-    const again = s.write(plan)
-    expect(again.ops).toEqual([])
-    expect(again.more).toBe(false)
+      accepted.filter((p) => p.startsWith("knowledge/apis/")),
+    ).toHaveLength(35)
+    expect(
+      accepted.filter((p) => p.startsWith("knowledge/operations/")),
+    ).toHaveLength(35)
+    // An API file that the first page left out gets its claim on the next
+    // page, also when its operation is already on the first page.
+    for (let i = 0; i < 35; i++)
+      expect(s.show(tree, `knowledge/apis/items-${i}.md`)).toContain(
+        "predicate: HAS_OPERATION",
+      )
   })
 
   it("is deterministic: the same inputs give the same staged tree", async () => {

@@ -6,11 +6,8 @@
     "UPPER_METHODS"
   ],
   "apps/backend/ingest-skills/apis/scripts/write-apis.mjs": [
-    "MAX_APIS",
-    "MAX_APIS_PER_PAGE",
-    "STEP_FILES"
+    "MAX_APIS"
   ],
-  "apps/backend/ingest-skills/bin/knowledge-lib.mjs": ["MAX_STEP_OPS"],
   "apps/backend/ingest-skills/datasources-infra/scripts/find-stores.mjs": [
     "MAX_EVIDENCE",
     "MAX_EXISTING",

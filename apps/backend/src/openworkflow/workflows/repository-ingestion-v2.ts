@@ -8,6 +8,7 @@ import {
 } from "../../domain/codesearchCheckoutGc.js"
 import {
   IngestRefRefusedError,
+  type IngestRefusalRule,
   ingestRefName,
   type WithheldFile,
 } from "../../domain/ingestion/ingest-refs.js"
@@ -102,10 +103,11 @@ import { workspaceExtractIngest } from "./workspace-extract-ingest.js"
  * withheld file makes the Workspace `partial`; the output counts the
  * withheld files. A `partial` Workspace publishes its accepted ops, but the
  * deletes of a failed root stay out: a failed root gets no retraction. A
- * refused assemble publishes the run base; so does an assemble whose merge
- * model fails. A publish that fails (the merge model fails, or the default
- * branch wins each push race) also makes the Workspace `partial`, and the
- * other Workspaces publish. Then `delete-refs` deletes the run's refs, but
+ * refused assemble drops the shards' ops, so its Workspace gets no
+ * repository-wide step and no publish (CTX-1482); so does an assemble whose
+ * merge model fails. A publish that fails (the merge model fails, or the
+ * default branch wins each push race) also makes the Workspace `partial`,
+ * and the other Workspaces publish. Then `delete-refs` deletes the run's refs, but
  * not the refs of a Workspace whose merge model or publish failed. The tip
  * check deletes the refs that stay (the run is then finished and not a
  * shadow run). A run outside shadow mode publishes only to a Workspace whose
@@ -120,6 +122,25 @@ export function ingestPublishJobId(runId: string, workspaceId: string): string {
 
 /** Shards run in parallel, a few at a time. */
 const SHARD_BATCH = 4
+
+/**
+ * The fixed code of the cause of a refused Workspace: a code of the
+ * validator or the broker, `merge_model` for a failed merge model,
+ * `publish_failed` for a publish that failed, `relinked` for a binding that
+ * changed, and `refused` for a refusal with no code.
+ */
+type WorkspaceRefusalRule =
+  | IngestRefusalRule
+  | "merge_model"
+  | "publish_failed"
+  | "relinked"
+  | "refused"
+
+function refusalRules(
+  rules: readonly IngestRefusalRule[] | undefined,
+): WorkspaceRefusalRule[] {
+  return rules?.length ? [...rules] : ["refused"]
+}
 
 export type IngestionV2Output =
   | { status: "skipped"; reason: string }
@@ -138,6 +159,8 @@ export type IngestionV2Output =
         /** The steps that failed after their retries, by cause (CTX-896). */
         stepFailures?: IngestStepFailures
         refused?: string
+        /** The fixed codes of the cause of `refused`. */
+        rules?: WorkspaceRefusalRule[]
         /** The merged files that the publish withheld, with the validator rules. */
         withheld?: WithheldFile[]
         /** The commit on the default branch; null for no change. */
@@ -223,6 +246,20 @@ export function defineRepositoryIngestionV2Workflow(
                   (sum, w) => sum + (w.withheld?.length ?? 0),
                   0,
                 ),
+              })
+            // A refused Workspace did not get the run's output: the span is
+            // an error, with the fixed codes of the causes (CTX-1482).
+            const refused =
+              "workspaces" in output
+                ? output.workspaces.filter((w) => w.refused !== undefined)
+                : []
+            if (refused.length)
+              Object.assign(attributes, {
+                "error.type": "workspace_refused",
+                "ctxpipe.ingest.refused": refused.length,
+                "ctxpipe.ingest.refused.rules": [
+                  ...new Set(refused.flatMap((w) => w.rules ?? [])),
+                ].sort(),
               })
             return output
           },
@@ -530,7 +567,13 @@ export function defineRepositoryIngestionV2Workflow(
             },
             async (): Promise<
               | { tip: string; ops: number }
-              | { tip: null; ops: 0; refused: string; keepRefs?: true }
+              | {
+                  tip: null
+                  ops: 0
+                  refused: string
+                  rules: WorkspaceRefusalRule[]
+                  keepRefs?: true
+                }
             > => {
               try {
                 const result = await withIngestionOrg(input.orgId, () =>
@@ -553,9 +596,6 @@ export function defineRepositoryIngestionV2Workflow(
                       // the assembled ref's tip after the repository step.
                       pinnedRevision: base,
                       oldTip: runBase[destination.workspaceId]?.tip ?? null,
-                      // The run cap of the Workspace counts the ops of
-                      // the repository step too.
-                      opsBefore: runBase[destination.workspaceId]?.ops ?? 0,
                       commit: {
                         step: assembleStep,
                         bundle: scope.bundle,
@@ -595,20 +635,21 @@ export function defineRepositoryIngestionV2Workflow(
                 const failed = error instanceof SemanticResolveError
                 if (!(error instanceof IngestRefRefusedError) && !failed)
                   throw error
+                const rules: WorkspaceRefusalRule[] = failed
+                  ? ["merge_model"]
+                  : refusalRules(error.rules)
                 logIngestEvent("warn", "ingestion-v2.partial", {
                   ingestionRunId: run.id,
                   ingestStep: assembleStep,
                   workspaceId: destination.workspaceId,
                   reason: capIngestText(error.message),
-                  // Fixed codes of the validator or the broker.
-                  ...(error instanceof IngestRefRefusedError
-                    ? { rules: error.rules }
-                    : {}),
+                  rules,
                 })
                 return {
                   tip: null,
                   ops: 0,
                   refused: error.message.slice(0, 300),
+                  rules,
                   ...(failed ? { keepRefs: true as const } : {}),
                 }
               }
@@ -620,10 +661,10 @@ export function defineRepositoryIngestionV2Workflow(
           )
           workspaces.push({
             workspaceId: destination.workspaceId,
-            // A refused assemble drops the shards' ops. The run base (the
-            // repository step's ops) is still accepted, so it publishes.
-            assembled:
-              assembled.tip ?? runBase[destination.workspaceId]?.tip ?? null,
+            // A refused assemble drops the shards' ops. The Workspace then
+            // publishes nothing: a publish of the run base alone would
+            // read as a full publish (CTX-1482).
+            assembled: assembled.tip,
             ops: assembled.ops + (firstPart?.ops ?? 0),
             rejects:
               parts.reduce((sum, p) => sum + p.rejects, 0) +
@@ -638,7 +679,9 @@ export function defineRepositoryIngestionV2Workflow(
               ...parts.map((p) => p.stepFailures),
               firstPart?.stepFailures,
             ),
-            ...("refused" in assembled ? { refused: assembled.refused } : {}),
+            ...("refused" in assembled
+              ? { refused: assembled.refused, rules: assembled.rules }
+              : {}),
           })
         }
 
@@ -784,15 +827,16 @@ export function defineRepositoryIngestionV2Workflow(
                   // One partial event for the publish; `withheld` counts files.
                   entry.partial += 1
                 }
-                if (
+                if (!published.committed && published.reason === "refused") {
+                  entry.refused = published.refused
+                  entry.rules = refusalRules(published.rules)
+                  entry.partial += 1
+                } else if (
                   !published.committed &&
-                  (published.reason === "refused" ||
-                    published.reason === "failed")
+                  published.reason === "failed"
                 ) {
-                  entry.refused =
-                    published.reason === "refused"
-                      ? published.refused
-                      : published.failed
+                  entry.refused = published.failed
+                  entry.rules = ["publish_failed"]
                   entry.partial += 1
                 }
               } else if ("skip" in target && target.skip === "below_format") {
@@ -805,6 +849,7 @@ export function defineRepositoryIngestionV2Workflow(
                 })
               } else {
                 entry.refused = "The Workspace binding changed before publish"
+                entry.rules = ["relinked"]
                 entry.partial += 1
                 logIngestEvent("warn", "ingestion-v2.partial", {
                   ingestionRunId: run.id,

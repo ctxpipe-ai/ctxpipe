@@ -40,7 +40,6 @@ import {
   fileSources,
   humanBlocks,
   humanSectionsKept,
-  MAX_STEP_OPS,
   normalizeSourceUrl,
   sourceIdentity,
   validatePatchStep,
@@ -311,10 +310,11 @@ async function validateDeletes(
         // Root-relative paths, as `readGitFiles` gives them.
         (await listPackBlobs(repoDir, pack)).map((b) => [b.path, b.sha]),
       )
-      // A step has at most MAX_STEP_OPS ops, so the deletes go in batches
-      // on the same base. A delete does not depend on another one.
-      for (let at = 0; at < paths.length; at += MAX_STEP_OPS) {
-        const batch = paths.slice(at, at + MAX_STEP_OPS)
+      // A `patch.json` takes at most 10,000 ops and 1 MiB, so the deletes go
+      // in batches on the same base. A delete does not depend on another one.
+      const batchSize = 500
+      for (let at = 0; at < paths.length; at += batchSize) {
+        const batch = paths.slice(at, at + batchSize)
         const stagedDir = await mkdtemp(join(tmpdir(), "ctxpipe-unlink-"))
         try {
           await mkdir(join(stagedDir, "files"), { recursive: true })

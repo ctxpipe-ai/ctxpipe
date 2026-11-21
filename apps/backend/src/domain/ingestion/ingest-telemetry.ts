@@ -162,7 +162,11 @@ export function startIngestModelCall(
   }
 }
 
-/** Export a run summary only when the execution ends, not when it parks. */
+/**
+ * Export a run summary only when the execution ends, not when it parks. The
+ * span gets an error status when `fn` throws, or when `fn` sets
+ * `error.type` (a run that dropped the output of a Workspace, CTX-1482).
+ */
 export async function withIngestRunSpan<T>(
   attributes: Attributes,
   fn: (attributes: Attributes) => Promise<T>,
@@ -182,10 +186,9 @@ export async function withIngestRunSpan<T>(
         attributes,
         startTime,
       })
-      if (failed) {
-        span.setAttribute("error.type", "Error")
+      if (failed) span.setAttribute("error.type", "Error")
+      if (failed || attributes["error.type"] !== undefined)
         span.setStatus({ code: SpanStatusCode.ERROR })
-      }
       span.end()
     }
   }

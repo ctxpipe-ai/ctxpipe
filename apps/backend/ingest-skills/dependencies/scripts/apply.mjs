@@ -31,7 +31,6 @@ import { fail } from "../../bin/stage-lib.mjs"
 import { scan, stepStats } from "./scan-lib.mjs"
 
 const MAX_RESOLUTIONS = 300
-const MAX_STREAM_FILES = 28
 const MAX_RESOLUTIONS_BYTES = 256 * 1024
 const STREAM_NAME = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}$/
 
@@ -97,7 +96,6 @@ const slug = (text) =>
     .replace(/^-+|-+$/g, "")
 
 const plans = []
-const streams = new Set()
 const skip = (id, reason, code) => {
   count(`skipped.${code}`)
   skipped.push({ path: null, reason: `${id}: ${reason}` })
@@ -235,15 +233,6 @@ for (const resolution of resolutions) {
       )
       continue
     }
-    if (!streams.has(target.path) && streams.size >= MAX_STREAM_FILES) {
-      skip(
-        id,
-        `the step writes at most ${MAX_STREAM_FILES} stream files`,
-        "stream_cap",
-      )
-      continue
-    }
-    streams.add(target.path)
     const verb = direction === "produce" ? "produces to" : "consumes from"
     plans.push({
       path: target.path,

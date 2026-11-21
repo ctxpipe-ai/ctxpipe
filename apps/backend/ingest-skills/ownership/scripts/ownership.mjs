@@ -4,8 +4,8 @@
 // file for each GitHub team that owns a root. A team file has an OWNS claim
 // to each file of the root in the host's root-to-file map. A file that
 // already describes the team gets new claims and Related lines. No model
-// runs. A step writes at most 30 files; the host runs it again while the
-// result has `more: true`.
+// runs. A step ends at the step limits of the host validator; the host runs
+// it again while the result has `more: true`.
 //
 // node ownership.mjs --root /ctxpipe --source /ctxpipe/source/<handle> \
 //   --source-url <url> --source-path <path> --roots <root-to-file map>

@@ -542,8 +542,7 @@ type SkillPages = {
  * The pages of one skill for one Workspace (ADR-052 section 6): the host runs
  * the skill again on the new tip while its `patch.json` says `more`, for at
  * most 20 pages. A page that accepts no op stops the skill: the next page
- * would start from the same tip. Each step counts against the run cap of
- * the Workspace (`state.ops`, from the start of the run).
+ * would start from the same tip.
  */
 export async function runSkillPages(ctx: SkillPages): Promise<void> {
   const { state } = ctx
@@ -566,9 +565,8 @@ export async function runSkillPages(ctx: SkillPages): Promise<void> {
       page,
     )
     const oldTip = state.tip
-    const opsBefore = state.ops
     const result = await ctx.step(name, () =>
-      runSkillStep({ ...ctx, name, oldTip, opsBefore, seen }),
+      runSkillStep({ ...ctx, name, oldTip, seen }),
     )
     if (result.partial) {
       failed()
@@ -606,7 +604,6 @@ export async function runSkillPages(ctx: SkillPages): Promise<void> {
 type SkillStep = SkillPages & {
   name: string
   oldTip: string | null
-  opsBefore: number
   /**
    * The execution attempt from the last ownership check of a step of this
    * execution, for the page events (CTX-1080). A cached step does not check.
@@ -689,7 +686,7 @@ async function attemptSkillStep(
   // step, or its tip, from which the step continues.
   let oldTip = ctx.oldTip
   // The ops of the other execution's commits that the step continues from.
-  // The step result counts them, so the run cap of later steps holds them.
+  // The step result counts them.
   let adopted = 0
   let reason = ""
   let failed: IngestStepFailureKind = "other"
@@ -854,7 +851,6 @@ async function attemptSkillStep(
               skill: ctx.skill.name,
               sourcePathExists: (path) => broker.sourcePathExists(path),
               readSourceFile: (path) => broker.readSourceFile(path),
-              workspaceOpsBefore: ctx.opsBefore + adopted,
               // The host root of the package units of a root step (CTX-657).
               ...(ctx.root === null ? {} : { root: ctx.root }),
             },

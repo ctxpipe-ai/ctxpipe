@@ -39,7 +39,7 @@
     },
     "more": {
       "type": "boolean",
-      "description": "True when the step stopped at 30 files. The host runs the skill again on the new base."
+      "description": "True when the step stopped at a step limit of the host validator. The host runs the skill again on the new base."
     }
   }
 }

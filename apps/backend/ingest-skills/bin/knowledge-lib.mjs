@@ -9,7 +9,7 @@
 // validator accepts that for each file, also for a file that a human or
 // another source owns.
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs"
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs"
 import { posix } from "node:path"
 
 import { MAX_ROOTS, safePath } from "../discover-roots/scripts/roots-lib.mjs"
@@ -20,12 +20,12 @@ import {
   ensureParent,
   fail,
   parseArgs,
+  readDeletes,
   stagedFile,
+  stagedPaths,
   writePatch,
 } from "./stage-lib.mjs"
 
-/** The validator refuses more ops in one step. */
-const MAX_STEP_OPS = 30
 const MAX_RELATED_LINES = 200
 
 /**
@@ -601,14 +601,18 @@ function mergeFile(text, { claims, related }) {
  * { kind, name, summary, intro } for a new file, or null when the script
  * only adds to an existing file. When `expectName` is set, an existing file
  * at the path must have that name; letters and digits only, unless
- * `exactName` is set (then the same text, in any letter case). Plans for one path are joined.
+ * `exactName` is set (then the same text, in any letter case). Plans for one
+ * path are joined.
  *
- * A step writes at most MAX_STEP_OPS files. `more` is true when a plan waits
- * for the next page: the host runs the skill again on the new base until
- * `more` is false. A file that already has a claim or a line does not
- * change again, so each page continues where the last one stopped.
- * `options.more` adds a page that the caller knows of. `options.stats` are
- * counts (a name to a whole number) for the host. patch.json holds `more` and
+ * A page has no file count (CTX-1482). It ends only before a file that the
+ * validator could not take in this step: it takes at most 2 MiB of staged
+ * files, and a patch.json of at most 1 MiB and 10,000 ops
+ * (patch-validator.ts). The files and deletes that the step staged before
+ * count too. `more` is true when a plan waits for the next page: the host
+ * runs the skill again on the new base until `more` is false. A file that
+ * already has a claim or a line does not change again, so each page
+ * continues where the last one stopped. `options.stats` are counts (a name
+ * to a whole number) for the host. patch.json holds `more` and
  * `stats` for the host. Prints and returns { ops, skipped, more }.
  */
 export function writeStep(step, plans, skipped = [], options = {}) {
@@ -626,9 +630,53 @@ export function writeStep(step, plans, skipped = [], options = {}) {
         related: [...same.related, ...plan.related],
       })
   }
-  let changed = 0
+  // The size of an op in patch.json. patch.json has an indent of 2, so an
+  // op is 4 spaces deeper than in the JSON of the op alone: 4 bytes for each
+  // of its at most 6 lines, and 2 bytes for the comma and the newline.
+  const opBytes = (op) =>
+    Buffer.byteLength(JSON.stringify(op, null, 2)) + 4 * 6 + 2
+  const tailReserve = 64 * 1024 // `more` and `stats` at the end of patch.json
+  const room = {
+    staged: 2 * 1024 * 1024,
+    patch: 1024 * 1024 - tailReserve,
+    ops: 10_000,
+  }
+  const updateOf = (path) => ({ op: "update", path, baseBlob: "0".repeat(40) })
+  // The size of each file that the step staged before. A plan that writes
+  // the file again uses only the difference.
+  const stagedBefore = new Map()
+  for (const path of stagedPaths(step)) {
+    const size = statSync(stagedFile(step, path)).size
+    stagedBefore.set(path, size)
+    room.staged -= size
+    room.patch -= opBytes(updateOf(path))
+    room.ops -= 1
+  }
+  for (const [path, entry] of Object.entries(readDeletes(step))) {
+    room.patch -= opBytes({ op: "delete", path, ...entry })
+    room.ops -= 1
+  }
   let more = false
-  const sorted = [...byPath.values()].sort((a, b) => (a.path < b.path ? -1 : 1))
+  // Path order, but each plan comes after the plans of this step that its
+  // claims link to. A page that ends at a size limit then has no claim to a
+  // file that the page does not write (an API file and its operations).
+  const sorted = []
+  const placed = new Set()
+  const place = (plan) => {
+    if (placed.has(plan.path)) return
+    placed.add(plan.path)
+    for (const claim of plan.claims) {
+      const target = byPath.get(
+        posix.normalize(posix.join(posix.dirname(plan.path), claim.to)),
+      )
+      if (target) place(target)
+    }
+    sorted.push(plan)
+  }
+  for (const plan of [...byPath.values()].sort((a, b) =>
+    a.path < b.path ? -1 : 1,
+  ))
+    place(plan)
   for (const plan of sorted) {
     const claims = [
       ...new Map(
@@ -668,22 +716,39 @@ export function writeStep(step, plans, skipped = [], options = {}) {
       continue
     }
     if (text === before) continue
-    if (changed >= MAX_STEP_OPS) {
+    const earlier = stagedBefore.get(plan.path)
+    const grows = Buffer.byteLength(text) - (earlier ?? 0)
+    const opSize = earlier === undefined ? opBytes(updateOf(plan.path)) : 0
+    if (
+      grows > room.staged ||
+      opSize > room.patch ||
+      (earlier === undefined && room.ops < 1)
+    ) {
       more = true
       break
     }
+    room.staged -= grows
+    room.patch -= opSize
+    if (earlier === undefined) room.ops -= 1
+    stagedBefore.set(plan.path, Buffer.byteLength(text))
     const file = stagedFile(step, plan.path)
     ensureParent(file)
     writeFileSync(file, text)
-    changed++
   }
-  more ||= options.more === true
   const ops = writePatch(step, { more, stats: options.stats }).map(
     ({ op, path }) => ({ op, path }),
   )
   const result = { ops, skipped, more }
   process.stdout.write(`${JSON.stringify(result)}\n`)
   return result
+}
+
+/**
+ * The claims of the text of a file, as `existingClaims` gives them: each
+ * `<to> <predicate>`, or null when the front matter cannot be read.
+ */
+export function fileClaims(text) {
+  return existingClaims(frontMatter(text) ?? "")
 }
 
 /** Relative link from one context file to another. */

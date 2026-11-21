@@ -637,7 +637,6 @@ describe("one ingestion run of each skill through the host path (Docker)", () =>
       pinnedRevision: runBase,
       shards: [{ shard: "0", tip: shard.tip ?? "" }],
       oldTip: runBase,
-      opsBefore: assembled.ops,
       remote,
       commit: {
         step: `assemble:${WORKSPACE_ID}`,
