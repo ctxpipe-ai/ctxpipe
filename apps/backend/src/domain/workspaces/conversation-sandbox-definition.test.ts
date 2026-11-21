@@ -30,7 +30,7 @@ afterAll(() => {
 // The prepare of a new conversation calls `ensure` directly; a turn calls it
 // through `withSandbox`. Each one that gives a sandbox starts a pool fill
 // (ADR-061 decision 18), so the next new conversation finds a warm session.
-it("runs onEnsured after the prepare creates the sandbox, and again when a turn resumes it", async () => {
+it("runs onEnsured after the prepare creates the sandbox and when a turn resumes it, not for a Files read", async () => {
   let ensured = 0
   const definition = conversationSandboxDefinition({
     provider: localProcessSandbox(),
@@ -61,6 +61,11 @@ it("runs onEnsured after the prepare creates the sandbox, and again when a turn 
   try {
     expect(ensured).toBe(1)
     await definition.ensure({ ...ctx, runId: "run_turn" })
+    expect(ensured).toBe(2)
+    // A Files read attaches only: it fills nothing.
+    expect(
+      await definition.ensureExisting({ ...ctx, runId: "files" }),
+    ).not.toBeNull()
     expect(ensured).toBe(2)
   } finally {
     await handle.destroy()
