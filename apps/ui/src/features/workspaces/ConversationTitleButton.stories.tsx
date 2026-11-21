@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
 import { useEffect, useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
@@ -6,6 +5,7 @@ import { expect, userEvent, waitFor, within } from "storybook/test"
 import { signedInHandlers } from "@/mocks/handlers"
 
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
+import preview from "../../../.storybook/preview"
 import { ConversationTitleButton } from "./ConversationTitleButton"
 
 const patches: string[] = []
@@ -30,10 +30,27 @@ function Harness() {
   )
 }
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Workspaces/ConversationTitleButton",
   component: Harness,
-  beforeEach: () => {
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...signedInHandlers,
+      http.patch(
+        ({ request }) =>
+          /\/api\/v1\/conversations\/conv_1$/.test(
+            new URL(request.url).pathname,
+          ),
+        async ({ request }) => {
+          const body = (await request.json()) as { name: string }
+          patches.push(body.name)
+          return HttpResponse.json({
+            id: "conv_1",
+            name: body.name,
+          })
+        },
+      ),
+    )
     patches.length = 0
   },
   parameters: {
@@ -43,34 +60,9 @@ const meta = {
       pattern: "orgIndex",
       orgSlug: "acme",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        session: signedInHandlers,
-        page: [
-          http.patch(
-            ({ request }) =>
-              /\/api\/v1\/conversations\/conv_1$/.test(
-                new URL(request.url).pathname,
-              ),
-            async ({ request }) => {
-              const body = (await request.json()) as { name: string }
-              patches.push(body.name)
-              return HttpResponse.json({
-                id: "conv_1",
-                name: body.name,
-              })
-            },
-          ),
-        ],
-      },
-    },
     review: { kind: "component" },
   },
-} satisfies Meta<typeof Harness>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Title button of a conversation, which lets the user rename it. The automatic
@@ -78,7 +70,7 @@ type Story = StoryObj<typeof meta>
  * no edit. The automatic title stays, no request goes out, and focus returns to
  * the title button.
  */
-export const UneditedSaveKeepsAutomaticTitle: Story = {
+export const UneditedSaveKeepsAutomaticTitle = meta.story({
   parameters: {
     intent:
       "Catches a rename save with no edit that stores a title. The automatic title must stay, send no request, and return focus to the title button. Not for real renames.",
@@ -106,14 +98,14 @@ export const UneditedSaveKeepsAutomaticTitle: Story = {
       ).toHaveFocus(),
     )
   },
-}
+})
 
 /**
  * Title button of a conversation, which lets the user rename it. The user
  * presses Escape in the rename field: the rename stops, no request goes out,
  * and focus returns to the title button.
  */
-export const EscapeReturnsFocus: Story = {
+export const EscapeReturnsFocus = meta.story({
   parameters: {
     intent:
       "Catches an Escape in the rename field that saves or loses focus. Escape cancels, sends no request, and returns focus to the title button. Not for saving a name.",
@@ -137,7 +129,7 @@ export const EscapeReturnsFocus: Story = {
     )
     expect(patches).toEqual([])
   },
-}
+})
 
 async function renameTo(
   canvasElement: HTMLElement,
@@ -175,19 +167,19 @@ async function renameTo(
  * a name and presses Enter, and the new title shows. The play proves that one
  * PATCH with the new name goes out.
  */
-export const RenameSavesNewName: Story = {
+export const RenameSavesNewName = meta.story({
   play: ({ canvasElement }) =>
     renameTo(canvasElement, "Quarterly plan", () =>
       userEvent.keyboard("{Enter}"),
     ),
-}
+})
 
 /**
  * Title button of a conversation, which lets the user rename it. The rename
  * field loses focus and saves the typed name, and the new title shows. The play
  * proves that only one PATCH goes out.
  */
-export const RenameSavesOnBlur: Story = {
+export const RenameSavesOnBlur = meta.story({
   play: ({ canvasElement }) =>
     renameTo(canvasElement, "Quarterly plan", () => userEvent.tab()),
-}
+})

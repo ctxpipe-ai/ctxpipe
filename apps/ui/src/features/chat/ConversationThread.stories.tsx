@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
 import type { ChatMessage } from "@/features/chat/types"
@@ -18,9 +17,10 @@ import {
 } from "@/features/workspaces/workspace-fixtures"
 import { createTreeFileResolver } from "@/lib/workspace-file-path"
 
+import preview from "../../../.storybook/preview"
 import { ConversationThread } from "./ConversationThread"
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Chat/ConversationThread",
   component: ConversationThread,
   decorators: [
@@ -39,11 +39,7 @@ const meta = {
     error: null,
     status: "ready",
   },
-} satisfies Meta<typeof ConversationThread>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 const askOnly: ChatMessage[] = [
   {
@@ -63,14 +59,14 @@ const inventedLabel =
  * Chat thread of a Workspace conversation: a finished billing question and its
  * plain text answer, with no tool calls.
  */
-export const ReplyOnly: Story = {}
+export const ReplyOnly = meta.story()
 
 /**
  * Chat thread while the agent works on a request: the closed activity row
  * counts the reads, searches, tools and thoughts. One status line names the
  * current thought by its title only.
  */
-export const WorkingWithThought: Story = {
+export const WorkingWithThought = meta.story({
   args: {
     messages: progressWorkingMessages,
     status: "streaming",
@@ -90,13 +86,13 @@ export const WorkingWithThought: Story = {
     await expect(canvas.queryByText("Inspecting knowledge units")).toBeNull()
     await expect(canvasElement).not.toHaveTextContent(inventedLabel)
   },
-}
+})
 
 /**
  * Chat thread right after the user asks, before any activity: the status line
  * gives the real sandbox state and says that ctxpipe sets up the sandbox.
  */
-export const SettingUpSandbox: Story = {
+export const SettingUpSandbox = meta.story({
   args: {
     messages: askOnly,
     status: "submitted",
@@ -110,13 +106,13 @@ export const SettingUpSandbox: Story = {
     await expect(canvasElement).not.toHaveTextContent(/Thinking/)
     await expect(canvasElement).not.toHaveTextContent(inventedLabel)
   },
-}
+})
 
 /**
  * Chat thread right after the user asks: no thought or system state is
  * available yet, so the status line falls back to Thinking.
  */
-export const ThinkingFallback: Story = {
+export const ThinkingFallback = meta.story({
   args: {
     messages: askOnly,
     status: "submitted",
@@ -128,13 +124,13 @@ export const ThinkingFallback: Story = {
     ).toHaveTextContent("Thinking")
     await expect(canvasElement).not.toHaveTextContent(inventedLabel)
   },
-}
+})
 
 /**
  * Chat thread while tools run without a thought: the log counts the file read
  * and the search, and the status line falls back to Thinking.
  */
-export const ThinkingFallbackWithTools: Story = {
+export const ThinkingFallbackWithTools = meta.story({
   args: {
     messages: streamingToolMessages,
     status: "streaming",
@@ -148,7 +144,7 @@ export const ThinkingFallbackWithTools: Story = {
       canvas.getByRole("status", { name: "Thinking" }),
     ).toHaveTextContent("Thinking")
   },
-}
+})
 
 const interimTextMessages: ChatMessage[] = [
   {
@@ -183,7 +179,7 @@ const interimTextMessages: ChatMessage[] = [
  * line still names the current thought. Text in the middle of a run does not
  * end the run.
  */
-export const InterimTextKeepsStatus: Story = {
+export const InterimTextKeepsStatus = meta.story({
   args: {
     messages: interimTextMessages,
     status: "streaming",
@@ -197,13 +193,13 @@ export const InterimTextKeepsStatus: Story = {
     await expect(statuses).toHaveLength(1)
     await expect(statuses[0]).toHaveTextContent("Finding the units")
   },
-}
+})
 
 /**
  * Chat thread with a finished turn and a new working turn: only the new turn
  * has its own status line. The finished turn shows none.
  */
-export const NextTurnShowsStatus: Story = {
+export const NextTurnShowsStatus = meta.story({
   args: {
     messages: [
       ...progressDoneMessages,
@@ -232,13 +228,13 @@ export const NextTurnShowsStatus: Story = {
     await expect(statuses[0]).toHaveTextContent("Writing the commit")
     await expect(canvas.queryByText("Checking the git status")).toBeNull()
   },
-}
+})
 
 /**
  * Chat thread after the reply: the activity log stays closed with its counters
  * and the answer shows. The current thought hides, so no status line shows.
  */
-export const ChatProgressDone: Story = {
+export const ChatProgressDone = meta.story({
   parameters: {
     intent:
       "Catches a finished chat turn that shows a live status or an open activity log. The log stays closed with counts and the answer is visible. Not for log entries.",
@@ -260,13 +256,13 @@ export const ChatProgressDone: Story = {
       canvas.getByText(/now in knowledge\/docker\/setup\.md/),
     ).toBeVisible()
   },
-}
+})
 
 /**
  * Chat thread of a finished turn with the activity log open: each thought and
  * each tool call is a row with its details.
  */
-export const ChatProgressLogExpanded: Story = {
+export const ChatProgressLogExpanded = meta.story({
   parameters: {
     intent:
       "Catches an open activity log that misses a thought or tool call, or shows raw markdown. Each entry shows its details. Not for spacing or the closed state.",
@@ -298,7 +294,7 @@ export const ChatProgressLogExpanded: Story = {
     await expect(texts[6]).toContain("git status --short")
     await expect(texts.join(" ")).not.toMatch(/\*\*/)
   },
-}
+})
 
 /** The vertical space between two elements, in pixels. */
 function gapBetween(upper: Element, lower: Element) {
@@ -312,7 +308,7 @@ function gapBetween(upper: Element, lower: Element) {
  * button, the rows and the status line have equal gaps. The tool name is more
  * prominent than its detail.
  */
-export const ChatProgressSpacing: Story = {
+export const ChatProgressSpacing = meta.story({
   parameters: {
     intent:
       "Catches uneven gaps between the activity log button, its rows, and the live status. Tool names must stay bolder than their details. Not for log content.",
@@ -341,7 +337,7 @@ export const ChatProgressSpacing: Story = {
       weight(readRow.getByText("knowledge/docker/setup.md")),
     )
   },
-}
+})
 
 /** Three earlier turns about the Docker setup, long enough to scroll. */
 const earlierTurns: ChatMessage[] = (
@@ -377,7 +373,7 @@ const earlierTurns: ChatMessage[] = (
  * works: the user opened its activity log. The thread stays at the bottom, and
  * the counter row keeps its place while the log opens below it.
  */
-export const OpeningLogKeepsScroll: Story = {
+export const OpeningLogKeepsScroll = meta.story({
   parameters: {
     intent:
       "Catches an activity log that moves the chat when the user opens it. The thread stays at the bottom and the log button keeps its place. Not for log content.",
@@ -425,14 +421,14 @@ export const OpeningLogKeepsScroll: Story = {
         .getBoundingClientRect().top,
     ).toBe(top)
   },
-}
+})
 
 /**
  * Chat thread of a Workspace with an answer after one thought: the activity row
  * with its chevron is closed, so the thought text stays hidden until the user
  * opens it.
  */
-export const ReasoningCollapsed: Story = {
+export const ReasoningCollapsed = meta.story({
   args: {
     messages: reasoningMessages,
   },
@@ -443,13 +439,13 @@ export const ReasoningCollapsed: Story = {
     ).toHaveAttribute("aria-expanded", "false")
     await expect(canvas.queryByText(/derived view/)).toBeNull()
   },
-}
+})
 
 /**
  * Chat thread of a turn with thoughts between tool calls: the open activity log
  * lists the five entries in order.
  */
-export const ThoughtsBetweenTools: Story = {
+export const ThoughtsBetweenTools = meta.story({
   args: {
     messages: thoughtsBetweenToolsMessages,
   },
@@ -469,35 +465,35 @@ export const ThoughtsBetweenTools: Story = {
     await expect(texts[3]).toContain("knowledge/billing/ledger.md")
     await expect(texts[4]).toContain("Checking the answer")
   },
-}
+})
 
 /** Chat thread of a turn where the agent used one tool before it answered. */
-export const ToolUse: Story = {
+export const ToolUse = meta.story({
   args: {
     messages: oneToolMessages,
   },
-}
+})
 
 /** Chat thread of a turn where the agent used many tools before it answered. */
-export const ToolUseMany: Story = {
+export const ToolUseMany = meta.story({
   args: {
     messages: manyToolMessages,
   },
-}
+})
 
 /** Chat thread of a turn with thoughts and tool calls before the answer. */
-export const ReasoningAndTools: Story = {
+export const ReasoningAndTools = meta.story({
   args: {
     messages: reasoningAndToolsMessages,
   },
-}
+})
 
 /**
  * Chat thread of a reopened conversation: the server stores one turn as two
  * assistant messages, and the thread shows them as one turn with one activity
  * log.
  */
-export const ReasoningAndToolsHydrated: Story = {
+export const ReasoningAndToolsHydrated = meta.story({
   args: {
     messages: hydratedReasoningAndToolsMessages,
   },
@@ -512,7 +508,7 @@ export const ReasoningAndToolsHydrated: Story = {
       canvas.getByText(/ledger.md is the source of truth/),
     ).toBeVisible()
   },
-}
+})
 
 const answerLinkMessages: ChatMessage[] = [
   {
@@ -544,7 +540,7 @@ const answerLinkMessages: ChatMessage[] = [
  * Chat answer in a Workspace: file paths are buttons that open the file, and a
  * web link has an icon. Text that is not clearly a path stays as code.
  */
-export const AnswerLinksInWorkspace: Story = {
+export const AnswerLinksInWorkspace = meta.story({
   args: {
     messages: answerLinkMessages,
     fileLinks: {
@@ -607,13 +603,13 @@ export const AnswerLinksInWorkspace: Story = {
     await expect(canvas.queryByText(/blocked/)).toBeNull()
     await expect(args.fileLinks?.open).toHaveBeenCalledTimes(6)
   },
-}
+})
 
 /**
  * Chat answer outside a Workspace: file paths stay as code because there is no
  * file to open.
  */
-export const AnswerLinksOutsideWorkspace: Story = {
+export const AnswerLinksOutsideWorkspace = meta.story({
   args: {
     messages: answerLinkMessages,
   },
@@ -627,13 +623,13 @@ export const AnswerLinksOutsideWorkspace: Story = {
       canvas.getByRole("button", { name: "Streamdown docs" }),
     ).toBeVisible()
   },
-}
+})
 
 /**
  * Chat thread with one user message: the bubble keeps the typed Markdown text
  * as it is. No link is blocked or rewritten.
  */
-export const UserBubbleShowsTypedText: Story = {
+export const UserBubbleShowsTypedText = meta.story({
   args: {
     messages: [
       {
@@ -655,13 +651,13 @@ export const UserBubbleShowsTypedText: Story = {
     ).toBeVisible()
     await expect(canvasElement.textContent).not.toContain("[blocked]")
   },
-}
+})
 
 /**
  * Chat turn in a narrow frame: the turn ends with the changed-files card, and
  * under it the push entry. The long branch name of the entry truncates.
  */
-export const PushEntryUnderCard: Story = {
+export const PushEntryUnderCard = meta.story({
   parameters: {
     intent:
       "Catches a push entry that sits beside or outside the changes card, or whose long branch name does not truncate. Not for card content or push data.",
@@ -745,13 +741,13 @@ export const PushEntryUnderCard: Story = {
       expect(branch.scrollWidth).toBeGreaterThan(branch.clientWidth),
     )
   },
-}
+})
 
 /**
  * Chat answer in a Workspace with its git file tree: a bare file name that is
  * in the tree opens that file, and a name that is not in the tree stays text.
  */
-export const AnswerLinksWithTree: Story = {
+export const AnswerLinksWithTree = meta.story({
   args: {
     messages: [
       {
@@ -786,4 +782,4 @@ export const AnswerLinksWithTree: Story = {
     ).toBeNull()
     await expect(canvas.getByText("missing.md")).toBeVisible()
   },
-}
+})

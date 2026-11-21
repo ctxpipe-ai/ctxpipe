@@ -1,6 +1,6 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, within } from "storybook/test"
 
+import preview from "../../../.storybook/preview"
 import { ConversationSyncEntry } from "./ConversationSyncEntry"
 import type { ConversationSync } from "./types"
 
@@ -18,7 +18,7 @@ const base: ConversationSync = {
   syncedAt: "2026-08-16T10:05:00.000Z",
 }
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Workspaces/ConversationSyncEntry",
   component: ConversationSyncEntry,
   decorators: [
@@ -32,11 +32,7 @@ const meta = {
   parameters: {
     review: { kind: "component" },
   },
-} satisfies Meta<typeof ConversationSyncEntry>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /** Each link opens GitHub in a new tab and tells so in its name. */
 async function expectLink(entry: HTMLElement, name: string, href: string) {
@@ -51,7 +47,7 @@ async function expectLink(entry: HTMLElement, name: string, href: string) {
  * Sync entry in a conversation thread, which records a push to GitHub: the user
  * synced 3 files to the conversation branch.
  */
-export const SyncEntry: Story = {
+export const SyncEntry = meta.story({
   parameters: {
     intent:
       "Catches a sync entry in the conversation whose text or branch link is wrong. It names the file count and links the branch to its tree. Not for pull requests or agent pushes.",
@@ -63,13 +59,13 @@ export const SyncEntry: Story = {
     })
     await expectLink(entry, branch, treeUrl)
   },
-}
+})
 
 /**
  * Sync entry in a conversation thread, which records a push to GitHub: the push
  * opened a new pull request, and the entry links it.
  */
-export const CreatePrEntry: Story = {
+export const CreatePrEntry = meta.story({
   parameters: {
     intent:
       "Catches a push entry that does not show the opened pull request. It names the branch and PR number and links both. Not for an existing PR or a push with no PR.",
@@ -89,13 +85,13 @@ export const CreatePrEntry: Story = {
     await expectLink(entry, branch, treeUrl)
     await expectLink(entry, "PR #12", pullUrl)
   },
-}
+})
 
 /**
  * Sync entry in a conversation thread, which records a push to GitHub: the push
  * went to a pull request that was already open.
  */
-export const ExistingPrEntry: Story = {
+export const ExistingPrEntry = meta.story({
   parameters: {
     intent:
       "Catches a push entry that says a pull request opened when one already exists. The text says the push is for that PR and links it. Not for a new PR.",
@@ -115,14 +111,14 @@ export const ExistingPrEntry: Story = {
     })
     await expectLink(entry, "PR #12", pullUrl)
   },
-}
+})
 
 /**
  * Sync entry in a conversation thread, which records a push to GitHub. The
  * member pressed Create PR and the push succeeded, but GitHub did not open the
  * pull request.
  */
-export const CreatePrWithoutPrEntry: Story = {
+export const CreatePrWithoutPrEntry = meta.story({
   parameters: {
     intent:
       "Catches a push entry that shows a pull request link when GitHub did not open one. Only the branch link shows, and the entry says that no pull request opened. Not for a successful PR.",
@@ -136,13 +132,13 @@ export const CreatePrWithoutPrEntry: Story = {
     await expectLink(entry, branch, treeUrl)
     await expect(within(entry).getAllByRole("link")).toHaveLength(1)
   },
-}
+})
 
 /**
  * Sync entry in a conversation thread, which records a push to GitHub: the
  * agent pushed the files.
  */
-export const AgentPushEntry: Story = {
+export const AgentPushEntry = meta.story({
   parameters: {
     intent:
       "Catches a push by the agent that shows the wrong actor text. The entry says the agent pushed the files and links the branch. Not for user or sweep pushes.",
@@ -155,13 +151,13 @@ export const AgentPushEntry: Story = {
     })
     await expectLink(entry, branch, treeUrl)
   },
-}
+})
 
 /**
  * Sync entry in a conversation thread, which records a push to GitHub: an
  * automatic ctxpipe sweep pushed the files.
  */
-export const SweepPushEntry: Story = {
+export const SweepPushEntry = meta.story({
   parameters: {
     intent:
       "Catches an automatic sweep push that shows the wrong actor text. The entry says ctxpipe pushed the files and links the branch. Not for agent or user pushes.",
@@ -174,4 +170,4 @@ export const SweepPushEntry: Story = {
     })
     await expectLink(entry, branch, treeUrl)
   },
-}
+})

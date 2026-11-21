@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useSearch } from "@tanstack/react-router"
 import { HttpResponse, http } from "msw"
@@ -33,6 +32,7 @@ import { workspaceIngestionHandlers } from "@/mocks/workspace-ingestion-handlers
 import { activeMemberRoleHandler } from "@/mocks/workspace-sources-handlers"
 
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
+import preview from "../../../.storybook/preview"
 import {
   clearAllConversationGitTreeSnapshots,
   writeConversationGitTreeSnapshot,
@@ -261,7 +261,7 @@ function WorkspacePanePlayground(props: ComponentProps<typeof WorkspacePane>) {
   )
 }
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Workspaces/Pane",
   component: WorkspacePane,
   render: (args) => <WorkspacePanePlayground {...args} />,
@@ -282,19 +282,16 @@ const meta = {
       pane: "files",
     } satisfies StoryRouteParams,
     review: { kind: "component" },
-    msw: {
-      handlers: {
-        session: signedInHandlers,
-        role: [activeMemberRoleHandler("admin")],
-        ingestion: workspaceIngestionHandlers({}),
-        // A story sets `page`. It comes first, so it wins over the default.
-        page: [],
-        // The conversation has no pull request yet.
-        pullRequest: [conversationPullRequestHandler(null)],
-      },
-    },
   },
-  beforeEach: () => {
+  beforeEach: ({ msw }) => {
+    // A story handler comes first, so it wins over these defaults.
+    msw.use(
+      ...signedInHandlers,
+      activeMemberRoleHandler("admin"),
+      ...workspaceIngestionHandlers({}),
+      // The conversation has no pull request yet.
+      conversationPullRequestHandler(null),
+    )
     clearAllConversationGitTreeSnapshots()
   },
   args: {
@@ -309,11 +306,7 @@ const meta = {
     conversationTitle: "Repo layout",
     ...paneCallbacks,
   },
-} satisfies Meta<typeof WorkspacePane>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /** Fade cue: 100 ms, `ease-out`. The global rule in `styles.css` stops it under reduced motion. */
 function expectFadeCue(node: Element | null) {
@@ -354,7 +347,7 @@ function reducedMotionRuleCapsMotion() {
  * or Settings pane. The pane is collapsed, so only the trigger buttons show,
  * alone in the header.
  */
-export const Triggers: Story = {
+export const Triggers = meta.story({
   render: (args) => (
     <div className="flex h-full min-w-0 flex-1 items-start justify-end p-4">
       <WorkspacePaneTriggers
@@ -377,24 +370,22 @@ export const Triggers: Story = {
       "border-transparent",
     )
   },
-  parameters: {
-    msw: { handlers: { page: [workspaceGraphHandler()] } },
+  beforeEach: ({ msw }) => {
+    msw.use(workspaceGraphHandler())
   },
-}
+})
 
 /**
  * Side pane of a Workspace next to the chat. The user maximizes, hides, and
  * shows the pane again. The pane and the chat column change state at once, and
  * only the small control that reverses the action fades in.
  */
-export const HideShowMaximize: Story = {
+export const HideShowMaximize = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(...gitFilesHandlers)
+  },
   parameters: {
     visual: { skip: "Behavior test: it ends in the same state as Files." },
-    msw: {
-      handlers: {
-        page: gitFilesHandlers,
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -421,71 +412,62 @@ export const HideShowMaximize: Story = {
       expect(canvas.getByLabelText("Workspace files")).toBeVisible(),
     )
   },
-}
+})
 
 /**
  * Files pane of a Workspace, which browses and edits its files: the file tree
  * of the default branch loaded.
  */
-export const Files: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: gitFilesHandlers,
-      },
-    },
+export const Files = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(...gitFilesHandlers)
   },
-}
+})
 
 /**
  * Files pane of a Workspace, which browses and edits its files: the file tree
  * is still loading.
  */
-export const FilesLoading: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [workspaceGitTreeLoadingHandler()],
-      },
-    },
-  },
+export const FilesLoading = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const message = await canvas.findByText("Loading your files")
     await waitFor(() => expect(message).toBeVisible(), { timeout: 2000 })
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(workspaceGitTreeLoadingHandler())
+  },
+})
 
 /**
  * Files pane of a Workspace, which browses and edits its files: the branch has
  * no files, so the tree is empty.
  */
-export const FilesEmpty: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceGitTreeHandler({ sha: "abc123def456", paths: [] }),
-          workspaceGitStatusHandler({
-            sha: "abc123def456",
-            source: "sandbox",
-            items: [],
-          }),
-        ],
-      },
-    },
+export const FilesEmpty = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceGitTreeHandler({ sha: "abc123def456", paths: [] }),
+      workspaceGitStatusHandler({
+        sha: "abc123def456",
+        source: "sandbox",
+        items: [],
+      }),
+    )
   },
-}
+})
 
 /**
  * Files pane of a Workspace, which browses and edits its files: the ledger file
  * is open in a preview tab next to the tree.
  */
-export const FilePreview: Story = {
+export const FilePreview = meta.story({
   args: {
     pane: { kind: "file", path: ledgerPath },
     fileTabs: [ledgerPath],
     previewPath: ledgerPath,
+  },
+  beforeEach: ({ msw }) => {
+    msw.use(...gitFilesHandlers)
   },
   parameters: {
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
@@ -495,23 +477,26 @@ export const FilePreview: Story = {
       workspaceSlug: "docs",
       pane: serializePane({ kind: "file", path: ledgerPath }),
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: gitFilesHandlers,
-      },
-    },
   },
-}
+})
 
 /**
  * Files pane of a Workspace, which browses and edits its files: a file tab is
  * open, but the file content is still loading.
  */
-export const FilePreviewLoading: Story = {
+export const FilePreviewLoading = meta.story({
   args: {
     pane: { kind: "file", path: ledgerPath },
     fileTabs: [ledgerPath],
     previewPath: ledgerPath,
+  },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceGitTreeHandler(docsWorkspaceGitTree),
+      workspaceGitBlobLoadingHandler(),
+      workspaceGitStatusHandler(),
+      workspaceFileJobHandler(),
+    )
   },
   parameters: {
     storyRoute: {
@@ -520,28 +505,29 @@ export const FilePreviewLoading: Story = {
       workspaceSlug: "docs",
       pane: serializePane({ kind: "file", path: ledgerPath }),
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: [
-          workspaceGitTreeHandler(docsWorkspaceGitTree),
-          workspaceGitBlobLoadingHandler(),
-          workspaceGitStatusHandler(),
-          workspaceFileJobHandler(),
-        ],
-      },
-    },
   },
-}
+})
 
 /**
  * Files pane of a Workspace, which browses and edits its files: a long
  * AGENTS.md file of more than 80 lines is open and scrolls.
  */
-export const FilePreviewLong: Story = {
+export const FilePreviewLong = meta.story({
   args: {
     pane: { kind: "file", path: agentsPath },
     fileTabs: [agentsPath],
     previewPath: agentsPath,
+  },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceGitTreeHandler(docsWorkspaceGitTree),
+      workspaceGitBlobHandler({
+        ...docsWorkspaceGitBlobs,
+        [agentsPath]: longAgentsBody,
+      }),
+      workspaceGitStatusHandler(),
+      workspaceFileJobHandler(),
+    )
   },
   parameters: {
     storyRoute: {
@@ -550,32 +536,22 @@ export const FilePreviewLong: Story = {
       workspaceSlug: "docs",
       pane: serializePane({ kind: "file", path: agentsPath }),
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: [
-          workspaceGitTreeHandler(docsWorkspaceGitTree),
-          workspaceGitBlobHandler({
-            ...docsWorkspaceGitBlobs,
-            [agentsPath]: longAgentsBody,
-          }),
-          workspaceGitStatusHandler(),
-          workspaceFileJobHandler(),
-        ],
-      },
-    },
   },
-}
+})
 
 /**
  * Files pane of a read-only Workspace, which browses its files: AGENTS.md is
  * open, and the GitHub App cannot write, so no edit is possible.
  */
-export const ReadOnly: Story = {
+export const ReadOnly = meta.story({
   args: {
     workspace: readOnlyWorkspaceDetail,
     pane: { kind: "file", path: "AGENTS.md" },
     fileTabs: ["AGENTS.md"],
     previewPath: "AGENTS.md",
+  },
+  beforeEach: ({ msw }) => {
+    msw.use(...gitFilesHandlers)
   },
   parameters: {
     storyRoute: {
@@ -584,13 +560,8 @@ export const ReadOnly: Story = {
       workspaceSlug: "handbook",
       pane: serializePane({ kind: "file", path: "AGENTS.md" }),
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: gitFilesHandlers,
-      },
-    },
   },
-}
+})
 
 const legacyPath = "knowledge/services/tools-cli.md"
 const legacyReason =
@@ -641,11 +612,11 @@ function legacyConversationHandlers() {
   ]
 }
 
-function conversationFileStory(path: string): Story {
+function conversationFileStory(path: string) {
   return {
     args: {
       conversationId: "conv_1",
-      pane: { kind: "file", path },
+      pane: { kind: "file" as const, path },
       fileTabs: [path],
       previewPath: path,
     },
@@ -657,7 +628,6 @@ function conversationFileStory(path: string): Story {
         conversationId: "conv_1",
         pane: serializePane({ kind: "file", path }),
       } satisfies StoryRouteParams,
-      msw: { handlers: { page: legacyConversationHandlers() } },
     },
   }
 }
@@ -667,8 +637,11 @@ function conversationFileStory(path: string): Story {
  * opened a legacy knowledge file, which hydrate serves from Postgres and not
  * from git. The pane gives the reason and no editor, so the file is read-only.
  */
-export const LegacyKnowledgeReadOnly: Story = {
+export const LegacyKnowledgeReadOnly = meta.story({
   ...conversationFileStory(legacyPath),
+  beforeEach: ({ msw }) => {
+    msw.use(...legacyConversationHandlers())
+  },
   parameters: {
     ...conversationFileStory(legacyPath).parameters,
   },
@@ -679,15 +652,18 @@ export const LegacyKnowledgeReadOnly: Story = {
     })
     await expectFileEditable(canvasElement, "The release tools.", false)
   },
-}
+})
 
 /**
  * Files pane in a conversation, which browses and edits its files. In the same
  * conversation as the legacy file, a git file is open in the editor, and the
  * user can edit it.
  */
-export const GitFileEditable: Story = {
+export const GitFileEditable = meta.story({
   ...conversationFileStory(ledgerPath),
+  beforeEach: ({ msw }) => {
+    msw.use(...legacyConversationHandlers())
+  },
   parameters: {
     ...conversationFileStory(ledgerPath).parameters,
     visual: {
@@ -700,7 +676,7 @@ export const GitFileEditable: Story = {
       within(canvasElement).queryByText(legacyReason),
     ).not.toBeInTheDocument()
   },
-}
+})
 
 let startingBlobHits = 0
 
@@ -710,33 +686,29 @@ let startingBlobHits = 0
  * two times. The pane says that the chat starts, asks again by itself, and then
  * shows the file. It never shows the code or "a turn is running".
  */
-export const FileWhileChatStarts: Story = {
+export const FileWhileChatStarts = meta.story({
   ...conversationFileStory(ledgerPath),
-  beforeEach: () => {
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(
+        ({ request }) =>
+          /\/api\/v1\/conversations\/[^/]+\/files\/blob$/.test(
+            new URL(request.url).pathname,
+          ),
+        // After two answers, the next handler serves the file.
+        () =>
+          startingBlobHits++ < 2
+            ? HttpResponse.json({ error: "chat_starting" }, { status: 409 })
+            : undefined,
+      ),
+      ...legacyConversationHandlers(),
+    )
     startingBlobHits = 0
   },
   parameters: {
     ...conversationFileStory(ledgerPath).parameters,
     visual: {
       skip: "Behavior test: it ends in the same state as ConversationWritable.",
-    },
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) =>
-              /\/api\/v1\/conversations\/[^/]+\/files\/blob$/.test(
-                new URL(request.url).pathname,
-              ),
-            // After two answers, the next handler serves the file.
-            () =>
-              startingBlobHits++ < 2
-                ? HttpResponse.json({ error: "chat_starting" }, { status: 409 })
-                : undefined,
-          ),
-          ...legacyConversationHandlers(),
-        ],
-      },
     },
   },
   play: async ({ canvasElement }) => {
@@ -754,7 +726,7 @@ export const FileWhileChatStarts: Story = {
     )
     expect(canvas.queryByText("The chat is starting…")).toBeNull()
   },
-}
+})
 
 const manyFileTabs = [
   ...Array.from(
@@ -768,7 +740,7 @@ const manyFileTabs = [
  * File tab strip of the Files pane, with many open files. The selected tab is
  * at the end of the strip, and it scrolls into view.
  */
-export const SelectedTabInView: Story = {
+export const SelectedTabInView = meta.story({
   tags: ["required"],
   // Tab widths depend on the fonts. The strip scrolls to the selected tab on
   // mount, to the end of the strip as it is then. Load the fonts before the
@@ -789,6 +761,9 @@ export const SelectedTabInView: Story = {
     fileTabs: manyFileTabs,
     previewPath: null,
   },
+  beforeEach: ({ msw }) => {
+    msw.use(...gitFilesHandlers)
+  },
   parameters: {
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
@@ -799,11 +774,6 @@ export const SelectedTabInView: Story = {
       workspaceSlug: "docs",
       pane: serializePane({ kind: "file", path: ledgerPath }),
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: gitFilesHandlers,
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -818,22 +788,23 @@ export const SelectedTabInView: Story = {
       )
     })
   },
-}
+})
 
 /**
  * File tab strip of the Files pane, with text tabs and icon tabs. Text tabs
  * keep 12px side padding, active or idle, and icon tabs are square.
  */
-export const TextTabsKeepPadding: Story = {
+export const TextTabsKeepPadding = meta.story({
   tags: ["required"],
   args: {
     pane: { kind: "file", path: ledgerPath },
     fileTabs: [ledgerPath, "knowledge/notes/meeting-notes-1.md"],
     previewPath: null,
   },
+  beforeEach: SelectedTabInView.input.beforeEach,
   parameters: {
+    ...SelectedTabInView.input.parameters,
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
-    ...SelectedTabInView.parameters,
     intent:
       "Catches file tabs with the wrong padding or a missing fade-in, or an icon tab that is not square. Text tabs keep 12px side padding. Not for tab selection.",
   },
@@ -857,21 +828,22 @@ export const TextTabsKeepPadding: Story = {
     // 16px icon.
     expect(files.getBoundingClientRect().width).toBe(38)
   },
-}
+})
 
 /**
  * File tab strip of the Files pane, with many open files. The user changes the
  * tab, and no tab moves or changes its width. The selected and idle tabs share
  * one top edge.
  */
-export const TabChangeKeepsPosition: Story = {
+export const TabChangeKeepsPosition = meta.story({
   args: {
     pane: { kind: "file", path: ledgerPath },
     fileTabs: [ledgerPath, "knowledge/notes/meeting-notes-1.md"],
     previewPath: null,
   },
+  beforeEach: SelectedTabInView.input.beforeEach,
   parameters: {
-    ...SelectedTabInView.parameters,
+    ...SelectedTabInView.input.parameters,
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -894,13 +866,13 @@ export const TabChangeKeepsPosition: Story = {
     const after = { a: box(a), b: box(b) }
     expect(after).toEqual(before)
   },
-}
+})
 
 /**
  * Files pane of a Workspace, which browses and edits its files: the file tree
  * is collapsed, and a Show tree button fades in.
  */
-export const TreeCollapsed: Story = {
+export const TreeCollapsed = meta.story({
   args: {
     pane: { kind: "file", path: ledgerPath },
     fileTabs: [ledgerPath],
@@ -911,6 +883,9 @@ export const TreeCollapsed: Story = {
     const canvas = within(canvasElement)
     expectFadeCue(await canvas.findByRole("button", { name: "Show tree" }))
   },
+  beforeEach: ({ msw }) => {
+    msw.use(...gitFilesHandlers)
+  },
   parameters: {
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     storyRoute: {
@@ -919,19 +894,17 @@ export const TreeCollapsed: Story = {
       workspaceSlug: "docs",
       pane: serializePane({ kind: "file", path: ledgerPath }),
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: gitFilesHandlers,
-      },
-    },
   },
-}
+})
 
 /**
  * Graph pane of a Workspace, which shows its knowledge graph: the graph loaded,
  * with a Play layout control.
  */
-export const Graph: Story = {
+export const Graph = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(workspaceGraphHandler())
+  },
   // With reduced motion the layout runs a fixed number of steps before the
   // graph shows. With motion, a timer stops it, so the layout differed
   // between hosts.
@@ -944,11 +917,6 @@ export const Graph: Story = {
       workspaceSlug: "docs",
       pane: "graph",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: [workspaceGraphHandler()],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     // With reduced motion, the graph shows when its layout has stopped.
@@ -956,14 +924,17 @@ export const Graph: Story = {
     await waitForGraphReady(canvasElement)
     within(canvasElement).getByRole("button", { name: "Play layout" })
   },
-}
+})
 
 /**
  * Graph pane of a Workspace, which shows its knowledge graph: the graph is
  * still loading.
  */
-export const GraphLoading: Story = {
+export const GraphLoading = meta.story({
   args: { pane: { kind: "graph" } },
+  beforeEach: ({ msw }) => {
+    msw.use(workspaceGraphLoadingHandler())
+  },
   parameters: {
     storyRoute: {
       pattern: "orgWorkspace",
@@ -971,18 +942,13 @@ export const GraphLoading: Story = {
       workspaceSlug: "docs",
       pane: "graph",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: [workspaceGraphLoadingHandler()],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() => expect(canvas.getByText("Loading graph")).toBeVisible())
     expect(canvas.queryAllByRole("presentation")).toHaveLength(0)
   },
-}
+})
 
 const graphPaneRoute = {
   pattern: "orgWorkspace",
@@ -999,7 +965,7 @@ const graphGets = { count: 0 }
  * opens later. A retry of a failed graph also sets this pending phase while it
  * builds.
  */
-export const GraphPhasePending: Story = {
+export const GraphPhasePending = meta.story({
   tags: ["required"],
   args: {
     pane: { kind: "graph" },
@@ -1008,32 +974,28 @@ export const GraphPhasePending: Story = {
       hydratePhases: { graph: { kind: "pending" } },
     },
   },
-  beforeEach: () => {
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(
+        ({ request }) =>
+          /\/api\/v1\/workspaces\/[^/]+\/graph$/.test(
+            new URL(request.url).pathname,
+          ),
+        () => {
+          graphGets.count += 1
+          return HttpResponse.json(
+            { error: "Workspace graph projection is unavailable." },
+            { status: 503 },
+          )
+        },
+      ),
+    )
     graphGets.count = 0
   },
   parameters: {
     intent:
       "Catches a graph pane that reads the graph while its build phase is pending. The pane must wait and send no graph request. Not for failed or ready phases.",
     storyRoute: graphPaneRoute,
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) =>
-              /\/api\/v1\/workspaces\/[^/]+\/graph$/.test(
-                new URL(request.url).pathname,
-              ),
-            () => {
-              graphGets.count += 1
-              return HttpResponse.json(
-                { error: "Workspace graph projection is unavailable." },
-                { status: 503 },
-              )
-            },
-          ),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1051,7 +1013,7 @@ export const GraphPhasePending: Story = {
     expect(canvas.queryByText("Could not load graph")).toBeNull()
     expect(graphGets.count).toBe(0)
   },
-}
+})
 
 const graphRebuilds = { count: 0 }
 
@@ -1060,7 +1022,7 @@ const graphRebuilds = { count: 0 }
  * failed, so an error in plain words, not the store error, says that ctxpipe
  * builds it again. Try again asks the server to build the graph again.
  */
-export const GraphPhaseFailed: Story = {
+export const GraphPhaseFailed = meta.story({
   tags: ["required"],
   args: {
     pane: { kind: "graph" },
@@ -1071,35 +1033,31 @@ export const GraphPhaseFailed: Story = {
       },
     },
   },
-  beforeEach: () => {
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.post(
+        ({ request }) =>
+          /\/api\/v1\/workspaces\/[^/]+\/rebuild-graph$/.test(
+            new URL(request.url).pathname,
+          ),
+        () => {
+          graphRebuilds.count += 1
+          return HttpResponse.json(
+            {
+              ...docsWorkspaceDetail,
+              hydratePhases: { graph: { kind: "pending" } },
+            },
+            { status: 202 },
+          )
+        },
+      ),
+    )
     graphRebuilds.count = 0
   },
   parameters: {
     intent:
       "Catches a failed graph phase that shows the raw store error, or that has no Try again action. Try again sends one rebuild-graph request. Not for pending or ready phases.",
     storyRoute: graphPaneRoute,
-    msw: {
-      handlers: {
-        page: [
-          http.post(
-            ({ request }) =>
-              /\/api\/v1\/workspaces\/[^/]+\/rebuild-graph$/.test(
-                new URL(request.url).pathname,
-              ),
-            () => {
-              graphRebuilds.count += 1
-              return HttpResponse.json(
-                {
-                  ...docsWorkspaceDetail,
-                  hydratePhases: { graph: { kind: "pending" } },
-                },
-                { status: 202 },
-              )
-            },
-          ),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1118,14 +1076,14 @@ export const GraphPhaseFailed: Story = {
     await userEvent.click(canvas.getByRole("button", { name: "Try again" }))
     await waitFor(() => expect(graphRebuilds.count).toBe(1))
   },
-}
+})
 
 /**
  * Graph pane of a Workspace, which shows its knowledge graph. The graph store
  * lost a ready graph, so the route answers building, and the pane shows the
  * building state. The graph opens when a later read has it.
  */
-export const GraphLostRebuilds: Story = {
+export const GraphLostRebuilds = meta.story({
   tags: ["required"],
   args: {
     pane: { kind: "graph" },
@@ -1134,31 +1092,27 @@ export const GraphLostRebuilds: Story = {
       hydratePhases: { graph: { kind: "ready" } },
     },
   },
-  beforeEach: () => {
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(
+        ({ request }) =>
+          /\/api\/v1\/workspaces\/[^/]+\/graph$/.test(
+            new URL(request.url).pathname,
+          ),
+        () => {
+          graphGets.count += 1
+          return graphGets.count === 1
+            ? HttpResponse.json({ building: true }, { status: 202 })
+            : HttpResponse.json(docsWorkspaceGraph)
+        },
+      ),
+    )
     graphGets.count = 0
   },
   parameters: {
     intent:
       "Catches a ready graph that the store lost and the pane then shows an error. The pane shows the building state and opens the graph when a later read has it. Not for failed phases.",
     storyRoute: graphPaneRoute,
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) =>
-              /\/api\/v1\/workspaces\/[^/]+\/graph$/.test(
-                new URL(request.url).pathname,
-              ),
-            () => {
-              graphGets.count += 1
-              return graphGets.count === 1
-                ? HttpResponse.json({ building: true }, { status: 202 })
-                : HttpResponse.json(docsWorkspaceGraph)
-            },
-          ),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1183,14 +1137,14 @@ export const GraphLostRebuilds: Story = {
     expect(graphGets.count).toBeGreaterThan(1)
     expect(canvas.queryByText("Could not load graph")).toBeNull()
   },
-}
+})
 
 /**
  * Graph pane of a Workspace, which shows its knowledge graph. The graph is
  * ready, but the graph request failed. The route error shows, with a next step,
  * Try again, and the server reason.
  */
-export const GraphPhaseReadyStoreUnavailable: Story = {
+export const GraphPhaseReadyStoreUnavailable = meta.story({
   tags: ["required"],
   args: {
     pane: { kind: "graph" },
@@ -1199,27 +1153,25 @@ export const GraphPhaseReadyStoreUnavailable: Story = {
       hydratePhases: { graph: { kind: "ready" } },
     },
   },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(
+        ({ request }) =>
+          /\/api\/v1\/workspaces\/[^/]+\/graph$/.test(
+            new URL(request.url).pathname,
+          ),
+        () =>
+          HttpResponse.json(
+            { error: "Workspace graph projection is unavailable." },
+            { status: 503 },
+          ),
+      ),
+    )
+  },
   parameters: {
     intent:
       "Catches a ready graph phase with a failing graph route that hides the failure. The route error must show in the pane. Not for pending or failed phases.",
     storyRoute: graphPaneRoute,
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) =>
-              /\/api\/v1\/workspaces\/[^/]+\/graph$/.test(
-                new URL(request.url).pathname,
-              ),
-            () =>
-              HttpResponse.json(
-                { error: "Workspace graph projection is unavailable." },
-                { status: 503 },
-              ),
-          ),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1230,13 +1182,13 @@ export const GraphPhaseReadyStoreUnavailable: Story = {
     const tab = canvas.getByRole("tab", { name: "Graph" })
     expect(tab.querySelector(".ctx-indexing-dot")).toBeNull()
   },
-}
+})
 
 /**
  * Pane triggers in the chat header of a Workspace, with the pane collapsed. The
  * graph builds, so the Graph trigger shows a busy dot.
  */
-export const TriggersGraphBuilding: Story = {
+export const TriggersGraphBuilding = meta.story({
   parameters: {
     intent:
       "Catches a collapsed pane whose Graph trigger shows no busy dot while the graph builds, or shows it on other triggers. Click opens the graph. Not for the open pane.",
@@ -1271,14 +1223,20 @@ export const TriggersGraphBuilding: Story = {
     await userEvent.click(trigger)
     expect(args.onPane).toHaveBeenCalledWith({ kind: "graph" })
   },
-}
+})
 
 /**
  * Settings pane of a Workspace, which shows its setup and status: the Workspace
  * has no skipped files.
  */
-export const Settings: Story = {
+export const Settings = meta.story({
   args: { pane: { kind: "settings" } },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceListHandler([docsWorkspace]),
+      ...workspaceSettingsHandlers(),
+    )
+  },
   parameters: {
     storyRoute: {
       pattern: "orgWorkspace",
@@ -1286,23 +1244,22 @@ export const Settings: Story = {
       workspaceSlug: "docs",
       pane: "settings",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: [
-          workspaceListHandler([docsWorkspace]),
-          ...workspaceSettingsHandlers(),
-        ],
-      },
-    },
   },
-}
+})
 
 /**
  * Settings pane of a Workspace, which lists skipped files: the user opens a
  * skipped file, and it opens in a Files tab.
  */
-export const SettingsSkippedFileOpensInFiles: Story = {
+export const SettingsSkippedFileOpensInFiles = meta.story({
   args: { pane: { kind: "settings" }, workspace: skippedFilesWorkspaceDetail },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceListHandler([docsWorkspace]),
+      ...gitFilesHandlers,
+      ...workspaceSettingsHandlers(),
+    )
+  },
   parameters: {
     storyRoute: {
       pattern: "orgWorkspace",
@@ -1310,15 +1267,6 @@ export const SettingsSkippedFileOpensInFiles: Story = {
       workspaceSlug: "docs",
       pane: "settings",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: [
-          workspaceListHandler([docsWorkspace]),
-          ...gitFilesHandlers,
-          ...workspaceSettingsHandlers(),
-        ],
-      },
-    },
   },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1331,13 +1279,13 @@ export const SettingsSkippedFileOpensInFiles: Story = {
     await canvas.findByRole("tab", { name: "tax.md", selected: true })
     await canvas.findByTitle("knowledge/billing/tax.md")
   },
-}
+})
 
 /**
  * Files pane of a Workspace, maximized over the chat: a Show conversation
  * button and the conversation title fade in.
  */
-export const Maximized: Story = {
+export const Maximized = meta.story({
   args: {
     pane: { kind: "files" },
     maximized: true,
@@ -1363,14 +1311,10 @@ export const Maximized: Story = {
     expectFadeCue(title)
     expect(title).toHaveClass("slide-in-from-left-1")
   },
-  parameters: {
-    msw: {
-      handlers: {
-        page: gitFilesHandlers,
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(...gitFilesHandlers)
   },
-}
+})
 
 const conversationFileHandlers = [
   conversationPrepareHandler(),
@@ -1386,12 +1330,15 @@ const conversationFileHandlers = [
  * Files pane in a conversation on a writable Workspace: the ledger file is open
  * in the editor from the conversation sandbox.
  */
-export const ConversationWritable: Story = {
+export const ConversationWritable = meta.story({
   args: {
     conversationId: "conv_1",
     pane: { kind: "file", path: ledgerPath },
     fileTabs: [ledgerPath],
     previewPath: ledgerPath,
+  },
+  beforeEach: ({ msw }) => {
+    msw.use(...conversationFileHandlers)
   },
   parameters: {
     storyRoute: {
@@ -1401,23 +1348,32 @@ export const ConversationWritable: Story = {
       conversationId: "conv_1",
       pane: serializePane({ kind: "file", path: ledgerPath }),
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: conversationFileHandlers,
-      },
-    },
   },
-}
+})
 
 /**
  * Files pane in a conversation, which shows the sandbox branch: the tree lists
  * the sandbox files, not the default branch files.
  */
-export const ConversationSandboxFiles: Story = {
+export const ConversationSandboxFiles = meta.story({
   tags: ["required"],
   args: {
     conversationId: "conv_1",
     pane: { kind: "files" },
+  },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      conversationGitTreeHandler({
+        sha: "sandboxsha",
+        paths: ["refund-policy.md", "AGENTS.md"],
+        branch: "ctxpipe/chat/conv_1/1",
+      }),
+      conversationGitStatusHandler(),
+      workspaceGitTreeHandler({
+        sha: "workspace-only",
+        paths: ["repositories/README.md"],
+      }),
+    )
   },
   parameters: {
     intent:
@@ -1429,22 +1385,6 @@ export const ConversationSandboxFiles: Story = {
       conversationId: "conv_1",
       pane: "files",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: [
-          conversationGitTreeHandler({
-            sha: "sandboxsha",
-            paths: ["refund-policy.md", "AGENTS.md"],
-            branch: "ctxpipe/chat/conv_1/1",
-          }),
-          conversationGitStatusHandler(),
-          workspaceGitTreeHandler({
-            sha: "workspace-only",
-            paths: ["repositories/README.md"],
-          }),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1455,7 +1395,7 @@ export const ConversationSandboxFiles: Story = {
     ).not.toBeInTheDocument()
     expect(canvas.queryByText("repositories")).not.toBeInTheDocument()
   },
-}
+})
 
 /**
  * Files pane in a conversation, maximized over the chat, so the conversation
@@ -1463,14 +1403,15 @@ export const ConversationSandboxFiles: Story = {
  * pane header shows only the Sync button. When the conversation shows beside
  * the pane, only the conversation header has these buttons.
  */
-export const ConversationMaximizedSync: Story = {
+export const ConversationMaximizedSync = meta.story({
   tags: ["required"],
   args: {
-    ...ConversationSandboxFiles.args,
+    ...ConversationSandboxFiles.input.args,
     maximized: true,
   },
+  beforeEach: ConversationSandboxFiles.input.beforeEach,
   parameters: {
-    ...ConversationSandboxFiles.parameters,
+    ...ConversationSandboxFiles.input.parameters,
     intent:
       "Catches a maximized pane with a dirty branch that lacks Sync or shows Create PR. Sync must be the only call to action. Not for a clean branch.",
   },
@@ -1484,16 +1425,42 @@ export const ConversationMaximizedSync: Story = {
     // The branch is dirty, so Sync is the only CTA.
     expect(canvas.queryByRole("button", { name: "Create PR" })).toBeNull()
   },
-}
+})
 
 /**
  * Files pane in a conversation, which shows the sandbox branch: the branch has
  * no changes, so no Sync or Create PR button shows.
  */
-export const ConversationCleanNoPublish: Story = {
+export const ConversationCleanNoPublish = meta.story({
   args: {
     conversationId: "conv_1",
     pane: { kind: "files" },
+  },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      conversationGitTreeHandler({
+        sha: "sandboxsha",
+        paths: ["AGENTS.md"],
+        branch: "ctxpipe/chat/conv_1/1",
+      }),
+      // The new sandbox has no change.
+      conversationGitStatusHandler({
+        source: "sandbox",
+        branch: "ctxpipe/chat/conv_1/1",
+        dirty: false,
+        differsFromDefault: false,
+        unpushed: false,
+        published: true,
+        ahead: 0,
+        behind: 0,
+        items: [],
+        worktreeVersion: "wt-0",
+      }),
+      workspaceGitTreeHandler({
+        sha: "workspace-only",
+        paths: ["repositories/README.md"],
+      }),
+    )
   },
   parameters: {
     storyRoute: {
@@ -1503,33 +1470,6 @@ export const ConversationCleanNoPublish: Story = {
       conversationId: "conv_1",
       pane: "files",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: [
-          conversationGitTreeHandler({
-            sha: "sandboxsha",
-            paths: ["AGENTS.md"],
-            branch: "ctxpipe/chat/conv_1/1",
-          }),
-          conversationGitStatusHandler({
-            source: "sandbox",
-            branch: "ctxpipe/chat/conv_1/1",
-            dirty: false,
-            differsFromDefault: false,
-            unpushed: false,
-            published: true,
-            ahead: 0,
-            behind: 0,
-            items: [],
-            worktreeVersion: "wt-0",
-          }),
-          workspaceGitTreeHandler({
-            sha: "workspace-only",
-            paths: ["repositories/README.md"],
-          }),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1541,18 +1481,43 @@ export const ConversationCleanNoPublish: Story = {
       canvas.queryByRole("button", { name: "Create PR" }),
     ).not.toBeInTheDocument()
   },
-}
+})
 
 /**
  * Files pane in a conversation, maximized over the chat. All commits are on
  * GitHub and no pull request is open, so nothing is left to sync. The Create PR
  * button of the conversation is the main button in the pane header.
  */
-export const ConversationCommittedCreatePr: Story = {
+export const ConversationCommittedCreatePr = meta.story({
   args: {
     conversationId: "conv_1",
     pane: { kind: "files" },
     maximized: true,
+  },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      conversationGitTreeHandler({
+        sha: "sandboxsha",
+        paths: ["AGENTS.md"],
+        branch: "ctxpipe/chat/conv_1/1",
+      }),
+      conversationGitStatusHandler({
+        source: "sandbox",
+        branch: "ctxpipe/chat/conv_1/1",
+        dirty: false,
+        differsFromDefault: true,
+        unpushed: false,
+        published: true,
+        ahead: 1,
+        behind: 0,
+        items: [],
+        worktreeVersion: "wt-0",
+      }),
+      workspaceGitTreeHandler({
+        sha: "workspace-only",
+        paths: ["repositories/README.md"],
+      }),
+    )
   },
   parameters: {
     storyRoute: {
@@ -1562,33 +1527,6 @@ export const ConversationCommittedCreatePr: Story = {
       conversationId: "conv_1",
       pane: "files",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: [
-          conversationGitTreeHandler({
-            sha: "sandboxsha",
-            paths: ["AGENTS.md"],
-            branch: "ctxpipe/chat/conv_1/1",
-          }),
-          conversationGitStatusHandler({
-            source: "sandbox",
-            branch: "ctxpipe/chat/conv_1/1",
-            dirty: false,
-            differsFromDefault: true,
-            unpushed: false,
-            published: true,
-            ahead: 1,
-            behind: 0,
-            items: [],
-            worktreeVersion: "wt-0",
-          }),
-          workspaceGitTreeHandler({
-            sha: "workspace-only",
-            paths: ["repositories/README.md"],
-          }),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1596,17 +1534,27 @@ export const ConversationCommittedCreatePr: Story = {
       expect(canvas.getByRole("button", { name: "Create PR" })).toBeVisible()
     })
   },
-}
+})
 
 /**
  * Files pane in a conversation on a read-only Workspace: the sandbox files
  * show, and no Sync or Create PR button shows.
  */
-export const ConversationReadOnly: Story = {
+export const ConversationReadOnly = meta.story({
   args: {
     workspace: readOnlyWorkspaceDetail,
     conversationId: "conv_1",
     pane: { kind: "files" },
+  },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      conversationGitTreeHandler({
+        sha: "sandboxsha",
+        paths: ["AGENTS.md"],
+        branch: "ctxpipe/chat/conv_1/1",
+      }),
+      conversationGitStatusHandler(),
+    )
   },
   parameters: {
     storyRoute: {
@@ -1616,18 +1564,6 @@ export const ConversationReadOnly: Story = {
       conversationId: "conv_1",
       pane: "files",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: [
-          conversationGitTreeHandler({
-            sha: "sandboxsha",
-            paths: ["AGENTS.md"],
-            branch: "ctxpipe/chat/conv_1/1",
-          }),
-          conversationGitStatusHandler(),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1639,16 +1575,19 @@ export const ConversationReadOnly: Story = {
       canvas.queryByRole("button", { name: "Create PR" }),
     ).not.toBeInTheDocument()
   },
-}
+})
 
 /**
  * Diff pane in a conversation, which lists the changes of the sandbox branch:
  * the conversation has changed files.
  */
-export const DiffTab: Story = {
+export const DiffTab = meta.story({
   args: {
     conversationId: "conv_1",
     pane: { kind: "diff" },
+  },
+  beforeEach: ({ msw }) => {
+    msw.use(...conversationFileHandlers)
   },
   parameters: {
     storyRoute: {
@@ -1658,22 +1597,26 @@ export const DiffTab: Story = {
       conversationId: "conv_1",
       pane: "diff",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: conversationFileHandlers,
-      },
-    },
   },
-}
+})
 
 /**
  * Files pane in a conversation, which shows the sandbox branch: the sandbox
  * tree is not ready and no default branch exists, so a loading message shows.
  */
-export const SandboxLoading: Story = {
+export const SandboxLoading = meta.story({
   args: {
     conversationId: "conv_1",
     pane: { kind: "files" },
+  },
+  beforeEach: ({ msw }) => {
+    // The Workspace has no indexed default branch to show yet.
+    msw.use(
+      conversationGitTreeMissingHandler(),
+      workspaceGitTreeHandler({ sha: "", paths: [] }),
+      // The sandbox starts, so its status does not answer yet.
+      conversationGitStatusHandler("loading"),
+    )
   },
   parameters: {
     storyRoute: {
@@ -1683,17 +1626,6 @@ export const SandboxLoading: Story = {
       conversationId: "conv_1",
       pane: "files",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        // The Workspace has no indexed default branch to show yet.
-        page: [
-          conversationGitTreeMissingHandler(),
-          workspaceGitTreeHandler({ sha: "", paths: [] }),
-          // The sandbox starts, so its status does not answer yet.
-          conversationGitStatusHandler("loading"),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1701,18 +1633,44 @@ export const SandboxLoading: Story = {
     expect(canvas.queryByText("knowledge")).not.toBeInTheDocument()
     expect(canvas.queryByText("repositories")).not.toBeInTheDocument()
   },
-}
+})
 
 /**
  * Files pane in a conversation, which shows the sandbox branch: the cached tree
  * shows while the sandbox starts, then the live tree replaces it.
  */
-export const CachedSandboxWhile409: Story = {
+export const CachedSandboxWhile409 = meta.story({
   args: {
     conversationId: "conv_1",
     pane: { kind: "files" },
   },
-  beforeEach: () => {
+  beforeEach: ({ msw }) => {
+    msw.use(
+      conversationGitTreeEventuallyHandler(
+        {
+          sha: "livesha",
+          paths: ["e2e-live-note.md"],
+          branch: "ctxpipe/chat/conv_1/1",
+        },
+        1,
+      ),
+      workspaceGitTreeHandler({
+        sha: "workspace-only",
+        paths: ["repositories/README.md"],
+      }),
+      conversationGitStatusHandler({
+        source: "sandbox",
+        branch: "ctxpipe/chat/conv_1/1",
+        dirty: false,
+        differsFromDefault: false,
+        unpushed: false,
+        published: false,
+        ahead: 0,
+        behind: 0,
+        items: [],
+        worktreeVersion: "wt-0",
+      }),
+    )
     writeConversationGitTreeSnapshot("conv_1", {
       sha: "cachedsha",
       paths: ["cached-note.md"],
@@ -1727,37 +1685,6 @@ export const CachedSandboxWhile409: Story = {
       conversationId: "conv_1",
       pane: "files",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: [
-          conversationGitTreeEventuallyHandler(
-            {
-              sha: "livesha",
-              paths: ["e2e-live-note.md"],
-              branch: "ctxpipe/chat/conv_1/1",
-            },
-            1,
-          ),
-          workspaceGitTreeHandler({
-            sha: "workspace-only",
-            paths: ["repositories/README.md"],
-          }),
-          // The new sandbox has no change.
-          conversationGitStatusHandler({
-            source: "sandbox",
-            branch: "ctxpipe/chat/conv_1/1",
-            dirty: false,
-            differsFromDefault: false,
-            unpushed: false,
-            published: false,
-            ahead: 0,
-            behind: 0,
-            items: [],
-            worktreeVersion: "wt-0",
-          }),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1769,7 +1696,7 @@ export const CachedSandboxWhile409: Story = {
     expect(canvas.queryByText("Updating…")).not.toBeInTheDocument()
     expect(workspaceFileNames(canvas)).not.toContain("repositories")
   },
-}
+})
 
 // The new conversation's sandbox starts when the story presses "Sandbox ready".
 const startingSandbox = { ready: false }
@@ -1823,13 +1750,35 @@ function StartingSandboxPlayground(
  * sandbox is ready. Then the sandbox tree replaces it and keeps the open
  * folders and the open file.
  */
-export const DefaultBranchUntilSandboxReady: Story = {
+export const DefaultBranchUntilSandboxReady = meta.story({
   tags: ["required"],
   args: {
     conversationId: "conv_new",
     pane: { kind: "files" },
   },
-  beforeEach: () => {
+  beforeEach: ({ msw }) => {
+    msw.use(
+      startingSandboxTreeHandler,
+      conversationGitBlobHandler({
+        ...docsWorkspaceGitBlobs,
+        [ledgerPath]: "# Sandbox ledger\n",
+      }),
+      // A clean sandbox: no working body hides the sandbox blob.
+      conversationGitStatusHandler({
+        source: "sandbox",
+        branch: "ctxpipe/chat/conv_new/1",
+        dirty: false,
+        differsFromDefault: false,
+        unpushed: false,
+        published: false,
+        ahead: 0,
+        behind: 0,
+        items: [],
+        worktreeVersion: "wt-0",
+      }),
+      conversationFilePutHandler(),
+      ...gitFilesHandlers,
+    )
     startingSandbox.ready = false
     clearAllConversationGitTreeSnapshots()
   },
@@ -1844,32 +1793,6 @@ export const DefaultBranchUntilSandboxReady: Story = {
       conversationId: "conv_new",
       pane: "files",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: [
-          startingSandboxTreeHandler,
-          conversationGitBlobHandler({
-            ...docsWorkspaceGitBlobs,
-            [ledgerPath]: "# Sandbox ledger\n",
-          }),
-          // A clean sandbox: no working body hides the sandbox blob.
-          conversationGitStatusHandler({
-            source: "sandbox",
-            branch: "ctxpipe/chat/conv_new/1",
-            dirty: false,
-            differsFromDefault: false,
-            unpushed: false,
-            published: false,
-            ahead: 0,
-            behind: 0,
-            items: [],
-            worktreeVersion: "wt-0",
-          }),
-          conversationFilePutHandler(),
-          ...gitFilesHandlers,
-        ],
-      },
-    },
   },
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement)
@@ -1920,7 +1843,7 @@ export const DefaultBranchUntilSandboxReady: Story = {
       )
     })
   },
-}
+})
 
 const filesTreeGets = { count: 0 }
 
@@ -1928,13 +1851,36 @@ const filesTreeGets = { count: 0 }
  * Files pane in a conversation, which shows the sandbox branch: the tree
  * painted and the count of tree requests stays stable.
  */
-export const StableFilesRequestBudget: Story = {
+export const StableFilesRequestBudget = meta.story({
   tags: ["required"],
   args: {
     conversationId: "conv_1",
     pane: { kind: "files" },
   },
   render: (args) => <WorkspacePanePlayground {...args} />,
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(
+        ({ request }) =>
+          /\/api\/v1\/conversations\/[^/]+\/files\/tree$/.test(
+            new URL(request.url).pathname,
+          ),
+        () => {
+          filesTreeGets.count += 1
+          return HttpResponse.json({
+            sha: "livesha",
+            paths: ["AGENTS.md", "e2e.md"],
+            branch: "ctxpipe/chat/conv_1/1",
+          })
+        },
+      ),
+      conversationGitStatusHandler(),
+      workspaceGitTreeHandler({
+        sha: "workspace-only",
+        paths: ["repositories/README.md"],
+      }),
+    )
+  },
   parameters: {
     intent:
       "Catches a files pane that keeps sending tree requests after it paints. The count of tree reads must stay stable and not show repository folders. Not for tree content.",
@@ -1945,31 +1891,6 @@ export const StableFilesRequestBudget: Story = {
       conversationId: "conv_1",
       pane: "files",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) =>
-              /\/api\/v1\/conversations\/[^/]+\/files\/tree$/.test(
-                new URL(request.url).pathname,
-              ),
-            () => {
-              filesTreeGets.count += 1
-              return HttpResponse.json({
-                sha: "livesha",
-                paths: ["AGENTS.md", "e2e.md"],
-                branch: "ctxpipe/chat/conv_1/1",
-              })
-            },
-          ),
-          conversationGitStatusHandler(),
-          workspaceGitTreeHandler({
-            sha: "workspace-only",
-            paths: ["repositories/README.md"],
-          }),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1984,7 +1905,7 @@ export const StableFilesRequestBudget: Story = {
     expect(filesTreeGets.count).toBe(afterPaint)
     expect(canvas.queryByText("repositories")).not.toBeInTheDocument()
   },
-}
+})
 
 function findInShadows(root: ParentNode, selector: string): Element | null {
   const direct = root.querySelector(selector)
@@ -2082,7 +2003,7 @@ function EditThenNavigateHarness(props: ComponentProps<typeof WorkspacePane>) {
  * Files pane in a test harness with a leave button: the user edits a file and
  * leaves, and the pane saves the edit.
  */
-export const EditThenNavigate: Story = {
+export const EditThenNavigate = meta.story({
   tags: ["required"],
   args: {
     conversationId: "conv_1",
@@ -2091,6 +2012,73 @@ export const EditThenNavigate: Story = {
     previewPath: ledgerPath,
   },
   render: (args) => <EditThenNavigateHarness {...args} />,
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.put(
+        ({ request }) =>
+          /\/api\/v1\/conversations\/[^/]+\/files\/blob$/.test(
+            new URL(request.url).pathname,
+          ),
+        async ({ request }) => {
+          const body = (await request.json()) as {
+            path: string
+            body?: string
+            expectedWorktreeVersion?: string
+          }
+          editThenNavigatePuts.count += 1
+          editThenNavigatePuts.paths.push(body.path)
+          editThenNavigatePuts.versions.push(body.expectedWorktreeVersion)
+          editThenNavigatePuts.bodies.push(body.body ?? "")
+          const worktreeVersion = "wt-1"
+          return HttpResponse.json({
+            path: body.path,
+            body: body.body ?? null,
+            binary: false,
+            worktreeVersion,
+            tree: {
+              sha: "sandboxsha",
+              paths: [body.path],
+              branch: "ctxpipe/chat/conv_1/1",
+              worktreeVersion,
+            },
+            status: {
+              source: "sandbox",
+              branch: "ctxpipe/chat/conv_1/1",
+              dirty: true,
+              differsFromDefault: true,
+              unpushed: true,
+              published: false,
+              ahead: 0,
+              behind: 0,
+              items: [{ path: body.path, status: "modified" }],
+              worktreeVersion,
+            },
+          })
+        },
+      ),
+      conversationGitTreeHandler({
+        sha: "sandboxsha",
+        paths: [ledgerPath, "AGENTS.md"],
+        branch: "ctxpipe/chat/conv_1/1",
+        worktreeVersion: "wt-0",
+      }),
+      conversationGitBlobHandler(),
+      conversationGitStatusHandler({
+        source: "sandbox",
+        branch: "ctxpipe/chat/conv_1/1",
+        dirty: false,
+        differsFromDefault: false,
+        unpushed: false,
+        published: false,
+        ahead: 0,
+        behind: 0,
+        items: [],
+        worktreeVersion: "wt-0",
+      }),
+      conversationGitDiffHandler(),
+      ...gitFilesHandlers,
+    )
+  },
   parameters: {
     visual: {
       skip: "Behavior test: it ends on a test page after the pane unmounts.",
@@ -2104,75 +2092,6 @@ export const EditThenNavigate: Story = {
       conversationId: "conv_1",
       pane: serializePane({ kind: "file", path: ledgerPath }),
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: [
-          http.put(
-            ({ request }) =>
-              /\/api\/v1\/conversations\/[^/]+\/files\/blob$/.test(
-                new URL(request.url).pathname,
-              ),
-            async ({ request }) => {
-              const body = (await request.json()) as {
-                path: string
-                body?: string
-                expectedWorktreeVersion?: string
-              }
-              editThenNavigatePuts.count += 1
-              editThenNavigatePuts.paths.push(body.path)
-              editThenNavigatePuts.versions.push(body.expectedWorktreeVersion)
-              editThenNavigatePuts.bodies.push(body.body ?? "")
-              const worktreeVersion = "wt-1"
-              return HttpResponse.json({
-                path: body.path,
-                body: body.body ?? null,
-                binary: false,
-                worktreeVersion,
-                tree: {
-                  sha: "sandboxsha",
-                  paths: [body.path],
-                  branch: "ctxpipe/chat/conv_1/1",
-                  worktreeVersion,
-                },
-                status: {
-                  source: "sandbox",
-                  branch: "ctxpipe/chat/conv_1/1",
-                  dirty: true,
-                  differsFromDefault: true,
-                  unpushed: true,
-                  published: false,
-                  ahead: 0,
-                  behind: 0,
-                  items: [{ path: body.path, status: "modified" }],
-                  worktreeVersion,
-                },
-              })
-            },
-          ),
-          conversationGitTreeHandler({
-            sha: "sandboxsha",
-            paths: [ledgerPath, "AGENTS.md"],
-            branch: "ctxpipe/chat/conv_1/1",
-            worktreeVersion: "wt-0",
-          }),
-          conversationGitBlobHandler(),
-          conversationGitStatusHandler({
-            source: "sandbox",
-            branch: "ctxpipe/chat/conv_1/1",
-            dirty: false,
-            differsFromDefault: false,
-            unpushed: false,
-            published: false,
-            ahead: 0,
-            behind: 0,
-            items: [],
-            worktreeVersion: "wt-0",
-          }),
-          conversationGitDiffHandler(),
-          ...gitFilesHandlers,
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     editThenNavigatePuts.count = 0
@@ -2203,7 +2122,7 @@ export const EditThenNavigate: Story = {
       ),
     ).toBe(true)
   },
-}
+})
 
 const newFilePath = "knowledge/billing/scratch.md"
 const newFileText = "# Scratch notes\nFirst line of text.\nSecond line."
@@ -2250,13 +2169,75 @@ function newFileWriteResponse(path: string, body: string | null) {
  * Files pane in a conversation, which edits files: the user types a new file,
  * and the editor keeps focus and all typed text.
  */
-export const NewFileKeepsTypedText: Story = {
+export const NewFileKeepsTypedText = meta.story({
   tags: ["required"],
   args: {
     conversationId: "conv_1",
     pane: { kind: "file", path: ledgerPath },
     fileTabs: [ledgerPath],
     previewPath: ledgerPath,
+  },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.put(
+        ({ request }) =>
+          /\/api\/v1\/conversations\/[^/]+\/files\/blob$/.test(
+            new URL(request.url).pathname,
+          ),
+        async ({ request }) => {
+          const body = (await request.json()) as {
+            path: string
+            body?: string
+          }
+          newFileServer.puts.push({
+            path: body.path,
+            body: body.body ?? "",
+          })
+          newFileServer.blobs[body.path] = body.body ?? ""
+          return HttpResponse.json(
+            newFileWriteResponse(body.path, body.body ?? null),
+          )
+        },
+      ),
+      http.get(
+        ({ request }) =>
+          /\/api\/v1\/conversations\/[^/]+\/files\/blob$/.test(
+            new URL(request.url).pathname,
+          ) && new URL(request.url).searchParams.get("path") === newFilePath,
+        () => {
+          const body = newFileServer.blobs[newFilePath]
+          if (body === undefined) {
+            return HttpResponse.json({ error: "Not found" }, { status: 404 })
+          }
+          return HttpResponse.json({
+            path: newFilePath,
+            body,
+            binary: false,
+          })
+        },
+      ),
+      conversationGitTreeHandler({
+        sha: "sandboxsha",
+        paths: [ledgerPath, "AGENTS.md"],
+        branch: "ctxpipe/chat/conv_1/1",
+        worktreeVersion: "wt-0",
+      }),
+      conversationGitBlobHandler(),
+      conversationGitStatusHandler({
+        source: "sandbox",
+        branch: "ctxpipe/chat/conv_1/1",
+        dirty: false,
+        differsFromDefault: false,
+        unpushed: false,
+        published: false,
+        ahead: 0,
+        behind: 0,
+        items: [],
+        worktreeVersion: "wt-0",
+      }),
+      conversationGitDiffHandler(),
+      ...gitFilesHandlers,
+    )
   },
   parameters: {
     intent:
@@ -2268,74 +2249,6 @@ export const NewFileKeepsTypedText: Story = {
       conversationId: "conv_1",
       pane: serializePane({ kind: "file", path: ledgerPath }),
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: [
-          http.put(
-            ({ request }) =>
-              /\/api\/v1\/conversations\/[^/]+\/files\/blob$/.test(
-                new URL(request.url).pathname,
-              ),
-            async ({ request }) => {
-              const body = (await request.json()) as {
-                path: string
-                body?: string
-              }
-              newFileServer.puts.push({
-                path: body.path,
-                body: body.body ?? "",
-              })
-              newFileServer.blobs[body.path] = body.body ?? ""
-              return HttpResponse.json(
-                newFileWriteResponse(body.path, body.body ?? null),
-              )
-            },
-          ),
-          http.get(
-            ({ request }) =>
-              /\/api\/v1\/conversations\/[^/]+\/files\/blob$/.test(
-                new URL(request.url).pathname,
-              ) &&
-              new URL(request.url).searchParams.get("path") === newFilePath,
-            () => {
-              const body = newFileServer.blobs[newFilePath]
-              if (body === undefined) {
-                return HttpResponse.json(
-                  { error: "Not found" },
-                  { status: 404 },
-                )
-              }
-              return HttpResponse.json({
-                path: newFilePath,
-                body,
-                binary: false,
-              })
-            },
-          ),
-          conversationGitTreeHandler({
-            sha: "sandboxsha",
-            paths: [ledgerPath, "AGENTS.md"],
-            branch: "ctxpipe/chat/conv_1/1",
-            worktreeVersion: "wt-0",
-          }),
-          conversationGitBlobHandler(),
-          conversationGitStatusHandler({
-            source: "sandbox",
-            branch: "ctxpipe/chat/conv_1/1",
-            dirty: false,
-            differsFromDefault: false,
-            unpushed: false,
-            published: false,
-            ahead: 0,
-            behind: 0,
-            items: [],
-            worktreeVersion: "wt-0",
-          }),
-          conversationGitDiffHandler(),
-          ...gitFilesHandlers,
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     newFileServer.blobs = {}
@@ -2388,7 +2301,7 @@ export const NewFileKeepsTypedText: Story = {
     })
     expect(pierreEditorHost(canvasElement)?.getPierreText?.()).toBe(newFileText)
   },
-}
+})
 
 const orderedWrites = {
   expected: [] as Array<string | undefined>,
@@ -2404,13 +2317,123 @@ const orderedWrites = {
  * Files pane in a conversation, which edits files: two saves finish out of
  * order, and each file tab shows its latest typed text.
  */
-export const OutOfOrderSaves: Story = {
+export const OutOfOrderSaves = meta.story({
   tags: ["required"],
   args: {
     conversationId: "conv_1",
     pane: { kind: "file", path: ledgerPath },
     fileTabs: [ledgerPath, agentsPath],
     previewPath: ledgerPath,
+  },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(
+        ({ request }) =>
+          /\/api\/v1\/conversations\/[^/]+\/files\/blob$/.test(
+            new URL(request.url).pathname,
+          ),
+        ({ request }) => {
+          const path = new URL(request.url).searchParams.get("path") ?? ""
+          const body = orderedWrites.bodies[path] ?? docsWorkspaceGitBlobs[path]
+          if (body === undefined) {
+            return HttpResponse.json({ error: "Not found" }, { status: 404 })
+          }
+          return HttpResponse.json({ path, body, binary: false })
+        },
+      ),
+      http.put(
+        ({ request }) =>
+          /\/api\/v1\/conversations\/[^/]+\/files\/blob$/.test(
+            new URL(request.url).pathname,
+          ),
+        async ({ request }) => {
+          const body = (await request.json()) as {
+            path: string
+            body?: string
+            expectedWorktreeVersion?: string
+          }
+          orderedWrites.inFlight += 1
+          orderedWrites.maxInFlight = Math.max(
+            orderedWrites.maxInFlight,
+            orderedWrites.inFlight,
+          )
+          try {
+            orderedWrites.expected.push(body.expectedWorktreeVersion)
+            orderedWrites.paths.push(body.path)
+            if (body.expectedWorktreeVersion !== orderedWrites.server) {
+              return HttpResponse.json(
+                {
+                  error: "stale_worktree",
+                  worktreeVersion: orderedWrites.server,
+                },
+                { status: 409 },
+              )
+            }
+            const worktreeVersion = `wt-${orderedWrites.accepted + 1}`
+            orderedWrites.accepted += 1
+            orderedWrites.server = worktreeVersion
+            orderedWrites.bodies[body.path] = body.body ?? ""
+            if (orderedWrites.accepted === 1) {
+              await new Promise((resolve) => {
+                window.setTimeout(resolve, 2000)
+              })
+            }
+            return HttpResponse.json({
+              path: body.path,
+              body: body.body ?? null,
+              binary: false,
+              worktreeVersion,
+              tree: {
+                sha: "sandboxsha",
+                paths: [
+                  ...new Set([ledgerPath, agentsPath, ...orderedWrites.paths]),
+                ],
+                branch: "ctxpipe/chat/conv_1/1",
+                worktreeVersion,
+              },
+              status: {
+                source: "sandbox",
+                branch: "ctxpipe/chat/conv_1/1",
+                dirty: true,
+                differsFromDefault: true,
+                unpushed: true,
+                published: false,
+                ahead: 0,
+                behind: 0,
+                items: orderedWrites.paths.map((path) => ({
+                  path,
+                  status: "added",
+                })),
+                worktreeVersion,
+              },
+            })
+          } finally {
+            orderedWrites.inFlight -= 1
+          }
+        },
+      ),
+      conversationGitTreeHandler({
+        sha: "sandboxsha",
+        paths: [ledgerPath, "AGENTS.md"],
+        branch: "ctxpipe/chat/conv_1/1",
+        worktreeVersion: "wt-0",
+      }),
+      conversationGitBlobHandler(),
+      conversationGitStatusHandler({
+        source: "sandbox",
+        branch: "ctxpipe/chat/conv_1/1",
+        dirty: false,
+        differsFromDefault: false,
+        unpushed: false,
+        published: false,
+        ahead: 0,
+        behind: 0,
+        items: [],
+        worktreeVersion: "wt-0",
+      }),
+      conversationGitDiffHandler(),
+      ...gitFilesHandlers,
+    )
   },
   parameters: {
     intent:
@@ -2422,126 +2445,6 @@ export const OutOfOrderSaves: Story = {
       conversationId: "conv_1",
       pane: serializePane({ kind: "file", path: ledgerPath }),
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) =>
-              /\/api\/v1\/conversations\/[^/]+\/files\/blob$/.test(
-                new URL(request.url).pathname,
-              ),
-            ({ request }) => {
-              const path = new URL(request.url).searchParams.get("path") ?? ""
-              const body =
-                orderedWrites.bodies[path] ?? docsWorkspaceGitBlobs[path]
-              if (body === undefined) {
-                return HttpResponse.json(
-                  { error: "Not found" },
-                  { status: 404 },
-                )
-              }
-              return HttpResponse.json({ path, body, binary: false })
-            },
-          ),
-          http.put(
-            ({ request }) =>
-              /\/api\/v1\/conversations\/[^/]+\/files\/blob$/.test(
-                new URL(request.url).pathname,
-              ),
-            async ({ request }) => {
-              const body = (await request.json()) as {
-                path: string
-                body?: string
-                expectedWorktreeVersion?: string
-              }
-              orderedWrites.inFlight += 1
-              orderedWrites.maxInFlight = Math.max(
-                orderedWrites.maxInFlight,
-                orderedWrites.inFlight,
-              )
-              try {
-                orderedWrites.expected.push(body.expectedWorktreeVersion)
-                orderedWrites.paths.push(body.path)
-                if (body.expectedWorktreeVersion !== orderedWrites.server) {
-                  return HttpResponse.json(
-                    {
-                      error: "stale_worktree",
-                      worktreeVersion: orderedWrites.server,
-                    },
-                    { status: 409 },
-                  )
-                }
-                const worktreeVersion = `wt-${orderedWrites.accepted + 1}`
-                orderedWrites.accepted += 1
-                orderedWrites.server = worktreeVersion
-                orderedWrites.bodies[body.path] = body.body ?? ""
-                if (orderedWrites.accepted === 1) {
-                  await new Promise((resolve) => {
-                    window.setTimeout(resolve, 2000)
-                  })
-                }
-                return HttpResponse.json({
-                  path: body.path,
-                  body: body.body ?? null,
-                  binary: false,
-                  worktreeVersion,
-                  tree: {
-                    sha: "sandboxsha",
-                    paths: [
-                      ...new Set([
-                        ledgerPath,
-                        agentsPath,
-                        ...orderedWrites.paths,
-                      ]),
-                    ],
-                    branch: "ctxpipe/chat/conv_1/1",
-                    worktreeVersion,
-                  },
-                  status: {
-                    source: "sandbox",
-                    branch: "ctxpipe/chat/conv_1/1",
-                    dirty: true,
-                    differsFromDefault: true,
-                    unpushed: true,
-                    published: false,
-                    ahead: 0,
-                    behind: 0,
-                    items: orderedWrites.paths.map((path) => ({
-                      path,
-                      status: "added",
-                    })),
-                    worktreeVersion,
-                  },
-                })
-              } finally {
-                orderedWrites.inFlight -= 1
-              }
-            },
-          ),
-          conversationGitTreeHandler({
-            sha: "sandboxsha",
-            paths: [ledgerPath, "AGENTS.md"],
-            branch: "ctxpipe/chat/conv_1/1",
-            worktreeVersion: "wt-0",
-          }),
-          conversationGitBlobHandler(),
-          conversationGitStatusHandler({
-            source: "sandbox",
-            branch: "ctxpipe/chat/conv_1/1",
-            dirty: false,
-            differsFromDefault: false,
-            unpushed: false,
-            published: false,
-            ahead: 0,
-            behind: 0,
-            items: [],
-            worktreeVersion: "wt-0",
-          }),
-          conversationGitDiffHandler(),
-          ...gitFilesHandlers,
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     orderedWrites.expected = []
@@ -2589,4 +2492,4 @@ export const OutOfOrderSaves: Story = {
     expect(canvas.queryByText("File not found")).toBeNull()
     expect(canvas.queryByText("Duplicate path")).toBeNull()
   },
-}
+})

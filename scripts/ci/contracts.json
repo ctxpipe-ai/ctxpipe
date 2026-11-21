@@ -83,6 +83,7 @@
     "src/domain/workspaces/agent-vault-native.contract.test.ts",
     "src/domain/workspaces/ingest-sandbox-egress-native.contract.test.ts",
     "src/domain/workspaces/sandbox-dind-egress-native.contract.test.ts",
+    "src/domain/workspaces/sandbox-host-network.contract.test.ts",
     "src/domain/workspaces/sandbox-replica-native.contract.test.ts",
     "src/domain/workspaces/workspace-chat-prepare-native.contract.test.ts",
     "src/domain/workspaces/native-https-git-github-auth.contract.test.ts"

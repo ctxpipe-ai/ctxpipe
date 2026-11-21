@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { WRITE_STATUS_REASONS } from "backend/domain/workspaces/write-status"
 import { HttpResponse, http } from "msw"
 import { Toaster } from "sonner"
@@ -26,6 +25,7 @@ import {
 } from "@/mocks/workspace-upgrades-handlers"
 
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
+import preview from "../../../.storybook/preview"
 import type { WorkspaceUpgradeItem } from "./queries"
 import { WorkspaceUpgrades } from "./WorkspaceUpgrades"
 
@@ -73,7 +73,7 @@ const setting: {
 } = { mode: "manual", reason: null }
 const realDateNow = Date.now
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Workspaces/Upgrades",
   component: WorkspaceUpgrades,
   decorators: [
@@ -84,7 +84,18 @@ const meta = {
       </div>
     ),
   ],
-  beforeEach: () => {
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...signedInHandlers,
+      activeMemberRoleHandler("owner"),
+      workspaceUpgradesHandler(upgradesFixture([upgradeItemFixture()])),
+      workspaceUpgradeStartHandler({ requests: startRequests }),
+      workspaceUpgradeCheckHandler({ requests: checkRequests }),
+      ...workspaceUpgradeAutomaticHandlers({
+        requests: automaticRequests,
+        setting,
+      }),
+    )
     startRequests.length = 0
     checkRequests.length = 0
     state.started = false
@@ -104,60 +115,16 @@ const meta = {
       pattern: "orgIndex",
       orgSlug: "acme",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        session: signedInHandlers,
-        page: [
-          activeMemberRoleHandler("owner"),
-          workspaceUpgradesHandler(upgradesFixture([upgradeItemFixture()])),
-          workspaceUpgradeStartHandler({ requests: startRequests }),
-          workspaceUpgradeCheckHandler({ requests: checkRequests }),
-        ],
-        // Its own key, so a story that replaces `page` keeps the setting.
-        automatic: workspaceUpgradeAutomaticHandlers({
-          requests: automaticRequests,
-          setting,
-        }),
-      },
-    },
   },
   args: { orgSlug: "acme", workspaceSlug: "docs" },
-} satisfies Meta<typeof WorkspaceUpgrades>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
-
-function withUpgrades(
-  ...handlers: ReturnType<typeof workspaceUpgradesHandler>[]
-) {
-  return {
-    msw: {
-      handlers: {
-        page: [
-          activeMemberRoleHandler("owner"),
-          ...handlers,
-          workspaceUpgradeStartHandler({ requests: startRequests }),
-          workspaceUpgradeCheckHandler({ requests: checkRequests }),
-          ...workspaceUpgradeAutomaticHandlers({
-            requests: automaticRequests,
-            setting,
-          }),
-        ],
-      },
-    },
-  }
-}
+})
 
 /**
  * Upgrades card in the Workspace settings, where an admin starts format
  * upgrades and re-ingestions: the upgrade list still loads, so skeleton rows
  * hold its place.
  */
-export const Loading: Story = {
-  parameters: {
-    ...withUpgrades(workspaceUpgradesHandler("loading")),
-  },
+export const Loading = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(async () =>
@@ -167,18 +134,16 @@ export const Loading: Story = {
     expect(canvas.queryByText("Up to date")).toBeNull()
     expect(canvas.queryByRole("switch")).toBeNull()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(workspaceUpgradesHandler("loading"))
+  },
+})
 
 /**
  * Upgrades section of a Workspace: the Workspace is at the newest format and no
  * upgrade is open.
  */
-export const UpToDate: Story = {
-  parameters: {
-    ...withUpgrades(
-      workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
-    ),
-  },
+export const UpToDate = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await expectUpToDate(canvas)
@@ -190,14 +155,17 @@ export const UpToDate: Story = {
     ).toBeVisible()
     expect(canvas.queryByRole("button", { name: /^Start/ })).toBeNull()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })))
+  },
+})
 
 /**
  * Upgrades section of a Workspace: one format upgrade waits in the Needs you
  * list with its Start button. The Start button says that the item is ready, so
  * the item has no "Ready to start" tag.
  */
-export const PurposeLine: Story = {
+export const PurposeLine = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const needsYou = await expectGroup(canvas, "Needs you", 1)
@@ -208,35 +176,13 @@ export const PurposeLine: Story = {
     )
     expect(canvas.queryByText("Ready to start")).toBeNull()
   },
-}
+})
 
 /**
  * Upgrades section of a Workspace, for an admin: the admin pressed Start, and
  * the upgrade is queued. The item changes to its new status after the click.
  */
-export const AdminStartsUpgrade: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          activeMemberRoleHandler("admin"),
-          workspaceUpgradesHandler(() =>
-            upgradesFixture([
-              upgradeItemFixture({
-                status: state.started ? "queued" : "awaiting_operator",
-              }),
-            ]),
-          ),
-          workspaceUpgradeStartHandler({
-            requests: startRequests,
-            onStarted: () => {
-              state.started = true
-            },
-          }),
-        ],
-      },
-    },
-  },
+export const AdminStartsUpgrade = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await expectGroup(canvas, "Needs you", 1)
@@ -260,25 +206,32 @@ export const AdminStartsUpgrade: Story = {
       expect(canvas.queryByRole("button", { name: /^Start/ })).toBeNull(),
     )
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      activeMemberRoleHandler("admin"),
+      workspaceUpgradesHandler(() =>
+        upgradesFixture([
+          upgradeItemFixture({
+            status: state.started ? "queued" : "awaiting_operator",
+          }),
+        ]),
+      ),
+      workspaceUpgradeStartHandler({
+        requests: startRequests,
+        onStarted: () => {
+          state.started = true
+        },
+      }),
+    )
+  },
+})
 
 /**
  * Upgrades section of a Workspace, for a member: a format upgrade waits, and
  * the member must ask an admin. The member sees "Ask an admin" and no Start
  * button.
  */
-export const MemberAsksAdmin: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          activeMemberRoleHandler("member"),
-          workspaceUpgradesHandler(upgradesFixture([upgradeItemFixture()])),
-          workspaceUpgradeStartHandler({ requests: startRequests }),
-        ],
-      },
-    },
-  },
+export const MemberAsksAdmin = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(async () =>
@@ -287,17 +240,17 @@ export const MemberAsksAdmin: Story = {
     expect(canvas.queryByRole("button", { name: /^Start/ })).toBeNull()
     expect(startRequests).toHaveLength(0)
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      activeMemberRoleHandler("member"),
+      workspaceUpgradesHandler(upgradesFixture([upgradeItemFixture()])),
+      workspaceUpgradeStartHandler({ requests: startRequests }),
+    )
+  },
+})
 
 /** Upgrades section of a Workspace: a format upgrade is running. */
-export const Running: Story = {
-  parameters: {
-    ...withUpgrades(
-      workspaceUpgradesHandler(
-        upgradesFixture([upgradeItemFixture({ status: "running" })]),
-      ),
-    ),
-  },
+export const Running = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(async () =>
@@ -307,16 +260,37 @@ export const Running: Story = {
     )
     expect(canvas.queryByRole("button", { name: /^Start/ })).toBeNull()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceUpgradesHandler(
+        upgradesFixture([upgradeItemFixture({ status: "running" })]),
+      ),
+    )
+  },
+})
 
 /**
  * Upgrades card in the Workspace settings: the admin started the re-ingestion,
  * but all sandbox slots are busy, so the item waits for a free one and says how
  * long it has waited (CTX-908).
  */
-export const WaitingForSandbox: Story = {
-  parameters: {
-    ...withUpgrades(
+export const WaitingForSandbox = meta.story({
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(async () => {
+      expect(
+        await canvas.findByText("Waiting for a free sandbox"),
+      ).toBeVisible()
+      expect(await canvas.findByText(/has waited 12 min/)).toBeVisible()
+    })
+    await expectGroup(canvas, "Working now", 1)
+    expect(canvas.queryByRole("list", { name: "Needs you" })).toBeNull()
+    await waitFor(() =>
+      expect(canvas.queryByText("Preparing the pull request")).toBeNull(),
+    )
+  },
+  beforeEach: ({ msw }) => {
+    msw.use(
       workspaceUpgradesHandler(
         // A re-ingestion runs only on format 3.
         upgradesFixture(
@@ -333,31 +307,28 @@ export const WaitingForSandbox: Story = {
           { formatVersion: 3 },
         ),
       ),
-    ),
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await waitFor(async () => {
-      expect(
-        await canvas.findByText("Waiting for a free sandbox"),
-      ).toBeVisible()
-      expect(await canvas.findByText(/has waited 12 min/)).toBeVisible()
-    })
-    await expectGroup(canvas, "Working now", 1)
-    expect(canvas.queryByRole("list", { name: "Needs you" })).toBeNull()
-    await waitFor(() =>
-      expect(canvas.queryByText("Preparing the pull request")).toBeNull(),
     )
   },
-}
+})
 
 /**
  * Upgrades section of a Workspace: a re-ingestion runs, with the Working
  * status, its progress, and the spend so far (CTX-980).
  */
-export const ReingestWorkingWithSpend: Story = {
-  parameters: {
-    ...withUpgrades(
+export const ReingestWorkingWithSpend = meta.story({
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expectGroup(canvas, "Working now", 1)
+    await waitFor(() =>
+      expect(canvas.getByText("Spend so far: at least $1.75")).toBeVisible(),
+    )
+    await waitFor(() =>
+      expect(canvas.getByText(/1 of 2 repositories done/)).toBeVisible(),
+    )
+    expect(canvas.queryByRole("list", { name: "Needs you" })).toBeNull()
+  },
+  beforeEach: ({ msw }) => {
+    msw.use(
       workspaceUpgradesHandler(
         upgradesFixture(
           [
@@ -391,28 +362,17 @@ export const ReingestWorkingWithSpend: Story = {
           { formatVersion: 3 },
         ),
       ),
-    ),
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await expectGroup(canvas, "Working now", 1)
-    await waitFor(() =>
-      expect(canvas.getByText("Spend so far: at least $1.75")).toBeVisible(),
     )
-    await waitFor(() =>
-      expect(canvas.getByText(/1 of 2 repositories done/)).toBeVisible(),
-    )
-    expect(canvas.queryByRole("list", { name: "Needs you" })).toBeNull()
   },
-}
+})
 
 /**
  * Upgrades section of a Workspace: the format upgrade pull request is open,
  * with the step commits and the notes.
  */
-export const PullRequestOpen: Story = {
-  parameters: {
-    ...withUpgrades(
+export const PullRequestOpen = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
       workspaceUpgradesHandler(
         upgradesFixture([
           upgradeItemFixture({
@@ -452,7 +412,9 @@ export const PullRequestOpen: Story = {
           }),
         ]),
       ),
-    ),
+    )
+  },
+  parameters: {
     visual: { allow: { axes: "A layout defect on main (CTX-1279)." } },
   },
   play: async ({ canvasElement }) => {
@@ -471,16 +433,16 @@ export const PullRequestOpen: Story = {
     )
     expect(canvas.queryByRole("button", { name: /^Start/ })).toBeNull()
   },
-}
+})
 
 /**
  * Upgrades card in the Workspace settings: ctxpipe opened the format upgrade
  * pull request #42, so the item waits for the admin to merge it on GitHub. The
  * item says what happens after the merge and gives a link and Check again.
  */
-export const WaitingForMerge: Story = {
-  parameters: {
-    ...withUpgrades(
+export const WaitingForMerge = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
       workspaceUpgradesHandler(
         upgradesFixture([
           upgradeItemFixture({
@@ -492,7 +454,9 @@ export const WaitingForMerge: Story = {
           }),
         ]),
       ),
-    ),
+    )
+  },
+  parameters: {
     visual: { allow: { axes: "A layout defect on main (CTX-1279)." } },
   },
   play: async ({ canvasElement }) => {
@@ -514,48 +478,14 @@ export const WaitingForMerge: Story = {
       ).toBeVisible(),
     )
   },
-}
+})
 
 /**
  * Upgrades section of a Workspace, for an admin: after the merge, the admin
  * pressed Check again, and the upgrade is applied. Check again runs the tip
  * check at once and waits for the scan.
  */
-export const CheckAgainAfterMerge: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          activeMemberRoleHandler("admin"),
-          workspaceUpgradesHandler(() =>
-            upgradesFixture(
-              [
-                upgradeItemFixture(
-                  state.checked
-                    ? { status: "completed" }
-                    : {
-                        status: "pr_open",
-                        pullRequest: {
-                          number: 42,
-                          url: "https://github.com/acme/docs/pull/42",
-                        },
-                      },
-                ),
-              ],
-              // The applied upgrade wrote the new format.
-              { formatVersion: state.checked ? 3 : 2 },
-            ),
-          ),
-          workspaceUpgradeCheckHandler({
-            requests: checkRequests,
-            onChecked: () => {
-              state.checked = true
-            },
-          }),
-        ],
-      },
-    },
-  },
+export const CheckAgainAfterMerge = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const button = await canvas.findByRole("button", { name: /^Check again/ })
@@ -565,34 +495,62 @@ export const CheckAgainAfterMerge: Story = {
     // The check waits for the scan, then the card shows the applied state.
     await waitFor(() => expectUpToDate(canvas), { timeout: 10_000 })
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      activeMemberRoleHandler("admin"),
+      workspaceUpgradesHandler(() =>
+        upgradesFixture(
+          [
+            upgradeItemFixture(
+              state.checked
+                ? { status: "completed" }
+                : {
+                    status: "pr_open",
+                    pullRequest: {
+                      number: 42,
+                      url: "https://github.com/acme/docs/pull/42",
+                    },
+                  },
+            ),
+          ],
+          // The applied upgrade wrote the new format.
+          { formatVersion: state.checked ? 3 : 2 },
+        ),
+      ),
+      workspaceUpgradeCheckHandler({
+        requests: checkRequests,
+        onChecked: () => {
+          state.checked = true
+        },
+      }),
+    )
+  },
+})
 
 /**
  * Upgrades section of a Workspace, for a member: the upgrade pull request is
  * open, and there is no Check again button, because a member cannot run the
  * check.
  */
-export const MemberCannotCheck: Story = {
+export const MemberCannotCheck = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      activeMemberRoleHandler("member"),
+      workspaceUpgradesHandler(
+        upgradesFixture([
+          upgradeItemFixture({
+            status: "pr_open",
+            pullRequest: {
+              number: 42,
+              url: "https://github.com/acme/docs/pull/42",
+            },
+          }),
+        ]),
+      ),
+    )
+  },
   parameters: {
     visual: { allow: { axes: "A layout defect on main (CTX-1279)." } },
-    msw: {
-      handlers: {
-        page: [
-          activeMemberRoleHandler("member"),
-          workspaceUpgradesHandler(
-            upgradesFixture([
-              upgradeItemFixture({
-                status: "pr_open",
-                pullRequest: {
-                  number: 42,
-                  url: "https://github.com/acme/docs/pull/42",
-                },
-              }),
-            ]),
-          ),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -601,7 +559,7 @@ export const MemberCannotCheck: Story = {
     )
     expect(canvas.queryByRole("button", { name: /^Check again/ })).toBeNull()
   },
-}
+})
 
 /**
  * Upgrades section of a Workspace with an open upgrade pull request: the notes
@@ -609,9 +567,9 @@ export const MemberCannotCheck: Story = {
  * Details. The report lines, with their paths and counts, stay behind Details
  * until the user opens it.
  */
-export const NotesWithDetails: Story = {
+export const NotesWithDetails = meta.story({
+  beforeEach: PullRequestOpen.input.beforeEach,
   parameters: {
-    ...PullRequestOpen.parameters,
     visual: { allow: { axes: "A layout defect on main (CTX-1279)." } },
   },
   play: async ({ canvasElement }) => {
@@ -660,25 +618,13 @@ export const NotesWithDetails: Story = {
       expect(canvas.getByText("Format 1: Export and sources")).toBeVisible(),
     )
   },
-}
+})
 
 /**
  * Upgrades section of a Workspace: the format upgrade failed because GitHub
  * refused the push, with Start again.
  */
-export const Failed: Story = {
-  parameters: {
-    ...withUpgrades(
-      workspaceUpgradesHandler(
-        upgradesFixture([
-          upgradeItemFixture({
-            status: "failed",
-            failureReason: "GitHub refused the push to the upgrade branch.",
-          }),
-        ]),
-      ),
-    ),
-  },
+export const Failed = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(async () =>
@@ -697,30 +643,40 @@ export const Failed: Story = {
     )
     await waitFor(() => expect(startRequests).toHaveLength(1))
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceUpgradesHandler(
+        upgradesFixture([
+          upgradeItemFixture({
+            status: "failed",
+            failureReason: "GitHub refused the push to the upgrade branch.",
+          }),
+        ]),
+      ),
+    )
+  },
+})
 
 /** A failed re-ingestion item with a classified cause (CTX-895). */
 function failedReingest(
   failure: NonNullable<WorkspaceUpgradeItem["failure"]>,
   autoRetried = false,
 ) {
-  return withUpgrades(
-    workspaceUpgradesHandler(
-      // A re-ingestion runs only on format 3.
-      upgradesFixture(
-        [
-          upgradeItemFixture({
-            key: "reingest-3",
-            kind: "reingest",
-            status: "failed",
-            failureReason:
-              "The re-ingestion did not finish for acme/ky. Start it again.",
-            failure,
-            autoRetried,
-          }),
-        ],
-        { formatVersion: 3 },
-      ),
+  return workspaceUpgradesHandler(
+    // A re-ingestion runs only on format 3.
+    upgradesFixture(
+      [
+        upgradeItemFixture({
+          key: "reingest-3",
+          kind: "reingest",
+          status: "failed",
+          failureReason:
+            "The re-ingestion did not finish for acme/ky. Start it again.",
+          failure,
+          autoRetried,
+        }),
+      ],
+      { formatVersion: 3 },
     ),
   )
 }
@@ -733,16 +689,7 @@ const REINGEST_START =
  * published first and the merge failed (CTX-895). The item names the failed
  * step and gives one sentence for the fix.
  */
-export const FailedPublishConflict: Story = {
-  parameters: {
-    ...failedReingest({
-      code: "publish_conflict",
-      step: "publish",
-      repository: "acme/ky",
-      summary:
-        "The semantic merge failed: The model did not call the structured output tool",
-    }),
-  },
+export const FailedPublishConflict = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(async () =>
@@ -767,24 +714,24 @@ export const FailedPublishConflict: Story = {
     )
     await waitFor(() => expect(startRequests).toHaveLength(1))
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      failedReingest({
+        code: "publish_conflict",
+        step: "publish",
+        repository: "acme/ky",
+        summary:
+          "The semantic merge failed: The model did not call the structured output tool",
+      }),
+    )
+  },
+})
 
 /**
  * Upgrades section of a Workspace: a re-ingestion failed again after ctxpipe
  * started it again once by itself, and the card says so (CTX-896).
  */
-export const FailedAfterAutoRetry: Story = {
-  parameters: {
-    ...failedReingest(
-      {
-        code: "model",
-        step: "ingest",
-        repository: "acme/ky",
-        summary: "The ingestion run failed: the model provider is overloaded",
-      },
-      true,
-    ),
-  },
+export const FailedAfterAutoRetry = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() =>
@@ -795,23 +742,27 @@ export const FailedAfterAutoRetry: Story = {
       ).toBeVisible(),
     )
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      failedReingest(
+        {
+          code: "model",
+          step: "ingest",
+          repository: "acme/ky",
+          summary: "The ingestion run failed: the model provider is overloaded",
+        },
+        true,
+      ),
+    )
+  },
+})
 
 /**
  * Upgrades card in the Workspace settings, seen by an admin: the re-ingestion
  * failed because ctxpipe cannot read the source repository acme/ky, so the item
  * gives the cause, Reconnect GitHub and Start again.
  */
-export const FailedSourceAccess: Story = {
-  parameters: {
-    ...failedReingest({
-      code: "source_access",
-      step: "read_source",
-      repository: "acme/ky",
-      summary:
-        "ctxpipe cannot read the default branch of the repository. Repository not found.",
-    }),
-  },
+export const FailedSourceAccess = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const link = await canvas.findByRole("link", { name: "Reconnect GitHub" })
@@ -829,7 +780,18 @@ export const FailedSourceAccess: Story = {
       ).toBeVisible(),
     )
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      failedReingest({
+        code: "source_access",
+        step: "read_source",
+        repository: "acme/ky",
+        summary:
+          "ctxpipe cannot read the default branch of the repository. Repository not found.",
+      }),
+    )
+  },
+})
 
 const tooManySources = {
   code: "too_many_sources",
@@ -844,10 +806,7 @@ const tooManySources = {
  * the Workspace has too many source repositories. The card gives the cause and
  * the fix (remove some sources first), then Start again.
  */
-export const FailedTooManySources: Story = {
-  parameters: {
-    ...failedReingest(tooManySources),
-  },
+export const FailedTooManySources = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(async () =>
@@ -869,38 +828,17 @@ export const FailedTooManySources: Story = {
     )
     expect(startRequests).toHaveLength(0)
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(failedReingest(tooManySources))
+  },
+})
 
 /**
  * Upgrades card in the Workspace settings, seen by a member: the re-ingestion
  * failed, because the Workspace has 40 source repositories and a run takes 25.
  * Only an admin can start it again, so the member gets "Ask an admin".
  */
-export const FailedTooManySourcesMember: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          activeMemberRoleHandler("member"),
-          workspaceUpgradesHandler(
-            // A re-ingestion runs only on format 3.
-            upgradesFixture(
-              [
-                upgradeItemFixture({
-                  key: "reingest-3",
-                  kind: "reingest",
-                  status: "failed",
-                  failureReason: "One re-ingestion run handles at most 25.",
-                  failure: tooManySources,
-                }),
-              ],
-              { formatVersion: 3 },
-            ),
-          ),
-        ],
-      },
-    },
-  },
+export const FailedTooManySourcesMember = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(async () =>
@@ -908,7 +846,27 @@ export const FailedTooManySourcesMember: Story = {
     )
     expect(canvas.queryByRole("button", { name: /^Start/ })).toBeNull()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      activeMemberRoleHandler("member"),
+      workspaceUpgradesHandler(
+        // A re-ingestion runs only on format 3.
+        upgradesFixture(
+          [
+            upgradeItemFixture({
+              key: "reingest-3",
+              kind: "reingest",
+              status: "failed",
+              failureReason: "One re-ingestion run handles at most 25.",
+              failure: tooManySources,
+            }),
+          ],
+          { formatVersion: 3 },
+        ),
+      ),
+    )
+  },
+})
 
 const fixPrompts = fn()
 
@@ -916,16 +874,8 @@ const fixPrompts = fn()
  * Upgrades section of a Workspace: a re-ingestion failed with an unknown cause,
  * and the user can fix it with an agent.
  */
-export const FailedUnknown: Story = {
+export const FailedUnknown = meta.story({
   args: { onFixWithAgent: fixPrompts },
-  parameters: {
-    ...failedReingest({
-      code: "unknown",
-      step: "ingest",
-      repository: "acme/ky",
-      summary: "The ingestion run failed: something odd happened",
-    }),
-  },
   play: async ({ canvasElement }) => {
     fixPrompts.mockClear()
     const canvas = within(canvasElement)
@@ -936,22 +886,24 @@ export const FailedUnknown: Story = {
       'The upgrade "Fresh re-ingestion of the source repositories" of this Workspace failed at the step "Ingest the source repository (acme/ky)". ctxpipe recorded: The ingestion run failed: something odd happened. Find the cause, and tell me how to fix it.',
     )
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      failedReingest({
+        code: "unknown",
+        step: "ingest",
+        repository: "acme/ky",
+        summary: "The ingestion run failed: something odd happened",
+      }),
+    )
+  },
+})
 
 /**
  * Upgrades section of a Workspace: a re-ingestion failed, because the server
  * had no room for a Git process, so Start again is the fix (CTX-952).
  */
-export const FailedServerBusy: Story = {
+export const FailedServerBusy = meta.story({
   args: { onFixWithAgent: fixPrompts },
-  parameters: {
-    ...failedReingest({
-      code: "server_busy",
-      step: "ingest",
-      repository: "acme/ky",
-      summary: "spawn EAGAIN",
-    }),
-  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(async () =>
@@ -967,27 +919,24 @@ export const FailedServerBusy: Story = {
       ).toBeVisible(),
     )
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      failedReingest({
+        code: "server_busy",
+        step: "ingest",
+        repository: "acme/ky",
+        summary: "spawn EAGAIN",
+      }),
+    )
+  },
+})
 
 /**
  * Upgrades card in the Workspace settings: ctxpipe cannot open the format
  * upgrade pull request because the GitHub App has read access only, so the item
  * is blocked with no Start.
  */
-export const Blocked: Story = {
-  parameters: {
-    ...withUpgrades(
-      workspaceUpgradesHandler(
-        upgradesFixture([
-          upgradeItemFixture({
-            status: "blocked",
-            blockedReason: "write_access",
-            note: "The GitHub App has read access only.",
-          }),
-        ]),
-      ),
-    ),
-  },
+export const Blocked = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(async () =>
@@ -1003,7 +952,20 @@ export const Blocked: Story = {
     await expectGroup(canvas, "Needs you", 1)
     expect(canvas.queryByRole("button", { name: /^Start/ })).toBeNull()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceUpgradesHandler(
+        upgradesFixture([
+          upgradeItemFixture({
+            status: "blocked",
+            blockedReason: "write_access",
+            note: "The GitHub App has read access only.",
+          }),
+        ]),
+      ),
+    )
+  },
+})
 
 /**
  * Upgrades card in the Workspace settings: the Workspace repository is not on
@@ -1011,20 +973,7 @@ export const Blocked: Story = {
  * says to relink to GitHub. The note names the cause and has no GitHub App
  * text.
  */
-export const BlockedNotGithub: Story = {
-  parameters: {
-    ...withUpgrades(
-      workspaceUpgradesHandler(
-        upgradesFixture([
-          upgradeItemFixture({
-            status: "blocked",
-            blockedReason: "write_access",
-            note: WRITE_STATUS_REASONS.nonGithubHost,
-          }),
-        ]),
-      ),
-    ),
-  },
+export const BlockedNotGithub = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(async () =>
@@ -1034,20 +983,26 @@ export const BlockedNotGithub: Story = {
     )
     expect(canvas.queryByText(/Connect the Workspace repository/)).toBeNull()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceUpgradesHandler(
+        upgradesFixture([
+          upgradeItemFixture({
+            status: "blocked",
+            blockedReason: "write_access",
+            note: WRITE_STATUS_REASONS.nonGithubHost,
+          }),
+        ]),
+      ),
+    )
+  },
+})
 
 /**
  * Upgrades section of a Workspace: the format upgrade is blocked with no reason
  * or note from the server. The alert still says why, and it has no empty line.
  */
-export const BlockedWithoutReason: Story = {
-  parameters: {
-    ...withUpgrades(
-      workspaceUpgradesHandler(
-        upgradesFixture([upgradeItemFixture({ status: "blocked" })]),
-      ),
-    ),
-  },
+export const BlockedWithoutReason = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(async () =>
@@ -1059,7 +1014,14 @@ export const BlockedWithoutReason: Story = {
       ).toBeVisible(),
     )
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceUpgradesHandler(
+        upgradesFixture([upgradeItemFixture({ status: "blocked" })]),
+      ),
+    )
+  },
+})
 
 /**
  * A blocked re-ingestion item, with no note from the server. The Workspace is
@@ -1067,21 +1029,19 @@ export const BlockedWithoutReason: Story = {
  * between the hydrate and the scan (see ReingestChecksNewFormat).
  */
 function blockedReingest(blockedReason: string, formatVersion = 2) {
-  return withUpgrades(
-    workspaceUpgradesHandler(
-      upgradesFixture(
-        [
-          upgradeItemFixture({
-            key: "reingest-bundle",
-            kind: "reingest",
-            title: "Fresh re-ingestion of the source repositories",
-            steps: [],
-            status: "blocked",
-            blockedReason,
-          }),
-        ],
-        { formatVersion },
-      ),
+  return workspaceUpgradesHandler(
+    upgradesFixture(
+      [
+        upgradeItemFixture({
+          key: "reingest-bundle",
+          kind: "reingest",
+          title: "Fresh re-ingestion of the source repositories",
+          steps: [],
+          status: "blocked",
+          blockedReason,
+        }),
+      ],
+      { formatVersion },
     ),
   )
 }
@@ -1105,10 +1065,7 @@ async function expectReingestCard(canvasElement: HTMLElement, title: string) {
  * Upgrades section of a Workspace: the re-ingestion is blocked because ctxpipe
  * cannot publish to the repository.
  */
-export const ReingestBlockedOnWriteAccess: Story = {
-  parameters: {
-    ...blockedReingest("write_access"),
-  },
+export const ReingestBlockedOnWriteAccess = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = await expectReingestCard(
       canvasElement,
@@ -1120,17 +1077,17 @@ export const ReingestBlockedOnWriteAccess: Story = {
       ).toBeVisible(),
     )
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(blockedReingest("write_access"))
+  },
+})
 
 /**
  * Upgrades card in the Workspace settings: the Workspace has format 2, so the
  * re-ingestion is blocked until the format upgrade to format 3 is merged, with
  * Check again.
  */
-export const ReingestNeedsFormat: Story = {
-  parameters: {
-    ...blockedReingest("needs_format"),
-  },
+export const ReingestNeedsFormat = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = await expectReingestCard(
       canvasElement,
@@ -1140,17 +1097,17 @@ export const ReingestNeedsFormat: Story = {
       expect(canvas.getByText(/Re-ingestion needs format 3/)).toBeVisible(),
     )
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(blockedReingest("needs_format"))
+  },
+})
 
 /**
  * Upgrades section of a Workspace: the re-ingestion is blocked on the format,
  * with one short next step. The server note names two actions, so the card does
  * not use it.
  */
-export const ReingestBlockedNextStep: Story = {
-  parameters: {
-    ...blockedReingest("needs_format"),
-  },
+export const ReingestBlockedNextStep = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = await expectReingestCard(
       canvasElement,
@@ -1167,43 +1124,17 @@ export const ReingestBlockedNextStep: Story = {
     await userEvent.click(canvas.getByRole("button", { name: /^Check again/ }))
     await waitFor(() => expect(checkRequests).toHaveLength(1))
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(blockedReingest("needs_format"))
+  },
+})
 
 /**
  * Upgrades section of a Workspace: ctxpipe checks the new format for the
  * re-ingestion, and then the item becomes ready to start with no refresh. While
  * the check runs, the item has no blocked warning (CTX-944).
  */
-export const ReingestChecksNewFormat: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          activeMemberRoleHandler("owner"),
-          workspaceUpgradesHandler(() =>
-            upgradesFixture(
-              [
-                upgradeItemFixture({
-                  key: "reingest-bundle",
-                  kind: "reingest",
-                  title: "Fresh re-ingestion of the source repositories",
-                  steps: [],
-                  status: state.checked ? "awaiting_operator" : "blocked",
-                  blockedReason: state.checked ? null : "needs_format",
-                  note: state.checked
-                    ? null
-                    : "Re-ingestion needs format 3. Merge the format upgrade first.",
-                }),
-              ],
-              { formatVersion: 3 },
-            ),
-          ),
-          workspaceUpgradeStartHandler({ requests: startRequests }),
-          workspaceUpgradeCheckHandler({ requests: checkRequests }),
-        ],
-      },
-    },
-  },
+export const ReingestChecksNewFormat = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(async () =>
@@ -1230,16 +1161,38 @@ export const ReingestChecksNewFormat: Story = {
     await expectGroup(canvas, "Needs you", 1)
     expect(canvas.queryByText("Ready to start")).toBeNull()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      activeMemberRoleHandler("owner"),
+      workspaceUpgradesHandler(() =>
+        upgradesFixture(
+          [
+            upgradeItemFixture({
+              key: "reingest-bundle",
+              kind: "reingest",
+              title: "Fresh re-ingestion of the source repositories",
+              steps: [],
+              status: state.checked ? "awaiting_operator" : "blocked",
+              blockedReason: state.checked ? null : "needs_format",
+              note: state.checked
+                ? null
+                : "Re-ingestion needs format 3. Merge the format upgrade first.",
+            }),
+          ],
+          { formatVersion: 3 },
+        ),
+      ),
+      workspaceUpgradeStartHandler({ requests: startRequests }),
+      workspaceUpgradeCheckHandler({ requests: checkRequests }),
+    )
+  },
+})
 
 /**
  * Upgrades section of a Workspace: the re-ingestion is blocked because this
  * deployment cannot run it.
  */
-export const ReingestSandboxUnavailable: Story = {
-  parameters: {
-    ...blockedReingest("sandbox_unavailable"),
-  },
+export const ReingestSandboxUnavailable = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = await expectReingestCard(
       canvasElement,
@@ -1249,17 +1202,17 @@ export const ReingestSandboxUnavailable: Story = {
       expect(canvas.getByText(/no ingest sandbox/)).toBeVisible(),
     )
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(blockedReingest("sandbox_unavailable"))
+  },
+})
 
 /**
  * Upgrades section of a Workspace: ctxpipe has not read a valid format file at
  * the tip yet, so the re-ingestion is in Working now with no warning. The wait
  * is on ctxpipe, not on a person.
  */
-export const ReingestIngestionV2Off: Story = {
-  parameters: {
-    ...blockedReingest("ingestion_v2_off"),
-  },
+export const ReingestIngestionV2Off = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const working = await expectGroup(canvas, "Working now", 1)
@@ -1269,36 +1222,17 @@ export const ReingestIngestionV2Off: Story = {
       canvas.queryByText("The re-ingestion cannot run here yet"),
     ).toBeNull()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(blockedReingest("ingestion_v2_off"))
+  },
+})
 
 /**
  * Upgrades section of a read-only Workspace below format 3: the format upgrade
  * and the re-ingestion are both blocked. The format card names the cause, and
  * the re-ingestion gives one action.
  */
-export const ReadOnlyBelowFormat: Story = {
-  parameters: {
-    ...withUpgrades(
-      workspaceUpgradesHandler(
-        upgradesFixture([
-          upgradeItemFixture({
-            status: "blocked",
-            blockedReason: "write_access",
-            note: "ctxpipe needs write access through the GitHub App to open the upgrade pull request.",
-          }),
-          upgradeItemFixture({
-            key: "reingest-bundle",
-            kind: "reingest",
-            title: "Fresh re-ingestion of the source repositories",
-            steps: [],
-            status: "blocked",
-            blockedReason: "needs_format",
-            note: "Re-ingestion needs format 3. ctxpipe needs write access through the GitHub App to open the format upgrade pull request.",
-          }),
-        ]),
-      ),
-    ),
-  },
+export const ReadOnlyBelowFormat = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() =>
@@ -1317,7 +1251,29 @@ export const ReadOnlyBelowFormat: Story = {
     expect(canvas.getByText(/Finish the format upgrade/)).toBeVisible()
     expect(canvas.queryByRole("button", { name: /^Start/ })).toBeNull()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceUpgradesHandler(
+        upgradesFixture([
+          upgradeItemFixture({
+            status: "blocked",
+            blockedReason: "write_access",
+            note: "ctxpipe needs write access through the GitHub App to open the upgrade pull request.",
+          }),
+          upgradeItemFixture({
+            key: "reingest-bundle",
+            kind: "reingest",
+            title: "Fresh re-ingestion of the source repositories",
+            steps: [],
+            status: "blocked",
+            blockedReason: "needs_format",
+            note: "Re-ingestion needs format 3. ctxpipe needs write access through the GitHub App to open the format upgrade pull request.",
+          }),
+        ]),
+      ),
+    )
+  },
+})
 
 /**
  * Upgrades section of a Workspace that is up to date: an applied upgrade is in
@@ -1325,16 +1281,7 @@ export const ReadOnlyBelowFormat: Story = {
  * starts collapsed, so at first the section says only that the repository is up
  * to date.
  */
-export const HistoryWithAppliedUpgrade: Story = {
-  parameters: {
-    ...withUpgrades(
-      workspaceUpgradesHandler(
-        upgradesFixture([upgradeItemFixture({ status: "completed" })], {
-          formatVersion: 3,
-        }),
-      ),
-    ),
-  },
+export const HistoryWithAppliedUpgrade = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await expectUpToDate(canvas)
@@ -1374,13 +1321,19 @@ export const HistoryWithAppliedUpgrade: Story = {
       canvas.getByRole("list", { name: "Steps of Upgrade to format 3" }),
     ).toBeVisible()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceUpgradesHandler(
+        upgradesFixture([upgradeItemFixture({ status: "completed" })], {
+          formatVersion: 3,
+        }),
+      ),
+    )
+  },
+})
 
 /** Upgrades section of a Workspace: the upgrades failed to load. */
-export const LoadError: Story = {
-  parameters: {
-    ...withUpgrades(workspaceUpgradesHandler("error")),
-  },
+export const LoadError = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(async () =>
@@ -1392,16 +1345,35 @@ export const LoadError: Story = {
       expect(canvas.getByRole("button", { name: "Try again" })).toBeVisible(),
     )
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(workspaceUpgradesHandler("error"))
+  },
+})
 
 /**
  * Upgrades section of a Workspace: a re-ingestion card says what it does to the
  * Workspace repository, with no cost or time estimate. The range of the
  * estimate was too wide to help (CTX-894).
  */
-export const DescriptionWithoutEstimate: Story = {
-  parameters: {
-    ...withUpgrades(
+export const DescriptionWithoutEstimate = meta.story({
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(async () =>
+      expect(
+        await canvas.findByText(
+          /publishes the new knowledge files under knowledge\//,
+        ),
+      ).toBeVisible(),
+    )
+    await waitFor(async () =>
+      expect(
+        await canvas.findByText(/into \.ctxpipe\/sources\.yaml/),
+      ).toBeVisible(),
+    )
+    await waitFor(() => expect(canvas.queryByText(/Estimated cost/)).toBeNull())
+  },
+  beforeEach: ({ msw }) => {
+    msw.use(
       workspaceUpgradesHandler(
         upgradesFixture([
           upgradeItemFixture({
@@ -1421,46 +1393,16 @@ export const DescriptionWithoutEstimate: Story = {
           upgradeItemFixture(),
         ]),
       ),
-    ),
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await waitFor(async () =>
-      expect(
-        await canvas.findByText(
-          /publishes the new knowledge files under knowledge\//,
-        ),
-      ).toBeVisible(),
     )
-    await waitFor(async () =>
-      expect(
-        await canvas.findByText(/into \.ctxpipe\/sources\.yaml/),
-      ).toBeVisible(),
-    )
-    await waitFor(() => expect(canvas.queryByText(/Estimated cost/)).toBeNull())
   },
-}
+})
 
 /**
  * Upgrades section of a Workspace: the server refused the start (409), so a
  * toast gives the reason, and the card keeps its Start button because nothing
  * was queued.
  */
-export const StartRefused: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          activeMemberRoleHandler("owner"),
-          workspaceUpgradesHandler(upgradesFixture([upgradeItemFixture()])),
-          workspaceUpgradeStartHandler({
-            requests: startRequests,
-            answer: 409,
-          }),
-        ],
-      },
-    },
-  },
+export const StartRefused = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(
@@ -1479,31 +1421,37 @@ export const StartRefused: Story = {
       ).toBeEnabled(),
     )
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      activeMemberRoleHandler("owner"),
+      workspaceUpgradesHandler(upgradesFixture([upgradeItemFixture()])),
+      workspaceUpgradeStartHandler({
+        requests: startRequests,
+        answer: 409,
+      }),
+    )
+  },
+})
 
 /**
  * Upgrades section of a Workspace: the user role never loads, so neither Start
  * nor "Ask an admin" is visible.
  */
-export const RoleNeverAnswers: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          activeMemberRoleHandler("loading"),
-          workspaceUpgradesHandler(upgradesFixture([upgradeItemFixture()])),
-          workspaceUpgradeStartHandler({ requests: startRequests }),
-        ],
-      },
-    },
-  },
+export const RoleNeverAnswers = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await expectGroup(canvas, "Needs you", 1)
     expect(canvas.queryByRole("button", { name: /^Start/ })).toBeNull()
     expect(canvas.queryByText("Ask an admin")).toBeNull()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      activeMemberRoleHandler("loading"),
+      workspaceUpgradesHandler(upgradesFixture([upgradeItemFixture()])),
+      workspaceUpgradeStartHandler({ requests: startRequests }),
+    )
+  },
+})
 
 /**
  * Upgrades section of a Workspace: the format check of a re-ingestion ended
@@ -1511,14 +1459,9 @@ export const RoleNeverAnswers: Story = {
  * drives both lists, so the row moves in one render (CTX-980). The play moves
  * the page clock a minute ahead.
  */
-export const CheckingEndsAfterAMinute: Story = {
-  // An own Workspace: the minute counts from the first sight of this item.
-  args: { workspaceSlug: "docs-clock" },
-  parameters: {
-    visual: {
-      skip: "Behavior test: it ends in the state of Upgrades/Progress, Checking Format Times Out Admin.",
-    },
-    ...withUpgrades(
+export const CheckingEndsAfterAMinute = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
       workspaceUpgradesHandler(
         upgradesFixture(
           [
@@ -1534,7 +1477,14 @@ export const CheckingEndsAfterAMinute: Story = {
           { formatVersion: 3 },
         ),
       ),
-    ),
+    )
+  },
+  // An own Workspace: the minute counts from the first sight of this item.
+  args: { workspaceSlug: "docs-clock" },
+  parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the state of Upgrades/Progress, Checking Format Times Out Admin.",
+    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1559,7 +1509,7 @@ export const CheckingEndsAfterAMinute: Story = {
     expect(canvas.queryByText("Checking the new format")).toBeNull()
     expect(canvas.queryByRole("list", { name: "Working now" })).toBeNull()
   },
-}
+})
 
 /**
  * Upgrades section of a Workspace: the format file is not valid, so the card
@@ -1567,15 +1517,13 @@ export const CheckingEndsAfterAMinute: Story = {
  * of the card marks that it needs a person, and the automatic upgrades line
  * offers no button.
  */
-export const InvalidFormatFile: Story = {
-  beforeEach: () => {
+export const InvalidFormatFile = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceUpgradesHandler(upgradesFixture([], { formatVersion: -1 })),
+    )
     setting.mode = null
     setting.reason = "invalid_format"
-  },
-  parameters: {
-    ...withUpgrades(
-      workspaceUpgradesHandler(upgradesFixture([], { formatVersion: -1 })),
-    ),
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1602,16 +1550,16 @@ export const InvalidFormatFile: Story = {
     )
     expect(canvas.queryByRole("switch")).toBeNull()
   },
-}
+})
 
 /**
  * Upgrades section of a Workspace: the format pull request merged, and ctxpipe
  * has not read the new format yet. The re-ingestion waits for it, so the
  * Working now list has both rows.
  */
-export const MergedFormatWithReingestWaiting: Story = {
-  parameters: {
-    ...withUpgrades(
+export const MergedFormatWithReingestWaiting = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
       workspaceUpgradesHandler(
         upgradesFixture(
           [
@@ -1636,7 +1584,9 @@ export const MergedFormatWithReingestWaiting: Story = {
           { formatVersion: 2 },
         ),
       ),
-    ),
+    )
+  },
+  parameters: {
     visual: { allow: { axes: "A layout defect on main (CTX-1279)." } },
   },
   play: async ({ canvasElement }) => {
@@ -1659,19 +1609,14 @@ export const MergedFormatWithReingestWaiting: Story = {
     expect(canvas.queryByRole("list", { name: "Needs you" })).toBeNull()
     expect(canvas.queryByText("Apply the format upgrade first")).toBeNull()
   },
-}
+})
 
 /**
  * Upgrades section of a Workspace, for an owner: the owner turned the automatic
  * upgrades switch on and then off again (CTX-980). The line under the switch
  * says who starts each upgrade.
  */
-export const AutomaticUpgradesOnAndOff: Story = {
-  parameters: {
-    ...withUpgrades(
-      workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
-    ),
-  },
+export const AutomaticUpgradesOnAndOff = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const automatic = () =>
@@ -1715,24 +1660,16 @@ export const AutomaticUpgradesOnAndOff: Story = {
       ],
     )
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })))
+  },
+})
 
 /**
  * Upgrades section of a Workspace, for a member: the automatic upgrades switch
  * is visible but disabled, because only an owner or admin can change it.
  */
-export const MemberSeesAutomaticUpgrades: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          activeMemberRoleHandler("member"),
-          workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
-          ...workspaceUpgradeAutomaticHandlers({ setting }),
-        ],
-      },
-    },
-  },
+export const MemberSeesAutomaticUpgrades = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() =>
@@ -1749,23 +1686,21 @@ export const MemberSeesAutomaticUpgrades: Story = {
       ),
     ).toBeVisible()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      activeMemberRoleHandler("member"),
+      workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
+      ...workspaceUpgradeAutomaticHandlers({ setting }),
+    )
+  },
+})
 
 /**
  * Upgrades section of a Workspace: the loading skeleton and the up to date
  * state side by side, at the same size. The skeleton has the box of the Up to
  * date state (DESIGN.md Loading, Match).
  */
-export const SkeletonMatchesLoaded: Story = {
-  parameters: {
-    ...withUpgrades(
-      workspaceUpgradesHandler("loading", "loading"),
-      workspaceUpgradesHandler(
-        upgradesFixture([], { formatVersion: 3 }),
-        "docs",
-      ),
-    ),
-  },
+export const SkeletonMatchesLoaded = meta.story({
   render: () => (
     <SkeletonMatchFrame
       skeleton={<WorkspaceUpgrades orgSlug="acme" workspaceSlug="loading" />}
@@ -1784,7 +1719,16 @@ export const SkeletonMatchesLoaded: Story = {
     expect(canvas.getByText("Loading upgrades")).toBeInTheDocument()
     await expectSkeletonMatchesLoaded(canvasElement)
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceUpgradesHandler("loading", "loading"),
+      workspaceUpgradesHandler(
+        upgradesFixture([], { formatVersion: 3 }),
+        "docs",
+      ),
+    )
+  },
+})
 
 /** The automatic-upgrades setting answers when the play releases this gate. */
 const settingGate = responseGate()
@@ -1797,33 +1741,27 @@ const listAnswered: string[] = []
  * loaded. A card without the switch row is 22 px lower, and its growth moved
  * the scroll position of the settings pane (CTX-1466).
  */
-export const SkeletonWaitsForSetting: Story = {
+export const SkeletonWaitsForSetting = meta.story({
   parameters: {
     visual: { skip: "Behavior test: it ends in the same state as UpToDate." },
-    msw: {
-      handlers: {
-        page: [
-          activeMemberRoleHandler("owner"),
-          workspaceUpgradesHandler(
-            upgradesFixture([], { formatVersion: 3 }),
-            undefined,
-            listAnswered,
-          ),
-        ],
-        automatic: [
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname.endsWith("/upgrades/automatic"),
-            async () => {
-              await settingGate.wait()
-              return HttpResponse.json({ mode: "manual", reason: null })
-            },
-          ),
-        ],
-      },
-    },
   },
-  beforeEach: () => {
+  beforeEach: ({ msw }) => {
+    msw.use(
+      activeMemberRoleHandler("owner"),
+      workspaceUpgradesHandler(
+        upgradesFixture([], { formatVersion: 3 }),
+        undefined,
+        listAnswered,
+      ),
+      http.get(
+        ({ request }) =>
+          new URL(request.url).pathname.endsWith("/upgrades/automatic"),
+        async () => {
+          await settingGate.wait()
+          return HttpResponse.json({ mode: "manual", reason: null })
+        },
+      ),
+    )
     listAnswered.length = 0
   },
   play: async ({ canvasElement }) => {
@@ -1842,22 +1780,14 @@ export const SkeletonWaitsForSetting: Story = {
     )
     await expectUpToDate(canvas)
   },
-}
+})
 
 /** The Upgrades card of a Workspace that ingests sources (CTX-980). */
 function withIngestion(
   upgrades: ReturnType<typeof workspaceUpgradesHandler>,
   items: IngestionItem[],
 ) {
-  const parameters = withUpgrades(upgrades)
-  return {
-    msw: {
-      handlers: {
-        ...parameters.msw.handlers,
-        ingestion: workspaceIngestionHandlers({ docs: items }),
-      },
-    },
-  }
+  return [upgrades, ...workspaceIngestionHandlers({ docs: items })]
 }
 
 /**
@@ -1865,13 +1795,17 @@ function withIngestion(
  * open, so the card says Up to date. Sources show their own runs in the Sources
  * card, so the Upgrades card shows no run.
  */
-export const IngestionWorking: Story = {
+export const IngestionWorking = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...withIngestion(
+        workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
+        [ingestionItemFixture()],
+      ),
+    )
+  },
   parameters: {
     visual: { skip: "Behavior test: it ends in the same state as UpToDate." },
-    ...withIngestion(
-      workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
-      [ingestionItemFixture()],
-    ),
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1879,21 +1813,25 @@ export const IngestionWorking: Story = {
     expect(canvas.queryByRole("list", { name: "Ingesting now" })).toBeNull()
     expect(canvas.queryByText("acme/web")).toBeNull()
   },
-}
+})
 
 /**
  * Upgrades section of a Workspace while source ingestion runs: a format upgrade
  * needs the user, and it is the only item. The card shows no ingestion run.
  */
-export const IngestionWhileUpgradeNeedsYou: Story = {
+export const IngestionWhileUpgradeNeedsYou = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...withIngestion(
+        workspaceUpgradesHandler(upgradesFixture([upgradeItemFixture()])),
+        [ingestionItemFixture()],
+      ),
+    )
+  },
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as PurposeLine.",
     },
-    ...withIngestion(
-      workspaceUpgradesHandler(upgradesFixture([upgradeItemFixture()])),
-      [ingestionItemFixture()],
-    ),
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1901,4 +1839,4 @@ export const IngestionWhileUpgradeNeedsYou: Story = {
     expect(canvas.queryByRole("list", { name: "Ingesting now" })).toBeNull()
     expect(canvas.queryByText("acme/web")).toBeNull()
   },
-}
+})

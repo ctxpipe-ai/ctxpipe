@@ -1,8 +1,8 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
 import { Suspense, useState } from "react"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
+import preview from "../../../.storybook/preview"
 import { ConversationTurnChangesCard } from "./ConversationTurnChangesCard"
 import type { ConversationTurnChanges } from "./types"
 import { WorkspaceConversationDiffPane } from "./WorkspaceConversationDiff"
@@ -38,7 +38,7 @@ const changes: ConversationTurnChanges = {
   ],
 }
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Workspaces/ConversationTurnChangesCard",
   component: ConversationTurnChangesCard,
   decorators: [
@@ -53,17 +53,13 @@ const meta = {
     queryClient: true,
     review: { kind: "component" },
   },
-} satisfies Meta<typeof ConversationTurnChangesCard>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Changes card of one agent turn in a conversation, which lists the changed
  * files: the file list starts collapsed and only the counts show.
  */
-export const TurnCardCollapsed: Story = {
+export const TurnCardCollapsed = meta.story({
   parameters: {
     intent:
       "Catches a changes card that does not collapse or expand its file list. The summary counts stay and the Show and Hide buttons toggle the folders. Not for diffs.",
@@ -91,14 +87,14 @@ export const TurnCardCollapsed: Story = {
     )
     await expect(canvas.queryByText("apps/ui/src")).not.toBeInTheDocument()
   },
-}
+})
 
 /**
  * Changes card of one agent turn in a conversation, which lists the changed
  * files: a folder is open and shows its files with an Open diff button for
  * each.
  */
-export const TurnCardExpanded: Story = {
+export const TurnCardExpanded = meta.story({
   parameters: {
     intent:
       "Catches a changes card whose folder does not add up its files, or whose Open diff button does not call the open action. Not for the collapsed state.",
@@ -120,7 +116,7 @@ export const TurnCardExpanded: Story = {
     await userEvent.click(canvas.getByRole("button", { name: "Open diff" }))
     await expect(args.onOpenDiff).toHaveBeenCalledWith()
   },
-}
+})
 
 function CardAndPane() {
   const [open, setOpen] = useState<{ path?: string } | null>(null)
@@ -153,52 +149,45 @@ function CardAndPane() {
  * Changes card of one agent turn next to the diff pane: the user opened the
  * diff of one file, and the pane shows that file of this turn.
  */
-export const TurnCardOpensDiff: Story = {
+export const TurnCardOpensDiff = meta.story({
   tags: ["required"],
   decorators: [() => <CardAndPane />],
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(
+        /\/conversations\/conv_turn_card\/files\/diff$/,
+        ({ request }) => {
+          if (new URL(request.url).searchParams.get("turn") !== "run_turn_2")
+            return HttpResponse.json({ error: "Not found" }, { status: 404 })
+          return HttpResponse.json({
+            base: "main",
+            items: [
+              {
+                path: "apps/ui/src/Diff.tsx",
+                status: "modified",
+                additions: 2,
+                deletions: 1,
+                oldBody: "a\nb\n",
+                body: "a\nB\nc\n",
+              },
+              {
+                path: "apps/ui/src/pane.ts",
+                status: "modified",
+                additions: 1,
+                deletions: 1,
+                oldBody: "x\n",
+                body: "y\n",
+              },
+            ],
+          })
+        },
+      ),
+    )
+  },
   parameters: {
     visual: { allow: { overflow: "A layout defect on main (CTX-1279)." } },
     intent:
       "Catches a changes card that opens the diff of the wrong turn or file. The diff pane must read the turn of the card and show the chosen file. Not for card counts.",
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            /\/conversations\/conv_turn_card\/files\/diff$/,
-            ({ request }) => {
-              if (
-                new URL(request.url).searchParams.get("turn") !== "run_turn_2"
-              )
-                return HttpResponse.json(
-                  { error: "Not found" },
-                  { status: 404 },
-                )
-              return HttpResponse.json({
-                base: "main",
-                items: [
-                  {
-                    path: "apps/ui/src/Diff.tsx",
-                    status: "modified",
-                    additions: 2,
-                    deletions: 1,
-                    oldBody: "a\nb\n",
-                    body: "a\nB\nc\n",
-                  },
-                  {
-                    path: "apps/ui/src/pane.ts",
-                    status: "modified",
-                    additions: 1,
-                    deletions: 1,
-                    oldBody: "x\n",
-                    body: "y\n",
-                  },
-                ],
-              })
-            },
-          ),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -218,4 +207,4 @@ export const TurnCardOpensDiff: Story = {
       expect(canvasElement.querySelector("diffs-container")).not.toBeNull(),
     )
   },
-}
+})

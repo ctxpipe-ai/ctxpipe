@@ -207,7 +207,7 @@ export async function embedQuery(
  * One HTTP request with `texts`, in one span. The provider block has the ZDR
  * fields, and `sort` when it is set. The span holds counts, never content.
  */
-async function embedRequest(
+function embedRequest(
   texts: string[],
   config: TextEmbeddingConfig,
   sort?: "latency",

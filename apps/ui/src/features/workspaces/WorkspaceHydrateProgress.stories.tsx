@@ -1,9 +1,9 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, waitFor, within } from "storybook/test"
 
 import { signedInHandlers } from "@/mocks/handlers"
 
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
+import preview from "../../../.storybook/preview"
 import {
   failedHydrateWorkspace,
   hydratingWorkspace,
@@ -12,7 +12,7 @@ import { WorkspaceHydrateProgress } from "./WorkspaceHydrateProgress"
 
 const orgSlug = "acme"
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Workspaces/HydrateProgress",
   component: WorkspaceHydrateProgress,
   decorators: [
@@ -22,8 +22,10 @@ const meta = {
       </div>
     ),
   ],
+  beforeEach: ({ msw }) => {
+    msw.use(...signedInHandlers)
+  },
   parameters: {
-    msw: { handlers: { session: signedInHandlers } },
     app: "root",
     review: { kind: "component" },
     layout: "fullscreen",
@@ -33,17 +35,13 @@ const meta = {
     } satisfies StoryRouteParams,
   },
   args: { orgSlug, workspace: hydratingWorkspace },
-} satisfies Meta<typeof WorkspaceHydrateProgress>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Prepare panel of a new Workspace, which shows the setup steps: the repository
  * was fetched, and Reading knowledge is the current step.
  */
-export const PrepareReadingKnowledge: Story = {
+export const PrepareReadingKnowledge = meta.story({
   parameters: {
     intent:
       "Catches a prepare panel that shows the wrong step. It lists fetch then read, marks Reading knowledge as current, and avoids the word hydrate. Not for errors.",
@@ -62,13 +60,13 @@ export const PrepareReadingKnowledge: Story = {
     expect(steps[0]).not.toHaveAttribute("aria-current")
     expect(canvasElement.textContent).not.toMatch(/hydrate/i)
   },
-}
+})
 
 /**
  * Prepare panel of a new Workspace, which shows the setup steps: the latest
  * commit is not known yet, so Try again shows.
  */
-export const PrepareWaitingForTip: Story = {
+export const PrepareWaitingForTip = meta.story({
   parameters: {
     intent:
       "Catches a prepare panel with no known commit that gives no next step. It explains the latest commit is unknown and offers Try again. Not for a known commit.",
@@ -90,13 +88,13 @@ export const PrepareWaitingForTip: Story = {
   args: {
     workspace: { ...hydratingWorkspace, desiredSha: null },
   },
-}
+})
 
 /**
  * Prepare panel of a new Workspace, which shows the setup steps: the prepare
  * failed, so the error, a settings hint, and Try again show.
  */
-export const PrepareFailed: Story = {
+export const PrepareFailed = meta.story({
   parameters: {
     intent:
       "Catches a failed prepare that shows no cause or retry. It shows the error, a settings hint, and Try again, with no step list. Not for a prepare in progress.",
@@ -120,13 +118,13 @@ export const PrepareFailed: Story = {
   args: {
     workspace: failedHydrateWorkspace,
   },
-}
+})
 
 /**
  * Prepare panel of a new Workspace, which shows the setup steps. The prepare is
  * pending but already has a stored error, so the failed panel shows.
  */
-export const PreparePendingWithError: Story = {
+export const PreparePendingWithError = meta.story({
   parameters: {
     intent:
       "Catches a pending workspace with a stored error that shows the step list. The failed panel must show the error and Try again. Not for a clean pending state.",
@@ -154,13 +152,13 @@ export const PreparePendingWithError: Story = {
     expect(canvas.getByRole("button", { name: "Try again" })).toBeVisible()
     expect(canvas.queryByRole("listitem")).toBeNull()
   },
-}
+})
 
 /**
  * Prepare panel of a new Workspace, which shows the setup steps. ctxpipe cannot
  * read the repository, so a link opens Connectors to fix the access.
  */
-export const PrepareNoAccess: Story = {
+export const PrepareNoAccess = meta.story({
   args: {
     workspace: {
       ...failedHydrateWorkspace,
@@ -181,4 +179,4 @@ export const PrepareNoAccess: Story = {
     ).toHaveAttribute("href", `/${orgSlug}/connectors`)
     expect(canvas.getByRole("button", { name: "Try again" })).toBeVisible()
   },
-}
+})

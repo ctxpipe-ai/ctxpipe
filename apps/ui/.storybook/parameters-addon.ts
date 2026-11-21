@@ -4,10 +4,10 @@ import type { FileRoutesById } from "../src/routeTree.gen"
 import type { StoryRouteParams } from "./decorators/with-story-route"
 
 // The types of the ctxpipe story parameters. A local addon gives them to
-// `definePreview({ addons: [...] })` of preview.tsx, so that a CSF 4 story
-// file (`preview.meta(...)`, `meta.story(...)`) with a wrong value fails the
+// `definePreview({ addons: [...] })` of preview.tsx, so that a story file
+// (`preview.meta(...)`, `meta.story(...)`) with a wrong value fails the
 // typecheck. The addon has no annotations: the decorators and loaders stay in
-// preview.tsx. A CSF 3 story file does not get these types.
+// preview.tsx.
 
 type StoryParameters = {
   /**

@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { BUILDKITE_SOURCE_MAX_PIPELINES } from "backend/domain/workspace-sources/providers/buildkite"
 import { delay, HttpResponse, http } from "msw"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
@@ -7,6 +6,7 @@ import { buildkitePipelinesHandler } from "@/mocks/buildkite-handlers"
 import { signedInHandlers } from "@/mocks/handlers"
 
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
+import preview from "../../../../.storybook/preview"
 import { sourceDialogStoryFrame } from "../source-dialog-story-frame"
 import { BuildkiteScopeEditor } from "./buildkite"
 
@@ -15,10 +15,13 @@ const pipelinesPath = ({ request }: { request: Request }) =>
     "/api/v1/connectors/buildkite/pipelines",
   )
 
-const meta = {
+const meta = preview.meta({
   title: "Components/WorkspaceSources/BuildkiteScopeEditor",
   component: BuildkiteScopeEditor,
   decorators: [sourceDialogStoryFrame],
+  beforeEach: ({ msw }) => {
+    msw.use(...signedInHandlers, buildkitePipelinesHandler)
+  },
   parameters: {
     app: "root",
     review: { kind: "component" },
@@ -27,12 +30,6 @@ const meta = {
       pattern: "orgIndex",
       orgSlug: "acme",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        session: signedInHandlers,
-        page: [buildkitePipelinesHandler],
-      },
-    },
   },
   args: {
     orgSlug: "acme",
@@ -41,18 +38,14 @@ const meta = {
     initialScope: {},
     onChange: fn(),
   },
-} satisfies Meta<typeof BuildkiteScopeEditor>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Buildkite scope editor in the Add source dialog, where the user picks the
  * pipelines that a Workspace source syncs: from an empty selection, the user
  * ticks Web App and API.
  */
-export const SelectPipelines: Story = {
+export const SelectPipelines = meta.story({
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
     await waitFor(() =>
@@ -67,14 +60,14 @@ export const SelectPipelines: Story = {
       pipelines: ["web-app", "api"],
     })
   },
-}
+})
 
 /**
  * Buildkite scope editor in the Add source dialog: Web App is selected, the
  * user filters for deploy and ticks Deploy production, and Web App stays in the
  * list as selected.
  */
-export const FilterKeepsTheSelection: Story = {
+export const FilterKeepsTheSelection = meta.story({
   args: { label: "CI", initialScope: { pipelines: ["web-app"] } },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
@@ -101,14 +94,14 @@ export const FilterKeepsTheSelection: Story = {
       pipelines: ["web-app", "deploy-production"],
     })
   },
-}
+})
 
 /**
  * Buildkite scope editor in the Edit source dialog: the saved scope has a
  * pipeline that Buildkite no longer lists, which shows by its slug, and the
  * user clears it.
  */
-export const RemovedPipelineCanBeCleared: Story = {
+export const RemovedPipelineCanBeCleared = meta.story({
   args: { initialScope: { pipelines: ["old-pipeline", "api"] } },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
@@ -120,7 +113,7 @@ export const RemovedPipelineCanBeCleared: Story = {
       pipelines: ["api"],
     })
   },
-}
+})
 
 // One more pipeline than a source can hold. Each service has a build and
 // two deploy pipelines, as in a real Buildkite organization.
@@ -154,18 +147,7 @@ const manyPipelines = [
  * the user ticks one more, so an error states the 50-pipeline limit and the
  * dialog cannot save.
  */
-export const OverThePipelineLimit: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.get(pipelinesPath, () =>
-            HttpResponse.json({ items: manyPipelines, truncated: false }),
-          ),
-        ],
-      },
-    },
-  },
+export const OverThePipelineLimit = meta.story({
   args: {
     // A full selection: all pipelines but the first.
     initialScope: {
@@ -185,25 +167,20 @@ export const OverThePipelineLimit: Story = {
     // Above the cap, the scope is not ready, so the dialog cannot save.
     await expect(args.onChange).toHaveBeenLastCalledWith(null)
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(pipelinesPath, () =>
+        HttpResponse.json({ items: manyPipelines, truncated: false }),
+      ),
+    )
+  },
+})
 
 /**
  * Buildkite scope editor, where the user picks the pipelines of a Workspace
  * source: the pipeline list still loads.
  */
-export const Loading: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.get(pipelinesPath, async () => {
-            await delay("infinite")
-            return HttpResponse.json({})
-          }),
-        ],
-      },
-    },
-  },
+export const Loading = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
     await waitFor(() =>
@@ -212,35 +189,39 @@ export const Loading: Story = {
       ).toBeInTheDocument(),
     )
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(pipelinesPath, async () => {
+        await delay("infinite")
+        return HttpResponse.json({})
+      }),
+    )
+  },
+})
 
 /**
  * Buildkite scope editor, where the user picks the pipelines of a Workspace
  * source: Buildkite refuses the access token, so an error asks the user to
  * reconnect Buildkite.
  */
-export const LoadError: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.get(pipelinesPath, () =>
-            HttpResponse.json(
-              {
-                error:
-                  "Buildkite does not accept the API access token of this connection. Reconnect Buildkite.",
-              },
-              { status: 400 },
-            ),
-          ),
-        ],
-      },
-    },
-  },
+export const LoadError = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
     await waitFor(() =>
       expect(canvas.getByText(/Reconnect Buildkite/)).toBeVisible(),
     )
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(pipelinesPath, () =>
+        HttpResponse.json(
+          {
+            error:
+              "Buildkite does not accept the API access token of this connection. Reconnect Buildkite.",
+          },
+          { status: 400 },
+        ),
+      ),
+    )
+  },
+})

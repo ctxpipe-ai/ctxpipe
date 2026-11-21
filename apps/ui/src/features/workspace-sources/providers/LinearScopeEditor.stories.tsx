@@ -1,17 +1,20 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
 import { signedInHandlers } from "@/mocks/handlers"
 import { linearAvailableScopesHandler } from "@/mocks/linear-handlers"
 
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
+import preview from "../../../../.storybook/preview"
 import { sourceDialogStoryFrame } from "../source-dialog-story-frame"
 import { LinearScopeEditor } from "./linear"
 
-const meta = {
+const meta = preview.meta({
   title: "Components/WorkspaceSources/LinearScopeEditor",
   component: LinearScopeEditor,
   decorators: [sourceDialogStoryFrame],
+  beforeEach: ({ msw }) => {
+    msw.use(...signedInHandlers, linearAvailableScopesHandler())
+  },
   parameters: {
     app: "root",
     review: { kind: "component" },
@@ -20,12 +23,6 @@ const meta = {
       pattern: "orgIndex",
       orgSlug: "acme",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        session: signedInHandlers,
-        page: [linearAvailableScopesHandler()],
-      },
-    },
   },
   args: {
     orgSlug: "acme",
@@ -34,18 +31,14 @@ const meta = {
     initialScope: {},
     onChange: fn(),
   },
-} satisfies Meta<typeof LinearScopeEditor>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Linear scope editor, where the user picks the teams and projects of a
  * Workspace source: the user picks a team and a project and turns off customer
  * requests.
  */
-export const PicksTeamsAndProjects: Story = {
+export const PicksTeamsAndProjects = meta.story({
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(
@@ -65,14 +58,14 @@ export const PicksTeamsAndProjects: Story = {
       customerRequests: "exclude",
     })
   },
-}
+})
 
 /**
  * Linear scope editor, where the user picks the teams and projects of a
  * Workspace source: the user clears the last team, so the scope is not ready
  * and a hint asks for one.
  */
-export const EmptySelectionIsNotReady: Story = {
+export const EmptySelectionIsNotReady = meta.story({
   args: { initialScope: { teams: ["ENG"] } },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
@@ -84,14 +77,14 @@ export const EmptySelectionIsNotReady: Story = {
       canvas.getByText("Select at least one team or project."),
     ).toBeVisible()
   },
-}
+})
 
 /**
  * Linear scope editor, where the user picks the teams and projects of a
  * Workspace source: a saved scope has a team that Linear no longer has, marked
  * as not found.
  */
-export const EditsAnExistingScope: Story = {
+export const EditsAnExistingScope = meta.story({
   args: {
     initialScope: { teams: ["ops", "OLD"], customerRequests: "exclude" },
   },
@@ -114,17 +107,14 @@ export const EditsAnExistingScope: Story = {
       customerRequests: "exclude",
     })
   },
-}
+})
 
 /**
  * Linear scope editor in the Add source dialog: the request for the Linear
  * teams and projects failed, so an error alert with Retry stands in place of
  * the list.
  */
-export const LoadError: Story = {
-  parameters: {
-    msw: { handlers: { page: [linearAvailableScopesHandler("error")] } },
-  },
+export const LoadError = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() =>
@@ -134,4 +124,7 @@ export const LoadError: Story = {
     )
     await expect(canvas.getByRole("button", { name: "Retry" })).toBeVisible()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(linearAvailableScopesHandler("error"))
+  },
+})

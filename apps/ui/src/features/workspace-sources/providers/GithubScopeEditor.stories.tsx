@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, http } from "msw"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
@@ -6,6 +5,7 @@ import { signedInHandlers } from "@/mocks/handlers"
 import { githubInstallationReposHandler } from "@/mocks/workspace-handlers"
 
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
+import preview from "../../../../.storybook/preview"
 import { sourceDialogStoryFrame } from "../source-dialog-story-frame"
 import { GithubScopeEditor } from "./github"
 
@@ -18,10 +18,13 @@ const repos = [
   clone_url: `https://github.com/${repo.full_name}.git`,
 }))
 
-const meta = {
+const meta = preview.meta({
   title: "Components/WorkspaceSources/GithubScopeEditor",
   component: GithubScopeEditor,
   decorators: [sourceDialogStoryFrame],
+  beforeEach: ({ msw }) => {
+    msw.use(...signedInHandlers, githubInstallationReposHandler(repos))
+  },
   parameters: {
     app: "root",
     review: { kind: "component" },
@@ -30,12 +33,6 @@ const meta = {
       pattern: "orgIndex",
       orgSlug: "acme",
     } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        session: signedInHandlers,
-        page: [githubInstallationReposHandler(repos)],
-      },
-    },
   },
   args: {
     orgSlug: "acme",
@@ -44,41 +41,33 @@ const meta = {
     initialScope: {},
     onChange: fn(),
   },
-} satisfies Meta<typeof GithubScopeEditor>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * GitHub scope editor, where the user picks the repositories of a Workspace
  * source: the repository list still loads.
  */
-export const Loading: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.get(/\/github\/installation\/repositories$/, async () => {
-            await delay("infinite")
-          }),
-        ],
-      },
-    },
-  },
+export const Loading = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await expect(
       await canvas.findByText("Loading repositories"),
     ).toBeInTheDocument()
   },
-}
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(/\/github\/installation\/repositories$/, async () => {
+        await delay("infinite")
+      }),
+    )
+  },
+})
 
 /**
  * GitHub scope editor, where the user picks the repositories of a Workspace
  * source: the user picks two repositories.
  */
-export const SelectTwoRepositories: Story = {
+export const SelectTwoRepositories = meta.story({
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(
@@ -90,14 +79,14 @@ export const SelectTwoRepositories: Story = {
     })
     await expect(canvas.getByText("2 selected")).toBeVisible()
   },
-}
+})
 
 /**
  * GitHub scope editor in the Edit source dialog: the saved scope has acme/web
  * and acme/gone, a repository that the connection can no longer see, and the
  * user unticks acme/gone.
  */
-export const InitialScopeSelected: Story = {
+export const InitialScopeSelected = meta.story({
   args: { initialScope: { repositories: ["acme/web", "acme/gone"] } },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
@@ -118,14 +107,14 @@ export const InitialScopeSelected: Story = {
       repositories: ["acme/web"],
     })
   },
-}
+})
 
 /**
  * GitHub scope editor, where the user picks the repositories of a Workspace
  * source: the user clears the last repository, so the scope is empty and a hint
  * asks for one.
  */
-export const EmptyGivesNull: Story = {
+export const EmptyGivesNull = meta.story({
   args: { initialScope: { repositories: ["acme/api"] } },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
@@ -137,13 +126,13 @@ export const EmptyGivesNull: Story = {
       canvas.getByText("Select at least one repository."),
     ).toBeVisible()
   },
-}
+})
 
 /**
  * GitHub scope editor, where the user picks the repositories of a Workspace
  * source: a search narrows the list to the matching repository.
  */
-export const SearchFilters: Story = {
+export const SearchFilters = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.type(
@@ -157,4 +146,4 @@ export const SearchFilters: Story = {
       canvas.queryByRole("checkbox", { name: "acme/api" }),
     ).toBeNull()
   },
-}
+})
