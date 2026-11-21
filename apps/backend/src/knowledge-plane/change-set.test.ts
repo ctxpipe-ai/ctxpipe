@@ -124,10 +124,7 @@ describe("planKnowledgeChangeSet", () => {
       files: ["a.md", "notes/b.md"],
     })
     expect(
-      await plan(
-        { lastSha: null, branch: null, projectionVersion: null },
-        tip,
-      ),
+      await plan({ lastSha: null, branch: null, projectionVersion: null }, tip),
     ).toMatchObject({ kind: "full", reason: "first_run" })
   })
 
@@ -150,9 +147,11 @@ describe("planKnowledgeChangeSet", () => {
   it("rebuilds in full when the default branch is not the branch of the head", async () => {
     const base = await commit({ "a.md": "a1" })
     const tip = await commit({ "b.md": "b1" })
-    expect(
-      await plan({ ...started(base), branch: "master" }, tip),
-    ).toEqual({ kind: "full", reason: "branch", files: ["a.md", "b.md"] })
+    expect(await plan({ ...started(base), branch: "master" }, tip)).toEqual({
+      kind: "full",
+      reason: "branch",
+      files: ["a.md", "b.md"],
+    })
   })
 
   it.each([

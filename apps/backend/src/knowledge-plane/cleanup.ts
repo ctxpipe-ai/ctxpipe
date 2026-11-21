@@ -12,7 +12,10 @@ import { getLogger } from "../observability/logger.js"
  * of a run that stopped before it moved the head uses the file versions of
  * that run and pays no model call again.
  */
-const GRACE = { replacedTreeRowMs: 60 * 60_000, unusedFileVersionMs: 86_400_000 }
+const GRACE = {
+  replacedTreeRowMs: 60 * 60_000,
+  unusedFileVersionMs: 86_400_000,
+}
 
 /**
  * Deletes the tree rows and the file versions of a Workspace that no head

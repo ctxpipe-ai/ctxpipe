@@ -893,7 +893,10 @@ async function readTree(
   assertScope(scope)
   const rows = await selectIn<TreeRecord>(
     client,
-    { orgId: scope.orgId, heads: [{ workspaceId: scope.workspaceId, ...head }] },
+    {
+      orgId: scope.orgId,
+      heads: [{ workspaceId: scope.workspaceId, ...head }],
+    },
     `WITH tree_view AS (${treeView})
      SELECT doc_key AS docKey, version, path, status, doc_kind AS kind,
        observed_at AS observedAt, valid_from AS validFrom,
@@ -1587,7 +1590,10 @@ async function readFrontier(
 }
 
 /** A `missing` document: a target with no row in the view. */
-const missingDocument = (docKey: string, observedAt: Date): KnowledgeDocument => ({
+const missingDocument = (
+  docKey: string,
+  observedAt: Date,
+): KnowledgeDocument => ({
   docKey,
   kind: "",
   status: "missing",

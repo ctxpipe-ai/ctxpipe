@@ -33,7 +33,11 @@ const orgB: KnowledgeReadScope = {
   orgId: "org_read_b",
   heads: [{ ...head, treeVersion: 1 }],
 }
-const otherHead = { workspaceId: otherWorkspace, branch: "main", treeVersion: 1 }
+const otherHead = {
+  workspaceId: otherWorkspace,
+  branch: "main",
+  treeVersion: 1,
+}
 
 const dimensions = 16
 /** The query vector. No dimension is 0. */
@@ -534,7 +538,10 @@ describe("search", () => {
       store.readFrontier({ orgId: "", heads: [head] }, []),
     ).rejects.toThrow(refused)
     await expect(
-      store.readDocuments({ orgId: orgA.orgId, heads: [{ ...head, branch: "" }] }, []),
+      store.readDocuments(
+        { orgId: orgA.orgId, heads: [{ ...head, branch: "" }] },
+        [],
+      ),
     ).rejects.toThrow(refused)
   })
 })
@@ -561,9 +568,9 @@ describe("tree view (ADR-071 decision 4)", () => {
         ({ document }) => document.title,
       ),
     ).toEqual(["Unfinished lexical", "unfinished.md"])
-    expect(
-      hitKeys(await search({ terms: ["unfinished"] }, moved)),
-    ).toContain("unfinished.md")
+    expect(hitKeys(await search({ terms: ["unfinished"] }, moved))).toContain(
+      "unfinished.md",
+    )
     const hits = await search({ terms: ["zebracorn"] }, moved)
     expect(
       hits.find((hit) => hit.document.docKey === "lexical.md")?.chunks[0]?.text,
@@ -587,7 +594,9 @@ describe("tree view (ADR-071 decision 4)", () => {
     const [old] = await store.readDocuments(orgA, [
       { workspaceId: workspace, docKey: "old.md" },
     ])
-    expect(old?.document.validFrom).toEqual(new Date("2020-01-01T00:00:00.000Z"))
+    expect(old?.document.validFrom).toEqual(
+      new Date("2020-01-01T00:00:00.000Z"),
+    )
   })
 })
 

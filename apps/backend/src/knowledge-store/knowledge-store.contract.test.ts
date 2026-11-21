@@ -573,9 +573,11 @@ describe("org isolation of reads", () => {
       // The same file version key in two orgs: the tree of org B joins only
       // the file versions of org B.
       expect(
-        (await store.findFileVersions(orgB, [
-          { docKey: "a.md", version: "v1" },
-        ])).size,
+        (
+          await store.findFileVersions(orgB, [
+            { docKey: "a.md", version: "v1" },
+          ])
+        ).size,
       ).toBe(0)
     } finally {
       await store.close()
@@ -1040,7 +1042,11 @@ describe("users and mutations", () => {
     })
 
     it("a retry of a write that stopped before its document row stores each row one time", async () => {
-      const next = { ...rowsOf("Doc v3", "doc.md"), version: "v3", blobSha: "b" }
+      const next = {
+        ...rowsOf("Doc v3", "doc.md"),
+        version: "v3",
+        blobSha: "b",
+      }
       // The rest of a stopped write: chunks and relations, no document row.
       await writer.writeFileVersions(target, [next])
       await rawClient(adminUrl).command({
@@ -1049,9 +1055,11 @@ describe("users and mutations", () => {
         clickhouse_settings: { [ORG_SETTING]: target.orgId },
       })
       expect(
-        (await writer.findFileVersions(target, [
-          { docKey: "doc.md", version: "v3" },
-        ])).size,
+        (
+          await writer.findFileVersions(target, [
+            { docKey: "doc.md", version: "v3" },
+          ])
+        ).size,
       ).toBe(0)
       const counter = { mutations: 0 }
       await writer.writeFileVersions(target, [next], counter)
@@ -1099,9 +1107,11 @@ describe("users and mutations", () => {
       ).toBe("Doc")
       // The file version stays: only the cleanup removes it.
       expect(
-        (await writer.findFileVersions(target, [
-          { docKey: "doc.md", version: "v2" },
-        ])).size,
+        (
+          await writer.findFileVersions(target, [
+            { docKey: "doc.md", version: "v2" },
+          ])
+        ).size,
       ).toBe(1)
     })
 
@@ -1111,9 +1121,7 @@ describe("users and mutations", () => {
         (entry) => entry.docKey === "target.md",
       )
       if (!targetEntry) throw new Error("No tree row of target.md")
-      await writer.writeTree(target, "main", 3, [
-        { ...targetEntry, deletedAt },
-      ])
+      await writer.writeTree(target, "main", 3, [{ ...targetEntry, deletedAt }])
       const stored = await readOne(reader, at(target, 3), "target.md")
       expect(stored?.document).toMatchObject({
         title: "Target",
@@ -1191,11 +1199,13 @@ describe("users and mutations", () => {
       expect(await readOne(reader, at(target, 2), "doc.md")).toEqual(view)
       expect(
         [
-          ...(await writer.findFileVersions(target, [
-            { docKey: "doc.md", version: "v1" },
-            { docKey: "doc.md", version: "v2" },
-            { docKey: "target.md", version: "v1" },
-          ])).keys(),
+          ...(
+            await writer.findFileVersions(target, [
+              { docKey: "doc.md", version: "v1" },
+              { docKey: "doc.md", version: "v2" },
+              { docKey: "target.md", version: "v1" },
+            ])
+          ).keys(),
         ].sort(),
       ).toEqual(["doc.md\0v2", "target.md\0v1"])
       expect(await counts(target)).toEqual({

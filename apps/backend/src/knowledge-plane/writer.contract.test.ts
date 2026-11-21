@@ -497,7 +497,9 @@ async function content(workspaceId: string, paths: string[]) {
     ...result,
     /** The paths whose tree row is a tombstone. */
     empty: Object.entries(await statusOf(workspaceId))
-      .flatMap(([docKey, status]) => (status === "deleted" ? [named(docKey)] : []))
+      .flatMap(([docKey, status]) =>
+        status === "deleted" ? [named(docKey)] : [],
+      )
       .sort(),
   }
 }
@@ -841,10 +843,12 @@ describe("projectKnowledgePlane", () => {
       const after = await content(stepwise, historyPaths)
       for (const table of tables)
         expect(after[table], table).toEqual(shown[table])
-      expect({ embeddings: embeddings.requests, vision: vision.calls }).toEqual({
-        embeddings: 0,
-        vision: 0,
-      })
+      expect({ embeddings: embeddings.requests, vision: vision.calls }).toEqual(
+        {
+          embeddings: 0,
+          vision: 0,
+        },
+      )
     } finally {
       await remote.remove()
     }
@@ -1187,9 +1191,7 @@ describe("projectKnowledgePlane", () => {
         [b]: "missing",
         [e]: "failed",
       })
-      expect((await readOne(workspaceId, e))?.document.error).toBe(
-        "malformed",
-      )
+      expect((await readOne(workspaceId, e))?.document.error).toBe("malformed")
       expect(await getKnowledgeState(scope)).toMatchObject({
         lastSha: one,
         runStatus: "completed",
@@ -1355,7 +1357,10 @@ describe("projectKnowledgePlane", () => {
           await readOne(workspaceId, key(workspaceId, "copy/logo.svg"))
         )?.chunks.map((chunk) => chunk.text),
       ).toEqual(logo?.chunks.map((chunk) => chunk.text))
-      const runbook = await readOne(workspaceId, key(workspaceId, "runbook.pdf"))
+      const runbook = await readOne(
+        workspaceId,
+        key(workspaceId, "runbook.pdf"),
+      )
       expect(runbook?.document).toMatchObject({
         kind: "document",
         mime: "application/pdf",
@@ -1369,15 +1374,13 @@ describe("projectKnowledgePlane", () => {
         )?.chunks.map((chunk) => chunk.text),
       ).toEqual(runbook?.chunks.map((chunk) => chunk.text))
       expect(
-        (await readOne(workspaceId, key(workspaceId, "fake.png")))
-          ?.document,
+        (await readOne(workspaceId, key(workspaceId, "fake.png")))?.document,
       ).toMatchObject({
         status: "failed",
         error: "The vision model answered 400.",
       })
       expect(
-        (await readOne(workspaceId, key(workspaceId, "old.doc")))
-          ?.document,
+        (await readOne(workspaceId, key(workspaceId, "old.doc")))?.document,
       ).toMatchObject({
         status: "failed",
         error: "No converter takes .doc files.",
@@ -1438,10 +1441,9 @@ describe("projectKnowledgePlane", () => {
  * target) and the status of the neighbor.
  */
 async function frontierOf(workspaceId: string, path: string) {
-  const relations = await store.readFrontier(
-    await viewOf(workspaceId),
-    [{ workspaceId, docKey: key(workspaceId, path) }],
-  )
+  const relations = await store.readFrontier(await viewOf(workspaceId), [
+    { workspaceId, docKey: key(workspaceId, path) },
+  ])
   return relations
     .map(({ direction, relation, neighbor }) => ({
       direction,
@@ -1547,9 +1549,9 @@ describe("reference keys (CTX-1400)", () => {
           await remote.commit({ [issue.path]: issue.content }),
         ),
       ).toMatchObject({ mode: "delta", documentsChanged: 1 })
-      expect(
-        await readOne(workspaceId, key(workspaceId, pull.path)),
-      ).toEqual(before)
+      expect(await readOne(workspaceId, key(workspaceId, pull.path))).toEqual(
+        before,
+      )
       expect(await frontierOf(workspaceId, pull.path)).toEqual(resolved)
     } finally {
       await remote.remove()
@@ -1616,10 +1618,9 @@ describe("reference keys (CTX-1400)", () => {
           [changes.path]: changes.content,
         }),
       )
-      const relations = await store.readFrontier(
-        await viewOf(workspaceId),
-        [{ workspaceId, docKey: key(workspaceId, changes.path) }],
-      )
+      const relations = await store.readFrontier(await viewOf(workspaceId), [
+        { workspaceId, docKey: key(workspaceId, changes.path) },
+      ])
       expect(
         relations
           .filter(({ relation }) => relation.predicate === "CHANGED")

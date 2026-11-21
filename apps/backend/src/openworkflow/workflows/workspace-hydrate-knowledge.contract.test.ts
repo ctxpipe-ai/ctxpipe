@@ -61,15 +61,26 @@ async function runsOf(workflowName: string, workspaceId: string) {
   ).rows as { sha: string | null; status: string }[]
 }
 
-/** The document keys of the Workspace in ClickHouse, with their status. */
+/** The document keys that the head of the Workspace shows, with their status. */
 async function storedDocuments(f: NativeHydrationFixture) {
   const store = createKnowledgeStore(writerUrl)
   try {
+    const state = await getKnowledgeState({
+      orgId: f.org.id,
+      workspaceId: f.workspaceId,
+    })
+    if (!state?.branch || state.treeVersion === null) return {}
     return Object.fromEntries(
       (
-        await store.listDocumentKeys({
+        await store.listDocumentStatuses({
           orgId: f.org.id,
-          workspaceId: f.workspaceId,
+          heads: [
+            {
+              workspaceId: f.workspaceId,
+              branch: state.branch,
+              treeVersion: state.treeVersion,
+            },
+          ],
         })
       ).map((row) => [row.docKey, row.status]),
     )
@@ -121,7 +132,8 @@ it(
         await f.publish()
         await waitForKnowledgeState(f, {
           lastSha: f.sha,
-          attemptShas: [],
+          branch: "main",
+          treeVersion: 1,
           runStatus: "completed",
           failedCount: 0,
         })
@@ -188,7 +200,7 @@ it(
         // The writer throws, and the state keeps `last_sha`.
         await waitForKnowledgeState(f, {
           lastSha: f.sha,
-          attemptShas: [tip],
+          treeVersion: 1,
           runStatus: "failed",
         })
         // The run of the new tip did not end: it waits for its next attempt.
@@ -202,7 +214,7 @@ it(
         process.env.CLICKHOUSE_URL = writerUrl
         await waitForKnowledgeState(f, {
           lastSha: tip,
-          attemptShas: [],
+          treeVersion: 2,
           runStatus: "completed",
         })
         expect(await storedDocuments(f)).toMatchObject({
@@ -260,7 +272,7 @@ it(
             orgId: f.org.id,
             workspaceId: f.workspaceId,
           }),
-        ).toMatchObject({ lastSha: f.sha, attemptShas: [] })
+        ).toMatchObject({ lastSha: f.sha, runStatus: "completed" })
         expect(await storedDocuments(f)).not.toHaveProperty(
           servingIdForKnowledgePath(f.workspaceId, "d.md"),
         )

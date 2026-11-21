@@ -366,9 +366,10 @@ async function applyChangeSet(input: {
     ),
   })
   const current = new Map(
-    (input.head ? await store.readTree(scope, input.head) : []).map(
-      (entry) => [entry.docKey, entry],
-    ),
+    (input.head ? await store.readTree(scope, input.head) : []).map((entry) => [
+      entry.docKey,
+      entry,
+    ]),
   )
   // Only regular files: a submodule, a symlink or a removed path gives no
   // document. A delta also writes each file that a commit after a fork

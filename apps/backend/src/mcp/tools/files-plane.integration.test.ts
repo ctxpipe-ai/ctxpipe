@@ -26,6 +26,7 @@ import {
   completeKnowledgeRun,
 } from "../../models/knowledge-state.js"
 import { startClickHouse, userUrl } from "../../test/clickhouse.js"
+import { writePlaneDocuments } from "../../test/knowledge-plane.js"
 import {
   callTool,
   connectToolClient,
@@ -127,11 +128,13 @@ async function setReady(ready: boolean) {
       ),
   )
   if (!ready) return
-  await beginKnowledgeRun({ orgId: seed.orgId, workspaceId, tip: servedSha })
+  await beginKnowledgeRun({ orgId: seed.orgId, workspaceId })
   await completeKnowledgeRun({
     orgId: seed.orgId,
     workspaceId,
     tip: servedSha,
+    branch: "main",
+    treeVersion: 1,
     projectionVersion: "test",
     failedCount: 0,
   })
@@ -252,27 +255,26 @@ describe("read_file and list_files on the knowledge plane", () => {
     const writer = createKnowledgeStore(url)
     try {
       // The payments unit has no document row on the plane.
-      await writer.applyDocuments(
+      await writePlaneDocuments(
+        writer,
         { orgId: seed.orgId, workspaceId },
-        {
-          documents: [CHECKOUT].map((path) => ({
-            document: {
-              docKey: servingIdForKnowledgePath(workspaceId, path),
-              kind: "",
-              title: path,
-              path,
-              sourceType: "docs",
-              source: "",
-              summary: "",
-              mime: "",
-              validFrom: null,
-              validTo: null,
-              observedAt,
-            },
-            chunks: [],
-            relations: [],
-          })),
-        },
+        [CHECKOUT].map((path) => ({
+          document: {
+            docKey: servingIdForKnowledgePath(workspaceId, path),
+            kind: "",
+            title: path,
+            path,
+            sourceType: "docs",
+            source: "",
+            summary: "",
+            mime: "",
+            validFrom: null,
+            validTo: null,
+            observedAt,
+          },
+          chunks: [],
+          relations: [],
+        })),
       )
     } finally {
       await writer.close()
