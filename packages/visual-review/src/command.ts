@@ -280,56 +280,51 @@ export async function visualReview(
   // the design review of each new story (CTX-1469). It makes a call only
   // while `unknownExplainerUsd` of the budget is free. A screenshot of a
   // group gets the explained summary of the screenshot that Jev judged.
-  // Another viewport of a new story gets the reviewed verdict, as
-  // `judgeNewScreenshots` copies it.
+  // Another viewport of a new story gets a copy of the reviewed verdict.
+  const feedbackOf = (input: Explained) =>
+    input.kind === "new"
+      ? {
+          call: (verdict: Verdict) =>
+            reviewDesign(verdict, input.story, designModel, process.env),
+          skipped:
+            "The design review did not run: the budget of the run is short.",
+          share: (verdict: Verdict, member: Verdict) =>
+            viewportCopy(verdict, member.storyId),
+        }
+      : {
+          call: (verdict: Verdict) =>
+            explainRegression(verdict, input, explainerModel, process.env),
+          skipped: undefined,
+          share: (verdict: Verdict, member: Verdict) =>
+            member.verdict === "regression"
+              ? {
+                  ...member,
+                  summary: `${member.summary} Jev on ${verdict.storyId}: ${verdict.summary}`,
+                }
+              : member,
+        }
   const explainAll = async (verdicts: Verdict[]) => {
     for (const [index, verdict] of verdicts.entries()) {
       const input = jevInputs.get(verdict.storyId)
       if (!input || verdict.groupedWith !== undefined) continue
+      const { call, skipped, share } = feedbackOf(input)
+      let updated: Verdict
       if (
         budget.limitUsd !== undefined &&
         budget.spentUsd + unknownExplainerUsd > budget.limitUsd
       ) {
-        if (input.kind === "new" && verdict.error === undefined)
-          verdicts[index] = {
-            ...verdict,
-            summary: `${verdict.summary} The design review did not run: the budget of the run is short.`,
-          }
-        continue
+        if (!skipped || verdict.error !== undefined) continue
+        updated = { ...verdict, summary: `${verdict.summary} ${skipped}` }
+      } else {
+        const result = await call(verdict)
+        if (!result.explainer) continue
+        budget.spentUsd += result.explainer.costUsd ?? unknownExplainerUsd
+        updated = result.verdict
       }
-      const result =
-        input.kind === "new"
-          ? await reviewDesign(
-              verdict,
-              input.story,
-              designModel,
-              process.env,
-            ).then(({ verdict, reviewer }) => ({ verdict, call: reviewer }))
-          : await explainRegression(
-              verdict,
-              input,
-              explainerModel,
-              process.env,
-            ).then(({ verdict, explainer }) => ({ verdict, call: explainer }))
-      if (!result.call) continue
-      budget.spentUsd += result.call.costUsd ?? unknownExplainerUsd
-      verdicts[index] = result.verdict
-      for (const [other, member] of verdicts.entries()) {
-        if (member.groupedWith !== verdict.storyId) continue
-        if (input.kind === "new")
-          verdicts[other] = {
-            ...member,
-            verdict: result.verdict.verdict,
-            severity: result.verdict.severity,
-            confidence: result.verdict.confidence,
-            summary: `One verdict for the story at each viewport, with ${verdict.storyId}: ${result.verdict.summary}`,
-          }
-        else if (member.verdict === "regression")
-          verdicts[other] = {
-            ...member,
-            summary: `${member.summary} Jev on ${verdict.storyId}: ${result.verdict.summary}`,
-          }
-      }
+      verdicts[index] = updated
+      for (const [other, member] of verdicts.entries())
+        if (member.groupedWith === verdict.storyId)
+          verdicts[other] = share(updated, member)
     }
   }
 
@@ -720,23 +715,27 @@ async function judgeNewScreenshots(
       rubric,
     })
     verdicts.push(verdict)
-    // A copy keeps the verdict and the error of the call, but not its
-    // evidence: a finding box is in fractions of one of the images.
-    for (const { id } of rest)
-      verdicts.push({
-        ...verdict,
-        storyId: id,
-        observations: [],
-        qualities: [],
-        findings: [],
-        costUsd: 0,
-        latencyMs: 0,
-        groupedWith: first.id,
-        summary: `One verdict for the story at each viewport, with ${first.id}: ${verdict.summary}`,
-      })
+    for (const { id } of rest) verdicts.push(viewportCopy(verdict, id))
   }
   return verdicts
 }
+
+/**
+ * The verdict of another viewport `storyId` of the new story that `verdict`
+ * judged. A copy keeps the verdict and the error of the call, but not its
+ * evidence: a finding box is in fractions of one of the images.
+ */
+const viewportCopy = (verdict: Verdict, storyId: string): Verdict => ({
+  ...verdict,
+  storyId,
+  observations: [],
+  qualities: [],
+  findings: [],
+  costUsd: 0,
+  latencyMs: 0,
+  groupedWith: verdict.storyId,
+  summary: `One verdict for the story at each viewport, with ${verdict.storyId}: ${verdict.summary}`,
+})
 
 /**
  * What the critic knows about the story of the screenshot `path`

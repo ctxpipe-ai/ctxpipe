@@ -1783,14 +1783,20 @@ export const Primary = { render: () => null }
               images,
               "--",
               desktop,
+              mobile,
             ),
           ).toBe(0)
 
           expect(chats).toHaveLength(0)
-          expect(verdicts()[0]).toMatchObject({ verdict: "unsure" })
-          expect(verdicts()[0]?.summary).toContain(
-            "The design review did not run: the budget of the run is short.",
-          )
+          expect(verdicts()).toMatchObject([
+            { verdict: "unsure" },
+            { verdict: "unsure", groupedWith: desktop },
+          ])
+          // Each viewport of the story says so.
+          for (const { summary } of verdicts())
+            expect(summary).toContain(
+              "The design review did not run: the budget of the run is short.",
+            )
         })
       })
 

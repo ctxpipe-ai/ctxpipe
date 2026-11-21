@@ -1,5 +1,6 @@
 // The explainer of a Jev regression (CTX-1256, ADR-063), and the design
-// review of new UI (CTX-1469). Jev gives no text:
+// review of new UI (CTX-1469, see `reviewDesign`: it can make a verdict
+// regression minor, never more). Jev gives no text:
 // a suspected regression has an area, a region and a probability, but no
 // evidence. After a Jev `regression`, one call to a cheap vision model writes
 // the evidence and a suggestion for each flagged entry. The explainer never
@@ -29,7 +30,12 @@ export const explainerModel = "openai/gpt-6-luna"
  */
 export const designModel = "anthropic/claude-haiku-5.5"
 
-/** The story of a Jev verdict: a change, or the new screenshots of a story. */
+/**
+ * The story of a Jev verdict: a change, or the new screenshots of a story.
+ * The critic gives a new story to `reviewDesign`; the bake-off of the factory
+ * (`factory eval visual:bakeoff`, arm `jev-explain`) still gives one to
+ * `explainRegression`.
+ */
 export type Explained =
   | { kind: "change"; story: StoryInput }
   | { kind: "new"; story: NewStoryInput }
@@ -275,7 +281,8 @@ ${brief ? brief.replace(/<\/data/gi, "<\\/data") : "(none)"}
  * summary, findings and fixes come at the end of the summary (the factory
  * shows only the summary). `costUsd` and `latencyMs` add the call to the Jev
  * call; the cost is null when either one is unknown, also after a failed
- * call. `reviewer` has the cost of the call alone, for the budget of the run.
+ * call. `explainer` has the cost of the call alone, for the budget of the
+ * run, as for `explainRegression`.
  *
  * A failed call or a reply that is not usable keeps the Jev verdict, with a
  * sentence in the summary and no `error`: the review never fails a run. A
@@ -286,7 +293,7 @@ export async function reviewDesign(
   story: NewStoryInput,
   model: string,
   env: Record<string, string | undefined>,
-): Promise<{ verdict: Verdict; reviewer?: { costUsd: number | null } }> {
+): Promise<{ verdict: Verdict; explainer?: { costUsd: number | null } }> {
   if (verdict.error !== undefined) return { verdict }
   let review: Verdict
   try {
@@ -298,10 +305,10 @@ export async function reviewDesign(
         costUsd: null,
         summary: `${verdict.summary} The design review gave no text: ${oneLine((error as Error).message, 200)}`,
       },
-      reviewer: { costUsd: null },
+      explainer: { costUsd: null },
     }
   }
-  const reviewer = { costUsd: review.costUsd }
+  const explainer = { costUsd: review.costUsd }
   const costUsd =
     verdict.costUsd === null || review.costUsd === null
       ? null
@@ -315,7 +322,7 @@ export async function reviewDesign(
         latencyMs,
         summary: `${verdict.summary} The design review gave no usable reply.`,
       },
-      reviewer,
+      explainer,
     }
   const raises =
     review.verdict === "regression" && verdict.verdict !== "regression"
@@ -344,6 +351,6 @@ export async function reviewDesign(
       findings: [...verdict.findings, ...findings],
       summary: `${verdict.summary} Design review (${model}, ${raises ? "it makes the verdict regression minor" : `it says ${review.verdict}`}): ${[oneLine(review.summary, 400), ...sentences].join(" ")}`,
     },
-    reviewer,
+    explainer,
   }
 }

@@ -35,15 +35,6 @@ const failAt: Record<string, number> = { focus: 0.65 }
 const failsFrom = (id: string) => failAt[id] ?? 0.5
 
 /**
- * The probability from which a flagged area or quality is a strong signal: the
- * regression has severity `major`, which the factory makes a should-fix
- * (CTX-1469). It is the floor of a regression on a new screenshot. The
- * defect question and density never make a regression major: they are not a
- * flag of a rubric entry.
- */
-const strongFrom = 0.8
-
-/**
  * Read one PNG for Jev. Jev takes each side from 280 to 1568 px, which also
  * keeps the total pixels within its limits, so `prepareImage` scales or pads
  * the image to fit. Returns the data URL and the part of the sent image that
@@ -543,7 +534,7 @@ export async function judgeNewWithJev(
  * `floor` is `unsure`. Else a probability from 0.2 up, or a question with no
  * answer, is `unsure`, and the rest is `intended`. A regression has severity
  * `major` when a placed area or a flagged quality has a probability of
- * `strongFrom` or more (a should-fix in the factory, which the agent fixes or
+ * 0.8 or more (a should-fix in the factory, which the agent fixes or
  * overrides with a reason), else `minor` (a nit).
  */
 function decision({
@@ -580,11 +571,14 @@ function decision({
     ...flaggedQualities.map(({ probability }) => probability),
   )
   const underFloor = flagged && top < floor
-  // Density is a flag of a new screenshot, but never a strong one.
+  // A strong signal: a placed area or a flagged quality at 0.8 or more, the
+  // floor of a regression on a new screenshot. The regression is major, which
+  // the factory makes a should-fix (CTX-1469). Density is a flag of a new
+  // screenshot, but never a strong one, and the defect question is no flag.
   const strong = [
     ...placed,
     ...flaggedQualities.filter(({ id }) => id !== "density"),
-  ].some(({ probability }) => probability >= strongFrom)
+  ].some(({ probability }) => probability >= 0.8)
   // A flagged area with no region is `unsure`.
   const verdict =
     flagged && !underFloor
