@@ -13,6 +13,10 @@ type KnowledgeGraphIntroCalloutProps = {
   onDismiss: () => void
 }
 
+/**
+ * A dismissible tips panel that tells a new person how to use the knowledge
+ * graph view. The explorer shows it until the person closes it.
+ */
 export function KnowledgeGraphIntroCallout({
   open,
   onDismiss,

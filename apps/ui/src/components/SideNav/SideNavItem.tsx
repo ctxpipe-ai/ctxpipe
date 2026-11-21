@@ -25,6 +25,10 @@ type SideNavItemProps = {
   }
 }
 
+/**
+ * One link row in the SideNav that goes to an org page. It shows the current
+ * page and an optional indexing or failure status.
+ */
 export function SideNavItem({
   to,
   params,

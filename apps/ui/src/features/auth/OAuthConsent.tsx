@@ -22,6 +22,12 @@ type OAuthConsentOrganization = {
   slug: string
 }
 
+/**
+ * The consent page of the OAuth flow, where a person lets an MCP client such as
+ * Claude use ctxpipe. The person ticks the organizations and the optional write
+ * scope, then allows or denies the request. Use `OAuthOrganizationSelector`
+ * when the flow only asks for one organization.
+ */
 export function OAuthConsent({
   clientId,
   scopes,

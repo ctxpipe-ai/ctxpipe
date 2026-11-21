@@ -75,6 +75,10 @@ export function OrganizationSettingsShell(props: {
   )
 }
 
+/**
+ * Shows one organization settings view (for example members or API keys) in the settings shell.
+ * It is exported so that the stories can render each view without the route loader.
+ */
 export function OrganizationSettingsBody(props: {
   orgSlug: string
   organizationView: string

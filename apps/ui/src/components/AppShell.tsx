@@ -9,6 +9,10 @@ type AppShellProps = {
   children: ReactNode
 }
 
+/**
+ * The frame of each signed-in page: the SideNav and the main content area. Wrap
+ * a route in it to give the user the org navigation.
+ */
 export function AppShell({ children }: AppShellProps) {
   return (
     <ShellLayoutProvider>

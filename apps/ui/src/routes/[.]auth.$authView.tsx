@@ -55,6 +55,10 @@ function AuthStatusMessage({ message }: { message: string }) {
   )
 }
 
+/**
+ * Lets a person who got an invitation by email create an account and accept the invitation in one form.
+ * The props replace the URL query values, so that the stories can render each state.
+ */
 export function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
   const { data: session, isPending: sessionPending } = useSession()
   const params = useMemo(

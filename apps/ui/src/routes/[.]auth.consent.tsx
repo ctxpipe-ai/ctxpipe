@@ -15,6 +15,10 @@ export const Route = createFileRoute("/.auth/consent")({
   component: ConsentPage,
 })
 
+/**
+ * Shows the OAuth consent page, where a signed-in person allows or denies an app (for example an MCP client) access to ctxpipe.
+ * It is exported so that the stories can render it.
+ */
 export function ConsentPage() {
   const [isSubmitting, setIsSubmitting] = useState<"allow" | "deny" | null>(
     null,

@@ -63,6 +63,11 @@ const STATUS_META: Record<
   },
 }
 
+/**
+ * The status badge of a repository, such as indexing, ready, failed, or out of
+ * date. Its detail text and tooltip tell the person why a repository is not
+ * ready. Use it for an indexing state, not a `TagGroup` tag.
+ */
 export function RepositoryStatus(props: {
   status: RepositoryStatusState
   /** Extra copy for active indexing states (step label or reason fallback). */

@@ -127,6 +127,10 @@ type PageSetup = SetupRequest & {
   reconnect?: boolean
 }
 
+/**
+ * Shows the Connectors page of an organization: the list of its connections, and the flows to add, set up, or reconnect a source.
+ * It is exported so that the stories can render the page without the route loader.
+ */
 export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
   const navigate = useNavigate()
   const search = Route.useSearch()

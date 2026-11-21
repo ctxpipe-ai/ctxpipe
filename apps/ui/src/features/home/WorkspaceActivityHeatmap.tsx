@@ -151,6 +151,10 @@ export function WorkspaceActivityHeatmap(props: {
   )
 }
 
+/**
+ * The placeholder for `WorkspaceActivityHeatmap` while the workspace activity
+ * loads.
+ */
 export function WorkspaceActivityHeatmapSkeleton() {
   return (
     <div aria-busy className="w-full pl-7">

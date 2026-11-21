@@ -2,6 +2,10 @@ import { Select, SelectItem } from "@/components/ui/Select"
 
 import type { GithubRepoSort } from "../githubRepoSelection"
 
+/**
+ * The control that sets the sort order of the GitHub repositories in a
+ * repository picker, next to `GithubRepoPickerList`.
+ */
 export function GithubRepoSortSelect(props: {
   value: GithubRepoSort
   onChange: (sort: GithubRepoSort) => void

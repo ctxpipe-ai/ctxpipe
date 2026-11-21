@@ -35,6 +35,10 @@ type SideNavOrganizationSwitcherProps = {
   onSetActive: (organization: Organization) => void
 }
 
+/**
+ * The menu that lists the organizations of the user, sets one active, and opens
+ * the dialog to create one. Use it through SideNavOrganizationButton.
+ */
 export function SideNavOrganizationSwitcher({
   expanded,
   routeOrgSlug,

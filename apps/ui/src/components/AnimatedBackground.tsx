@@ -26,6 +26,10 @@ type AnimatedBackgroundProps = {
   startDelayMs?: number
 }
 
+/**
+ * An animated scene behind the onboarding pages. Use it only on a full-page
+ * onboarding view, not inside the app shell.
+ */
 export function AnimatedBackground({
   filePath,
   projectId,

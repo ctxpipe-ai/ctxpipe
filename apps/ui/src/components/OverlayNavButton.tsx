@@ -29,6 +29,10 @@ export function OverlayNavMenuButton(props: { className?: string }) {
   )
 }
 
+/**
+ * Closes the overlay SideNav on a narrow screen. It is the pair of
+ * OverlayNavMenuButton, which opens the drawer.
+ */
 export function OverlayNavCloseButton(props: { className?: string }) {
   const { setNavOpen } = useShellLayout()
 

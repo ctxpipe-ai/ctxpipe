@@ -48,6 +48,11 @@ function rawReason(error: unknown): string | null {
   return reason?.trim() ? reason : null
 }
 
+/**
+ * The error page of an organization route when its data does not load. It tells
+ * the person what failed, shows the technical reason and the request id, and
+ * lets them try again when `reset` is given.
+ */
 export function OrgOutletError(props: {
   title: string
   error: unknown

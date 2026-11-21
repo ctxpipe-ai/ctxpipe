@@ -7,6 +7,10 @@ const COPY: Record<EmptyReason, { title: string; body: string }> = {
   },
 }
 
+/**
+ * The empty state of the knowledge graph view. It tells the person why there is
+ * no graph yet (for example, no successful hydrate) and what makes it appear.
+ */
 export function KnowledgeGraphEmpty({ reason }: { reason: EmptyReason }) {
   const copy = COPY[reason]
   return (

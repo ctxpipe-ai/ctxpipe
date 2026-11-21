@@ -16,6 +16,11 @@ import { cn } from "@/lib/utils"
 
 import { ShowNoticesButton } from "./HomeNotices"
 
+/**
+ * The message box on the organization home page. The person chooses a
+ * workspace, writes a question, and sends it to start a new conversation in
+ * that workspace.
+ */
 export function HomeComposer(props: {
   orgSlug: string
   workspaces: Workspace[]

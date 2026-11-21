@@ -143,10 +143,20 @@ type ApiKeysCardProps =
   | { kind: "personal" }
   | { kind: "organization"; organizationId: string }
 
+/**
+ * The account settings card where a person creates, sees, and deletes their own
+ * API keys. For keys that belong to an organization, use
+ * `OrganizationApiKeysCard`.
+ */
 export function PersonalApiKeysCard() {
   return <ApiKeysCard kind="personal" />
 }
 
+/**
+ * The organization settings card where a person creates, sees, and deletes the
+ * API keys of one organization. For the personal keys of a person, use
+ * `PersonalApiKeysCard`.
+ */
 export function OrganizationApiKeysCard(props: { organizationId: string }) {
   return (
     <ApiKeysCard kind="organization" organizationId={props.organizationId} />

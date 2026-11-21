@@ -12,6 +12,10 @@ import { ConfluenceForgeRuntimeProvider } from "./providers/ConfluenceForgeRunti
 import { HyperDxProvider } from "./providers/HyperDxProvider"
 import type { RouterContext } from "./router"
 
+/**
+ * Wraps the app in all its root providers: the query client, auth, the Confluence (Forge) runtime config, HyperDX telemetry, and the React Aria router.
+ * The root route mounts it around each page.
+ */
 export function Providers({
   children,
   hyperdxRuntimeConfig,

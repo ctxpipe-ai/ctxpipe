@@ -148,6 +148,10 @@ function CloseOnly() {
   return null
 }
 
+/**
+ * Completes a GitHub App install: it records the installation for the selected organization and then opens the GitHub setup page of that organization.
+ * It is exported so that the stories can render each state.
+ */
 export function ConnectGithubView({
   installationId,
   selectedOrganizationSlug,

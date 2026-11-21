@@ -41,6 +41,11 @@ const steps = [
   },
 ]
 
+/**
+ * The onboarding step that tells the user how ctxpipe works: connect, curate,
+ * serve. A new user then goes to the next step; a user who joins an org
+ * finishes here.
+ */
 export function OnboardingHowItWorksSlide({
   actionLabel,
   isPending,

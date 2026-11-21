@@ -83,6 +83,12 @@ function syncDeepLink(nodeId: string | null): void {
   window.history.replaceState(window.history.state, "", url)
 }
 
+/**
+ * The knowledge graph view of a workspace. The person explores the nodes on the
+ * canvas, selects a node or a group of nodes to inspect it, and opens the
+ * source file of a node. It also shows the loading, error, and empty states of
+ * the graph.
+ */
 export function KnowledgeGraphExplorer({
   orgSlug,
   graph,

@@ -10,6 +10,10 @@ import { cn } from "@/lib/utils"
 
 type ConversationProps = ComponentProps<typeof StickToBottom>
 
+/**
+ * The scroll area of a chat thread. It stays at the newest message while
+ * messages stream in.
+ */
 export const Conversation = ({ className, ...props }: ConversationProps) => {
   // A spring scroll is a motion. Reduced motion jumps to the bottom at once.
   const scroll =
@@ -30,6 +34,7 @@ export const Conversation = ({ className, ...props }: ConversationProps) => {
 
 type ConversationContentProps = ComponentProps<typeof StickToBottom.Content>
 
+/** The message list inside a Conversation. */
 export const ConversationContent = ({
   className,
   ...props
@@ -48,6 +53,10 @@ export const ConversationContent = ({
 
 type ConversationScrollButtonProps = ComponentProps<typeof Button>
 
+/**
+ * Shows when the user scrolls up in a Conversation. The user clicks it to go
+ * back to the newest message.
+ */
 export const ConversationScrollButton = ({
   className,
   ...props

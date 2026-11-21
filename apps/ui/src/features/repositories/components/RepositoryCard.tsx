@@ -28,6 +28,11 @@ interface RepositoryCardProps {
   interactive?: boolean
 }
 
+/**
+ * One row of a list of indexed repositories. It shows the indexing status and
+ * lets the person open the repository on GitHub, retry the indexing, or delete
+ * it. The workspace settings page uses its own `settings/RepositoryCard`.
+ */
 export function RepositoryCard({
   repo,
   onDelete,

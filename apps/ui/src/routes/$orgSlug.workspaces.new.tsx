@@ -31,6 +31,10 @@ export function NewWorkspaceSessionFallback(props: { step?: 0 | 1 }) {
   )
 }
 
+/**
+ * Shows the Add Workspace page, where a person creates a Workspace and then goes to the next step for it.
+ * It is exported so that the stories can render the page without the route loader.
+ */
 export function NewWorkspacePageContent(props: { orgSlug: string }) {
   const { orgSlug } = props
   const navigate = useNavigate()
