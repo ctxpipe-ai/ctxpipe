@@ -285,11 +285,11 @@ const meta = preview.meta({
   },
   beforeEach: ({ msw }) => {
     // A story handler comes first, so it wins over these defaults.
-    // The conversation has no pull request yet.
     msw.use(
       ...signedInHandlers,
       activeMemberRoleHandler("admin"),
       ...workspaceIngestionHandlers({}),
+      // The conversation has no pull request yet.
       conversationPullRequestHandler(null),
     )
     clearAllConversationGitTreeSnapshots()
@@ -1443,6 +1443,7 @@ export const ConversationCleanNoPublish = meta.story({
         paths: ["AGENTS.md"],
         branch: "ctxpipe/chat/conv_1/1",
       }),
+      // The new sandbox has no change.
       conversationGitStatusHandler({
         source: "sandbox",
         branch: "ctxpipe/chat/conv_1/1",
@@ -1613,6 +1614,7 @@ export const SandboxLoading = meta.story({
     msw.use(
       conversationGitTreeMissingHandler(),
       workspaceGitTreeHandler({ sha: "", paths: [] }),
+      // The sandbox starts, so its status does not answer yet.
       conversationGitStatusHandler("loading"),
     )
   },
@@ -1761,6 +1763,7 @@ export const DefaultBranchUntilSandboxReady = meta.story({
         ...docsWorkspaceGitBlobs,
         [ledgerPath]: "# Sandbox ledger\n",
       }),
+      // A clean sandbox: no working body hides the sandbox blob.
       conversationGitStatusHandler({
         source: "sandbox",
         branch: "ctxpipe/chat/conv_new/1",

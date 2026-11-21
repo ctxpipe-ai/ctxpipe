@@ -119,21 +119,6 @@ const meta = preview.meta({
   args: { orgSlug: "acme", workspaceSlug: "docs" },
 })
 
-function withUpgrades(
-  ...handlers: ReturnType<typeof workspaceUpgradesHandler>[]
-) {
-  return [
-    activeMemberRoleHandler("owner"),
-    ...handlers,
-    workspaceUpgradeStartHandler({ requests: startRequests }),
-    workspaceUpgradeCheckHandler({ requests: checkRequests }),
-    ...workspaceUpgradeAutomaticHandlers({
-      requests: automaticRequests,
-      setting,
-    }),
-  ]
-}
-
 /**
  * Upgrades card in the Workspace settings, where an admin starts format
  * upgrades and re-ingestions: the upgrade list still loads, so skeleton rows
@@ -150,7 +135,7 @@ export const Loading = meta.story({
     expect(canvas.queryByRole("switch")).toBeNull()
   },
   beforeEach: ({ msw }) => {
-    msw.use(...withUpgrades(workspaceUpgradesHandler("loading")))
+    msw.use(workspaceUpgradesHandler("loading"))
   },
 })
 
@@ -171,11 +156,7 @@ export const UpToDate = meta.story({
     expect(canvas.queryByRole("button", { name: /^Start/ })).toBeNull()
   },
   beforeEach: ({ msw }) => {
-    msw.use(
-      ...withUpgrades(
-        workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
-      ),
-    )
+    msw.use(workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })))
   },
 })
 
@@ -281,10 +262,8 @@ export const Running = meta.story({
   },
   beforeEach: ({ msw }) => {
     msw.use(
-      ...withUpgrades(
-        workspaceUpgradesHandler(
-          upgradesFixture([upgradeItemFixture({ status: "running" })]),
-        ),
+      workspaceUpgradesHandler(
+        upgradesFixture([upgradeItemFixture({ status: "running" })]),
       ),
     )
   },
@@ -312,24 +291,20 @@ export const WaitingForSandbox = meta.story({
   },
   beforeEach: ({ msw }) => {
     msw.use(
-      ...withUpgrades(
-        workspaceUpgradesHandler(
-          // A re-ingestion runs only on format 3.
-          upgradesFixture(
-            [
-              upgradeItemFixture({
-                kind: "reingest",
-                status: "running",
-                waitingForSlot: {
-                  reason: "The re-ingestion slots of this instance are full.",
-                  since: new Date(
-                    Date.now() - 12 * 60_000 - 5_000,
-                  ).toISOString(),
-                },
-              }),
-            ],
-            { formatVersion: 3 },
-          ),
+      workspaceUpgradesHandler(
+        // A re-ingestion runs only on format 3.
+        upgradesFixture(
+          [
+            upgradeItemFixture({
+              kind: "reingest",
+              status: "running",
+              waitingForSlot: {
+                reason: "The re-ingestion slots of this instance are full.",
+                since: new Date(Date.now() - 12 * 60_000 - 5_000).toISOString(),
+              },
+            }),
+          ],
+          { formatVersion: 3 },
         ),
       ),
     )
@@ -354,39 +329,37 @@ export const ReingestWorkingWithSpend = meta.story({
   },
   beforeEach: ({ msw }) => {
     msw.use(
-      ...withUpgrades(
-        workspaceUpgradesHandler(
-          upgradesFixture(
-            [
-              upgradeItemFixture({
-                key: "reingest-3",
-                kind: "reingest",
-                status: "running",
-                approvedAt: new Date(Date.now() - 72 * 60_000).toISOString(),
-                repositories: [
-                  {
-                    repository: "acme/api",
-                    sha: "abc1234",
-                    runId: "run_1",
-                    status: "done",
-                    report: [],
-                    spendUsd: 1.5,
-                    spendUnknown: false,
-                  },
-                  {
-                    repository: "acme/web",
-                    sha: null,
-                    runId: "run_2",
-                    status: "pending",
-                    report: [],
-                    spendUsd: 0.25,
-                    spendUnknown: true,
-                  },
-                ],
-              }),
-            ],
-            { formatVersion: 3 },
-          ),
+      workspaceUpgradesHandler(
+        upgradesFixture(
+          [
+            upgradeItemFixture({
+              key: "reingest-3",
+              kind: "reingest",
+              status: "running",
+              approvedAt: new Date(Date.now() - 72 * 60_000).toISOString(),
+              repositories: [
+                {
+                  repository: "acme/api",
+                  sha: "abc1234",
+                  runId: "run_1",
+                  status: "done",
+                  report: [],
+                  spendUsd: 1.5,
+                  spendUnknown: false,
+                },
+                {
+                  repository: "acme/web",
+                  sha: null,
+                  runId: "run_2",
+                  status: "pending",
+                  report: [],
+                  spendUsd: 0.25,
+                  spendUnknown: true,
+                },
+              ],
+            }),
+          ],
+          { formatVersion: 3 },
         ),
       ),
     )
@@ -400,46 +373,44 @@ export const ReingestWorkingWithSpend = meta.story({
 export const PullRequestOpen = meta.story({
   beforeEach: ({ msw }) => {
     msw.use(
-      ...withUpgrades(
-        workspaceUpgradesHandler(
-          upgradesFixture([
-            upgradeItemFixture({
-              status: "pr_open",
-              pullRequest: {
-                number: 42,
-                url: "https://github.com/acme/docs/pull/42",
+      workspaceUpgradesHandler(
+        upgradesFixture([
+          upgradeItemFixture({
+            status: "pr_open",
+            pullRequest: {
+              number: 42,
+              url: "https://github.com/acme/docs/pull/42",
+            },
+            steps: [
+              {
+                format: 1,
+                title: "Export and sources",
+                commitSha: "a1b2c3d4e5f6",
+                report: [
+                  "Not moved: a Slack connection. It has no Workspace.",
+                  "Kept 219 knowledge item(s) from https://gitlab.example.com/acme/legacy in `knowledge/`. Fresh ingestion reads only GitHub repositories, so it cannot make them again.",
+                ],
+                notices: [
+                  {
+                    kind: "risk",
+                    text: "ctxpipe kept some knowledge as files, because fresh ingestion cannot make it again. Do not delete these files.",
+                  },
+                  {
+                    kind: "action",
+                    text: "Some connections did not move to this Workspace. Check the Sources of the Workspace after the merge.",
+                  },
+                ],
               },
-              steps: [
-                {
-                  format: 1,
-                  title: "Export and sources",
-                  commitSha: "a1b2c3d4e5f6",
-                  report: [
-                    "Not moved: a Slack connection. It has no Workspace.",
-                    "Kept 219 knowledge item(s) from https://gitlab.example.com/acme/legacy in `knowledge/`. Fresh ingestion reads only GitHub repositories, so it cannot make them again.",
-                  ],
-                  notices: [
-                    {
-                      kind: "risk",
-                      text: "ctxpipe kept some knowledge as files, because fresh ingestion cannot make it again. Do not delete these files.",
-                    },
-                    {
-                      kind: "action",
-                      text: "Some connections did not move to this Workspace. Check the Sources of the Workspace after the merge.",
-                    },
-                  ],
-                },
-                {
-                  format: 2,
-                  title: "Move the context files",
-                  commitSha: null,
-                  report: [],
-                },
-              ],
-              note: "Merge the pull request to apply the upgrade.",
-            }),
-          ]),
-        ),
+              {
+                format: 2,
+                title: "Move the context files",
+                commitSha: null,
+                report: [],
+              },
+            ],
+            note: "Merge the pull request to apply the upgrade.",
+          }),
+        ]),
       ),
     )
   },
@@ -472,18 +443,16 @@ export const PullRequestOpen = meta.story({
 export const WaitingForMerge = meta.story({
   beforeEach: ({ msw }) => {
     msw.use(
-      ...withUpgrades(
-        workspaceUpgradesHandler(
-          upgradesFixture([
-            upgradeItemFixture({
-              status: "pr_open",
-              pullRequest: {
-                number: 42,
-                url: "https://github.com/acme/docs/pull/42",
-              },
-            }),
-          ]),
-        ),
+      workspaceUpgradesHandler(
+        upgradesFixture([
+          upgradeItemFixture({
+            status: "pr_open",
+            pullRequest: {
+              number: 42,
+              url: "https://github.com/acme/docs/pull/42",
+            },
+          }),
+        ]),
       ),
     )
   },
@@ -601,7 +570,6 @@ export const MemberCannotCheck = meta.story({
 export const NotesWithDetails = meta.story({
   beforeEach: PullRequestOpen.input.beforeEach,
   parameters: {
-    ...PullRequestOpen.input.parameters,
     visual: { allow: { axes: "A layout defect on main (CTX-1279)." } },
   },
   play: async ({ canvasElement }) => {
@@ -677,15 +645,13 @@ export const Failed = meta.story({
   },
   beforeEach: ({ msw }) => {
     msw.use(
-      ...withUpgrades(
-        workspaceUpgradesHandler(
-          upgradesFixture([
-            upgradeItemFixture({
-              status: "failed",
-              failureReason: "GitHub refused the push to the upgrade branch.",
-            }),
-          ]),
-        ),
+      workspaceUpgradesHandler(
+        upgradesFixture([
+          upgradeItemFixture({
+            status: "failed",
+            failureReason: "GitHub refused the push to the upgrade branch.",
+          }),
+        ]),
       ),
     )
   },
@@ -696,23 +662,21 @@ function failedReingest(
   failure: NonNullable<WorkspaceUpgradeItem["failure"]>,
   autoRetried = false,
 ) {
-  return withUpgrades(
-    workspaceUpgradesHandler(
-      // A re-ingestion runs only on format 3.
-      upgradesFixture(
-        [
-          upgradeItemFixture({
-            key: "reingest-3",
-            kind: "reingest",
-            status: "failed",
-            failureReason:
-              "The re-ingestion did not finish for acme/ky. Start it again.",
-            failure,
-            autoRetried,
-          }),
-        ],
-        { formatVersion: 3 },
-      ),
+  return workspaceUpgradesHandler(
+    // A re-ingestion runs only on format 3.
+    upgradesFixture(
+      [
+        upgradeItemFixture({
+          key: "reingest-3",
+          kind: "reingest",
+          status: "failed",
+          failureReason:
+            "The re-ingestion did not finish for acme/ky. Start it again.",
+          failure,
+          autoRetried,
+        }),
+      ],
+      { formatVersion: 3 },
     ),
   )
 }
@@ -752,7 +716,7 @@ export const FailedPublishConflict = meta.story({
   },
   beforeEach: ({ msw }) => {
     msw.use(
-      ...failedReingest({
+      failedReingest({
         code: "publish_conflict",
         step: "publish",
         repository: "acme/ky",
@@ -780,7 +744,7 @@ export const FailedAfterAutoRetry = meta.story({
   },
   beforeEach: ({ msw }) => {
     msw.use(
-      ...failedReingest(
+      failedReingest(
         {
           code: "model",
           step: "ingest",
@@ -818,7 +782,7 @@ export const FailedSourceAccess = meta.story({
   },
   beforeEach: ({ msw }) => {
     msw.use(
-      ...failedReingest({
+      failedReingest({
         code: "source_access",
         step: "read_source",
         repository: "acme/ky",
@@ -865,7 +829,7 @@ export const FailedTooManySources = meta.story({
     expect(startRequests).toHaveLength(0)
   },
   beforeEach: ({ msw }) => {
-    msw.use(...failedReingest(tooManySources))
+    msw.use(failedReingest(tooManySources))
   },
 })
 
@@ -924,7 +888,7 @@ export const FailedUnknown = meta.story({
   },
   beforeEach: ({ msw }) => {
     msw.use(
-      ...failedReingest({
+      failedReingest({
         code: "unknown",
         step: "ingest",
         repository: "acme/ky",
@@ -957,7 +921,7 @@ export const FailedServerBusy = meta.story({
   },
   beforeEach: ({ msw }) => {
     msw.use(
-      ...failedReingest({
+      failedReingest({
         code: "server_busy",
         step: "ingest",
         repository: "acme/ky",
@@ -990,16 +954,14 @@ export const Blocked = meta.story({
   },
   beforeEach: ({ msw }) => {
     msw.use(
-      ...withUpgrades(
-        workspaceUpgradesHandler(
-          upgradesFixture([
-            upgradeItemFixture({
-              status: "blocked",
-              blockedReason: "write_access",
-              note: "The GitHub App has read access only.",
-            }),
-          ]),
-        ),
+      workspaceUpgradesHandler(
+        upgradesFixture([
+          upgradeItemFixture({
+            status: "blocked",
+            blockedReason: "write_access",
+            note: "The GitHub App has read access only.",
+          }),
+        ]),
       ),
     )
   },
@@ -1023,16 +985,14 @@ export const BlockedNotGithub = meta.story({
   },
   beforeEach: ({ msw }) => {
     msw.use(
-      ...withUpgrades(
-        workspaceUpgradesHandler(
-          upgradesFixture([
-            upgradeItemFixture({
-              status: "blocked",
-              blockedReason: "write_access",
-              note: WRITE_STATUS_REASONS.nonGithubHost,
-            }),
-          ]),
-        ),
+      workspaceUpgradesHandler(
+        upgradesFixture([
+          upgradeItemFixture({
+            status: "blocked",
+            blockedReason: "write_access",
+            note: WRITE_STATUS_REASONS.nonGithubHost,
+          }),
+        ]),
       ),
     )
   },
@@ -1056,10 +1016,8 @@ export const BlockedWithoutReason = meta.story({
   },
   beforeEach: ({ msw }) => {
     msw.use(
-      ...withUpgrades(
-        workspaceUpgradesHandler(
-          upgradesFixture([upgradeItemFixture({ status: "blocked" })]),
-        ),
+      workspaceUpgradesHandler(
+        upgradesFixture([upgradeItemFixture({ status: "blocked" })]),
       ),
     )
   },
@@ -1071,21 +1029,19 @@ export const BlockedWithoutReason = meta.story({
  * between the hydrate and the scan (see ReingestChecksNewFormat).
  */
 function blockedReingest(blockedReason: string, formatVersion = 2) {
-  return withUpgrades(
-    workspaceUpgradesHandler(
-      upgradesFixture(
-        [
-          upgradeItemFixture({
-            key: "reingest-bundle",
-            kind: "reingest",
-            title: "Fresh re-ingestion of the source repositories",
-            steps: [],
-            status: "blocked",
-            blockedReason,
-          }),
-        ],
-        { formatVersion },
-      ),
+  return workspaceUpgradesHandler(
+    upgradesFixture(
+      [
+        upgradeItemFixture({
+          key: "reingest-bundle",
+          kind: "reingest",
+          title: "Fresh re-ingestion of the source repositories",
+          steps: [],
+          status: "blocked",
+          blockedReason,
+        }),
+      ],
+      { formatVersion },
     ),
   )
 }
@@ -1122,7 +1078,7 @@ export const ReingestBlockedOnWriteAccess = meta.story({
     )
   },
   beforeEach: ({ msw }) => {
-    msw.use(...blockedReingest("write_access"))
+    msw.use(blockedReingest("write_access"))
   },
 })
 
@@ -1142,7 +1098,7 @@ export const ReingestNeedsFormat = meta.story({
     )
   },
   beforeEach: ({ msw }) => {
-    msw.use(...blockedReingest("needs_format"))
+    msw.use(blockedReingest("needs_format"))
   },
 })
 
@@ -1169,7 +1125,7 @@ export const ReingestBlockedNextStep = meta.story({
     await waitFor(() => expect(checkRequests).toHaveLength(1))
   },
   beforeEach: ({ msw }) => {
-    msw.use(...blockedReingest("needs_format"))
+    msw.use(blockedReingest("needs_format"))
   },
 })
 
@@ -1247,7 +1203,7 @@ export const ReingestSandboxUnavailable = meta.story({
     )
   },
   beforeEach: ({ msw }) => {
-    msw.use(...blockedReingest("sandbox_unavailable"))
+    msw.use(blockedReingest("sandbox_unavailable"))
   },
 })
 
@@ -1267,7 +1223,7 @@ export const ReingestIngestionV2Off = meta.story({
     ).toBeNull()
   },
   beforeEach: ({ msw }) => {
-    msw.use(...blockedReingest("ingestion_v2_off"))
+    msw.use(blockedReingest("ingestion_v2_off"))
   },
 })
 
@@ -1297,25 +1253,23 @@ export const ReadOnlyBelowFormat = meta.story({
   },
   beforeEach: ({ msw }) => {
     msw.use(
-      ...withUpgrades(
-        workspaceUpgradesHandler(
-          upgradesFixture([
-            upgradeItemFixture({
-              status: "blocked",
-              blockedReason: "write_access",
-              note: "ctxpipe needs write access through the GitHub App to open the upgrade pull request.",
-            }),
-            upgradeItemFixture({
-              key: "reingest-bundle",
-              kind: "reingest",
-              title: "Fresh re-ingestion of the source repositories",
-              steps: [],
-              status: "blocked",
-              blockedReason: "needs_format",
-              note: "Re-ingestion needs format 3. ctxpipe needs write access through the GitHub App to open the format upgrade pull request.",
-            }),
-          ]),
-        ),
+      workspaceUpgradesHandler(
+        upgradesFixture([
+          upgradeItemFixture({
+            status: "blocked",
+            blockedReason: "write_access",
+            note: "ctxpipe needs write access through the GitHub App to open the upgrade pull request.",
+          }),
+          upgradeItemFixture({
+            key: "reingest-bundle",
+            kind: "reingest",
+            title: "Fresh re-ingestion of the source repositories",
+            steps: [],
+            status: "blocked",
+            blockedReason: "needs_format",
+            note: "Re-ingestion needs format 3. ctxpipe needs write access through the GitHub App to open the format upgrade pull request.",
+          }),
+        ]),
       ),
     )
   },
@@ -1369,12 +1323,10 @@ export const HistoryWithAppliedUpgrade = meta.story({
   },
   beforeEach: ({ msw }) => {
     msw.use(
-      ...withUpgrades(
-        workspaceUpgradesHandler(
-          upgradesFixture([upgradeItemFixture({ status: "completed" })], {
-            formatVersion: 3,
-          }),
-        ),
+      workspaceUpgradesHandler(
+        upgradesFixture([upgradeItemFixture({ status: "completed" })], {
+          formatVersion: 3,
+        }),
       ),
     )
   },
@@ -1394,7 +1346,7 @@ export const LoadError = meta.story({
     )
   },
   beforeEach: ({ msw }) => {
-    msw.use(...withUpgrades(workspaceUpgradesHandler("error")))
+    msw.use(workspaceUpgradesHandler("error"))
   },
 })
 
@@ -1422,26 +1374,24 @@ export const DescriptionWithoutEstimate = meta.story({
   },
   beforeEach: ({ msw }) => {
     msw.use(
-      ...withUpgrades(
-        workspaceUpgradesHandler(
-          upgradesFixture([
-            upgradeItemFixture({
-              key: "reingest",
-              title: "Fresh re-ingestion of the source repositories",
-              description:
-                "Ingests each source repository again with the new ingestion and publishes the new knowledge files under knowledge/. This uses model calls, so it costs money.",
-              steps: [],
-              kind: "reingest",
-              estimate: {
-                repositories: 1,
-                costUsd: { low: 0.28, high: 3.36 },
-                minutes: { low: 10, high: 92 },
-                perRepository: [],
-              },
-            }),
-            upgradeItemFixture(),
-          ]),
-        ),
+      workspaceUpgradesHandler(
+        upgradesFixture([
+          upgradeItemFixture({
+            key: "reingest",
+            title: "Fresh re-ingestion of the source repositories",
+            description:
+              "Ingests each source repository again with the new ingestion and publishes the new knowledge files under knowledge/. This uses model calls, so it costs money.",
+            steps: [],
+            kind: "reingest",
+            estimate: {
+              repositories: 1,
+              costUsd: { low: 0.28, high: 3.36 },
+              minutes: { low: 10, high: 92 },
+              perRepository: [],
+            },
+          }),
+          upgradeItemFixture(),
+        ]),
       ),
     )
   },
@@ -1512,21 +1462,19 @@ export const RoleNeverAnswers = meta.story({
 export const CheckingEndsAfterAMinute = meta.story({
   beforeEach: ({ msw }) => {
     msw.use(
-      ...withUpgrades(
-        workspaceUpgradesHandler(
-          upgradesFixture(
-            [
-              upgradeItemFixture({
-                key: "reingest-bundle",
-                kind: "reingest",
-                title: "Fresh re-ingestion of the source repositories",
-                steps: [],
-                status: "blocked",
-                blockedReason: "needs_format",
-              }),
-            ],
-            { formatVersion: 3 },
-          ),
+      workspaceUpgradesHandler(
+        upgradesFixture(
+          [
+            upgradeItemFixture({
+              key: "reingest-bundle",
+              kind: "reingest",
+              title: "Fresh re-ingestion of the source repositories",
+              steps: [],
+              status: "blocked",
+              blockedReason: "needs_format",
+            }),
+          ],
+          { formatVersion: 3 },
         ),
       ),
     )
@@ -1572,9 +1520,7 @@ export const CheckingEndsAfterAMinute = meta.story({
 export const InvalidFormatFile = meta.story({
   beforeEach: ({ msw }) => {
     msw.use(
-      ...withUpgrades(
-        workspaceUpgradesHandler(upgradesFixture([], { formatVersion: -1 })),
-      ),
+      workspaceUpgradesHandler(upgradesFixture([], { formatVersion: -1 })),
     )
     setting.mode = null
     setting.reason = "invalid_format"
@@ -1614,30 +1560,28 @@ export const InvalidFormatFile = meta.story({
 export const MergedFormatWithReingestWaiting = meta.story({
   beforeEach: ({ msw }) => {
     msw.use(
-      ...withUpgrades(
-        workspaceUpgradesHandler(
-          upgradesFixture(
-            [
-              upgradeItemFixture({
-                status: "pr_open",
-                pullRequest: {
-                  number: 5,
-                  url: "https://github.com/acme/docs/pull/5",
-                },
-                mergedAt: "2026-10-16T10:00:00.000Z",
-              }),
-              upgradeItemFixture({
-                key: "reingest-bundle",
-                kind: "reingest",
-                title: "Fresh re-ingestion of the source repositories",
-                steps: [],
-                status: "blocked",
-                blockedReason: "needs_format",
-                note: "Re-ingestion needs format 3. Merge the format upgrade first.",
-              }),
-            ],
-            { formatVersion: 2 },
-          ),
+      workspaceUpgradesHandler(
+        upgradesFixture(
+          [
+            upgradeItemFixture({
+              status: "pr_open",
+              pullRequest: {
+                number: 5,
+                url: "https://github.com/acme/docs/pull/5",
+              },
+              mergedAt: "2026-10-16T10:00:00.000Z",
+            }),
+            upgradeItemFixture({
+              key: "reingest-bundle",
+              kind: "reingest",
+              title: "Fresh re-ingestion of the source repositories",
+              steps: [],
+              status: "blocked",
+              blockedReason: "needs_format",
+              note: "Re-ingestion needs format 3. Merge the format upgrade first.",
+            }),
+          ],
+          { formatVersion: 2 },
         ),
       ),
     )
@@ -1717,11 +1661,7 @@ export const AutomaticUpgradesOnAndOff = meta.story({
     )
   },
   beforeEach: ({ msw }) => {
-    msw.use(
-      ...withUpgrades(
-        workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
-      ),
-    )
+    msw.use(workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })))
   },
 })
 
@@ -1781,12 +1721,10 @@ export const SkeletonMatchesLoaded = meta.story({
   },
   beforeEach: ({ msw }) => {
     msw.use(
-      ...withUpgrades(
-        workspaceUpgradesHandler("loading", "loading"),
-        workspaceUpgradesHandler(
-          upgradesFixture([], { formatVersion: 3 }),
-          "docs",
-        ),
+      workspaceUpgradesHandler("loading", "loading"),
+      workspaceUpgradesHandler(
+        upgradesFixture([], { formatVersion: 3 }),
+        "docs",
       ),
     )
   },
@@ -1849,10 +1787,7 @@ function withIngestion(
   upgrades: ReturnType<typeof workspaceUpgradesHandler>,
   items: IngestionItem[],
 ) {
-  return [
-    ...withUpgrades(upgrades),
-    ...workspaceIngestionHandlers({ docs: items }),
-  ]
+  return [upgrades, ...workspaceIngestionHandlers({ docs: items })]
 }
 
 /**

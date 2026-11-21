@@ -32,9 +32,9 @@ const meta = preview.meta({
     ),
   ],
   beforeEach: ({ msw }) => {
-    // Only an owner or admin sees the repository pickers.
     msw.use(
       ...signedInHandlers,
+      // Only an owner or admin sees the repository pickers.
       activeMemberRoleHandler("owner"),
       workspaceListHandler([docsWorkspace]),
       orgConnectionsHandler([{ id: "con_gh", type: "github" }]),

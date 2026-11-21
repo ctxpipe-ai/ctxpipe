@@ -49,7 +49,8 @@ const unhandledSocketHandler = ws
     unhandledRequests.push(`WS ${client.url.href}`)
     client.close(1011, "No mock answers this socket.")
   })
-// `resetHandlers()` before each story keeps this initial handler.
+// `addonMsw` removes the story handlers when a story closes. The reset keeps
+// this initial handler.
 const worker = setupWorker(unhandledSocketHandler)
 // The addon calls this function and uses the worker that it returns for
 // each story. A story file (`preview.meta`) adds its handlers in

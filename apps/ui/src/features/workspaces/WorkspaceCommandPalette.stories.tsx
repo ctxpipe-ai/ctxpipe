@@ -72,6 +72,7 @@ const meta = preview.meta({
         readOnlyWorkspace,
         longNameWorkspace,
       ]),
+      // A palette item opens the Handbook Workspace.
       workspaceDetailHandler(readOnlyWorkspaceDetail, "handbook"),
     )
   },

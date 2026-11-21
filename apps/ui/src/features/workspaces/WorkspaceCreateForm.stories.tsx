@@ -40,9 +40,9 @@ const meta = preview.meta({
     ),
   ],
   beforeEach: ({ msw }) => {
-    // Only an owner or admin sees the repository pickers.
     msw.use(
       ...signedInHandlers,
+      // Only an owner or admin sees the repository pickers.
       activeMemberRoleHandler("owner"),
       workspaceListHandler([]),
       orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
@@ -215,6 +215,7 @@ export const WaitsForWriteAccessCheck = meta.story({
   beforeEach: ({ msw }) => {
     msw.use(
       ...stepTwoHandlers,
+      // The first answer has the check running; the next has it done.
       http.get(
         ({ request }) =>
           /\/api\/v1\/workspaces\/[^/]+$/.test(new URL(request.url).pathname),

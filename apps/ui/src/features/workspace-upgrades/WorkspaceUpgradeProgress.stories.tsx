@@ -41,8 +41,11 @@ const meta = preview.meta({
     ),
   ],
   beforeEach: ({ msw }) => {
-    // Upgrades wait for a start by hand.
-    msw.use(...signedInHandlers, ...workspaceUpgradeAutomaticHandlers())
+    msw.use(
+      ...signedInHandlers,
+      // Upgrades wait for a start by hand.
+      ...workspaceUpgradeAutomaticHandlers(),
+    )
     checkRequests.length = 0
     state.checked = false
   },
@@ -61,7 +64,6 @@ const meta = preview.meta({
 function withUpgrades(
   upgrades: Parameters<typeof workspaceUpgradesHandler>[0],
   role: "owner" | "member" = "owner",
-  ...more: ReturnType<typeof http.post>[]
 ) {
   return [
     activeMemberRoleHandler(role),
@@ -72,7 +74,6 @@ function withUpgrades(
         state.checked = true
       },
     }),
-    ...more,
   ]
 }
 
@@ -239,6 +240,7 @@ export const ReingestPlanning = meta.story({
 export const MergedReadingFormat = meta.story({
   beforeEach: ({ msw }) => {
     msw.use(
+      // The first match wins: the role answers late, so the action shows after the card text.
       http.get(
         "*/.auth/api/v1/auth/organization/get-active-member-role",
         async () => {

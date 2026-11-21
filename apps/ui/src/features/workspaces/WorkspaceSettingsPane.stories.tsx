@@ -61,8 +61,6 @@ const meta = preview.meta({
     ),
   ],
   beforeEach: ({ msw }) => {
-    // Upgrades wait for a start by hand.
-    // The org has the GitHub App installed.
     msw.use(
       ...signedInHandlers,
       activeMemberRoleHandler("admin"),
@@ -73,7 +71,9 @@ const meta = preview.meta({
       workspaceSourcesHandler(workspaceSourceList()),
       orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
       workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
+      // Upgrades wait for a start by hand.
       ...workspaceUpgradeAutomaticHandlers(),
+      // The org has the GitHub App installed.
       githubInstallationLinkedHandler,
     )
   },
@@ -982,45 +982,37 @@ export const DeleteConfirmPending = meta.story({
  */
 export const DeleteLastWorkspaceEmptiesHome = meta.story({
   beforeEach: ({ msw }) => {
+    let deleted = false
     msw.use(
-      ...(() => {
-        let deleted = false
-        return [
-          http.get(
-            ({ request }) =>
-              /\/api\/v1\/workspaces$/.test(new URL(request.url).pathname),
-            async () => {
-              if (deleted) await delay("infinite")
-              return HttpResponse.json({
-                items: [docsWorkspace],
-                lastUsedWorkspaceId: docsWorkspace.id,
-              })
-            },
-          ),
-          workspaceActivityHandler(),
-          // With no Workspace left, Home shows the activity of the organization.
-          orgActivityHandler(),
-          githubInstallationReposHandler(),
-          // Home reads the landing Workspace and the setup guide signals.
-          workspaceDetailHandler(docsWorkspaceDetail),
-          ...setupGuideHandlers({
-            github: githubInstallationLinkedHandler,
-            connectors: orgConnectionsHandler([
-              { id: "con_gh", type: "github" },
-            ]),
-          }),
-          http.delete(
-            ({ request }) =>
-              /\/api\/v1\/workspaces\/[^/]+$/.test(
-                new URL(request.url).pathname,
-              ),
-            () => {
-              deleted = true
-              return new HttpResponse(null, { status: 204 })
-            },
-          ),
-        ]
-      })(),
+      http.get(
+        ({ request }) =>
+          /\/api\/v1\/workspaces$/.test(new URL(request.url).pathname),
+        async () => {
+          if (deleted) await delay("infinite")
+          return HttpResponse.json({
+            items: [docsWorkspace],
+            lastUsedWorkspaceId: docsWorkspace.id,
+          })
+        },
+      ),
+      workspaceActivityHandler(),
+      // With no Workspace left, Home shows the activity of the organization.
+      orgActivityHandler(),
+      githubInstallationReposHandler(),
+      // Home reads the landing Workspace and the setup guide signals.
+      workspaceDetailHandler(docsWorkspaceDetail),
+      ...setupGuideHandlers({
+        github: githubInstallationLinkedHandler,
+        connectors: orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
+      }),
+      http.delete(
+        ({ request }) =>
+          /\/api\/v1\/workspaces\/[^/]+$/.test(new URL(request.url).pathname),
+        () => {
+          deleted = true
+          return new HttpResponse(null, { status: 204 })
+        },
+      ),
     )
     // The owner dismissed the setup guide, so Home with no Workspace shows
     // Create Workspace and not the guide.

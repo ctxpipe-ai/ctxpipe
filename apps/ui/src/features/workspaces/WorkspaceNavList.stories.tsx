@@ -184,7 +184,6 @@ export const LoadFailsCollapsed = meta.story({
     msw.use(...loadFailsHandlers)
     listReadFails = true
   },
-  parameters: {},
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const retry = await canvas.findByRole("button", {

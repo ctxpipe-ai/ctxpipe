@@ -801,6 +801,7 @@ export const WorkingThenUnreadThenRead = meta.story({
           })
         },
       ),
+      // Opening the chat loads it and its files.
       conversationDetailHandler(docsConversationDetail),
       conversationGitTreeHandler(),
     )
@@ -862,6 +863,7 @@ export const WorkingThenNeedsAttention = meta.story({
           })
         },
       ),
+      // Opening the chat loads it and its files.
       conversationDetailHandler(docsConversationDetail),
       conversationGitTreeHandler(),
     )

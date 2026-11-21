@@ -887,6 +887,7 @@ export const LinkedRepositoryWithoutSourceShows = meta.story({
 export const AddSendsChange = meta.story({
   beforeEach: ({ msw }) => {
     msw.use(
+      // After the add, the server lists the change of the pull request.
       workspaceSourcesHandler(() =>
         workspaceSourceList(
           addCalls.length === 0
@@ -1439,6 +1440,7 @@ export const GithubNoRepositories = meta.story({
     msw.use(
       workspaceSourcesHandler(workspaceSourceList()),
       connected,
+      // The Add repositories dialog lists the repositories of the App.
       githubInstallationReposHandler(),
     )
   },

@@ -793,48 +793,44 @@ export const SyncAddsThreadEntry = meta.story({
     ),
   ],
   beforeEach: ({ msw }) => {
+    let synced = false
+    const branch = "ctxpipe/chat/conv_1/1"
+    const treeUrl = `https://github.com/acme/docs/tree/${branch}`
     msw.use(
-      ...(() => {
-        let synced = false
-        const branch = "ctxpipe/chat/conv_1/1"
-        const treeUrl = `https://github.com/acme/docs/tree/${branch}`
-        return [
-          http.post(
-            ({ request }) =>
-              /\/api\/v1\/conversations\/[^/]+\/push$/.test(
-                new URL(request.url).pathname,
-              ),
-            () => {
-              synced = true
-              return HttpResponse.json({ branch, treeUrl })
-            },
+      http.post(
+        ({ request }) =>
+          /\/api\/v1\/conversations\/[^/]+\/push$/.test(
+            new URL(request.url).pathname,
           ),
-          http.get(
-            ({ request }) =>
-              /\/api\/v1\/conversations\/conv_1\/turns$/.test(
-                new URL(request.url).pathname,
-              ),
-            () =>
-              HttpResponse.json({
-                items: [],
-                syncs: synced
-                  ? [
-                      {
-                        trigger: "sync",
-                        branch,
-                        sha: "8eb1704c2d1f0a5b6e3c9d7f4a2b1c0d9e8f7a6b",
-                        files: 3,
-                        treeUrl,
-                        turn: 1,
-                        syncedAt: "2026-08-16T10:05:00.000Z",
-                      },
-                    ]
-                  : [],
-              }),
+        () => {
+          synced = true
+          return HttpResponse.json({ branch, treeUrl })
+        },
+      ),
+      http.get(
+        ({ request }) =>
+          /\/api\/v1\/conversations\/conv_1\/turns$/.test(
+            new URL(request.url).pathname,
           ),
-          ...workspaceShellHandlers(),
-        ]
-      })(),
+        () =>
+          HttpResponse.json({
+            items: [],
+            syncs: synced
+              ? [
+                  {
+                    trigger: "sync",
+                    branch,
+                    sha: "8eb1704c2d1f0a5b6e3c9d7f4a2b1c0d9e8f7a6b",
+                    files: 3,
+                    treeUrl,
+                    turn: 1,
+                    syncedAt: "2026-08-16T10:05:00.000Z",
+                  },
+                ]
+              : [],
+          }),
+      ),
+      ...workspaceShellHandlers(),
     )
   },
   parameters: {
