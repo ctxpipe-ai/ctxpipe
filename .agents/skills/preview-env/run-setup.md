@@ -9,10 +9,10 @@ Shared by every [preview-env](SKILL.md) run and every area. Complete it before t
 | Mode | Host pattern | Notes |
 | --- | --- | --- |
 | `local` | `https://app.ctxpipe.localhost` or `https://<branch>.app.ctxpipe.localhost` (linked worktree) | `pnpm dev` per the root AGENTS.md runbook; Docker infra up; migrations applied |
-| `preview` | `https://backend-pr-<N>.up.railway.app` | Railway PR environment `pr-<N>`; its database is a **copy of production** |
+| `preview` | `https://pr-<N>.ctxpipe.dev` | The AWS PR preview of ctxpipe PR `<N>`, from `factory preview up <N>` ([AWS PR previews](SKILL.md#aws-pr-previews)); its database is a copy-on-write clone of production, so it holds **customer data**. Cloudflare Access protects every path but `/api/v1/webhook/*`: each HTTP request runs under `factory preview access`, and the browser sends the Access cookie ([reach a preview with no person](SKILL.md#reach-a-preview-with-no-person-temporary), [browser driver](harness.md#browser-driver)). Use only an Access token that only the previews admit, never the `agents` token: PR code runs behind these hosts |
 | `aws` | `https://cutover.ctxpipe.dev` | The AWS production stack before the go/no-go G4 of [CTX-1217](https://linear.app/ctxpipe/issue/CTX-1217), with rehearsal secrets and an empty database or a rehearsal copy. In this phase, `AUTH_BASE_URL` and `AUTH_ALLOWED_ORIGINS` name `https://cutover.ctxpipe.dev`, so sign-in and the OAuth callbacks stay on this host. In the cutover window, `AUTH_BASE_URL` is `https://app.ctxpipe.ai`: then only `validateTarget` runs against that origin, and the sweep does not run. Cloudflare Access protects the host: the agent host uses WARP, or the HTTP requests send the Access service token and the browser sends the Access cookie (see the [harness](harness.md#1-wake) and the [browser driver](harness.md#browser-driver)). The guard admits this host only before G4. At G4, the edge stack removes the `cutover.ctxpipe.dev` route |
 
-Any other host, including `app.ctxpipe.ai`, is a **harness FAIL**: stop before opening a browser. A raw UI host or port misses the session cookie; always drive the backend origin.
+`<N>` is digits only. Any other host, including `app.ctxpipe.ai`, is a **harness FAIL**: stop before opening a browser. A raw UI host or port misses the session cookie; always drive the backend origin.
 
 ## Test data
 
@@ -107,7 +107,7 @@ Status of a flow:
 
 - `PASS` every Expect met and time at or under the fail budget (note `SLOW` between target and fail).
 - `FAIL` an Expect unmet, or time over the fail budget.
-- `SKIP(reason)` with one of `needs-human`, `needs-ticket-NN`, `blocked-by FLOW-ID`, `hosted-only`, `preview-only`, `gated-<flag>`, `no-fixture`, `needs-inbox`, `contract-test`.
+- `SKIP(reason)` with one of `needs-human`, `needs-ticket-NN`, `blocked-by FLOW-ID`, `hosted-only`, `gated-<flag>`, `no-fixture`, `needs-inbox`, `contract-test`.
 
 ### Human checkpoints
 
@@ -122,6 +122,7 @@ Start the clock at the triggering action (click, send, navigation) and stop it w
 - Artifacts go to `/tmp/preview-env/{run-id}/` (not the repository): screenshots `{FLOW-ID}-{step}.png`, one recording per area `{area}.webm` of the working path only.
 - **Trace** per flow, in each mode: after the flow, find the trace for its key request with [observability](../observability/SKILL.md): environment `pr-<N>` (`preview`), `local-<name>` (`local`) or the `DeploymentEnvironment` of the AWS stack (`aws`), `ctxpipe.org.slug={orgSlug}`, the flow's time window, then the `TraceId`. For a curl step, take `x-request-id` from the response (`curl -D -`) and search by `request.id`. Record `trace: {TraceId} (env, org, HH:MM:SSZ)` plus the HyperDX link. For a job, record `openworkflow.run.id`.
 - Redact tokens, passwords, and emails in anything pasted outside `/tmp`.
+- On `preview` and `aws`, a response to a request with the Access service token sets the `CF_Authorization` cookie, which opens the target. So a step there that reads response headers (`curl -D -`, here and in the areas) writes them to a private `mktemp` file instead, and keeps only the lines it needs (for example `x-request-id` or `www-authenticate`), never `set-cookie`.
 
 ### Local trace export
 
@@ -131,10 +132,10 @@ A `local` run exports to the hosted collector so every flow is debuggable in Hyp
 
 | Side effect | `local` | `preview` | `aws` |
 | --- | --- | --- | --- |
-| Database row | read-only `SELECT` against `DATABASE_URL` in `apps/backend/.env.local` | Neon MCP (read-only) | no database access from outside the AWS VPC: assert through the API response, the UI, and the HyperDX span |
+| Database row | read-only `SELECT` against `DATABASE_URL` in `apps/backend/.env.local` | no database access from outside the AWS VPC: assert through the API response, the UI, and the HyperDX span | same as `preview` |
 | Git commit or PR | `gh api repos/{GH_TEST_ORG}/{repo}/commits`, `gh pr view` | same | same |
-| Workflow run | HyperDX `SpanName = workflow_run.execute` in `local-<name>`, `openworkflow.run.id` | HyperDX `SpanName = workflow_run.execute`, `openworkflow.run.id` | the same span in the `DeploymentEnvironment` of the AWS stack |
-| Sandbox | `workspace_sandbox_instances` row; Docker container | same row | the sandbox spans in the `DeploymentEnvironment` of the AWS stack |
+| Workflow run | HyperDX `SpanName = workflow_run.execute` in `local-<name>`, `openworkflow.run.id` | HyperDX `SpanName = workflow_run.execute` in `pr-<N>`, `openworkflow.run.id` | the same span in the `DeploymentEnvironment` of the AWS stack |
+| Sandbox | `workspace_sandbox_instances` row; Docker container | the sandbox spans in `pr-<N>` | the sandbox spans in the `DeploymentEnvironment` of the AWS stack |
 
 Tables the flows name: `users`, `sessions`, `accounts`, `organizations`, `members`, `invitations`, `apikeys`, `org_onboarding`, `connections`, `workspaces`, `workspace_linked_repositories`, `workspace_knowledge_units`, `workspace_write_jobs`, `workspace_repository_commits`, `workspace_commit_projections`, `conversations`, `conversation_messages`, `chat_threads`, `chat_runs`, `workspace_sandbox_instances`, `workspace_sandbox_git_tokens`. Run `\d <table>` before asserting a column; assert on presence, count, and state, not on exact schema.
 
@@ -143,7 +144,7 @@ Tables the flows name: `users`, `sessions`, `accounts`, `organizations`, `member
 - Write only to objects this run created: its org, its Workspaces, and `pe-{run-id}-*` repositories. Never write to a template repository.
 - PR titles start with `[preview-env]`. Merge a PR only with flag `merge-pr` and only in a run-created repository.
 - Provider OAuth through to a config PR needs flag `live-oauth`, a named provider, and a human checkpoint.
-- Restarting or redeploying target services (flag `restart-ok`) is allowed on `local` and on the `pr-280` preview only; on any other preview the flows that need it are `SKIP(gated-restart-ok)`. Waking a `SLEEPING` service in the [harness](harness.md#1-wake) is not a restart.
+- Restarting or redeploying target services (flag `restart-ok`) is allowed on `local` only. An agent cannot restart a service of an AWS preview (a later `factory preview up` keeps running services on unchanged images), so on `preview` and `aws` the flows that need it are `SKIP(gated-restart-ok)`.
 - Invite only `TEST_EMAIL_DOMAIN` addresses.
 - On a preview, and on `aws` with a rehearsal copy, the database is a production copy: read only rows this run created; never open or quote another org's data.
 - Delete a Workspace only if this run created it and the flow says so.
