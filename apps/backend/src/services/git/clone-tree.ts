@@ -664,9 +664,9 @@ export async function fetchGitHistory(
   // Git refuses `--unshallow` for a repository that is not shallow, for
   // example after an earlier fetch of the history.
   const shallow =
-    (
-      await gitExec(["-C", dir, "rev-parse", "--is-shallow-repository"])
-    ).stdout.toString().trim() === "true"
+    (await gitExec(["-C", dir, "rev-parse", "--is-shallow-repository"])).stdout
+      .toString()
+      .trim() === "true"
   await measuredGitFetch("git.fetch-history", (traced) =>
     gitExec(
       [

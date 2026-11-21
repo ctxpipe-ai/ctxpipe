@@ -230,13 +230,12 @@ export async function projectKnowledgePlane(input: {
               input.defaultTip ?? lastSha,
             )
             const mergeBase = input.defaultTip
-              ? await withHistory(directory, input, input.defaultTip).then(
-                  () =>
-                    mergeBaseOf(
-                      directory,
-                      input.tip,
-                      input.defaultTip ?? input.tip,
-                    ),
+              ? await withHistory(directory, input, input.defaultTip).then(() =>
+                  mergeBaseOf(
+                    directory,
+                    input.tip,
+                    input.defaultTip ?? input.tip,
+                  ),
                 )
               : null
             const plan = mergeBase
@@ -617,7 +616,8 @@ async function overlayEnds(input: {
   observedAt: Date
 }): Promise<TreeEntry[]> {
   const { current, present, keyOf } = input
-  if (!input.base) throw new Error("An overlay needs the head of the default branch")
+  if (!input.base)
+    throw new Error("An overlay needs the head of the default branch")
   const base = new Map(
     (await input.store.readTree(input.scope, input.base)).map((entry) => [
       entry.docKey,

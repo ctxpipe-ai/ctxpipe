@@ -26,11 +26,11 @@ import {
   maybeEnqueueGithubIssueBackfillsOnPermissionsAccepted,
   maybeEnqueueGithubIssueMirror,
 } from "./github-issue-mirror-events.js"
+import { enqueueKnowledgeBranchRuns } from "./github-knowledge-branch-push.js"
 import { maybeActivateLinearSyncOnConfigPush } from "./github-linear-push.js"
 import { maybeEnqueueNotionSyncOnConfigPush } from "./github-notion-push.js"
 import { maybeActivatePagerdutySyncOnConfigPush } from "./github-pagerduty-push.js"
 import { maybeEnqueueGithubPrMirror } from "./github-pr-mirror-events.js"
-import { enqueueKnowledgeBranchRuns } from "./github-knowledge-branch-push.js"
 import { enqueuePushTipChecks } from "./github-push-tip-check.js"
 import { maybeEnqueueUpgradeScanForPullRequest } from "./github-upgrade-pr.js"
 import {

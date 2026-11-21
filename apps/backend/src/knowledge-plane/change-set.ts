@@ -221,7 +221,11 @@ export async function planOverlay(input: {
       const relative = workspaceRelativePath(root, path)
       if (relative !== null && isKnowledgePath(relative)) changed.add(relative)
     }
-  return { kind: "overlay", changed: [...changed].sort(), removed: removed.sort() }
+  return {
+    kind: "overlay",
+    changed: [...changed].sort(),
+    removed: removed.sort(),
+  }
 }
 
 /** The object id of the empty tree of Git (SHA-1). */
@@ -250,4 +254,3 @@ export async function mergeBaseOf(
   })
   return output.toString().trim() || EMPTY_TREE
 }
-

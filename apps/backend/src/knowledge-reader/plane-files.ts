@@ -197,10 +197,7 @@ export async function listPlaneUnitFiles(input: {
   )
   // The branch of the row of each path of the view.
   const layer = new Map(view.map((file) => [file.path, file.branch]))
-  const [own, below] = await Promise.all([
-    unitsAt(head.sha),
-    unitsAt(base.sha),
-  ])
+  const [own, below] = await Promise.all([unitsAt(head.sha), unitsAt(base.sha)])
   return [
     ...own.filter((unit) => layer.get(unit.path) === head.branch),
     ...below.filter((unit) => layer.get(unit.path) === base.branch),

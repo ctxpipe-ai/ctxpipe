@@ -79,7 +79,9 @@ export const knowledgeBranchHeads = pgTable.withRLS(
      */
     mergeBase: text("merge_base"),
     /** The tree version that the last completed run wrote; 0 before the first. */
-    treeVersion: bigint("tree_version", { mode: "number" }).notNull().default(0),
+    treeVersion: bigint("tree_version", { mode: "number" })
+      .notNull()
+      .default(0),
     /** The projection version of the last completed run. */
     projectionVersion: text("projection_version"),
     runStatus: text("run_status")

@@ -86,6 +86,11 @@ const persistWorkspaceTipsMock = vi.hoisted(() => vi.fn().mockResolvedValue(0))
 vi.mock("./github-push-tip-check.js", () => ({
   enqueuePushTipChecks: vi.fn().mockResolvedValue(undefined),
 }))
+// The branch trigger also reads Workspaces from the database;
+// github-knowledge-branch-push.integration.test.ts proves it on a real one.
+vi.mock("./github-knowledge-branch-push.js", () => ({
+  enqueueKnowledgeBranchRuns: vi.fn().mockResolvedValue(undefined),
+}))
 
 vi.mock("../../../openworkflow/enqueue-workspace-hydrate.js", () => ({
   enqueueWorkspaceHydrate: vi.fn().mockResolvedValue(undefined),

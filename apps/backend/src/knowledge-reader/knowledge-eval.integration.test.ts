@@ -169,12 +169,13 @@ let seededWorkspace: string
 /** Record a complete plane run of the frozen SHA at the root `of`. */
 async function projectPlane(of: string) {
   const key = { orgId: seed.orgId, workspaceId: seededWorkspace }
-  await beginKnowledgeRun({ ...key })
+  await beginKnowledgeRun({ ...key, branch: "main", isDefault: true })
   await completeKnowledgeRun({
     ...key,
     tip: frozenSha,
     branch: "main",
     treeVersion: 1,
+    mergeBase: null,
     projectionVersion: knowledgeProjectionVersion({
       embeddingModel: textEmbeddingConfig.model,
       dimensions: textEmbeddingConfig.dimensions,

@@ -197,4 +197,3 @@ export async function resolveReadBranch(input: {
   })
   if (!conversation) throw unknownBranch(input.branch)
 }
-

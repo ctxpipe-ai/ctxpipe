@@ -84,7 +84,9 @@ type HeadRow = typeof knowledgeBranchHeads.$inferSelect
 
 /** The tree head of a completed head row, or null before its first run. */
 export function treeHeadOf(row: HeadRow | null): TreeHead | null {
-  return row?.lastSha ? { branch: row.branch, treeVersion: row.treeVersion } : null
+  return row?.lastSha
+    ? { branch: row.branch, treeVersion: row.treeVersion }
+    : null
 }
 
 /**

@@ -128,13 +128,19 @@ async function setReady(ready: boolean) {
       ),
   )
   if (!ready) return
-  await beginKnowledgeRun({ orgId: seed.orgId, workspaceId })
+  await beginKnowledgeRun({
+    orgId: seed.orgId,
+    workspaceId,
+    branch: "main",
+    isDefault: true,
+  })
   await completeKnowledgeRun({
     orgId: seed.orgId,
     workspaceId,
     tip: servedSha,
     branch: "main",
     treeVersion: 1,
+    mergeBase: null,
     projectionVersion: "test",
     failedCount: 0,
   })
