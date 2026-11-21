@@ -37,7 +37,7 @@ const URL_CREDENTIALS: &str = "url-credentials";
 ///   `%PASSWORD%`, `{password}`, `{{password}}`, `<password>`, only `*`). A real password
 ///   that only starts with one of these characters (`%21abc`, `$uperSecret`,
 ///   `*abc123`) is not a template;
-/// - a port and a query or a fragment, of a URL with no credentials
+/// - a port and a query with a parameter, of a URL with no credentials
 ///   (`https://host:8443?email=a@b`).
 ///
 /// A match runs to the last `@` of its URL. When a host, a port and then a
@@ -64,9 +64,12 @@ fn url_password_len(matched: &str) -> Option<usize> {
         || matched.strip_prefix('$').is_some_and(|name| {
             is_identifier(name) && !name.chars().any(|c| c.is_ascii_lowercase())
         });
+    // A port, then a query with a parameter (`8443?email=alice`). A match
+    // that only might be one (`2024#Summer`, `123?abc`) is a password.
     let digits = matched.bytes().take_while(u8::is_ascii_digit).count();
-    let is_port_and_query =
-        digits > 0 && matches!(matched.as_bytes().get(digits), Some(b'?' | b'#'));
+    let is_port_and_query = digits > 0
+        && matches!(matched.as_bytes().get(digits), Some(b'?' | b'#'))
+        && matched[digits..].contains('=');
     if is_template || is_port_and_query {
         return None;
     }

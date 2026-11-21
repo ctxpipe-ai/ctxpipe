@@ -95,6 +95,9 @@ describe("scrubForModel", () => {
       "pa'ssw0rd",
       // An `@` and then text that looks like a host and a port.
       "p@ss:12345678",
+      // Digits, then text that looks like a query or a fragment.
+      "2024#Summer",
+      "123?abc",
       // A long password.
       random(400),
     ]
@@ -139,9 +142,8 @@ describe("scrubForModel", () => {
       "postgres://user@db.example.test/app",
       "https://example.test:8443/a",
       "https://example.test/x?y=1:2@3",
-      // A port, then a query or a fragment with an `@`: no credentials.
+      // A port, then a query with a parameter and an `@`: no credentials.
       "https://example.test:8443?email=alice@example.test",
-      "https://example.test:8443#x@y",
       "The meeting is at 10:30@noon.",
       ...[
         `\${DB_PASSWORD}`,
