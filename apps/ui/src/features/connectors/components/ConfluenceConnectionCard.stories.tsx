@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { expect, fn, screen, userEvent, waitFor, within } from "storybook/test"
 
@@ -12,6 +11,7 @@ import {
 import { pendingWorkspaceUpgradesHandler } from "@/mocks/workspace-upgrades-handlers"
 
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
+import preview from "../../../../.storybook/preview"
 import { ConfluenceConnectionCard } from "./ConfluenceConnectionCard"
 
 const orgSlug = "acme"
@@ -67,7 +67,7 @@ function atlassianStatus(status: object) {
   )
 }
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Connections/Atlassian/ConnectionCard",
   component: ConfluenceConnectionCard,
   args: cardProps,
@@ -78,23 +78,21 @@ const meta = {
       </div>
     ),
   ],
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...signedInHandlers,
+      activeMemberRoleHandler("admin"),
+      pendingWorkspaceUpgradesHandler({}),
+      connectionUsageHandler([
+        connectionUsageItem({
+          workspaceSlug: "docs",
+          workspaceName: "Docs",
+        }),
+      ]),
+    )
+  },
   parameters: {
     app: "root",
-    msw: {
-      handlers: {
-        session: signedInHandlers,
-        role: [activeMemberRoleHandler("admin")],
-        pendingUpgrades: [pendingWorkspaceUpgradesHandler({})],
-        usage: [
-          connectionUsageHandler([
-            connectionUsageItem({
-              workspaceSlug: "docs",
-              workspaceName: "Docs",
-            }),
-          ]),
-        ],
-      },
-    },
     layout: "centered",
     storyRoute: {
       pattern: "orgIndex",
@@ -102,27 +100,19 @@ const meta = {
     } satisfies StoryRouteParams,
     review: { kind: "component" },
   },
-} satisfies Meta<typeof ConfluenceConnectionCard>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Confluence card on the Connectors page, collapsed: the Forge app is
  * installed, so the connection is live and the status is Connected.
  */
-export const Connected: Story = {
+export const Connected = meta.story({
   render: () => <ConfluenceConnectionCard {...cardProps} />,
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          atlassianStatus(statusComplete),
-          atlassianOauthHandler({ oauthAppSaved: true }, connectionId),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      atlassianStatus(statusComplete),
+      atlassianOauthHandler({ oauthAppSaved: true }, connectionId),
+    )
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -135,7 +125,7 @@ export const Connected: Story = {
       }),
     ).toBeVisible()
   },
-}
+})
 
 /** A live row is not a draft, also when this member has no Atlassian link. */
 async function expectLiveRowNotPending(canvasElement: HTMLElement) {
@@ -154,18 +144,16 @@ async function expectLiveRowNotPending(canvasElement: HTMLElement) {
  * Confluence connection card on the Connectors page: the connection is live,
  * and the viewing member has no Atlassian link of their own.
  */
-export const LiveViewerWithoutAtlassianLink: Story = {
+export const LiveViewerWithoutAtlassianLink = meta.story({
   render: () => <ConfluenceConnectionCard {...cardProps} />,
+  beforeEach: ({ msw }) => {
+    msw.use(
+      atlassianStatus({ ...statusComplete, isLinked: false }),
+      atlassianOauthHandler({ oauthAppSaved: true }, connectionId),
+    )
+  },
   parameters: {
     visual: { skip: "Behavior test: it ends in the same state as Connected." },
-    msw: {
-      handlers: {
-        page: [
-          atlassianStatus({ ...statusComplete, isLinked: false }),
-          atlassianOauthHandler({ oauthAppSaved: true }, connectionId),
-        ],
-      },
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -177,85 +165,73 @@ export const LiveViewerWithoutAtlassianLink: Story = {
       canvas.queryByRole("button", { name: /Link Atlassian account/ }),
     ).toBeNull()
   },
-}
+})
 
 /**
  * Confluence connection card on the Connectors page: a live connection whose
  * Forge app was uninstalled, so it needs a reconnect.
  */
-export const LiveForgeUninstalled: Story = {
+export const LiveForgeUninstalled = meta.story({
   render: () => <ConfluenceConnectionCard {...cardProps} />,
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          atlassianStatus({
-            ...statusComplete,
-            isInstalled: false,
-            installationStatus: "uninstalled",
-          }),
-          atlassianOauthHandler({ oauthAppSaved: true }, connectionId),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      atlassianStatus({
+        ...statusComplete,
+        isInstalled: false,
+        installationStatus: "uninstalled",
+      }),
+      atlassianOauthHandler({ oauthAppSaved: true }, connectionId),
+    )
   },
   play: async ({ canvasElement }) => expectLiveRowNotPending(canvasElement),
-}
+})
 
 /**
  * Confluence connection card on the Connectors page: the status request has not
  * returned, so the card is still checking.
  */
-export const Checking: Story = {
+export const Checking = meta.story({
   render: () => <ConfluenceConnectionCard {...cardProps} />,
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) => {
-              const u = new URL(request.url)
-              if (!u.pathname.includes("/api/v1/connectors/atlassian/status"))
-                return false
-              return u.searchParams.get("connectionId") === connectionId
-            },
-            async () => {
-              await delay("infinite")
-              return HttpResponse.json(statusNotLinked)
-            },
-          ),
-          atlassianOauthHandler({ oauthAppSaved: true }, connectionId),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(
+        ({ request }) => {
+          const u = new URL(request.url)
+          if (!u.pathname.includes("/api/v1/connectors/atlassian/status"))
+            return false
+          return u.searchParams.get("connectionId") === connectionId
+        },
+        async () => {
+          await delay("infinite")
+          return HttpResponse.json(statusNotLinked)
+        },
+      ),
+      atlassianOauthHandler({ oauthAppSaved: true }, connectionId),
+    )
   },
-}
+})
 
 /**
  * Confluence card on the Connectors page: the status read failed, so a row
  * under the head gives the cause and a Retry button without a click.
  */
-export const CouldntLoad: Story = {
+export const CouldntLoad = meta.story({
   render: () => <ConfluenceConnectionCard {...cardProps} />,
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) => {
-              const u = new URL(request.url)
-              if (!u.pathname.includes("/api/v1/connectors/atlassian/status"))
-                return false
-              return u.searchParams.get("connectionId") === connectionId
-            },
-            () => new HttpResponse(null, { status: 500 }),
-          ),
-          atlassianOauthHandler({ oauthAppSaved: true }, connectionId),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(
+        ({ request }) => {
+          const u = new URL(request.url)
+          if (!u.pathname.includes("/api/v1/connectors/atlassian/status"))
+            return false
+          return u.searchParams.get("connectionId") === connectionId
+        },
+        () => new HttpResponse(null, { status: 500 }),
+      ),
+      atlassianOauthHandler({ oauthAppSaved: true }, connectionId),
+    )
   },
-}
+})
 
 const onOpenWizard = fn()
 const deletePendingSetup = fn()
@@ -264,19 +240,15 @@ const deletePendingSetup = fn()
  * Confluence connection card on the Connectors page: setup is not finished, the
  * card is open with a Link Atlassian account action.
  */
-export const PendingSetup: Story = {
+export const PendingSetup = meta.story({
   render: () => (
     <ConfluenceConnectionCard {...cardProps} onOpenWizard={onOpenWizard} />
   ),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          atlassianStatus(statusNotLinked),
-          atlassianOauthHandler({ oauthAppSaved: true }, connectionId),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      atlassianStatus(statusNotLinked),
+      atlassianOauthHandler({ oauthAppSaved: true }, connectionId),
+    )
   },
   play: async ({ canvasElement }) => {
     onOpenWizard.mockClear()
@@ -298,36 +270,32 @@ export const PendingSetup: Story = {
     await userEvent.click(resume)
     expect(onOpenWizard).toHaveBeenCalledTimes(1)
   },
-}
+})
 
 /**
  * Confluence connection card on the Connectors page: the user removes an
  * unfinished setup through a confirm dialog.
  */
-export const RemovePendingSetup: Story = {
+export const RemovePendingSetup = meta.story({
   render: () => <ConfluenceConnectionCard {...cardProps} />,
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          atlassianStatus(statusNotLinked),
-          atlassianOauthHandler({ oauthAppSaved: true }, connectionId),
-          http.delete(
-            ({ request }) => {
-              const u = new URL(request.url)
-              return (
-                u.pathname.endsWith("/api/v1/connectors/atlassian") &&
-                u.searchParams.get("connectionId") === connectionId
-              )
-            },
-            () => {
-              deletePendingSetup()
-              return new HttpResponse(null, { status: 204 })
-            },
-          ),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      atlassianStatus(statusNotLinked),
+      atlassianOauthHandler({ oauthAppSaved: true }, connectionId),
+      http.delete(
+        ({ request }) => {
+          const u = new URL(request.url)
+          return (
+            u.pathname.endsWith("/api/v1/connectors/atlassian") &&
+            u.searchParams.get("connectionId") === connectionId
+          )
+        },
+        () => {
+          deletePendingSetup()
+          return new HttpResponse(null, { status: 204 })
+        },
+      ),
+    )
   },
   play: async ({ canvasElement }) => {
     deletePendingSetup.mockClear()
@@ -345,7 +313,7 @@ export const RemovePendingSetup: Story = {
     )
     await waitFor(() => expect(deletePendingSetup).toHaveBeenCalledTimes(1))
   },
-}
+})
 
 /**
  * Confluence connection card on the Connectors page: Confluence is connected
@@ -353,23 +321,19 @@ export const RemovePendingSetup: Story = {
  * new connection holds only the auth, because each Workspace holds its own
  * scope (ADR-050).
  */
-export const InstalledNotInWorkspaces: Story = {
+export const InstalledNotInWorkspaces = meta.story({
   render: () => <ConfluenceConnectionCard {...cardProps} />,
-  parameters: {
-    msw: {
-      handlers: {
-        usage: [connectionUsageHandler([])],
-        page: [
-          atlassianStatus({
-            ...statusNotLinked,
-            isLinked: true,
-            isInstalled: true,
-            installationStatus: "installed",
-          }),
-          atlassianOauthHandler({ oauthAppSaved: true }, connectionId),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      connectionUsageHandler([]),
+      atlassianStatus({
+        ...statusNotLinked,
+        isLinked: true,
+        isInstalled: true,
+        installationStatus: "installed",
+      }),
+      atlassianOauthHandler({ oauthAppSaved: true }, connectionId),
+    )
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -384,4 +348,4 @@ export const InstalledNotInWorkspaces: Story = {
       canvas.getByRole("button", { name: "Add to a Workspace" }),
     ).toBeVisible()
   },
-}
+})

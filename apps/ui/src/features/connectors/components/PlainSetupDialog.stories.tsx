@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
 import { useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
@@ -17,6 +16,7 @@ import {
 import { pendingWorkspaceUpgradesHandler } from "@/mocks/workspace-upgrades-handlers"
 
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
+import preview from "../../../../.storybook/preview"
 import { docsWorkspace } from "../../workspaces/workspace-fixtures"
 import { PlainSetupDialog } from "./PlainSetupDialog"
 
@@ -38,27 +38,20 @@ function Dialog(props: { connectionId?: string; reconnect?: boolean }) {
   )
 }
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Connections/PlainSetupDialog",
   component: Dialog,
+  beforeEach: ({ msw }) => {
+    msw.use(...signedInHandlers, pendingWorkspaceUpgradesHandler({}))
+  },
   parameters: {
-    msw: {
-      handlers: {
-        session: signedInHandlers,
-        pendingUpgrades: [pendingWorkspaceUpgradesHandler({})],
-      },
-    },
     app: "root",
     review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: { pattern: "orgIndex", orgSlug } satisfies StoryRouteParams,
   },
   args: {},
-} satisfies Meta<typeof Dialog>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 const calls: unknown[] = []
 const recordConnect = (response: () => Response) =>
@@ -88,16 +81,12 @@ const workspacesHandlers = [
  * Plain setup dialog, where the admin connects Plain with an API key: the key
  * is accepted and the dialog moves to the Workspaces step.
  */
-export const ConnectWithKey: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          recordConnect(() => HttpResponse.json({ connectionId })),
-          ...workspacesHandlers,
-        ],
-      },
-    },
+export const ConnectWithKey = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      recordConnect(() => HttpResponse.json({ connectionId })),
+      ...workspacesHandlers,
+    )
   },
   play: async ({ canvasElement }) => {
     calls.length = 0
@@ -122,29 +111,25 @@ export const ConnectWithKey: Story = {
     )
     await expect(calls).toEqual([{ apiKey: "plainApiKey_fixture" }])
   },
-}
+})
 
 /**
  * Plain setup dialog, where the admin connects Plain with an API key: Plain
  * refuses the key because a permission is missing.
  */
-export const KeyRefused: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          recordConnect(() =>
-            HttpResponse.json(
-              {
-                error:
-                  "The Plain API key does not have these permissions: timeline:read",
-              },
-              { status: 400 },
-            ),
-          ),
-        ],
-      },
-    },
+export const KeyRefused = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(
+      recordConnect(() =>
+        HttpResponse.json(
+          {
+            error:
+              "The Plain API key does not have these permissions: timeline:read",
+          },
+          { status: 400 },
+        ),
+      ),
+    )
   },
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body)
@@ -164,7 +149,7 @@ export const KeyRefused: Story = {
       body.getByRole("heading", { name: "Connect Plain" }),
     ).toBeVisible()
   },
-}
+})
 
 const addCalls: { method: string; path: string; body: unknown }[] = []
 
@@ -172,15 +157,11 @@ const addCalls: { method: string; path: string; body: unknown }[] = []
  * Plain setup dialog for a connected Plain workspace: the admin adds a label to
  * a Workspace, and the dialog moves to the merge step.
  */
-export const AddToWorkspaces: Story = {
+export const AddToWorkspaces = meta.story({
   name: "Add Plain to Workspaces",
   args: { connectionId },
-  parameters: {
-    msw: {
-      handlers: {
-        page: [...workspacesHandlers, ...workspaceSourceAddHandlers(addCalls)],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(...workspacesHandlers, ...workspaceSourceAddHandlers(addCalls))
   },
   play: async ({ canvasElement }) => {
     addCalls.length = 0
@@ -215,23 +196,19 @@ export const AddToWorkspaces: Story = {
       },
     ])
   },
-}
+})
 
 /**
  * Plain setup dialog for a revoked connection: Plain no longer accepts the
  * saved key, and the admin enters a new key.
  */
-export const Reconnect: Story = {
+export const Reconnect = meta.story({
   args: { connectionId },
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          plainStatusHandler(plainStoryStatus({ status: "revoked" })),
-          recordConnect(() => HttpResponse.json({ connectionId })),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      plainStatusHandler(plainStoryStatus({ status: "revoked" })),
+      recordConnect(() => HttpResponse.json({ connectionId })),
+    )
   },
   play: async ({ canvasElement }) => {
     calls.length = 0
@@ -243,22 +220,16 @@ export const Reconnect: Story = {
       expect(calls).toEqual([{ apiKey: "plainApiKey_new", connectionId }]),
     )
   },
-}
+})
 
 /**
  * Plain setup dialog opened from Reconnect on a connected card with no webhook:
  * a warning says live updates are off and asks for the API key again.
  */
-export const ReconnectForTheWebhook: Story = {
+export const ReconnectForTheWebhook = meta.story({
   args: { connectionId, reconnect: true },
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          plainStatusHandler(plainStoryStatus({ webhookConfigured: false })),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(plainStatusHandler(plainStoryStatus({ webhookConfigured: false })))
   },
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body)
@@ -268,4 +239,4 @@ export const ReconnectForTheWebhook: Story = {
       body.getByText(/ctxpipe tries to add the webhook again/),
     ).toBeVisible()
   },
-}
+})

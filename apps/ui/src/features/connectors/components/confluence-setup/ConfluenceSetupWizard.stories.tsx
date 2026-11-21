@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
@@ -21,6 +20,7 @@ import {
 import { pendingWorkspaceUpgradesHandler } from "@/mocks/workspace-upgrades-handlers"
 
 import type { StoryRouteParams } from "../../../../../.storybook/decorators/with-story-route"
+import preview from "../../../../../.storybook/preview"
 import { docsWorkspace } from "../../../workspaces/workspace-fixtures"
 import type { AtlassianConnectorStatus } from "../../types"
 import { ConfluenceSetupWizard } from "./ConfluenceSetupWizard"
@@ -111,7 +111,7 @@ const wizard = (extra?: {
   )
 }
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Connections/Atlassian/SetupWizard",
   component: ConfluenceSetupWizard,
   args: {
@@ -120,13 +120,10 @@ const meta = {
     isOpen: true,
     onOpenChange: () => {},
   },
+  beforeEach: ({ msw }) => {
+    msw.use(...signedInHandlers, pendingWorkspaceUpgradesHandler({}))
+  },
   parameters: {
-    msw: {
-      handlers: {
-        session: signedInHandlers,
-        pendingUpgrades: [pendingWorkspaceUpgradesHandler({})],
-      },
-    },
     app: "root",
     layout: "fullscreen",
     docs: {
@@ -152,182 +149,141 @@ Workspaces (Workspaces, then spaces and pages) → complete.
     } satisfies StoryRouteParams,
     review: { kind: "component" },
   },
-} satisfies Meta<typeof ConfluenceSetupWizard>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Confluence setup wizard in a modal, which connects Confluence to ctxpipe: the
  * connection status is still loading.
  */
-export const Loading: Story = {
+export const Loading = meta.story({
   name: "01 / Loading",
   render: () => wizard(),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) => statusUrlMatches(request, atlassianConnectionId),
-            async () => {
-              await delay("infinite")
-              return HttpResponse.json(s0)
-            },
-          ),
-          atlassianOauthHandler(
-            { oauthAppSaved: false },
-            atlassianConnectionId,
-          ),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(
+        ({ request }) => statusUrlMatches(request, atlassianConnectionId),
+        async () => {
+          await delay("infinite")
+          return HttpResponse.json(s0)
+        },
+      ),
+      atlassianOauthHandler({ oauthAppSaved: false }, atlassianConnectionId),
+    )
   },
-}
+})
 
 /**
  * Confluence setup wizard in a modal, which connects Confluence to ctxpipe: the
  * connection status request failed.
  */
-export const StatusError: Story = {
+export const StatusError = meta.story({
   name: "02 / Status error",
   render: () => wizard(),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) => statusUrlMatches(request, atlassianConnectionId),
-            () => new HttpResponse(null, { status: 500 }),
-          ),
-          atlassianOauthHandler(
-            { oauthAppSaved: false },
-            atlassianConnectionId,
-          ),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      http.get(
+        ({ request }) => statusUrlMatches(request, atlassianConnectionId),
+        () => new HttpResponse(null, { status: 500 }),
+      ),
+      atlassianOauthHandler({ oauthAppSaved: false }, atlassianConnectionId),
+    )
   },
-}
+})
 
 /**
  * Confluence setup wizard on a self-hosted deployment: the first step tells the
  * admin how to register an Atlassian OAuth app and asks for its Client ID and
  * secret.
  */
-export const RegisterAtlassianOauth: Story = {
+export const RegisterAtlassianOauth = meta.story({
   name: "03 / Register Atlassian OAuth app (self-hosted)",
   render: () => wizard(),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          status(s0),
-          atlassianOauthHandler(
-            { oauthAppSaved: false },
-            atlassianConnectionId,
-          ),
-          atlassianOauthSaveHandler(atlassianConnectionId),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      status(s0),
+      atlassianOauthHandler({ oauthAppSaved: false }, atlassianConnectionId),
+      atlassianOauthSaveHandler(atlassianConnectionId),
+    )
   },
-}
+})
 
 /**
  * Confluence setup wizard in a modal, which connects Confluence to ctxpipe: the
  * link step, with the org OAuth app saved so the user can sign in.
  */
-export const LinkAtlassianSignIn: Story = {
+export const LinkAtlassianSignIn = meta.story({
   name: "03b / Link Atlassian (3LO saved — sign in)",
   render: () => wizard(),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          status(s0),
-          atlassianOauthHandler({ oauthAppSaved: true }, atlassianConnectionId),
-          atlassianOauthSaveHandler(atlassianConnectionId),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      status(s0),
+      atlassianOauthHandler({ oauthAppSaved: true }, atlassianConnectionId),
+      atlassianOauthSaveHandler(atlassianConnectionId),
+    )
   },
-}
+})
 
 /**
  * Confluence setup wizard on the hosted product, where ctxpipe supplies the
  * Atlassian OAuth app: the first step asks the admin to link an Atlassian
  * account.
  */
-export const LinkAtlassianGlobalEnv: Story = {
+export const LinkAtlassianGlobalEnv = meta.story({
   name: "03c / Link Atlassian (global env OAuth only)",
   render: () => wizard(),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          status(s0),
-          atlassianOauthHandler(
-            {
-              oauthAppSaved: false,
-              globalAtlassianOAuthConfigured: true,
-            },
-            atlassianConnectionId,
-          ),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      status(s0),
+      atlassianOauthHandler(
+        {
+          oauthAppSaved: false,
+          globalAtlassianOAuthConfigured: true,
+        },
+        atlassianConnectionId,
+      ),
+    )
   },
-}
+})
 
 /**
  * Confluence setup wizard in a modal, which connects Confluence to ctxpipe: the
  * account is linked and the Forge app install step shows.
  */
-export const InstallForge: Story = {
+export const InstallForge = meta.story({
   name: "04 / Install Forge",
   render: () => wizard(),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          status(sInstall),
-          atlassianCapabilitiesHandler(
-            "https://marketplace.atlassian.com/apps/123/ctxpipe",
-            atlassianConnectionId,
-          ),
-          installationPost,
-          atlassianOauthHandler({ oauthAppSaved: true }, atlassianConnectionId),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      status(sInstall),
+      atlassianCapabilitiesHandler(
+        "https://marketplace.atlassian.com/apps/123/ctxpipe",
+        atlassianConnectionId,
+      ),
+      installationPost,
+      atlassianOauthHandler({ oauthAppSaved: true }, atlassianConnectionId),
+    )
   },
-}
+})
 
 /**
  * Confluence setup wizard in a modal, which connects Confluence to ctxpipe: the
  * wizard waits for the Forge app install to finish.
  */
-export const WaitForInstall: Story = {
+export const WaitForInstall = meta.story({
   name: "05 / Wait for install",
   render: () => wizard({ initialWaitForInstall: true }),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          status(sInstall),
-          atlassianCapabilitiesHandler(
-            "https://marketplace.atlassian.com/apps/123/ctxpipe",
-            atlassianConnectionId,
-          ),
-          installationPost,
-          atlassianOauthHandler({ oauthAppSaved: true }, atlassianConnectionId),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      status(sInstall),
+      atlassianCapabilitiesHandler(
+        "https://marketplace.atlassian.com/apps/123/ctxpipe",
+        atlassianConnectionId,
+      ),
+      installationPost,
+      atlassianOauthHandler({ oauthAppSaved: true }, atlassianConnectionId),
+    )
   },
-}
+})
 
 /** Each cancel request: the connection id it names. */
 const cancelCalls: string[] = []
@@ -371,13 +327,15 @@ const installHandlers = [
  * before the install. ctxpipe then asks the server to delete the draft
  * connection while it is empty.
  */
-export const CloseCancelsTheSetup: Story = {
+export const CloseCancelsTheSetup = meta.story({
   render: () => wizard(),
+  beforeEach: ({ msw }) => {
+    msw.use(...installHandlers)
+  },
   parameters: {
     visual: {
       skip: "Behavior test: the story keeps the modal open after Close, a state that the product does not render.",
     },
-    msw: { handlers: { page: installHandlers } },
   },
   play: async () => {
     cancelCalls.length = 0
@@ -385,7 +343,7 @@ export const CloseCancelsTheSetup: Story = {
     await userEvent.click(await body.findByRole("button", { name: "Close" }))
     await waitFor(() => expect(cancelCalls).toEqual([atlassianConnectionId]))
   },
-}
+})
 
 /**
  * Confluence setup wizard in a modal, which connects Confluence to ctxpipe: the
@@ -393,15 +351,16 @@ export const CloseCancelsTheSetup: Story = {
  * that the install opened, so a later cancel keeps the draft for the
  * Marketplace install event.
  */
-export const InstallMarksTheDraft: Story = {
+export const InstallMarksTheDraft = meta.story({
   render: () => wizard(),
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as WaitForInstall.",
     },
-    msw: { handlers: { page: installHandlers } },
   },
-  beforeEach: () => {
+  beforeEach: ({ msw }) => {
+    msw.use(...installHandlers)
+
     openPopup.mockClear()
     const open = window.open
     // The product opens the install URL with `window.open` after the install
@@ -426,28 +385,24 @@ export const InstallMarksTheDraft: Story = {
       "width=860,height=740",
     )
   },
-}
+})
 
 /**
  * Confluence setup wizard in a modal, which connects Confluence to ctxpipe: the
  * user adds a space to a Workspace and reaches the merge step.
  */
-export const AddToWorkspaces: Story = {
+export const AddToWorkspaces = meta.story({
   name: "06 / Add to Workspaces",
   render: () => wizard(),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          status(sInstalled),
-          atlassianOauthHandler({ oauthAppSaved: true }, atlassianConnectionId),
-          workspaceListHandler([docsWorkspace]),
-          ...confluenceTreeHandlers,
-          connectionUsageHandler([]),
-          ...workspaceSourceAddHandlers(addCalls),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      status(sInstalled),
+      atlassianOauthHandler({ oauthAppSaved: true }, atlassianConnectionId),
+      workspaceListHandler([docsWorkspace]),
+      ...confluenceTreeHandlers,
+      connectionUsageHandler([]),
+      ...workspaceSourceAddHandlers(addCalls),
+    )
   },
   play: async ({ canvasElement }) => {
     addCalls.length = 0
@@ -489,53 +444,49 @@ export const AddToWorkspaces: Story = {
       },
     ])
   },
-}
+})
 
 /**
  * Confluence setup wizard opened from Manage on the Confluence card: the Docs
  * Workspace already syncs the ENG space through this connection. Add to
  * Workspaces loads that saved scope, so Save changes stays off.
  */
-export const ManageKeepsTheCurrentScope: Story = {
+export const ManageKeepsTheCurrentScope = meta.story({
   name: "06b / Manage keeps the current scope",
   render: () => wizard(),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          status(sInstalled),
-          atlassianOauthHandler({ oauthAppSaved: true }, atlassianConnectionId),
-          workspaceListHandler([docsWorkspace]),
-          ...confluenceTreeHandlers,
-          connectionUsageHandler([
-            connectionUsageItem({
-              workspaceSlug: docsWorkspace.slug,
-              workspaceName: docsWorkspace.displayName,
-              sources: [
-                {
-                  path: "sources/confluence/confluence.md",
-                  provider: "confluence",
-                  status: "ok",
-                  scopeSummary: "1 Confluence space",
-                },
-              ],
+  beforeEach: ({ msw }) => {
+    msw.use(
+      status(sInstalled),
+      atlassianOauthHandler({ oauthAppSaved: true }, atlassianConnectionId),
+      workspaceListHandler([docsWorkspace]),
+      ...confluenceTreeHandlers,
+      connectionUsageHandler([
+        connectionUsageItem({
+          workspaceSlug: docsWorkspace.slug,
+          workspaceName: docsWorkspace.displayName,
+          sources: [
+            {
+              path: "sources/confluence/confluence.md",
+              provider: "confluence",
+              status: "ok",
+              scopeSummary: "1 Confluence space",
+            },
+          ],
+        }),
+      ]),
+      workspaceSourcesHandler(
+        workspaceSourceList({
+          items: [
+            workspaceSourceFixture({
+              path: "sources/confluence/confluence.md",
+              provider: "confluence",
+              connectionId: atlassianConnectionId,
+              scope: { spaces: [{ key: "ENG", pages: "all" }] },
             }),
-          ]),
-          workspaceSourcesHandler(
-            workspaceSourceList({
-              items: [
-                workspaceSourceFixture({
-                  path: "sources/confluence/confluence.md",
-                  provider: "confluence",
-                  connectionId: atlassianConnectionId,
-                  scope: { spaces: [{ key: "ENG", pages: "all" }] },
-                }),
-              ],
-            }),
-          ),
-        ],
-      },
-    },
+          ],
+        }),
+      ),
+    )
   },
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body)
@@ -551,31 +502,27 @@ export const ManageKeepsTheCurrentScope: Story = {
       body.getByRole("button", { name: "Save changes" }),
     ).toBeDisabled()
   },
-}
+})
 
 /**
  * Confluence setup wizard in a modal, which connects Confluence to ctxpipe: a
  * notice says a configuration pull request replaced this setup.
  */
-export const ReplacedSetup: Story = {
+export const ReplacedSetup = meta.story({
   name: "07 / Replaced setup with a config pull request",
   render: () => wizard(),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          status({
-            ...sInstalled,
-            setupPhase: "awaiting_merge",
-            pendingConfigPullUrl: "https://github.com/acme/wiki/pull/12",
-          }),
-          atlassianOauthHandler({ oauthAppSaved: true }, atlassianConnectionId),
-          workspaceListHandler([docsWorkspace]),
-          ...confluenceTreeHandlers,
-          connectionUsageHandler([]),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      status({
+        ...sInstalled,
+        setupPhase: "awaiting_merge",
+        pendingConfigPullUrl: "https://github.com/acme/wiki/pull/12",
+      }),
+      atlassianOauthHandler({ oauthAppSaved: true }, atlassianConnectionId),
+      workspaceListHandler([docsWorkspace]),
+      ...confluenceTreeHandlers,
+      connectionUsageHandler([]),
+    )
   },
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body)
@@ -591,20 +538,16 @@ export const ReplacedSetup: Story = {
       ).toBeVisible(),
     )
   },
-}
+})
 
 /**
  * Confluence setup wizard in a modal, which connects Confluence to ctxpipe: the
  * wizard opened with no connection id.
  */
-export const MissingConnectionId: Story = {
+export const MissingConnectionId = meta.story({
   name: "08 / Missing connection id",
   render: () => wizard({ atlassianConnectionId: undefined }),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [statusUnscoped(s0)],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(statusUnscoped(s0))
   },
-}
+})

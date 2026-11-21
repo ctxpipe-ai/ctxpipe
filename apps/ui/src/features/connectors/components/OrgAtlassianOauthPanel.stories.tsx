@@ -1,5 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
-
 import {
   atlassianOauthHandler,
   atlassianOauthSaveHandler,
@@ -7,12 +5,13 @@ import {
 import { signedInHandlers } from "@/mocks/handlers"
 
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
+import preview from "../../../../.storybook/preview"
 import { OrgAtlassianOauthPanel } from "./OrgAtlassianOauthPanel"
 
 const orgSlug = "acme"
 const connectionId = "con_panel_story"
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Connections/Atlassian/OAuthPanel",
   component: OrgAtlassianOauthPanel,
   decorators: [
@@ -22,8 +21,10 @@ const meta = {
       </div>
     ),
   ],
+  beforeEach: ({ msw }) => {
+    msw.use(...signedInHandlers)
+  },
   parameters: {
-    msw: { handlers: { session: signedInHandlers } },
     app: "root",
     review: { kind: "component" },
     layout: "centered",
@@ -32,11 +33,7 @@ const meta = {
       orgSlug,
     } satisfies StoryRouteParams,
   },
-} satisfies Meta<typeof OrgAtlassianOauthPanel>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 const baseHandlers = [
   atlassianOauthHandler({ oauthAppSaved: false }, connectionId),
@@ -51,40 +48,32 @@ const panel = () => (
  * Atlassian OAuth panel, where the admin registers a private Atlassian OAuth
  * app for the org: the standalone panel with no OAuth app saved.
  */
-export const OAuthPanel: Story = {
+export const OAuthPanel = meta.story({
   render: panel,
-  parameters: {
-    msw: {
-      handlers: {
-        page: baseHandlers,
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(...baseHandlers)
   },
-}
+})
 
 /**
  * Atlassian OAuth panel, where the admin registers a private Atlassian OAuth
  * app for the org: the standalone panel with an OAuth app already saved.
  */
-export const OauthAppSaved: Story = {
+export const OauthAppSaved = meta.story({
   render: panel,
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          atlassianOauthHandler({ oauthAppSaved: true }, connectionId),
-          atlassianOauthSaveHandler(connectionId),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      atlassianOauthHandler({ oauthAppSaved: true }, connectionId),
+      atlassianOauthSaveHandler(connectionId),
+    )
   },
-}
+})
 
 /**
  * Atlassian OAuth panel inside the Atlassian setup wizard, where the admin
  * registers a private OAuth app: no OAuth app is saved yet.
  */
-export const Embedded: Story = {
+export const Embedded = meta.story({
   name: "Embedded (wizard)",
   render: () => (
     <OrgAtlassianOauthPanel
@@ -93,21 +82,17 @@ export const Embedded: Story = {
       connectionId={connectionId}
     />
   ),
-  parameters: {
-    msw: {
-      handlers: {
-        page: baseHandlers,
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(...baseHandlers)
   },
-}
+})
 
 /**
  * Register step of the Confluence setup wizard, opened again from the step list
  * after the save: the panel names the saved Client ID and lets the admin change
  * it or the secret.
  */
-export const EmbeddedOauthConfigured: Story = {
+export const EmbeddedOauthConfigured = meta.story({
   name: "Embedded + OAuth configured",
   render: () => (
     <OrgAtlassianOauthPanel
@@ -116,14 +101,10 @@ export const EmbeddedOauthConfigured: Story = {
       connectionId={connectionId}
     />
   ),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          atlassianOauthHandler({ oauthAppSaved: true }, connectionId),
-          atlassianOauthSaveHandler(connectionId),
-        ],
-      },
-    },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      atlassianOauthHandler({ oauthAppSaved: true }, connectionId),
+      atlassianOauthSaveHandler(connectionId),
+    )
   },
-}
+})

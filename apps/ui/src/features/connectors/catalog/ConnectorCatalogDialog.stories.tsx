@@ -1,4 +1,3 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
 import { Toaster } from "sonner"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
@@ -6,6 +5,7 @@ import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import { signedInHandlers } from "@/mocks/handlers"
 
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
+import preview from "../../../../.storybook/preview"
 import { githubConnectorBootstrapHandler } from "../mocks/github-bootstrap-msw"
 import type { OrgConnectionListItem } from "../queries/org-connections"
 import { ConnectorCatalogDialog } from "./ConnectorCatalogDialog"
@@ -28,7 +28,7 @@ function connection(
   }
 }
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Connections/ConnectorCatalog",
   component: ConnectorCatalogDialog,
   decorators: [
@@ -39,31 +39,27 @@ const meta = {
       </>
     ),
   ],
+  beforeEach: ({ msw }) => {
+    msw.use(
+      ...signedInHandlers,
+      // The GitHub row reads the org's installation and the deployment's App.
+      http.get(
+        ({ request }) =>
+          new URL(request.url).pathname.endsWith("/api/v1/github/installation"),
+        () => HttpResponse.json(null),
+      ),
+      githubConnectorBootstrapHandler({
+        orgSlug,
+        hostedDefaultAppInstallUrl:
+          "https://github.com/apps/ctxpipe-agent/installations/new",
+      }),
+    )
+  },
   parameters: {
     app: "root",
     layout: "fullscreen",
     storyRoute: { pattern: "orgIndex", orgSlug } satisfies StoryRouteParams,
     review: { kind: "component" },
-    msw: {
-      handlers: {
-        session: signedInHandlers,
-        // The GitHub row reads the org's installation and the deployment's App.
-        page: [
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname.endsWith(
-                "/api/v1/github/installation",
-              ),
-            () => HttpResponse.json(null),
-          ),
-          githubConnectorBootstrapHandler({
-            orgSlug,
-            hostedDefaultAppInstallUrl:
-              "https://github.com/apps/ctxpipe-agent/installations/new",
-          }),
-        ],
-      },
-    },
   },
   args: {
     orgSlug,
@@ -73,17 +69,13 @@ const meta = {
     onOpenSetup: fn(),
     onFix: fn(),
   },
-} satisfies Meta<typeof ConnectorCatalogDialog>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Add connection dialog, where the user picks a connector to set up: a new org
  * that connected only GitHub during onboarding.
  */
-export const NewOrg: Story = {
+export const NewOrg = meta.story({
   args: {
     connections: [connection("con_gh", "github", "connected")],
   },
@@ -112,7 +104,7 @@ export const NewOrg: Story = {
     await expect(args.onOpenChange).toHaveBeenCalledWith(false)
     await expect(args.onOpenSetup).toHaveBeenCalledWith({ type: "buildkite" })
   },
-}
+})
 
 /**
  * Add connection dialog, where the user picks a connector to set up: the
@@ -120,7 +112,7 @@ export const NewOrg: Story = {
  * needs a reconnect and one has an unfinished setup, so the row shows the worst
  * state and offers Fix next to Add another.
  */
-export const BusyOrg: Story = {
+export const BusyOrg = meta.story({
   args: {
     connections: [
       connection("con_gh_1", "github", "connected"),
@@ -165,13 +157,13 @@ export const BusyOrg: Story = {
     await expect(args.onOpenChange).toHaveBeenCalledWith(false)
     await expect(args.onFix).toHaveBeenCalledWith("con_li_revoked")
   },
-}
+})
 
 /**
  * Add connection dialog, where the user picks a connector to set up: the Coming
  * soon tab lists the planned connectors, each with an Ask for it button.
  */
-export const ComingSoon: Story = {
+export const ComingSoon = meta.story({
   play: async ({ canvasElement }) => {
     const dialog = within(
       await within(canvasElement.ownerDocument.body).findByRole("dialog", {
@@ -194,13 +186,13 @@ export const ComingSoon: Story = {
       dialog.queryByRole("button", { name: /^Connect / }),
     ).not.toBeInTheDocument()
   },
-}
+})
 
 /**
  * Add connection dialog, where the user picks a connector to set up: the search
  * looks in every group, matches no connector, and says so.
  */
-export const SearchNoMatch: Story = {
+export const SearchNoMatch = meta.story({
   play: async ({ canvasElement }) => {
     const dialog = within(
       await within(canvasElement.ownerDocument.body).findByRole("dialog", {
@@ -232,14 +224,14 @@ export const SearchNoMatch: Story = {
       dialog.queryByRole("button", { name: /^Connect / }),
     ).not.toBeInTheDocument()
   },
-}
+})
 
 /**
  * Add connection dialog, where the user picks a connector to set up: the user
  * asked for a planned connector. ctxpipe records the request, and a thank-you
  * toast shows.
  */
-export const AskForIt: Story = {
+export const AskForIt = meta.story({
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body)
     const dialog = within(
@@ -254,4 +246,4 @@ export const AskForIt: Story = {
       ).toBeVisible(),
     )
   },
-}
+})

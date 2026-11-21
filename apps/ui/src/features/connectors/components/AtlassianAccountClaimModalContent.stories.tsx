@@ -1,22 +1,18 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useState } from "react"
 
 import { Modal } from "@/components/ui/Modal"
 
+import preview from "../../../../.storybook/preview"
 import { AtlassianAccountClaimModalContent } from "./AtlassianAccountClaimModalContent"
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Connections/Atlassian/AccountClaim",
   component: AtlassianAccountClaimModalContent,
   parameters: {
     layout: "padded",
     review: { kind: "component" },
   },
-} satisfies Meta<typeof AtlassianAccountClaimModalContent>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 function OpenModalTrigger() {
   const [open, setOpen] = useState(true)
@@ -39,15 +35,15 @@ function OpenModalTrigger() {
  * Modal that asks a user to take over an Atlassian account linked to another
  * user: the modal is open over the page.
  */
-export const AccountClaimModal: Story = {
+export const AccountClaimModal = meta.story({
   render: () => <OpenModalTrigger />,
-}
+})
 
 /**
  * Modal that asks a user to take over an Atlassian account linked to another
  * user: the modal content alone in a card, with no overlay.
  */
-export const ContentOnly: Story = {
+export const ContentOnly = meta.story({
   parameters: {
     layout: "centered",
   },
@@ -62,4 +58,4 @@ export const ContentOnly: Story = {
     onCancel: () => {},
     onConfirm: () => {},
   },
-}
+})

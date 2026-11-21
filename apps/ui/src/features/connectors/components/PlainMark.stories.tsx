@@ -1,20 +1,15 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
-
+import preview from "../../../../.storybook/preview"
 import { PlainMark } from "./PlainMark"
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Connections/Plain/Mark",
   component: PlainMark,
   parameters: { layout: "centered", review: { kind: "component" } },
   args: { className: "size-10 text-foreground" },
-} satisfies Meta<typeof PlainMark>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 /**
  * Plain mark, the logo in the ink color that names Plain on its connector card
  * and setup dialog: the mark alone, enlarged.
  */
-export const ProductMark: Story = {}
+export const ProductMark = meta.story()
