@@ -1,6 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { QueryClientContext } from "@tanstack/react-query"
-import { getWorker } from "msw-storybook-addon"
 import { useContext } from "react"
 import { expect } from "storybook/test"
 
@@ -34,7 +33,7 @@ type Story = StoryObj<typeof meta>
  * text, with no wrapper, no Query client and no mock.
  */
 export const NoOptIn: Story = {
-  play: async ({ canvasElement }) => {
+  play: async ({ canvasElement, msw }) => {
     // The story element is the only child of the root: no global wrapper.
     await expect(canvasElement.children).toHaveLength(1)
     const probe = canvasElement.firstElementChild
@@ -42,7 +41,7 @@ export const NoOptIn: Story = {
     await expect(probe).toHaveAttribute("data-query-client", "no")
     // The only handler of the worker is the socket handler that fails an
     // unmatched socket (it answers no socket).
-    await expect(getWorker().listHandlers()).toHaveLength(1)
+    await expect(msw.listHandlers()).toHaveLength(1)
   },
 }
 
