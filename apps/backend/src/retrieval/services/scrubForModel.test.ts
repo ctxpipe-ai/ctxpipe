@@ -122,6 +122,12 @@ describe("scrubForModel", () => {
         ).toBe(`Use ${url.replace("{}", "[REDACTED:url-credentials]")} now.`)
   })
 
+  it("redacts only the password when a host and a port come after it", async () => {
+    expect(
+      await scrubForModel("redis://u:pw12345@cache.example.test:6379?x=a@b"),
+    ).toBe("redis://u:[REDACTED:url-credentials]@cache.example.test:6379?x=a@b")
+  })
+
   it("keeps a URL or an address with no password, and a template password, as it is", async () => {
     const texts = [
       "user@host",
@@ -131,6 +137,9 @@ describe("scrubForModel", () => {
       "postgres://user@db.example.test/app",
       "https://example.test:8443/a",
       "https://example.test/x?y=1:2@3",
+      // A port, then a query or a fragment with an `@`: no credentials.
+      "https://example.test:8443?email=alice@example.test",
+      "https://example.test:8443#x@y",
       "The meeting is at 10:30@noon.",
       ...[
         `\${DB_PASSWORD}`,
