@@ -6,11 +6,13 @@ There is no sign-in step here: the run has no pre-seeded account. Registration i
 
 ## 1. Wake
 
+`local`:
+
 ```bash
 curl -fsS "$BASE_URL/.status"
 ```
 
-Body must be JSON with `status` equal to `"ok"`.
+Body must be JSON with `status` equal to `"ok"`. Cloudflare Access protects `/.status` on `preview` and `aws`: there the `validateTarget` step below checks it.
 
 `preview` only: from `apps/backend` of a `main` checkout, run `validateTarget` under `factory preview access`, as [reach a preview with no person](SKILL.md#reach-a-preview-with-no-person-temporary) shows (`--no-mcp-read`). It checks `/.status` too. A failed check is a harness FAIL. A 502 means that the preview is not up: run `factory preview up <N>`, then wake again. An AWS preview does not sleep: its worker and codesearch run until the preview goes.
 
