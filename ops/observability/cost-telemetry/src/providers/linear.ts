@@ -11,12 +11,15 @@ import { providerInput } from "../secrets"
  * `seats` clamped to `seatsMinimum` and `seatsMaximum`. A workspace with no paid subscription gives no rows.
  */
 export async function rows(days: string[]): Promise<CostRow[]> {
-  const key = providerInput("LINEAR_API_KEY")
+  const token = await appToken()
   const body = await getJson(
     "https://api.linear.app/graphql",
     {
       method: "POST",
-      headers: { Authorization: key, "Content-Type": "application/json" },
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
         query:
           "query { organization { subscription { type seats seatsMinimum seatsMaximum } } }",
@@ -67,4 +70,38 @@ export async function rows(days: string[]): Promise<CostRow[]> {
     seats,
     price,
   )
+}
+
+/**
+ * A token of the `factory` Linear OAuth app, from its client credentials grant
+ * (https://linear.app/developers/oauth-2-0-authentication#client-credentials-tokens). The app is the identity of the
+ * agent hosts too, so the job needs no API key of a person. The scopes must be the same on each token request:
+ * Linear revokes all tokens of the app when a request asks for other scopes (factory
+ * machines/paseo-hub/agent-hosts/linear-headers.sh uses the same set).
+ */
+async function appToken(): Promise<string> {
+  const clientId = providerInput("LINEAR_CLIENT_ID")
+  const clientSecret = providerInput("LINEAR_CLIENT_SECRET")
+  const body = await getJson(
+    "https://api.linear.app/oauth/token",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${btoa(`${clientId}:${clientSecret}`)}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        grant_type: "client_credentials",
+        scope:
+          "read,write,issues:create,comments:create,app:assignable,app:mentionable",
+      }),
+    },
+    "Linear token",
+  )
+  if (!isRecord(body) || typeof body.access_token !== "string")
+    throw new ProviderError(
+      "parse",
+      "Linear token response was missing access_token",
+    )
+  return body.access_token
 }
