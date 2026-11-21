@@ -301,8 +301,13 @@ export type KnowledgeStore = {
    *   that newer row was written before `replacedBefore`;
    * - each file version that no tree row uses, when its newest row was
    *   written before `unusedBefore`.
-   * The caller holds the projection lease of the Workspace, so that no run
-   * uses a file version while it is deleted.
+   * The writer inserts all tree rows of a run in one INSERT, just before it
+   * moves the head (`applyChangeSet`, then `completeKnowledgeRun`). Thus the
+   * `written_at` of a tree row is the time when its tree version became
+   * visible, within the time of one Postgres update, and each grace time
+   * counts from the publication of a head. The caller holds the projection
+   * lease of the Workspace, so that no run uses a file version while it is
+   * deleted.
    */
   cleanUp(
     scope: KnowledgeScope,
@@ -480,15 +485,6 @@ async function select<T>(
   return result.json<T>()
 }
 
-/** The tables that a DELETE can change. */
-type MutableTable =
-  | "documents"
-  | "chunks"
-  | "relations"
-  | "relations_in"
-  | "doc_refs"
-  | "trees"
-
 /**
  * The only builder of a DELETE. It adds the org and Workspace predicates
  * before the predicate `where` of this module, so no statement deletes rows
@@ -502,7 +498,7 @@ type MutableTable =
 async function deleteWhere(
   client: ClickHouseClient,
   scope: KnowledgeScope,
-  table: MutableTable,
+  table: keyof TableRows,
   where: string,
   params: Record<string, unknown>,
 ): Promise<void> {
@@ -524,7 +520,7 @@ async function deleteCounted(
   client: ClickHouseClient,
   scope: KnowledgeScope,
   counter: MutationCounter,
-  table: MutableTable,
+  table: keyof TableRows,
   where: string,
   params: Record<string, unknown>,
 ): Promise<void> {
@@ -564,7 +560,7 @@ async function deleteVersions(
   counter: MutationCounter,
 ): Promise<void> {
   const remove = (
-    table: MutableTable,
+    table: keyof TableRows,
     where: string,
     params: Record<string, unknown>,
   ) => deleteCounted(client, scope, counter, table, where, params)
@@ -928,7 +924,7 @@ async function cleanUp(
   assertScope(scope)
   const counts: CleanupCounts = { treeRows: 0, fileVersions: 0 }
   const remove = (
-    table: MutableTable,
+    table: keyof TableRows,
     where: string,
     params: Record<string, unknown>,
   ) => deleteCounted(client, scope, counter, table, where, params)
