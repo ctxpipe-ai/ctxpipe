@@ -5,6 +5,7 @@ import { parse } from "yaml"
 
 import { AGENT_VAULT_RATE_LIMIT_ENV } from "../../../../../packages/aws-cdk/src/internal/agent-vault-limits.js"
 
+// Here, not next to agent-vault-limits.ts: packages/aws-cdk has no YAML parser.
 describe("Agent Vault's rate limits in Compose", () => {
   it("are the limits of the AWS sandbox host and the contract tests", async () => {
     const compose = parse(

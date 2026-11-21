@@ -150,6 +150,14 @@ type AgentVaultFixture = {
   stopAgentVault: () => Promise<void>
 }
 
+/** `docker run` arguments that set each variable of `env`. */
+function envArgs(env: Record<string, string>): string[] {
+  return Object.entries(env).flatMap(([key, value]) => [
+    "-e",
+    `${key}=${value}`,
+  ])
+}
+
 /** The deployed limits, or the stock gate with `stockAuthGateWindow`. */
 function rateLimitEnv(stockAuthGateWindow: string | undefined) {
   if (!stockAuthGateWindow) return AGENT_VAULT_RATE_LIMIT_ENV
@@ -344,9 +352,7 @@ exec node /tmp/upstream.cjs`,
         "127.0.0.1::14321",
         "-e",
         `AGENT_VAULT_MASTER_PASSWORD=${randomBytes(16).toString("hex")}`,
-        ...Object.entries(rateLimitEnv(input.stockAuthGateWindow)).flatMap(
-          ([key, value]) => ["-e", `${key}=${value}`],
-        ),
+        ...envArgs(rateLimitEnv(input.stockAuthGateWindow)),
         "-e",
         "SSL_CERT_DIR=/etc/ssl/certs:/extra-ca",
         "-e",
@@ -560,9 +566,7 @@ export async function startTestAgentVaultEnv(
         `${proxyPort}:${proxyPort}`,
         "-e",
         `AGENT_VAULT_MASTER_PASSWORD=${randomBytes(16).toString("hex")}`,
-        ...Object.entries(AGENT_VAULT_RATE_LIMIT_ENV).flatMap(
-          ([key, value]) => ["-e", `${key}=${value}`],
-        ),
+        ...envArgs(AGENT_VAULT_RATE_LIMIT_ENV),
         "-e",
         "AGENT_VAULT_TELEMETRY=false",
         // Test only: the Docker host (the test backend) and test networks.

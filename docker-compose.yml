@@ -47,8 +47,6 @@ x-agent-vault-env: &agent-vault-env
 
 x-agent-vault-image: &agent-vault-image infisical/agent-vault:latest
 
-# Rate limits stay on (the login limit guards the owner account). The proxy
-# tier is raised: all sandboxes of one turn share one vault and fan out.
 # Agent Vault's rate limits: the values and the reasons are in
 # packages/aws-cdk/src/internal/agent-vault-limits.ts. A backend test keeps
 # them equal. The pre-auth gate is off.

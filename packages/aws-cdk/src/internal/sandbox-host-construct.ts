@@ -467,6 +467,9 @@ interface HostBootstrapInput {
  * name, then signals CloudFormation. Images are pulled by the backend.
  */
 function hostBootstrapScript(input: HostBootstrapInput): string[] {
+  const agentVaultLimits = Object.entries(AGENT_VAULT_RATE_LIMIT_ENV)
+    .map(([key, value]) => `-e ${key}=${value}`)
+    .join(" ")
   return [
     // Output lands in /var/log/cloud-init-output.log.
     "set -euo pipefail",
@@ -571,13 +574,7 @@ function hostBootstrapScript(input: HostBootstrapInput): string[] {
     AGENT_VAULT_NETWORK_CREATE,
     `AGENT_VAULT_MASTER_PASSWORD="$(aws secretsmanager get-secret-value --region "$REGION" --secret-id '${input.agentVaultMasterSecretArn}' --query SecretString --output text)"`,
     "docker rm -f ctxpipe-agent-vault >/dev/null 2>&1 || true",
-    `docker run -d --name ctxpipe-agent-vault --restart unless-stopped --network ${AGENT_VAULT_NETWORK} -p ${AGENT_VAULT_API_PORT}:${AGENT_VAULT_API_PORT} -p ${AGENT_VAULT_PROXY_PORT}:${AGENT_VAULT_PROXY_PORT} -v ctxpipe-agent-vault:/data -e AGENT_VAULT_MASTER_PASSWORD="$AGENT_VAULT_MASTER_PASSWORD" ${Object.entries(
-      AGENT_VAULT_RATE_LIMIT_ENV,
-    )
-      .map(([key, value]) => `-e ${key}=${value} `)
-      .join(
-        "",
-      )}-e AGENT_VAULT_TELEMETRY=false -e AGENT_VAULT_NETWORK_ALLOWLIST='${[...input.backendSubnetCidrs, ...input.operatorAllowlist].join(",")}' infisical/agent-vault:latest`,
+    `docker run -d --name ctxpipe-agent-vault --restart unless-stopped --network ${AGENT_VAULT_NETWORK} -p ${AGENT_VAULT_API_PORT}:${AGENT_VAULT_API_PORT} -p ${AGENT_VAULT_PROXY_PORT}:${AGENT_VAULT_PROXY_PORT} -v ctxpipe-agent-vault:/data -e AGENT_VAULT_MASTER_PASSWORD="$AGENT_VAULT_MASTER_PASSWORD" ${agentVaultLimits} -e AGENT_VAULT_TELEMETRY=false -e AGENT_VAULT_NETWORK_ALLOWLIST='${[...input.backendSubnetCidrs, ...input.operatorAllowlist].join(",")}' infisical/agent-vault:latest`,
     "unset AGENT_VAULT_MASTER_PASSWORD",
     "# While Agent Vault starts, the connection is refused or reset, so retry every error.",
     `curl -sf --max-time 5 --retry 30 --retry-all-errors --retry-delay 2 http://127.0.0.1:${AGENT_VAULT_API_PORT}/health`,
