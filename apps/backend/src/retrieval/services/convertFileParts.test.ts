@@ -150,6 +150,7 @@ describe("convertFileParts", () => {
   it.each([
     { url: "data:application/pdf;base64,JVBERi0=" },
     "data:application/pdf;base64,JVBERi0=",
+    { url: " DATA:Application/PDF;base64,JVBERi0=" },
   ])(
     "refuses an image part with a data URL that is not an image",
     async (image_url) => {

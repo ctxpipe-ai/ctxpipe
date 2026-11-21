@@ -48,8 +48,8 @@ function isFilePart(part: unknown): boolean {
 const notImageSchema = z.object({
   type: z.enum(["image_url", "input_image"]),
   image_url: z.union([
-    z.string().regex(/^data:(?!image\/)/),
-    z.object({ url: z.string().regex(/^data:(?!image\/)/) }),
+    z.string().regex(/^\s*data:(?!image\/)/i),
+    z.object({ url: z.string().regex(/^\s*data:(?!image\/)/i) }),
   ]),
 })
 
