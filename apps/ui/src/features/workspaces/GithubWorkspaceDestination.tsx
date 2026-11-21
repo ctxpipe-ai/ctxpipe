@@ -35,6 +35,12 @@ function workspaceRepoLine(workspace: Workspace): string {
   )
 }
 
+/**
+ * The step after the user connects GitHub: create a new Workspace, open an
+ * existing one to add repositories, or close the wizard. It shows on the
+ * GitHub setup page and in onboarding (`variant`). It gets the Workspace list as
+ * props; use `GithubWorkspaceDestinationFromApi` to load the list.
+ */
 export function GithubWorkspaceDestination({
   variant = "page",
   status,
@@ -191,6 +197,11 @@ export function GithubWorkspaceDestination({
   )
 }
 
+/**
+ * `GithubWorkspaceDestination` with the Workspace list of the organization
+ * loaded from the API. Use it in a page; use the other one in a story or
+ * test.
+ */
 export function GithubWorkspaceDestinationFromApi(props: {
   orgSlug: string
   variant?: "page" | "onboarding"

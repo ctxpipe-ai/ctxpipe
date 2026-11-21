@@ -64,6 +64,11 @@ export type FileEditorHandle = {
   getText: () => string
 }
 
+/**
+ * Shows one file with syntax colors. With `oldBody`, it shows the diff
+ * against that text. With `editable`, the user can edit the file, with undo and
+ * redo.
+ */
 export function WorkspacePierreFile(props: {
   path: string
   body: string

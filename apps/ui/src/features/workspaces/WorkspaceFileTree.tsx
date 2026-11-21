@@ -167,6 +167,11 @@ function lineCountDecoration(item: WorkspaceGitStatusItem | undefined) {
   }
 }
 
+/**
+ * The file tree of the Files pane. The user selects a file to preview it,
+ * pins it to a tab, and sees which files changed. When `writable` is true, the
+ * user can also create, rename, move and delete files and folders.
+ */
 export function WorkspaceFileTree(props: {
   paths: readonly string[]
   selectedPath: string | null
