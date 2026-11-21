@@ -10,6 +10,7 @@ import { z } from "zod"
 
 import { fileExtension } from "../../domain/workspaces/raw-file.js"
 import { convertFile } from "../../knowledge-plane/convert-file.js"
+import { getLogger } from "../../observability/logger.js"
 
 const filePartSchema = z.object({
   type: z.literal("file"),
@@ -108,7 +109,11 @@ async function pdfText(
   let conversion: Awaited<ReturnType<typeof convertFile>>
   try {
     conversion = await convertFile("pdf", Buffer.from(data[2] ?? "", "base64"))
-  } catch {
+  } catch (error) {
+    getLogger().error(
+      error instanceof Error ? error : new Error(String(error)),
+      { step: "model-proxy.convert-file" },
+    )
     return {
       ok: false,
       status: 503,
