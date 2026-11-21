@@ -48,8 +48,10 @@ pub fn serve(
     // URL. For `scheme://userinfo@` of any scheme, the whole userinfo up to
     // the last `@` of the token becomes `[REDACTED:url-credentials]`, when
     // it holds a `:` (a password part). The token ends at whitespace, `"`,
-    // `<`, `>` or a backtick. The scheme can follow any character (`_x://`,
-    // `1x://`, text with no spaces). It fails safe: a part that only looks like a
+    // `<`, `>` or a backtick. The scheme starts with a letter (RFC 3986),
+    // and it can come right after any other character: `_postgres://`,
+    // `1redis://` (the scheme is `redis`), or text with no spaces. It fails
+    // safe: a part that only looks like a
     // password (a port and a query, a template) is redacted too, because a
     // redaction that was not needed leaks nothing, and a miss leaks a secret.
     rules.rules.insert(
