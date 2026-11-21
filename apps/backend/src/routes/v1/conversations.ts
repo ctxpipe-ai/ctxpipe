@@ -6,8 +6,8 @@ import { hasOrgAdminOrOwnerRole } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import {
   type ConversationChatMessage,
-  ChatAttachmentError,
   type ConversationChatRequest,
+  chatRequestErrorMessage,
   ConversationUiMessagesTimeoutError,
   loadConversationUiMessagesBounded,
   parseConversationChatRequest,
@@ -1273,10 +1273,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     } catch (error) {
       return c.json(
         {
-          error:
-            error instanceof ChatAttachmentError
-              ? error.message
-              : "Message text is required",
+          error: chatRequestErrorMessage(error, "Message text is required"),
         },
         400,
       )
@@ -1332,10 +1329,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     } catch (error) {
       return c.json(
         {
-          error:
-            error instanceof ChatAttachmentError
-              ? error.message
-              : "Message text is required",
+          error: chatRequestErrorMessage(error, "Message text is required"),
         },
         400,
       )

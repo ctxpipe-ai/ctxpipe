@@ -81,7 +81,8 @@ const chatRoute = createRoute({
     200: { description: "Upstream chat-completion response (JSON or SSE)" },
     400: {
       content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "A file part that is not a PDF, or a PDF with no text",
+      description:
+        "A file part or an image data URL that the proxy cannot convert to text",
     },
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -189,12 +190,16 @@ export const workspaceChatOpenaiRoutes = new OpenAPIHono<AppEnv>()
     const converted = await convertFileParts(
       await c.req.json().catch(() => ({})),
     )
-    if (!converted.ok) return c.json({ error: converted.error }, 400)
+    if (!converted.ok)
+      return c.json({ error: converted.error }, converted.status)
     // The body goes to a model: each secret in it is removed first, and a
     // part that the scrubber cannot read is refused (ADR-072).
     const unreadable = unreadableContentPart(converted.body)
     if (unreadable) return c.json({ error: unreadable }, 400)
-    const body = (await scrubForModel(converted.body)) as Record<string, unknown>
+    const body = (await scrubForModel(converted.body)) as Record<
+      string,
+      unknown
+    >
     // The request's `model` of an ingest step is its tier name. Each other
     // value from the sandbox (also a configured model name) gets the fast
     // tier. A chat turn always uses the fast tier.

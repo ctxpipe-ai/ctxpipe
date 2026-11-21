@@ -83,6 +83,7 @@ describe("convertFileParts", () => {
     )
     expect(result).toEqual({
       ok: false,
+      status: 400,
       error: expect.stringContaining('"sample.docx" is not a PDF'),
     })
   })
@@ -99,6 +100,7 @@ describe("convertFileParts", () => {
     )
     expect(result).toEqual({
       ok: false,
+      status: 400,
       error: expect.stringMatching(
         /^The PDF "truncated\.pdf" cannot be converted to text \(malformed\)/,
       ),
@@ -114,18 +116,39 @@ describe("convertFileParts", () => {
         file: { filename: "a.pdf", file_data: "https://example.com/a.pdf" },
       },
     ],
-    [
-      "a Responses API file part",
-      { type: "input_file", file_url: "https://example.com/a.pdf" },
-    ],
   ])("refuses %s, which holds no file data", async (_name, part) => {
     const result = await convertFileParts(body(part))
     expect(result).toEqual({
       ok: false,
+      status: 400,
       error: expect.stringContaining(
         "has no file_data of the form data:<media type>;base64,<data>",
       ),
     })
+  })
+
+  it("refuses a file part of the Responses API", async () => {
+    const result = await convertFileParts(
+      body({ type: "input_file", file_url: "https://example.com/a.pdf" }),
+    )
+    expect(result).toEqual({
+      ok: false,
+      status: 400,
+      error: expect.stringContaining("An input_file part is not accepted"),
+    })
+  })
+
+  it("knows a PDF by a media type in any case", async () => {
+    const result = await convertFileParts(
+      body({
+        type: "file",
+        file: {
+          filename: "report",
+          file_data: dataUrl("Application/PDF", fixture("sample.pdf")),
+        },
+      }),
+    )
+    expect(result.ok).toBe(true)
   })
 
   it("reads a data URL with parameters, and keeps the name from ending the wrapper", async () => {
@@ -159,6 +182,7 @@ describe("convertFileParts", () => {
       )
       expect(result).toEqual({
         ok: false,
+        status: 400,
         error: expect.stringContaining("not an image"),
       })
     },
@@ -171,6 +195,7 @@ describe("convertFileParts", () => {
     const result = await convertFileParts(body({ type: "file", file }))
     expect(result).toEqual({
       ok: false,
+      status: 400,
       error: expect.stringContaining("A file part is malformed"),
     })
   })

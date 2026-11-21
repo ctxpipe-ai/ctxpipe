@@ -73,7 +73,7 @@ const chatRoute = createRoute({
     400: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description:
-        "Model not allowed, a file part that is not a PDF, or a PDF with no text",
+        "Model not allowed, or a file part or an image data URL that the proxy cannot convert to text",
     },
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -162,22 +162,7 @@ export const openaiRoutes = new OpenAPIHono<AppEnv>()
         503,
       )
     }
-    // Each PDF file part becomes the text of our converter, and each other
-    // file part fails the request (CTX-1454).
-    const converted = await convertFileParts(
-      await c.req.json().catch(() => ({})),
-    )
-    if (!converted.ok) return c.json({ error: converted.error }, 400)
-    // The body goes to a model: each secret in it is removed first, and a
-    // part that the scrubber cannot read is refused (ADR-072).
-    const unreadable = unreadableContentPart(converted.body)
-    if (unreadable) return c.json({ error: unreadable }, 400)
-    const body = (await scrubForModel(converted.body)) as {
-      model?: unknown
-      stream?: unknown
-      messages?: unknown[]
-      temperature?: number
-    }
+    const raw = (await c.req.json().catch(() => ({}))) as { model?: unknown }
     const allowed = allowedChatModels(env)
     const configured = configuredChatModelSpecs(env)
     if (allowed.length === 0) {
@@ -190,8 +175,8 @@ export const openaiRoutes = new OpenAPIHono<AppEnv>()
       )
     }
     if (
-      typeof body.model === "string" &&
-      !isModelAllowed(body.model, configured)
+      typeof raw.model === "string" &&
+      !isModelAllowed(raw.model, configured)
     ) {
       return c.json(
         {
@@ -200,6 +185,23 @@ export const openaiRoutes = new OpenAPIHono<AppEnv>()
         },
         400,
       )
+    }
+    // Each PDF file part becomes the text of our converter, and each other
+    // file part fails the request (CTX-1454).
+    const converted = await convertFileParts(raw)
+    if (!converted.ok)
+      return converted.status === 503
+        ? c.json(unavailableResponse("no-file-converter", converted.error), 503)
+        : c.json({ error: converted.error }, 400)
+    // The body goes to a model: each secret in it is removed first, and a
+    // part that the scrubber cannot read is refused (ADR-072).
+    const unreadable = unreadableContentPart(converted.body)
+    if (unreadable) return c.json({ error: unreadable }, 400)
+    const body = (await scrubForModel(converted.body)) as {
+      model?: unknown
+      stream?: unknown
+      messages?: unknown[]
+      temperature?: number
     }
     if (env.MODEL_PROVIDER === "bedrock") {
       return handleNativeBedrockResponse(

@@ -281,7 +281,16 @@ export class ChatAttachmentError extends Error {
     super(
       "The chat takes only text. Add the file to the Workspace, and ask about it in the chat.",
     )
+    this.name = "ChatAttachmentError"
   }
+}
+
+/** The message for the client when `parseConversationChatRequest` fails. */
+export function chatRequestErrorMessage(
+  error: unknown,
+  fallback: string,
+): string {
+  return error instanceof ChatAttachmentError ? error.message : fallback
 }
 
 function hasAttachment(message: unknown): boolean {
