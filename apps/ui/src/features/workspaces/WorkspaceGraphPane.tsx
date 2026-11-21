@@ -2,6 +2,11 @@ import { KnowledgeGraphExplorer } from "@/features/knowledge-graph/KnowledgeGrap
 
 import type { WorkspaceGraphPayload } from "./types"
 
+/**
+ * The Graph pane of a Workspace: the knowledge graph of its repository, in
+ * which the user finds how the files link and opens a source file. It tells
+ * when the graph has nodes but no links yet.
+ */
 export function WorkspaceGraphPane(props: {
   orgSlug: string
   workspaceSlug: string

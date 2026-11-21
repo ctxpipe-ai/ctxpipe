@@ -6,6 +6,10 @@ import { Modal } from "@/components/ui/Modal"
 
 import { WorkspaceCreateForm } from "./WorkspaceCreateForm"
 
+/**
+ * Opens `WorkspaceCreateForm` in a modal, so the user can create a Workspace
+ * from any page, for example from the side navigation.
+ */
 export function WorkspaceCreateModal(props: {
   orgSlug: string
   isOpen: boolean

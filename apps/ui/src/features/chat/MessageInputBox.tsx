@@ -24,6 +24,12 @@ import { readChatDraft, writeChatDraft } from "./chat-draft"
 
 type MessageInputLayout = "thread" | "empty"
 
+/**
+ * The composer of a chat: the user writes a message and sends it, or stops
+ * the turn that runs. The `thread` layout docks it below a conversation; the
+ * `empty` layout is the large composer of a new chat, with example prompts.
+ * With a `draftKey`, unsent text stays when the user goes to another page.
+ */
 export function MessageInputBox(props: {
   sendMessage: (params: { text: string }) => void
   status?: ChatStatus

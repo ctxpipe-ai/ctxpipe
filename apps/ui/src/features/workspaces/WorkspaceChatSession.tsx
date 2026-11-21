@@ -101,6 +101,14 @@ function renameFromChunk(chunk: StreamChunk): string | null {
   return null
 }
 
+/**
+ * One live Workspace conversation: the thread, the composer, and the header
+ * with its title. It sends the user's messages to the agent and streams the
+ * answers, shows the sandbox setup while it waits, and links file paths and
+ * changed files to the tools pane. When the user leaves, the turn continues on
+ * the server; only Stop stops it. Use `WorkspaceChat`, which loads the
+ * conversation first.
+ */
 export function WorkspaceChatSession(props: {
   orgSlug: string
   workspace: Workspace
