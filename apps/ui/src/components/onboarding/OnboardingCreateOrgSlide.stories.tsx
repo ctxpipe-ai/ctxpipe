@@ -13,11 +13,6 @@ import {
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import preview from "../../../.storybook/preview"
 
-const createOrgBaseMsw = [
-  sessionSignedInOnboardingHandler,
-  organizationListEmptyHandler,
-]
-
 const meta = preview.meta({
   title: "Components/Onboarding/Slides/CreateOrg",
   component: OnboardingCreateOrgSlide,
@@ -29,7 +24,13 @@ const meta = preview.meta({
     ),
   ],
   beforeEach: ({ msw }) => {
-    msw.use(...signedInHandlers)
+    // A new user in onboarding with no organization. The first handler that
+    // matches wins, so these come before the signed-in session.
+    msw.use(
+      sessionSignedInOnboardingHandler,
+      organizationListEmptyHandler,
+      ...signedInHandlers,
+    )
   },
   parameters: {
     app: "root",
@@ -49,20 +50,13 @@ const meta = preview.meta({
  * Onboarding slide where a new user creates the first organization: the form is
  * empty.
  */
-export const Empty = meta.story({
-  beforeEach: ({ msw }) => {
-    msw.use(...createOrgBaseMsw)
-  },
-})
+export const Empty = meta.story({})
 
 /**
  * Onboarding slide where a new user creates the first organization: the user
  * submitted with no name, and the form asks for one.
  */
 export const ValidationError = meta.story({
-  beforeEach: ({ msw }) => {
-    msw.use(...createOrgBaseMsw)
-  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(
@@ -82,9 +76,6 @@ export const ValidationError = meta.story({
  * starts with a hyphen, and the create button is disabled.
  */
 export const InvalidSlug = meta.story({
-  beforeEach: ({ msw }) => {
-    msw.use(...createOrgBaseMsw)
-  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.type(
@@ -116,7 +107,7 @@ export const InvalidSlug = meta.story({
  */
 export const CreateFailed = meta.story({
   beforeEach: ({ msw }) => {
-    msw.use(...createOrgBaseMsw, organizationCreateErrorHandler())
+    msw.use(organizationCreateErrorHandler())
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -146,7 +137,6 @@ const setActive = fn()
 export const CreatingOrganization = meta.story({
   beforeEach: ({ msw }) => {
     msw.use(
-      ...createOrgBaseMsw,
       organizationCreateSlowSuccessHandler(),
       organizationSetActiveHandler(setActive),
     )
@@ -189,9 +179,6 @@ export const CreatingOrganization = meta.story({
  */
 export const PrefilledFromWorkEmail = meta.story({
   args: { userEmail: "pat@initech.io" },
-  beforeEach: ({ msw }) => {
-    msw.use(...createOrgBaseMsw)
-  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const name = await canvas.findByRole("textbox", {

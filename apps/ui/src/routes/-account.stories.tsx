@@ -230,7 +230,7 @@ export const ConnectedAppsEditOrgs = meta.story({
   args: { accountView: "connected-apps" },
   beforeEach: ({ msw }) => {
     msw.use(...editBackend.handlers)
-    return editBackend.reset()
+    editBackend.reset()
   },
   parameters: {
     intent:
@@ -289,7 +289,7 @@ export const ConnectedAppsRevoke = meta.story({
   args: { accountView: "connected-apps" },
   beforeEach: ({ msw }) => {
     msw.use(...revokeBackend.handlers)
-    return revokeBackend.reset()
+    revokeBackend.reset()
   },
   parameters: {
     intent:
@@ -325,7 +325,7 @@ export const ConnectedAppsRevokeError = meta.story({
   args: { accountView: "connected-apps" },
   beforeEach: ({ msw }) => {
     msw.use(...failingRevokeBackend.handlers)
-    return failingRevokeBackend.reset()
+    failingRevokeBackend.reset()
   },
   parameters: {
     intent:
@@ -497,7 +497,7 @@ const createKeyBackend = personalKeysHandlers()
 export const ApiKeysCreateWithOrganizations = meta.story({
   beforeEach: ({ msw }) => {
     msw.use(...createKeyBackend.handlers)
-    return createKeyBackend.reset()
+    createKeyBackend.reset()
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -552,7 +552,7 @@ const editKeyBackend = personalKeysHandlers()
 export const ApiKeysEditOrganizations = meta.story({
   beforeEach: ({ msw }) => {
     msw.use(...editKeyBackend.handlers)
-    return editKeyBackend.reset()
+    editKeyBackend.reset()
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -646,7 +646,7 @@ export const OrganizationDeletedStaleSelection = meta.story({
   args: { accountView: "organizations" },
   beforeEach: ({ msw }) => {
     msw.use(...staleSelectionBackend.handlers, ...staleSelectionBackend.page)
-    return staleSelectionBackend.reset()
+    staleSelectionBackend.reset()
   },
   parameters: {
     app: "org",
@@ -692,7 +692,7 @@ export const LastOrganizationDeleted = meta.story({
       ...lastOrganizationBackend.handlers,
       ...lastOrganizationBackend.page,
     )
-    return lastOrganizationBackend.reset()
+    lastOrganizationBackend.reset()
   },
   parameters: {
     app: "org",

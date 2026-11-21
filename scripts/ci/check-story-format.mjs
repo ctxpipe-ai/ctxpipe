@@ -24,25 +24,38 @@ import { storyFiles } from "../../packages/visual-review/src/story-tags.ts"
 const root = resolve(
   process.argv[2] ?? fileURLToPath(new URL("../..", import.meta.url)),
 )
-const listFile = "scripts/ci/csf3-story-files.json"
+const listPath = join(root, "scripts/ci/csf3-story-files.json")
+const listFile = relative(root, listPath)
 const { loadCsf } = await csfTools()
-const listed = new Set(JSON.parse(readFileSync(join(root, listFile), "utf8")))
+const listed = new Set(JSON.parse(readFileSync(listPath, "utf8")))
 
 const errors = []
 const files = storyFiles(join(root, "apps/ui/src"))
 for (const path of files) {
   const file = relative(root, path)
   const code = readFileSync(path, "utf8")
-  const csf4 =
-    loadCsf(code, { fileName: file, makeTitle: (title) => title }).parse()
-      ._metaIsFactory === true
+  const csf = loadCsf(code, {
+    fileName: file,
+    makeTitle: (title) => title,
+  }).parse()
+  const csf4 = csf._metaIsFactory === true
+  // `msw:` also finds a helper that returns it; the parsed keys also find
+  // the shorthand `parameters: { msw }`.
+  const setsMsw =
+    /\bmsw\s*:/.test(code) ||
+    [csf._metaAnnotations, ...Object.values(csf._storyAnnotations)].some(
+      (annotations) =>
+        annotations?.parameters?.properties?.some(
+          (property) => (property.key?.name ?? property.key?.value) === "msw",
+        ),
+    )
   if (csf4 && listed.has(file))
     errors.push(`${file} is CSF 4 now. Remove it from ${listFile}.`)
   if (!csf4 && !listed.has(file))
     errors.push(
       `${file} is CSF 3. Write it in CSF 4: \`const meta = preview.meta({ ... })\` and \`export const <Name> = meta.story({ ... })\` (the storybook skill, "Story format").`,
     )
-  if (csf4 && /\bmsw\s*:/.test(code))
+  if (csf4 && setsMsw)
     errors.push(
       `${file} sets \`msw:\`. A CSF 4 story file adds its handlers in \`beforeEach({ msw }) { msw.use(...) }\` of its meta or its story; the addon ignores parameters.msw there.`,
     )

@@ -165,7 +165,7 @@ export const JoinerFinishLandsInApp = meta.story({
       organizationFullWithOrgHandler,
       workspaceListHandler([docsWorkspace]),
     )
-    return joinerSession.reset()
+    joinerSession.reset()
   },
   parameters: {
     visual: {
@@ -212,7 +212,7 @@ export const JoinerFinishStaysWhenSessionIsStale = meta.story({
       organizationFullWithOrgHandler,
       workspaceListHandler([docsWorkspace]),
     )
-    return staleSession.reset()
+    staleSession.reset()
   },
   parameters: {
     storyRoute: onboardingJourneyRoute,

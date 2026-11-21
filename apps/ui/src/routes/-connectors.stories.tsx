@@ -34,6 +34,11 @@ import { ConnectorsPageContent } from "./$orgSlug.connectors"
 
 const orgSlug = "acme"
 
+const connectorsRoute = {
+  pattern: "orgConnectors",
+  orgSlug,
+} satisfies StoryRouteParams
+
 const meta = preview.meta({
   title: "Pages/Connections",
   tags: ["page"],
@@ -79,10 +84,7 @@ export const Empty = meta.story({
     )
   },
   parameters: {
-    storyRoute: {
-      pattern: "orgConnectors",
-      orgSlug,
-    } satisfies StoryRouteParams,
+    storyRoute: connectorsRoute,
   },
 })
 
@@ -119,10 +121,7 @@ export const Loading = meta.story({
     )
   },
   parameters: {
-    storyRoute: {
-      pattern: "orgConnectors",
-      orgSlug,
-    } satisfies StoryRouteParams,
+    storyRoute: connectorsRoute,
   },
 })
 
@@ -374,25 +373,6 @@ function statusFailed(pathnameSuffix: string, connectionId: string) {
   )
 }
 
-function pageHandlers(
-  handlers: ReturnType<typeof http.get>[],
-  pendingUpgrades?: ReturnType<typeof pendingWorkspaceUpgradesHandler>,
-  role?: "owner" | "member",
-) {
-  // The meta answers an admin and "no pending upgrade". These handlers come
-  // after it, so they win.
-  return [
-    ...(role ? [activeMemberRoleHandler(role)] : []),
-    ...handlers,
-    ...(pendingUpgrades ? [pendingUpgrades] : []),
-  ]
-}
-
-const connectorsRoute = {
-  pattern: "orgConnectors",
-  orgSlug,
-} satisfies StoryRouteParams
-
 const pageRender = () => <ConnectorsPageContent orgSlug={orgSlug} />
 
 /**
@@ -403,19 +383,17 @@ export const Full = meta.story({
   render: pageRender,
   beforeEach: ({ msw }) => {
     msw.use(
-      ...pageHandlers([
-        connectorsListHandler(),
-        atlassianStatusHandler(atlassianStatusComplete),
-        atlassianOauthHandler({ oauthAppSaved: true }, forgeId),
-        notionStatusHandler(notionStatusComplete),
-        githubInstallationHandler(githubInstallationComplete),
-        linearStatusHandler(linearStatusComplete),
-        slackStatusHandler(slackStatusComplete),
-        pagerdutyStatusHandler(pagerdutyStatusComplete),
-        // An expanded card reads "Used in" and the Workspace list.
-        connectionUsageHandler([]),
-        workspaceListHandler([]),
-      ]),
+      connectorsListHandler(),
+      atlassianStatusHandler(atlassianStatusComplete),
+      atlassianOauthHandler({ oauthAppSaved: true }, forgeId),
+      notionStatusHandler(notionStatusComplete),
+      githubInstallationHandler(githubInstallationComplete),
+      linearStatusHandler(linearStatusComplete),
+      slackStatusHandler(slackStatusComplete),
+      pagerdutyStatusHandler(pagerdutyStatusComplete),
+      // An expanded card reads "Used in" and the Workspace list.
+      connectionUsageHandler([]),
+      workspaceListHandler([]),
     )
   },
   parameters: {
@@ -449,22 +427,18 @@ export const NeedsFormatUpgrade = meta.story({
   render: pageRender,
   beforeEach: ({ msw }) => {
     msw.use(
-      ...pageHandlers(
-        [
-          connectorsListHandler(),
-          atlassianStatusHandler(atlassianStatusComplete),
-          atlassianOauthHandler({ oauthAppSaved: true }, forgeId),
-          notionStatusHandler(notionStatusComplete),
-          githubInstallationHandler(githubInstallationComplete),
-          linearStatusHandler(linearStatusComplete),
-          slackStatusHandler(slackStatusComplete),
-          pagerdutyStatusHandler(pagerdutyStatusComplete),
-          connectionUsageHandler([]),
-          workspaceListHandler([docsWorkspace]),
-        ],
-        pendingWorkspaceUpgradesHandler({ docs: [upgradeItemFixture()] }),
-        "owner",
-      ),
+      activeMemberRoleHandler("owner"),
+      connectorsListHandler(),
+      atlassianStatusHandler(atlassianStatusComplete),
+      atlassianOauthHandler({ oauthAppSaved: true }, forgeId),
+      notionStatusHandler(notionStatusComplete),
+      githubInstallationHandler(githubInstallationComplete),
+      linearStatusHandler(linearStatusComplete),
+      slackStatusHandler(slackStatusComplete),
+      pagerdutyStatusHandler(pagerdutyStatusComplete),
+      connectionUsageHandler([]),
+      workspaceListHandler([docsWorkspace]),
+      pendingWorkspaceUpgradesHandler({ docs: [upgradeItemFixture()] }),
     )
   },
   parameters: {
@@ -492,24 +466,20 @@ export const NeedsFormatUpgradeNoRowYet = meta.story({
   render: pageRender,
   beforeEach: ({ msw }) => {
     msw.use(
-      ...pageHandlers(
-        [
-          connectorsListHandler(),
-          atlassianStatusHandler(atlassianStatusComplete),
-          atlassianOauthHandler({ oauthAppSaved: true }, forgeId),
-          notionStatusHandler(notionStatusComplete),
-          githubInstallationHandler(githubInstallationComplete),
-          linearStatusHandler(linearStatusComplete),
-          slackStatusHandler(slackStatusComplete),
-          pagerdutyStatusHandler(pagerdutyStatusComplete),
-          connectionUsageHandler([]),
-          workspaceListHandler([docsWorkspace]),
-        ],
-        pendingWorkspaceUpgradesHandler({}, undefined, {
-          formats: { docs: 0 },
-        }),
-        "owner",
-      ),
+      activeMemberRoleHandler("owner"),
+      connectorsListHandler(),
+      atlassianStatusHandler(atlassianStatusComplete),
+      atlassianOauthHandler({ oauthAppSaved: true }, forgeId),
+      notionStatusHandler(notionStatusComplete),
+      githubInstallationHandler(githubInstallationComplete),
+      linearStatusHandler(linearStatusComplete),
+      slackStatusHandler(slackStatusComplete),
+      pagerdutyStatusHandler(pagerdutyStatusComplete),
+      connectionUsageHandler([]),
+      workspaceListHandler([docsWorkspace]),
+      pendingWorkspaceUpgradesHandler({}, undefined, {
+        formats: { docs: 0 },
+      }),
     )
   },
   parameters: {
@@ -536,18 +506,14 @@ export const NeedsFormatUpgradeNoConnections = meta.story({
   render: pageRender,
   beforeEach: ({ msw }) => {
     msw.use(
-      ...pageHandlers(
-        [
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname === `/${orgSlug}/api/v1/connectors`,
-            () => HttpResponse.json({ items: [] }),
-          ),
-          workspaceListHandler([docsWorkspace]),
-        ],
-        pendingWorkspaceUpgradesHandler({ docs: [upgradeItemFixture()] }),
-        "member",
+      activeMemberRoleHandler("member"),
+      http.get(
+        ({ request }) =>
+          new URL(request.url).pathname === `/${orgSlug}/api/v1/connectors`,
+        () => HttpResponse.json({ items: [] }),
       ),
+      workspaceListHandler([docsWorkspace]),
+      pendingWorkspaceUpgradesHandler({ docs: [upgradeItemFixture()] }),
     )
   },
   parameters: {
@@ -572,58 +538,56 @@ export const InProgress = meta.story({
   render: pageRender,
   beforeEach: ({ msw }) => {
     msw.use(
-      ...pageHandlers([
-        connectorsListHandler(),
-        githubInstallationHandler(null),
-        atlassianOauthHandler({ oauthAppSaved: true }, forgeId),
-        atlassianStatusHandler({
-          isLinked: true,
-          isInstalled: true,
-          installationStatus: "installed",
-          isGithubLinked: false,
-          selectedSpaceCount: 0,
-          syncTargetConfigured: false,
-          syncTarget: null,
-          selectedSpaces: [],
-        }),
-        linearStatusHandler({
-          isInstalled: false,
-          installationStatus: null,
-          workspaceName: null,
-          isGithubLinked: false,
-          selectedScopeCount: 0,
-          setupPhase: "draft",
-          pendingConfigPullUrl: null,
-          pendingConfigPrCreating: false,
-          syncTarget: null,
-        }),
-        notionStatusHandler({
-          isInstalled: true,
-          installationStatus: "installed",
-          workspaceName: "Acme",
-          isGithubLinked: true,
-          selectedResourceCount: 2,
-          syncTargetConfigured: true,
-          setupPhase: "awaiting_merge",
-          pendingConfigPullUrl: "https://github.com/acme/ingest/pull/42",
-          pendingConfigPrCreating: false,
-          syncTarget: notionStatusComplete.syncTarget,
-        }),
-        slackStatusHandler({
-          ...slackStatusComplete,
-          isGithubLinked: false,
-          setupPhase: "draft",
-          syncTarget: null,
-        }),
-        pagerdutyStatusHandler({
-          ...pagerdutyStatusComplete,
-          isGithubLinked: true,
-          syncTargetConfigured: true,
-          selectedServiceCount: 2,
-          setupPhase: "awaiting_merge",
-          pendingConfigPullUrl: "https://github.com/acme/ingest/pull/43",
-        }),
-      ]),
+      connectorsListHandler(),
+      githubInstallationHandler(null),
+      atlassianOauthHandler({ oauthAppSaved: true }, forgeId),
+      atlassianStatusHandler({
+        isLinked: true,
+        isInstalled: true,
+        installationStatus: "installed",
+        isGithubLinked: false,
+        selectedSpaceCount: 0,
+        syncTargetConfigured: false,
+        syncTarget: null,
+        selectedSpaces: [],
+      }),
+      linearStatusHandler({
+        isInstalled: false,
+        installationStatus: null,
+        workspaceName: null,
+        isGithubLinked: false,
+        selectedScopeCount: 0,
+        setupPhase: "draft",
+        pendingConfigPullUrl: null,
+        pendingConfigPrCreating: false,
+        syncTarget: null,
+      }),
+      notionStatusHandler({
+        isInstalled: true,
+        installationStatus: "installed",
+        workspaceName: "Acme",
+        isGithubLinked: true,
+        selectedResourceCount: 2,
+        syncTargetConfigured: true,
+        setupPhase: "awaiting_merge",
+        pendingConfigPullUrl: "https://github.com/acme/ingest/pull/42",
+        pendingConfigPrCreating: false,
+        syncTarget: notionStatusComplete.syncTarget,
+      }),
+      slackStatusHandler({
+        ...slackStatusComplete,
+        isGithubLinked: false,
+        setupPhase: "draft",
+        syncTarget: null,
+      }),
+      pagerdutyStatusHandler({
+        ...pagerdutyStatusComplete,
+        isGithubLinked: true,
+        syncTargetConfigured: true,
+        selectedServiceCount: 2,
+        setupPhase: "awaiting_merge",
+        pendingConfigPullUrl: "https://github.com/acme/ingest/pull/43",
+      }),
     )
   },
   parameters: {
@@ -639,34 +603,32 @@ export const MixedHealth = meta.story({
   render: pageRender,
   beforeEach: ({ msw }) => {
     msw.use(
-      ...pageHandlers([
-        connectorsListHandler(),
-        githubInstallationHandler(githubInstallationComplete),
-        atlassianOauthHandler({ oauthAppSaved: true }, forgeId),
-        atlassianStatusHandler({
-          isLinked: false,
-          isInstalled: false,
-          installationStatus: null,
-          isGithubLinked: false,
-          selectedSpaceCount: 0,
-          syncTargetConfigured: false,
-          syncTarget: null,
-          selectedSpaces: [],
-        }),
-        linearStatusHandler({
-          ...linearStatusComplete,
-          setupPhase: "sync_failed",
-        }),
-        notionStatusHandler({
-          ...notionStatusComplete,
-          setupPhase: "config_failed",
-        }),
-        slackStatusHandler(slackStatusComplete),
-        pagerdutyStatusHandler({
-          ...pagerdutyStatusComplete,
-          setupPhase: "sync_failed",
-        }),
-      ]),
+      connectorsListHandler(),
+      githubInstallationHandler(githubInstallationComplete),
+      atlassianOauthHandler({ oauthAppSaved: true }, forgeId),
+      atlassianStatusHandler({
+        isLinked: false,
+        isInstalled: false,
+        installationStatus: null,
+        isGithubLinked: false,
+        selectedSpaceCount: 0,
+        syncTargetConfigured: false,
+        syncTarget: null,
+        selectedSpaces: [],
+      }),
+      linearStatusHandler({
+        ...linearStatusComplete,
+        setupPhase: "sync_failed",
+      }),
+      notionStatusHandler({
+        ...notionStatusComplete,
+        setupPhase: "config_failed",
+      }),
+      slackStatusHandler(slackStatusComplete),
+      pagerdutyStatusHandler({
+        ...pagerdutyStatusComplete,
+        setupPhase: "sync_failed",
+      }),
     )
   },
   parameters: {
@@ -682,16 +644,14 @@ export const CouldntLoad = meta.story({
   render: pageRender,
   beforeEach: ({ msw }) => {
     msw.use(
-      ...pageHandlers([
-        connectorsListHandler(),
-        atlassianOauthHandler({ oauthAppSaved: true }, forgeId),
-        statusFailed("/api/v1/github/installation", githubId),
-        statusFailed("/api/v1/connectors/atlassian/status", forgeId),
-        statusFailed("/api/v1/connectors/linear/status", linearId),
-        statusFailed("/api/v1/connectors/notion/status", notionId),
-        statusFailed("/api/v1/connectors/slack/status", slackId),
-        statusFailed("/api/v1/connectors/pagerduty/status", pagerdutyId),
-      ]),
+      connectorsListHandler(),
+      atlassianOauthHandler({ oauthAppSaved: true }, forgeId),
+      statusFailed("/api/v1/github/installation", githubId),
+      statusFailed("/api/v1/connectors/atlassian/status", forgeId),
+      statusFailed("/api/v1/connectors/linear/status", linearId),
+      statusFailed("/api/v1/connectors/notion/status", notionId),
+      statusFailed("/api/v1/connectors/slack/status", slackId),
+      statusFailed("/api/v1/connectors/pagerduty/status", pagerdutyId),
     )
   },
   parameters: {
@@ -788,30 +748,26 @@ export const BuildkiteFromCatalog = meta.story({
   render: pageRender,
   beforeEach: ({ msw }) => {
     msw.use(
-      ...pageHandlers([
-        http.get(
-          ({ request }) =>
-            new URL(request.url).pathname === `/${orgSlug}/api/v1/connectors`,
-          () =>
-            HttpResponse.json({
-              items: [
-                {
-                  id: "conn_buildkite_1",
-                  type: "buildkite",
-                  displayName: "acme",
-                  status: "connected",
-                  createdAt: "2025-01-01T00:00:00.000Z",
-                  updatedAt: "2025-01-02T00:00:00.000Z",
-                },
-              ],
-            }),
-        ),
-        buildkiteStatusHandler(
-          buildkiteStoryStatus({ webhookConfigured: true }),
-        ),
-        // The org shell lists the Workspaces.
-        workspaceListHandler([]),
-      ]),
+      http.get(
+        ({ request }) =>
+          new URL(request.url).pathname === `/${orgSlug}/api/v1/connectors`,
+        () =>
+          HttpResponse.json({
+            items: [
+              {
+                id: "conn_buildkite_1",
+                type: "buildkite",
+                displayName: "acme",
+                status: "connected",
+                createdAt: "2025-01-01T00:00:00.000Z",
+                updatedAt: "2025-01-02T00:00:00.000Z",
+              },
+            ],
+          }),
+      ),
+      buildkiteStatusHandler(buildkiteStoryStatus({ webhookConfigured: true })),
+      // The org shell lists the Workspaces.
+      workspaceListHandler([]),
     )
   },
   parameters: {
@@ -849,28 +805,26 @@ export const PlainFromCatalog = meta.story({
   render: pageRender,
   beforeEach: ({ msw }) => {
     msw.use(
-      ...pageHandlers([
-        http.get(
-          ({ request }) =>
-            new URL(request.url).pathname === `/${orgSlug}/api/v1/connectors`,
-          () =>
-            HttpResponse.json({
-              items: [
-                {
-                  id: "conn_plain_1",
-                  type: "plain",
-                  displayName: "Acme Support",
-                  status: "connected",
-                  createdAt: "2025-01-01T00:00:00.000Z",
-                  updatedAt: "2025-01-02T00:00:00.000Z",
-                },
-              ],
-            }),
-        ),
-        plainStatusHandler(plainStoryStatus()),
-        // The org shell lists the Workspaces.
-        workspaceListHandler([]),
-      ]),
+      http.get(
+        ({ request }) =>
+          new URL(request.url).pathname === `/${orgSlug}/api/v1/connectors`,
+        () =>
+          HttpResponse.json({
+            items: [
+              {
+                id: "conn_plain_1",
+                type: "plain",
+                displayName: "Acme Support",
+                status: "connected",
+                createdAt: "2025-01-01T00:00:00.000Z",
+                updatedAt: "2025-01-02T00:00:00.000Z",
+              },
+            ],
+          }),
+      ),
+      plainStatusHandler(plainStoryStatus()),
+      // The org shell lists the Workspaces.
+      workspaceListHandler([]),
     )
   },
   parameters: {
@@ -923,61 +877,59 @@ export const FixFromCatalog = meta.story({
   render: pageRender,
   beforeEach: ({ msw }) => {
     msw.use(
-      ...pageHandlers([
-        http.get(
-          ({ request }) =>
-            new URL(request.url).pathname === `/${orgSlug}/api/v1/connectors`,
-          () =>
-            HttpResponse.json({
-              items: [
-                {
-                  id: githubId,
-                  type: "github",
-                  displayName: "acme-corp",
-                  status: "connected",
-                  createdAt: "2025-01-01T00:00:00.000Z",
-                  updatedAt: "2025-01-02T00:00:00.000Z",
-                },
-                {
-                  id: linearDraftId,
-                  type: "linear",
-                  displayName: null,
-                  status: "setup_pending",
-                  createdAt: "2025-01-02T00:00:00.000Z",
-                  updatedAt: "2025-01-02T00:00:00.000Z",
-                },
-                {
-                  id: linearRevokedId,
-                  type: "linear",
-                  displayName: "Acme Platform",
-                  status: "needs_reconnect",
-                  createdAt: "2025-01-03T00:00:00.000Z",
-                  updatedAt: "2025-01-03T00:00:00.000Z",
-                },
-              ],
-            }),
-        ),
-        githubInstallationHandler(githubInstallationComplete),
-        linearStatusFor(linearRevokedId, {
-          ...linearStatusComplete,
-          isInstalled: false,
-          installationStatus: "revoked",
-          workspaceName: "Acme Platform",
-        }),
-        linearStatusFor(linearDraftId, {
-          isInstalled: false,
-          installationStatus: null,
-          workspaceName: null,
-          isGithubLinked: true,
-          selectedScopeCount: 0,
-          setupPhase: "draft",
-          pendingConfigPullUrl: null,
-          pendingConfigPrCreating: false,
-          syncTarget: null,
-        }),
-        connectionUsageHandler([]),
-        workspaceListHandler([]),
-      ]),
+      http.get(
+        ({ request }) =>
+          new URL(request.url).pathname === `/${orgSlug}/api/v1/connectors`,
+        () =>
+          HttpResponse.json({
+            items: [
+              {
+                id: githubId,
+                type: "github",
+                displayName: "acme-corp",
+                status: "connected",
+                createdAt: "2025-01-01T00:00:00.000Z",
+                updatedAt: "2025-01-02T00:00:00.000Z",
+              },
+              {
+                id: linearDraftId,
+                type: "linear",
+                displayName: null,
+                status: "setup_pending",
+                createdAt: "2025-01-02T00:00:00.000Z",
+                updatedAt: "2025-01-02T00:00:00.000Z",
+              },
+              {
+                id: linearRevokedId,
+                type: "linear",
+                displayName: "Acme Platform",
+                status: "needs_reconnect",
+                createdAt: "2025-01-03T00:00:00.000Z",
+                updatedAt: "2025-01-03T00:00:00.000Z",
+              },
+            ],
+          }),
+      ),
+      githubInstallationHandler(githubInstallationComplete),
+      linearStatusFor(linearRevokedId, {
+        ...linearStatusComplete,
+        isInstalled: false,
+        installationStatus: "revoked",
+        workspaceName: "Acme Platform",
+      }),
+      linearStatusFor(linearDraftId, {
+        isInstalled: false,
+        installationStatus: null,
+        workspaceName: null,
+        isGithubLinked: true,
+        selectedScopeCount: 0,
+        setupPhase: "draft",
+        pendingConfigPullUrl: null,
+        pendingConfigPrCreating: false,
+        syncTarget: null,
+      }),
+      connectionUsageHandler([]),
+      workspaceListHandler([]),
     )
   },
   parameters: {

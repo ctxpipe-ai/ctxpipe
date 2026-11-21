@@ -146,10 +146,14 @@ for (const file of files) {
       )
   }
 
-  // Layout measures. A story is a top-level `export const` object; a helper outside it is not checked.
+  // Layout measures. A story is a top-level `export const` object (CSF 3) or
+  // `meta.story({ ... })` call (CSF 4); a helper outside it is not checked.
   for (const story of text.matchAll(/\nexport const \w+[^=\n]*=/g)) {
-    const end = text.indexOf("\n}\n", story.index)
-    const body = text.slice(story.index, end === -1 ? text.length : end)
+    const end = /\n\}\)?\n/.exec(text.slice(story.index))
+    const body = text.slice(
+      story.index,
+      end ? story.index + end.index : text.length,
+    )
     const measure =
       /\b(?:scrollWidth|clientWidth)\b|\bgetBoundingClientRect\(/.exec(body)
     if (!measure) continue

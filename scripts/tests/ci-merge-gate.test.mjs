@@ -312,11 +312,13 @@ test("a data file that only its own check reads is a lane input; one that the li
       fork: false,
       changed: [path],
     })
-  // The baselines of two policy checks, and the exemptions of another.
+  // The baselines of two policy checks, the exemptions of another, and the
+  // CSF 3 files that the story format check still accepts.
   for (const path of [
     "scripts/ci/module-scope-values-baseline.json",
     "scripts/ci/page-story-exemptions.json",
     "scripts/ci/component-descriptions-allowlist.json",
+    "scripts/ci/csf3-story-files.json",
   ])
     assert.deepEqual(mode(path), { mode: "select", reason: "shadow" }, path)
   const gateInput = (path) => {

@@ -57,8 +57,9 @@ const worker = setupWorker(unhandledSocketHandler)
 // `beforeEach({ msw })`: `addonMsw` gives `msw`, and removes the handlers of
 // the story when the story closes. A CSF 3 story file that is not converted
 // yet sets `parameters.msw`, and `mswLoader` of `msw-storybook-addon/csf3`
-// applies it. `scripts/ci/check-story-format.mjs` lists those files. Both
-// paths call this function, so the worker starts one time.
+// applies it. `scripts/ci/csf3-story-files.json` lists those files, and
+// `scripts/ci/check-story-format.mjs` keeps the list. Both paths call this
+// function, so the worker starts one time.
 let started: Promise<typeof worker> | undefined
 const startWorker = () =>
   (started ??= worker
@@ -83,7 +84,8 @@ const startWorker = () =>
     })
     .then(() => worker))
 // The CSF 3 loader prints a deprecation warning for a CSF 4 story, so it runs
-// only for a CSF 3 story. Remove it when the last CSF 3 file is converted.
+// only for a CSF 3 story. When the list of CSF 3 files is empty, remove the
+// loader and the `worker.resetHandlers()` of the cleanup below.
 const csf3MswLoader = mswLoader(startWorker)
 
 // The check runner (scripts/checks/README.md) records which MSW handlers

@@ -133,7 +133,7 @@ const meta = preview.meta({
       pendingWorkspaceUpgradesHandler({}),
       ...workspaceIngestionHandlers({}),
     )
-    return clearPreferences()
+    clearPreferences()
   },
   render: () => <OrgHomePageContent orgSlug="acme" />,
   parameters: {
@@ -1093,7 +1093,7 @@ export const FadesInAfterOnboarding = meta.story({
       workspaceListHandler([]),
       activityNeverAnswers,
     )
-    return onboardingHandOffFlag.set()
+    onboardingHandOffFlag.set()
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1142,7 +1142,7 @@ export const HandOffShowsHomeWhenDataIsSlow = meta.story({
       workspaceListHandler([]),
       orgActivityHandler(),
     )
-    return onboardingHandOffFlag.set()
+    onboardingHandOffFlag.set()
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1173,7 +1173,7 @@ export const HandOffShowsHomeWhenReadFails = meta.story({
       failed("/api/v1/workspaces"),
       orgActivityHandler(),
     )
-    return onboardingHandOffFlag.set()
+    onboardingHandOffFlag.set()
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)

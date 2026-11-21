@@ -86,3 +86,11 @@ test("a CSF 4 file that sets parameters.msw fails", () => {
   assert.equal(result.status, 1)
   assert.match(result.stderr, /Card\.stories\.tsx sets `msw:`/)
 })
+
+test("a CSF 4 file that sets the shorthand parameters: { msw } fails", () => {
+  const result = check({
+    "Card.stories.tsx": `const msw = { handlers: [] }\n${csf4("{ parameters: { msw } }")}`,
+  })
+  assert.equal(result.status, 1)
+  assert.match(result.stderr, /Card\.stories\.tsx sets `msw:`/)
+})
