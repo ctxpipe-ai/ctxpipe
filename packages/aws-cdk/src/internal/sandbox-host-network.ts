@@ -34,14 +34,11 @@ export const AGENT_VAULT_NETWORK = "ctxpipe-av"
  *   to docker-proxy.) Sandboxes reach nothing else, so they need no NAT.
  *   Agent Vault's own bridge keeps its NAT to the internet.
  *
- * With both, Agent Vault sees the address of each sandbox.
- *
- * Known gap: Docker gives the address of a removed container to the next
- * container at once. A sandbox that fails the gate and then ends can lock
- * out the next sandbox that gets its address, for up to 5 minutes. That
- * sandbox can be of another organization. A gate key of the address and the
- * run's vault name in Agent Vault closes this gap (the production part of
- * CTX-1472).
+ * With both, Agent Vault sees the address of each sandbox. The gate is now
+ * off on each Agent Vault of ctxpipe (agent-vault-limits.ts), because
+ * hosted production has one load balancer address for all sandboxes. The
+ * contract test still uses the stock gate to show which address Agent Vault
+ * sees.
  */
 export const SANDBOX_HOST_NETWORK_DAEMON_CONFIG = {
   icc: false,

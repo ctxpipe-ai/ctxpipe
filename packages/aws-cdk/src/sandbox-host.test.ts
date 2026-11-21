@@ -4,6 +4,7 @@ import * as ec2 from "aws-cdk-lib/aws-ec2"
 import { describe, expect, it } from "vitest"
 
 import { CtxPipe } from "./ctxpipe"
+import { AGENT_VAULT_RATE_LIMIT_ENV } from "./internal/agent-vault-limits"
 import type { CtxPipeProps } from "./types"
 
 function synth(overrides: Partial<CtxPipeProps> = {}): Template {
@@ -520,9 +521,11 @@ describe("sandbox host", () => {
     const t = template("small")
     const script = userData(t)
     expect(script).toContain("infisical/agent-vault:latest")
-    // The login rate limit stays on; only the proxy tier is raised.
+    // The proxy tier is raised, the pre-auth gate is off, and an instance
+    // setting cannot change them (agent-vault-limits.ts).
     expect(script).not.toContain("RATELIMIT_PROFILE")
-    expect(script).toContain("AGENT_VAULT_RATELIMIT_PROXY_RATE=200")
+    for (const [key, value] of Object.entries(AGENT_VAULT_RATE_LIMIT_ENV))
+      expect(script).toContain(` -e ${key}=${value} `)
     expect(script).toContain("AGENT_VAULT_TELEMETRY=false")
     // The proxy may dial the private subnets (backend tasks), not the whole
     // VPC.
