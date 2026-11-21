@@ -12,8 +12,8 @@
 //   - a `.tsx` file that no product file imports;
 //   - an exported PascalCase name of a `.tsx` file that no product file
 //     imports and that its own file does not use.
-// A story-support file is not a product file. It is in a `mocks/` folder, or
-// its name has "story" or "stories" in it. The check does not report it.
+// A story-support file is not a product file. It is in a `mocks/` folder, or a
+// word of its name is "story" or "stories". The check does not report it.
 //
 // Usage: node scripts/ci/check-product-components.mjs [repository root]
 
@@ -26,7 +26,7 @@ import {
   writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
-import { join, resolve } from "node:path"
+import { basename, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const repo = fileURLToPath(new URL("../..", import.meta.url))
@@ -39,7 +39,13 @@ const ui = config.workspaces["apps/ui"]
 const nonProduct = /stories|test|typecheck|storybook/
 const product = {
   ...ui,
-  entry: ui.entry.filter((pattern) => !nonProduct.test(pattern)),
+  entry: [
+    ...ui.entry.filter((pattern) => !nonProduct.test(pattern)),
+    // A broad product entry (src/routes/**) also matches the stories and the
+    // tests in its folder.
+    "!src/**/*.stories.tsx",
+    "!src/**/*.test.{ts,tsx}",
+  ],
   project: [
     ...ui.project.filter((pattern) => !nonProduct.test(pattern)),
     "!src/**/*.stories.tsx",
@@ -61,6 +67,7 @@ try {
     JSON.stringify({
       ...config,
       ignoreExportsUsedInFile: true,
+      includeEntryExports: true,
       workspaces: { "apps/ui": product },
     }),
   )
@@ -83,8 +90,12 @@ if (result.status !== 0) {
 }
 
 const report = JSON.parse(result.stdout)
-const component = (file) =>
-  file.endsWith(".tsx") && !/(^|\/)mocks\/|stor(y|ies)/i.test(file)
+// "story" or "stories" starts a word of the file name: `source-dialog-story-
+// frame.tsx` or `skeletonMatchStory.tsx`, not `ChatHistory.tsx`.
+const storySupport = (file) =>
+  /(^|\/)mocks\//.test(file) ||
+  /(^|[^a-zA-Z])stor(y|ies)|Stor(y|ies)/.test(basename(file))
+const component = (file) => file.endsWith(".tsx") && !storySupport(file)
 const unused = [
   ...report.files.filter(component).map((file) => `${file} (no product import)`),
   ...report.issues

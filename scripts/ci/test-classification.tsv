@@ -340,7 +340,7 @@ apps/ui/src/features/repositories/gitSourcesFilter.test.ts	test	n/a	proof	Gate 6
 apps/ui/src/features/repositories/gitSourcesListRows.test.ts	test	n/a	proof	Gate 6 UI	Pure list assembly assertions prove pending and indexed row ordering and empty behavior.
 apps/ui/src/features/repositories/githubRepoSelection.test.ts	test	n/a	proof	Gate 3 UI	Pure selection logic plus an injected page fetcher prove canonical matching, preservation across pages, deltas, and pagination.
 apps/ui/src/features/repositories/pendingGithubRepos.test.ts	test	n/a	proof	Gate 3 UI	Pure fixture assertions prove select/all modes, pending row derivation, and loading suppression.
-apps/ui/src/features/repositories/types.test.ts	test	n/a	proof	Gate 6 UI	Pure assertions pin repository status derivation, commit shortening, badge words, and step labels.
+apps/ui/src/features/repositories/types.test.ts	test	n/a	proof	Gate 6 UI	Pure assertions pin repository status derivation, badge words, and step labels.
 apps/ui/src/features/repositories/useRepositoryIndexingSummary.test.ts	test	n/a	proof	Gate 6 UI	Pure aggregate assertions prove active, failed, legacy-ready, issue, and single-step summaries.
 apps/ui/src/features/workspaces/GithubWorkspaceDestination.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed GithubWorkspaceDestination component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review
 apps/ui/src/features/workspaces/WorkspaceChat.stories.tsx	story	no	characterization	Gate5 UI / Gate6 coverage	Reviewed WorkspaceChat component/render imports and exports: fixture visual states with no play assertions; retain as visual coverage until Gate6 coverage review

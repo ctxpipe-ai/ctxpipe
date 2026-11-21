@@ -104,3 +104,37 @@ export function CardBadge() { return <span /> }
   assert.match(result.stderr, /components\/Card\.tsx:3 CardBadge/)
   assert.doesNotMatch(result.stderr, /Card\.tsx:2 Card\b/)
 })
+
+test("a component that only a story next to a route imports fails", () => {
+  const result = check({
+    ...product,
+    "routes/page.stories.tsx": `import { Panel } from "../components/Panel"\nexport const A = () => <Panel />\n`,
+    "components/Panel.tsx": `export function Panel() { return <div /> }\n`,
+  })
+  assert.equal(result.status, 1)
+  assert.match(result.stderr, /components\/Panel\.tsx \(no product import\)/)
+})
+
+test("a component that a route file exports and only a story imports fails", () => {
+  const result = check({
+    ...product,
+    "routes/page.tsx": `
+import { Card } from "../components/Card"
+export function Page() { return <Card /> }
+export function PageBanner() { return <p /> }
+`,
+    "routes/page.stories.tsx": `import { PageBanner } from "./page"\nexport const A = () => <PageBanner />\n`,
+  })
+  assert.equal(result.status, 1)
+  assert.match(result.stderr, /routes\/page\.tsx:4 PageBanner/)
+})
+
+test("a name with 'story' inside a word, such as History, is not story support", () => {
+  const result = check({
+    ...product,
+    "components/ChatHistory.tsx": `export function ChatHistory() { return <ol /> }\n`,
+    "components/ChatHistory.stories.tsx": `import { ChatHistory } from "./ChatHistory"\nexport const A = () => <ChatHistory />\n`,
+  })
+  assert.equal(result.status, 1)
+  assert.match(result.stderr, /components\/ChatHistory\.tsx/)
+})
