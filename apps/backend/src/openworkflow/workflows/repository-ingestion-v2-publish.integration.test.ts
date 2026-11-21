@@ -10,6 +10,7 @@ import {
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 
+import { SpanStatusCode } from "@opentelemetry/api"
 import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
@@ -1115,7 +1116,7 @@ describe("ingestion v2 publish", () => {
           span.name === "ingestion.run" &&
           span.attributes["ctxpipe.ingest.run.id"] === runId,
       )
-    expect(runSpan?.status.code).toBe(2)
+    expect(runSpan?.status.code).toBe(SpanStatusCode.ERROR)
     expect(runSpan?.attributes).toMatchObject({
       "ctxpipe.ingest.status": "partial",
       "error.type": "workspace_refused",

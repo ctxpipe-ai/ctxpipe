@@ -827,19 +827,16 @@ export function defineRepositoryIngestionV2Workflow(
                   // One partial event for the publish; `withheld` counts files.
                   entry.partial += 1
                 }
-                if (
+                if (!published.committed && published.reason === "refused") {
+                  entry.refused = published.refused
+                  entry.rules = refusalRules(published.rules)
+                  entry.partial += 1
+                } else if (
                   !published.committed &&
-                  (published.reason === "refused" ||
-                    published.reason === "failed")
+                  published.reason === "failed"
                 ) {
-                  entry.refused =
-                    published.reason === "refused"
-                      ? published.refused
-                      : published.failed
-                  entry.rules =
-                    published.reason === "refused"
-                      ? refusalRules(published.rules)
-                      : ["publish_failed"]
+                  entry.refused = published.failed
+                  entry.rules = ["publish_failed"]
                   entry.partial += 1
                 }
               } else if ("skip" in target && target.skip === "below_format") {

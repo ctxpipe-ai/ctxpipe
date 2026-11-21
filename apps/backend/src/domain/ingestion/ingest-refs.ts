@@ -1049,9 +1049,9 @@ export type IngestConflictResolver = (
  * (the pinned revision plus the other shards' ops). A model wrote them, so
  * they get the same checks as a step's files. The merged files get the
  * host fields of the file on the step's base, and the validator stamps them
- * again. Returns the validated tree and the rejections. A rejected file keeps its version
- * on `tree`; the caller decides whether a rejection refuses the job or
- * withholds the file.
+ * again. Returns the validated tree and the rejections. A rejected file
+ * keeps its version on `tree`; the caller decides whether a rejection
+ * refuses the job or withholds the file.
  */
 async function mergeConflicts(
   repoDir: string,
