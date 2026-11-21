@@ -59,6 +59,10 @@ import { WorkspaceQueryErrorBoundary } from "./WorkspaceQueryErrorBoundary"
 import { WorkspaceSurfaceSkeleton } from "./workspaceSkeletons"
 import { WriteCheckStallContext } from "./writeCheckStall"
 
+/**
+ * The Workspace page: the chat and the tools pane. While ctxpipe prepares
+ * the Workspace, it shows the preparation progress, or why it failed.
+ */
 export function WorkspaceSurface(props: {
   orgSlug: string
   workspaceSlug: string

@@ -83,6 +83,11 @@ const WorkspaceGraphPane = lazy(() =>
   })),
 )
 
+/**
+ * The tools pane beside the Workspace chat, with tabs for Files, Graph, Diff,
+ * Settings and the open files. The user can resize it, make it full width, or
+ * close it. The URL holds the open tab.
+ */
 export function WorkspacePane(props: {
   orgSlug: string
   workspace: WorkspaceDetail
@@ -718,6 +723,10 @@ function PaneIcon(props: { icon: ReactNode; busy?: boolean; title?: string }) {
   )
 }
 
+/**
+ * The tab icons of the tools pane while the pane is closed. The user opens a
+ * tool from them, such as Files or Graph.
+ */
 export function WorkspacePaneTriggers(props: {
   orgSlug: string
   workspace: WorkspaceDetail

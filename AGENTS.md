@@ -90,7 +90,7 @@ Customer-facing documentation lives in [`apps/docs/content/docs/`](apps/docs/con
 
 ### Preview environments
 
-**preview-env:** critical-flow run against local dev, a Railway PR preview, or AWS before cutover from a fresh registration: the full browser + MCP catalogue or one area (onboarding, auth, org-home, workspaces, hydrate, graph, chat, files-publish, connectors, mcp, resilience). Never production. [`.agents/skills/preview-env/`](.agents/skills/preview-env/)
+**preview-env:** critical-flow run against local dev, an AWS PR preview, or AWS before cutover from a fresh registration: the full browser + MCP catalogue or one area (onboarding, auth, org-home, workspaces, hydrate, graph, chat, files-publish, connectors, mcp, resilience). Never production. [`.agents/skills/preview-env/`](.agents/skills/preview-env/)
 
 ### GitHub environments
 

@@ -62,6 +62,12 @@ import {
   WorkspaceFilesPaneSkeleton,
 } from "./workspaceSkeletons"
 
+/**
+ * The Files pane: the file tree and the open file. In a conversation it
+ * shows the files of the conversation sandbox, which the user can edit. Outside
+ * a conversation it shows the knowledge repository of the Workspace, read
+ * only.
+ */
 export function WorkspaceFilesPaneBody(props: {
   orgSlug: string
   workspaceSlug: string

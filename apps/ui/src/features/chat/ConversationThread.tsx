@@ -308,6 +308,13 @@ function messageHasVisibleActivity(message: ChatMessage) {
   )
 }
 
+/**
+ * The messages of one chat: the user's questions on the right and the agent's
+ * answers, tool activity and thoughts on the left. While a turn runs, it shows
+ * the current status, such as "Thinking" or a system wait. It scrolls to the
+ * newest message. When a turn stopped before its first answer, it shows a Retry
+ * action. Put `MessageInputBox` below it to continue the chat.
+ */
 export function ConversationThread(props: {
   messages: ChatMessage[]
   error: Error | null
