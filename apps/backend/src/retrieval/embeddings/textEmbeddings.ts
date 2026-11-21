@@ -208,12 +208,11 @@ export async function embedQuery(
  * fields, and `sort` when it is set. The span holds counts, never content.
  */
 async function embedRequest(
-  rawTexts: string[],
+  texts: string[],
   config: TextEmbeddingConfig,
   sort?: "latency",
 ): Promise<number[][]> {
   assertNotInOrgDbContext()
-  const texts = await scrubForModel(rawTexts)
   // The model and the provider block are of OpenRouter. A deployment whose
   // model settings do not point at OpenRouter sends no content to it.
   const settings = openRouterSettings()

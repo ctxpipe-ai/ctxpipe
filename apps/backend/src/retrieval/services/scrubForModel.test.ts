@@ -598,8 +598,14 @@ describe("the one scrub point", () => {
         "evals/knowledge/panel.ts",
       ]),
     )
+    // A provider of HostTextAdapter sends only what HostTextAdapter.call
+    // scrubbed.
     const bypass = clients
-      .filter(({ source }) => !source.includes("scrubForModel("))
+      .filter(
+        ({ source }) =>
+          !source.includes("scrubForModel(") &&
+          !source.includes("new HostTextAdapter("),
+      )
       .map(({ file }) => file)
     expect(bypass).toEqual([])
   })
