@@ -193,7 +193,7 @@ Siblings share one edge and one marker axis. A child group steps in, and a diffe
 <!-- /rubric -->
 
 <!-- rubric: pragnanz -->
-Each block reads in its simplest form: one state signal, quiet items inside, and space before a hairline.
+Each block reads in its simplest form: one state signal, quiet items inside, and space before a hairline. An item inside a framed block (a composer, a card, a row, a toolbar) has no frame or ink that is louder than the block, and it does not look like a separate form inside the block.
 <!-- /rubric -->
 
 **Common fate** applies to motion only (see **Motion**). It is not a quality of the visual critic, because a screenshot does not move.
