@@ -26,6 +26,12 @@ type BuildkiteConnectionCardProps = {
   onOpenSetup: (options?: { replaceWebhook: true }) => void
 }
 
+/**
+ * The Buildkite row on the connectors page. It shows the connection health
+ * and the next setup action, and lets an admin remove the connection. It
+ * tells the admin when Buildkite refuses the saved token or when no webhook
+ * is set, and opens the setup to replace the webhook.
+ */
 export function BuildkiteConnectionCard({
   orgSlug,
   connectionId,

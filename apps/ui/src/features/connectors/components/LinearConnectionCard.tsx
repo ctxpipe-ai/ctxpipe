@@ -26,6 +26,11 @@ type LinearConnectionCardProps = {
   onOpenWizard: () => void
 }
 
+/**
+ * The Linear row on the connectors page. It shows the connection health and
+ * the next setup action, and lets an admin remove the connection. Its action
+ * opens the Linear setup wizard.
+ */
 export function LinearConnectionCard({
   orgSlug,
   connectionId,

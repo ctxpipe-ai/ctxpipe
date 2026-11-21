@@ -92,6 +92,12 @@ function StepMarker({
   )
 }
 
+/**
+ * The numbered step list of a connector setup dialog or wizard. It shows
+ * which steps are done and which step is current. With `onStepSelect`, a
+ * person can go back to a done step; `focusOverride` marks that step as
+ * current. The Workspace create form uses it too.
+ */
 export function ConnectorSetupStepper({
   steps,
   currentIndex,

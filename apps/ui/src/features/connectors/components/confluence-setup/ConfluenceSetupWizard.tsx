@@ -51,6 +51,12 @@ type ConfluenceSetupWizardProps = {
   initialWaitForInstall?: boolean
 }
 
+/**
+ * Sets up the Confluence connector step by step: link an Atlassian account,
+ * install the Forge app, wait for Atlassian to confirm, then select the
+ * spaces and pages for each Workspace. It opens at the step that the server
+ * reports. Closing it deletes an empty draft.
+ */
 export function ConfluenceSetupWizard({
   orgSlug,
   atlassianConnectionId,
