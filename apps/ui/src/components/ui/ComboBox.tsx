@@ -1,17 +1,12 @@
 "use client"
-import { IconCheck, IconChevronDown } from "@tabler/icons-react"
+import { IconChevronDown } from "@tabler/icons-react"
 import type React from "react"
 import type {
   ComboBoxProps as AriaComboBoxProps,
   ListBoxItemProps,
   ValidationResult,
 } from "react-aria-components"
-import {
-  ComboBox as AriaComboBox,
-  ListBoxItem as AriaListBoxItem,
-  composeRenderProps,
-  ListBox,
-} from "react-aria-components"
+import { ComboBox as AriaComboBox, ListBox } from "react-aria-components"
 
 import {
   Description,
@@ -21,7 +16,7 @@ import {
   Label,
 } from "@/components/ui/Field"
 import { FieldButton } from "@/components/ui/FieldButton"
-import { dropdownItemStylesDark } from "@/components/ui/ListBox"
+import { DropdownItem } from "@/components/ui/ListBox"
 import { Popover } from "@/components/ui/Popover"
 import { composeTailwindRenderProps } from "@/lib/react-aria-utils"
 
@@ -102,27 +97,5 @@ export function ComboBox<T extends object>({
 
 /** One option of a `ComboBox`, with a check mark when it is selected. */
 export function ComboBoxItem(props: ListBoxItemProps) {
-  const textValue =
-    props.textValue ||
-    (typeof props.children === "string" ? props.children : undefined)
-  return (
-    <AriaListBoxItem
-      {...props}
-      textValue={textValue}
-      className={composeRenderProps(props.className, (className, render) =>
-        dropdownItemStylesDark({ ...render, className }),
-      )}
-    >
-      {composeRenderProps(props.children, (children, { isSelected }) => (
-        <>
-          <span className="flex min-w-0 flex-1 items-center gap-2 truncate">
-            {children}
-          </span>
-          <span className="flex w-5 items-center">
-            {isSelected && <IconCheck aria-hidden className="size-4" />}
-          </span>
-        </>
-      ))}
-    </AriaListBoxItem>
-  )
+  return <DropdownItem dark {...props} />
 }

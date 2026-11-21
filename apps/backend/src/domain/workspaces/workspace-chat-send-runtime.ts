@@ -1,11 +1,14 @@
 import {
   ensureConversation,
+  getConversation,
+  setUnstartedConversationBase,
   touchConversationLastMessage,
 } from "../../models/conversations.js"
 import { getWorkspaceById } from "../../models/workspaces.js"
 import { parseBaseBranch } from "./conversation-base.js"
 import type { TanstackWorkspaceChatInput } from "./tanstack-workspace-chat.js"
 import { resolveWorkspaceChatTurnRuntime } from "./workspace-chat-turn-runtime.js"
+import { withDestroyedConversationSandboxes } from "./workspace-sandbox-cleanup.js"
 
 export async function resolveWorkspaceChatSendRuntime(input: {
   conversationId: string
@@ -13,12 +16,32 @@ export async function resolveWorkspaceChatSendRuntime(input: {
   source?: string
   baseBranch?: string
 }): Promise<Partial<TanstackWorkspaceChatInput>> {
-  const conversation = await ensureConversation({
+  const baseBranch = parseBaseBranch(input.baseBranch)
+  const ensured = await ensureConversation({
     id: input.conversationId,
     source: input.source,
     workspaceId: input.workspaceId,
-    baseBranch: parseBaseBranch(input.baseBranch),
+    baseBranch,
   })
+  // The first message names another base branch than a prepare that came
+  // before it: the sandbox of the old base branch goes (ADR-071).
+  const baseChanged =
+    baseBranch !== undefined &&
+    (await setUnstartedConversationBase({
+      conversationId: input.conversationId,
+      baseBranch,
+    }))
+  if (baseChanged && ensured.workspaceId)
+    await withDestroyedConversationSandboxes(
+      {
+        conversationId: input.conversationId,
+        orgId: ensured.orgId,
+        workspaceId: ensured.workspaceId,
+      },
+      async () => {},
+    )
+  const conversation =
+    (baseChanged && (await getConversation(input.conversationId))) || ensured
   const workspace = conversation.workspaceId
     ? await getWorkspaceById(conversation.workspaceId)
     : null

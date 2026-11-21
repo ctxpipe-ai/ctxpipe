@@ -222,7 +222,7 @@ if [ -n "$STASH" ]; then
   PHASE=restoring
   write_state
   if ! git stash apply --index "$STASH" >/dev/null; then
-    if [ "$BRANCH" = "$DEFAULT_BRANCH" ]; then
+    if [ "$BRANCH" = "$BASE_BRANCH" ]; then
       # Keep the complete stash, including untracked files, as the recoverable
       # backup while the default branch follows the new tip.
       git restore --source="$NEW_SHA" --staged --worktree -- .
@@ -240,7 +240,7 @@ git update-ref refs/remotes/ctxpipe/base "$NEW_SHA"
       env: {
         OLD_SHA: previousRevision.sha,
         NEW_SHA: desired.sha,
-        DEFAULT_BRANCH: revisionBaseBranch(previousRevision),
+        BASE_BRANCH: revisionBaseBranch(previousRevision),
       },
     },
   )

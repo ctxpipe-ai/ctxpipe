@@ -553,6 +553,8 @@ export async function readySandboxHandle(
   const runtime = await resolveWorkspaceChatTurnRuntime({
     conversation: input.conversation,
     workspace: input.workspace,
+    // A Files read attaches to the sandbox that exists; it needs no new tip.
+    ...(input.existingOnly ? { baseTipMaxAgeMs: 60_000 } : {}),
   })
   if (!runtime.desiredUrl)
     return {
@@ -610,14 +612,14 @@ async function conversationFileSnapshot(input: {
   workspace: { id: string; desiredDefaultBranch?: string | null }
   desiredSha: string | null
 }) {
-  const defaultBranch = conversationBaseBranch(input)
+  const baseBranch = conversationBaseBranch(input)
   const [paths, branchResult, status, worktreeVersion, revision] =
     await Promise.all([
       listConversationSandboxPaths(input.handle),
       input.handle.exec("git branch --show-current"),
       conversationSandboxStatus({
         handle: input.handle,
-        defaultBranch,
+        defaultBranch: baseBranch,
         sessionBranch: sessionBranchName(
           input.conversationId,
           input.conversation.lastBranch,
@@ -870,11 +872,11 @@ export const conversationFileRoutes = fileRoutes
     const ready = await readySandboxHandle({ ...loaded, existingOnly: true })
     if (!ready.ok) return c.json({ error: ready.error }, ready.status)
     const { handle } = ready
-    const defaultBranch = conversationBaseBranch(loaded)
+    const baseBranch = conversationBaseBranch(loaded)
     const [status, worktreeVersion, revision] = await Promise.all([
       conversationSandboxStatus({
         handle,
-        defaultBranch,
+        defaultBranch: baseBranch,
         sessionBranch: sessionBranchName(
           conversationId,
           loaded.conversation.lastBranch,
@@ -908,7 +910,7 @@ export const conversationFileRoutes = fileRoutes
       c.get("sandboxAbortSignal"),
     )
     if (!loaded) return c.json({ error: "Not found" }, 404)
-    const defaultBranch = conversationBaseBranch(loaded)
+    const baseBranch = conversationBaseBranch(loaded)
     const ready = await readySandboxHandle(loaded)
     if (!ready.ok) return c.json({ error: ready.error }, ready.status)
     const { handle } = ready
@@ -928,10 +930,13 @@ export const conversationFileRoutes = fileRoutes
       const items = (
         await changedFileDiffs(handle, turn.startTree, turn.endTree)
       ).filter((item) => paths.has(item.path))
-      return c.json({ base: defaultBranch, items }, 200)
+      return c.json({ base: baseBranch, items }, 200)
     }
-    const items = await conversationBaseDiff({ handle, defaultBranch })
-    return c.json({ base: defaultBranch, items }, 200)
+    const items = await conversationBaseDiff({
+      handle,
+      defaultBranch: baseBranch,
+    })
+    return c.json({ base: baseBranch, items }, 200)
   })
   .openapi(getTurnChangesRoute, async (c) => {
     if (!requireUser(c)) return c.json({ error: "Unauthorized" }, 401)

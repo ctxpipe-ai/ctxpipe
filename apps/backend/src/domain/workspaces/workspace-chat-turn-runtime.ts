@@ -26,6 +26,12 @@ type WorkspaceChatTurnWorkspace = {
 export async function resolveWorkspaceChatTurnRuntime(input: {
   conversation: WorkspaceChatTurnConversation
   workspace: WorkspaceChatTurnWorkspace | null
+  /**
+   * A Files read accepts a tip of the base branch of this age, so that a
+   * status poll does not ask the remote each time. A prepare and a turn
+   * read the tip from the remote.
+   */
+  baseTipMaxAgeMs?: number
 }): Promise<{
   lastBranch: string
   cloneRef: string
@@ -69,6 +75,7 @@ export async function resolveWorkspaceChatTurnRuntime(input: {
             connectionId: workspace.githubConnectionId ?? null,
           },
           branch: baseBranch,
+          maxAgeMs: input.baseTipMaxAgeMs,
         })
       : (workspace?.desiredSha ?? null)
   const lastBranch =

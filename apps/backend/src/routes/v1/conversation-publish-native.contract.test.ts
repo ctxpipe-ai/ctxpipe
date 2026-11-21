@@ -669,18 +669,32 @@ it(
               orgId: f.org.id,
               workspaceId: f.workspaceId,
               name: "Release changes",
-              baseBranch: "release",
             }),
           )
-          const prepared = await app.request(
-            `/conversations/${conversationId}/prepare`,
-            {
+          const prepare = (baseBranch?: string) =>
+            app.request(`/conversations/${conversationId}/prepare`, {
               method: "POST",
               headers: { "content-type": "application/json" },
-              body: JSON.stringify({ workspaceId: f.workspaceId }),
-            },
-          )
-          expect(prepared.status).toBe(204)
+              body: JSON.stringify({ workspaceId: f.workspaceId, baseBranch }),
+            })
+          // The composer prepares on the default branch, then the member
+          // picks the base branch before the first message.
+          const sandboxIds = () =>
+            withOrgDbContext(f.org.id, (db) =>
+              db
+                .select({ id: workspaceSandboxInstances.providerSandboxId })
+                .from(workspaceSandboxInstances)
+                .where(
+                  eq(workspaceSandboxInstances.conversationId, conversationId),
+                ),
+            )
+          expect((await prepare("main")).status).toBe(204)
+          const [first] = await sandboxIds()
+          expect((await prepare("release")).status).toBe(204)
+          // The sandbox of the default branch is gone; a new one replaced it.
+          const after = await sandboxIds()
+          expect(after).toHaveLength(1)
+          expect(after[0]?.id).not.toBe(first?.id)
           const { withUserIdContext } = await import("../../auth/context.js")
           const { readySandboxHandle } =
             await import("./conversation-files-routes.js")
@@ -699,10 +713,16 @@ it(
             readySandboxHandle({ conversation, workspace, existingOnly: true }),
           )
           if (!ready.ok) throw new Error(ready.error)
-          // The sandbox starts on the base branch at its tip.
+          // A new sandbox starts on the base branch at its tip: the sandbox
+          // of the default branch is gone.
           expect(
-            (await ready.handle.exec("git rev-parse HEAD", { env: {} })).stdout,
-          ).toBe(`${releaseTip}\n`)
+            (
+              await ready.handle.exec(
+                "git branch --show-current && git rev-parse HEAD",
+                { env: {} },
+              )
+            ).stdout,
+          ).toBe(`release\n${releaseTip}\n`)
           const committed = await ready.handle.exec(
             "printf '# Saved conversation\\n' > notes.md && git add notes.md && git -c user.name=Agent -c user.email=agent@example.test commit -q -m 'Save notes'",
             { env: {} },

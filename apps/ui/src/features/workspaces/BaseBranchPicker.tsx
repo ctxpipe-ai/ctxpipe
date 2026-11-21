@@ -8,14 +8,15 @@ import { workspaceBranchesOptions } from "./queries"
 /**
  * The branch that a new conversation starts from (ADR-071). The session
  * branch of the conversation starts from it, and its pull request targets
- * it. `value` undefined is the default branch of the Workspace. The base
- * is fixed after the first message, as in other coding agents.
+ * it. `value` undefined is the default branch of the Workspace, before a
+ * pick. The base is fixed after the first message, as in other coding
+ * agents.
  */
 export function BaseBranchPicker(props: {
   orgSlug: string
   workspaceSlug: string
   value?: string
-  onChange: (branch: string | undefined) => void
+  onChange: (branch: string) => void
 }) {
   const branches = useQuery(
     workspaceBranchesOptions(props.orgSlug, props.workspaceSlug),
@@ -33,9 +34,7 @@ export function BaseBranchPicker(props: {
       items={branches.data.branches.map((name) => ({ id: name }))}
       selectedKey={props.value ?? defaultBranch}
       onSelectionChange={(key) => {
-        if (key === null) return
-        const branch = String(key)
-        props.onChange(branch === defaultBranch ? undefined : branch)
+        if (key !== null) props.onChange(String(key))
       }}
       emptyText="No branch matches"
       labelClassName="text-xs text-muted-foreground"

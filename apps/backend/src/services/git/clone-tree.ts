@@ -217,9 +217,10 @@ export async function resolveGitRemoteTip(input: {
 async function lsRemote(
   input: { url: string; token?: string; env?: NodeJS.ProcessEnv },
   args: string[],
+  timeoutMs = 60_000,
 ): Promise<string[]> {
   const { stdout } = await gitExec(["ls-remote", ...args], {
-    timeout: 60_000,
+    timeout: timeoutMs,
     env: input.env ?? gitRemoteEnvironment(input),
   }).catch((error: unknown) => {
     const stderr = String((error as { stderr?: unknown }).stderr ?? "")
@@ -239,19 +240,24 @@ async function lsRemote(
 
 /**
  * The branches of a remote with their tips, sorted by name. With `branch`,
- * only that branch: never a tag of the same name.
+ * only that branch: never a tag of the same name. A chat request waits for
+ * it, so it gives up after 15 seconds.
  */
 export async function listGitRemoteBranches(input: {
   url: string
   token?: string
   branch?: string
 }): Promise<{ name: string; sha: string }[]> {
-  const lines = await lsRemote(input, [
-    "--heads",
-    "--",
-    input.url,
-    ...(input.branch ? [`refs/heads/${input.branch}`] : []),
-  ])
+  const lines = await lsRemote(
+    input,
+    [
+      "--heads",
+      "--",
+      input.url,
+      ...(input.branch ? [`refs/heads/${input.branch}`] : []),
+    ],
+    15_000,
+  )
   return lines
     .flatMap((line) => {
       const [sha = "", ref = ""] = line.split("\t")

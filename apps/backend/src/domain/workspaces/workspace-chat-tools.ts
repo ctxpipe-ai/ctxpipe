@@ -96,6 +96,11 @@ export async function workspaceChatTools(input: {
   if (!projection) return []
   const sha =
     projection.kind === "active" ? projection.revision.sha : projection.sha
+  // A read that serves the default branch names it.
+  const defaultBranch =
+    projection.kind === "active"
+      ? projection.revision.defaultBranch
+      : "the default branch"
   const boundRepositories = input.snapshot.repositories
   const allowed = new Set(boundRepositories.map((repo) => repo.id))
   const expand = async (params: GraphExpandParams) => {
@@ -110,7 +115,7 @@ export async function workspaceChatTools(input: {
         params,
       }),
       sha: planeHeads.get(input.workspaceId)?.sha ?? sha,
-      branch: branch ?? DEFAULT_BRANCH_LABEL,
+      branch: branch ?? defaultBranch,
     }
   }
   const explorer = [
@@ -131,6 +136,7 @@ export async function workspaceChatTools(input: {
     hybridSearchTool({
       ...input,
       activeProjectionSha: sha,
+      defaultBranch,
     }),
   )
   tools.push(graphLookupTool({ expand }), graphNeighborsTool({ expand }))
@@ -152,14 +158,12 @@ export function withToolCallSpan(
   }
 }
 
-/** The branch that a read names when it serves the default branch. */
-const DEFAULT_BRANCH_LABEL = "the default branch"
-
 function hybridSearchTool(input: {
   orgId: string
   workspaceId: string
   conversationId?: string
   activeProjectionSha: string
+  defaultBranch: string
 }): WorkspaceChatTanstackTool {
   return {
     ...HYBRID_SEARCH_DEFINITION,
@@ -184,7 +188,7 @@ function hybridSearchTool(input: {
       const sha =
         planeHeads.get(input.workspaceId)?.sha ?? input.activeProjectionSha
       return [
-        `Workspace projection context (${branch ?? DEFAULT_BRANCH_LABEL} at ${sha}):`,
+        `Workspace projection context (${branch ?? input.defaultBranch} at ${sha}):`,
         ...hits.map((hit) => {
           const claims = hit.claims
             .map((claim) => `- ${claim.predicate ?? "related"} ${claim.to}`)

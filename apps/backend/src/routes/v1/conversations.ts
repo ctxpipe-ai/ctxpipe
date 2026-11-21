@@ -65,6 +65,7 @@ import {
   getLastTurns,
   listConversationsPaginated,
   persistConversationPublication,
+  setUnstartedConversationBase,
   updateConversation,
 } from "../../models/conversations.js"
 import { getWorkspaceById } from "../../models/workspaces.js"
@@ -484,7 +485,7 @@ const postConversationPrepareRoute = createRoute({
     409: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description:
-        "`base_branch_missing`: the repository has no base branch of the conversation",
+        "The Workspace has no commit for the conversation, for example `base_branch_missing`: the repository has no base branch of the conversation",
     },
     429: sandboxAtCapacityResponse,
     503: {
@@ -1369,12 +1370,22 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     applyAttribution({ "ctxpipe.conversation.id": conversationId })
     const body = PrepareConversationRequestSchema.safeParse(await c.req.json())
     if (!body.success) return c.json({ error: "invalid_request" }, 400)
-    const conversation = await ensureConversation({
+    const ensured = await ensureConversation({
       id: conversationId,
       source: "ui",
       workspaceId: body.data.workspaceId,
       baseBranch: body.data.baseBranch,
     })
+    // The user picked another base branch before the first message: the
+    // sandbox of the old base branch goes, and a new one starts.
+    const baseChanged =
+      body.data.baseBranch !== undefined &&
+      (await setUnstartedConversationBase({
+        conversationId,
+        baseBranch: body.data.baseBranch,
+      }))
+    const conversation =
+      (baseChanged && (await getConversation(conversationId))) || ensured
     const workspace = conversation.workspaceId
       ? await getWorkspaceById(conversation.workspaceId)
       : null
@@ -1388,7 +1399,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     if (!runtime.desiredUrl) {
       return c.json({ error: "workspace_required" }, 400)
     }
-    const warmed = await warmTanstackWorkspaceChat({
+    const chatInput = {
       conversationId,
       prompt: "prepare",
       orgId: runtime.orgId,
@@ -1402,11 +1413,31 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       ref: runtime.cloneRef || runtime.desiredSha || "HEAD",
       writeStatus: runtime.writeStatus,
       githubConnectionId: runtime.githubConnectionId,
-    })
+    }
+    // Under the lock of the conversation, a prepare of the old base branch
+    // that still runs ends first; then its sandbox goes.
+    const warmed = baseChanged
+      ? await postgresSandboxLocks(runtime.orgId).withLock(
+          `chat-thread:${conversationId}`,
+          async () => {
+            await withDestroyedConversationSandboxes(
+              {
+                conversationId,
+                orgId: runtime.orgId,
+                workspaceId: chatInput.workspaceId,
+              },
+              async () => {},
+            )
+            return warmTanstackWorkspaceChat(chatInput, {
+              transcriptLocked: true,
+            })
+          },
+        )
+      : await warmTanstackWorkspaceChat(chatInput)
     if (!warmed.ok)
       return warmed.status === 429
         ? c.json({ error: warmed.error }, 429)
-        : warmed.error === "base_branch_missing"
+        : warmed.status === 409
           ? c.json({ error: warmed.error }, 409)
           : c.json({ error: warmed.error }, 503)
     return c.body(null, 204)

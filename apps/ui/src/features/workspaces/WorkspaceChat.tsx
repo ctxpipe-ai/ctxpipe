@@ -101,8 +101,9 @@ function WorkspaceComposeChat(props: {
   // that opening starts.
   // The id lives in the query cache, so a remount of this composer keeps it
   // and does not prepare a second sandbox. Send clears it.
-  // The prepare records the base branch of the conversation, and the base
-  // never changes after that: a new base branch gets a new id (ADR-071).
+  // The prepare records the base branch that the member picked. Until the
+  // first message, a new pick prepares the same conversation again: the
+  // server replaces the sandbox of the old base branch (ADR-071).
   const { orgSlug } = props
   const workspaceId = props.workspace.id
   const composeKey = [
@@ -110,7 +111,7 @@ function WorkspaceComposeChat(props: {
     props.orgSlug,
     props.workspace.id,
   ]
-  const [target, setTarget] = useState(() => {
+  const [target, setTarget] = useState<ComposeTarget>(() => {
     const kept = queryClient.getQueryData<ComposeTarget>(composeKey)
     if (kept) return kept
     const created: ComposeTarget = { conversationId: newUiConversationId() }
@@ -170,11 +171,24 @@ function WorkspaceComposeChat(props: {
                 onChange={(branch) => {
                   if (branch === baseBranch) return
                   const next: ComposeTarget = {
-                    conversationId: newUiConversationId(),
-                    ...(branch ? { baseBranch: branch } : {}),
+                    conversationId,
+                    baseBranch: branch,
                   }
                   queryClient.setQueryData(composeKey, next)
                   setTarget(next)
+                  // A prepare that still runs would answer this fetch too:
+                  // cancel it, so the new base branch reaches the server.
+                  const prepare = workspaceChatPrepareOptions(
+                    orgSlug,
+                    conversationId,
+                    workspaceId,
+                    branch,
+                  )
+                  void queryClient
+                    .cancelQueries({ queryKey: prepare.queryKey })
+                    .then(() =>
+                      queryClient.fetchQuery({ ...prepare, staleTime: 0 }),
+                    )
                 }}
               />
             }

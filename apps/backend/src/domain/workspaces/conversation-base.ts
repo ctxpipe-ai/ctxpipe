@@ -15,21 +15,41 @@ import type { WorkspaceRevision } from "./revision.js"
  */
 
 /**
- * A branch name that a conversation may start from. Git checks the rest of
- * the name rules: a name that it refuses has no branch on the remote. A
- * session branch of a conversation is not a base.
+ * True for a name that Git accepts as a branch (the rules of
+ * `git check-ref-format --branch`). A name that starts with "-" is also
+ * refused, so that no Git command reads it as an option.
+ */
+function isGitBranchName(name: string): boolean {
+  return (
+    name.length > 0 &&
+    name.length <= 255 &&
+    name !== "@" &&
+    !name.startsWith("-") &&
+    !name.startsWith("/") &&
+    !name.endsWith("/") &&
+    !name.endsWith(".") &&
+    !name.includes("..") &&
+    !name.includes("//") &&
+    !name.includes("@{") &&
+    // Control characters, space and the characters that Git refuses.
+    // oxlint-disable-next-line no-control-regex -- Git refuses control characters
+    !/[\u0000- \u007f~^:?*[\\]/.test(name) &&
+    name
+      .split("/")
+      .every((part) => !part.startsWith(".") && !part.endsWith(".lock"))
+  )
+}
+
+/**
+ * A branch name that a conversation may start from: a Git branch name that
+ * is not a session branch of a conversation. The remote says if the branch
+ * exists.
  */
 export const baseBranchSchema = z
   .string()
-  .min(1)
-  .max(255)
-  .regex(/^[A-Za-z0-9._/-]+$/)
   .refine(
-    (name) =>
-      !name.startsWith("-") &&
-      !name.includes("..") &&
-      !isChatSessionBranch(name),
-    "A session branch of a conversation is not a base branch",
+    (name) => isGitBranchName(name) && !isChatSessionBranch(name),
+    "A base branch is a Git branch name, and not a session branch of a conversation",
   )
 
 /** A requested base branch, checked; throws a 400 error for a bad name. */
@@ -40,7 +60,7 @@ export function parseBaseBranch(name: string | undefined): string | undefined {
     throw createError({
       message: "Invalid base branch",
       status: 400,
-      why: "A base branch is a branch name, and not a session branch of a conversation",
+      why: "A base branch is a Git branch name, and not a session branch of a conversation",
     })
   return parsed.data
 }
@@ -53,8 +73,8 @@ type RepositoryRead = {
 
 /**
  * The branches that a conversation of the Workspace can start from: the
- * default branch first, then the others by name, without the session
- * branches of conversations.
+ * default branch first, then the others by name. A session branch of a
+ * conversation is not in the list.
  */
 export async function listConversationBaseBranches(
   input: RepositoryRead,
@@ -71,25 +91,44 @@ export async function listConversationBaseBranches(
     .map((branch) => branch.name)
     .filter(
       (name) =>
-        name !== input.revision.defaultBranch && !isChatSessionBranch(name),
+        name !== input.revision.defaultBranch &&
+        baseBranchSchema.safeParse(name).success,
     )
   return [input.revision.defaultBranch, ...others]
 }
 
-/** The tip of a base branch on the remote, or null when it has no such branch. */
+/**
+ * The tips that this process read last, by remote and branch, for the reads
+ * that accept an older tip (`maxAgeMs`).
+ */
+const knownTips = new Map<string, { sha: string | null; at: number }>()
+
+/**
+ * The tip of a base branch on the remote, or null when it has no such
+ * branch. A prepare and a turn read it from the remote. A Files read takes
+ * a tip that is at most `maxAgeMs` old, so that a status poll does not ask
+ * the remote each time.
+ */
 export async function baseBranchTip(input: {
   orgId: string
   env: Env
   remote: WorkspaceRevision["remote"]
   branch: string
+  maxAgeMs?: number
 }): Promise<string | null> {
+  const key = JSON.stringify([input.remote.url, input.branch])
+  const known = knownTips.get(key)
+  if (known && input.maxAgeMs && Date.now() - known.at <= input.maxAgeMs)
+    return known.sha
   const token = await resolveRepositoryReadCredential(input)
   const [tip] = await listGitRemoteBranches({
     url: input.remote.url,
     token,
     branch: input.branch,
   })
-  return tip?.sha ?? null
+  const sha = tip?.sha ?? null
+  knownTips.set(key, { sha, at: Date.now() })
+  return sha
 }
 
 /**

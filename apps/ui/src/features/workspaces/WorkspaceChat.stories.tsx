@@ -14,6 +14,7 @@ import {
   conversationChatHandler,
   conversationDetailHandler,
   conversationDetailLoadingHandler,
+  workspaceBranchesHandler,
   workspaceShellHandlers,
 } from "@/mocks/workspace-handlers"
 
@@ -66,7 +67,52 @@ export const ComposeEmpty: Story = {
   },
 }
 
+/**
+ * Chat panel of a Workspace with the composer of a new conversation: the
+ * branches of the repository still load, so the Base field is a gray bone
+ * of its size. The member can already type and send on the default branch.
+ */
+export const ComposeBranchesLoading: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceBranchesHandler("loading"),
+          ...workspaceShellHandlers(),
+        ],
+      },
+    },
+  },
+}
+
+/**
+ * Chat panel of a Workspace with the composer of a new conversation: the
+ * branch list of the repository did not load, so the composer has no Base
+ * field, and the conversation starts from the default branch.
+ */
+export const ComposeBranchesUnavailable: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [workspaceBranchesHandler("error"), ...workspaceShellHandlers()],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByPlaceholderText(
+      /what should ctxpipe do in this workspace/i,
+    )
+    await waitFor(() =>
+      expect(
+        canvas.queryByRole("combobox", { name: "Base" }),
+      ).not.toBeInTheDocument(),
+    )
+  },
+}
+
 const preparedBases: (string | undefined)[] = []
+const preparedConversationIds: string[] = []
 
 /**
  * Chat panel of a Workspace with the composer of a new conversation: the
@@ -86,6 +132,9 @@ export const ComposeOnBaseBranch: Story = {
             async ({ request }) => {
               const body = (await request.json()) as { baseBranch?: string }
               preparedBases.push(body.baseBranch)
+              preparedConversationIds.push(
+                new URL(request.url).pathname.split("/").at(-2) ?? "",
+              )
               return new HttpResponse(null, { status: 204 })
             },
           ),
@@ -96,6 +145,7 @@ export const ComposeOnBaseBranch: Story = {
   },
   play: async ({ canvasElement }) => {
     preparedBases.length = 0
+    preparedConversationIds.length = 0
     const canvas = within(canvasElement)
     const page = within(canvasElement.ownerDocument.body)
     const base = await canvas.findByRole("combobox", { name: "Base" })
@@ -108,10 +158,11 @@ export const ComposeOnBaseBranch: Story = {
     await userEvent.click(
       await page.findByRole("option", { name: "release/2026-11" }),
     )
-    // A new base branch prepares a new conversation that records it.
+    // The same conversation is prepared again with the new base branch.
     await waitFor(() =>
       expect(preparedBases).toEqual([undefined, "release/2026-11"]),
     )
+    expect(new Set(preparedConversationIds).size).toBe(1)
     await waitFor(() =>
       expect(canvas.getByRole("combobox", { name: "Base" })).toHaveValue(
         "release/2026-11",
