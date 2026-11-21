@@ -1,3 +1,4 @@
+import type { SandboxProcess } from "@tanstack/ai-sandbox"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import type { RootExec } from "./ingest-root.js"
@@ -108,13 +109,16 @@ describe("ingestStepCheckpoint", () => {
 
 /*
  * A clone through the egress proxy (CTX-1470). The sandbox is the
- * environment here: its exec gives the answers of Git, in order.
+ * environment here: its exec gives the answers of Git in order, and the
+ * Retry-After probe answers with `retryAfter`.
  */
-function fetchSandbox(stderrs: string[]) {
+function fetchSandbox(stderrs: string[], retryAfter = "") {
   const commands: string[] = []
-  const handle = {
+  const handle: { process: Pick<SandboxProcess, "exec"> } = {
     process: {
-      exec: async (command: string) => {
+      exec: async (command) => {
+        if (command.includes("curl -s -o /dev/null -D -"))
+          return { exitCode: 0, stdout: retryAfter, stderr: "" }
         commands.push(command)
         const stderr = stderrs.shift()
         return stderr === undefined
@@ -122,52 +126,73 @@ function fetchSandbox(stderrs: string[]) {
           : { exitCode: 128, stdout: "", stderr }
       },
     },
-  } as unknown as Parameters<typeof runIngestFetch>[0]
+  }
   return { handle, commands }
 }
 
 const proxy429 =
   "fatal: unable to access 'https://github.com/o/r.git/': CONNECT tunnel failed, response 429\n"
+const fetch = { command: "git clone x", url: "https://github.com/o/r.git" }
 
 describe("runIngestFetch", () => {
-  it("runs a clone again after a short burst of proxy 429s, and the clone finishes", async () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it("runs a clone again after a short burst of 429s, with the fixed waits when the proxy gives no Retry-After", async () => {
+    vi.useFakeTimers()
     const { handle, commands } = fetchSandbox([
       proxy429,
       "error: RPC failed; HTTP 429 curl 22 The requested URL returned error: 429\n",
     ])
-    await expect(
-      runIngestFetch(handle, "git clone x", undefined, [1, 1, 1]),
-    ).resolves.toBe("done")
-    expect(commands).toEqual(["git clone x", "git clone x", "git clone x"])
+    const fetching = runIngestFetch(handle, fetch)
+    await vi.advanceTimersByTimeAsync(4_999)
+    expect(commands).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(commands).toHaveLength(2)
+    await vi.advanceTimersByTimeAsync(15_000)
+    await expect(fetching).resolves.toBe("done")
+    expect(commands).toHaveLength(3)
   })
 
-  it("stops after its last wait, so a long block still fails the step", async () => {
+  it("waits for the proxy's Retry-After, at most 60 seconds", async () => {
+    vi.useFakeTimers()
+    const { handle, commands } = fetchSandbox([proxy429, proxy429], "240\n")
+    const fetching = runIngestFetch(handle, fetch)
+    await vi.advanceTimersByTimeAsync(59_999)
+    expect(commands).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(commands).toHaveLength(2)
+    await vi.advanceTimersByTimeAsync(60_000)
+    await expect(fetching).resolves.toBe("done")
+  })
+
+  it("stops after 3 retries, so a long block still fails the step", async () => {
+    vi.useFakeTimers()
     const { handle, commands } = fetchSandbox(Array(5).fill(proxy429))
-    await expect(
-      runIngestFetch(handle, "git clone x", undefined, [1, 1]),
-    ).rejects.toThrow(/response 429/)
-    expect(commands).toHaveLength(3)
+    const fetching = runIngestFetch(handle, fetch)
+    const failed = expect(fetching).rejects.toThrow(/response 429/)
+    await vi.advanceTimersByTimeAsync(50_000)
+    await failed
+    expect(commands).toHaveLength(4)
   })
 
   it("does not run again on another error", async () => {
     const { handle, commands } = fetchSandbox([
       "fatal: repository 'https://github.com/o/r.git/' not found\n",
     ])
-    await expect(
-      runIngestFetch(handle, "git clone x", undefined, [1, 1, 1]),
-    ).rejects.toThrow(/not found/)
+    await expect(runIngestFetch(handle, fetch)).rejects.toThrow(/not found/)
     expect(commands).toHaveLength(1)
   })
 
   it("stops its wait when the step ends", async () => {
     const { handle, commands } = fetchSandbox([proxy429])
     const controller = new AbortController()
-    const fetching = runIngestFetch(
-      handle,
-      "git clone x",
-      controller.signal,
-      [60_000],
-    )
+    const fetching = runIngestFetch(handle, {
+      ...fetch,
+      signal: controller.signal,
+    })
+    await vi.waitFor(() => expect(commands).toHaveLength(1))
     controller.abort(new Error("step limit"))
     await expect(fetching).rejects.toThrow(/step limit|aborted/)
     expect(commands).toHaveLength(1)

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { withAgentVault } from "../../test/agent-vault-fixture.js"
+import { retryAfterProbeCommand } from "../ingestion/ingest-shard-ops.js"
 import {
   AgentVaultUnavailableError,
   agentVaultAccess,
@@ -563,7 +564,7 @@ curl -sS -o /dev/null -w "%{http_code}" http://${fixture.upstream}:8080/echo/x`,
   )
 
   it(
-    "lets many parallel Git fetches from one address through the proxy, because no fetch sends a CONNECT without credentials (CTX-1470)",
+    "lets many parallel Git fetches from one address through the proxy, because no fetch sends a CONNECT without credentials; a closed gate gives its Retry-After to the fetch probe (CTX-1470)",
     { timeout: 240_000 },
     async () => {
       // On the AWS sandbox host, the proxy sees one address for all
@@ -614,6 +615,28 @@ sort -u /tmp/errors
           const sections = sectionsOf(result.stdout)
           expect(sections.errors, output).toBe("")
           expect(sections.ok, output).toBe("64")
+
+          // Git's default (`anyauth`) sends each CONNECT first with no
+          // credentials: the gate closes after 50 fetches. The probe of
+          // `runIngestFetch` then reads the gate's Retry-After.
+          const url = `https://${upstream}/public/repo.git`
+          const gated = await fixture.sandbox(
+            { ...vault.env, GIT_HTTP_PROXY_AUTHMETHOD: "anyauth" },
+            `${writeProxyCaCommand(vault.caPem)}
+echo "== fetches"
+for fetch in $(seq 1 60); do
+  git ls-remote ${url} refs/heads/main >/dev/null 2>/tmp/error || { grep -o 'response 429' /tmp/error; break; }
+done
+echo "== retry-after"
+${retryAfterProbeCommand(url)}
+`,
+          )
+          const gatedOutput = `${gated.stdout}\n${gated.stderr}`
+          const gatedSections = sectionsOf(gated.stdout)
+          expect(gatedSections.fetches, gatedOutput).toBe("response 429")
+          const retryAfter = Number(gatedSections["retry-after"])
+          expect(retryAfter, gatedOutput).toBeGreaterThan(0)
+          expect(retryAfter, gatedOutput).toBeLessThanOrEqual(300)
         } finally {
           await vault.close()
         }
