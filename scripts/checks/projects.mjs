@@ -174,6 +174,13 @@ const definitions = () => [
       "Catches an exported React component under apps/ui/src with no JSDoc description that the allowlist does not have, and an allowlist entry that is no longer necessary. Run it when a .tsx file under apps/ui/src or the allowlist changes; never for a change outside them.",
     ],
     [
+      "product-components",
+      // knip reads the knip.json entries and the apps/ui sources; the script
+      // runs the knip of the lockfile.
+      ["knip.json", "apps/ui/**"],
+      "Catches a React component under apps/ui/src that only a story or a test renders, so that no product page shows it. Run it when a file under apps/ui or knip.json changes; never for a change outside them.",
+    ],
+    [
       "storybook-globals",
       ["apps/ui/.storybook/**"],
       "Catches a mock or a wrapper above the story file: MSW handlers in the Storybook preview, or a global decorator that is not an opt-in. Run it when a file under apps/ui/.storybook changes; never for a change outside it.",

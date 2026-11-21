@@ -1,7 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, within } from "storybook/test"
 
-import { ProgressBar } from "./ProgressBar"
 import { Skeleton } from "./Skeleton"
 import { Spinner } from "./spinner"
 
@@ -24,20 +23,19 @@ function expectLooping(style: CSSStyleDeclaration) {
 }
 
 /**
- * Spinner, progress bar and skeleton that show a load in progress: the user
+ * Spinner and skeleton that show a load in progress: the user
  * prefers reduced motion, and each one still loops. The play runner opens this
  * story with `prefers-reduced-motion: reduce` (DESIGN.md "Motion").
  */
 export const LoadingUnderReducedMotion: Story = {
   parameters: {
     intent:
-      "Catches loading indicators that stop looping when the user prefers reduced motion. The spinner, progress bar, and skeleton must keep a visible loop. Not for color or size.",
+      "Catches loading indicators that stop looping when the user prefers reduced motion. The spinner and the skeleton must keep a visible loop. Not for color or size.",
   },
   tags: ["required", "reduced-motion"],
   render: () => (
     <div className="flex w-64 flex-col gap-4">
       <Spinner />
-      <ProgressBar aria-label="Loading" isIndeterminate />
       <Skeleton data-testid="skeleton" className="h-4 w-40" />
     </div>
   ),
@@ -47,11 +45,6 @@ export const LoadingUnderReducedMotion: Story = {
       true,
     )
     expectLooping(getComputedStyle(canvas.getByRole("status")))
-    const bar = canvas
-      .getByRole("progressbar")
-      .querySelector<HTMLElement>('[class*="repeat-infinite"]')
-    expect(bar).not.toBeNull()
-    expectLooping(getComputedStyle(bar as HTMLElement))
     expectLooping(getComputedStyle(canvas.getByTestId("skeleton"), "::before"))
   },
 }

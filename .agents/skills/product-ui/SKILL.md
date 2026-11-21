@@ -65,7 +65,7 @@ Loading: pick the **kind** first. Do not mix them.
 | Kind | When | UI |
 |------|------|-----|
 | Region | Fetching a list, tree, thread, or pane whose shape we already ship | [`Skeleton`](../../../apps/ui/src/components/ui/Skeleton.tsx) / `SkeletonRow` that matches the populated rows. Not “Loading…” |
-| Process | Long job or unknown structure (hydrate, OAuth wait, discovery) | [`InlineLoader`](../../../apps/ui/src/components/ui/InlineLoader.tsx) / `ProgressLoader` |
+| Process | Long job or unknown structure (hydrate, OAuth wait, discovery) | [`InlineLoader`](../../../apps/ui/src/components/ui/InlineLoader.tsx) |
 | Control | Mutation on a button | `Button isPending` |
 | Status | Known entity, in-progress (health, indexing, streaming) | Pulse-dot **plus** the word. A static state has a still dot |
 
