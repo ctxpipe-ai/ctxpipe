@@ -950,6 +950,7 @@ jobs:
         continue-on-error: true
         with:
           artifact-ids: ${{ needs.merge-gate-critics.outputs.release-artifact-id }}
+          merge-multiple: true
           path: ${{ runner.temp }}/release
       - name: Selector release, checked against the pin
         continue-on-error: true
