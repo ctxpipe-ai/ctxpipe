@@ -1,4 +1,3 @@
-import type { SandboxProcess } from "@tanstack/ai-sandbox"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import type { RootExec } from "./ingest-root.js"
@@ -114,7 +113,7 @@ describe("ingestStepCheckpoint", () => {
  */
 function fetchSandbox(stderrs: string[], retryAfter = "") {
   const commands: string[] = []
-  const handle: { process: Pick<SandboxProcess, "exec"> } = {
+  const handle: Parameters<typeof runIngestFetch>[0] = {
     process: {
       exec: async (command) => {
         if (command.includes("curl -s -o /dev/null -D -"))
@@ -132,7 +131,10 @@ function fetchSandbox(stderrs: string[], retryAfter = "") {
 
 const proxy429 =
   "fatal: unable to access 'https://github.com/o/r.git/': CONNECT tunnel failed, response 429\n"
-const fetch = { command: "git clone x", url: "https://github.com/o/r.git" }
+const cloneStep = {
+  command: "git clone x",
+  url: "https://github.com/o/r.git",
+}
 
 describe("runIngestFetch", () => {
   afterEach(() => {
@@ -145,7 +147,7 @@ describe("runIngestFetch", () => {
       proxy429,
       "error: RPC failed; HTTP 429 curl 22 The requested URL returned error: 429\n",
     ])
-    const fetching = runIngestFetch(handle, fetch)
+    const fetching = runIngestFetch(handle, cloneStep)
     await vi.advanceTimersByTimeAsync(4_999)
     expect(commands).toHaveLength(1)
     await vi.advanceTimersByTimeAsync(1)
@@ -155,22 +157,29 @@ describe("runIngestFetch", () => {
     expect(commands).toHaveLength(3)
   })
 
-  it("waits for the proxy's Retry-After, at most 60 seconds", async () => {
+  it("waits one second past the proxy's Retry-After", async () => {
     vi.useFakeTimers()
-    const { handle, commands } = fetchSandbox([proxy429, proxy429], "240\n")
-    const fetching = runIngestFetch(handle, fetch)
-    await vi.advanceTimersByTimeAsync(59_999)
+    const { handle, commands } = fetchSandbox([proxy429], "20\n")
+    const fetching = runIngestFetch(handle, cloneStep)
+    await vi.advanceTimersByTimeAsync(20_999)
     expect(commands).toHaveLength(1)
     await vi.advanceTimersByTimeAsync(1)
-    expect(commands).toHaveLength(2)
-    await vi.advanceTimersByTimeAsync(60_000)
     await expect(fetching).resolves.toBe("done")
+    expect(commands).toHaveLength(2)
+  })
+
+  it("fails at once when the Retry-After goes past its 2-minute budget", async () => {
+    const { handle, commands } = fetchSandbox([proxy429], "240\n")
+    await expect(runIngestFetch(handle, cloneStep)).rejects.toThrow(
+      /response 429/,
+    )
+    expect(commands).toHaveLength(1)
   })
 
   it("stops after 3 retries, so a long block still fails the step", async () => {
     vi.useFakeTimers()
     const { handle, commands } = fetchSandbox(Array(5).fill(proxy429))
-    const fetching = runIngestFetch(handle, fetch)
+    const fetching = runIngestFetch(handle, cloneStep)
     const failed = expect(fetching).rejects.toThrow(/response 429/)
     await vi.advanceTimersByTimeAsync(50_000)
     await failed
@@ -181,7 +190,7 @@ describe("runIngestFetch", () => {
     const { handle, commands } = fetchSandbox([
       "fatal: repository 'https://github.com/o/r.git/' not found\n",
     ])
-    await expect(runIngestFetch(handle, fetch)).rejects.toThrow(/not found/)
+    await expect(runIngestFetch(handle, cloneStep)).rejects.toThrow(/not found/)
     expect(commands).toHaveLength(1)
   })
 
@@ -189,7 +198,7 @@ describe("runIngestFetch", () => {
     const { handle, commands } = fetchSandbox([proxy429])
     const controller = new AbortController()
     const fetching = runIngestFetch(handle, {
-      ...fetch,
+      ...cloneStep,
       signal: controller.signal,
     })
     await vi.waitFor(() => expect(commands).toHaveLength(1))

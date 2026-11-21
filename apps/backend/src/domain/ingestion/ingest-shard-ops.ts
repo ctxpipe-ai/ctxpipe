@@ -43,6 +43,7 @@ import {
  */
 
 type Sandbox = Pick<SandboxHandle, "fs" | "process">
+type SandboxExec = { process: Pick<SandboxProcess, "exec"> }
 
 /** The source checkout: `/ctxpipe/source/source`. */
 const INGEST_SOURCE_HANDLE = "source"
@@ -95,7 +96,7 @@ function quote(value: string): string {
 }
 
 async function run(
-  handle: { process: Pick<SandboxProcess, "exec"> },
+  handle: SandboxExec,
   command: string,
   signal?: AbortSignal,
 ): Promise<string> {
@@ -131,21 +132,27 @@ export function retryAfterProbeCommand(url: string): string {
 /**
  * Run a clone or a fetch of `url` through the egress proxy. On a 429 (Agent
  * Vault refuses the CONNECT, or the proxy or the Git host refuses a request
- * in the tunnel), the command runs again, at most 3 times (CTX-1470). Git
- * does not show the Retry-After of the answer. Thus a curl request to the
- * same origin through the proxy reads it: curl sends the session in its
+ * in the tunnel), the command runs again, at most 3 times (CTX-1470).
+ *
+ * Git does not show the Retry-After of the answer. Thus a curl request to
+ * the same origin through the proxy reads it: curl sends the session in its
  * first CONNECT, and Agent Vault's CONNECT gate only reads its count of
- * failures. Each wait is that Retry-After, from 5 to 60 seconds. With no
- * Retry-After, the waits are 5, 15 and 30 seconds. So a short burst delays
- * the shard, and a longer block fails the step. The command must start
- * again from nothing (for example, it removes its clone first).
+ * failures. The wait is that Retry-After and one second (Agent Vault cuts
+ * the fraction of a second). With no Retry-After, the waits are 5, 15 and
+ * 30 seconds. All the waits of one command are at most 2 minutes: when the
+ * next wait goes past that, the 429 fails the step at once. So a short
+ * burst delays the shard, and a long block fails it soon.
+ *
+ * The command must start again from nothing (for example, it removes its
+ * clone first).
  */
 export async function runIngestFetch(
-  handle: { process: Pick<SandboxProcess, "exec"> },
+  handle: SandboxExec,
   input: { command: string; url: string; signal?: AbortSignal },
 ): Promise<string> {
   const { signal } = input
   const fallbackWaitsMs = [5_000, 15_000, 30_000]
+  let waitedMs = 0
   for (let attempt = 0; ; attempt++) {
     try {
       return await run(handle, input.command, signal)
@@ -159,26 +166,36 @@ export async function runIngestFetch(
       const retryAfterS = Number.parseInt(probe.stdout.trim(), 10)
       const waitMs = Number.isNaN(retryAfterS)
         ? fallbackMs
-        : Math.min(Math.max(retryAfterS * 1000, 5_000), 60_000)
+        : (retryAfterS + 1) * 1000
+      if (waitedMs + waitMs > 120_000) throw error
+      waitedMs += waitMs
       logIngestEvent("warn", "ingestion-v2.fetch-429", {
         attempt: attempt + 1,
         waitMs,
         retryAfter: Number.isNaN(retryAfterS) ? null : retryAfterS,
       })
-      signal?.throwIfAborted()
-      await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(resolve, waitMs)
-        signal?.addEventListener(
-          "abort",
-          () => {
-            clearTimeout(timer)
-            reject(signal.reason)
-          },
-          { once: true },
-        )
-      })
+      await waitFor(waitMs, signal)
     }
   }
+}
+
+/**
+ * Wait `ms`, or until `signal` aborts. It uses the global `setTimeout`, not
+ * `node:timers/promises`: Vitest's fake timers do not replace that module.
+ */
+async function waitFor(ms: number, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted()
+  await new Promise<void>((resolve, reject) => {
+    const abort = () => {
+      clearTimeout(timer)
+      reject(signal?.reason)
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", abort)
+      resolve()
+    }, ms)
+    signal?.addEventListener("abort", abort, { once: true })
+  })
 }
 
 /** True when an earlier `prepareIngestShard` finished in this sandbox. */
