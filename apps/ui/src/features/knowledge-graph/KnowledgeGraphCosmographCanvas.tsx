@@ -878,7 +878,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
             >
               <LegendDock />
               <div className="pointer-events-auto">
-                <StockPanel className="px-2 py-1">
+                <FloatingPanel className="px-2 py-1 text-foreground">
                   <div className="flex items-center gap-1">
                     {observedRange ? (
                       <GraphControlButton
@@ -905,7 +905,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
                       {footerMetadata}
                     </div>
                   ) : null}
-                </StockPanel>
+                </FloatingPanel>
               </div>
             </div>
           </>
@@ -1124,20 +1124,6 @@ const NativeObservationTimeline = forwardRef<
     </div>
   )
 })
-
-function StockPanel({
-  children,
-  className = "",
-}: {
-  children: ReactNode
-  className?: string
-}) {
-  return (
-    <FloatingPanel className={cn("p-3 text-foreground", className)}>
-      {children}
-    </FloatingPanel>
-  )
-}
 
 function GraphControlButton({
   active = false,
