@@ -834,7 +834,7 @@ describe("write-apis", () => {
       ),
     ).toHaveLength(45)
     await s.advance(result.tree)
-    // A third run on the finished base changes nothing.
+    // A second run on the finished base changes nothing.
     const again = s.write(plan)
     expect(again.ops).toEqual([])
     expect(again.more).toBe(false)

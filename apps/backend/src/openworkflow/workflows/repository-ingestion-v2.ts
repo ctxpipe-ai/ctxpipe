@@ -105,9 +105,9 @@ import { workspaceExtractIngest } from "./workspace-extract-ingest.js"
  * deletes of a failed root stay out: a failed root gets no retraction. A
  * refused assemble drops the shards' ops, so its Workspace gets no
  * repository-wide step and no publish (CTX-1482); so does an assemble whose
- * merge model fails. A publish that fails (the merge model fails, or the default
- * branch wins each push race) also makes the Workspace `partial`, and the
- * other Workspaces publish. Then `delete-refs` deletes the run's refs, but
+ * merge model fails. A publish that fails (the merge model fails, or the
+ * default branch wins each push race) also makes the Workspace `partial`,
+ * and the other Workspaces publish. Then `delete-refs` deletes the run's refs, but
  * not the refs of a Workspace whose merge model or publish failed. The tip
  * check deletes the refs that stay (the run is then finished and not a
  * shadow run). A run outside shadow mode publishes only to a Workspace whose

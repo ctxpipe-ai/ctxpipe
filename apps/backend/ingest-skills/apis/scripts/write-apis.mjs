@@ -286,8 +286,7 @@ const selected = resolved.filter((api) => api.pending)
 
 const plans = []
 for (const api of selected) {
-  const written = api.operations
-  const specs = [...new Set(written.map((op) => op.evidence.path))]
+  const specs = [...new Set(api.operations.map((op) => op.evidence.path))]
   plans.push({
     path: api.path,
     expectName: api.exists ? undefined : api.name,
@@ -299,13 +298,13 @@ for (const api of selected) {
       intro: api.summary,
     },
     related: [apiLine, ...specs.map((path) => specLine(path))],
-    claims: written.map((op) => ({
+    claims: api.operations.map((op) => ({
       to: relativeTo(api.path, op.file),
       predicate: "HAS_OPERATION",
       evidence: op.evidence,
     })),
   })
-  for (const op of written)
+  for (const op of api.operations)
     plans.push({
       path: op.file,
       expectName: op.name,
@@ -319,7 +318,7 @@ for (const api of selected) {
       claims: [],
       related: [opLine(op)],
     })
-  if (service && written.length > 0)
+  if (service && api.operations.length > 0)
     plans.push({
       path: service,
       create: null,
@@ -328,7 +327,7 @@ for (const api of selected) {
         {
           to: relativeTo(service, api.path),
           predicate: "EXPOSES_API",
-          evidence: written[0].evidence,
+          evidence: api.operations[0].evidence,
         },
       ],
     })
