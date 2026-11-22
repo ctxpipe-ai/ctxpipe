@@ -11,6 +11,7 @@
 import { posix } from "node:path"
 
 import {
+  goMainFile,
   readTracked,
   tomlStringArray,
   tomlTables,
@@ -199,6 +200,15 @@ export function classifyRoot(source, files, rootPath) {
       signal("Service", "strong", "go.mod", "The module has a main package")
     else signal("Library", "weak", "go.mod", "The module has no main package")
   }
+  // A Go `main` package in a folder of a module (for example `cmd/<binary>`).
+  const goMain = has("go.mod") ? null : goMainFile(source, files, rootPath)
+  if (goMain)
+    signal(
+      "Service",
+      "strong",
+      goMain.slice(dir.length),
+      "It is a Go main package",
+    )
 
   for (const manifest of ["pyproject.toml", "requirements.txt"]) {
     if (!has(manifest)) continue

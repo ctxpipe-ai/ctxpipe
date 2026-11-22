@@ -6,14 +6,18 @@
 // Result: { roots: [{ path, manifests, evidence }],
 //           ambiguous: [{ manifest, reason, candidates: [{ path, manifests }] }],
 //           skipped: [{ manifest, reason }] }
-// `path` is "." for the repository root. `evidence` names the workspace
-// manifests that list the root, or "." for the single-root fallback. An
-// ambiguous entry always has a candidate; an entry with none is in `skipped`.
+// `path` is "." for the repository root. `evidence` names the files that make
+// the folder a root: the workspace manifests that list it (also a nested Cargo
+// workspace), the `Cargo.toml` that names it as a path dependency of a
+// workspace member, or the Go file of a `main` package. It is "." for the
+// single-root fallback. An ambiguous entry always has a candidate; an entry
+// with none is in `skipped`.
 //
 // The source repository is hostile. The script never builds a regular
 // expression from its text, and it caps the length and the count of entries.
 
 import { execFileSync } from "node:child_process"
+import { posix } from "node:path"
 
 /** Files that make a folder a package. */
 const PACKAGE_MARKERS = [
@@ -266,7 +270,8 @@ export function tomlTables(text) {
   let current = ""
   for (const raw of text.split("\n")) {
     const line = raw.replace(/(^|\s)#.*$/, "").trimEnd()
-    const header = /^\s*\[([^[\]]+)\]\s*$/.exec(line)
+    // `[[bin]]` (an array of tables) starts a table too.
+    const header = /^\s*\[\[?([^[\]]+)\]\]?\s*$/.exec(line)
     if (header) {
       current = header[1].trim()
       if (!tables.has(current)) tables.set(current, [])
@@ -418,18 +423,6 @@ function workspaceManifests(source, rootFiles) {
         entries: members,
       })
   }
-  if (rootFiles.has("Cargo.toml")) {
-    const tables = tomlTables(read("Cargo.toml"))
-    const members = tomlStringArray(tables, "workspace", "members")
-    const exclude = tomlStringArray(tables, "workspace", "exclude")
-    if (members.length)
-      found.push({
-        manifest: "Cargo.toml",
-        markers: ["Cargo.toml"],
-        entries: [...members, ...exclude.map((e) => `!${e}`)],
-        rootPackage: tables.has("package"),
-      })
-  }
   if (rootFiles.has("go.work")) {
     const entries = []
     let inBlock = false
@@ -477,6 +470,311 @@ function workspaceManifests(source, rootFiles) {
     if (entries.length) found.push({ manifest: name, markers: null, entries })
   }
   return found
+}
+
+/**
+ * Folder names that hold tests, examples, or generated code. A root that no
+ * manifest lists, but that the script finds by a language rule (a nested
+ * Cargo workspace or a Go `main` package), is not in such a folder. A name
+ * like `test-utils` or `proc-macro-test` is a test folder too.
+ */
+const TEST_SEGMENTS = new Set([
+  "test",
+  "tests",
+  "testing",
+  "e2e",
+  "example",
+  "examples",
+  "sample",
+  "samples",
+  "fuzz",
+  "generated",
+])
+
+const inTestFolder = (dir) =>
+  dir.split("/").some((segment) => {
+    const words = segment.toLowerCase().split(/[-_]/)
+    return (
+      TEST_SEGMENTS.has(segment.toLowerCase()) ||
+      (words.length > 1 &&
+        ["test", "tests"].some((t) => words[0] === t || words.at(-1) === t))
+    )
+  })
+
+/**
+ * Text of tracked files at HEAD, keyed by path, with two git calls for each
+ * 500 paths. Like `readTracked`, a file that is missing or larger than 1 MiB
+ * is "", so the script never holds more than 500 MiB of file text.
+ */
+export function readTrackedMany(source, paths) {
+  const out = new Map()
+  const list = paths.filter((p) => !p.includes("\n") && !p.includes("\r"))
+  const git = (args, input) =>
+    execFileSync("git", ["-C", source, ...args], {
+      input,
+      maxBuffer: 512 * 1024 * 1024 + 64 * 1024,
+    })
+  for (let from = 0; from < list.length; from += 500) {
+    const chunk = list.slice(from, from + 500)
+    const small = []
+    const lines = git(
+      ["cat-file", "--batch-check"],
+      chunk.map((p) => `HEAD:${p}\n`).join(""),
+    )
+      .toString("utf8")
+      .split("\n")
+    chunk.forEach((path, i) => {
+      out.set(path, "")
+      const [oid, type, size] = lines[i].split(" ")
+      if (type === "blob" && Number(size) <= 1024 * 1024)
+        small.push({ path, oid, size: Number(size) })
+    })
+    if (small.length === 0) continue
+    const buffer = git(
+      ["cat-file", "--batch"],
+      small.map((f) => `${f.oid}\n`).join(""),
+    )
+    let at = 0
+    for (const { path, size } of small) {
+      at = buffer.indexOf(10, at) + 1
+      out.set(path, buffer.toString("utf8", at, at + size))
+      at += size + 1
+    }
+  }
+  return out
+}
+
+/** A folder path from `dir` and a relative path, or null when it leaves the repository. */
+function joinFolder(dir, relative) {
+  if (relative.startsWith("/") || relative.includes("\\")) return null
+  const joined = posix.normalize(dir === "." ? relative : `${dir}/${relative}`)
+  const path = joined.replace(/\/+$/, "") || "."
+  return path === ".." || path.startsWith("../") ? null : path
+}
+
+/**
+ * The Cargo workspaces: each tracked `Cargo.toml` with a `[workspace]` table,
+ * as a workspace manifest whose entries are relative to the repository
+ * root. A nested workspace is not in a test or example folder.
+ */
+function cargoWorkspaces(source, markersOf) {
+  const dirs = [...markersOf.keys()]
+    .filter((dir) => markersOf.get(dir).includes("Cargo.toml"))
+    .filter((dir) => dir === "." || !inTestFolder(dir))
+    .sort()
+  const manifestOf = (dir) => (dir === "." ? "Cargo.toml" : `${dir}/Cargo.toml`)
+  const texts = readTrackedMany(source, dirs.map(manifestOf))
+  const found = []
+  for (const dir of dirs) {
+    const tables = tomlTables(texts.get(manifestOf(dir)) ?? "")
+    if (!tables.has("workspace")) continue
+    const members = tomlStringArray(tables, "workspace", "members")
+    const exclude = tomlStringArray(tables, "workspace", "exclude")
+    const entries = []
+    for (const [raw, prefix] of [
+      ...members.map((m) => [m, ""]),
+      ...exclude.map((e) => [e, "!"]),
+    ]) {
+      const path = joinFolder(dir, cleanEntry(raw))
+      if (path) entries.push(`${prefix}${path}`)
+    }
+    found.push({
+      manifest: manifestOf(dir),
+      markers: ["Cargo.toml"],
+      dir,
+      entries,
+      excludes: exclude
+        .map((e) => joinFolder(dir, cleanEntry(e)))
+        .filter(Boolean)
+        .map((e) => globMatcher(e))
+        .filter((m) => m.matches),
+      rootPackage: tables.has("package"),
+      // As before, a root workspace with no `members` is not a workspace
+      // manifest for the single-root fallback.
+      rootLevel: dir === "." && members.length > 0,
+    })
+  }
+  // A `[workspace]` with no members and no `[package]` lists nothing.
+  return found.filter((w) => w.entries.length > 0 || w.rootPackage)
+}
+
+const CARGO_DEPENDENCY_TABLES = new Set([
+  "dependencies",
+  "dev-dependencies",
+  "dev_dependencies",
+  "build-dependencies",
+  "build_dependencies",
+])
+
+/** The `path` values of the dependency tables of a `Cargo.toml`, also `[workspace.dependencies]` and `[target.*.dependencies]`. Not `[patch]` or `[replace]`. */
+export function cargoPathDependencies(text) {
+  const paths = []
+  for (const [table, lines] of tomlTables(text)) {
+    const parts = table.split(".").map((p) => p.trim())
+    if (parts[0] === "patch" || parts[0] === "replace") continue
+    if (!parts.some((p) => CARGO_DEPENDENCY_TABLES.has(p))) continue
+    for (const line of lines)
+      for (const m of line.matchAll(
+        /(?:^|[\s{,.])path\s*=\s*(?:"([^"]*)"|'([^']*)')/g,
+      ))
+        paths.push(m[1] ?? m[2])
+  }
+  return paths
+}
+
+/**
+ * The path dependencies that are members of a Cargo workspace:
+ * { members: [[folder, manifest that names it]], budgetOut }. Cargo makes each path dependency of a
+ * member a member too, when it is in the workspace folder and not excluded,
+ * so the script follows them from member to member.
+ */
+function cargoPathMembers(source, markersOf, workspace) {
+  const out = []
+  const seen = new Set(workspace.members)
+  let queue = [...new Set([workspace.dir, ...workspace.members])]
+  const manifestOf = (dir) => (dir === "." ? "Cargo.toml" : `${dir}/Cargo.toml`)
+  const inside = (dir) =>
+    workspace.dir === "." || dir.startsWith(`${workspace.dir}/`)
+  while (queue.length) {
+    const texts = readTrackedMany(source, queue.map(manifestOf))
+    const next = []
+    for (const crate of queue) {
+      // The workspace manifest is read for `[workspace.dependencies]`; it is
+      // a member only when it has a `[package]`.
+      for (const relative of cargoPathDependencies(
+        texts.get(manifestOf(crate)) ?? "",
+      )) {
+        const dir = joinFolder(crate, cleanEntry(relative))
+        if (
+          !dir ||
+          seen.has(dir) ||
+          !inside(dir) ||
+          !markersOf.get(dir)?.includes("Cargo.toml") ||
+          workspace.excludes.some((e) => e.matches(dir))
+        )
+          continue
+        // A run out of budget can miss an exclude: give no more members.
+        if (!matchBudgetLeft()) return { members: out, budgetOut: true }
+        seen.add(dir)
+        out.push([dir, manifestOf(crate)])
+        next.push(dir)
+      }
+    }
+    queue = next
+  }
+  return { members: out, budgetOut: false }
+}
+
+/**
+ * True when the Go file is in `package main` and its build constraint does
+ * not name `ignore` (a generator that `go run` starts is not a binary).
+ */
+export function goFileIsMain(text) {
+  let inComment = false
+  for (const raw of text.split("\n")) {
+    let line = raw.trim()
+    if (inComment) {
+      const end = line.indexOf("*/")
+      if (end === -1) continue
+      inComment = false
+      line = line.slice(end + 2).trim()
+    }
+    if (/^\/\/\s*(go:build|\+build)\s/.test(line)) {
+      if (/[\s(|&,]ignore($|[\s)|&,])/.test(line.replace(/^\/\/\s*/, " ")))
+        return false
+      continue
+    }
+    if (line.startsWith("/*")) {
+      const end = line.indexOf("*/", 2)
+      if (end === -1) {
+        inComment = true
+        continue
+      }
+      line = line.slice(end + 2).trim()
+    }
+    if (line === "" || line.startsWith("//")) continue
+    return /^package\s+main(\s|;|\/\/|$)/.test(line)
+  }
+  return false
+}
+
+/** The Go files of a folder that can hold its package clause: not tests, sorted. */
+export function goPackageFiles(files, dir) {
+  const prefix = dir === "." ? "" : `${dir}/`
+  return [...files]
+    .filter(
+      (f) =>
+        f.startsWith(prefix) &&
+        !f.slice(prefix.length).includes("/") &&
+        f.endsWith(".go") &&
+        !f.endsWith("_test.go"),
+    )
+    .sort()
+}
+
+/** The Go file of the folder that makes it a `main` package, or null. One file at a time, for one folder. */
+export function goMainFile(source, files, dir) {
+  for (const file of goPackageFiles(files, dir)) {
+    const text = readTracked(source, file)
+    if (goFileIsMain(text)) return file
+    if (!/^\s*package\s+main\b/m.test(text)) return null
+  }
+  return null
+}
+
+/**
+ * The Go `main` packages (binaries), as [folder, Go file with the package
+ * clause]. The folder is in a Go module (it or a parent folder has a go.mod
+ * that the script reads) and not in a test or example folder.
+ */
+function goMainPackages(source, files, markersOf) {
+  const modules = new Set(
+    [...markersOf.keys()].filter((d) => markersOf.get(d).includes("go.mod")),
+  )
+  if (modules.size === 0) return []
+  const inModule = (dir) => {
+    for (let d = dir; ; d = posix.dirname(d)) {
+      if (modules.has(d)) return true
+      if (d === ".") return false
+    }
+  }
+  const byFolder = new Map()
+  for (const file of files) {
+    if (!file.endsWith(".go") || file.endsWith("_test.go")) continue
+    const dir = posix.dirname(file)
+    // The go tool skips a folder whose name starts with `_` or `.`.
+    if (dir.split("/").some((segment) => segment.startsWith("_"))) continue
+    if (ignoredFolder(dir) || inTestFolder(dir) || !safePath(dir)) continue
+    if (dir.split("/").length > MAX_DEPTH) continue
+    byFolder.set(dir, [...(byFolder.get(dir) ?? []), file])
+  }
+  for (const [dir, list] of byFolder)
+    if (inModule(dir)) list.sort()
+    else byFolder.delete(dir)
+  // All files of a Go package have one package clause, so the script reads
+  // one file of each folder, and the next one only for a file that a build
+  // constraint ignores.
+  const out = []
+  let round = [...byFolder.keys()].map((dir) => [dir, 0])
+  while (round.length) {
+    const texts = readTrackedMany(
+      source,
+      round.map(([dir, i]) => byFolder.get(dir)[i]),
+    )
+    const next = []
+    for (const [dir, i] of round) {
+      const file = byFolder.get(dir)[i]
+      const text = texts.get(file) ?? ""
+      if (goFileIsMain(text)) out.push([dir, file])
+      else if (
+        /^\s*package\s+main\b/m.test(text) &&
+        i + 1 < byFolder.get(dir).length
+      )
+        next.push([dir, i + 1])
+    }
+    round = next
+  }
+  return out.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
 }
 
 export function discoverRoots(source) {
@@ -544,15 +842,15 @@ export function discoverRoots(source) {
   const skipEntry = (manifest, reason) =>
     skipped.push({ manifest, reason: `The script skipped an entry: ${reason}` })
 
-  const manifests = workspaceManifests(source, rootFiles)
-  for (const found of manifests) {
+  /** Adds the roots that one workspace manifest lists, and gives them. */
+  const readManifest = (found) => {
     if (found.unreadable) {
       ambiguous.push({
         manifest: found.manifest,
         reason: found.unreadable,
         candidates: nested.map(candidate),
       })
-      continue
+      return []
     }
     if (found.entries.length > MAX_ENTRIES)
       skipped.push({
@@ -582,6 +880,7 @@ export function discoverRoots(source) {
         : folders.has(dir)
     const excludes = entries.filter((e) => e.exclude)
     const excluded = (dir) => excludes.some((e) => e.matches(dir))
+    const members = []
     for (const { entry, matches } of entries.filter((e) => !e.exclude)) {
       if (!matchBudgetLeft()) {
         budgetSkip()
@@ -597,6 +896,7 @@ export function discoverRoots(source) {
         continue
       }
       for (const dir of hits) addRoot(dir, found.manifest)
+      members.push(...hits)
       if (hits.length === 0 && (named.length === 0 || !named.every(excluded))) {
         const what = found.markers ? found.markers.join(" or ") : "files"
         ambiguous.push({
@@ -610,8 +910,18 @@ export function discoverRoots(source) {
         })
       }
     }
-    if (found.rootPackage) addRoot(".", found.manifest)
+    if (found.rootPackage) {
+      addRoot(found.dir, found.manifest)
+      members.push(found.dir)
+    }
+    return members
   }
+
+  const manifests = workspaceManifests(source, rootFiles)
+  const cargo = cargoWorkspaces(source, markersOf)
+  // The fallback and nx.json look only at the manifests of the repository root.
+  const rootManifests = [...manifests, ...cargo.filter((w) => w.rootLevel)]
+  for (const found of rootManifests) found.members = readManifest(found)
   if (rootFiles.has("nx.json") && roots.size === 0)
     ambiguous.push({
       manifest: "nx.json",
@@ -619,7 +929,7 @@ export function discoverRoots(source) {
       candidates: nested.map(candidate),
     })
 
-  if (manifests.length === 0 && !rootFiles.has("nx.json")) {
+  if (rootManifests.length === 0 && !rootFiles.has("nx.json")) {
     addRoot(".", ".")
     if (nested.length)
       ambiguous.push({
@@ -629,15 +939,32 @@ export function discoverRoots(source) {
       })
   }
 
+  for (const found of cargo.filter((w) => !w.rootLevel))
+    found.members = readManifest(found)
+  for (const found of cargo) {
+    const { members, budgetOut } = cargoPathMembers(source, markersOf, found)
+    for (const [dir, manifest] of members) addRoot(dir, manifest)
+    if (budgetOut)
+      skipEntry(
+        found.manifest,
+        "the match budget of the script ran out, so it followed no more path dependencies",
+      )
+  }
+  for (const [dir, file] of goMainPackages(source, files, markersOf))
+    addRoot(dir, file)
+
   if (rootsFull)
     skipped.push({
       manifest: null,
       reason: `The script gives at most ${MAX_ROOTS} roots`,
     })
 
-  // An entry with no candidate gives the model no choice, so no model runs for it.
+  // An entry with no candidate gives the model no choice, so no model runs for
+  // it. A candidate that is a root already is no choice either.
   for (const entry of ambiguous.filter((a) => a.candidates.length === 0))
     skipped.push({ manifest: entry.manifest, reason: entry.reason })
+  for (const entry of ambiguous)
+    entry.candidates = entry.candidates.filter((c) => !roots.has(c.path))
 
   const byText = (a, b) => (a < b ? -1 : a > b ? 1 : 0)
   const byManifest = (a, b) =>
