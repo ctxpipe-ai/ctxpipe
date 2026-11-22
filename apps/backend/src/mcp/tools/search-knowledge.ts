@@ -63,8 +63,9 @@ export const SEARCH_PAGE_LIMIT = 8
 
 /**
  * One page of the search hits from `offset`, as the tool gives it without
- * the cursor: at most `limit` hits that fit the token budget. The knowledge
- * eval measures the first page with this function too.
+ * the cursor, and the offset of the next page: at most `limit` hits that fit
+ * the token budget. The knowledge eval measures the first page with this
+ * function too.
  */
 export function searchKnowledgePage(input: {
   hits: readonly KnowledgeHit[]
@@ -107,7 +108,15 @@ export function searchKnowledgePage(input: {
     maxTokens: 4_000,
     result: (fitted) => ({ hits: fitted, skipped, ...partial }),
   })
-  return { hits: page, skipped, ...partial, nextOffset, truncated }
+  return {
+    page: {
+      hits: page,
+      skipped,
+      ...partial,
+      ...(truncated ? { truncated } : {}),
+    },
+    nextOffset,
+  }
 }
 
 /** Register this tool at the seven-tool cutover (ADR-051). */
@@ -252,7 +261,7 @@ export const searchKnowledgeTool = defineMcpReadTool({
       ]),
     }
     const offset = cursor ? decodeCursor(cursor, binding) : 0
-    const { nextOffset, truncated, ...page } = searchKnowledgePage({
+    const { page, nextOffset } = searchKnowledgePage({
       hits,
       workspaces,
       skipped,
@@ -260,12 +269,14 @@ export const searchKnowledgeTool = defineMcpReadTool({
       offset,
       limit: input.limit,
     })
+    // The cursor comes before `truncated`, as in each page of the tool.
+    const { truncated, ...fields } = page
     return {
-      ...page,
+      ...fields,
       ...(nextOffset === null
         ? {}
         : { cursor: encodeCursor({ ...binding, offset: nextOffset }) }),
-      ...(truncated ? { truncated: true } : {}),
+      ...(truncated ? { truncated } : {}),
     }
   },
 })

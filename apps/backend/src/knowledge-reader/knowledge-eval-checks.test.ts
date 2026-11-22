@@ -44,11 +44,7 @@ const hit = (path: string, text: string, title: string | null = null) =>
   }) satisfies KnowledgeHit
 
 const pageOf = (hits: KnowledgeHit[]) => {
-  const {
-    nextOffset: _next,
-    truncated: _cut,
-    ...page
-  } = searchKnowledgePage({
+  const { page } = searchKnowledgePage({
     hits,
     workspaces: [workspace],
     skipped: [],
@@ -68,15 +64,6 @@ const question = (id: string, change: Partial<Question> = {}): Question => ({
   keyFacts: ["a fact"],
   ...change,
 })
-
-const calls = {
-  jev: 0,
-  jevQuestions: 0,
-  embedding: 1,
-  costUsd: 0,
-  missing: 0,
-  failed: 0,
-}
 
 const answer = (
   arm: Arm,
@@ -108,7 +95,14 @@ const answer = (
           },
         }
       : {}),
-    calls,
+    calls: {
+      jev: 0,
+      jevQuestions: 0,
+      embedding: 1,
+      costUsd: 0,
+      missing: 0,
+      failed: 0,
+    },
   }
 }
 
@@ -123,10 +117,12 @@ const checksOf = (questions: Question[], answers: ArmAnswer[]): CheckValues =>
 describe("the regression checks", () => {
   it("1: counts a second copy of one mirror item on the first page", () => {
     const issue = "CTX-77: Claude plugin distribution"
+    // The readable part of the name differs from one copy to the next; the
+    // provider id after `--` is the same.
     const copies = [
       hit("linear/teams/CTX/issues/ctx-77--u1.md", `${issue}\n\nText.`, issue),
       hit(
-        "linear/projects/p1/issues/ctx-77--u1.md",
+        "linear/projects/p1/issues/claude-plugin-distribution--u1.md",
         `${issue}\n\nText.`,
         issue,
       ),
@@ -138,12 +134,15 @@ describe("the regression checks", () => {
       checksOf([q], [answer("legacy", q.id, { hits: copies })]).duplicateSlots,
     ).toBe(2 / 4)
     // One copy of each item. Two GitHub issues with the same number in two
-    // repositories are two items.
+    // repositories are two items, and so are two items with the same title.
+    const flake = "[Failing Test] scheduler"
     const distinct = [
       copies[0] as KnowledgeHit,
       copies[2] as KnowledgeHit,
-      hit("github/issues/kubernetes/kubernetes/7.md", "A\n\nText.", "A"),
-      hit("github/issues/kubernetes/website/7.md", "B\n\nText.", "B"),
+      hit("github/issues/kubernetes/kubernetes/7.md", `${flake}\n\nA.`, flake),
+      hit("github/issues/kubernetes/website/7.md", `${flake}\n\nB.`, flake),
+      hit("github/issues/kubernetes/kubernetes/8.md", `${flake}\n\nC.`, flake),
+      hit("linear/teams/CTX/issues/ctx-78--u2.md", `${issue}\n\nText.`, issue),
     ]
     expect(
       checksOf([q], [answer("legacy", q.id, { hits: distinct })])
@@ -220,35 +219,44 @@ describe("the regression checks", () => {
     ).toBeNull()
   })
 
-  it("4: gives the share of get_related slots that hold a hub with no gold label", () => {
+  it("4: gives the share of get_related slots that hold a high-degree unit with no gold label", () => {
     const hub = "knowledge/decisions/adr-024.md"
-    const questions = ["a", "b", "c", "d"].map((id) =>
+    const questions = ["a", "b", "c"].map((id) =>
       question(id, {
         seeds: [`seeds/${id}.md`],
         gold: id === "a" ? ["docs/a.md", hub] : [`docs/${id}.md`],
       }),
     )
-    // The hub comes back for each seed. It is gold only for `a`, so its slot
-    // of `a` does not count. The seed of a question is not a slot.
-    const withHub = questions.map((one) =>
-      answer(
-        "legacy",
-        one.id,
-        { refs: [] },
-        { refs: [`seeds/${one.id}.md`, `docs/${one.id}.md`, hub] },
-      ),
-    )
-    // 8 slots; the hub of b, c and d has no gold label.
-    expect(checksOf(questions, withHub).hubSlots).toBe(3 / 8)
-    const clean = questions.map((one) =>
-      answer(
-        "legacy",
-        one.id,
-        { refs: [] },
-        { refs: [`seeds/${one.id}.md`, `docs/${one.id}.md`] },
-      ),
-    )
-    expect(checksOf(questions, clean).hubSlots).toBe(0)
+    const related = (one: Question, hubs: string[]) => ({
+      ...answer("legacy", one.id, { refs: [] }),
+      related: {
+        refs: [`seeds/${one.id}.md`, `docs/${one.id}.md`, hub],
+        scores: [0.5, 0.5, 0.5],
+        latencyMs: 50,
+        hubs,
+      },
+    })
+    // The run marks the hub as a high-degree unit of the corpus. It is gold
+    // only for `a`, so its slot of `a` does not count. The seed of a
+    // question is not a slot: 6 slots.
+    expect(
+      checksOf(
+        questions,
+        questions.map((one) => related(one, [hub])),
+      ).hubSlots,
+    ).toBe(2 / 6)
+    expect(
+      checksOf(
+        questions,
+        questions.map((one) => related(one, [])),
+      ).hubSlots,
+    ).toBe(0)
+    // A run from before the hubs were marked has no value.
+    expect(
+      checksOf(questions, [
+        answer("legacy", "a", { refs: [] }, { refs: ["docs/a.md"] }),
+      ]).hubSlots,
+    ).toBeNull()
   })
 
   it("5: needs a live document before each stale copy", () => {
@@ -325,7 +333,7 @@ describe("the regression checks", () => {
     ).toBe(1)
   })
 
-  it("7: reports the first call of each corpus, which the warm p95 hides", () => {
+  it("7: reports the first calls of the run, which the warm p95 hides", () => {
     const questions = Array.from({ length: 20 }, (_, index) =>
       question(`q${index}`, { seeds: ["seeds/s.md"] }),
     )
@@ -355,14 +363,14 @@ describe("the regression checks", () => {
     expect(report.checks.legacy.coldSearchMs).toBe(40_000)
     const warm = checksOf(questions, run(55))
     expect(warm.coldSearchMs).toBe(55)
-    // The slowest corpus gives the value.
+    // Only the first call of the run is cold: the corpora share the stores.
     const other = question("other", { corpus: "rust" })
     expect(
       checksOf(
         [...questions, other],
         [...run(55), answer("legacy", other.id, { refs: [], latencyMs: 900 })],
       ).coldSearchMs,
-    ).toBe(900)
+    ).toBe(55)
   })
 
   it("8: gives the bytes of the first page that a client gets", () => {

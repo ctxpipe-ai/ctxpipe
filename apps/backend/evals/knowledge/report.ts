@@ -1,6 +1,7 @@
 import { z } from "zod"
 
 import {
+  type Check,
   CHECK_INFO,
   CHECKS,
   type CheckValues,
@@ -420,19 +421,16 @@ export function renderMarkdown(report: Report): string {
         `| ${row.split} | ${row.category} | ${row.questions} | ${METRIC_NAMES[metric]} | ${value(row.baseline[metric])} | ${value(row.plane[metric])} | ${signed(row.change[metric])} |`,
       )
     }
-  const checkValue = (
-    check: (typeof CHECKS)[number],
-    number: number | null,
-  ) => {
-    if (number === null) return "n/a"
+  const checkValue = (check: Check, measured: number | null) => {
+    if (measured === null) return "n/a"
     const { unit } = CHECK_INFO[check]
     return unit === "share"
-      ? number.toFixed(3)
+      ? measured.toFixed(3)
       : unit === "ms"
-        ? ms(number)
+        ? ms(measured)
         : unit === "bytes"
-          ? `${Math.round(number)} B`
-          : String(number)
+          ? `${Math.round(measured)} B`
+          : String(measured)
   }
   lines.push(
     "",

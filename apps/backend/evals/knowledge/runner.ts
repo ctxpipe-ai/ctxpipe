@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 
+import { sql } from "drizzle-orm"
 import { z } from "zod"
 
 import { withOrgDbContext } from "../../src/db/client.js"
@@ -143,6 +144,12 @@ const armAnswerSchema = z.object({
   related: z
     .union([
       rankedSchema.extend({
+        /**
+         * The refs of the results that are high-degree units of the corpus
+         * (`highDegreeUnits`), for the hub check. Absent in a run from before
+         * CTX-1518.
+         */
+        hubs: z.array(z.string()).optional(),
         positions: z
           .array(
             z.object({
@@ -196,9 +203,10 @@ const relatedInput = z.object(getRelatedInputShape)
 type EvalTarget = {
   org: { id: string; slug: string }
   workspace: { id: string; slug: string }
-  /** The branch of the Workspace. */
-  branch: string
-  sha: string
+  /** The branch and the frozen SHA that both stacks serve. */
+  served: { branch: string; sha: string }
+  /** The high-degree units of the corpus (`highDegreeUnits`). */
+  hubs: ReadonlySet<string>
   head: KnowledgeHead
 }
 
@@ -255,12 +263,39 @@ async function resolveWorkspaces(
     resolved.set(corpus.id, {
       org,
       workspace: { id: workspace.id, slug: workspace.slug },
-      branch: workspace.served.branch,
-      sha,
+      served: { branch: workspace.served.branch, sha },
       head,
+      hubs: await highDegreeUnits(org.id, workspace.id),
     })
   }
   return resolved
+}
+
+/**
+ * The paths of the high-degree units of a Workspace, for the hub check
+ * (CTX-1135): an out-degree (links and claims) of at least 10, and at or
+ * above the 99th percentile of the units. The degree comes from the units of the frozen SHA in
+ * the old stack. Both stacks hydrate the same files, so the degree is a fact
+ * of the corpus, the same for both arms.
+ */
+export async function highDegreeUnits(
+  orgId: string,
+  workspaceId: string,
+): Promise<Set<string>> {
+  const result = await withOrgDbContext(orgId, (db) =>
+    db.execute<{ path: string }>(sql`
+      WITH degrees AS (
+        SELECT path, jsonb_array_length(links) + jsonb_array_length(claims) AS degree
+        FROM workspace_knowledge_units
+        WHERE org_id = ${orgId} AND workspace_id = ${workspaceId}
+      )
+      SELECT path FROM degrees
+      WHERE degree >= greatest(10, (
+        SELECT percentile_disc(0.99) WITHIN GROUP (ORDER BY degree) FROM degrees
+      ))
+    `),
+  )
+  return new Set(result.rows.map((row) => row.path))
 }
 
 /**
@@ -325,18 +360,9 @@ async function ask(
       now,
     })
     const latencyMs = performance.now() - started
-    const {
-      nextOffset: _next,
-      truncated,
-      ...page
-    } = searchKnowledgePage({
+    const { page } = searchKnowledgePage({
       hits: result.hits,
-      workspaces: [
-        {
-          ...target.workspace,
-          served: { branch: target.branch, sha: target.sha },
-        },
-      ],
+      workspaces: [{ ...target.workspace, served: target.served }],
       skipped: [],
       partialReason: result.partialReason,
       offset: 0,
@@ -347,7 +373,7 @@ async function ask(
       scores: result.hits.map((hit) => hit.score),
       ...(result.partialReason ? { partialReason: result.partialReason } : {}),
       latencyMs,
-      page: { ...page, ...(truncated ? { truncated: true } : {}) },
+      page,
     }
   } catch (error) {
     search = { error: failure(error), latencyMs: performance.now() - started }
@@ -359,7 +385,7 @@ async function ask(
     const ranking = await reader.related({
       org: target.org,
       workspace: target.workspace,
-      sha: target.sha,
+      sha: target.served.sha,
       input: relatedInput.parse({
         workspace: target.workspace.slug,
         seeds: question.seeds,
@@ -371,9 +397,13 @@ async function ask(
       }),
       now,
     })
+    const latencyMs = performance.now() - started
     related = {
       refs: ranking.results.map((result) => result.ref),
       scores: ranking.results.map((result) => result.score),
+      hubs: ranking.results
+        .map((result) => result.ref)
+        .filter((ref) => target.hubs.has(ref)),
       ...(ranking.positions
         ? {
             positions: ranking.positions.map(({ refs, status }) => ({
@@ -385,7 +415,7 @@ async function ask(
       ...(ranking.partialReason
         ? { partialReason: ranking.partialReason }
         : {}),
-      latencyMs: performance.now() - started,
+      latencyMs,
     }
   } catch (error) {
     related = { error: failure(error), latencyMs: performance.now() - started }

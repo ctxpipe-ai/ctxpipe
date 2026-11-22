@@ -2,15 +2,15 @@ import { connectorMirrorRoot } from "../../src/domain/codeIngestion/connectorMir
 import { markdownLines } from "../../src/domain/workspaces/knowledge-chunks.js"
 import { measureResult } from "../../src/mcp/framework/budget.js"
 import type { Question } from "./dataset.js"
-import { ARMS, type Arm, type ArmAnswer, type SearchPage } from "./runner.js"
+import { ARMS, type Arm, type ArmAnswer } from "./runner.js"
 
 /*
  * The regression checks of CTX-1518: the failures of the Falkor retrieval
  * that the production reviews found (CTX-1131, CTX-1114), and that recall
  * and nDCG do not show. Each check reads only the kept answers and needs no
  * model call. Checks 1 to 3 and 8 read the first page of `search_knowledge`
- * that a client gets (`SearchPage`), so a run from before CTX-1518 has no
- * value for them.
+ * that a client gets, and check 4 the high-degree results that the run
+ * marks. A run from before CTX-1518 has no value for them.
  */
 
 export const CHECKS = [
@@ -87,18 +87,24 @@ export const CHECK_INFO: Record<
 /** The slots of `get_related` that check 4 reads, as nDCG@10 reads 10 refs. */
 const RELATED_SLOTS = 10
 
-type PageHit = SearchPage["hits"][number]
-
 /**
- * The source item of a hit (check 1). A connector mirror writes the title of
- * the item into each copy of it (CTX-1132: one Linear issue at three paths),
- * so an item of a mirror is its connector and its title. Another document is
- * its path.
+ * The source item of a path (check 1). A connector mirror names an item with
+ * a readable part, `--`, and the provider id (`connectorPathSegment`), and
+ * the readable part can change from one copy to the next (CTX-1132: one
+ * Linear issue at `linear/teams/…/ctx-77--<id>.md` and
+ * `linear/projects/…/<title>--<id>.md`). Thus an item of a mirror is its
+ * connector and the id of its last segment with `--`. A path with no such
+ * segment (a GitHub issue, `github/issues/<owner>/<repo>/<n>.md`) is one item
+ * by its path.
  */
-function itemKey(hit: PageHit): string {
-  const root = connectorMirrorRoot(hit.ref)
-  const title = hit.title?.trim().toLowerCase()
-  return root && title ? `${root}\0${title}` : `path\0${hit.ref}`
+export function itemKey(ref: string): string {
+  const root = connectorMirrorRoot(ref)
+  const named = ref
+    .replace(/\.md$/i, "")
+    .split("/")
+    .findLast((segment) => segment.includes("--"))
+  const id = named?.slice(named.lastIndexOf("--") + 2)
+  return root && id ? `${root}\0${id}` : `path\0${ref}`
 }
 
 /**
@@ -151,33 +157,22 @@ function separation(
 }
 
 /**
- * Check 4 (CTX-1135): a hub is a document that an arm returns from
- * `get_related` for many questions of a corpus, also when it is not their
- * gold: in the top 10 of at least a quarter of the questions with seeds of
- * the corpus, and of at least 3. A node that links to almost every service
- * comes back for each seed, so its count is high. The value is the share of
- * the top-10 slots (without the seeds of the question) that hold a hub that
- * is not gold for the question.
+ * Check 4 (CTX-1135): the share of the top-10 `get_related` slots (without
+ * the seeds of the question) that hold a high-degree unit of the corpus that
+ * is not gold for the question. The run marks the high-degree results
+ * (`hubs`). A node that links to almost every service has a high degree, and
+ * comes back for each seed.
  */
 function hubSlots(
-  answers: readonly { question: Question; related: string[] }[],
+  answers: readonly { question: Question; related: string[]; hubs: string[] }[],
 ): number | null {
-  const byCorpus = Map.groupBy(answers, (answer) => answer.question.corpus)
   let slots = 0
   let hubs = 0
-  for (const group of byCorpus.values()) {
-    const counts = new Map<string, number>()
-    for (const { related } of group)
-      for (const ref of new Set(related))
-        counts.set(ref, (counts.get(ref) ?? 0) + 1)
-    const least = Math.max(3, Math.ceil(group.length / 4))
-    for (const { question, related } of group) {
-      slots += related.length
-      hubs += related.filter(
-        (ref) =>
-          (counts.get(ref) ?? 0) >= least && !question.gold.includes(ref),
-      ).length
-    }
+  for (const answer of answers) {
+    slots += answer.related.length
+    hubs += answer.related.filter(
+      (ref) => answer.hubs.includes(ref) && !answer.question.gold.includes(ref),
+    ).length
   }
   return ratio(hubs, slots)
 }
@@ -185,8 +180,10 @@ function hubSlots(
 /**
  * The checks of each arm. `scored` are the answers that the report scores.
  * Check 7 reads `answers` in the order of the run: the first search and the
- * first `get_related` of each arm on each corpus are the calls after the
- * quiet time before the run. Its value is the slowest corpus.
+ * first `get_related` of each arm in the run. A run is a new process, so
+ * these calls open the connections and fill the caches of the reader. The
+ * calls after them are warm, also on another corpus: the corpora share the
+ * stores of the eval org.
  */
 export function regressionChecks(input: {
   questions: ReadonlyMap<string, Question>
@@ -214,7 +211,7 @@ export function regressionChecks(input: {
     const duplicates = pages.flatMap((page) => {
       const seen = new Set<string>()
       return page.hits.filter((hit) => {
-        const key = itemKey(hit)
+        const key = itemKey(hit.ref)
         const copy = seen.has(key)
         seen.add(key)
         return copy
@@ -228,26 +225,23 @@ export function regressionChecks(input: {
     const topScore = (search: { scores: number[] }) =>
       search.scores[0] ?? Number.NEGATIVE_INFINITY
     const related = scored.flatMap(({ answer, question }) =>
-      question.seeds && answer.related && !("error" in answer.related)
+      answer.related && !("error" in answer.related) && answer.related.hubs
         ? [
             {
               question,
               related: answer.related.refs
-                .filter((ref) => !question.seeds?.includes(ref))
-                .slice(0, RELATED_SLOTS),
+                .slice(0, RELATED_SLOTS)
+                .filter((ref) => !question.seeds?.includes(ref)),
+              hubs: answer.related.hubs,
             },
           ]
         : [],
     )
-    const cold = (pick: (answer: ArmAnswer) => number | undefined) => {
-      const first = new Map<string, number>()
-      for (const { answer, question } of asked(input.answers)) {
-        const ms = pick(answer)
-        if (ms !== undefined && !first.has(question.corpus))
-          first.set(question.corpus, ms)
-      }
-      return first.size ? Math.max(...first.values()) : null
-    }
+    const cold = (pick: (answer: ArmAnswer) => number | undefined) =>
+      input.answers
+        .filter((answer) => answer.arm === arm)
+        .map(pick)
+        .find((ms) => ms !== undefined) ?? null
     result[arm] = {
       duplicateSlots: ratio(duplicates.length, hits.length),
       headingOnlyHits: pages.length
