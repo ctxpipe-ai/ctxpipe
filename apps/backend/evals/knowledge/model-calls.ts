@@ -3,6 +3,7 @@ import { createHash } from "node:crypto"
 import { z } from "zod"
 
 import { gatewayCost } from "../../src/observability/gatewayCost.js"
+import { SYMMETRIC_FACTS } from "../../src/retrieval/jev/disagreement.js"
 
 /*
  * The model calls of an eval run: Jev, the embedding endpoints of both
@@ -58,6 +59,12 @@ export const callCountsSchema = z.object({
    * run folder from before this count has none (0).
    */
   failed: z.number().default(0),
+  /**
+   * Replay only: the Jev questions that no recorded call asked about the
+   * same items (see `ModelCalls.composed`). Each one got p(yes) 0. A run
+   * folder from before this count has none (0).
+   */
+  unrecorded: z.number().default(0),
 })
 export type CallCounts = z.infer<typeof callCountsSchema>
 
@@ -110,6 +117,7 @@ const emptyCounts = (): CallCounts => ({
   costUsd: 0,
   missing: 0,
   failed: 0,
+  unrecorded: 0,
 })
 
 /**
@@ -160,6 +168,82 @@ const questionsOf = (body: string): number =>
       .safeParse(parseOr(body, {})).data?.questions ?? {},
   ).length
 
+const jevRequestSchema = z.object({
+  state: z.array(z.string()),
+  questions: z.record(z.string(), z.unknown()),
+})
+
+/** An item of a Jev state: its label line, then its `<data>` block. */
+const ITEM_LINE = /^(Candidate|Item) (\d+)\b(.*)$/
+
+/**
+ * The content keys of each question of a Jev request: the lines of the
+ * state that are not an item (for example the question and the intent), and
+ * the question with each "Candidate n" or "Item n" in it replaced by the
+ * label and the data of that item. Thus the same question about the same
+ * items has the same key in another batch and under other numbers. A
+ * symmetric pair fact of the disagreement step (`SYMMETRIC_FACTS`) has a
+ * second key, with the two items in the other order. Null for a body that
+ * is not a Jev request.
+ */
+function contentKeysOf(body: unknown): Map<string, string[]> | null {
+  const request = jevRequestSchema.safeParse(body).data
+  if (!request) return null
+  const items = new Map<string, string>()
+  const others: string[] = []
+  for (let index = 0; index < request.state.length; index++) {
+    const line = request.state[index] ?? ""
+    const item = ITEM_LINE.exec(line)
+    if (!item) {
+      others.push(line)
+      continue
+    }
+    items.set(
+      `${item[1]} ${item[2]}`,
+      `${item[1]}${item[3]}\n${request.state[index + 1] ?? ""}`,
+    )
+    index += 1
+  }
+  const keyOf = (question: unknown, swap?: [string, string]) =>
+    createHash("sha256")
+      .update(
+        [
+          ...others,
+          JSON.stringify(question).replace(
+            /\b(Candidate|Item) \d+\b/g,
+            (name) => {
+              const named =
+                name === swap?.[0]
+                  ? swap[1]
+                  : name === swap?.[1]
+                    ? swap[0]
+                    : name
+              return `[${items.get(named) ?? named}]`
+            },
+          ),
+        ].join("\n"),
+      )
+      .digest("hex")
+  return new Map(
+    Object.entries(request.questions).map(([key, question]) => {
+      const names = [
+        ...new Set(
+          JSON.stringify(question).match(/\b(Candidate|Item) \d+\b/g) ?? [],
+        ),
+      ]
+      const symmetric =
+        names.length === 2 &&
+        (SYMMETRIC_FACTS as readonly string[]).includes(key.split(".")[0] ?? "")
+      return [
+        key,
+        symmetric
+          ? [keyOf(question), keyOf(question, names as [string, string])]
+          : [keyOf(question)],
+      ]
+    }),
+  )
+}
+
 export class ModelCalls {
   readonly records: RecordedCall[] = []
   /** The cost of the calls that went out. A replay sends none. */
@@ -179,6 +263,13 @@ export class ModelCalls {
    * calls that went out because the recording had no answer.
    */
   private readonly reuse = { reused: 0, live: 0 }
+  /**
+   * The recorded Jev answer of each arm, question and content key of a Jev
+   * question (`contentKeysOf`): the first one that the recording holds.
+   */
+  private readonly recordedAnswers = new Map<string, unknown>()
+  /** The arm and question pairs with at least one recorded Jev answer. */
+  private readonly answeredQuestions = new Set<string>()
 
   /**
    * `baseUrl` is `MODEL_PROVIDER_URL`. `capUsd` is the spend cap of the run.
@@ -210,6 +301,19 @@ export class ModelCalls {
         replayKeyOf(call.kind, call.request),
       )
       this.replay?.set(key, [...(this.replay.get(key) ?? []), call])
+      if (call.kind !== "jev" || call.status >= 400) continue
+      const answers = z
+        .object({ answers: z.record(z.string(), z.unknown()) })
+        .safeParse(parseOr(call.response, {})).data?.answers
+      for (const [question, contents] of contentKeysOf(call.request) ?? [])
+        for (const content of contents) {
+          const answerKey = this.replayKey(call.arm, call.question, content)
+          if (answers?.[question] !== undefined)
+            if (!this.recordedAnswers.has(answerKey))
+              this.recordedAnswers.set(answerKey, answers[question])
+        }
+      if (answers)
+        this.answeredQuestions.add(this.replayKey(call.arm, call.question, ""))
     }
   }
 
@@ -374,6 +478,12 @@ export class ModelCalls {
       this.replayKey(owner.arm, owner.question, key),
     )
     const recorded = queue && queue.length > 1 ? queue.shift() : queue?.[0]
+    // With a live fallback, a changed request goes out, so that the run
+    // measures it.
+    if (!recorded && kind === "jev" && !this.options.liveFallback) {
+      const composed = this.composed(parseOr(body, body), owner)
+      if (composed) return composed
+    }
     // A replay is only of `run` and `rescore`, which make no chat call.
     if (kind === "chat" || kind === "vision" || !recorded) return null
     owner.counts[kind] += 1
@@ -385,5 +495,46 @@ export class ModelCalls {
       status: recorded.status,
       headers: { "content-type": "application/json" },
     })
+  }
+
+  /**
+   * The answer of a Jev request that the recording does not hold, from the
+   * recorded answers of its questions in other calls of the same arm and
+   * question (`contentKeysOf`). Thus a change of the batches of Jev, or a
+   * step that asks its questions in another round, replays. The batch can
+   * change the answers of a live call, so a live run still judges such a
+   * change.
+   *
+   * A question that no recorded call asked gets p(yes) 0 and counts as
+   * `unrecorded`: a change that asks more questions than it reads (for
+   * example facts that it asks before it knows which items it needs) still
+   * replays, also when one of its calls holds only such questions. Null,
+   * and no count, when the recording has no Jev answer of this arm and
+   * question. The composed answer has no cost.
+   */
+  private composed(body: unknown, owner: Owner): Response | null {
+    const keys = contentKeysOf(body)
+    if (
+      !keys ||
+      !this.answeredQuestions.has(this.replayKey(owner.arm, owner.question, ""))
+    )
+      return null
+    const answers: Record<string, unknown> = {}
+    let unrecorded = 0
+    for (const [question, contents] of keys) {
+      const answer = contents
+        .map((content) =>
+          this.recordedAnswers.get(
+            this.replayKey(owner.arm, owner.question, content),
+          ),
+        )
+        .find((found) => found !== undefined)
+      if (answer === undefined) unrecorded += 1
+      answers[question] = answer ?? { type: "noul", noul: 0 }
+    }
+    owner.counts.jev += 1
+    owner.counts.jevQuestions += keys.size
+    owner.counts.unrecorded += unrecorded
+    return Response.json({ answers })
   }
 }

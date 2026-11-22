@@ -51,6 +51,13 @@ Opus 5.5 drafted the questions (`draft`). The panel labeled them: Sonnet 5.5, GP
 
 "We don't have hard targets, we want to hillclimb the retrieval for many generations until the improvements plateau. Every generation can be merged as we are behind feature flag" (the CTO, 2026-11-22). The rules are in the [amendment of ADR-069](../../../../.ai/memory/decisions/ADR-069-knowledge-plane-evals-and-rollout.md#amendment-2026-11-22-hill-climb-by-generations-with-no-fixed-target-ctx-1499).
 
+**Candidates in a batch** (the CTO, 2026-11-22). The generations that are built at the same time are candidates of one batch:
+
+1. Judge each candidate offline first, with a `rescore` of the kept run (no model calls). Put the offline table in the PR.
+2. A candidate does not merge alone. When each candidate of the batch has an offline win, the lead merges the winners together, and one live run (`run` from `main`, with `--baseline-from` and `--kept`) judges the batch.
+3. If the batch loses on the holdout, or a guard gets worse, the batch is reverted, and rescores of the candidates find the cause.
+4. A risky ranking change with no clean offline signal still goes alone: it merges, and its own live run judges it.
+
 ### One label version for each dataset
 
 Each run of a dataset, and its baseline, is scored against the same labels. A change of the labels of a dataset (a new `label` run, or a new version) scores each kept run of that dataset again, and its baseline, with `rescore` (no model calls). A question that a kept run never answered cannot be scored again: the report of the change names those questions.
@@ -171,6 +178,8 @@ bun --env-file=.env.local evals/knowledge/cli.ts rescore \
 ```
 
 `rescore` runs the questions again against the same stores, at the query time of the earlier run. Each model call gets its recorded answer from `calls.jsonl` of the earlier run, in the recorded order, and no call goes out. The replay key of a call is its kind and its request body with no `provider` block: that block only routes the call (ZDR, data collection, the provider allowlist, the sort), and it does not change the answer. Thus a run from before a change of the routing (for example the `only` field of CTX-1450) replays. A setting that needs a call that the recording does not hold (for example a deeper walk) makes that answer incomplete: the report leaves the question out of the metrics and lists it. The cost of a replay is the cost of the recorded calls when they were made. A replay gives no latency.
+
+A Jev call that the recording does not hold gets its answers from the recorded answers of its questions in other calls of the same arm and question: the same question about the same items, with the same other lines of the state (the question and the intent). The numbers of the items and the other items of the batch can be different. A pair fact of the disagreement step whose meaning does not depend on the order of the two items (`same`, `disagree`) is read in either order. Thus a change of the Jev batches, or a step that asks its questions in another round, replays. A question that no recorded call asked gets p(yes) 0, and the report lists the answers with such questions ("Jev questions with no recorded answer"). Their scores are correct only when the change does not read these answers, for example facts that it asks before it knows which items it needs. A Jev call is missing, as above, only when the recording has no Jev answer of that arm and question. A composed answer has no cost. The batch can change the answers of a live call (Jev reads the other items of the batch, and the order of a pair), so only a live run measures that effect.
 
 The disagreement step asks Jev only yes/no facts, and code decides the pair labels and the position status from them (ADR-068 decision 4). Thus a change of that code, or of a fact threshold (`sameAt`, `disagreeAt`, `replacesAt`, `scopedAt`), is scored again with no call.
 

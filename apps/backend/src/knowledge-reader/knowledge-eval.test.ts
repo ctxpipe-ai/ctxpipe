@@ -31,6 +31,8 @@ import { parseSettings } from "../../evals/knowledge/runner.js"
 import { madeUpPrivateKey } from "../../test/made-up-key.js"
 import { useMswServer } from "../../test/msw.js"
 import { decideNoul, JEV_MODEL } from "../retrieval/jev/client.js"
+import { askDisagreementFacts } from "../retrieval/jev/disagreement.js"
+import { judgeLayer } from "../retrieval/jev/layer-judge.js"
 import { ORCHESTRATOR_DEFAULTS } from "./orchestrator.js"
 
 /*
@@ -345,6 +347,7 @@ describe("the spend cap", () => {
         costUsd: 0.001,
         missing: 0,
         failed: 0,
+        unrecorded: 0,
       })
     } finally {
       restore()
@@ -481,6 +484,188 @@ describe("the replay key", () => {
   })
 })
 
+describe("the replay of a Jev question in another batch", () => {
+  const BASE = "https://openrouter.ai/api/v1"
+  const JEV = "https://openrouter.ai/api/alpha/decisions"
+  const server = useMswServer()
+  afterEach(() => vi.unstubAllEnvs())
+
+  const candidate = (id: string) => ({
+    id,
+    text: `The text of ${id}.`,
+    meta: {
+      status: "active",
+      sourceType: "docs",
+      observedAt: "2026-11-01T00:00:00.000Z",
+      validFrom: null,
+      validTo: null,
+      confidence: null,
+    },
+  })
+  const judgeWhy = (ids: string[]) =>
+    judgeLayer({ question: "q", intent: "why", candidates: ids.map(candidate) })
+
+  it("answers each question from a recorded call that asked it about the same item, and gives an unrecorded question p(yes) 0", async () => {
+    vi.stubEnv("MODEL_PROVIDER", "openrouter")
+    vi.stubEnv("MODEL_PROVIDER_URL", BASE)
+    vi.stubEnv("MODEL_PROVIDER_API_KEY", "test-key")
+    // Live: Jev judges a and b in one call.
+    const recorded: Record<string, number> = {
+      "answers.1": 0.9,
+      "explore.1": 0.2,
+      "answers.2": 0.3,
+      "explore.2": 0.8,
+    }
+    server.use(
+      http.post(JEV, async ({ request }) => {
+        const { questions } = (await request.json()) as {
+          questions: Record<string, unknown>
+        }
+        return HttpResponse.json({
+          answers: Object.fromEntries(
+            Object.keys(questions).map((key) => [
+              key,
+              { type: "noul", noul: recorded[key] },
+            ]),
+          ),
+        })
+      }),
+    )
+    const live = new ModelCalls(BASE, 1)
+    let restore = live.install()
+    try {
+      live.begin("plane", "question")
+      await judgeWhy(["a", "b"])
+    } finally {
+      restore()
+    }
+
+    // A replay sends nothing.
+    server.use(
+      http.post(JEV, () =>
+        HttpResponse.json({ error: "live" }, { status: 500 }),
+      ),
+    )
+    const replay = new ModelCalls(BASE, 0, live.records)
+    restore = replay.install()
+    try {
+      // b is Candidate 2 of a new batch with c.
+      replay.begin("plane", "question")
+      const judged = await judgeWhy(["c", "b"])
+      expect(judged.get("b")).toEqual({ pAnswers: 0.3, pExplore: 0.8 })
+      expect(judged.get("c")).toEqual({ pAnswers: 0, pExplore: 0 })
+      expect(replay.end()).toMatchObject({
+        jev: 1,
+        jevQuestions: 4,
+        unrecorded: 2,
+        missing: 0,
+      })
+      // A call with no recorded question also gets p(yes) 0, for example
+      // a batch of facts that the change asks but does not read.
+      replay.begin("plane", "question")
+      expect((await judgeWhy(["c"])).get("c")).toEqual({
+        pAnswers: 0,
+        pExplore: 0,
+      })
+      expect(replay.end()).toMatchObject({ jev: 1, missing: 0, unrecorded: 2 })
+      // The answers of one question of the eval do not answer another.
+      replay.begin("plane", "other question")
+      await expect(judgeWhy(["b", "c"])).rejects.toThrow()
+      expect(replay.end()).toMatchObject({ missing: 1 })
+    } finally {
+      restore()
+    }
+  })
+})
+
+describe("the replay of a disagreement fact in another order", () => {
+  const BASE = "https://openrouter.ai/api/v1"
+  const JEV = "https://openrouter.ai/api/alpha/decisions"
+  const server = useMswServer()
+  afterEach(() => vi.unstubAllEnvs())
+
+  const item = (id: string) => ({
+    id,
+    passage: `The passage of ${id}.`,
+    meta: {
+      status: "active",
+      sourceType: "docs",
+      observedAt: "2026-11-01T00:00:00.000Z",
+      validFrom: null,
+      validTo: null,
+      confidence: null,
+      documentKey: id,
+    },
+  })
+
+  it("reads a symmetric pair fact in either order of the items, and a directed one only in its own direction", async () => {
+    vi.stubEnv("MODEL_PROVIDER", "openrouter")
+    vi.stubEnv("MODEL_PROVIDER_URL", BASE)
+    vi.stubEnv("MODEL_PROVIDER_API_KEY", "test-key")
+    // Live: a is Item 1 and b is Item 2. b replaces a.
+    const live: Record<string, number> = {
+      "same.1.2": 0.9,
+      "disagree.1.2": 0.8,
+      "replaces.1.2": 0.1,
+      "replaces.2.1": 0.7,
+      "scoped.1": 0.2,
+      "scoped.2": 0.3,
+    }
+    server.use(
+      http.post(JEV, async ({ request }) => {
+        const { questions } = (await request.json()) as {
+          questions: Record<string, unknown>
+        }
+        return HttpResponse.json({
+          answers: Object.fromEntries(
+            Object.keys(questions).map((key) => [
+              key,
+              { type: "noul", noul: live[key] },
+            ]),
+          ),
+        })
+      }),
+    )
+    const recorder = new ModelCalls(BASE, 1)
+    let restore = recorder.install()
+    try {
+      recorder.begin("plane", "question")
+      await askDisagreementFacts({
+        question: "q",
+        items: [item("a"), item("b")],
+      })
+    } finally {
+      restore()
+    }
+    server.use(
+      http.post(JEV, () =>
+        HttpResponse.json({ error: "live" }, { status: 500 }),
+      ),
+    )
+    const replay = new ModelCalls(BASE, 0, recorder.records)
+    restore = replay.install()
+    try {
+      // b is Item 1 and a is Item 2 now.
+      replay.begin("plane", "question")
+      const facts = await askDisagreementFacts({
+        question: "q",
+        items: [item("b"), item("a")],
+      })
+      expect(Object.fromEntries(facts.answers)).toEqual({
+        "same.1.2": 0.9,
+        "disagree.1.2": 0.8,
+        "replaces.1.2": 0.7,
+        "replaces.2.1": 0.1,
+        "scoped.1": 0.3,
+        "scoped.2": 0.2,
+      })
+      expect(replay.end()).toMatchObject({ jev: 1, unrecorded: 0 })
+    } finally {
+      restore()
+    }
+  })
+})
+
 describe("a run with a failed call", () => {
   it("is not complete: the report counts the failed answers", async () => {
     const dataset = await readDataset(datasetFile)
@@ -499,7 +684,7 @@ describe("a run with a failed call", () => {
       search: failed
         ? { error: "Error", latencyMs: 10 }
         : { refs: [], scores: [], latencyMs: 10 },
-      calls: { ...calls, missing, failed: 0 },
+      calls: { ...calls, missing, failed: 0, unrecorded: 0 },
     })
     const report = buildReport({
       manifest: {
@@ -521,7 +706,7 @@ describe("a run with a failed call", () => {
         // a failed Jev call gives `judge_unavailable`: both are errors.
         {
           ...answer("legacy", third.id, false),
-          calls: { ...calls, missing: 0, failed: 1 },
+          calls: { ...calls, missing: 0, failed: 1, unrecorded: 0 },
         },
         {
           ...answer("plane", third.id, false),
@@ -570,7 +755,7 @@ describe("the product time budget", () => {
       question,
       search: { refs: [], scores: [], latencyMs: 900 },
       related: { refs: [], scores: [], latencyMs: relatedMs },
-      calls: { ...calls, missing: 0, failed: 0 },
+      calls: { ...calls, missing: 0, failed: 0, unrecorded: 0 },
     })
     const input = {
       manifest: {
@@ -645,13 +830,13 @@ describe("the comparison with the kept run", () => {
           arm: "legacy",
           question: id,
           search: { refs: [], scores: [], latencyMs: 10 },
-          calls: { ...calls, missing: 0, failed: 0 },
+          calls: { ...calls, missing: 0, failed: 0, unrecorded: 0 },
         },
         {
           arm: "plane",
           question: id,
           search: { error: "internal", latencyMs: 10 },
-          calls: { ...calls, missing: 0, failed: 0 },
+          calls: { ...calls, missing: 0, failed: 0, unrecorded: 0 },
         },
       ],
       kept: {

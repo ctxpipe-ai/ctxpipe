@@ -107,6 +107,7 @@ const answer = (
       costUsd: 0,
       missing: 0,
       failed: 0,
+      unrecorded: 0,
     },
   }
 }

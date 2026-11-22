@@ -89,14 +89,22 @@ let embeddingFailure: number | null = null
 /** The embedding requests of the plane. */
 let planeEmbeddings = 0
 /**
- * True: a Jev call waits until a second call is in flight (at most 2 s), so
- * that two calls of a step that run in parallel overlap.
+ * True: a layer judge call waits until a second one is in flight (at most
+ * 2 s), so that two calls of a step that run in parallel overlap.
  */
 let jevWaitsForTwo = false
 let releaseJevCall: (() => void) | null = null
-/** The Jev calls in flight now, and the most at one time. */
+/** The layer judge calls in flight now, and the most at one time. */
 let jevInFlight = 0
 let jevMostInFlight = 0
+/**
+ * More than 0: each Jev call takes this time. Then `factsWithLayer` is true
+ * when a call of the disagreement facts and a layer judge call were in
+ * flight at one time.
+ */
+let jevHoldMs = 0
+let factsWithLayer = false
+const jevHeld = { facts: 0, layers: 0 }
 
 const models = setupServer(
   http.post(`${MODEL_URL}/embeddings`, async ({ request }) => {
@@ -126,25 +134,34 @@ const models = setupServer(
       }
       jevCalls += 1
       const startedIn = jevTest
-      jevInFlight += 1
-      jevMostInFlight = Math.max(jevMostInFlight, jevInFlight)
-      if (jevWaitsForTwo && jevInFlight >= 2) {
-        // One overlap is the proof: the later calls do not wait.
-        jevWaitsForTwo = false
-        releaseJevCall?.()
-      } else if (jevWaitsForTwo)
-        await Promise.race([
-          new Promise<void>((resolve) => {
-            releaseJevCall = resolve
-          }),
-          delay(2_000),
-        ])
-      jevInFlight -= 1
+      const keys = Object.keys(body.questions)
+      const disagreement = !keys.some((key) => /^(answers|explore)\./.test(key))
+      if (!disagreement) {
+        jevInFlight += 1
+        jevMostInFlight = Math.max(jevMostInFlight, jevInFlight)
+        if (jevWaitsForTwo && jevInFlight >= 2) {
+          // One overlap is the proof: the later calls do not wait.
+          jevWaitsForTwo = false
+          releaseJevCall?.()
+        } else if (jevWaitsForTwo)
+          await Promise.race([
+            new Promise<void>((resolve) => {
+              releaseJevCall = resolve
+            }),
+            delay(2_000),
+          ])
+        jevInFlight -= 1
+      }
+      if (jevHoldMs > 0) {
+        const kind = disagreement ? "facts" : "layers"
+        jevHeld[kind] += 1
+        if (jevHeld.facts > 0 && jevHeld.layers > 0) factsWithLayer = true
+        await delay(jevHoldMs)
+        jevHeld[kind] -= 1
+      }
       if (jevCalls === slowJevCall) await delay(5_000)
       if (startedIn !== jevTest)
         return HttpResponse.json({ error: "test ended" }, { status: 503 })
-      const keys = Object.keys(body.questions)
-      const disagreement = !keys.some((key) => /^(answers|explore)\./.test(key))
       if (jevFails === "all" || (jevFails === "disagreement" && disagreement))
         return HttpResponse.json({ error: "down" }, { status: 503 })
       if (disagreement) {
@@ -687,6 +704,8 @@ describe("the knowledge reader seam", () => {
     jevWaitsForTwo = false
     releaseJevCall = null
     jevMostInFlight = 0
+    jevHoldMs = 0
+    factsWithLayer = false
     jevCalls = 0
     jevRequests.length = 0
     jevParts.length = 0
@@ -1151,6 +1170,75 @@ describe("the knowledge reader seam", () => {
     ])
     expect(jevMostInFlight).toBe(2)
   })
+
+  it("on: get_related asks the disagreement facts with the judge of the last layer", async () => {
+    await setFlag("on")
+    // Each Jev call takes 200 ms, so a call after the walk would start
+    // after the judge of the last layer ends.
+    jevHoldMs = 200
+    const content = structured(await relatedCall({ maxDepth: 2 }))
+    // Before the judge of layer 2, the payments team answers, and the
+    // decision is the one document of the judge. Both can be top results,
+    // so Jev gets the facts of both in the round of the judge.
+    expect(factsWithLayer).toBe(true)
+    expect(
+      (content.results as { ref: string }[]).map((result) => result.ref),
+    ).toEqual([
+      "knowledge/teams/payments.md",
+      "knowledge/decisions/adr-7.md",
+      "knowledge/databases/ledger.md",
+    ])
+    // The same request, and the same positions, as the walk of three layers
+    // that ends after layer 2 and asks the facts after the walk.
+    expect(disagreementRequests).toEqual([
+      [
+        "same.1.2",
+        "disagree.1.2",
+        "replaces.1.2",
+        "replaces.2.1",
+        "scoped.1",
+        "scoped.2",
+      ],
+    ])
+    expect(content.positions).toEqual([
+      {
+        refs: ["knowledge/teams/payments.md"],
+        status: "current",
+        reason: { by: "tie-break", rule: "updates" },
+        against: [{ position: 1, label: "updates" }],
+      },
+      {
+        refs: ["knowledge/decisions/adr-7.md"],
+        status: "superseded",
+        reason: { by: "tie-break", rule: "updates" },
+        against: [{ position: 0, label: "updates" }],
+      },
+    ])
+  })
+
+  it("on: get_related asks the disagreement facts after the walk when more documents than the top results can be top results", async () => {
+    await setFlag("on")
+    jevHoldMs = 200
+    const before = ORCHESTRATOR_DEFAULTS.timeBudgetMs
+    ORCHESTRATOR_DEFAULTS.timeBudgetMs = 0
+    try {
+      const content = structured(
+        await relatedCall({
+          workspace: "wide",
+          seeds: ["wide/seed.md"],
+          maxDepth: 2,
+        }),
+      )
+      expect(content.partial).toBe(false)
+      expect(content.positions).toBeDefined()
+    } finally {
+      ORCHESTRATOR_DEFAULTS.timeBudgetMs = before
+    }
+    // Layer 1 gives 49 answers, and layer 2 has more documents: Jev gets
+    // the facts of the 10 top results only, after the walk.
+    expect(factsWithLayer).toBe(false)
+    expect(disagreementRequests).toHaveLength(4)
+  }, 15_000)
 
   it("on: get_related after a search of the same org and text makes no second embedding call", async () => {
     await setFlag("on")
