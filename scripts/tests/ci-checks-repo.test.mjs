@@ -1083,7 +1083,7 @@ test("the runner inputs of a check of a selectAll lane are its runner files, the
   // other than a runner input reached it. The factory reads the lane inputs
   // from one check of each lane name, and it treats a runner file that
   // another input also matches as a normal lane input.
-  const runner = (path) =>
+  const isRunnerFile = (path) =>
     decideMode({
       config: {
         mode: "gate",
@@ -1093,22 +1093,35 @@ test("the runner inputs of a check of a selectAll lane are its runner files, the
       fork: false,
       changed: [path],
     }).runner?.includes(path) === true
-  for (const file of runnerFiles) assert.ok(runner(file), file)
+  // gate.mjs names the same files: each tracked script of scripts/checks
+  // and scripts/ci is a runner file there only when runnerFiles holds it.
+  const scripts = spawnSync("git", ["ls-files", "scripts/checks", "scripts/ci"], {
+    cwd: root,
+    encoding: "utf8",
+  })
+    .stdout.split("\n")
+    .filter((file) => file.endsWith(".mjs"))
+  assert.ok(scripts.length > 20)
+  assert.deepEqual(scripts.filter(isRunnerFile).sort(), [...runnerFiles].sort())
   const result = node([script("list.mjs")])
   assert.equal(result.status, 0, result.stderr)
   const { checks } = JSON.parse(result.stdout)
   const byLane = new Map()
   for (const check of checks) {
-    const expected = check.selectAll ? check.inputs.filter(runner) : []
+    const expected = check.selectAll ? check.inputs.filter(isRunnerFile) : []
     assert.deepEqual(check.runnerInputs ?? [], expected, check.id)
     for (const file of expected)
       for (const input of check.inputs)
         if (input !== file)
           assert.ok(!matchesInput(input, file), `${check.id}: ${input} matches ${file}`)
     const lane = check.lane
-    const list = JSON.stringify(check.runnerInputs ?? [])
-    assert.equal(byLane.get(lane) ?? list, list, `${lane}: one list for each lane`)
-    byLane.set(lane, list)
+    const runnerList = JSON.stringify(check.runnerInputs ?? [])
+    assert.equal(
+      byLane.get(lane) ?? runnerList,
+      runnerList,
+      `${lane}: one list for each lane`,
+    )
+    byLane.set(lane, runnerList)
   }
   // The screenshot lane has the runner as a runner input.
   assert.equal(byLane.get("visual"), JSON.stringify(["scripts/checks/run.mjs"]))
