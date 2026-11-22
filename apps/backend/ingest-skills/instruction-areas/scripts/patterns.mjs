@@ -27,7 +27,7 @@ import { tmpdir } from "node:os"
 import { join, posix } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { testFixtureFolder } from "../../discover-roots/scripts/roots-lib.mjs"
+import { inTestFixture } from "../../discover-roots/scripts/roots-lib.mjs"
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const MIN_FILES = 3
@@ -70,7 +70,7 @@ export function excludedPath(path) {
     segments.some(
       (s) => s.startsWith(".") || EXCLUDED_SEGMENTS.has(s.toLowerCase()),
     ) ||
-    segments.slice(0, -1).some(testFixtureFolder) ||
+    inTestFixture(path) ||
     EXCLUDED_NAME.test(name)
   )
 }

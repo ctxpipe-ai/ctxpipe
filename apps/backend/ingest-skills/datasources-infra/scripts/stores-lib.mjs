@@ -38,8 +38,9 @@ import {
   stagedPaths,
 } from "../../bin/stage-lib.mjs"
 import {
+  inTestFixture,
   safePath,
-  testFixtureFolder,
+  testFixtureSkips,
   trackedFiles,
 } from "../../discover-roots/scripts/roots-lib.mjs"
 import {
@@ -190,18 +191,17 @@ function storesOfRoot({ path: rootPath, source, tracked, index, deeperRoots }) {
   }
 
   const deeper = deeperRoots(rootPath)
-  const inRoot = tracked.filter((file) => {
+  const listed = tracked.filter((file) => {
     if (rootPath !== "." && !file.startsWith(`${rootPath}/`)) return false
     if (deeper.some((d) => file.startsWith(`${d}/`))) return false
     // A dot folder (.github, .circleci, .devcontainer) is tooling, not the product.
     return !file
       .split("/")
       .slice(0, -1)
-      .some(
-        (s) =>
-          s.startsWith(".") || IGNORED_SEGMENTS.has(s) || testFixtureFolder(s),
-      )
+      .some((s) => s.startsWith(".") || IGNORED_SEGMENTS.has(s))
   })
+  for (const { path, reason } of testFixtureSkips(listed)) skip(path, reason)
+  const inRoot = listed.filter((file) => !inTestFixture(file))
 
   /** Text of a tracked file at HEAD, or null (and a `skipped` entry when the cause is a limit). */
   function read(path) {

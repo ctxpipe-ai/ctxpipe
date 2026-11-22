@@ -46,8 +46,10 @@ import {
   writePatch,
 } from "../../bin/stage-lib.mjs"
 import {
+  inTestFixture,
   readTracked,
   safePath,
+  testFixtureSkips,
   trackedFiles,
 } from "../../discover-roots/scripts/roots-lib.mjs"
 import {
@@ -116,10 +118,14 @@ const exists = (path) => trackedSet.has(path) || folders.has(path)
 // 1. The decision files: design records in each form of `decisionForm`.
 const trackedFile = (path) => trackedSet.has(path)
 const forms = new Map()
+const fixtures = []
 for (const path of tracked) {
   const form = decisionForm(path, trackedFile)
-  if (form) forms.set(path, form)
+  if (form && inTestFixture(path)) fixtures.push(path)
+  else if (form) forms.set(path, form)
 }
+for (const { path, reason } of testFixtureSkips(fixtures))
+  skipped.push({ path, reason })
 let found = [...forms.keys()].sort()
 if (found.some((p) => !safePath(p)))
   skipped.push({

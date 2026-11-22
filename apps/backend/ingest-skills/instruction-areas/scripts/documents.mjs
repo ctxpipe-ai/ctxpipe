@@ -20,8 +20,9 @@ import { posix } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import {
+  inTestFixture,
   safePath,
-  testFixtureFolder,
+  testFixtureSkips,
 } from "../../discover-roots/scripts/roots-lib.mjs"
 
 const MAX_DOCUMENTS = 150
@@ -51,7 +52,6 @@ export function documentClass(path, readmeFolders) {
   const top = segments[0] ?? ""
   if (
     segments.some((s) => IGNORED.has(s)) ||
-    segments.slice(0, -1).some(testFixtureFolder) ||
     segments
       .slice(0, -1)
       .some(
@@ -124,9 +124,14 @@ export function selectDocuments(source, rootPaths = null) {
       if (path.split("/").length === 3) readmeFolders.add(posix.dirname(path))
   const documents = []
   const skipped = []
+  const fixtures = []
   for (const { path, bytes } of files) {
     const kind = documentClass(path, readmeFolders)
     if (!kind) continue
+    if (inTestFixture(path)) {
+      fixtures.push(path)
+      continue
+    }
     if (!safePath(path)) {
       skipped.push({
         path: null,
@@ -136,6 +141,8 @@ export function selectDocuments(source, rootPaths = null) {
     }
     documents.push({ path, class: kind, bytes, truncated: bytes > READ_LIMIT })
   }
+  for (const { path, reason } of testFixtureSkips(fixtures))
+    skipped.push({ path, reason })
   documents.sort(
     (a, b) =>
       CLASSES.indexOf(a.class) - CLASSES.indexOf(b.class) ||

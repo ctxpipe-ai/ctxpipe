@@ -1081,10 +1081,13 @@ describe("the test fixture rule (CTX-1531)", () => {
     "web/__fixtures__",
     "web/Fixtures",
     "web/fixture",
-    "e2e/test-fixtures",
+    "tools/test-fixtures",
   ]
+  const recorded = (skipped: Array<{ path?: string | null }>) =>
+    skipped.map((entry) => entry.path).filter((path) => path !== null)
+  const lib = (path: string) => import(join(INGEST_SKILLS_DIR, path))
 
-  it("discover-roots takes no package in a test fixture folder as a root", () => {
+  it("discover-roots takes no package in a test fixture folder as a root, and records each folder", () => {
     const files: Record<string, string> = {
       "package.json": pkg("top", { workspaces: ["packages/*", "**"] }),
       "packages/app/package.json": pkg("app"),
@@ -1099,27 +1102,54 @@ describe("the test fixture rule (CTX-1531)", () => {
       ),
     ]
     expect(found).toContain("packages/app")
-    for (const path of fixturePaths) expect(found).not.toContain(path)
+    const reasons = result.skipped.map((entry) => entry.reason).join("\n")
+    for (const path of fixturePaths) {
+      expect(found).not.toContain(path)
+      expect(reasons).toContain(
+        `The test fixture folder ${path} has 1 package manifest`,
+      )
+    }
   })
 
-  it("each skill that reads source files leaves out the same folders", async () => {
-    const skill = (path: string) => import(join(INGEST_SKILLS_DIR, path))
-    const { documentClass } = await skill(
+  it("dependencies, datasources-infra, and instruction-areas leave out the same folders, and record each one", async () => {
+    const files: Record<string, string> = {
+      "src/server.ts": 'fetch("https://api.example.com/orders")\n',
+      "AGENTS.md": "# Agents\n\nUse pnpm.\n",
+      "docker-compose.yml": "services:\n  db:\n    image: postgres:16\n",
+    }
+    for (const path of fixturePaths) {
+      files[`${path}/server.ts`] = 'fetch("https://copy.example.com/x")\n'
+      files[`${path}/AGENTS.md`] = "# Copy\n"
+    }
+    const source = repo(files)
+    const sorted = [...fixturePaths].sort((a, b) => (a < b ? -1 : 1))
+
+    const { scan } = await lib("dependencies/scripts/scan-lib.mjs")
+    const dependencies = scan({ source, path: "." })
+    expect(recorded(dependencies.skipped)).toEqual(sorted)
+
+    const rootsFile = join(
+      source,
+      "..",
+      `${source.split("/").at(-1)}-roots.json`,
+    )
+    writeFileSync(rootsFile, JSON.stringify({ roots: [{ path: "." }] }))
+    const { findStores } = await lib("datasources-infra/scripts/stores-lib.mjs")
+    const stores = findStores({ index: [], source, rootsFile })
+    expect(recorded(stores.roots[0].skipped)).toEqual(sorted)
+
+    const { selectDocuments } = await lib(
       "instruction-areas/scripts/documents.mjs",
     )
-    const { excludedPath } = await skill(
-      "instruction-areas/scripts/patterns.mjs",
-    )
-    const { decisionForm } = await skill("decisions/scripts/decision-parse.mjs")
-    const none = () => false
-    // The real paths pass, so each check below shows the fixture rule.
-    expect(documentClass("pkg/AGENTS.md", new Set())).not.toBeNull()
-    expect(excludedPath("pkg/server.ts")).toBe(false)
-    expect(decisionForm("docs/adr/0001-use-go.md", none)).not.toBeNull()
-    for (const path of fixturePaths) {
-      expect(documentClass(`${path}/AGENTS.md`, new Set())).toBeNull()
+    const documents = selectDocuments(source)
+    expect(documents.documents.map((d: { path: string }) => d.path)).toEqual([
+      "AGENTS.md",
+    ])
+    expect(recorded(documents.skipped)).toEqual(sorted)
+
+    const { excludedPath } = await lib("instruction-areas/scripts/patterns.mjs")
+    expect(excludedPath("src/server.ts")).toBe(false)
+    for (const path of fixturePaths)
       expect(excludedPath(`${path}/server.ts`)).toBe(true)
-      expect(decisionForm(`${path}/docs/adr/0001-use-go.md`, none)).toBeNull()
-    }
   })
 })

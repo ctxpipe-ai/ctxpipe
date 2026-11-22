@@ -14,8 +14,6 @@
 
 import { posix } from "node:path"
 
-import { testFixtureFolder } from "../../discover-roots/scripts/roots-lib.mjs"
-
 /** Folders whose Markdown files are decision files (ADRs). */
 const DECISION_FOLDERS = new Set([
   "adr",
@@ -81,12 +79,7 @@ export function decisionForm(path, exists) {
   const segments = path.split("/")
   const base = segments.pop()
   const folders = segments.map((s) => s.toLowerCase())
-  if (
-    folders.some(
-      (s) =>
-        IGNORED_FOLDERS.has(s) || testFixtureFolder(s) || /template/.test(s),
-    )
-  )
+  if (folders.some((s) => IGNORED_FOLDERS.has(s) || /template/.test(s)))
     return null
   if (/template/i.test(base)) return null
   const dir = segments.join("/")

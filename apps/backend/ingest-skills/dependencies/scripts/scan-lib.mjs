@@ -18,8 +18,9 @@ import { fileURLToPath } from "node:url"
 import { fileClaims, isListPart, nameKey } from "../../bin/knowledge-lib.mjs"
 import { stagedPaths, stepTexts } from "../../bin/stage-lib.mjs"
 import {
+  inTestFixture,
   safePath,
-  testFixtureFolder,
+  testFixtureSkips,
   trackedFiles,
 } from "../../discover-roots/scripts/roots-lib.mjs"
 
@@ -94,12 +95,7 @@ export function rootFiles({ source, path, otherRoots = [] }) {
       const segments = below.split("/")
       return !segments
         .slice(0, -1)
-        .some(
-          (s) =>
-            s.startsWith(".") ||
-            SKIPPED_SEGMENTS.has(s) ||
-            testFixtureFolder(s),
-        )
+        .some((s) => s.startsWith(".") || SKIPPED_SEGMENTS.has(s))
     })
     .sort()
 }
@@ -390,8 +386,12 @@ export function scan({
   index = [],
   own = new Set(),
 }) {
-  const skipped = []
-  let files = rootFiles({ source, path, otherRoots })
+  const listed = rootFiles({ source, path, otherRoots })
+  const skipped = testFixtureSkips(listed).map(({ path, reason }) => ({
+    path,
+    reason,
+  }))
+  let files = listed.filter((file) => !inTestFixture(file))
   const realSource = realpathSync(source)
   const kept = files.filter((file) => readable(source, realSource, file))
   if (kept.length < files.length)

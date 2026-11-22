@@ -439,7 +439,7 @@ describe("find-apis", () => {
     expect(s.find("packages/inner").routes.map(key)).toEqual(["GET /inner"])
   })
 
-  it("does not read a test copy of a specification in a test fixture folder, and records each one (CTX-1531)", async () => {
+  it("does not read a test copy of a specification in a test fixture folder, and records each folder (CTX-1531)", async () => {
     const s = await fixture({
       "api/openapi-spec/swagger.json": OPENAPI_JSON,
       "cli/artifacts/openapi/swagger.json": OPENAPI_JSON,
@@ -455,18 +455,17 @@ describe("find-apis", () => {
       "api/openapi-spec/swagger.json",
     ])
     expect(found.routes.map(key)).toEqual(["GET /real"])
-    expect(
-      found.skipped
-        .filter((entry) => /test fixture folder/.test(entry.reason))
-        .map((entry) => entry.path)
-        .sort(),
-    ).toEqual([
-      "cli/artifacts/openapi/swagger.json",
-      "docs/Fixtures/openapi.yaml",
-      "pkg/test-data/openapi.json",
-      "pkg/testdata/openapi.json",
-      "web/__fixtures__/openapi.json",
+    const folders = found.skipped.filter((entry) =>
+      /test fixture folder/.test(entry.reason),
+    )
+    expect(folders.map((entry) => entry.path)).toEqual([
+      "cli/artifacts",
+      "docs/Fixtures",
+      "pkg/test-data",
+      "pkg/testdata",
+      "web/__fixtures__",
     ])
+    expect(folders[0]?.reason).toMatch(/its 2 files\b/)
   })
 
   it("treats the repository as hostile: no symbolic link, capped and cleaned text", async () => {

@@ -25,8 +25,9 @@ import { stagedPaths, stepTexts } from "../../bin/stage-lib.mjs"
 import {
   readTracked,
   safePath,
+  inTestFixture,
   TEST_FIXTURE_FOLDERS,
-  testFixtureFolder,
+  testFixtureSkips,
   trackedFiles,
 } from "../../discover-roots/scripts/roots-lib.mjs"
 
@@ -49,7 +50,7 @@ const AST_GREP_MAX_BUFFER = 32 * 1024 * 1024
 
 /**
  * Folders that never hold the API of a root: dependencies, build output, and
- * tests. A test fixture folder (`testFixtureFolder`) is also ignored.
+ * tests. A test fixture folder (`inTestFixture`) is also ignored.
  */
 const IGNORED_SEGMENTS = new Set([
   "node_modules",
@@ -614,6 +615,8 @@ function runRouteRules(target) {
         rules,
         "--json=stream",
         "--globs",
+        // The globs only leave out files early: they compare the letter
+        // case, so the `tracked` filter of the result decides.
         `!**/{${[...IGNORED_SEGMENTS, ...TEST_FIXTURE_FOLDERS].join(",")}}/**`,
         "--globs",
         "!**/*.{test,spec}.*",
@@ -700,9 +703,6 @@ function ignored(file) {
   )
 }
 
-const inTestFixture = (file) =>
-  file.split("/").slice(0, -1).some(testFixtureFolder)
-
 /**
  * The operations that the script found in the root `codeRoot` ("." for the
  * repository root). `otherRoots` are the paths of other code roots; a file
@@ -731,23 +731,10 @@ export function discoverApis(source, codeRoot, otherRoots = []) {
       insideRoot(file, codeRoot) &&
       !nested.some((other) => file === other || file.startsWith(`${other}/`)),
   )
-  const files = []
-  for (const file of inRoot) {
-    if (ignored(file)) continue
-    if (!inTestFixture(file)) {
-      files.push(file)
-      continue
-    }
-    // A specification in a test fixture folder is test input. The script
-    // does not read it, and it records each one, so that no specification
-    // goes away in silence.
-    if (SPEC_NAME.test(file))
-      skipped.push({
-        path: file,
-        reason:
-          "The file is in a test fixture folder, so it is test input and not an API of the root",
-      })
-  }
+  const kept = inRoot.filter((file) => !ignored(file))
+  const files = kept.filter((file) => !inTestFixture(file))
+  for (const { path, reason } of testFixtureSkips(kept))
+    skipped.push({ path, reason })
   const tracked = new Set(files)
   const specs = discoverSpecs(source, files, skipped)
 
