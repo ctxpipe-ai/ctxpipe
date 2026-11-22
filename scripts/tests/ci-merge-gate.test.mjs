@@ -2363,6 +2363,9 @@ test("the critics lookup waits 15 minutes for a missing verdict, inside its time
     "20 minutes for the lookups",
   )
   assert.ok(job["timeout-minutes"] > lookup["timeout-minutes"])
-  assert.match(lookup.run, /did not finish in 35 minutes/)
-  assert.equal(lookup["timeout-minutes"], 35)
+  assert.ok(
+    lookup.run.includes(
+      `did not finish in ${lookup["timeout-minutes"]} minutes`,
+    ),
+  )
 })

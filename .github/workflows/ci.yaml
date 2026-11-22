@@ -2193,7 +2193,7 @@ jobs:
           out="$RUNNER_TEMP/out"
           if [ -f "$out/critics-cause.txt" ] ||
             ! jq -e '(.critics | length > 0) and all(.critics[]; .status == "carried" or .status == "not-applicable")' "$out/critics.json" > /dev/null; then
-            echo "::error::A critic has no stored verdict after a wait of 15 minutes, or the lookup did not run. Run factory check on the PR head, then push again or rerun the failed jobs: this job looks up the verdicts again."
+            echo "::error::A critic has no stored verdict after a wait of 15 minutes, or the lookup did not run. Run factory check on the PR head, then rerun the failed jobs: this job looks up the verdicts again."
             exit 1
           fi
 
