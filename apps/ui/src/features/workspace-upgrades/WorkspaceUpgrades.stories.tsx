@@ -1622,7 +1622,9 @@ export const AutomaticUpgradesOnAndOff = meta.story({
     const automatic = () =>
       canvas.getByRole("switch", { name: "Automatic upgrades" })
     await waitFor(() => expect(automatic()).not.toBeChecked())
-    expect(automatic()).toBeEnabled()
+    // The card shows the switch when the setting loads. The role can load
+    // later, and until then the switch is disabled (CTX-1483).
+    await waitFor(() => expect(automatic()).toBeEnabled())
     expect(
       canvas.getByText(
         "You start each upgrade. Turn this on to let ctxpipe start them.",
@@ -1644,12 +1646,22 @@ export const AutomaticUpgradesOnAndOff = meta.story({
         ),
       ).toBeVisible(),
     )
+    // The switch is disabled until the save settles.
+    await waitFor(() => expect(automatic()).toBeEnabled())
     await userEvent.click(automatic())
     await waitFor(() => expect(automatic()).not.toBeChecked())
     await waitFor(() =>
       expect(
         canvas.getByText(
           "You start each upgrade. Turn this on to let ctxpipe start them.",
+        ),
+      ).toBeVisible(),
+    )
+    // The line changes when the save starts. The toast shows when it settles.
+    await waitFor(() =>
+      expect(
+        within(document.body).getByText(
+          "Automatic upgrades are off. An owner or admin starts each upgrade.",
         ),
       ).toBeVisible(),
     )
