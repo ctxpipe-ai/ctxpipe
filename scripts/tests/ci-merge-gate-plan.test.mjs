@@ -581,9 +581,19 @@ test("a change to a runner file runs every test of the CI scripts and a canary w
       [typecheckCli, 2000],
     ].map(([id, durationMs]) => ({ id, cases: [{ durationMs }] })),
   }
+  // The select job found a stored pass of a typecheck that the LLM stage
+  // dropped.
+  const select = selectRecord()
   const directory = inputs({
     "mode.json": { mode: "select", reason: "gate", runner: runnerInputs },
-    "selection.json": selectRecord(),
+    "selection.json": {
+      ...select,
+      selected: [...select.selected, check(typecheckCli)],
+      cache: {
+        ...select.cache,
+        hits: [...select.cache.hits, hit(typecheckCli, "ci", 9)],
+      },
+    },
     "llm-selection.json": {
       ...llm,
       omitted: [
@@ -604,6 +614,10 @@ test("a change to a runner file runs every test of the CI scripts and a canary w
   assert.deepEqual(
     planned.selection.selected.find((item) => item.id === policyTest).reason,
     { kind: "runner", inputs: runnerInputs },
+  )
+  assert.equal(
+    describe({ kind: "runner", inputs: runnerInputs }),
+    "runner scripts/checks/run.mjs changed: a test of the CI scripts",
   )
   // Lint runs the test of the CI scripts, Package tests the UI test and the
   // test shards the contract test, so these jobs get no canary. The
@@ -626,9 +640,11 @@ test("a change to a runner file runs every test of the CI scripts and a canary w
     "runner scripts/checks/run.mjs changed: the canary of job storybook-visual",
   )
   // A canary gets no hit, and a failure after a stored pass is a
-  // contradiction: its job runs it once more. Another hit stays.
+  // contradiction: its job runs it once more. This holds also for a canary
+  // that the LLM stage dropped. Another hit stays.
   assert.ok(!planned.hits.some((item) => item.id === story))
-  assert.ok(planned.rerun.includes(story))
+  assert.ok(!planned.hits.some((item) => item.id === typecheckCli))
+  assert.deepEqual([...planned.rerun].sort(), [story, typecheckCli].sort())
   assert.ok(planned.hits.some((item) => item.id === lint))
   assert.ok(planned.jobs["storybook-visual"])
   assert.ok(planned.jobs.typecheck)

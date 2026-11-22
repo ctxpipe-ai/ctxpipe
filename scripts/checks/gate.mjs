@@ -218,7 +218,7 @@ export function decideMode({ config, event, fork, changed, read, diff }) {
   // jobs of ci.yaml run the gate code and read the pin of the base revision
   // (the step "The gate of the base revision"). Only the tests of the CI
   // scripts read the PR version, and the plan runs each of them
-  // (withGateTests in plan.mjs). A test keeps each other importer out.
+  // (withScriptTests in plan.mjs). A test keeps each other importer out.
   const decided = inputs.filter((path) =>
     [
       /^\.github\/merge-gate\.json$/,
@@ -777,7 +777,9 @@ export function describe(reason) {
     case "gate":
       return `gate input ${reason.inputs?.join(", ")} changed`
     case "runner":
-      return `runner ${reason.inputs?.join(", ")} changed: the canary of job ${reason.job}`
+      return reason.job
+        ? `runner ${reason.inputs?.join(", ")} changed: the canary of job ${reason.job}`
+        : `runner ${reason.inputs?.join(", ")} changed: a test of the CI scripts`
     case "definition":
       return `its definition changed with ${reason.inputs?.join(", ")}`
     case "added":

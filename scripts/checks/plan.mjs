@@ -33,7 +33,8 @@ export function accepted(source, config) {
 }
 
 // The selection with each check that `runs` gives selected, because the
-// gate inputs changed (`reason.kind` is `jobs` or `gate`). Unless
+// gate inputs changed (`reason.kind` is `jobs`, `gate`, `definition` or
+// `runner`). Unless
 // `keepHits`, each hit of such a check, also a `pr` hit, becomes a miss of
 // this run with that mode: an earlier run of the PR can have run it with
 // other gate inputs under the same key.
@@ -87,15 +88,16 @@ export function withJobChecks(selection, jobs) {
 }
 
 // The selection with each test of the CI scripts (`policy:tests-*`) of a
-// change to a gate input that the base revision decides (decideMode). These
-// tests cover the gate code and read the pin, which no other job of the run
-// executes, so the LLM stage must not drop them. Their keys hold scripts/**
-// and .github/**, so a hit is a pass of this gate code.
-function withGateTests(selection, inputs) {
+// change to a gate input that the base revision decides (`reason.kind`
+// `gate`) or to a runner file (`runner`, decideMode). These tests cover the
+// gate code, the pin and the runner, so the LLM stage must not drop them.
+// Their keys hold scripts/** and .github/**, so a hit is a pass of this
+// code.
+function withScriptTests(selection, reason) {
   return withChecks(
     selection,
     (check) => check.id.startsWith("policy:tests-"),
-    { kind: "gate", inputs },
+    reason,
     { keepHits: true },
   )
 }
@@ -114,21 +116,35 @@ export const runnerJobs = new Set([
   "upgrade-from-previous-release",
 ])
 
+// The accepted hit of each selected check, and the ids of the checks that
+// run.
+function runOf(selection, config) {
+  const selected = new Set(selection.selected.map((check) => check.id))
+  const hits = new Map()
+  for (const hit of selection.cache?.hits ?? [])
+    if (selected.has(hit.id) && !hits.has(hit.id) && accepted(hit.source, config))
+      hits.set(hit.id, hit)
+  const ran = selection.selected
+    .filter((check) => !hits.has(check.id))
+    .map((check) => check.id)
+  return { hits, ran }
+}
+
 // The floor of a change to a runner file (decideMode), which the LLM stage
-// cannot drop. First every test of the CI scripts: they test the runner,
-// and their keys hold scripts/**, so a hit is a pass of this runner. Then,
-// after the hits (`runOf`), a canary in each runner job that runs no check:
-// the check of that job with the fewest seconds in the trace (a check
-// without a trace time comes last). A canary gets no hit, so CI runs it
-// with the runner of the PR. Returns the selection and the canary ids.
-function withRunnerFloor(selection, inputs, seconds, runOf) {
-  let floored = withChecks(
-    selection,
-    (check) => check.id.startsWith("policy:tests-"),
-    { kind: "runner", inputs },
-    { keepHits: true },
+// cannot drop. First every test of the CI scripts (withScriptTests). Then,
+// after the hits, a canary in each runner job that runs no check: the check
+// of that job with the fewest seconds in the trace (a check without a trace
+// time comes last). A canary gets no hit, so CI runs it with the runner of
+// the PR. `stored` holds the hits of the deterministic selection with the
+// PR store: the LLM stage drops the cache entry of each check that it
+// drops, so a canary with a stored pass gets its miss with mode `runner`
+// from there, and a failure is a contradiction. Returns the selection and
+// the canary ids.
+function withRunnerFloor(selection, { inputs, seconds, stored, config }) {
+  let floored = withScriptTests(selection, { kind: "runner", inputs })
+  const busy = new Set(
+    runOf(floored, config).ran.map((id) => placeOf(id).job),
   )
-  const busy = new Set(runOf(floored).ran.map((id) => placeOf(id).job))
   const cost = (id) => seconds.get(id) ?? Number.POSITIVE_INFINITY
   const canaries = []
   for (const job of runnerJobs) {
@@ -144,6 +160,22 @@ function withRunnerFloor(selection, inputs, seconds, runOf) {
       inputs,
       job,
     })
+    const known = [
+      ...(floored.cache?.hits ?? []),
+      ...(floored.cache?.misses ?? []),
+    ].some((item) => item.id === canary)
+    const hit = stored.find((item) => item.id === canary)
+    if (floored.cache && hit && !known)
+      floored = {
+        ...floored,
+        cache: {
+          ...floored.cache,
+          misses: [
+            ...(floored.cache.misses ?? []),
+            { id: canary, key: hit.key, mode: "runner" },
+          ],
+        },
+      }
   }
   return { selection: floored, canaries }
 }
@@ -603,37 +635,22 @@ export function plan({ config, inputs, needs, store }) {
       )
   }
   const gateInputs = mode.gateInputs ?? []
-  if (gateInputs.length) selection = withGateTests(selection, gateInputs)
+  if (gateInputs.length)
+    selection = withScriptTests(selection, { kind: "gate", inputs: gateInputs })
   const trace = existsSync(join(inputs, "trace.json.gz"))
     ? readTrace(join(inputs, "trace.json.gz"))
     : undefined
   const seconds = traceSeconds(trace)
-  // The accepted hit of each selected check, and the checks that run.
-  const runOf = (current) => {
-    const selected = new Set(current.selected.map((check) => check.id))
-    const hits = new Map()
-    for (const hit of current.cache?.hits ?? [])
-      if (
-        selected.has(hit.id) &&
-        !hits.has(hit.id) &&
-        accepted(hit.source, config)
-      )
-        hits.set(hit.id, hit)
-    const ran = current.selected
-      .filter((check) => !hits.has(check.id))
-      .map((check) => check.id)
-    return { hits, ran }
-  }
   const runner = mode.runner ?? []
   let canaries = []
   if (runner.length)
-    ({ selection, canaries } = withRunnerFloor(
-      selection,
-      runner,
+    ({ selection, canaries } = withRunnerFloor(selection, {
+      inputs: runner,
       seconds,
-      runOf,
-    ))
-  const { hits, ran } = runOf(selection)
+      stored: withStoreHits(select, store).cache?.hits ?? [],
+      config,
+    }))
+  const { hits, ran } = runOf(selection, config)
   // A check that runs although a pass is stored for its key: a hit that is
   // not accepted, a check of a job-scoped ci.yaml change, a canary of a
   // runner change, or a quarantined key.
