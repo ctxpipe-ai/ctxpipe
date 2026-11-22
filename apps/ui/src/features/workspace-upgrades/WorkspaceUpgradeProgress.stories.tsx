@@ -19,10 +19,30 @@ import { checkingFormatExpired } from "./checking-format-clock"
 import { WorkspaceUpgrades } from "./WorkspaceUpgrades"
 
 const checkRequests: string[] = []
-const state = { checked: false }
+const state = { checked: false, mergedAt: "" }
+const realDateNow = Date.now
 // The play of MergedReadingFormat opens this gate after it asserts the card
 // text. Then the role answers, and the play waits for the action.
 let answerRole = () => {}
+
+/**
+ * Stops the page clock `seconds` after the merge, and waits until the "Time so
+ * far" counter of the progress block shows that time. The counter counts the
+ * seconds since the merge. Without a stopped clock, the screenshot shows the
+ * time that the run took, which changes between two runs.
+ */
+async function stopClockAfterMerge(
+  canvas: ReturnType<typeof within>,
+  seconds: number,
+  shows: string,
+) {
+  const stopped = Date.parse(state.mergedAt) + seconds * 1_000
+  Date.now = () => stopped
+  // The counter shows the new time at its next tick, each second.
+  await waitFor(() => expect(canvas.getByText(shows)).toBeVisible(), {
+    timeout: 2_000,
+  })
+}
 
 const minutesAgo = (minutes: number) =>
   new Date(Date.now() - minutes * 60_000).toISOString()
@@ -51,6 +71,10 @@ const meta = preview.meta({
     )
     checkRequests.length = 0
     state.checked = false
+    state.mergedAt = ""
+    return () => {
+      Date.now = realDateNow
+    }
   },
   parameters: {
     app: "root",
@@ -245,6 +269,7 @@ export const MergedReadingFormat = meta.story({
     const roleGate = new Promise<void>((resolve) => {
       answerRole = resolve
     })
+    state.mergedAt = minutesAgo(2)
     msw.use(
       // The first match wins: the role answers only when the play opens the
       // gate, so the action shows after the card text.
@@ -261,7 +286,7 @@ export const MergedReadingFormat = meta.story({
             upgradeItemFixture({
               status: "pr_open",
               pullRequest,
-              mergedAt: minutesAgo(2),
+              mergedAt: state.mergedAt,
               checkedAt: minutesAgo(2),
             }),
           ],
@@ -300,6 +325,7 @@ export const MergedReadingFormat = meta.story({
         canvas.getByRole("button", { name: /^Check again/ }),
       ).toBeVisible(),
     )
+    await stopClockAfterMerge(within(progress), 120, "2 min 0 s")
   },
 })
 
@@ -363,7 +389,7 @@ export const CheckAgainFindsMerge = meta.story({
               ...(state.checked
                 ? {
                     checkedAt: new Date().toISOString(),
-                    mergedAt: new Date().toISOString(),
+                    mergedAt: (state.mergedAt ||= new Date().toISOString()),
                   }
                 : {}),
             }),
@@ -393,6 +419,15 @@ export const CheckAgainFindsMerge = meta.story({
         /The pull request merged\. ctxpipe is reading the new format\./,
       ).length,
     ).toBeGreaterThan(0)
+    await stopClockAfterMerge(
+      within(
+        canvas.getByRole("region", {
+          name: "Progress of Upgrade to format 3",
+        }),
+      ),
+      0,
+      "0 s",
+    )
   },
 })
 
