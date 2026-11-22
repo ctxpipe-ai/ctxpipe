@@ -13,8 +13,9 @@ import type { CandidateMeta } from "../retrieval/jev/state.js"
 
 /*
  * The retrieval loop of ADR-068 decisions 2 and 3. Layer 0 judges the seed
- * documents. Then each layer reads the relations of the frontier in both
- * directions (one ClickHouse query), reads the evidence of the new
+ * documents, and all seeds are the first frontier: the caller named them to
+ * traverse from them. Then each layer reads the relations of the frontier in
+ * both directions (one ClickHouse query), reads the evidence of the new
  * candidates (one query), and asks Jev p(answers) and p(explore) for each
  * candidate (one call for each batch). The candidates with a high
  * p(explore) are the next frontier. The budgets are in code: depth, fan-out,
@@ -216,9 +217,10 @@ type Traversal = {
 }
 
 /**
- * Layer 0 judges the seeds; the seeds with a high p(explore) are the first
- * frontier. Then up to `maxDepth` layers (at most D). When the time budget
- * ends, the loop stops and returns what it judged, with `total_timeout`.
+ * Layer 0 judges the seeds, and all seeds are the first frontier: p(explore)
+ * picks the frontier of layer 2 and later. Then up to `maxDepth` layers (at
+ * most D). When the time budget ends, the loop stops and returns what it
+ * judged, with `total_timeout`.
  * Another Jev failure throws its `JevError`.
  */
 export async function traverse(input: {
@@ -257,7 +259,7 @@ export async function traverse(input: {
       parent: null,
     }))
     nodes.push(...seeds)
-    let frontier = seeds.filter((node) => node.pExplore >= settings.exploreAt)
+    let frontier = seeds
     for (
       let depth = 1;
       depth <= Math.min(input.maxDepth, settings.maxDepth) && frontier.length;

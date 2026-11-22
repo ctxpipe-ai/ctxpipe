@@ -856,8 +856,26 @@ describe("the knowledge reader seam", () => {
         includeSeeds: true,
       }),
     ).toEqual(["knowledge/teams/payments.md"])
-    // Jev does not explore from the payments team, so no layer runs.
-    expect(jevRequests.slice(-1)).toEqual([{ candidates: 1 }])
+  })
+
+  it("on: get_related explores from each seed, also from a seed with a low p(explore)", async () => {
+    await setFlag("on")
+    // Jev gives the payments team a low p(explore) ("hub" is not in its
+    // text). The caller named it as a seed, so layer 1 reads its relations:
+    // it owns the checkout service. The checkout service is a hub, so
+    // p(explore) takes layer 2 on from it.
+    const content = structured(
+      await relatedCall({
+        seeds: ["knowledge/teams/payments.md"],
+        maxDepth: 2,
+      }),
+    )
+    expect(content.explored).toMatchObject({ nodes: 4 })
+    expect(jevRequests).toEqual([
+      { candidates: 1 },
+      { candidates: 1 },
+      { candidates: 2 },
+    ])
   })
 
   it("on: validBetween follows only relations valid in the window", async () => {
