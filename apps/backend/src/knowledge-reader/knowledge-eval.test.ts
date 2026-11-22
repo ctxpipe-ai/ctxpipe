@@ -1,6 +1,7 @@
 import { delay, HttpResponse, http } from "msw"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { main } from "../../evals/knowledge/cli.js"
 import {
   type Dataset,
   datasetSchema,
@@ -606,6 +607,32 @@ describe("the comparison with the kept run", () => {
     expect(renderMarkdown(report)).toContain(
       "| dev | 1 | errors | 0 | 1 | +1 |",
     )
+  })
+})
+
+describe("the commands that call a model", () => {
+  it("stop at setup when no provider allowlist is set, or when the model settings do not point at OpenRouter", async () => {
+    vi.stubEnv("MODEL_PROVIDER_ALLOWLIST", "")
+    try {
+      for (const command of [
+        "draft",
+        "label",
+        "hydrate",
+        "run",
+        "latency",
+        "vision",
+      ])
+        await expect(main([command, "--out", "/nowhere"])).rejects.toThrow(
+          /^Set MODEL_PROVIDER_ALLOWLIST/,
+        )
+      vi.stubEnv("MODEL_PROVIDER_ALLOWLIST", "azure")
+      vi.stubEnv("MODEL_PROVIDER", "bedrock")
+      await expect(main(["run", "--out", "/nowhere"])).rejects.toThrow(
+        /^MODEL_PROVIDER_ALLOWLIST needs model settings that point at OpenRouter/,
+      )
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 })
 

@@ -4,9 +4,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { HttpResponse, http } from "msw"
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it } from "vitest"
 
-import { main } from "../../evals/knowledge/cli.js"
 import type { Corpus } from "../../evals/knowledge/dataset.js"
 import {
   loadDocuments,
@@ -177,20 +176,6 @@ describe("the documents of a corpus", () => {
   })
 })
 
-describe("the commands that call a model", () => {
-  it("stop at setup when no provider allowlist is set", async () => {
-    vi.stubEnv("MODEL_PROVIDER_ALLOWLIST", "")
-    try {
-      for (const command of ["draft", "label", "hydrate", "run"])
-        await expect(main([command, "--out", "/nowhere"])).rejects.toThrow(
-          /^Set MODEL_PROVIDER_ALLOWLIST/,
-        )
-    } finally {
-      vi.unstubAllEnvs()
-    }
-  })
-})
-
 describe("the documents of a clone", () => {
   it("reads each document below the root of the Workspace, with paths relative to it", () => {
     const repo = mkdtempSync(join(tmpdir(), "eval-documents-"))
@@ -321,7 +306,7 @@ describe("the drafter", () => {
     text: "Which component dispatches backlog items?",
     gold: [],
     keyFacts: ["The oldest job goes first."],
-    validAt: "",
+    date: "",
     positions: [],
     ...fields,
   })
@@ -382,7 +367,7 @@ describe("the drafter", () => {
             ? {
                 gold: sources,
                 text: "Which component dispatches backlog items in 2024?",
-                validAt: "2024-01-01T00:00:00Z",
+                date: "2024-01-01T00:00:00Z",
                 keyFacts: ["The change came on 2024-01-01."],
               }
             : { gold: sources }
@@ -542,16 +527,16 @@ describe("the drafter", () => {
           ? {
               gold: sources,
               text: "Which component dispatches backlog items in 2024?",
-              validAt: "2024-01-01T00:00:00Z",
+              date: "2024-01-01T00:00:00Z",
             }
-          : { gold: sources, validAt: "" }
+          : { gold: sources, date: "" }
     const drafted = await run()
     expect(drafted.questions).toEqual([])
     const reasons = drafted.attempts.map((attempt) => attempt.reason)
     expect(reasons).toContain(
       "no key fact states a date or a release of the sources",
     )
-    expect(reasons).toContain("validAt is not an ISO date-time")
+    expect(reasons).toContain("the date is not an ISO date-time")
   })
 
   it("needs each source document in the gold of a multi-hop question", async () => {
