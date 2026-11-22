@@ -1375,9 +1375,10 @@ const refTuples = (refs: DocumentRef[]) =>
  *    materialization; `chunks` has `index_granularity = 64`).
  * 2. Lexical: one `hasToken` filter for each term selects at most 1000
  *    chunks through the text index. The score of a chunk is the sum of the
- *    IDF weights of its matched terms, plus the weights of the terms in the
- *    title of its document. The IDF of a term is the BM25 IDF from the count
- *    of the chunks of the Workspaces that have it, so a common word such as
+ *    IDF weights of its matched terms, plus 4 times the weights of the
+ *    terms in the title of its document. The IDF of a term is the BM25
+ *    IDF from the count of the chunks of the Workspaces that have it, so
+ *    a common word such as
  *    "a" weighs almost nothing. The text index gives each count without a
  *    read of the text column. A function on `text` in the SELECT list would
  *    read the full text column.
@@ -1494,9 +1495,10 @@ async function search(
       : selectIn<ChunkKey>(
           client,
           scope,
-          // The score: the weights of the matched terms of the chunk, plus the
-          // weights of the query terms in the title of its document (the title
-          // boost). The weights are one scalar map, so their counts run once.
+          // The score: the weights of the matched terms of the chunk, plus 4
+          // times the weights of the query terms in the title of its document
+          // (the title boost, CTX-1564). The weights are one scalar map, so
+          // their counts run once.
           // A parallel sum adds the weights in another order on each run, so
           // the score is rounded: equal scores then sort by the key.
           `WITH tree_view AS (${treeView}),
@@ -1518,7 +1520,7 @@ async function search(
              ON documents.workspace_id = matches.workspace_id
              AND documents.doc_key = matches.doc_key
              AND documents.version = matches.version
-           ORDER BY round(matches.weight + arraySum(
+           ORDER BY round(matches.weight + 4 * arraySum(
                word -> if(has(splitByNonAlpha(documents.title), word),
                  weights[word], 0),
                mapKeys(weights)), 9) DESC,
