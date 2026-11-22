@@ -31,16 +31,29 @@ export const confluenceSourceScopeSchema = z
           .object({
             key: confluenceSpaceKeySchema,
             /** `all`, or only these pages (and the path to them). */
-            pages: z.union([
-              z.literal("all"),
-              z
-                .array(confluencePageIdSchema)
-                .min(1)
-                .max(
-                  CONFLUENCE_SOURCE_MAX_PAGES_PER_SPACE,
-                  `Select at most ${CONFLUENCE_SOURCE_MAX_PAGES_PER_SPACE} pages in one Confluence space`,
-                ),
-            ]),
+            pages: z.union(
+              [
+                z.literal("all"),
+                z
+                  .array(confluencePageIdSchema)
+                  .min(1)
+                  .max(
+                    CONFLUENCE_SOURCE_MAX_PAGES_PER_SPACE,
+                    `Select at most ${CONFLUENCE_SOURCE_MAX_PAGES_PER_SPACE} pages in one Confluence space`,
+                  ),
+              ],
+              {
+                // Since zod 4.6.7, a list above its cap stops its branch
+                // before the items are read. Then each branch stops, and the
+                // union gives "Invalid input". Show the cap message instead.
+                error: (issue) =>
+                  issue.code === "invalid_union"
+                    ? issue.errors
+                        .flat()
+                        .find((item) => item.code === "too_big")?.message
+                    : undefined,
+              },
+            ),
           })
           .strict(),
       )
