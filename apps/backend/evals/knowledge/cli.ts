@@ -10,7 +10,8 @@
  *   bun evals/knowledge/cli.ts rescore --from DIR --out DIR \
  *     [--set NAME=VALUE] [--kept REPORT]
  *   bun evals/knowledge/cli.ts draft --dataset FILE --corpus ID --repo DIR \
- *     --model MODEL --out FILE [--seed TEXT] [--scale 0.4] [--cap-usd 10]
+ *     --model MODEL --out FILE [--seed TEXT] [--scale 0.4] [--resume DRAFT]
+ *     [--cap-usd 10]
  *   bun evals/knowledge/cli.ts finalize --draft LABELED,... --out FILE
  *   bun evals/knowledge/cli.ts label --draft FILE --repo DIR \
  *     --models A,B,C --out FILE [--cap-usd 5]
@@ -35,6 +36,7 @@ import { fileURLToPath } from "node:url"
 import { parseArgs, promisify } from "node:util"
 
 import { Octokit } from "octokit"
+import { z } from "zod"
 
 import { closeDb, initDb } from "../../src/db/client.js"
 import { ORCHESTRATOR_DEFAULTS } from "../../src/knowledge-reader/orchestrator.js"
@@ -56,10 +58,16 @@ import {
   type Dataset,
   datasetSchema,
   frozenCorporaSchema,
+  questionSchema,
   readDataset,
 } from "./dataset.js"
 import { loadDocuments, termIndex } from "./documents.js"
-import { draftQuestions, finalizeQuestions } from "./draft.js"
+import {
+  attemptsFileSchema,
+  draftQuestions,
+  finalizeQuestions,
+  ResumeMismatchError,
+} from "./draft.js"
 import type { EvalOrg } from "./hydrate.js"
 import { measureLatency } from "./latency.js"
 import { ModelCalls, type RecordedCall } from "./model-calls.js"
@@ -314,11 +322,53 @@ async function label(values: {
       timeVotes: labeled.timeVotes,
       dropped: labeled.dropped,
       stopped: labeled.stopped,
+      budget: labeled.budget,
       spentUsd: calls.spentUsd,
     })
     return labeled.stopped ? 3 : 0
   } finally {
     restore()
+  }
+}
+
+/**
+ * The draft `file` (and `file.attempts.json`) of the corpus `corpusId`, for a
+ * resume with `seed` and `scale`.
+ */
+async function readResume(
+  file: string,
+  corpusId: string,
+  seed: string,
+  scale: number,
+) {
+  const earlier = z
+    .object({
+      corpora: z.array(z.object({ id: z.string() })),
+      questions: z.array(questionSchema),
+    })
+    .parse(JSON.parse(await readFile(file, "utf8")))
+  const audit = attemptsFileSchema.parse(
+    JSON.parse(await readFile(`${file}.attempts.json`, "utf8")),
+  )
+  if (earlier.corpora.some((item) => item.id !== corpusId))
+    throw new SetupError(`--resume ${file} is not a draft of ${corpusId}.`)
+  if (
+    (audit.seed !== undefined && audit.seed !== seed) ||
+    (audit.scale !== undefined && audit.scale !== scale)
+  )
+    throw new SetupError(
+      `--resume ${file} has another seed or scale: use the same ones.`,
+    )
+  return {
+    questions: earlier.questions,
+    // An older attempts file also keeps the pick of the failed call as an
+    // attempt, with the failure as its reason. Remove that attempt, so that
+    // the resume drafts the pick again. A refused pick stays.
+    attempts: audit.attempts.filter(
+      (attempt) =>
+        !audit.failed || attempt.refused || attempt.reason !== audit.failed,
+    ),
+    spentUsd: audit.spentUsd ?? 0,
   }
 }
 
@@ -336,6 +386,7 @@ async function draft(values: {
   model?: string
   seed?: string
   scale?: string
+  resume?: string
   out: string
   capUsd: number
 }): Promise<number> {
@@ -356,12 +407,17 @@ async function draft(values: {
     throw new SetupError(
       `--corpus names one corpus of the dataset: ${frozen.corpora.map((item) => item.id).join(", ")}.`,
     )
+  const seed = `${values.seed ?? "v0"} ${corpus.id}`
+  const resume = values.resume
+    ? await readResume(values.resume, corpus.id, seed, scale)
+    : undefined
   // The drafter scrubs each document with the converter.
   buildConverter()
   const calls = modelCalls(values.capUsd)
   const restore = calls.install()
   try {
     const drafted = await draftQuestions({
+      ...(resume ? { resume } : {}),
       corpus,
       documents: loadDocuments(
         repo,
@@ -369,10 +425,14 @@ async function draft(values: {
         corpus.contextRepo.root,
       ),
       model,
-      seed: `${values.seed ?? "v0"} ${corpus.id}`,
+      seed,
       scale,
       env: process.env,
       stopped: () => calls.stopped,
+    }).catch((error: unknown) => {
+      if (error instanceof ResumeMismatchError)
+        throw new SetupError(error.message)
+      throw error
     })
     // Also after a stop or a failed call: the drafts before it stay.
     await writeJson(values.out, {
@@ -382,12 +442,19 @@ async function draft(values: {
     })
     await writeJson(`${values.out}.attempts.json`, {
       attempts: drafted.attempts,
+      seed,
+      scale,
       stopped: drafted.stopped,
       failed: drafted.failed,
-      spentUsd: calls.spentUsd,
+      failedRefusal: drafted.failedRefusal,
+      budget: drafted.budget,
+      // The picks that OpenRouter refused (HTTP 403).
+      refused: drafted.attempts.filter((attempt) => attempt.refused).length,
+      // The spend of the corpus: of this command and of the draft it resumed.
+      spentUsd: calls.spentUsd + (resume?.spentUsd ?? 0),
     })
     process.stderr.write(
-      `${corpus.id}: ${drafted.questions.length} questions, $${calls.spentUsd.toFixed(2)} spent.\n`,
+      `${corpus.id}: ${drafted.questions.length} questions, $${calls.spentUsd.toFixed(2)} spent by this command.\n`,
     )
     if (drafted.failed) throw new Error(drafted.failed)
     return drafted.stopped ? 3 : 0
@@ -453,6 +520,7 @@ export async function main(argv: string[]): Promise<number> {
       model: { type: "string" },
       seed: { type: "string" },
       scale: { type: "string" },
+      resume: { type: "string" },
       runs: { type: "string" },
       setting: { type: "string", multiple: true },
     },

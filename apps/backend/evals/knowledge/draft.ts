@@ -4,8 +4,15 @@ import { z } from "zod"
 
 import { POSITION_STATUSES } from "../../src/retrieval/jev/disagreement.js"
 import { scrubForModel } from "../../src/retrieval/services/scrubForModel.js"
-import { askJson, dataBlock, OutOfSchemaError } from "./chat.js"
-import type { CATEGORIES, Corpus, Question } from "./dataset.js"
+import {
+  askJson,
+  BudgetExceededError,
+  dataBlock,
+  OutOfSchemaError,
+  RefusedError,
+  refusalRecordSchema,
+} from "./chat.js"
+import { CATEGORIES, type Corpus, type Question } from "./dataset.js"
 import { questionProblems, questionSchema } from "./dataset.js"
 import { type CorpusDocument, termIndex } from "./documents.js"
 
@@ -498,25 +505,49 @@ export function finalizeQuestions(questions: readonly Question[]): Question[] {
 }
 
 /** One attempt of the drafter, for the audit file. */
-export type DraftAttempt = {
-  id: string
-  category: Category
-  sources: string[]
-  kept: boolean
+const attemptSchema = z.object({
+  id: z.string(),
+  category: z.enum(CATEGORIES).exclude(["image"]),
+  sources: z.array(z.string()),
+  kept: z.boolean(),
   /** The model calls of the attempt: 2 when the first question leaked. */
-  calls: number
-  reason?: string
-}
+  calls: z.number(),
+  reason: z.string().optional(),
+  /** OpenRouter refused the call (HTTP 403): what it said about why. */
+  refused: refusalRecordSchema.optional(),
+})
+export type DraftAttempt = z.infer<typeof attemptSchema>
+
+/** The attempts file of a draft (`OUT.attempts.json`), for a resume. */
+export const attemptsFileSchema = z.object({
+  attempts: z.array(attemptSchema),
+  /** The seed and the scale of the picks. A file from before has none. */
+  seed: z.string().optional(),
+  scale: z.number().optional(),
+  /** The error of the call that stopped the draft. */
+  failed: z.string().optional(),
+  spentUsd: z.number().optional(),
+})
+
+/** A resume of another draft: other picks, or another seed or scale. */
+export class ResumeMismatchError extends Error {}
 
 /**
  * Draft the questions of one corpus with `model`, one call at a time. Each
  * category takes picks until it has its quota (times `scale`) and the
  * overdraft, or until its picks end. A question whose gold a keyword search
  * finds in its top 5 goes back to the model one time with the found
- * documents, and drops when it leaks again. Returns the questions, each
- * attempt, `stopped` when `stopped()` became true (the spend cap), and
- * `failed` with the error when a call failed. After a stop or a failure,
- * the questions hold the drafts before it.
+ * documents, and drops when it leaks again. A moderation refusal (HTTP 403
+ * with a category) skips that one pick; a second refusal in a row, on
+ * another pick, stops the corpus (`failedRefusal`). A spent workspace
+ * budget stops the corpus, as the spend cap does (`budget`). Returns the
+ * questions, each attempt, `stopped` when `stopped()` became true (the
+ * spend cap), and `failed` with the error when a call failed. After a stop
+ * or a failure, the questions hold the drafts before it, and the attempts
+ * leave out the pick with no answer.
+ *
+ * `resume` holds the questions and the attempts of an earlier draft of the
+ * same corpus, seed and scale: the drafter goes on after them.
  */
 export async function draftQuestions(input: {
   corpus: Corpus
@@ -527,11 +558,16 @@ export async function draftQuestions(input: {
   scale?: number
   env: Record<string, string | undefined>
   stopped: () => boolean
+  resume?: { questions: readonly Question[]; attempts: readonly DraftAttempt[] }
 }): Promise<{
   questions: Question[]
   attempts: DraftAttempt[]
   stopped: boolean
   failed?: string
+  /** The refusal that stopped the corpus: the second in a row. */
+  failedRefusal?: DraftAttempt["refused"]
+  /** The workspace budget of OpenRouter is spent: no call goes out. */
+  budget?: BudgetExceededError["budget"]
 }> {
   const { corpus, documents } = input
   const index = termIndex(documents)
@@ -541,22 +577,52 @@ export async function draftQuestions(input: {
     documents.filter(usable).map((document) => document.title),
     random(`${input.seed}\ntitles`),
   ).slice(0, 80)
-  const questions: Question[] = []
-  const attempts: DraftAttempt[] = []
+  const questions: Question[] = [...(input.resume?.questions ?? [])]
+  const attempts: DraftAttempt[] = [...(input.resume?.attempts ?? [])]
   const picks = pickSources(documents, input.seed)
   const done = (stopped: boolean) => ({
     questions,
     attempts,
     stopped,
   })
-  for (const category of Object.keys(QUOTAS) as Category[]) {
+  /** The pick with no answer goes out of the attempts: a resume tries it. */
+  const end = (result: {
+    stopped: boolean
+    failed?: string
+    failedRefusal?: DraftAttempt["refused"]
+    budget?: BudgetExceededError["budget"]
+  }) => {
+    attempts.pop()
+    return { ...done(result.stopped), ...result }
+  }
+  const plan = (Object.keys(QUOTAS) as Category[]).map((category) => {
     const wanted = Math.ceil(QUOTAS[category] * (input.scale ?? 1) * OVERDRAFT)
     // At most twice the wanted drafts, so that the cost has a bound.
     const categoryPicks = picks
       .filter((pick) => pick.category === category)
       .slice(0, wanted * 2)
-    let kept = 0
-    for (const pick of categoryPicks) {
+    return {
+      category,
+      wanted,
+      categoryPicks,
+      earlier: attempts.filter((attempt) => attempt.category === category),
+    }
+  })
+  // A resume goes on after the attempts of the earlier draft. They must be
+  // the same picks, in each category, before any call.
+  for (const { categoryPicks, earlier } of plan)
+    earlier.forEach((attempt, at) => {
+      const paths = categoryPicks[at]?.sources.map((source) => source.path)
+      if (JSON.stringify(paths) !== JSON.stringify(attempt.sources))
+        throw new ResumeMismatchError(
+          `The draft to resume has another pick at ${attempt.id}: use the same corpus, seed and scale.`,
+        )
+    })
+  // A refusal of the last pick: a second one in a row stops the corpus.
+  let refusedLast = false
+  for (const { category, wanted, categoryPicks, earlier } of plan) {
+    let kept = earlier.filter((attempt) => attempt.kept).length
+    for (const pick of categoryPicks.slice(earlier.length)) {
       if (kept >= wanted) break
       const number = attempts.filter(
         (attempt) => attempt.category === category,
@@ -617,18 +683,36 @@ export async function draftQuestions(input: {
             env: input.env,
           })
         } catch (error) {
-          if (input.stopped()) return done(true)
+          if (input.stopped()) return end({ stopped: true })
+          // A spent workspace budget stops each call: stop as at the cap.
+          if (error instanceof BudgetExceededError)
+            return end({ stopped: true, budget: error.budget })
+          if (error instanceof RefusedError) {
+            // One refused input skips its pick; two picks in a row stop.
+            if (refusedLast)
+              return end({
+                stopped: false,
+                failed: error.message,
+                failedRefusal: error.refusal,
+              })
+            refusedLast = true
+            attempt.refused = error.refusal
+            problems = [error.message]
+            break
+          }
           // A setup or transport error stops the command, with the drafts
           // before it.
-          if (!(error instanceof OutOfSchemaError)) {
-            const failed =
-              error instanceof Error ? error.message : String(error)
-            attempt.reason = failed
-            return { ...done(false), failed }
-          }
+          if (!(error instanceof OutOfSchemaError))
+            return end({
+              stopped: false,
+              failed: error instanceof Error ? error.message : String(error),
+            })
+          // An answer out of the schema is no refusal.
+          refusedLast = false
           problems = [error.message]
           break
         }
+        refusedLast = false
         question = questionOf(corpus, pick, draft, id)
         problems = draft.usable
           ? draftProblems(pick, draft, allowed, handles)
