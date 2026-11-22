@@ -507,8 +507,9 @@ describe("discover-roots script", () => {
     expect(lib.fitResult(result, 100_000)).toBe(result)
 
     const withRoots = lib.fitResult(result, 1000)
-    expect(Buffer.byteLength(JSON.stringify(withRoots))).toBeLessThan(
-      1500 + 200,
+    // The skipped entry is in the limit too.
+    expect(Buffer.byteLength(JSON.stringify(withRoots))).toBeLessThanOrEqual(
+      1000,
     )
     expect(withRoots.ambiguous).toEqual([])
     expect(withRoots.roots.length).toBeGreaterThan(0)
@@ -533,10 +534,8 @@ describe("discover-roots script", () => {
       })),
     }
     const fitted = lib.fitResult(noisy, 2000)
-    expect(Buffer.byteLength(JSON.stringify(fitted))).toBeLessThanOrEqual(
-      2000 + 200,
-    )
-    expect(fitted.roots).toHaveLength(20)
+    expect(Buffer.byteLength(JSON.stringify(fitted))).toBeLessThanOrEqual(2000)
+    expect(fitted.roots.length).toBeGreaterThan(0)
     expect(fitted.skipped.length).toBeLessThan(200)
     expect(fitted.skipped.at(-1).reason).toContain("other skipped entries")
 

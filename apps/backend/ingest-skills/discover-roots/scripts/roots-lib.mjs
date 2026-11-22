@@ -990,30 +990,35 @@ export function discoverRoots(source) {
  */
 export function fitResult(result, maxBytes = MAX_RESULT_BYTES) {
   const size = (value) => Buffer.byteLength(JSON.stringify(value)) + 1
+  if (size(result) <= maxBytes) return result
+  const count = (list) => list.reduce((n, a) => n + a.candidates.length, 0)
+  const note = (roots, candidates, skipped) => ({
+    manifest: null,
+    reason: `The result of the script must be at most ${maxBytes} bytes, so it gives only the first ${roots} roots, ${candidates} candidates, and ${skipped} other skipped entries`,
+  })
+  // The counts only go down, so the note at the start counts are the
+  // largest that the note can be.
+  const room =
+    maxBytes -
+    size(
+      note(result.roots.length, count(result.ambiguous), result.skipped.length),
+    )
   let total = size(result)
-  if (total <= maxBytes) return result
   const ambiguous = result.ambiguous.map((a) => ({
     ...a,
     candidates: [...a.candidates],
   }))
   for (const entry of [...ambiguous].reverse())
-    while (entry.candidates.length > 0 && total > maxBytes)
+    while (entry.candidates.length > 0 && total > room)
       total -= size(entry.candidates.pop())
   const skipped = [...result.skipped]
-  while (skipped.length > 0 && total > maxBytes) total -= size(skipped.pop())
+  while (skipped.length > 0 && total > room) total -= size(skipped.pop())
   const roots = [...result.roots]
-  while (roots.length > 0 && total > maxBytes) total -= size(roots.pop())
+  while (roots.length > 0 && total > room) total -= size(roots.pop())
   const kept = ambiguous.filter((a) => a.candidates.length > 0)
-  const candidates = kept.reduce((n, a) => n + a.candidates.length, 0)
   return {
     roots,
     ambiguous: kept,
-    skipped: [
-      ...skipped,
-      {
-        manifest: null,
-        reason: `The result of the script must be at most ${maxBytes} bytes, so it gives only the first ${roots.length} roots, ${candidates} candidates, and ${skipped.length} other skipped entries`,
-      },
-    ],
+    skipped: [...skipped, note(roots.length, count(kept), skipped.length)],
   }
 }

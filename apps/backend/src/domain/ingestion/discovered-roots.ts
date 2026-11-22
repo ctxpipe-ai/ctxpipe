@@ -37,7 +37,7 @@ const ModelResultSchema = z.object({
 
 export type DiscoveredRoot = z.infer<typeof RootSchema>
 
-export type RefusedRoot = { path: string | null; reason: string }
+type RefusedRoot = { path: string | null; reason: string }
 
 /**
  * Same rule as `safePath` in
