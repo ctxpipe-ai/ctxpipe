@@ -1,10 +1,11 @@
 import { useMutation, useQuery } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
 import type { FormEvent } from "react"
-import { useEffect, useRef, useState } from "react"
+import { useState } from "react"
 
 import { AuthLogoBadge } from "@/components/Logo/Logo"
 import { Button } from "@/components/ui/Button"
+import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Spinner } from "@/components/ui/spinner"
 import { authClient, useSession } from "@/lib/auth-client"
 
@@ -47,7 +48,6 @@ export function DeviceAuthorizationPage() {
   const hasPrefilledCode = initialCode.length > 0
   const [submittedCode, setSubmittedCode] = useState(initialCode)
   const [inputCode, setInputCode] = useState(initialCode)
-  const autoApproveAttemptedRef = useRef<string | null>(null)
 
   const currentPath = devicePathWithSearch(search)
   const signInHref = `/.auth/sign-in?redirectTo=${encodeURIComponent(currentPath)}`
@@ -89,15 +89,6 @@ export function DeviceAuthorizationPage() {
   const deviceStatus = codeQuery.data?.status
   const mutationError = approveMutation.error ?? denyMutation.error
   const isSubmitting = approveMutation.isPending || denyMutation.isPending
-
-  useEffect(() => {
-    if (!hasPrefilledCode || !session || deviceStatus !== "pending") return
-    if (autoApproveAttemptedRef.current === submittedCode) return
-    if (approveMutation.isPending || approveMutation.isSuccess) return
-
-    autoApproveAttemptedRef.current = submittedCode
-    approveMutation.mutate()
-  }, [approveMutation, deviceStatus, hasPrefilledCode, session, submittedCode])
 
   const submitCode = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -174,12 +165,18 @@ export function DeviceAuthorizationPage() {
 
             {codeQuery.data ? (
               <div className="mt-5 grid gap-4">
-                {hasPrefilledCode ? null : (
-                  <div className="rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm">
-                    <p className="text-zinc-400">Request code</p>
-                    <p className="font-mono text-zinc-100">{submittedCode}</p>
-                  </div>
-                )}
+                {/* A link can carry a code that another person's CLI started
+                    (GHSA-q84f-53jg-9ppm), so the page never approves by
+                    itself: the person compares the code with their terminal
+                    and presses Approve. */}
+                <div className="rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm">
+                  <p className="text-zinc-400">Request code</p>
+                  <p className="font-mono text-zinc-100">{submittedCode}</p>
+                </div>
+                <InlineAlert variant="warning">
+                  Approve only if you started the sign-in in your own terminal
+                  and it shows this code.
+                </InlineAlert>
 
                 {sessionPending ? (
                   <div className="flex items-center justify-center gap-2 text-sm text-zinc-400">
@@ -195,11 +192,6 @@ export function DeviceAuthorizationPage() {
                     <p className="text-sm text-zinc-400">
                       Denied. You can close this tab.
                     </p>
-                  ) : hasPrefilledCode && !mutationError ? (
-                    <div className="flex items-center justify-center gap-2 text-sm text-zinc-400">
-                      <Spinner className="h-4 w-4" />
-                      Approving CLI setup...
-                    </div>
                   ) : (
                     <div className="flex gap-3">
                       <Button

@@ -21,7 +21,7 @@ vi.mock("../domain/repositoryDeletion.js", () => ({
 
 import { getIP } from "better-auth/api"
 
-import { createBetterAuth } from "./config.js"
+import { createBetterAuth, DEVICE_LOGIN_CLIENT_ID } from "./config.js"
 
 type OAuthProviderOptions = {
   postLogin?: {
@@ -233,6 +233,16 @@ describe("createBetterAuth", () => {
     expect(createAuth().options.emailAndPassword).toMatchObject({
       requireEmailVerification: false,
     })
+  })
+
+  it("lets only the ctxpipe CLI start a device login", async () => {
+    const options = getPluginOptions<{
+      validateClient?: (clientId: string) => boolean | Promise<boolean>
+    }>(getPlugin(createAuth(), "device-authorization"))
+
+    expect(options?.validateClient).toBeTypeOf("function")
+    expect(await options?.validateClient?.(DEVICE_LOGIN_CLIENT_ID)).toBe(true)
+    expect(await options?.validateClient?.("attacker-client")).toBe(false)
   })
 
   it("registers the dash plugin only when BETTER_AUTH_API_KEY is set", () => {

@@ -48,7 +48,7 @@
     "@hono/zod-openapi": "^1.2.2",
     "@infisical/agent-vault-sdk": "^0.7.0",
     "@linear/sdk": "^89.0.0",
-    "@modelcontextprotocol/sdk": "^1.26.0",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "@octokit/webhooks": "^14.2.0",
     "@opentelemetry/api": "^1.9.1",
     "@opentelemetry/exporter-metrics-otlp-http": "^0.213.0",
@@ -96,7 +96,7 @@
     "react-dom": "^19.2.4",
     "uuid": "^13.0.0",
     "yaml": "^2.8.2",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@ctxpipe/visual-review": "workspace:*",

@@ -1,5 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { Hono } from "hono"
+import { bodyLimit } from "hono/body-limit"
 
 import type { AppEnv } from "../app/env.js"
 import {
@@ -34,6 +35,14 @@ export function registerMcpRoutes(
   app.all(
     "/mcp",
     (c, next) => rejectInvalidMcpOrigin(c) ?? next(),
+    // The tools take short queries and refs (a few KB at most), so this only
+    // stops a body that would exhaust memory (GHSA-f897-62hf-6gxq). 4 MiB is
+    // the MCP SDK transport's own default; `@hono/mcp` reads the body itself,
+    // so the route sets the limit.
+    bodyLimit({
+      maxSize: 4 * 1024 * 1024,
+      onError: (c) => c.json({ error: "Payload too large" }, 413),
+    }),
     withMcpBearerAuth,
     withCookieAuth,
     withOrgApiKeyAuth,
