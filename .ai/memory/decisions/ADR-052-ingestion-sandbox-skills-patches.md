@@ -191,7 +191,7 @@ In a publish, a merged file that fails the patch validator is withheld at its de
 
 ## Revision 2026-11-22: a run goes on after a deploy that changes the bundle (CTX-1503)
 
-Decided by the lead, 2026-11-22. The review of the change added three rules below, which the lead did not decide: the planned skill list, the `run-base` step, and a bundle refresh in place of a second prepare of a used sandbox.
+Decided by the lead, 2026-11-22. The review of the change added three rules below, which the lead did not decide: the planned skill list, the `run-base` step, and a bundle refresh in place of a second prepare of a used sandbox. The CTO approved the planned skill list on 2026-11-22: a skill that a deploy adds runs at the next re-ingestion.
 
 - **Problem.** A full re-ingest of a large public monorepo failed after about 2.5 hours, at 226 of 239 roots, with "The ingest skill bundle changed during the run". A deploy had shipped a new bundle. The run lost all its work, and the next run started from zero. Deploys are frequent, so each long run is at risk.
 - **Cause.** The in-run check (revision 2026-11-01) ran outside each step, in the parent and at the start of each shard. OpenWorkflow runs a workflow function again from the start each time the run continues: the parent after each batch of shard children, and a shard on a new worker after a deploy. That replay read the bundle of the new image, so the check failed the run. The step outputs stayed in Postgres, but nothing continues a failed run. The check came from the first design (one run, one bundle). It was not a check of assemble or publish: neither compares bundles, nothing gates on the `bundle` front matter field, and the upgrade scan keys on `reingest-<version>`.
