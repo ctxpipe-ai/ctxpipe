@@ -1,0 +1,615 @@
+{
+  "version": "backstage-0",
+  "corpora": [
+    {
+      "id": "backstage",
+      "source": "backstage/backstage@8514f7c19cda22aa63bc72281a1d1c4229a54b54",
+      "contextRepo": {
+        "url": "https://github.com/ctxpipe-ai/eval-v0-backstage-context",
+        "sha": "144bda17cd6a572a9851b5f31b854ce9e4566126",
+        "root": ""
+      },
+      "workspace": "backstage-v0"
+    }
+  ],
+  "questions": [
+    {
+      "id": "backstage-lookup-01",
+      "corpus": "backstage",
+      "category": "lookup",
+      "split": "dev",
+      "text": "For the backend that runs project templates, which endpoint for following a job's progress live is declared only in the route-handling code and not in the API spec file like the rest?",
+      "gold": ["knowledge/apis/software-templates-api.md"],
+      "keyFacts": [
+        "The GET /v2/tasks/{taskId}/eventstream operation's evidence is plugins/scaffolder-backend/src/service/router.ts",
+        "The other operations, including GET /v2/tasks/{taskId}/events, are evidenced by plugins/scaffolder-backend/src/schema/openapi.yaml"
+      ]
+    },
+    {
+      "id": "backstage-lookup-02",
+      "corpus": "backstage",
+      "category": "lookup",
+      "split": "holdout",
+      "text": "Where in the repo does the search add-on that feeds questions from the popular developer Q&A site into the search index live, and why is it treated as a reusable package rather than an app?",
+      "gold": [
+        "knowledge/libraries/backstage-plugin-search-backend-module-stack-overflow-collator.md"
+      ],
+      "keyFacts": [
+        "Its root is plugins/search-backend-module-stack-overflow-collator",
+        "It is classified as a library because it is a package that other packages import, based on its package.json"
+      ]
+    },
+    {
+      "id": "backstage-lookup-03",
+      "corpus": "backstage",
+      "category": "lookup",
+      "split": "dev",
+      "text": "Are we allowed to write `export default` in our TypeScript modules, and if not, what are the exceptions and what should I do when some library insists on getting one?",
+      "gold": [
+        "knowledge/decisions/ctxpipe-ai-eval-v0-backstage-backstage-adr003-avoid-default-exports.md"
+      ],
+      "keyFacts": [
+        "Default exports should be avoided; named exports are preferred",
+        "Exceptions are allowed only where required, e.g. modules loaded via React.lazy",
+        "When a consumer requires a default export, use an explicit adapter rather than a default export in the module itself"
+      ]
+    },
+    {
+      "id": "backstage-lookup-04",
+      "corpus": "backstage",
+      "category": "lookup",
+      "split": "holdout",
+      "text": "When I look over a teammate's proposed change on GitHub, is it okay to just leave a remark as my final verdict, or am I expected to explicitly sign off or block it?",
+      "gold": ["knowledge/instructions/code-review.md"],
+      "keyFacts": [
+        "Reviewers should submit Approve or Request changes as the formal review state.",
+        "Comment should be reserved for discussion or optional suggestions, not used as the verdict."
+      ]
+    },
+    {
+      "id": "backstage-multi-hop-15",
+      "corpus": "backstage",
+      "category": "multi-hop",
+      "split": "dev",
+      "text": "Our catalog import of people and teams from a huge self-hosted git forge dies once it pages past a certain depth. The person who reported that also pointed to a separate problem with the forge's API: requests being throttled with no retry. A big rewrite was proposed for that throttling problem, and it was later said to also cover a complaint about badly reported failures when reading files from the forge. What was wrong with those failure messages, and what change was proposed?",
+      "gold": [
+        "github/issues/backstage/backstage/30087.md",
+        "github/issues/backstage/backstage/30601.md",
+        "github/issues/backstage/backstage/30871.md"
+      ],
+      "seeds": ["github/issues/backstage/backstage/30087.md"],
+      "keyFacts": [
+        "Error messages from the GitLab integration/url reader showed only 'undefined' values (e.g. \"GitLab Error 'undefined', undefined\").",
+        "The proposal was to include the HTTP response status code in the thrown error message.",
+        "Non-JSON error responses also cause an exception at response.json(), before the status is checked."
+      ]
+    },
+    {
+      "id": "backstage-multi-hop-16",
+      "corpus": "backstage",
+      "category": "multi-hop",
+      "split": "holdout",
+      "text": "Since we switched our developer portal's UI to the newer plugin architecture, the screen for adding services we already have into our software inventory crashes when it is wrapped in an access check. A maintainer pointed that complaint to a general thread about switching UI pieces on or off at run time. An older bug was pointed to that same thread. It was about choosing between two landing screens with an on/off toggle inside the migrated app's route listing. What did that older bug's error say, and what did the core team reply about built-in support for such toggles?",
+      "gold": [
+        "github/issues/backstage/backstage/31070.md",
+        "github/issues/backstage/backstage/31220.md",
+        "github/issues/backstage/backstage/30001.md"
+      ],
+      "seeds": ["github/issues/backstage/backstage/31070.md"],
+      "keyFacts": [
+        "The error was 'Invalid element inside FlatRoutes, expected Route but found ...', caused by the FeatureFlagged component placed inside FlatRoutes in the converted app.",
+        "A maintainer replied that feature flags were not supported natively by the new frontend system at that point, and that adding support should be explored."
+      ]
+    },
+    {
+      "id": "backstage-multi-hop-18",
+      "corpus": "backstage",
+      "category": "multi-hop",
+      "split": "dev",
+      "text": "We want only trusted admins to be able to add project-scaffolding blueprints to our developer portal's inventory. An old proposal to make the access checks for adding things to the inventory work per item was turned down, and people were told to use a curated list of sources instead. Someone who tried that workaround hit an error, filed a bug, and linked several other threads from it. One of those threads is about starting a blueprint run through the backend HTTP API with a fixed shared secret, where the details of the person who triggered the run come out empty. Why does that happen, and what did the maintainers say about fixing it?",
+      "gold": [
+        "github/issues/backstage/backstage/29694.md",
+        "github/issues/backstage/backstage/32936.md",
+        "github/issues/backstage/backstage/30299.md"
+      ],
+      "seeds": ["github/issues/backstage/backstage/29694.md"],
+      "keyFacts": [
+        "It is by design: a static access token cannot be associated with a user, so user.entity is undefined, and maintainers do not plan to add that association.",
+        "Maintainers pointed to a separate effort (#27680, device authentication) to issue tokens or keys tied to a user entity for use outside the frontend.",
+        "Requiring user.entity and throwing an error was named as a possible future change, but it would break static-token users, so the issue was left open for later."
+      ]
+    },
+    {
+      "id": "backstage-multi-hop-21",
+      "corpus": "backstage",
+      "category": "multi-hop",
+      "split": "holdout",
+      "text": "There was a docs request to fold the search, access-control and docs-site concept pages into the project's main list of term definitions. It grew out of a broader proposal to make that list easier to find and use. That broader proposal also spun off an earlier sub-task about a second, separate list of terms kept outside the main docs. Where did that second list live, what was proposed for it, and how did that sub-task end up?",
+      "gold": [
+        "github/issues/backstage/backstage/30132.md",
+        "github/issues/backstage/backstage/29655.md",
+        "github/issues/backstage/backstage/29770.md"
+      ],
+      "seeds": ["github/issues/backstage/backstage/30132.md"],
+      "keyFacts": [
+        "The secondary glossary lived in a fork of the CNCF techdocs repo, under the 0008-backstage analysis.",
+        "The proposal was to merge its extra terms into the public Backstage glossary, and to update or deprecate the secondary glossary so it points to the main one.",
+        "The sub-issue went stale and was closed as not planned."
+      ]
+    },
+    {
+      "id": "backstage-multi-hop-27",
+      "corpus": "backstage",
+      "category": "multi-hop",
+      "split": "dev",
+      "text": "Anybody signed into our developer portal can see and manually fire off the recurring housekeeping routines through the backend's HTTP interface, which could waste resources. A request to lock that down was redirected by a maintainer to an idea for surfacing those routines inside the operator console plugin. Afterwards, someone else asked for a browser view of those routines. What did that person want to use it for, and what happened to their ask?",
+      "gold": [
+        "github/issues/backstage/backstage/30049.md",
+        "github/issues/backstage/backstage/29674.md",
+        "github/issues/backstage/backstage/30616.md"
+      ],
+      "seeds": ["github/issues/backstage/backstage/30049.md"],
+      "keyFacts": [
+        "The requester, who maintains a Backstage instance, wanted a UI to check when a job last ran and when the next run is scheduled.",
+        "The request was closed as a duplicate of the DevTools tab issue (#29674), which already had a linked PR."
+      ]
+    },
+    {
+      "id": "backstage-multi-hop-28",
+      "corpus": "backstage",
+      "category": "multi-hop",
+      "split": "dev",
+      "text": "When we start a project-scaffolding blueprint through the backend HTTP interface with a fixed shared secret, the details of the person who triggered it come out empty. Someone later filed a bug about limiting who may add blueprints to the portal's inventory and linked that thread. The bug also linked an older proposal to make the access checks for adding inventory sources decide per item. Why did a maintainer say that proposal can't work, and what did they suggest instead?",
+      "gold": [
+        "github/issues/backstage/backstage/30299.md",
+        "github/issues/backstage/backstage/32936.md",
+        "github/issues/backstage/backstage/29694.md"
+      ],
+      "seeds": ["github/issues/backstage/backstage/30299.md"],
+      "keyFacts": [
+        "'Create' permissions cannot be resource permissions because no existing resource is available to check the conditions against.",
+        "The maintainer suggested disallowing Template imports and instead keeping a Location in a repository where only a few designated people have write access, listing the template targets.",
+        "New templates are added by opening a PR that adds a new target to that Location."
+      ]
+    },
+    {
+      "id": "backstage-cross-source-01",
+      "corpus": "backstage",
+      "category": "cross-source",
+      "split": "dev",
+      "text": "Our portal's rendered docs sit partly in an on-prem store, and newer docs should go to an AWS object storage bucket. Can one portal instance serve docs from both stores at once? If we choose the AWS bucket option, which part of the codebase uploads and serves those docs, and will it create the bucket for us?",
+      "gold": [
+        "github/issues/backstage/backstage/34457.md",
+        "knowledge/databases/amazon-s3.md"
+      ],
+      "seeds": ["github/issues/backstage/backstage/34457.md"],
+      "keyFacts": [
+        "TechDocs supports only a single publisher configuration today; a 'multi' publisher type that wraps several publishers is an open proposal.",
+        "Publishing and serving TechDocs artifacts in S3 is done by plugins/techdocs-node (stages/publish/awsS3.ts) when S3 is the selected publisher.",
+        "Backstage integrates with S3 but does not provision buckets."
+      ]
+    },
+    {
+      "id": "backstage-cross-source-03",
+      "corpus": "backstage",
+      "category": "cross-source",
+      "split": "holdout",
+      "text": "Our AI assistant talks to the developer portal's agent endpoint and makes people log in again roughly every sixty minutes, even though we configured portal credentials to stay valid for half a day. Why does the assistant throw away credentials that still work, and why can't it renew them quietly in the background? Also, which backend plugin publishes the resource description the assistant reads to decide what permissions to ask for?",
+      "gold": [
+        "github/issues/backstage/backstage/34985.md",
+        "knowledge/operations/oauth-metadata-api-get-well-known-oauth-protected-resource-api-mcp-actions-v1.md"
+      ],
+      "seeds": ["github/issues/backstage/backstage/34985.md"],
+      "keyFacts": [
+        "OidcService hard-codes expiresIn: 3600 in token responses, ignoring auth.backstageTokenExpiration, so clients discard tokens after one hour.",
+        "Refresh tokens are only issued when the offline_access scope is granted, and the MCP protected-resource metadata does not advertise scopes_supported, so clients don't request it.",
+        "GET /.well-known/oauth-protected-resource/api/mcp-actions/v1 is defined in the mcp-actions-backend plugin."
+      ]
+    },
+    {
+      "id": "backstage-cross-source-04",
+      "corpus": "backstage",
+      "category": "cross-source",
+      "split": "dev",
+      "text": "We extended the portal's cluster-viewing backend with our own resource-loading module. It adds headers so the cluster API acts as the signed-in person instead of a shared service account. The module has no way to learn who the person actually is. Did the project ever take up the request to pass that identity through? And which HTTP routes of that backend return the cluster data our module would produce?",
+      "gold": [
+        "github/issues/backstage/backstage/31260.md",
+        "knowledge/apis/kubernetes-api.md"
+      ],
+      "seeds": ["github/issues/backstage/backstage/31260.md"],
+      "keyFacts": [
+        "The request to expose user identity to a custom fetcher in the kubernetes backend plugin was closed as not planned (it went stale).",
+        "The Kubernetes API of the kubernetes-backend plugin exposes configured clusters, POST queries for entity workload resources and custom resources, a deprecated service lookup route, and a proxy route to the Kubernetes API."
+      ]
+    },
+    {
+      "id": "backstage-cross-source-11",
+      "corpus": "backstage",
+      "category": "cross-source",
+      "split": "holdout",
+      "text": "A security scanner flagged an out-of-memory / event-loop-stall bug in the little library that expands shell-style curly alternation patterns (the kind globbing tools use), and our end-to-end testing package showed up in the list of affected packages. Which upgraded versions of that library clear the warning? And what kind of backing datastore does that end-to-end testing package depend on when its command runs?",
+      "gold": [
+        "github/issues/backstage/backstage/35416.md",
+        "knowledge/services/e2e-test.md"
+      ],
+      "seeds": ["github/issues/backstage/backstage/35416.md"],
+      "keyFacts": [
+        "Upgrade brace-expansion to version 1.1.18, 2.1.4, 3.0.6 or 5.0.9 (or higher).",
+        "The e2e-test package (packages/e2e-test) is listed as affected and is classified as a service because it has a command.",
+        "e2e-test depends on MySQL test databases, as shown by its runCommand script."
+      ]
+    },
+    {
+      "id": "backstage-cross-source-12",
+      "corpus": "backstage",
+      "category": "cross-source",
+      "split": "dev",
+      "text": "Our AI coding assistant connects to the developer portal's agent tool endpoint. When it isn't logged in, the portal returns a bare unauthorized response. Nothing in that response tells the client where to find the login metadata, so the client gives up. Do the maintainers treat this as a bug, or as an unimplemented part of the newer auth spec? Also, what does that same streaming endpoint do when a client sends it a plain read (GET) request instead of posting messages?",
+      "gold": [
+        "github/issues/backstage/backstage/33750.md",
+        "knowledge/operations/mcp-streamable-http-api-get-api-mcp-actions-v1.md"
+      ],
+      "seeds": ["github/issues/backstage/backstage/33750.md"],
+      "keyFacts": [
+        "Maintainers said the missing WWW-Authenticate header (with resource_metadata) on 401s is not really a bug: it is a part of the newer spec not yet implemented because clients didn't support it. The issue was closed as not planned.",
+        "GET requests to /api/mcp-actions/v1 are rejected with method not allowed.",
+        "The endpoint is defined in the mcp-actions-backend plugin."
+      ]
+    },
+    {
+      "id": "backstage-cross-source-13",
+      "corpus": "backstage",
+      "category": "cross-source",
+      "split": "dev",
+      "text": "Our services push in-product messages to users and attach a custom bag of extra attributes to each one. When we fetch those messages again later, the extra attributes are empty, and our hooks that forward them to mail and team chat depend on them. Is the server discarding them deliberately or by mistake? And which GET endpoints does that messaging service expose for retrieving the stored items?",
+      "gold": [
+        "github/issues/backstage/backstage/34484.md",
+        "knowledge/apis/notifications-api.md"
+      ],
+      "seeds": ["github/issues/backstage/backstage/34484.md"],
+      "keyFacts": [
+        "Maintainers say payload.metadata is intentionally not persisted; in the initial implementation it is meant only for consumption by processors (such as email/Slack).",
+        "The Notifications API, defined in plugins/notifications-backend/src/service/router.ts, offers read operations such as GET /api/notifications (and /notifications) and GET /api/notifications/:id (and /notifications/:id).",
+        "It also offers GET routes for status, settings and topics."
+      ]
+    },
+    {
+      "id": "backstage-cross-source-15",
+      "corpus": "backstage",
+      "category": "cross-source",
+      "split": "holdout",
+      "text": "Our dependency scanner flagged the npm module that computes line-by-line changes between two texts. A crafted change-set file with odd line-separator characters in its filename header can lock up the process and eat memory. One of the flagged workspaces is the small demonstration extension bundled alongside the sample frontend. Which releases of that module make the warning go away? Also, how is that demonstration extension classified in the codebase map, and which UI framework does it depend on?",
+      "gold": [
+        "github/issues/backstage/backstage/35420.md",
+        "knowledge/services/app-example-plugin.md"
+      ],
+      "seeds": ["github/issues/backstage/backstage/35420.md"],
+      "keyFacts": [
+        "Upgrading diff to version 3.5.1, 4.0.4, 5.2.2, 8.0.3 or higher fixes the vulnerability.",
+        "app-example-plugin is classified as a service because it has a start script.",
+        "app-example-plugin uses the React library."
+      ]
+    },
+    {
+      "id": "backstage-cross-source-16",
+      "corpus": "backstage",
+      "category": "cross-source",
+      "split": "dev",
+      "text": "After upgrading our developer portal, the dropdown in our software template forms that lets people choose a team or person as owner is no longer alphabetical. Results now come back in what looks like random order. Is this a regression the maintainers will fix on the server, or are we expected to ask for a sort order ourselves? And which catalog backend HTTP route feeds that dropdown, and what query options does it accept?",
+      "gold": [
+        "github/issues/backstage/backstage/31304.md",
+        "knowledge/operations/catalog-api-get-entities.md"
+      ],
+      "seeds": ["github/issues/backstage/backstage/31304.md"],
+      "keyFacts": [
+        "Maintainers say the old ordering was only accidental: without an explicit orderFields the catalog guarantees only some deterministic order, so the picker (OwnerPicker/EntityPicker) should pass orderFields. The issue was closed as not planned.",
+        "The ordering change came with the newer queryEntities code path, which is used when catalog.enableRelationsCompatibility is off. That path has no default ORDER BY, unlike the older entities() method.",
+        "The data comes from the catalog backend's GET /entities route, which supports filtering, field selection, ordering, and pagination."
+      ]
+    },
+    {
+      "id": "backstage-cross-source-20",
+      "corpus": "backstage",
+      "category": "cross-source",
+      "split": "holdout",
+      "text": "Developers keep messaging our platform team to ask why the component in their repo's descriptor file never shows up in the portal after the crawler should have picked it up. We want them to check this themselves by pasting the file's URL, without exposing the admin view of every broken item. Did the maintainers add something built-in for this? If not, which existing catalog backend HTTP call did people end up building such a tool on, what does that call do, and which backend plugin defines it?",
+      "gold": [
+        "github/issues/backstage/backstage/30000.md",
+        "knowledge/operations/catalog-api-post-locations.md"
+      ],
+      "seeds": ["github/issues/backstage/backstage/30000.md"],
+      "keyFacts": [
+        "The suggestion was closed as not planned (stale), with no built-in feature added.",
+        "The reporter built their own plugin on the catalog's POST /locations endpoint.",
+        "POST /locations registers a location for a target and is defined in the catalog-backend OpenAPI schema."
+      ]
+    },
+    {
+      "id": "backstage-cross-source-21",
+      "corpus": "backstage",
+      "category": "cross-source",
+      "split": "dev",
+      "text": "On the project website, the HTTP reference for the service that runs project-creation templates puts all of its endpoints under one generic placeholder heading. Readers don't realize they need to click it to see the methods. Was this request resolved, and which other service's reference was named as the better-organized model? For that model service, which backend plugin defines its HTTP spec, and what kinds of resources do its operations cover?",
+      "gold": [
+        "github/issues/backstage/backstage/32724.md",
+        "knowledge/apis/catalog-api.md"
+      ],
+      "seeds": ["github/issues/backstage/backstage/32724.md"],
+      "keyFacts": [
+        "The issue asked for the Scaffolder API docs (listed under UNTAGGED) to look more like the Catalog API docs, and it was closed as completed.",
+        "The Catalog API is defined in the catalog backend plugin's OpenAPI schema (plugins/catalog-backend/src/schema/openapi.yaml).",
+        "The Catalog API provides HTTP operations for catalog entities and their registered locations."
+      ]
+    },
+    {
+      "id": "backstage-time-01",
+      "corpus": "backstage",
+      "category": "time",
+      "split": "dev",
+      "text": "In 2026 our AI assistant apps couldn't sign in to the developer portal's tool-serving plugin. Requests without a token were rejected with no hint telling the client where to find the login metadata. Looking up that metadata under the plugin's own path was also rejected. What did the project maintainers say about these gaps, and what had become of the report by the end of June 2026?",
+      "gold": ["github/issues/backstage/backstage/33750.md"],
+      "keyFacts": [
+        "A maintainer said the missing header and the plugin-path metadata rejections were not really bugs. He described them as parts of a newer spec that had not been implemented yet because clients did not support them, and he invited PRs.",
+        "The maintainer said the merged PR #33092 (the getExternalBaseUrl fix) addressed the biggest blocker.",
+        "The issue was marked stale on 2026-06-09 and closed as not planned on 2026-06-23."
+      ]
+    },
+    {
+      "id": "backstage-time-02",
+      "corpus": "backstage",
+      "category": "time",
+      "split": "holdout",
+      "text": "In August 2025, a minor point release of our internal developer portal broke the reading view for engineering handbooks. The table-of-contents panel on the left got jumbled into the article body, so people couldn't move between pages. Which earlier release still rendered that panel correctly? How quickly after it was flagged was a fix shipped and verified on the project's public showcase instance?",
+      "gold": ["github/issues/backstage/backstage/30944.md"],
+      "keyFacts": [
+        "The TechDocs sidebar navigation worked correctly in 1.41.0 and broke after the 1.42.1 upgrade.",
+        "The problem was reported on 2025-08-20, and a fix (PR #30947) closed the issue on 2025-08-21.",
+        "On 2025-08-21 the latest patch was deployed to the demo site and confirmed working, about one day after the report."
+      ]
+    },
+    {
+      "id": "backstage-time-03",
+      "corpus": "backstage",
+      "category": "time",
+      "split": "dev",
+      "text": "In May 2025 we noticed that when our project templates open a change request against our self-hosted Bitbucket, the created commit silently drops hidden dot-prefixed config files, such as the one listing files to ignore. Was this a known bug, what was blamed for it, and had it been resolved by the end of that month?",
+      "gold": ["github/issues/backstage/backstage/29949.md"],
+      "keyFacts": [
+        "The bug was reported on 2025-05-14: the Bitbucket Server pull-request scaffolder action did not commit .gitignore files.",
+        "The cause given was overzealous filtering meant to remove the .git directory when the workspace was copied.",
+        "The issue was closed as completed on 2025-05-27."
+      ]
+    },
+    {
+      "id": "backstage-time-04",
+      "corpus": "backstage",
+      "category": "time",
+      "split": "holdout",
+      "text": "We're moving our developer portal onto the newer declarative app architecture, and we can't put plugin-provided cards on the portal's landing dashboard. There was a public request to support this. As of early January 2026, had that support actually landed, or was the request only closed?",
+      "gold": ["github/issues/backstage/backstage/30733.md"],
+      "keyFacts": [
+        "The issue asking for New Frontend System extension points for Home plugin widgets was closed on 2025-12-31 after being marked stale.",
+        "On 2026-01-05 the reporter said the implementing PR (#31225) was still open and the issue was not resolved, and asked for it to be reopened."
+      ]
+    },
+    {
+      "id": "backstage-time-05",
+      "corpus": "backstage",
+      "category": "time",
+      "split": "dev",
+      "text": "In April 2026 we asked the developer portal project for a first-class, built-in sign-in integration for the widely used open-source CNCF identity server that we self-host. Until then we had been wiring it up by hand through the generic standards-based login option. What did the maintainers do with that request, and how soon after it was filed?",
+      "gold": ["github/issues/backstage/backstage/33935.md"],
+      "keyFacts": [
+        "The request for a dedicated Keycloak auth provider was closed as a duplicate on 2026-04-16, the same day it was opened.",
+        "The maintainers pointed to the existing issue #29671 (documenting Keycloak for auth and org data) as the place to track the topic."
+      ]
+    },
+    {
+      "id": "backstage-time-06",
+      "corpus": "backstage",
+      "category": "time",
+      "split": "dev",
+      "text": "In early 2026 our team tried to make the developer portal's spec-to-TypeScript scaffolding command respect the tool release we lock inside our own plugin folder. It always fell back to the one bundled with the portal's build utilities. We filed a request to let each plugin choose its own. What did the maintainers say, and what was the outcome by June 2026?",
+      "gold": ["github/issues/backstage/backstage/32870.md"],
+      "keyFacts": [
+        "A maintainer was wary of allowing user-level openapitools.json config. The bundled templates are only guaranteed to work with the specific OpenAPI Generator version in repo-tools. The maintainer also pointed to the v7 upgrade landing in #32300.",
+        "The issue was marked stale on 2026-05-18.",
+        "It was closed as not planned on 2026-06-01 and never implemented."
+      ]
+    },
+    {
+      "id": "backstage-time-07",
+      "corpus": "backstage",
+      "category": "time",
+      "split": "holdout",
+      "text": "As of February 2026, our internal developer portal still imports only one metadata file per project from our self-hosted code host. It misses the ones sitting deeper in the directory tree, for example in an infra project with one subdirectory per cloud storage resource. Someone had publicly asked for glob-style matching of those files anywhere in the tree. Did the maintainers take it on, and what was its outcome and when?",
+      "gold": ["github/issues/backstage/backstage/31167.md"],
+      "keyFacts": [
+        "The request for wildcard discovery of catalog-info.yaml files in nested folders for GitLab was not implemented.",
+        "It was auto-marked stale on 2025-11-15 and closed as not planned on 2025-12-01.",
+        "Users kept asking for updates afterward, up to 2026-02-11, with no maintainer response."
+      ]
+    },
+    {
+      "id": "backstage-time-09",
+      "corpus": "backstage",
+      "category": "time",
+      "split": "dev",
+      "text": "In early September 2026, an automated dependency scanner filed a public report on the developer portal project. It flagged a flaw in a small URL-parsing library pulled in by almost every package, from the auth providers and catalog modules to the CLI. When was that report closed out, and how many days after it was opened?",
+      "gold": ["github/issues/backstage/backstage/35429.md"],
+      "keyFacts": [
+        "The report (SNYK-JS-FASTURI-19256873) was opened on 2026-09-04.",
+        "It was closed as completed on 2026-09-07, about three days later."
+      ]
+    },
+    {
+      "id": "backstage-disagreement-01",
+      "corpus": "backstage",
+      "category": "disagreement",
+      "split": "dev",
+      "text": "When our server-side services and terminal utilities need to call remote web APIs, should they rely on what the JavaScript runtime provides out of the box, or should we add an extra dependency to do it?",
+      "gold": [
+        "knowledge/decisions/ctxpipe-ai-eval-v0-backstage-backstage-adr014-use-fetch.md",
+        "knowledge/decisions/ctxpipe-ai-eval-v0-backstage-backstage-adr013-use-node-fetch.md"
+      ],
+      "seeds": [
+        "knowledge/decisions/ctxpipe-ai-eval-v0-backstage-backstage-adr014-use-fetch.md"
+      ],
+      "positions": [
+        {
+          "refs": [
+            "knowledge/decisions/ctxpipe-ai-eval-v0-backstage-backstage-adr014-use-fetch.md"
+          ],
+          "status": "current"
+        },
+        {
+          "refs": [
+            "knowledge/decisions/ctxpipe-ai-eval-v0-backstage-backstage-adr013-use-node-fetch.md"
+          ],
+          "status": "superseded"
+        }
+      ],
+      "keyFacts": [
+        "Node.js code, including backend code and CLIs, should use native fetch, typed and injected as `typeof fetch` (ADR-14).",
+        "The earlier ADR-13 direction to use the third-party node-fetch package in Node.js backend code is superseded.",
+        "Native fetch is stable in Node.js 20+, which Backstage now requires, and third-party fetch replacements can have compatibility issues."
+      ]
+    },
+    {
+      "id": "backstage-disagreement-02",
+      "corpus": "backstage",
+      "category": "disagreement",
+      "split": "holdout",
+      "text": "Which backend endpoint should a frontend call to fetch the cluster objects (pods, deployments and so on) that belong to a given catalog component?",
+      "gold": [
+        "knowledge/apis/kubernetes-api.md",
+        "knowledge/operations/kubernetes-api-post-api-kubernetes-services-serviceid.md"
+      ],
+      "seeds": ["knowledge/apis/kubernetes-api.md"],
+      "positions": [
+        {
+          "refs": ["knowledge/apis/kubernetes-api.md"],
+          "status": "current"
+        },
+        {
+          "refs": [
+            "knowledge/operations/kubernetes-api-post-api-kubernetes-services-serviceid.md"
+          ],
+          "status": "superseded"
+        }
+      ],
+      "keyFacts": [
+        "POST /api/kubernetes/services/{serviceId} is a deprecated route for fetching Kubernetes objects associated with an entity.",
+        "The Kubernetes API also exposes POST /api/kubernetes/resources/workloads/query for entity-associated resources, the non-deprecated route."
+      ]
+    },
+    {
+      "id": "backstage-disagreement-16",
+      "corpus": "backstage",
+      "category": "disagreement",
+      "split": "dev",
+      "text": "We use the well-known open-source, CNCF-hosted identity and access management server for single sign-on. Will our developer portal get a first-class login integration for it inside the main project, so we no longer have to wire it up by hand through the generic standards-based connector? If not, where is that integration meant to live?",
+      "gold": [
+        "github/issues/backstage/backstage/29671.md",
+        "github/issues/backstage/backstage/33935.md"
+      ],
+      "seeds": ["github/issues/backstage/backstage/29671.md"],
+      "positions": [
+        {
+          "refs": ["github/issues/backstage/backstage/33935.md"],
+          "status": "scoped"
+        },
+        {
+          "refs": ["github/issues/backstage/backstage/29671.md"],
+          "status": "current"
+        }
+      ],
+      "keyFacts": [
+        "A dedicated Keycloak auth provider in the core backstage/backstage repository was proposed, and that issue was closed as a duplicate.",
+        "Maintainers decided the Keycloak auth provider belongs in the existing Keycloak workspace in the community-plugins repository, next to the Keycloak catalog module.",
+        "The documentation for using Keycloak for auth and org data should still go in the main Backstage docs; an auth backend module PR was opened in community-plugins."
+      ]
+    },
+    {
+      "id": "backstage-disagreement-20",
+      "corpus": "backstage",
+      "category": "disagreement",
+      "split": "holdout",
+      "text": "Anyone in our company can add new entries to the developer portal's inventory through the self-service registration page. We want only a small trusted group to be able to add project-scaffolding blueprints, while everyone else can keep adding services. Can role-based rules make that decision per person? If not, does it work to ban that entry type everywhere and pull the blueprints in through one curated index file that only a few people can edit?",
+      "gold": [
+        "github/issues/backstage/backstage/29694.md",
+        "github/issues/backstage/backstage/32936.md"
+      ],
+      "seeds": ["github/issues/backstage/backstage/29694.md"],
+      "positions": [
+        {
+          "refs": ["github/issues/backstage/backstage/29694.md"],
+          "status": "superseded"
+        },
+        {
+          "refs": ["github/issues/backstage/backstage/32936.md"],
+          "status": "current"
+        }
+      ],
+      "keyFacts": [
+        "catalog.location.create cannot be made a resource (conditional) permission, because there is no existing resource to evaluate conditions against.",
+        "The suggested workaround was to leave Template out of catalog.rules.allow and reference templates from a curated Location entity in a repo with restricted write access.",
+        "A later report says this workaround fails: Templates referenced from such a Location are rejected with a NotAllowedError ('not of an allowed kind for that location')."
+      ]
+    },
+    {
+      "id": "backstage-no-answer-01",
+      "corpus": "backstage",
+      "category": "no-answer",
+      "split": "dev",
+      "text": "Is there a built-in way for users to download the full list of software components shown in the catalog listing page as a spreadsheet file, and how does it handle very large result sets?",
+      "gold": [],
+      "keyFacts": []
+    },
+    {
+      "id": "backstage-no-answer-02",
+      "corpus": "backstage",
+      "category": "no-answer",
+      "split": "holdout",
+      "text": "How do I show who is currently on call for a service directly on its entity page, and can engineers trigger a page to that person from inside the portal?",
+      "gold": [],
+      "keyFacts": []
+    },
+    {
+      "id": "backstage-no-answer-03",
+      "corpus": "backstage",
+      "category": "no-answer",
+      "split": "dev",
+      "text": "Can the portal show each team's monthly cloud spending broken down by service on the team's page, and does it alert owners when their costs jump past a budget threshold?",
+      "gold": [],
+      "keyFacts": []
+    },
+    {
+      "id": "backstage-no-answer-04",
+      "corpus": "backstage",
+      "category": "no-answer",
+      "split": "holdout",
+      "text": "Can we gradually roll out a new plugin page to a percentage of users, for example 10% first, and have the portal remember which group each user lands in across sessions?",
+      "gold": [],
+      "keyFacts": []
+    },
+    {
+      "id": "backstage-no-answer-05",
+      "corpus": "backstage",
+      "category": "no-answer",
+      "split": "dev",
+      "text": "Can engineers request temporary elevated access to a production resource from inside the portal, with an approval step from their manager and automatic revocation after a set number of hours?",
+      "gold": [],
+      "keyFacts": []
+    },
+    {
+      "id": "backstage-no-answer-06",
+      "corpus": "backstage",
+      "category": "no-answer",
+      "split": "dev",
+      "text": "Does the portal ship any built-in mechanism to take scheduled snapshots of its catalog database and restore them to a specific point in time after a bad ingestion run wipes out entities?",
+      "gold": [],
+      "keyFacts": []
+    }
+  ]
+}

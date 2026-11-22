@@ -82,6 +82,28 @@ describe("the dataset", () => {
     }
   })
 
+  it("reads the Backstage question set v0, as its own dataset", async () => {
+    const dataset = await readDataset(
+      new URL(
+        "../../evals/knowledge/fixtures/backstage-v0.dataset.json",
+        import.meta.url,
+      ).pathname,
+    )
+    expect(dataset.version).toBe("backstage-0")
+    expect(dataset.corpora.map((corpus) => corpus.id)).toEqual(["backstage"])
+    expect(dataset.questions.length).toBeGreaterThanOrEqual(35)
+    for (const category of new Set(
+      dataset.questions.map((question) => question.category),
+    )) {
+      const inCategory = dataset.questions.filter(
+        (question) => question.category === category,
+      )
+      expect(
+        inCategory.filter((question) => question.split === "holdout").length,
+      ).toBe(Math.round(0.4 * inCategory.length))
+    }
+  })
+
   it("reads the example questions", async () => {
     const dataset = await readDataset(datasetFile)
     expect(dataset.questions).toHaveLength(12)
