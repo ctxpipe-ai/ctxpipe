@@ -41,7 +41,10 @@ export const ORCHESTRATOR_DEFAULTS = {
    * is a result, and so is each step on its "why" path (CTX-1520).
    */
   keepAt: 0.5,
-  /** The loop explores from a candidate when p(explore) is at least this. */
+  /**
+   * The loop explores from a candidate when p(explore) is at least this.
+   * Such a candidate is also a result: a step (CTX-1534).
+   */
   exploreAt: 0.5,
   /** The chunks of each candidate that Jev reads: the closest to the query. */
   evidenceChunks: 2,
