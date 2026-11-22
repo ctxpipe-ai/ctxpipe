@@ -667,11 +667,10 @@ export function writeStep(step, plans, skipped = [], options = {}) {
   }
   let more = false
   // Path order, but each plan comes after the plans of this step that its
-  // claims link to. A page that
-  // ends at a size limit then has no claim to a file that the page does not
-  // write (an API file and its operations). With `options.claimOrder`
-  // "created", a claim orders only before a plan that creates its file: a
-  // file at the step base needs no order.
+  // claims link to. A page that ends at a size limit then has no claim to a
+  // file that the page does not write (an API file and its operations).
+  // With `options.claimOrder` "created", a claim orders only before a plan
+  // that creates its file: a file at the step base needs no order.
   const sorted = []
   const placed = new Set()
   const atBase = new Map()
