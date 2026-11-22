@@ -64,6 +64,12 @@ export type PatchStepResult = {
   status: "complete" | "partial"
   /** `patch.json` says that files wait for a next page (ADR-052 section 6). */
   more: boolean
+  /**
+   * The inputs of the skill that the page says are done (`cursor.at` of
+   * `patch.json`, CTX-1487). The host checks it against the length that the
+   * skill's own finder gave before the step.
+   */
+  cursorAt?: number
 }
 
 export type PatchStepInput = {
@@ -237,7 +243,14 @@ const PatchJsonSchema = z.object({
     )
     .max(10_000),
   more: z.boolean().optional(),
+  // Read apart from the schema: a bad cursor must not hide `more`.
+  cursor: z.unknown().optional(),
 })
+
+/** The `cursor` of `patch.json` (CTX-1487); it can be absent. */
+const PageCursorSchema = z
+  .object({ at: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER) })
+  .optional()
 
 /** Ownership of a file at the base commit, from the host-only fields. */
 type FileOwnership = "sole" | "shared" | "foreign"
@@ -718,6 +731,7 @@ export async function validatePatchStep(
     rejections,
     status: total > 0 && opRejections * 2 > total ? "partial" : "complete",
     more: patch.more,
+    ...(patch.cursorAt === undefined ? {} : { cursorAt: patch.cursorAt }),
   }
 }
 
@@ -1908,6 +1922,7 @@ async function readPatchJson(
 ): Promise<{
   ops: Map<string, z.infer<typeof PatchJsonSchema>["ops"][number]>
   more: boolean
+  cursorAt?: number
 }> {
   const entries = new Map<
     string,
@@ -1936,7 +1951,20 @@ async function readPatchJson(
       reject(op.path, "patch_json", "patch.json names the path more than once")
     else entries.set(op.path, op)
   }
-  return { ops: entries, more: parsed.more === true }
+  // A bad cursor keeps `more`: the host then stops a cursor skill whose
+  // page says `more` and gives no cursor (CTX-1487).
+  const cursor = PageCursorSchema.safeParse(parsed.cursor)
+  if (!cursor.success)
+    reject(
+      "patch.json",
+      "patch_json",
+      "cursor must be an object with a whole number at",
+    )
+  return {
+    ops: entries,
+    more: parsed.more === true,
+    ...(cursor.data ? { cursorAt: cursor.data.at } : {}),
+  }
 }
 
 async function readStagedFiles(

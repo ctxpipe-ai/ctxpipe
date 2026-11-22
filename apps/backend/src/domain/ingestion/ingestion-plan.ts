@@ -55,6 +55,12 @@ export type IngestSkillPlan = {
   /** `script`: a plain command; `model`: one OpenCode run. */
   run: "script" | "model"
   tier?: IngestModelTier
+  /**
+   * The skill pages by a cursor over its finite input (CTX-1487): its
+   * finder gives the length before each page, and the page loop of the
+   * skill has no page count.
+   */
+  cursor?: true
 }
 
 /**
@@ -69,13 +75,13 @@ export type IngestSkillPlan = {
  */
 const INGEST_SKILLS: readonly IngestSkillPlan[] = [
   // The repository unit, which every later step can link to.
-  { name: "repository", scope: "first", run: "script" },
+  { name: "repository", scope: "first", run: "script", cursor: true },
   { name: "classify-kind", scope: "root", run: "model", tier: "fast" },
   { name: "apis", scope: "root", run: "model", tier: "medium" },
   { name: "dependencies", scope: "root", run: "model", tier: "medium" },
   // `libraries` writes shared files, so it runs on the assembled ref.
-  { name: "libraries", scope: "repository", run: "script" },
-  { name: "ownership", scope: "repository", run: "script" },
+  { name: "libraries", scope: "repository", run: "script", cursor: true },
+  { name: "ownership", scope: "repository", run: "script", cursor: true },
   { name: "dependencies", scope: "repository", run: "model", tier: "medium" },
   {
     name: "datasources-infra",

@@ -75,7 +75,7 @@ describe("ingestion v2 plan", () => {
       "instruction-areas",
     ]
     expect(plannedIngestSkills(bundle, "first")).toEqual([
-      { name: "repository", scope: "first", run: "script" },
+      { name: "repository", scope: "first", run: "script", cursor: true },
     ])
     expect(plannedIngestSkills(bundle, "root").map((s) => s.name)).toEqual([
       "classify-kind",

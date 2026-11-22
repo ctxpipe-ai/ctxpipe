@@ -1,5 +1,6 @@
 import { execFileSync, spawnSync } from "node:child_process"
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -512,6 +513,10 @@ describe("libraries skill", () => {
     }
     const s = step(source, services)
     s.mapFiles(map)
+    // The finder: the 41 plans (one library file and 40 service files) are
+    // the input of the cursor (CTX-1487). It writes nothing.
+    expect(s.run("libraries", "--count")).toEqual({ count: 41 })
+    expect(existsSync(join(s.root, "out", "patch.json"))).toBe(false)
     const first = s.run("libraries")
     expect(first.ops.length).toBeGreaterThan(30)
     expect(first.ops.length).toBeLessThan(41)
@@ -520,10 +525,14 @@ describe("libraries skill", () => {
     const page = await s.validate("libraries")
     expect(page.rejections).toEqual([])
     expect(page.accepted).toHaveLength(first.ops.length)
+    expect(page.cursorAt).toBe(first.ops.length)
     s.advance(page.tree)
+    expect(s.run("libraries", "--count")).toEqual({ count: 41 })
     const second = s.run("libraries")
     expect(second.more).toBe(false)
     expect(second.ops).toHaveLength(41 - first.ops.length)
+    // The cursor moved forward to the end of the input.
+    expect((await s.validate("libraries")).cursorAt).toBe(41)
     expect([...first.ops, ...second.ops].map((op) => op.path).sort()).toEqual(
       ["knowledge/libraries/zod.md", ...Object.keys(services)].sort(),
     )

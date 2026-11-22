@@ -135,7 +135,16 @@ export type IngestStepCommit = {
   authorTime: Date
   /** The step's `patch.json` says that files wait: the `Ctxpipe-More` trailer. */
   more?: boolean
+  /**
+   * The length of the skill's input, from its finder before the step
+   * (CTX-1487). The commit keeps it with the `cursor.at` of `patch.json` in
+   * the trailer `Ctxpipe-Cursor: <at> <of>`, so a resumed step has both.
+   */
+  cursorOf?: number
 }
+
+/** The cursor of a page (CTX-1487): the inputs done, of the trusted length. */
+export type IngestPageCursor = { at: number; of: number }
 
 export type IngestJob = { runId: string; workspaceId: string }
 
@@ -173,9 +182,13 @@ function assertJobRef(job: IngestJob, ref: string): IngestRefTarget {
  * remote ref is at the expected old tip. A replay of a pushed step returns the
  * same SHA.
  */
-export async function pushIngestStep(
-  input: PushIngestStepInput,
-): Promise<{ sha: string; validation: PatchStepResult; more: boolean }> {
+export async function pushIngestStep(input: PushIngestStepInput): Promise<{
+  sha: string
+  validation: PatchStepResult
+  more: boolean
+  /** The cursor that the commit keeps (CTX-1487). */
+  cursor?: IngestPageCursor
+}> {
   assertJobRef(input.job, input.ref)
   const base = input.oldTip ?? input.pinnedRevision
   if (input.baseCommit !== base)
@@ -190,6 +203,10 @@ export async function pushIngestStep(
       baseCommit: base,
       bundle: input.commit.bundle,
     })
+    const cursor =
+      validation.cursorAt !== undefined && input.commit.cursorOf !== undefined
+        ? { at: validation.cursorAt, of: input.commit.cursorOf }
+        : undefined
     const sha = await commitStep(repoDir, {
       tree: validation.tree,
       parents: [base],
@@ -197,9 +214,15 @@ export async function pushIngestStep(
       ...input.commit,
       more: validation.more,
       rejects: validation.rejections.length,
+      ...(cursor ? { cursor } : {}),
     })
     await pushWithLease(repoDir, input.remote, input.ref, input.oldTip, sha)
-    return { sha, validation, more: validation.more }
+    return {
+      sha,
+      validation,
+      more: validation.more,
+      ...(cursor ? { cursor } : {}),
+    }
   })
 }
 
@@ -654,7 +677,13 @@ export async function findStepCommit(input: {
   step: string
   since: string
 }): Promise<
-  | { sha: string; ops: number; rejects: number; more: boolean }
+  | {
+      sha: string
+      ops: number
+      rejects: number
+      more: boolean
+      cursor?: IngestPageCursor
+    }
   | { tip: string; ops: number }
   | null
 > {
@@ -699,6 +728,7 @@ export async function findStepCommit(input: {
           ops: (await diffTree(repoDir, input.since, sha)).length,
           rejects: trailers.rejects,
           more: trailers.more,
+          ...(trailers.cursor ? { cursor: trailers.cursor } : {}),
         }
     }
     return { tip, ops: (await diffTree(repoDir, input.since, tip)).length }
@@ -1268,6 +1298,7 @@ async function commitStep(
     parents: string[]
     runId: string
     rejects?: number
+    cursor?: IngestPageCursor
   },
 ): Promise<string> {
   for (const value of [input.runId, input.step, input.bundle])
@@ -1275,7 +1306,7 @@ async function commitStep(
       throw new Error("A step trailer value must be printable ASCII")
   const date = `@${Math.floor(input.authorTime.getTime() / 1000)} +0000`
   // `Ctxpipe-More` only when true, so a step with no next page keeps its SHA.
-  const message = `Ingest step ${input.step}\n\nCtxpipe-Run: ${input.runId}\nCtxpipe-Step: ${input.step}\nCtxpipe-Bundle: ${input.bundle}\n${input.more ? "Ctxpipe-More: true\n" : ""}${input.rejects ? `Ctxpipe-Rejects: ${input.rejects}\n` : ""}`
+  const message = `Ingest step ${input.step}\n\nCtxpipe-Run: ${input.runId}\nCtxpipe-Step: ${input.step}\nCtxpipe-Bundle: ${input.bundle}\n${input.more ? "Ctxpipe-More: true\n" : ""}${input.rejects ? `Ctxpipe-Rejects: ${input.rejects}\n` : ""}${input.cursor ? `Ctxpipe-Cursor: ${input.cursor.at} ${input.cursor.of}\n` : ""}`
   const out = await runGit(
     repoDir,
     [
@@ -1302,7 +1333,13 @@ async function commitStep(
 async function stepTrailers(
   repoDir: string,
   sha: string,
-): Promise<{ run: string; step: string; more: boolean; rejects: number }> {
+): Promise<{
+  run: string
+  step: string
+  more: boolean
+  rejects: number
+  cursor?: IngestPageCursor
+}> {
   const read = async (key: string) =>
     (
       await runGit(repoDir, [
@@ -1319,7 +1356,14 @@ async function stepTrailers(
     step: await read("Ctxpipe-Step"),
     more: (await read("Ctxpipe-More")) === "true",
     rejects: Number(await read("Ctxpipe-Rejects")) || 0,
+    ...cursorTrailer(await read("Ctxpipe-Cursor")),
   }
+}
+
+/** The `Ctxpipe-Cursor: <at> <of>` trailer; nothing for another value. */
+function cursorTrailer(value: string): { cursor?: IngestPageCursor } {
+  const match = /^(\d{1,15}) (\d{1,15})$/.exec(value)
+  return match ? { cursor: { at: Number(match[1]), of: Number(match[2]) } } : {}
 }
 
 async function withScratchRepository<T>(

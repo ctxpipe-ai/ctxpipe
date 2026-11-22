@@ -60,6 +60,12 @@ export type IngestRuntimeStep = {
   fetchRef?: string
   /** The root-to-file map (`--roots`); every step gets it (ADR-052 section 6). */
   rootMap: IngestRootMap
+  /**
+   * The skill pages by a cursor (CTX-1487): before the skill runs, the
+   * runtime runs its finder (`<skill>.mjs <arguments> --count`) and returns
+   * the count as `inputs`.
+   */
+  cursor?: true
   signal: AbortSignal
   /**
    * Before the step limit (`ingestStepCheckpoint`): a model step then stops
@@ -112,7 +118,7 @@ export type IngestShardRuntime = {
    */
   runStep(
     step: IngestRuntimeStep,
-  ): Promise<{ tar: Uint8Array; usage?: IngestStepUsage }>
+  ): Promise<{ tar: Uint8Array; usage?: IngestStepUsage; inputs?: number }>
 }
 
 export type IngestShardRuntimeFactory = {

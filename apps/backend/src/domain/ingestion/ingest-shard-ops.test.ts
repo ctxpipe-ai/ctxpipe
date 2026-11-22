@@ -87,6 +87,71 @@ describe("the scan gate of the dependencies step", () => {
   })
 })
 
+describe("the finder of a cursor skill (CTX-1487)", () => {
+  function finderSandbox(finder: { exitCode: number; stdout: string }) {
+    const commands: string[] = []
+    const root: RootExec = async (script) => {
+      commands.push(script)
+      const isFinder = script.includes("--count")
+      return {
+        exitCode: isFinder ? finder.exitCode : 0,
+        stdout: isFinder ? finder.stdout : "",
+        stderr: "",
+      }
+    }
+    return { root, commands }
+  }
+  const cursorInput = () => ({
+    ...input("ownership"),
+    step: {
+      ...step("ownership"),
+      run: "script" as const,
+      cursor: true as const,
+    },
+  })
+
+  it("runs the finder before the skill and returns its count", async () => {
+    const s = finderSandbox({ exitCode: 0, stdout: 'log line\n{"count":41}\n' })
+    const result = await runIngestShardStep(s.root, cursorInput())
+    expect(result).toEqual({ inputs: 41 })
+    const finder = s.commands.findIndex(
+      (c) =>
+        c.includes("ownership/scripts/ownership.mjs") && c.includes("--count"),
+    )
+    const skill = s.commands.findIndex(
+      (c) =>
+        c.includes("ownership/scripts/ownership.mjs") && !c.includes("--count"),
+    )
+    expect(finder).toBeGreaterThan(-1)
+    expect(skill).toBeGreaterThan(finder)
+  })
+
+  it("fails the step when the finder gives no count", async () => {
+    for (const finder of [
+      { exitCode: 1, stdout: '{"count":4}' },
+      { exitCode: 0, stdout: "not json" },
+      { exitCode: 0, stdout: '{"count":-1}' },
+      { exitCode: 0, stdout: '{"count":1.5}' },
+    ]) {
+      const s = finderSandbox(finder)
+      await expect(
+        runIngestShardStep(s.root, cursorInput()),
+      ).rejects.toMatchObject({ part: "count" })
+      expect(s.commands.some((c) => c.includes("ctxpipe-finish"))).toBe(false)
+    }
+  })
+
+  it("runs no finder for a skill with no cursor", async () => {
+    const s = finderSandbox({ exitCode: 0, stdout: '{"count":3}' })
+    const result = await runIngestShardStep(s.root, {
+      ...input("ownership"),
+      step: { ...step("ownership"), run: "script" as const },
+    })
+    expect(result).toEqual({})
+    expect(s.commands.some((c) => c.includes("--count"))).toBe(false)
+  })
+})
+
 describe("ingestStepCheckpoint", () => {
   afterEach(() => {
     vi.useRealTimers()
