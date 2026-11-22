@@ -325,9 +325,11 @@ export async function visualReview(
       summary: `${member.summary} Design review on ${storyId}, an alike diff: ${review.text}`,
     }
   }
+  // A design review of a redesign when `closeUpFolder` is given: the folder
+  // of its close-up.
   const feedbackOf = (
     input: Explained,
-    reviewed: boolean,
+    closeUpFolder: string | undefined,
   ): {
     call: (verdict: Verdict) => Promise<{
       verdict: Verdict
@@ -348,10 +350,10 @@ export async function visualReview(
           share: (verdict: Verdict, member: Verdict) =>
             viewportCopy(verdict, member.storyId),
         }
-      : reviewed
+      : closeUpFolder
         ? {
             call: async (verdict: Verdict) => {
-              const story = await inContext(input.story)
+              const story = await inContext(input.story, closeUpFolder)
               return story
                 ? reviewDesign(verdict, story, designModel, process.env)
                 : explainRegression(verdict, input, explainerModel, process.env)
@@ -397,52 +399,68 @@ export async function visualReview(
       budget.spentUsd + reserve <= budget.limitUsd
     // The alike diffs of a reviewed redesign: the review stands for them.
     const covered = new Set<string>()
-    for (const index of order) {
-      const verdict = verdicts[index]
-      const input = verdict && jevInputs.get(verdict.storyId)
-      if (
-        !input ||
-        verdict.groupedWith !== undefined ||
-        covered.has(verdict.storyId)
-      )
-        continue
-      // A redesign keeps its explainer when the budget has no room for the
-      // review.
-      const reviewed =
-        redesigned.includes(verdict.storyId) &&
-        (fits(unknownDesignUsd) || !fits(unknownExplainerUsd))
-      const { call, reserve, skipped, share } = feedbackOf(input, reviewed)
-      let updated: Verdict
-      let review: Review | undefined
-      if (!fits(reserve)) {
-        if (!skipped || verdict.error !== undefined) continue
-        updated = { ...verdict, summary: `${verdict.summary} ${skipped}` }
-      } else {
-        const result = await call(verdict)
-        if (!result.explainer) continue
-        budget.spentUsd += result.explainer.costUsd ?? reserve
-        updated = result.verdict
-        review = result.review
-      }
-      verdicts[index] = updated
-      // A regression of the review stands for the alike diffs of the
-      // redesign: they need no feedback call of their own.
-      const alike = new Set(
-        review
-          ? found.find(({ story }) => story.storyId === verdict.storyId)?.alike
-          : [],
-      )
-      for (const id of alike) covered.add(id)
-      for (const [other, member] of verdicts.entries())
-        if (member.groupedWith === verdict.storyId)
-          verdicts[other] = review
-            ? withReview(review, verdict.storyId, member)
-            : share(updated, member)
-        else if (
-          review &&
-          (alike.has(member.storyId) || alike.has(member.groupedWith ?? ""))
+    // A private folder for the close-ups of the reviews. The run folder of a
+    // manifest can come from PR code, so the close-ups never go there.
+    const closeUpFolder = found.length
+      ? await mkdtemp(
+          join(await realpath(tmpdir()), "visual-review-close-ups-"),
         )
-          verdicts[other] = withReview(review, verdict.storyId, member)
+      : undefined
+    try {
+      for (const index of order) {
+        const verdict = verdicts[index]
+        const input = verdict && jevInputs.get(verdict.storyId)
+        if (
+          !input ||
+          verdict.groupedWith !== undefined ||
+          covered.has(verdict.storyId)
+        )
+          continue
+        // A redesign keeps its explainer when the budget has no room for the
+        // review.
+        const reviewed =
+          redesigned.includes(verdict.storyId) &&
+          (fits(unknownDesignUsd) || !fits(unknownExplainerUsd))
+        const { call, reserve, skipped, share } = feedbackOf(
+          input,
+          reviewed ? closeUpFolder : undefined,
+        )
+        let updated: Verdict
+        let review: Review | undefined
+        if (!fits(reserve)) {
+          if (!skipped || verdict.error !== undefined) continue
+          updated = { ...verdict, summary: `${verdict.summary} ${skipped}` }
+        } else {
+          const result = await call(verdict)
+          if (!result.explainer) continue
+          budget.spentUsd += result.explainer.costUsd ?? reserve
+          updated = result.verdict
+          review = result.review
+        }
+        verdicts[index] = updated
+        // A regression of the review stands for the alike diffs of the
+        // redesign: they need no feedback call of their own.
+        const alike = new Set(
+          review
+            ? found.find(({ story }) => story.storyId === verdict.storyId)
+                ?.alike
+            : [],
+        )
+        for (const id of alike) covered.add(id)
+        for (const [other, member] of verdicts.entries())
+          if (member.groupedWith === verdict.storyId)
+            verdicts[other] = review
+              ? withReview(review, verdict.storyId, member)
+              : share(updated, member)
+          else if (
+            review &&
+            (alike.has(member.storyId) || alike.has(member.groupedWith ?? ""))
+          )
+            verdicts[other] = withReview(review, verdict.storyId, member)
+      }
+    } finally {
+      if (closeUpFolder)
+        await rm(closeUpFolder, { recursive: true, force: true })
     }
   }
 

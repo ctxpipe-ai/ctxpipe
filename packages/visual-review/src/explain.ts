@@ -8,13 +8,17 @@
 // judges: the verdict, the severity, the confidence and the regions stay the
 // ones of Jev. In the bake-off, a cascade that let an LLM replace the Jev
 // verdict lost recall (0.74 against 0.95).
-import { readFile } from "node:fs/promises"
+import { createHash } from "node:crypto"
+import { readFile, writeFile } from "node:fs/promises"
+import { join } from "node:path"
 
+import { decode, encode } from "@blazediff/codec-png-native"
 import { z } from "zod"
 
 import { askOpenRouter, judgeNewWithOpenRouter } from "./adapters/openrouter.ts"
-import { pngSize, prepareImage } from "./prepare.ts"
+import { maxSide, pngSize, prepareImage } from "./prepare.ts"
 import { judgingRule, scopeLine, storyData, type Prompt } from "./prompt.ts"
+import { isRedesign } from "./review.ts"
 import type { RubricEntry } from "./rubric.ts"
 import type { NewStoryInput, StoryImage, StoryInput } from "./story.ts"
 import { parseJsonReply, type Verdict } from "./verdict.ts"
@@ -272,20 +276,73 @@ ${brief ? brief.replace(/<\/data/gi, "<\\/data") : "(none)"}
 
 /**
  * The input of the design review of a changed screenshot in its context
- * (CTX-1509, ADR-063 rule 20): the head image alone, with the changed regions
- * (`changed`), so that the review judges the redesigned area as new UI and
- * not against the base image. The regions are in fractions of the image that
- * the model gets: `prepareImage` pads a short image at the bottom and the
- * right. Undefined when the story has no full head image that is a PNG.
+ * (CTX-1509, ADR-063 rule 20): the head image, and a close-up of the largest
+ * redesigned region and the elements next to it, written into the private
+ * folder `dir`. The review judges the redesigned area as new UI, not against
+ * the base image. On the full head image, a small control is a few pixels, so
+ * the close-up shows its alignment and spacing. The changed regions are in
+ * fractions of the head image that the model gets: `prepareImage` pads a
+ * short image at the bottom and the right. Undefined when the story has no
+ * full head image that is a PNG, or no changed region.
  */
 export async function inContext(
   story: StoryInput,
+  dir: string,
 ): Promise<NewStoryInput | undefined> {
   const path = story.images.find(({ role }) => role === "after")?.path
   const bytes = path ? await readFile(path) : undefined
   const size = bytes ? pngSize(bytes) : undefined
-  if (!path || !bytes || !size) return undefined
+  const regions = story.regions
+    .filter(({ changeType }) => changeType !== "rendering-noise")
+    .map(({ box }) => box)
+  if (!path || !bytes || !size || !regions.length) return undefined
   const { content } = prepareImage(bytes)
+  // The close-up: the largest redesigned region with 64 px more on each side,
+  // at twice the size, or less when a side would pass the side limit of the
+  // models. A small change far from it does not make the close-up larger.
+  const pixels = story.regions
+    .map(({ box, changeType }) => ({
+      change: changeType ?? "unlabeled",
+      x: box.x * size.width,
+      y: box.y * size.height,
+      width: box.width * size.width,
+      height: box.height * size.height,
+    }))
+    .sort((a, b) => b.width * b.height - a.width * a.height)
+  const shown = pixels.find(isRedesign) ?? pixels[0]
+  if (!shown) return undefined
+  const margin = 64
+  const left = Math.max(0, Math.floor(shown.x) - margin)
+  const top = Math.max(0, Math.floor(shown.y) - margin)
+  const right = Math.min(size.width, Math.ceil(shown.x + shown.width) + margin)
+  const bottom = Math.min(
+    size.height,
+    Math.ceil(shown.y + shown.height) + margin,
+  )
+  const zoom = Math.max(
+    1,
+    Math.floor(
+      Math.min(2, maxSide / (right - left), maxSide / (bottom - top)) * 4,
+    ) / 4,
+  )
+  const image = decode(bytes)
+  const width = Math.round((right - left) * zoom)
+  const height = Math.round((bottom - top) * zoom)
+  const data = new Uint8Array(width * height * 4)
+  for (let y = 0; y < height; y++)
+    for (let x = 0; x < width; x++) {
+      const from =
+        ((top + Math.floor(y / zoom)) * image.width +
+          left +
+          Math.floor(x / zoom)) *
+        4
+      data.set(image.data.subarray(from, from + 4), (y * width + x) * 4)
+    }
+  const closeUp = join(
+    dir,
+    `${createHash("sha256").update(story.storyId).digest("hex").slice(0, 16)}.png`,
+  )
+  await writeFile(closeUp, encode({ data, width, height }))
   const { storyId, scope, name, purpose, brief, sourceDiff, rubric } = story
   return {
     storyId,
@@ -295,15 +352,19 @@ export async function inContext(
     ...(brief === undefined ? {} : { brief }),
     ...(sourceDiff === undefined ? {} : { sourceDiff }),
     rubric,
-    images: [{ path, size }],
-    changed: story.regions
-      .filter(({ changeType }) => changeType !== "rendering-noise")
-      .map(({ box: { x, y, width, height } }) => ({
+    images: [
+      { path, size },
+      { path: closeUp, size: { width, height } },
+    ],
+    changed: {
+      regions: regions.map(({ x, y, width, height }) => ({
         x: x * content.width,
         y: y * content.height,
         width: width * content.width,
         height: height * content.height,
       })),
+      zoom,
+    },
   }
 }
 

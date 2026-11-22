@@ -108,7 +108,8 @@ export type NewStoryInput = Pick<
   /**
    * Only for the head image of a changed screenshot that the critic reviews
    * as new UI in its context (CTX-1509): the changed regions, in fractions of
-   * the image. The review judges them and their neighbors.
+   * the first image, and the zoom of the close-up of them, the second image.
+   * The review judges them and their neighbors.
    */
-  changed?: readonly Box[]
+  changed?: { regions: readonly Box[]; zoom: number }
 }
