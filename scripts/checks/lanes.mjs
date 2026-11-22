@@ -6,13 +6,14 @@ import {
   realpathSync,
   rmSync,
 } from "node:fs"
+import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 
 import { setupSteps, vitestCommand } from "../ci/vitest-launch.mjs"
-import { logDirectory, logFile, logged } from "./log.mjs"
+import { logDirectory, logFile, logged, loggedAsync } from "./log.mjs"
 import { freshParts, laneChecks as readParts } from "./trace.mjs"
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
@@ -112,16 +113,16 @@ const nativePrerequisites = [
 // belongs to the contracts lane (the "not portable" group of
 // scripts/ci/contracts.json). `programs`: the host tools that the lane runs;
 // the key holds their versions.
-// `timeout`: the time limit of the lane run in ms (else 45 minutes). The
-// backend and contracts lanes run their files in series, because the files
-// share one database. On the agent host, the full backend lane took 48
-// minutes and the full contracts lane 43 minutes in series (CTX-1480).
-// CTX-1481 runs them in shards, each with its own database.
+// `serial`: the files of the lane share one database, so its Vitest config
+// runs them in series (`fileParallelism: false`). The runner splits such a
+// lane into shards, each on its own database (runVitest). In series, the
+// full backend lane took 48 minutes and the full contracts lane 43 minutes on
+// the agent host (CTX-1480).
 const lanes = {
   backend: {
     directory: "apps/backend",
     runtime: "node",
-    timeout: 7_200_000,
+    serial: true,
     inputs: [...backendInputs, ...nativeInputs],
     traceInputs: backendTraceInputs,
     env: backendEnv,
@@ -136,7 +137,7 @@ const lanes = {
   contracts: {
     directory: "apps/backend",
     runtime: "node",
-    timeout: 7_200_000,
+    serial: true,
     inputs: [...backendInputs, ...nativeInputs],
     traceInputs: backendTraceInputs,
     env: [...backendEnv, { name: "DOCKER_DEFAULT_PLATFORM", mode: "value" }],
@@ -363,7 +364,7 @@ export async function listVitest() {
 // rejection has a suite, so its record gets no origin.
 export function markExitFailure(records, run) {
   if (run.status === 0 && !run.error && !run.signal) return records
-  const cause = run.error?.message ?? run.signal ?? `exit ${run.status}`
+  const cause = exitCause(run)
   return records.map((record) =>
     record.status === "failed" || (record.status === "error" && !record.origin)
       ? record
@@ -375,9 +376,13 @@ export function markExitFailure(records, run) {
   )
 }
 
-// Runs Vitest checks, one lane at a time: backend files share one database
-// and run in series. With `trace`, it also returns the trace records.
-export function runVitest(checks, trace) {
+// Runs Vitest checks, one lane at a time. With `trace`, it also returns the
+// trace records. The files of a serial lane share one database, so they run
+// in series. With a host cap of Vitest workers (VITEST_MAX_WORKERS, which
+// factory check sets), the runner splits a serial lane into that many shards,
+// as CI does: each shard runs its files in series on its own database, and
+// the shards run at the same time.
+export async function runVitest(checks, trace) {
   const groups = Map.groupBy(checks, (check) => check.lane)
   const records = []
   const traced = []
@@ -387,18 +392,9 @@ export function runVitest(checks, trace) {
   if (image.length) records.push(...runCodesearchImage(image))
   for (const [lane, laneChecks] of groups) {
     if (codesearchLanes.includes(lane)) continue
-    const { directory } = lanes[lane]
     const log = logFile(lane)
-    // The report is a file of this run only. Two runs on the same checkout
-    // (parallel runners, or factory check next to checks:run) can run the
-    // same lane at the same time. With one shared path, one run could read or
-    // delete the report of the other.
-    const reportDirectory = mkdtempSync(join(tmpdir(), `ctxpipe-${lane}-`))
-    const report = join(reportDirectory, "report.json")
     const laneConfig = { name: lane, ...lanes[lane] }
-    let suites = new Map()
     let message
-    let run
     for (const step of setupSteps(laneConfig, root)) {
       const setup = logged(log.path, process.execPath, step.args, {
         cwd: step.cwd,
@@ -418,26 +414,41 @@ export function runVitest(checks, trace) {
       parts = freshParts(parts, lane)
       if (!parts) traceFailed = true
     }
-    if (!message) {
-      const launch = vitestCommand(
-        laneConfig,
-        root,
-        laneChecks.map(({ file }) => relative(directory, file)),
-        report,
-        parts,
+    if (message)
+      records.push(
+        ...laneChecks.map(({ id }) =>
+          suiteRecord(id, undefined, log.relative, message),
+        ),
       )
-      run = logged(log.path, launch.command, launch.args, {
-        cwd: launch.cwd,
-        env: launch.env,
-        timeout: laneConfig.timeout ?? 2_700_000,
-      })
-      try {
-        suites = reportSuites(report)
-      } catch {
-        message = `Vitest wrote no report (${run.error?.message ?? run.signal ?? `exit ${run.status}`})`
-      }
+    else {
+      const cap = Number.parseInt(process.env.VITEST_MAX_WORKERS ?? "", 10)
+      const byFile = new Map(
+        laneChecks.map((check) => [
+          relative(laneConfig.directory, check.file),
+          check,
+        ]),
+      )
+      const shards = shardFiles(
+        lane,
+        [...byFile.keys()],
+        laneConfig.serial && cap > 1 ? Math.min(cap, byFile.size) : 1,
+      )
+      // The part files of the trace workers have the process id in their
+      // name, so the shards can write to one part directory.
+      const results = await Promise.all(
+        shards.map((files, index) =>
+          runShard(
+            laneConfig,
+            files.map((file) => byFile.get(file)),
+            shards.length === 1
+              ? { log }
+              : { log: logFile(`${lane}-${index + 1}`), index: index + 1 },
+            parts,
+          ),
+        ),
+      )
+      records.push(...results.flat())
     }
-    rmSync(reportDirectory, { recursive: true, force: true })
     // A trace is data only: an error here never changes a result.
     if (parts)
       try {
@@ -446,13 +457,133 @@ export function runVitest(checks, trace) {
         traceFailed = true
         process.stderr.write(`No trace for ${lane}: ${error.message}\n`)
       }
-    const laneRecords = laneChecks.map(({ id, file }) =>
-      suiteRecord(id, suites.get(file), log.relative, message),
-    )
-    records.push(...(run ? markExitFailure(laneRecords, run) : laneRecords))
   }
   return { records, traced, traceFailed }
 }
+
+// The files of a lane in `count` shards, each in the order of `files`. A path
+// is relative to the lane directory. The longest file goes first, to the
+// shard with the least time. The measured seconds
+// (scripts/ci/test-weights.json) only balance the shards; a stale or missing
+// weight never drops a file. The CI shards (test-suite.mjs --shard) use the
+// same split.
+export function shardFiles(lane, files, count) {
+  const weights =
+    JSON.parse(
+      readFileSync(join(root, "scripts/ci/test-weights.json"), "utf8"),
+    )[lane] ?? {}
+  const weight = (file) => 1 + (weights[file] ?? 0)
+  const loads = Array(count).fill(0)
+  const owners = new Map()
+  for (const file of [...files].sort(
+    (a, b) => weight(b) - weight(a) || (a < b ? -1 : a > b ? 1 : 0),
+  )) {
+    const least = loads.indexOf(Math.min(...loads))
+    loads[least] += weight(file)
+    owners.set(file, least)
+  }
+  return loads.map((_, shard) =>
+    files.filter((file) => owners.get(file) === shard),
+  )
+}
+
+// Runs one Vitest process for the checks of one shard, and returns their
+// records. A shard with an `index` runs on its own database: the runner
+// makes it, applies the migrations, and drops it after the run.
+async function runShard(laneConfig, checks, { log, index }, parts) {
+  const reportDirectory = mkdtempSync(
+    join(tmpdir(), `ctxpipe-${laneConfig.name}-`),
+  )
+  // The report is a file of this run only. Two runs on the same checkout
+  // (parallel runners, or factory check next to checks:run) can run the
+  // same lane at the same time. With one shared path, one run could read or
+  // delete the report of the other.
+  const report = join(reportDirectory, "report.json")
+  let suites = new Map()
+  let message
+  let run
+  let database
+  try {
+    if (index) {
+      database = await shardDatabase(laneConfig, index, log.path)
+      message = database.error
+    }
+    if (!message) {
+      const launch = vitestCommand(
+        laneConfig,
+        root,
+        checks.map(({ file }) => relative(laneConfig.directory, file)),
+        report,
+        parts,
+      )
+      run = await loggedAsync(log.path, launch.command, launch.args, {
+        cwd: launch.cwd,
+        env: {
+          ...launch.env,
+          ...(database && { DATABASE_URL: database.url }),
+        },
+        // A serial lane in one run (no host cap) runs all its files in
+        // series: the full backend lane took 48 minutes on the agent host
+        // (CTX-1480). A shard or a parallel lane has 45 minutes.
+        timeout: laneConfig.serial && !index ? 7_200_000 : 2_700_000,
+      })
+      try {
+        suites = reportSuites(report)
+      } catch {
+        message = `Vitest wrote no report (${exitCause(run)})`
+      }
+    }
+  } catch (error) {
+    // The other shards run on: one error fails only the checks of this one.
+    message = `The ${laneConfig.name} shard ${index} did not run: ${error.message}`
+  } finally {
+    rmSync(reportDirectory, { recursive: true, force: true })
+    if (database?.drop) await database.drop()
+  }
+  const records = checks.map(({ id, file }) =>
+    suiteRecord(id, suites.get(file), log.relative, message),
+  )
+  return run ? markExitFailure(records, run) : records
+}
+
+// The database of shard `index` of a serial lane:
+// `<database of DATABASE_URL>_<pid of this runner>_<index>`, new and
+// migrated with the migrations of this checkout. With the pid, two runs on
+// one checkout do not share a shard database; a reset drops the shard
+// databases that an ended runner left (apps/backend/src/db/test-database.ts).
+// Returns `{ url, drop }`, or `{ error }`.
+async function shardDatabase(laneConfig, index, log) {
+  const url = new URL(process.env.DATABASE_URL)
+  // Postgres keeps only the first 63 bytes of a name.
+  const suffix = `_${process.pid}_${index}`
+  const name = `${decodeURIComponent(url.pathname.slice(1)).slice(0, 63 - suffix.length)}${suffix}`
+  url.pathname = `/${encodeURIComponent(name)}`
+  const cwd = join(root, laneConfig.directory)
+  const testDatabase = (command) =>
+    loggedAsync(
+      log,
+      process.execPath,
+      [
+        createRequire(join(cwd, "package.json")).resolve("tsx/cli"),
+        "src/db/test-database.ts",
+        command,
+      ],
+      {
+        cwd,
+        env: { ...process.env, DATABASE_URL: url.toString() },
+        timeout: 300_000,
+      },
+    )
+  const reset = await testDatabase("reset")
+  if (reset.error || reset.status)
+    return {
+      error: `The shard database ${name} was not made (${exitCause(reset)}); see the log`,
+    }
+  return { url: url.toString(), drop: () => testDatabase("drop") }
+}
+
+// Why a child process did not pass: its error, its signal or its exit code.
+const exitCause = (run) => run.error?.message ?? run.signal ?? `exit ${run.status}`
 
 const codesearchLanes = ["codesearch", "codesearch-bun"]
 
@@ -488,7 +619,7 @@ export function runCodesearchImage(checks) {
       written.set(record.id, { ...record, log: log.relative })
     }
   } catch {}
-  const message = `The codesearch image run wrote no result (${run.error?.message ?? run.signal ?? `exit ${run.status}`})`
+  const message = `The codesearch image run wrote no result (${exitCause(run)})`
   const records = checks.map(
     ({ id }) =>
       written.get(id) ?? suiteRecord(id, undefined, log.relative, message),

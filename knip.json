@@ -31,7 +31,8 @@
         "src/db/recover-connector-content-cli.ts",
         "src/db/set-org-feature.ts",
         "src/routes/mcp.conformance.server.ts",
-        "src/db/migrate.ts"
+        "src/db/migrate.ts",
+        "src/db/test-database.ts"
       ],
       "project": ["src/**/*.{ts,tsx}", "test/**/*.ts", "evals/**/*.ts", "*.ts"],
       "ignore": ["src/services/linear/*.generated.ts"],

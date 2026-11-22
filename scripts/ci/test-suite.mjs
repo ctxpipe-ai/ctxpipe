@@ -9,7 +9,12 @@ import {
 import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { markExitFailure, reportSuites, suiteRecord } from "../checks/lanes.mjs"
+import {
+  markExitFailure,
+  reportSuites,
+  shardFiles,
+  suiteRecord,
+} from "../checks/lanes.mjs"
 import { freshParts, laneChecks, writeTrace } from "../checks/trace.mjs"
 import { setupSteps, vitestCommand } from "./vitest-launch.mjs"
 
@@ -98,24 +103,8 @@ try {
     name,
   )
   if (shard) {
-    // Longest file first to the least loaded shard. The measured seconds only
-    // balance the shards; a stale or missing weight never drops a file.
     const [index, count] = shard
-    const weights =
-      JSON.parse(
-        readFileSync(join(root, "scripts/ci/test-weights.json"), "utf8"),
-      )[name] ?? {}
-    const weight = (file) => 1 + (weights[file] ?? 0)
-    const loads = Array(count).fill(0)
-    const owners = new Map()
-    for (const file of [...files].sort(
-      (a, b) => weight(b) - weight(a) || (a < b ? -1 : a > b ? 1 : 0),
-    )) {
-      const least = loads.indexOf(Math.min(...loads))
-      loads[least] += weight(file)
-      owners.set(file, least + 1)
-    }
-    files = files.filter((file) => owners.get(file) === index)
+    files = shardFiles(name, files, count)[index - 1]
     selection = files
     if (!files.length) throw new Error(`Shard ${index}/${count} is empty`)
   }
