@@ -122,11 +122,13 @@ export async function pushWorkspaceCommit(
   committed: GitWriteCommit,
   env: Env,
   /**
-   * True when the writer was canceled, for example the workflow run of an
-   * ingestion publish. It is read last before the push, so that a cancel
-   * during the checks and the credential issuance stops the push.
+   * Runs the push only while the writer is not canceled, and holds a cancel
+   * until the push ends, for example `whileWorkflowRunActive` of the
+   * workflow run of an ingestion publish. A cancel during the checks and the
+   * credential issuance thus stops the push, and no cancel comes between
+   * the check and the push.
    */
-  canceled?: () => Promise<boolean>,
+  fence: (push: () => Promise<void>) => Promise<void> = (push) => push(),
 ): Promise<void> {
   const repositoryName = githubRepoFullNameFromWorkspaceUrl(revision.remote.url)
   const connectionId = revision.remote.connectionId
@@ -215,44 +217,47 @@ export async function pushWorkspaceCommit(
         )
       if (input.mirror)
         await assertConnectorMirrorBinding(input.orgId, input.mirror, revision)
-      if (await canceled?.())
-        throw new Error("The writer was canceled before the push")
-      try {
-        await nativeGit(
-          directory,
-          [
-            "push",
-            "--porcelain",
-            "--",
-            revision.remote.url,
-            `${committed.sha}:refs/heads/${revision.defaultBranch}`,
-          ],
-          undefined,
-          gitRemoteEnvironment({ url: revision.remote.url, token }),
-        )
-      } catch (error) {
-        const reason = writeAccessDenialReason(error)
-        if (reason) throw new WorkspaceWriteAccessUnavailableError(reason)
-        // Another writer can push between the tip check and this push. Then
-        // the remote rejects this push because its old tip is stale. That is
-        // a lost race: the caller merges again (CTX-1355).
-        let after: Awaited<ReturnType<typeof resolveGitRemoteTip>> | undefined
+      await fence(async () => {
         try {
-          after = await resolveGitRemoteTip({ url: revision.remote.url, token })
-        } catch {
-          after = undefined
-        }
-        if (after?.branch === revision.defaultBranch) {
-          if (after.sha === committed.sha) return
-          if (
-            after.sha !== revision.sha &&
-            error instanceof Error &&
-            STALE_TIP_REJECTION.test(error.message)
+          await nativeGit(
+            directory,
+            [
+              "push",
+              "--porcelain",
+              "--",
+              revision.remote.url,
+              `${committed.sha}:refs/heads/${revision.defaultBranch}`,
+            ],
+            undefined,
+            gitRemoteEnvironment({ url: revision.remote.url, token }),
           )
-            throw new WorkspaceTipAdvancedError()
+        } catch (error) {
+          const reason = writeAccessDenialReason(error)
+          if (reason) throw new WorkspaceWriteAccessUnavailableError(reason)
+          // Another writer can push between the tip check and this push. Then
+          // the remote rejects this push because its old tip is stale. That is
+          // a lost race: the caller merges again (CTX-1355).
+          let after: Awaited<ReturnType<typeof resolveGitRemoteTip>> | undefined
+          try {
+            after = await resolveGitRemoteTip({
+              url: revision.remote.url,
+              token,
+            })
+          } catch {
+            after = undefined
+          }
+          if (after?.branch === revision.defaultBranch) {
+            if (after.sha === committed.sha) return
+            if (
+              after.sha !== revision.sha &&
+              error instanceof Error &&
+              STALE_TIP_REJECTION.test(error.message)
+            )
+              throw new WorkspaceTipAdvancedError()
+          }
+          throw error
         }
-        throw error
-      }
+      })
     },
     // The commit comes from its job ref (CTX-1235).
     writeCommitPack(committed, revision.remote.url),

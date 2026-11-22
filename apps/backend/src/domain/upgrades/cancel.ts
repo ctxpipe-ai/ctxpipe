@@ -25,7 +25,8 @@ type CancelUpgradeResult =
  * row in `queued` or `running`. Then each run of the row stops: the upgrade
  * runs, their repository runs, and the ingestion runs of those. A canceled
  * run starts no next step, so it makes no new model call and no publish.
- * A second cancel stops the runs again, which changes nothing. A git
+ * A run that does not stop throws, and the row stays `canceled`: a second
+ * cancel stops the runs again. On runs that stopped, it changes nothing. A git
  * upgrade has no cancel: its run only opens a pull request. Call it inside
  * the org context.
  */

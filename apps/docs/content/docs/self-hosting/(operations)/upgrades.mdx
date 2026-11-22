@@ -216,8 +216,9 @@ Workspace already holds.
   `POST /{orgSlug}/api/v1/workspaces/{workspaceSlug}/upgrades/{key}/cancel`.
   ctxpipe stops the upgrade run, its repository runs and their ingestion
   runs. They start no next step, so they make no new model call and publish
-  nothing. A step that runs at the cancel can end, but it records nothing,
-  and a publish step reads the cancel just before its push.
+  nothing. A step that runs at the cancel can end, but it records nothing.
+  A publish step pushes only while its run is not canceled, and a cancel
+  waits until a push that started ends.
   The item becomes **Canceled** and gets no automatic retry. **Start again**
   makes a new run.
 

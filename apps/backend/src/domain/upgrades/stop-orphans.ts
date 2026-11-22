@@ -1,9 +1,9 @@
 import { sql } from "drizzle-orm"
 
 import { getSystemDb } from "../../db/client.js"
-import { log } from "../../observability/logger.js"
 import { ow } from "../../openworkflow/client.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
+import { workflowRunEnded } from "../../openworkflow/run-ended.js"
 import { INGESTION_V2_WORKFLOW_NAME } from "../ingestion/ingestion-run.js"
 import {
   activeIngestionRunTree,
@@ -12,17 +12,13 @@ import {
 } from "./reingest.js"
 
 /**
- * Cancel one workflow run. A failure is logged, not thrown, so that the
- * other runs still stop. A run that ended in the meantime can also fail
- * the cancel.
+ * Cancel one workflow run. A run that ended in the meantime is not an
+ * error. Each other failure throws: the caller must not report a run as
+ * stopped while it can still spend or publish.
  */
 export async function cancelRun(runId: string): Promise<void> {
-  await ow.cancelWorkflowRun(runId).catch((error: unknown) => {
-    log.warn({
-      step: "upgrade-cancel-run",
-      runId,
-      message: error instanceof Error ? error.message : String(error),
-    })
+  await ow.cancelWorkflowRun(runId).catch(async (error: unknown) => {
+    if (!(await workflowRunEnded(runId))) throw error
   })
 }
 

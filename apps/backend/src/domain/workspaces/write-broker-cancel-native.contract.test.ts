@@ -11,8 +11,8 @@ import { pushWorkspaceCommit, writeJobRef } from "./write-broker.js"
 /*
  * A cancel of an ingestion publish (CTX-1507) at the write broker, with real
  * git. The publish step can be in progress when its run is canceled: the
- * broker reads the cancel last, after its checks and the credential, and
- * then does not push.
+ * broker runs its push through the fence of the writer, after its checks
+ * and the credential, and the fence of a canceled writer does not push.
  */
 
 it(
@@ -48,10 +48,14 @@ it(
               { ...f.revision, access: "write-default" },
               committed,
               parseEnv(process.env),
-              async () => canceled,
+              async (effect) => {
+                // As `whileWorkflowRunActive` of a canceled run.
+                if (canceled) throw new Error("The run ended before the push")
+                await effect()
+              },
             ),
           )
-        await expect(push(true)).rejects.toThrow(/canceled before the push/)
+        await expect(push(true)).rejects.toThrow(/ended before the push/)
         expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(f.sha)
         // The same commit lands when the writer was not canceled: only the
         // cancel stopped it.
