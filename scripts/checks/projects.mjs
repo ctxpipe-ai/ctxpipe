@@ -437,12 +437,17 @@ const definitions = () => [
         "a build pulls base images by tag, and packages from the network without a lock",
       prerequisites: ["docker"],
       intent: `Catches a ${name} production image that does not build. Run it when its Dockerfile, the lockfile or the source that it copies changes; never for a change only to tests or docs of another app.`,
+      // `type=cacheonly`: the check only proves that the image builds. The
+      // builder of `factory check` loads each image it exports into the
+      // Docker store of the host, and an image of a build without a tag stays
+      // there with no name (CTX-1551).
       commands: [
         [
           "docker",
           "buildx",
           "build",
           "--progress=plain",
+          "--output=type=cacheonly",
           "--file",
           file,
           ...flags,

@@ -1156,6 +1156,13 @@ test("the manifest lists a build check for each production image and package of 
     entries.sort((a, b) => a.name.localeCompare(b.name)),
   )
   assert.ok(!job("production-builds").includes("pnpm install"))
+  // An image check exports no image: the builder of `factory check` would
+  // load each one into the shared Docker store of the host, with no name
+  // (CTX-1551).
+  const commands = projectCommands()
+  for (const id of images)
+    for (const command of commands.get(id))
+      assert.ok(command.includes("--output=type=cacheonly"), id)
   assert.equal(
     fullRunResults(
       [],
