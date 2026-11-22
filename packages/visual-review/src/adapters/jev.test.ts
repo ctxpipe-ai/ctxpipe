@@ -317,9 +317,9 @@ describe("judgeWithJev verdict", () => {
     const verdict = await judgeWithJev(await story())
     expect(verdictSchema.parse(verdict)).toEqual(verdict)
     expect(verdict.verdict).toBe("regression")
-    // A flag of 0.95 on a changed screenshot is under the floor of 0.99: a
-    // nit (CTX-1493).
-    expect(verdict.severity).toBe("minor")
+    // A flag of 0.95 on a changed screenshot is over the floor of 0.9: a
+    // should-fix (CTX-1493).
+    expect(verdict.severity).toBe("major")
     expect(verdict.confidence).toBeCloseTo(0.95)
     expect(verdict.storyId).toBe("connectors-card--connected")
     expect(verdict.model).toBe("typesafe/jev-1.14-20261001")
@@ -343,7 +343,7 @@ describe("judgeWithJev verdict", () => {
     expect(verdict.qualities.map(({ name }) => name)).not.toContain("focus")
   })
 
-  test("a Jev regression of a changed screenshot is minor under 0.99 and major from 0.99: a should-fix, never a blocker (CTX-1493)", async () => {
+  test("a Jev regression of a changed screenshot is minor under 0.9 and major from 0.9: a should-fix, never a blocker (CTX-1493)", async () => {
     const severityAt = async (worse: number) => {
       serve((name) => {
         if (name === "area.spacing") return choice(0, 1 - worse, worse)
@@ -357,8 +357,8 @@ describe("judgeWithJev verdict", () => {
     }
     expect(await severityAt(0.6)).toBe("minor")
     expect(await severityAt(0.8)).toBe("minor")
-    expect(await severityAt(0.98)).toBe("minor")
-    expect(await severityAt(0.99)).toBe("major")
+    expect(await severityAt(0.89)).toBe("minor")
+    expect(await severityAt(0.9)).toBe("major")
   })
 
   test("a strong defect or density answer alone does not make a regression major", async () => {
@@ -535,8 +535,8 @@ describe("judgeWithJev verdict", () => {
     serve((name) => (name === "quality.restraint" ? choice(0, 0.1, 0.9) : fine))
     const verdict = await judgeWithJev(await story())
     expect(verdict.verdict).toBe("regression")
-    // 0.9 is under the floor of a changed screenshot (0.99): a nit.
-    expect(verdict.severity).toBe("minor")
+    // 0.9 is the floor of a changed screenshot: a should-fix.
+    expect(verdict.severity).toBe("major")
     expect(verdict.findings).toEqual([])
     expect(verdict.summary).toContain("restraint")
   })

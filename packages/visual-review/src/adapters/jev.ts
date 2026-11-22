@@ -247,10 +247,10 @@ export async function judgeWithJev(
         defect: defectProbability,
         unanswered,
         strongest,
-        // On a changed screenshot, a should-fix needs 0.99 (CTX-1493,
-        // ADR-063 rule 18): at 0.8, Jev flags gave a wrong should-fix on 3 of
-        // 13 good UI PRs. A new screenshot keeps 0.8.
-        strongFrom: 0.99,
+        // On a changed screenshot, a should-fix needs 0.9 (CTO decision of
+        // 2026-11-22, CTX-1493, ADR-063 rule 18): at 0.8, Jev flags gave a
+        // wrong should-fix on 3 of 13 good UI PRs. A new screenshot keeps 0.8.
+        strongFrom: 0.9,
         ...(density && isWorse(density, 0.5)
           ? {
               note: `Jev also finds the density worse (${density.worse.toFixed(2)}). A density change alone is not a regression: look at the images.`,
