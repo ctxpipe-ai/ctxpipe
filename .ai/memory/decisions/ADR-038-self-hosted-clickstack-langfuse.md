@@ -22,7 +22,7 @@ Hosted observability was Langfuse Cloud plus unused Better Stack and Amplitude. 
 
 6. **Browser:** `@hyperdx/browser` posts `POST /.otel/v1/$signal` on the same origin. The UI server holds the collector URL and ingest key. Replay is off. Supersedes [ADR-017](ADR-017-amplitude-analytics.md).
 
-7. **Images and apply.** CI-built images pinned by Terraform; applied from [`observability.yaml`](../../../.github/workflows/observability.yaml) on `main`. The detail was in `ops/observability/terraform/README.md`, which is deleted.
+7. **Images and apply.** CI-built images pinned by Terraform; applied from `observability.yaml` on `main`. That workflow is deleted (CTX-1465). The detail was in `ops/observability/terraform/README.md`, which is deleted.
 
 8. **Self-hosters** set `OTEL_EXPORTER_OTLP_*` on their own collector. Compose `deploy` and `@ctxpipe/aws-cdk` pass that endpoint through and do not bundle a collector or this stack. Better Stack and Amplitude are removed.
 
