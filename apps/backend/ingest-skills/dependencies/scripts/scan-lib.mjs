@@ -446,14 +446,16 @@ export function scan({
 // --- the cursor (CTX-1487) ---------------------------------------------------
 
 /**
- * The identity of one resolved candidate: a Related line of the Service
- * file that has the claim. It holds the claim (predicate and target link),
- * the source file of the call, and the candidate id. The id is the hash
- * that the scan gives the candidate (`c` and 10 hex digits), not a text of
- * the code. The same resolution of a candidate gives the same line.
+ * The identity of one resolved candidate: a Related line of the
+ * dependency list of a Service file. It holds the claim (predicate and
+ * target), the source file of the call, and the candidate id. The id is the
+ * hash that the scan gives the candidate (`c` and 10 hex digits), not a
+ * text of the code. The same resolution of a candidate gives the same line.
+ * The target and the file are code spans, so each path that `safePath`
+ * takes (also one with a space or a parenthesis) reads back the same.
  */
 export function dependencyLine({ predicate, link, file, id }) {
-  return `- ${predicate} [${link}](${link}) from \`${file}\` (candidate \`${id}\`)`
+  return `- ${predicate} \`${link}\` from \`${file}\` (candidate \`${id}\`)`
 }
 
 /** The Related line of a Stream file for one root that produces to or consumes from it. */
@@ -514,7 +516,7 @@ export function resolvedIds(step, root, { repositoryStep, repository }) {
     : ["DEPENDS_ON", "CONSUMES_API"]
   // The form of `dependencyLine`.
   const identity =
-    /^- ([A-Z_]+) \[[^\]\n]*\]\(([^()\s]+)\) from `([^`\n]+)` \(candidate `(c[0-9a-f]{10})`\)$/
+    /^- ([A-Z_]+) `([^`\n]+)` from `([^`\n]+)` \(candidate `(c[0-9a-f]{10})`\)$/
   const read = (paths) => stepTexts(step, paths)
   const streams = new Map()
   const streamHas = (path, line) => {

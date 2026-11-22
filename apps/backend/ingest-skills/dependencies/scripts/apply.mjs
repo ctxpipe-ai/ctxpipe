@@ -23,6 +23,7 @@ import { readFileSync, statSync } from "node:fs"
 import { posix } from "node:path"
 
 import {
+  claimBytes,
   fileClaims,
   findExisting,
   relativeTo,
@@ -30,6 +31,7 @@ import {
   writeStep,
 } from "../../bin/knowledge-lib.mjs"
 import { fail, STEP_LIMITS, stepTexts } from "../../bin/stage-lib.mjs"
+import { safePath } from "../../discover-roots/scripts/roots-lib.mjs"
 import {
   dependencyLine,
   isListPart,
@@ -275,6 +277,15 @@ for (const resolution of resolutions) {
     skip(id, "kind must be service, api, stream, or ignore", "bad_kind")
     continue
   }
+  // The identity line holds the target path in a code span.
+  if (!safePath(target.path)) {
+    skip(
+      id,
+      "the target path has a character that the script does not quote",
+      "unsafe_path",
+    )
+    continue
+  }
   // Each Service file of the root gets the claim and the identity line of
   // the resolution, in its dependency list (`listPlans`).
   for (const user of users) {
@@ -297,21 +308,6 @@ for (const resolution of resolutions) {
     ])
   }
 }
-
-/** The bytes of a claim in a file, with the fields that the validator adds. */
-const claimBytes = (claim) =>
-  Buffer.byteLength(
-    [
-      `  - to: ${JSON.stringify(claim.to)}`,
-      `    predicate: ${claim.predicate}`,
-      "    evidence:",
-      `      path: ${JSON.stringify(claim.evidence.path)}`,
-      `      kind: ${claim.evidence.kind}`,
-      "    confidence: 0.5",
-      "    valid_from: 2026-01-01T00:00:00.000Z",
-      "",
-    ].join("\n"),
-  )
 
 /**
  * The plans of the dependency list of one Service file (CTX-1487): the
@@ -348,13 +344,15 @@ function listPlans(servicePath, list) {
     servicePath,
   ).map(({ path, text }) => fileOf(path, text))
   if (!files.length) files.push(fileOf(servicePath, ""))
+  // The budgets of the list. The Service file keeps room for the claims of
+  // the other skills; a part keeps a margin for the host fields.
   const limit = STEP_LIMITS.fileBytes
+  const serviceForClaims = { bytes: limit - 8 * 1024, claims: 150 }
+  const serviceForLines = { bytes: limit / 2, claims: Infinity }
+  const part = { bytes: limit - 2048, claims: STEP_LIMITS.claims }
+  const newPartBytes = 1024
   const room = (i, kind) =>
-    i > 0
-      ? { bytes: limit - 2048, claims: 200 }
-      : kind === "claim"
-        ? { bytes: limit - 8 * 1024, claims: 150 }
-        : { bytes: limit / 2, claims: Infinity }
+    i > 0 ? part : kind === "claim" ? serviceForClaims : serviceForLines
   /** The first file with room, else a new part. */
   const fileFor = (kind, bytes) => {
     const claims = kind === "claim" ? 1 : 0
@@ -364,8 +362,8 @@ function listPlans(servicePath, list) {
         file.count + claims <= room(i, kind).claims,
     )
     if (at !== -1) return files[at]
-    const part = fileOf(listPart(servicePath, files.length + 1), "")
-    files.push({ ...part, bytes: 1024, count: 1, create: true })
+    const next = fileOf(listPart(servicePath, files.length + 1), "")
+    files.push({ ...next, bytes: newPartBytes, count: 1, create: true })
     return files.at(-1)
   }
   const sorted = [...new Map(list.map((e) => [e.line, e])).values()].sort(

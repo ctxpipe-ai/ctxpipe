@@ -315,14 +315,15 @@ const apiPlan = (api) => ({
   })),
 })
 
-// An API file that would be larger than the validator takes gets no file,
-// and its operations get none: no API file would link them (CTX-1487).
+// An API file that the validator would refuse for its size or its claim
+// count gets no file, and its operations get none: no API file would link
+// them (CTX-1487).
 const selected = resolved.filter((api) => {
   if (!api.pending) return false
   if (planText(step, apiPlan(api)).tooLarge) {
     skip(
       api.path,
-      `${api.name}: the API file would be larger than ${STEP_LIMITS.fileBytes / 1024} KiB. Split the API into smaller APIs, for example by path prefix`,
+      `${api.name}: the API file would be larger than ${STEP_LIMITS.fileBytes / 1024} KiB or have more than ${STEP_LIMITS.claims} operations. Split the API into smaller APIs, for example by path prefix`,
     )
     return false
   }

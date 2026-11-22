@@ -37,6 +37,8 @@ export function parseArgs(argv = process.argv.slice(2)) {
  */
 export const STEP_LIMITS = {
   fileBytes: 64 * 1024,
+  /** Claims of one file, without the legacy claims. */
+  claims: 200,
   stagedBytes: 2 * 1024 * 1024,
   patchBytes: 1024 * 1024,
   ops: 10_000,

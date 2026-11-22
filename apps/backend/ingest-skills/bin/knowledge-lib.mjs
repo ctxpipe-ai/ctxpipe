@@ -269,6 +269,16 @@ function claimYaml(claim, indent) {
   ].join("\n")
 }
 
+/**
+ * The bytes of a claim in a file after the validator wrote it: the YAML of
+ * the writer and the host fields `confidence` and `valid_from`.
+ */
+export function claimBytes(claim) {
+  return Buffer.byteLength(
+    `${claimYaml(claim, 2)}\n    confidence: 0.5\n    valid_from: 2026-01-01T00:00:00.000Z\n`,
+  )
+}
+
 /** Text of a new file. */
 function newFile({ kind, name, summary, intro, claims, related }) {
   const yaml = [`kind: ${kind}`, `name: ${q(name)}`, `summary: ${q(summary)}`]
@@ -741,8 +751,9 @@ export function writeStep(step, plans, skipped = [], options = {}) {
  * The text that writeStep writes for one plan: `{ text, before }`, with the
  * text at the step base (null for a new file), or `{ skip }` with the reason
  * when the script cannot write the file. The validator refuses a file
- * larger than 64 KiB in any step, so a next page cannot take it either:
- * that file is a skip too, with `tooLarge`.
+ * larger than 64 KiB, or with more than 200 claims (legacy claims do not
+ * count), in any step. So a next page cannot take it either: that file is
+ * a skip too, with `tooLarge`.
  */
 export function planText(step, plan) {
   const claims = [
@@ -767,9 +778,15 @@ export function planText(step, plan) {
       ? newFile({ ...plan.create, claims, related })
       : mergeFile(before, { claims, related })
   if (typeof text !== "string") return { skip: text.skip }
-  if (text !== before && Buffer.byteLength(text) > STEP_LIMITS.fileBytes)
+  const legacy =
+    frontMatter(text)?.match(/^ +kind: legacy[ \t]*$/gm)?.length ?? 0
+  if (
+    text !== before &&
+    (Buffer.byteLength(text) > STEP_LIMITS.fileBytes ||
+      (fileClaims(text)?.size ?? 0) - legacy > STEP_LIMITS.claims)
+  )
     return {
-      skip: `The file would be larger than ${STEP_LIMITS.fileBytes / 1024} KiB, so the script does not write it`,
+      skip: `The file would be larger than ${STEP_LIMITS.fileBytes / 1024} KiB or have more than ${STEP_LIMITS.claims} claims, so the script does not write it`,
       tooLarge: true,
     }
   return { text, before }

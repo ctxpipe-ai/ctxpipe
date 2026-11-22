@@ -743,7 +743,7 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
     // of the call, and the candidate id. It holds no URL or host of the code.
     const svc = all[0]?.target.text.match(/svc-\d+/)?.[0]
     expect(s.show(first.tree, OWN)).toContain(
-      `- DEPENDS_ON [${svc}.md](${svc}.md) from \`src/client.ts\` (candidate \`${all[0]?.id}\`)`,
+      `- DEPENDS_ON \`${svc}.md\` from \`src/client.ts\` (candidate \`${all[0]?.id}\`)`,
     )
     expect(s.show(first.tree, OWN)).not.toContain("internal")
     await s.advance(first.tree)
@@ -859,6 +859,28 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
     expect(second.rejections).toEqual([])
     expect(second.cursorAt).toBe(4)
   }, 120_000)
+
+  it("reads back the identity line of a target path with a space and parentheses on the next page (CTX-1487)", async () => {
+    const TARGET = "knowledge/services/billing api (v2).md"
+    const s = await step(
+      { "src/client.ts": 'await fetch("http://billing.internal/x")\n' },
+      { [TARGET]: serviceFile("Billing API v2") },
+    )
+    const [call] = s.candidates()
+    s.apply([{ id: call?.id, kind: "service", path: TARGET }])
+    const first = await s.validate()
+    expect(first.rejections).toEqual([])
+    expect(first.cursorAt).toBe(1)
+    expect(s.show(first.tree, OWN)).toContain(
+      `- DEPENDS_ON \`billing api (v2).md\` from \`src/client.ts\` (candidate \`${call?.id}\`)`,
+    )
+    await s.advance(first.tree)
+    // The next page finds the line: nothing waits, and the cursor stays at
+    // the end with no new resolution.
+    expect(s.scan()).toMatchObject({ waiting: 0, candidates: [] })
+    s.apply([])
+    expect((await s.validate()).cursorAt).toBe(1)
+  })
 
   it("counts a candidate that a later page resolves to another target once, and never an ignored candidate (CTX-1487)", async () => {
     const context = {

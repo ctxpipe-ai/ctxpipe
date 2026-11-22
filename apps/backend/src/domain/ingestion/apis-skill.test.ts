@@ -1022,12 +1022,58 @@ describe("write-apis", () => {
     expect(out.skipped).toContainEqual({
       path: "knowledge/apis/items-api.md",
       reason:
-        "Items API: the API file would be larger than 64 KiB. Split the API into smaller APIs, for example by path prefix",
+        "Items API: the API file would be larger than 64 KiB or have more than 200 operations. Split the API into smaller APIs, for example by path prefix",
     })
     // No Operation file either: no API file would link it.
     expect(out.ops).toEqual([])
     // No operation is done: no API file links it.
     expect((await s.validate()).cursorAt).toBe(0)
+  })
+
+  it("writes no file for an API with more than 200 operations, which the validator refuses also below 64 KiB (CTX-1487)", async () => {
+    const paths: Record<string, object> = {}
+    for (let i = 0; i < 201; i++) paths[`/i${i}`] = { get: {} }
+    const s = await fixture({
+      "apps/big/openapi.json": JSON.stringify({ openapi: "3.0.0", paths }),
+    })
+    const out = s.write({
+      root: "apps/big",
+      apis: [
+        {
+          name: "Items API",
+          operations: Array.from({ length: 201 }, (_, i) => ({
+            method: "GET",
+            path: `/i${i}`,
+          })),
+        },
+      ],
+    })
+    expect(out.skipped).toContainEqual({
+      path: "knowledge/apis/items-api.md",
+      reason:
+        "Items API: the API file would be larger than 64 KiB or have more than 200 operations. Split the API into smaller APIs, for example by path prefix",
+    })
+    expect(out.ops).toEqual([])
+    const result = await s.validate()
+    expect(result.rejections).toEqual([])
+    expect(result.cursorAt).toBe(0)
+    // 200 operations fit in one API file, and the validator accepts it.
+    const fits = s.write({
+      root: "apps/big",
+      apis: [
+        {
+          name: "Items API",
+          operations: Array.from({ length: 200 }, (_, i) => ({
+            method: "GET",
+            path: `/i${i}`,
+          })),
+        },
+      ],
+    })
+    expect(fits.skipped).toEqual([])
+    const accepted = await s.validate()
+    expect(accepted.rejections).toEqual([])
+    expect(accepted.cursorAt).toBe(200)
   })
 
   it("is deterministic: the same inputs give the same staged tree", async () => {
