@@ -16,7 +16,7 @@
     "@blazediff/core-native": "7.0.0",
     "@blazediff/interpret-native": "7.0.0",
     "storybook": "^11.0.0-beta.3",
-    "zod": "^4.3.6"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/node": "25.3.0",
