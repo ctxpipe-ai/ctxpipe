@@ -1,4 +1,5 @@
-import { delay, HttpResponse, http, type JsonBodyType } from "msw"
+import { delay, HttpResponse, http } from "msw"
+import type { SetupWorker } from "msw/browser"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
 import { connectionAnchorId } from "@/features/connectors/connectionAnchor"
@@ -7,10 +8,13 @@ import {
   atlassianCapabilitiesHandler,
   atlassianOauthHandler,
 } from "@/mocks/atlassian-handlers"
-import { buildkiteStoryStatus } from "@/mocks/buildkite-handlers"
+import {
+  buildkiteStatusHandler,
+  buildkiteStoryStatus,
+} from "@/mocks/buildkite-handlers"
 import { githubAppInstalledHandlers, signedInHandlers } from "@/mocks/handlers"
 import { linearOauthAppHandler } from "@/mocks/linear-handlers"
-import { plainStoryStatus } from "@/mocks/plain-handlers"
+import { plainStatusHandler, plainStoryStatus } from "@/mocks/plain-handlers"
 import {
   sideNavHandlers,
   workspaceListHandler,
@@ -737,22 +741,25 @@ export const ReopensConfluenceWizardAfterAccountLink = meta.story({
 })
 
 /**
- * Answers a request with `body`. `answered` resolves when MSW answers it.
- * Under CI load, MSW can need more than the 1 s of a `waitFor` to answer the
- * first requests of a page, so a play waits for `answered` first.
+ * Resolves when MSW has sent a mocked response to a request for each of
+ * `paths` (the end of the pathname). Under CI load, MSW can take more than the
+ * 1 s of a `waitFor` to answer the first requests of a page. Call it in
+ * `beforeEach`, which runs before the story renders and sends its requests.
  */
-function answer(body: JsonBodyType) {
-  let resolve = () => {}
-  const answered = new Promise<void>((done) => {
-    resolve = done
-  })
-  return {
-    answered,
-    resolver: () => {
-      resolve()
-      return HttpResponse.json(body)
-    },
-  }
+function mockedResponses(msw: SetupWorker, paths: string[]) {
+  return Promise.all(
+    paths.map(
+      (path) =>
+        new Promise<void>((resolve) => {
+          const listener = ({ request }: { request: Request }) => {
+            if (!new URL(request.url).pathname.endsWith(path)) return
+            msw.events.removeListener("response:mocked", listener)
+            resolve()
+          }
+          msw.events.on("response:mocked", listener)
+        }),
+    ),
+  )
 }
 
 /**
@@ -772,9 +779,6 @@ async function animationsEnded(doc: Document) {
   )
 }
 
-/** Resolves when MSW has answered the requests of the first card. */
-let firstCardAnswered: Promise<unknown> = Promise.resolve()
-
 /**
  * Connectors page, where an admin adds and manages the sources of the org: one
  * Buildkite connection has its own card, and the catalog opens the setup of a
@@ -782,34 +786,31 @@ let firstCardAnswered: Promise<unknown> = Promise.resolve()
  */
 export const BuildkiteFromCatalog = meta.story({
   render: pageRender,
-  beforeEach: ({ msw }) => {
-    const list = answer({
-      items: [
-        {
-          id: "conn_buildkite_1",
-          type: "buildkite",
-          displayName: "acme",
-          status: "connected",
-          createdAt: "2025-01-01T00:00:00.000Z",
-          updatedAt: "2025-01-02T00:00:00.000Z",
-        },
-      ],
-    })
-    const status = answer(buildkiteStoryStatus({ webhookConfigured: true }))
-    firstCardAnswered = Promise.all([list.answered, status.answered])
+  beforeEach: ({ msw, loaded }) => {
+    // The play reads it from the same story context.
+    loaded.firstCard = mockedResponses(msw, [
+      `/${orgSlug}/api/v1/connectors`,
+      "/api/v1/connectors/buildkite/status",
+    ])
     msw.use(
       http.get(
         ({ request }) =>
           new URL(request.url).pathname === `/${orgSlug}/api/v1/connectors`,
-        list.resolver,
+        () =>
+          HttpResponse.json({
+            items: [
+              {
+                id: "conn_buildkite_1",
+                type: "buildkite",
+                displayName: "acme",
+                status: "connected",
+                createdAt: "2025-01-01T00:00:00.000Z",
+                updatedAt: "2025-01-02T00:00:00.000Z",
+              },
+            ],
+          }),
       ),
-      http.get(
-        ({ request }) =>
-          new URL(request.url).pathname.endsWith(
-            "/api/v1/connectors/buildkite/status",
-          ),
-        status.resolver,
-      ),
+      buildkiteStatusHandler(buildkiteStoryStatus({ webhookConfigured: true })),
       // The org shell lists the Workspaces.
       workspaceListHandler([]),
     )
@@ -817,10 +818,10 @@ export const BuildkiteFromCatalog = meta.story({
   parameters: {
     storyRoute: connectorsRoute,
   },
-  play: async ({ canvasElement }) => {
+  play: async ({ canvasElement, loaded }) => {
     const body = within(canvasElement.ownerDocument.body)
-    // The card comes after MSW answers the list and the status of the page.
-    await firstCardAnswered
+    // The card comes after MSW answers the list and the status.
+    await loaded.firstCard
     await waitFor(() =>
       expect(
         body.getByRole("button", { name: "Buildkite connector actions" }),
@@ -833,12 +834,14 @@ export const BuildkiteFromCatalog = meta.story({
         name: "Add another Buildkite connection",
       }),
     )
-    const setup = await body.findByRole("heading", {
-      name: "Set up Buildkite connector",
-    })
+    await body.findByRole("heading", { name: "Set up Buildkite connector" })
     // The modal fades in; wait until the fade-in ends.
     await animationsEnded(canvasElement.ownerDocument)
-    await expect(setup).toBeVisible()
+    await waitFor(() =>
+      expect(
+        body.getByRole("heading", { name: "Set up Buildkite connector" }),
+      ).toBeVisible(),
+    )
     await expect(body.getByLabelText("Organization slug")).toHaveValue("")
   },
 })
@@ -850,34 +853,31 @@ export const BuildkiteFromCatalog = meta.story({
  */
 export const PlainFromCatalog = meta.story({
   render: pageRender,
-  beforeEach: ({ msw }) => {
-    const list = answer({
-      items: [
-        {
-          id: "conn_plain_1",
-          type: "plain",
-          displayName: "Acme Support",
-          status: "connected",
-          createdAt: "2025-01-01T00:00:00.000Z",
-          updatedAt: "2025-01-02T00:00:00.000Z",
-        },
-      ],
-    })
-    const status = answer(plainStoryStatus())
-    firstCardAnswered = Promise.all([list.answered, status.answered])
+  beforeEach: ({ msw, loaded }) => {
+    // The play reads it from the same story context.
+    loaded.firstCard = mockedResponses(msw, [
+      `/${orgSlug}/api/v1/connectors`,
+      "/api/v1/connectors/plain/status",
+    ])
     msw.use(
       http.get(
         ({ request }) =>
           new URL(request.url).pathname === `/${orgSlug}/api/v1/connectors`,
-        list.resolver,
+        () =>
+          HttpResponse.json({
+            items: [
+              {
+                id: "conn_plain_1",
+                type: "plain",
+                displayName: "Acme Support",
+                status: "connected",
+                createdAt: "2025-01-01T00:00:00.000Z",
+                updatedAt: "2025-01-02T00:00:00.000Z",
+              },
+            ],
+          }),
       ),
-      http.get(
-        ({ request }) =>
-          new URL(request.url).pathname.endsWith(
-            "/api/v1/connectors/plain/status",
-          ),
-        status.resolver,
-      ),
+      plainStatusHandler(plainStoryStatus()),
       // The org shell lists the Workspaces.
       workspaceListHandler([]),
     )
@@ -885,10 +885,10 @@ export const PlainFromCatalog = meta.story({
   parameters: {
     storyRoute: connectorsRoute,
   },
-  play: async ({ canvasElement }) => {
+  play: async ({ canvasElement, loaded }) => {
     const body = within(canvasElement.ownerDocument.body)
-    // The card comes after MSW answers the list and the status of the page.
-    await firstCardAnswered
+    // The card comes after MSW answers the list and the status.
+    await loaded.firstCard
     await waitFor(() =>
       expect(
         body.getByRole("button", { name: "Plain connector actions" }),
@@ -899,12 +899,14 @@ export const PlainFromCatalog = meta.story({
     await userEvent.click(
       await body.findByRole("button", { name: "Add another Plain connection" }),
     )
-    const setup = await body.findByRole("heading", {
-      name: "Set up Plain connector",
-    })
+    await body.findByRole("heading", { name: "Set up Plain connector" })
     // The modal fades in; wait until the fade-in ends.
     await animationsEnded(canvasElement.ownerDocument)
-    await expect(setup).toBeVisible()
+    await waitFor(() =>
+      expect(
+        body.getByRole("heading", { name: "Set up Plain connector" }),
+      ).toBeVisible(),
+    )
     await expect(body.getByLabelText("API key")).toHaveValue("")
   },
 })
