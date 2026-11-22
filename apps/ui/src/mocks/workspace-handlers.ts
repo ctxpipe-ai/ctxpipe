@@ -62,11 +62,14 @@ const emptyPageInfo: PageInfo = {
 
 /**
  * `GET /workspaces`: the Workspaces of the org. The last used Workspace is
- * the first one, unless `lastUsedWorkspaceId` names another (or null).
+ * the first one, unless `lastUsedWorkspaceId` names another (or null). The
+ * `knowledge_plane` flag of the org is `on`, so the composer shows the base
+ * branch picker; the product default is `off`.
  */
 export function workspaceListHandler(
   items: MockState<Workspace[]>,
   lastUsedWorkspaceId?: string | null,
+  knowledgePlane: "off" | "shadow" | "on" = "on",
 ) {
   return http.get(
     ({ request }) => /\/api\/v1\/workspaces$/.test(pathnameOf(request)),
@@ -78,6 +81,7 @@ export function workspaceListHandler(
             lastUsedWorkspaceId === undefined
               ? (items[0]?.id ?? null)
               : lastUsedWorkspaceId,
+          knowledgePlane,
         }),
       ),
   )
@@ -628,6 +632,7 @@ export function workspaceShellHandlers(input?: {
   gitBlobs?: Record<string, string>
   gitStatus?: WorkspaceGitStatusResponse
   graph?: WorkspaceGraphPayload
+  knowledgePlane?: "off" | "shadow" | "on"
 }) {
   const workspaces = input?.workspaces ?? [docsWorkspace, readOnlyWorkspace]
   const detail = input && "detail" in input ? input.detail : docsWorkspaceDetail
@@ -636,7 +641,7 @@ export function workspaceShellHandlers(input?: {
       ? (input.conversation ?? null)
       : docsConversationDetail
   return [
-    workspaceListHandler(workspaces),
+    workspaceListHandler(workspaces, undefined, input?.knowledgePlane),
     workspaceDetailHandler(detail ?? null),
     workspaceTouchHandler,
     conversationsListHandler(input?.conversations ?? docsConversations),

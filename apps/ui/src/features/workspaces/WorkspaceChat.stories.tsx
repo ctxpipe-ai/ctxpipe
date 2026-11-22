@@ -60,6 +60,23 @@ export const ComposeEmpty = meta.story({
   },
 })
 
+/**
+ * Chat panel of a Workspace in an org with the knowledge_plane flag off: the
+ * composer of a new conversation has no base branch picker, so the
+ * conversation starts from the default branch. The send button keeps its
+ * place at the bottom right.
+ */
+export const ComposeWithoutBaseBranchPicker = meta.story({
+  beforeEach: ({ msw }) => {
+    msw.use(...workspaceShellHandlers({ knowledgePlane: "off" }))
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByRole("button", { name: "Find unused files" })
+    expect(canvas.queryByRole("button", { name: /main/ })).toBeNull()
+  },
+})
+
 const preparedBases: (string | undefined)[] = []
 const preparedConversationIds: string[] = []
 

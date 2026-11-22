@@ -1,5 +1,6 @@
 import {
   type QueryClient,
+  useQuery,
   useQueryClient,
   useSuspenseQuery,
 } from "@tanstack/react-query"
@@ -22,6 +23,7 @@ import {
   workspaceChatPrepareOptions,
   workspaceConversationOptions,
   workspaceKeys,
+  workspaceListOptions,
 } from "./queries"
 import {
   newUiConversationId,
@@ -119,6 +121,12 @@ function WorkspaceComposeChat(props: {
     return created
   })
   const { conversationId, baseBranch } = target
+  // The base branch picker shows only when the org's knowledge_plane flag is
+  // not off. Without it, the conversation starts from the default branch.
+  const showBaseBranchPicker = useQuery({
+    ...workspaceListOptions(orgSlug),
+    select: (list) => list.knowledgePlane !== "off",
+  }).data
   useEffect(() => {
     void queryClient.prefetchQuery(
       workspaceChatPrepareOptions(
@@ -164,34 +172,36 @@ function WorkspaceComposeChat(props: {
               })
             }}
             tools={
-              <BaseBranchPicker
-                orgSlug={orgSlug}
-                workspaceSlug={props.workspace.slug}
-                defaultBranch={props.workspace.defaultBranch}
-                value={baseBranch}
-                onChange={(branch) => {
-                  if (branch === baseBranch) return
-                  const next: ComposeTarget = {
-                    conversationId,
-                    baseBranch: branch,
-                  }
-                  queryClient.setQueryData(composeKey, next)
-                  setTarget(next)
-                  // A prepare that still runs would answer this fetch too:
-                  // cancel it, so the new base branch reaches the server.
-                  const prepare = workspaceChatPrepareOptions(
-                    orgSlug,
-                    conversationId,
-                    workspaceId,
-                    branch,
-                  )
-                  void queryClient
-                    .cancelQueries({ queryKey: prepare.queryKey })
-                    .then(() =>
-                      queryClient.fetchQuery({ ...prepare, staleTime: 0 }),
+              showBaseBranchPicker ? (
+                <BaseBranchPicker
+                  orgSlug={orgSlug}
+                  workspaceSlug={props.workspace.slug}
+                  defaultBranch={props.workspace.defaultBranch}
+                  value={baseBranch}
+                  onChange={(branch) => {
+                    if (branch === baseBranch) return
+                    const next: ComposeTarget = {
+                      conversationId,
+                      baseBranch: branch,
+                    }
+                    queryClient.setQueryData(composeKey, next)
+                    setTarget(next)
+                    // A prepare that still runs would answer this fetch too:
+                    // cancel it, so the new base branch reaches the server.
+                    const prepare = workspaceChatPrepareOptions(
+                      orgSlug,
+                      conversationId,
+                      workspaceId,
+                      branch,
                     )
-                }}
-              />
+                    void queryClient
+                      .cancelQueries({ queryKey: prepare.queryKey })
+                      .then(() =>
+                        queryClient.fetchQuery({ ...prepare, staleTime: 0 }),
+                      )
+                  }}
+                />
+              ) : undefined
             }
             placeholder="What should ctxpipe do in this Workspace?"
             suggestions={workspaceSuggestions}

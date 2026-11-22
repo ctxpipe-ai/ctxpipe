@@ -23,6 +23,9 @@ import { readChatDraft, writeChatDraft } from "./chat-draft"
 
 type MessageInputLayout = "thread" | "empty"
 
+/** An example prompt: a short label for its pill, and the full text. */
+type PromptSuggestion = { label: string; prompt: string }
+
 /**
  * The composer of a chat: the user writes a message and sends it, or stops
  * the turn that runs. The `thread` layout docks it below a conversation; the
@@ -42,7 +45,7 @@ export function MessageInputBox(props: {
   draftKey?: string
   contentClassName?: string
   /** Example prompts under the composer. Picking one fills the composer; it does not send. */
-  suggestions?: readonly { label: string; prompt: string }[]
+  suggestions?: readonly PromptSuggestion[]
   /** Controls at the leading edge of the footer, such as the base branch picker. */
   tools?: ReactNode
 }) {
@@ -188,7 +191,7 @@ function MessageInputDraftStore(props: { draftKey: string }) {
  * composer footer.
  */
 function MessageInputSuggestions(props: {
-  suggestions: readonly { label: string; prompt: string }[]
+  suggestions: readonly PromptSuggestion[]
   textareaRef: RefObject<HTMLTextAreaElement | null>
   isDisabled?: boolean
 }) {

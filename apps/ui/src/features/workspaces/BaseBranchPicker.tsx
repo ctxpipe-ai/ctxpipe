@@ -176,7 +176,7 @@ export function BaseBranchPicker(props: {
               <SkeletonRow key={opacity} className={cn("h-7 px-3", opacity)} />
             ))}
           </div>
-        ) : branches.isError ? (
+        ) : branches.isError && !branches.data ? (
           <div className="flex h-10 items-center gap-2 border-t border-white/10 pr-2.5 pl-4">
             <p className="min-w-0 flex-1 text-xs text-muted-foreground">
               The other branches did not load.
