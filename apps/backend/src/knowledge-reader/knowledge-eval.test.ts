@@ -46,22 +46,33 @@ const datasetFile = new URL(
 ).pathname
 
 describe("the dataset", () => {
-  it("reads the question set v0, balanced in each Workspace", async () => {
+  it.each([
+    {
+      file: "corpora-v0.dataset.json",
+      version: "0",
+      corpora: ["kubernetes", "rust"],
+      least: 40,
+    },
+    {
+      file: "backstage-v0.dataset.json",
+      version: "backstage-0",
+      corpora: ["backstage"],
+      least: 35,
+    },
+  ])("reads the question set $file, by the rules of v0", async (expected) => {
     const dataset = await readDataset(
       new URL(
-        "../../evals/knowledge/fixtures/corpora-v0.dataset.json",
+        `../../evals/knowledge/fixtures/${expected.file}`,
         import.meta.url,
       ).pathname,
     )
-    expect(dataset.corpora.map((corpus) => corpus.id)).toEqual([
-      "kubernetes",
-      "rust",
-    ])
+    expect(dataset.version).toBe(expected.version)
+    expect(dataset.corpora.map((corpus) => corpus.id)).toEqual(expected.corpora)
     for (const corpus of dataset.corpora) {
       const questions = dataset.questions.filter(
         (question) => question.corpus === corpus.id,
       )
-      expect(questions.length).toBeGreaterThanOrEqual(40)
+      expect(questions.length).toBeGreaterThanOrEqual(expected.least)
       // No image in the corpora, and no validAt in v0.
       expect(questions.some((question) => question.category === "image")).toBe(
         false,
@@ -79,28 +90,6 @@ describe("the dataset", () => {
           inCategory.filter((question) => question.split === "holdout").length,
         ).toBe(Math.round(0.4 * inCategory.length))
       }
-    }
-  })
-
-  it("reads the Backstage question set v0, as its own dataset", async () => {
-    const dataset = await readDataset(
-      new URL(
-        "../../evals/knowledge/fixtures/backstage-v0.dataset.json",
-        import.meta.url,
-      ).pathname,
-    )
-    expect(dataset.version).toBe("backstage-0")
-    expect(dataset.corpora.map((corpus) => corpus.id)).toEqual(["backstage"])
-    expect(dataset.questions.length).toBeGreaterThanOrEqual(35)
-    for (const category of new Set(
-      dataset.questions.map((question) => question.category),
-    )) {
-      const inCategory = dataset.questions.filter(
-        (question) => question.category === category,
-      )
-      expect(
-        inCategory.filter((question) => question.split === "holdout").length,
-      ).toBe(Math.round(0.4 * inCategory.length))
     }
   })
 

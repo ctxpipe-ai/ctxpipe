@@ -476,61 +476,6 @@
       ]
     },
     {
-      "id": "backstage-disagreement-02",
-      "corpus": "backstage",
-      "category": "disagreement",
-      "split": "holdout",
-      "text": "Which backend endpoint should a frontend call to fetch the cluster objects (pods, deployments and so on) that belong to a given catalog component?",
-      "gold": [
-        "knowledge/apis/kubernetes-api.md",
-        "knowledge/operations/kubernetes-api-post-api-kubernetes-services-serviceid.md"
-      ],
-      "seeds": ["knowledge/apis/kubernetes-api.md"],
-      "positions": [
-        {
-          "refs": ["knowledge/apis/kubernetes-api.md"],
-          "status": "current"
-        },
-        {
-          "refs": [
-            "knowledge/operations/kubernetes-api-post-api-kubernetes-services-serviceid.md"
-          ],
-          "status": "superseded"
-        }
-      ],
-      "keyFacts": [
-        "POST /api/kubernetes/services/{serviceId} is a deprecated route for fetching Kubernetes objects associated with an entity.",
-        "The Kubernetes API also exposes POST /api/kubernetes/resources/workloads/query for entity-associated resources, the non-deprecated route."
-      ]
-    },
-    {
-      "id": "backstage-disagreement-16",
-      "corpus": "backstage",
-      "category": "disagreement",
-      "split": "dev",
-      "text": "We use the well-known open-source, CNCF-hosted identity and access management server for single sign-on. Will our developer portal get a first-class login integration for it inside the main project, so we no longer have to wire it up by hand through the generic standards-based connector? If not, where is that integration meant to live?",
-      "gold": [
-        "github/issues/backstage/backstage/29671.md",
-        "github/issues/backstage/backstage/33935.md"
-      ],
-      "seeds": ["github/issues/backstage/backstage/29671.md"],
-      "positions": [
-        {
-          "refs": ["github/issues/backstage/backstage/33935.md"],
-          "status": "scoped"
-        },
-        {
-          "refs": ["github/issues/backstage/backstage/29671.md"],
-          "status": "current"
-        }
-      ],
-      "keyFacts": [
-        "A dedicated Keycloak auth provider in the core backstage/backstage repository was proposed, and that issue was closed as a duplicate.",
-        "Maintainers decided the Keycloak auth provider belongs in the existing Keycloak workspace in the community-plugins repository, next to the Keycloak catalog module.",
-        "The documentation for using Keycloak for auth and org data should still go in the main Backstage docs; an auth backend module PR was opened in community-plugins."
-      ]
-    },
-    {
       "id": "backstage-disagreement-20",
       "corpus": "backstage",
       "category": "disagreement",
