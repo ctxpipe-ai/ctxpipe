@@ -43,6 +43,7 @@ import {
   inContext,
   reviewDesign,
   type Explained,
+  type Review,
 } from "./explain.ts"
 import { pngSize, prepareImage } from "./prepare.ts"
 import { buildNewPrompt, buildPrompt, type Prompt } from "./prompt.ts"
@@ -302,25 +303,41 @@ export async function visualReview(
           summary: `${member.summary} Jev on ${verdict.storyId}: ${verdict.summary}`,
         }
       : member
-  // A screenshot with the same redesign takes a regression of the review, with
-  // its text. A stronger verdict of its own stays.
-  const shareRedesign = (verdict: Verdict, member: Verdict): Verdict => {
-    if (verdict.verdict !== "regression") return member
-    const rank = { none: 0, minor: 1, major: 2, blocker: 3 }
+  // A screenshot with the same redesign takes the regression of the review
+  // `review` of the screenshot `storyId`, with its text. A stronger verdict
+  // of its own stays.
+  const withReview = (
+    review: Review,
+    storyId: string,
+    member: Verdict,
+  ): Verdict => {
+    const severityRank = { none: 0, minor: 1, major: 2, blocker: 3 }
     return {
       ...member,
       ...(member.verdict !== "regression" ||
-      rank[verdict.severity] > rank[member.severity]
+      severityRank[review.severity] > severityRank[member.severity]
         ? {
-            verdict: verdict.verdict,
-            severity: verdict.severity,
-            confidence: verdict.confidence,
+            verdict: "regression",
+            severity: review.severity,
+            confidence: review.confidence,
           }
         : {}),
-      summary: `${member.summary} Design review on ${verdict.storyId}, an alike diff: ${verdict.summary}`,
+      summary: `${member.summary} Design review on ${storyId}, an alike diff: ${review.text}`,
     }
   }
-  const feedbackOf = (input: Explained, reviewed: boolean) =>
+  const feedbackOf = (
+    input: Explained,
+    reviewed: boolean,
+  ): {
+    call: (verdict: Verdict) => Promise<{
+      verdict: Verdict
+      explainer?: { costUsd: number | null }
+      review?: Review
+    }>
+    reserve: number
+    skipped: string | undefined
+    share: (verdict: Verdict, member: Verdict) => Verdict
+  } =>
     input.kind === "new"
       ? {
           call: (verdict: Verdict) =>
@@ -342,7 +359,7 @@ export async function visualReview(
             reserve: unknownDesignUsd,
             skipped:
               "The design review of the changed area did not run: the budget of the run is short.",
-            share: shareRedesign,
+            share: shareChange,
           }
         : {
             call: (verdict: Verdict) =>
@@ -362,7 +379,7 @@ export async function visualReview(
       4,
     )
     const redesigned = found.map(({ story }) => story.storyId)
-    const rank = (storyId: string) => {
+    const reviewOrder = (storyId: string) => {
       const at = redesigned.indexOf(storyId)
       return jevInputs.get(storyId)?.kind === "new"
         ? -1
@@ -372,7 +389,8 @@ export async function visualReview(
     }
     const order = [...verdicts.keys()].sort(
       (a, b) =>
-        rank(verdicts[a]?.storyId ?? "") - rank(verdicts[b]?.storyId ?? ""),
+        reviewOrder(verdicts[a]?.storyId ?? "") -
+        reviewOrder(verdicts[b]?.storyId ?? ""),
     )
     const fits = (reserve: number) =>
       budget.limitUsd === undefined ||
@@ -395,7 +413,7 @@ export async function visualReview(
         (fits(unknownDesignUsd) || !fits(unknownExplainerUsd))
       const { call, reserve, skipped, share } = feedbackOf(input, reviewed)
       let updated: Verdict
-      let alike: ReadonlySet<string> = new Set()
+      let review: Review | undefined
       if (!fits(reserve)) {
         if (!skipped || verdict.error !== undefined) continue
         updated = { ...verdict, summary: `${verdict.summary} ${skipped}` }
@@ -404,20 +422,27 @@ export async function visualReview(
         if (!result.explainer) continue
         budget.spentUsd += result.explainer.costUsd ?? reserve
         updated = result.verdict
-        if (reviewed)
-          alike = new Set(
-            found.find(({ story }) => story.storyId === verdict.storyId)?.alike,
-          )
+        review = result.review
       }
       verdicts[index] = updated
+      // A regression of the review stands for the alike diffs of the
+      // redesign: they need no feedback call of their own.
+      const alike = new Set(
+        review
+          ? found.find(({ story }) => story.storyId === verdict.storyId)?.alike
+          : [],
+      )
       for (const id of alike) covered.add(id)
       for (const [other, member] of verdicts.entries())
-        if (
-          member.groupedWith === verdict.storyId ||
-          alike.has(member.storyId) ||
-          alike.has(member.groupedWith ?? "")
+        if (member.groupedWith === verdict.storyId)
+          verdicts[other] = review
+            ? withReview(review, verdict.storyId, member)
+            : share(updated, member)
+        else if (
+          review &&
+          (alike.has(member.storyId) || alike.has(member.groupedWith ?? ""))
         )
-          verdicts[other] = share(updated, member)
+          verdicts[other] = withReview(review, verdict.storyId, member)
     }
   }
 

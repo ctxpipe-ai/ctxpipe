@@ -1866,6 +1866,14 @@ export const Primary = { render: () => null }
         ])
         const card =
           "apps/ui/src/components/screenshots/Card.Primary.desktop.screenshot.png"
+        // Jev finds the spacing area worse at 0.95: a should-fix.
+        const spacingStrong = (name: string, type: string) =>
+          name === "area.spacing"
+            ? {
+                type: "choice",
+                probabilities: { better: 0.02, same: 0.03, worse: 0.95 },
+              }
+            : spacingWorse(name, type)
 
         test("a changed screenshot with a new element gets the design review of its head image, scoped to the changed regions; one review stands for alike diffs", async () => {
           serveJev(jevSame)
@@ -1939,6 +1947,75 @@ export const Primary = { render: () => null }
           expect(verdicts()[1]?.summary).toContain(
             `Design review on ${button}, an alike diff:`,
           )
+        })
+
+        test("an alike diff takes only the result of the review, merged with its own Jev verdict", async () => {
+          // Jev flags the first screenshot strongly, and the second not.
+          serveJev((name, type) =>
+            decisions.length === 1
+              ? spacingStrong(name, type)
+              : jevSame(name, type),
+          )
+          content = designReply("regression", "minor")
+          for (const path of [button, card]) {
+            await put("base", path, before)
+            await put("head", path, redesigned)
+          }
+
+          await run(
+            "--json",
+            "--judge",
+            "jev",
+            "--images",
+            images,
+            "--",
+            button,
+            card,
+          )
+
+          expect(chats).toHaveLength(1)
+          expect(verdicts()).toMatchObject([
+            { path: button, verdict: "regression", severity: "major" },
+            { path: card, verdict: "regression", severity: "minor" },
+          ])
+          expect(verdicts()[1]?.summary).toContain(
+            `Design review on ${button}, an alike diff: Design review (openai/gpt-6.1-sol, it says regression minor)`,
+          )
+        })
+
+        test("an alike diff gets its own feedback when the review finds no regression", async () => {
+          serveJev((name, type) =>
+            decisions.length === 1
+              ? jevSame(name, type)
+              : spacingWorse(name, type),
+          )
+          content = designReply("intended", "none")
+          for (const path of [button, card]) {
+            await put("base", path, before)
+            await put("head", path, redesigned)
+          }
+
+          await run(
+            "--json",
+            "--judge",
+            "jev",
+            "--images",
+            images,
+            "--",
+            button,
+            card,
+          )
+
+          // The review of the first one, then the explainer of the Jev
+          // regression of the second one.
+          expect(chats.map(({ model }) => model)).toEqual([
+            "openai/gpt-6.1-sol",
+            "openai/gpt-6-luna",
+          ])
+          expect(verdicts()[1]).toMatchObject({
+            verdict: "regression",
+            severity: "minor",
+          })
         })
 
         test("on a short screenshot that is padded before the call, the changed regions are in fractions of the sent image", async () => {

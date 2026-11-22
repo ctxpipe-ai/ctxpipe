@@ -310,9 +310,9 @@ export async function inContext(
 /**
  * The design review of the new screenshots of one story, or of the head
  * image of a changed screenshot in its context (see `inContext`), after the
- * Jev `verdict` (CTX-1469, CTX-1509, ADR-063 rules 18 to 20). Jev does not tell a clean
- * new screenshot from a broken one (rule 13), and it answers one rubric entry
- * at a time. The design review asks `model` the prompt of a new screenshot
+ * Jev `verdict` (CTX-1469, CTX-1509, ADR-063 rules 18 to 20). Jev does not
+ * tell a clean new screenshot from a broken one (rule 13), and it answers one
+ * rubric entry at a time. The design review asks `model` the prompt of a new screenshot
  * (`buildNewPrompt`), which compares each element with the elements around it.
  * Its text gives the agent a direction for each new story, also when Jev is
  * not sure. It replaces the explainer for a new story.
@@ -327,7 +327,8 @@ export async function inContext(
  * (the factory shows only the summary). `costUsd` and `latencyMs` add the call
  * to the Jev call; the cost is null when either one is unknown, also after a
  * failed call. `explainer` has the cost of the call alone, for the budget of
- * the run, as for `explainRegression`.
+ * the run, as for `explainRegression`. `review` is the result of the review
+ * alone, when it is a regression.
  *
  * A failed call or a reply that is not usable keeps the Jev verdict, with a
  * sentence in the summary and no `error`: the review never fails a run. A
@@ -338,7 +339,11 @@ export async function reviewDesign(
   story: NewStoryInput,
   model: string,
   env: Record<string, string | undefined>,
-): Promise<{ verdict: Verdict; explainer?: { costUsd: number | null } }> {
+): Promise<{
+  verdict: Verdict
+  explainer?: { costUsd: number | null }
+  review?: Review
+}> {
   if (verdict.error !== undefined) return { verdict }
   let review: Verdict
   try {
@@ -411,6 +416,7 @@ export async function reviewDesign(
     ({ kind, evidence, suggestion }) =>
       `${kind}: ${evidence}${suggestion ? ` Fix: ${suggestion}` : ""}`,
   )
+  const text = [oneLine(review.summary, 400), ...sentences].join(" ")
   return {
     verdict: {
       ...verdict,
@@ -425,8 +431,29 @@ export async function reviewDesign(
       latencyMs,
       observations: review.observations,
       findings: [...verdict.findings, ...findings],
-      summary: `${verdict.summary} Design review (${model}, ${raises ? `it makes the verdict regression ${severity}` : `it says ${review.verdict}`}): ${[oneLine(review.summary, 400), ...sentences].join(" ")}`,
+      summary: `${verdict.summary} Design review (${model}, ${raises ? `it makes the verdict regression ${severity}` : `it says ${review.verdict}`}): ${text}`,
     },
     explainer,
+    ...(severity
+      ? {
+          review: {
+            severity,
+            confidence: review.confidence,
+            text: `Design review (${model}, it says regression ${severity}): ${text}`,
+          },
+        }
+      : {}),
   }
+}
+
+/**
+ * The result of the design review alone, when it is a regression: its
+ * severity (major only when a finding names a rubric principle with evidence
+ * and a fix), its confidence and its text. A screenshot with the same
+ * redesign takes it (CTX-1509).
+ */
+export type Review = {
+  severity: "minor" | "major"
+  confidence: number
+  text: string
 }
