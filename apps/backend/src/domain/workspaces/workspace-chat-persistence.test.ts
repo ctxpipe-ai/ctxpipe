@@ -13,7 +13,11 @@ import {
   withOrgDbContext,
 } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
-import { chatRuns, chatThreads } from "../../db/schema/chat-persistence.js"
+import {
+  chatInterrupts,
+  chatRuns,
+  chatThreads,
+} from "../../db/schema/chat-persistence.js"
 import { conversations } from "../../db/schema/conversations.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import { workspaceChatPersistence } from "./workspace-chat-persistence.js"
@@ -65,6 +69,9 @@ beforeAll(async () => {
 afterAll(async () => {
   try {
     await withOrgDbContext(org.id, async (db) => {
+      await db
+        .delete(chatInterrupts)
+        .where(eq(chatInterrupts.threadId, conversationId))
       await db.delete(chatRuns).where(eq(chatRuns.threadId, conversationId))
       await db
         .delete(chatThreads)
@@ -95,6 +102,52 @@ describe("workspaceChatPersistence", () => {
       const loaded =
         await persistence.stores.messages.loadThread(conversationId)
       expect(loaded).toEqual(messages)
+    })
+  })
+
+  it("stores chat text that holds a NUL character", async () => {
+    const persistence = workspaceChatPersistence()
+    const nul = "before\u0000after"
+    await withOrgIdContext({ id: org.id, slug: org.slug }, async () => {
+      await persistence.stores.messages.saveThread(conversationId, [
+        { role: "tool", toolCallId: "call_1", content: nul },
+      ])
+      expect(
+        await persistence.stores.messages.loadThread(conversationId),
+      ).toEqual([{ role: "tool", toolCallId: "call_1", content: "beforeafter" }])
+
+      const id = `${runId}-nul`
+      await persistence.stores.runs.createOrResume({
+        runId: id,
+        threadId: conversationId,
+        startedAt: Date.now(),
+      })
+      await persistence.stores.runs.update(id, {
+        status: "error",
+        error: { message: nul },
+      })
+      expect((await persistence.stores.runs.get(id))?.error?.message).toBe(
+        "beforeafter",
+      )
+
+      await persistence.stores.interrupts.create({
+        interruptId: id,
+        runId: id,
+        threadId: conversationId,
+        requestedAt: Date.now(),
+        payload: { text: nul },
+      })
+      await persistence.stores.interrupts.resolve(id, { text: nul })
+      expect(await persistence.stores.interrupts.get(id)).toMatchObject({
+        payload: { text: "beforeafter" },
+        response: { text: "beforeafter" },
+      })
+
+      await persistence.stores.metadata.set("nul-test", id, { text: nul })
+      expect(await persistence.stores.metadata.get("nul-test", id)).toEqual({
+        text: "beforeafter",
+      })
+      await persistence.stores.metadata.delete("nul-test", id)
     })
   })
 })
