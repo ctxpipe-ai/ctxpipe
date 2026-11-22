@@ -96,7 +96,7 @@ describe("rubric", () => {
     ).toMatchFileSnapshot("../rubric.json")
   })
 
-  test("has the eleven concrete areas and the fifteen design qualities, the qualities in priority order", () => {
+  test("has the eleven concrete areas and the sixteen design qualities, the qualities in priority order", () => {
     expect(areas.map(({ id }) => id).sort()).toEqual([
       "actions",
       "broken-content",
@@ -123,6 +123,7 @@ describe("rubric", () => {
       "Continuity",
       "Prägnanz",
       "Feedback and state",
+      "Familiar pattern",
       "Consistency",
       "Brand fit",
       "Density",

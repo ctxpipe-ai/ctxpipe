@@ -66,12 +66,14 @@ const unknownCallUsd = 0.25
 // bake-off ($0.0008), so that one reply with no cost does not use the budget
 // of a whole run (ADR-063).
 const unknownJevCallUsd = 0.002
-// The same for a call of the explainer of a Jev regression, or of the design
-// review of a new story. It is also the free budget that the run must have
-// before it makes such a call. It is an estimate: by the price list of
-// OpenRouter, one explainer call with two images costs less than $0.001
-// (CTX-1256), and a design review cost about $0.0013 (CTX-1469).
+// The same for a call of the explainer of a Jev regression. It is also the
+// free budget that the run must have before it makes such a call. It is an
+// estimate: by the price list of OpenRouter, one explainer call with two
+// images costs less than $0.001 (CTX-1256).
 const unknownExplainerUsd = 0.005
+// The same for the design review of a new story: above the most that one
+// review of GPT-6.1-Sol cost in the measurement of CTX-1469 ($0.023).
+const unknownDesignUsd = 0.03
 
 const usage = `Usage: pnpm visual:review [--manifest <path>] [--judge model|jev|agent] [--model <id>] [--filter jev|none] [--budget-usd <n>] [--brief <file>] [--rubric <file>] [--session <folder>] [--json]
        pnpm visual:review --images <folder> [--head-stories <folder>] [--judge model|jev] [--model <id>] [--filter jev|none] [--budget-usd <n>] [--brief <file>] [--rubric <file>] [--json] -- <path>...
@@ -107,9 +109,10 @@ const usage = `Usage: pnpm visual:review [--manifest <path>] [--judge model|jev|
               first. A verdict with no error was judged: a caller can keep it,
               and give a rerun only the other screenshots. The explainer and
               the design review of --judge jev run after all Jev calls, only
-              while ${unknownExplainerUsd} USD of the budget is free, and their
-              spend never makes the exit code 2. Only with --judge model or
-              jev.
+              while ${unknownExplainerUsd} USD (the explainer) or
+              ${unknownDesignUsd} USD (the design review) of the budget is
+              free, and their spend never makes the exit code 2. Only with
+              --judge model or jev.
               Default: no budget.
   --judge     model: a vision model through OpenRouter, with MODEL_PROVIDER_API_KEY
               (and MODEL_PROVIDER_URL). jev: Jev 1.14 through the OpenRouter
@@ -123,8 +126,10 @@ const usage = `Usage: pnpm visual:review [--manifest <path>] [--judge model|jev|
               changes the verdict or the severity. After Jev judges a new
               story, the design review ${designModel} compares each element
               with the elements around it and writes its findings and fixes
-              into the summary. It can make the verdict regression minor, but
-              never another verdict or severity. The visual critic of the
+              into the summary. It can make the verdict regression: major
+              (a should-fix) when a finding names a rubric principle with
+              evidence and a fix, else minor. It never gives a blocker and
+              never lowers the verdict of Jev. The visual critic of the
               factory uses jev (ADR-063).
               agent: write a judgment request for each story; your coding
               agent writes its verdict.json; run again to read it.
@@ -278,7 +283,7 @@ export async function visualReview(
   // The feedback pass runs after all Jev calls, so that a short budget goes
   // to the verdicts first: the explainer of a Jev regression on a change, and
   // the design review of each new story (CTX-1469). It makes a call only
-  // while `unknownExplainerUsd` of the budget is free. A screenshot of a
+  // while the `reserve` of the call is free in the budget. A screenshot of a
   // group gets the explained summary of the screenshot that Jev judged.
   // Another viewport of a new story gets a copy of the reviewed verdict.
   const feedbackOf = (input: Explained) =>
@@ -286,6 +291,7 @@ export async function visualReview(
       ? {
           call: (verdict: Verdict) =>
             reviewDesign(verdict, input.story, designModel, process.env),
+          reserve: unknownDesignUsd,
           skipped:
             "The design review did not run: the budget of the run is short.",
           share: (verdict: Verdict, member: Verdict) =>
@@ -294,6 +300,7 @@ export async function visualReview(
       : {
           call: (verdict: Verdict) =>
             explainRegression(verdict, input, explainerModel, process.env),
+          reserve: unknownExplainerUsd,
           skipped: undefined,
           share: (verdict: Verdict, member: Verdict) =>
             member.verdict === "regression"
@@ -307,18 +314,18 @@ export async function visualReview(
     for (const [index, verdict] of verdicts.entries()) {
       const input = jevInputs.get(verdict.storyId)
       if (!input || verdict.groupedWith !== undefined) continue
-      const { call, skipped, share } = feedbackOf(input)
+      const { call, reserve, skipped, share } = feedbackOf(input)
       let updated: Verdict
       if (
         budget.limitUsd !== undefined &&
-        budget.spentUsd + unknownExplainerUsd > budget.limitUsd
+        budget.spentUsd + reserve > budget.limitUsd
       ) {
         if (!skipped || verdict.error !== undefined) continue
         updated = { ...verdict, summary: `${verdict.summary} ${skipped}` }
       } else {
         const result = await call(verdict)
         if (!result.explainer) continue
-        budget.spentUsd += result.explainer.costUsd ?? unknownExplainerUsd
+        budget.spentUsd += result.explainer.costUsd ?? reserve
         updated = result.verdict
       }
       verdicts[index] = updated

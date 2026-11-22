@@ -52,7 +52,9 @@ After the pattern, before code, name these against DESIGN.md **Hierarchy and gro
 
 Open a shipped screen in the same feature (or the closest `components/ui` primitive). Steal unintuitive details: numbered step markers, hairline recipes, `.ctx-node` icon enclosure, pill + dot + word, catalog rows that are a `ul` used as layout.
 
-**Done when:** you can point at the anchor file and name two details you will copy.
+For a new control or screen, also find how comparable tools show it. Name that reference pattern in the purpose of its story: the visual critic reads the purpose.
+
+**Done when:** you can point at the anchor file, name two details you will copy, and name the reference pattern of each new control or screen.
 
 ## 6. Plan states
 

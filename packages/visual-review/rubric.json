@@ -260,6 +260,18 @@
       "pageOnly": false
     },
     {
+      "id": "familiar-pattern",
+      "name": "Familiar pattern",
+      "definition": "Each control and screen follows the convention that people know from comparable tools and from the rest of the product, so that a user knows at once what it is and how to use it.",
+      "sources": [
+        {
+          "file": "apps/ui/DESIGN.md",
+          "section": "Consistency"
+        }
+      ],
+      "pageOnly": false
+    },
+    {
       "id": "consistency",
       "name": "Consistency",
       "definition": "Similarity holds across screens, so the change reuses the house primitives and patterns: one corner radius (rounded-md), the button variants, the status pill, the alert. No new font, hex color, corner treatment, shadow or card style.",

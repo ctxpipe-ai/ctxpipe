@@ -238,15 +238,17 @@ describe("buildNewPrompt", () => {
     images: [{ path: "new.png", size: { width: 800, height: 500 } }],
   })
 
-  test("new UI gets a design review that quotes the Prägnanz entry of its rubric, so the rule stays in one place (CTX-1469)", () => {
-    const pragnanz = packagedRubric.qualities.find(
-      ({ id }) => id === "pragnanz",
-    )
+  test("new UI gets a design review that quotes the Prägnanz and the familiar pattern entries of its rubric, so each rule stays in one place (CTX-1469, CTX-1493)", () => {
+    const definition = (id: string) =>
+      packagedRubric.qualities.find((quality) => quality.id === id)?.definition
     const { prefix } = buildNewPrompt(newStory())
     expect(prefix).toContain(
       "10. New UI has no earlier version, so review its design",
     )
-    expect(prefix).toContain(`Prägnanz [pragnanz]: ${pragnanz?.definition}`)
+    expect(prefix).toContain(`Prägnanz [pragnanz]: ${definition("pragnanz")}`)
+    expect(prefix).toContain(
+      `(c) Each element reuses the house pattern for its role. Familiar pattern [familiar-pattern]: ${definition("familiar-pattern")}`,
+    )
     expect(prefix).toContain("also when it is clear and usable")
 
     // The head rubric of a PR changes the quoted text with it.

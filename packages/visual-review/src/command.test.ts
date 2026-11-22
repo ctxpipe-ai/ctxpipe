@@ -1208,7 +1208,11 @@ export const Primary = { render: () => null }
             }
     // The reply of the design review of a new story (CTX-1469), in the schema
     // of a new screenshot.
-    const designReply = (verdict: string, severity: string) =>
+    const designReply = (
+      verdict: string,
+      severity: string,
+      finding: { rubricRef?: string; suggestion?: string | null } = {},
+    ) =>
       JSON.stringify({
         observations: [
           { part: 1, seen: "A composer with a bordered select inside it." },
@@ -1228,6 +1232,7 @@ export const Primary = { render: () => null }
                   rubricRef: "apps/ui/DESIGN.md › Gestalt lens",
                   explainedByBrief: false,
                   suggestion: "Make the select a quiet chip of the composer.",
+                  ...finding,
                 },
               ]
             : [],
@@ -1330,7 +1335,7 @@ export const Primary = { render: () => null }
       // The design review: the prompt of a new screenshot, with its rule
       // for new UI, to the design model.
       expect(chats).toHaveLength(1)
-      expect(chats[0]?.model).toBe("anthropic/claude-haiku-5.5")
+      expect(chats[0]?.model).toBe("openai/gpt-6.1-sol")
       expect(chats[0]?.messages[0]?.content[0]?.text).toContain(
         "New UI has no earlier version",
       )
@@ -1338,7 +1343,7 @@ export const Primary = { render: () => null }
         { path: button, verdict: "intended", severity: "none" },
       ])
       expect(verdicts()[0]?.summary).toContain(
-        "Design review (anthropic/claude-haiku-5.5, it says intended): The select is louder",
+        "Design review (openai/gpt-6.1-sol, it says intended): The select is louder",
       )
     })
 
@@ -1655,7 +1660,7 @@ export const Primary = { render: () => null }
         ).toBe(1)
 
         expect(chats).toHaveLength(1)
-        expect(chats[0]?.model).toBe("anthropic/claude-haiku-5.5")
+        expect(chats[0]?.model).toBe("openai/gpt-6.1-sol")
         const parts = chats[0]?.messages[0]?.content ?? []
         expect(parts.filter(({ type }) => type === "image_url")).toHaveLength(1)
         // The finding of Jev comes first, then the one of the review.
@@ -1703,36 +1708,70 @@ export const Primary = { render: () => null }
           await put("head", mobile, screenshot(390, 600, []))
         })
 
-        test("it makes an unsure verdict regression minor, never more, and the other viewport takes the reviewed verdict", async () => {
+        test("a finding that names a rubric principle with evidence and a fix makes the verdict major (a should-fix), never a blocker, and the other viewport takes the reviewed verdict", async () => {
           serveJev(jevUnsure)
           content = designReply("regression", "blocker")
 
-          // A nit: the review of a model never stops a merge.
-          expect(await review()).toBe(0)
+          // A should-fix: the exit code of major.
+          expect(await review()).toBe(1)
 
           expect(chats).toHaveLength(1)
           expect(verdicts()).toMatchObject([
             {
               path: desktop,
               verdict: "regression",
-              severity: "minor",
+              severity: "major",
               confidence: 0.7,
               costUsd: 0.0104,
             },
             {
               path: mobile,
               verdict: "regression",
-              severity: "minor",
+              severity: "major",
               groupedWith: desktop,
               costUsd: 0,
             },
           ])
           expect(verdicts()[0]?.summary).toContain(
-            "Design review (anthropic/claude-haiku-5.5, it makes the verdict regression minor)",
+            "Design review (openai/gpt-6.1-sol, it makes the verdict regression major): The select is louder than the composer that holds it. spacing: The select has a bright frame of its own. Fix: Make the select a quiet chip of the composer.",
           )
           expect(verdicts()[1]?.summary).toMatch(
             /^One verdict for the story at each viewport, with .*Design review/,
           )
+        })
+
+        test.each([
+          ["no fix", { suggestion: null }],
+          ["a reference to no rubric principle", { rubricRef: "taste" }],
+          [
+            "a reference that holds a principle only inside a word",
+            { rubricRef: "the interactions of a prototype" },
+          ],
+        ])("a major finding with %s is a nit", async (_, finding) => {
+          serveJev(jevUnsure)
+          content = designReply("regression", "major", finding)
+
+          expect(await review()).toBe(0)
+
+          expect(verdicts()[0]).toMatchObject({
+            verdict: "regression",
+            severity: "minor",
+          })
+          expect(verdicts()[0]?.summary).toContain(
+            "Design review (openai/gpt-6.1-sol, it makes the verdict regression minor)",
+          )
+        })
+
+        test("a minor review makes an unsure verdict regression minor (a nit)", async () => {
+          serveJev(jevUnsure)
+          content = designReply("regression", "minor")
+
+          expect(await review()).toBe(0)
+
+          expect(verdicts()[0]).toMatchObject({
+            verdict: "regression",
+            severity: "minor",
+          })
         })
 
         test("a failed review keeps the Jev verdict with no error, and an unknown cost", async () => {
@@ -1772,13 +1811,15 @@ export const Primary = { render: () => null }
           serveJev(jevUnsure)
           content = designReply("regression", "minor")
 
+          // Enough for an explainer call ($0.005), not for a design review
+          // ($0.03).
           expect(
             await run(
               "--json",
               "--judge",
               "jev",
               "--budget-usd",
-              "0.005",
+              "0.02",
               "--images",
               images,
               "--",
