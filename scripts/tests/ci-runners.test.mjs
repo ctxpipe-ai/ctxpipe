@@ -72,6 +72,27 @@ test("a matrix runs-on expression fails", () => {
   assert.equal(result.status, 1)
 })
 
+test("an expression of arm64 Blacksmith labels passes", () => {
+  const both = check({
+    "a.yaml":
+      "jobs:\n  a:\n    runs-on: $" +
+      "{{ matrix.small && 'blacksmith-2vcpu-ubuntu-2404-arm' || 'blacksmith-4vcpu-ubuntu-2404-arm' }}\n",
+  })
+  assert.equal(both.status, 0, both.stderr)
+  const other = check({
+    "a.yaml":
+      "jobs:\n  a:\n    runs-on: $" +
+      "{{ matrix.small && 'blacksmith-2vcpu-ubuntu-2404-arm' || 'ubuntu-latest' }}\n",
+  })
+  assert.equal(other.status, 1)
+  const macos = check({
+    "a.yaml":
+      "jobs:\n  a:\n    runs-on: $" +
+      "{{ contains(fromJSON('[\"x\"]'), matrix.name) && 'macos-latest' || 'blacksmith-4vcpu-ubuntu-2404-arm' }}\n",
+  })
+  assert.equal(macos.status, 1)
+})
+
 test("a github-hosted comment with a reason allows the label", () => {
   const same = check({
     "a.yaml":
@@ -111,6 +132,10 @@ const ci = parse(
   ),
 ).jobs
 
+// A Blacksmith label, or an expression of Blacksmith labels (check-runners.mjs
+// allows only arm64 Blacksmith labels in an expression).
+const onBlacksmith = (job) => /\bblacksmith-/.test(String(job["runs-on"]))
+
 // Each job of each workflow, as [<file>#<job>, job, workflow].
 const directory = fileURLToPath(
   new URL("../../.github/workflows/", import.meta.url),
@@ -135,10 +160,10 @@ test("a GitHub-hosted job uses no Docker, except the listed jobs", () => {
   const jobs = new Map(allJobs)
   for (const name of githubHostedDocker) {
     assert.ok(jobs.has(name), name)
-    assert.doesNotMatch(String(jobs.get(name)["runs-on"]), /^blacksmith-/, name)
+    assert.ok(!onBlacksmith(jobs.get(name)), name)
   }
   for (const [name, job] of jobs) {
-    if (String(job["runs-on"]).startsWith("blacksmith-")) continue
+    if (onBlacksmith(job)) continue
     for (const step of job.steps ?? [])
       assert.doesNotMatch(step.uses ?? "", /useblacksmith/, name)
     if (githubHostedDocker.includes(name)) continue
@@ -198,7 +223,7 @@ test("a lockfile change on main fills the pnpm store of both cache stores", () =
     if (!("pull_request" in (workflow.on ?? {}))) continue
     const setup = uses(job, "actions/setup-node@")
     if (setup?.with?.cache !== "pnpm") continue
-    const store = String(job["runs-on"]).startsWith("blacksmith-")
+    const store = onBlacksmith(job)
       ? "blacksmith-cache"
       : "github-cache"
     assert.deepEqual(

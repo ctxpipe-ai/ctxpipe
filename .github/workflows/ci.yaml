@@ -201,10 +201,12 @@ jobs:
 
   # outside-manifest: it builds the chat sandbox image, a prerequisite of the backend lanes, from the layer cache of main
   test-shards:
-    # The runner's own limit (scripts/ci/test-suite.mjs) is 30 min for backend
-    # and 45 min for contracts. The job limit adds 15 min for setup, so the
-    # named runner timeout fires before the job is cancelled.
-    timeout-minutes: ${{ matrix.lane != 'backend' && 60 || 45 }}
+    # In a full run, the runner's own limit (scripts/ci/test-suite.mjs) is 20
+    # min for backend and contracts. The job limit adds 10 min for setup, so
+    # the named runner timeout fires before the job is cancelled. The slowest
+    # shard of a full run on a GitHub-hosted runner took 14 min, and a gated
+    # shard plans about 10 min of tests (shard.mjs, ADR-065).
+    timeout-minutes: 30
     # One shard runs its files in series in its own database, so a worker in
     # one shard cannot claim a run that a file in another shard opened.
     name: ${{ matrix.lane }} tests (shard ${{ matrix.shard }}/${{ matrix.count }})
@@ -728,8 +730,10 @@ jobs:
       github.event_name == 'pull_request') &&
       (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.production-builds != '')
     # The images build for linux/arm64, the platform of the AWS hosts
-    # (Graviton). deploy.yaml publishes each image for amd64 and arm64.
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    # (Graviton). deploy.yaml publishes each image for amd64 and arm64. The
+    # short builds (about 20 s to 35 s on 4 vCPU) use 2 vCPU; the backend,
+    # worker, UI and docs builds take 50 s to 190 s and keep 4 vCPU.
+    runs-on: ${{ contains(fromJSON('["chat-sandbox", "codesearch", "cost-telemetry"]'), matrix.name) && 'blacksmith-2vcpu-ubuntu-2404-arm' || 'blacksmith-4vcpu-ubuntu-2404-arm' }}
     strategy:
       fail-fast: false
       matrix:
@@ -791,7 +795,10 @@ jobs:
       contents: read
       packages: write
     # The caches are for linux/arm64, the platform of the jobs that read them.
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    # The short builds (about 20 s on 4 vCPU, at most 36 s in 9 of 10 runs)
+    # use 2 vCPU. Blacksmith bills each started minute, so a build of more
+    # than 30 s on 4 vCPU costs no less on 2 vCPU.
+    runs-on: ${{ contains(fromJSON('["chat-sandbox", "codesearch", "cost-telemetry"]'), matrix.name) && 'blacksmith-2vcpu-ubuntu-2404-arm' || 'blacksmith-4vcpu-ubuntu-2404-arm' }}
     strategy:
       fail-fast: false
       matrix:
