@@ -72,7 +72,7 @@ const unknownJevCallUsd = 0.002
 // images costs less than $0.001 (CTX-1256).
 const unknownExplainerUsd = 0.005
 // The same for the design review of a new story: above the most that one
-// review cost in the measurement of CTX-1493 ($0.023).
+// review of GPT-6.1-Sol cost in the measurement of CTX-1469 ($0.023).
 const unknownDesignUsd = 0.03
 
 const usage = `Usage: pnpm visual:review [--manifest <path>] [--judge model|jev|agent] [--model <id>] [--filter jev|none] [--budget-usd <n>] [--brief <file>] [--rubric <file>] [--session <folder>] [--json]
