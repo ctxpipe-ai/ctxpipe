@@ -17,19 +17,6 @@ import { ingestCredentialRules } from "./ingest-sandbox-egress.js"
  * below 300 seconds, so this file runs for more than 5 minutes.
  */
 
-/** The `== <name>` sections of a script's stdout. */
-function sectionsOf(stdout: string): Record<string, string> {
-  return Object.fromEntries(
-    stdout
-      .split("== ")
-      .filter(Boolean)
-      .map((section) => {
-        const [name, ...rest] = section.split("\n")
-        return [name, rest.join("\n").trim()]
-      }),
-  )
-}
-
 it(
   "refuses each Git fetch of a sandbox after its proxy session ends, and Git exits with code 128 (CTX-1515)",
   { timeout: 480_000 },
@@ -61,21 +48,20 @@ it(
           unmatchedHosts: "deny",
         })
         try {
-          const fetch = `git ls-remote https://${upstream}/public/repo.git refs/heads/main >/dev/null 2>/tmp/error; code=$?; echo "== code"; echo $code; echo "== error"; cat /tmp/error`
+          const fetch = `git ls-remote https://${upstream}/public/repo.git refs/heads/main`
           // One container for the whole test, as a shard keeps its sandbox.
           const box = await fixture.startSandbox(vault.env)
           try {
             const live = await box.process.exec(
               `${writeProxyCaCommand(vault.caPem)}\n${fetch}`,
             )
-            expect(sectionsOf(live.stdout).code, live.stdout).toBe("0")
+            expect(live.exitCode, live.stderr).toBe(0)
 
             await delay((ttlSeconds + 3) * 1000)
 
             const ended = await box.process.exec(fetch)
-            const sections = sectionsOf(ended.stdout)
-            expect(sections.code, ended.stdout).toBe("128")
-            expect(sections.error, ended.stdout).toContain("407")
+            expect(ended.exitCode, ended.stderr).toBe(128)
+            expect(ended.stderr).toContain("407")
           } finally {
             await box.remove()
           }

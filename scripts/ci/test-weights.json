@@ -72,6 +72,7 @@
     "src/domain/ingestion/ingest-shard-ops.contract.test.ts": 47,
     "src/domain/ingestion/ingest-skill-steps.contract.test.ts": 31,
     "src/domain/workspaces/agent-vault-native.contract.test.ts": 39,
+    "src/domain/workspaces/agent-vault-session-expiry.contract.test.ts": 310,
     "src/domain/workspaces/conversation-branch-push-native.contract.test.ts": 238,
     "src/domain/workspaces/docker-agent-port-native.contract.test.ts": 14,
     "src/domain/workspaces/github-pr-mirror-native.contract.test.ts": 31,
