@@ -119,13 +119,17 @@ export async function beforeDeadline<T>(
 }
 
 /**
- * True for the end of the time budget: the deadline, or a Jev call that
- * timed out (each Jev call gets the rest of the budget as its time limit).
+ * True for the end of the time budget of a retrieval with `deadline`: the
+ * deadline, or a Jev call that timed out (each Jev call gets the rest of the
+ * budget as its time limit). With no time budget, a Jev timeout is a failed
+ * call: the call had the time limit of its client.
  */
-export function isBudgetSpent(error: unknown): boolean {
+export function isBudgetSpent(error: unknown, deadline: number): boolean {
   return (
     error instanceof BudgetSpentError ||
-    (error instanceof JevError && error.kind === "timeout")
+    (error instanceof JevError &&
+      error.kind === "timeout" &&
+      Number.isFinite(deadline))
   )
 }
 
@@ -348,7 +352,7 @@ export async function traverse(input: {
       )
     }
   } catch (error) {
-    if (!isBudgetSpent(error)) throw error
+    if (!isBudgetSpent(error, deadline)) throw error
     partialReason = "total_timeout"
   }
   return {

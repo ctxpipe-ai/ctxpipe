@@ -241,7 +241,7 @@ async function search(
       }),
     )
   } catch (error) {
-    if (!isBudgetSpent(error)) throw error
+    if (!isBudgetSpent(error, deadline)) throw error
     return { hits: [], partialReason: "total_timeout" }
   }
   const limit = Math.min(Math.max(Math.trunc(request.limit ?? 10), 1), 50)
@@ -258,7 +258,7 @@ async function search(
   const [judged, relations] = await Promise.all([
     judge(inputs, query, "search", deadline, meter).catch((error: unknown) => {
       // A Jev timeout is the end of the budget: Jev gets the rest of it.
-      if (isBudgetSpent(error)) unjudged = "total_timeout"
+      if (isBudgetSpent(error, deadline)) unjudged = "total_timeout"
       else if (error instanceof JevError) unjudged = "judge_unavailable"
       else throw error
       return null
@@ -271,7 +271,7 @@ async function search(
         request.validAt ?? null,
       ),
     ).catch((error: unknown) => {
-      if (!isBudgetSpent(error)) throw error
+      if (!isBudgetSpent(error, deadline)) throw error
       return []
     }),
   ])
@@ -380,7 +380,7 @@ async function related(
       ),
     )
   } catch (error) {
-    if (!isBudgetSpent(error)) throw error
+    if (!isBudgetSpent(error, deadline)) throw error
     return {
       results: [],
       explored: { nodes: 0, edges: 0 },
@@ -451,7 +451,7 @@ async function related(
         meter,
       ).catch((error: unknown) => {
         // The end of the budget gives the ranking with no positions.
-        if (!isBudgetSpent(error)) throw error
+        if (!isBudgetSpent(error, deadline)) throw error
         traversal.partialReason = "total_timeout"
         return undefined
       })

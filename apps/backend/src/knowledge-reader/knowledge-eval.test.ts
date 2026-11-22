@@ -17,7 +17,11 @@ import {
   recordedCallSchema,
 } from "../../evals/knowledge/model-calls.js"
 import { checkPanel, labelWithPanel } from "../../evals/knowledge/panel.js"
-import { buildReport, renderMarkdown } from "../../evals/knowledge/report.js"
+import {
+  buildReport,
+  keptRunSchema,
+  renderMarkdown,
+} from "../../evals/knowledge/report.js"
 import { parseSettings } from "../../evals/knowledge/runner.js"
 import { madeUpPrivateKey } from "../../test/made-up-key.js"
 import { useMswServer } from "../../test/msw.js"
@@ -488,15 +492,15 @@ describe("the product time budget", () => {
       related: { refs: [], scores: [], latencyMs: relatedMs },
       calls: { ...calls, missing: 0, failed: 0 },
     })
-    const report = buildReport({
+    const input = {
       manifest: {
         datasetVersion: dataset.version,
-        splits: ["dev"],
+        splits: ["dev" as const],
         now: "2026-11-22T00:00:00.000Z",
         settings: {},
         loop: { ...ORCHESTRATOR_DEFAULTS, timeBudgetMs: 0 },
         productBudgetMs: 3_000,
-        mode: "live",
+        mode: "live" as const,
         capUsd: 1,
         spentUsd: 0,
         stopped: false,
@@ -508,8 +512,8 @@ describe("the product time budget", () => {
         answer("legacy", second.id, 800),
         answer("plane", second.id, 2_900),
       ],
-      kept: null,
-    })
+    }
+    const report = buildReport({ ...input, kept: null })
     expect(
       report.operations.map(({ arm, overProductBudget }) => ({
         arm,
@@ -523,6 +527,15 @@ describe("the product time budget", () => {
     expect(markdown).toContain("## Answers over the product time budget")
     expect(markdown).toContain(`- ${first.id} (plane): get_related 4250 ms`)
     expect(markdown).not.toContain(`- ${second.id} (plane)`)
+    // A kept run with the budget of the product: the report says that the
+    // comparison also holds the change of the budget.
+    const kept = keptRunSchema.parse({
+      ...report,
+      run: { ...report.run, loop: { ...report.run.loop, timeBudgetMs: 3_000 } },
+    })
+    expect(renderMarkdown(buildReport({ ...input, kept }))).toContain(
+      "**The kept run had a time budget of 3000 ms, and this run has no time budget.**",
+    )
   })
 })
 

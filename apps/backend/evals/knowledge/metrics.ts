@@ -245,12 +245,20 @@ export function operations(
     /** The answers with a call that took longer than the product budget. */
     overProductBudget:
       measured && productBudgetMs
-        ? scores.filter((score) => overBudget(score, productBudgetMs)).length
+        ? scores.filter(
+            (score) => overBudgetCalls(score, productBudgetMs).length > 0,
+          ).length
         : null,
   }
 }
 
-/** True when the search or `get_related` of `score` took longer than `budgetMs`. */
-export function overBudget(score: QuestionScore, budgetMs: number): boolean {
-  return score.searchMs > budgetMs || (score.relatedMs ?? 0) > budgetMs
+/** The calls of `score` that took longer than `budgetMs`, with their latency. */
+export function overBudgetCalls(
+  score: QuestionScore,
+  budgetMs: number,
+): { call: "search" | "get_related"; ms: number }[] {
+  return [
+    { call: "search" as const, ms: score.searchMs },
+    { call: "get_related" as const, ms: score.relatedMs ?? 0 },
+  ].filter(({ ms }) => ms > budgetMs)
 }

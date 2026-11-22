@@ -7,7 +7,7 @@ import {
   METRICS,
   type MetricValues,
   operations,
-  overBudget,
+  overBudgetCalls,
   type QuestionScore,
   scoreAnswer,
 } from "./metrics.js"
@@ -101,7 +101,12 @@ export type Report = {
    * The plane against the kept run, on the questions that both runs scored.
    * Null when there is no kept run.
    */
-  kept: { comparison: KeptRow[]; guards: KeptGuardRow[] } | null
+  kept: {
+    comparison: KeptRow[]
+    guards: KeptGuardRow[]
+    /** The time budget of the kept run (0: none), or null when unknown. */
+    timeBudgetMs: number | null
+  } | null
   /**
    * The questions that the report leaves out, because an arm has no complete
    * answer: the spend cap stopped the run, or a replay missed a call.
@@ -111,7 +116,10 @@ export type Report = {
 
 /** The part of a kept report that a new report compares with. */
 export const keptRunSchema = z.object({
-  run: z.object({ mode: z.enum(["live", "replay"]) }),
+  run: z.object({
+    mode: z.enum(["live", "replay"]),
+    loop: z.record(z.string(), z.number()).optional(),
+  }),
   questions: z.array(
     z.object({
       arm: z.enum(ARMS),
@@ -342,7 +350,11 @@ function compareWithKept(input: {
         ),
       })
   }
-  return { comparison, guards: guardRows }
+  return {
+    comparison,
+    guards: guardRows,
+    timeBudgetMs: input.kept.run.loop?.timeBudgetMs ?? null,
+  }
 }
 
 const value = (number: number | null) =>
@@ -352,6 +364,12 @@ const signed = (number: number | null) =>
 const ms = (number: number | null) =>
   number === null ? "n/a" : `${Math.round(number)} ms`
 const usd = (number: number) => `$${number.toFixed(4)}`
+const budgetText = (budgetMs: number | null) =>
+  budgetMs === null
+    ? "an unknown time budget"
+    : budgetMs > 0
+      ? `a time budget of ${ms(budgetMs)}`
+      : "no time budget"
 
 /** The Markdown of a report. */
 export function renderMarkdown(report: Report): string {
@@ -397,7 +415,7 @@ export function renderMarkdown(report: Report): string {
           "",
         ]
       : []),
-    `Time budget of the run: ${report.run.loop.timeBudgetMs ? ms(report.run.loop.timeBudgetMs) : "none"}. Over the product budget: the answers with a call that took longer than ${ms(report.run.productBudgetMs ?? null)}.`,
+    `Time budget of the run: ${report.run.loop.timeBudgetMs ? ms(report.run.loop.timeBudgetMs) : "none"}.${report.run.productBudgetMs ? ` Over the product budget: the answers with a call that took longer than ${ms(report.run.productBudgetMs)}.` : ""}`,
     "",
     "| Arm | Split | Questions | Search p50 | Search p95 | get_related p50 | get_related p95 | Jev calls / question | Jev questions / question | Embedding calls / question | Cost | Errors | Partial | Over the product budget |",
     "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
@@ -422,6 +440,12 @@ export function renderMarkdown(report: Report): string {
       "",
       "The keep-or-revert rule of ADR-069 decision 7: the change stays only if the hold-out set improves and no guard gets worse. Both columns read only the questions that both runs scored.",
       "",
+      ...(report.kept.timeBudgetMs !== (report.run.loop.timeBudgetMs ?? null)
+        ? [
+            `**The kept run had ${budgetText(report.kept.timeBudgetMs)}, and this run has ${budgetText(report.run.loop.timeBudgetMs ?? null)}.** The latency, the partial answers and the positions also show that change, not only the setting of the run.`,
+            "",
+          ]
+        : []),
       "| Split | Category | Questions | Metric | Kept | Now | Change |",
       "| --- | --- | ---: | --- | ---: | ---: | ---: |",
     )
@@ -500,29 +524,25 @@ export function renderMarkdown(report: Report): string {
         `| ${question.question} | ${question.arm} | ${question.split} | ${question.change} | ${list(question.metrics)} | ${list(question.kept)} |`,
       )
   }
-  const budget = report.run.productBudgetMs
+  const budget = report.run.productBudgetMs ?? 0
   const slow =
-    budget && report.run.mode === "live"
-      ? report.questions.filter((question) => overBudget(question, budget))
+    budget > 0 && report.run.mode === "live"
+      ? report.questions.flatMap((question) => {
+          const calls = overBudgetCalls(question, budget)
+          return calls.length ? [{ question, calls }] : []
+        })
       : []
   if (slow.length)
     lines.push(
       "",
       "## Answers over the product time budget",
       "",
-      `These answers took longer than the ${ms(budget ?? null)} budget of the product. With that budget, they would be partial.`,
+      `These answers took longer than the ${ms(budget)} budget of the product. With that budget, they would be partial.`,
       "",
-      ...slow.map((question) => {
-        const parts = [
-          ...(budget && question.searchMs > budget
-            ? [`search ${ms(question.searchMs)}`]
-            : []),
-          ...(budget && (question.relatedMs ?? 0) > budget
-            ? [`get_related ${ms(question.relatedMs)}`]
-            : []),
-        ]
-        return `- ${question.question} (${question.arm}): ${parts.join(", ")}`
-      }),
+      ...slow.map(
+        ({ question, calls }) =>
+          `- ${question.question} (${question.arm}): ${calls.map(({ call, ms: took }) => `${call} ${ms(took)}`).join(", ")}`,
+      ),
     )
   const failed = report.questions.filter((question) => question.error)
   if (failed.length)
