@@ -296,7 +296,7 @@ jobs:
     if: ${{ !cancelled() && !failure() && needs.ecr_digests.result == 'success' }}
     needs:
       - ecr_digests
-    # github-hosted: a short copy job; the push roles trust the subject of the environment and the workflow, not the runner (ADR-065)
+    # github-hosted: a short copy job; the push roles have no runner condition (ADR-065)
     runs-on: ubuntu-24.04-arm
     # Only this job names the environment, and the environment admits only
     # main. The push roles trust only the OIDC subject of this environment,
@@ -475,8 +475,12 @@ jobs:
     needs: ecr_digests
 
     steps:
+      # No token in .git/config: the job runs dependency code next to the
+      # Forge secrets.
       - name: Checkout repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
 
