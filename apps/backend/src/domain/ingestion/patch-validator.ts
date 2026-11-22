@@ -243,9 +243,8 @@ const PatchJsonSchema = z.object({
     )
     .max(10_000),
   more: z.boolean().optional(),
-  cursor: z
-    .object({ at: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER) })
-    .optional(),
+  // Read apart from the schema: a bad cursor must not hide `more`.
+  cursor: z.unknown().optional(),
 })
 
 /** Ownership of a file at the base commit, from the host-only fields. */
@@ -1947,10 +1946,18 @@ async function readPatchJson(
       reject(op.path, "patch_json", "patch.json names the path more than once")
     else entries.set(op.path, op)
   }
+  // A bad cursor keeps `more`: the host then stops a cursor skill whose
+  // page says `more` and gives no cursor (CTX-1487).
+  const at = (parsed.cursor as { at?: unknown } | undefined)?.at
+  const cursorOk =
+    parsed.cursor === undefined ||
+    (typeof at === "number" && Number.isSafeInteger(at) && at >= 0)
+  if (!cursorOk)
+    reject("patch.json", "patch_json", "cursor.at must be a whole number")
   return {
     ops: entries,
     more: parsed.more === true,
-    ...(parsed.cursor ? { cursorAt: parsed.cursor.at } : {}),
+    ...(cursorOk && typeof at === "number" ? { cursorAt: at } : {}),
   }
 }
 

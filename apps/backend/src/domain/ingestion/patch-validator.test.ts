@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process"
 import {
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -877,6 +878,27 @@ describe("validatePatchStep caps and status", () => {
     const result = await run(stage({ files }))
     expect(result.rejections).toEqual([])
     expect(result.accepted).toHaveLength(301)
+  })
+
+  it("reads cursor.at, and keeps more when the cursor is not a whole number (CTX-1487)", async () => {
+    const withPatch = (extra: object) => {
+      const dir = stage({
+        files: { "knowledge/services/c.md": service("C") },
+      })
+      const file = join(dir, "patch.json")
+      const patch = JSON.parse(readFileSync(file, "utf8")) as object
+      writeFileSync(file, JSON.stringify({ ...patch, more: true, ...extra }))
+      return dir
+    }
+    const good = await run(withPatch({ cursor: { at: 3 } }))
+    expect(good).toMatchObject({ more: true, cursorAt: 3, rejections: [] })
+    for (const at of [-1, 1.5, "3", null]) {
+      const bad = await run(withPatch({ cursor: { at } }))
+      expect(bad.more).toBe(true)
+      expect(bad.cursorAt).toBeUndefined()
+      expect(rulesOf(bad)).toEqual(["patch_json"])
+      expect(bad.accepted).toHaveLength(1)
+    }
   })
 
   it("is partial when more than half of the ops are rejected", async () => {
