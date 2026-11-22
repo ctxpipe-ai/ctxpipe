@@ -66,11 +66,11 @@ type McpReadToolDefinition<
   ): Promise<z.infer<Output>>
   /**
    * The retrieval result of an output, for the tool span: the count of hits,
-   * files, symbols, or entries, and the scores of the hits when it has them.
+   * files, symbols, or entries, and the best score when the hits have one.
    */
   describeResult?(output: z.infer<Output>): {
     count: number
-    scores?: readonly number[]
+    topScore?: number
   }
 }
 
@@ -145,7 +145,6 @@ export function defineMcpReadTool<
     // Retrieval facts for the tool span (CTX-1137): the names of the
     // arguments and the length of the query, never their values. The SDK
     // gives the parsed arguments, so a schema default counts as set.
-    // `mode` and `intent` are enums.
     const span = trace.getActiveSpan()
     span?.setAttributes({
       "ctxpipe.mcp.args": Object.keys(args)
@@ -154,12 +153,6 @@ export function defineMcpReadTool<
         .join(","),
       ...(typeof args.query === "string"
         ? { "ctxpipe.mcp.query.length": args.query.length }
-        : {}),
-      ...(typeof args.mode === "string"
-        ? { "ctxpipe.mcp.mode": args.mode }
-        : {}),
-      ...(typeof args.intent === "string"
-        ? { "ctxpipe.mcp.intent": args.intent }
         : {}),
     })
     try {
@@ -173,9 +166,9 @@ export function defineMcpReadTool<
       if (result)
         span?.setAttributes({
           "ctxpipe.mcp.result.count": result.count,
-          ...(result.scores?.length
-            ? { "ctxpipe.mcp.result.top_score": Math.max(...result.scores) }
-            : {}),
+          ...(result.topScore === undefined
+            ? {}
+            : { "ctxpipe.mcp.result.top_score": result.topScore }),
         })
       return toolSuccess(output as Record<string, unknown>)
     } catch (error) {

@@ -8,15 +8,16 @@ import { createHash } from "node:crypto"
  * chunk always starts at the first line with text, and `read_file` can align
  * the stored chunks of an older rule. A section over the cap packs its
  * paragraphs (blank-line runs) into chunks up to the cap, and a paragraph over
- * the cap splits on length.
+ * the cap splits on length. A paragraph of only headings stays with the next
+ * paragraph.
  *
  * Why: authors edit one section at a time, so an edit changes the hash of its
  * own chunks only, and hydrate embeds only those again. Sections with body
  * text do not merge, because a merge would make a chunk depend on its
  * neighbors. A heading-only section has no content of its own: alone, its
  * chunk is almost only title text, and it wins title-like searches with no
- * content. In a section
- * over the cap, an edit can move the later chunk boundaries of that section.
+ * content. In a section over the cap, an edit can move the later chunk
+ * boundaries of that section.
  * The cap (512 tokens at about 4 characters each, no tokenizer) keeps each
  * chunk a precise search hit and well inside the input limit of the model.
  */
@@ -81,22 +82,24 @@ export function chunkKnowledgeBody(body: string): KnowledgeChunk[] {
     }
   })
   const blank = (index: number) => !lines[index]?.line.trim()
-  const trimmed = sections.flatMap(({ headingPath, start, end }) => {
+  const headings = (from: number, to: number) =>
+    lines.slice(from, to).every((entry) => entry.heading !== null)
+  // Only the first section can be empty, so a heading-only section that is
+  // not the last one has a next section with text.
+  const joined: typeof sections = []
+  let pending: number | null = null
+  sections.forEach(({ headingPath, start, end }, index) => {
     while (start < end && blank(start)) start += 1
     while (end > start && blank(end - 1)) end -= 1
-    return start === end ? [] : [{ headingPath, start, end }]
-  })
-  const joined: typeof trimmed = []
-  let pending: number | null = null
-  trimmed.forEach((section, index) => {
-    const headingOnly =
-      section.end - section.start === 1 && lines[section.start]?.heading
-    if (headingOnly && index < trimmed.length - 1) {
-      pending ??= section.start
-      return
+    if (start === end) return
+    if (end - start === 1 && headings(start, end)) {
+      if (index < sections.length - 1) {
+        pending ??= start
+        return
+      }
+      if (joined.length > 0) return
     }
-    if (headingOnly && joined.length > 0) return
-    joined.push({ ...section, start: pending ?? section.start })
+    joined.push({ headingPath, start: pending ?? start, end })
     pending = null
   })
   return joined.flatMap(({ headingPath, start, end }) => {
@@ -113,6 +116,7 @@ export function chunkKnowledgeBody(body: string): KnowledgeChunk[] {
     if (whole.text.length <= CHUNK_CHARACTER_CAP) return [whole]
     const chunks: KnowledgeChunk[] = []
     let index = start
+    let carry: number | null = null
     while (index < end) {
       if (blank(index)) {
         index += 1
@@ -120,7 +124,13 @@ export function chunkKnowledgeBody(body: string): KnowledgeChunk[] {
       }
       let stop = index
       while (stop < end && !blank(stop)) stop += 1
-      const paragraph = piece(index, stop)
+      if (headings(index, stop) && stop < end) {
+        carry ??= index
+        index = stop
+        continue
+      }
+      const paragraph = piece(carry ?? index, stop)
+      carry = null
       const last = chunks.at(-1)
       if (
         last &&

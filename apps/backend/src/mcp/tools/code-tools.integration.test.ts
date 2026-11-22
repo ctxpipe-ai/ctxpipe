@@ -1,11 +1,6 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
-import {
-  InMemorySpanExporter,
-  SimpleSpanProcessor,
-} from "@opentelemetry/sdk-trace-base"
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 import { eq, inArray, sql } from "drizzle-orm"
 import { evlog } from "evlog/hono"
 import { Hono } from "hono"
@@ -15,6 +10,7 @@ import { afterAll, beforeAll, expect, it, vi } from "vitest"
 
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../../test/db.js"
 import { useMswServer } from "../../../test/msw.js"
+import { recordSpans } from "../../../test/spans.js"
 import type { AppEnv } from "../../app/env.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
@@ -39,19 +35,9 @@ const workspaceId = generateObjectId("ws")
 const repositoryId = generateObjectId("repo")
 let zoektRepoId: number
 let requests: Record<string, unknown>[] = []
-const spans = new InMemorySpanExporter()
-const tracerProvider = new NodeTracerProvider({
-  spanProcessors: [new SimpleSpanProcessor(spans)],
-})
-
-/** The attributes of the last `mcp.tool <name>` span. */
-function toolSpan(name: string) {
-  const span = spans
-    .getFinishedSpans()
-    .findLast((item) => item.name === `mcp.tool ${name}`)
-  if (!span) throw new Error(`No span ${name}`)
-  return span.attributes
-}
+const spans = recordSpans()
+const toolSpan = (name: string) =>
+  spans.spanNamed(`mcp.tool ${name}`)?.attributes ?? {}
 
 function createApp() {
   const app = new Hono<AppEnv>()
@@ -111,7 +97,6 @@ beforeAll(async () => {
   if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required")
   vi.stubEnv("BETTER_AUTH_API_KEY", "")
   vi.stubEnv("CODESEARCH_URL", "http://codesearch.test")
-  tracerProvider.register()
   seed = await seedOrg()
   expect(
     (await getSystemDb().execute(sql`select current_user as role`)).rows[0],
@@ -166,7 +151,6 @@ afterAll(async () => {
     })
     await cleanupSeededOrg(seed)
   }
-  await tracerProvider.shutdown()
   vi.unstubAllEnvs()
 })
 
@@ -232,7 +216,6 @@ it("searches literal text and returns a file ref, served revision, and skipped r
   expect(attributes).toMatchObject({
     "ctxpipe.mcp.args": "excludeRepositories,limit,mode,query",
     "ctxpipe.mcp.query.length": "charge(1)".length,
-    "ctxpipe.mcp.mode": "literal",
     "ctxpipe.mcp.result.count": 1,
   })
   expect(attributes["ctxpipe.mcp.result.top_score"]).toBeUndefined()

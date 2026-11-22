@@ -289,7 +289,9 @@ export const getRelatedTool = defineMcpReadTool({
   }),
   describeResult: ({ results }) => ({
     count: results.length,
-    scores: results.map((result) => result.score),
+    topScore: results.length
+      ? Math.max(...results.map((result) => result.score))
+      : undefined,
   }),
   async run(input, { org }) {
     if (input.validAt && input.validBetween) {

@@ -1,10 +1,5 @@
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
-import {
-  InMemorySpanExporter,
-  SimpleSpanProcessor,
-} from "@opentelemetry/sdk-trace-base"
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 import { and, eq } from "drizzle-orm"
 import { initLogger } from "evlog"
 import { delay, HttpResponse, http } from "msw"
@@ -20,6 +15,7 @@ import {
 } from "vitest"
 
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../test/db.js"
+import { recordSpans } from "../../test/spans.js"
 import { withOrgDbContext } from "../db/client.js"
 import { conversations } from "../db/schema/conversations.js"
 import { knowledgeBranchHeads } from "../db/schema/knowledge_state.js"
@@ -61,10 +57,7 @@ import { ORCHESTRATOR_DEFAULTS } from "./orchestrator.js"
  */
 
 const MODEL_URL = "https://search-model.test/v1"
-const spans = new InMemorySpanExporter()
-const tracerProvider = new NodeTracerProvider({
-  spanProcessors: [new SimpleSpanProcessor(spans)],
-})
+const spans = recordSpans()
 const legacySha = "a".repeat(40)
 const planeSha = "b".repeat(40)
 
@@ -447,7 +440,6 @@ describe("the knowledge reader seam", () => {
     vi.stubEnv("MODEL_PROVIDER_URL", MODEL_URL)
     // ClickHouse and FalkorDB are real servers.
     models.listen({ onUnhandledRequest: "bypass" })
-    tracerProvider.register()
     initLogger({
       pretty: false,
       silent: true,
@@ -550,7 +542,6 @@ describe("the knowledge reader seam", () => {
     }
     await clickHouse?.stop()
     models.close()
-    await tracerProvider.shutdown()
     vi.useRealTimers()
     vi.unstubAllEnvs()
   })
@@ -570,53 +561,47 @@ describe("the knowledge reader seam", () => {
   it.each([
     ["off", legacySha],
     ["on", planeSha],
-  ] as const)("%s: the mcp.tool spans of the read tools have the retrieval counts, and no query text or ref", async (flag, sha) => {
-    await setFlag(flag)
-    spans.reset()
-    const searched = structured(
-      await searchCall({ workspaces: ["ready"], kinds: ["Service", "Team"] }),
-    )
-    const related = structured(
-      await relatedCall({ query: "who owns it", maxDepth: 1 }),
-    )
-    const hits = searched.hits as { score: number; served: { sha: string } }[]
-    const results = related.results as { score: number }[]
-    expect(hits[0]?.served.sha).toBe(sha)
-    expect(results.length).toBeGreaterThan(0)
-    const attributes = (name: string) => {
-      const span = spans
-        .getFinishedSpans()
-        .find((item) => item.name === `mcp.tool ${name}`)
-      if (!span) throw new Error(`No span ${name}`)
-      return span.attributes
-    }
-    const search = attributes("search_knowledge")
-    expect(search).toMatchObject({
-      "ctxpipe.mcp.args": "kinds,limit,query,workspaces",
-      "ctxpipe.mcp.query.length": "who owns checkout".length,
-      "ctxpipe.mcp.result.count": hits.length,
-      "ctxpipe.mcp.result.top_score": Math.max(...hits.map((hit) => hit.score)),
-    })
-    const walk = attributes("get_related")
-    expect(walk).toMatchObject({
-      "ctxpipe.mcp.query.length": "who owns it".length,
-      "ctxpipe.mcp.intent": "general",
-      "ctxpipe.mcp.result.count": results.length,
-      "ctxpipe.mcp.result.top_score": Math.max(
-        ...results.map((result) => result.score),
-      ),
-    })
-    expect(walk["ctxpipe.mcp.args"]).toContain("seeds")
-    // The names of the arguments only: no query text, filter value, or ref.
-    const serialized = JSON.stringify([search, walk])
-    for (const text of [
-      "who owns",
-      "Service",
-      "ready",
-      "knowledge/",
-    ])
-      expect(serialized).not.toContain(text)
-  })
+  ] as const)(
+    "%s: the mcp.tool spans of the read tools have the retrieval counts, and no query text or ref",
+    async (flag, sha) => {
+      await setFlag(flag)
+      spans.reset()
+      const searched = structured(
+        await searchCall({ workspaces: ["ready"], kinds: ["Service", "Team"] }),
+      )
+      const related = structured(
+        await relatedCall({ query: "who owns it", maxDepth: 1 }),
+      )
+      const hits = searched.hits as { score: number; served: { sha: string } }[]
+      const results = related.results as { score: number }[]
+      expect(hits[0]?.served.sha).toBe(sha)
+      expect(results.length).toBeGreaterThan(0)
+      const attributes = (name: string) =>
+        spans.spanNamed(`mcp.tool ${name}`)?.attributes ?? {}
+      const search = attributes("search_knowledge")
+      expect(search).toMatchObject({
+        "ctxpipe.mcp.args": "kinds,limit,query,workspaces",
+        "ctxpipe.mcp.query.length": "who owns checkout".length,
+        "ctxpipe.mcp.result.count": hits.length,
+        "ctxpipe.mcp.result.top_score": Math.max(
+          ...hits.map((hit) => hit.score),
+        ),
+      })
+      const walk = attributes("get_related")
+      expect(walk).toMatchObject({
+        "ctxpipe.mcp.query.length": "who owns it".length,
+        "ctxpipe.mcp.result.count": results.length,
+        "ctxpipe.mcp.result.top_score": Math.max(
+          ...results.map((result) => result.score),
+        ),
+      })
+      expect(walk["ctxpipe.mcp.args"]).toContain("seeds")
+      // The names of the arguments only: no query text, filter value, or ref.
+      const serialized = JSON.stringify([search, walk])
+      for (const text of ["who owns", "Service", "ready", "knowledge/"])
+        expect(serialized).not.toContain(text)
+    },
+  )
 
   it("on: the plane answers a ready Workspace in Jev's order, with the lines and the SHA of the plane", async () => {
     await setFlag("on")

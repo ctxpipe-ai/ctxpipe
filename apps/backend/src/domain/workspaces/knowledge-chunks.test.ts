@@ -85,6 +85,35 @@ describe("chunkKnowledgeBody", () => {
     expect(texts("# Only\n\n## Sub\n")).toEqual(["# Only\n\n## Sub"])
   })
 
+  it("keeps the headings of a section over the cap with its first paragraph", () => {
+    const long = "x".repeat(3000)
+    const chunks = chunkKnowledgeBody(`# Parent\n\n## Child\n\n${long}\n`)
+    expect(
+      chunks.map(({ headingPath, text, startLine, endLine }) => ({
+        headingPath,
+        start: text.slice(0, 22),
+        length: text.length,
+        startLine,
+        endLine,
+      })),
+    ).toEqual([
+      {
+        headingPath: ["Parent", "Child"],
+        start: "# Parent\n\n## Child\n\nxx",
+        length: 2048,
+        startLine: 1,
+        endLine: 5,
+      },
+      {
+        headingPath: ["Parent", "Child"],
+        start: "x".repeat(22),
+        length: "# Parent\n\n## Child\n\n".length + 3000 - 2048,
+        startLine: 5,
+        endLine: 5,
+      },
+    ])
+  })
+
   it("starts the first chunk at the first line with text, as the older rule did", () => {
     for (const body of [
       "\n# Title\n\n## Sub\nText.\n",

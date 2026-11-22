@@ -124,7 +124,9 @@ export const searchKnowledgeTool = defineMcpReadTool({
   }),
   describeResult: ({ hits }) => ({
     count: hits.length,
-    scores: hits.map((hit) => hit.score),
+    topScore: hits.length
+      ? Math.max(...hits.map((hit) => hit.score))
+      : undefined,
   }),
   async run(input, { org }) {
     const named = input.workspaces !== undefined
