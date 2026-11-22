@@ -38,7 +38,9 @@ import {
   stagedPaths,
 } from "../../bin/stage-lib.mjs"
 import {
+  inTestFixture,
   safePath,
+  testFixtureSkips,
   trackedFiles,
 } from "../../discover-roots/scripts/roots-lib.mjs"
 import {
@@ -61,14 +63,7 @@ const MAX_LINE = 2000
 /** A variable name, a resource label, a service name: letters, digits, and a few separators. */
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$/
 const ENV_NAME = /^[A-Z][A-Z0-9_]{2,59}$/
-const IGNORED_SEGMENTS = new Set([
-  "node_modules",
-  "vendor",
-  "third_party",
-  "testdata",
-  "fixtures",
-  "__fixtures__",
-])
+const IGNORED_SEGMENTS = new Set(["node_modules", "vendor", "third_party"])
 
 const storeById = new Map(STORES.map((s) => [s.id, s]))
 const depToStore = new Map()
@@ -196,7 +191,7 @@ function storesOfRoot({ path: rootPath, source, tracked, index, deeperRoots }) {
   }
 
   const deeper = deeperRoots(rootPath)
-  const inRoot = tracked.filter((file) => {
+  const listed = tracked.filter((file) => {
     if (rootPath !== "." && !file.startsWith(`${rootPath}/`)) return false
     if (deeper.some((d) => file.startsWith(`${d}/`))) return false
     // A dot folder (.github, .circleci, .devcontainer) is tooling, not the product.
@@ -205,6 +200,8 @@ function storesOfRoot({ path: rootPath, source, tracked, index, deeperRoots }) {
       .slice(0, -1)
       .some((s) => s.startsWith(".") || IGNORED_SEGMENTS.has(s))
   })
+  for (const { path, reason } of testFixtureSkips(listed)) skip(path, reason)
+  const inRoot = listed.filter((file) => !inTestFixture(file))
 
   /** Text of a tracked file at HEAD, or null (and a `skipped` entry when the cause is a limit). */
   function read(path) {

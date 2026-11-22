@@ -18,7 +18,9 @@ import { fileURLToPath } from "node:url"
 import { fileClaims, isListPart, nameKey } from "../../bin/knowledge-lib.mjs"
 import { stagedPaths, stepTexts } from "../../bin/stage-lib.mjs"
 import {
+  inTestFixture,
   safePath,
+  testFixtureSkips,
   trackedFiles,
 } from "../../discover-roots/scripts/roots-lib.mjs"
 
@@ -46,9 +48,6 @@ const SKIPPED_SEGMENTS = new Set([
   "node_modules",
   "vendor",
   "third_party",
-  "testdata",
-  "fixtures",
-  "__fixtures__",
   "test",
   "tests",
   "__tests__",
@@ -387,8 +386,12 @@ export function scan({
   index = [],
   own = new Set(),
 }) {
-  const skipped = []
-  let files = rootFiles({ source, path, otherRoots })
+  const listed = rootFiles({ source, path, otherRoots })
+  const skipped = testFixtureSkips(listed).map(({ path, reason }) => ({
+    path,
+    reason,
+  }))
+  let files = listed.filter((file) => !inTestFixture(file))
   const realSource = realpathSync(source)
   const kept = files.filter((file) => readable(source, realSource, file))
   if (kept.length < files.length)

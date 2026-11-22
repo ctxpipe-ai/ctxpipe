@@ -1,6 +1,6 @@
 # ADR-052: Ingestion as sandbox skills that write patches
 
-**Status:** Accepted (revised 2026-11-22) | **Date:** 2026-10-13 | **Tags:** ingestion, sandbox, opencode, tanstack, git, openworkflow, security
+**Status:** Accepted (revised 2026-11-23) | **Date:** 2026-10-13 | **Tags:** ingestion, sandbox, opencode, tanstack, git, openworkflow, security
 
 ## Context
 
@@ -220,6 +220,13 @@ Decided by the lead, 2026-11-22. The review of the change added three rules belo
 - **A sandbox with another bundle gets the new bundle.** The prepared marker holds the bundle name. A sandbox that a deploy left with another bundle holds the old skills. The next step does not prepare it again: an agent ran in it, so the plain git source fetch rules must not open. Root deletes the two folders of the agent, then puts the new bundle and the OpenCode config in place. The sealed source and checkouts stay. No agent process runs during this copy. The marker has no bundle name until the copy is complete, so a copy that stops part of the way runs again at the next step.
 - **A cursor across the change.** The trusted length stays the finder count of the first page. A page with the new bundle runs the new finder. When the count is the same, the cursor continues with the new bundle. When the count changes, the skill stops as `partial`, and its finished pages stay.
 - **Telemetry.** The `ingestion.run` and `ingestion.shard` spans have `ctxpipe.ingest.bundle` (the planned bundle), `ctxpipe.ingest.bundle.current`, and `ctxpipe.ingest.bundle.changed`. The parent logs `ingestion-v2.bundle-changed` one time for each new bundle, with the planned and the current bundle and version.
+
+## Revision 2026-11-23: one test fixture rule for each skill (CTX-1531)
+
+- **Problem.** Each skill had its own list of folders to ignore. The lists did not agree, and none had `artifacts`. In the Kubernetes eval corpus, `staging/src/k8s.io/cli-runtime/artifacts/openapi/` holds two test copies of the Kubernetes API specification. The `apis` skill read them as an API of the `cli-runtime` root: 986 candidate operations of noise.
+- **One rule.** `inTestFixture` in `discover-roots/scripts/roots-lib.mjs` is true when a folder of the path holds test input: `testdata`, `test-data`, `test_data`, `fixtures`, `fixture`, `__fixtures__`, `test-fixtures`, `test_fixtures`, or `artifacts`, in any letter case. Each skill that reads source files (`discover-roots`, `apis`, `datasources-infra`, `dependencies`, `decisions`, and `instruction-areas`) uses this rule. A skill keeps its own list only for other folders (dependencies, build output, tests). For `discover-roots`, a test fixture folder is not a folder of the repository, so a workspace entry that names one finds no root.
+- **Nothing goes away in silence.** `testFixtureSkips` gives one `skipped` entry for each outermost test fixture folder, with the count of the files that the skill leaves out. Each of these skills records it: `discover-roots` for package manifests, `decisions` for decision files, `instruction-areas` for practice documents, and `apis`, `dependencies`, and `datasources-infra` for the files of the root. The code-pattern counts of `instruction-areas` leave out fixture files, as they leave out generated and vendored files. A `decisions` entry of a test fixture folder does not stop the list of stale files, because a test copy is not a decision of the source.
+- **Measured** read-only on the Kubernetes source of the eval corpus (context `148b39dd`): the `cli-runtime` root goes from 986 candidate operations to 0, all roots from 2,182 to 1,196, and root `.` keeps its 1,177. The roots (86) do not change. The `apis` result of `cli-runtime` records `staging/src/k8s.io/cli-runtime/artifacts` with its 17 files.
 
 ## Amendment 2026-11-12: no Vercel ingest path (CTX-1220)
 

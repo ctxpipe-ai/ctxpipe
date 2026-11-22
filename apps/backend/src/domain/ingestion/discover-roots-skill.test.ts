@@ -114,7 +114,13 @@ describe("discover-roots script", () => {
         },
       ],
       ambiguous: [],
-      skipped: [],
+      skipped: [
+        {
+          manifest: null,
+          reason:
+            "The test fixture folder playground/ssr/__tests__/fixture has 1 package manifest. They are test input, so the script takes no root from them",
+        },
+      ],
     })
   })
 
@@ -590,7 +596,13 @@ describe("discover-roots script", () => {
         { path: "gopls", manifests: ["go.mod"], evidence: ["go.work"] },
       ],
       ambiguous: [],
-      skipped: [],
+      skipped: [
+        {
+          manifest: null,
+          reason:
+            "The test fixture folder internal/testdata has 1 package manifest. They are test input, so the script takes no root from them",
+        },
+      ],
     })
   })
 
@@ -682,7 +694,13 @@ describe("discover-roots script", () => {
           ],
         },
       ],
-      skipped: [],
+      skipped: [
+        {
+          manifest: null,
+          reason:
+            "The test fixture folder test/fixtures has 1 package manifest. They are test input, so the script takes no root from them",
+        },
+      ],
     })
   })
 
@@ -1069,5 +1087,123 @@ describe("discover-roots script", () => {
         evidence: ["deno.jsonc"],
       },
     ])
+  })
+})
+
+describe("the test fixture rule (CTX-1531)", () => {
+  const fixturePaths = [
+    "staging/cli/artifacts",
+    "pkg/testdata",
+    "pkg/test-data",
+    "pkg/test_data",
+    "web/__fixtures__",
+    "web/Fixtures",
+    "web/fixture",
+    "tools/test-fixtures",
+  ]
+  const recorded = (skipped: Array<{ path?: string | null }>) =>
+    skipped.map((entry) => entry.path).filter((path) => path !== null)
+  const lib = (path: string) => import(join(INGEST_SKILLS_DIR, path))
+
+  it("discover-roots takes no package in a test fixture folder as a root, and records each folder", () => {
+    const files: Record<string, string> = {
+      "package.json": pkg("top", { workspaces: ["packages/*", "**"] }),
+      "packages/app/package.json": pkg("app"),
+    }
+    for (const path of fixturePaths)
+      files[`${path}/package.json`] = pkg(`copy-${path.replace(/\W/g, "-")}`)
+    const result = discover(repo(files))
+    const found = [
+      ...result.roots.map((root) => root.path),
+      ...result.ambiguous.flatMap((entry) =>
+        entry.candidates.map((candidate) => candidate.path),
+      ),
+    ]
+    expect(found).toContain("packages/app")
+    const reasons = result.skipped.map((entry) => entry.reason).join("\n")
+    for (const path of fixturePaths) {
+      expect(found).not.toContain(path)
+      expect(reasons).toContain(
+        `The test fixture folder ${path} has 1 package manifest`,
+      )
+    }
+  })
+
+  it("discover-roots takes no root from a workspace entry that names a test fixture folder", () => {
+    const npm = discover(
+      repo({
+        "package.json": pkg("top", {
+          workspaces: ["packages/app", "services/artifacts"],
+        }),
+        "packages/app/package.json": pkg("app"),
+        "services/artifacts/package.json": pkg("copy"),
+      }),
+    )
+    const maven = discover(
+      repo({
+        "pom.xml":
+          "<project><modules><module>api</module><module>services/artifacts</module></modules></project>",
+        "api/pom.xml": "<project/>",
+        "services/artifacts/pom.xml": "<project/>",
+      }),
+    )
+    for (const [result, kept] of [
+      [npm, "packages/app"],
+      [maven, "api"],
+    ] as const) {
+      const found = [
+        ...result.roots.map((root) => root.path),
+        ...result.ambiguous.flatMap((entry) =>
+          entry.candidates.map((candidate) => candidate.path),
+        ),
+      ]
+      expect(found).toContain(kept)
+      expect(found).not.toContain("services/artifacts")
+      expect(result.skipped.map((entry) => entry.reason).join()).toContain(
+        "The test fixture folder services/artifacts has 1 package manifest",
+      )
+    }
+  })
+
+  it("dependencies, datasources-infra, and instruction-areas leave out the same folders, and record each one", async () => {
+    const files: Record<string, string> = {
+      "src/server.ts": 'fetch("https://api.example.com/orders")\n',
+      "AGENTS.md": "# Agents\n\nUse pnpm.\n",
+      "docker-compose.yml": "services:\n  db:\n    image: postgres:16\n",
+    }
+    for (const path of fixturePaths) {
+      files[`${path}/server.ts`] = 'fetch("https://copy.example.com/x")\n'
+      files[`${path}/AGENTS.md`] = "# Copy\n"
+    }
+    const source = repo(files)
+    const sorted = [...fixturePaths].sort((a, b) => (a < b ? -1 : 1))
+
+    const { scan } = await lib("dependencies/scripts/scan-lib.mjs")
+    const dependencies = scan({ source, path: "." })
+    expect(recorded(dependencies.skipped)).toEqual(sorted)
+
+    const rootsFile = join(
+      source,
+      "..",
+      `${source.split("/").at(-1)}-roots.json`,
+    )
+    writeFileSync(rootsFile, JSON.stringify({ roots: [{ path: "." }] }))
+    const { findStores } = await lib("datasources-infra/scripts/stores-lib.mjs")
+    const stores = findStores({ index: [], source, rootsFile })
+    expect(recorded(stores.roots[0].skipped)).toEqual(sorted)
+
+    const { selectDocuments } = await lib(
+      "instruction-areas/scripts/documents.mjs",
+    )
+    const documents = selectDocuments(source)
+    expect(documents.documents.map((d: { path: string }) => d.path)).toEqual([
+      "AGENTS.md",
+    ])
+    expect(recorded(documents.skipped)).toEqual(sorted)
+
+    const { excludedPath } = await lib("instruction-areas/scripts/patterns.mjs")
+    expect(excludedPath("src/server.ts")).toBe(false)
+    for (const path of fixturePaths)
+      expect(excludedPath(`${path}/server.ts`)).toBe(true)
   })
 })
