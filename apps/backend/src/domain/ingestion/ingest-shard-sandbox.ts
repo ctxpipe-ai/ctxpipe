@@ -53,6 +53,7 @@ import {
 } from "./ingest-root.js"
 import {
   discoverIngestRoots,
+  ingestStepCheckpoint,
   ingestStepSignal,
   ingestAgentEnv,
   prepareIngestShard,
@@ -493,6 +494,7 @@ function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
           discoverIngestRoots(root, agentEnv, {
             signal,
             model: `ctxpipe/${"fast" satisfies IngestModelTier}`,
+            checkpoint: ingestStepCheckpoint(),
           }),
         ingestStepSignal(),
       ),

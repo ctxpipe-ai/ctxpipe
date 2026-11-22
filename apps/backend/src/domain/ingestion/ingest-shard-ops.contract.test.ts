@@ -341,6 +341,25 @@ describe("ingest shard commands in a Docker sandbox", () => {
             "The model step failed (3), so no ambiguous root is planned",
           ],
         })
+        // At the checkpoint the model stops, and the step keeps the script
+        // roots with no model choice.
+        await handle.fs.write(
+          "/tmp/fake-roots-bin/opencode",
+          `#!/bin/sh\necho '{"type":"step_finish","part":{"tokens":{"input":7,"output":1}}}'\nexec sleep 300\n`,
+        )
+        expect(
+          await discoverIngestRoots(root, fakeEnv, {
+            model: "ctxpipe/fast",
+            checkpoint: AbortSignal.timeout(3000),
+          }),
+        ).toEqual({
+          script,
+          model: null,
+          usage: { inputTokens: 7, outputTokens: 1 },
+          problems: [
+            "The model step reached its time limit, so no ambiguous root is planned",
+          ],
+        })
 
         const step = {
           name: `skill:repository:libraries:${WORKSPACE_ID}`,

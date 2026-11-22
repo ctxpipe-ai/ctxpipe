@@ -16,7 +16,7 @@ import { execFileSync } from "node:child_process"
 import { posix } from "node:path"
 
 import {
-  baseFileText,
+  baseText,
   ownsWholeFile,
   relativeTo,
   scriptStep,
@@ -187,7 +187,7 @@ for (const gate of gates) {
       )
       .map((e) => e.path)
       .sort()
-      .find((p) => (baseFileText(step, p) ?? "").includes(declaredIn)) ?? null
+      .find((p) => (baseText(step, p) ?? "").includes(declaredIn)) ?? null
   const candidates = [
     `knowledge/features/${slug(name)}.md`,
     `knowledge/features/${slug(repository.split("/")[1])}-${slug(name)}.md`,

@@ -20,7 +20,7 @@ import {
   readTracked,
   trackedFiles,
 } from "../../discover-roots/scripts/roots-lib.mjs"
-import { ownersPlans } from "./owners-lib.mjs"
+import { ownersPlans, slug } from "./owners-lib.mjs"
 
 /** GitHub reads CODEOWNERS from these places, in this order. */
 const CODEOWNERS_PATHS = [".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS"]
@@ -34,12 +34,6 @@ const EMAIL = /^[^@\s]+@[^@\s]+$/
 const { step, source, repository, roots, index, skipped } = scriptStep()
 const files = new Set(trackedFiles(source))
 const codeowners = CODEOWNERS_PATHS.find((p) => files.has(p))
-
-const slug = (text) =>
-  String(text)
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
 
 /** Patterns that cover the repository root itself (each file of the repository). */
 const WHOLE_REPOSITORY = new Set(["*", "/*", "/", "**", "/**"])
