@@ -22,6 +22,7 @@ import {
   chatRuns,
   chatThreads,
 } from "../../db/schema/chat-persistence.js"
+import { storable } from "../../db/storable.js"
 import { reviveChatMessages } from "../conversations/chat-message-created-at.js"
 import { maskCredentialsDeep } from "./mask-credentials.js"
 
@@ -90,7 +91,9 @@ function createMessageStore(): MessageStore {
     },
     async saveThread(threadId, input) {
       // The transcript keeps no credential that a tool or the model repeated.
-      const messages = maskCredentialsDeep(input)
+      // A tool result can hold a NUL character that Postgres refuses. Remove
+      // it before the mask, so that a NUL inside a token cannot hide the token.
+      const messages = maskCredentialsDeep(storable(input))
       return orgSql(async () => {
         const orgId = requireCurrentOrgId()
         const updatedAt = Date.now()
@@ -161,11 +164,14 @@ function createRunStore(threadId?: string): RunStore {
       if (patch.status !== undefined) set.status = patch.status
       if (patch.finishedAt !== undefined) set.finishedAt = patch.finishedAt
       if (patch.error !== undefined) {
-        set.error = patch.error.message
-        set.errorCode = patch.error.code ?? null
+        set.error = storable(patch.error.message)
+        set.errorCode = storable(patch.error.code) ?? null
       }
       if (patch.usage !== undefined) {
-        set.usageJson = patch.usage as unknown as Record<string, unknown>
+        set.usageJson = storable(patch.usage) as unknown as Record<
+          string,
+          unknown
+        >
       }
       if ("sandboxKey" in patch) set.sandboxKey = patch.sandboxKey ?? null
       if ("detachedSince" in patch) {
@@ -246,9 +252,9 @@ function createInterruptStore(): InterruptStore {
             orgId,
             status: "pending",
             requestedAt: record.requestedAt,
-            payloadJson: record.payload,
+            payloadJson: storable(record.payload),
             ...(record.response !== undefined
-              ? { responseJson: record.response }
+              ? { responseJson: storable(record.response) }
               : {}),
           })
           .onConflictDoNothing({ target: chatInterrupts.interruptId })
@@ -261,7 +267,9 @@ function createInterruptStore(): InterruptStore {
           .set({
             status: "resolved",
             resolvedAt: Date.now(),
-            ...(response !== undefined ? { responseJson: response } : {}),
+            ...(response !== undefined
+              ? { responseJson: storable(response) }
+              : {}),
           })
           .where(eq(chatInterrupts.interruptId, interruptId))
       })
@@ -356,14 +364,15 @@ function createMetadataStore(): MetadataStore {
           `Cannot store ${value} for (${namespace}, ${key}) — use delete() to clear metadata.`,
         )
       }
+      const valueJson = storable(value)
       await orgSql(async () => {
         const orgId = requireCurrentOrgId()
         await getOrgDb()
           .insert(chatMetadata)
-          .values({ namespace, key, orgId, valueJson: value })
+          .values({ namespace, key, orgId, valueJson })
           .onConflictDoUpdate({
             target: [chatMetadata.namespace, chatMetadata.key],
-            set: { valueJson: value },
+            set: { valueJson },
           })
       })
     },
