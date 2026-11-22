@@ -124,8 +124,12 @@ for (const path of tracked) {
   if (form && inTestFixture(path)) fixtures.push(path)
   else if (form) forms.set(path, form)
 }
-for (const { path, reason } of testFixtureSkips(fixtures))
-  skipped.push({ path, reason })
+// A copy in a test fixture folder is not a decision of the source, so its
+// entry does not stop the delete of stale files below.
+const fixtureSkipped = testFixtureSkips(fixtures).map(({ path, reason }) => ({
+  path,
+  reason,
+}))
 let found = [...forms.keys()].sort()
 if (found.some((p) => !safePath(p)))
   skipped.push({
@@ -530,6 +534,7 @@ if (!check) {
   const open = waiting.filter((c) => !written.includes(c))
   const budget = outputBudget()
   const decisions = open.map(entryOf).filter(budget.take)
+  const report = [...skipped, ...fixtureSkipped]
   const result = {
     repository,
     total: order.length,
@@ -539,12 +544,12 @@ if (!check) {
     decisions,
     stale: skipped.length === 0 ? [...staleSet] : [],
     skipped: [
-      ...skipped.slice(0, MAX_SKIPPED),
-      ...(skipped.length > MAX_SKIPPED
+      ...report.slice(0, MAX_SKIPPED),
+      ...(report.length > MAX_SKIPPED
         ? [
             {
               path: null,
-              reason: `${skipped.length - MAX_SKIPPED} more entries are not listed`,
+              reason: `${report.length - MAX_SKIPPED} more entries are not listed`,
             },
           ]
         : []),

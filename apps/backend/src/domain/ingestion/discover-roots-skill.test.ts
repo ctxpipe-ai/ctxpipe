@@ -114,7 +114,13 @@ describe("discover-roots script", () => {
         },
       ],
       ambiguous: [],
-      skipped: [],
+      skipped: [
+        {
+          manifest: null,
+          reason:
+            "The test fixture folder playground/ssr/__tests__/fixture has 1 package manifest. They are test input, so the script takes no root from them",
+        },
+      ],
     })
   })
 
@@ -590,7 +596,13 @@ describe("discover-roots script", () => {
         { path: "gopls", manifests: ["go.mod"], evidence: ["go.work"] },
       ],
       ambiguous: [],
-      skipped: [],
+      skipped: [
+        {
+          manifest: null,
+          reason:
+            "The test fixture folder internal/testdata has 1 package manifest. They are test input, so the script takes no root from them",
+        },
+      ],
     })
   })
 
@@ -682,7 +694,13 @@ describe("discover-roots script", () => {
           ],
         },
       ],
-      skipped: [],
+      skipped: [
+        {
+          manifest: null,
+          reason:
+            "The test fixture folder test/fixtures has 1 package manifest. They are test input, so the script takes no root from them",
+        },
+      ],
     })
   })
 
@@ -1107,6 +1125,42 @@ describe("the test fixture rule (CTX-1531)", () => {
       expect(found).not.toContain(path)
       expect(reasons).toContain(
         `The test fixture folder ${path} has 1 package manifest`,
+      )
+    }
+  })
+
+  it("discover-roots takes no root from a workspace entry that names a test fixture folder", () => {
+    const npm = discover(
+      repo({
+        "package.json": pkg("top", {
+          workspaces: ["packages/app", "services/artifacts"],
+        }),
+        "packages/app/package.json": pkg("app"),
+        "services/artifacts/package.json": pkg("copy"),
+      }),
+    )
+    const maven = discover(
+      repo({
+        "pom.xml":
+          "<project><modules><module>api</module><module>services/artifacts</module></modules></project>",
+        "api/pom.xml": "<project/>",
+        "services/artifacts/pom.xml": "<project/>",
+      }),
+    )
+    for (const [result, kept] of [
+      [npm, "packages/app"],
+      [maven, "api"],
+    ] as const) {
+      const found = [
+        ...result.roots.map((root) => root.path),
+        ...result.ambiguous.flatMap((entry) =>
+          entry.candidates.map((candidate) => candidate.path),
+        ),
+      ]
+      expect(found).toContain(kept)
+      expect(found).not.toContain("services/artifacts")
+      expect(result.skipped.map((entry) => entry.reason).join()).toContain(
+        "The test fixture folder services/artifacts has 1 package manifest",
       )
     }
   })

@@ -1132,6 +1132,26 @@ describe("decisions skill: existing files", () => {
     ).run()
     expect(out.stale).toEqual(["knowledge/decisions/gone.md"])
   })
+
+  it("still lists a stale file when a decision file is in a test fixture folder (CTX-1531)", async () => {
+    const gone = front(
+      {
+        kind: "Decision",
+        name: "Gone",
+        generated_by: "ctxpipe-extract",
+        sources: [SOURCE_PATH],
+      },
+      "# Gone\n\n**Source:** `docs/adr/0099-gone.md`\n",
+    )
+    const out = (
+      await step(
+        { ...ADRS, "pkg/testdata/docs/adr/0001-copy.md": "# 1. Copy\n" },
+        { ...CONTEXT, "knowledge/decisions/gone.md": gone },
+      )
+    ).run()
+    expect(out.skipped.map((entry) => entry.path)).toEqual(["pkg/testdata"])
+    expect(out.stale).toEqual(["knowledge/decisions/gone.md"])
+  })
 })
 
 describe("decisions skill: hostile source", () => {

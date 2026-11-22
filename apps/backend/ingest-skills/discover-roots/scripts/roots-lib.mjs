@@ -126,7 +126,8 @@ export function testFixtureSkips(files) {
   return [...counts]
     .sort(([a], [b]) => (a < b ? -1 : 1))
     .map(([path, count]) => ({
-      path,
+      // A folder name that the script does not quote stays out of the entry.
+      path: safePath(path) ? path : null,
       count,
       reason: `A test fixture folder: the script did not read its ${count} ${count === 1 ? "file" : "files"}, because they are test input`,
     }))
@@ -955,8 +956,12 @@ export function discoverRoots(source) {
   const fixtureManifests = []
   for (const file of files) {
     const parts = file.split("/")
-    for (let i = 1; i < parts.length && i <= MAX_DEPTH; i++)
+    // A test fixture folder and the folders below it are no folders of the
+    // repository, so a workspace entry that names one finds no root.
+    for (let i = 1; i < parts.length && i <= MAX_DEPTH; i++) {
+      if (testFixtureFolder(parts[i - 1])) break
       folders.add(parts.slice(0, i).join("/"))
+    }
     const name = parts.at(-1)
     if (!PACKAGE_MARKERS.includes(name)) continue
     const dir = parts.length === 1 ? "." : parts.slice(0, -1).join("/")
@@ -991,7 +996,7 @@ export function discoverRoots(source) {
   const ambiguous = []
   const skipped = testFixtureSkips(fixtureManifests).map(({ path, count }) => ({
     manifest: null,
-    reason: `The test fixture folder ${path} has ${count} package ${count === 1 ? "manifest" : "manifests"}. They are test input, so the script takes no root from them`,
+    reason: `The test fixture folder ${path ?? "(a name that the script does not quote)"} has ${count} package ${count === 1 ? "manifest" : "manifests"}. They are test input, so the script takes no root from them`,
   }))
   if (unsafeFolder)
     skipped.push({
