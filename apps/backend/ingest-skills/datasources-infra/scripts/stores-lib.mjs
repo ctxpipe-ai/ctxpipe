@@ -28,7 +28,7 @@ import {
   frontMatter,
   frontValue,
   isListPart,
-  listTexts,
+  listLines,
   nameKey,
   relativeTo,
 } from "../../bin/knowledge-lib.mjs"
@@ -696,11 +696,7 @@ export function storeCursor({
     const kind = text && frontValue(frontMatter(text) ?? "", "kind")
     if (kind !== "Database" && kind !== "Infrastructure") continue
     // The lines of the store file and of the parts of its list (CTX-1528).
-    const lines = new Set(
-      listTexts(step, path).flatMap((part) =>
-        part.text.split("\n").map((l) => l.trimEnd()),
-      ),
-    )
+    const lines = listLines(step, path)
     const types = new Set()
     for (const line of lines)
       if (line.startsWith(head)) {

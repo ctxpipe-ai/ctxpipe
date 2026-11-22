@@ -1261,6 +1261,42 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
     expect(all).toContain(`path: ${deep}client-14.ts`)
   }, 600_000)
 
+  it("counts the host fields of the claims that an earlier run of the page staged, so a staged part never passes the file limit (CTX-1528)", async () => {
+    // 450 calls to 450 Service files, with long evidence paths. The first
+    // run fills a part with claims; the second run of the page adds lines.
+    const context: Record<string, string> = {}
+    for (let i = 0; i < 450; i++)
+      context[`knowledge/services/svc-${i}.md`] = serviceFile(`Svc ${i}`)
+    const source: Record<string, string> = {}
+    const deep = `src/${"module/".repeat(30)}`
+    for (let f = 0; f < 15; f++)
+      source[`${deep}client-${f}.ts`] = Array.from(
+        { length: 30 },
+        (_, i) => `await fetch("http://svc-${f * 30 + i}.internal/x")`,
+      ).join("\n")
+    const s = await step(source, context)
+    const listed = () =>
+      s.scan().candidates.map((c) => ({
+        id: c.id,
+        kind: "service",
+        path: `knowledge/services/${/svc-\d+/.exec(c.target.text)?.[0]}.md`,
+      }))
+    // The list of the scan ends at its size limit: the model resolves the
+    // listed candidates, runs apply, and then resolves the next ones.
+    const first = listed()
+    expect(first.length).toBeLessThan(450)
+    s.apply(first)
+    const next = listed()
+    expect(first.length + next.length).toBe(450)
+    const second = s.apply(next)
+    expect(
+      second.skipped.filter((k) => k.reason.includes("would be larger")),
+    ).toEqual([])
+    const result = await s.validate()
+    expect(result.rejections).toEqual([])
+    expect(result.cursorAt).toBe(450)
+  }, 300_000)
+
   it("has the same rule for a part of a dependency list in the skill and in the host (CTX-1487)", async () => {
     const { isListPart } = (await import(
       join(INGEST_SKILLS_DIR, "bin/knowledge-lib.mjs")

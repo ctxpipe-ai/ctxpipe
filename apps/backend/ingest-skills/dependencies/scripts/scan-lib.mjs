@@ -15,7 +15,12 @@ import { lstatSync, realpathSync } from "node:fs"
 import { dirname, join, posix, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { fileClaims, listTexts, nameKey } from "../../bin/knowledge-lib.mjs"
+import {
+  fileClaims,
+  listLines,
+  listTexts,
+  nameKey,
+} from "../../bin/knowledge-lib.mjs"
 import {
   inTestFixture,
   safePath,
@@ -514,15 +519,7 @@ export function resolvedIds(step, root, { repositoryStep, repository }) {
   // The lines of a Stream file and of the parts of its list (CTX-1528).
   const streams = new Map()
   const streamHas = (path, line) => {
-    if (!streams.has(path))
-      streams.set(
-        path,
-        new Set(
-          listTexts(step, path).flatMap((part) =>
-            part.text.split("\n").map((l) => l.trim()),
-          ),
-        ),
-      )
+    if (!streams.has(path)) streams.set(path, listLines(step, path))
     return streams.get(path).has(line)
   }
   let done = null

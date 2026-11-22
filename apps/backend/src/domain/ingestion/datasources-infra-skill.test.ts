@@ -1627,6 +1627,44 @@ describe("datasources-infra skill in a step", () => {
     expect(new Set(lines).size).toBe(280)
   }, 300_000)
 
+  it("takes the corrected summary of a later writer run of the page for a new store file (CTX-1528)", async () => {
+    const s = await step(source, api, apiRoot)
+    const plan = (summary: string) => ({
+      items: [
+        {
+          id: "Database:postgres",
+          name: "PostgreSQL",
+          role: "primary",
+          summary,
+          roots: [
+            { root: ".", predicate: "READS_FROM", evidence: "src/db.ts" },
+          ],
+        },
+      ],
+    })
+    // The writer refuses the summary with a URL and writes the default one.
+    const first = s.write(plan("Read the docs at https://db.example.com/x."))
+    expect(first.skipped.map((k) => k.reason)).toContainEqual(
+      expect.stringContaining("wrote no summary"),
+    )
+    // The model fixes the summary and runs the writer again in the page.
+    s.write(plan("Primary relational store for order data."))
+    const result = await s.validate()
+    expect(result.rejections).toEqual([])
+    const db = s.show(result.tree, "knowledge/databases/postgresql.md")
+    expect(db).toContain("summary: Primary relational store for order data.")
+    expect(db).toContain(
+      "Role: primary store for the domain data. Primary relational store for order data.",
+    )
+    expect(db).not.toContain("that a source repository uses")
+    expect(db.split("\n").filter((l) => l.includes(" uses it in "))).toEqual([
+      "- `example-org/shop` uses it in `.`",
+    ])
+    expect(s.show(result.tree, "knowledge/services/api.md")).toContain(
+      "to: ../databases/postgresql.md",
+    )
+  })
+
   it("keeps the lines of an earlier writer run of the page when a later run plans other roots (CTX-1528)", async () => {
     const files: Record<string, string> = {}
     const roots: Record<string, string[]> = {}
