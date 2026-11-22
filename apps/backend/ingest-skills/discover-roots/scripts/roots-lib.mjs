@@ -561,6 +561,51 @@ const inTestFolder = (dir) =>
   })
 
 /**
+ * The tracked files of `chunk` at HEAD, with two git calls: path to
+ * { text, large }. `text` is null for a path that is not a file blob or that
+ * is larger than `maxBytes`; `large` is true for the second cause.
+ */
+function readChunk(source, chunk, maxBytes) {
+  const out = new Map()
+  const list = chunk.filter((p) => !p.includes("\n") && !p.includes("\r"))
+  for (const path of chunk) out.set(path, { text: null, large: false })
+  if (list.length === 0) return out
+  const git = (args, input) =>
+    execFileSync("git", ["-C", source, ...args], {
+      input,
+      maxBuffer: list.length * (maxBytes + 128) + 64 * 1024,
+    })
+  const lines = git(
+    ["cat-file", "--batch-check"],
+    list.map((p) => `HEAD:${p}\n`).join(""),
+  )
+    .toString("utf8")
+    .split("\n")
+  const small = []
+  list.forEach((path, i) => {
+    const [oid, type, size] = lines[i].split(" ")
+    if (type !== "blob") return
+    if (Number(size) <= maxBytes) small.push({ path, oid, size: Number(size) })
+    else out.set(path, { text: null, large: true })
+  })
+  if (small.length === 0) return out
+  const buffer = git(
+    ["cat-file", "--batch"],
+    small.map((f) => `${f.oid}\n`).join(""),
+  )
+  let at = 0
+  for (const { path, size } of small) {
+    at = buffer.indexOf(10, at) + 1
+    out.set(path, {
+      text: buffer.toString("utf8", at, at + size),
+      large: false,
+    })
+    at += size + 1
+  }
+  return out
+}
+
+/**
  * `parse` of the text of each tracked file at HEAD, keyed by path, with two
  * git calls for each 500 paths. Like `readTracked`, a file that is missing
  * or larger than 1 MiB is "". The script parses each chunk before it reads
@@ -570,39 +615,38 @@ const inTestFolder = (dir) =>
 export function readTrackedMany(source, paths, parse) {
   const empty = parse("")
   const out = new Map(paths.map((p) => [p, empty]))
-  const list = paths.filter((p) => !p.includes("\n") && !p.includes("\r"))
-  const git = (args, input) =>
-    execFileSync("git", ["-C", source, ...args], {
-      input,
-      maxBuffer: 512 * 1024 * 1024 + 64 * 1024,
-    })
-  for (let from = 0; from < list.length; from += 500) {
-    const chunk = list.slice(from, from + 500)
-    const small = []
-    const lines = git(
-      ["cat-file", "--batch-check"],
-      chunk.map((p) => `HEAD:${p}\n`).join(""),
-    )
-      .toString("utf8")
-      .split("\n")
-    chunk.forEach((path, i) => {
-      const [oid, type, size] = lines[i].split(" ")
-      if (type === "blob" && Number(size) <= 1024 * 1024)
-        small.push({ path, oid, size: Number(size) })
-    })
-    if (small.length === 0) continue
-    const buffer = git(
-      ["cat-file", "--batch"],
-      small.map((f) => `${f.oid}\n`).join(""),
-    )
-    let at = 0
-    for (const { path, size } of small) {
-      at = buffer.indexOf(10, at) + 1
-      out.set(path, parse(buffer.toString("utf8", at, at + size)))
-      at += size + 1
-    }
-  }
+  for (let from = 0; from < paths.length; from += 500)
+    for (const [path, { text }] of readChunk(
+      source,
+      paths.slice(from, from + 500),
+      1024 * 1024,
+    ))
+      if (text !== null) out.set(path, parse(text))
   return out
+}
+
+/**
+ * A reader of the tracked files at HEAD that a script reads one at a time,
+ * in the order of `paths`: read(path) gives { text, large } as `readChunk`.
+ * When the script asks for a path of the list that it has not read, the
+ * reader reads that path and the next 499 paths of the list with two git
+ * calls. It holds the text of one chunk. A path that is not in the list is
+ * read alone.
+ */
+export function trackedReader(source, paths, maxBytes) {
+  const at = new Map(paths.map((p, i) => [p, i]))
+  let chunk = new Map()
+  return (path) => {
+    if (!chunk.has(path)) {
+      const from = at.get(path)
+      chunk = readChunk(
+        source,
+        from === undefined ? [path] : paths.slice(from, from + 500),
+        maxBytes,
+      )
+    }
+    return chunk.get(path)
+  }
 }
 
 /** A folder path from `dir` and a relative path, or null when it leaves the repository. */

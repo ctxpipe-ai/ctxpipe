@@ -27,6 +27,7 @@ import {
   ensureParent,
   fail,
   parseArgs,
+  readBaseBlobs,
   readDeletes,
   stagedFile,
   stagedPaths,
@@ -120,6 +121,12 @@ export function scriptStep(argv = process.argv.slice(2)) {
   if (!Array.isArray(listed)) fail(`${rootsFile} has no roots list`)
   const skipped = []
   const roots = []
+  readBaseBlobs(
+    step,
+    listed.flatMap((entry) =>
+      Array.isArray(entry?.files) ? entry.files.filter(safePath) : [],
+    ),
+  )
   for (const entry of listed) {
     if (!safePath(entry?.path)) {
       skipped.push({
@@ -786,6 +793,7 @@ export function writeStep(step, plans, skipped = [], options = {}) {
   // file that the page does not write (an API file and its operations).
   // With `options.claimOrder` "created", a claim orders only before a plan
   // that creates its file: a file at the step base needs no order.
+  readBaseBlobs(step, [...byPath.keys()])
   const sorted = []
   const placed = new Set()
   const atBase = new Map()

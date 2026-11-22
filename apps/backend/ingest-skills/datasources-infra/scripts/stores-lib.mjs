@@ -19,7 +19,6 @@
 // path). It never holds a value: not a connection string, a host, a user, a
 // password, a key, or any other text from a file.
 
-import { execFileSync } from "node:child_process"
 import { readFileSync } from "node:fs"
 import { posix } from "node:path"
 
@@ -36,6 +35,7 @@ import {
   baseBlob,
   blobContent,
   fail,
+  readBaseBlobs,
   stagedFile,
   stagedPaths,
 } from "../../bin/stage-lib.mjs"
@@ -44,6 +44,7 @@ import {
   safePath,
   testFixtureSkips,
   trackedFiles,
+  trackedReader,
 } from "../../discover-roots/scripts/roots-lib.mjs"
 import {
   CDK_COMPUTE,
@@ -61,6 +62,38 @@ import {
 // (CTX-1487): the cursor bounds the pages.
 const MAX_FILE_BYTES = 256 * 1024
 const MAX_LINE = 2000
+
+const MANIFESTS = new Set([
+  "package.json",
+  "pyproject.toml",
+  "pipfile",
+  "go.mod",
+  "cargo.toml",
+  "pom.xml",
+  "build.gradle",
+  "build.gradle.kts",
+  "gemfile",
+  "composer.json",
+  "mix.exs",
+])
+const isRequirements = (name) => /^requirements[\w.-]*\.txt$/.test(name)
+const CONFIG_FILE =
+  /^(\.env[\w.-]*|[\w.-]+\.(properties|ini|cfg|conf|toml|tfvars|ya?ml)|appsettings[\w.-]*\.json|schema\.prisma|drizzle\.config\.\w+|(settings|base|production)[\w.-]*\.py)$/i
+const TEMPLATE_JSON =
+  /(template|cloudformation|cfn|stack)[\w.-]*\.(json|template)$/
+
+/** True for a file whose text a root reads: a manifest, a Helm file, Terraform, a config file, or a template. */
+function readsText(file) {
+  const name = posix.basename(file).toLowerCase()
+  return (
+    MANIFESTS.has(name) ||
+    isRequirements(name) ||
+    INFRA_FILES[name] === "helm" ||
+    name.endsWith(".tf") ||
+    CONFIG_FILE.test(posix.basename(file)) ||
+    TEMPLATE_JSON.test(name)
+  )
+}
 
 /** A variable name, a resource label, a service name: letters, digits, and a few separators. */
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$/
@@ -105,8 +138,14 @@ export function findStores({ index, source, rootsFile }) {
   if (!Array.isArray(listed)) fail(`${rootsFile} has no roots list`)
   const tracked = trackedFiles(source)
   const deeperRoots = (path) => deeperRootsOf(listed, path)
+  // One reader for the roots: 500 files cost two git calls, not 500.
+  const readText = trackedReader(
+    source,
+    tracked.filter(readsText),
+    MAX_FILE_BYTES,
+  )
   const storesOf = (path) =>
-    storesOfRoot({ path, source, tracked, index, deeperRoots })
+    storesOfRoot({ path, source, tracked, index, deeperRoots, readText })
   const roots = []
   const skipped = []
   for (const entry of listed) {
@@ -181,7 +220,14 @@ function deeperRootsOf(listed, rootPath) {
 }
 
 /** The stores and infrastructure of one root. */
-function storesOfRoot({ path: rootPath, source, tracked, index, deeperRoots }) {
+function storesOfRoot({
+  path: rootPath,
+  source,
+  tracked,
+  index,
+  deeperRoots,
+  readText,
+}) {
   const skipped = []
   const seenSkips = new Set()
   const skip = (path, reason) => {
@@ -206,27 +252,21 @@ function storesOfRoot({ path: rootPath, source, tracked, index, deeperRoots }) {
   const inRoot = listed.filter((file) => !inTestFixture(file))
 
   /** Text of a tracked file at HEAD, or null (and a `skipped` entry when the cause is a limit). */
-  function read(path) {
+  function read(path, reader = readText) {
     if (!safePath(path)) {
       skip(null, "A file path has characters that the script does not quote")
       return null
     }
-    try {
-      const text = execFileSync("git", ["-C", source, "show", `HEAD:${path}`], {
-        maxBuffer: MAX_FILE_BYTES,
-        stdio: ["ignore", "pipe", "ignore"],
-      }).toString("utf8")
-      if (text.split(/\r?\n/).some((line) => line.length > MAX_LINE))
-        skip(
-          path,
-          `The script read only the first ${MAX_LINE} characters of each line`,
-        )
-      return text
-    } catch (error) {
-      if (error?.code === "ENOBUFS")
-        skip(path, `The file is larger than ${MAX_FILE_BYTES / 1024} KiB`)
-      return null
-    }
+    const { text, large } = reader(path)
+    if (large)
+      skip(path, `The file is larger than ${MAX_FILE_BYTES / 1024} KiB`)
+    if (text === null) return null
+    if (text.split(/\r?\n/).some((line) => line.length > MAX_LINE))
+      skip(
+        path,
+        `The script read only the first ${MAX_LINE} characters of each line`,
+      )
+    return text
   }
 
   /** Lines of a text, each cut at MAX_LINE so that no pattern runs long on a minified line. */
@@ -257,21 +297,6 @@ function storesOfRoot({ path: rootPath, source, tracked, index, deeperRoots }) {
   const base = (path) => posix.basename(path)
 
   // --- Manifests: a driver in the dependencies. ---
-
-  const MANIFESTS = new Set([
-    "package.json",
-    "pyproject.toml",
-    "pipfile",
-    "go.mod",
-    "cargo.toml",
-    "pom.xml",
-    "build.gradle",
-    "build.gradle.kts",
-    "gemfile",
-    "composer.json",
-    "mix.exs",
-  ])
-  const isRequirements = (name) => /^requirements[\w.-]*\.txt$/.test(name)
 
   function manifestDeps(name, text) {
     const found = new Set()
@@ -318,8 +343,6 @@ function storesOfRoot({ path: rootPath, source, tracked, index, deeperRoots }) {
 
   // --- Config files: connection schemes (names only), ORM config. ---
 
-  const CONFIG_FILE =
-    /^(\.env[\w.-]*|[\w.-]+\.(properties|ini|cfg|conf|toml|tfvars|ya?ml)|appsettings[\w.-]*\.json|schema\.prisma|drizzle\.config\.\w+|(settings|base|production)[\w.-]*\.py)$/i
   const SCHEME =
     /(?:^|[\s"'=:(])(?:jdbc:)?([a-z][a-z0-9+.-]{1,20}):\/\/(?=\S)/gi
   const VARIABLE_BEFORE =
@@ -508,8 +531,6 @@ function storesOfRoot({ path: rootPath, source, tracked, index, deeperRoots }) {
   // --- Walk the files. ---
 
   const YAML = /\.ya?ml$/
-  const TEMPLATE_JSON =
-    /(template|cloudformation|cfn|stack)[\w.-]*\.(json|template)$/
   for (const file of inRoot) {
     const name = base(file).toLowerCase()
     const kind = Object.hasOwn(INFRA_FILES, name) ? INFRA_FILES[name] : null
@@ -539,17 +560,17 @@ function storesOfRoot({ path: rootPath, source, tracked, index, deeperRoots }) {
   }
 
   if (cdkDirs.size) {
-    for (const file of inRoot) {
+    const code = inRoot.filter((file) => {
       if (!/\.(ts|js|mjs|py|java|cs)$/.test(file) || /\.d\.ts$/.test(file))
-        continue
+        return false
       const dir = posix.dirname(file)
-      if (
-        ![...cdkDirs].some(
-          (d) => d === "." || dir === d || dir.startsWith(`${d}/`),
-        )
+      return [...cdkDirs].some(
+        (d) => d === "." || dir === d || dir.startsWith(`${d}/`),
       )
-        continue
-      const text = read(file)
+    })
+    const codeText = trackedReader(source, code, MAX_FILE_BYTES)
+    for (const file of code) {
+      const text = read(file, codeText)
       if (text !== null) scanCdk(file, text)
     }
   }
@@ -683,13 +704,18 @@ export function storeCursor({
   // its lines.
   const head = `- \`${repository}\` declares \``
   const stores = new Map()
-  for (const path of new Set([
+  const paths = new Set([
     ...index
       .filter((e) => e.kind === "Database" || e.kind === "Infrastructure")
       .map((e) => e.path),
     ...stagedPaths(step),
     ...planned.map((p) => p.path),
-  ])) {
+  ])
+  readBaseBlobs(step, [
+    ...[...paths].filter(safePath),
+    ...roots.flatMap((r) => r.files.map((f) => f.path)),
+  ])
+  for (const path of paths) {
     if (!safePath(path) || !path.startsWith("knowledge/") || isListPart(path))
       continue
     const text = textOf(step, path)

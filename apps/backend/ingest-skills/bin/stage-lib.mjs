@@ -113,53 +113,82 @@ export function contextPath(step, input) {
   return clean
 }
 
-function git(contextDir, args, input) {
-  return execFileSync("git", ["-C", contextDir, ...args], {
-    input,
-    maxBuffer: 64 * 1024 * 1024,
-  })
+function git(contextDir, args, input, maxBuffer = 64 * 1024 * 1024) {
+  return execFileSync("git", ["-C", contextDir, ...args], { input, maxBuffer })
 }
 
-// The file blobs of each base commit: path to blob id. A commit does not
-// change, so one `git ls-tree` gives each later baseBlob call its answer.
-// A script that reads the base for each of 600 files then starts one git
-// process, not 600.
+// The file blobs of each base commit that the script asked for more than
+// once: path to blob id. A commit does not change, so one `git ls-tree` of
+// the tree gives each later baseBlob call its answer, and a script that
+// checks 600 paths starts two git processes, not 600. A helper that asks
+// for one path (ctxpipe-stage) lists only that path, not a large tree.
 const baseBlobsOf = new Map()
 
 /** The blob id of `path` at the step's base commit, or null. */
 export function baseBlob(step, path) {
   const key = `${step.contextDir}\0${step.baseCommit}`
-  let blobs = baseBlobsOf.get(key)
-  if (!blobs) {
-    blobs = new Map()
-    const out = execFileSync(
-      "git",
-      [
-        "-C",
-        step.contextDir,
-        "ls-tree",
-        "-r",
-        "-z",
-        "--full-tree",
-        step.baseCommit,
-      ],
-      { maxBuffer: 256 * 1024 * 1024 },
-    ).toString("utf8")
-    for (const line of out.split("\0")) {
-      const tab = line.indexOf("\t")
-      if (tab === -1) continue
-      const [mode, type, id] = line.slice(0, tab).split(" ")
-      // A symbolic link or a submodule is not a file blob.
-      if (type === "blob" && mode !== "120000")
-        blobs.set(line.slice(tab + 1), id)
-    }
-    baseBlobsOf.set(key, blobs)
+  const listed = baseBlobsOf.get(key)
+  if (listed) return listed.get(path) ?? null
+  const blobs = new Map()
+  const out = git(
+    step.contextDir,
+    listed === undefined
+      ? ["ls-tree", "-z", step.baseCommit, "--", path]
+      : ["ls-tree", "-r", "-z", "--full-tree", step.baseCommit],
+    undefined,
+    256 * 1024 * 1024,
+  ).toString("utf8")
+  for (const line of out.split("\0")) {
+    const tab = line.indexOf("\t")
+    if (tab === -1) continue
+    const [mode, type, id] = line.slice(0, tab).split(" ")
+    // A symbolic link or a submodule is not a file blob.
+    if (type === "blob" && mode !== "120000") blobs.set(line.slice(tab + 1), id)
   }
+  // The first call lists one path; the next call lists the tree.
+  baseBlobsOf.set(key, listed === undefined ? null : blobs)
   return blobs.get(path) ?? null
 }
 
+// Blob contents that readBaseBlobs read: blob id to Buffer. An id names
+// its content, so a cached blob is always correct.
+const blobContents = new Map()
+
+/**
+ * Reads the blobs of `paths` at the step base with one git call for each
+ * 500 blobs, so that blobContent of each one starts no git process. A loop
+ * that reads the base text of many files calls it first.
+ */
+export function readBaseBlobs(step, paths) {
+  const ids = [
+    ...new Set(
+      paths
+        .map((path) => baseBlob(step, path))
+        .filter((id) => id !== null && !blobContents.has(id)),
+    ),
+  ]
+  for (let from = 0; from < ids.length; from += 500) {
+    const chunk = ids.slice(from, from + 500)
+    const out = execFileSync(
+      "git",
+      ["-C", step.contextDir, "cat-file", "--batch"],
+      {
+        input: chunk.map((id) => `${id}\n`).join(""),
+        maxBuffer: 512 * 1024 * 1024,
+      },
+    )
+    let at = 0
+    for (const id of chunk) {
+      const end = out.indexOf(0x0a, at)
+      const size = Number(out.toString("utf8", at, end).split(" ")[2])
+      blobContents.set(id, out.subarray(end + 1, end + 1 + size))
+      at = end + 1 + size + 1
+    }
+  }
+}
+
 export function blobContent(step, id) {
-  return git(step.contextDir, ["cat-file", "blob", id])
+  return blobContents.get(id) ?? git(step.contextDir, ["cat-file", "blob", id])
 }
 
 /**

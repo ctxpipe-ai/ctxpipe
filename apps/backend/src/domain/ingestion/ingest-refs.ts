@@ -15,6 +15,7 @@ import {
   type PatchRule,
   type PatchStepInput,
   type PatchStepResult,
+  readBlobs,
   validatePatchStep,
 } from "./patch-validator.js"
 import { runGit } from "./run-git.js"
@@ -548,12 +549,18 @@ export async function mergeIngestPublish(input: {
     const files: Array<{ path: string; content: string; encoding?: "base64" }> =
       []
     const deletePaths: string[] = []
-    for (const change of await diffTree(repoDir, input.current, tree)) {
+    const changes = await diffTree(repoDir, input.current, tree)
+    const blobs = await readBlobs(
+      repoDir,
+      changes.flatMap((change) => (change.blob === null ? [] : [change.blob])),
+    )
+    for (const change of changes) {
       if (change.blob === null) {
         deletePaths.push(change.path)
         continue
       }
-      const bytes = await runGit(repoDir, ["cat-file", "blob", change.blob])
+      const bytes = blobs.get(change.blob)
+      if (!bytes) throw new Error(`The tree has no blob ${change.blob}`)
       const utf8 = bytes.toString("utf8")
       files.push(
         Buffer.from(utf8, "utf8").equals(bytes)

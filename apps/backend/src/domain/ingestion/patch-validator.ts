@@ -2079,7 +2079,11 @@ async function hashBlobs(
   }
 }
 
-async function readBlobs(
+/**
+ * The content of each blob id, with one `git cat-file --batch`. An id that is
+ * missing or that is not a blob has no entry.
+ */
+export async function readBlobs(
   repoDir: string,
   shas: string[],
 ): Promise<Map<string, Buffer>> {
@@ -2092,9 +2096,18 @@ async function readBlobs(
   let offset = 0
   while (offset < out.length) {
     const newline = out.indexOf(0x0a, offset)
-    const [sha, , size] = out.subarray(offset, newline).toString().split(" ")
+    const [sha = "", type, size] = out
+      .subarray(offset, newline)
+      .toString()
+      .split(" ")
+    // "<id> missing" has no content.
+    if (type === "missing") {
+      offset = newline + 1
+      continue
+    }
     const length = Number(size)
-    blobs.set(sha ?? "", out.subarray(newline + 1, newline + 1 + length))
+    if (type === "blob")
+      blobs.set(sha, out.subarray(newline + 1, newline + 1 + length))
     offset = newline + 1 + length + 1
   }
   return blobs

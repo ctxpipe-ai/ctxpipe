@@ -202,10 +202,16 @@ export function standInIngestShardRuntime(options: {
             usage?: IngestStepUsage
           }
           usage = reply.usage
-          for (const file of reply.files) {
-            await node("bin/ctxpipe-stage", "--root", root, file.path)
+          // One ctxpipe-stage call stages each file of the reply.
+          if (reply.files.length)
+            await node(
+              "bin/ctxpipe-stage",
+              "--root",
+              root,
+              ...reply.files.map((file) => file.path),
+            )
+          for (const file of reply.files)
             await writeFile(join(out, "files", file.path), file.content)
-          }
           more = reply.more === true
         }
         await node(
