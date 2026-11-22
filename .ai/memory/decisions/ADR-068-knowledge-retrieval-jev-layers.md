@@ -49,7 +49,9 @@ The content and its tables are in [ADR-066](ADR-066-knowledge-content-in-clickho
 3. **The tools.**
    - `search_knowledge` is the search plus layer 0.
    - `get_related` is the full loop. Each layer reads the out-relations and in-relations of the frontier in one ClickHouse query.
-   - With D = 3, one retrieval is about 6 ClickHouse queries and 5 Jev calls.
+   - With D = 3, one retrieval is about 6 steps of ClickHouse queries and 5 Jev calls. Since [CTX-1548](https://linear.app/ctxpipe/issue/CTX-1548), a frontier read is three queries: the edges, then the neighbor documents and the mention counts in parallel. A join of the neighbors in the edge query evaluated the edges two more times (p50 390 ms for each read in the v0 run).
+   - **The steps that do not wait for each other run in parallel** (2026-11-22, [CTX-1548](https://linear.app/ctxpipe/issue/CTX-1548)). The seeds are the first frontier, so the read of their relations starts with the query embedding, and the judge of the seeds runs with layer 1. While Jev judges a layer, the store reads the relations of all its candidates, and the next layer uses only those of the candidates that Jev explores. Thus a walk of D layers waits for D Jev calls, not D + 1, and the Jev requests and the results do not change.
+   - **The query vector of an org and a text is kept** (the last 256 in the process). An agent often calls `get_related` with the query of its search, so the second call makes no embedding call. The org is part of the key, so the time of a call does not show that another org asked the same text.
 4. **Disagreements are reasoned at query time, for each question. Jev gives small facts about the content; code decides** ([CTX-1418](https://linear.app/ctxpipe/issue/CTX-1418), the CTO, 2026-11-19).
    1. Take the top evidence set, about N = 10.
    2. Jev answers yes/no questions (Noul) about the content only. Each question asks for one judgment, and "yes" means that the condition is present:
@@ -104,7 +106,7 @@ The content and its tables are in [ADR-066](ADR-066-knowledge-content-in-clickho
 ## Consequences
 
 - **Better ranking signal:** the ranking comes from the question, not from the graph shape. We no longer tune the intent presets and the predicate weights.
-- **Latency:** about 500 ms of Jev time for `get_related` at D = 3, plus the ClickHouse queries. Each query makes one embedding call and one vector scan. The scan grows with the size of the Workspace: 1 million chunks is about 128 MB of binary vectors for each query.
+- **Latency:** about 500 ms of Jev time for `get_related` at D = 3, plus the ClickHouse queries. Each query makes one embedding call and one vector scan. The v0 run measured about 450 ms for each Jev call, also with 2 questions: the count of Jev calls in series sets most of the time of `get_related`. The scan grows with the size of the Workspace: 1 million chunks is about 128 MB of binary vectors for each query.
 - **Cost:** each retrieval has a model cost (Jev and the query embedding). Ingest has a model cost for each new or changed image.
 - **Open: what happens when Jev fails or is slow** (return the search order, or fail the call). The PoC decides it.
 - **Facts to verify:**

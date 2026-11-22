@@ -443,8 +443,9 @@ describe("the knowledge eval harness", () => {
         },
       },
       // Jev: 1 call for a search; 4 or 5 for get_related (the layers, and
-      // one call for the disagreement facts). Embeddings: 1 for a search, 1
-      // for get_related.
+      // one call for the disagreement facts). Embeddings of the old stack:
+      // 1 for a search, 1 for get_related. The plane keeps the vector of the
+      // search, and get_related asks the same text: 1 for each question.
       calls: [
         {
           arm: "legacy",
@@ -469,7 +470,7 @@ describe("the knowledge eval harness", () => {
           split: "dev",
           jev: 2.25,
           jevQuestions: 34,
-          embedding: 1.375,
+          embedding: 1,
           errors: 0,
           partial: 0,
         },
@@ -478,14 +479,14 @@ describe("the knowledge eval harness", () => {
           split: "holdout",
           jev: 3,
           jevQuestions: 39.25,
-          embedding: 1.5,
+          embedding: 1,
           errors: 0,
           partial: 0,
         },
       ],
-      // 30 Jev calls at $0.001, and 34 embedding calls with no cost in the
+      // 30 Jev calls at $0.001, and 29 embedding calls with no cost in the
       // answer, at the upper estimate of $0.001.
-      costUsd: 0.064,
+      costUsd: 0.059,
     })
     const markdown = await readFile(join(folder, "live", "report.md"), "utf8")
     const firstTable = markdown.slice(markdown.indexOf("\n## "))
@@ -527,7 +528,7 @@ describe("the knowledge eval harness", () => {
     expect(jev).toHaveLength(30)
     expect(JSON.parse(jev[0]?.response ?? "{}")).toHaveProperty("answers")
     expect(kept.calls.filter((call) => call.kind === "embedding")).toHaveLength(
-      34,
+      29,
     )
     // Each client of both arms sent the provider block (ADR-070).
     for (const call of kept.calls)
@@ -762,7 +763,7 @@ describe("the knowledge eval harness", () => {
           ...latency,
           jevCallsPerQuestion: 2.25,
           jevQuestionsPerQuestion: 34,
-          costPerQuestionUsd: 0.004,
+          costPerQuestionUsd: 0.003,
           errors: 0,
         },
         now: {
@@ -770,7 +771,7 @@ describe("the knowledge eval harness", () => {
           relatedP95Ms: null,
           jevCallsPerQuestion: 1.875,
           jevQuestionsPerQuestion: 31.75,
-          costPerQuestionUsd: 0.003,
+          costPerQuestionUsd: 0.002,
           errors: 0,
         },
       },
@@ -781,7 +782,7 @@ describe("the knowledge eval harness", () => {
           ...latency,
           jevCallsPerQuestion: 3,
           jevQuestionsPerQuestion: 39.25,
-          costPerQuestionUsd: 0.005,
+          costPerQuestionUsd: 0.004,
           errors: 0,
         },
         now: {
@@ -789,7 +790,7 @@ describe("the knowledge eval harness", () => {
           relatedP95Ms: null,
           jevCallsPerQuestion: 2.5,
           jevQuestionsPerQuestion: 34,
-          costPerQuestionUsd: 0.004,
+          costPerQuestionUsd: 0.003,
           errors: 0,
         },
       },
