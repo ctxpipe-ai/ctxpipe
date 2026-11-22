@@ -38,9 +38,11 @@ export function capIngestText(text: string): string {
  * example `UND_ERR_SOCKET`.
  *
  * `errorHead` is the cause of a failed Git transport, from the stderr in the
- * message of `runAsRoot` (CTX-1517). Only a head from this closed list can
- * go into it. Each head is fixed text plus at most a status code, so it
- * holds no URL, host, path, or token.
+ * message of a failed root command (`runAsRoot`, CTX-1517). It comes only
+ * from the line that Git writes for a transport failure, `fatal: unable to
+ * access '<url>': <curl error>`, and only when the curl error starts with a
+ * head from this closed list. Each head is fixed text plus at most a status
+ * code, so it holds no URL, host, path, or token.
  */
 export function ingestErrorFields(error: unknown): {
   errorClass: string
@@ -56,10 +58,11 @@ export function ingestErrorFields(error: unknown): {
     /^(?:Ingest root command failed \(exit -?\d+\)|Sandbox lock ownership (?:lost|expired)|The ingest step reached its time limit|\(HTTP code \d{3}\)|aborted$|socket hang up$|fetch failed$|terminated$|discover-roots failed)/.exec(
       error.message,
     )?.[0]
-  const head =
-    /(?:CONNECT tunnel failed, response \d{3}|Received HTTP code \d{3} from proxy after CONNECT|Proxy CONNECT aborted|Could not resolve proxy|Could not resolve host|Couldn't connect to server|Connection refused|Connection reset by peer|Connection timed out|Operation timed out|The requested URL returned error: \d{3}|RPC failed; HTTP \d{3}|SSL certificate problem|early EOF)(?![\w])/.exec(
-      error.message,
-    )?.[0]
+  const head = kind?.startsWith("Ingest root command failed")
+    ? /^fatal: unable to access '[^'\n]*': (?:Failed to connect to [^\n]*?: |Recv failure: )?(CONNECT tunnel failed, response \d{3}|Received HTTP code \d{3} from proxy after CONNECT|Proxy CONNECT aborted|Could not resolve proxy|Couldn't connect to server|Connection refused|Connection reset by peer|Connection timed out|Operation timed out)(?=$|[: ])/m.exec(
+        error.message.slice(kind.length + 2),
+      )?.[1]
+    : undefined
   return {
     errorClass: error.constructor.name,
     ...(typeof code === "string" &&

@@ -220,7 +220,7 @@ describe("the fields of a failed ingest step in a log", () => {
 describe("the Git error head of a failed root command", () => {
   /** A proxy that answers each CONNECT with this status. */
   async function refusingProxy(status: number): Promise<Server> {
-    const proxy = createServer((_req, res) => res.writeHead(status).end())
+    const proxy = createServer()
     proxy.on("connect", (_req, socket) =>
       socket.end(
         `HTTP/1.1 ${status} Refused\r\nProxy-Authenticate: Basic realm="x"\r\nContent-Length: 0\r\n\r\n`,
@@ -306,22 +306,42 @@ describe("the Git error head of a failed root command", () => {
   })
 
   it("adds nothing for a stderr with source text", () => {
+    const fieldsOf = (message: string) => ingestErrorFields(new Error(message))
     expect(
-      ingestErrorFields(
-        new Error(
-          "Ingest root command failed (exit 1): private sentinel\nconst token = 'x'",
-        ),
+      fieldsOf(
+        "Ingest root command failed (exit 1): private sentinel\nconst token = 'x'",
       ),
     ).toEqual({
       errorClass: "Error",
       errorKind: "Ingest root command failed (exit 1)",
     })
-    // A known head inside a longer line of text still gives only the head.
+    // A known head outside the Git transport line gives no head.
     expect(
-      ingestErrorFields(
-        new Error(
-          "Ingest root command failed (exit 128): private sentinel CONNECT tunnel failed, response 4071 private sentinel",
-        ),
+      fieldsOf(
+        'Ingest root command failed (exit 1): const message = "Connection refused"',
+      ).errorHead,
+    ).toBeUndefined()
+    // A near match (a status with four digits, a longer word) gives no head.
+    expect(
+      fieldsOf(
+        "Ingest root command failed (exit 128): fatal: unable to access 'https://x/': CONNECT tunnel failed, response 4071",
+      ).errorHead,
+    ).toBeUndefined()
+    expect(
+      fieldsOf(
+        "Ingest root command failed (exit 128): fatal: unable to access 'https://x/': Connection refusedx",
+      ).errorHead,
+    ).toBeUndefined()
+    // A head in the URL is not the cause; the curl error after it is.
+    expect(
+      fieldsOf(
+        "Ingest root command failed (exit 128): fatal: unable to access 'https://x/Connection refused/': CONNECT tunnel failed, response 407",
+      ).errorHead,
+    ).toBe("CONNECT tunnel failed, response 407")
+    // Only a failed root command can have a head.
+    expect(
+      fieldsOf(
+        "fatal: unable to access 'https://x/': CONNECT tunnel failed, response 407",
       ).errorHead,
     ).toBeUndefined()
   })
