@@ -120,7 +120,7 @@ export const falkordbModuleVersion = (uri) =>
 // it starts a check, so that no branch code gets the key. Thus under
 // `factory check` this prerequisite fails also when the key is exported.
 const workbenchFix =
-  "Evals call paid models, so they run only with the workbench environment: set MODEL_PROVIDER, MODEL_PROVIDER_API_KEY (the spend-capped workbench key) and MCP_EVAL_MODELS (two or more provider/model ids, comma-separated). Under `factory check` an eval never gets MODEL_PROVIDER_API_KEY, also when you exported it: the factory removes the key, so that no branch code gets it. This is intended: CI runs the evals in the workbench environment. To run an eval on this host, use pnpm -s checks:run outside `factory check`."
+  "Evals call paid models, so they run only with the workbench environment: set MODEL_PROVIDER, MODEL_PROVIDER_API_KEY (the spend-capped workbench key) and MCP_EVAL_MODELS (two or more provider/model ids, comma-separated). Under `factory check` an eval never gets MODEL_PROVIDER_API_KEY, also when you exported it: the factory removes the key, so that no branch code gets it. This is intended: CI runs the evals in the workbench environment. To run an eval on this host, use pnpm --reporter=silent checks:run outside `factory check`."
 
 // Each entry: `needs` (other prerequisites, made first) and `prepare` (makes
 // or verifies). Keep this a small map; it is not a build system.
