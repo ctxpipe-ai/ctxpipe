@@ -678,7 +678,7 @@ describe("the knowledge eval harness", () => {
       join(folder, "reuse-same", "report.md"),
       "utf8",
     )
-    expect(markdown).toContain("so they give no latency")
+    expect(markdown).toContain("so it gives no latency")
     expect(markdown).toContain(
       `The run reused ${reused.run.reuse?.reused} recorded model calls of ${join(folder, "live")}, and sent 0 new calls`,
     )
@@ -709,6 +709,39 @@ describe("the knowledge eval harness", () => {
     })
     expect(rescored.incomplete).toEqual([])
     expect(requests.jev).toBe(before.jev + (changed.run.reuse?.live ?? 0))
+  })
+
+  it("--reuse-from: a recorded failure goes out again, and a call that the spend cap stops is not counted as sent", async () => {
+    const stored = await readRun(join(folder, "live"))
+    const failedAt = stored.calls.findIndex(
+      (call) => call.arm === "plane" && call.kind === "jev",
+    )
+    expect(failedAt).toBeGreaterThanOrEqual(0)
+    // The kept run got an HTTP 503 for one Jev request.
+    const withFailure = {
+      ...stored,
+      calls: stored.calls.map((call, index) =>
+        index === failedAt ? { ...call, status: 503 } : call,
+      ),
+    }
+    const before = { ...requests }
+    const again = await run("reuse-failure", {
+      reuse: { folder: join(folder, "live"), run: withFailure },
+    })
+    // Only that request went out, and its new answer is used.
+    expect(requests.jev).toBe(before.jev + 1)
+    expect(requests.embedding).toBe(before.embedding)
+    expect(again.run.reuse?.live).toBe(1)
+    expect(again.errors).toBe(0)
+    // With no money left, the same request does not go out, and it is not
+    // counted as a sent call.
+    const capped = await run("reuse-capped", {
+      capUsd: 0,
+      reuse: { folder: join(folder, "live"), run: withFailure },
+    })
+    expect(requests.jev).toBe(before.jev + 1)
+    expect(capped.run.reuse?.live).toBe(0)
+    expect(capped.run.stopped).toBe(true)
   })
 
   it("--reuse-from: refuses other labels, and another query time than --baseline-from", async () => {

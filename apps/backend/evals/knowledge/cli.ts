@@ -92,7 +92,7 @@ import {
   readRun,
   runEval,
   type Settings,
-  type StoredRun,
+  type RunFolder,
   type Targets,
   targetsSchema,
   writeJson,
@@ -131,7 +131,7 @@ export async function executeRun(input: {
    * An earlier run folder (`--baseline-from`): the run reuses its answers of
    * the old stack, and runs only the plane.
    */
-  baseline?: { folder: string; run: StoredRun }
+  baseline?: RunFolder
   /**
    * An earlier run folder (`--reuse-from`): each model request of the run
    * that is the same as a recorded request of that folder (the same arm,
@@ -139,7 +139,7 @@ export async function executeRun(input: {
    * answer. Only the other requests go out. Thus the scores of the run move
    * only where its code changed a request.
    */
-  reuse?: { folder: string; run: StoredRun }
+  reuse?: RunFolder
 }): Promise<Report> {
   const questions = input.dataset.questions.filter((question) =>
     input.splits.includes(question.split),
@@ -200,7 +200,7 @@ export async function executeRun(input: {
       mode: input.replay ? "replay" : input.reuse ? "reuse" : "live",
       ...(input.baseline ? { baselineFrom: input.baseline.folder } : {}),
       ...(input.reuse
-        ? { reuseFrom: input.reuse.folder, reuse: { ...calls.reuse } }
+        ? { reuse: { from: input.reuse.folder, ...calls.reuseSummary() } }
         : {}),
       ...calls.summary(),
     }
@@ -237,7 +237,7 @@ export async function executeRun(input: {
 function checkSameDataset(
   flag: string,
   dataset: Dataset,
-  { folder, run }: { folder: string; run: StoredRun },
+  { folder, run }: RunFolder,
   questions: readonly Dataset["questions"][number][],
 ): void {
   if (run.manifest.datasetVersion !== dataset.version)
@@ -282,7 +282,7 @@ function checkSameDataset(
  */
 function storedBaseline(
   dataset: Dataset,
-  baseline: { folder: string; run: StoredRun },
+  baseline: RunFolder,
   questions: readonly Dataset["questions"][number][],
 ): Map<string, ArmAnswer> {
   checkSameDataset("--baseline-from", dataset, baseline, questions)

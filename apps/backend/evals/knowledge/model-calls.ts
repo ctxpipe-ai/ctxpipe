@@ -175,16 +175,19 @@ export class ModelCalls {
   /** The recorded answers of each arm, question and request, in order. */
   private readonly replay: Map<string, RecordedCall[]> | null
   /**
-   * With `liveFallback`: the calls that the recording answered, and the
+   * The calls that the recording answered, and (with `liveFallback`) the
    * calls that went out because the recording had no answer.
    */
-  readonly reuse = { reused: 0, live: 0 }
+  private readonly reuse = { reused: 0, live: 0 }
 
   /**
    * `baseUrl` is `MODEL_PROVIDER_URL`. `capUsd` is the spend cap of the run.
    * With `replay`, the recorder answers each call from it and sends nothing.
    * With `replay` and `liveFallback`, a call that the recording does not hold
-   * goes out (under the spend cap), and the recorder keeps it.
+   * goes out (under the spend cap), and the recorder keeps it. A recorded
+   * call that failed (HTTP 400 or more) is then no answer: the request goes
+   * out again, so a failure of the earlier run does not come back on each
+   * later run.
    */
   constructor(
     baseUrl: string,
@@ -200,6 +203,7 @@ export class ModelCalls {
     this.origin = new URL(baseUrl).origin
     this.replay = replay ? new Map() : null
     for (const call of replay ?? []) {
+      if (options.liveFallback && call.status >= 400) continue
       const key = this.replayKey(
         call.arm,
         call.question,
@@ -216,6 +220,11 @@ export class ModelCalls {
       spentUsd: this.spentUsd,
       stopped: this.stopped,
     }
+  }
+
+  /** The calls that the recording answered, and those that went out. */
+  reuseSummary(): { reused: number; live: number } {
+    return { ...this.reuse }
   }
 
   /** Start counting the calls of `arm` on `question`. */
@@ -274,14 +283,13 @@ export class ModelCalls {
     if (this.replay) {
       const replayed = this.replayed(kind, key, body, owner)
       if (replayed) {
-        if (this.options.liveFallback) this.reuse.reused += 1
+        this.reuse.reused += 1
         return replayed
       }
       if (!this.options.liveFallback) {
         owner.counts.missing += 1
         return unavailable("The recording holds no answer for this call.")
       }
-      this.reuse.live += 1
     }
     // The hard spend cap: each call in flight holds its worst-case cost, and
     // a call that would take the spent and reserved total over the cap is
@@ -295,6 +303,8 @@ export class ModelCalls {
       this.stopped = true
       return unavailable("The spend cap of the eval run is spent.")
     }
+    // Only a call that goes out counts as live.
+    if (this.replay) this.reuse.live += 1
     this.reservedUsd += reserved
     const started = performance.now()
     let response: Response
