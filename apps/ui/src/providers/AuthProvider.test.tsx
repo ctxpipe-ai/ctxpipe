@@ -161,4 +161,22 @@ describe("AuthProvider", () => {
     )
     vi.unstubAllGlobals()
   })
+
+  it("gives better-auth-ui the account list with Better Auth row ids", async () => {
+    const { AuthProvider } = await import("./AuthProvider")
+    const { useListAccountsWithRowIds } =
+      await import("@/features/auth/provider-accounts")
+
+    renderToStaticMarkup(
+      <AuthProvider>
+        <div>content</div>
+      </AuthProvider>,
+    )
+
+    expect(authUiProviderTanstackMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        hooks: { useListAccounts: useListAccountsWithRowIds },
+      }),
+    )
+  })
 })

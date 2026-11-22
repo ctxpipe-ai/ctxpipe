@@ -621,7 +621,7 @@ export async function getGithubUserAccessToken(
 ): Promise<string | undefined> {
   const db = getSystemDb()
   const [row] = await db
-    .select({ accountId: accounts.accountId })
+    .select({ id: accounts.id })
     .from(accounts)
     .where(and(eq(accounts.userId, userId), eq(accounts.providerId, "github")))
     .orderBy(desc(accounts.updatedAt), accounts.id)
@@ -629,7 +629,7 @@ export async function getGithubUserAccessToken(
   if (!row) return undefined
   try {
     const { accessToken } = await getAuth().api.getAccessToken({
-      body: { providerId: "github", userId, accountId: row.accountId },
+      body: { userId, accountId: row.id },
     })
     return accessToken || undefined
   } catch (e) {

@@ -1,8 +1,9 @@
 import { generateKeyPairSync } from "node:crypto"
 
+import { and, eq } from "drizzle-orm"
 import { importSPKI, jwtVerify } from "jose"
 import { HttpResponse, http } from "msw"
-import { afterAll, beforeAll, expect, it } from "vitest"
+import { afterAll, beforeAll, expect, it, vi } from "vitest"
 
 import {
   cleanupSeededOrg,
@@ -12,9 +13,12 @@ import {
 } from "../../test/db.js"
 import { useMswServer } from "../../test/msw.js"
 import { parseEnv } from "../config/env.js"
+import { getSystemDb } from "../db/client.js"
+import { accounts } from "../db/schema/auth.js"
 import {
   createDraftGithubConnection,
   getGithubAppInstallationPermissions,
+  getGithubUserAccessToken,
   getWebhookSecretForGithubConnection,
   registerInstallationOnConnection,
 } from "./github-installation.js"
@@ -55,7 +59,7 @@ const notDecoded = () =>
     { status: 401 },
   )
 
-useMswServer(
+const server = useMswServer(
   http.get(
     "https://api.github.com/app/installations/:installationId",
     async ({ request }) =>
@@ -158,3 +162,82 @@ describeWithDatabase(
     })
   },
 )
+
+describeWithDatabase("GitHub user token of a linked account (Postgres)", () => {
+  let seed: SeededOrg
+
+  beforeAll(async () => {
+    // Better Auth reads the GitHub sign-in config when seedOrg creates the
+    // auth instance, so set the env before that.
+    vi.stubEnv("GITHUB_CLIENT_ID", "github-client-id")
+    vi.stubEnv("GITHUB_CLIENT_SECRET", "github-client-secret")
+    seed = await seedOrg()
+  })
+
+  afterAll(async () => {
+    await cleanupSeededOrg(seed)
+    vi.unstubAllEnvs()
+  })
+
+  // Replaces the GitHub account of the seeded user, so each test has one.
+  async function linkGithubAccount(
+    token: Pick<
+      typeof accounts.$inferInsert,
+      "accessToken" | "accessTokenExpiresAt" | "refreshToken"
+    >,
+  ) {
+    const db = getSystemDb()
+    await db
+      .delete(accounts)
+      .where(
+        and(
+          eq(accounts.userId, seed.userId),
+          eq(accounts.providerId, "github"),
+        ),
+      )
+    await db.insert(accounts).values({
+      id: `acc_github_${seed.userId}`,
+      accountId: "583231",
+      providerId: "github",
+      userId: seed.userId,
+      ...token,
+    })
+  }
+
+  it("returns the stored token of the GitHub account that the user linked", async () => {
+    await linkGithubAccount({
+      accessToken: "ghu_linked_account",
+      accessTokenExpiresAt: new Date(Date.now() + 3_600_000),
+    })
+
+    await expect(getGithubUserAccessToken(seed.userId)).resolves.toBe(
+      "ghu_linked_account",
+    )
+  })
+
+  it("returns no token when GitHub refuses to refresh an expired token", async () => {
+    const refreshTokensSent: (string | null)[] = []
+    server.use(
+      http.post(
+        "https://github.com/login/oauth/access_token",
+        async ({ request }) => {
+          const form = new URLSearchParams(await request.text())
+          refreshTokensSent.push(form.get("refresh_token"))
+          return HttpResponse.json(
+            { error: "bad_refresh_token" },
+            { status: 400 },
+          )
+        },
+      ),
+    )
+    await linkGithubAccount({
+      accessToken: "ghu_expired",
+      accessTokenExpiresAt: new Date(Date.now() - 60_000),
+      refreshToken: "ghr_revoked",
+    })
+
+    await expect(getGithubUserAccessToken(seed.userId)).resolves.toBeUndefined()
+    // Better Auth found the account and tried the refresh.
+    expect(refreshTokensSent).toEqual(["ghr_revoked"])
+  })
+})

@@ -19,7 +19,7 @@ vi.mock("../domain/repositoryDeletion.js", () => ({
   purgeOrgDataBeforeAuthDelete: purgeOrgDataBeforeAuthDeleteMock,
 }))
 
-import { getIp } from "better-auth/api"
+import { getIP } from "better-auth/api"
 
 import { createBetterAuth } from "./config.js"
 
@@ -251,7 +251,7 @@ describe("client IP for the auth rate limit", () => {
 
   // The address that Better Auth keys the rate limit and the session on.
   function clientIp(headers: Record<string, string>) {
-    return getIp(
+    return getIP(
       new Request("http://localhost:3000/.auth/api/v1/auth/sign-in/email", {
         headers,
       }),

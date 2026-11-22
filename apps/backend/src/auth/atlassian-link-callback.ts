@@ -1,3 +1,4 @@
+import { getAuthStateVerificationIdentifier } from "better-auth"
 import { expireCookie } from "better-auth/cookies"
 import { setTokenUtil } from "better-auth/oauth2"
 import { and, eq } from "drizzle-orm"
@@ -114,7 +115,9 @@ export async function atlassianLinkCallbackFirst(c: Context) {
     expireCookie({ setCookie } as never, stateCookie)
   }
 
-  const v = await bCtx.internalAdapter.findVerificationValue(stateQ)
+  // Better Auth keeps the OAuth state of a sign-in under this identifier.
+  const stateId = getAuthStateVerificationIdentifier(stateQ)
+  const v = await bCtx.internalAdapter.findVerificationValue(stateId)
   if (!v) {
     return auth.handler(request)
   }
@@ -137,6 +140,14 @@ export async function atlassianLinkCallbackFirst(c: Context) {
     return auth.handler(request)
   }
 
+  // Only the browser of the user who started the link may finish it here.
+  // Else a user can send the authorize URL to a victim and get the victim's
+  // Atlassian account. Better Auth's own callback checks the state cookie.
+  const session = await auth.api.getSession({ headers: request.headers })
+  if (session?.user.id !== String(data.link.userId)) {
+    return auth.handler(request)
+  }
+
   const codeQ = sp.get("code")
   const errQ = sp.get("error")
   const errDesc = sp.get("error_description")
@@ -147,19 +158,19 @@ export async function atlassianLinkCallbackFirst(c: Context) {
   }
 
   if (errQ) {
-    await bCtx.internalAdapter.deleteVerificationByIdentifier(stateQ)
+    await bCtx.internalAdapter.deleteVerificationByIdentifier(stateId)
     setCookieLines.length = 0
     expireStateCookie()
     return redirect302(withErrorQuery(errorBase, errQ, errDesc))
   }
   if (!codeQ) {
-    await bCtx.internalAdapter.deleteVerificationByIdentifier(stateQ)
+    await bCtx.internalAdapter.deleteVerificationByIdentifier(stateId)
     setCookieLines.length = 0
     expireStateCookie()
     return redirect302(withErrorQuery(errorBase, "no_code"))
   }
   if (data.expiresAt < Date.now()) {
-    await bCtx.internalAdapter.deleteVerificationByIdentifier(stateQ)
+    await bCtx.internalAdapter.deleteVerificationByIdentifier(stateId)
     setCookieLines.length = 0
     expireStateCookie()
     return redirect302(withErrorQuery(errorBase, "please_restart_the_process"))
@@ -187,41 +198,45 @@ export async function atlassianLinkCallbackFirst(c: Context) {
       message: "code exchange failed",
       error: e instanceof Error ? e.message : String(e),
     })
-    await bCtx.internalAdapter.deleteVerificationByIdentifier(stateQ)
+    await bCtx.internalAdapter.deleteVerificationByIdentifier(stateId)
     setCookieLines.length = 0
     expireStateCookie()
     return redirect302(withErrorQuery(errorBase, "invalid_code"))
   }
   if (!tokens) {
-    await bCtx.internalAdapter.deleteVerificationByIdentifier(stateQ)
+    await bCtx.internalAdapter.deleteVerificationByIdentifier(stateId)
     setCookieLines.length = 0
     expireStateCookie()
     return redirect302(withErrorQuery(errorBase, "invalid_code"))
   }
 
-  const userInfo = await provider
-    .getUserInfo({ ...tokens, user: undefined })
-    .then((r) => r?.user)
-  if (!userInfo) {
-    await bCtx.internalAdapter.deleteVerificationByIdentifier(stateQ)
+  const info = await provider.getUserInfo({ ...tokens, user: undefined })
+  const userInfo = info?.user
+  if (!info || !userInfo) {
+    await bCtx.internalAdapter.deleteVerificationByIdentifier(stateId)
     setCookieLines.length = 0
     expireStateCookie()
     return redirect302(withErrorQuery(errorBase, "unable_to_get_user_info"))
   }
 
   if (!bCtx.trustedProviders.includes("atlassian") && !userInfo.emailVerified) {
-    await bCtx.internalAdapter.deleteVerificationByIdentifier(stateQ)
+    await bCtx.internalAdapter.deleteVerificationByIdentifier(stateId)
     setCookieLines.length = 0
     expireStateCookie()
     return redirect302(withErrorQuery(errorBase, "unable_to_link_account"))
   }
+
+  // The provider gives the account id from its raw profile, not in `user`.
+  const accountId = String(
+    await provider.accountSubject({ tokens, profile: info.data }),
+  )
 
   if (
     userInfo.email &&
     userInfo.email.toLowerCase() !== link.email.toLowerCase() &&
     accountOpts.accountLinking?.allowDifferentEmails !== true
   ) {
-    await bCtx.internalAdapter.deleteVerificationByIdentifier(stateQ)
+    await bCtx.internalAdapter.deleteVerificationByIdentifier(stateId)
     setCookieLines.length = 0
     expireStateCookie()
     return redirect302(withErrorQuery(errorBase, "email_doesn't_match"))
@@ -232,7 +247,7 @@ export async function atlassianLinkCallbackFirst(c: Context) {
     .from(accounts)
     .where(
       and(
-        eq(accounts.accountId, String(userInfo.id)),
+        eq(accounts.accountId, accountId),
         eq(accounts.providerId, "atlassian"),
       ),
     )
@@ -250,7 +265,7 @@ export async function atlassianLinkCallbackFirst(c: Context) {
     try {
       await db.insert(pendingAccounts).values({
         id,
-        accountId: String(userInfo.id),
+        accountId,
         providerId: "atlassian",
         userId: link.userId,
         accessToken: accessT,
@@ -274,7 +289,7 @@ export async function atlassianLinkCallbackFirst(c: Context) {
         message: "pending_accounts insert failed",
         error: err.message,
       })
-      await bCtx.internalAdapter.deleteVerificationByIdentifier(stateQ)
+      await bCtx.internalAdapter.deleteVerificationByIdentifier(stateId)
       setCookieLines.length = 0
       expireStateCookie()
       return redirect302(
@@ -282,7 +297,7 @@ export async function atlassianLinkCallbackFirst(c: Context) {
       )
     }
 
-    await bCtx.internalAdapter.deleteVerificationByIdentifier(stateQ)
+    await bCtx.internalAdapter.deleteVerificationByIdentifier(stateId)
     setCookieLines.length = 0
     expireStateCookie()
     return redirect302(
@@ -308,7 +323,7 @@ export async function atlassianLinkCallbackFirst(c: Context) {
       updateData,
     )
     if (!okU) {
-      await bCtx.internalAdapter.deleteVerificationByIdentifier(stateQ)
+      await bCtx.internalAdapter.deleteVerificationByIdentifier(stateId)
       setCookieLines.length = 0
       expireStateCookie()
       return redirect302(withErrorQuery(errorBase, "unable_to_link_account"))
@@ -317,21 +332,21 @@ export async function atlassianLinkCallbackFirst(c: Context) {
     const created = await bCtx.internalAdapter.createAccount({
       userId: link.userId,
       providerId: "atlassian",
-      accountId: String(userInfo.id),
+      accountId,
       ...tokens,
       accessToken: await setTokenUtil(tokens.accessToken, ctxForTokens),
       refreshToken: await setTokenUtil(tokens.refreshToken, ctxForTokens),
       scope: tokens.scopes?.join(","),
     } as never)
     if (!created) {
-      await bCtx.internalAdapter.deleteVerificationByIdentifier(stateQ)
+      await bCtx.internalAdapter.deleteVerificationByIdentifier(stateId)
       setCookieLines.length = 0
       expireStateCookie()
       return redirect302(withErrorQuery(errorBase, "unable_to_link_account"))
     }
   }
 
-  await bCtx.internalAdapter.deleteVerificationByIdentifier(stateQ)
+  await bCtx.internalAdapter.deleteVerificationByIdentifier(stateId)
   setCookieLines.length = 0
   expireStateCookie()
   return redirect302(data.callbackURL)

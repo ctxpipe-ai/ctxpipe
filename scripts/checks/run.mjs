@@ -46,9 +46,14 @@ try {
       "Usage: run.mjs [--trace <dir>] [--manifest <file>] [--logs <dir>] [ids-file]",
     )
   if (logs) setLogDirectory(resolve(logs))
+  // Read stdin as a stream: the ids can arrive after the runner starts, and
+  // a synchronous read of an empty pipe fails with EAGAIN.
+  const input = args[0]
+    ? readFileSync(args[0], "utf8")
+    : await new Response(process.stdin).text()
   const ids = [
     ...new Set(
-      readFileSync(args[0] ?? 0, "utf8")
+      input
         .split("\n")
         .map((line) => line.trim())
         .filter(Boolean),

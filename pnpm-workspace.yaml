@@ -48,7 +48,7 @@ allowBuilds:
 verifyDepsBeforeRun: false
 
 overrides:
-  '@daveyplate/better-auth-ui>better-call': 1.3.7
+  '@daveyplate/better-auth-ui>better-call': 1.4.5
   '@luma.gl/core': 9.2.6
   '@luma.gl/engine': 9.2.6
   '@luma.gl/webgl': 9.2.6

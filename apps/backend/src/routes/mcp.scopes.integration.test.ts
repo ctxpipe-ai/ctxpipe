@@ -7,7 +7,7 @@ import { eq, sql } from "drizzle-orm"
 import { evlog } from "evlog/hono"
 import { Hono } from "hono"
 import { contextStorage } from "hono/context-storage"
-import { decodeJwt } from "jose"
+import { decodeJwt, exportJWK, generateKeyPair, SignJWT } from "jose"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../test/db.js"
@@ -170,7 +170,9 @@ describe("MCP scopes (Postgres)", () => {
     })
   }
 
-  async function registerClient(): Promise<string> {
+  async function registerClient(
+    metadata: Record<string, unknown> = {},
+  ): Promise<string> {
     const register = await app.request(
       `${baseUrl}/.auth/api/v1/auth/oauth2/register`,
       {
@@ -182,10 +184,11 @@ describe("MCP scopes (Postgres)", () => {
           token_endpoint_auth_method: "none",
           grant_types: ["authorization_code", "refresh_token"],
           response_types: ["code"],
+          ...metadata,
         }),
       },
     )
-    expect(register.status).toBe(200)
+    expect(register.status).toBe(201)
     const { client_id: clientId } = (await register.json()) as {
       client_id: string
     }
@@ -199,7 +202,12 @@ describe("MCP scopes (Postgres)", () => {
    */
   async function oauthAccessToken(
     grantedScope: string | null,
-    options: { clientId?: string; requestedScope?: string | null } = {},
+    options: {
+      clientId?: string
+      requestedScope?: string | null
+      /** A DPoP proof for the token request (RFC 9449). */
+      dpopProof?: (htu: string) => Promise<string>
+    } = {},
   ) {
     const s = requireSeed()
     const origin = baseUrl
@@ -267,24 +275,25 @@ describe("MCP scopes (Postgres)", () => {
     const code = callbackUrl.searchParams.get("code")
     if (!code) throw new Error(`no code: ${callbackUrl.toString()}`)
 
-    const token = await app.request(
-      `${baseUrl}/.auth/api/v1/auth/oauth2/token`,
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/x-www-form-urlencoded",
-          origin,
-        },
-        body: new URLSearchParams({
-          grant_type: "authorization_code",
-          code,
-          redirect_uri: REDIRECT_URI,
-          client_id: clientId,
-          code_verifier: verifier,
-          resource: `${baseUrl}/mcp`,
-        }).toString(),
+    const tokenUrl = `${baseUrl}/.auth/api/v1/auth/oauth2/token`
+    const token = await app.request(tokenUrl, {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        origin,
+        ...(options.dpopProof
+          ? { dpop: await options.dpopProof(tokenUrl) }
+          : {}),
       },
-    )
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code,
+        redirect_uri: REDIRECT_URI,
+        client_id: clientId,
+        code_verifier: verifier,
+        resource: `${baseUrl}/mcp`,
+      }).toString(),
+    })
     const tokenBody = (await token.json()) as {
       access_token?: string
       refresh_token?: string
@@ -306,7 +315,10 @@ describe("MCP scopes (Postgres)", () => {
   }
 
   /** A token row from before the ctxpipe scopes existed. */
-  async function legacyOpaqueToken(): Promise<string> {
+  async function legacyOpaqueToken(
+    row: Partial<typeof oauthAccessTokens.$inferInsert> = {},
+    name = "",
+  ): Promise<string> {
     const s = requireSeed()
     const db = getSystemDb()
     const [session] = await db
@@ -315,8 +327,9 @@ describe("MCP scopes (Postgres)", () => {
       .where(eq(sessions.userId, s.userId))
       .limit(1)
     if (!session) throw new Error("sign-up did not store a session")
-    const clientId = `legacy_${s.userId}`
-    const token = `legacy_opaque_${s.userId}`
+    const suffix = name ? `_${name}` : ""
+    const clientId = `legacy_${s.userId}${suffix}`
+    const token = `legacy_opaque_${s.userId}${suffix}`
     await db.insert(oauthClients).values({
       id: generateObjectId("oac"),
       clientId,
@@ -336,6 +349,7 @@ describe("MCP scopes (Postgres)", () => {
       expiresAt: new Date(Date.now() + 60 * 60 * 1000),
       createdAt: new Date(),
       scopes: ["openid", "offline_access"],
+      ...row,
     })
     return token
   }
@@ -356,6 +370,56 @@ describe("MCP scopes (Postgres)", () => {
     expect(response.headers.get("www-authenticate")).toBe(
       `Bearer scope="ctxpipe:read", resource_metadata="${baseUrl}/.well-known/oauth-protected-resource/mcp"`,
     )
+  })
+
+  // ctxpipe checks no DPoP proof on a resource request, so it refuses a
+  // sender-constrained token. Else a stolen token works without the key.
+  it("refuses a DPoP-bound access token sent as a bearer token", async () => {
+    const { privateKey, publicKey } = await generateKeyPair("ES256")
+    const jwk = await exportJWK(publicKey)
+    const clientId = await registerClient({ dpop_bound_access_tokens: true })
+    const { accessToken } = await oauthAccessToken("ctxpipe:read", {
+      clientId,
+      dpopProof: (htu) =>
+        new SignJWT({ htm: "POST", htu, jti: randomBytes(16).toString("hex") })
+          .setProtectedHeader({ alg: "ES256", typ: "dpop+jwt", jwk })
+          .setIssuedAt()
+          .sign(privateKey),
+    })
+    expect(decodeJwt(accessToken).cnf).toBeDefined()
+
+    const response = await app.request(`${baseUrl}/mcp`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${accessToken}` },
+    })
+
+    expect(response.status).toBe(401)
+  })
+
+  it("refuses an opaque access token with a key binding", async () => {
+    const token = await legacyOpaqueToken(
+      { confirmation: { jkt: "bound-key-thumbprint" } },
+      "bound",
+    )
+
+    const response = await app.request(`${baseUrl}/mcp`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}` },
+    })
+
+    expect(response.status).toBe(401)
+  })
+
+  // Better Auth 1.7 marks the opaque tokens of a session revoked at sign-out.
+  it("refuses a revoked opaque access token", async () => {
+    const token = await legacyOpaqueToken({ revoked: new Date() }, "revoked")
+
+    const response = await app.request(`${baseUrl}/mcp`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}` },
+    })
+
+    expect(response.status).toBe(401)
   })
 
   it("puts the read scope on the challenge for a token it cannot validate", async () => {

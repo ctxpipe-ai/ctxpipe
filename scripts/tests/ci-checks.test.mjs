@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { spawnSync } from "node:child_process"
+import { spawn, spawnSync } from "node:child_process"
 import {
   existsSync,
   mkdirSync,
@@ -48,6 +48,26 @@ test("the container lanes run on the platform that the toolchain record names", 
   const recorded = arch(runner("merge-gate-manifest"))
   for (const job of ["test-shards", "codesearch"])
     assert.equal(arch(runner(job)), recorded, job)
+})
+
+// factory pipes the ids to the runner, and they can arrive after the runner
+// starts. A synchronous read of an empty pipe failed with EAGAIN.
+test("the runner waits for check ids that arrive on stdin after it starts", async () => {
+  const child = spawn(process.execPath, [script("run.mjs")], {
+    cwd: root,
+    stdio: ["pipe", "pipe", "pipe"],
+  })
+  let stdout = ""
+  let stderr = ""
+  child.stdout.on("data", (chunk) => (stdout += chunk))
+  child.stderr.on("data", (chunk) => (stderr += chunk))
+  const exited = new Promise((done) => child.on("close", done))
+  await new Promise((done) => setTimeout(done, 300))
+  child.stdin.end("policy:no-such-check\n")
+  await exited
+
+  assert.doesNotMatch(stderr, /EAGAIN/)
+  assert.equal(JSON.parse(stdout.trim()).id, "policy:no-such-check")
 })
 
 test("with --manifest, the runner reads the checks from that file and lists none", () => {
