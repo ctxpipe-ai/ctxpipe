@@ -10,7 +10,8 @@
 //   `github-hosted: <reason>` for any other label
 // An expression (`${{ … }}`) passes when it names one or more labels and
 // each one is an arm64 Blacksmith label, for example a matrix that picks 2 or
-// 4 vCPU for each entry.
+// 4 vCPU for each entry. Each quoted literal of the expression counts as a
+// label, except a JSON list or object.
 //
 // Pick the size by the load of the job. A job that only orchestrates, calls
 // APIs, moves artifacts or runs a small script uses 2 vCPU (6 GB). Tests,
@@ -38,8 +39,12 @@ for (const name of readdirSync(directory).sort()) {
     if (!match) return
     const value = match[1].replace(/\s+#.*$/, "").trim()
     if (/^blacksmith-\d+vcpu-ubuntu-2404-arm$/.test(value)) return
+    // Each quoted literal of the expression is a label, except a JSON list
+    // or object (the names of a `contains(fromJSON('[…]'), …)`).
     const labels = /^\$\{\{.*\}\}$/.test(value)
-      ? [...value.matchAll(/'([^']*ubuntu[^']*)'/g)].map((label) => label[1])
+      ? [...value.matchAll(/'([^']*)'/g)]
+          .map((literal) => literal[1])
+          .filter((literal) => !/^\s*[[{]/.test(literal))
       : []
     if (
       labels.length > 0 &&

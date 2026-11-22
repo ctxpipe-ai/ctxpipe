@@ -85,6 +85,12 @@ test("an expression of arm64 Blacksmith labels passes", () => {
       "{{ matrix.small && 'blacksmith-2vcpu-ubuntu-2404-arm' || 'ubuntu-latest' }}\n",
   })
   assert.equal(other.status, 1)
+  const macos = check({
+    "a.yaml":
+      "jobs:\n  a:\n    runs-on: $" +
+      "{{ contains(fromJSON('[\"x\"]'), matrix.name) && 'macos-latest' || 'blacksmith-4vcpu-ubuntu-2404-arm' }}\n",
+  })
+  assert.equal(macos.status, 1)
 })
 
 test("a github-hosted comment with a reason allows the label", () => {
