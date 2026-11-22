@@ -309,6 +309,80 @@ async function seededDatabase(
   return url
 }
 
+/**
+ * Writes `count` active documents straight to the tables of the database
+ * `url` (key `<prefix><number>.md`), each with `chunks` chunks of `text` and
+ * `vector`. The writes are fast, so a test can make many documents.
+ */
+const filler =
+  (url: string) =>
+  async (
+    kind: string,
+    prefix: string,
+    count: number,
+    text: string,
+    vector: number[],
+    { chunks = 1 }: { chunks?: number } = {},
+  ) => {
+    const client = rawClient(url)
+    const settings = { [ORG_SETTING]: orgA.orgId }
+    const params = {
+      orgId: orgA.orgId,
+      workspace,
+      kind,
+      prefix,
+      count,
+      chunks,
+      text,
+      vector,
+    }
+    const docKey = `concat({prefix:String}, leftPad(toString(number), 5, '0'), '.md')`
+    await client.command({
+      query: `INSERT INTO documents (org_id, workspace_id, doc_key, version,
+          kind, status, title, path, observed_at)
+        SELECT {orgId:String}, {workspace:String}, ${docKey}, 'v1',
+          {kind:String}, 'active', '', '', now64(3)
+        FROM numbers({count:UInt32})`,
+      query_params: params,
+      clickhouse_settings: settings,
+    })
+    await client.command({
+      query: `INSERT INTO trees (org_id, workspace_id, branch, doc_key,
+          tree_version, kind, path, version, status, doc_kind, observed_at)
+        SELECT {orgId:String}, {workspace:String}, 'main', ${docKey}, 1,
+          'file', '', 'v1', 'active', {kind:String}, now64(3)
+        FROM numbers({count:UInt32})`,
+      query_params: params,
+      clickhouse_settings: settings,
+    })
+    await client.command({
+      query: `INSERT INTO chunks (org_id, workspace_id, doc_key, version,
+          ordinal, text, embedding)
+        SELECT {orgId:String}, {workspace:String}, ${docKey}, 'v1',
+          ordinal, {text:String}, {vector:Array(Float32)}
+        FROM numbers({count:UInt32})
+        ARRAY JOIN range({chunks:UInt32}) AS ordinal`,
+      query_params: params,
+      clickhouse_settings: settings,
+    })
+  }
+
+/**
+ * One search of org A at tree version 1 of the database `url`, the database
+ * of a test that writes with `filler`.
+ */
+async function searchIn(url: string, query: Partial<SearchQuery>) {
+  const reader = createKnowledgeStore(url)
+  try {
+    return await reader.search(
+      { ...orgA, heads: [{ ...head, treeVersion: 1 }] },
+      { vector: queryVector, terms: [], chunksPerDocument: 2, ...query },
+    )
+  } finally {
+    await reader.close()
+  }
+}
+
 let store: ReturnType<typeof createKnowledgeStore>
 
 beforeAll(async () => {
@@ -329,7 +403,12 @@ afterAll(async () => {
 })
 
 const search = (options: Partial<SearchQuery>, scope = orgA) =>
-  store.search(scope, { vector: queryVector, terms: [], ...options })
+  store.search(scope, {
+    vector: queryVector,
+    terms: [],
+    chunksPerDocument: 2,
+    ...options,
+  })
 const hitKeys = (hits: Awaited<ReturnType<typeof search>>) =>
   hits.map((hit) => hit.document.docKey)
 
@@ -337,16 +416,14 @@ describe("search", () => {
   it("vector: the closest chunk is first, and a far chunk with no query term is not in the top 50", async () => {
     const hits = await search({})
     expect(hits[0]?.document.docKey).toBe("vector.md")
-    expect(hits[0]?.chunks).toEqual([
-      {
-        ordinal: 0,
-        text: "plain words only",
-        startLine: 1,
-        endLine: 3,
-        score: expect.any(Number),
-      },
-    ])
-    expect(hits.flatMap((hit) => hit.chunks)).toHaveLength(50)
+    expect(hits[0]?.chunks[0]).toEqual({
+      ordinal: 0,
+      text: "plain words only",
+      startLine: 1,
+      endLine: 3,
+      score: expect.any(Number),
+    })
+    expect(hits).toHaveLength(50)
     expect(hitKeys(hits)).not.toContain("lexical.md")
     expect(hitKeys(hits)).not.toContain("titled.md")
   })
@@ -388,78 +465,48 @@ describe("search", () => {
     // filter allows, and all have the term. 600 allowed chunks are nearer
     // to the query vector, so only the lexical part can find it.
     const url = await clickHouse.freshDatabase()
-    const client = rawClient(url)
-    const fill = async (
-      kind: string,
-      prefix: string,
-      count: number,
-      text: string,
-      vector: number[],
-    ) => {
-      const settings = { [ORG_SETTING]: orgA.orgId }
-      const params = {
-        orgId: orgA.orgId,
-        workspace,
-        kind,
-        prefix,
-        count,
-        text,
-        vector,
-      }
-      const docKey = `concat({prefix:String}, leftPad(toString(number), 5, '0'), '.md')`
-      await client.command({
-        query: `INSERT INTO documents (org_id, workspace_id, doc_key, version,
-            kind, status, title, path, observed_at)
-          SELECT {orgId:String}, {workspace:String}, ${docKey}, 'v1',
-            {kind:String}, 'active', '', '', now64(3)
-          FROM numbers({count:UInt32})`,
-        query_params: params,
-        clickhouse_settings: settings,
-      })
-      await client.command({
-        query: `INSERT INTO trees (org_id, workspace_id, branch, doc_key,
-            tree_version, kind, path, version, status, doc_kind, observed_at)
-          SELECT {orgId:String}, {workspace:String}, 'main', ${docKey}, 1,
-            'file', '', 'v1', 'active', {kind:String}, now64(3)
-          FROM numbers({count:UInt32})`,
-        query_params: params,
-        clickhouse_settings: settings,
-      })
-      await client.command({
-        query: `INSERT INTO chunks (org_id, workspace_id, doc_key, version,
-            ordinal, text, embedding)
-          SELECT {orgId:String}, {workspace:String}, ${docKey}, 'v1',
-            0, {text:String}, {vector:Array(Float32)}
-          FROM numbers({count:UInt32})`,
-        query_params: params,
-        clickhouse_settings: settings,
-      })
-    }
+    const fill = filler(url)
     await fill("note", "a-excluded-", 1200, "capword", opposite)
     await fill("guide", "m-near-", 600, "near", queryVector)
     await fill("guide", "z-target-", 1, "capword", opposite)
-    const reader = createKnowledgeStore(url)
-    const scope = { ...orgA, heads: [{ ...head, treeVersion: 1 }] }
-    try {
-      const hits = await reader.search(scope, {
-        vector: queryVector,
-        terms: ["capword"],
-        kinds: ["guide"],
-      })
-      expect(hitKeys(hits)).toContain("z-target-00000.md")
-      // Without the term, the vector part alone does not find it.
-      expect(
-        hitKeys(
-          await reader.search(scope, {
-            vector: queryVector,
-            terms: [],
-            kinds: ["guide"],
-          }),
-        ),
-      ).not.toContain("z-target-00000.md")
-    } finally {
-      await reader.close()
-    }
+    expect(
+      hitKeys(await searchIn(url, { terms: ["capword"], kinds: ["guide"] })),
+    ).toContain("z-target-00000.md")
+    // Without the term, the vector part alone does not find it.
+    expect(
+      hitKeys(await searchIn(url, { terms: [], kinds: ["guide"] })),
+    ).not.toContain("z-target-00000.md")
+  })
+
+  it("the top 50 is 50 documents: a document with many close chunks takes one place", async () => {
+    // One document has 60 chunks at the query vector. 60 documents have one
+    // chunk each, farther away. A cut at 50 chunks would give only the long
+    // document.
+    const url = await clickHouse.freshDatabase()
+    const fill = filler(url)
+    await fill("guide", "a-long-", 1, "long text", queryVector, { chunks: 60 })
+    await fill("guide", "m-short-", 60, "short text", nearQuery(1))
+    const hits = await searchIn(url, { terms: [] })
+    expect(hits).toHaveLength(50)
+    expect(hits[0]?.document.docKey).toBe("a-long-00000.md")
+    // The hit keeps its best chunks, at most `chunksPerDocument`.
+    expect(hits[0]?.chunks).toHaveLength(2)
+    expect(new Set(hitKeys(hits)).size).toBe(50)
+  })
+
+  it("lexical: a rare query term weighs more than common ones", async () => {
+    // 60 documents match the two common terms, and one document matches
+    // only the rare term. All chunks have the same vector, and the rare
+    // document sorts first by key, so it is first in the vector order. A
+    // count of the matched terms puts it last in the lexical order, and
+    // the fusion then puts it near place 20. With the term weight, it is
+    // first in both orders.
+    const url = await clickHouse.freshDatabase()
+    const fill = filler(url)
+    await fill("guide", "m-common-", 60, "the plan of record", queryVector)
+    await fill("guide", "a-rare-", 1, "zebracorn", queryVector)
+    const hits = await searchIn(url, { terms: ["the", "of", "zebracorn"] })
+    expect(hits[0]?.document.docKey).toBe("a-rare-00000.md")
   })
 
   it("never finds a deleted document", async () => {
@@ -530,7 +577,7 @@ describe("search", () => {
     await expect(
       store.search(
         { orgId: orgA.orgId, heads: [] },
-        { vector: queryVector, terms: [] },
+        { vector: queryVector, terms: [], chunksPerDocument: 2 },
       ),
     ).rejects.toThrow(refused)
     await expect(
@@ -741,6 +788,7 @@ async function readAllForOrgA(
   return JSON.stringify([
     await reader.search(orgA, {
       vector: queryVector,
+      chunksPerDocument: 2,
       terms: ["zebracorn", "Org", "B"],
     }),
     await reader.readFrontier(orgA, refs),
@@ -759,6 +807,7 @@ describe("org isolation of reads", () => {
     // The same reads for org B see its rows.
     const forB = await store.search(orgB, {
       vector: queryVector,
+      chunksPerDocument: 2,
       terms: ["zebracorn"],
     })
     expect(forB.map((hit) => hit.document.title).sort()).toEqual([

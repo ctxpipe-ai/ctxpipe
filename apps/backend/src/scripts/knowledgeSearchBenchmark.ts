@@ -27,6 +27,7 @@
  */
 import { type ClickHouseClient, createClient } from "@clickhouse/client"
 
+import { ORCHESTRATOR_DEFAULTS } from "../knowledge-reader/orchestrator.js"
 import {
   createKnowledgeStore,
   ORG_SETTING,
@@ -36,7 +37,7 @@ import { initEvlog } from "../observability/logger.js"
 import { flag } from "./cli-args.js"
 
 const dimensions = 1024
-const chunksPerDocument = 10
+const generatedChunksPerDocument = 10
 const vocabulary = 50_000
 const target = { orgId: "org_bench", workspaceId: "ws_target" }
 
@@ -61,9 +62,9 @@ function positiveFlag(argv: string[], name: string, fallback: number): number {
 
 /**
  * Inserts `chunks` made-up chunks into one Workspace, with one document row
- * (the file version `v1`) for each `chunksPerDocument` chunks, and a tree
- * row of `main` at tree version 1 for each document. Each chunk has a random
- * vector and 60 random words of the form `w<n>`. Each 20th document also
+ * (the file version `v1`) for each `generatedChunksPerDocument` chunks, and a
+ * tree row of `main` at tree version 1 for each document. Each chunk has a
+ * random vector and 60 random words of the form `w<n>`. Each 20th document also
  * has the file version `v0`, with the same count of chunks: its tree row has
  * tree version 1, and the row of `v1` has tree version 2 (the head that
  * `measure` reads). The server makes the rows.
@@ -75,7 +76,7 @@ async function fill(
   chunks: number,
 ): Promise<void> {
   const params = { orgId, workspaceId, chunks }
-  const documents = `intDiv({chunks:UInt64} + ${chunksPerDocument - 1}, ${chunksPerDocument})`
+  const documents = `intDiv({chunks:UInt64} + ${generatedChunksPerDocument - 1}, ${generatedChunksPerDocument})`
   const replaced = (document: string) => `${document} % 20 = 0`
   const run = (query: string) =>
     client.command({
@@ -102,16 +103,16 @@ async function fill(
   await run(`INSERT INTO chunks (org_id, workspace_id, doc_key, version,
       ordinal, text, embedding)
     SELECT {orgId:String}, {workspaceId:String},
-      concat('doc-', toString(intDiv(number % {chunks:UInt64}, ${chunksPerDocument}))),
+      concat('doc-', toString(intDiv(number % {chunks:UInt64}, ${generatedChunksPerDocument}))),
       if(number < {chunks:UInt64}, 'v1', 'v0'),
-      (number % {chunks:UInt64}) % ${chunksPerDocument},
+      (number % {chunks:UInt64}) % ${generatedChunksPerDocument},
       arrayStringConcat(arrayMap(
         i -> concat('w', toString(cityHash64(number, i) % ${vocabulary})),
         range(60)), ' '),
       arrayMap(i -> toBFloat16(randNormal(0, 1, number * ${dimensions} + i)), range(${dimensions}))
     FROM numbers(2 * {chunks:UInt64})
     WHERE number < {chunks:UInt64}
-      OR ${replaced(`intDiv(number - {chunks:UInt64}, ${chunksPerDocument})`)}`)
+      OR ${replaced(`intDiv(number - {chunks:UInt64}, ${generatedChunksPerDocument})`)}`)
 }
 
 /** Drops each ClickHouse cache. */
@@ -168,7 +169,11 @@ async function measure(
   let started = ""
   try {
     // One search first: it loads the caches for the warm runs.
-    await store.search(scope, { vector: randomVector(), terms: randomTerms() })
+    await store.search(scope, {
+      vector: randomVector(),
+      terms: randomTerms(),
+      chunksPerDocument: ORCHESTRATOR_DEFAULTS.evidenceChunks,
+    })
     started = new Date().toISOString()
     for (let run = 0; run < runs; run++) {
       if (cold) await dropCaches(admin)
@@ -176,6 +181,7 @@ async function measure(
       const hits = await store.search(scope, {
         vector: randomVector(),
         terms: randomTerms(),
+        chunksPerDocument: ORCHESTRATOR_DEFAULTS.evidenceChunks,
       })
       total.push(performance.now() - begin)
       if (hits.length === 0) throw new Error("The search found nothing")
