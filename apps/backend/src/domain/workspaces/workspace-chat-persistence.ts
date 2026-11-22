@@ -15,7 +15,6 @@ import { and, asc, desc, eq, isNotNull, lte } from "drizzle-orm"
 
 import { requireCurrentOrgId } from "../../auth/context.js"
 import { getOrgDb } from "../../db/client.js"
-import { storable } from "../../db/storable.js"
 import { withAmbientOrgDb } from "../../db/org-sql.js"
 import {
   chatInterrupts,
@@ -23,6 +22,7 @@ import {
   chatRuns,
   chatThreads,
 } from "../../db/schema/chat-persistence.js"
+import { storable } from "../../db/storable.js"
 import { reviveChatMessages } from "../conversations/chat-message-created-at.js"
 import { maskCredentialsDeep } from "./mask-credentials.js"
 
@@ -91,8 +91,9 @@ function createMessageStore(): MessageStore {
     },
     async saveThread(threadId, input) {
       // The transcript keeps no credential that a tool or the model repeated.
-      // A tool result can hold a NUL character that Postgres refuses.
-      const messages = storable(maskCredentialsDeep(input))
+      // A tool result can hold a NUL character that Postgres refuses. Remove
+      // it before the mask, so that a NUL inside a token cannot hide the token.
+      const messages = maskCredentialsDeep(storable(input))
       return orgSql(async () => {
         const orgId = requireCurrentOrgId()
         const updatedAt = Date.now()
@@ -164,10 +165,13 @@ function createRunStore(threadId?: string): RunStore {
       if (patch.finishedAt !== undefined) set.finishedAt = patch.finishedAt
       if (patch.error !== undefined) {
         set.error = storable(patch.error.message)
-        set.errorCode = patch.error.code ?? null
+        set.errorCode = storable(patch.error.code) ?? null
       }
       if (patch.usage !== undefined) {
-        set.usageJson = storable(patch.usage) as unknown as Record<string, unknown>
+        set.usageJson = storable(patch.usage) as unknown as Record<
+          string,
+          unknown
+        >
       }
       if ("sandboxKey" in patch) set.sandboxKey = patch.sandboxKey ?? null
       if ("detachedSince" in patch) {

@@ -114,7 +114,21 @@ describe("workspaceChatPersistence", () => {
       ])
       expect(
         await persistence.stores.messages.loadThread(conversationId),
-      ).toEqual([{ role: "tool", toolCallId: "call_1", content: "beforeafter" }])
+      ).toEqual([
+        { role: "tool", toolCallId: "call_1", content: "beforeafter" },
+      ])
+
+      const token = `ghp_${"a".repeat(36)}`
+      await persistence.stores.messages.saveThread(conversationId, [
+        {
+          role: "tool",
+          toolCallId: "call_2",
+          content: token.split("").join("\u0000"),
+        },
+      ])
+      const [saved] =
+        await persistence.stores.messages.loadThread(conversationId)
+      expect(saved?.content).not.toContain(token)
 
       const id = `${runId}-nul`
       await persistence.stores.runs.createOrResume({
@@ -123,7 +137,7 @@ describe("workspaceChatPersistence", () => {
         startedAt: Date.now(),
       })
       await persistence.stores.runs.update(id, {
-        status: "error",
+        status: "failed",
         error: { message: nul },
       })
       expect((await persistence.stores.runs.get(id))?.error?.message).toBe(
