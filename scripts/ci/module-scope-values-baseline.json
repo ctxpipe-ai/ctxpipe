@@ -83,7 +83,6 @@
   ],
   "apps/backend/src/domain/workspaces/sandbox-process-guards.ts": [
     "OPENCODE_SERVE_ATTEMPTS",
-    "STOP_EARLIER_OPENCODE_SERVERS",
     "STOP_EARLIER_TURN_PROCESSES"
   ],
   "apps/backend/src/domain/workspaces/semantic-merge.ts": ["MERGE_DEADLINE_MS"],
