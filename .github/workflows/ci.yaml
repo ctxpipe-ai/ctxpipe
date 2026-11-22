@@ -277,14 +277,16 @@ jobs:
           dir="$RUNNER_TEMP/background"
           mkdir -p "$dir"
           # The task holds no stream of the step, so the step ends at once.
-          start() { # <name> <command>...
+          # The status file appears only with its code in it (mv).
+          start_background() { # <name> <command>...
             echo "$1" >> "$dir/names"
             (
               if "${@:2}" > "$dir/$1.log" 2>&1; then
-                echo 0 > "$dir/$1.status"
+                echo 0 > "$dir/$1.code"
               else
-                echo "$?" > "$dir/$1.status"
+                echo "$?" > "$dir/$1.code"
               fi
+              mv "$dir/$1.code" "$dir/$1.status"
             ) < /dev/null > /dev/null 2>&1 &
           }
           # Test files start these images in parallel. A Docker Hub token
@@ -303,7 +305,7 @@ jobs:
           }
           # This job reads the layer cache without a login. The layer-cache
           # job writes it (see the comment there).
-          start chat-sandbox docker buildx build --load \
+          start_background chat-sandbox docker buildx build --load \
             --tag ctxpipe-chat-sandbox:opencode-1.19.5-r1 \
             --cache-from type=registry,ref=ghcr.io/ctxpipe-ai/ci-cache:chat-sandbox-arm64 \
             scripts/chat-sandbox
@@ -311,7 +313,7 @@ jobs:
             i=0
             for image in $(jq -r '.contracts[] | "\(.image):\(.tag)@\(.digest)"' scripts/ci/service-pins.json); do
               i=$((i + 1))
-              start "pull-$i" pull "$image"
+              start_background "pull-$i" pull "$image"
             done
           fi
       - uses: ./.github/actions/falkordb

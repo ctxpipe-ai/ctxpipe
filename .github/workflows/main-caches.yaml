@@ -16,7 +16,7 @@ name: Main caches
 # The GitHub-hosted job also restores or builds the file converter
 # (.github/actions/converter), keyed by the files of the converter. Without
 # it, each pull request run after a converter change builds the converter in
-# each test shard (about 4 minutes) before its tests start.
+# each test shard (about 200 s) before its tests start.
 
 on:
   push:

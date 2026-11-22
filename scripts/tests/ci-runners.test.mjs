@@ -126,14 +126,18 @@ const allJobs = readdirSync(directory)
     ])
   })
 
-// The GitHub-hosted jobs with Docker in their steps: the test shards (service
-// containers, FalkorDB, the chat sandbox image from the registry cache) and
-// the publish job of the deploy (manifest lists through `docker buildx
-// imagetools`, no container).
-const githubHostedDocker = ["ci.yaml#test-shards", "deploy.yaml#publish_images"]
-
 test("a GitHub-hosted job uses no Docker, except the listed jobs", () => {
-  const jobs = new Map(allJobs.map(([name, job]) => [name, job]))
+  // The GitHub-hosted jobs with Docker in their steps: the test shards
+  // (service containers, FalkorDB, the chat sandbox image from the registry
+  // cache) and the publish job of the deploy (manifest lists through `docker
+  // buildx imagetools`, no container). The test reads only the steps: the
+  // screenshots job starts the Playwright container from a script
+  // (scripts/ci/visual-capture.mjs).
+  const githubHostedDocker = [
+    "ci.yaml#test-shards",
+    "deploy.yaml#publish_images",
+  ]
+  const jobs = new Map(allJobs)
   for (const name of githubHostedDocker) {
     assert.ok(jobs.has(name), name)
     assert.doesNotMatch(String(jobs.get(name)["runs-on"]), /^blacksmith-/, name)
