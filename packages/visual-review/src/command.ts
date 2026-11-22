@@ -111,8 +111,8 @@ const usage = `Usage: pnpm visual:review [--manifest <path>] [--judge model|jev|
               the design review of --judge jev run after all Jev calls, only
               while ${unknownExplainerUsd} USD (the explainer) or
               ${unknownDesignUsd} USD (the design review) of the budget is
-              free, and their spend never makes the exit code 2. Only with --judge model or
-              jev.
+              free, and their spend never makes the exit code 2. Only with
+              --judge model or jev.
               Default: no budget.
   --judge     model: a vision model through OpenRouter, with MODEL_PROVIDER_API_KEY
               (and MODEL_PROVIDER_URL). jev: Jev 1.14 through the OpenRouter

@@ -1743,6 +1743,10 @@ export const Primary = { render: () => null }
         test.each([
           ["no fix", { suggestion: null }],
           ["a reference to no rubric principle", { rubricRef: "taste" }],
+          [
+            "a reference that holds a principle only inside a word",
+            { rubricRef: "the interactions of a prototype" },
+          ],
         ])("a major finding with %s is a nit", async (_, finding) => {
           serveJev(jevUnsure)
           content = designReply("regression", "major", finding)

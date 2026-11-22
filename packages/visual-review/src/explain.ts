@@ -333,6 +333,9 @@ export async function reviewDesign(
     suggestion: finding.suggestion ? oneLine(finding.suggestion, 200) : null,
   }))
   const { rubric } = story
+  // A principle is the id, the name or a source section of a rubric entry,
+  // as a whole word or phrase of `rubricRef`: "Type" does not match
+  // "prototype".
   const principles = [...rubric.areas, ...rubric.qualities].flatMap(
     ({ id, name, sources }) => [
       id,
@@ -340,18 +343,22 @@ export async function reviewDesign(
       ...sources.map(({ section }) => section),
     ],
   )
-  const named = findings.some(
+  const cites = (rubricRef: string) =>
+    principles.some((principle) =>
+      new RegExp(
+        `(?<![\\p{L}\\p{N}-])${principle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\p{L}\\p{N}-])`,
+        "iu",
+      ).test(rubricRef),
+    )
+  const citesPrinciple = findings.some(
     ({ rubricRef, evidence, suggestion }) =>
-      evidence &&
-      suggestion &&
-      principles.some((principle) =>
-        rubricRef.toLowerCase().includes(principle.toLowerCase()),
-      ),
+      evidence && suggestion && cites(rubricRef),
   )
   const severity =
     review.verdict !== "regression"
       ? undefined
-      : (review.severity === "major" || review.severity === "blocker") && named
+      : (review.severity === "major" || review.severity === "blocker") &&
+          citesPrinciple
         ? "major"
         : "minor"
   const raises =
