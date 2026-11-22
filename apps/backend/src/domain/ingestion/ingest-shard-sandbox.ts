@@ -423,6 +423,7 @@ function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
               egress,
               fetchSource,
             }),
+          destroy: () => box.sandbox.destroy(),
           attach: async () => {
             const handle = existing ?? (await box.sandbox.ensure())
             const root = existingRoot ?? (await box.root(handle.id))

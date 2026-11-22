@@ -148,6 +148,12 @@ type AgentVaultFixture = {
     script: string,
   ) => Promise<{ exitCode: number; stdout: string; stderr: string }>
   stopAgentVault: () => Promise<void>
+  /**
+   * Replace Agent Vault as ECS replaces its task: a new container on the
+   * same address, with no data (no owner, vault or session) and a new CA.
+   * In `closed`, the sandboxes reach it through the same forwarder.
+   */
+  replaceAgentVault: () => Promise<void>
 }
 
 /** `docker run` arguments that set each variable of `env`. */
@@ -343,49 +349,52 @@ exec node /tmp/upstream.cjs`,
     const extraCaDirectory = join(tls, "extra-ca")
     await mkdir(extraCaDirectory)
     await copyFile(join(tls, "ca.crt"), join(extraCaDirectory, "ca.crt"))
-    await dockerRunWithFiles(
-      vaultName,
-      [
-        "--network",
-        network,
-        "-p",
-        "127.0.0.1::14321",
-        "-e",
-        `AGENT_VAULT_MASTER_PASSWORD=${randomBytes(16).toString("hex")}`,
-        ...envArgs(rateLimitEnv(input.stockAuthGateWindow)),
-        "-e",
-        "SSL_CERT_DIR=/etc/ssl/certs:/extra-ca",
-        "-e",
-        "AGENT_VAULT_TELEMETRY=false",
-        "-e",
-        `AGENT_VAULT_NETWORK_ALLOWLIST=${upstreamIp}`,
-        contractImage("agentVault"),
-        // A fixed proxy port, for the closed network's forwarder.
-        "server",
-        "--host",
-        "0.0.0.0",
-        "--port",
-        "14321",
-        "--mitm-port",
-        "14322",
-      ],
-      [{ directory: extraCaDirectory, target: "/extra-ca" }],
-    )
-    const port = (await docker("port", vaultName, "14321/tcp"))
-      .split("\n")[0]
-      ?.split(":")
-      .pop()
+    // A fixed host port: a replaced Agent Vault answers at the same address.
+    const port = await freePort()
     const address = `http://127.0.0.1:${port}`
-    const deadline = Date.now() + 60_000
-    for (;;) {
-      const healthy = await fetch(`${address}/health`)
-        .then((response) => response.ok)
-        .catch(() => false)
-      if (healthy) break
-      if (Date.now() > deadline)
-        throw new Error("Agent Vault did not become healthy")
-      await new Promise((resolve) => setTimeout(resolve, 250))
+    const startVault = async () => {
+      await dockerRunWithFiles(
+        vaultName,
+        [
+          "--network",
+          network,
+          "-p",
+          `127.0.0.1:${port}:14321`,
+          // Random at each start, as the deployment makes it: a new
+          // instance keeps no data and has a new CA.
+          "-e",
+          `AGENT_VAULT_MASTER_PASSWORD=${randomBytes(16).toString("hex")}`,
+          ...envArgs(rateLimitEnv(input.stockAuthGateWindow)),
+          "-e",
+          "SSL_CERT_DIR=/etc/ssl/certs:/extra-ca",
+          "-e",
+          "AGENT_VAULT_TELEMETRY=false",
+          "-e",
+          `AGENT_VAULT_NETWORK_ALLOWLIST=${upstreamIp}`,
+          contractImage("agentVault"),
+          // A fixed proxy port, for the closed network's forwarder.
+          "server",
+          "--host",
+          "0.0.0.0",
+          "--port",
+          "14321",
+          "--mitm-port",
+          "14322",
+        ],
+        [{ directory: extraCaDirectory, target: "/extra-ca" }],
+      )
+      const deadline = Date.now() + 60_000
+      for (;;) {
+        const healthy = await fetch(`${address}/health`)
+          .then((response) => response.ok)
+          .catch(() => false)
+        if (healthy) break
+        if (Date.now() > deadline)
+          throw new Error("Agent Vault did not become healthy")
+        await new Promise((resolve) => setTimeout(resolve, 250))
+      }
     }
+    await startVault()
     if (input.closed) {
       await docker("network", "create", "--internal", closedNetwork)
       await docker(
@@ -496,6 +505,10 @@ net.createServer((client) => {
       },
       stopAgentVault: async () => {
         await docker("stop", "-t", "1", vaultName)
+      },
+      replaceAgentVault: async () => {
+        await docker("rm", "-f", "-v", vaultName)
+        await startVault()
       },
     })
   } finally {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 
+import { RunVaultLostError } from "../workspaces/agent-vault.js"
 import type { RootExec } from "./ingest-root.js"
 import { withShardStep } from "./ingest-shard-step.js"
 
@@ -22,6 +23,7 @@ describe("the plain git source fetch of a shard step (CTX-815)", () => {
       existingRoot: input.existing ? root : null,
       plainGitSource: true,
       refresh: input.refresh,
+      destroy: async () => undefined,
       attach: async () => ({ handle: { id: "sbx-ingest" }, root }),
       prepare: async () => {
         await input.prepare?.()
@@ -57,5 +59,56 @@ describe("the plain git source fetch of a shard step (CTX-815)", () => {
       }),
     ).rejects.toThrow("The clone failed")
     expect(refreshes).toEqual([false, true, false, false])
+  })
+})
+
+describe("a shard step whose vault Agent Vault lost", () => {
+  it("destroys the sandbox and fails before it attaches, so the next attempt makes a new one", async () => {
+    const calls: string[] = []
+    const root: RootExec = async () => ({ exitCode: 0, stdout: "", stderr: "" })
+    await expect(
+      withShardStep({
+        existingRoot: root,
+        plainGitSource: false,
+        refresh: async () => {
+          calls.push("refresh")
+          throw new RunVaultLostError()
+        },
+        destroy: async () => {
+          calls.push("destroy")
+        },
+        attach: async () => {
+          calls.push("attach")
+          return { handle: { id: "sbx-lost" }, root }
+        },
+        prepare: async () => undefined,
+        run: async () => calls.push("run"),
+        stopAgents: async () => undefined,
+        logContext: { orgId: "org_shard_step", runId: "run_shard_step" },
+      }),
+    ).rejects.toBeInstanceOf(RunVaultLostError)
+    expect(calls).toEqual(["refresh", "destroy"])
+  })
+
+  it("keeps the sandbox when the refresh fails for another reason", async () => {
+    let destroyed = false
+    const root: RootExec = async () => ({ exitCode: 0, stdout: "", stderr: "" })
+    await expect(
+      withShardStep({
+        existingRoot: root,
+        plainGitSource: false,
+        refresh: () =>
+          Promise.reject(new Error("Agent Vault is not reachable")),
+        destroy: async () => {
+          destroyed = true
+        },
+        attach: async () => ({ handle: { id: "sbx-kept" }, root }),
+        prepare: async () => undefined,
+        run: async () => undefined,
+        stopAgents: async () => undefined,
+        logContext: { orgId: "org_shard_step", runId: "run_shard_step" },
+      }),
+    ).rejects.toThrow("not reachable")
+    expect(destroyed).toBe(false)
   })
 })

@@ -74,7 +74,11 @@ import {
   INGESTION_V2_WORKFLOW_NAME,
   type IngestionV2RunInput,
 } from "../ingestion/ingestion-run.js"
-import { type AgentVaultAccess, setRunVaultRules } from "./agent-vault.js"
+import {
+  type AgentVaultAccess,
+  RunVaultLostError,
+  setRunVaultRules,
+} from "./agent-vault.js"
 import { agentCoreSandboxProvider } from "./agentcore-sandbox-provider.js"
 import { ingestSandboxThreadId } from "./chat-lifecycle.js"
 import { workspaceChatDockerImage } from "./chat-runtime.js"
@@ -832,6 +836,91 @@ git push ${source} HEAD:refs/heads/plain-push 2>&1 && echo PUSHED || echo REFUSE
             ),
           ),
         ).rejects.toBeTruthy()
+      })
+    },
+  )
+})
+
+describe("a Docker ingest shard on a replaced Agent Vault", () => {
+  it(
+    "loses its vault; the shard's next sandbox gets a new vault, session and CA, and refuses each other host",
+    { timeout: 300_000 },
+    async () => {
+      await withAgentVault({ image, closed: true }, async (fixture) => {
+        gitToken = fixture.gitToken
+        const base = `http://${fixture.upstream}:8080`
+        const runId = `run_${randomUUID()}`
+        const egress = (step: number): IngestEgress => ({
+          repositories: [
+            { fullName: "git/repo", githubConnectionId: connectionId },
+          ],
+          gitHost: `${fixture.upstream}:8080`,
+          modelProxyUrl: `${base}/echo/model/v1`,
+          capability: `ingest-capability-${step}`,
+          bridge: { url: `${base}/echo/bridge`, token: `bridge-${step}` },
+        })
+        const shard = { orgId, runId, shard: 0, access: fixture.access }
+        const provider = (step: number) =>
+          dockerIngestSandboxProvider({
+            ...shard,
+            image,
+            egress: egress(step),
+            network: fixture.sandboxNetwork,
+          })
+        const model = `curl -sS -m 20 -X POST ${base}/echo/model/v1/chat/completions`
+
+        const first = await provider(1).create({})
+        try {
+          expect(
+            JSON.parse(await run(first.id, model)).headers?.authorization,
+          ).toBe("Bearer ingest-capability-1")
+          // ECS replaces the task: the new instance has no owner, vault,
+          // session or CA of the old one.
+          await fixture.replaceAgentVault()
+          // The next step's refresh: the owner registers again, and the
+          // vault is gone.
+          await expect(
+            refreshIngestSandboxEgress({ ...shard, egress: egress(2) }),
+          ).rejects.toBeInstanceOf(RunVaultLostError)
+          // The old sandbox cannot use the new instance.
+          expect(
+            await run(first.id, code(`${base}/echo/model/v1/models`)),
+          ).not.toBe("200")
+        } finally {
+          // As `withShardStep` does on the lost vault.
+          await provider(2).destroy({ id: first.id })
+        }
+        expect(await containerExists(first.id)).toBe(false)
+
+        // The step's next attempt makes a new sandbox.
+        const second = await provider(2).create({})
+        try {
+          const result = sections(
+            await run(
+              second.id,
+              `echo "== model"
+${model}
+echo
+echo "== fetch"
+git clone -q ${base}/git/repo.git /tmp/clone 2>&1 && git -C /tmp/clone log --format=%s
+echo "== example"
+${code("https://example.com/")}
+echo
+echo "== other-path"
+${code(`${base}/echo/other`)}
+echo`,
+            ),
+          )
+          expect(JSON.parse(result.model ?? "{}").headers?.authorization).toBe(
+            "Bearer ingest-capability-2",
+          )
+          expect(result.fetch).toBe("seed")
+          // The new vault refuses each host and path that no rule names.
+          expect(result.example).toBe("403")
+          expect(result["other-path"]).toBe("403")
+        } finally {
+          await provider(2).destroy({ id: second.id })
+        }
       })
     },
   )

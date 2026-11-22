@@ -8,6 +8,7 @@ import {
   AgentVaultUnavailableError,
   agentVaultAccess,
   openRunVault,
+  RunVaultLostError,
   RunVaultRuleRefusedError,
   setRunVaultRules,
 } from "./agent-vault.js"
@@ -584,5 +585,42 @@ describe("a replaced Agent Vault task", () => {
         rules,
       ),
     ).rejects.toBeInstanceOf(AgentVaultUnavailableError)
+  })
+})
+
+describe("a run vault that Agent Vault lost", () => {
+  const rules = [
+    { name: "model", host: "api.example.test", authorization: "Bearer key" },
+  ]
+  const answering = (address: string, error: string) => {
+    server.use(
+      http.post(`${address}/v1/auth/login`, () =>
+        HttpResponse.json({ token: "owner-token" }),
+      ),
+      http.post(`${address}/v1/credentials`, () =>
+        HttpResponse.json({ error }, { status: 404 }),
+      ),
+    )
+    return { address, ownerPassword: async () => "owner-password" }
+  }
+
+  it("is a RunVaultLostError when Agent Vault has no such vault", async () => {
+    const access = answering(
+      "http://agent-vault-lost-vault.test",
+      'Vault "ctxpipe-run-0" not found',
+    )
+    await expect(
+      setRunVaultRules(access, "run:lost", rules),
+    ).rejects.toBeInstanceOf(RunVaultLostError)
+  })
+
+  it("is not lost for another 404", async () => {
+    const access = answering(
+      "http://agent-vault-lost-credential.test",
+      'Credential "MODEL_AUTHORIZATION" not found',
+    )
+    const refused = setRunVaultRules(access, "run:other", rules)
+    await expect(refused).rejects.toThrow()
+    await expect(refused).rejects.not.toBeInstanceOf(RunVaultLostError)
   })
 })
