@@ -142,6 +142,7 @@ export const searchCodeTool = defineMcpReadTool({
     cursor: z.string().optional(),
     hint: z.string().optional(),
   }),
+  describeResult: ({ files }) => ({ count: files.length }),
   async run(input, { org }) {
     if (input.mode === "structural" && !input.language) {
       throw new McpToolError(

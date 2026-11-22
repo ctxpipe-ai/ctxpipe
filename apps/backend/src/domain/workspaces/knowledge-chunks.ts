@@ -1,13 +1,21 @@
 import { createHash } from "node:crypto"
 
 /**
- * Chunk rule (ADR-051): one chunk per Markdown heading section. A section over
- * the cap packs its paragraphs (blank-line runs) into chunks up to the cap, and
- * a paragraph over the cap splits on length.
+ * Chunk rule (ADR-051): one chunk per Markdown heading section. A section that
+ * holds only its heading line joins the next section, so that the heading
+ * stays in the index text (CTX-1133). A heading-only section with no next
+ * section gets no chunk, unless the body has no other chunk. Thus the first
+ * chunk always starts at the first line with text, and `read_file` can align
+ * the stored chunks of an older rule. A section over the cap packs its
+ * paragraphs (blank-line runs) into chunks up to the cap, and a paragraph over
+ * the cap splits on length.
  *
  * Why: authors edit one section at a time, so an edit changes the hash of its
- * own chunks only, and hydrate embeds only those again. Sections do not merge,
- * because a merge would make a chunk depend on its neighbors. In a section
+ * own chunks only, and hydrate embeds only those again. Sections with body
+ * text do not merge, because a merge would make a chunk depend on its
+ * neighbors. A heading-only section has no content of its own: alone, its
+ * chunk is almost only title text, and it wins title-like searches with no
+ * content. In a section
  * over the cap, an edit can move the later chunk boundaries of that section.
  * The cap (512 tokens at about 4 characters each, no tokenizer) keeps each
  * chunk a precise search hit and well inside the input limit of the model.
@@ -73,10 +81,25 @@ export function chunkKnowledgeBody(body: string): KnowledgeChunk[] {
     }
   })
   const blank = (index: number) => !lines[index]?.line.trim()
-  return sections.flatMap(({ headingPath, start, end }) => {
+  const trimmed = sections.flatMap(({ headingPath, start, end }) => {
     while (start < end && blank(start)) start += 1
     while (end > start && blank(end - 1)) end -= 1
-    if (start === end) return []
+    return start === end ? [] : [{ headingPath, start, end }]
+  })
+  const joined: typeof trimmed = []
+  let pending: number | null = null
+  trimmed.forEach((section, index) => {
+    const headingOnly =
+      section.end - section.start === 1 && lines[section.start]?.heading
+    if (headingOnly && index < trimmed.length - 1) {
+      pending ??= section.start
+      return
+    }
+    if (headingOnly && joined.length > 0) return
+    joined.push({ ...section, start: pending ?? section.start })
+    pending = null
+  })
+  return joined.flatMap(({ headingPath, start, end }) => {
     const piece = (from: number, to: number): KnowledgeChunk => ({
       headingPath,
       text: lines

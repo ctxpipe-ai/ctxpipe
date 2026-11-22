@@ -122,6 +122,10 @@ export const searchKnowledgeTool = defineMcpReadTool({
       .describe("True when the hits are in the search order only."),
     partialReason: z.string().optional(),
   }),
+  describeResult: ({ hits }) => ({
+    count: hits.length,
+    scores: hits.map((hit) => hit.score),
+  }),
   async run(input, { org }) {
     const named = input.workspaces !== undefined
     const slugs = [
