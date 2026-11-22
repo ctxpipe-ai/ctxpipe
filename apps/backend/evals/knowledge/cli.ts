@@ -58,6 +58,8 @@ import {
   type Dataset,
   datasetSchema,
   frozenCorporaSchema,
+  onePositionEach,
+  questionProblems,
   questionSchema,
   readDataset,
 } from "./dataset.js"
@@ -561,8 +563,17 @@ export async function main(argv: string[]): Promise<number> {
   if (command === "finalize") {
     if (!values.draft)
       throw new SetupError("finalize needs --draft (the labeled files).")
+    // No dataset check yet: a labeled file from before a stricter rule can
+    // hold a question that the rule now rejects. `finalize` drops it.
     const labeled = await Promise.all(
-      values.draft.split(",").filter(Boolean).map(readDataset),
+      values.draft
+        .split(",")
+        .filter(Boolean)
+        .map(async (file) =>
+          frozenCorporaSchema
+            .extend({ questions: z.array(questionSchema) })
+            .parse(JSON.parse(await readFile(file, "utf8"))),
+        ),
     )
     if (new Set(labeled.map((item) => item.version)).size > 1)
       throw new SetupError("The labeled files have different versions.")
@@ -573,12 +584,47 @@ export async function main(argv: string[]): Promise<number> {
         throw new SetupError(`The labeled files give two corpora ${corpus.id}.`)
       corpora.set(corpus.id, corpus)
     }
+    // Two labeled questions with one id, or a question of no corpus of the
+    // files, are faults of the input, not of a label: they stop here.
+    const ids = new Set<string>()
+    for (const question of labeled.flatMap((item) => item.questions)) {
+      if (ids.has(question.id))
+        throw new SetupError(`The labeled files hold ${question.id} twice.`)
+      ids.add(question.id)
+      if (!corpora.has(question.corpus))
+        throw new SetupError(
+          `${question.id} names the corpus ${question.corpus}, which no labeled file holds.`,
+        )
+    }
+    // Each document is in one position, then the rules of `dataset.ts` drop
+    // a question and list it.
+    const checked = labeled
+      .flatMap((item) => item.questions)
+      .map((question) => {
+        const next = question.positions
+          ? { ...question, positions: onePositionEach(question.positions) }
+          : question
+        return { question: next, problems: questionProblems(next) }
+      })
+    const dropped = checked
+      .filter(({ problems }) => problems.length > 0)
+      .map(({ question, problems }) => ({
+        question: question.id,
+        reason: problems.join("; "),
+      }))
+    for (const { question, reason } of dropped)
+      process.stderr.write(`Dropped ${question}: ${reason}.\n`)
+    await writeJson(`${out}.dropped.json`, { dropped })
     await writeJson(
       out,
       datasetSchema.parse({
         version: labeled[0]?.version,
         corpora: [...corpora.values()],
-        questions: finalizeQuestions(labeled.flatMap((item) => item.questions)),
+        questions: finalizeQuestions(
+          checked
+            .filter(({ problems }) => problems.length === 0)
+            .map(({ question }) => question),
+        ),
       }),
     )
     return 0

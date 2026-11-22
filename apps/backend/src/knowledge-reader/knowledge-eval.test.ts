@@ -1,3 +1,7 @@
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
 import { delay, HttpResponse, http } from "msw"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -77,6 +81,45 @@ describe("the dataset", () => {
       `Question ${question.id}: a disagreement question needs seeds for get_related.`,
       `Question ${question.id}: a disagreement question needs at least two positions.`,
     ])
+    // Positions that do not disagree.
+    const disagreement = (positions: object[]) =>
+      check({
+        category: "disagreement",
+        gold: ["a.md", "b.md"],
+        seeds: ["a.md"],
+        positions,
+      })
+    expect(
+      disagreement([
+        { refs: ["a.md"], status: "current" },
+        { refs: ["a.md"], status: "current" },
+      ]),
+    ).toEqual([
+      `Question ${question.id}: a document is in more than one position.`,
+      `Question ${question.id}: a disagreement question needs at least two documents in its positions.`,
+      `Question ${question.id}: a disagreement question needs a position that is not current.`,
+    ])
+    expect(
+      disagreement([
+        { refs: ["a.md"], status: "current" },
+        { refs: ["b.md"], status: "current" },
+      ]),
+    ).toEqual([
+      `Question ${question.id}: a disagreement question needs a position that is not current.`,
+    ])
+    expect(
+      disagreement([
+        { refs: ["a.md"], status: "superseded" },
+        { refs: ["b.md"], status: "current" },
+      ]),
+    ).toBeUndefined()
+    // Two disputed documents disagree, also with one status.
+    expect(
+      disagreement([
+        { refs: ["a.md"], status: "disputed" },
+        { refs: ["b.md"], status: "disputed" },
+      ]),
+    ).toBeUndefined()
     expect(check({ gold: ["../outside.md"] })?.[0]).toBe(
       "A path is relative, with no empty or `..` segment.",
     )
@@ -636,6 +679,66 @@ describe("the commands that call a model", () => {
   })
 })
 
+describe("finalize", () => {
+  it("gives each document one position, and drops and lists the questions that the rules reject", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "eval-finalize-"))
+    try {
+      const dataset = await readDataset(datasetFile)
+      const disagreement = dataset.questions.filter(
+        (question) => question.category === "disagreement",
+      )
+      const [first, second] = disagreement
+      if (!first || !second) throw new Error("The example needs two.")
+      const labeled = join(dir, "labeled.json")
+      writeFileSync(
+        labeled,
+        JSON.stringify({
+          ...dataset,
+          questions: [
+            // A copy of a position: one position for each document.
+            {
+              ...first,
+              positions: [...(first.positions ?? []), first.positions?.[0]],
+            },
+            // All current: no disagreement.
+            {
+              ...second,
+              positions: second.positions?.map((position) => ({
+                ...position,
+                status: "current",
+              })),
+            },
+          ],
+        }),
+      )
+      const out = join(dir, "dataset.json")
+      await expect(
+        main(["finalize", "--out", out, "--draft", labeled]),
+      ).resolves.toBe(0)
+      const result = await readDataset(out)
+      expect(result.questions.map((question) => question.id)).toEqual([
+        first.id,
+      ])
+      expect(result.questions[0]?.positions).toEqual(first.positions)
+      expect(
+        JSON.parse(readFileSync(`${out}.dropped.json`, "utf8")).dropped,
+      ).toEqual([
+        {
+          question: second.id,
+          reason:
+            "a disagreement question needs a position that is not current",
+        },
+      ])
+      // The same question in two files is a fault of the input.
+      await expect(
+        main(["finalize", "--out", out, "--draft", `${labeled},${labeled}`]),
+      ).rejects.toThrow(`The labeled files hold ${first.id} twice.`)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
 describe("the judge panel", () => {
   const BASE = "https://panel.test/v1"
   /** model → ref → [answers, status]. */
@@ -962,6 +1065,40 @@ describe("the judge panel", () => {
     const [chain, lookup] = [contents[0] ?? "", contents[3] ?? ""]
     expect(chain).toContain("is a needed step to the answer")
     expect(lookup).not.toContain("needed step")
+  })
+
+  it("gives a document of two drafted positions one position", async () => {
+    const labeled = await labelWithPanel({
+      draft: {
+        ...draft,
+        questions: [
+          {
+            id: "twice",
+            corpus: "corpus",
+            category: "disagreement",
+            split: "dev",
+            text: "Which rule is current?",
+            gold: ["old.md", "new.md"],
+            seeds: ["new.md"],
+            // old.md is in two drafted positions.
+            positions: [
+              { refs: ["old.md"], status: "superseded" },
+              { refs: ["old.md", "new.md"], status: "current" },
+            ],
+            keyFacts: ["The new rule is current."],
+          },
+        ],
+      },
+      models: Object.keys(replies),
+      read: async (_corpus, ref) => `The text of ${ref}.`,
+      nearest: async () => [],
+      env,
+      stopped: () => false,
+    })
+    expect(labeled.dataset.questions[0]?.positions).toEqual([
+      { refs: ["old.md"], status: "superseded" },
+      { refs: ["new.md"], status: "current" },
+    ])
   })
 
   it("drops a multi-hop question when the panel removes one of its documents", async () => {

@@ -8,6 +8,7 @@ import {
   type Dataset,
   type Position,
   type Question,
+  onePositionEach,
   questionProblems,
 } from "./dataset.js"
 
@@ -116,9 +117,11 @@ function majority<T>(values: readonly T[]): T | null {
 
 /**
  * The positions of a question from the panel status of each document: the
- * documents of a drafted position that keep one status stay together. A
- * gold document of a position with no majority status, or with `none`, is
- * unresolved: the question then needs a person.
+ * documents of a drafted position that keep one status stay together. The
+ * panel gives a document one status, so a document of two drafted
+ * positions is only in the first of them. A gold document of a position
+ * with no majority status, or with `none`, is unresolved: the question then
+ * needs a person.
  */
 function labeledPositions(
   drafted: readonly Position[],
@@ -126,17 +129,17 @@ function labeledPositions(
   statusOf: ReadonlyMap<string, Verdict["status"] | null>,
 ): { positions: Position[]; unresolved: string[] } {
   const positions: Position[] = []
-  const unresolved: string[] = []
+  const unresolved = new Set<string>()
   for (const position of drafted) {
     const byStatus = new Map<Position["status"], string[]>()
     for (const ref of position.refs.filter((item) => gold.includes(item))) {
       const status = statusOf.get(ref)
-      if (!status || status === "none") unresolved.push(ref)
+      if (!status || status === "none") unresolved.add(ref)
       else byStatus.set(status, [...(byStatus.get(status) ?? []), ref])
     }
     for (const [status, refs] of byStatus) positions.push({ refs, status })
   }
-  return { positions, unresolved }
+  return { positions: onePositionEach(positions), unresolved: [...unresolved] }
 }
 
 /**
