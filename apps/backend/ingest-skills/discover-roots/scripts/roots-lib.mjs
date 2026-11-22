@@ -1008,17 +1008,28 @@ export function fitResult(result, maxBytes = MAX_RESULT_BYTES) {
     ...a,
     candidates: [...a.candidates],
   }))
-  for (const entry of [...ambiguous].reverse())
-    while (entry.candidates.length > 0 && total > room)
-      total -= size(entry.candidates.pop())
   const skipped = [...result.skipped]
-  while (skipped.length > 0 && total > room) total -= size(skipped.pop())
   const roots = [...result.roots]
-  while (roots.length > 0 && total > room) total -= size(roots.pop())
-  const kept = ambiguous.filter((a) => a.candidates.length > 0)
-  return {
-    roots,
-    ambiguous: kept,
-    skipped: [...skipped, note(roots.length, count(kept), skipped.length)],
+  /** Removes the next item in the order of the rule; false when none is left. */
+  const removeOne = () => {
+    const entry = ambiguous.findLast((a) => a.candidates.length > 0)
+    const item = entry ? entry.candidates.pop() : (skipped.pop() ?? roots.pop())
+    if (item !== undefined) total -= size(item)
+    return item !== undefined
   }
+  // The sizes of the items give a fast first estimate.
+  while (total > room && removeOne());
+  const fitted = () => {
+    const kept = ambiguous.filter((a) => a.candidates.length > 0)
+    return {
+      roots: [...roots],
+      ambiguous: kept,
+      skipped: [...skipped, note(roots.length, count(kept), skipped.length)],
+    }
+  }
+  // The estimate can be some bytes off (an array that becomes empty has no
+  // comma), so the script checks the serialized result.
+  let out = fitted()
+  while (size(out) > maxBytes && removeOne()) out = fitted()
+  return out
 }

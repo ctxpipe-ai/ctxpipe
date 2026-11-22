@@ -255,6 +255,28 @@ export function packRoots(roots: readonly PackedRoot[]): string {
 }
 
 /**
+ * The packed list of the first roots that fit in `maxChars`, and the roots
+ * that it leaves out. A step output keeps the packed list, so its size is
+ * the limit, not a count of roots.
+ */
+export function packRootsWithin(
+  roots: readonly PackedRoot[],
+  maxChars: number,
+): { packed: string; left: PackedRoot[] } {
+  const packed = packRoots(roots)
+  if (packed.length <= maxChars) return { packed, left: [] }
+  // The longest start of the list that fits, by binary search.
+  let fits = 0
+  let fails = roots.length
+  while (fails - fits > 1) {
+    const mid = Math.floor((fits + fails) / 2)
+    if (packRoots(roots.slice(0, mid)).length <= maxChars) fits = mid
+    else fails = mid
+  }
+  return { packed: packRoots(roots.slice(0, fits)), left: roots.slice(fits) }
+}
+
+/**
  * The root list that `packRoots` packed. `maxBytes` caps the unzipped size:
  * a value over the cap throws, so a corrupt or very large value cannot use
  * all the memory.

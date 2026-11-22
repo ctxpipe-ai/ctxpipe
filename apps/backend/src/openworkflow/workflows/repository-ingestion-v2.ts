@@ -27,7 +27,7 @@ import {
 import {
   INGEST_SHARD_MAX_ROOTS,
   ingestRunSkills,
-  packRoots,
+  packRootsWithin,
   plannedIngestSkills,
   unpackRoots,
 } from "../../domain/ingestion/ingestion-plan.js"
@@ -405,9 +405,18 @@ export function defineRepositoryIngestionV2Workflow(
                   ingestionRunId: run.id,
                   ...refused,
                 })
-              // No count limits the roots. The host refuses a discover-roots
-              // result over 1 MiB, so the packed list is smaller than that.
-              const packed = packRoots(plan.roots)
+              // No count limits the roots. The step output keeps the packed
+              // list, so its size is the limit: 1 MiB, where the backend
+              // starts to warn about a large step output. A root that does
+              // not fit is refused, with a record.
+              const { packed, left } = packRootsWithin(plan.roots, 2 ** 20)
+              for (const root of left)
+                logIngestEvent("warn", "ingestion-v2.root-refused", {
+                  ingestionRunId: run.id,
+                  path: root.path,
+                  reason:
+                    "The packed root list of the run must be at most 1 MiB",
+                })
               return {
                 bundle: bundle.name,
                 version: bundle.version,
