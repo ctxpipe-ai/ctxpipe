@@ -1,6 +1,6 @@
 # ADR-069: The knowledge plane is proven with public-corpus evals and turned on for one org at a time
 
-**Status:** Accepted (the CTO, 2026-11-19; nothing is built yet) | **Date:** 2026-11-19 | **Tags:** knowledge, evals, dataset, rollout, feature-flags, better-auth, privacy
+**Status:** Accepted (the CTO, 2026-11-19; nothing is built yet; amended 2026-11-22, CTX-1499: hill-climb by generations) | **Date:** 2026-11-19 | **Tags:** knowledge, evals, dataset, rollout, feature-flags, better-auth, privacy
 
 ## Context
 
@@ -109,6 +109,18 @@ The dataset must cover three shapes of customer: one large monorepo, an org with
    - **Order:** our own org first, then chosen customer orgs one at a time, each in `shadow` first.
    - **Data.** Each Jev call, embedding call and vision call goes only to a ZDR endpoint. Before the first org leaves `off`, the ZDR probe of [ADR-068](ADR-068-knowledge-retrieval-jev-layers.md) decision 7 passes. No other condition holds back the flag (the CTO, 2026-11-19). Shadow logs hold ids, scores and timings, no content.
    - **The end.** When all orgs are `on` and their metrics are at least as good, we remove the old stack, the dual write and the flag.
+
+## Amendment 2026-11-22: hill-climb by generations, with no fixed target (CTX-1499)
+
+The CTO, 2026-11-22: "We don't have hard targets, we want to hillclimb the retrieval for many generations until the improvements plateau. Every generation can be merged as we are behind feature flag."
+
+- **A generation** is one change of the plane, with its run on the dataset.
+- **The reference point of a change is the last kept generation of the plane.** A change of the plane is kept when it improves the eval over that generation, with no guard regression. The hold-out set still decides keep or revert (decisions 5 and 7): this amendment changes only the reference point.
+- **No fixed target:** a change is not measured against a fixed number, and not against the baseline (the current stack, Postgres and FalkorDB). The baseline arm stays in each report, as a reference only.
+- **The loop goes on** until the improvements plateau.
+- **Each kept generation can merge**, because the `knowledge_plane` flag holds the plane back from customers (decision 9).
+- **The labels:** one label version for each dataset (the knowledge evals README, "One label version for each dataset").
+- **The question set v0:** the knowledge evals README ("The dataset") gives its file, its corpora and its counts.
 
 ## Consequences
 
