@@ -2,7 +2,7 @@
 FROM node:26.13.1-alpine AS deps
 WORKDIR /app
 ENV CI=true
-RUN npm install -g pnpm@10.12.1
+RUN npm install -g pnpm@11.28.11
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
 COPY patches patches
 COPY apps/ui/package.json apps/ui/package.json
@@ -25,7 +25,7 @@ RUN node scripts/checks/ui-bundled-imports.mjs /out
 FROM node:26.13.1-alpine AS builder
 WORKDIR /app
 ENV CI=true
-RUN npm install -g pnpm@10.12.1
+RUN npm install -g pnpm@11.28.11
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps/ui/node_modules ./apps/ui/node_modules
 COPY --from=deps /app/apps/backend/node_modules ./apps/backend/node_modules

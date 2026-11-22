@@ -2,7 +2,7 @@
 FROM node:26.13.1-alpine AS deps
 WORKDIR /app
 ENV CI=true
-RUN npm install -g pnpm@10.12.1
+RUN npm install -g pnpm@11.28.11
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
 COPY patches patches
 COPY apps/docs/package.json apps/docs/package.json

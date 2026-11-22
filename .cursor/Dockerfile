@@ -16,7 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && rm -rf /var/lib/apt/lists/*
 
 ########################################################
-# NODE + PNPM (repo uses packageManager pnpm@10.12.1)
+# NODE + PNPM (repo uses packageManager pnpm@11.28.11)
 ########################################################
 
 RUN curl -fsSL https://deb.nodesource.com/setup_26.x | bash - \
@@ -24,7 +24,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_26.x | bash - \
   && rm -rf /var/lib/apt/lists/*
 
 # Node 25 and later do not bundle Corepack, so install the pnpm of packageManager with npm.
-RUN npm install --global pnpm@10.12.1
+RUN npm install --global pnpm@11.28.11
 
 ########################################################
 # BUN (repo engines + backend/codesearch dev scripts use `bun`)
