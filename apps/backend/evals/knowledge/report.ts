@@ -437,6 +437,12 @@ export function renderMarkdown(report: Report): string {
     "## Regression checks",
     "",
     "The known failures of the Falkor retrieval (CTX-1518). Each check reads the kept answers of the scored questions. See the evals README for each rule.",
+    ...(report.run.quietMs === undefined
+      ? []
+      : [
+          "",
+          `Check 7: the run waited ${ms(report.run.quietMs)} with no call before the first search and the first get_related of each arm.`,
+        ]),
     ...(report.run.mode === "replay"
       ? [
           "",

@@ -73,8 +73,9 @@ const answer = (
     scores?: number[]
     hits?: KnowledgeHit[]
     latencyMs?: number
+    quietMs?: number
   },
-  related?: { refs: string[]; latencyMs?: number },
+  related?: { refs: string[]; latencyMs?: number; quietMs?: number },
 ): ArmAnswer => {
   const refs = search.refs ?? search.hits?.map((one) => one.path) ?? []
   return {
@@ -84,6 +85,7 @@ const answer = (
       refs,
       scores: search.scores ?? refs.map(() => 0.5),
       latencyMs: search.latencyMs ?? 50,
+      ...(search.quietMs === undefined ? {} : { quietMs: search.quietMs }),
       ...(search.hits ? { page: pageOf(search.hits) } : {}),
     },
     ...(related
@@ -92,6 +94,9 @@ const answer = (
             refs: related.refs,
             scores: related.refs.map(() => 0.5),
             latencyMs: related.latencyMs ?? 50,
+            ...(related.quietMs === undefined
+              ? {}
+              : { quietMs: related.quietMs }),
           },
         }
       : {}),
@@ -333,19 +338,21 @@ describe("the regression checks", () => {
     ).toBe(1)
   })
 
-  it("7: reports the first calls of the run, which the warm p95 hides", () => {
+  it("7: reports the first calls after the quiet time, which the warm p95 hides", () => {
     const questions = Array.from({ length: 20 }, (_, index) =>
       question(`q${index}`, { seeds: ["seeds/s.md"] }),
     )
+    // The run waits a quiet time before the first call of each kind.
     const run = (firstMs: number) =>
-      questions.map((one, index) =>
-        answer(
+      questions.map((one, index) => {
+        const first = index === 0 ? { quietMs: 31_000 } : {}
+        return answer(
           "legacy",
           one.id,
-          { refs: [], latencyMs: index === 0 ? firstMs : 50 },
-          { refs: [], latencyMs: index === 0 ? firstMs : 60 },
-        ),
-      )
+          { refs: [], latencyMs: index === 0 ? firstMs : 50, ...first },
+          { refs: [], latencyMs: index === 0 ? firstMs : 60, ...first },
+        )
+      })
     const cold = checksOf(questions, run(40_000))
     expect(cold.coldSearchMs).toBe(40_000)
     expect(cold.coldRelatedMs).toBe(40_000)
@@ -361,16 +368,13 @@ describe("the regression checks", () => {
     // The nearest-rank p95 of 20 calls is the 19th: a warm call.
     expect(report.operations[0]?.searchP95Ms).toBe(50)
     expect(report.checks.legacy.coldSearchMs).toBe(40_000)
-    const warm = checksOf(questions, run(55))
-    expect(warm.coldSearchMs).toBe(55)
-    // Only the first call of the run is cold: the corpora share the stores.
-    const other = question("other", { corpus: "rust" })
-    expect(
-      checksOf(
-        [...questions, other],
-        [...run(55), answer("legacy", other.id, { refs: [], latencyMs: 900 })],
-      ).coldSearchMs,
-    ).toBe(55)
+    expect(checksOf(questions, run(55)).coldSearchMs).toBe(55)
+    // A run from before the quiet time has no cold call.
+    const old = questions.map((one) =>
+      answer("legacy", one.id, { refs: [] }, { refs: [] }),
+    )
+    expect(checksOf(questions, old).coldSearchMs).toBeNull()
+    expect(checksOf(questions, old).coldRelatedMs).toBeNull()
   })
 
   it("8: gives the bytes of the first page that a client gets", () => {
@@ -419,6 +423,7 @@ const manifest = (mode: Manifest["mode"]): Manifest => ({
   capUsd: 5,
   spentUsd: 0,
   stopped: false,
+  quietMs: 31_000,
 })
 
 const datasetOf = (questions: Question[]) =>
@@ -464,6 +469,7 @@ describe("the stale label and the report", () => {
     const answers = (["legacy", "plane"] as const).map((arm) =>
       answer(arm, q.id, {
         hits: [hit("docs/both.md", "Both\n\nText.", "Both")],
+        quietMs: 31_000,
       }),
     )
     const live = renderMarkdown(
@@ -485,6 +491,9 @@ describe("the stale label and the report", () => {
       "| 7. cold first search | lower | 50 ms | 50 ms |",
     )
     expect(section.match(/^\| [1-8]\. /gm)).toHaveLength(9)
+    expect(section).toContain(
+      "Check 7: the run waited 31000 ms with no call before the first search and the first get_related of each arm.",
+    )
     expect(section).not.toContain("replay")
     const replay = renderMarkdown(
       buildReport({

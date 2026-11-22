@@ -116,6 +116,8 @@ export async function executeRun(input: {
   out: string
   kept: KeptRun | null
   replay?: { calls: readonly RecordedCall[] }
+  /** The quiet time before the first calls of each arm (check 7). */
+  quietMs: number
 }): Promise<Report> {
   // A replay sends no call. Each client of a live run sends the provider
   // block (ADR-070).
@@ -134,6 +136,7 @@ export async function executeRun(input: {
       targets: input.targets,
       calls,
       now: input.now,
+      quietMs: input.quietMs,
     })
     const manifest: Manifest = {
       datasetVersion: input.dataset.version,
@@ -142,6 +145,7 @@ export async function executeRun(input: {
       settings: input.settings,
       loop: { ...ORCHESTRATOR_DEFAULTS },
       productBudgetMs,
+      quietMs: input.quietMs,
       mode: input.replay ? "replay" : "live",
       ...calls.summary(),
     }
@@ -166,6 +170,12 @@ export async function executeRun(input: {
     restoreSettings()
   }
 }
+
+/**
+ * The quiet time before the first calls of each arm (check 7): longer than
+ * the idle timeout of the Postgres pool (30 s, `src/db/client.ts`).
+ */
+const QUIET_MS = 31_000
 
 class SetupError extends Error {}
 
@@ -618,6 +628,7 @@ export async function main(argv: string[]): Promise<number> {
         out,
         kept,
         replay: { calls: recorded.calls },
+        quietMs: QUIET_MS,
       })
     } else {
       if (!dataset || !values.targets)
@@ -638,6 +649,7 @@ export async function main(argv: string[]): Promise<number> {
         now: new Date(),
         out,
         kept,
+        quietMs: QUIET_MS,
       })
     }
     process.stdout.write(`The report is in ${join(out, "report.md")}.\n`)

@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join } from "node:path"
+import { setTimeout as sleep } from "node:timers/promises"
 
 import { sql } from "drizzle-orm"
 import { z } from "zod"
@@ -106,13 +107,24 @@ export function applySettings(settings: Settings): () => void {
 }
 
 /** A call that failed: the kind of the failure, and its latency. */
-const callFailureSchema = z.object({ error: z.string(), latencyMs: z.number() })
+const callFailureSchema = z.object({
+  error: z.string(),
+  latencyMs: z.number(),
+  /** As in a ranked answer. */
+  quietMs: z.number().optional(),
+})
 
 const rankedSchema = z.object({
   refs: z.array(z.string()),
   scores: z.array(z.number()),
   partialReason: z.string().optional(),
   latencyMs: z.number(),
+  /**
+   * The quiet time before the call, in ms: only on the first search and the
+   * first `get_related` of each arm (check 7). Absent in a run from before
+   * CTX-1518.
+   */
+  quietMs: z.number().optional(),
 })
 
 /**
@@ -181,6 +193,12 @@ const manifestSchema = z.object({
    * each answer that is over it. Absent in a run from before 2026-11-22.
    */
   productBudgetMs: z.number().optional(),
+  /**
+   * The quiet time that the run waits before the first search and the first
+   * `get_related` of each arm, in ms (check 7). Absent in a run from before
+   * CTX-1518.
+   */
+  quietMs: z.number().optional(),
   mode: z.enum(["live", "replay"]),
   capUsd: z.number(),
   spentUsd: z.number(),
@@ -309,9 +327,12 @@ export async function runEval(input: {
   targets: Targets
   calls: ModelCalls
   now: Date
+  /** The quiet time before the first call of each kind of each arm. */
+  quietMs: number
 }): Promise<ArmAnswer[]> {
   const { calls, now } = input
   const workspaces = await resolveWorkspaces(input.dataset, input.targets)
+  const quiet = quietTimer(input.quietMs)
   const answers: ArmAnswer[] = []
   for (const question of input.questions) {
     const target = workspaces.get(question.corpus)
@@ -324,7 +345,7 @@ export async function runEval(input: {
               heads: new Map([[target.workspace.id, target.head]]),
             })
       calls.begin(arm, question.id)
-      const answer = await ask(reader, question, target, now)
+      const answer = await ask(reader, question, target, now, quiet)
       await calls.settle()
       const counts = calls.end()
       if (calls.stopped) return answers
@@ -339,14 +360,46 @@ export async function runEval(input: {
   return answers
 }
 
+/**
+ * The quiet time of check 7 (CTX-1043: a first call after a quiet time took
+ * 40 s on the old stack). Before the first search and the first
+ * `get_related` of each arm, `before` waits until no call of the run has
+ * ended for `quietMs`, and gives the quiet time. Then the Postgres pool
+ * closes its idle connections (30 s, `src/db/client.ts`), and the next call
+ * opens them again, as after a quiet time in production. The caches of the
+ * stores stay warm.
+ */
+function quietTimer(quietMs: number) {
+  let lastEnd = performance.now()
+  const first = new Set<string>()
+  return {
+    async before(call: string): Promise<{ quietMs?: number }> {
+      if (first.has(call)) return {}
+      first.add(call)
+      // A timer can fire a fraction of a millisecond early.
+      let quiet = performance.now() - lastEnd
+      while (quiet < quietMs) {
+        await sleep(Math.ceil(quietMs - quiet))
+        quiet = performance.now() - lastEnd
+      }
+      return { quietMs: quiet }
+    },
+    after() {
+      lastEnd = performance.now()
+    },
+  }
+}
+
 /** The search, then `get_related` from the seeds, of one question. */
 async function ask(
   reader: KnowledgeReader,
   question: Question,
   target: EvalTarget,
   now: Date,
+  quiet: ReturnType<typeof quietTimer>,
 ): Promise<Pick<ArmAnswer, "search" | "related">> {
   const validAt = question.validAt ? new Date(question.validAt) : undefined
+  let quietBefore = await quiet.before(`${reader.stack} search`)
   let started = performance.now()
   let search: ArmAnswer["search"]
   try {
@@ -360,6 +413,7 @@ async function ask(
       now,
     })
     const latencyMs = performance.now() - started
+    quiet.after()
     const { page } = searchKnowledgePage({
       hits: result.hits,
       workspaces: [{ ...target.workspace, served: target.served }],
@@ -373,12 +427,19 @@ async function ask(
       scores: result.hits.map((hit) => hit.score),
       ...(result.partialReason ? { partialReason: result.partialReason } : {}),
       latencyMs,
+      ...quietBefore,
       page,
     }
   } catch (error) {
-    search = { error: failure(error), latencyMs: performance.now() - started }
+    search = {
+      error: failure(error),
+      latencyMs: performance.now() - started,
+      ...quietBefore,
+    }
+    quiet.after()
   }
   if (!question.seeds) return { search }
+  quietBefore = await quiet.before(`${reader.stack} get_related`)
   started = performance.now()
   let related: ArmAnswer["related"]
   try {
@@ -398,6 +459,7 @@ async function ask(
       now,
     })
     const latencyMs = performance.now() - started
+    quiet.after()
     related = {
       refs: ranking.results.map((result) => result.ref),
       scores: ranking.results.map((result) => result.score),
@@ -416,9 +478,15 @@ async function ask(
         ? { partialReason: ranking.partialReason }
         : {}),
       latencyMs,
+      ...quietBefore,
     }
   } catch (error) {
-    related = { error: failure(error), latencyMs: performance.now() - started }
+    related = {
+      error: failure(error),
+      latencyMs: performance.now() - started,
+      ...quietBefore,
+    }
+    quiet.after()
   }
   return { search, related }
 }

@@ -248,6 +248,8 @@ const run = async (
     now,
     out: join(folder, name),
     kept: null,
+    // Short, so that the test is fast. The command waits 31 s.
+    quietMs: 200,
     ...options,
   })
 
@@ -508,6 +510,15 @@ describe("the knowledge eval harness", () => {
       })
     const kept = await readRun(join(folder, "live"))
     expect(kept.answers).toHaveLength(24)
+    // The run waited the quiet time before the first search and the first
+    // get_related of each arm, and only before them.
+    const quiet = kept.answers.flatMap((answer) =>
+      [answer.search, answer.related].flatMap((call) =>
+        call?.quietMs === undefined ? [] : [call.quietMs],
+      ),
+    )
+    expect(quiet).toHaveLength(4)
+    for (const ms of quiet) expect(ms).toBeGreaterThanOrEqual(200)
     // The raw Jev answers and the vectors are in the run folder.
     const jev = kept.calls.filter((call) => call.kind === "jev")
     expect(jev).toHaveLength(30)

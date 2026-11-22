@@ -419,6 +419,7 @@ describe("the hydrate of the knowledge eval harness", () => {
       now: new Date(),
       out: join(directory, "run"),
       kept: null,
+      quietMs: 0,
     })
     expect(report.status).toBe("complete")
     expect(

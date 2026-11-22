@@ -179,11 +179,9 @@ function hubSlots(
 
 /**
  * The checks of each arm. `scored` are the answers that the report scores.
- * Check 7 reads `answers` in the order of the run: the first search and the
- * first `get_related` of each arm in the run. A run is a new process, so
- * these calls open the connections and fill the caches of the reader. The
- * calls after them are warm, also on another corpus: the corpora share the
- * stores of the eval org.
+ * Check 7 reads the calls of `answers` with a quiet time before them
+ * (`quietTimer` of the run): the first search and the first `get_related`
+ * of each arm.
  */
 export function regressionChecks(input: {
   questions: ReadonlyMap<string, Question>
@@ -237,11 +235,13 @@ export function regressionChecks(input: {
           ]
         : [],
     )
-    const cold = (pick: (answer: ArmAnswer) => number | undefined) =>
+    const cold = (
+      pick: (answer: ArmAnswer) => ArmAnswer["related"] | ArmAnswer["search"],
+    ) =>
       input.answers
         .filter((answer) => answer.arm === arm)
         .map(pick)
-        .find((ms) => ms !== undefined) ?? null
+        .find((call) => call?.quietMs !== undefined)?.latencyMs ?? null
     result[arm] = {
       duplicateSlots: ratio(duplicates.length, hits.length),
       headingOnlyHits: pages.length
@@ -272,8 +272,8 @@ export function regressionChecks(input: {
           .filter(({ question }) => question.category === "no-answer")
           .map(({ search }) => topScore(search)),
       ),
-      coldSearchMs: cold((answer) => answer.search.latencyMs),
-      coldRelatedMs: cold((answer) => answer.related?.latencyMs),
+      coldSearchMs: cold((answer) => answer.search),
+      coldRelatedMs: cold((answer) => answer.related),
       pageBytes: ratio(
         pages.reduce(
           (sum, page) => sum + Buffer.byteLength(measureResult(page).text),
