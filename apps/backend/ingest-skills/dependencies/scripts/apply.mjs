@@ -31,7 +31,12 @@ import {
   scriptStep,
   writeStep,
 } from "../../bin/knowledge-lib.mjs"
-import { fail, STEP_LIMITS } from "../../bin/stage-lib.mjs"
+import {
+  fail,
+  STEP_LIMITS,
+  stagedPaths,
+  stepTexts,
+} from "../../bin/stage-lib.mjs"
 import { safePath } from "../../discover-roots/scripts/roots-lib.mjs"
 import {
   dependencyLine,
@@ -264,13 +269,7 @@ for (const resolution of resolutions) {
         }),
       ],
       expectName: target.name,
-      create: {
-        kind: "Stream",
-        name: target.name ?? posix.basename(target.path, ".md"),
-        summary: "A message stream that a source repository uses.",
-        intro:
-          "A script and a model found this stream in the code of a source repository.",
-      },
+      create: streamCreate(target.name ?? posix.basename(target.path, ".md")),
     })
   } else {
     skip(id, "kind must be service, api, stream, or ignore", "bad_kind")
@@ -418,6 +417,17 @@ function listPlans(servicePath, list) {
     ]
   })
 }
+/** How a new Stream file starts. */
+function streamCreate(name) {
+  return {
+    kind: "Stream",
+    name,
+    summary: "A message stream that a source repository uses.",
+    intro:
+      "A script and a model found this stream in the code of a source repository.",
+  }
+}
+
 /**
  * The entries that an earlier run of this page staged and that are not at
  * the step base. writeStep writes each file from the base, so a later run
@@ -457,6 +467,34 @@ for (const root of rootsOfStep)
   }
 for (const [servicePath, list] of entries)
   plans.push(...listPlans(servicePath, list))
+// The same for the Stream files of the repository-wide step: a later run
+// plans again each Related line of this repository that an earlier run of
+// the page staged, so that writeStep does not lose it.
+if (repositoryStep) {
+  const streams = stagedPaths(step).filter((path) =>
+    path.startsWith("knowledge/streams/"),
+  )
+  const atBase = stepTexts(step, streams, { staged: false })
+  const staged = stepTexts(step, streams)
+  const own = `- \`${repository}\` `
+  for (const path of streams) {
+    const base = new Set((atBase.get(path) ?? "").split("\n"))
+    const text = staged.get(path) ?? ""
+    const related = text
+      .split("\n")
+      .filter((line) => line.startsWith(own) && !base.has(line))
+    if (!related.length) continue
+    const name = /^name: "?(.*?)"?$/m.exec(text)?.[1]
+    plans.push({
+      path,
+      claims: [],
+      related,
+      ...(atBase.has(path) || !name
+        ? {}
+        : { expectName: name, create: streamCreate(name) }),
+    })
+  }
+}
 
 // The candidates of each root of the step, by type, also for a root that no
 // resolution reached.

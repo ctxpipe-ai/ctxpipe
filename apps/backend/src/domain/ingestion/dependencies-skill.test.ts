@@ -1440,6 +1440,35 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
     )
   })
 
+  it("keeps the Stream Related line of an earlier run of the page when a later run writes the same Stream file (CTX-1487)", async () => {
+    const human = front(
+      { kind: "Stream", name: "Orders Created", summary: "New orders." },
+      "# Orders Created\n\nThe order service publishes each new order here.\n",
+    )
+    const s = await step(
+      { "src/service.ts": SERVICE_TS },
+      { "knowledge/streams/order-events.md": human },
+    )
+    const [produce, consume] = ["orders.created", "payments.settled"].map(
+      (text) => s.candidates().find((c) => c.target.text === text),
+    )
+    const path = "knowledge/streams/order-events.md"
+    s.apply([{ root: ".", id: produce?.id, kind: "stream", path }], null)
+    // The model writes resolutions.json again with only the next candidate.
+    s.apply([{ root: ".", id: consume?.id, kind: "stream", path }], null)
+    const result = await s.validate()
+    expect(result.rejections).toEqual([])
+    const stream = s.show(result.tree, path)
+    expect(stream).toContain(
+      "- `example-org/shop` produces to it in `.` (`src/service.ts`)",
+    )
+    expect(stream).toContain(
+      "- `example-org/shop` consumes from it in `.` (`src/service.ts`)",
+    )
+    expect(stream.split("produces to it").length - 1).toBe(1)
+    expect(result.cursorAt).toBe(2)
+  })
+
   it("leaves each stream to the repository-wide step", async () => {
     const human = front(
       { kind: "Stream", name: "Orders Created", summary: "New orders." },
