@@ -242,23 +242,41 @@ export const prerequisites = {
         )
     },
   },
+  // Pulls a missing contract image by its pinned digest. The image is only
+  // inspected, never run, so a disk cleanup on a shared Docker host can
+  // remove it between runs; the digest makes the pull as fixed as a lockfile.
   "contract-images": {
     needs: ["docker"],
     prepare: () => {
       for (const pin of Object.values(pins.contracts)) {
         const image = `${pin.image}:${pin.tag}@${pin.digest}`
         const fix = `Run: docker pull ${image}`
-        const digests = JSON.parse(
-          quiet(
-            "docker",
-            ["image", "inspect", "--format", "{{json .RepoDigests}}", image],
-            fix,
-          ),
-        )
-        if (
-          !Array.isArray(digests) ||
-          !digests.includes(`${pin.image}@${pin.digest}`)
-        )
+        const pinned = () => {
+          try {
+            const digests = JSON.parse(
+              quiet(
+                "docker",
+                [
+                  "image",
+                  "inspect",
+                  "--format",
+                  "{{json .RepoDigests}}",
+                  image,
+                ],
+                "",
+              ),
+            )
+            return (
+              Array.isArray(digests) &&
+              digests.includes(`${pin.image}@${pin.digest}`)
+            )
+          } catch {
+            return false
+          }
+        }
+        if (pinned()) continue
+        step("docker", ["pull", image], fix)
+        if (!pinned())
           throw new Error(`${image} does not have the pinned digest. ${fix}`)
       }
     },
