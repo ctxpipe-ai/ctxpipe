@@ -61,6 +61,7 @@ import {
   type TraversalNode,
   traverse,
 } from "./orchestrator.js"
+import { queryVector } from "./query-vectors.js"
 
 /*
  * The knowledge plane (ADR-066 and ADR-068): ClickHouse reads, the Jev
@@ -104,19 +105,21 @@ export function planeKnowledgeReader(input: {
     jevCandidates: 0,
     embeddingCalls: 0,
   }
-  const embed = async (text: string) => {
-    meter.embeddingCalls += 1
-    try {
-      return await embedQuery(text)
-    } catch (error) {
-      // A retry does not fit in the time budget (ADR-068 decision 7). Thus
-      // a 429, a 5xx or a network error ends the budget, and the call
-      // returns partial, as when the budget ends.
-      if (isRetryableFetchFailure(error))
-        throw new BudgetSpentError("The query embedding failed")
-      throw error
-    }
-  }
+  // A kept vector of the same org and text needs no call (`queryVector`).
+  const embed = (orgId: string, text: string) =>
+    queryVector(orgId, text, async () => {
+      meter.embeddingCalls += 1
+      try {
+        return await embedQuery(text)
+      } catch (error) {
+        // A retry does not fit in the time budget (ADR-068 decision 7). Thus
+        // a 429, a 5xx or a network error ends the budget, and the call
+        // returns partial, as when the budget ends.
+        if (isRetryableFetchFailure(error))
+          throw new BudgetSpentError("The query embedding failed")
+        throw error
+      }
+    })
   return {
     stack: "plane",
     search: (request) =>
@@ -216,7 +219,7 @@ async function search(
   request: SearchRequest,
   scope: KnowledgeReadScope,
   heads: ReadonlyMap<string, KnowledgeHead>,
-  embed: (text: string) => Promise<number[]>,
+  embed: (orgId: string, text: string) => Promise<number[]>,
   meter: ModelMeter,
 ): Promise<SearchResult> {
   const query = request.query.trim()
@@ -225,13 +228,14 @@ async function search(
   const deadline = retrievalDeadline()
   const store = knowledgeStore()
   // The store applies each filter before it cuts the candidates. With no
-  // time left for the search itself, there is no hit to give.
+  // time left for the search itself, there is no hit to give. The store
+  // gets the query vector as a promise, so that its lexical queries run
+  // while the embedding call is on its way.
   let found: Awaited<ReturnType<KnowledgeStore["search"]>>
   try {
-    const vector = await beforeDeadline(deadline, () => embed(query))
     found = await beforeDeadline(deadline, () =>
       store.search(scope, {
-        vector,
+        vector: beforeDeadline(deadline, () => embed(scope.orgId, query)),
         terms: queryTerms(query),
         kinds: request.kinds ? [...request.kinds] : undefined,
         pathPrefix: request.pathPrefix,
@@ -354,7 +358,7 @@ function claimsByDocument(
 async function related(
   { workspace, input, now }: RelatedRequest,
   scope: KnowledgeReadScope,
-  embed: (text: string) => Promise<number[]>,
+  embed: (orgId: string, text: string) => Promise<number[]>,
   meter: ModelMeter,
 ): Promise<Ranking> {
   const deadline = retrievalDeadline()
@@ -367,10 +371,41 @@ async function related(
     workspaceId: workspace.id,
     docKey: servingIdForKnowledgePath(workspace.id, path),
   }))
+  const upper = (values: readonly string[] | undefined) =>
+    values && new Set(values.map((value) => value.toUpperCase()))
+  const walk = {
+    direction: input.direction,
+    predicates: upper(input.predicates),
+    excludePredicates: upper(input.excludePredicates) ?? new Set<string>(),
+    // As on the old stack, only the provenance intent or named
+    // predicates walk to a source (ADR-051 section 6).
+    skipUnlessNamed: new Set(
+      input.intent === "provenance" ? [] : [FROM_SOURCE_PREDICATE],
+    ),
+    minConfidence: input.minConfidence,
+    maxFanOut: input.maxFanOut,
+    validAt: input.validBetween ? null : new Date(input.validAt ?? Date.now()),
+    ...(input.validBetween
+      ? {
+          validBetween: {
+            from: new Date(input.validBetween.from),
+            to: new Date(input.validBetween.to),
+          },
+        }
+      : {}),
+  }
+  // The seeds are the first frontier, so their relations need no vector and
+  // no judge: the read starts with the query embedding (CTX-1535).
+  const seedRelations = beforeDeadline(deadline, () =>
+    store.readFrontier(scope, seedRefs, walk.validAt),
+  )
+  // The traversal awaits it; a call that ends before (an unknown seed, the
+  // end of the budget) must not leave an unhandled rejection.
+  seedRelations.catch(() => {})
   let vector: number[]
   let evidence: Awaited<ReturnType<KnowledgeStore["readEvidence"]>>
   try {
-    vector = await beforeDeadline(deadline, () => embed(question))
+    vector = await beforeDeadline(deadline, () => embed(scope.orgId, question))
     evidence = await beforeDeadline(deadline, () =>
       store.readEvidence(
         scope,
@@ -394,8 +429,6 @@ async function related(
     (path) => !seeds.some((seed) => seed.document.path === path),
   )
   if (unknown.length > 0) throw unknownRefError(unknown)
-  const upper = (values: readonly string[] | undefined) =>
-    values && new Set(values.map((value) => value.toUpperCase()))
   let traversal: Awaited<ReturnType<typeof traverse>>
   let results: TraversalNode[]
   let positions: RelatedPosition[] | undefined
@@ -412,30 +445,9 @@ async function related(
         document: seed.document,
         text: evidenceText(seed.document, seed.chunks),
       })),
+      seedRelations,
       maxDepth: input.maxDepth,
-      walk: {
-        direction: input.direction,
-        predicates: upper(input.predicates),
-        excludePredicates: upper(input.excludePredicates) ?? new Set(),
-        // As on the old stack, only the provenance intent or named
-        // predicates walk to a source (ADR-051 section 6).
-        skipUnlessNamed: new Set(
-          input.intent === "provenance" ? [] : [FROM_SOURCE_PREDICATE],
-        ),
-        minConfidence: input.minConfidence,
-        maxFanOut: input.maxFanOut,
-        validAt: input.validBetween
-          ? null
-          : new Date(input.validAt ?? Date.now()),
-        ...(input.validBetween
-          ? {
-              validBetween: {
-                from: new Date(input.validBetween.from),
-                to: new Date(input.validBetween.to),
-              },
-            }
-          : {}),
-      },
+      walk,
       meter,
     })
     const keepsKind = kindFilter(input)
