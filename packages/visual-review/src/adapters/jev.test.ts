@@ -317,7 +317,8 @@ describe("judgeWithJev verdict", () => {
     const verdict = await judgeWithJev(await story())
     expect(verdictSchema.parse(verdict)).toEqual(verdict)
     expect(verdict.verdict).toBe("regression")
-    // A strong flag (0.95) is major: the factory makes it a should-fix.
+    // A flag of 0.95 on a changed screenshot is over the floor of 0.9: a
+    // should-fix (CTX-1493).
     expect(verdict.severity).toBe("major")
     expect(verdict.confidence).toBeCloseTo(0.95)
     expect(verdict.storyId).toBe("connectors-card--connected")
@@ -342,10 +343,10 @@ describe("judgeWithJev verdict", () => {
     expect(verdict.qualities.map(({ name }) => name)).not.toContain("focus")
   })
 
-  test("a Jev regression is minor under 0.8 and major from 0.8: a should-fix, never a blocker", async () => {
+  test("a Jev regression of a changed screenshot is minor under 0.9 and major from 0.9: a should-fix, never a blocker (CTX-1493)", async () => {
     const severityAt = async (worse: number) => {
       serve((name) => {
-        if (name === "area.spacing") return choice(0.1, 0.9 - worse, worse)
+        if (name === "area.spacing") return choice(0, 1 - worse, worse)
         if (name === "defect") return defect(0.1)
         if (name === "defect-box") return box(0.2, 0.5, 0.1, 0.4)
         return fine
@@ -355,8 +356,9 @@ describe("judgeWithJev verdict", () => {
       return verdict.severity
     }
     expect(await severityAt(0.6)).toBe("minor")
-    expect(await severityAt(0.79)).toBe("minor")
-    expect(await severityAt(0.8)).toBe("major")
+    expect(await severityAt(0.8)).toBe("minor")
+    expect(await severityAt(0.89)).toBe("minor")
+    expect(await severityAt(0.9)).toBe("major")
   })
 
   test("a strong defect or density answer alone does not make a regression major", async () => {
@@ -533,6 +535,7 @@ describe("judgeWithJev verdict", () => {
     serve((name) => (name === "quality.restraint" ? choice(0, 0.1, 0.9) : fine))
     const verdict = await judgeWithJev(await story())
     expect(verdict.verdict).toBe("regression")
+    // 0.9 is the floor of a changed screenshot: a should-fix.
     expect(verdict.severity).toBe("major")
     expect(verdict.findings).toEqual([])
     expect(verdict.summary).toContain("restraint")
@@ -846,6 +849,13 @@ describe("judgeNewWithJev", () => {
       width: 1,
       height: 1,
     })
+  })
+
+  test("a Jev regression of a new screenshot stays major from 0.8", async () => {
+    serve((name) => (name === "quality.clarity" ? noul(0.8) : noul(0.02)))
+    const verdict = await judgeNewWithJev(await newStory())
+    expect(verdict.verdict).toBe("regression")
+    expect(verdict.severity).toBe("major")
   })
 
   test("a broken density alone is never major, also at 0.8 or more", async () => {

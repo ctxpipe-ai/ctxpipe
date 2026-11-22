@@ -247,6 +247,10 @@ export async function judgeWithJev(
         defect: defectProbability,
         unanswered,
         strongest,
+        // On a changed screenshot, a should-fix needs 0.9 (CTO decision of
+        // 2026-11-22, CTX-1493, ADR-063 rule 18): at 0.8, Jev flags gave a
+        // wrong should-fix on 3 of 13 good UI PRs. A new screenshot keeps 0.8.
+        strongFrom: 0.9,
         ...(density && isWorse(density, 0.5)
           ? {
               note: `Jev also finds the density worse (${density.worse.toFixed(2)}). A density change alone is not a regression: look at the images.`,
@@ -508,6 +512,7 @@ export async function judgeNewWithJev(
         // broken new screenshots, with the same spread of probabilities
         // (CTX-1267). A flag under 0.8 is `unsure`, a nit with no images.
         floor: 0.8,
+        strongFrom: 0.8,
       }),
       qualities: qualityResults.map((result) => ({
         name: result.id,
@@ -534,7 +539,7 @@ export async function judgeNewWithJev(
  * `floor` is `unsure`. Else a probability from 0.2 up, or a question with no
  * answer, is `unsure`, and the rest is `intended`. A regression has severity
  * `major` when a placed area or a flagged quality has a probability of
- * 0.8 or more (a should-fix in the factory, which the agent fixes or
+ * `strongFrom` or more (a should-fix in the factory, which the agent fixes or
  * overrides with a reason), else `minor` (a nit).
  */
 function decision({
@@ -547,6 +552,7 @@ function decision({
   strongest,
   note,
   floor = 0.5,
+  strongFrom,
 }: {
   word: "worse" | "broken"
   flaggedAreas: readonly { area: RubricEntry; probability: number }[]
@@ -562,6 +568,11 @@ function decision({
    * is `unsure`, with its findings. Default 0.5: each flag is a regression.
    */
   floor?: number
+  /**
+   * The probability from which a placed area or a flagged quality makes the
+   * regression major.
+   */
+  strongFrom: number
 }) {
   const placed = region ? flaggedAreas : []
   const flagged = placed.length > 0 || flaggedQualities.length > 0
@@ -571,14 +582,14 @@ function decision({
     ...flaggedQualities.map(({ probability }) => probability),
   )
   const underFloor = flagged && top < floor
-  // A strong signal: a placed area or a flagged quality at 0.8 or more, the
-  // floor of a regression on a new screenshot. The regression is major, which
-  // the factory makes a should-fix (CTX-1469). Density is a flag of a new
-  // screenshot, but never a strong one, and the defect question is no flag.
+  // A strong signal: a placed area or a flagged quality at `strongFrom` or
+  // more. The regression is major, which the factory makes a should-fix
+  // (CTX-1469). Density is a flag of a new screenshot, but never a strong
+  // one, and the defect question is no flag.
   const strong = [
     ...placed,
     ...flaggedQualities.filter(({ id }) => id !== "density"),
-  ].some(({ probability }) => probability >= 0.8)
+  ].some(({ probability }) => probability >= strongFrom)
   // A flagged area with no region is `unsure`.
   const verdict =
     flagged && !underFloor
