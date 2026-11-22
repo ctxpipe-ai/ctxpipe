@@ -29,7 +29,7 @@ patchedDependencies:
     hash: fbd7620d4152b3a7a000c2155af5372fb864fca5340d609c0ed34f9bce14c2d1
     path: patches/opencode-ai@1.19.5.patch
   openworkflow@0.10.1:
-    hash: ea862aeeb29eef83d477542d68babf7ad3cc7f3b09cebf97b953ebdea3964180
+    hash: 4e4023d954b9327b90429203875954434759ed4e73642efe3fc9380b8f8499a2
     path: patches/openworkflow@0.10.1.patch
 
 importers:
@@ -155,7 +155,7 @@ importers:
         version: 2.6.0(@opentelemetry/api@1.9.1)
       '@openworkflow/cli':
         specifier: ^0.5.2
-        version: 0.5.2(openworkflow@0.10.1(patch_hash=ea862aeeb29eef83d477542d68babf7ad3cc7f3b09cebf97b953ebdea3964180)(@opentelemetry/api@1.9.1)(postgres@3.4.9))
+        version: 0.5.2(openworkflow@0.10.1(patch_hash=4e4023d954b9327b90429203875954434759ed4e73642efe3fc9380b8f8499a2)(@opentelemetry/api@1.9.1)(postgres@3.4.9))
       '@react-email/components':
         specifier: ^0.0.36
         version: 0.0.36(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -245,7 +245,7 @@ importers:
         version: 4.1.4
       openworkflow:
         specifier: ^0.10.1
-        version: 0.10.1(patch_hash=ea862aeeb29eef83d477542d68babf7ad3cc7f3b09cebf97b953ebdea3964180)(@opentelemetry/api@1.9.1)(postgres@3.4.9)
+        version: 0.10.1(patch_hash=4e4023d954b9327b90429203875954434759ed4e73642efe3fc9380b8f8499a2)(@opentelemetry/api@1.9.1)(postgres@3.4.9)
       pg:
         specifier: ^8.18.0
         version: 8.18.0
@@ -20608,7 +20608,7 @@ snapshots:
 
   '@opentelemetry/semantic-conventions@1.43.0': {}
 
-  '@openworkflow/cli@0.5.2(openworkflow@0.10.1(patch_hash=ea862aeeb29eef83d477542d68babf7ad3cc7f3b09cebf97b953ebdea3964180)(@opentelemetry/api@1.9.1)(postgres@3.4.9))':
+  '@openworkflow/cli@0.5.2(openworkflow@0.10.1(patch_hash=4e4023d954b9327b90429203875954434759ed4e73642efe3fc9380b8f8499a2)(@opentelemetry/api@1.9.1)(postgres@3.4.9))':
     dependencies:
       '@clack/prompts': 1.8.1
       commander: 15.0.0
@@ -20616,7 +20616,7 @@ snapshots:
       dotenv: 17.4.2
       jiti: 2.7.0
       nypm: 0.6.10
-      openworkflow: 0.10.1(patch_hash=ea862aeeb29eef83d477542d68babf7ad3cc7f3b09cebf97b953ebdea3964180)(@opentelemetry/api@1.9.1)(postgres@3.4.9)
+      openworkflow: 0.10.1(patch_hash=4e4023d954b9327b90429203875954434759ed4e73642efe3fc9380b8f8499a2)(@opentelemetry/api@1.9.1)(postgres@3.4.9)
       posthog-node: 5.21.2
 
   '@orama/orama@3.1.18': {}
@@ -30233,7 +30233,7 @@ snapshots:
 
   opener@1.5.2: {}
 
-  openworkflow@0.10.1(patch_hash=ea862aeeb29eef83d477542d68babf7ad3cc7f3b09cebf97b953ebdea3964180)(@opentelemetry/api@1.9.1)(postgres@3.4.9):
+  openworkflow@0.10.1(patch_hash=4e4023d954b9327b90429203875954434759ed4e73642efe3fc9380b8f8499a2)(@opentelemetry/api@1.9.1)(postgres@3.4.9):
     optionalDependencies:
       '@opentelemetry/api': 1.9.1
       postgres: 3.4.9

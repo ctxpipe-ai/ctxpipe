@@ -130,6 +130,27 @@ export function workspaceUpgradeStartHandler(
   )
 }
 
+/**
+ * `POST /workspaces/:slug/upgrades/:key/cancel`. Each key goes to `requests`.
+ * It answers 200 with the canceled item.
+ */
+export function workspaceUpgradeCancelHandler(
+  options: { requests?: string[]; onCanceled?: () => void } = {},
+) {
+  return http.post(
+    ({ request }) =>
+      /\/workspaces\/[^/]+\/upgrades\/[^/]+\/cancel$/.test(pathnameOf(request)),
+    ({ request }) => {
+      options.requests?.push(pathnameOf(request))
+      options.onCanceled?.()
+      return HttpResponse.json(
+        upgradeItemFixture({ kind: "reingest", status: "canceled" }),
+        { status: 200 },
+      )
+    },
+  )
+}
+
 /** `POST /workspaces/:slug/upgrades/check`. Each call adds its path to `requests`. */
 export function workspaceUpgradeCheckHandler(
   options: { requests?: string[]; onChecked?: () => void } = {},

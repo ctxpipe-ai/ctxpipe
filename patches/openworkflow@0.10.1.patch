@@ -1,8 +1,54 @@
 diff --git a/dist/postgres/backend.js b/dist/postgres/backend.js
-index d2cdb79bdd2ecb511f95180767067cb6c0679f3c..8c6eb492d63e3acb8ec3a97f2db7decbb588e1b7 100644
+index d2cdb79bdd2ecb511f95180767067cb6c0679f3c..54001b5a6fcf8aa3da0153a516ee3c5a7d334f33 100644
 --- a/dist/postgres/backend.js
 +++ b/dist/postgres/backend.js
-@@ -366,8 +366,10 @@ export class BackendPostgres {
+@@ -141,7 +141,27 @@ export class BackendPostgres {
+         const workflowRunsTable = this.workflowRunsTable(pg);
+         const parentStepAttemptNamespaceId = params.parentStepAttemptNamespaceId ?? null;
+         const parentStepAttemptId = params.parentStepAttemptId ?? null;
++        // ctxpipe patch (CTX-1507): a child run is created only while its
++        // parent run is 'running'. The worker creates the step attempt, and
++        // then the child in a second statement, so a cancel of the parent
++        // between the two left a child that ran with no parent. The lock on
++        // the parent row orders the insert and a cancel: after a cancel, no
++        // child of the parent can appear.
++        const parentRunning = parentStepAttemptId === null
++            ? pg `SELECT 1`
++            : pg `
++          SELECT 1
++          FROM ${this.stepAttemptsTable(pg)} sa
++          JOIN ${workflowRunsTable} parent
++            ON parent."namespace_id" = sa."namespace_id"
++            AND parent."id" = sa."workflow_run_id"
++          WHERE sa."namespace_id" = ${parentStepAttemptNamespaceId}
++            AND sa."id" = ${parentStepAttemptId}
++            AND parent."status" = 'running'
++          FOR SHARE OF parent
++        `;
+         const [workflowRun] = await pg `
++      WITH parent_running AS (${parentRunning})
+       INSERT INTO ${workflowRunsTable} (
+         "namespace_id",
+         "id",
+@@ -160,7 +180,7 @@ export class BackendPostgres {
+         "created_at",
+         "updated_at"
+       )
+-      VALUES (
++      SELECT
+         ${this.namespaceId},
+         gen_random_uuid(),
+         ${params.workflowName},
+@@ -177,7 +197,7 @@ export class BackendPostgres {
+         ${params.deadlineAt},
+         date_trunc('milliseconds', NOW()),
+         NOW()
+-      )
++      FROM parent_running
+       RETURNING *
+     `;
+         requireRow(workflowRun, "create workflow run");
+@@ -366,8 +386,10 @@ export class BackendPostgres {
            AND "status" IN ('pending', 'running', 'sleeping')
            AND "available_at" <= NOW()
            AND ("deadline_at" IS NULL OR "deadline_at" > NOW())

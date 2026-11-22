@@ -162,6 +162,23 @@ export async function startWorkspaceUpgrade(
   })
 }
 
+/** Stops a queued or running re-ingestion and each run of it (CTX-1507). */
+export async function cancelWorkspaceUpgrade(
+  orgSlug: string,
+  workspaceSlug: string,
+  key: string,
+): Promise<WorkspaceUpgradeItem> {
+  const client = await getApiClient()
+  const res = await client[":orgSlug"].api.v1.workspaces[
+    ":workspaceSlug"
+  ].upgrades[":key"].cancel.$post({
+    param: { orgSlug, workspaceSlug, key },
+  })
+  return readApiJson(res, {
+    message: "Failed to cancel the re-ingestion",
+  })
+}
+
 /** Starts the tip check now: ctxpipe reads the default branch of the Workspace repository. */
 async function checkWorkspaceUpgrades(
   orgSlug: string,

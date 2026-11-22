@@ -125,6 +125,12 @@ export const UPGRADE_STATUSES = {
   pr_open: "pr_open",
   completed: "completed",
   failed: "failed",
+  /**
+   * Only on a re-ingestion: an owner or admin stopped its run, which also
+   * stopped the repository and ingestion runs of it. It gets no automatic
+   * retry. An owner or admin can start it again.
+   */
+  canceled: "canceled",
   /** It cannot start, for example because ctxpipe cannot write to the repository. */
   blocked: "blocked",
 } as const

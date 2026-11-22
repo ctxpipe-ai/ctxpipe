@@ -129,6 +129,12 @@ const DIRECT_WRITE_ROUTES: ReadonlyArray<{
   },
   {
     method: "POST",
+    path: "/workspaces/missing-ws/upgrades/reingest-v1/cancel",
+    expectedStatus: 404,
+    orgAdmin: true,
+  },
+  {
+    method: "POST",
     path: "/workspaces/missing-ws/upgrades/check",
     expectedStatus: 404,
     orgAdmin: true,
@@ -404,7 +410,7 @@ describe("Direct-write REST routes need a session or the ctxpipe:write scope (Po
     })
   }
 
-  it("refuses a plain org member at the admin check on POST /workspaces/{slug}/upgrades/{key}/start", async () => {
+  it("refuses a plain org member at the admin check on POST /workspaces/{slug}/upgrades/{key}/start and /cancel", async () => {
     const s = requireSeed()
     const db = getSystemDb()
     const ownerOfSeed = and(
@@ -418,6 +424,15 @@ describe("Direct-write REST routes need a session or the ctxpipe:write scope (Po
           {
             method: "POST",
             path: "/workspaces/missing-ws/upgrades/format-3/start",
+          },
+          { cookie: s.cookie },
+        ),
+      )
+      await expectOrgAdminRefusal(
+        await send(
+          {
+            method: "POST",
+            path: "/workspaces/missing-ws/upgrades/reingest-v1/cancel",
           },
           { cookie: s.cookie },
         ),
@@ -690,6 +705,7 @@ describe("Direct-write REST routes need a session or the ctxpipe:write scope (Po
     const base = "/{orgSlug}/api/v1"
     const adminOnly = [
       `POST ${base}/workspaces/{workspaceSlug}/upgrades/{key}/start`,
+      `POST ${base}/workspaces/{workspaceSlug}/upgrades/{key}/cancel`,
       `POST ${base}/workspaces/{workspaceSlug}/upgrades/check`,
       `POST ${base}/workspaces/{workspaceSlug}/upgrades/automatic`,
       `POST ${base}/connectors/{connectionId}/sync`,

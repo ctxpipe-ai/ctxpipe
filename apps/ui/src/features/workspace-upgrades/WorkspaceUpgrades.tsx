@@ -14,6 +14,7 @@ import {
 } from "react-aria-components"
 import { toast } from "sonner"
 
+import { AlertDialog } from "@/components/ui/AlertDialog"
 import { Button } from "@/components/ui/Button"
 import {
   Disclosure,
@@ -22,6 +23,7 @@ import {
 } from "@/components/ui/Disclosure"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Link as TextLink } from "@/components/ui/Link"
+import { Modal } from "@/components/ui/Modal"
 import { SkeletonText, useSkeletonHold } from "@/components/ui/Skeleton"
 import {
   Tooltip,
@@ -37,6 +39,7 @@ import { cn } from "@/lib/utils"
 import { AutomaticUpgradesSwitch } from "./AutomaticUpgradesSwitch"
 import { useExpiredCheckingKeys } from "./checking-format-clock"
 import {
+  cancelWorkspaceUpgrade,
   checkWorkspaceUpgradesAndWait,
   type WorkspaceUpgradeItem,
   type WorkspaceUpgrades as WorkspaceUpgradesData,
@@ -51,6 +54,7 @@ import {
   UPGRADE_WAITS_LABEL,
   upgradeBlockedCopy,
   upgradeFailedTitle,
+  upgradeCanCancel,
   upgradeCanCheck,
   upgradeCanStart,
   upgradeGroups,
@@ -58,6 +62,7 @@ import {
   upgradeIsCheckingFormat,
   upgradeNotices,
   upgradeSpendLine,
+  upgradeStartsAgain,
   upgradeStatusLabel,
   upgradeWaitingCopy,
   upgradesState,
@@ -362,6 +367,45 @@ function UpgradeDetail(props: {
 }
 
 /**
+ * The Cancel action of a queued or running re-ingestion, with a confirm
+ * step: a cancel stops the run, and a new start runs the repositories that
+ * did not finish again.
+ */
+function CancelUpgradeButton(props: {
+  item: WorkspaceUpgradeItem
+  isCanceling: boolean
+  onCancel: () => void
+}) {
+  const [isOpen, setOpen] = useState(false)
+  return (
+    <>
+      <Button
+        variant="secondary"
+        size="sm"
+        isPending={props.isCanceling}
+        onPress={() => setOpen(true)}
+        aria-label={`Cancel: ${props.item.title}`}
+      >
+        Cancel
+      </Button>
+      <Modal isOpen={isOpen} onOpenChange={setOpen} isDismissable>
+        <AlertDialog
+          title="Cancel the re-ingestion?"
+          variant="destructive"
+          actionLabel="Cancel re-ingestion"
+          cancelLabel="Keep running"
+          onAction={props.onCancel}
+        >
+          ctxpipe stops the run now. It makes no more model calls and publishes
+          nothing more from this run. A repository that already finished keeps
+          its new knowledge. You can start the re-ingestion again later.
+        </AlertDialog>
+      </Modal>
+    </>
+  )
+}
+
+/**
  * One upgrade that needs the user or runs now: a row with a dot, its facts
  * in one muted line, and its action on the right of the title. `isAdmin` is
  * `null` while the role loads: no action shows. The row shows no cost or
@@ -378,14 +422,18 @@ function UpgradeItemCard(props: {
   isAdmin: boolean | null
   onStart: () => void
   onCheck?: () => void
+  /** Stops a queued or running re-ingestion. */
+  onCancel: () => void
   isStarting?: boolean
   isChecking?: boolean
+  isCanceling: boolean
   /** The org of the item: the failure alert links to its connectors. */
   orgSlug?: string
   /** Opens the chat with this prompt ("Fix using agent"). */
   onFixWithAgent?: ((prompt: string) => void) | undefined
 }) {
-  const { item, isAdmin, onStart, onCheck, isStarting, isChecking } = props
+  const { item, isAdmin, onStart, onCheck, onCancel, isStarting, isChecking } =
+    props
   // After a minute, the checking state ends and the blocked line comes back.
   const formatVersion = props.checkingExpired ? null : props.formatVersion
   const checkingFormat = upgradeIsCheckingFormat(item, formatVersion)
@@ -427,7 +475,13 @@ function UpgradeItemCard(props: {
     spend,
   ].filter((line): line is string => Boolean(line))
   const action =
-    upgradeCanCheck(item) && isAdmin === true && onCheck ? (
+    upgradeCanCancel(item) && isAdmin === true ? (
+      <CancelUpgradeButton
+        item={item}
+        isCanceling={props.isCanceling}
+        onCancel={onCancel}
+      />
+    ) : upgradeCanCheck(item) && isAdmin === true && onCheck ? (
       <Button
         variant="secondary"
         size="sm"
@@ -445,9 +499,9 @@ function UpgradeItemCard(props: {
         size="sm"
         isPending={isStarting}
         onPress={onStart}
-        aria-label={`${item.status === "failed" ? "Start again" : "Start"}: ${item.title}`}
+        aria-label={`${upgradeStartsAgain(item) ? "Start again" : "Start"}: ${item.title}`}
       >
-        {item.status === "failed" ? "Start again" : "Start"}
+        {upgradeStartsAgain(item) ? "Start again" : "Start"}
       </Button>
     ) : (upgradeCanStart(item) ||
         (item.status === "blocked" && upgradeCanCheck(item))) &&
@@ -564,6 +618,27 @@ function UpgradeItemRow(props: {
   const queryClient = useQueryClient()
   // One mutation for each row: the pending state of one row stays apart.
   const startMutation = useStartWorkspaceUpgrade(orgSlug, workspaceSlug, item)
+  const invalidate = () =>
+    Promise.all([
+      queryClient.invalidateQueries({
+        queryKey: workspaceUpgradeKeys.list(orgSlug, workspaceSlug),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: workspaceUpgradeKeys.pending(orgSlug),
+      }),
+    ])
+  const cancelMutation = useMutation({
+    mutationFn: () => cancelWorkspaceUpgrade(orgSlug, workspaceSlug, item.key),
+    onSuccess: () => {
+      toast.success(
+        "The re-ingestion is canceled. ctxpipe makes no more model calls for it.",
+      )
+    },
+    onError: (error: Error) => {
+      toast.error(error.message)
+    },
+    onSettled: invalidate,
+  })
   const checkMutation = useMutation({
     mutationFn: () =>
       checkWorkspaceUpgradesAndWait(
@@ -594,15 +669,7 @@ function UpgradeItemRow(props: {
         `${error.message.replace(/\.$/, "")}. Press Check again to try again.`,
       )
     },
-    onSettled: () =>
-      Promise.all([
-        queryClient.invalidateQueries({
-          queryKey: workspaceUpgradeKeys.list(orgSlug, workspaceSlug),
-        }),
-        queryClient.invalidateQueries({
-          queryKey: workspaceUpgradeKeys.pending(orgSlug),
-        }),
-      ]),
+    onSettled: invalidate,
   })
   return (
     <UpgradeItemCard
@@ -613,8 +680,10 @@ function UpgradeItemRow(props: {
       isAdmin={isAdmin}
       isStarting={startMutation.isPending}
       isChecking={checkMutation.isPending}
+      isCanceling={cancelMutation.isPending}
       onStart={() => startMutation.mutate()}
       onCheck={() => checkMutation.mutate()}
+      onCancel={() => cancelMutation.mutate()}
       orgSlug={orgSlug}
       onFixWithAgent={props.onFixWithAgent}
     />

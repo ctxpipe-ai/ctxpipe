@@ -51,6 +51,7 @@ import { enqueueWorkflow } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { enqueueWorkspaceHydrate } from "../enqueue-workspace-hydrate.js"
 import { isWorkflowControlSignal } from "../isSleepSignal.js"
+import { workflowRunEnded } from "../run-ended.js"
 import type { IngestStepFailures } from "./ingestion-shard.js"
 import { repositoryIngestionV2 } from "./repository-ingestion-v2.js"
 
@@ -239,7 +240,7 @@ export function defineWorkspaceUpgradeReingestRepository(
       name: REINGEST_REPOSITORY_WORKFLOW_NAME,
       schema: repositoryInputSchema,
     },
-    async ({ input: queuedInput, step }): Promise<RepositoryResult> => {
+    async ({ input: queuedInput, step, run }): Promise<RepositoryResult> => {
       const input = repositoryInputSchema.parse(queuedInput)
       const runId = await step.run({ name: "start" }, async () => {
         const handle = await enqueueWorkflow(
@@ -263,6 +264,15 @@ export function defineWorkspaceUpgradeReingestRepository(
             }),
           },
         )
+        // A cancel of the re-ingestion that came during this step found no
+        // ingestion run to stop. Stop it here, before it spends. An upgrade
+        // run that ended (failed or canceled) also stops it: this run is
+        // then an orphan.
+        if (
+          (await workflowRunEnded(run.id)) ||
+          (await workflowRunEnded(input.upgradeRunId))
+        )
+          await cancelIngestionRun(handle.workflowRun.id)
         return handle.workflowRun.id
       })
       for (let poll = 0; ; poll++) {
