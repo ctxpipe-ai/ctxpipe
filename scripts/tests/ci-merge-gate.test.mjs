@@ -1832,10 +1832,9 @@ test("a critic with no stored verdict fails the gate, and the summary links each
 test("the summary stays under the size limit of a GitHub job summary, and a cut ends at a line", () => {
   // 100 critics with a section of about 14 KB each: about 1.4 MB of text.
   // Each line holds a two-byte character, so a cut by bytes can split one.
-  const section = Array.from(
-    { length: 1000 },
-    (_, n) => `| é${n} | x |`,
-  ).join("\n")
+  const section = Array.from({ length: 1000 }, (_, n) => `| é${n} | x |`).join(
+    "\n",
+  )
   const directory = inputs({
     "mode.json": { mode: "select", reason: "shadow" },
     "selection.json": selection(),
@@ -2345,4 +2344,28 @@ test("the critics job fails on a critic that gate.mjs counts as missing, and on 
     0,
   )
   assert.notEqual(exit({}), 0)
+})
+
+// The critics job can start before the agent's `factory check` of the head
+// stores the verdicts: the lookup waits for them (CTX-1532), inside the
+// timeouts of its step and its job.
+test("the critics lookup waits 15 minutes for a missing verdict, inside its timeouts", () => {
+  const workflow = parseYaml(
+    readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8"),
+  )
+  const job = workflow.jobs["merge-gate-critics"]
+  const lookup = job.steps.find(
+    (step) => step.name === "Look up the review critics",
+  )
+  assert.match(lookup.run, /factory" review gate [^\n]*\\\n[^\n]*--wait 900 /)
+  assert.ok(
+    lookup["timeout-minutes"] * 60 >= 900 + 20 * 60,
+    "20 minutes for the lookups",
+  )
+  assert.ok(job["timeout-minutes"] > lookup["timeout-minutes"])
+  assert.ok(
+    lookup.run.includes(
+      `did not finish in ${lookup["timeout-minutes"]} minutes`,
+    ),
+  )
 })
