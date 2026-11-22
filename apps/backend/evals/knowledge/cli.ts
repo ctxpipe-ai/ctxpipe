@@ -7,7 +7,7 @@
  *   bun evals/knowledge/cli.ts hydrate --dataset FILE --out DIR [--cap-usd 5]
  *   bun evals/knowledge/cli.ts run --dataset FILE --targets FILE --out DIR \
  *     [--split dev|holdout] [--cap-usd 5] [--set NAME=VALUE] [--kept REPORT]
- *     [--baseline-from RUN_DIR]
+ *     [--baseline-from RUN_DIR] [--reuse-from RUN_DIR]
  *   bun evals/knowledge/cli.ts rescore --from DIR --out DIR \
  *     [--set NAME=VALUE] [--kept REPORT]
  *   bun evals/knowledge/cli.ts draft --dataset FILE --corpus ID --repo DIR \
@@ -132,19 +132,40 @@ export async function executeRun(input: {
    * the old stack, and runs only the plane.
    */
   baseline?: { folder: string; run: StoredRun }
+  /**
+   * An earlier run folder (`--reuse-from`): each model request of the run
+   * that is the same as a recorded request of that folder (the same arm,
+   * question, kind and body, with no `provider` block) gets the recorded
+   * answer. Only the other requests go out. Thus the scores of the run move
+   * only where its code changed a request.
+   */
+  reuse?: { folder: string; run: StoredRun }
 }): Promise<Report> {
   const questions = input.dataset.questions.filter((question) =>
     input.splits.includes(question.split),
   )
+  if (input.reuse)
+    checkSameDataset("--reuse-from", input.dataset, input.reuse, questions)
   const baseline =
     input.baseline && storedBaseline(input.dataset, input.baseline, questions)
-  // Both arms answer at the same query time.
-  const now = input.baseline
-    ? new Date(input.baseline.run.manifest.now)
-    : input.now
+  // Both arms answer at the same query time. A reused request holds the
+  // query time, so the run takes the one of the reused folder.
+  const times = [input.baseline, input.reuse].flatMap((folder) =>
+    folder ? [folder.run.manifest.now] : [],
+  )
+  if (new Set(times).size > 1)
+    throw new SetupError(
+      "--baseline-from and --reuse-from have other query times.",
+    )
+  const now = times[0] ? new Date(times[0]) : input.now
   // A replay sends no call. Each client of a live run sends the provider
-  // block (ADR-070).
-  const calls = modelCalls(input.capUsd, input.replay?.calls)
+  // block (ADR-070). A run with `--reuse-from` sends only the calls that
+  // the recording does not hold.
+  const calls = modelCalls(
+    input.capUsd,
+    input.replay?.calls ?? input.reuse?.run.calls,
+    input.reuse ? { liveFallback: true } : undefined,
+  )
   // The folder keeps the calls of the reused answers, so that a replay of
   // this run has each call of both arms.
   if (baseline)
@@ -176,8 +197,11 @@ export async function executeRun(input: {
       loop: { ...ORCHESTRATOR_DEFAULTS },
       productBudgetMs,
       quietMs: input.quietMs,
-      mode: input.replay ? "replay" : "live",
+      mode: input.replay ? "replay" : input.reuse ? "reuse" : "live",
       ...(input.baseline ? { baselineFrom: input.baseline.folder } : {}),
+      ...(input.reuse
+        ? { reuseFrom: input.reuse.folder, reuse: { ...calls.reuse } }
+        : {}),
       ...calls.summary(),
     }
     await writeRun(input.out, {
@@ -203,24 +227,22 @@ export async function executeRun(input: {
 }
 
 /**
- * The stored answers of the old stack in `baseline`, by question id, for
- * the `questions` of the run. The run cannot compare with a folder that has
- * one of these differences:
+ * Refuses an earlier run folder (of the option `flag`) that the run cannot
+ * compare with, because it has one of these differences:
  * - another dataset version;
  * - another snapshot of a corpus;
  * - other labels of a question of the run: its gold, positions, seeds,
- *   split or text, so a new `label` run is a refusal too;
- * - no complete old-stack answer to a question of the run: no answer, a
- *   missed call of a replay, or a failed call.
+ *   split or text, so a new `label` run is a refusal too.
  */
-function storedBaseline(
+function checkSameDataset(
+  flag: string,
   dataset: Dataset,
   { folder, run }: { folder: string; run: StoredRun },
   questions: readonly Dataset["questions"][number][],
-): Map<string, ArmAnswer> {
+): void {
   if (run.manifest.datasetVersion !== dataset.version)
     throw new SetupError(
-      `--baseline-from ${folder} has dataset version ${run.manifest.datasetVersion}, and the run has version ${dataset.version}.`,
+      `${flag} ${folder} has dataset version ${run.manifest.datasetVersion}, and the run has version ${dataset.version}.`,
     )
   // The context repo URL can differ (a local copy of the same SHA).
   const snapshot = (corpus: Dataset["corpora"][number]) =>
@@ -237,7 +259,7 @@ function storedBaseline(
   )
   if (corpus)
     throw new SetupError(
-      `--baseline-from ${folder} has another snapshot of the corpus ${corpus.id}.`,
+      `${flag} ${folder} has another snapshot of the corpus ${corpus.id}.`,
     )
   const storedQuestions = new Map(
     run.dataset.questions.map((question) => [
@@ -245,6 +267,26 @@ function storedBaseline(
       JSON.stringify(question),
     ]),
   )
+  for (const question of questions)
+    if (storedQuestions.get(question.id) !== JSON.stringify(question))
+      throw new SetupError(
+        `${flag} ${folder} has other labels for the question ${question.id}.`,
+      )
+}
+
+/**
+ * The stored answers of the old stack in `baseline`, by question id, for
+ * the `questions` of the run. Refuses a folder that `checkSameDataset`
+ * refuses, and a folder with no complete old-stack answer to a question of
+ * the run: no answer, a missed call of a replay, or a failed call.
+ */
+function storedBaseline(
+  dataset: Dataset,
+  baseline: { folder: string; run: StoredRun },
+  questions: readonly Dataset["questions"][number][],
+): Map<string, ArmAnswer> {
+  checkSameDataset("--baseline-from", dataset, baseline, questions)
+  const { folder, run } = baseline
   const answers = new Map(
     run.answers
       .filter((answer) => answer.arm === "legacy")
@@ -252,10 +294,6 @@ function storedBaseline(
   )
   const kept = new Map<string, ArmAnswer>()
   for (const question of questions) {
-    if (storedQuestions.get(question.id) !== JSON.stringify(question))
-      throw new SetupError(
-        `--baseline-from ${folder} has other labels for the question ${question.id}.`,
-      )
     // A replay that missed a call scores no answer, and the metrics of a
     // run with a failed call are not for use: neither is a baseline.
     const answer = answers.get(question.id)
@@ -613,6 +651,7 @@ export async function main(argv: string[]): Promise<number> {
       set: { type: "string", multiple: true },
       kept: { type: "string" },
       "baseline-from": { type: "string" },
+      "reuse-from": { type: "string" },
       draft: { type: "string" },
       repo: { type: "string" },
       models: { type: "string" },
@@ -820,9 +859,9 @@ export async function main(argv: string[]): Promise<number> {
     let report: Report
     if (command === "rescore") {
       if (!values.from) throw new SetupError("rescore needs --from.")
-      if (values["baseline-from"])
+      if (values["baseline-from"] || values["reuse-from"])
         throw new SetupError(
-          "rescore takes no --baseline-from: it replays both arms of --from.",
+          "rescore takes no --baseline-from and no --reuse-from: it replays both arms of --from.",
         )
       const recorded = await readRun(values.from)
       // Each model call of the readers scrubs its text with it (CTX-1452).
@@ -849,6 +888,14 @@ export async function main(argv: string[]): Promise<number> {
       if (values.split && splits.length !== 1)
         throw new SetupError("--split is dev or holdout.")
       const baselineFrom = values["baseline-from"]
+      const reuseFrom = values["reuse-from"]
+      // A folder that is not a run folder is a setup error.
+      const runFolder = (flag: string, folder: string) =>
+        readRun(folder).catch((error: unknown) => {
+          throw new SetupError(
+            `${flag} ${folder} is not a run folder: ${error instanceof Error ? error.message : String(error)}`,
+          )
+        })
       buildConverter()
       report = await executeRun({
         dataset: await readDataset(dataset),
@@ -864,12 +911,15 @@ export async function main(argv: string[]): Promise<number> {
           ? {
               baseline: {
                 folder: baselineFrom,
-                // A folder that is not a run folder is a setup error.
-                run: await readRun(baselineFrom).catch((error: unknown) => {
-                  throw new SetupError(
-                    `--baseline-from ${baselineFrom} is not a run folder: ${error instanceof Error ? error.message : String(error)}`,
-                  )
-                }),
+                run: await runFolder("--baseline-from", baselineFrom),
+              },
+            }
+          : {}),
+        ...(reuseFrom
+          ? {
+              reuse: {
+                folder: reuseFrom,
+                run: await runFolder("--reuse-from", reuseFrom),
               },
             }
           : {}),

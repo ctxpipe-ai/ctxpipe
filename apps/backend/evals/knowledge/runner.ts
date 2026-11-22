@@ -199,12 +199,19 @@ const manifestSchema = z.object({
    * CTX-1518.
    */
   quietMs: z.number().optional(),
-  mode: z.enum(["live", "replay"]),
+  /**
+   * `reuse`: a run with `--reuse-from`. It reuses the recorded answer of each
+   * model request of that folder, and sends only the other requests.
+   */
+  mode: z.enum(["live", "replay", "reuse"]),
   /**
    * The run folder whose answers of the old stack the run reused
    * (`--baseline-from`). Absent when the run ran the old stack.
    */
   baselineFrom: z.string().optional(),
+  /** With `reuse`: the folder, and the calls reused and sent. */
+  reuseFrom: z.string().optional(),
+  reuse: z.object({ reused: z.number(), live: z.number() }).optional(),
   capUsd: z.number(),
   spentUsd: z.number(),
   stopped: z.boolean(),

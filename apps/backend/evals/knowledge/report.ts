@@ -126,7 +126,7 @@ export type Report = {
 /** The part of a kept report that a new report compares with. */
 export const keptRunSchema = z.object({
   run: z.object({
-    mode: z.enum(["live", "replay"]),
+    mode: z.enum(["live", "replay", "reuse"]),
     loop: z.record(z.string(), z.number()).optional(),
   }),
   questions: z.array(
@@ -449,10 +449,10 @@ export function renderMarkdown(report: Report): string {
           "",
           `Check 7: the run waited ${ms(report.run.quietMs)} with no call before the first search and the first get_related of each arm.`,
         ]),
-    ...(report.run.mode === "replay"
+    ...(report.run.mode !== "live"
       ? [
           "",
-          "A replay answers each model call at once, so check 7 holds only the time of the stores.",
+          "A replay, and a run with `--reuse-from`, answer a recorded model call at once, so check 7 does not give the time of a live run.",
         ]
       : []),
     "",
@@ -467,9 +467,15 @@ export function renderMarkdown(report: Report): string {
     "",
     "## Operations",
     "",
-    ...(report.run.mode === "replay"
+    ...(report.run.mode !== "live"
       ? [
-          "A replay answers each model call at once, so it gives no latency.",
+          "A replay, and a run with `--reuse-from`, answer a recorded model call at once, so they give no latency. Take the latency from a live run.",
+          "",
+        ]
+      : []),
+    ...(report.run.reuse
+      ? [
+          `The run reused ${report.run.reuse.reused} recorded model calls of ${report.run.reuseFrom ?? "the earlier run"}, and sent ${report.run.reuse.live} new calls (${usd(report.run.spentUsd)}).`,
           "",
         ]
       : []),
@@ -482,7 +488,7 @@ export function renderMarkdown(report: Report): string {
         `| ${row.arm} | ${row.split} | ${row.questions} | ${ms(row.searchP50Ms)} | ${ms(row.searchP95Ms)} | ${ms(row.relatedP50Ms)} | ${ms(row.relatedP95Ms)} | ${row.jevCallsPerQuestion.toFixed(1)} | ${row.jevQuestionsPerQuestion.toFixed(1)} | ${row.embeddingCallsPerQuestion.toFixed(1)} | ${usd(row.costUsd)} | ${row.errors} | ${row.partial} | ${row.overProductBudget ?? "n/a"} |`,
     ),
     "",
-    `Model cost: ${usd(report.costUsd)}${report.run.mode === "replay" ? " (the cost of the recorded calls when they were made)" : ""}.`,
+    `Model cost: ${usd(report.costUsd)}${report.run.mode === "replay" ? " (the cost of the recorded calls when they were made)" : report.run.mode === "reuse" ? " (the reused calls at their cost when they were made, and the new calls)" : ""}.`,
     "",
   )
   if (report.kept?.comparison.length === 0)

@@ -174,10 +174,17 @@ export class ModelCalls {
   private readonly origin: string
   /** The recorded answers of each arm, question and request, in order. */
   private readonly replay: Map<string, RecordedCall[]> | null
+  /**
+   * With `liveFallback`: the calls that the recording answered, and the
+   * calls that went out because the recording had no answer.
+   */
+  readonly reuse = { reused: 0, live: 0 }
 
   /**
    * `baseUrl` is `MODEL_PROVIDER_URL`. `capUsd` is the spend cap of the run.
    * With `replay`, the recorder answers each call from it and sends nothing.
+   * With `replay` and `liveFallback`, a call that the recording does not hold
+   * goes out (under the spend cap), and the recorder keeps it.
    */
   constructor(
     baseUrl: string,
@@ -186,6 +193,8 @@ export class ModelCalls {
     private readonly options: {
       /** False: count and cap the calls, but keep no record of them. */
       keepRecords?: boolean
+      /** Send a call that `replay` does not hold, instead of a 503. */
+      liveFallback?: boolean
     } = {},
   ) {
     this.origin = new URL(baseUrl).origin
@@ -262,7 +271,18 @@ export class ModelCalls {
     if (!kind) return next(request)
     const parsed = parseOr(body, body)
     const key = replayKeyOf(kind, parsed)
-    if (this.replay) return this.replayed(kind, key, body, owner)
+    if (this.replay) {
+      const replayed = this.replayed(kind, key, body, owner)
+      if (replayed) {
+        if (this.options.liveFallback) this.reuse.reused += 1
+        return replayed
+      }
+      if (!this.options.liveFallback) {
+        owner.counts.missing += 1
+        return unavailable("The recording holds no answer for this call.")
+      }
+      this.reuse.live += 1
+    }
     // The hard spend cap: each call in flight holds its worst-case cost, and
     // a call that would take the spent and reserved total over the cap is
     // not sent. The check and the reservation have no `await` between them,
@@ -332,23 +352,20 @@ export class ModelCalls {
    * The recorded answer of a call: the answers of the same request of the
    * same arm and question come in the recorded order, so a retry gets the
    * answer that it got live. After the last one, the same request gets the
-   * last answer again.
+   * last answer again. Null when the recording holds no answer.
    */
   private replayed(
     kind: CallKind,
     key: string,
     body: string,
     owner: Owner,
-  ): Response {
+  ): Response | null {
     const queue = this.replay?.get(
       this.replayKey(owner.arm, owner.question, key),
     )
     const recorded = queue && queue.length > 1 ? queue.shift() : queue?.[0]
     // A replay is only of `run` and `rescore`, which make no chat call.
-    if (kind === "chat" || kind === "vision" || !recorded) {
-      owner.counts.missing += 1
-      return unavailable("The recording holds no answer for this call.")
-    }
+    if (kind === "chat" || kind === "vision" || !recorded) return null
     owner.counts[kind] += 1
     if (kind === "jev") owner.counts.jevQuestions += questionsOf(body)
     if (recorded.status >= 400) owner.counts.failed += 1
