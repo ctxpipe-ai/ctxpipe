@@ -430,14 +430,14 @@ async function main(argv: string[]): Promise<number> {
     ? keptRunSchema.parse(await readJson(values.kept))
     : null
   const settings = parseSettings(values.set ?? [])
-  // Each model call of the readers scrubs its text with it (CTX-1452).
-  buildConverter()
   initDb(databaseUrl)
   try {
     let report: Report
     if (command === "rescore") {
       if (!values.from) throw new SetupError("rescore needs --from.")
       const recorded = await readRun(values.from)
+      // Each model call of the readers scrubs its text with it (CTX-1452).
+      buildConverter()
       report = await executeRun({
         dataset: recorded.dataset,
         targets: recorded.targets,
@@ -458,6 +458,7 @@ async function main(argv: string[]): Promise<number> {
           : ["dev", "holdout"]
       if (values.split && splits.length !== 1)
         throw new SetupError("--split is dev or holdout.")
+      buildConverter()
       report = await executeRun({
         dataset: await readDataset(dataset),
         targets: targetsSchema.parse(await readJson(values.targets)),

@@ -27,12 +27,7 @@ export const recordedCallSchema = z.object({
   arm: z.string(),
   question: z.string(),
   kind: z.enum(["jev", "embedding", "chat", "vision"]),
-  /**
-   * The replay key: the SHA-256 of the kind and the request body with no
-   * provider block (`replayKeyOf`). A replay computes the key again from
-   * `request`, so a recording with an older key also replays.
-   */
-  key: z.string(),
+  /** The request body. A replay finds the call by it (`replayKeyOf`). */
   request: z.unknown(),
   status: z.number().int(),
   /** The raw answer: the Jev probabilities or the vectors. */
@@ -57,6 +52,12 @@ export const callCountsSchema = z.object({
   costUsd: z.number(),
   /** Replay only: calls that the recording does not hold. */
   missing: z.number(),
+  /**
+   * The calls with an HTTP error status, or with no answer. A call that the
+   * reader stopped at the end of its time budget is not a failed call. A
+   * run folder from before this count has none (0).
+   */
+  failed: z.number().default(0),
 })
 export type CallCounts = z.infer<typeof callCountsSchema>
 
@@ -108,6 +109,7 @@ const emptyCounts = (): CallCounts => ({
   embedding: 0,
   costUsd: 0,
   missing: 0,
+  failed: 0,
 })
 
 /**
@@ -284,6 +286,7 @@ export class ModelCalls {
       // The provider can charge a call that failed on the way back.
       this.spentUsd += reserved
       owner.counts.costUsd += reserved
+      if (!request.signal.aborted) owner.counts.failed += 1
       throw error
     } finally {
       this.reservedUsd -= reserved
@@ -298,13 +301,13 @@ export class ModelCalls {
     // A chat reply is no retrieval answer, so the counts of a question leave
     // it out. The record keeps it as evidence (the probe reads it).
     if (kind === "jev" || kind === "embedding") owner.counts[kind] += 1
+    if (!response.ok) owner.counts.failed += 1
     if (kind === "jev") owner.counts.jevQuestions += questionsOf(body)
     if (this.options.keepRecords !== false)
       this.records.push({
         arm: owner.arm,
         question: owner.question,
         kind,
-        key,
         request: parsed,
         status: response.status,
         response: text,
@@ -345,6 +348,7 @@ export class ModelCalls {
     }
     owner.counts[kind] += 1
     if (kind === "jev") owner.counts.jevQuestions += questionsOf(body)
+    if (recorded.status >= 400) owner.counts.failed += 1
     owner.counts.costUsd += recorded.costUsd
     this.records.push(recorded)
     return new Response(recorded.response, {

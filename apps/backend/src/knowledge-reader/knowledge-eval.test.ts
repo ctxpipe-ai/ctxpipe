@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto"
-
 import { delay, HttpResponse, http } from "msw"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -16,7 +14,7 @@ import {
 } from "../../evals/knowledge/metrics.js"
 import {
   ModelCalls,
-  type RecordedCall,
+  recordedCallSchema,
 } from "../../evals/knowledge/model-calls.js"
 import { checkPanel, labelWithPanel } from "../../evals/knowledge/panel.js"
 import { buildReport, renderMarkdown } from "../../evals/knowledge/report.js"
@@ -262,6 +260,7 @@ describe("the spend cap", () => {
         embedding: 1,
         costUsd: 0.001,
         missing: 0,
+        failed: 0,
       })
     } finally {
       restore()
@@ -280,27 +279,26 @@ describe("the replay key", () => {
   )
   afterEach(() => vi.unstubAllEnvs())
 
-  /** A call as the harness of before CTX-1450 kept it in `calls.jsonl`. */
+  /** A line of `calls.jsonl` of the harness of before CTX-1450. */
   const keptCall = (
     kind: "jev" | "embedding",
-    keyBody: object,
     request: object,
     response: object,
-  ): RecordedCall => ({
-    arm: "plane",
-    question: "question",
-    kind,
-    // The old key: the hash of the body of the reader.
-    key: createHash("sha256")
-      .update(`${kind}\n${JSON.stringify(keyBody)}`)
-      .digest("hex"),
-    request,
-    status: 200,
-    response: JSON.stringify(response),
-    costUsd: 0.001,
-    estimated: false,
-    latencyMs: 10,
-  })
+  ) =>
+    recordedCallSchema.parse({
+      arm: "plane",
+      question: "question",
+      kind,
+      // The old replay key: the hash of the request body. A replay of now
+      // does not read it.
+      key: "0".repeat(64),
+      request,
+      status: 200,
+      response: JSON.stringify(response),
+      costUsd: 0.001,
+      estimated: false,
+      latencyMs: 10,
+    })
 
   it("replays a call that was kept before CTX-1450 added provider.only", async () => {
     vi.stubEnv("MODEL_PROVIDER", "openrouter")
@@ -319,15 +317,14 @@ describe("the replay key", () => {
       provider: { data_collection: "deny", zdr: true },
     }
     // The old stack sent no provider block; the old recorder added the ZDR
-    // block to the request that it kept, but not to the key.
+    // block to the request that it kept.
     const embeddingBody = { model: "made-up/embedding", input: ["sky"] }
     const replay = new ModelCalls(BASE, 0, [
-      keptCall("jev", jevBody, jevBody, {
+      keptCall("jev", jevBody, {
         answers: { sky: { type: "noul", noul: 0.9 } },
       }),
       keptCall(
         "embedding",
-        embeddingBody,
         {
           ...embeddingBody,
           provider: { data_collection: "deny", zdr: true },
@@ -358,10 +355,32 @@ describe("the replay key", () => {
     }
   })
 
+  it("counts a failed call, but not a call that the reader stopped at its time budget", async () => {
+    const calls = new ModelCalls(BASE, 1)
+    const restore = calls.install()
+    try {
+      calls.begin("plane", "question")
+      const body = JSON.stringify({ input: ["sky"] })
+      expect(
+        (await fetch(`${BASE}/embeddings`, { method: "POST", body })).status,
+      ).toBe(500)
+      await expect(
+        fetch(`${BASE}/embeddings`, {
+          method: "POST",
+          body,
+          signal: AbortSignal.abort(),
+        }),
+      ).rejects.toThrow()
+      expect(calls.end()).toMatchObject({ embedding: 1, failed: 1 })
+    } finally {
+      restore()
+    }
+  })
+
   it("still misses a call whose answer fields changed", async () => {
     const body = { model: "made-up/embedding", input: ["sky"] }
     const replay = new ModelCalls(BASE, 0, [
-      keptCall("embedding", body, body, { data: [] }),
+      keptCall("embedding", body, { data: [] }),
     ])
     const restore = replay.install()
     try {
@@ -381,8 +400,9 @@ describe("the replay key", () => {
 describe("a run with a failed call", () => {
   it("is not complete: the report counts the failed answers", async () => {
     const dataset = await readDataset(datasetFile)
-    const [first, second] = dataset.questions
-    if (!first || !second) throw new Error("The example has few questions.")
+    const [first, second, third] = dataset.questions
+    if (!first || !second || !third)
+      throw new Error("The example has few questions.")
     const calls = { jev: 1, jevQuestions: 1, embedding: 1, costUsd: 0.001 }
     const answer = (
       arm: "legacy" | "plane",
@@ -395,7 +415,7 @@ describe("a run with a failed call", () => {
       search: failed
         ? { error: "Error", latencyMs: 10 }
         : { refs: [], scores: [], latencyMs: 10 },
-      calls: { ...calls, missing },
+      calls: { ...calls, missing, failed: 0 },
     })
     const report = buildReport({
       manifest: {
@@ -409,10 +429,25 @@ describe("a run with a failed call", () => {
         spentUsd: 0,
         stopped: false,
       },
-      dataset: { ...dataset, questions: [first, second] },
+      dataset: { ...dataset, questions: [first, second, third] },
       answers: [
         answer("legacy", first.id, false),
         answer("plane", first.id, true),
+        // A failed query embedding gives a partial answer with no hits, and
+        // a failed Jev call gives `judge_unavailable`: both are errors.
+        {
+          ...answer("legacy", third.id, false),
+          calls: { ...calls, missing: 0, failed: 1 },
+        },
+        {
+          ...answer("plane", third.id, false),
+          search: {
+            refs: [],
+            scores: [],
+            partialReason: "judge_unavailable",
+            latencyMs: 10,
+          },
+        },
         // A replay that misses a call is incomplete, not an error.
         answer("legacy", second.id, false),
         answer("plane", second.id, true, 1),
@@ -421,12 +456,16 @@ describe("a run with a failed call", () => {
     })
     expect(report).toMatchObject({
       status: "errors",
-      errors: 1,
+      errors: 3,
       incomplete: [second.id],
     })
     const markdown = renderMarkdown(report)
     expect(markdown).toContain("Status: errors.")
-    expect(markdown).toContain("**1 answers have a failed call")
+    expect(markdown).toContain("**3 answers have a failed call")
+    expect(markdown).toContain(`- ${third.id} (legacy): 1 failed model calls`)
+    expect(markdown).toContain(
+      `- ${third.id} (plane): search: judge_unavailable`,
+    )
   })
 })
 
@@ -456,13 +495,13 @@ describe("the comparison with the kept run", () => {
           arm: "legacy",
           question: id,
           search: { refs: [], scores: [], latencyMs: 10 },
-          calls: { ...calls, missing: 0 },
+          calls: { ...calls, missing: 0, failed: 0 },
         },
         {
           arm: "plane",
           question: id,
           search: { error: "internal", latencyMs: 10 },
-          calls: { ...calls, missing: 0 },
+          calls: { ...calls, missing: 0, failed: 0 },
         },
       ],
       kept: {
