@@ -377,8 +377,9 @@ function moved(before: Image, after: Image, box: PixelBox): boolean {
 /**
  * The input of the design review of a changed screenshot in its context
  * (CTX-1509, ADR-063 rule 20): the head image with the regions `changed`,
- * and a close-up of the redesigned region `shown` (see `redesignOf`) and the
- * elements next to it, written into the private folder `dir`. The review judges the
+ * and a close-up of the redesigned region `shown` (see `redesignOf`), the
+ * other changed regions on its rows and the elements next to them, written
+ * into the private folder `dir`. The review judges the
  * redesigned area as new UI, not against the base image. On the full head
  * image, a small control is a few pixels, so the close-up shows its alignment
  * and spacing. The changed regions are in fractions of the head image that
@@ -395,18 +396,32 @@ export async function inContext(
   const size = bytes ? pngSize(bytes) : undefined
   if (!path || !bytes || !size) return undefined
   const { content } = prepareImage(bytes)
-  // The close-up: the region with 64 px more on each side, at twice the
-  // size, or less when a side would pass the side limit of the models.
+  // The close-up: the region and each other changed region on its rows (so
+  // the opposite side of a row is in it, CTX-1530), with 64 px more on each
+  // side, at twice the size, or less when a side would pass the side limit
+  // of the models.
+  const rows = changed.filter(
+    ({ y, height }) => y < shown.y + shown.height && y + height > shown.y,
+  )
   const margin = 64
-  const left = Math.max(0, Math.floor(shown.x * size.width) - margin)
-  const top = Math.max(0, Math.floor(shown.y * size.height) - margin)
+  const left = Math.max(
+    0,
+    Math.floor(Math.min(...rows.map(({ x }) => x)) * size.width) - margin,
+  )
+  const top = Math.max(
+    0,
+    Math.floor(Math.min(...rows.map(({ y }) => y)) * size.height) - margin,
+  )
   const right = Math.min(
     size.width,
-    Math.ceil((shown.x + shown.width) * size.width) + margin,
+    Math.ceil(Math.max(...rows.map(({ x, width }) => x + width)) * size.width) +
+      margin,
   )
   const bottom = Math.min(
     size.height,
-    Math.ceil((shown.y + shown.height) * size.height) + margin,
+    Math.ceil(
+      Math.max(...rows.map(({ y, height }) => y + height)) * size.height,
+    ) + margin,
   )
   const zoom = Math.max(
     1,

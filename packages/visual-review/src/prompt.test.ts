@@ -265,6 +265,30 @@ describe("buildNewPrompt", () => {
     )
   })
 
+  test("the review of a changed area in its context measures each edge first, may report a neighbor, and makes a cited principle break major; a new story keeps the plain severity rule (CTX-1530)", () => {
+    const inContext = buildNewPrompt({
+      ...newStory(),
+      images: [
+        ...newStory().images,
+        { path: "close-up.png", size: { width: 400, height: 200 } },
+      ],
+      changed: {
+        regions: [{ x: 0.1, y: 0.6, width: 0.3, height: 0.1 }],
+        zoom: 2,
+      },
+    }).story
+    const order = [
+      "write in `observations` the distance in pixels",
+      "Then check three things.",
+      "Do not report the rest of the screenshot, except a neighbor for how it relates to a changed element.",
+      "is `major`, also when the defect is a few pixels",
+    ].map((sentence) => inContext.indexOf(sentence))
+    expect(order.every((at) => at >= 0)).toBe(true)
+    expect(order).toEqual([...order].sort((a, b) => a - b))
+
+    expect(buildNewPrompt(newStory()).story).not.toContain("is `major`")
+  })
+
   test("a change gets no design review rule: it has a base image to compare", () => {
     const { prefix } = buildPrompt(story)
     expect(prefix).not.toContain("New UI has no earlier version")

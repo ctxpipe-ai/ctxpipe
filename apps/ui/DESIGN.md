@@ -177,7 +177,7 @@ The space inside a group is smaller than the space around it. An action sits nex
 <!-- /rubric -->
 
 <!-- rubric: similarity -->
-The same meaning has the same look on the screen. Peer actions have the same weight.
+The same meaning has the same look on the screen. Elements of different roles next to each other do not share one look. Peer actions have the same weight.
 <!-- /rubric -->
 
 <!-- rubric: common-region -->

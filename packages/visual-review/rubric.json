@@ -190,7 +190,7 @@
     {
       "id": "similarity",
       "name": "Similarity",
-      "definition": "The same meaning has the same look on the screen. Peer actions have the same weight.",
+      "definition": "The same meaning has the same look on the screen. Elements of different roles next to each other do not share one look. Peer actions have the same weight.",
       "sources": [
         {
           "file": "apps/ui/DESIGN.md",

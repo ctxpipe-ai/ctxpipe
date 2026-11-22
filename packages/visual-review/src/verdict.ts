@@ -52,11 +52,14 @@ function judgementSchemas(
     }),
     // The object for a new screenshot, one with no base image. There is no
     // diff: thus there is no `noise`, an observation describes one part of
-    // the screenshot, and each quality gets a rating, not a delta.
+    // the screenshot, and each quality gets a rating, not a delta. The
+    // findings come before the verdict and the severity, so that a model
+    // decides the severity from the defects that it wrote (CTX-1530).
     newJudgement: z.object({
       observations: z.array(
         z.object({ part: z.number().int().min(1), seen: z.string() }),
       ),
+      findings: z.array(finding),
       verdict: z.enum(["intended", "regression", "unsure"]),
       severity,
       confidence: fraction,
@@ -68,7 +71,6 @@ function judgementSchemas(
           confidence: fraction,
         }),
       ),
-      findings: z.array(finding),
     }),
   }
 }
