@@ -1824,6 +1824,34 @@ describe("feature-gates skill (CTX-1513)", () => {
     expect(s.run("feature-gates").ops).toEqual([])
   })
 
+  it("keeps the file of a gate whose declaring file changed, as a Rust gate moves from unstable.rs to accepted.rs", async () => {
+    const s = step(GO_GATES, {
+      ...CONTEXT,
+      "knowledge/features/gift-cards.md": ownGate(
+        "pkg/features/old_features.go",
+        "alpha",
+      ),
+    })
+    s.mapFiles({ ".": ["knowledge/services/shop.md"] })
+    const out = s.run("feature-gates")
+    expect(out.ops).toContainEqual({
+      op: "update",
+      path: "knowledge/features/gift-cards.md",
+    })
+    expect(out.ops.map((o) => o.path)).not.toContain(
+      "knowledge/features/shop-gift-cards.md",
+    )
+    const result = await s.validate("feature-gates")
+    expect(result.rejections).toEqual([])
+    const gift = s.show(result.tree, "knowledge/features/gift-cards.md")
+    expect(gift).toContain("- Stage: beta since 1.32")
+    expect(gift).toContain(
+      "- Declared in `pkg/features/features.go` of `example-org/shop` (line 11)",
+    )
+    s.advance(result.tree)
+    expect(s.run("feature-gates").ops).toEqual([])
+  })
+
   it("keeps the file of each gate when a name that two packages declared is left in one", async () => {
     const s = step(
       {

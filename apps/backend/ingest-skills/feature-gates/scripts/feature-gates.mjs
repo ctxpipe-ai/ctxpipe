@@ -173,21 +173,25 @@ for (const gate of gates) {
   // its own file.
   const shared = declared.get(name) > 1
   // The file of this gate from an earlier run: a FeatureGate file of this
-  // source with the name, whose Related line names the declaring file.
+  // source with the name, whose Related line names the declaring file. When
+  // one file of the source declares the name and one such file exists, it is
+  // the file of the gate also when the declaring file changed (a Rust gate
+  // moves from unstable.rs to accepted.rs or removed.rs).
   const declaredIn = `- Declared in \`${gate.file}\` of \`${repository}\``
+  const named = index
+    .filter(
+      (e) =>
+        e?.kind === "FeatureGate" &&
+        typeof e.path === "string" &&
+        safePath(e.path) &&
+        e.title === name &&
+        ofSource(e),
+    )
+    .map((e) => e.path)
+    .sort()
   const existing =
-    index
-      .filter(
-        (e) =>
-          e?.kind === "FeatureGate" &&
-          typeof e.path === "string" &&
-          safePath(e.path) &&
-          e.title === name &&
-          ofSource(e),
-      )
-      .map((e) => e.path)
-      .sort()
-      .find((p) => (baseText(step, p) ?? "").includes(declaredIn)) ?? null
+    named.find((p) => (baseText(step, p) ?? "").includes(declaredIn)) ??
+    (!shared && named.length === 1 ? named[0] : null)
   const candidates = [
     `knowledge/features/${slug(name)}.md`,
     `knowledge/features/${slug(repository.split("/")[1])}-${slug(name)}.md`,
