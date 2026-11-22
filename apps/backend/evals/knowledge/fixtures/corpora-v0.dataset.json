@@ -1283,37 +1283,10 @@
       ]
     },
     {
-      "id": "rust-disagreement-03",
-      "corpus": "rust",
-      "category": "disagreement",
-      "split": "dev",
-      "text": "I'd like to write a Rust function signature that accepts only one particular case of a sum type, for example only the 'has a value' case of the optional type, as a type of its own. Has the language team considered this, what is its status, and where should I follow the discussion?",
-      "gold": [
-        "github/issues/rust-lang/rfcs/2346.md",
-        "github/issues/rust-lang/rfcs/2347.md"
-      ],
-      "seeds": ["github/issues/rust-lang/rfcs/2347.md"],
-      "positions": [
-        {
-          "refs": ["github/issues/rust-lang/rfcs/2346.md"],
-          "status": "superseded"
-        },
-        {
-          "refs": ["github/issues/rust-lang/rfcs/2347.md"],
-          "status": "current"
-        }
-      ],
-      "keyFacts": [
-        "Making enum variants first-class types was proposed in RFC 1450, which was postponed.",
-        "Issue #2346 was closed as a duplicate in favour of tracking issue #2347.",
-        "Issue #2347 was itself closed because postponement issues are no longer used; RFC PR #1450 was relabeled 'postponed' and is now where the idea is tracked."
-      ]
-    },
-    {
       "id": "rust-disagreement-13",
       "corpus": "rust",
       "category": "disagreement",
-      "split": "holdout",
+      "split": "dev",
       "text": "In CI I moved from passing the compiler flag that promotes every diagnostic to an error over to the package manager's own config option for failing builds on diagnostics. Now some builds (e.g. macOS) break purely because the native link step printed some chatter on stderr, which the old approach just showed and moved on. Is this the intended behavior, and how should I deal with it?",
       "gold": [
         "github/issues/rust-lang/cargo/17142.md",

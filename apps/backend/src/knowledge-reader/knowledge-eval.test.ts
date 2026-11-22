@@ -69,11 +69,15 @@ describe("the dataset", () => {
       expect(questions.some((question) => question.validAt)).toBe(false)
       // In each category, the count of holdout questions is the nearest
       // whole number to 40%.
-      for (const category of new Set(questions.map((q) => q.category))) {
-        const own = questions.filter((q) => q.category === category)
-        expect(own.filter((q) => q.split === "holdout").length).toBe(
-          Math.round(0.4 * own.length),
+      for (const category of new Set(
+        questions.map((question) => question.category),
+      )) {
+        const inCategory = questions.filter(
+          (question) => question.category === category,
         )
+        expect(
+          inCategory.filter((question) => question.split === "holdout").length,
+        ).toBe(Math.round(0.4 * inCategory.length))
       }
     }
   })

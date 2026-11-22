@@ -119,8 +119,8 @@ The CTO, 2026-11-22: "We don't have hard targets, we want to hillclimb the retri
 - **No fixed target:** a change is not measured against a fixed number, and not against the baseline (the current stack, Postgres and FalkorDB). The baseline arm stays in each report, as a reference only.
 - **The loop goes on** until the improvements plateau.
 - **Each kept generation can merge**, because the `knowledge_plane` flag holds the plane back from customers (decision 9).
-- **The labels:** each generation of a dataset, and its baseline, is scored against the same labels. A change of the labels scores each kept run again with `rescore`.
-- **The question set v0** (`apps/backend/evals/knowledge/fixtures/corpora-v0.dataset.json`): 87 questions over the frozen Kubernetes and Rust corpora. The Backstage questions come in a later change.
+- **The labels:** one label version for each dataset (the knowledge evals README, "One label version for each dataset").
+- **The question set v0** (`apps/backend/evals/knowledge/fixtures/corpora-v0.dataset.json`): 86 questions over the frozen Kubernetes and Rust corpora. The Backstage questions come in a later change.
 
 ## Consequences
 
