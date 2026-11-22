@@ -774,7 +774,7 @@ describe("the knowledge reader seam", () => {
     expect(shapeOf(planeRelated)).toMatchSnapshot()
   })
 
-  it("on: get_related keeps what answers, explores the hubs, and gives the why path", async () => {
+  it("on: get_related keeps what answers and each step to it, explores the hubs, and gives the why path", async () => {
     await setFlag("on")
     const result = await relatedCall({ maxDepth: 3 })
     expect(result.isError).toBeFalsy()
@@ -811,6 +811,22 @@ describe("the knowledge reader seam", () => {
             to: "knowledge/decisions/adr-7.md",
             predicate: "GOVERNED_BY",
             weight: 0.8,
+          },
+        ],
+      }),
+      // The ledger does not answer, but it is the step from the seed to the
+      // decision (CTX-1520). It comes after the results that answer, with
+      // its own p(answers) as its score. The note is no step, so it is out.
+      expect.objectContaining({
+        ref: "knowledge/databases/ledger.md",
+        score: 0.1,
+        depth: 1,
+        path: [
+          {
+            from: "knowledge/services/checkout.md",
+            to: "knowledge/databases/ledger.md",
+            predicate: "DEPENDS_ON",
+            weight: 0.9,
           },
         ],
       }),
@@ -946,7 +962,11 @@ describe("the knowledge reader seam", () => {
     ).toEqual(["knowledge/teams/payments.md"])
     expect(
       await refs({ from: "2026-02-01T00:00:00Z", to: "2026-03-01T00:00:00Z" }),
-    ).toEqual(["knowledge/teams/payments.md", "knowledge/decisions/adr-7.md"])
+    ).toEqual([
+      "knowledge/teams/payments.md",
+      "knowledge/decisions/adr-7.md",
+      "knowledge/databases/ledger.md",
+    ])
   })
 
   it("on: search_knowledge filters the sources in the store", async () => {
@@ -1103,7 +1123,12 @@ describe("the knowledge reader seam", () => {
       expect(content.partial).toBe(false)
       expect(
         (content.results as { ref: string }[]).map((result) => result.ref),
-      ).toEqual(["knowledge/teams/payments.md", "knowledge/decisions/adr-7.md"])
+      ).toEqual([
+        "knowledge/teams/payments.md",
+        "knowledge/decisions/adr-7.md",
+        "knowledge/databases/ledger.md",
+      ])
+      // The ledger is a step, not an answer, so no position holds it.
       expect(content.positions).toHaveLength(2)
     } finally {
       ORCHESTRATOR_DEFAULTS.timeBudgetMs = before
@@ -1119,7 +1144,8 @@ describe("the knowledge reader seam", () => {
       partial: true,
       partialReason: "total_timeout",
     })
-    expect((content.results as unknown[]).length).toBe(2)
+    // The two results that answer, and the ledger, the step to the decision.
+    expect((content.results as unknown[]).length).toBe(3)
     expect(content.positions).toBeUndefined()
   }, 15_000)
 

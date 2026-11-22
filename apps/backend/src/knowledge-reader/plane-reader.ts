@@ -343,11 +343,11 @@ function claimsByDocument(
 /**
  * `get_related`: layer 0 judges the seeds, then up to D layers of the loop.
  * A result is a judged document with p(answers) of at least the `keepAt`
- * setting (a seed only with `includeSeeds`); p(answers) is its score. Then
- * the disagreement step gives the positions of the top results (ADR-068
- * decision 4). When the time budget ends, the result is partial, with
- * `total_timeout` and no positions. When Jev fails, the call fails with
- * `judge_unavailable`.
+ * setting (a seed only with `includeSeeds`), or a step on the "why" path of
+ * such a result; p(answers) is its score. Then the disagreement step gives
+ * the positions of the top results that answer (ADR-068 decision 4). When
+ * the time budget ends, the result is partial, with `total_timeout` and no
+ * positions. When Jev fails, the call fails with `judge_unavailable`.
  */
 async function related(
   { workspace, input, now }: RelatedRequest,
@@ -435,7 +435,7 @@ async function related(
       },
       meter,
     })
-    const top = keptNodes(traversal.nodes, input).slice(
+    const top = answering(traversal.nodes, input).slice(
       0,
       ORCHESTRATOR_DEFAULTS.disagreementItems,
     )
@@ -461,7 +461,7 @@ async function related(
     )
   }
   return {
-    results: keptNodes(traversal.nodes, input)
+    results: withSteps(answering(traversal.nodes, input), input)
       .slice(0, RANKED_LIMIT)
       .map(relatedResult),
     ...(positions ? { positions } : {}),
@@ -481,28 +481,56 @@ async function related(
  * pass the kind filters of the call, best first. A seed is one only with
  * `includeSeeds`.
  */
-function keptNodes(
+function answering(
   nodes: readonly TraversalNode[],
   input: RelatedRequest["input"],
 ): TraversalNode[] {
-  const keptKinds = input.kinds?.length
-    ? new Set(input.kinds.map(kindKey))
-    : null
-  const droppedKinds = new Set((input.excludeKinds ?? []).map(kindKey))
   return nodes
     .filter(
       (node) =>
         (node.depth > 0 || input.includeSeeds) &&
         node.pAnswers >= ORCHESTRATOR_DEFAULTS.keepAt &&
-        (!keptKinds || keptKinds.has(kindKey(node.document.kind))) &&
-        !droppedKinds.has(kindKey(node.document.kind)),
+        passesKinds(node, input),
     )
-    .sort(
-      (a, b) =>
-        b.pAnswers - a.pAnswers ||
-        a.depth - b.depth ||
-        a.document.path.localeCompare(b.document.path),
-    )
+    .sort(byScore)
+}
+
+/**
+ * The answers, and each document on the "why" path of one of them that is
+ * not a seed and passes the kind filters (CTX-1520). A step does not answer
+ * the question, but the traversal went through it to reach an answer, so the
+ * caller gets the chain. A step keeps its own p(answers) as its score, which
+ * is below `keepAt`, so the steps come after the answers.
+ */
+function withSteps(
+  answers: readonly TraversalNode[],
+  input: RelatedRequest["input"],
+): TraversalNode[] {
+  const kept = new Set(answers)
+  for (const node of answers)
+    for (let step = node.parent?.node; step; step = step.parent?.node)
+      if (step.depth > 0 && passesKinds(step, input)) kept.add(step)
+  return [...kept].sort(byScore)
+}
+
+function passesKinds(
+  node: TraversalNode,
+  input: RelatedRequest["input"],
+): boolean {
+  const kind = kindKey(node.document.kind)
+  return (
+    (!input.kinds?.length || input.kinds.map(kindKey).includes(kind)) &&
+    !(input.excludeKinds ?? []).map(kindKey).includes(kind)
+  )
+}
+
+/** Best first: p(answers), then the nearer layer, then the path. */
+function byScore(a: TraversalNode, b: TraversalNode): number {
+  return (
+    b.pAnswers - a.pAnswers ||
+    a.depth - b.depth ||
+    a.document.path.localeCompare(b.document.path)
+  )
 }
 
 /**
