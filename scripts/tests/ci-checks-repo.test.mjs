@@ -1166,7 +1166,7 @@ test("the manifest lists a build check for each production image and package of 
     )("build:image-ui:apps/ui/Dockerfile"),
     "failed",
   )
-  assert.ok(job("packages").includes("pnpm -s checks:run"))
+  assert.ok(job("packages").includes("pnpm --reporter=silent checks:run"))
   const expected = {
     "build:image-backend:apps/backend/Dockerfile": [
       "apps/backend/**",

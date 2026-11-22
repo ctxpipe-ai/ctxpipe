@@ -4,9 +4,9 @@ These commands are the public check contract. A tool that selects checks (for ex
 
 ## Commands
 
-- `pnpm -s checks:list` prints the manifest as one JSON object: `{ schemaVersion, checks }`. The schema is [`schema/manifest.v1.schema.json`](schema/manifest.v1.schema.json).
-- `pnpm -s checks:run [--trace <dir>] [--logs <dir>] [ids-file]` runs the given check ids. Without `ids-file`, it reads the ids from stdin, one id on each line. It first makes or verifies the prerequisites of the checks (see Prerequisites). It writes one JSON line for each id to stdout. Each line has `schemaVersion`. The schema is [`schema/result.v1.schema.json`](schema/result.v1.schema.json). The output of the checks goes to a log in `.ci-results/checks/`, or in the folder of `--logs` (the `log` of each record, repo-relative, or absolute for a folder outside the checkout): `<lane>.log` for a Vitest lane (`<lane>-<shard>.log` for each shard of a serial lane, see Lanes), `<family>-<lane>.log` for a project check, `storybook.log`, `storybook-visual.log` and `eval-mcp.log`. The `log` of a failed `visual` record is the screenshot manifest (see Screenshots). The exit code is 1 when a check fails or does not run.
-- `pnpm -s checks:prepare <name>...` makes or verifies the named prerequisites. It writes `ready <name>` or `failed <name>: <cause and fix>` for each name. The exit code is 1 when one fails.
+- `pnpm --reporter=silent checks:list` prints the manifest as one JSON object: `{ schemaVersion, checks }`. The schema is [`schema/manifest.v1.schema.json`](schema/manifest.v1.schema.json).
+- `pnpm --reporter=silent checks:run [--trace <dir>] [--logs <dir>] [ids-file]` runs the given check ids. Without `ids-file`, it reads the ids from stdin, one id on each line. It first makes or verifies the prerequisites of the checks (see Prerequisites). It writes one JSON line for each id to stdout. Each line has `schemaVersion`. The schema is [`schema/result.v1.schema.json`](schema/result.v1.schema.json). The output of the checks goes to a log in `.ci-results/checks/`, or in the folder of `--logs` (the `log` of each record, repo-relative, or absolute for a folder outside the checkout): `<lane>.log` for a Vitest lane (`<lane>-<shard>.log` for each shard of a serial lane, see Lanes), `<family>-<lane>.log` for a project check, `storybook.log`, `storybook-visual.log` and `eval-mcp.log`. The `log` of a failed `visual` record is the screenshot manifest (see Screenshots). The exit code is 1 when a check fails or does not run.
+- `pnpm --reporter=silent checks:prepare <name>...` makes or verifies the named prerequisites. It writes `ready <name>` or `failed <name>: <cause and fix>` for each name. The exit code is 1 when one fails.
 
 ## Check ids
 
@@ -33,7 +33,7 @@ A check id is `<family>:<lane>:<file>`, for example `vitest:ui:apps/ui/src/compo
 
 ## Builds
 
-The `build` checks are the jobs Production build and Runnable packages of `ci.yaml`. The Packages job runs its checks with `pnpm -s checks:run` and keeps the records in the `test-results-build-packages` artifact. Each Production build matrix job is a plain Docker build with no workspace install: the merge gate takes the result of the job `Production build (<name>)` as the result of the check `build:image-<name>:` (`stepResults` in `gate.mjs`). `pnpm checks:run` runs the same build on a laptop. In gate mode (see Merge gate) a build runs on a pull request only when the plan selects its check. A person asks for every build with **Run workflow** (`workflow_dispatch`) of CI on the PR branch: that run is full. On a merge to `main`, the deploy workflows build the release images. The nightly run builds every image and package, as the safety net of the gate. Release and deploy images come only from the deploy workflows, with no selector and no cache.
+The `build` checks are the jobs Production build and Runnable packages of `ci.yaml`. The Packages job runs its checks with `pnpm --reporter=silent checks:run` and keeps the records in the `test-results-build-packages` artifact. Each Production build matrix job is a plain Docker build with no workspace install: the merge gate takes the result of the job `Production build (<name>)` as the result of the check `build:image-<name>:` (`stepResults` in `gate.mjs`). `pnpm checks:run` runs the same build on a laptop. In gate mode (see Merge gate) a build runs on a pull request only when the plan selects its check. A person asks for every build with **Run workflow** (`workflow_dispatch`) of CI on the PR branch: that run is full. On a merge to `main`, the deploy workflows build the release images. The nightly run builds every image and package, as the safety net of the gate. Release and deploy images come only from the deploy workflows, with no selector and no cache.
 
 | Job | Matrix entry or step | Check |
 | --- | --- | --- |
@@ -105,6 +105,7 @@ A check lists its `prerequisites` by name. Before the checks run, the runner mak
 | `falkordb` | verifies that `GRAPH_DB_URI` runs a graph query |
 | `bun`, `zoekt`, `ast-grep`, `docker` | verifies that the tool is installed |
 | `opencode` | verifies the OpenCode version that the chat contract declares |
+| `contract-images` | needs `docker`; verifies that Docker has each `contracts` image of `scripts/ci/service-pins.json` with its pinned digest, and pulls it by that digest when it is missing (a disk cleanup on a shared Docker host can remove an image that is only inspected) |
 | `chat-sandbox-image` | builds the chat sandbox image when Docker does not have it |
 | `chromium` | installs the Playwright Chromium |
 | `visual-container` | needs `docker`; verifies that the Docker server is linux/arm64 and has the Playwright image of `scripts/ci/visual-container.json` (pulls it when it is missing). `scripts/ci/visual-capture.mjs` takes screenshots in that image; a visual check lists the pin file as an input |
@@ -184,7 +185,7 @@ A selector can sample a lane: for each changed range, it selects only some of th
 
 ## Traces
 
-`pnpm -s checks:run --trace <dir>` also writes `<dir>/trace.json.gz`, a gzip-compressed JSON file. The schema is [`schema/trace.v1.schema.json`](schema/trace.v1.schema.json). For each check and each test case, the trace gives the source lines that the case executed (in the test process and in its Node and Bun child processes), the semantic edges that the case used, and the case duration. The line numbers are the lines at `commit`, the commit of the checkout. Thus, trace a clean working tree.
+`pnpm --reporter=silent checks:run --trace <dir>` also writes `<dir>/trace.json.gz`, a gzip-compressed JSON file. The schema is [`schema/trace.v1.schema.json`](schema/trace.v1.schema.json). For each check and each test case, the trace gives the source lines that the case executed (in the test process and in its Node and Bun child processes), the semantic edges that the case used, and the case duration. The line numbers are the lines at `commit`, the commit of the checkout. Thus, trace a clean working tree.
 
 How it works:
 

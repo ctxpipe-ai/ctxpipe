@@ -9,7 +9,7 @@ description: Verify a change with `factory check` before each push. It runs the 
 
 1. It selects the checks that the change can break, in every family (Vitest, Storybook, typecheck, lint, policy, build). Each selected check has a reason.
 2. It reads the shared result store. A check whose inputs did not change since an earlier pass (from CI, a person, or an agent) is a hit and does not run.
-3. It runs the misses with the public runner (`pnpm -s checks:run`).
+3. It runs the misses with the public runner (`pnpm --reporter=silent checks:run`).
 4. It stores each new pass in the shared store. The merge gate of the pull request reads the store, so CI does not run that check again.
 5. At the same time, it runs the review critics of the code-review skill on the committed diff of the branch. Each critic that has a hunk to review gets one headless reviewer (`claude` or `codex`). It stores each verdict for the merge gate. A rerun reviews only the hunks that changed or had a finding.
 
@@ -82,6 +82,6 @@ Until the factory release that the merge gate pins makes keys portable (the fact
 
 ## When `factory` is not installed
 
-`factory` is in the private factory repo (`machines/cli`, build it with `cargo build --release` and put `target/release/factory` on `PATH`). Without it, run the lane commands as before: `pnpm -s checks:run <ids>` with the check ids from `pnpm -s checks:list`, or the test command of the package that you changed. A contributor from a fork never needs `factory`: CI runs the full suite for a pull request from a fork.
+`factory` is in the private factory repo (`machines/cli`, build it with `cargo build --release` and put `target/release/factory` on `PATH`). Without it, run the lane commands as before: `pnpm --reporter=silent checks:run <ids>` with the check ids from `pnpm --reporter=silent checks:list`, or the test command of the package that you changed. A contributor from a fork never needs `factory`: CI runs the full suite for a pull request from a fork.
 
 Do not start a sub-agent only to run tests, and do not start review sub-agents. `factory check` gives the same answer in less time, and CI can reuse it. Without `factory`, follow the code-review skill ("Without the factory") for the review.

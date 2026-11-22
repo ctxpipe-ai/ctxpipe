@@ -4,10 +4,12 @@
 # are downloaded in isolated stages. This keeps package-manager build caches
 # separate from application dependencies. The image builds for linux/amd64 and
 # linux/arm64 with the complete indexer matrix. Upstream publishes scip-clang
-# and scip-ruby only for x86_64, with a GLIBC that is too new for Bookworm.
-# Thus apps/codesearch/indexers/Dockerfile builds both for each platform, and
-# release-assets.txt pins the release of that build. Railway pulls
-# linux/amd64, and the AWS hosts pull linux/arm64.
+# and scip-ruby only for x86_64. Thus apps/codesearch/indexers/Dockerfile
+# builds both for each platform, and release-assets.txt pins the release of
+# that build. Railway pulls linux/amd64, and the AWS hosts pull linux/arm64.
+#
+# The runtime is Debian 13 (Trixie, GLIBC 2.41). The toolchain stages stay on
+# Debian 12 images: a binary that links GLIBC 2.36 also runs on 2.41.
 
 # ── Stage 1: Go toolchain and Zoekt binaries ─────────────────────────────────
 FROM golang:1.27.3-bookworm@sha256:dc0963f32053e4bc451d24d87e3892d42d01021b61f093e98eb95c0352bb84b0 AS go-tools
@@ -63,7 +65,7 @@ RUN dart pub global activate scip_dart "${SCIP_DART_VERSION}"
 # ── Stage 6: Official SCIP release binaries ─────────────────────────────────
 FROM scratch AS releases
 
-FROM debian:bookworm-20261027-slim@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3 AS release-tools
+FROM debian:trixie-20261104-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2 AS release-tools
 ARG TARGETARCH
 # Versions and checksums live in release-assets.txt. fetch-releases.sh bounds
 # each download (connect, stall and total timeouts, 3 attempts) and fails with
@@ -88,7 +90,12 @@ RUN --mount=type=bind,source=apps/codesearch/release-assets.txt,target=/release-
   && tar -xzf "versitygw-${TARGETARCH}.tar.gz" -C /test-out --strip-components=1 --wildcards '*/versitygw' \
   && chmod +x /out/* /test-out/*
 
-# ── Stage 7: Install application dependencies ────────────────────────────────
+# ── Stage 7: JDK 17 and Maven ───────────────────────────────────────────────
+# Debian 13 has no JDK 17 package, and its JDK 21 cannot run Gradle wrappers
+# before 8.5. The Temurin image keeps JDK 17 and brings its Maven.
+FROM maven:3.9.16-eclipse-temurin-17@sha256:1a352420f7aba21f5ad08df31bab55f74c013fb491f1ae8ab1dd7ff9ed698584 AS java-tools
+
+# ── Stage 8: Install application dependencies ────────────────────────────────
 FROM oven/bun:1.4.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3e0b5af1db187d9a4 AS bun-runtime
 
 FROM node:26.13.1-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1 AS deps
@@ -102,11 +109,8 @@ COPY apps/codesearch/package.json apps/codesearch/package.json
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm install --store-dir /pnpm/store --frozen-lockfile --prod --config.confirmModulesPurge=false
 
-# ── Stage 8: Production runtime ──────────────────────────────────────────────
-# Keep the indexer OS contract on Bookworm. Bun's newer slim image uses
-# Trixie, which no longer supplies the JDK 17 package required by this matrix.
-FROM debian:bookworm-20261027-slim@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3 AS runtime
-ARG TARGETARCH
+# ── Stage 9: Production runtime ──────────────────────────────────────────────
+FROM debian:trixie-20261104-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2 AS runtime
 COPY --from=bun-runtime /usr/local/bin/bun /usr/local/bin/bun
 ENV BUN_INSTALL=/usr/local
 
@@ -123,9 +127,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     composer \
     git \
     llvm \
-    maven \
     ninja-build \
-    openjdk-17-jdk-headless \
     php-cli \
     python3 \
     python3-dev \
@@ -148,27 +150,30 @@ COPY --from=dotnet-tools /usr/share/dotnet /usr/share/dotnet
 COPY --from=dotnet-tools /opt/dotnet-tools /opt/dotnet-tools
 COPY --from=dart-tools /usr/lib/dart /usr/lib/dart
 COPY --from=dart-tools /opt/pub-cache /opt/pub-cache
+COPY --from=java-tools /opt/java/openjdk /opt/java/openjdk
+COPY --from=java-tools /usr/share/maven /usr/share/maven
 COPY --from=release-tools /out/ /usr/local/bin/
 
 ENV CARGO_HOME=/usr/local/cargo \
     COMPOSER_ALLOW_SUPERUSER=1 \
     COMPOSER_HOME=/opt/composer \
     DOTNET_ROOT=/usr/share/dotnet \
-    JAVA_HOME=/usr/lib/jvm/java-17-openjdk-${TARGETARCH} \
+    JAVA_HOME=/opt/java/openjdk \
     PUB_CACHE=/opt/pub-cache \
     RUSTUP_HOME=/usr/local/rustup \
     GOPATH=/tmp/ctxpipe-go \
     GOMODCACHE=/tmp/ctxpipe-go/pkg/mod \
     GOCACHE=/tmp/ctxpipe-go/cache \
-    PATH="/usr/local/go/bin:/usr/local/cargo/bin:/opt/dotnet-tools:/opt/pub-cache/bin:${PATH}"
+    PATH="/opt/java/openjdk/bin:/usr/local/go/bin:/usr/local/cargo/bin:/opt/dotnet-tools:/opt/pub-cache/bin:${PATH}"
 
 ARG SCIP_PHP_VERSION=0.0.2
 # v0.0.2 is scip-php's newest release and still constrains google/protobuf to
 # <4.33.6, which is affected by the known CVE-2026-6409 audit. Keep PHP matrix
 # coverage until upstream ships a release that can consume the fixed major.
-# Gradle repositories should use their checked-in wrapper; Bookworm's Gradle
+# Gradle repositories should use their checked-in wrapper; Debian's Gradle
 # 4.4 package is too old for representative modern builds.
 RUN ln -s /usr/share/dotnet/dotnet /usr/local/bin/dotnet \
+  && ln -s /usr/share/maven/bin/mvn /usr/local/bin/mvn \
   && ln -s /usr/lib/dart/bin/dart /usr/local/bin/dart \
   && composer global require \
     --no-interaction \
@@ -214,7 +219,7 @@ RUN mkdir -p /data/zoekt-index /data/repo-cache
 EXPOSE 3001
 CMD ["/start.sh"]
 
-# ── Stage 9: Vitest (reuses the production toolchain; adds devDependencies) ──
+# ── Stage 10: Vitest (reuses the production toolchain; adds devDependencies) ──
 # Build: docker build -f apps/codesearch/Dockerfile --target test -t ctxpipe-codesearch:test .
 # Run:   docker run --rm ctxpipe-codesearch:test
 FROM runtime AS test
@@ -226,8 +231,11 @@ WORKDIR /app
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* tsconfig.json ./
 COPY patches patches
 COPY apps/codesearch/package.json apps/codesearch/package.json
+# The runtime stage leaves apps/backend/certs in /app. pnpm 11 refuses a frozen
+# install of every importer when apps/backend exists without its package.json,
+# so install only codesearch and the root (the trace code of scripts/checks).
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
-    pnpm install --store-dir /pnpm/store --frozen-lockfile --config.confirmModulesPurge=false
+    pnpm install --store-dir /pnpm/store --frozen-lockfile --filter @ctxpipe/codesearch... --filter . --config.confirmModulesPurge=false
 COPY apps/codesearch ./apps/codesearch
 COPY scripts/ci/check-test-report.mjs ./scripts/ci/check-test-report.mjs
 # The trace and result record code (run-vitest-contracts.mjs --trace, --records).

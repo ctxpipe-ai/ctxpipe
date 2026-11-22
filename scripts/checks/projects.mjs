@@ -1,9 +1,10 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs"
-import { join } from "node:path"
+import { join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { parse as parseYaml } from "yaml"
 
+import { manifests } from "../ci/check-pins.mjs"
 import { logFile, logged } from "./log.mjs"
 import { uiBundledImports } from "./ui-bundled-imports.mjs"
 
@@ -227,6 +228,17 @@ const definitions = () => [
     [
       "docs-links",
       ["apps/**", "packages/**", "plugins/**", "examples/**", "README.md"],
+    ],
+    [
+      "pins",
+      // The package.json files that the check reads, found by its own
+      // walk (so the listing runs check-pins.mjs: gate.mjs), and the
+      // allowlist.
+      [
+        ...manifests(root).map((file) => relative(root, file)),
+        "scripts/ci/pins.json",
+      ],
+      "Catches an exact version in a package.json dependency field that scripts/ci/pins.json does not name, and an allowlist entry whose file has no exact version of its package. Run it when a package.json or the allowlist changes; never for a change outside them.",
     ],
   ].map(([lane, reads, intent]) => {
     const file = `scripts/ci/check-${lane}.mjs`
