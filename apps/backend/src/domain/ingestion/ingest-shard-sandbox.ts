@@ -67,6 +67,7 @@ import {
   type IngestShardRuntimeFactory,
   type IngestShardSpec,
   ingestCallbackOrigin,
+  withIngestAttemptUsage,
 } from "./ingest-shard-runtime.js"
 import { withShardStep } from "./ingest-shard-step.js"
 import { ingestModelCost, withRecordedModelCost } from "./ingest-spend.js"
@@ -510,40 +511,47 @@ function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
           )
           if (!destination)
             throw new Error("The step's Workspace is not in the shard")
-          const { json, rootFiles } = await indexOf(step)
-          const { usage: reported, inputs } = await runIngestShardStep(root, {
-            step: {
-              ...step,
-              rootMap: withExistingRootFiles(step.rootMap, rootFiles),
-              signal,
-            },
-            agentEnv,
-            remote: sandboxFetchUrl(destination),
-            sourceUrl: spec.source.url,
-            sourcePath: destination.sourcePath,
-            index: json,
-            ...(step.run === "model"
-              ? { model: `ctxpipe/${step.tier ?? defaultTier}` }
-              : {}),
-          })
           // The cost is the gateway cost that the model proxy recorded for
           // this lock owner, not the estimate of OpenCode (CTX-1522).
-          const usage =
+          const recordedCost = () =>
             step.run === "model"
-              ? withRecordedModelCost(
-                  reported,
-                  await ingestModelCost({
-                    orgId: spec.orgId,
-                    runId: spec.runId,
-                    shard: spec.shard,
-                    lockOwner,
-                  }),
-                )
-              : reported
-          return {
-            tar: await collectIngestStep(handle, root),
-            ...(usage ? { usage } : {}),
-            ...(inputs === undefined ? {} : { inputs }),
+              ? ingestModelCost({
+                  orgId: spec.orgId,
+                  runId: spec.runId,
+                  shard: spec.shard,
+                  lockOwner,
+                })
+              : Promise.resolve(null)
+          try {
+            const { json, rootFiles } = await indexOf(step)
+            const { usage: reported, inputs } = await runIngestShardStep(root, {
+              step: {
+                ...step,
+                rootMap: withExistingRootFiles(step.rootMap, rootFiles),
+                signal,
+              },
+              agentEnv,
+              remote: sandboxFetchUrl(destination),
+              sourceUrl: spec.source.url,
+              sourcePath: destination.sourcePath,
+              index: json,
+              ...(step.run === "model"
+                ? { model: `ctxpipe/${step.tier ?? defaultTier}` }
+                : {}),
+            })
+            const usage = withRecordedModelCost(reported, await recordedCost())
+            return {
+              tar: await collectIngestStep(handle, root),
+              ...(usage ? { usage } : {}),
+              ...(inputs === undefined ? {} : { inputs }),
+            }
+          } catch (error) {
+            // A failed attempt made billed calls too: the step counts them.
+            const usd = await recordedCost().catch(() => null)
+            throw withIngestAttemptUsage(
+              error,
+              withRecordedModelCost(undefined, usd),
+            )
           }
         },
         step.signal,

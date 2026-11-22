@@ -36,6 +36,9 @@ export function ingestUsageUsd(usage: IngestStepUsage): number {
   )
 }
 
+/** The USD that the spend of a run counts for one model call. */
+export type IngestModelCallCost = { usd: number; estimated: boolean }
+
 /**
  * The USD of one model call of an ingest step at the model proxy: the
  * gateway cost, else the tokens of the call at the fallback prices
@@ -43,7 +46,7 @@ export function ingestUsageUsd(usage: IngestStepUsage): number {
  */
 export function ingestModelCallUsd(
   usage: WorkspaceChatCompletionUsage | null | undefined,
-): { usd: number; estimated: boolean } | undefined {
+): IngestModelCallCost | undefined {
   if (usage?.cost !== undefined) return { usd: usage.cost, estimated: false }
   if (usage?.inputTokens === undefined && usage?.outputTokens === undefined)
     return undefined

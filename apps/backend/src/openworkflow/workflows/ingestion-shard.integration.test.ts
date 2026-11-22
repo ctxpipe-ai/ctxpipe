@@ -12,7 +12,11 @@ import {
   listStepFiles,
   pushIngestStep,
 } from "../../domain/ingestion/ingest-refs.js"
-import type { IngestShardRuntime } from "../../domain/ingestion/ingest-shard-runtime.js"
+import {
+  type IngestRuntimeStep,
+  type IngestShardRuntime,
+  withIngestAttemptUsage,
+} from "../../domain/ingestion/ingest-shard-runtime.js"
 import { skillStepName } from "../../domain/ingestion/ingestion-plan.js"
 import { createLogger, withLogger } from "../../observability/logger.js"
 import {
@@ -337,10 +341,15 @@ describe("runSkillPages on a shard ref that another execution moved", () => {
     state: IngestionShardWorkspace,
     runtime: IngestShardRuntime,
     cursor?: { finder: string },
+    outputs?: unknown[],
   ) {
     return withLogger(createLogger({ test: "skill-pages-twice" }), () =>
       runSkillPages({
-        step: (_name, fn) => fn(),
+        step: async (_name, fn) => {
+          const output = await fn()
+          outputs?.push(output)
+          return output
+        },
         run: {
           runId: RUN,
           bundle: "bundle-1",
@@ -434,6 +443,37 @@ describe("runSkillPages on a shard ref that another execution moved", () => {
       broker.find(REF, skillStepName(ROOT, "ownership", WS, 1), pinned),
     ).resolves.toMatchObject({ cursor: { at: 1, of: 5 }, more: true })
   })
+
+  it("counts the billed calls of a failed attempt in the spend of the step (CTX-1522)", async () => {
+    freshRemote()
+    const state = workspace()
+    const { runtime: staging } = sandbox({
+      "knowledge/services/a.md": service("A"),
+    })
+    let attempts = 0
+    const runtime = {
+      runStep: async (step: { name: string }) => {
+        attempts++
+        if (attempts === 1)
+          throw withIngestAttemptUsage(
+            new Error("The ingest step reached its time limit"),
+            { inputTokens: 0, outputTokens: 0, costUsd: 0.25 },
+          )
+        return {
+          ...(await staging.runStep(step as IngestRuntimeStep)),
+          usage: { inputTokens: 100, outputTokens: 10, costUsd: 0.5 },
+        }
+      },
+    } as unknown as IngestShardRuntime
+    const outputs: unknown[] = []
+    await runSkill("classify-kind", state, runtime, undefined, outputs)
+    expect(attempts).toBe(2)
+    expect(outputs).toEqual([
+      expect.objectContaining({
+        usage: expect.objectContaining({ costUsd: 0.75 }),
+      }),
+    ])
+  }, 30_000)
 
   it("continues from the other execution's commit, with no refusal and no partial step", async () => {
     freshRemote()

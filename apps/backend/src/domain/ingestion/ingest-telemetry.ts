@@ -9,6 +9,7 @@ import { log } from "../../observability/logger.js"
 import { isWorkflowControlSignal } from "../../openworkflow/isSleepSignal.js"
 import type { WorkspaceChatCompletionUsage } from "../workspaces/workspace-chat-model-proxy.js"
 import type { IngestModelTier } from "./ingest-opencode.js"
+import type { IngestModelCallCost } from "./ingest-spend.js"
 
 /*
  * Telemetry of an ingestion v2 run (ADR-052, T11). Attribute names follow
@@ -145,7 +146,7 @@ export function startIngestModelCall(
     responseModel?: string | null
     usage?: WorkspaceChatCompletionUsage | null
     /** The USD that the run's spend counts for the call (`ingestModelCallUsd`). */
-    cost?: { usd: number; estimated: boolean }
+    cost?: IngestModelCallCost
   }) => void
 } {
   const span = tracer().startSpan("ingestion.model_call", {
