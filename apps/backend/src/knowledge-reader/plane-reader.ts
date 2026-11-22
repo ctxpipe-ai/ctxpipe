@@ -508,14 +508,16 @@ function answerNodes(
  *
  * Then, while they fit, the other steps: each document that is not a seed,
  * passes the kind filters, and has a p(explore) of at least `exploreAt`
- * (CTX-1534). Each step on a "why" path has such a p(explore), because only
- * these documents are the frontier after layer 1. Thus the walk of the
- * "why" paths above changes the results only at the `RANKED_LIMIT`. Jev judged that the search must explore from it to answer the
- * question, so it is a needed step, also when no answer comes after it: two
- * paths of the same length reach one answer, or the answer at the end of
- * the path is under `keepAt`, or the loop reached its depth. A step keeps
- * its own p(answers) as its score, which is below `keepAt`, so the steps
- * come after the answers.
+ * (CTX-1534). Jev judged that the search must explore from such a
+ * document to answer the question, so it is a needed step, also when no
+ * answer comes after it. Each step on a "why" path also has such a
+ * p(explore), because only these documents are the frontier after layer 1.
+ * Thus the walk of the "why" paths changes the results only at the
+ * `RANKED_LIMIT`: there, it keeps the full chain of each kept answer.
+ *
+ * The results are in the order of their score. A step keeps its own
+ * p(answers) as its score, which is below `keepAt`, so each step comes
+ * after each answer.
  */
 function withSteps(
   answers: readonly TraversalNode[],

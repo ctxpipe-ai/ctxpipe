@@ -1008,20 +1008,30 @@ describe("the knowledge reader seam", () => {
     await setFlag("on")
     const refs: string[] = []
     let cursor: string | undefined
-    do {
-      const content = structured(
-        await relatedCall({
-          workspace: "wide",
-          seeds: ["wide/seed.md"],
-          maxDepth: 3,
-          limit: 50,
-          maxTokens: 8_000,
-          ...(cursor ? { cursor } : {}),
-        }),
-      )
-      refs.push(...(content.results as { ref: string }[]).map((r) => r.ref))
-      cursor = content.cursor as string | undefined
-    } while (cursor)
+    // The limit is the subject, not the time budget. The walk of three
+    // layers of 148 documents can take more than 3 s on a loaded host, and
+    // then the result is partial after layer 1 (CTX-1534).
+    const before = ORCHESTRATOR_DEFAULTS.timeBudgetMs
+    ORCHESTRATOR_DEFAULTS.timeBudgetMs = 0
+    try {
+      do {
+        const content = structured(
+          await relatedCall({
+            workspace: "wide",
+            seeds: ["wide/seed.md"],
+            maxDepth: 3,
+            limit: 50,
+            maxTokens: 8_000,
+            ...(cursor ? { cursor } : {}),
+          }),
+        )
+        expect(content.partial).toBe(false)
+        refs.push(...(content.results as { ref: string }[]).map((r) => r.ref))
+        cursor = content.cursor as string | undefined
+      } while (cursor)
+    } finally {
+      ORCHESTRATOR_DEFAULTS.timeBudgetMs = before
+    }
     // 148 documents answer. The 100 results are the best answers, each with
     // its steps: the 49 answers of layer 1, the far answer and its step (the
     // middle document), and the 49 other answers of layer 2. The answers of
