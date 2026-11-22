@@ -10,10 +10,10 @@
     "dev": "portless ui.ctxpipe vite dev --host 0.0.0.0",
     "build": "vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit --pretty false",
+    "typecheck": "NODE_OPTIONS=\"$NODE_OPTIONS --max-old-space-size=6144\" tsc --noEmit --pretty false",
     "test": "node ../../scripts/ci/test-suite.mjs ui",
     "test:watch": "vitest",
-    "storybook": "storybook dev -p 6006 --ci --host 127.0.0.1",
+    "storybook": "NODE_OPTIONS=\"$NODE_OPTIONS --max-old-space-size=6144\" storybook dev -p 6006 --ci --host 127.0.0.1",
     "build-storybook": "NODE_OPTIONS=\"$NODE_OPTIONS --max-old-space-size=6144\" storybook build",
     "test:storybook": "node ../../scripts/ci/storybook-plays.mjs",
     "prototype:workspace-ui": "vite dev --host 0.0.0.0 --port 3002"

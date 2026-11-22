@@ -13,24 +13,12 @@ overrides:
   '@luma.gl/constants': 9.2.6
 
 patchedDependencies:
-  '@asteasolutions/zod-to-openapi@8.4.1':
-    hash: 76ff87d9c77322ebc46f65cb440751ee0c5eccc30c727c431d49db86a7d00850
-    path: patches/@asteasolutions__zod-to-openapi@8.4.1.patch
-  '@cosmograph/cosmograph@2.2.1':
-    hash: d64016c0891928c6f2a484566b608bec97ba8443d29c0686014f7784fadc3adb
-    path: patches/@cosmograph__cosmograph@2.2.1.patch
-  '@hono/zod-openapi@1.2.2':
-    hash: e9d1cc8a2cdc198215919e404891152978de735b3505fe90947a13311aac6b73
-    path: patches/@hono__zod-openapi@1.2.2.patch
-  '@tanstack/ai-opencode@0.4.14':
-    hash: 597b8afdb9d93bdcbd8a9dfc29b7bf98dc77673dc23e6061722741dd2dea7dd2
-    path: patches/@tanstack__ai-opencode@0.4.14.patch
-  opencode-ai@1.19.5:
-    hash: fbd7620d4152b3a7a000c2155af5372fb864fca5340d609c0ed34f9bce14c2d1
-    path: patches/opencode-ai@1.19.5.patch
-  openworkflow@0.10.1:
-    hash: 4e4023d954b9327b90429203875954434759ed4e73642efe3fc9380b8f8499a2
-    path: patches/openworkflow@0.10.1.patch
+  '@asteasolutions/zod-to-openapi@8.4.1': 76ff87d9c77322ebc46f65cb440751ee0c5eccc30c727c431d49db86a7d00850
+  '@cosmograph/cosmograph@2.2.1': d64016c0891928c6f2a484566b608bec97ba8443d29c0686014f7784fadc3adb
+  '@hono/zod-openapi@1.2.2': e9d1cc8a2cdc198215919e404891152978de735b3505fe90947a13311aac6b73
+  '@tanstack/ai-opencode@0.4.14': 597b8afdb9d93bdcbd8a9dfc29b7bf98dc77673dc23e6061722741dd2dea7dd2
+  opencode-ai@1.19.5: fbd7620d4152b3a7a000c2155af5372fb864fca5340d609c0ed34f9bce14c2d1
+  openworkflow@0.10.1: 4e4023d954b9327b90429203875954434759ed4e73642efe3fc9380b8f8499a2
 
 importers:
 
