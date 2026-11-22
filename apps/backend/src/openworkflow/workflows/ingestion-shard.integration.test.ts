@@ -116,10 +116,11 @@ describe("runSkillPages", () => {
     expect(state).toMatchObject({ ops: 2, partial: 1 })
   })
 
-  it("stops a cursor skill as partial when a page says more at the end of its input, or gives no cursor", async () => {
+  it("stops a cursor skill as partial when a page says more at the end of its input, changes the length of its input, or gives no cursor", async () => {
     for (const second of [
       page(10, 10),
       page(11, 10),
+      page(4, 11),
       { tip: "a".repeat(40), ops: 1, rejects: 0, more: true },
     ]) {
       const results = [page(2, 10), second, page(5, 10, false)]

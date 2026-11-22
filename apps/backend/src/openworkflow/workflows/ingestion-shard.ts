@@ -559,8 +559,9 @@ type SkillPages = {
  * A cursor skill (CTX-1487) has no page count. Before each page, the
  * skill's own finder gives the length of its input (`of`), and the page's
  * `patch.json` says how many inputs are done (`at`). A page with `more`
- * must move `at` strictly forward and keep it below `of`; else the skill
- * stops as `partial`. So a skill has at most `of` pages. The finder runs
+ * must move `at` strictly forward and keep it below `of`, and `of` must not
+ * change from the first page; else the skill stops as `partial`. So a skill
+ * has at most `of` pages. The finder runs
  * before the model, so its count is trusted. A forged `at` can only end the
  * loop sooner. Any other skill stops after 20 pages.
  */
@@ -578,6 +579,7 @@ export async function runSkillPages(ctx: SkillPages): Promise<void> {
     ctx.destination.workspaceId,
   )
   let cursorAt = 0
+  let cursorOf: number | undefined
   for (let page = 1; ctx.skill.cursor || page <= INGEST_MAX_PAGES; page++) {
     const name = skillStepName(
       ctx.root,
@@ -613,19 +615,28 @@ export async function runSkillPages(ctx: SkillPages): Promise<void> {
     }
     if (ctx.skill.cursor) {
       const cursor = result.cursor
-      if (!cursor || cursor.at <= cursorAt || cursor.at >= cursor.of) {
+      const of = cursorOf ?? cursor?.of
+      if (
+        !cursor ||
+        cursor.of !== of ||
+        cursor.at <= cursorAt ||
+        cursor.at >= cursor.of
+      ) {
         failed()
         logStepPartial(
           ctx,
           label,
-          cursor
-            ? `Page ${page} said more, but its cursor did not move forward inside the input: ${cursor.at} of ${cursor.of} after ${cursorAt}`
-            : `Page ${page} said more, but it gave no cursor`,
+          !cursor
+            ? `Page ${page} said more, but it gave no cursor`
+            : cursor.of !== of
+              ? `Page ${page} said more, but the length of its input changed from ${of} to ${cursor.of}`
+              : `Page ${page} said more, but its cursor did not move forward inside the input: ${cursor.at} of ${cursor.of} after ${cursorAt}`,
           seen.executionAttempt,
         )
         return
       }
       cursorAt = cursor.at
+      cursorOf = cursor.of
     }
   }
   failed()
