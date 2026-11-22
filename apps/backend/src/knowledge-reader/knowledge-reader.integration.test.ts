@@ -1123,12 +1123,13 @@ describe("the knowledge reader seam", () => {
       "knowledge/teams/payments.md",
       "knowledge/databases/ledger.md",
     ])
+    // With the payments seed, its neighbor, the checkout service, is a step
+    // (a hub).
     expect(
       await refs({
         seeds: ["knowledge/teams/payments.md"],
         includeSeeds: true,
       }),
-      // Its neighbor, the checkout service, is a step (a hub).
     ).toEqual(["knowledge/teams/payments.md", "knowledge/services/checkout.md"])
     // Layer 0 judges the payments seed, and layer 1 judges its neighbor.
     expect(jevRequests.slice(-2)).toEqual([
