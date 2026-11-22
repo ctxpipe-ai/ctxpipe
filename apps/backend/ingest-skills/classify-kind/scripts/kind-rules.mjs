@@ -188,6 +188,9 @@ export function classifyRoot(source, files, rootPath) {
       signal("Library", "strong", "Cargo.toml", "The crate is a library")
   }
 
+  // A Go `main` package at the root folder, also with no go.mod there (for
+  // example `cmd/<binary>` in a module).
+  const goMain = goMainFile(source, files, rootPath)
   if (has("go.mod")) {
     const module = /^module[ \t]+(\S+)/m.exec(read("go.mod"))?.[1] ?? ""
     const segments = module.split("/").filter((s) => !/^v\d+$/.test(s))
@@ -196,13 +199,10 @@ export function classifyRoot(source, files, rootPath) {
       (f) =>
         f.startsWith(`${dir}cmd/`) && f.endsWith(".go") && !f.includes("_test"),
     )
-    if (main || /^package main\b/m.test(has("main.go") ? read("main.go") : ""))
+    if (main || goMain)
       signal("Service", "strong", "go.mod", "The module has a main package")
     else signal("Library", "weak", "go.mod", "The module has no main package")
-  }
-  // A Go `main` package in a folder of a module (for example `cmd/<binary>`).
-  const goMain = has("go.mod") ? null : goMainFile(source, files, rootPath)
-  if (goMain)
+  } else if (goMain)
     signal(
       "Service",
       "strong",

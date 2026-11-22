@@ -210,6 +210,7 @@ describe("discover-roots script", () => {
         "[dependencies]",
         'rustc_driver = { path = "../rustc_driver" }',
         'rustc_codegen_gcc = { path = "../rustc_codegen_gcc" }',
+        'gcc_build = { path = "../rustc_codegen_gcc/build_system" }',
         'outside = { path = "../../../outside" }',
         'no_crate = { path = "../no_crate" }',
         "",
@@ -233,6 +234,9 @@ describe("discover-roots script", () => {
         '[package]\nname = "rustc_windows_rc"\n',
       "compiler/rustc_codegen_gcc/Cargo.toml":
         '[package]\nname = "rustc_codegen_gcc"\n',
+      // Cargo excludes each folder below an excluded folder too.
+      "compiler/rustc_codegen_gcc/build_system/Cargo.toml":
+        '[package]\nname = "gcc_build"\n',
       "compiler/patched/Cargo.toml": '[package]\nname = "patched"\n',
       "compiler/no_crate/README.md": "# Not a crate\n",
       "compiler/unused/Cargo.toml": '[package]\nname = "unused"\n',
@@ -359,10 +363,35 @@ describe("discover-roots script", () => {
         {
           manifest: null,
           reason: "No workspace manifest names these folders",
-          candidates: [
-            { path: "tools", manifests: ["Cargo.toml"] },
-            { path: "web", manifests: ["package.json"] },
-          ],
+          // `tools` is a workspace with no package, and `tools/gen` is a root.
+          candidates: [{ path: "web", manifests: ["package.json"] }],
+        },
+      ],
+      skipped: [],
+    })
+  })
+
+  it("follows the path dependencies of a root Cargo package with no workspace", () => {
+    const dir = repo({
+      "Cargo.toml":
+        '[package]\nname = "cli"\n\n[dependencies]\nhelper = { path = "helper" }\n',
+      "helper/Cargo.toml": '[package]\nname = "helper"\n',
+      "docs/package.json": pkg("docs"),
+    })
+    expect(discover(dir)).toEqual({
+      roots: [
+        { path: ".", manifests: ["Cargo.toml"], evidence: ["."] },
+        {
+          path: "helper",
+          manifests: ["Cargo.toml"],
+          evidence: ["Cargo.toml"],
+        },
+      ],
+      ambiguous: [
+        {
+          manifest: null,
+          reason: "No workspace manifest names these folders",
+          candidates: [{ path: "docs", manifests: ["package.json"] }],
         },
       ],
       skipped: [],
@@ -390,6 +419,9 @@ describe("discover-roots script", () => {
       "pkg/generated/openapi/cmd/models-schema/main.go": "package main\n",
       "staging/src/k8s.io/kms/internal/plugins/_mock/plugin.go":
         "package main\n",
+      // The go tool does not build a file whose name starts with `_` or `.`.
+      "cmd/old/_main.go": "package main\n",
+      "cmd/old/.main.go": "package main\n",
       "vendor/github.com/x/cmd/x/main.go": "package main\n",
       "staging/src/k8s.io/api/cmd/apigen/main.go": "package main\n",
     })

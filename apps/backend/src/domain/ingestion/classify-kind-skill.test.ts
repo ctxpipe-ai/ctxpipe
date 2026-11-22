@@ -285,6 +285,14 @@ describe("classify-kind rules", () => {
       "Service",
     ],
     [
+      "a Go module with a main package at its root",
+      {
+        "go.mod": "module github.com/example-org/tool\n\ngo 1.22\n",
+        "tool.go": "package main\n\nfunc main() {}\n",
+      },
+      "Service",
+    ],
+    [
       "a Go module with no main package",
       {
         "go.mod": "module github.com/example-org/retry/v2\n\ngo 1.22\n",
