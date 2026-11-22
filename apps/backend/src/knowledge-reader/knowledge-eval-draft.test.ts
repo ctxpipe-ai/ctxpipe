@@ -351,7 +351,8 @@ describe("the drafter", () => {
               message:
                 "anthropic/drafter requires moderation. Your input was flagged: the secret words of the input.",
               metadata: {
-                reasons: ["violence"],
+                // A value that is no known category can echo the input.
+                reasons: ["violence", "the secret words of the input"],
                 flagged_input: "the secret words of the input",
                 provider_name: "Amazon Bedrock",
               },
@@ -632,7 +633,7 @@ describe("the drafter", () => {
       expect(refused).toHaveLength(1)
       expect(refused[0]?.refused).toEqual({
         code: 403,
-        reasons: ["violence"],
+        reasons: ["violence", "other"],
         provider: "Amazon Bedrock",
       })
       expect(JSON.stringify(drafted.attempts)).not.toContain("secret words")
@@ -643,12 +644,12 @@ describe("the drafter", () => {
       refuseAt = new Set([1, 2])
       const twice = await run()
       expect(twice.failed).toBe(
-        "OpenRouter refused the call for anthropic/drafter (403: violence).",
+        "OpenRouter refused the call for anthropic/drafter (403: violence, other).",
       )
       // The refusal that stops the corpus stays.
       expect(twice.failedRefusal).toEqual({
         code: 403,
-        reasons: ["violence"],
+        reasons: ["violence", "other"],
         provider: "Amazon Bedrock",
       })
       // An answer out of the schema between them is no refusal.

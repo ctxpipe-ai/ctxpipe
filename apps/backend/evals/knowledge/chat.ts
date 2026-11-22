@@ -107,9 +107,30 @@ function forbiddenError(body: string, model: string): Error {
       ...(resetsAt ? { resetsAt } : {}),
     })
   }
-  const reasons = (error?.metadata?.reasons ?? []).flatMap(
-    (reason) => identifier(reason) ?? [],
-  )
+  // Only the known moderation categories: any other value could hold text
+  // of the input, so it is kept as `other`.
+  const categories = [
+    "harassment",
+    "harassment/threatening",
+    "hate",
+    "hate/threatening",
+    "illicit",
+    "illicit/violent",
+    "self-harm",
+    "self-harm/instructions",
+    "self-harm/intent",
+    "sexual",
+    "sexual/minors",
+    "violence",
+    "violence/graphic",
+  ]
+  const reasons = [
+    ...new Set(
+      (error?.metadata?.reasons ?? []).map((reason) =>
+        categories.includes(reason) ? reason : "other",
+      ),
+    ),
+  ]
   if (reasons.length === 0)
     return new Error(`OpenRouter answered 403 for ${model}.`)
   const provider = identifier(error?.metadata?.provider_name)
