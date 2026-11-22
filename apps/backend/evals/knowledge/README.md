@@ -36,14 +36,14 @@ The baseline (the current stack) is weak. Thus a high baseline recall is a sign 
 
 `fixtures/ctxpipe-memory.dataset.json` holds 12 example questions over `.ai/memory/` of this repository, written by hand. Its corpus is this repository at a fixed SHA with the root `.ai/memory`. The ADRs with superseded entries are the disagreement questions. `fixtures/ctxpipe-memory.workspace.json` is the small Workspace that the integration test writes to both stacks. The real question set comes from the frozen corpora ([CTX-1393](https://linear.app/ctxpipe/issue/CTX-1393)).
 
-`fixtures/corpora-v0.dataset.json` is the question set v0 ([CTX-1499](https://linear.app/ctxpipe/issue/CTX-1499)). It holds 83 questions:
+`fixtures/corpora-v0.dataset.json` is the question set v0 ([CTX-1499](https://linear.app/ctxpipe/issue/CTX-1499)). It holds 82 questions:
 
-- **Kubernetes** (`eval-v0-kubernetes-context` at `148b39dd`): 43 questions.
+- **Kubernetes** (`eval-v0-kubernetes-context` at `148b39dd`): 42 questions.
 - **Rust** (`eval-v0-rust-context` at `68e37931`): 40 questions.
-- **The categories of each Workspace:** 4 lookups, 12 multi-hop, 10 across sources (9 for Kubernetes), 8 time, 6 no-answer, and disagreement: 4 for Kubernetes and none for Rust.
+- **The categories of each Workspace:** 4 lookups, 12 multi-hop, 10 across sources (9 for Kubernetes), 8 time, 6 no-answer, and disagreement: 3 for Kubernetes and none for Rust.
 - **The splits:** in each Workspace and category, the count of `holdout` questions is the nearest whole number to 40%. Thus most categories split about 60/40, and the 4 lookups split 2/2.
 
-A disagreement question stays only when its documents make conflicting claims (a superseded or postponed plan, or an open dispute). Thus v0 has few of them, and none for Rust: version 1 adds them on the KEP and RFC documents, after [CTX-1501](https://linear.app/ctxpipe/issue/CTX-1501).
+A disagreement question stays only when its documents make conflicting claims (a superseded or postponed plan). Thus v0 has few of them, and none for Rust: version 1 adds them on the KEP and RFC documents, after [CTX-1501](https://linear.app/ctxpipe/issue/CTX-1501).
 
 Opus 5.5 drafted the questions (`draft`). The panel labeled them: Sonnet 5.5, GPT-6.1-Terra and Gemini 3.8 Flash (`label`). `finalize` made the file. Each model call went only to a ZDR endpoint of the provider allowlist of production. The context repos are private, so a run serves them from a local Git server at the same SHAs (see `hydrate`). The Backstage questions (`eval-v0-backstage-context` at `144bda17`) come in a later change with the same commands.
 

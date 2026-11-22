@@ -591,37 +591,10 @@
       ]
     },
     {
-      "id": "kubernetes-disagreement-10",
-      "corpus": "kubernetes",
-      "category": "disagreement",
-      "split": "dev",
-      "text": "Every machine in our fleet is set up so the node agent hands out exclusive processor cores to workloads. After moving to the newer minor version, the upstream compatibility checks we submit for our distribution started hanging until timeout. Those checks adjust processor and memory on live pods whose floor and ceiling values match, and each pod asks for only a small slice of one core. Is the node agent meant to reject those adjustments? Is a setup like ours simply not eligible to pass?",
-      "gold": [
-        "github/issues/kubernetes/kubernetes/141064.md",
-        "github/issues/kubernetes/enhancements/5554.md"
-      ],
-      "seeds": ["github/issues/kubernetes/kubernetes/141064.md"],
-      "positions": [
-        {
-          "refs": ["github/issues/kubernetes/kubernetes/141064.md"],
-          "status": "current"
-        },
-        {
-          "refs": ["github/issues/kubernetes/enhancements/5554.md"],
-          "status": "scoped"
-        }
-      ],
-      "keyFacts": [
-        "Since v1.36 the kubelet rejects in-place resize of every Guaranteed pod on nodes using the static CPU Manager policy, even pods with fractional CPU requests, so the new conformance resize tests time out.",
-        "Maintainers disagree: one view says enabling the default-off static policy makes the cluster nonconformant; another says a previously conformant setup should not become unavoidably nonconformant, and lifting the restriction for non-integer CPU requests is being considered.",
-        "Full support for in-place resize alongside the static CPU manager policy is tracked as a separate enhancement (KEP 5554), now targeted for alpha in 1.38."
-      ]
-    },
-    {
       "id": "kubernetes-disagreement-12",
       "corpus": "kubernetes",
       "category": "disagreement",
-      "split": "holdout",
+      "split": "dev",
       "text": "We hand out accelerators to teams through the newer pluggable device-request API. We'd like each namespace capped on total GPU memory actually given out, not just on how many devices it asks for. Is the per-namespace limit checked when the request object is created, or when the scheduler picks the actual devices? Is a switch to the latter still planned for an upcoming release?",
       "gold": [
         "github/issues/kubernetes/enhancements/4840.md",
