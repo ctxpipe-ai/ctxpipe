@@ -105,6 +105,7 @@ A check lists its `prerequisites` by name. Before the checks run, the runner mak
 | `falkordb` | verifies that `GRAPH_DB_URI` runs a graph query |
 | `bun`, `zoekt`, `ast-grep`, `docker` | verifies that the tool is installed |
 | `opencode` | verifies the OpenCode version that the chat contract declares |
+| `contract-images` | needs `docker`; verifies that Docker has each `contracts` image of `scripts/ci/service-pins.json` with its pinned digest, and pulls it by that digest when it is missing (a disk cleanup on a shared Docker host can remove an image that is only inspected) |
 | `chat-sandbox-image` | builds the chat sandbox image when Docker does not have it |
 | `chromium` | installs the Playwright Chromium |
 | `visual-container` | needs `docker`; verifies that the Docker server is linux/arm64 and has the Playwright image of `scripts/ci/visual-container.json` (pulls it when it is missing). `scripts/ci/visual-capture.mjs` takes screenshots in that image; a visual check lists the pin file as an input |
