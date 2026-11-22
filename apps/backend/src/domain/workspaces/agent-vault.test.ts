@@ -454,3 +454,98 @@ describe("the proxy host that sandboxes connect to", () => {
     expect(() => parseEnv(env(value))).toThrow(/AGENT_VAULT_SANDBOX_PROXY_HOST/)
   })
 })
+
+/**
+ * An Agent Vault whose task ECS can replace: the new instance has no owner and
+ * answers each gated route with 503 `not_initialized` until one registers, as
+ * Agent Vault's `requireInitialized` does. Only the token of the current
+ * instance's owner sets credentials.
+ */
+function replaceableAgentVault(address: string) {
+  const state = { instance: 1, owner: "", registers: 0, credentials: 0 }
+  const notInitialized = () =>
+    HttpResponse.json(
+      { error: "not_initialized", message: "No owner account exists." },
+      { status: 503 },
+    )
+  server.use(
+    http.get(`${address}/v1/status`, () =>
+      HttpResponse.json({ needs_first_user: state.owner === "" }),
+    ),
+    http.post(`${address}/v1/auth/register`, () => {
+      if (state.owner)
+        return HttpResponse.json({ error: "conflict" }, { status: 409 })
+      state.registers += 1
+      state.owner = `owner-${state.instance}`
+      return HttpResponse.json({ token: state.owner })
+    }),
+    http.post(`${address}/v1/auth/login`, () =>
+      state.owner ? HttpResponse.json({ token: state.owner }) : notInitialized(),
+    ),
+    http.post(`${address}/v1/credentials`, ({ request }) => {
+      if (!state.owner) return notInitialized()
+      if (request.headers.get("authorization") !== `Bearer ${state.owner}`)
+        return HttpResponse.json({ error: "unauthorized" }, { status: 401 })
+      state.credentials += 1
+      return HttpResponse.json({ set: [] })
+    }),
+    http.all(`${address}/v1/vaults/:name/*`, () => HttpResponse.json({})),
+  )
+  return {
+    state,
+    replace: () => {
+      state.instance += 1
+      state.owner = ""
+    },
+  }
+}
+
+describe("a replaced Agent Vault task", () => {
+  const rules = [
+    {
+      name: "model",
+      host: "api.example.test",
+      authorization: "Bearer key",
+    },
+  ]
+
+  it("registers the owner again once, for each caller that held the old login", async () => {
+    const address = "http://agent-vault-replaced.test"
+    const vault = replaceableAgentVault(address)
+    const access: AgentVaultAccess = {
+      address,
+      ownerPassword: async () => "owner-password",
+    }
+    await setRunVaultRules(access, "run:first", rules)
+    expect(vault.state.registers).toBe(1)
+
+    vault.replace()
+    await Promise.all(
+      ["a", "b", "c"].map((run) => setRunVaultRules(access, `run:${run}`, rules)),
+    )
+    expect(vault.state.registers).toBe(2)
+    expect(vault.state.credentials).toBe(4)
+  })
+
+  it("fails closed while the new instance stays without an owner", async () => {
+    const address = "http://agent-vault-unregistrable.test"
+    server.use(
+      http.get(`${address}/v1/status`, () =>
+        HttpResponse.json({ needs_first_user: true }),
+      ),
+      http.post(`${address}/v1/auth/register`, () =>
+        HttpResponse.json({ error: "forbidden" }, { status: 403 }),
+      ),
+      http.post(`${address}/v1/auth/login`, () =>
+        HttpResponse.json({ error: "not_initialized" }, { status: 503 }),
+      ),
+    )
+    await expect(
+      setRunVaultRules(
+        { address, ownerPassword: async () => "owner-password" },
+        "run:closed",
+        rules,
+      ),
+    ).rejects.toBeInstanceOf(AgentVaultUnavailableError)
+  })
+})

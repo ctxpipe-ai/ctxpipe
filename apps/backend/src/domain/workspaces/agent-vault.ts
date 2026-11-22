@@ -210,30 +210,55 @@ async function login(access: AgentVaultAccess): Promise<string> {
   })
   if (registered.ok && typeof registered.body.token === "string")
     return registered.body.token
+  // Another process (the worker or another backend task) registered first.
+  const again = await avFetch(access, "/v1/auth/login", {
+    method: "POST",
+    body: credentials,
+  })
+  if (again.ok && typeof again.body.token === "string") return again.body.token
   throw new AgentVaultUnavailableError(
     `Agent Vault refused the backend's owner account (${loggedIn.status}, ${registered.status})`,
   )
 }
 
-async function ownerToken(
+/**
+ * The cached owner login, or a new one. `stale` is a login that the instance
+ * no longer takes: a new login replaces it once, and each caller that held
+ * it shares that new login, so a replaced instance gets one register.
+ */
+function ownerToken(
   access: AgentVaultAccess,
-  refresh = false,
+  stale?: Promise<string>,
 ): Promise<string> {
   const cached = ownerTokens.get(access.address)
-  if (cached && !refresh) return cached
+  if (cached && cached !== stale) return cached
   const next = login(access)
   ownerTokens.set(access.address, next)
-  next.catch(() => ownerTokens.delete(access.address))
+  next.catch(() => {
+    if (ownerTokens.get(access.address) === next)
+      ownerTokens.delete(access.address)
+  })
   return next
 }
 
-/** Run `fn` with an owner client; logs in again once when the session ended. */
+/**
+ * The instance does not take the cached login: the session ended (401), or
+ * the instance is a new one with no owner yet (503 `not_initialized`). Agent
+ * Vault keeps no data across a restart, so a replaced task answers the old
+ * token with 503 until the backend registers the owner again.
+ */
+function needsLogin(error: unknown): boolean {
+  const { status, code } = error as { status?: number; code?: string }
+  return status === 401 || (status === 503 && code === "not_initialized")
+}
+
+/** Run `fn` with an owner client; logs in again once when the instance does not take the login. */
 async function asOwner<T>(
   access: AgentVaultAccess,
   fn: (client: AgentVault, token: string) => Promise<T>,
 ): Promise<T> {
-  const attempt = async (refresh: boolean) => {
-    const token = await ownerToken(access, refresh)
+  const attempt = async (session: Promise<string>) => {
+    const token = await session
     return fn(
       new AgentVault({
         token,
@@ -245,11 +270,16 @@ async function asOwner<T>(
       token,
     )
   }
+  const session = ownerToken(access)
   try {
-    return await attempt(false)
+    return await attempt(session)
   } catch (error) {
-    if ((error as { status?: number }).status === 401) return attempt(true)
-    throw unavailable(error)
+    if (!needsLogin(error)) throw unavailable(error)
+    try {
+      return await attempt(ownerToken(access, session))
+    } catch (retried) {
+      throw unavailable(retried)
+    }
   }
 }
 
@@ -549,8 +579,9 @@ async function setUnmatchedHostPolicy(
         new AgentVaultUnavailableError(
           `Agent Vault did not set the unmatched host policy "${policy}" (${response.status})`,
         ),
-        // A 401 makes `asOwner` log in again and retry.
-        { status: response.status },
+        // A login that the instance does not take makes `asOwner` log in
+        // again and retry (`needsLogin`).
+        { status: response.status, code: response.body.error },
       )
   })
 }
@@ -582,6 +613,7 @@ export async function sweepRunVaults(
       if (!response.ok)
         throw Object.assign(new Error("Listing vaults failed"), {
           status: response.status,
+          code: response.body.error,
         })
       return response.body as {
         vaults?: Array<{ name: string; created_at: string }>
