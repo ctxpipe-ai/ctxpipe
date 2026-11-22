@@ -556,10 +556,6 @@
           "status": "current"
         },
         {
-          "refs": ["github/issues/kubernetes/enhancements/5554.md"],
-          "status": "current"
-        },
-        {
           "refs": ["github/issues/kubernetes/kubernetes/143218.md"],
           "status": "scoped"
         }
@@ -619,10 +615,6 @@
         {
           "refs": ["github/issues/kubernetes/enhancements/5573.md"],
           "status": "scoped"
-        },
-        {
-          "refs": ["github/issues/kubernetes-sigs/kind/3915.md"],
-          "status": "current"
         }
       ],
       "keyFacts": [
@@ -632,34 +624,10 @@
       ]
     },
     {
-      "id": "kubernetes-disagreement-04",
-      "corpus": "kubernetes",
-      "category": "disagreement",
-      "split": "holdout",
-      "text": "We run a companion process in the same pod as our web server. It starts before the app and keeps running for the pod's whole life. Every time that companion dies from running out of memory, clients using the stable in-cluster address can't connect, even though the web server itself is fine. Is that by design? Is there a setting to leave the companion out of the health signal that decides whether the pod gets requests, and will it land in the next minor version?",
-      "gold": ["github/issues/kubernetes/kubernetes/142145.md"],
-      "seeds": ["github/issues/kubernetes/kubernetes/142145.md"],
-      "positions": [
-        {
-          "refs": ["github/issues/kubernetes/kubernetes/142145.md"],
-          "status": "current"
-        },
-        {
-          "refs": ["github/issues/kubernetes/kubernetes/142145.md"],
-          "status": "current"
-        }
-      ],
-      "keyFacts": [
-        "Readiness of restartable init (sidecar) containers counts toward Pod Ready, so a failing sidecar removes the pod from EndpointSlices; this is the intended behavior from the sidecar KEP.",
-        "SIG Node will keep this default for API backward compatibility; opting a container out of pod readiness needs a new KEP that also covers regular containers and dynamic pods.",
-        "The proposal missed the v1.38 deadline, so it is not available in that release."
-      ]
-    },
-    {
       "id": "kubernetes-disagreement-05",
       "corpus": "kubernetes",
       "category": "disagreement",
-      "split": "dev",
+      "split": "holdout",
       "text": "We'd like each node to have its own upper limit on how long it waits before restarting a container that keeps crashing. Is that setting still an experimental opt-in, or has it moved to the next maturity level, and in which release? Is the work tied to lowering the built-in default wait?",
       "gold": [
         "github/issues/kubernetes/enhancements/5593.md",
@@ -683,37 +651,10 @@
       ]
     },
     {
-      "id": "kubernetes-disagreement-06",
-      "corpus": "kubernetes",
-      "category": "disagreement",
-      "split": "dev",
-      "text": "Our cluster has to kill off less important running jobs to make room for an all-or-nothing batch of containers that must launch at the same moment. When it does, does it prefer machines that already have spare capacity, or can it end up killing things that never needed to die? Is anyone working on changing how it chooses which machines to clear?",
-      "gold": ["github/issues/kubernetes/kubernetes/142718.md"],
-      "seeds": [
-        "github/issues/kubernetes/kubernetes/142718.md",
-        "github/issues/kubernetes/enhancements/5710.md"
-      ],
-      "positions": [
-        {
-          "refs": ["github/issues/kubernetes/kubernetes/142718.md"],
-          "status": "current"
-        },
-        {
-          "refs": ["github/issues/kubernetes/kubernetes/142718.md"],
-          "status": "current"
-        }
-      ],
-      "keyFacts": [
-        "PodGroup preemption first removes all potential victims, then schedules the preemptor on the stripped snapshot, then reprieves victims. Score plugins cannot tell free nodes from nodes freed by eviction, which leads to unnecessary or cascading preemptions.",
-        "An open proposal (with a POC) adds victim-aware node scoring in DefaultPreemption. Nodes needing no new victims get the maximum score, and nodes with more important victims score lower.",
-        "This shifts the optimization goal from the best placement for the preemptor to the lowest preemption cost. The exact cost function is still being discussed."
-      ]
-    },
-    {
       "id": "kubernetes-disagreement-07",
       "corpus": "kubernetes",
       "category": "disagreement",
-      "split": "holdout",
+      "split": "dev",
       "text": "We run databases as the controller kind that gives each replica a stable name and ordered startup. We want those replicas placed together as one unit by the newer group-aware scheduling objects. When is the first experimental version of that hookup expected to ship? Did it slip from an earlier release?",
       "gold": [
         "github/issues/kubernetes/enhancements/6277.md",
@@ -721,10 +662,6 @@
       ],
       "seeds": ["github/issues/kubernetes/enhancements/6277.md"],
       "positions": [
-        {
-          "refs": ["github/issues/kubernetes/enhancements/6277.md"],
-          "status": "current"
-        },
         {
           "refs": ["github/issues/kubernetes/enhancements/6277.md"],
           "status": "current"
@@ -741,34 +678,10 @@
       ]
     },
     {
-      "id": "kubernetes-disagreement-09",
-      "corpus": "kubernetes",
-      "category": "disagreement",
-      "split": "dev",
-      "text": "We want an outside multi-cluster dispatcher to own some of our batch Jobs, so the built-in Job controller leaves them alone. In which release did handing a Job off to another controller reach the beta stage, and did that slip from an earlier plan?",
-      "gold": ["github/issues/kubernetes/enhancements/4368.md"],
-      "seeds": ["github/issues/kubernetes/enhancements/4368.md"],
-      "positions": [
-        {
-          "refs": ["github/issues/kubernetes/enhancements/4368.md"],
-          "status": "current"
-        },
-        {
-          "refs": ["github/issues/kubernetes/enhancements/4368.md"],
-          "status": "current"
-        }
-      ],
-      "keyFacts": [
-        "The Job managed-by mechanism was alpha in v1.30 and had a second alpha in v1.31 instead of going to beta.",
-        "Beta landed in v1.32, and stable was targeted for v1.35.",
-        "The SIG lead had opted it in as stage beta for v1.31, but the consensus switched to a second alpha."
-      ]
-    },
-    {
       "id": "kubernetes-disagreement-10",
       "corpus": "kubernetes",
       "category": "disagreement",
-      "split": "holdout",
+      "split": "dev",
       "text": "Every machine in our fleet is set up so the node agent hands out exclusive processor cores to workloads. After moving to the newer minor version, the upstream compatibility checks we submit for our distribution started hanging until timeout. Those checks adjust processor and memory on live pods whose floor and ceiling values match, and each pod asks for only a small slice of one core. Is the node agent meant to reject those adjustments? Is a setup like ours simply not eligible to pass?",
       "gold": [
         "github/issues/kubernetes/kubernetes/141064.md",
@@ -776,10 +689,6 @@
       ],
       "seeds": ["github/issues/kubernetes/kubernetes/141064.md"],
       "positions": [
-        {
-          "refs": ["github/issues/kubernetes/kubernetes/141064.md"],
-          "status": "current"
-        },
         {
           "refs": ["github/issues/kubernetes/kubernetes/141064.md"],
           "status": "current"
@@ -796,29 +705,32 @@
       ]
     },
     {
-      "id": "kubernetes-disagreement-11",
+      "id": "kubernetes-disagreement-12",
       "corpus": "kubernetes",
       "category": "disagreement",
-      "split": "dev",
-      "text": "We'd like to keep tabs on the effort to split the 'these replicas must land together or not at all' grouping into a separate top-level API resource, rather than embedding it in a bigger job-description object. Does it have its own enhancement track, or was it folded into the parent co-placement initiative? Which version first shipped it as an opt-in experiment?",
-      "gold": ["github/issues/kubernetes/enhancements/5832.md"],
+      "split": "holdout",
+      "text": "We hand out accelerators to teams through the newer pluggable device-request API. We'd like each namespace capped on total GPU memory actually given out, not just on how many devices it asks for. Is the per-namespace limit checked when the request object is created, or when the scheduler picks the actual devices? Is a switch to the latter still planned for an upcoming release?",
+      "gold": [
+        "github/issues/kubernetes/enhancements/4840.md",
+        "github/issues/kubernetes/enhancements/5291.md"
+      ],
       "seeds": [
-        "github/issues/kubernetes/enhancements/4671.md",
-        "github/issues/kubernetes/enhancements/5832.md"
+        "github/issues/kubernetes/enhancements/4840.md",
+        "github/issues/kubernetes/enhancements/5291.md"
       ],
       "positions": [
         {
-          "refs": ["github/issues/kubernetes/enhancements/5832.md"],
+          "refs": ["github/issues/kubernetes/enhancements/4840.md"],
           "status": "current"
         },
         {
-          "refs": ["github/issues/kubernetes/enhancements/5832.md"],
-          "status": "current"
+          "refs": ["github/issues/kubernetes/enhancements/5291.md"],
+          "status": "scoped"
         }
       ],
       "keyFacts": [
-        "Decoupling PodGroup as a standalone API object was first tracked as its own KEP (5832), targeting alpha in v1.36.",
-        "That KEP was later merged back into the Gang Scheduling Support enhancement (4671), which now tracks it."
+        "ResourceQuota for DRA resources is enforced at admission time and counts devices overall and/or per DeviceClass per namespace, so limits on total GPU memory are not supported.",
+        "The proposal to enforce DRA quota at allocation time (alpha targeted for 1.32) was postponed, marked Deferred for 1.34, and closed in September 2026 as not on the near-term radar."
       ]
     },
     {
@@ -1401,66 +1313,6 @@
       ]
     },
     {
-      "id": "rust-disagreement-01",
-      "corpus": "rust",
-      "category": "disagreement",
-      "split": "dev",
-      "text": "In Rust, can I declare a routine so that the value it hands back comes straight after the return type, with no curly-bracket block around it, to cut boilerplate? Has the language ever adopted something like that?",
-      "gold": [
-        "github/issues/rust-lang/rfcs/3369.md",
-        "github/issues/rust-lang/rfcs/3897.md"
-      ],
-      "seeds": ["github/issues/rust-lang/rfcs/3369.md"],
-      "positions": [
-        {
-          "refs": ["github/issues/rust-lang/rfcs/3897.md"],
-          "status": "current"
-        },
-        {
-          "refs": ["github/issues/rust-lang/rfcs/3369.md"],
-          "status": "current"
-        }
-      ],
-      "keyFacts": [
-        "Proposals for a braceless function body (`fn f() -> T = expr` or `fn f(..) => T { .. }`) were not adopted.",
-        "The `=> Window { .. }` proposal was closed as a duplicate of the earlier `fn name() = expr` proposal.",
-        "The `fn name() = expr` proposal was closed as not planned, because it saves little over `{ expr }` and has more disadvantages."
-      ]
-    },
-    {
-      "id": "rust-disagreement-02",
-      "corpus": "rust",
-      "category": "disagreement",
-      "split": "holdout",
-      "text": "When a proposed change to the Rust language gets deferred until some later time, how can I track it down again? Does the project keep a standalone open ticket for every deferred idea, or does it just mark the original submission itself?",
-      "gold": [
-        "github/issues/rust-lang/rfcs/2348.md",
-        "github/issues/rust-lang/rfcs/2347.md"
-      ],
-      "seeds": [
-        "github/issues/rust-lang/rfcs/2348.md",
-        "github/issues/rust-lang/rfcs/2347.md"
-      ],
-      "positions": [
-        {
-          "refs": ["github/issues/rust-lang/rfcs/2348.md"],
-          "status": "current"
-        },
-        {
-          "refs": [
-            "github/issues/rust-lang/rfcs/2348.md",
-            "github/issues/rust-lang/rfcs/2347.md"
-          ],
-          "status": "current"
-        }
-      ],
-      "keyFacts": [
-        "An early plan was to keep an open issue for each postponed RFC and put the `postponed` label only on that issue.",
-        "This was replaced: postponement issues are closed and the `postponed` label goes on the last RFC PR that addressed the problem.",
-        "Issue #2347 (types for enum variants) was closed under this convention, and RFC PR #1450 was relabeled `postponed`."
-      ]
-    },
-    {
       "id": "rust-disagreement-03",
       "corpus": "rust",
       "category": "disagreement",
@@ -1488,179 +1340,10 @@
       ]
     },
     {
-      "id": "rust-disagreement-04",
-      "corpus": "rust",
-      "category": "disagreement",
-      "split": "holdout",
-      "text": "My outer type holds another value as a field, and I'd like the outer type to automatically satisfy the same interface by passing every call through to that field, instead of typing each one out by hand. Is Rust getting first-class syntax for this, and if not, what's the practical alternative today?",
-      "gold": [
-        "github/issues/rust-lang/rfcs/3108.md",
-        "github/issues/rust-lang/rfcs/3133.md"
-      ],
-      "seeds": [
-        "github/issues/rust-lang/rfcs/3133.md",
-        "github/issues/rust-lang/rfcs/3108.md"
-      ],
-      "positions": [
-        {
-          "refs": [
-            "github/issues/rust-lang/rfcs/3108.md",
-            "github/issues/rust-lang/rfcs/3133.md"
-          ],
-          "status": "current"
-        },
-        {
-          "refs": [
-            "github/issues/rust-lang/rfcs/3133.md",
-            "github/issues/rust-lang/rfcs/3108.md"
-          ],
-          "status": "current"
-        }
-      ],
-      "keyFacts": [
-        "Community proposals for delegation syntax (e.g. `impl Trait by self.field` or a `delegate ... to` statement) were closed without being accepted.",
-        "They were closed because the delegation RFC #2393 was postponed by the lang team, mainly over bandwidth concerns.",
-        "Today the workarounds are implementing Deref, manual forwarding, or procedural macro crates, which already provide much of this functionality."
-      ]
-    },
-    {
-      "id": "rust-disagreement-05",
-      "corpus": "rust",
-      "category": "disagreement",
-      "split": "dev",
-      "text": "I have an idea for changing how Rust itself behaves. Will the people who design the core syntax and semantics consider it if I post a write-up on GitHub where the formal design documents are kept? What if my post only describes the pain point, to collect opinions before I write a full spec — will it stay open?",
-      "gold": ["github/issues/rust-lang/rfcs/3756.md"],
-      "seeds": ["github/issues/rust-lang/rfcs/3756.md"],
-      "positions": [
-        {
-          "refs": ["github/issues/rust-lang/rfcs/3756.md"],
-          "status": "current"
-        },
-        {
-          "refs": ["github/issues/rust-lang/rfcs/3756.md"],
-          "status": "current"
-        }
-      ],
-      "keyFacts": [
-        "T-lang will not formally take or act on change suggestions filed as GitHub issues on the RFCs repo. Such issues can be closed, with a directive to open an RFC pull request or to use another venue such as Zulip or IRLO.",
-        "A concern was raised that problem-only or feedback-gathering issues (for example #3582) should be kept open. It was resolved, and the blanket policy completed its final comment period. Research for an RFC should happen elsewhere, for example in the author's own fork."
-      ]
-    },
-    {
-      "id": "rust-disagreement-06",
-      "corpus": "rust",
-      "category": "disagreement",
-      "split": "dev",
-      "text": "Coming from C, I keep reaching for the compact `cond ? a : b` inline choice syntax in Rust and it doesn't compile. Was that left out by oversight, and is there any chance it gets added? What should I write instead?",
-      "gold": [
-        "github/issues/rust-lang/rfcs/2831.md",
-        "github/issues/rust-lang/rfcs/3053.md"
-      ],
-      "seeds": ["github/issues/rust-lang/rfcs/2831.md"],
-      "positions": [
-        {
-          "refs": ["github/issues/rust-lang/rfcs/3053.md"],
-          "status": "current"
-        },
-        {
-          "refs": ["github/issues/rust-lang/rfcs/2831.md"],
-          "status": "current"
-        }
-      ],
-      "keyFacts": [
-        "The ternary operator was intentionally omitted because if/else is already an expression: `let x = if cond { a } else { b };`",
-        "The proposal was already made and denied in #1362, and later requests were closed as duplicates.",
-        "The `?` and `:` symbols already have other meanings in Rust, which would make parsing and reading harder. A macro is a possible workaround."
-      ]
-    },
-    {
-      "id": "rust-disagreement-09",
-      "corpus": "rust",
-      "category": "disagreement",
-      "split": "holdout",
-      "text": "I want a struct that holds a reference to one of its own fields. Could Rust run some code automatically whenever such a value is relocated in memory, either a method I write or one the compiler generates, so the internal pointer gets patched? Is that planned, or what is the intended approach?",
-      "gold": [
-        "github/issues/rust-lang/rfcs/2613.md",
-        "github/issues/rust-lang/rfcs/2664.md"
-      ],
-      "seeds": [
-        "github/issues/rust-lang/rfcs/2613.md",
-        "github/issues/rust-lang/rfcs/2664.md"
-      ],
-      "positions": [
-        {
-          "refs": [
-            "github/issues/rust-lang/rfcs/2613.md",
-            "github/issues/rust-lang/rfcs/2664.md"
-          ],
-          "status": "current"
-        },
-        {
-          "refs": [
-            "github/issues/rust-lang/rfcs/2613.md",
-            "github/issues/rust-lang/rfcs/2664.md"
-          ],
-          "status": "current"
-        }
-      ],
-      "keyFacts": [
-        "Proposals for a move hook (a user-implemented OnMove trait, or a derived OnCopy that updates self-references) were closed; Rust is unlikely to get move constructors.",
-        "Moves in Rust stay a bitwise memcpy with no user code: unsafe code relies on this (for example, moves can't panic, and Vec reallocation copies bytes), so adding a hook would be a breaking change, even across editions.",
-        "Pin is the chosen solution for self-referential types; it keeps the problem local to the code that needs it, instead of adding a new implicit trait bound."
-      ]
-    },
-    {
-      "id": "rust-disagreement-11",
-      "corpus": "rust",
-      "category": "disagreement",
-      "split": "dev",
-      "text": "If I open a pull request proposing a change to the Rust language's design, will a member of the design group be assigned to champion it and guide it through review? Or is that not how proposals actually get handled these days?",
-      "gold": ["github/issues/rust-lang/rfcs/3798.md"],
-      "seeds": ["github/issues/rust-lang/rfcs/3798.md"],
-      "positions": [
-        {
-          "refs": ["github/issues/rust-lang/rfcs/3798.md"],
-          "status": "current"
-        },
-        {
-          "refs": ["github/issues/rust-lang/rfcs/3798.md"],
-          "status": "current"
-        }
-      ],
-      "keyFacts": [
-        "The lang-specific RFC policy (lang_changes.md) says that after triage, a PR is either assigned to a sub-team member for shepherding, or closed or postponed.",
-        "An open issue reports that PRs are not actually assigned a shepherd in practice, and asks whether the document should be updated or whether the practice will return."
-      ]
-    },
-    {
-      "id": "rust-disagreement-12",
-      "corpus": "rust",
-      "category": "disagreement",
-      "split": "holdout",
-      "text": "I'd like the compiler to refuse to build when someone calls my function with a number outside an allowed interval, for example a network listening number that has to be above a thousand and fit in 16 bits. Can I write that bound into the function's signature in Rust, and is anything like this planned?",
-      "gold": ["github/issues/rust-lang/rfcs/2715.md"],
-      "seeds": ["github/issues/rust-lang/rfcs/2715.md"],
-      "positions": [
-        {
-          "refs": ["github/issues/rust-lang/rfcs/2715.md"],
-          "status": "current"
-        },
-        {
-          "refs": ["github/issues/rust-lang/rfcs/2715.md"],
-          "status": "current"
-        }
-      ],
-      "keyFacts": [
-        "The open request asks to put value range constraints (e.g. port in 1000..65536) on ordinary runtime parameters in where clauses; this is not supported.",
-        "Commenters say this belongs to const generics: the value must be a const generic parameter, and where clauses on const expressions were postponed until after const generics stop treating expressions as black boxes.",
-        "The proposed where-clause expression syntax conflicts with type ascription in parsing, so a const { ... } block form was suggested; meanwhile an assert! at the start of the function is the practical alternative."
-      ]
-    },
-    {
       "id": "rust-disagreement-13",
       "corpus": "rust",
       "category": "disagreement",
-      "split": "dev",
+      "split": "holdout",
       "text": "In CI I moved from passing the compiler flag that promotes every diagnostic to an error over to the package manager's own config option for failing builds on diagnostics. Now some builds (e.g. macOS) break purely because the native link step printed some chatter on stderr, which the old approach just showed and moved on. Is this the intended behavior, and how should I deal with it?",
       "gold": [
         "github/issues/rust-lang/cargo/17142.md",
@@ -1675,10 +1358,6 @@
         {
           "refs": ["github/issues/rust-lang/cargo/17550.md"],
           "status": "scoped"
-        },
-        {
-          "refs": ["github/issues/rust-lang/cargo/17142.md"],
-          "status": "current"
         }
       ],
       "keyFacts": [

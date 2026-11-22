@@ -110,6 +110,18 @@ The dataset must cover three shapes of customer: one large monorepo, an org with
    - **Data.** Each Jev call, embedding call and vision call goes only to a ZDR endpoint. Before the first org leaves `off`, the ZDR probe of [ADR-068](ADR-068-knowledge-retrieval-jev-layers.md) decision 7 passes. No other condition holds back the flag (the CTO, 2026-11-19). Shadow logs hold ids, scores and timings, no content.
    - **The end.** When all orgs are `on` and their metrics are at least as good, we remove the old stack, the dual write and the flag.
 
+## Amendment 2026-11-22: hill-climb by generations, with no fixed target (CTX-1499)
+
+The CTO, 2026-11-22: "We don't have hard targets, we want to hillclimb the retrieval for many generations until the improvements plateau. Every generation can be merged as we are behind feature flag."
+
+- **A generation** is one change of the plane, with its run on the dataset.
+- **A change of the plane is kept** when it improves the eval over the last kept generation of the plane, with no guard regression. This replaces the keep rule of decision 7 for the plane.
+- **No fixed target:** a change is not measured against a fixed number, and not against the baseline (the current stack, Postgres and FalkorDB). The baseline arm stays in each report, as a reference only.
+- **The loop goes on** until the improvements plateau.
+- **Each kept generation can merge**, because the `knowledge_plane` flag holds the plane back from customers (decision 9).
+- **The labels:** each generation of a dataset, and its baseline, is scored against the same labels. A change of the labels scores each kept run again with `rescore`.
+- **The question set v0** (`apps/backend/evals/knowledge/fixtures/corpora-v0.dataset.json`): 88 questions over the frozen Kubernetes and Rust corpora. The Backstage questions come in a later change.
+
 ## Consequences
 
 - **Proof before switch:** each change has a measured effect before it reaches a customer, and the switch for each org is reversible.

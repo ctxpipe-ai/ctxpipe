@@ -61,7 +61,7 @@ describe("the dataset", () => {
       const questions = dataset.questions.filter(
         (question) => question.corpus === corpus.id,
       )
-      expect(questions.length).toBeGreaterThanOrEqual(45)
+      expect(questions.length).toBeGreaterThanOrEqual(40)
       // No image in the corpora, and no validAt in v0.
       expect(questions.some((question) => question.category === "image")).toBe(
         false,

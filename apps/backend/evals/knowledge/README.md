@@ -36,13 +36,26 @@ The baseline (the current stack) is weak. Thus a high baseline recall is a sign 
 
 `fixtures/ctxpipe-memory.dataset.json` holds 12 example questions over `.ai/memory/` of this repository, written by hand. Its corpus is this repository at a fixed SHA with the root `.ai/memory`. The ADRs with superseded entries are the disagreement questions. `fixtures/ctxpipe-memory.workspace.json` is the small Workspace that the integration test writes to both stacks. The real question set comes from the frozen corpora ([CTX-1393](https://linear.app/ctxpipe/issue/CTX-1393)).
 
-`fixtures/corpora-v0.dataset.json` is the question set v0 ([CTX-1499](https://linear.app/ctxpipe/issue/CTX-1499)). It holds 99 questions:
+`fixtures/corpora-v0.dataset.json` is the question set v0 ([CTX-1499](https://linear.app/ctxpipe/issue/CTX-1499)). It holds 88 questions:
 
-- **Kubernetes** (`eval-v0-kubernetes-context` at `148b39dd`): 49 questions.
-- **Rust** (`eval-v0-rust-context` at `68e37931`): 50 questions.
-- **The categories of each Workspace:** 4 lookups, 12 multi-hop, 10 across sources (9 for Kubernetes), 8 time, 10 disagreement and 6 no-answer, with 60% `dev` and 40% `holdout` in each category.
+- **Kubernetes** (`eval-v0-kubernetes-context` at `148b39dd`): 46 questions.
+- **Rust** (`eval-v0-rust-context` at `68e37931`): 42 questions.
+- **The categories of each Workspace:** 4 lookups, 12 multi-hop, 10 across sources (9 for Kubernetes), 8 time, 6 no-answer, and disagreement: 7 for Kubernetes and 2 for Rust.
+- **The splits:** in each Workspace and category, the count of `holdout` questions is the nearest whole number to 40%. Thus most categories split about 60/40, and the 4 lookups split 2/2.
+
+The panel and the rules of `dataset.ts` dropped 12 disagreement questions whose positions did not disagree. Most of them were two open RFC issues of Rust that are both current. Version 1 adds Rust disagreement questions on the RFC documents, after [CTX-1501](https://linear.app/ctxpipe/issue/CTX-1501).
 
 Opus 5.5 drafted them (`draft`). The panel labeled them: Sonnet 5.5, GPT-6.1-Terra and Gemini 3.8 Flash (`label`). `finalize` made the file. Each model call went only to a ZDR endpoint of the provider allowlist of production. The context repos are private, so a run serves them from a local Git server at the same SHAs (see `hydrate`). The Backstage questions (`eval-v0-backstage-context` at `144bda17`) come in a later change with the same commands.
+
+### Hill-climb by generations
+
+"We don't have hard targets, we want to hillclimb the retrieval for many generations until the improvements plateau. Every generation can be merged as we are behind feature flag" (the CTO, 2026-11-22).
+
+- **A generation** is one change of the plane, with its run on the dataset.
+- **A change of the plane is kept** when it improves the eval over the last kept generation of the plane, with no guard regression. It is not measured against a fixed number, and not against the baseline (the current stack, Postgres and FalkorDB).
+- **The loop goes on** until the improvements plateau.
+- **Each kept generation can merge**, because the `knowledge_plane` flag holds the plane back from customers.
+- **The baseline arm** stays in each report, as a reference only.
 
 ### One label version for each dataset
 
