@@ -26,19 +26,28 @@ export function logFile(name) {
   return { path, relative: inRepo.startsWith("..") ? path : inRepo }
 }
 
+// Writes the command line to the log, and returns a file descriptor that
+// appends to it, for the output of the command.
+const openLog = (log, command, args) => {
+  writeFileSync(log, `$ ${command} ${args.join(" ")}\n`, { flag: "a" })
+  return openSync(log, "a")
+}
+
+const timeLimit = (timeout) =>
+  `it did not end within its time limit of ${timeout / 1000} seconds`
+
 // Runs a command with its output in the log, and returns the spawnSync result.
 // When the command passes its `timeout`, the error message names the time
 // limit: spawnSync gives only the code ETIMEDOUT.
 export function logged(log, command, args, options = {}) {
-  writeFileSync(log, `$ ${command} ${args.join(" ")}\n`, { flag: "a" })
-  const fd = openSync(log, "a")
+  const fd = openLog(log, command, args)
   try {
     const run = spawnSync(command, args, {
       stdio: ["ignore", fd, fd],
       ...options,
     })
     if (run.error?.code === "ETIMEDOUT")
-      run.error.message = `it did not end within its time limit of ${options.timeout / 1000} seconds`
+      run.error.message = timeLimit(options.timeout)
     return run
   } finally {
     closeSync(fd)
@@ -49,8 +58,7 @@ export function logged(log, command, args, options = {}) {
 // starts the shards of a serial lane at the same time (lanes.mjs). Returns a
 // promise of { status, signal, error }, as spawnSync gives them.
 export function loggedAsync(log, command, args, options = {}) {
-  writeFileSync(log, `$ ${command} ${args.join(" ")}\n`, { flag: "a" })
-  const fd = openSync(log, "a")
+  const fd = openLog(log, command, args)
   const { timeout, ...rest } = options
   return new Promise((resolve) => {
     let error
@@ -58,9 +66,7 @@ export function loggedAsync(log, command, args, options = {}) {
     const timer =
       timeout &&
       setTimeout(() => {
-        error = new Error(
-          `it did not end within its time limit of ${timeout / 1000} seconds`,
-        )
+        error = new Error(timeLimit(timeout))
         child.kill("SIGTERM")
       }, timeout)
     child.on("error", (cause) => {

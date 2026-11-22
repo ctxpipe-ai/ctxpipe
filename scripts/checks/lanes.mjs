@@ -364,7 +364,7 @@ export async function listVitest() {
 // rejection has a suite, so its record gets no origin.
 export function markExitFailure(records, run) {
   if (run.status === 0 && !run.error && !run.signal) return records
-  const cause = run.error?.message ?? run.signal ?? `exit ${run.status}`
+  const cause = exitCause(run)
   return records.map((record) =>
     record.status === "failed" || (record.status === "error" && !record.origin)
       ? record
@@ -416,7 +416,7 @@ export async function runVitest(checks, trace) {
     }
     if (message)
       records.push(
-        ...laneChecks.map(({ id, file }) =>
+        ...laneChecks.map(({ id }) =>
           suiteRecord(id, undefined, log.relative, message),
         ),
       )
@@ -506,7 +506,7 @@ async function runShard(laneConfig, checks, { log, index }, parts) {
   try {
     if (index) {
       database = await shardDatabase(laneConfig, index, log.path)
-      if (database.error) message = database.error
+      message = database.error
     }
     if (!message) {
       const launch = vitestCommand(
@@ -522,14 +522,20 @@ async function runShard(laneConfig, checks, { log, index }, parts) {
           ...launch.env,
           ...(database && { DATABASE_URL: database.url }),
         },
-        timeout: 2_700_000,
+        // A serial lane in one run (no host cap) runs all its files in
+        // series: the full backend lane took 48 minutes on the agent host
+        // (CTX-1480). A shard or a parallel lane has 45 minutes.
+        timeout: laneConfig.serial && !index ? 7_200_000 : 2_700_000,
       })
       try {
         suites = reportSuites(report)
       } catch {
-        message = `Vitest wrote no report (${run.error?.message ?? run.signal ?? `exit ${run.status}`})`
+        message = `Vitest wrote no report (${exitCause(run)})`
       }
     }
+  } catch (error) {
+    // The other shards run on: one error fails only the checks of this one.
+    message = `The ${laneConfig.name} shard ${index} did not run: ${error.message}`
   } finally {
     rmSync(reportDirectory, { recursive: true, force: true })
     if (database?.drop) await database.drop()
@@ -540,17 +546,20 @@ async function runShard(laneConfig, checks, { log, index }, parts) {
   return run ? markExitFailure(records, run) : records
 }
 
-// The database of shard `index` of a serial lane: the database of
-// DATABASE_URL with the suffix `_<index>`, new and migrated with the
-// migrations of this checkout (apps/backend/src/db/test-database.ts).
+// The database of shard `index` of a serial lane:
+// `<database of DATABASE_URL>_<pid of this runner>_<index>`, new and
+// migrated with the migrations of this checkout. With the pid, two runs on
+// one checkout do not share a shard database; a reset drops the shard
+// databases that an ended runner left (apps/backend/src/db/test-database.ts).
 // Returns `{ url, drop }`, or `{ error }`.
 async function shardDatabase(laneConfig, index, log) {
   const url = new URL(process.env.DATABASE_URL)
   // Postgres keeps only the first 63 bytes of a name.
-  const suffix = `_${index}`
-  url.pathname = `/${encodeURIComponent(`${decodeURIComponent(url.pathname.slice(1)).slice(0, 63 - suffix.length)}${suffix}`)}`
+  const suffix = `_${process.pid}_${index}`
+  const name = `${decodeURIComponent(url.pathname.slice(1)).slice(0, 63 - suffix.length)}${suffix}`
+  url.pathname = `/${encodeURIComponent(name)}`
   const cwd = join(root, laneConfig.directory)
-  const database = (command) =>
+  const testDatabase = (command) =>
     loggedAsync(
       log,
       process.execPath,
@@ -565,13 +574,16 @@ async function shardDatabase(laneConfig, index, log) {
         timeout: 300_000,
       },
     )
-  const reset = await database("reset")
+  const reset = await testDatabase("reset")
   if (reset.error || reset.status)
     return {
-      error: `The shard database ${decodeURIComponent(url.pathname.slice(1))} was not made (${reset.error?.message ?? reset.signal ?? `exit ${reset.status}`}); see the log`,
+      error: `The shard database ${name} was not made (${exitCause(reset)}); see the log`,
     }
-  return { url: url.toString(), drop: () => database("drop") }
+  return { url: url.toString(), drop: () => testDatabase("drop") }
 }
+
+// Why a child process did not pass: its error, its signal or its exit code.
+const exitCause = (run) => run.error?.message ?? run.signal ?? `exit ${run.status}`
 
 const codesearchLanes = ["codesearch", "codesearch-bun"]
 
@@ -607,7 +619,7 @@ export function runCodesearchImage(checks) {
       written.set(record.id, { ...record, log: log.relative })
     }
   } catch {}
-  const message = `The codesearch image run wrote no result (${run.error?.message ?? run.signal ?? `exit ${run.status}`})`
+  const message = `The codesearch image run wrote no result (${exitCause(run)})`
   const records = checks.map(
     ({ id }) =>
       written.get(id) ?? suiteRecord(id, undefined, log.relative, message),
