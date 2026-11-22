@@ -30,17 +30,20 @@ export const confluenceSourceScopeSchema = z
         z
           .object({
             key: confluenceSpaceKeySchema,
-            /** `all`, or only these pages (and the path to them). */
-            pages: z.union([
-              z.literal("all"),
-              z
-                .array(confluencePageIdSchema)
-                .min(1)
-                .max(
-                  CONFLUENCE_SOURCE_MAX_PAGES_PER_SPACE,
-                  `Select at most ${CONFLUENCE_SOURCE_MAX_PAGES_PER_SPACE} pages in one Confluence space`,
-                ),
-            ]),
+            /**
+             * `all`, or only these pages (and the path to them). The cap is
+             * on the union and not on the list branch. Since zod 4.6.7, a
+             * list above a `.max` stops each branch, and the union then
+             * gives only one "Invalid input" issue without the cap message.
+             */
+            pages: z
+              .union([z.literal("all"), z.array(confluencePageIdSchema).min(1)])
+              .check(
+                z.maxLength(CONFLUENCE_SOURCE_MAX_PAGES_PER_SPACE, {
+                  message: `Select at most ${CONFLUENCE_SOURCE_MAX_PAGES_PER_SPACE} pages in one Confluence space`,
+                  when: (payload) => Array.isArray(payload.value),
+                }),
+              ),
           })
           .strict(),
       )
