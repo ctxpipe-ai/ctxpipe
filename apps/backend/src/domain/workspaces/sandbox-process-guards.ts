@@ -124,38 +124,6 @@ for p in $live; do kill -KILL -"$p" 2>/dev/null; done`,
 }
 
 /**
- * A reused sandbox can still run the `opencode serve` of a turn whose backend
- * died, and that server holds the agent port. Stop it before a new server
- * starts. Use this only where one conversation owns the sandbox.
- */
-export function withSingleOpencodeServer(
-  provider: SandboxProvider,
-): SandboxProvider {
-  return wrapSandboxHandles(provider, (handle) =>
-    withSpawn(handle, async (command, options) => {
-      if (command.startsWith("opencode serve "))
-        await handle.process.exec(STOP_EARLIER_OPENCODE_SERVERS)
-      return handle.process.spawn(command, options)
-    }),
-  )
-}
-
-// The match text is split, so this script does not match its own command.
-const STOP_EARLIER_OPENCODE_SERVERS = `s=serve
-found() {
-  for d in /proc/[0-9]*; do
-    [ "\${d#/proc/}" = "$$" ] && continue
-    case "$(tr '\\0' ' ' < "$d/cmdline" 2>/dev/null)" in
-      *opencode*" $s --hostname="*) echo "\${d#/proc/}" ;;
-    esac
-  done
-}
-for p in $(found); do kill -KILL "$p" 2>/dev/null; done
-i=0
-while [ -n "$(found)" ] && [ "$i" -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
-true`
-
-/**
  * Stop every process that the agent user started in an earlier turn: a
  * process can leave its server's process group and session (`setsid`,
  * `nohup`), and it would then send requests during the next turn, when

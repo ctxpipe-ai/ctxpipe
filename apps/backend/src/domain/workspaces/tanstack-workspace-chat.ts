@@ -100,7 +100,6 @@ import {
   stopEarlierTurnProcesses,
   withOpencodeServeRetry,
   withOwnerWatchdog,
-  withSingleOpencodeServer,
 } from "./sandbox-process-guards.js"
 import {
   configuredAgentCoreProvider,
@@ -294,16 +293,15 @@ export function conversationSandboxProvider(
   // (no Workspace base, ADR-061 decision 18).
   if (isolation === "agentcore") {
     const agentCore = withOpencodeWarmup(configuredAgentCoreProvider())
-    return withSingleOpencodeServer(
-      withProxyCa(
-        withSessionOnlyEnv(
-          withDockerAgentPort(
-            pool ? withPoolClaim(agentCore, pool) : agentCore,
-            { agentPassword },
-          ),
-        ),
-        proxyCaPem,
+    // The turn stops each process of an earlier turn, also an earlier
+    // OpenCode server, before it starts OpenCode (`stopEarlierTurnProcesses`).
+    return withProxyCa(
+      withSessionOnlyEnv(
+        withDockerAgentPort(pool ? withPoolClaim(agentCore, pool) : agentCore, {
+          agentPassword,
+        }),
       ),
+      proxyCaPem,
     )
   }
   if (isolation === "unsandboxed")
@@ -314,27 +312,25 @@ export function conversationSandboxProvider(
         }),
       ),
     )
-  return withSingleOpencodeServer(
-    withProxyCa(
-      withSessionOnlyEnv(
-        withDockerAgentPort(
-          startingFromBase({
-            make: (image) =>
-              dockerSandbox({
-                image: image ?? workspaceChatDockerImage(),
-                publishPorts: [WORKSPACE_CHAT_OPENCODE_PORT],
-                dockerodeOptions: { timeout: 120_000 },
-              }),
-            baseImage,
-          }),
-          {
-            agentPassword,
-            daemonHost: remoteDockerHost(),
-          },
-        ),
+  return withProxyCa(
+    withSessionOnlyEnv(
+      withDockerAgentPort(
+        startingFromBase({
+          make: (image) =>
+            dockerSandbox({
+              image: image ?? workspaceChatDockerImage(),
+              publishPorts: [WORKSPACE_CHAT_OPENCODE_PORT],
+              dockerodeOptions: { timeout: 120_000 },
+            }),
+          baseImage,
+        }),
+        {
+          agentPassword,
+          daemonHost: remoteDockerHost(),
+        },
       ),
-      proxyCaPem,
     ),
+    proxyCaPem,
   )
 }
 

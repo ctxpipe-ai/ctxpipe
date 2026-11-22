@@ -688,10 +688,28 @@ export async function agentCoreImageUserCommand(
   throw new Error("The AgentCore command stream ended early")
 }
 
+/**
+ * When a resume in this process last found each session's marker. A turn
+ * resumes the session that its prepare checked a second earlier, and each
+ * check is one more command on the path to the answer. AgentCore stops an
+ * idle session only after 15 minutes, so a session that was checked less
+ * than 60 s ago still runs. A create records nothing: the first resume of a
+ * session, such as a pool claim, always checks it.
+ */
+const checkedSessions = new Map<string, number>()
+
+function markSessionChecked(sessionId: string): void {
+  const now = Date.now()
+  for (const [id, at] of checkedSessions)
+    if (now - at >= 60_000) checkedSessions.delete(id)
+  checkedSessions.set(sessionId, now)
+}
+
 async function stopSession(
   runtime: AgentCoreRuntime,
   sessionId: string,
 ): Promise<void> {
+  checkedSessions.delete(sessionId)
   // A later request to an old port URL would start a new, empty microVM.
   for (const [token, route] of bridgeRoutes)
     if (route.sessionId === sessionId) bridgeRoutes.delete(token)
@@ -778,11 +796,17 @@ export function agentCoreSandboxProvider(input: {
     },
     async resume({ id }) {
       const { handle, run } = agentCoreHandle(runtime, id, paths, input.user)
+      const checkedAt = checkedSessions.get(id)
+      if (checkedAt !== undefined && Date.now() - checkedAt < 60_000)
+        return handle
       // A call to a session that is gone starts a new, empty microVM.
       const marker = await run(
         `cat ${shellQuote(`${paths.state}/session`)} 2>/dev/null; true`,
       )
-      if (marker.stdout === id) return handle
+      if (marker.stdout === id) {
+        markSessionChecked(id)
+        return handle
+      }
       await stopSession(runtime, id)
       return null
     },
