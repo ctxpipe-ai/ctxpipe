@@ -46,16 +46,16 @@
   "devDependencies": {
     "@ast-grep/cli": "0.45.0",
     "@changesets/cli": "^2.29.7",
-    "@jridgewell/sourcemap-codec": "1.5.5",
+    "@jridgewell/sourcemap-codec": "^1.5.5",
     "concurrently": "^9.1.0",
     "knip": "5.88.1",
     "msw": "^2.15.0",
     "opencode-ai": "1.19.5",
-    "oxfmt": "0.74.0",
-    "oxlint": "1.89.0",
+    "oxfmt": "^0.74.0",
+    "oxlint": "^1.89.0",
     "portless": "^0.9.4",
     "turbo": "^2.10.9",
     "typescript": "^6.0.3",
-    "yaml": "2.8.2"
+    "yaml": "^2.8.2"
   }
 }

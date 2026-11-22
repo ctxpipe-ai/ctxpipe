@@ -1,0 +1,29 @@
+{
+  "entries": [
+    {
+      "package": "opencode-ai",
+      "files": ["package.json"],
+      "reason": "The checks run this OpenCode, and the backend image, the chat sandbox image and WORKSPACE_CHAT_OPENCODE_CLI install the same version by its number; chat-runtime.test.ts compares them with this string (#764). The patch patches/opencode-ai@<version>.patch is keyed by it too. Bump all of them together."
+    },
+    {
+      "package": "@ast-grep/cli",
+      "files": ["package.json"],
+      "reason": "The checks run this ast-grep, and the chat sandbox and codesearch images install the same version by its number; chat-runtime.test.ts compares the sandbox image with this string (#764). Bump them together."
+    },
+    {
+      "package": "@cosmograph/react",
+      "files": ["apps/ui/package.json"],
+      "reason": "Each release depends on exactly the same version of @cosmograph/cosmograph, and that version is patched (patches/@cosmograph__cosmograph@<version>.patch, keyed by version). A newer @cosmograph/react needs the patch rebased to the new core version first."
+    },
+    {
+      "package": "knip",
+      "files": ["package.json"],
+      "reason": "The knip check runs the installed binary (CTX-1121), and knip.json names this version in its $schema URL. Kept exact by the CTX-1539 brief; review whether a range is enough."
+    },
+    {
+      "package": "@anthropic-ai/claude-code",
+      "files": ["scripts/ci/claude-cli/package.json"],
+      "reason": "The claude-plugin check installs this CLI from its own lockfile (CTX-1121), so the version of the check lives only here. Kept exact by the CTX-1539 brief; review whether a range is enough."
+    }
+  ]
+}
