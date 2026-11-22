@@ -207,4 +207,22 @@ describe("AuthProvider", () => {
 
     expect(unlinkBodies).toEqual([{ accountId: "acc_row_github" }])
   })
+
+  it("reads linked account profiles through the row id lookup", async () => {
+    const { AuthProvider } = await import("./AuthProvider")
+    const { useProviderAccountInfo } =
+      await import("@/features/auth/provider-accounts")
+
+    renderToStaticMarkup(
+      <AuthProvider>
+        <div>content</div>
+      </AuthProvider>,
+    )
+
+    expect(authUiProviderTanstackMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        hooks: { useAccountInfo: useProviderAccountInfo },
+      }),
+    )
+  })
 })

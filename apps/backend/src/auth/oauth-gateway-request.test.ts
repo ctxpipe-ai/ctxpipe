@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import type { Env } from "../config/env.js"
 import {
-  canonicalResourceForValidAudiences,
+  canonicalOAuthResource,
   prepareBetterAuthRequest,
   redactOAuthParams,
 } from "./oauth-gateway-request.js"
@@ -20,12 +20,12 @@ function mockEnv(baseUrl: string): Env {
   } as Env
 }
 
-describe("canonicalResourceForValidAudiences", () => {
+describe("canonicalOAuthResource", () => {
   const env = mockEnv("https://app.example.com")
 
   it("maps MCP URL with query to canonical audience string", () => {
     expect(
-      canonicalResourceForValidAudiences(
+      canonicalOAuthResource(
         new URL("https://app.example.com/mcp?orgSlug=org-a"),
         env,
       ),
@@ -34,31 +34,22 @@ describe("canonicalResourceForValidAudiences", () => {
 
   it("returns AUTH_BASE_URL when path matches base URL path", () => {
     expect(
-      canonicalResourceForValidAudiences(
-        new URL("https://app.example.com"),
-        env,
-      ),
+      canonicalOAuthResource(new URL("https://app.example.com"), env),
     ).toBe("https://app.example.com")
     expect(
-      canonicalResourceForValidAudiences(
-        new URL("https://app.example.com?x=1"),
-        env,
-      ),
+      canonicalOAuthResource(new URL("https://app.example.com?x=1"), env),
     ).toBe("https://app.example.com")
   })
 
   it("returns null for wrong origin", () => {
     expect(
-      canonicalResourceForValidAudiences(
-        new URL("https://evil.example/mcp"),
-        env,
-      ),
+      canonicalOAuthResource(new URL("https://evil.example/mcp"), env),
     ).toBeNull()
   })
 
   it("treats /mcp/ like /mcp", () => {
     expect(
-      canonicalResourceForValidAudiences(
+      canonicalOAuthResource(
         new URL("https://app.example.com/mcp/?org=x"),
         env,
       ),

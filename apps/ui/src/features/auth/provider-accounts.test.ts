@@ -3,7 +3,7 @@ import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 
-import { unlinkProviderAccount } from "./unlink-provider-account"
+import { providerAccountInfo, unlinkProviderAccount } from "./provider-accounts"
 
 const base = "http://localhost:3000"
 const authBase = `${base}/.auth/api/v1/auth`
@@ -31,10 +31,21 @@ const linkedAccounts = [
 ]
 
 let unlinkBodies: unknown[] = []
+let accountInfoIds: (string | null)[] = []
 const server = setupServer(
   http.get(`${authBase}/list-accounts`, () =>
     HttpResponse.json(linkedAccounts),
   ),
+  http.get(`${authBase}/account-info`, ({ request }) => {
+    const accountId = new URL(request.url).searchParams.get("accountId")
+    accountInfoIds.push(accountId)
+    return linkedAccounts.some((account) => account.id === accountId)
+      ? HttpResponse.json({ user: { id: "583231", email: "dev@example.com" } })
+      : HttpResponse.json(
+          { code: "ACCOUNT_NOT_FOUND", message: "Account not found" },
+          { status: 400 },
+        )
+  }),
   http.post(`${authBase}/unlink-account`, async ({ request }) => {
     const body = (await request.json()) as { accountId: string }
     unlinkBodies.push(body)
@@ -55,10 +66,11 @@ const client = createAuthClient({
   },
 })
 
-describe("unlinkProviderAccount", () => {
+describe("provider accounts", () => {
   beforeAll(() => server.listen({ onUnhandledRequest: "error" }))
   afterEach(() => {
     unlinkBodies = []
+    accountInfoIds = []
     server.resetHandlers()
   })
   afterAll(() => server.close())
@@ -76,5 +88,12 @@ describe("unlinkProviderAccount", () => {
     await expect(
       unlinkProviderAccount(client, { providerId: "google", accountId: "1" }),
     ).rejects.toMatchObject({ code: "ACCOUNT_NOT_FOUND" })
+  })
+
+  it("reads the provider profile of the row that has the provider account id", async () => {
+    const info = await providerAccountInfo(client, "583231")
+
+    expect(info?.user.email).toBe("dev@example.com")
+    expect(accountInfoIds).toEqual(["acc_row_atlassian"])
   })
 })

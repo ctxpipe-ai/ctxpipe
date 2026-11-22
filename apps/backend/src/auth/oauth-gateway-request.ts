@@ -11,7 +11,7 @@ function normalizeResourcePath(pathname: string): string {
  * When Better Auth accepts resource, rewrite client-sent URLs that differ only by query/hash
  * to the exact strings in oauthProvider.resources (RFC8707 audience vs MCP URL query).
  */
-export function canonicalResourceForValidAudiences(
+export function canonicalOAuthResource(
   resourceUrl: URL,
   env: Env,
 ): string | null {
@@ -139,7 +139,7 @@ export async function prepareBetterAuthRequest(
   try {
     const withoutHash = resourceRaw.split("#")[0] ?? resourceRaw
     const parsed = new URL(withoutHash)
-    const matched = canonicalResourceForValidAudiences(parsed, env)
+    const matched = canonicalOAuthResource(parsed, env)
     if (matched) canonical = matched
   } catch {
     /* Better Auth validates */

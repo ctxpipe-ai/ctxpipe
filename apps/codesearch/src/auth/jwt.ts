@@ -123,8 +123,9 @@ export async function verifyCodesearchJwt(input: {
         .regex(/^[a-zA-Z0-9_-]+$/)
         .optional(),
       workspaceRepositoryIds: z.array(z.string().min(1)).min(1).optional(),
-      // The old Workspace claim. A token that carries it gets 401.
-      workspaceRevisions: z.undefined(),
+      // The old Workspace claim. A token that carries it gets 401. Since
+      // zod 4.6, an object refuses a missing key unless the key is optional.
+      workspaceRevisions: z.undefined().optional(),
     })
     .safeParse(payload)
   if (!scope.success) return null

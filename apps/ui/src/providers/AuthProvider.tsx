@@ -4,7 +4,10 @@ import { Link, useRouter } from "@tanstack/react-router"
 import { type ComponentProps, type FC, useEffect, useRef } from "react"
 import { toast } from "sonner"
 
-import { unlinkProviderAccount } from "@/features/auth/unlink-provider-account"
+import {
+  unlinkProviderAccount,
+  useProviderAccountInfo,
+} from "@/features/auth/provider-accounts"
 import { authClient } from "@/lib/auth-client"
 import { orgGateKeys } from "@/lib/org-gate"
 import { useAuthEvlogIdentity } from "@/lib/useAuthEvlogIdentity"
@@ -171,6 +174,7 @@ export const AuthProvider: FC<React.PropsWithChildren> = ({ children }) => {
           else toast[variant](message)
         }}
         twoFactor={["totp"]}
+        hooks={{ useAccountInfo: useProviderAccountInfo }}
         mutators={{
           unlinkAccount: (params) => unlinkProviderAccount(authClient, params),
         }}
