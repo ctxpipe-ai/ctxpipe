@@ -41,10 +41,7 @@ const METHOD_SET = new Set(HTTP_METHODS)
 
 // No count limit on specification files, operations, or routes (CTX-1487):
 // the cursor pages over them. The limits below protect a process; each one
-// gives a `skipped` entry. The script reads a specification file up to
-// MAX_SPEC_BYTES and keeps the operations in the part that it read
-// (CTX-1511).
-const MAX_SPEC_BYTES = 32 * 1024 * 1024
+// gives a `skipped` entry.
 const AST_GREP_TIMEOUT_MS = 90_000
 const AST_GREP_MAX_BUFFER = 32 * 1024 * 1024
 
@@ -184,7 +181,7 @@ export function yamlEntry(line) {
  * `openapi`, `swagger`, `info.title`, and `paths` keys. It reads indentation
  * and keys only, so it does not run YAML anchors, tags, or code.
  */
-function readYamlSpec(text) {
+function readYamlSpec(text, cut) {
   const lines = text.split("\n")
   let version = null
   let title = null
@@ -205,7 +202,8 @@ function readYamlSpec(text) {
       if (entry && entry.key === "title") title = unquote(entry.value)
     }
   }
-  if (!version) return { skip: "The file has no openapi or swagger key" }
+  if (!version && !cut)
+    return { skip: "The file has no openapi or swagger key" }
   if (pathsAt === -1) return { skip: "The file has no paths key" }
   const operations = []
   let pathIndent = -1
@@ -251,7 +249,7 @@ function readYamlSpec(text) {
 function readJsonSpec(text, cut) {
   let json
   try {
-    json = JSON.parse(cut ? (closeJsonPrefix(text) ?? "") : text)
+    json = JSON.parse(text)
   } catch {
     return { skip: "The file is not valid JSON" }
   }
@@ -261,7 +259,8 @@ function readJsonSpec(text, cut) {
       : typeof json?.swagger === "string"
         ? json.swagger
         : null
-  if (!version) return { skip: "The file has no openapi or swagger key" }
+  if (!version && !cut)
+    return { skip: "The file has no openapi or swagger key" }
   if (!json.paths || typeof json.paths !== "object")
     return { skip: "The file has no paths key" }
   const operations = []
@@ -327,26 +326,31 @@ function closeJsonPrefix(text) {
 }
 
 /**
- * The text of a tracked specification file at HEAD, up to MAX_SPEC_BYTES:
- * { text, cut }, or null when the file is empty or not readable. A cut YAML
- * text ends at its last whole line.
+ * The text of a tracked specification file at HEAD, up to 32 MiB (CTX-1511):
+ * { text, cut }, or null when the file is empty or not readable. A cut JSON
+ * text ends after its last whole value, with the open containers closed. A
+ * cut YAML text ends at its last whole line. On a cut, the `openapi` or
+ * `swagger` key can be in the part that was not read (a generator that sorts
+ * the keys puts `swagger` after `paths`), so the readers do not require it.
  */
-function readSpecFile(source, file) {
+function readSpecFile(source, file, json) {
+  const limit = 32 * 1024 * 1024
   const read = spawnSync(
     "git",
     ["-C", source, "cat-file", "blob", `HEAD:${file}`],
-    {
-      maxBuffer: MAX_SPEC_BYTES,
-    },
+    { maxBuffer: limit },
   )
   const cut = read.error?.code === "ENOBUFS"
-  if ((read.error && !cut) || (!cut && read.status !== 0) || !read.stdout)
-    return null
-  let bytes = cut ? read.stdout.subarray(0, MAX_SPEC_BYTES) : read.stdout
-  if (cut && !/\.json$/i.test(file))
-    bytes = bytes.subarray(0, bytes.lastIndexOf(10) + 1)
-  const text = bytes.toString("utf8")
-  return text ? { text, cut } : null
+  if ((!cut && (read.error || read.status !== 0)) || !read.stdout) return null
+  if (!cut)
+    return read.stdout.length > 0
+      ? { text: read.stdout.toString("utf8"), cut }
+      : null
+  const bytes = read.stdout.subarray(0, limit)
+  const text = json
+    ? closeJsonPrefix(bytes.toString("utf8"))
+    : bytes.subarray(0, bytes.lastIndexOf(10) + 1).toString("utf8")
+  return { text: text ?? "", cut }
 }
 
 /** The OpenAPI files of the root, each with its operations. */
@@ -354,7 +358,8 @@ function discoverSpecs(source, files, skipped) {
   const specs = []
   const candidates = files.filter((file) => SPEC_NAME.test(file)).sort()
   for (const file of candidates) {
-    const spec = readSpecFile(source, file)
+    const json = /\.json$/i.test(file)
+    const spec = readSpecFile(source, file, json)
     if (!spec) {
       skipped.push({ path: file, reason: "The file is empty or not readable" })
       continue
@@ -363,11 +368,10 @@ function discoverSpecs(source, files, skipped) {
     if (cut)
       skipped.push({
         path: file,
-        reason: `The file is larger than ${MAX_SPEC_BYTES / 1024 / 1024} MiB. The script read the first ${MAX_SPEC_BYTES / 1024 / 1024} MiB, and it did not list the operations after them`,
+        reason:
+          "The file is larger than 32 MiB. The script read the first 32 MiB, and it did not list the operations after them",
       })
-    const read = /\.json$/i.test(file)
-      ? readJsonSpec(text, cut)
-      : readYamlSpec(text)
+    const read = json ? readJsonSpec(text, cut) : readYamlSpec(text, cut)
     if (read.skip) {
       skipped.push({ path: file, reason: read.skip })
       continue

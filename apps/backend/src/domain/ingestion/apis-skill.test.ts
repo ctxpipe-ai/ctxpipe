@@ -531,10 +531,12 @@ describe("find-apis", () => {
   })
 
   it("keeps the operations that fit in a specification larger than 32 MiB, and records the cut (CTX-1511)", async () => {
-    // About 34 MiB in each file: the first 32 MiB are read.
+    // About 34 MiB in each file: the first 32 MiB are read. The version key
+    // comes after `paths`, as in a generated file with sorted keys, so it is
+    // in the part that the script does not read.
     const description = "Reads the item. ".repeat(60)
     const paths: Record<string, object> = {}
-    const yaml = ['openapi: "3.0.0"', "paths:"]
+    const yaml = ["paths:"]
     const total = 34_000
     for (let i = 0; i < total; i++) {
       paths[`/items/${i}`] = { get: { description }, put: { summary: "Put" } }
@@ -544,15 +546,18 @@ describe("find-apis", () => {
         `      description: ${description}`,
       )
     }
+    yaml.push('swagger: "2.0"')
     const s = await fixture({
-      "apps/json/openapi.json": JSON.stringify({ openapi: "3.0.0", paths }),
+      "apps/json/openapi.json": JSON.stringify({ paths, swagger: "2.0" }),
       "apps/yaml/openapi.yaml": yaml.join("\n"),
     })
     for (const [root, prefix] of [
       ["apps/json", "/items/"],
       ["apps/yaml", "/things/"],
     ] as const) {
-      const { count } = s.find(root, "--count") as { count: number }
+      const { count } = s.find(root, "--count") as unknown as {
+        count: number
+      }
       // The operations before the cut are read, the operations after it are not.
       expect(count).toBeGreaterThan(total * 0.8)
       expect(count).toBeLessThan(total * (root === "apps/json" ? 2 : 1))
