@@ -17,7 +17,6 @@ import { FalkorDB } from "falkordb"
 import { HttpResponse, http, passthrough } from "msw"
 import { setupServer } from "msw/node"
 import { OpenWorkflow } from "openworkflow"
-import { BackendPostgres } from "openworkflow/postgres"
 import { expect, vi } from "vitest"
 
 import { withOrgIdContext } from "../auth/withAuth.js"
@@ -37,6 +36,7 @@ import {
   persistWorkspaceIndexResult,
 } from "../models/workspaces.js"
 import { openWorkflowNamespaceId } from "../openworkflow/namespace.js"
+import { connectOpenWorkflowBackend } from "../openworkflow/storable-backend.js"
 import { knowledgeProjection } from "../openworkflow/workflows/knowledge-projection.js"
 import { repositoryIndex } from "../openworkflow/workflows/repository-index.js"
 import { workspaceHydrate } from "../openworkflow/workflows/workspace-hydrate.js"
@@ -721,10 +721,8 @@ async function createNativeHydrationFixture(
   const namespaceId =
     options.namespaceId ??
     (options.knowledgePlane ? openWorkflowNamespaceId() : id)
-  const backend = await BackendPostgres.connect(databaseUrl, {
-    runMigrations: false,
-    namespaceId,
-  })
+  // The backend of the worker, with the same storable outcomes.
+  const backend = await connectOpenWorkflowBackend(databaseUrl, namespaceId)
   const runner = new OpenWorkflow({ backend })
   runner.implementWorkflow(workspaceTipCheck.spec, workspaceTipCheck.fn)
   runner.implementWorkflow(workspaceHydrate.spec, workspaceHydrate.fn)

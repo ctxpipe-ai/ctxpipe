@@ -8,7 +8,11 @@ import { afterAll, beforeAll, expect, it, vi } from "vitest"
 
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { orgFeatures } from "../../db/schema/org_features.js"
-import { workspaces } from "../../db/schema/workspaces.js"
+import {
+  workspaceKnowledgeChunks,
+  workspaceKnowledgeUnits,
+  workspaces,
+} from "../../db/schema/workspaces.js"
 import { servingIdForKnowledgePath } from "../../domain/workspaces/hydrate.js"
 import { createKnowledgeStore } from "../../knowledge-store/knowledge-store.js"
 import { migrateKnowledgeStore } from "../../knowledge-store/migrate.js"
@@ -152,6 +156,64 @@ it(
         )
       },
     ),
+)
+
+it(
+  "a NUL character in a mirrored issue body does not fail the hydrate: Postgres and the knowledge plane keep the text without it (CTX-1521)",
+  { timeout: 120_000 },
+  async () => {
+    // A made-up issue that quotes a Git protocol error, which holds NUL
+    // characters as the error text of Git does.
+    const path = "github/issues/acme/widgets/7.md"
+    const quote =
+      "000eunpack ok\u00000019ok refs/heads/main\u0000capabilities^{}\u0000report-status\u0000"
+    const body = `---\nsource: github\ntype: issue\nnumber: 7\n---\n# Push fails \u0000with a protocol error\n\nThe server says:\n\n    ${quote}\n`
+    await withNativeHydrationFixture(
+      {
+        files: [...files, { path, body }],
+        knowledgePlane: { clickhouseUrl: writerUrl },
+      },
+      async (f) => {
+        await f.publish()
+        const servingId = servingIdForKnowledgePath(f.workspaceId, path)
+        const { unit, chunks } = await withOrgDbContext(
+          f.org.id,
+          async (db) => ({
+            unit: (
+              await db
+                .select({
+                  title: workspaceKnowledgeUnits.title,
+                  body: workspaceKnowledgeUnits.body,
+                })
+                .from(workspaceKnowledgeUnits)
+                .where(eq(workspaceKnowledgeUnits.servingId, servingId))
+            )[0],
+            chunks: await db
+              .select({ text: workspaceKnowledgeChunks.text })
+              .from(workspaceKnowledgeChunks)
+              .where(eq(workspaceKnowledgeChunks.unitId, servingId)),
+          }),
+        )
+        expect(unit?.title).toBe("Push fails with a protocol error")
+        expect(unit?.body).toContain(quote.replaceAll("\u0000", ""))
+        expect(unit?.body).not.toContain("\u0000")
+        expect(chunks.map((chunk) => chunk.text).join("\n")).toContain(
+          "capabilities^{}report-status",
+        )
+        expect(chunks.some((chunk) => chunk.text.includes("\u0000"))).toBe(
+          false,
+        )
+        await waitForKnowledgeState(f, {
+          lastSha: f.sha,
+          runStatus: "completed",
+          failedCount: 0,
+        })
+        expect(await storedDocuments(f)).toMatchObject({
+          [servingId]: "active",
+        })
+      },
+    )
+  },
 )
 
 it(
