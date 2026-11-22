@@ -76,6 +76,12 @@ export type KnowledgeFullReason =
   /** An operator asked for a full rebuild (`rebuildKnowledgePlane`). */
   | "rebuild"
 
+/** The reasons for a full rebuild that the state does not show (ADR-067 decision 8). */
+export type KnowledgeRebuildReason = Extract<
+  KnowledgeFullReason,
+  "empty_tree" | "rebuild"
+>
+
 /**
  * The files that a run must apply. A delta gives the files that changed and
  * the files that are not in the tip tree. A full rebuild gives every file of
@@ -117,7 +123,7 @@ export async function planKnowledgeChangeSet(input: {
   /** The current version (`knowledgeProjectionVersion`). */
   projectionVersion: string
   /** A reason to rebuild in full that the state does not show. */
-  rebuild?: "empty_tree" | "rebuild" | null
+  rebuild?: KnowledgeRebuildReason | null
 }): Promise<KnowledgeChangeSet> {
   const { directory, root, state, tip } = input
   const full = async (reason: KnowledgeFullReason) => ({

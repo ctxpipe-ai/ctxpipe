@@ -137,7 +137,7 @@ export const knowledgeProjection = defineWorkflow(
                   defaultTip: isDefault ? null : workspace.desiredSha,
                   store,
                   observedAt: new Date(),
-                  rebuild: isDefault && input.rebuild === true,
+                  rebuild: input.rebuild,
                 })
               : before?.branch === branch
                 ? { mode: "waiting" as const }

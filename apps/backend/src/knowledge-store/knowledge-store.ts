@@ -291,7 +291,7 @@ export type KnowledgeStore = {
   /**
    * True when `head` shows at least one tree row, a tombstone included. A
    * head of the default branch with no row lost its rows, or its tree has
-   * no document file (ADR-067 decision 4).
+   * no document file (ADR-067 decision 8).
    */
   hasTree(scope: KnowledgeScope, head: TreeHead): Promise<boolean>
   /**
