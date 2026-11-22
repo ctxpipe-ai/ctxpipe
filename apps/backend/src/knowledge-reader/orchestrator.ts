@@ -28,7 +28,11 @@ export const ORCHESTRATOR_DEFAULTS = {
   maxDepth: 3,
   /** The candidates of one layer, at most. */
   fanOut: 50,
-  /** The time of one retrieval, from the first read to the last judge. */
+  /**
+   * The time of one retrieval, from the first read to the last judge. 0: no
+   * time budget. Only the evals use 0, so that a slow step does not hide
+   * what the loop finds (the CTO, 2026-11-22).
+   */
   timeBudgetMs: 3_000,
   /** The top results that the disagreement step compares (N). */
   disagreementItems: 10,
@@ -68,14 +72,34 @@ export class BudgetSpentError extends Error {
 }
 
 /**
+ * The `performance.now()` time at which a retrieval that starts now must
+ * end, from `timeBudgetMs`. With no time budget, `Infinity`.
+ */
+export function retrievalDeadline(): number {
+  const budget = ORCHESTRATOR_DEFAULTS.timeBudgetMs
+  return budget > 0 ? performance.now() + budget : Number.POSITIVE_INFINITY
+}
+
+/**
+ * The time limit of one model call before `deadline`. With no time budget,
+ * undefined: the call keeps the time limit of its client.
+ */
+export function callTimeLimitMs(deadline: number): number | undefined {
+  return Number.isFinite(deadline)
+    ? Math.max(1, Math.floor(deadline - performance.now()))
+    : undefined
+}
+
+/**
  * `step`, or `BudgetSpentError` when `deadline` (a `performance.now()` time)
  * comes first. A step that the deadline stops goes on in the background,
- * and its own time limit ends it.
+ * and its own time limit ends it. With no time budget, `step` alone.
  */
 export async function beforeDeadline<T>(
   deadline: number,
   step: () => Promise<T>,
 ): Promise<T> {
+  if (!Number.isFinite(deadline)) return step()
   const left = deadline - performance.now()
   if (left <= 0) throw new BudgetSpentError("The time budget is spent")
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -95,13 +119,17 @@ export async function beforeDeadline<T>(
 }
 
 /**
- * True for the end of the time budget: the deadline, or a Jev call that
- * timed out (each Jev call gets the rest of the budget as its time limit).
+ * True for the end of the time budget of a retrieval with `deadline`: the
+ * deadline, or a Jev call that timed out (each Jev call gets the rest of the
+ * budget as its time limit). With no time budget, a Jev timeout is a failed
+ * call: the call had the time limit of its client.
  */
-export function isBudgetSpent(error: unknown): boolean {
+export function isBudgetSpent(error: unknown, deadline: number): boolean {
   return (
     error instanceof BudgetSpentError ||
-    (error instanceof JevError && error.kind === "timeout")
+    (error instanceof JevError &&
+      error.kind === "timeout" &&
+      Number.isFinite(deadline))
   )
 }
 
@@ -145,7 +173,7 @@ export async function judge(
     judgeLayer({
       question,
       intent,
-      timeoutMs: Math.max(1, Math.floor(deadline - performance.now())),
+      timeoutMs: callTimeLimitMs(deadline),
       batchSize: JEV_BATCH,
       candidates: inputs.map(({ document, text }, index) => ({
         id: String(index),
@@ -324,7 +352,7 @@ export async function traverse(input: {
       )
     }
   } catch (error) {
-    if (!isBudgetSpent(error)) throw error
+    if (!isBudgetSpent(error, deadline)) throw error
     partialReason = "total_timeout"
   }
   return {

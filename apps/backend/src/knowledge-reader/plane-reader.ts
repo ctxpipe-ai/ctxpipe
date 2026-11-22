@@ -50,12 +50,14 @@ import type {
 import {
   BudgetSpentError,
   beforeDeadline,
+  callTimeLimitMs,
   evidenceText,
   isBudgetSpent,
   jevMeta,
   judge,
   type ModelMeter,
   ORCHESTRATOR_DEFAULTS,
+  retrievalDeadline,
   type TraversalNode,
   traverse,
 } from "./orchestrator.js"
@@ -220,7 +222,7 @@ async function search(
   const query = request.query.trim()
   if (!query || request.workspaceIds.length === 0) return { hits: [] }
   const queryTime = request.validAt ?? request.now ?? new Date()
-  const deadline = performance.now() + ORCHESTRATOR_DEFAULTS.timeBudgetMs
+  const deadline = retrievalDeadline()
   const store = knowledgeStore()
   // The store applies each filter before it cuts the candidates. With no
   // time left for the search itself, there is no hit to give.
@@ -240,7 +242,7 @@ async function search(
       }),
     )
   } catch (error) {
-    if (!isBudgetSpent(error)) throw error
+    if (!isBudgetSpent(error, deadline)) throw error
     return { hits: [], partialReason: "total_timeout" }
   }
   const limit = Math.min(Math.max(Math.trunc(request.limit ?? 10), 1), 50)
@@ -254,7 +256,7 @@ async function search(
   const [judged, relations] = await Promise.all([
     judge(inputs, query, "search", deadline, meter).catch((error: unknown) => {
       // A Jev timeout is the end of the budget: Jev gets the rest of it.
-      if (isBudgetSpent(error)) unjudged = "total_timeout"
+      if (isBudgetSpent(error, deadline)) unjudged = "total_timeout"
       else if (error instanceof JevError) unjudged = "judge_unavailable"
       else throw error
       return null
@@ -267,7 +269,7 @@ async function search(
         request.validAt ?? null,
       ),
     ).catch((error: unknown) => {
-      if (!isBudgetSpent(error)) throw error
+      if (!isBudgetSpent(error, deadline)) throw error
       return []
     }),
   ])
@@ -353,7 +355,7 @@ async function related(
   embed: (text: string) => Promise<number[]>,
   meter: ModelMeter,
 ): Promise<Ranking> {
-  const deadline = performance.now() + ORCHESTRATOR_DEFAULTS.timeBudgetMs
+  const deadline = retrievalDeadline()
   const store = knowledgeStore()
   const paths = [...new Set(input.seeds.map((ref) => checkPath(ref, ref)))]
   const question =
@@ -376,7 +378,7 @@ async function related(
       ),
     )
   } catch (error) {
-    if (!isBudgetSpent(error)) throw error
+    if (!isBudgetSpent(error, deadline)) throw error
     return {
       results: [],
       explored: { nodes: 0, edges: 0 },
@@ -447,7 +449,7 @@ async function related(
         meter,
       ).catch((error: unknown) => {
         // The end of the budget gives the ranking with no positions.
-        if (!isBudgetSpent(error)) throw error
+        if (!isBudgetSpent(error, deadline)) throw error
         traversal.partialReason = "total_timeout"
         return undefined
       })
@@ -525,7 +527,7 @@ async function disagreementPositions(
       question,
       queryTime,
       thresholds: { sameAt, disagreeAt, replacesAt, scopedAt },
-      timeoutMs: Math.max(1, Math.floor(deadline - performance.now())),
+      timeoutMs: callTimeLimitMs(deadline),
       items: top.map(({ document, text }, index) => ({
         id: String(index),
         passage: text,

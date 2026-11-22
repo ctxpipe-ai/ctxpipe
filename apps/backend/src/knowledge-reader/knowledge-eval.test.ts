@@ -17,7 +17,11 @@ import {
   recordedCallSchema,
 } from "../../evals/knowledge/model-calls.js"
 import { checkPanel, labelWithPanel } from "../../evals/knowledge/panel.js"
-import { buildReport, renderMarkdown } from "../../evals/knowledge/report.js"
+import {
+  buildReport,
+  keptRunSchema,
+  renderMarkdown,
+} from "../../evals/knowledge/report.js"
 import { parseSettings } from "../../evals/knowledge/runner.js"
 import { madeUpPrivateKey } from "../../test/made-up-key.js"
 import { useMswServer } from "../../test/msw.js"
@@ -465,6 +469,72 @@ describe("a run with a failed call", () => {
     expect(markdown).toContain(`- ${third.id} (legacy): 1 failed model calls`)
     expect(markdown).toContain(
       `- ${third.id} (plane): search: judge_unavailable`,
+    )
+  })
+})
+
+describe("the product time budget", () => {
+  it("counts and lists each answer of a live run that is over the budget of the product", async () => {
+    const dataset = await readDataset(datasetFile)
+    const [first, second] = dataset.questions.filter(
+      (question) => question.seeds,
+    )
+    if (!first || !second) throw new Error("The example has few seeds.")
+    const calls = { jev: 1, jevQuestions: 1, embedding: 1, costUsd: 0 }
+    const answer = (
+      arm: "legacy" | "plane",
+      question: string,
+      relatedMs: number,
+    ) => ({
+      arm,
+      question,
+      search: { refs: [], scores: [], latencyMs: 900 },
+      related: { refs: [], scores: [], latencyMs: relatedMs },
+      calls: { ...calls, missing: 0, failed: 0 },
+    })
+    const input = {
+      manifest: {
+        datasetVersion: dataset.version,
+        splits: ["dev" as const],
+        now: "2026-11-22T00:00:00.000Z",
+        settings: {},
+        loop: { ...ORCHESTRATOR_DEFAULTS, timeBudgetMs: 0 },
+        productBudgetMs: 3_000,
+        mode: "live" as const,
+        capUsd: 1,
+        spentUsd: 0,
+        stopped: false,
+      },
+      dataset: { ...dataset, questions: [first, second] },
+      answers: [
+        answer("legacy", first.id, 800),
+        answer("plane", first.id, 4_250),
+        answer("legacy", second.id, 800),
+        answer("plane", second.id, 2_900),
+      ],
+    }
+    const report = buildReport({ ...input, kept: null })
+    expect(
+      report.operations.map(({ arm, overProductBudget }) => ({
+        arm,
+        overProductBudget,
+      })),
+    ).toEqual([
+      { arm: "legacy", overProductBudget: null },
+      { arm: "plane", overProductBudget: 1 },
+    ])
+    const markdown = renderMarkdown(report)
+    expect(markdown).toContain("## Answers over the product time budget")
+    expect(markdown).toContain(`- ${first.id} (plane): get_related 4250 ms`)
+    expect(markdown).not.toContain(`- ${second.id} (plane)`)
+    // A kept run with the budget of the product: the report says that the
+    // comparison also holds the change of the budget.
+    const kept = keptRunSchema.parse({
+      ...report,
+      run: { ...report.run, loop: { ...report.run.loop, timeBudgetMs: 3_000 } },
+    })
+    expect(renderMarkdown(buildReport({ ...input, kept }))).toContain(
+      "**The kept run had a time budget of 3000 ms, and this run has no time budget.**",
     )
   })
 })
