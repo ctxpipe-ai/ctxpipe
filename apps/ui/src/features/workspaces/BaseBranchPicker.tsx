@@ -73,12 +73,14 @@ export function BaseBranchPicker(props: {
     >
       {/* Muted, in the UI font and at normal weight at rest (the composer
           footer sets medium), so that the prompt and the send button lead.
-          Hover and the open menu brighten it. */}
+          Hover and the open menu brighten it. The negative margin puts the
+          icon on the text column of the composer: the hover wash goes out
+          past the column, and the content does not move in. */}
       <Button
         variant="quiet"
         size="sm"
         aria-describedby={descriptionId}
-        className="max-w-80 min-w-0 gap-1.5 px-1.5 font-normal aria-expanded:bg-foreground/[0.06] aria-expanded:text-foreground max-sm:max-w-60"
+        className="-ml-1.5 max-w-80 min-w-0 gap-1.5 px-1.5 font-normal aria-expanded:bg-foreground/[0.06] aria-expanded:text-foreground max-sm:max-w-60"
       >
         <IconGitBranch
           aria-hidden
@@ -94,11 +96,11 @@ export function BaseBranchPicker(props: {
         The conversation starts from this branch, and its pull request targets
         it.
       </span>
-      {/* The trigger sits 16px above the bottom edge of the composer: the
+      {/* The trigger sits 14px above the bottom edge of the composer: the
           offset puts the menu 8px below that edge, the gap of each popover. */}
       <Popover
         placement="bottom start"
-        offset={24}
+        offset={22}
         className="flex w-72 max-w-[calc(100vw-2rem)] flex-col"
       >
         <Autocomplete filter={contains}>

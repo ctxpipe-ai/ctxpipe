@@ -1,8 +1,7 @@
 "use client"
 
-import { IconArrowUp, IconChevronRight } from "@tabler/icons-react"
+import { IconArrowUp } from "@tabler/icons-react"
 import { type ReactNode, type RefObject, useEffect, useRef } from "react"
-import { Disclosure, DisclosurePanel } from "react-aria-components"
 
 import {
   PromptInput,
@@ -43,7 +42,7 @@ export function MessageInputBox(props: {
   draftKey?: string
   contentClassName?: string
   /** Example prompts under the composer. Picking one fills the composer; it does not send. */
-  suggestions?: readonly string[]
+  suggestions?: readonly { label: string; prompt: string }[]
   /** Controls at the leading edge of the footer, such as the base branch picker. */
   tools?: ReactNode
 }) {
@@ -101,20 +100,16 @@ export function MessageInputBox(props: {
               className={cn(
                 "resize-none border-0 bg-transparent text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus-visible:ring-0",
                 layout === "empty"
-                  ? "min-h-24 px-4 pt-4 pb-14"
+                  ? "min-h-24 px-4 pt-4 pb-12"
                   : "min-h-16 px-4 pt-3 pb-12",
               )}
               autoFocus={layout === "empty" && !isDisabled}
             />
           </PromptInputBody>
-          {/* The large composer keeps one 16px inset: the text, the footer
-              controls and the send button. */}
-          <PromptInputFooter
-            className={cn(
-              "absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 border-0 bg-transparent pt-0 shadow-none",
-              layout === "empty" ? "px-4 pb-4" : "px-3 pb-3",
-            )}
-          >
+          {/* The footer controls start on the text column (16px). The send
+              button sits 12px from the right and the bottom edge, and the
+              controls share its center line. */}
+          <PromptInputFooter className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 border-0 bg-transparent pt-0 pr-3 pb-3 pl-4 shadow-none">
             <PromptInputTools>{tools}</PromptInputTools>
             <PromptInputSubmit
               size="icon-sm"
@@ -187,42 +182,38 @@ function MessageInputDraftStore(props: { draftKey: string }) {
   return null
 }
 
+/**
+ * The example prompts as a centered row of pills under the composer. They
+ * have a hairline frame, so they do not look like the quiet controls in the
+ * composer footer.
+ */
 function MessageInputSuggestions(props: {
-  suggestions: readonly string[]
+  suggestions: readonly { label: string; prompt: string }[]
   textareaRef: RefObject<HTMLTextAreaElement | null>
   isDisabled?: boolean
 }) {
   const controller = usePromptInputController()
   return (
-    <Disclosure className="group mt-2" isDisabled={props.isDisabled}>
-      <Button slot="trigger" variant="quiet" className="h-7 gap-1 px-1 text-xs">
-        <IconChevronRight
-          aria-hidden
-          className="size-3.5 transition-transform group-data-[expanded]:rotate-90"
-        />
-        Suggested
-      </Button>
-      <DisclosurePanel>
-        <ul
-          aria-label="Suggested prompts"
-          className="mt-1 flex flex-col gap-0.5"
-        >
-          {props.suggestions.map((suggestion) => (
-            <li key={suggestion}>
-              <Button
-                variant="quiet"
-                className="h-auto w-full justify-start px-2 py-1.5 text-left text-sm"
-                onPress={() => {
-                  controller.textInput.setInput(suggestion)
-                  props.textareaRef.current?.focus()
-                }}
-              >
-                {suggestion}
-              </Button>
-            </li>
-          ))}
-        </ul>
-      </DisclosurePanel>
-    </Disclosure>
+    <ul
+      aria-label="Suggested prompts"
+      className="mt-3 flex flex-wrap justify-center gap-2"
+    >
+      {props.suggestions.map((suggestion) => (
+        <li key={suggestion.label}>
+          <Button
+            variant="quiet"
+            size="sm"
+            isDisabled={props.isDisabled}
+            className="border border-white/10 px-2.5 font-normal"
+            onPress={() => {
+              controller.textInput.setInput(suggestion.prompt)
+              props.textareaRef.current?.focus()
+            }}
+          >
+            {suggestion.label}
+          </Button>
+        </li>
+      ))}
+    </ul>
   )
 }
