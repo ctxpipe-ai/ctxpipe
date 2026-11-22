@@ -19,6 +19,7 @@ import type {
   WorkspaceGitStatusResponse,
   WorkspaceGitTreeResponse,
   WorkspaceGraphPayload,
+  WorkspaceListResponse,
 } from "@/features/workspaces/types"
 import {
   docsConversationDetail,
@@ -69,7 +70,7 @@ const emptyPageInfo: PageInfo = {
 export function workspaceListHandler(
   items: MockState<Workspace[]>,
   lastUsedWorkspaceId?: string | null,
-  knowledgePlane: "off" | "shadow" | "on" = "on",
+  knowledgePlane: WorkspaceListResponse["knowledgePlane"] = "on",
 ) {
   return http.get(
     ({ request }) => /\/api\/v1\/workspaces$/.test(pathnameOf(request)),
@@ -632,7 +633,7 @@ export function workspaceShellHandlers(input?: {
   gitBlobs?: Record<string, string>
   gitStatus?: WorkspaceGitStatusResponse
   graph?: WorkspaceGraphPayload
-  knowledgePlane?: "off" | "shadow" | "on"
+  knowledgePlane?: WorkspaceListResponse["knowledgePlane"]
 }) {
   const workspaces = input?.workspaces ?? [docsWorkspace, readOnlyWorkspace]
   const detail = input && "detail" in input ? input.detail : docsWorkspaceDetail

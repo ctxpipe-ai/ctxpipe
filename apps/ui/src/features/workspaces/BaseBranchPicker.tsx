@@ -177,6 +177,8 @@ export function BaseBranchPicker(props: {
             ))}
           </div>
         ) : branches.isError && !branches.data ? (
+          // Not InlineAlert: its red icon and alert role are too loud for
+          // one row of a menu, and the member can still send on the default.
           <div className="flex h-10 items-center gap-2 border-t border-white/10 pr-2.5 pl-4">
             <p className="min-w-0 flex-1 text-xs text-muted-foreground">
               The other branches did not load.

@@ -26,7 +26,7 @@ import {
   WORKSPACE_WRITE_STATUSES,
 } from "../../domain/workspaces/write-status.js"
 import { selectKnowledgeReader } from "../../knowledge-reader/knowledge-reader.js"
-import { getOrgFeature } from "../../models/org-features.js"
+import { FEATURE_VALUES, getOrgFeature } from "../../models/org-features.js"
 import { isRepositoryLostAccess } from "../../models/repositories.js"
 import { listWorkspaceUpgradeRows } from "../../models/workspace-upgrades.js"
 import {
@@ -132,7 +132,7 @@ const WorkspaceDetailSchema = WorkspaceSchema.extend({
 const ListWorkspacesResponseSchema = z
   .object({
     lastUsedWorkspaceId: z.string().nullable(),
-    knowledgePlane: z.enum(["off", "shadow", "on"]).openapi({
+    knowledgePlane: z.enum(FEATURE_VALUES.knowledge_plane).openapi({
       description:
         "The `knowledge_plane` flag of the org. The chat composer shows the base branch picker only when it is not `off`.",
     }),

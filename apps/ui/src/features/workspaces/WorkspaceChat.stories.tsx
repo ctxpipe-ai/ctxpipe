@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { HttpResponse, http } from "msw"
 import { StrictMode, useState } from "react"
@@ -74,6 +75,56 @@ export const ComposeWithoutBaseBranchPicker = meta.story({
     const canvas = within(canvasElement)
     await canvas.findByRole("button", { name: "Find unused files" })
     expect(canvas.queryByRole("button", { name: /main/ })).toBeNull()
+  },
+})
+
+const stalePickPreparedBases: (string | undefined)[] = []
+
+/**
+ * The member picked a base branch in this composer, and then the
+ * knowledge_plane flag of the org went off. The kept pick does not reach the
+ * server: the conversation is prepared on the default branch.
+ */
+export const ComposeIgnoresPickWhenFlagIsOff = meta.story({
+  render: function Render(args) {
+    const queryClient = useQueryClient()
+    // The compose target that an earlier visit with the picker left.
+    useState(() =>
+      queryClient.setQueryData(
+        ["workspace-compose-conversation", args.orgSlug, args.workspace.id],
+        { conversationId: "conv_kept_pick", baseBranch: "release/2026-11" },
+      ),
+    )
+    return <WorkspaceChat {...args} />
+  },
+  parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the same state as ComposeWithoutBaseBranchPicker.",
+    },
+  },
+  beforeEach: ({ msw }) => {
+    stalePickPreparedBases.length = 0
+    msw.use(
+      http.post(
+        ({ request }) =>
+          /\/api\/v1\/conversations\/conv_kept_pick\/prepare$/.test(
+            new URL(request.url).pathname,
+          ),
+        async ({ request }) => {
+          const body = (await request.json()) as { baseBranch?: string }
+          stalePickPreparedBases.push(body.baseBranch)
+          return new HttpResponse(null, { status: 204 })
+        },
+      ),
+      ...workspaceShellHandlers({ knowledgePlane: "off" }),
+    )
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByRole("button", { name: "Find unused files" })
+    await waitFor(() => expect(stalePickPreparedBases).toContain(undefined))
+    expect(stalePickPreparedBases).not.toContain("release/2026-11")
+    expect(canvas.queryByRole("button", { name: /release/ })).toBeNull()
   },
 })
 

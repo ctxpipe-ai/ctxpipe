@@ -120,13 +120,15 @@ function WorkspaceComposeChat(props: {
     queryClient.setQueryData(composeKey, created)
     return created
   })
-  const { conversationId, baseBranch } = target
   // The base branch picker shows only when the org's knowledge_plane flag is
-  // not off. Without it, the conversation starts from the default branch.
+  // not off. Without it, the conversation starts from the default branch,
+  // also when the member picked a branch before the flag went off.
   const showBaseBranchPicker = useQuery({
     ...workspaceListOptions(orgSlug),
     select: (list) => list.knowledgePlane !== "off",
   }).data
+  const { conversationId } = target
+  const baseBranch = showBaseBranchPicker ? target.baseBranch : undefined
   useEffect(() => {
     void queryClient.prefetchQuery(
       workspaceChatPrepareOptions(
