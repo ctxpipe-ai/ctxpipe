@@ -285,6 +285,8 @@ async function resolveOpaqueAccessToken(token: string): Promise<{
   const record = tokenRows[0]
   if (!record || !record.userId) return null
   if (!record.expiresAt || record.expiresAt.getTime() <= Date.now()) return null
+  // A key-bound token needs a proof of the key, and ctxpipe checks none.
+  if (record.confirmation != null) return null
 
   const principal = await resolveBearerPrincipal(
     record.userId,
@@ -797,6 +799,15 @@ async function authenticateBearer(
       c,
       "token_subject_invalid",
       "The access token subject is invalid",
+    )
+  }
+  // A key-bound (DPoP) token needs a proof of the key on each request, and
+  // ctxpipe checks none. Refuse it, so a stolen token is not a bearer token.
+  if (payload.cnf !== undefined) {
+    return unauthorized(
+      c,
+      "token_binding_unsupported",
+      "Key-bound access tokens are not supported",
     )
   }
   const oauthReferenceClaim = readOAuthReferenceClaim(payload)

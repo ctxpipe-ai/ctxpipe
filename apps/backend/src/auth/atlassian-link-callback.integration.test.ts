@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm"
+import { and, eq, inArray } from "drizzle-orm"
 import { Hono } from "hono"
 import { HttpResponse, http } from "msw"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
@@ -52,6 +52,7 @@ function cookiePairs(response: Response): string[] {
 
 describe("Atlassian link callback (Postgres)", () => {
   let linking: SeededOrg
+  let otherSessionCookie = ""
   const ownerId = `user_atlassian_owner_${suffix}`
 
   beforeAll(async () => {
@@ -62,6 +63,16 @@ describe("Atlassian link callback (Postgres)", () => {
     vi.stubEnv("ATLASSIAN_CLIENT_SECRET", "atlassian-client-secret")
     linking = await seedOrg()
     linkingEmail = linking.email
+    const otherSignUp = await getAuth().api.signUpEmail({
+      body: {
+        name: "Other user",
+        email: `atlassian-other-${suffix}@example.com`,
+        password: "atlassian-other-password",
+      },
+      headers: new Headers({ origin: base }),
+      asResponse: true,
+    })
+    otherSessionCookie = cookiePairs(otherSignUp).join("; ")
     const db = getSystemDb()
     await db.insert(users).values({
       id: ownerId,
@@ -78,12 +89,19 @@ describe("Atlassian link callback (Postgres)", () => {
   })
 
   afterAll(async () => {
-    await getSystemDb().delete(users).where(eq(users.id, ownerId))
+    await getSystemDb()
+      .delete(users)
+      .where(
+        inArray(users.email, [
+          `atlassian-owner-${suffix}@example.com`,
+          `atlassian-other-${suffix}@example.com`,
+        ]),
+      )
     await cleanupSeededOrg(linking)
     vi.unstubAllEnvs()
   })
 
-  it("stages an account that another user linked and returns a claim id", async () => {
+  async function startLink() {
     const started = await getAuth().handler(
       new Request(`${authPath}/link-social`, {
         method: "POST",
@@ -100,13 +118,50 @@ describe("Atlassian link callback (Postgres)", () => {
     )
     expect(started.status).toBe(200)
     const { url } = (await started.json()) as { url: string }
-    const state = new URL(url).searchParams.get("state") ?? ""
-    const cookie = [linking.cookie, ...cookiePairs(started)].join("; ")
+    return {
+      state: new URL(url).searchParams.get("state") ?? "",
+      stateCookies: cookiePairs(started),
+    }
+  }
 
-    const res = await app.request(
+  function callback(state: string, cookies: string[]) {
+    return app.request(
       `${authPath}/callback/atlassian?${new URLSearchParams({ code: "atlassian-code", state })}`,
-      { headers: { cookie } },
+      { headers: { cookie: cookies.join("; ") } },
     )
+  }
+
+  async function pendingClaimsOfLinkingUser() {
+    return getSystemDb()
+      .select({ id: pendingAccounts.id })
+      .from(pendingAccounts)
+      .where(eq(pendingAccounts.userId, linking.userId))
+  }
+
+  // The attack: a user starts a link and sends the Atlassian authorize URL to
+  // a victim. The victim's browser does not have the session of that user.
+  it.each([
+    ["no session", () => []],
+    ["the session of another user", () => [otherSessionCookie]],
+  ])(
+    "does not stage the account for a callback with %s",
+    async (_case, otherCookies) => {
+      const { state } = await startLink()
+      const before = await pendingClaimsOfLinkingUser()
+
+      const res = await callback(state, otherCookies())
+
+      expect(res.headers.get("location") ?? "").not.toContain(
+        "pendingAccountClaim",
+      )
+      expect(await pendingClaimsOfLinkingUser()).toEqual(before)
+    },
+  )
+
+  it("stages an account that another user linked and returns a claim id", async () => {
+    const { state, stateCookies } = await startLink()
+
+    const res = await callback(state, [linking.cookie, ...stateCookies])
 
     expect(res.status).toBe(302)
     const location = new URL(res.headers.get("location") ?? "", base)

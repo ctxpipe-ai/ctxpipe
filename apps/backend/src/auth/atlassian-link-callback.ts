@@ -140,6 +140,14 @@ export async function atlassianLinkCallbackFirst(c: Context) {
     return auth.handler(request)
   }
 
+  // Only the browser of the user who started the link may finish it here.
+  // Else a user can send the authorize URL to a victim and get the victim's
+  // Atlassian account. Better Auth's own callback checks the state cookie.
+  const session = await auth.api.getSession({ headers: request.headers })
+  if (session?.user.id !== String(data.link.userId)) {
+    return auth.handler(request)
+  }
+
   const codeQ = sp.get("code")
   const errQ = sp.get("error")
   const errDesc = sp.get("error_description")

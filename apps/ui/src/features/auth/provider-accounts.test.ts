@@ -1,99 +1,25 @@
-import { createAuthClient } from "better-auth/react"
-import { HttpResponse, http } from "msw"
-import { setupServer } from "msw/node"
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
+import { describe, expect, it } from "vitest"
 
-import { providerAccountInfo, unlinkProviderAccount } from "./provider-accounts"
+import { accountsWithRowIds } from "./provider-accounts"
 
-const base = "http://localhost:3000"
-const authBase = `${base}/.auth/api/v1/auth`
+describe("accountsWithRowIds", () => {
+  it("gives each account its row id as accountId, also when two providers share an account id", () => {
+    const accounts = accountsWithRowIds([
+      { id: "acc_row_atlassian", providerId: "atlassian", accountId: "583231" },
+      { id: "acc_row_github", providerId: "github", accountId: "583231" },
+    ])
 
-// Two providers can give the same account id, so the provider id decides.
-const linkedAccounts = [
-  {
-    id: "acc_row_atlassian",
-    providerId: "atlassian",
-    accountId: "583231",
-    userId: "user_1",
-    scopes: [],
-    createdAt: "2026-11-01T00:00:00.000Z",
-    updatedAt: "2026-11-01T00:00:00.000Z",
-  },
-  {
-    id: "acc_row_github",
-    providerId: "github",
-    accountId: "583231",
-    userId: "user_1",
-    scopes: [],
-    createdAt: "2026-11-01T00:00:00.000Z",
-    updatedAt: "2026-11-01T00:00:00.000Z",
-  },
-]
-
-let unlinkBodies: unknown[] = []
-let accountInfoIds: (string | null)[] = []
-const server = setupServer(
-  http.get(`${authBase}/list-accounts`, () =>
-    HttpResponse.json(linkedAccounts),
-  ),
-  http.get(`${authBase}/account-info`, ({ request }) => {
-    const accountId = new URL(request.url).searchParams.get("accountId")
-    accountInfoIds.push(accountId)
-    return linkedAccounts.some((account) => account.id === accountId)
-      ? HttpResponse.json({ user: { id: "583231", email: "dev@example.com" } })
-      : HttpResponse.json(
-          { code: "ACCOUNT_NOT_FOUND", message: "Account not found" },
-          { status: 400 },
-        )
-  }),
-  http.post(`${authBase}/unlink-account`, async ({ request }) => {
-    const body = (await request.json()) as { accountId: string }
-    unlinkBodies.push(body)
-    return linkedAccounts.some((account) => account.id === body.accountId)
-      ? HttpResponse.json({ status: true })
-      : HttpResponse.json(
-          { code: "ACCOUNT_NOT_FOUND", message: "Account not found" },
-          { status: 400 },
-        )
-  }),
-)
-
-const client = createAuthClient({
-  baseURL: base,
-  basePath: "/.auth/api/v1/auth",
-  fetchOptions: {
-    customFetchImpl: (input, init) => globalThis.fetch(input, init),
-  },
-})
-
-describe("provider accounts", () => {
-  beforeAll(() => server.listen({ onUnhandledRequest: "error" }))
-  afterEach(() => {
-    unlinkBodies = []
-    accountInfoIds = []
-    server.resetHandlers()
-  })
-  afterAll(() => server.close())
-
-  it("unlinks the row of the provider account that the settings page shows", async () => {
-    await unlinkProviderAccount(client, {
-      providerId: "github",
-      accountId: "583231",
-    })
-
-    expect(unlinkBodies).toEqual([{ accountId: "acc_row_github" }])
-  })
-
-  it("fails with the server error when the user has no such account", async () => {
-    await expect(
-      unlinkProviderAccount(client, { providerId: "google", accountId: "1" }),
-    ).rejects.toMatchObject({ code: "ACCOUNT_NOT_FOUND" })
-  })
-
-  it("reads the provider profile of the row that has the provider account id", async () => {
-    const info = await providerAccountInfo(client, "583231")
-
-    expect(info?.user.email).toBe("dev@example.com")
-    expect(accountInfoIds).toEqual(["acc_row_atlassian"])
+    expect(accounts).toEqual([
+      {
+        id: "acc_row_atlassian",
+        providerId: "atlassian",
+        accountId: "acc_row_atlassian",
+      },
+      {
+        id: "acc_row_github",
+        providerId: "github",
+        accountId: "acc_row_github",
+      },
+    ])
   })
 })
