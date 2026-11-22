@@ -325,18 +325,11 @@ export async function visualReview(
       summary: `${member.summary} Design review on ${storyId}, an alike diff: ${review.text}`,
     }
   }
-  // A private folder for the close-ups of the design review of a redesign,
-  // made at the first review and removed after the feedback pass. The run
-  // folder of a manifest can come from PR code, so the close-ups never go
-  // there.
-  let closeUpDir: string | undefined
-  const closeUps = async () =>
-    (closeUpDir ??= await mkdtemp(
-      join(await realpath(tmpdir()), "visual-review-close-ups-"),
-    ))
+  // A design review of a redesign when `closeUpFolder` is given: the folder
+  // of its close-up.
   const feedbackOf = (
     input: Explained,
-    reviewed: boolean,
+    closeUpFolder: string | undefined,
   ): {
     call: (verdict: Verdict) => Promise<{
       verdict: Verdict
@@ -357,10 +350,10 @@ export async function visualReview(
           share: (verdict: Verdict, member: Verdict) =>
             viewportCopy(verdict, member.storyId),
         }
-      : reviewed
+      : closeUpFolder
         ? {
             call: async (verdict: Verdict) => {
-              const story = await inContext(input.story, await closeUps())
+              const story = await inContext(input.story, closeUpFolder)
               return story
                 ? reviewDesign(verdict, story, designModel, process.env)
                 : explainRegression(verdict, input, explainerModel, process.env)
@@ -406,6 +399,13 @@ export async function visualReview(
       budget.spentUsd + reserve <= budget.limitUsd
     // The alike diffs of a reviewed redesign: the review stands for them.
     const covered = new Set<string>()
+    // A private folder for the close-ups of the reviews. The run folder of a
+    // manifest can come from PR code, so the close-ups never go there.
+    const closeUpFolder = found.length
+      ? await mkdtemp(
+          join(await realpath(tmpdir()), "visual-review-close-ups-"),
+        )
+      : undefined
     try {
       for (const index of order) {
         const verdict = verdicts[index]
@@ -421,7 +421,10 @@ export async function visualReview(
         const reviewed =
           redesigned.includes(verdict.storyId) &&
           (fits(unknownDesignUsd) || !fits(unknownExplainerUsd))
-        const { call, reserve, skipped, share } = feedbackOf(input, reviewed)
+        const { call, reserve, skipped, share } = feedbackOf(
+          input,
+          reviewed ? closeUpFolder : undefined,
+        )
         let updated: Verdict
         let review: Review | undefined
         if (!fits(reserve)) {
@@ -456,8 +459,8 @@ export async function visualReview(
             verdicts[other] = withReview(review, verdict.storyId, member)
       }
     } finally {
-      if (closeUpDir) await rm(closeUpDir, { recursive: true, force: true })
-      closeUpDir = undefined
+      if (closeUpFolder)
+        await rm(closeUpFolder, { recursive: true, force: true })
     }
   }
 

@@ -79,11 +79,20 @@ const intended = {
 // The parts of a chat request that the tests read.
 type Chat = {
   model: string
-  messages: { content: { type: string; text?: string }[] }[]
+  messages: {
+    content: { type: string; text?: string; image_url?: { url: string } }[]
+  }[]
   response_format: { json_schema: { schema: object } }
 }
-// An image part of a chat request: a data URL of a PNG.
-type ImagePart = { type: "image_url"; image_url: { url: string } }
+// The PNG images of a chat request, in the order sent.
+const sentImages = (chat: Chat | undefined) =>
+  (chat?.messages ?? [])
+    .flatMap(({ content }) => content)
+    .flatMap(({ image_url }) =>
+      image_url
+        ? [decode(Buffer.from(image_url.url.split(",")[1] ?? "", "base64"))]
+        : [],
+    )
 const chats: Chat[] = []
 let content = JSON.stringify(regression)
 const server = setupServer(
@@ -1910,13 +1919,9 @@ export const Primary = { render: () => null }
             request?.messages.flatMap(({ content }) => content) ?? []
           // The head image and its close-up: the review does not compare
           // with the base.
-          const sent = parts.flatMap((part) =>
-            part.type === "image_url" ? [part as unknown as ImagePart] : [],
-          )
+          const sent = sentImages(request)
           expect(sent).toHaveLength(2)
-          const [whole, closeUp] = sent.map(({ image_url: { url } }) =>
-            decode(Buffer.from(url.split(",")[1] ?? "", "base64")),
-          )
+          const [whole, closeUp] = sent
           expect(whole).toMatchObject({ width: 400, height: 300 })
           // The close-up holds the changed region and 64 px around it, at
           // twice the size: wider and higher than the region alone.
@@ -2039,6 +2044,41 @@ export const Primary = { render: () => null }
             verdict: "regression",
             severity: "minor",
           })
+        })
+
+        test("the close-up shows the redesigned region at twice the size, also when a small change is far from it", async () => {
+          serveJev(jevSame)
+          content = designReply("intended", "none")
+          const tall = (
+            blocks: { y: number; width: number; height: number }[],
+          ) =>
+            screenshot(
+              1440,
+              900,
+              blocks.map(({ y, width, height }) => ({
+                box: { x: 100, y, width, height },
+                color: [20, 20, 20] as const,
+              })),
+            )
+          // A new 300 × 60 px block at the top, and a small 40 × 20 px
+          // change at the bottom.
+          await put("base", card, tall([{ y: 860, width: 40, height: 10 }]))
+          await put(
+            "head",
+            card,
+            tall([
+              { y: 60, width: 300, height: 60 },
+              { y: 860, width: 40, height: 20 },
+            ]),
+          )
+
+          await run("--json", "--judge", "jev", "--images", images, "--", card)
+
+          const [, closeUp] = sentImages(chats[0])
+          // The block and 64 px around it, twice: about 856 × 376 px.
+          expect(closeUp?.width).toBeGreaterThan(2 * 300)
+          expect(closeUp?.width).toBeLessThan(2 * 600)
+          expect(closeUp?.height).toBeLessThan(2 * 300)
         })
 
         test("on a short screenshot that is padded before the call, the changed regions are in fractions of the sent image", async () => {

@@ -160,6 +160,26 @@ export async function reviewStories(
 }
 
 /**
+ * True when a changed region in pixels adds, removes or replaces an element:
+ * at least 100 × 32 px, larger than a line of text or a small control that
+ * moves, and not a color change, a shift or rendering noise.
+ */
+export const isRedesign = ({
+  change,
+  width,
+  height,
+}: {
+  change: string
+  width: number
+  height: number
+}) =>
+  change !== "color-change" &&
+  change !== "shift" &&
+  change !== "rendering-noise" &&
+  width >= 100 &&
+  height >= 32
+
+/**
  * The changed stories whose design the critic reviews in its context, as new
  * UI (CTX-1509, ADR-063 rule 20). A story qualifies when an element is added,
  * removed or replaced in a region of at least 100 × 32 px: larger than a line
@@ -188,13 +208,7 @@ export function redesigns(
     const largest = Math.max(
       0,
       ...(parts ?? [])
-        .filter(
-          ({ change, width, height }) =>
-            change !== "color-change" &&
-            change !== "shift" &&
-            width >= 100 &&
-            height >= 32,
-        )
+        .filter(isRedesign)
         .map(({ width, height }) => width * height),
     )
     if (!parts || largest === 0) continue

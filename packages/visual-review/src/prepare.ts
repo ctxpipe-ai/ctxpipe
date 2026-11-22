@@ -3,7 +3,7 @@ import { decode, encode, type Image } from "@blazediff/codec-png-native"
 // Each side of an image that goes to a vision model, in pixels. Jev takes the
 // same range, and it keeps the total pixels within the limits of the models.
 const minSide = 280
-const maxSide = 1568
+export const maxSide = 1568
 const gray = [128, 128, 128, 255] as const
 
 /**

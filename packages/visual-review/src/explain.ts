@@ -16,8 +16,9 @@ import { decode, encode } from "@blazediff/codec-png-native"
 import { z } from "zod"
 
 import { askOpenRouter, judgeNewWithOpenRouter } from "./adapters/openrouter.ts"
-import { pngSize, prepareImage } from "./prepare.ts"
+import { maxSide, pngSize, prepareImage } from "./prepare.ts"
 import { judgingRule, scopeLine, storyData, type Prompt } from "./prompt.ts"
+import { isRedesign } from "./review.ts"
 import type { RubricEntry } from "./rubric.ts"
 import type { NewStoryInput, StoryImage, StoryInput } from "./story.ts"
 import { parseJsonReply, type Verdict } from "./verdict.ts"
@@ -279,7 +280,7 @@ ${brief ? brief.replace(/<\/data/gi, "<\\/data") : "(none)"}
  * regions and the elements next to them, written into the private folder
  * `dir`. The review judges the redesigned area as new UI, not against the
  * base image. On the full head image, a small control is a few pixels, so the
- * close-up shows its alignment and spacing. The changed regions are in
+ * close-up of the largest redesigned region shows its alignment and spacing. The changed regions are in
  * fractions of the head image that the model gets: `prepareImage` pads a
  * short image at the bottom and the right. Undefined when the story has no
  * full head image that is a PNG, or no changed region.
@@ -296,34 +297,33 @@ export async function inContext(
     .map(({ box }) => box)
   if (!path || !bytes || !size || !regions.length) return undefined
   const { content } = prepareImage(bytes)
-  // The close-up: the box around all changed regions, 64 px more on each
-  // side, at twice the size, or less when a side would pass the 1568 px of
-  // the models.
+  // The close-up: the largest redesigned region with 64 px more on each side,
+  // at twice the size, or less when a side would pass the side limit of the
+  // models. A small change far from it does not make the close-up larger.
+  const pixels = story.regions
+    .map(({ box, changeType }) => ({
+      change: changeType ?? "unlabeled",
+      x: box.x * size.width,
+      y: box.y * size.height,
+      width: box.width * size.width,
+      height: box.height * size.height,
+    }))
+    .sort((a, b) => b.width * b.height - a.width * a.height)
+  const shown = pixels.find(isRedesign) ?? pixels[0]
+  if (!shown) return undefined
   const margin = 64
-  const left = Math.max(
-    0,
-    Math.floor(Math.min(...regions.map(({ x }) => x)) * size.width) - margin,
-  )
-  const top = Math.max(
-    0,
-    Math.floor(Math.min(...regions.map(({ y }) => y)) * size.height) - margin,
-  )
-  const right = Math.min(
-    size.width,
-    Math.ceil(
-      Math.max(...regions.map(({ x, width }) => x + width)) * size.width,
-    ) + margin,
-  )
+  const left = Math.max(0, Math.floor(shown.x) - margin)
+  const top = Math.max(0, Math.floor(shown.y) - margin)
+  const right = Math.min(size.width, Math.ceil(shown.x + shown.width) + margin)
   const bottom = Math.min(
     size.height,
-    Math.ceil(
-      Math.max(...regions.map(({ y, height }) => y + height)) * size.height,
-    ) + margin,
+    Math.ceil(shown.y + shown.height) + margin,
   )
   const zoom = Math.max(
     1,
-    Math.floor(Math.min(2, 1568 / (right - left), 1568 / (bottom - top)) * 4) /
-      4,
+    Math.floor(
+      Math.min(2, maxSide / (right - left), maxSide / (bottom - top)) * 4,
+    ) / 4,
   )
   const image = decode(bytes)
   const width = Math.round((right - left) * zoom)
