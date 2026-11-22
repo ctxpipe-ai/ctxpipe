@@ -322,7 +322,7 @@ const filler =
     count: number,
     text: string,
     vector: number[],
-    { chunks = 1, title = "" }: { chunks?: number; title?: string } = {},
+    { chunks = 1 }: { chunks?: number } = {},
   ) => {
     const client = rawClient(url)
     const settings = { [ORG_SETTING]: orgA.orgId }
@@ -334,7 +334,6 @@ const filler =
       count,
       chunks,
       text,
-      title,
       vector,
     }
     const docKey = `concat({prefix:String}, leftPad(toString(number), 5, '0'), '.md')`
@@ -342,7 +341,7 @@ const filler =
       query: `INSERT INTO documents (org_id, workspace_id, doc_key, version,
           kind, status, title, path, observed_at)
         SELECT {orgId:String}, {workspace:String}, ${docKey}, 'v1',
-          {kind:String}, 'active', {title:String}, '', now64(3)
+          {kind:String}, 'active', '', '', now64(3)
         FROM numbers({count:UInt32})`,
       query_params: params,
       clickhouse_settings: settings,
@@ -509,12 +508,14 @@ describe("search", () => {
   it("lexical: a rare query term weighs more than common ones", async () => {
     // 60 documents match the two common terms, and one document matches
     // only the rare term. All chunks have the same vector, and the rare
-    // document sorts last by key, so only the term weight can lift it into
-    // the top 50.
+    // document sorts first by key, so it is first in the vector order. A
+    // count of the matched terms puts it last in the lexical order, and
+    // the fusion then puts it near place 20. With the term weight, it is
+    // first in both orders.
     const url = await clickHouse.freshDatabase()
     const fill = filler(url)
-    await fill("guide", "a-common-", 60, "the plan of record", queryVector)
-    await fill("guide", "z-rare-", 1, "zebracorn", queryVector)
+    await fill("guide", "m-common-", 60, "the plan of record", queryVector)
+    await fill("guide", "a-rare-", 1, "zebracorn", queryVector)
     const reader = createKnowledgeStore(url)
     const scope = { ...orgA, heads: [{ ...head, treeVersion: 1 }] }
     try {
@@ -523,7 +524,7 @@ describe("search", () => {
         terms: ["the", "of", "zebracorn"],
         chunksPerDocument: 2,
       })
-      expect(hitKeys(hits)).toContain("z-rare-00000.md")
+      expect(hits[0]?.document.docKey).toBe("a-rare-00000.md")
     } finally {
       await reader.close()
     }

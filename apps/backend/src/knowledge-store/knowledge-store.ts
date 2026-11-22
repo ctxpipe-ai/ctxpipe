@@ -1385,7 +1385,6 @@ async function search(
   const params = {
     queryVector: vector,
     queryBits: vectorBits(vector),
-    terms: uniqueTerms,
     kinds,
     pathPrefix,
     sources,
@@ -1406,28 +1405,28 @@ async function search(
     AND ${validDuring()}`
   const inSearchable = `(workspace_id, doc_key, version) IN (
     SELECT workspace_id, doc_key, version FROM tree_view WHERE ${searchable})`
+  // The searchable chunks that have the term `i`, through the text index.
+  // Only the parameter names go into the SQL text.
+  const withTerm = (i: number) => `FROM chunks
+    WHERE ${inWorkspaces} AND hasToken(text, {term${i}:String})
+      AND ${inSearchable}`
   // One branch for each term, each with at most 1000 chunks of searchable
-  // documents: the cap before the score. Only the parameter names and the
-  // index of each term go into the SQL text.
+  // documents: the cap before the score.
   const termMatches = uniqueTerms
     .map(
-      (_, i) => `SELECT ${i} AS term, workspace_id, doc_key, version, ordinal
-        FROM chunks
-        WHERE ${inWorkspaces} AND hasToken(text, {term${i}:String})
-          AND ${inSearchable}
+      (_, i) => `SELECT {term${i}:String} AS word,
+          workspace_id, doc_key, version, ordinal
+        ${withTerm(i)}
         LIMIT 1000`,
     )
     .join(" UNION ALL ")
   // The BM25 IDF of each term: ln(1 + (N - n + 0.5) / (n + 0.5)), with N the
   // searchable chunks and n the searchable chunks that have the term.
-  const termWeights = `SELECT term,
+  const termWeights = `SELECT word,
       log(1 + (total - found + 0.5) / (found + 0.5)) AS idf
     FROM (${uniqueTerms
-      .map(
-        (_, i) => `SELECT ${i} AS term, count() AS found FROM chunks
-          WHERE ${inWorkspaces} AND hasToken(text, {term${i}:String})
-            AND ${inSearchable}`,
-      )
+      .map((_, i) => `SELECT {term${i}:String} AS word, count() AS found
+        ${withTerm(i)}`)
       .join(" UNION ALL ")}) AS counts
     CROSS JOIN (SELECT count() AS total FROM chunks
       WHERE ${inWorkspaces} AND ${inSearchable}) AS searchable`
@@ -1466,9 +1465,9 @@ async function search(
              matches.ordinal AS ordinal
            FROM (
              SELECT workspace_id, doc_key, version, ordinal,
-               sum(weights.idf) AS matched
+               sum(weights.idf) AS weight
              FROM (${termMatches}) AS hits
-             INNER JOIN weights ON weights.term = hits.term
+             INNER JOIN weights ON weights.word = hits.word
              GROUP BY workspace_id, doc_key, version, ordinal
            ) AS matches
            INNER JOIN (
@@ -1478,12 +1477,10 @@ async function search(
              ON documents.workspace_id = matches.workspace_id
              AND documents.doc_key = matches.doc_key
              AND documents.version = matches.version
-           ORDER BY matches.matched + arraySum(arrayMap(
-               (term, idf) -> if(has(splitByNonAlpha(documents.title), term),
-                 idf, 0),
-               {terms:Array(String)},
-               (SELECT arrayMap(pair -> pair.2, arraySort(groupArray(
-                 (term, idf)))) FROM weights))) DESC,
+           ORDER BY matches.weight + arraySum(
+               term -> if(has(splitByNonAlpha(documents.title), term.1),
+                 term.2, 0),
+               (SELECT groupArray((word, idf)) FROM weights)) DESC,
              workspaceId, docKey, ordinal
            SETTINGS use_index_for_in_with_subqueries = 0`,
           params,
