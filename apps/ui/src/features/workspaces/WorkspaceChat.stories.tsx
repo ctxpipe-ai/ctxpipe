@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { HttpResponse, http } from "msw"
 import { StrictMode, useState } from "react"
@@ -13,7 +14,6 @@ import {
   conversationChatHandler,
   conversationDetailHandler,
   conversationDetailLoadingHandler,
-  workspaceBranchesHandler,
   workspaceShellHandlers,
 } from "@/mocks/workspace-handlers"
 
@@ -62,35 +62,78 @@ export const ComposeEmpty = meta.story({
 })
 
 /**
- * Chat panel of a Workspace with the composer of a new conversation: the
- * branches of the repository still load, so the Base field is a gray bone
- * of its size. The member can already type and send on the default branch.
+ * Chat panel of a Workspace in an org with the knowledge_plane flag off: the
+ * composer of a new conversation has no base branch picker, so the
+ * conversation starts from the default branch. The send button keeps its
+ * place at the bottom right.
  */
-export const ComposeBranchesLoading = meta.story({
+export const ComposeWithoutBaseBranchPicker = meta.story({
   beforeEach: ({ msw }) => {
-    msw.use(workspaceBranchesHandler("loading"), ...workspaceShellHandlers())
+    msw.use(...workspaceShellHandlers({ knowledgePlane: "off" }))
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByRole("button", { name: "Find unused files" })
+    expect(canvas.queryByRole("button", { name: /main/ })).toBeNull()
   },
 })
 
+const stalePickPrepares: { conversationId: string; baseBranch?: string }[] = []
+
 /**
- * Chat panel of a Workspace with the composer of a new conversation: the
- * branch list of the repository did not load, so the composer has no Base
- * field, and the conversation starts from the default branch.
+ * The member picked a base branch in this composer, and then the
+ * knowledge_plane flag of the org went off. The kept pick does not reach the
+ * server: the composer starts a new conversation, which the server prepares
+ * on the default branch.
  */
-export const ComposeBranchesUnavailable = meta.story({
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await canvas.findByPlaceholderText(
-      /what should ctxpipe do in this workspace/i,
+export const ComposeIgnoresPickWhenFlagIsOff = meta.story({
+  render: function Render(args) {
+    const queryClient = useQueryClient()
+    // The compose target that an earlier visit with the picker left.
+    useState(() =>
+      queryClient.setQueryData(
+        ["workspace-compose-conversation", args.orgSlug, args.workspace.id],
+        { conversationId: "conv_kept_pick", baseBranch: "release/2026-11" },
+      ),
     )
-    await waitFor(() =>
-      expect(
-        canvas.queryByRole("combobox", { name: "Base" }),
-      ).not.toBeInTheDocument(),
-    )
+    return <WorkspaceChat {...args} />
+  },
+  parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the same state as ComposeWithoutBaseBranchPicker.",
+    },
   },
   beforeEach: ({ msw }) => {
-    msw.use(workspaceBranchesHandler("error"), ...workspaceShellHandlers())
+    stalePickPrepares.length = 0
+    msw.use(
+      http.post(
+        ({ request }) =>
+          /\/api\/v1\/conversations\/[^/]+\/prepare$/.test(
+            new URL(request.url).pathname,
+          ),
+        async ({ request }) => {
+          const body = (await request.json()) as { baseBranch?: string }
+          stalePickPrepares.push({
+            conversationId:
+              new URL(request.url).pathname.split("/").at(-2) ?? "",
+            baseBranch: body.baseBranch,
+          })
+          return new HttpResponse(null, { status: 204 })
+        },
+      ),
+      ...workspaceShellHandlers({ knowledgePlane: "off" }),
+    )
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByRole("button", { name: "Find unused files" })
+    await waitFor(() => expect(stalePickPrepares.length).toBeGreaterThan(0))
+    // No prepare goes to the conversation of the kept pick, or names its branch.
+    for (const prepare of stalePickPrepares) {
+      expect(prepare.conversationId).not.toBe("conv_kept_pick")
+      expect(prepare.baseBranch).toBeUndefined()
+    }
+    expect(canvas.queryByRole("button", { name: /release/ })).toBeNull()
   },
 })
 
@@ -108,15 +151,15 @@ export const ComposeOnBaseBranch = meta.story({
     preparedConversationIds.length = 0
     const canvas = within(canvasElement)
     const page = within(canvasElement.ownerDocument.body)
-    const base = await canvas.findByRole("combobox", { name: "Base" })
-    await waitFor(() => expect(base).toHaveValue("main"))
+    const base = await canvas.findByRole("button", { name: /main/ })
     await waitFor(() => expect(preparedBases).toEqual([undefined]))
-    await userEvent.type(base, "2026-11", {
-      initialSelectionStart: 0,
-      initialSelectionEnd: "main".length,
-    })
+    await userEvent.click(base)
+    await userEvent.type(
+      await page.findByRole("searchbox", { name: "Search branches" }),
+      "2026-11",
+    )
     await userEvent.click(
-      await page.findByRole("option", { name: "release/2026-11" }),
+      await page.findByRole("option", { name: /release\/2026-11/ }),
     )
     // The same conversation is prepared again with the new base branch.
     await waitFor(() =>
@@ -124,9 +167,9 @@ export const ComposeOnBaseBranch = meta.story({
     )
     expect(new Set(preparedConversationIds).size).toBe(1)
     await waitFor(() =>
-      expect(canvas.getByRole("combobox", { name: "Base" })).toHaveValue(
-        "release/2026-11",
-      ),
+      expect(
+        canvas.getByRole("button", { name: /release\/2026-11/ }),
+      ).toBeVisible(),
     )
   },
   beforeEach: ({ msw }) => {

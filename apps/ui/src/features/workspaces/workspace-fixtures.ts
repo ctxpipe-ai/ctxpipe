@@ -121,6 +121,7 @@ export const docsWorkspace: Workspace = {
   githubConnectionId: "con_1",
   desiredGeneration: 1,
   desiredSha: "abc123def456",
+  defaultBranch: "main",
   activeProjectionUrl: "https://github.com/acme/docs",
   activeProjectionSha: "abc123def456",
   indexedSha: "abc123def456",
@@ -169,6 +170,7 @@ export const failedHydrateWorkspace: Workspace = {
   displayName: "Knowledge",
   hydrateStatus: "failed",
   desiredSha: null,
+  defaultBranch: null,
   hydrateError:
     "git fetch failed: fatal: could not read Username for 'https://github.com': terminal prompts disabled",
 }
@@ -229,6 +231,7 @@ export const waitingForTipWorkspace: Workspace = {
   slug: "waiting-tip",
   displayName: "Waiting tip",
   desiredSha: null,
+  defaultBranch: null,
   hydrateStatus: "pending",
   activeProjectionSha: null,
   indexedSha: null,

@@ -447,10 +447,12 @@ export const ConversationWorkspaceMovedNoChanges = meta.story({
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    // The branch name shows when the status has loaded.
-    await waitFor(() => expect(canvas.getByText("chat/1")).toBeVisible(), {
-      timeout: 15_000,
-    })
+    // The header has the branch name when the status has loaded. A phone
+    // hides the branch label, so the check is for the name in the page.
+    await waitFor(
+      () => expect(canvas.getByText("chat/1")).toBeInTheDocument(),
+      { timeout: 15_000 },
+    )
     expect(canvas.queryByRole("alert")).not.toBeInTheDocument()
     expect(canvas.queryByText(/rebase|conflict/i)).not.toBeInTheDocument()
   },

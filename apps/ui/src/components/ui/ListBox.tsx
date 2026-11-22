@@ -60,14 +60,10 @@ export const dropdownItemStylesDark = tv({
 
 /**
  * An option of a React Aria `ListBox`, with a check mark on the selected
- * option. `Select` uses it through `SelectItem`, and `ComboBox` through
- * `ComboBoxItem` with `dark`, the zinc focus of a `Menu`. Use `SelectItem`
- * in a `Select`, and `MenuItem` for a command in a `Menu`.
+ * option. `Select` uses it through `SelectItem`. Use `SelectItem` in a
+ * `Select`, and `MenuItem` for a command in a `Menu`.
  */
-export function DropdownItem({
-  dark,
-  ...props
-}: ListBoxItemProps & { dark?: boolean }) {
+export function DropdownItem(props: ListBoxItemProps) {
   const textValue =
     props.textValue ||
     (typeof props.children === "string" ? props.children : undefined)
@@ -75,7 +71,7 @@ export function DropdownItem({
     <AriaListBoxItem
       {...props}
       textValue={textValue}
-      className={dark ? dropdownItemStylesDark : dropdownItemStyles}
+      className={dropdownItemStyles}
     >
       {composeRenderProps(props.children, (children, { isSelected }) => (
         <>

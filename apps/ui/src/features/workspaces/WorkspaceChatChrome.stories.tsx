@@ -238,8 +238,9 @@ export const CommittedCreatePrOnly = meta.story({
 
 /**
  * Chat header of a conversation that the member started from the branch
- * release/2026-11, not from the default branch: the branch label names that
- * base before the session branch, and Create PR opens the pull request into it.
+ * release/2026-11: after the title, plain muted text names that base, an
+ * arrow and the session branch chat/1. It is not a control, because the base
+ * is fixed after the first message. Create PR opens the pull request into it.
  */
 export const BaseBranchLabel = meta.story({
   args: {
@@ -576,9 +577,8 @@ export const BranchLabel = meta.story({
   },
   play: async ({ canvasElement }) => {
     const name = await within(canvasElement).findByText(/a-very-long/)
-    const label = name.parentElement
+    const label = name.closest("[data-branch-label]")
     if (!label) throw new Error("Branch label missing")
-    expect(label.querySelector("svg.tabler-icon-git-branch")).not.toBeNull()
     expect(label.firstElementChild).toBe(
       label.querySelector("svg.tabler-icon-git-branch"),
     )

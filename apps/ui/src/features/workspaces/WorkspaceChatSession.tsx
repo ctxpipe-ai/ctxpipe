@@ -416,7 +416,7 @@ export function WorkspaceChatSession(props: {
         prepareQuery.isSuccess && gitStatus?.branch
           ? {
               shortName: conversationBranchShortName(gitStatus.branch),
-              base: props.conversation?.baseBranch ?? null,
+              base: props.conversation?.baseBranch ?? workspace.defaultBranch,
               href: gitStatus.published
                 ? conversationGithubTreeHref(
                     workspace.workspaceRepositoryUrl,
