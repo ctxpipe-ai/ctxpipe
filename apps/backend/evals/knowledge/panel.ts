@@ -8,6 +8,7 @@ import {
   type Dataset,
   type Position,
   type Question,
+  onePositionEach,
   questionProblems,
 } from "./dataset.js"
 
@@ -126,17 +127,16 @@ function labeledPositions(
   statusOf: ReadonlyMap<string, Verdict["status"] | null>,
 ): { positions: Position[]; unresolved: string[] } {
   const positions: Position[] = []
-  const unresolved: string[] = []
-  for (const position of drafted) {
-    const byStatus = new Map<Position["status"], string[]>()
+  const unresolved = new Set<string>()
+  for (const position of drafted)
     for (const ref of position.refs.filter((item) => gold.includes(item))) {
       const status = statusOf.get(ref)
-      if (!status || status === "none") unresolved.push(ref)
-      else byStatus.set(status, [...(byStatus.get(status) ?? []), ref])
+      if (!status || status === "none") unresolved.add(ref)
+      else positions.push({ refs: [ref], status })
     }
-    for (const [status, refs] of byStatus) positions.push({ refs, status })
-  }
-  return { positions, unresolved }
+  // The panel gives a document one status, so a document of two drafted
+  // positions is one position.
+  return { positions: onePositionEach(positions), unresolved: [...unresolved] }
 }
 
 /**

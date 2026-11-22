@@ -94,6 +94,25 @@ export type Corpus = z.infer<typeof corpusSchema>
 export type Question = z.infer<typeof questionSchema>
 export type Position = z.infer<typeof positionSchema>
 
+/**
+ * `positions` with each document one time: a document keeps the status of
+ * its first position, and the documents of one status form one position.
+ */
+export function onePositionEach(positions: readonly Position[]): Position[] {
+  const byStatus = new Map<Position["status"], string[]>()
+  const placed = new Set<string>()
+  for (const position of positions)
+    for (const ref of position.refs) {
+      if (placed.has(ref)) continue
+      placed.add(ref)
+      byStatus.set(position.status, [
+        ...(byStatus.get(position.status) ?? []),
+        ref,
+      ])
+    }
+  return [...byStatus].map(([status, refs]) => ({ refs, status }))
+}
+
 /** The problems of one question that the field types do not catch. */
 export function questionProblems(question: Question): string[] {
   const problems: string[] = []
@@ -105,10 +124,26 @@ export function questionProblems(question: Question): string[] {
   if (!noAnswer && question.keyFacts.length === 0)
     problems.push("the question needs at least one key fact")
   if (question.category === "disagreement") {
+    const positions = question.positions ?? []
+    const refs = positions.flatMap((position) => position.refs)
     if (!question.seeds)
       problems.push("a disagreement question needs seeds for get_related")
-    if ((question.positions?.length ?? 0) < 2)
+    if (positions.length < 2)
       problems.push("a disagreement question needs at least two positions")
+    else {
+      // The positions disagree: two or more documents, each in one
+      // position, and not all of them current.
+      if (new Set(refs).size !== refs.length)
+        problems.push("a document is in more than one position")
+      if (new Set(refs).size < 2)
+        problems.push(
+          "a disagreement question needs at least two documents in its positions",
+        )
+      if (positions.every((position) => position.status === "current"))
+        problems.push(
+          "a disagreement question needs a position that is not current",
+        )
+    }
   }
   const gold = new Set(question.gold)
   if (noAnswer && question.stale)
