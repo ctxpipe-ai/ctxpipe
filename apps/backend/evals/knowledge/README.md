@@ -128,7 +128,7 @@ It writes `targets.json` (the input of `run`) to `--out`, and `hydrate.json` (th
 bun --env-file=.env.local evals/knowledge/cli.ts run \
   --dataset DATASET.json --targets TARGETS.json --out "$TMPDIR/knowledge-eval/RUN" \
   [--split dev|holdout] [--cap-usd 5] [--set keepAt=0.6] [--kept KEPT/report.json] \
-  [--baseline-from KEPT]
+  [--baseline-from KEPT] [--reuse-from KEPT]
 ```
 
 `TARGETS.json` gives the Workspace of each fixture id in this database:
@@ -152,6 +152,13 @@ Write each run folder outside the checkout, as in these examples. The folder hol
   - The new folder keeps the reused calls, so a `rescore` of it replays both arms.
   - The report says that the baseline answers are stored. Their latency and cost are of the earlier run.
   - Before any call, the run refuses the folder (exit 2) in these cases: another dataset version, another snapshot of a corpus (source, SHA, root or Workspace), other labels of a question of the run, or no complete answer of the old stack to a question of the run (no answer, or an answer with a failed or missed call).
+- `--reuse-from RUN_DIR` is the replay with live fallback (the lead, 2026-11-23, CTX-1555). Give the folder of the kept run. The run is a candidate run that compares ranking only:
+  - Each model request of the run that is the same as a recorded request of the folder gets the recorded answer, and sends no call. "The same" is the arm, the question, the kind of call and the request body with no `provider` block, as for `rescore`.
+  - Only a new request goes out live, under the spend cap. Thus the scores move only where the code of the candidate changed a request. The noise of the embedding endpoint and of Jev on an unchanged request is gone, and a candidate costs cents.
+  - The run uses the query time of the folder, because the requests hold it. With `--baseline-from` too, both folders must have the same query time.
+  - The run refuses the folder (exit 2) before any call when its dataset version, the snapshot of a corpus, or the labels of a question of the run differ.
+  - The mode of the run is `reuse`. A reused call answers at once, so the run gives no latency: the latency guards come only from a live run without the option. The report gives the count of reused calls and of new calls. The cost of each question counts the reused calls at their cost when they were made.
+  - The new folder holds each call of the run, so a `rescore` of it replays.
 - `--kept` is the report of the last kept run. The report then compares the plane with it for each split and category, gives its guards against the kept guards, and gives the change of each question.
 - Each model call goes only to a ZDR endpoint of an allowed provider (ADR-068 decision 7, ADR-070). Each client sends the provider block itself; the recorder does not change a request. A model with no such endpoint refuses the call: it does not fall back.
 
