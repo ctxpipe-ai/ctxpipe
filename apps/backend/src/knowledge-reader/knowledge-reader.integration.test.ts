@@ -128,8 +128,11 @@ const models = setupServer(
       const startedIn = jevTest
       jevInFlight += 1
       jevMostInFlight = Math.max(jevMostInFlight, jevInFlight)
-      if (jevWaitsForTwo && jevInFlight >= 2) releaseJevCall?.()
-      else if (jevWaitsForTwo)
+      if (jevWaitsForTwo && jevInFlight >= 2) {
+        // One overlap is the proof: the later calls do not wait.
+        jevWaitsForTwo = false
+        releaseJevCall?.()
+      } else if (jevWaitsForTwo)
         await Promise.race([
           new Promise<void>((resolve) => {
             releaseJevCall = resolve
@@ -1141,7 +1144,10 @@ describe("the knowledge reader seam", () => {
     expect(
       (content.results as { ref: string }[]).map((result) => result.ref),
     ).toEqual(["knowledge/teams/payments.md"])
-    expect(jevRequests).toEqual([{ candidates: 1 }, { candidates: 3 }])
+    // The two calls end in any order.
+    expect(jevRequests.map((request) => request.candidates).sort()).toEqual([
+      1, 3,
+    ])
     expect(jevMostInFlight).toBe(2)
   })
 
