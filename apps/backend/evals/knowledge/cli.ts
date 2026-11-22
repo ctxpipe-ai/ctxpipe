@@ -584,6 +584,18 @@ export async function main(argv: string[]): Promise<number> {
         throw new SetupError(`The labeled files give two corpora ${corpus.id}.`)
       corpora.set(corpus.id, corpus)
     }
+    // Two labeled questions with one id, or a question of no corpus of the
+    // files, are faults of the input, not of a label: they stop here.
+    const ids = new Set<string>()
+    for (const question of labeled.flatMap((item) => item.questions)) {
+      if (ids.has(question.id))
+        throw new SetupError(`The labeled files hold ${question.id} twice.`)
+      ids.add(question.id)
+      if (!corpora.has(question.corpus))
+        throw new SetupError(
+          `${question.id} names the corpus ${question.corpus}, which no labeled file holds.`,
+        )
+    }
     // Each document is in one position, then the rules of `dataset.ts` drop
     // a question and list it.
     const checked = labeled
