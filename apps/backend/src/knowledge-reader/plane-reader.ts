@@ -395,6 +395,7 @@ async function related(
   const upper = (values: readonly string[] | undefined) =>
     values && new Set(values.map((value) => value.toUpperCase()))
   let traversal: Awaited<ReturnType<typeof traverse>>
+  let results: TraversalNode[]
   let positions: RelatedPosition[] | undefined
   try {
     traversal = await traverse({
@@ -435,10 +436,10 @@ async function related(
       },
       meter,
     })
-    const top = answering(traversal.nodes, input).slice(
-      0,
-      ORCHESTRATOR_DEFAULTS.disagreementItems,
-    )
+    const keepsKind = kindFilter(input)
+    const answers = answerNodes(traversal.nodes, input, keepsKind)
+    results = withSteps(answers, keepsKind)
+    const top = answers.slice(0, ORCHESTRATOR_DEFAULTS.disagreementItems)
     if (top.length > 0 && !traversal.partialReason)
       positions = await disagreementPositions(
         question,
@@ -461,9 +462,7 @@ async function related(
     )
   }
   return {
-    results: withSteps(answering(traversal.nodes, input), input)
-      .slice(0, RANKED_LIMIT)
-      .map(relatedResult),
+    results: results.map(relatedResult),
     ...(positions ? { positions } : {}),
     explored: traversal.explored,
     partial: traversal.partialReason !== undefined,
@@ -481,47 +480,59 @@ async function related(
  * pass the kind filters of the call, best first. A seed is one only with
  * `includeSeeds`.
  */
-function answering(
+function answerNodes(
   nodes: readonly TraversalNode[],
   input: RelatedRequest["input"],
+  keepsKind: (node: TraversalNode) => boolean,
 ): TraversalNode[] {
   return nodes
     .filter(
       (node) =>
         (node.depth > 0 || input.includeSeeds) &&
         node.pAnswers >= ORCHESTRATOR_DEFAULTS.keepAt &&
-        passesKinds(node, input),
+        keepsKind(node),
     )
     .sort(byScore)
 }
 
 /**
- * The answers, and each document on the "why" path of one of them that is
- * not a seed and passes the kind filters (CTX-1520). A step does not answer
- * the question, but the traversal went through it to reach an answer, so the
- * caller gets the chain. A step keeps its own p(answers) as its score, which
- * is below `keepAt`, so the steps come after the answers.
+ * The results: the answers, best first, each with the documents on its
+ * "why" path that are not seeds and pass the kind filters (CTX-1520). A step
+ * does not answer the question, but the traversal went through it to reach
+ * an answer, so the caller gets the chain. The `RANKED_LIMIT` applies to an
+ * answer and its steps together: an answer whose new steps do not fit ends
+ * the results, so that no kept answer loses a step. A step keeps its own
+ * p(answers) as its score, which is below `keepAt`, so the steps come after
+ * the answers.
  */
 function withSteps(
   answers: readonly TraversalNode[],
-  input: RelatedRequest["input"],
+  keepsKind: (node: TraversalNode) => boolean,
 ): TraversalNode[] {
-  const kept = new Set(answers)
-  for (const node of answers)
-    for (let step = node.parent?.node; step; step = step.parent?.node)
-      if (step.depth > 0 && passesKinds(step, input)) kept.add(step)
+  const kept = new Set<TraversalNode>()
+  for (const answer of answers) {
+    const chain = [answer]
+    for (let step = answer.parent?.node; step; step = step.parent?.node)
+      if (step.depth > 0 && keepsKind(step)) chain.push(step)
+    const added = chain.filter((node) => !kept.has(node))
+    if (kept.size + added.length > RANKED_LIMIT) break
+    for (const node of added) kept.add(node)
+  }
   return [...kept].sort(byScore)
 }
 
-function passesKinds(
-  node: TraversalNode,
+/** True for a node whose kind passes the kind filters of the call. */
+function kindFilter(
   input: RelatedRequest["input"],
-): boolean {
-  const kind = kindKey(node.document.kind)
-  return (
-    (!input.kinds?.length || input.kinds.map(kindKey).includes(kind)) &&
-    !(input.excludeKinds ?? []).map(kindKey).includes(kind)
-  )
+): (node: TraversalNode) => boolean {
+  const keptKinds = input.kinds?.length
+    ? new Set(input.kinds.map(kindKey))
+    : null
+  const droppedKinds = new Set((input.excludeKinds ?? []).map(kindKey))
+  return (node) => {
+    const kind = kindKey(node.document.kind)
+    return (!keptKinds || keptKinds.has(kind)) && !droppedKinds.has(kind)
+  }
 }
 
 /** Best first: p(answers), then the nearer layer, then the path. */

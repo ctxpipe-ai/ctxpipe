@@ -225,11 +225,70 @@ const units: (RelatedUnit & { text: string })[] = [
   },
 ]
 
-/** The rows of `units` in the knowledge plane for one Workspace. */
-function planeRows(workspaceId: string): PlaneDocument[] {
+/**
+ * A Workspace with more answers than the 100 results of a ranking. The seed
+ * reaches a middle document that is only a hub, and 49 answers that are
+ * hubs. The middle document reaches the far answer. Each answer of layer 1
+ * reaches one answer that is a hub, and each of these reaches one more
+ * answer. Thus 148 documents answer, and the far answer has one step.
+ */
+const pad = (index: number) => String(index).padStart(2, "0")
+const layer = (prefix: string) =>
+  Array.from(
+    { length: 49 },
+    (_, index) => `wide/${prefix}-${pad(index + 1)}.md`,
+  )
+const wideUnits: (RelatedUnit & { text: string })[] = [
+  {
+    path: "wide/seed.md",
+    kind: "Note",
+    title: "Wide seed",
+    text: "The start.",
+    claims: [
+      { to: "wide/middle.md", predicate: "DEPENDS_ON", confidence: 0.9 },
+      ...layer("a").map((to) => ({
+        to,
+        predicate: "MENTIONS",
+        confidence: 0.8,
+      })),
+    ],
+  },
+  {
+    path: "wide/middle.md",
+    kind: "Note",
+    title: "Wide middle",
+    text: "A bridge. hub",
+    claims: [{ to: "wide/b-00.md", predicate: "DEPENDS_ON", confidence: 0.95 }],
+  },
+  { path: "wide/b-00.md", kind: "Note", title: "Wide far", text: "answer" },
+  ...(["a", "b", "c"] as const).flatMap((prefix) =>
+    layer(prefix).map((path, index) => ({
+      path,
+      kind: "Note",
+      title: `Wide ${prefix} ${index + 1}`,
+      text: prefix === "c" ? "answer" : "answer hub",
+      claims:
+        prefix === "c"
+          ? []
+          : [
+              {
+                to: layer(prefix === "a" ? "b" : "c")[index] as string,
+                predicate: "MENTIONS",
+                confidence: 0.8,
+              },
+            ],
+    })),
+  ),
+]
+
+/** The rows of `list` in the knowledge plane for one Workspace. */
+function planeRows(
+  workspaceId: string,
+  list: readonly (RelatedUnit & { text: string })[] = units,
+): PlaneDocument[] {
   const key = (path: string) => servingIdForKnowledgePath(workspaceId, path)
   const observedAt = new Date("2026-11-01T00:00:00Z")
-  return units.map((unit) => ({
+  return list.map((unit) => ({
     document: {
       docKey: key(unit.path),
       kind: unit.kind,
@@ -503,8 +562,27 @@ describe("the knowledge reader seam", () => {
     } finally {
       await writer.close()
     }
+    // The wide Workspace is only on the plane.
+    const wide = await seedRelatedWorkspace({
+      seed,
+      slug: "wide",
+      sha: legacySha,
+      units: [],
+    })
+    ids.wide = wide.workspaceId
+    const wideWriter = createKnowledgeStore(url)
+    try {
+      await writePlaneDocuments(
+        wideWriter,
+        { orgId: seed.orgId, workspaceId: wide.workspaceId },
+        planeRows(wide.workspaceId, wideUnits),
+      )
+    } finally {
+      await wideWriter.close()
+    }
     await markReady(ids.ready as string)
     await markReady(ids.paging as string)
+    await markReady(ids.wide as string)
     // A first run that has not ended: not ready.
     await beginKnowledgeRun({
       orgId: seed.orgId,
@@ -864,6 +942,34 @@ describe("the knowledge reader seam", () => {
         against: [{ position: 0, label: "updates" }],
       },
     ])
+  })
+
+  it("on: get_related keeps the step of each kept answer when the answers pass the result limit", async () => {
+    await setFlag("on")
+    const refs: string[] = []
+    let cursor: string | undefined
+    do {
+      const content = structured(
+        await relatedCall({
+          workspace: "wide",
+          seeds: ["wide/seed.md"],
+          maxDepth: 3,
+          limit: 50,
+          maxTokens: 8_000,
+          ...(cursor ? { cursor } : {}),
+        }),
+      )
+      refs.push(...(content.results as { ref: string }[]).map((r) => r.ref))
+      cursor = content.cursor as string | undefined
+    } while (cursor)
+    // 148 documents answer. The 100 results are the best answers, each with
+    // its steps: the 49 answers of layer 1, the far answer and its step (the
+    // middle document), and the 49 other answers of layer 2. The answers of
+    // layer 3 do not fit with their steps.
+    expect(refs).toHaveLength(100)
+    expect(refs.at(-1)).toBe("wide/middle.md")
+    expect(refs).toContain("wide/b-00.md")
+    expect(refs.filter((ref) => ref.startsWith("wide/c-"))).toEqual([])
   })
 
   it("get_related tells agents about the positions in its description and output schema", async () => {
