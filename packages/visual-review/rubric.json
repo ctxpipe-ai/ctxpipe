@@ -226,7 +226,7 @@
     {
       "id": "continuity",
       "name": "Continuity",
-      "definition": "Siblings share one edge and one marker axis. A child group steps in, and a different edge marks a different role. On a page, the title, the local navigation and the content blocks follow one column, and sibling blocks share one width unless their roles differ.",
+      "definition": "Siblings share one edge and one marker axis. Elements align by their visible content, the text or the icon, not by an invisible box or its padding. A child group steps in, and a different edge marks a different role. On a page, the title, the local navigation and the content blocks follow one column, and sibling blocks share one width unless their roles differ.",
       "sources": [
         {
           "file": "apps/ui/DESIGN.md",

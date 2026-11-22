@@ -40,12 +40,14 @@ import {
   designModel,
   explainerModel,
   explainRegression,
+  inContext,
   reviewDesign,
   type Explained,
+  type Review,
 } from "./explain.ts"
 import { pngSize, prepareImage } from "./prepare.ts"
 import { buildNewPrompt, buildPrompt, type Prompt } from "./prompt.ts"
-import { reviewStories } from "./review.ts"
+import { redesigns, reviewStories } from "./review.ts"
 import { packagedRubric, readRubric, type Rubric } from "./rubric.ts"
 import { storiesOf } from "./story-tags.ts"
 import type { NewStoryInput, StoryInput } from "./story.ts"
@@ -130,8 +132,13 @@ const usage = `Usage: pnpm visual:review [--manifest <path>] [--judge model|jev|
               into the summary. It can make the verdict regression: major
               (a should-fix) when a finding names a rubric principle with
               evidence and a fix, else minor. It never gives a blocker and
-              never lowers the verdict of Jev. The visual critic of the
-              factory uses jev (ADR-063).
+              never lowers the verdict of Jev. A changed screenshot where an
+              element is added, removed or replaced in a region of at least
+              100 × 32 px gets the same design review of its head image, in
+              place of the explainer: it judges the changed regions and their
+              neighbors as new UI in context. One screenshot stands for alike
+              diffs, and a run reviews at most 4, the largest first. The
+              visual critic of the factory uses jev (ADR-063).
               agent: write a judgment request for each story; your coding
               agent writes its verdict.json; run again to read it.
               Default: model.
@@ -283,11 +290,54 @@ export async function visualReview(
       : judgeByModel(story, model, filter, undefined, budget)
   // The feedback pass runs after all Jev calls, so that a short budget goes
   // to the verdicts first: the explainer of a Jev regression on a change, and
-  // the design review of each new story (CTX-1469). It makes a call only
-  // while the `reserve` of the call is free in the budget. A screenshot of a
-  // group gets the explained summary of the screenshot that Jev judged.
-  // Another viewport of a new story gets a copy of the reviewed verdict.
-  const feedbackOf = (input: Explained) =>
+  // the design review of each new story (CTX-1469) and of each redesigned
+  // area of a changed screenshot, in place of the explainer (CTX-1509). It
+  // makes a call only while the `reserve` of the call is free in the budget.
+  // A screenshot of a group gets the explained summary of the screenshot that
+  // Jev judged. Another viewport of a new story gets a copy of the reviewed
+  // verdict.
+  const shareChange = (verdict: Verdict, member: Verdict) =>
+    member.verdict === "regression"
+      ? {
+          ...member,
+          summary: `${member.summary} Jev on ${verdict.storyId}: ${verdict.summary}`,
+        }
+      : member
+  // A screenshot with the same redesign takes the regression of the review
+  // `review` of the screenshot `storyId`, with its text. A stronger verdict
+  // of its own stays.
+  const withReview = (
+    review: Review,
+    storyId: string,
+    member: Verdict,
+  ): Verdict => {
+    const severityRank = { none: 0, minor: 1, major: 2, blocker: 3 }
+    return {
+      ...member,
+      ...(member.verdict !== "regression" ||
+      severityRank[review.severity] > severityRank[member.severity]
+        ? {
+            verdict: "regression",
+            severity: review.severity,
+            confidence: review.confidence,
+          }
+        : {}),
+      summary: `${member.summary} Design review on ${storyId}, an alike diff: ${review.text}`,
+    }
+  }
+  const feedbackOf = (
+    input: Explained,
+    reviewed: boolean,
+  ): {
+    call: (verdict: Verdict) => Promise<{
+      verdict: Verdict
+      explainer?: { costUsd: number | null }
+      review?: Review
+    }>
+    reserve: number
+    skipped: string | undefined
+    share: (verdict: Verdict, member: Verdict) => Verdict
+  } =>
     input.kind === "new"
       ? {
           call: (verdict: Verdict) =>
@@ -298,29 +348,73 @@ export async function visualReview(
           share: (verdict: Verdict, member: Verdict) =>
             viewportCopy(verdict, member.storyId),
         }
-      : {
-          call: (verdict: Verdict) =>
-            explainRegression(verdict, input, explainerModel, process.env),
-          reserve: unknownExplainerUsd,
-          skipped: undefined,
-          share: (verdict: Verdict, member: Verdict) =>
-            member.verdict === "regression"
-              ? {
-                  ...member,
-                  summary: `${member.summary} Jev on ${verdict.storyId}: ${verdict.summary}`,
-                }
-              : member,
-        }
+      : reviewed
+        ? {
+            call: async (verdict: Verdict) => {
+              const story = await inContext(input.story)
+              return story
+                ? reviewDesign(verdict, story, designModel, process.env)
+                : explainRegression(verdict, input, explainerModel, process.env)
+            },
+            reserve: unknownDesignUsd,
+            skipped:
+              "The design review of the changed area did not run: the budget of the run is short.",
+            share: shareChange,
+          }
+        : {
+            call: (verdict: Verdict) =>
+              explainRegression(verdict, input, explainerModel, process.env),
+            reserve: unknownExplainerUsd,
+            skipped: undefined,
+            share: shareChange,
+          }
   const explainAll = async (verdicts: Verdict[]) => {
-    for (const [index, verdict] of verdicts.entries()) {
-      const input = jevInputs.get(verdict.storyId)
-      if (!input || verdict.groupedWith !== undefined) continue
-      const { call, reserve, skipped, share } = feedbackOf(input)
-      let updated: Verdict
+    // A redesigned area gets a design review in its context: at most 4 for
+    // each run, the largest first, before the explainers of other changes,
+    // so that a short budget goes to the reviews (ADR-063 rule 20).
+    const found = redesigns(
+      [...jevInputs.values()].flatMap((input) =>
+        input.kind === "change" ? [input.story] : [],
+      ),
+      4,
+    )
+    const redesigned = found.map(({ story }) => story.storyId)
+    const reviewOrder = (storyId: string) => {
+      const at = redesigned.indexOf(storyId)
+      return jevInputs.get(storyId)?.kind === "new"
+        ? -1
+        : at >= 0
+          ? at
+          : redesigned.length
+    }
+    const order = [...verdicts.keys()].sort(
+      (a, b) =>
+        reviewOrder(verdicts[a]?.storyId ?? "") -
+        reviewOrder(verdicts[b]?.storyId ?? ""),
+    )
+    const fits = (reserve: number) =>
+      budget.limitUsd === undefined ||
+      budget.spentUsd + reserve <= budget.limitUsd
+    // The alike diffs of a reviewed redesign: the review stands for them.
+    const covered = new Set<string>()
+    for (const index of order) {
+      const verdict = verdicts[index]
+      const input = verdict && jevInputs.get(verdict.storyId)
       if (
-        budget.limitUsd !== undefined &&
-        budget.spentUsd + reserve > budget.limitUsd
-      ) {
+        !input ||
+        verdict.groupedWith !== undefined ||
+        covered.has(verdict.storyId)
+      )
+        continue
+      // A redesign keeps its explainer when the budget has no room for the
+      // review.
+      const reviewed =
+        redesigned.includes(verdict.storyId) &&
+        (fits(unknownDesignUsd) || !fits(unknownExplainerUsd))
+      const { call, reserve, skipped, share } = feedbackOf(input, reviewed)
+      let updated: Verdict
+      let review: Review | undefined
+      if (!fits(reserve)) {
         if (!skipped || verdict.error !== undefined) continue
         updated = { ...verdict, summary: `${verdict.summary} ${skipped}` }
       } else {
@@ -328,11 +422,27 @@ export async function visualReview(
         if (!result.explainer) continue
         budget.spentUsd += result.explainer.costUsd ?? reserve
         updated = result.verdict
+        review = result.review
       }
       verdicts[index] = updated
+      // A regression of the review stands for the alike diffs of the
+      // redesign: they need no feedback call of their own.
+      const alike = new Set(
+        review
+          ? found.find(({ story }) => story.storyId === verdict.storyId)?.alike
+          : [],
+      )
+      for (const id of alike) covered.add(id)
       for (const [other, member] of verdicts.entries())
         if (member.groupedWith === verdict.storyId)
-          verdicts[other] = share(updated, member)
+          verdicts[other] = review
+            ? withReview(review, verdict.storyId, member)
+            : share(updated, member)
+        else if (
+          review &&
+          (alike.has(member.storyId) || alike.has(member.groupedWith ?? ""))
+        )
+          verdicts[other] = withReview(review, verdict.storyId, member)
     }
   }
 

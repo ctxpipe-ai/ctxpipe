@@ -34,19 +34,20 @@ const near = (a: number, b: number) =>
 
 /**
  * True when the regions of `a` and `b` pair one to one, each pair with the
- * same change type and position and sizes that are near. The order of the
- * regions does not matter. A region that has two near candidates may take the
- * place that another region needs, so the pairing is a bipartite match: a
- * taken place moves to another candidate when it can.
+ * same change type and position and sizes that are near. With `anyPosition`,
+ * the positions need not be the same. The order of the regions does not
+ * matter. A region that has two near candidates may take the place that
+ * another region needs, so the pairing is a bipartite match: a taken place
+ * moves to another candidate when it can.
  */
-function alike(a: Part[], b: Part[]): boolean {
+function alike(a: Part[], b: Part[], anyPosition = false): boolean {
   const takenBy: (Part | undefined)[] = []
   const pair = (part: Part, tried: Set<number>): boolean =>
     b.some((other, j) => {
       if (
         tried.has(j) ||
         other.change !== part.change ||
-        other.position !== part.position ||
+        (!anyPosition && other.position !== part.position) ||
         !near(other.width, part.width) ||
         !near(other.height, part.height)
       )
@@ -59,6 +60,20 @@ function alike(a: Part[], b: Part[]): boolean {
     })
   return a.length === b.length && a.every((part) => pair(part, new Set()))
 }
+
+/**
+ * True when two stories show the same diff: the same scope and viewport, and
+ * alike regions (with `anyPosition`, at any position).
+ */
+const sameDiff = (
+  a: { story: StoryInput; parts: Part[] },
+  b: { story: StoryInput; parts: Part[] },
+  anyPosition = false,
+) =>
+  a.story.scope === b.story.scope &&
+  a.story.viewport.width === b.story.viewport.width &&
+  a.story.viewport.height === b.story.viewport.height &&
+  alike(a.parts, b.parts, anyPosition)
 
 type Member = { story: StoryInput; index: number }
 // The first member is the representative.
@@ -110,12 +125,10 @@ export async function reviewStories(
       ? groups.find(
           (candidate) =>
             candidate.parts &&
-            alike(candidate.parts, parts) &&
-            candidate.members[0].story.scope === story.scope &&
-            candidate.members[0].story.viewport.width ===
-              story.viewport.width &&
-            candidate.members[0].story.viewport.height ===
-              story.viewport.height,
+            sameDiff(
+              { story: candidate.members[0].story, parts: candidate.parts },
+              { story, parts },
+            ),
         )
       : undefined
     if (group) group.members.push(member)
@@ -144,6 +157,55 @@ export async function reviewStories(
       verdicts[index] = grouped(story.storyId, judged)
   }
   return verdicts
+}
+
+/**
+ * The changed stories whose design the critic reviews in its context, as new
+ * UI (CTX-1509, ADR-063 rule 20). A story qualifies when an element is added,
+ * removed or replaced in a region of at least 100 × 32 px: larger than a line
+ * of text or a small control that moves. A color change, a shift and
+ * rendering noise do not qualify. A screenshot whose size changed does not
+ * qualify either: the compare engine measures no region for it, so the
+ * critic cannot tell a redesign from a small change, group it, or scope the
+ * review. Stories with alike diffs (the same scope and viewport, alike
+ * regions at any position) are one redesign, and the first one stands for
+ * them: `alike` names the others. The largest change comes first, and at
+ * most `limit` redesigns come back: each review is a paid call of a large
+ * model.
+ */
+export function redesigns(
+  stories: readonly StoryInput[],
+  limit: number,
+): { story: StoryInput; alike: string[] }[] {
+  const kept: {
+    story: StoryInput
+    parts: Part[]
+    largest: number
+    alike: string[]
+  }[] = []
+  for (const story of stories) {
+    const parts = parseSignature(story.signature)
+    const largest = Math.max(
+      0,
+      ...(parts ?? [])
+        .filter(
+          ({ change, width, height }) =>
+            change !== "color-change" &&
+            change !== "shift" &&
+            width >= 100 &&
+            height >= 32,
+        )
+        .map(({ width, height }) => width * height),
+    )
+    if (!parts || largest === 0) continue
+    const same = kept.find((other) => sameDiff(other, { story, parts }, true))
+    if (same) same.alike.push(story.storyId)
+    else kept.push({ story, parts, largest, alike: [] })
+  }
+  return kept
+    .sort((a, b) => b.largest - a.largest)
+    .slice(0, limit)
+    .map(({ story, alike }) => ({ story, alike }))
 }
 
 function noiseVerdict({ storyId, regions }: StoryInput): Verdict {

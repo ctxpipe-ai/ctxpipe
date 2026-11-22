@@ -189,7 +189,7 @@ A card, a tile or a row stands off the page by its surface or by a clear border,
 <!-- /rubric -->
 
 <!-- rubric: continuity -->
-Siblings share one edge and one marker axis. A child group steps in, and a different edge marks a different role. On a page, the title, the local navigation and the content blocks follow one column, and sibling blocks share one width unless their roles differ.
+Siblings share one edge and one marker axis. Elements align by their visible content, the text or the icon, not by an invisible box or its padding. A child group steps in, and a different edge marks a different role. On a page, the title, the local navigation and the content blocks follow one column, and sibling blocks share one width unless their roles differ.
 <!-- /rubric -->
 
 <!-- rubric: pragnanz -->
