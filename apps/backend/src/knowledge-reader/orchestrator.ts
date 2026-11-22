@@ -256,6 +256,16 @@ type Traversal = {
  * most D). When the time budget ends, the loop stops and returns what it
  * judged, with `total_timeout`.
  * Another Jev failure throws its `JevError`.
+ *
+ * The steps that do not wait for each other run in parallel (CTX-1535):
+ * - The judge of the seeds runs with layer 1, because the seeds are the
+ *   first frontier whatever Jev says. `seedRelations` is the read of their
+ *   relations, which the caller starts before the query vector is ready.
+ * - While Jev judges a layer, the relations of all its candidates are read.
+ *   The next layer uses only the relations of the candidates that Jev
+ *   explores, so the result is the same as a read after the judge.
+ * Thus a walk of D layers waits for D Jev calls, not D + 1, and for no
+ * frontier read after layer 1.
  */
 export async function traverse(input: {
   store: KnowledgeStore
@@ -266,56 +276,90 @@ export async function traverse(input: {
   intent: string
   vector: number[]
   seeds: readonly JudgeInput[]
+  /** The relations of the seeds (`readFrontier` at `walk.validAt`). */
+  seedRelations: Promise<FrontierRelation[]>
   maxDepth: number
   walk: WalkFilter
   meter: ModelMeter
 }): Promise<Traversal> {
   const { deadline } = input
   const settings = ORCHESTRATOR_DEFAULTS
+  const maxDepth = Math.min(input.maxDepth, settings.maxDepth)
   const nodes: TraversalNode[] = []
   const visited = new Set(input.seeds.map((seed) => documentId(seed.ref)))
   const cappedHubs: KnowledgeDocument[] = []
   const read: KnowledgeRelation[] = []
   let partialReason: Traversal["partialReason"]
+  let seedsDone = false
+  // The judgments of the seeds come with layer 1. Until then, a seed node
+  // has 0 for both, and only the walk of layer 1 reads it (as a parent).
+  const seeds = input.seeds.map((seed): TraversalNode => ({
+    ...seed,
+    pAnswers: 0,
+    pExplore: 0,
+    depth: 0,
+    parent: null,
+  }))
+  const seedJudge = judge(
+    input.seeds,
+    input.question,
+    input.intent,
+    deadline,
+    input.meter,
+  ).then((judged) => {
+    seeds.forEach((seed, index) => {
+      seed.pAnswers = judged[index]?.pAnswers ?? 0
+      seed.pExplore = judged[index]?.pExplore ?? 0
+    })
+    seedsDone = true
+  })
+  // The loop awaits `seedJudge` later; until then, a failure must not be an
+  // unhandled rejection.
+  seedJudge.catch(() => {})
+  let seedsJudged = false
   try {
-    const judged = await judge(
-      input.seeds,
-      input.question,
-      input.intent,
-      deadline,
-      input.meter,
-    )
-    const seeds = input.seeds.map((seed, index): TraversalNode => ({
-      ...seed,
-      pAnswers: judged[index]?.pAnswers ?? 0,
-      pExplore: judged[index]?.pExplore ?? 0,
-      depth: 0,
-      parent: null,
-    }))
-    nodes.push(...seeds)
-    let frontier = seeds
-    for (
-      let depth = 1;
-      depth <= Math.min(input.maxDepth, settings.maxDepth) && frontier.length;
-      depth++
-    ) {
+    let frontier: readonly TraversalNode[] = seeds
+    let relations: Promise<FrontierRelation[]> =
+      maxDepth > 0 ? input.seedRelations : Promise.resolve([])
+    for (let depth = 1; depth <= maxDepth && frontier.length; depth++) {
       const byKey = new Map(
         frontier.map((node) => [documentId(node.ref), node]),
       )
-      const refs = frontier.map((node) => node.ref)
-      const relations = await beforeDeadline(deadline, () =>
-        input.store.readFrontier(input.scope, refs, input.walk.validAt),
+      // Only the relations of the frontier: a read of more documents gives
+      // the same relations for these documents.
+      const own = (await beforeDeadline(deadline, () => relations)).filter(
+        (item) =>
+          byKey.has(
+            documentId({
+              workspaceId: item.workspaceId,
+              docKey:
+                item.direction === "out"
+                  ? item.relation.srcDoc
+                  : item.relation.dstDoc,
+            }),
+          ),
       )
-      read.push(...relations.map((item) => item.relation))
-      const candidates = layerCandidates(relations, byKey, visited, input.walk)
+      read.push(...own.map((item) => item.relation))
+      const candidates = layerCandidates(own, byKey, visited, input.walk)
       cappedHubs.push(...candidates.capped.map((node) => node.document))
       const layer = candidates.picked.slice(0, settings.fanOut)
       if (layer.length === 0) break
       for (const candidate of layer) visited.add(documentId(candidate.ref))
+      const refs = layer.map((candidate) => candidate.ref)
+      // The relations of the next layer, read while Jev judges this one.
+      relations =
+        depth < maxDepth
+          ? beforeDeadline(deadline, () =>
+              input.store.readFrontier(input.scope, refs, input.walk.validAt),
+            )
+          : Promise.resolve([])
+      // Each await of `relations` comes later; until then, a failure must
+      // not be an unhandled rejection.
+      relations.catch(() => {})
       const evidence = await beforeDeadline(deadline, () =>
         input.store.readEvidence(
           input.scope,
-          layer.map((candidate) => candidate.ref),
+          refs,
           input.vector,
           settings.evidenceChunks,
         ),
@@ -336,13 +380,14 @@ export async function traverse(input: {
           chunksOf.get(documentId(candidate.ref)) ?? [],
         ),
       }))
-      const scores = await judge(
-        inputs,
-        input.question,
-        input.intent,
-        deadline,
-        input.meter,
-      )
+      const [scores] = await Promise.all([
+        judge(inputs, input.question, input.intent, deadline, input.meter),
+        seedsJudged ? undefined : seedJudge,
+      ])
+      if (!seedsJudged) {
+        nodes.push(...seeds)
+        seedsJudged = true
+      }
       const layerNodes = inputs.map((candidate, index): TraversalNode => ({
         ref: candidate.ref,
         document: candidate.document,
@@ -357,9 +402,16 @@ export async function traverse(input: {
         (node) => node.pExplore >= settings.exploreAt,
       )
     }
+    if (!seedsJudged) {
+      await seedJudge
+      nodes.unshift(...seeds)
+      seedsJudged = true
+    }
   } catch (error) {
     if (!isBudgetSpent(error, deadline)) throw error
     partialReason = "total_timeout"
+    // The seeds that Jev judged before the end of the budget are results.
+    if (!seedsJudged && seedsDone) nodes.unshift(...seeds)
   }
   return {
     nodes,

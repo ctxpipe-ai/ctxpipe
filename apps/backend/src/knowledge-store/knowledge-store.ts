@@ -176,8 +176,11 @@ export type KnowledgeReadScope = { orgId: string; heads: WorkspaceHead[] }
 export type DocumentRef = { workspaceId: string; docKey: string }
 
 export type SearchQuery = {
-  /** The query vector, in the vector space of the chunks. */
-  vector: number[]
+  /**
+   * The query vector, in the vector space of the chunks. A promise lets the
+   * lexical part start before the vector is ready.
+   */
+  vector: number[] | PromiseLike<number[]>
   /**
    * The query terms for the text index. A term with separators counts as its
    * tokens. The match is case-sensitive.
@@ -1373,14 +1376,19 @@ const refTuples = (refs: DocumentRef[]) =>
  *    cosine distance on `embedding` orders them. Both stages are one query,
  *    so ClickHouse reads `embedding` for the 500 rows only (lazy
  *    materialization; `chunks` has `index_granularity = 64`).
- * 2. Lexical: one `hasToken` filter for each term selects at most 1000
- *    chunks through the text index. The score of a chunk is the sum of the
- *    IDF weights of its matched terms, plus the weights of the terms in the
+ * 2. Lexical: one `hasToken` filter for each term selects its chunks
+ *    through the text index. The score of a chunk is the sum of the IDF
+ *    weights of its matched terms, plus the weights of the terms in the
  *    title of its document. The IDF of a term is the BM25 IDF from the count
  *    of the chunks of the Workspaces that have it, so a common word such as
  *    "a" weighs almost nothing. The text index gives each count without a
  *    read of the text column. A function on `text` in the SELECT list would
- *    read the full text column.
+ *    read the full text column. The counts are one query, and the matches
+ *    are a second query with the weights as a parameter. The matches apply
+ *    the filters one time, after the union of the terms: a filter in each
+ *    term evaluated the tree view one time for each term (46 times for a
+ *    question of the eval, CTX-1535). Both lexical queries run while the
+ *    query vector is still on its way (`vector` can be a promise).
  * 3. RRF (k = 60) fuses the two orders. The fused chunks are grouped by
  *    document, a document in the order of its best chunk, and the top 50
  *    documents are the hits. Thus a long document takes one place, not one
@@ -1412,17 +1420,17 @@ async function search(
         .filter(Boolean),
     ),
   ]
-  const params = {
-    queryVector: vector,
-    queryBits: vectorBits(vector),
+  const filters = {
     kinds,
     pathPrefix,
     sources,
     mirrorRoots: CONNECTOR_MIRROR_ROOTS,
     observedAfter: observedAfter && clickHouseTime(observedAfter),
     validAt: validAt && clickHouseTime(validAt),
-    ...Object.fromEntries(uniqueTerms.map((term, i) => [`term${i}`, term])),
   }
+  const termParams = Object.fromEntries(
+    uniqueTerms.map((term, i) => [`term${i}`, term]),
+  )
   // The tree rows that the search can find: active, and in the filters.
   const searchable = `kind = 'file' AND status = 'active'
     AND (empty({kinds:Array(String)}) OR has({kinds:Array(String)}, doc_kind))
@@ -1435,93 +1443,137 @@ async function search(
     AND ${validDuring()}`
   const inSearchable = `(workspace_id, doc_key, version) IN (
     SELECT workspace_id, doc_key, version FROM tree_view WHERE ${searchable})`
-  // One branch for each term, each with at most 1000 chunks of searchable
-  // documents: the cap before the score. Only the parameter names go into the
-  // SQL text.
-  const termMatches = uniqueTerms
-    .map(
-      (_, i) => `SELECT {term${i}:String} AS word,
-          workspace_id, doc_key, version, ordinal
-        FROM chunks
-        WHERE ${inWorkspaces} AND hasToken(text, {term${i}:String})
-          AND ${inSearchable}
-        LIMIT 1000`,
-    )
-    .join(" UNION ALL ")
-  // The BM25 IDF of each term: ln(1 + (N - n + 0.5) / (n + 0.5)), with N the
-  // chunks of the Workspaces and n the chunks that have the term. The counts
-  // read only the text index and the sort key, not the tree view.
-  const termWeights = `SELECT word,
-      log(1 + (total - found + 0.5) / (found + 0.5)) AS idf
-    FROM (${uniqueTerms
-      .map(
-        (_, i) => `SELECT {term${i}:String} AS word, count() AS found
-        FROM chunks
-        WHERE ${inWorkspaces} AND hasToken(text, {term${i}:String})`,
-      )
-      .join(" UNION ALL ")}) AS counts
-    CROSS JOIN (SELECT count() AS total FROM chunks
-      WHERE ${inWorkspaces}) AS totals`
-  const [vectorOrder, lexicalOrder] = await Promise.all([
+  const vectorOrder = async () =>
     selectIn<ChunkKey>(
       client,
       scope,
-      // The filter on the documents applies before the top 500 (and before the
-      // cap of each term), so that a narrow filter still finds chunks. Index
-      // analysis of the large set cost more than it saved: 60 ms against
-      // 34 ms on 1 million chunks.
+      // The filter on the documents applies before the top 500, so that a
+      // narrow filter still finds chunks. Index analysis of the large set
+      // cost more than it saved: 60 ms against 34 ms on 1 million chunks.
+      // Many chunks can have the same Hamming distance, so the key decides
+      // between them at the cut: the same query gives the same 500.
       `WITH tree_view AS (${treeView})
        SELECT workspace_id AS workspaceId, doc_key AS docKey, version, ordinal
        FROM (
          SELECT workspace_id, doc_key, version, ordinal, embedding FROM chunks
          WHERE ${inWorkspaces} AND ${inSearchable}
-         ORDER BY bitHammingDistance(embedding_bits, unhex({queryBits:String}))
+         ORDER BY bitHammingDistance(embedding_bits, unhex({queryBits:String})),
+           workspace_id, doc_key, version, ordinal
          LIMIT 500
        )
        ORDER BY cosineDistance(embedding, {queryVector:Array(Float32)}),
          workspaceId, docKey, ordinal
        SETTINGS use_index_for_in_with_subqueries = 0`,
-      params,
-    ),
-    uniqueTerms.length === 0
-      ? []
-      : selectIn<ChunkKey>(
-          client,
-          scope,
-          // The score: the weights of the matched terms of the chunk, plus the
-          // weights of the query terms in the title of its document (the title
-          // boost). The weights are one scalar map, so their counts run once.
-          `WITH tree_view AS (${treeView}),
-             (SELECT CAST((groupArray(word), groupArray(idf)),
-               'Map(String, Float64)') FROM (${termWeights})) AS weights
-           SELECT matches.workspace_id AS workspaceId,
-             matches.doc_key AS docKey, matches.version AS version,
-             matches.ordinal AS ordinal
-           FROM (
-             SELECT workspace_id, doc_key, version, ordinal,
-               sum(weights[word]) AS weight
-             FROM (${termMatches})
-             GROUP BY workspace_id, doc_key, version, ordinal
-           ) AS matches
-           INNER JOIN (
-             SELECT workspace_id, doc_key, version, title FROM documents
-             WHERE ${inWorkspaces}
-           ) AS documents
-             ON documents.workspace_id = matches.workspace_id
-             AND documents.doc_key = matches.doc_key
-             AND documents.version = matches.version
-           ORDER BY matches.weight + arraySum(
-               word -> if(has(splitByNonAlpha(documents.title), word),
-                 weights[word], 0),
-               mapKeys(weights)) DESC,
-             workspaceId, docKey, ordinal
-           SETTINGS use_index_for_in_with_subqueries = 0`,
-          params,
-        ),
+      {
+        ...filters,
+        queryVector: await vector,
+        queryBits: vectorBits(await vector),
+      },
+    )
+  const lexicalOrder = async () => {
+    if (uniqueTerms.length === 0) return []
+    // The BM25 IDF of each term: ln(1 + (N - n + 0.5) / (n + 0.5)), with N
+    // the chunks of the Workspaces and n the chunks that have the term. The
+    // counts read only the text index and the sort key, not the tree view.
+    const counts = await selectIn<{
+      word: string
+      found: string | number
+      idf: number
+    }>(
+      client,
+      scope,
+      `SELECT word, found, log(1 + (total - found + 0.5) / (found + 0.5)) AS idf
+       FROM (${uniqueTerms
+         .map(
+           (_, i) => `SELECT {term${i}:String} AS word, count() AS found
+           FROM chunks
+           WHERE ${inWorkspaces} AND hasToken(text, {term${i}:String})`,
+         )
+         .join(" UNION ALL ")}) AS counts
+       CROSS JOIN (SELECT count() AS total FROM chunks
+         WHERE ${inWorkspaces}) AS totals`,
+      termParams,
+    )
+    // The cap before the score: a term in more than 1000 chunks selects no
+    // chunk. It has the lowest weights of the query, and only its title
+    // boost stays. On the question set v0, this gave a better search
+    // recall@50 than a cap of 1000 chunks for each term with no order, and
+    // that cap gave a different order on each run (CTX-1535). The count of
+    // the weight has no filter. With a filter, a term that is in more than
+    // 1000 chunks of the Workspaces can be in fewer chunks of the filter, so
+    // its branch applies the filter and stops after 1001 chunks: the term
+    // selects its chunks only when there are at most 1000.
+    const filtered =
+      kinds.length > 0 ||
+      pathPrefix !== "" ||
+      sources.length > 0 ||
+      observedAfter !== null ||
+      validAt !== null
+    const found = new Map(counts.map((row) => [row.word, Number(row.found)]))
+    // One branch for each term, through the text index. Only the parameter
+    // names go into the SQL text.
+    const termMatches = uniqueTerms
+      .flatMap((term, i) => {
+        const select = `SELECT {term${i}:String} AS word,
+            workspace_id, doc_key, version, ordinal
+          FROM chunks
+          WHERE ${inWorkspaces} AND hasToken(text, {term${i}:String})`
+        if ((found.get(term) ?? 0) <= 1000) return [select]
+        return filtered ? [`${select} AND ${inSearchable} LIMIT 1001`] : []
+      })
+      .join(" UNION ALL ")
+    if (!termMatches) return []
+    // The score: the weights of the matched terms of the chunk, plus the
+    // weights of the query terms in the title of its document (the title
+    // boost). A parallel sum adds the weights in a different order on each
+    // run, so the score is rounded: equal scores then sort by the key, and
+    // the same query gives the same order.
+    return selectIn<ChunkKey>(
+      client,
+      scope,
+      `WITH tree_view AS (${treeView})
+       SELECT matches.workspace_id AS workspaceId,
+         matches.doc_key AS docKey, matches.version AS version,
+         matches.ordinal AS ordinal
+       FROM (
+         SELECT workspace_id, doc_key, version, ordinal,
+           sum({weights:Map(String, Float64)}[word]) AS weight
+         FROM (
+           SELECT word, workspace_id, doc_key, version, ordinal,
+             count() OVER (PARTITION BY word) AS found
+           FROM (${termMatches})
+           WHERE ${inSearchable}
+         )
+         WHERE found <= 1000
+         GROUP BY workspace_id, doc_key, version, ordinal
+       ) AS matches
+       INNER JOIN (
+         SELECT workspace_id, doc_key, version, title FROM documents
+         WHERE ${inWorkspaces}
+       ) AS documents
+         ON documents.workspace_id = matches.workspace_id
+         AND documents.doc_key = matches.doc_key
+         AND documents.version = matches.version
+       ORDER BY round(matches.weight + arraySum(
+           word -> if(has(splitByNonAlpha(documents.title), word),
+             {weights:Map(String, Float64)}[word], 0),
+           mapKeys({weights:Map(String, Float64)})), 9) DESC,
+         workspaceId, docKey, ordinal
+       SETTINGS use_index_for_in_with_subqueries = 0`,
+      {
+        ...filters,
+        ...termParams,
+        weights: new Map(counts.map((row) => [row.word, Number(row.idf)])),
+      },
+    )
+  }
+  const [vectorOrderRows, lexicalOrderRows] = await Promise.all([
+    vectorOrder(),
+    lexicalOrder(),
   ])
 
   const fused = new Map<string, ChunkKey & { score: number }>()
-  for (const order of [vectorOrder, lexicalOrder])
+  for (const order of [vectorOrderRows, lexicalOrderRows])
     order.forEach((key, index) => {
       const id = chunkId(key)
       const hit = fused.get(id) ?? { ...key, score: 0 }
@@ -1668,7 +1720,7 @@ async function readFrontier(
     RelationRecord & {
       direction: "out" | "in"
       workspaceId: string
-      neighbor: DocumentRecord
+      neighborDoc: string
       viaKey: string
     }
   >(
@@ -1727,26 +1779,13 @@ async function readFrontier(
        INNER JOIN own_keys AS k
          ON k.workspace_id = i.workspace_id AND k.target = i.dst_doc
      )
-     SELECT DISTINCT edges.direction AS direction,
-       edges.via_key AS viaKey,
-       edges.workspace_id AS workspaceId,
-       edges.src_doc AS srcDoc, edges.src_chunk AS srcChunk,
-       edges.predicate AS predicate, edges.dst_doc AS dstDoc,
-       edges.confidence AS confidence, edges.valid_from AS validFrom,
-       edges.valid_to AS validTo, edges.source AS source,
-       edges.alt_text AS altText,
-       edges.observed_at AS observedAt, neighbors.document AS neighbor
+     SELECT DISTINCT direction, via_key AS viaKey,
+       workspace_id AS workspaceId, neighbor_doc AS neighborDoc,
+       src_doc AS srcDoc, src_chunk AS srcChunk, predicate,
+       dst_doc AS dstDoc, confidence, valid_from AS validFrom,
+       valid_to AS validTo, source, alt_text AS altText,
+       observed_at AS observedAt
      FROM edges
-     LEFT JOIN (
-       SELECT v.workspace_id AS workspace_id, v.doc_key AS doc_key,
-         v.valid_from AS valid_from, v.valid_to AS valid_to,
-         tuple(${viewDocumentColumns}) AS document
-       FROM ${viewDocumentsFrom(`(workspace_id, doc_key) IN (
-         SELECT workspace_id, neighbor_doc FROM edges)`)}
-     ) AS neighbors
-       ON neighbors.workspace_id = edges.workspace_id
-       AND neighbors.doc_key = edges.neighbor_doc
-     WHERE ${validDuring("neighbors.")}
      ORDER BY direction DESC, workspaceId, srcDoc, srcChunk, predicate, dstDoc`,
     {
       refs: refTuples(refs),
@@ -1754,13 +1793,36 @@ async function readFrontier(
       prefix: REFERENCE_TARGET_PREFIX,
     },
   )
+  // The neighbor documents and the mention counts are two more queries, in
+  // parallel. A join of the neighbors in the edge query evaluated the edges
+  // two more times (ClickHouse inlines each use of a CTE): 440 ms against
+  // 105 ms for the edges alone on the question set v0 (CTX-1535).
   const mentionKeys = new Map<string, [string, string]>()
-  for (const { workspaceId, viaKey } of rows)
+  const neighborRefs = new Map<string, DocumentRef>()
+  for (const { workspaceId, viaKey, neighborDoc } of rows) {
     if (viaKey)
       mentionKeys.set(keyId(workspaceId, viaKey), [workspaceId, viaKey])
-  const stats = await readMentionStats(client, scope, [...mentionKeys.values()])
+    const ref = { workspaceId, docKey: neighborDoc }
+    neighborRefs.set(documentId(ref), ref)
+  }
+  const [neighbors, stats] = await Promise.all([
+    readDocuments(client, scope, [...neighborRefs.values()]),
+    readMentionStats(client, scope, [...mentionKeys.values()]),
+  ])
+  const neighborOf = new Map(
+    neighbors.map(({ workspaceId, document }) => [
+      documentId({ workspaceId, docKey: document.docKey }),
+      document,
+    ]),
+  )
   const relations = new Map<string, FrontierRelation>()
-  for (const { direction, workspaceId, neighbor, viaKey, ...row } of rows) {
+  for (const { direction, workspaceId, neighborDoc, viaKey, ...row } of rows) {
+    const neighbor = neighborOf.get(
+      documentId({ workspaceId, docKey: neighborDoc }),
+    )
+    // A neighbor that is not valid at `validAt` leaves its relation out. A
+    // target with no row in the view is `missing`, and it stays.
+    if (neighbor && validAtTime && !validAtRow(neighbor, validAtTime)) continue
     const relation = toRelation(row)
     const counts = viaKey && stats.get(keyId(workspaceId, viaKey))
     if (counts) relation.confidence = mentionConfidence(row.confidence, counts)
@@ -1781,15 +1843,21 @@ async function readFrontier(
       direction,
       workspaceId,
       relation,
-      // Without a match, the LEFT JOIN gives a tuple of default values: the
-      // view has no row for the target, so it is `missing`.
-      neighbor: neighbor.docKey
-        ? toDocument(neighbor)
-        : missingDocument(relation.dstDoc, relation.observedAt),
+      // The view has no row for the target, so it is `missing`.
+      neighbor:
+        neighbor ?? missingDocument(relation.dstDoc, relation.observedAt),
     })
   }
   return [...relations.values()]
 }
+
+/** True for a row that is valid at `time` (open ends count), as `validDuring`. */
+const validAtRow = (
+  row: { validFrom: Date | null; validTo: Date | null },
+  time: Date,
+) =>
+  (!row.validFrom || row.validFrom <= time) &&
+  (!row.validTo || row.validTo > time)
 
 /** The id of a (Workspace, key target) pair of a mention. */
 const keyId = (workspaceId: string, target: string) =>
