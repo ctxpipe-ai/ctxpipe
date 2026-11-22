@@ -795,9 +795,10 @@ jobs:
       contents: read
       packages: write
     # The caches are for linux/arm64, the platform of the jobs that read them.
-    # 2 vCPU: most builds take 20 s to 50 s, and only a push to main runs
-    # them, so no pull request waits for this job.
-    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    # The short builds (about 20 s on 4 vCPU, at most 36 s in 9 of 10 runs)
+    # use 2 vCPU. Blacksmith bills each started minute, so a build of more
+    # than 30 s on 4 vCPU costs no less on 2 vCPU.
+    runs-on: ${{ contains(fromJSON('["chat-sandbox", "codesearch", "cost-telemetry"]'), matrix.name) && 'blacksmith-2vcpu-ubuntu-2404-arm' || 'blacksmith-4vcpu-ubuntu-2404-arm' }}
     strategy:
       fail-fast: false
       matrix:
@@ -1451,9 +1452,7 @@ jobs:
     if: |
       github.event_name == 'workflow_dispatch' ||
       github.event_name == 'pull_request'
-    # 2 vCPU: the job takes about 50 s, and it starts with the run, so it is
-    # not on the critical path. main-caches.yaml fills its converter cache.
-    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     services:
       postgres:
         # Matches local Compose (pgvector); plain postgres:16 lacks the vector extension.
