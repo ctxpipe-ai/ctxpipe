@@ -729,6 +729,10 @@ describe("finalize", () => {
             "a disagreement question needs a position that is not current",
         },
       ])
+      // The same question in two files is a fault of the input.
+      await expect(
+        main(["finalize", "--out", out, "--draft", `${labeled},${labeled}`]),
+      ).rejects.toThrow(`The labeled files hold ${first.id} twice.`)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
