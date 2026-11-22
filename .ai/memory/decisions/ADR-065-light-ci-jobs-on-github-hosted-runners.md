@@ -57,7 +57,7 @@ The CTO decided this in the cost review of 2026-11-22 ([CTX-1505](https://linear
 ### Consequences of the revision
 
 - Blacksmith cost goes down by about $187 a month (the fourth part, below, adds about $28 for the Storybook plays). The remaining Blacksmith jobs of ctxpipe are the production builds, the layer cache, codesearch, migrations, the upgrade job, the nightly jobs and the deploy image builds.
-- A full pull request run uses about 30 GitHub-hosted jobs at a time. In the 7 days before the move, at most 11 GitHub-hosted jobs of ctxpipe ran at the same time. With the moved jobs of those days, the peak is 33, and more than 30 ran for 2 minutes in the week. The limit of 60 holds about two full runs at the same time with the other jobs. The fourth part adds 5 jobs to a full run (see there).
+- A full pull request run uses about 30 GitHub-hosted jobs at a time. In the 7 days before the move, at most 11 GitHub-hosted jobs of ctxpipe ran at the same time. With the moved jobs of those days, the peak is 33, and more than 30 ran for 2 minutes in the week. Before the fourth part, the limit of 60 held about two full runs at the same time with the other jobs. The fourth part adds 5 jobs to a full run (see its concurrency note).
 - A pull request run on GitHub does not get the image cache of Blacksmith, so it pulls each image again. Docker Hub does not limit the pulls of a GitHub-hosted runner.
 - To revert the revision, set each moved `runs-on` back to `blacksmith-4vcpu-ubuntu-2404-arm` (the shards and the screenshots) or `blacksmith-2vcpu-ubuntu-2404-arm` (the job Tests), and remove its comment. The background steps work on both runners.
 
