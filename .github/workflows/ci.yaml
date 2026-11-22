@@ -216,20 +216,24 @@ jobs:
       github.event_name == 'schedule' ||
       github.event_name == 'pull_request') &&
       (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.test-shards != '')
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    # github-hosted: free for a public repository; Docker and service containers run there too (ADR-065)
+    runs-on: ubuntu-24.04-arm
     strategy:
       fail-fast: false
       matrix:
-        # The full run: shard counts come from the measured file times in
-        # scripts/ci/test-weights.json, about 200 s of backend test time and
-        # 240 s of contract test time per shard. In gate mode the plan job
-        # gives the shards of the selected checks (lane `selected`).
+        # The full run: scripts/ci/test-weights.json holds the measured time
+        # of each file of 5 s or more (CI run 44983741063), which balances the
+        # shards. A full run had about 3,100 s of backend shard time and
+        # 2,700 s of contract shard time, so each shard runs about 10
+        # minutes. In gate mode the plan job gives the shards of the selected
+        # checks (lane `selected`).
         include: >-
           ${{ fromJSON(needs.merge-gate-plan.outputs.test-shards || '[
-          {"lane": "backend", "shard": 1, "count": 4},
-          {"lane": "backend", "shard": 2, "count": 4},
-          {"lane": "backend", "shard": 3, "count": 4},
-          {"lane": "backend", "shard": 4, "count": 4},
+          {"lane": "backend", "shard": 1, "count": 5},
+          {"lane": "backend", "shard": 2, "count": 5},
+          {"lane": "backend", "shard": 3, "count": 5},
+          {"lane": "backend", "shard": 4, "count": 5},
+          {"lane": "backend", "shard": 5, "count": 5},
           {"lane": "contracts", "shard": 1, "count": 5},
           {"lane": "contracts", "shard": 2, "count": 5},
           {"lane": "contracts", "shard": 3, "count": 5},
@@ -247,15 +251,71 @@ jobs:
           POSTGRES_DB: ctxpipe
         ports:
           - 5432:5432
+        # The start interval checks every second while Postgres starts, so
+        # the job does not wait 10 s for the first check.
         options: >-
           --health-cmd "pg_isready -U ctxpipe -d ctxpipe"
           --health-interval 10s
+          --health-start-period 30s
+          --health-start-interval 1s
           --health-timeout 5s
           --health-retries 5
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
+      # The image pulls and the chat sandbox build run in the background, at
+      # the same time as the setup steps below: a GitHub-hosted runner has no
+      # image cache (ADR-065). The step "Required test container images and
+      # chat sandbox image" waits for them. Each background task writes its
+      # output to <name>.log and its exit code to <name>.status.
+      - uses: ./.github/actions/setup-buildx
+      - name: Start the image pulls and the chat sandbox build
+        env:
+          LANE: ${{ matrix.lane }}
+        run: |
+          dir="$RUNNER_TEMP/background"
+          mkdir -p "$dir"
+          # The task holds no stream of the step, so the step ends at once.
+          # The status file appears only with its code in it (mv).
+          start_background() { # <name> <command>...
+            echo "$1" >> "$dir/names"
+            (
+              if "${@:2}" > "$dir/$1.log" 2>&1; then
+                echo 0 > "$dir/$1.code"
+              else
+                echo "$?" > "$dir/$1.code"
+              fi
+              mv "$dir/$1.code" "$dir/$1.status"
+            ) < /dev/null > /dev/null 2>&1 &
+          }
+          # Test files start these images in parallel. A Docker Hub token
+          # request can time out, so pull each image once, with retries,
+          # before the tests start.
+          pull() { # <image>
+            n=0
+            until docker pull --quiet "$1"; do
+              n=$((n + 1))
+              if [ "$n" -ge 4 ]; then
+                echo "::error::Outside service unavailable: Docker Hub did not serve $1 after 4 attempts"
+                return 1
+              fi
+              sleep $((n * 10))
+            done
+          }
+          # This job reads the layer cache without a login. The layer-cache
+          # job writes it (see the comment there).
+          start_background chat-sandbox docker buildx build --load \
+            --tag ctxpipe-chat-sandbox:opencode-1.19.5-r1 \
+            --cache-from type=registry,ref=ghcr.io/ctxpipe-ai/ci-cache:chat-sandbox-arm64 \
+            scripts/chat-sandbox
+          if [ "$LANE" != backend ]; then
+            i=0
+            for image in $(jq -r '.contracts[] | "\(.image):\(.tag)@\(.digest)"' scripts/ci/service-pins.json); do
+              i=$((i + 1))
+              start_background "pull-$i" pull "$image"
+            done
+          fi
       - uses: ./.github/actions/falkordb
       # The record and the git lanes use one git version (ADR-065).
       - uses: ./.github/actions/git
@@ -272,23 +332,6 @@ jobs:
       # pins of the lockfile.
       - name: Required chat engine binary
         run: echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
-      # Test files start these images in parallel. A Docker Hub token request
-      # can time out, so pull each image once here, with retries, before the
-      # tests start.
-      - name: Required test container images
-        if: matrix.lane != 'backend'
-        run: |
-          for image in $(jq -r '.contracts[] | "\(.image):\(.tag)@\(.digest)"' scripts/ci/service-pins.json); do
-            n=0
-            until docker pull --quiet "$image"; do
-              n=$((n + 1))
-              if [ "$n" -ge 4 ]; then
-                echo "::error::Outside service unavailable: Docker Hub did not serve $image after 4 attempts"
-                exit 1
-              fi
-              sleep $((n * 10))
-            done
-          done
       - name: Restore native revision index tools
         id: zoekt
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
@@ -317,16 +360,19 @@ jobs:
         working-directory: apps/backend
         run: |
           pnpm exec tsx src/db/migrate.ts
-      - uses: ./.github/actions/setup-buildx
-      # This job reads the layer cache without a login. The layer-cache job
-      # writes it (see the comment there).
-      - name: Required chat sandbox image
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
-        with:
-          context: scripts/chat-sandbox
-          tags: ctxpipe-chat-sandbox:opencode-1.19.5-r1
-          load: true
-          cache-from: type=registry,ref=ghcr.io/ctxpipe-ai/ci-cache:chat-sandbox-arm64
+      - name: Required test container images and chat sandbox image
+        timeout-minutes: 10
+        run: |
+          dir="$RUNNER_TEMP/background"
+          failed=0
+          while read -r name; do
+            until [ -f "$dir/$name.status" ]; do sleep 1; done
+            echo "::group::$name (exit $(cat "$dir/$name.status"))"
+            cat "$dir/$name.log"
+            echo "::endgroup::"
+            [ "$(cat "$dir/$name.status")" = 0 ] || failed=1
+          done < "$dir/names"
+          exit "$failed"
       - name: Required ${{ matrix.lane }} tests
         if: matrix.lane != 'selected'
         env:
@@ -476,9 +522,8 @@ jobs:
       github.event_name == 'schedule' ||
       github.event_name == 'pull_request') &&
       needs.merge-gate-plan.outputs.mode != 'gate'
-    # The Vitest reports of the shards hold absolute paths of the Blacksmith
-    # workspace (/home/runner/_work), so this job runs there too (ADR-065).
-    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    # github-hosted: the Vitest reports of the shards hold absolute paths of the GitHub-hosted workspace (/home/runner/work), so this job runs where the shards run (ADR-065)
+    runs-on: ubuntu-24.04-arm
     steps:
       - name: Require every test job
         env:
@@ -1206,7 +1251,8 @@ jobs:
       github.event_name == 'schedule' ||
       github.event_name == 'pull_request') &&
       (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.storybook-visual != '')
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    # github-hosted: the capture runs in the pinned Playwright image, so the runner does not change a screenshot (ADR-065)
+    runs-on: ubuntu-24.04-arm
     # The id of the result artifact of each shard: the job Nightly tickets
     # downloads only these, not an artifact of another job with the same name.
     outputs:
