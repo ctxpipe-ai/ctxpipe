@@ -480,7 +480,9 @@ function replaceableAgentVault(address: string) {
       return HttpResponse.json({ token: state.owner })
     }),
     http.post(`${address}/v1/auth/login`, () =>
-      state.owner ? HttpResponse.json({ token: state.owner }) : notInitialized(),
+      state.owner
+        ? HttpResponse.json({ token: state.owner })
+        : notInitialized(),
     ),
     http.post(`${address}/v1/credentials`, ({ request }) => {
       if (!state.owner) return notInitialized()
@@ -521,11 +523,46 @@ describe("a replaced Agent Vault task", () => {
 
     vault.replace()
     await Promise.all(
-      ["a", "b", "c"].map((run) => setRunVaultRules(access, `run:${run}`, rules)),
+      ["a", "b", "c"].map((run) =>
+        setRunVaultRules(access, `run:${run}`, rules),
+      ),
     )
     expect(vault.state.registers).toBe(2)
     expect(vault.state.credentials).toBe(4)
   })
+
+  it.each([
+    ["before this process's register", "register"],
+    ["between this process's login and its status call", "status"],
+  ])(
+    "logs in with the shared password when another process registers %s",
+    async (_when, race) => {
+      const address = `http://agent-vault-race-${race}.test`
+      const vault = replaceableAgentVault(address)
+      // The other process registers the owner first, at that point.
+      server.use(
+        http.get(`${address}/v1/status`, () => {
+          const empty = vault.state.owner === ""
+          if (race === "status") vault.state.owner = "owner-other"
+          else if (empty) {
+            vault.state.owner = "owner-other"
+            return HttpResponse.json({ needs_first_user: true })
+          }
+          return HttpResponse.json({
+            needs_first_user: vault.state.owner === "",
+          })
+        }),
+      )
+      vault.replace()
+      await setRunVaultRules(
+        { address, ownerPassword: async () => "owner-password" },
+        "run:race",
+        rules,
+      )
+      expect(vault.state.registers).toBe(0)
+      expect(vault.state.credentials).toBe(1)
+    },
+  )
 
   it("fails closed while the new instance stays without an owner", async () => {
     const address = "http://agent-vault-unregistrable.test"

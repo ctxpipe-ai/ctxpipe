@@ -189,35 +189,45 @@ async function avFetch(
 async function login(access: AgentVaultAccess): Promise<string> {
   const password = await access.ownerPassword()
   const credentials = { email: OWNER_EMAIL, password }
-  const loggedIn = await avFetch(access, "/v1/auth/login", {
-    method: "POST",
-    body: credentials,
-  })
-  if (loggedIn.ok && typeof loggedIn.body.token === "string")
-    return loggedIn.body.token
+  const tryLogin = async () => {
+    const response = await avFetch(access, "/v1/auth/login", {
+      method: "POST",
+      body: credentials,
+    })
+    const token =
+      response.ok && typeof response.body.token === "string"
+        ? response.body.token
+        : undefined
+    return { response, token }
+  }
+  const first = await tryLogin()
+  if (first.token) return first.token
+  // A new instance answers each login with 503 `not_initialized` until an
+  // owner registers.
+  const empty = first.response.body.error === "not_initialized"
   // Register only while the instance has no owner (the first account becomes
   // the owner). An instance with an owner that refuses this password stays
   // closed: the password changed, or another backend owns it.
   const status = await avFetch(access, "/v1/status")
   const initialized = status.ok ? status.body.needs_first_user === false : true
-  if (initialized)
+  if (initialized && !empty)
     throw new AgentVaultUnavailableError(
-      `Agent Vault refused the backend's owner password (${loggedIn.status}); see "Agent Vault owner password" in the self-hosting docs`,
+      `Agent Vault refused the backend's owner password (${first.response.status}); see "Agent Vault owner password" in the self-hosting docs`,
     )
-  const registered = await avFetch(access, "/v1/auth/register", {
-    method: "POST",
-    body: credentials,
-  })
-  if (registered.ok && typeof registered.body.token === "string")
+  const registered = initialized
+    ? undefined
+    : await avFetch(access, "/v1/auth/register", {
+        method: "POST",
+        body: credentials,
+      })
+  if (registered?.ok && typeof registered.body.token === "string")
     return registered.body.token
-  // Another process (the worker or another backend task) registered first.
-  const again = await avFetch(access, "/v1/auth/login", {
-    method: "POST",
-    body: credentials,
-  })
-  if (again.ok && typeof again.body.token === "string") return again.body.token
+  // Another process (the worker or another backend task) registered the owner
+  // after this process's first login, or before its own register.
+  const again = await tryLogin()
+  if (again.token) return again.token
   throw new AgentVaultUnavailableError(
-    `Agent Vault refused the backend's owner account (${loggedIn.status}, ${registered.status})`,
+    `Agent Vault refused the backend's owner account (${first.response.status}, ${registered?.status ?? "registered"}, ${again.response.status})`,
   )
 }
 
@@ -234,10 +244,7 @@ function ownerToken(
   if (cached && cached !== stale) return cached
   const next = login(access)
   ownerTokens.set(access.address, next)
-  next.catch(() => {
-    if (ownerTokens.get(access.address) === next)
-      ownerTokens.delete(access.address)
-  })
+  next.catch(() => ownerTokens.delete(access.address))
   return next
 }
 
