@@ -26,6 +26,8 @@ The contract of the checks is public: [`scripts/checks/README.md`](../../../scri
    factory check --repo . --input <ticket or brief file>
    ```
 
+   When the ticket asks for a result in the pull request text, add `--description <file>` with the draft description before the push (the [code-review skill](../code-review/SKILL.md), step 3).
+
 4. Read the result. Each check line is `CACHED`, a passed check, or a failed check. A failure gives its log in `.ci-results/checks/`. Each critic line is `CARRIED`, `NOT APPLICABLE`, `PASSED`, `FAILED` or `ERROR`. Below a critic, each finding shows as `<severity> <file>:<line>: <summary>`.
 5. Fix each failed check and each blocker and should-fix finding. Commit, then do step 3 again. A failed check always runs again; only a pass is stored. A critic reviews again only the hunks that changed or had a finding. A nit does not fail the run.
 6. Read the stored passes and the last line. Each `STORED <id>` line says if the key is `portable` (CI can reuse the pass) or `host-specific` (only a host of the same OS and CPU architecture can reuse it). The last line counts the cache hits, the new passes, and the passes that are not storable, with the cause:
