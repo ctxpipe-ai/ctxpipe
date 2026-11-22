@@ -1,5 +1,6 @@
 import { z } from "zod"
 
+import type { KnowledgeHit } from "../../domain/workspaces/knowledge-search.js"
 import { selectKnowledgeReader } from "../../knowledge-reader/knowledge-reader.js"
 import { knowledgeViewKey } from "../../models/knowledge-state.js"
 import { fitPage, truncateText } from "../framework/budget.js"
@@ -57,6 +58,58 @@ function claimSummary(
   )
 }
 
+/** The hits of a page when the call gives no `limit`. */
+export const SEARCH_PAGE_LIMIT = 8
+
+/**
+ * One page of the search hits from `offset`, as the tool gives it without
+ * the cursor: at most `limit` hits that fit the token budget. The knowledge
+ * eval measures the first page with this function too.
+ */
+export function searchKnowledgePage(input: {
+  hits: readonly KnowledgeHit[]
+  workspaces: readonly {
+    id: string
+    slug: string
+    served: z.infer<typeof servedSchema>
+  }[]
+  skipped: Skipped[]
+  partialReason?: string
+  offset: number
+  limit: number
+}) {
+  const items = input.hits.map((hit) => {
+    const workspace = input.workspaces.find((w) => w.id === hit.workspaceId)
+    if (!workspace) throw new Error("Search returned an unknown Workspace")
+    const claims = claimSummary(hit.claims)
+    return {
+      workspace: workspace.slug,
+      ref: hit.path,
+      title: hit.title,
+      kind: hit.kind,
+      source: hit.source,
+      updatedAt: hit.updatedAt.toISOString(),
+      snippet: truncateText(hit.text, 600),
+      startLine: hit.startLine,
+      endLine: hit.endLine,
+      score: hit.score,
+      ...(claims ? { claims } : {}),
+      served: { ...workspace.served, sha: hit.projectionSha },
+    }
+  })
+  const { skipped } = input
+  const partial = input.partialReason
+    ? { partial: true, partialReason: input.partialReason }
+    : {}
+  const { page, nextOffset, truncated } = fitPage(items, {
+    offset: input.offset,
+    limit: input.limit,
+    maxTokens: 4_000,
+    result: (fitted) => ({ hits: fitted, skipped, ...partial }),
+  })
+  return { hits: page, skipped, ...partial, nextOffset, truncated }
+}
+
 /** Register this tool at the seven-tool cutover (ADR-051). */
 export const searchKnowledgeTool = defineMcpReadTool({
   name: "search_knowledge",
@@ -103,7 +156,7 @@ export const searchKnowledgeTool = defineMcpReadTool({
       .int()
       .min(1)
       .max(20)
-      .default(8)
+      .default(SEARCH_PAGE_LIMIT)
       .describe("Hits in one page. Default 8, at most 20."),
     cursor: z
       .string()
@@ -199,36 +252,16 @@ export const searchKnowledgeTool = defineMcpReadTool({
       ]),
     }
     const offset = cursor ? decodeCursor(cursor, binding) : 0
-    const items = hits.map((hit) => {
-      const workspace = workspaces.find((w) => w.id === hit.workspaceId)
-      if (!workspace) throw new Error("Search returned an unknown Workspace")
-      const claims = claimSummary(hit.claims)
-      return {
-        workspace: workspace.slug,
-        ref: hit.path,
-        title: hit.title,
-        kind: hit.kind,
-        source: hit.source,
-        updatedAt: hit.updatedAt.toISOString(),
-        snippet: truncateText(hit.text, 600),
-        startLine: hit.startLine,
-        endLine: hit.endLine,
-        score: hit.score,
-        ...(claims ? { claims } : {}),
-        served: { ...workspace.served, sha: hit.projectionSha },
-      }
-    })
-    const partial = partialReason ? { partial: true, partialReason } : {}
-    const { page, nextOffset, truncated } = fitPage(items, {
+    const { nextOffset, truncated, ...page } = searchKnowledgePage({
+      hits,
+      workspaces,
+      skipped,
+      partialReason,
       offset,
       limit: input.limit,
-      maxTokens: 4_000,
-      result: (fitted) => ({ hits: fitted, skipped, ...partial }),
     })
     return {
-      hits: page,
-      skipped,
-      ...partial,
+      ...page,
       ...(nextOffset === null
         ? {}
         : { cursor: encodeCursor({ ...binding, offset: nextOffset }) }),

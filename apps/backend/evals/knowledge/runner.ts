@@ -15,6 +15,10 @@ import { resolveCallWorkspace } from "../../src/mcp/framework/call-workspace.js"
 import { McpToolError } from "../../src/mcp/framework/tool-errors.js"
 import { getRelatedInputShape } from "../../src/mcp/tools/get-related.js"
 import {
+  SEARCH_PAGE_LIMIT,
+  searchKnowledgePage,
+} from "../../src/mcp/tools/search-knowledge.js"
+import {
   getKnowledgeState,
   type KnowledgeHead,
   readyKnowledgeHeads,
@@ -110,11 +114,31 @@ const rankedSchema = z.object({
   latencyMs: z.number(),
 })
 
+/**
+ * The first page of `search_knowledge` for the search, as a client gets it
+ * with the default limit (without the cursor). The regression checks read
+ * it. Absent in a run from before CTX-1518.
+ */
+const searchPageSchema = z.looseObject({
+  hits: z.array(
+    z.looseObject({
+      ref: z.string(),
+      title: z.string().nullable(),
+      source: z.string(),
+      snippet: z.string(),
+    }),
+  ),
+})
+export type SearchPage = z.infer<typeof searchPageSchema>
+
 /** The answer of one arm to one question (`answers.jsonl`). */
 const armAnswerSchema = z.object({
   arm: z.enum(ARMS),
   question: z.string(),
-  search: z.union([rankedSchema, callFailureSchema]),
+  search: z.union([
+    rankedSchema.extend({ page: searchPageSchema.optional() }),
+    callFailureSchema,
+  ]),
   /** Only for a question with seeds. */
   related: z
     .union([
@@ -172,6 +196,8 @@ const relatedInput = z.object(getRelatedInputShape)
 type EvalTarget = {
   org: { id: string; slug: string }
   workspace: { id: string; slug: string }
+  /** The branch of the Workspace. */
+  branch: string
   sha: string
   head: KnowledgeHead
 }
@@ -229,6 +255,7 @@ async function resolveWorkspaces(
     resolved.set(corpus.id, {
       org,
       workspace: { id: workspace.id, slug: workspace.slug },
+      branch: workspace.served.branch,
       sha,
       head,
     })
@@ -297,11 +324,30 @@ async function ask(
       ...(validAt ? { validAt } : {}),
       now,
     })
+    const latencyMs = performance.now() - started
+    const {
+      nextOffset: _next,
+      truncated,
+      ...page
+    } = searchKnowledgePage({
+      hits: result.hits,
+      workspaces: [
+        {
+          ...target.workspace,
+          served: { branch: target.branch, sha: target.sha },
+        },
+      ],
+      skipped: [],
+      partialReason: result.partialReason,
+      offset: 0,
+      limit: SEARCH_PAGE_LIMIT,
+    })
     search = {
       refs: result.hits.map((hit) => hit.path),
       scores: result.hits.map((hit) => hit.score),
       ...(result.partialReason ? { partialReason: result.partialReason } : {}),
-      latencyMs: performance.now() - started,
+      latencyMs,
+      page: { ...page, ...(truncated ? { truncated: true } : {}) },
     }
   } catch (error) {
     search = { error: failure(error), latencyMs: performance.now() - started }

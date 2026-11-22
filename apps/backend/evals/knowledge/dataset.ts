@@ -80,6 +80,12 @@ export const questionSchema = z.strictObject({
   validAt: z.iso.datetime({ offset: true }).optional(),
   /** The expected positions of a `disagreement` question. */
   positions: z.array(positionSchema).optional(),
+  /**
+   * The stale distractors: archived, retired or superseded copies that also
+   * answer the question. They are not gold. The regression check "live
+   * first" needs a gold document before each of them in the search.
+   */
+  stale: z.array(path).min(1).optional(),
   /** The facts that a correct answer holds (the agent-task level). */
   keyFacts: z.array(z.string().min(1)),
 })
@@ -105,6 +111,10 @@ export function questionProblems(question: Question): string[] {
       problems.push("a disagreement question needs at least two positions")
   }
   const gold = new Set(question.gold)
+  if (noAnswer && question.stale)
+    problems.push("a no-answer question has no stale distractor")
+  for (const ref of question.stale ?? [])
+    if (gold.has(ref)) problems.push(`stale ref ${ref} is gold`)
   for (const position of question.positions ?? [])
     for (const ref of position.refs)
       if (!gold.has(ref)) problems.push(`position ref ${ref} is not gold`)

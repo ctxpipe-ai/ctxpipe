@@ -16,7 +16,7 @@ Both arms read through the `KnowledgeReader` seam of the tools (`src/knowledge-r
 A dataset is one JSON file that `dataset.ts` checks (version 0):
 
 - **Corpora:** the public source, the frozen context repo (URL, SHA, and the root folder of the Workspace: `root`, with `""` as the default), and the id of its Workspace fixture. The gold paths, the seeds and the position refs are relative to the root, as the tools give the paths of a Workspace.
-- **Questions:** an id, a category of ADR-069 decision 5 (`lookup`, `multi-hop`, `cross-source`, `time`, `disagreement`, `image`, `no-answer`), the text, the gold document paths, the seeds of `get_related` (optional), the expected positions with their status (a `disagreement` question), the key facts, and the split (`dev` to tune, `holdout` for the keep-or-revert decision only).
+- **Questions:** an id, a category of ADR-069 decision 5 (`lookup`, `multi-hop`, `cross-source`, `time`, `disagreement`, `image`, `no-answer`), the text, the gold document paths, the seeds of `get_related` (optional), the expected positions with their status (a `disagreement` question), the stale distractors (optional, see check 5 below), the key facts, and the split (`dev` to tune, `holdout` for the keep-or-revert decision only).
 
 ### The rules of the questions (the CTO, 2026-11-22)
 
@@ -44,6 +44,37 @@ The baseline (the current stack) is weak. Thus a high baseline recall is a sign 
 | Retrieval | Recall@5 and nDCG@10 of the search; a correct "no answer"; the positions correct (only the plane gives positions). |
 | Operations (guards) | p50 and p95 latency of each call; the Jev calls, the Jev questions and the embedding calls of each question; the cost. |
 | Agent tasks | Comes later ([CTX-1117](https://linear.app/ctxpipe/issue/CTX-1117)). It reads `answers.jsonl` of a run, or it adds a step to `ask` in `runner.ts`. |
+
+### The regression checks (CTX-1518)
+
+The production reviews of the Falkor retrieval (CTX-1131, CTX-1114) found failures that recall and nDCG do not show. The knowledge plane must not have them. The report gives each check for both arms, in the section "Regression checks" after the first table, and `report.json` gives them in `checks`. Each check reads only the kept answers of the scored questions, and it makes no model call (`checks.ts`).
+
+| Check | Value | Better |
+| --- | --- | --- |
+| 1. One hit for each source item (CTX-1132) | The share of the slots of the first page that hold a second copy of an item. An item of a connector mirror is its connector and its title, because the mirror writes the same title into each copy. Another document is its path. | Lower |
+| 2. No empty-snippet hits (CTX-1133) | The count of first-page hits whose snippet holds only headings: after the line of the title and the heading path, each line is a heading. | Lower |
+| 3. No bot comment as the best chunk (CTX-1140) | The share of the GitHub hits (issues and pull requests) of the first page whose best chunk is a comment or a review of a bot: its last heading names a `(bot)` author, as the GitHub mirrors write it. | Lower |
+| 4. No hubs (CTX-1135) | The share of the top-10 `get_related` slots (without the seeds) that hold a hub that is not gold for the question. A hub is a document that the arm returns in the top 10 for at least a quarter of the questions with seeds of its corpus, and for at least 3. A node that links to almost every service comes back for each seed. | Lower |
+| 5. Live before stale (CTX-1114 F24, F26) | The share of the questions with a `stale` label where the search ranks a gold document before each stale document. | Higher |
+| 6. A weak result for a no-answer question (CTX-1164) | The AUC of the top score: the probability that the top score of a true hit (the first ref is gold) is above the top score of a `no-answer` question, with half for a tie. A search with no hit has the lowest score. 0.5 means that a client cannot use the score. The arms have scores of different scales (RRF and p(answers)), so a rank measure compares them. | Higher |
+| 7. Cold first call (CTX-1043) | The latency of the first search and of the first `get_related` of each arm on each corpus in the run: the calls after the quiet time before the run. The value is the slowest corpus. In a replay, the model calls answer at once, so the value holds only the time of the stores. | Lower |
+| 8. Result size (CTX-1172) | The mean UTF-8 bytes of the TOON text of the first page, which a model reads. | Lower |
+
+"The first page" is the page of `search_knowledge` with its default limit (8 hits), without the cursor. The run makes it from the hits of the search with the page function of the tool (`searchKnowledgePage`), and keeps it in `answers.jsonl`. A run from before CTX-1518 has no page, so checks 1, 2, 3 and 8 have no value in its report. `rescore` asks the stores again, so its report has them.
+
+**The labels of checks 5 and 6.** A question for check 6 is a question of the category `no-answer`: no source answers it, and it has no gold. The category is the `unanswerable` flag. A question for check 5 has a gold document that is live, and a `stale` list: the paths of archived, retired or superseded copies that also answer the question.
+
+```json
+{
+  "id": "k8s-dockershim-removal",
+  "category": "lookup",
+  "gold": ["knowledge/runtime/dockershim.md"],
+  "stale": ["github/issues/kubernetes/website/1234.md"],
+  "...": "..."
+}
+```
+
+A stale document is never gold, and a `no-answer` question has no `stale` list (`dataset.ts` refuses both). Check 5 has no value until the dataset has such questions.
 
 A plane search says "no answer" when no Jev-judged hit reaches the `keepAt` setting. The old stack has no such threshold, so it says "no answer" only when it finds no hit. A search that failed, or that the time budget cut, gets no credit for "no answer".
 
@@ -240,7 +271,7 @@ The report also gives the failed readings, the cost of each image, the median la
 | --- | --- |
 | `manifest.json` | The dataset version, the splits, the query time, the settings, the mode (`live` or `replay`) and the spend. |
 | `dataset.json`, `targets.json` | The inputs of the run, so that `rescore` needs only the folder. |
-| `answers.jsonl` | The output of each arm for each question: the ranked refs and scores, the positions, the latency, the call counts. |
+| `answers.jsonl` | The output of each arm for each question: the ranked refs and scores, the first page of the search, the positions, the latency, the call counts. |
 | `calls.jsonl` | Each Jev and embedding request and its raw answer: the Jev probabilities and the vectors. |
 | `report.json`, `report.md` | The report. |
 
@@ -260,4 +291,4 @@ Then come the change of each question against the kept run, the errors, and the 
 
 ## Proof
 
-`src/knowledge-reader/knowledge-eval-hydrate.integration.test.ts` hydrates a small context repo (real Git over HTTP) into real Postgres, FalkorDB and ClickHouse with `hydrate`, and `run` answers its question on both arms. It checks the ZDR block on each embedding call, a second hydrate with no model call, a new projection when the root changes, the exit code of the spend cap, and the stop at a failed step or a failed store of the old stack. `src/knowledge-reader/knowledge-eval.integration.test.ts` writes the example Workspace to real Postgres, FalkorDB and ClickHouse. It runs the 12 example questions through both arms with fixed model answers (msw), and it checks a small expected report. It then scores a new `keepAt` again from the recorded calls with no model request, it stops a run at the spend cap, and it refuses a Workspace that does not serve the frozen SHA or the root of the corpus on both stacks. `src/knowledge-reader/knowledge-eval.test.ts` checks the dataset rules, the metrics, the panel majority (also the no-answer check) and the stop of the panel at the spend cap. `src/knowledge-reader/knowledge-eval-draft.test.ts` checks the picks of each category, the checks of a draft (the gold, the handles, the keyword leak and its second call), the splits, the scrub, the provider block and the spend cap of the drafter.
+`src/knowledge-reader/knowledge-eval-hydrate.integration.test.ts` hydrates a small context repo (real Git over HTTP) into real Postgres, FalkorDB and ClickHouse with `hydrate`, and `run` answers its question on both arms. It checks the ZDR block on each embedding call, a second hydrate with no model call, a new projection when the root changes, the exit code of the spend cap, and the stop at a failed step or a failed store of the old stack. `src/knowledge-reader/knowledge-eval.integration.test.ts` writes the example Workspace to real Postgres, FalkorDB and ClickHouse. It runs the 12 example questions through both arms with fixed model answers (msw), and it checks a small expected report. It then scores a new `keepAt` again from the recorded calls with no model request, it stops a run at the spend cap, and it refuses a Workspace that does not serve the frozen SHA or the root of the corpus on both stacks. `src/knowledge-reader/knowledge-eval.test.ts` checks the dataset rules, the metrics, the panel majority (also the no-answer check) and the stop of the panel at the spend cap. `src/knowledge-reader/knowledge-eval-checks.test.ts` gives each regression check a small result with its defect, which the check shows, and the same result without the defect, which the check passes. The integration test also checks that a live run and a rescore give each check for both arms. `src/knowledge-reader/knowledge-eval-draft.test.ts` checks the picks of each category, the checks of a draft (the gold, the handles, the keyword leak and its second call), the splits, the scrub, the provider block and the spend cap of the drafter.
