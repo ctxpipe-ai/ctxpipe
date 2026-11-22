@@ -104,7 +104,6 @@ const ROOTS = [
 
 type Entry = {
   path: string
-  form: "adr" | "kep" | "rfc" | "pep" | "design"
   metadata: string | null
   name: string
   title: string
@@ -472,7 +471,12 @@ const FORMS: Record<string, string> = {
     ["status: implementable", "creation-date: 2024-03-01"],
     "## Summary\n\nThis KEP is superseded by [KEP-300](/keps/sig-apps/300-job-queue).\n",
   ),
-  ...kep("keps/sig-apps/320-retry", "Retry", ["status: withdrawn"]),
+  ...kep("keps/sig-apps/320-retry", "Retry", [
+    "status: withdrawn",
+    // A KEP of another repository, also with a path that ends like a KEP here.
+    "replaces:",
+    '  - "other-org/project/keps/sig-node/100-cpu-pinning"',
+  ]),
   ...kep("keps/sig-apps/330-quota", "Quota", ["status: deferred"]),
   // The KEP template folder and the index of the KEP folder.
   ...kep("keps/NNNN-kep-template", "Template", ["status: provisional"]),
@@ -545,6 +549,8 @@ const FORMS: Record<string, string> = {
     "PEP: 20\nTitle: Draft idea\nStatus: Deferred\nCreated: 19-Aug-2004\n\nText\n",
   // A design folder: every Markdown file except its index.
   "docs/design/sharding.md": "# Sharding of the order table\n\nStatus: Draft\n",
+  "docs/design/sharding-v2.md":
+    "# Sharding by tenant\n\nStatus: Accepted\n\nSupersedes [the first design](sharding.md)\n",
   "docs/design/README.md": "# Design documents\n",
 }
 
@@ -561,25 +567,30 @@ describe("decisions skill: design record forms", () => {
 
   it("finds the design records of each form and skips a template, an index, and a text folder with no RFC template", async () => {
     const out = (await step(FORMS)).run()
-    expect(out).toMatchObject({ total: 16, more: false })
-    expect(out.decisions.map((d) => [d.path, d.form]).sort()).toEqual(
+    expect(out).toMatchObject({ total: 17, more: false })
+    // The name has the label of the form; a design document has none.
+    expect(out.decisions.map((d) => [d.path, d.name]).sort()).toEqual(
       [
-        ["docs/design/sharding.md", "design"],
-        ["keps/sig-apps/300-job-queue/README.md", "kep"],
-        ["keps/sig-apps/310-batch-api/README.md", "kep"],
-        ["keps/sig-apps/320-retry/README.md", "kep"],
-        ["keps/sig-apps/330-quota/README.md", "kep"],
-        ["keps/sig-node/100-cpu-pinning/README.md", "kep"],
-        ["keps/sig-node/250-cpu-manager/README.md", "kep"],
-        ["keps/sig-release/20190121-artifact-management.md", "kep"],
-        ["peps/pep-0007.rst", "pep"],
-        ["peps/pep-0008.rst", "pep"],
-        ["peps/pep-0020.rst", "pep"],
-        ["proposals/0001-swift-keywords.md", "rfc"],
-        ["proposals/0002-modules.md", "rfc"],
-        ["text/0010-old-allocator.md", "rfc"],
-        ["text/0012-alloc-trait.md", "rfc"],
-        ["text/1974-global-allocators.md", "rfc"],
+        ["docs/design/sharding-v2.md", "Sharding by tenant"],
+        ["docs/design/sharding.md", "Sharding of the order table"],
+        ["keps/sig-apps/300-job-queue/README.md", "KEP-300: Job queue"],
+        ["keps/sig-apps/310-batch-api/README.md", "KEP-310: Batch API"],
+        ["keps/sig-apps/320-retry/README.md", "KEP-320: Retry"],
+        ["keps/sig-apps/330-quota/README.md", "KEP-330: Quota"],
+        ["keps/sig-node/100-cpu-pinning/README.md", "KEP-100: CPU pinning"],
+        ["keps/sig-node/250-cpu-manager/README.md", "KEP-250: CPU manager"],
+        [
+          "keps/sig-release/20190121-artifact-management.md",
+          "Artifact management",
+        ],
+        ["peps/pep-0007.rst", "PEP-7: Old style guide"],
+        ["peps/pep-0008.rst", "PEP-8: Style guide"],
+        ["peps/pep-0020.rst", "PEP-20: Draft idea"],
+        ["proposals/0001-swift-keywords.md", "RFC-1: Keywords"],
+        ["proposals/0002-modules.md", "RFC-2: Modules"],
+        ["text/0010-old-allocator.md", "RFC-10: old allocator"],
+        ["text/0012-alloc-trait.md", "RFC-12: alloc trait"],
+        ["text/1974-global-allocators.md", "RFC-1974: global allocators"],
       ].sort(),
     )
   })
@@ -639,10 +650,8 @@ describe("decisions skill: design record forms", () => {
     )
     expect(batch.status).toBe("superseded")
     expect(manager.status).toBe("superseded")
-    // A URL and "n/a" link nothing.
-    expect(
-      manager.supersedes.filter((s) => s.to.includes("example.com")),
-    ).toEqual([])
+    // A URL, "n/a", and a path of another repository link nothing.
+    expect(by("keps/sig-apps/320-retry/README.md").supersedes).toEqual([])
   })
 
   it("reads an RFC of a text folder as accepted, with its start date, and links a note and a pull request number", async () => {
@@ -698,13 +707,22 @@ describe("decisions skill: design record forms", () => {
     })
   })
 
-  it("reads a design document of a design folder with its title only", async () => {
+  it("reads a design document of a design folder with its status and a declared supersede link", async () => {
     const { by } = await formsRun()
-    expect(by("docs/design/sharding.md")).toMatchObject({
-      name: "Sharding of the order table",
-      status: "draft",
+    const first = by("docs/design/sharding.md")
+    const second = by("docs/design/sharding-v2.md")
+    expect(first).toMatchObject({
+      status: "superseded",
+      statusText: "Draft",
+      number: null,
       metadata: null,
     })
+    expect(second.supersedes).toEqual([
+      {
+        to: posixRelative(second.target, first.target),
+        evidence: "docs/design/sharding-v2.md",
+      },
+    ])
   })
 
   it("accepts the KEP, RFC, and PEP files that an agent writes from the entries, with their SUPERSEDES claims", async () => {

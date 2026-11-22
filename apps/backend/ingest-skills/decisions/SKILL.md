@@ -57,7 +57,7 @@ The host runs this skill once for each repository, on the assembled ref after th
 
 ## Rules that the script applies
 
-- **Forms** (`form` in the entry). The script finds these design records:
+- **Forms**. The script finds these design records:
   - `adr`: a Markdown file in a decision folder (`adr`, `adrs`, `decisions`, `decision-records`, `architecture-decisions`, `architecture-decision-records`), or `adr-<number>.md`.
   - `kep`: `README.md` in a folder with `kep.yaml`. The metadata file gives the title, the number, the status, the creation date, and the `replaces` and `superseded-by` lists. A numbered or dated Markdown file in a `keps` folder is the older form, with front matter.
   - `rfc`: a numbered Markdown file (`0042-name.md`) in an `rfc`, `rfcs`, or `proposals` folder, or in a `text` folder next to the `0000-template.md` of the RFC process.

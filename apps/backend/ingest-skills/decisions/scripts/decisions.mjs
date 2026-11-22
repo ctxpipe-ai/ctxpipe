@@ -40,6 +40,7 @@ import {
 } from "../../discover-roots/scripts/roots-lib.mjs"
 import {
   decisionForm,
+  decisionKey,
   extractRefs,
   FORM_LABEL,
   GENERIC_FOLDERS,
@@ -80,20 +81,8 @@ function targetPath(repository, path) {
   return `knowledge/decisions/${name}.md`
 }
 
-const STATUS_LABEL = {
-  accepted: "Accepted",
-  proposed: "Proposed",
-  draft: "Draft",
-  provisional: "Provisional",
-  implementable: "Implementable",
-  implemented: "Implemented",
-  postponed: "Postponed",
-  withdrawn: "Withdrawn",
-  deprecated: "Deprecated",
-  superseded: "Superseded",
-  rejected: "Rejected",
-  undeclared: "Undeclared",
-}
+/** The Status line of a status: its first letter in capitals (`implementable` is `Implementable`). */
+const statusLabel = (status) => status.charAt(0).toUpperCase() + status.slice(1)
 
 const { step, source, repository, roots, index, skipped } = scriptStep()
 const check = process.argv.slice(2).includes("--check")
@@ -148,44 +137,42 @@ for (const path of found) {
   const dir = posix.dirname(path) === "." ? "." : posix.dirname(path)
   const form = forms.get(path)
   const meta = form.meta === null ? null : readTracked(source, form.meta)
-  candidates.push({ path, dir, text, ...parseDecision(path, text, form, meta) })
+  candidates.push({
+    path,
+    dir,
+    text,
+    merged: form.merged,
+    ...parseDecision(path, text, form, meta),
+  })
 }
 const byPath = new Map(candidates.map((c) => [c.path, c]))
 const byNumber = new Map()
 for (const c of candidates)
   if (c.number !== null) {
-    const key = `${c.form}:${c.number}`
+    const key = decisionKey(c.form, c.number)
     byNumber.set(key, [...(byNumber.get(key) ?? []), c])
   }
-/**
- * The decision file at a referenced path: the file, the README of a KEP
- * folder, or else the decision file whose path ends with the reference (a
- * reference such as `kubernetes/enhancements/keps/sig-x/1-y` names the source
- * by its own name). A suffix must keep two segments.
- */
-function decisionAt(path) {
-  const segments = path.split("/")
-  for (let at = 0; at < segments.length - 1 || at === 0; at++) {
-    const suffix = segments.slice(at).join("/")
-    const hit = byPath.get(suffix) ?? byPath.get(`${suffix}/README.md`)
-    if (hit) return hit
-  }
-  return null
-}
+/** The decision file at a referenced path: the file, or the README of a KEP folder. */
+const decisionAt = (path) =>
+  byPath.get(path) ?? byPath.get(`${path.replace(/\/+$/, "")}/README.md`)
 
 // 2. Declared supersession, only between decision files of this source.
 const edges = new Map() // "from>to" -> { from, to, evidence }
 for (const c of candidates) {
   let count = 0
   for (const clause of c.clauses) {
-    const refs = extractRefs(clause, c.dir, c.form)
+    const refs = extractRefs(clause, {
+      dir: c.dir,
+      form: c.form,
+      merged: c.merged,
+      repository,
+    })
     const hits = new Set()
     for (const p of refs.paths) {
       const target = decisionAt(p)
       if (target && target !== c) hits.add(target)
     }
-    for (const n of refs.numbers) {
-      const key = `${n.form ?? c.form}:${n.number}`
+    for (const key of refs.keys) {
       const same = (byNumber.get(key) ?? []).filter((t) => t !== c)
       const near = same.filter((t) => t.dir === c.dir)
       const pick =
@@ -394,7 +381,6 @@ function entryOf(c) {
   const rel = (path) => relativeTo(c.target, path)
   return {
     path: c.path,
-    form: c.form,
     metadata: forms.get(c.path).meta,
     name: c.name,
     title: c.title,
@@ -505,11 +491,8 @@ for (const path of staged) {
     const status = /^\*\*Status:\*\*\s*(\S+)/m.exec(
       text.slice(front[0].length),
     )?.[1]
-    if (
-      status?.toLowerCase().replace(/[^a-z]/g, "") !==
-      STATUS_LABEL[entry.status].toLowerCase()
-    )
-      problem(path, `The Status line must say ${STATUS_LABEL[entry.status]}`)
+    if (status?.toLowerCase().replace(/[^a-z]/g, "") !== entry.status)
+      problem(path, `The Status line must say ${statusLabel(entry.status)}`)
   }
 }
 for (const [path, entry] of entries)

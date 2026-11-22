@@ -301,13 +301,14 @@ export function headingText(line) {
 
 /**
  * The two kinds of a supersession clause: this decision replaces another, or
- * another replaces it. `meta` is true for a value of declared metadata (front
- * matter, `kep.yaml`, a PEP header), where a bare number names a decision.
+ * another replaces it. `declared` is true for a value of declared metadata
+ * (front matter, `kep.yaml`, a PEP header), where a bare number or a path
+ * names a decision.
  */
-const clause = (kind, text, meta = false) => ({
+const clause = (kind, text, declared = false) => ({
   kind,
   text: text.slice(0, 600),
-  meta,
+  declared,
 })
 
 /** The kind of a supersession word: "supersedes" and "replaces", or "superseded by" and "replaced by". */
@@ -342,29 +343,16 @@ const PROSE_SUPERSEDES = new RegExp(
   "i",
 )
 
-const MONTHS = [
-  "jan",
-  "feb",
-  "mar",
-  "apr",
-  "may",
-  "jun",
-  "jul",
-  "aug",
-  "sep",
-  "oct",
-  "nov",
-  "dec",
-]
-
 /** An ISO date from `2026-01-02` or a PEP date (`05-Jul-2001`); null for none. */
 function isoDateOf(text) {
   const iso = /\b(\d{4}-\d{2}-\d{2})\b/.exec(text)
   if (iso) return iso[1]
   const pep = /\b(\d{1,2})-([A-Za-z]{3})-(\d{4})\b/.exec(text)
-  const month = pep ? MONTHS.indexOf(pep[2].toLowerCase()) : -1
-  if (month === -1) return null
-  return `${pep[3]}-${String(month + 1).padStart(2, "0")}-${pep[1].padStart(2, "0")}`
+  const at = pep
+    ? "janfebmaraprmayjunjulaugsepoctnovdec".indexOf(pep[2].toLowerCase())
+    : -1
+  if (at === -1 || at % 3 !== 0) return null
+  return `${pep[3]}-${String(at / 3 + 1).padStart(2, "0")}-${pep[1].padStart(2, "0")}`
 }
 
 /**
@@ -526,19 +514,25 @@ export function numberOf(path, title = "") {
   return fromTitle ? Number(fromTitle[1]) : null
 }
 
+/** The key of a decision number: numbers of two forms do not meet (`ADR-5` is not `RFC 5`). */
+export const decisionKey = (form, number) => `${form}:${number}`
+
 /**
- * The references that a clause holds: decision numbers and repository paths.
- * A number has the form of its label (`ADR-24`, `RFC 1974`, `KEP-3570`,
- * `PEP 8`), or `form: null` for the form of the file that holds the clause:
- * a file name (`0024-x.md`), `#1755` in an RFC (an RFC has the number of its
- * pull request), and a bare number in declared metadata. A path comes from a
- * relative link, resolved from `dir` (a leading `/` is the repository root),
- * or from a path value of declared metadata. A URL is not read.
+ * The references that a clause holds, for the decision file of `form` in
+ * `dir`. `keys` are `decisionKey` values: a number with the label of a form
+ * (`ADR-24`, `RFC 1974`, `KEP-3570`, `PEP 8`), or a number of the same form:
+ * a file name (`0024-x.md`), `#1755` in an RFC of a `text` folder (`merged`:
+ * such an RFC has the number of its pull request), and a bare number in
+ * declared metadata. `paths` come from relative links, resolved from `dir`
+ * (a leading `/` is the repository root), and from the path values of
+ * declared metadata, where `<repository>/` in front also names the root. A
+ * URL is not read.
  */
-export function extractRefs({ text, meta }, dir, form) {
-  const numbers = new Map()
-  const add = (refForm, n) =>
-    numbers.set(`${refForm}:${n}`, { form: refForm, number: n })
+export function extractRefs(
+  { text, declared },
+  { dir, form, merged, repository },
+) {
+  const keys = new Set()
   const paths = new Set()
   const addPath = (target) => {
     if (/^[a-z][a-z0-9+.-]*:/i.test(target) || target.startsWith("#")) return
@@ -552,22 +546,24 @@ export function extractRefs({ text, meta }, dir, form) {
   ))
     addPath(m[1])
   for (const m of text.matchAll(/\b(ADR|RFC|KEP|PEP)[-_ #]*0*(\d{1,6})\b/gi))
-    add(m[1].toLowerCase(), Number(m[2]))
+    keys.add(decisionKey(m[1].toLowerCase(), Number(m[2])))
   for (const m of text.matchAll(
     /\b0*(\d{1,6})-[\w.-]{0,100}\.(?:md|markdown)\b/gi,
   ))
-    add(null, Number(m[1]))
-  if (form === "rfc")
+    keys.add(decisionKey(form, Number(m[1])))
+  if (merged)
     for (const m of text.matchAll(/(?<![\w/])#0*(\d{1,6})\b/g))
-      add(null, Number(m[1]))
-  if (meta)
+      keys.add(decisionKey(form, Number(m[1])))
+  if (declared)
     for (const raw of text.split(/[\s,;]+/).slice(0, 50)) {
       const token = raw.replace(/^[("'<[]+|[)"'>\].]+$/g, "")
       const bare = /^#?0*(\d{1,6})$/.exec(token)
-      if (bare) add(null, Number(bare[1]))
+      if (bare) keys.add(decisionKey(form, Number(bare[1])))
+      else if (token.startsWith(`${repository}/`))
+        addPath(`/${token.slice(repository.length + 1)}`)
       else if (/\/|\.(md|markdown)$/i.test(token)) addPath(token)
     }
-  return { numbers: [...numbers.values()], paths: [...paths] }
+  return { keys: [...keys], paths: [...paths] }
 }
 
 /** A link target resolved from a folder to a repository path; null when it leaves the repository. */
