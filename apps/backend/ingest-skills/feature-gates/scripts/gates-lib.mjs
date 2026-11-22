@@ -17,6 +17,7 @@ import { posix } from "node:path"
 
 import {
   ignoredFolder,
+  inTestFixture,
   readTracked,
 } from "../../discover-roots/scripts/roots-lib.mjs"
 
@@ -32,11 +33,18 @@ const MAX_DESCRIPTION_BYTES = 2048
 /** Folder names of tests and examples: their gates are fixtures, not gates of the product. */
 const TEST_SEGMENT = /^(?:tests?|testing|e2e|examples?|samples?)$/i
 
-/** True for a source file that can declare feature gates. */
-export function gateFile(path) {
+/**
+ * True for a source file that can declare feature gates. With `fixtures`, a
+ * file in a test fixture folder also counts, so that the skill can record it.
+ */
+export function gateFile(path, { fixtures = false } = {}) {
   if (!/\.(go|rs)$/.test(path) || /_test\.go$/.test(path)) return false
   const dir = posix.dirname(path)
-  if (ignoredFolder(dir === "" ? "." : dir)) return false
+  if (
+    !(fixtures && inTestFixture(path)) &&
+    ignoredFolder(dir === "" ? "." : dir)
+  )
+    return false
   if (dir.split("/").some((segment) => TEST_SEGMENT.test(segment))) return false
   return /feature/i.test(path)
 }

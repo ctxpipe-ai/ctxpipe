@@ -15,6 +15,7 @@ import { relativeTo } from "../../bin/knowledge-lib.mjs"
 import {
   ignoredFolder,
   readTracked,
+  testFixtureSkips,
 } from "../../discover-roots/scripts/roots-lib.mjs"
 
 const ALIASES_FILE = "OWNERS_ALIASES"
@@ -225,7 +226,12 @@ export function ownersPlans({ source, files, repository, roots, index }) {
   // The OWNERS files by folder. Vendored and test-data folders hold the
   // OWNERS files of other projects, so the script does not read them.
   const owners = new Map()
-  for (const file of [...files].filter((f) => OWNERS_FILE.test(f)).sort()) {
+  const listed = [...files].filter((f) => OWNERS_FILE.test(f)).sort()
+  // An OWNERS file in a test fixture folder is test input: one skipped
+  // entry for each such folder (CTX-1531).
+  for (const { path, reason } of testFixtureSkips(listed))
+    skipped.push({ path, reason })
+  for (const file of listed) {
     const dir = folderOf(file)
     if (ignoredFolder(dir)) continue
     const text = read(file)

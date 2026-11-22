@@ -24,7 +24,9 @@ import {
 } from "../../bin/knowledge-lib.mjs"
 import { EXTERNAL_URL } from "../../bin/purpose-lib.mjs"
 import {
+  inTestFixture,
   safePath,
+  testFixtureSkips,
   trackedFiles,
 } from "../../discover-roots/scripts/roots-lib.mjs"
 import { findGates, gateFile } from "./gates-lib.mjs"
@@ -120,7 +122,14 @@ function unitsOf(file) {
 // of the source repository.
 const KEP_ISSUES = "github/issues/kubernetes/enhancements"
 const ISSUES = `github/issues/${repository}`
-const gates = findGates(source, trackedFiles(source).filter(gateFile), skipped)
+const tracked = trackedFiles(source)
+// A gate file in a test fixture folder is test input: one skipped entry for
+// each such folder (CTX-1531).
+for (const { path, reason } of testFixtureSkips(
+  tracked.filter((f) => inTestFixture(f) && gateFile(f, { fixtures: true })),
+))
+  skipped.push({ path, reason })
+const gates = findGates(source, tracked.filter(gateFile), skipped)
 const mirrored = gates.length
   ? new Set([...basePaths(KEP_ISSUES), ...basePaths(ISSUES)])
   : new Set()

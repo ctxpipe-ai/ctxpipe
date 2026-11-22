@@ -932,6 +932,25 @@ describe("ownership skill", () => {
       expect(web).not.toContain("predicate: OWNS")
     })
 
+    it("leaves out an OWNERS file in a test fixture folder and records the folder (CTX-1531)", () => {
+      const s = step(
+        {
+          ...OWNED_SHOP,
+          "pkg/owners/testdata/OWNERS": "approvers:\n  - unused-alias\n",
+        },
+        {},
+      )
+      const out = s.run("ownership")
+      expect(out.skipped).toEqual([
+        {
+          path: "pkg/owners/testdata",
+          reason:
+            "A test fixture folder: the script did not read its 1 file, because they are test input",
+        },
+      ])
+      expect(out.ops.map((o) => o.path).join()).not.toContain("unused-alias")
+    })
+
     it("lists an OWNERS file larger than 1 MiB in skipped, not as an empty file", () => {
       const s = step(
         {
@@ -1912,6 +1931,28 @@ describe("feature-gates skill (CTX-1513)", () => {
     expect(gift).not.toContain("- Stage: alpha\n")
     s.advance(result.tree)
     expect(s.run("feature-gates").ops).toEqual([])
+  })
+
+  it("leaves out a gate file in a test fixture folder and records the folder (CTX-1531)", () => {
+    const s = step(
+      {
+        "go.mod": "module example.org/shop\n\ngo 1.24\n",
+        "pkg/features/testdata/features.go":
+          'package features\n\nconst (\n\tGiftCards featuregate.Feature = "GiftCards"\n)\n',
+      },
+      CONTEXT,
+    )
+    expect(s.run("feature-gates")).toEqual({
+      ops: [],
+      skipped: [
+        {
+          path: "pkg/features/testdata",
+          reason:
+            "A test fixture folder: the script did not read its 1 file, because they are test input",
+        },
+      ],
+      more: false,
+    })
   })
 
   it("lists a gate file larger than 1 MiB in skipped", () => {
