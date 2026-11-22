@@ -125,25 +125,27 @@ const threeItems = {
 }
 
 /**
- * Waits for the notice stack of the first load and returns it. Each play
- * starts with this wait. The stack comes after the session read, the
- * Workspace list, then the detail read of each Workspace (its skipped
- * files), a render, and a view transition. The reads start when the play
- * starts, so the default bound of `findByRole` (1 s) must cover all of
- * them. In a capture
- * container with 1 CPU, a problem story got its stack after 0.5 s; with
- * 0.25 CPU after 2 s, and with 0.1 CPU after 4.8 s (CTX-1498). A factory
- * check on a shared host gave one container less than 1 CPU, and two
- * problem stories failed. The bound is about 2x the time at 0.1 CPU, and
- * much less than the 120 s that the runner gives each story. It is a
- * ceiling, not a delay: the wait ends when the stack shows.
+ * Waits for the first load of the notice stack, until it holds `count`
+ * toasts, and returns it. Each play starts with this wait. Upgrade toasts
+ * come from the org read. Problem toasts come from the detail read of each
+ * Workspace, which waits for the Workspace list. Then a render and a view
+ * transition show the stack. All of these reads start when the play starts.
+ * With the default bound of 1 s, ProblemLegacyOverlayAndFile and
+ * ProblemLegacyOverlayOnly failed once on mobile in a factory check on a
+ * shared host, where one capture container got less than 1 CPU (CTX-1498).
+ * In a capture container with 1 CPU, a problem story got its stack after
+ * 0.5 s; with 0.25 CPU after 2 s, and with 0.1 CPU after 4.8 s. The bound
+ * is about 2x the time at 0.1 CPU, and much less than the 120 s that the
+ * runner gives each story. It is a ceiling, not a delay: the wait ends when
+ * the stack is full.
  */
-function findNotices(canvasElement: HTMLElement) {
-  return within(canvasElement).findByRole(
-    "region",
-    { name: "Workspace notices" },
-    { timeout: 10_000 },
-  )
+async function findNotices(canvasElement: HTMLElement, count: number) {
+  await waitFor(() => expect(toastItems(canvasElement)).toHaveLength(count), {
+    timeout: 10_000,
+  })
+  return within(canvasElement).getByRole("region", {
+    name: "Workspace notices",
+  })
 }
 
 /** The toasts of the stack, front first. */
@@ -178,7 +180,7 @@ export const SingleToast = meta.story({
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const region = await findNotices(canvasElement)
+    const region = await findNotices(canvasElement, 1)
     await waitFor(() =>
       expect(within(region).getByText("Docs upgrade available")).toBeVisible(),
     )
@@ -218,7 +220,7 @@ export const ToastTakesNoSpaceAfterItGoes = meta.story({
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const region = await findNotices(canvasElement)
+    const region = await findNotices(canvasElement, 1)
     await document.fonts.ready
     const composerTop = () =>
       canvas
@@ -273,14 +275,15 @@ export const UpdateOnce = meta.story({
     (Story) => (
       <>
         <Story />
-        {/* The props of the Toaster of the app root. */}
-        <Toaster richColors position="top-center" />
+        {/* The props of the Toaster of the app root. The toast stays: its
+            4 s timer ran out before the shot of a slow capture (CTX-1498). */}
+        <Toaster richColors position="top-center" duration={Infinity} />
       </>
     ),
   ],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await findNotices(canvasElement)
+    await findNotices(canvasElement, 1)
     await userEvent.click(
       await canvas.findByRole("button", {
         name: "Update once: Docs, Upgrade to format 3",
@@ -314,7 +317,7 @@ export const AlwaysUpdate = meta.story({
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await findNotices(canvasElement)
+    await findNotices(canvasElement, 1)
     await userEvent.click(
       await canvas.findByRole("button", {
         name: "Always update: Docs, Upgrade to format 3",
@@ -352,7 +355,7 @@ export const AlwaysUpdateSlowSave = meta.story({
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await findNotices(canvasElement)
+    await findNotices(canvasElement, 1)
     await userEvent.click(
       await canvas.findByRole("button", {
         name: "Always update: Docs, Upgrade to format 3",
@@ -392,7 +395,7 @@ export const AlwaysUpdateSaveFails = meta.story({
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await findNotices(canvasElement)
+    await findNotices(canvasElement, 1)
     await userEvent.click(
       await canvas.findByRole("button", {
         name: "Always update: Docs, Upgrade to format 3",
@@ -443,7 +446,7 @@ export const FailedUpgrade = meta.story({
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const region = await findNotices(canvasElement)
+    const region = await findNotices(canvasElement, 1)
     await waitFor(() =>
       expect(within(region).getByText("Docs upgrade failed")).toBeVisible(),
     )
@@ -485,7 +488,7 @@ export const FailedUpgradeMember = meta.story({
     msw.use(...homeHandlers("member", { docs: [failedUpgrade] }))
   },
   play: async ({ canvasElement }) => {
-    const region = await findNotices(canvasElement)
+    const region = await findNotices(canvasElement, 1)
     await waitFor(() =>
       expect(within(region).getByText("Docs upgrade failed")).toBeVisible(),
     )
@@ -514,7 +517,7 @@ export const Dismiss = meta.story({
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await findNotices(canvasElement)
+    await findNotices(canvasElement, 1)
     await userEvent.click(
       await canvas.findByRole("button", {
         name: "Dismiss: Docs, Upgrade to format 3",
@@ -555,7 +558,7 @@ export const DismissedCollapseToIcon = meta.story({
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await findNotices(canvasElement)
+    await findNotices(canvasElement, 3)
     // No toast is dismissed yet, so there is no icon.
     expect(canvas.queryByRole("button", { name: /Show notices/ })).toBeNull()
     for (const name of [
@@ -599,8 +602,7 @@ export const StackOfThree = meta.story({
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await findNotices(canvasElement)
-    await waitFor(() => expect(toastItems(canvasElement)).toHaveLength(3))
+    await findNotices(canvasElement, 3)
     await waitFor(() => expect(frontTitle(canvasElement)).toBeVisible())
     // Closed: the toasts behind the front one hide their text.
     await waitFor(() =>
@@ -655,7 +657,7 @@ export const MemberView = meta.story({
     msw.use(...homeHandlers("member", threeItems))
   },
   play: async ({ canvasElement }) => {
-    const region = await findNotices(canvasElement)
+    const region = await findNotices(canvasElement, 3)
     await waitFor(() =>
       expect(within(region).getAllByText("Ask an admin")[0]).toBeVisible(),
     )
@@ -676,8 +678,7 @@ export const ReducedMotion = meta.story({
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await findNotices(canvasElement)
-    await waitFor(() => expect(toastItems(canvasElement)).toHaveLength(3))
+    await findNotices(canvasElement, 3)
     for (const item of toastItems(canvasElement))
       expect(
         Number.parseFloat(getComputedStyle(item).transitionDuration),
@@ -745,7 +746,7 @@ export const ProblemOnly = meta.story({
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const region = await findNotices(canvasElement)
+    const region = await findNotices(canvasElement, 1)
     await waitFor(() =>
       expect(
         within(region).getByText("Handbook: hydrate skipped 1 file"),
@@ -797,7 +798,7 @@ export const ProblemLegacyOverlayAndFile = meta.story({
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const region = await findNotices(canvasElement)
+    const region = await findNotices(canvasElement, 1)
     await waitFor(() =>
       expect(
         within(region).getByText("Handbook: hydrate skipped 2 files"),
@@ -848,7 +849,7 @@ export const ProblemLegacyOverlayOnly = meta.story({
     )
   },
   play: async ({ canvasElement }) => {
-    const region = await findNotices(canvasElement)
+    const region = await findNotices(canvasElement, 1)
     await within(region).findByText("Handbook: hydrate skipped 1 file")
     expect(
       within(region).queryByRole("button", { name: /Fix using agent/ }),
@@ -883,8 +884,7 @@ export const MixedStack = meta.story({
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await findNotices(canvasElement)
-    await waitFor(() => expect(toastItems(canvasElement)).toHaveLength(2))
+    await findNotices(canvasElement, 2)
     const [front] = toastItems(canvasElement)
     if (!front) throw new Error("No toast")
     await waitFor(() =>
@@ -922,8 +922,7 @@ export const CollapsedBothTypes = meta.story({
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await findNotices(canvasElement)
-    await waitFor(() => expect(toastItems(canvasElement)).toHaveLength(3))
+    await findNotices(canvasElement, 3)
     for (const name of [
       "Dismiss: Handbook, skipped files",
       "Dismiss: Docs, Upgrade to format 3",
