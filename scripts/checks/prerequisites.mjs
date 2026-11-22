@@ -263,7 +263,7 @@ export const prerequisites = {
                   "{{json .RepoDigests}}",
                   image,
                 ],
-                fix,
+                "",
               ),
             )
             return (
