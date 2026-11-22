@@ -4,8 +4,9 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { HttpResponse, http } from "msw"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
+import { main } from "../../evals/knowledge/cli.js"
 import type { Corpus } from "../../evals/knowledge/dataset.js"
 import {
   loadDocuments,
@@ -173,6 +174,20 @@ describe("the documents of a corpus", () => {
       "first-author",
       "k8s-ci-robot",
     ])
+  })
+})
+
+describe("the commands that call a model", () => {
+  it("stop at setup when no provider allowlist is set", async () => {
+    vi.stubEnv("MODEL_PROVIDER_ALLOWLIST", "")
+    try {
+      for (const command of ["draft", "label", "hydrate", "run"])
+        await expect(main([command, "--out", "/nowhere"])).rejects.toThrow(
+          /^Set MODEL_PROVIDER_ALLOWLIST/,
+        )
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 })
 
@@ -385,21 +400,16 @@ describe("the drafter", () => {
       )
       expect(question.seeds).toEqual(current?.refs)
     }
-    // The month of validAt is in the text of the two KEP issues only.
-    expect(
-      byCategory("time").map((question) => [question.gold, question.validAt]),
-    ).toEqual(
+    // The month of the date is in the text of the two KEP issues only. The
+    // date stays in the question text: no validAt goes out.
+    expect(byCategory("time").map((question) => question.gold)).toEqual(
       expect.arrayContaining([
-        [
-          ["github/issues/kubernetes/enhancements/1.md"],
-          "2024-01-01T00:00:00Z",
-        ],
-        [
-          ["github/issues/kubernetes/enhancements/2.md"],
-          "2024-01-01T00:00:00Z",
-        ],
+        ["github/issues/kubernetes/enhancements/1.md"],
+        ["github/issues/kubernetes/enhancements/2.md"],
       ]),
     )
+    for (const question of byCategory("time"))
+      expect(question.validAt).toBeUndefined()
     expect(byCategory("time")).toHaveLength(2)
     expect(
       drafted.attempts.find(

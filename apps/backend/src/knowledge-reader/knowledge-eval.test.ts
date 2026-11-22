@@ -863,7 +863,6 @@ describe("the judge panel", () => {
       split: "dev" as const,
       text,
       gold: ["new.md"],
-      validAt: "2024-01-01T00:00:00Z",
       keyFacts: ["It changed in 2024-01."],
     })
     const labeled = await labelWithPanel({
@@ -895,6 +894,35 @@ describe("the judge panel", () => {
       true,
       false,
     ])
+  })
+
+  it("counts a needed step of a chain as gold for a multi-hop or across-sources question only", async () => {
+    contents.length = 0
+    const question = (category: "multi-hop" | "lookup") => ({
+      id: category,
+      corpus: "corpus",
+      category,
+      split: "dev" as const,
+      text: "Which rule follows from the chain?",
+      gold: ["old.md"],
+      ...(category === "multi-hop" ? { seeds: ["old.md"] } : {}),
+      keyFacts: ["The chain gives the rule."],
+    })
+    await labelWithPanel({
+      draft: {
+        ...draft,
+        questions: [question("multi-hop"), question("lookup")],
+      },
+      models: Object.keys(replies),
+      read: async (_corpus, ref) => `The text of ${ref}.`,
+      nearest: async () => [],
+      env,
+      stopped: () => false,
+    })
+    expect(contents).toHaveLength(6)
+    const [chain, lookup] = [contents[0] ?? "", contents[3] ?? ""]
+    expect(chain).toContain("is a needed step to the answer")
+    expect(lookup).not.toContain("needed step")
   })
 
   it("drops a multi-hop question when the panel removes one of its documents", async () => {

@@ -40,7 +40,10 @@ import { closeDb, initDb } from "../../src/db/client.js"
 import { ORCHESTRATOR_DEFAULTS } from "../../src/knowledge-reader/orchestrator.js"
 import { initEvlog } from "../../src/observability/logger.js"
 import { closeGraphDb } from "../../src/platform/graph/client.js"
-import { DEFAULT_OPENROUTER_BASE } from "../../src/retrieval/services/openRouterProvider.js"
+import {
+  DEFAULT_OPENROUTER_BASE,
+  providerAllowlist,
+} from "../../src/retrieval/services/openRouterProvider.js"
 import { modelProviderProblem } from "./chat.js"
 import {
   freezeCorpora,
@@ -422,7 +425,7 @@ async function corpus(
   return 0
 }
 
-async function main(argv: string[]): Promise<number> {
+export async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = argv
   const { values, positionals } = parseArgs({
     args: rest,
@@ -458,6 +461,18 @@ async function main(argv: string[]): Promise<number> {
     throw new SetupError("--cap-usd needs a number of 0 or more.")
   if (!values.out) throw new SetupError("Give --out.")
   const out = values.out
+  // Each eval model call goes only to the providers of the allowlist (ADR-070):
+  // `factory eval` gives the list of production. A command that sends a
+  // model call stops without it, so that no run can forget it.
+  if (
+    ["draft", "label", "hydrate", "run", "latency", "vision"].includes(
+      command ?? "",
+    ) &&
+    !providerAllowlist()
+  )
+    throw new SetupError(
+      "Set MODEL_PROVIDER_ALLOWLIST: each eval model call goes only to the providers of the allowlist (factory eval gives the list of production).",
+    )
   if (command === "label") return label({ ...values, out, capUsd })
   if (command === "draft") return draft({ ...values, out, capUsd })
   if (command === "finalize") {

@@ -457,7 +457,9 @@ function questionOf(
     text: draft.text.trim(),
     gold: category === "no-answer" ? [] : [...new Set(draft.gold)],
     ...(seeds && seeds.length > 0 ? { seeds } : {}),
-    ...(category === "time" ? { validAt: draft.validAt } : {}),
+    // The date stays in the question text, and no `validAt` goes out (the
+    // lead, 2026-11-22): each claim of the corpora has the date of the
+    // ingest as its `valid_from`, so an earlier `validAt` hides the corpus.
     ...(positions ? { positions } : {}),
     keyFacts: category === "no-answer" ? [] : draft.keyFacts,
   }
