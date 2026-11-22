@@ -1,4 +1,4 @@
-import { queryOptions } from "@tanstack/react-query"
+import { type QueryFunctionContext, queryOptions } from "@tanstack/react-query"
 import type { SourceProvider } from "backend/domain/workspace-sources/sources-file"
 import type {
   ConnectionUsageResponse,
@@ -43,7 +43,10 @@ export const workspaceSourceKeys = {
     ["connection-usage", orgSlug, connectionId] as const,
 }
 
-/** The open source pull requests that a query last listed. */
+/**
+ * For each list query: the open source pull requests of its last read, and
+ * the end of its poll after a merge.
+ */
 const pendingMergeSeen = new WeakMap<
   object,
   { open: Set<string>; until: number }
@@ -52,27 +55,42 @@ const pendingMergeSeen = new WeakMap<
 /**
  * Refresh a list for 2 minutes after an open source pull request leaves it.
  * A merge closes the pull request about 15 s before the Workspace records
- * its source, so a read in between shows neither. While a pull request is
- * open, each window focus also reads again: the user usually merges it on
- * GitHub in another tab.
+ * its source, so a read in between shows neither. Each read records the
+ * open pull requests, also a read with another poll: the merge step of a
+ * setup dialog can see the merge, and the Sources list that opens next must
+ * still poll. While a pull request is open, each window focus also reads
+ * again: the user usually merges it on GitHub in another tab.
  */
-function refreshAfterMerge<T>(pullRequestUrls: (data: T) => string[]) {
-  const openUrls = (query: { state: { data: T | undefined } }) =>
-    query.state.data === undefined ? [] : pullRequestUrls(query.state.data)
+function refreshAfterMerge<T>(
+  read: () => Promise<T>,
+  pullRequestUrls: (data: T) => string[],
+) {
   return {
-    refetchOnWindowFocus: (query: { state: { data: T | undefined } }) =>
-      openUrls(query).length > 0 ? ("always" as const) : true,
-    refetchInterval: (query: {
-      state: { status: string; data: T | undefined }
-    }) => {
-      const open = new Set(openUrls(query))
-      const seen = pendingMergeSeen.get(query) ?? { open, until: 0 }
-      if ([...seen.open].some((url) => !open.has(url)))
-        seen.until = Date.now() + 120_000
-      seen.open = open
-      pendingMergeSeen.set(query, seen)
-      return Date.now() < seen.until ? pollWhileOk(5_000)(query) : false
+    queryFn: async (context: QueryFunctionContext): Promise<T> => {
+      const data = await read()
+      const query = context.client
+        .getQueryCache()
+        .find({ queryKey: context.queryKey, exact: true })
+      if (query) {
+        const open = new Set(pullRequestUrls(data))
+        const seen = pendingMergeSeen.get(query)
+        const merged = [...(seen?.open ?? [])].some((url) => !open.has(url))
+        pendingMergeSeen.set(query, {
+          open,
+          until: merged ? Date.now() + 120_000 : (seen?.until ?? 0),
+        })
+      }
+      return data
     },
+    refetchOnWindowFocus: (query: { state: { data: T | undefined } }) =>
+      query.state.data !== undefined &&
+      pullRequestUrls(query.state.data).length > 0
+        ? ("always" as const)
+        : true,
+    refetchInterval: (query: { state: { status: string } }) =>
+      Date.now() < (pendingMergeSeen.get(query)?.until ?? 0)
+        ? pollWhileOk(5_000)(query)
+        : false,
   }
 }
 
@@ -82,17 +100,17 @@ export function workspaceSourcesOptions(
 ) {
   return queryOptions({
     queryKey: workspaceSourceKeys.list(orgSlug, workspaceSlug),
-    queryFn: async (): Promise<WorkspaceSourceListResponse> => {
-      const client = await getApiClient()
-      const res = await client[":orgSlug"].api.v1.workspaces[
-        ":workspaceSlug"
-      ].sources.$get({ param: { orgSlug, workspaceSlug } })
-      return readApiJson(res, {
-        message: "Failed to load Workspace sources",
-      })
-    },
-    ...refreshAfterMerge<WorkspaceSourceListResponse>((data) =>
-      data.pendingChanges.map((change) => change.pullRequestUrl),
+    ...refreshAfterMerge(
+      async (): Promise<WorkspaceSourceListResponse> => {
+        const client = await getApiClient()
+        const res = await client[":orgSlug"].api.v1.workspaces[
+          ":workspaceSlug"
+        ].sources.$get({ param: { orgSlug, workspaceSlug } })
+        return readApiJson(res, {
+          message: "Failed to load Workspace sources",
+        })
+      },
+      (data) => data.pendingChanges.map((change) => change.pullRequestUrl),
     ),
   })
 }
@@ -100,19 +118,20 @@ export function workspaceSourcesOptions(
 export function connectionUsageOptions(orgSlug: string, connectionId: string) {
   return queryOptions({
     queryKey: workspaceSourceKeys.usage(orgSlug, connectionId),
-    queryFn: async (): Promise<ConnectionUsageResponse> => {
-      const client = await getApiClient()
-      const res = await client[":orgSlug"].api.v1.connectors[
-        ":connectionId"
-      ].workspaces.$get({ param: { orgSlug, connectionId } })
-      return readApiJson(res, {
-        message: "Failed to load the Workspaces of this connector",
-      })
-    },
-    ...refreshAfterMerge<ConnectionUsageResponse>((data) =>
-      data.items.flatMap((item) =>
-        item.pendingChanges.map((change) => change.pullRequestUrl),
-      ),
+    ...refreshAfterMerge(
+      async (): Promise<ConnectionUsageResponse> => {
+        const client = await getApiClient()
+        const res = await client[":orgSlug"].api.v1.connectors[
+          ":connectionId"
+        ].workspaces.$get({ param: { orgSlug, connectionId } })
+        return readApiJson(res, {
+          message: "Failed to load the Workspaces of this connector",
+        })
+      },
+      (data) =>
+        data.items.flatMap((item) =>
+          item.pendingChanges.map((change) => change.pullRequestUrl),
+        ),
     ),
   })
 }
