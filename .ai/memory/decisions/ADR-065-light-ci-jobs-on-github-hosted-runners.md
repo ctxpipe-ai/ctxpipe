@@ -91,4 +91,20 @@ B3 of the same cost review ([CTX-1505](https://linear.app/ctxpipe/issue/CTX-1505
 - **The fix.** The play runner ([`scripts/ci/storybook-play.mjs`](../../../scripts/ci/storybook-play.mjs)) removes `--disable-dev-shm-usage` when `/dev/shm` is a tmpfs with 1 GB or more free. A GitHub-hosted runner has a tmpfs of 7.8 GB, and the capture container shares the memory of the host (`--ipc=host`). A Docker container with the default 64 MB and macOS keep the default of Playwright. No play changed.
 - **Proof on GitHub (a probe branch, shard 2 of 4, 6 jobs for each lane, 1,068 plays for each lane).** Without the fix: 10 plays took more than 300 ms longer than the median of the same story, all in the window; the most was 1.9 s. With a `sync` before the plays: none in the window (the longest 198 ms). With `/dev/shm`: none in the window (the longest 96 ms), and the shards were 4% faster.
 - **The jobs.** The Storybook plays shards and the Storybook required plays run on `ubuntu-24.04-arm`. They use no Docker, and they restore the pnpm store from the GitHub cache, which `main-caches.yaml` fills.
+- **Stability and speed on GitHub (PR #1023, run 45016411010, the full run and two reruns of its plays jobs).** 12 plays shard runs and 3 required plays runs, with no failure. In the result records, no play was more than 300 ms slower than on Blacksmith at position 15 to 35 of its shard (in the #1003 trial, 16 plays were), except one story that takes about 6 s on both runner types now and then. Blacksmith: the pull request runs of 21 to 22 November (medians, 23 runs for each shard).
+
+  | Time | Blacksmith | GitHub |
+  | --- | --- | --- |
+  | Plays shard 1/4 | 325 s | 294 s to 306 s (median 302 s) |
+  | Plays shard 2/4 | 307 s | 290 s to 314 s (308 s) |
+  | Plays shard 3/4 | 310 s | 284 s to 320 s (317 s) |
+  | Plays shard 4/4 | 306 s | 305 s to 318 s (316 s) |
+  | All plays shards | 310 s (92 runs) | 307 s (12 runs) |
+  | Storybook required plays | 312 s | 302 s to 319 s (311 s) |
+  | Queue of a plays job | 6 s | 4 s to 6 s |
+  | First job to the end of the last plays job | 496 s | 474 s |
+  | First job to Merge gate (critical path) | 1,193 s | 955 s |
+
+  The plays end long before the test shards, in each of the 23 Blacksmith runs and in this run, so they are not on the critical path.
+- **Concurrency.** A full run has 5 more GitHub-hosted jobs, about 35 at a time at its peak (the full run of PR #1023 had at most 21). Two full runs at their peak can pass the limit of 60, and then GitHub queues the later jobs. The plays end about 8 minutes before the Merge gate, so a short queue of a plays job does not delay the gate.
 - To revert the fourth part, set the `runs-on` of both plays jobs back to `blacksmith-4vcpu-ubuntu-2404-arm` and remove its comment. The change of the play runner can stay: it uses `/dev/shm` only where `/dev/shm` is a large tmpfs.
