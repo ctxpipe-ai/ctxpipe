@@ -837,40 +837,97 @@ describe("ownership skill", () => {
         "- Owns `apps/web` in `example-org/shop` (`apps/OWNERS`)",
       )
       expect(web).toMatch(/- to: \.\.\/services\/web\.md\n\s+predicate: OWNS/)
-      expect(web).not.toContain("services/api.md")
-      // A filter for some files only (go\.mod$) does not own a folder, and a
-      // vendored OWNERS file is another project's file.
-      expect(web).not.toContain("the repository top")
+      // The approvers of a parent OWNERS file also own the folders below it.
+      expect(web).toContain(
+        "- Owns `apps/api` in `example-org/shop` (`apps/OWNERS`)",
+      )
+      expect(web).toMatch(
+        /- to: \.\.\/services\/api\.md\n\s+predicate: OWNS\n\s+evidence:\n\s+path: apps\/OWNERS/,
+      )
+      // A filter for some files only (go\.mod$) gives a line with its
+      // pattern but owns no folder, and a vendored OWNERS file is another
+      // project's file.
+      expect(web).toContain(
+        "- Approves the files that match `go\\.mod$` in the repository top in `example-org/shop` (`OWNERS`)",
+      )
+      expect(web).not.toContain("Owns the repository top")
       expect(out.ops.map((o) => o.path).join()).not.toContain("unused-alias")
     })
 
-    it("gives no team to a root whose nearest OWNERS file has only people as approvers", () => {
+    it("writes a team file for an alias that only a file-name filter names, with the pattern and no OWNS claim", async () => {
       const s = step(
         {
           ...OWNED_SHOP,
-          "apps/web/OWNERS": "approvers:\n  - frank\n",
+          "docs/OWNERS":
+            'filters:\n  "\\\\.md$":\n    reviewers:\n      - unused-alias\n',
         },
-        {
-          "knowledge/services/web.md": front(
-            {
-              kind: "Service",
-              name: "web",
-              generated_by: "ctxpipe-extract",
-              sources: [SOURCE_PATH],
-            },
-            "# web\n",
-          ),
-        },
+        {},
       )
-      s.mapFiles({ "apps/web": ["knowledge/services/web.md"] })
-      s.run("ownership")
-      const web = readFileSync(
+      const out = s.run("ownership")
+      expect(out.ops).toContainEqual({
+        op: "create",
+        path: "knowledge/teams/example-org-shop-unused-alias.md",
+      })
+      const result = await s.validate("ownership")
+      expect(result.rejections).toEqual([])
+      const docs = s.show(
+        result.tree,
+        "knowledge/teams/example-org-shop-unused-alias.md",
+      )
+      expect(docs).toContain(
+        "- Reviews the files that match `\\.md$` in `docs` in `example-org/shop` (`docs/OWNERS`)",
+      )
+      expect(docs).not.toContain("predicate: OWNS")
+    })
+
+    const webService = {
+      "knowledge/services/web.md": front(
+        {
+          kind: "Service",
+          name: "web",
+          generated_by: "ctxpipe-extract",
+          sources: [SOURCE_PATH],
+        },
+        "# web\n",
+      ),
+    }
+    const webTeam = (root: string) =>
+      readFileSync(
         join(
-          s.root,
+          root,
           "out/files/knowledge/teams/example-org-shop-web-approvers.md",
         ),
         "utf8",
       )
+
+    it("keeps the parent team of a root whose OWNERS file has only people as approvers", () => {
+      const s = step(
+        { ...OWNED_SHOP, "apps/web/OWNERS": "approvers:\n  - frank\n" },
+        webService,
+      )
+      s.mapFiles({ "apps/web": ["knowledge/services/web.md"] })
+      s.run("ownership")
+      const web = webTeam(s.root)
+      expect(web).toContain(
+        "- Owns `apps/web` in `example-org/shop` (`apps/OWNERS`)",
+      )
+      expect(web).toMatch(
+        /- to: "\.\.\/services\/web\.md"\n\s+predicate: "?OWNS/,
+      )
+    })
+
+    it("gives no parent team to a root whose OWNERS file sets no_parent_owners", () => {
+      const s = step(
+        {
+          ...OWNED_SHOP,
+          "apps/web/OWNERS":
+            "options:\n  no_parent_owners: true\napprovers:\n  - frank\n",
+        },
+        webService,
+      )
+      s.mapFiles({ "apps/web": ["knowledge/services/web.md"] })
+      s.run("ownership")
+      const web = webTeam(s.root)
       expect(web).not.toContain("Owns `apps/web`")
       expect(web).not.toContain("predicate: OWNS")
     })
@@ -1822,6 +1879,31 @@ describe("feature-gates skill (CTX-1513)", () => {
     expect(gift).not.toContain("- Stage: alpha\n")
     s.advance(result.tree)
     expect(s.run("feature-gates").ops).toEqual([])
+  })
+
+  it("cuts a description at 2 KiB and records the cut in skipped", async () => {
+    const long = "Lets the shop sell gift cards. ".repeat(100).trim()
+    const s = step(
+      {
+        "go.mod": "module example.org/shop\n\ngo 1.24\n",
+        "pkg/features/features.go": `package features\n\nconst (\n\t// ${long}\n\tGiftCards featuregate.Feature = "GiftCards"\n)\n`,
+      },
+      CONTEXT,
+    )
+    const out = s.run("feature-gates")
+    expect(out.skipped).toEqual([
+      {
+        path: "pkg/features/features.go",
+        reason: expect.stringMatching(
+          /^The description of the feature gate on line 5 lost its last \d+ bytes at the 2 KiB limit$/,
+        ),
+      },
+    ])
+    const result = await s.validate("feature-gates")
+    expect(result.rejections).toEqual([])
+    const gift = s.show(result.tree, "knowledge/features/gift-cards.md")
+    expect(gift).toContain("…")
+    expect(gift).not.toContain(long)
   })
 
   it("keeps the file of a gate whose declaring file changed, as a Rust gate moves from unstable.rs to accepted.rs", async () => {

@@ -140,13 +140,25 @@ const list = (value) =>
 const map = (value) =>
   value && typeof value === "object" && !Array.isArray(value) ? value : null
 
-/** The approvers and reviewers of an OWNERS file: the top level and the filter `.*`, which applies to each file. */
+/**
+ * The approvers and reviewers of an OWNERS file: the top level and the
+ * filter `.*`, which applies to each file. `filtered` holds each other
+ * filter, which applies only to the files that its pattern matches.
+ */
 function ownersOf(yaml) {
-  const all = map(map(yaml.filters)?.[".*"]) ?? Object.create(null)
+  const filters = map(yaml.filters) ?? Object.create(null)
+  const all = map(filters[".*"]) ?? Object.create(null)
   const options = map(yaml.options)
   return {
     approvers: [...new Set([...list(yaml.approvers), ...list(all.approvers)])],
     reviewers: [...new Set([...list(yaml.reviewers), ...list(all.reviewers)])],
+    filtered: Object.entries(filters)
+      .filter(([pattern]) => pattern !== ".*")
+      .map(([pattern, value]) => ({
+        pattern,
+        approvers: list(map(value)?.approvers),
+        reviewers: list(map(value)?.reviewers),
+      })),
     noParent: String(options?.no_parent_owners) === "true",
   }
 }
@@ -228,30 +240,49 @@ export function ownersPlans({ source, files, repository, roots, index }) {
         team(alias).lines.push(
           `- ${role} ${where(dir)} in \`${repository}\` (\`${entry.file}\`)`,
         )
+    // A filter applies only to the files that its pattern matches, so its
+    // aliases get a line with the pattern and no OWNS claim.
+    for (const filter of entry.filtered) {
+      const names = [...filter.approvers, ...filter.reviewers]
+      if (!names.some((n) => aliases.has(n))) continue
+      if (/[`\r\n]/.test(filter.pattern)) {
+        skipped.push({
+          path: entry.file,
+          reason: "A filter has a pattern that the script does not quote",
+        })
+        continue
+      }
+      for (const [role, names] of [
+        ["Approves", filter.approvers],
+        ["Reviews", filter.reviewers],
+      ])
+        for (const alias of names.filter((n) => aliases.has(n)))
+          team(alias).lines.push(
+            `- ${role} the files that match \`${filter.pattern}\` in ${where(dir)} in \`${repository}\` (\`${entry.file}\`)`,
+          )
+    }
   }
 
   for (const root of roots) {
-    // The nearest OWNERS file with approvers, at or above the root folder.
-    let dir = root.path
-    let found = null
-    for (;;) {
+    // The approvers of each OWNERS file at or above the root folder apply,
+    // as in Kubernetes: a file with `no_parent_owners` stops the walk. An
+    // alias gets its claims from the nearest file that names it.
+    const found = new Map()
+    for (let dir = root.path; ; dir = folderOf(dir)) {
       const entry = owners.get(dir)
-      if (entry?.approvers.length) {
-        found = entry
-        break
-      }
+      for (const alias of entry?.approvers ?? [])
+        if (aliases.has(alias) && !found.has(alias)) found.set(alias, entry)
       if (entry?.noParent || dir === ".") break
-      dir = folderOf(dir)
     }
-    for (const alias of found?.approvers.filter((n) => aliases.has(n)) ?? []) {
+    for (const [alias, entry] of found) {
       const owned = team(alias)
       owned.lines.push(
-        `- Owns ${where(root.path)} in \`${repository}\` (\`${found.file}\`)`,
+        `- Owns ${where(root.path)} in \`${repository}\` (\`${entry.file}\`)`,
       )
       owned.claims.push(
         ...root.files.map((file) => ({
           file: file.path,
-          evidence: found.file,
+          evidence: entry.file,
         })),
       )
     }

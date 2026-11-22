@@ -211,6 +211,11 @@ for (const gate of gates) {
     continue
   }
   taken.set(path, name)
+  if (gate.descriptionCut)
+    skipped.push({
+      path: gate.file,
+      reason: `The description of the feature gate on line ${gate.line} lost its last ${gate.descriptionCut} bytes at the 2 KiB limit`,
+    })
 
   const link = (target, text) => `[${text}](${relativeTo(path, target)})`
   const facts = []

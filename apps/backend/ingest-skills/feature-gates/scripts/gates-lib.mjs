@@ -52,13 +52,22 @@ function commentAbove(lines, at, mark) {
   return out
 }
 
-/** Text of a description, cut at a UTF-8 byte limit. */
+/**
+ * A description, cut at a UTF-8 byte limit, and the count of source bytes
+ * that the cut removed (`descriptionCut`).
+ */
 function cut(text) {
-  if (Buffer.byteLength(text) <= MAX_DESCRIPTION_BYTES) return text
+  const bytes = Buffer.byteLength(text)
+  if (bytes <= MAX_DESCRIPTION_BYTES)
+    return { description: text, descriptionCut: 0 }
   let out = text
   while (Buffer.byteLength(`${out}…`) > MAX_DESCRIPTION_BYTES)
     out = out.slice(0, -1)
-  return `${out.trimEnd()}…`
+  out = out.trimEnd()
+  return {
+    description: `${out}…`,
+    descriptionCut: bytes - Buffer.byteLength(out),
+  }
 }
 
 /** The tags (`owner:`, `kep:`, `alpha:`) and the description of a Go gate comment. */
@@ -81,7 +90,7 @@ function goComment(lines) {
   }
   return {
     ...tags,
-    description: cut(text.join(" ").replace(/\s+/g, " ").trim()),
+    ...cut(text.join(" ").replace(/\s+/g, " ").trim()),
   }
 }
 
@@ -136,7 +145,7 @@ function goSpecList(body) {
 /**
  * The feature gates of the given files. Each gate is
  * { name, file, line, convention, stage, default, locked, since, history,
- *   owners, keps, issue, description }.
+ *   owners, keps, issue, description, descriptionCut }.
  */
 export function findGates(source, paths) {
   const texts = new Map(paths.map((p) => [p, readTracked(source, p)]))
@@ -169,6 +178,7 @@ export function findGates(source, paths) {
           keps: [...new Set(comment.keps)],
           issue: null,
           description: comment.description,
+          descriptionCut: comment.descriptionCut,
         })
       })
     } else if (/declare_features!\s*\(/.test(text)) {
@@ -189,7 +199,7 @@ export function findGates(source, paths) {
           owners: [],
           keps: [],
           issue: m[5] ? Number(m[5]) : null,
-          description: cut(doc.join(" ").replace(/\s+/g, " ").trim()),
+          ...cut(doc.join(" ").replace(/\s+/g, " ").trim()),
         })
       })
     }
