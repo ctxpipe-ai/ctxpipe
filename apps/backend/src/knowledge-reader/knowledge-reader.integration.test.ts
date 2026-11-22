@@ -225,11 +225,69 @@ const units: (RelatedUnit & { text: string })[] = [
   },
 ]
 
-/** The rows of `units` in the knowledge plane for one Workspace. */
-function planeRows(workspaceId: string): PlaneDocument[] {
+/** The path of document `index` (from 0) of a layer of the wide Workspace. */
+const widePath = (prefix: string, index: number) =>
+  `wide/${prefix}-${String(index + 1).padStart(2, "0")}.md`
+const widePaths = (prefix: string) =>
+  Array.from({ length: 49 }, (_, index) => widePath(prefix, index))
+/**
+ * A Workspace with more answers than the 100 results of a ranking. The seed
+ * reaches a middle document that is only a hub, and 49 answers that are
+ * hubs. The middle document reaches the far answer. Each answer of layer 1
+ * reaches one answer that is a hub, and each of these reaches one more
+ * answer. Thus 148 documents answer, and the far answer has one step.
+ */
+const wideUnits: (RelatedUnit & { text: string })[] = [
+  {
+    path: "wide/seed.md",
+    kind: "Note",
+    title: "Wide seed",
+    text: "The start.",
+    claims: [
+      { to: "wide/middle.md", predicate: "DEPENDS_ON", confidence: 0.9 },
+      ...widePaths("a").map((to) => ({
+        to,
+        predicate: "MENTIONS",
+        confidence: 0.8,
+      })),
+    ],
+  },
+  {
+    path: "wide/middle.md",
+    kind: "Note",
+    title: "Wide middle",
+    text: "A bridge. hub",
+    claims: [{ to: "wide/b-00.md", predicate: "DEPENDS_ON", confidence: 0.95 }],
+  },
+  { path: "wide/b-00.md", kind: "Note", title: "Wide far", text: "answer" },
+  ...(["a", "b", "c"] as const).flatMap((prefix) =>
+    widePaths(prefix).map((path, index) => ({
+      path,
+      kind: "Note",
+      title: `Wide ${prefix} ${index + 1}`,
+      text: prefix === "c" ? "answer" : "answer hub",
+      claims:
+        prefix === "c"
+          ? []
+          : [
+              {
+                to: widePath(prefix === "a" ? "b" : "c", index),
+                predicate: "MENTIONS",
+                confidence: 0.8,
+              },
+            ],
+    })),
+  ),
+]
+
+/** The rows of `list` in the knowledge plane for one Workspace. */
+function planeRows(
+  workspaceId: string,
+  list: readonly (RelatedUnit & { text: string })[] = units,
+): PlaneDocument[] {
   const key = (path: string) => servingIdForKnowledgePath(workspaceId, path)
   const observedAt = new Date("2026-11-01T00:00:00Z")
-  return units.map((unit) => ({
+  return list.map((unit) => ({
     document: {
       docKey: key(unit.path),
       kind: unit.kind,
@@ -503,8 +561,27 @@ describe("the knowledge reader seam", () => {
     } finally {
       await writer.close()
     }
+    // The wide Workspace is only on the plane.
+    const wideWorkspace = await seedRelatedWorkspace({
+      seed,
+      slug: "wide",
+      sha: legacySha,
+      units: [],
+    })
+    ids.wide = wideWorkspace.workspaceId
+    const wideWriter = createKnowledgeStore(url)
+    try {
+      await writePlaneDocuments(
+        wideWriter,
+        { orgId: seed.orgId, workspaceId: wideWorkspace.workspaceId },
+        planeRows(wideWorkspace.workspaceId, wideUnits),
+      )
+    } finally {
+      await wideWriter.close()
+    }
     await markReady(ids.ready as string)
     await markReady(ids.paging as string)
+    await markReady(ids.wide as string)
     // A first run that has not ended: not ready.
     await beginKnowledgeRun({
       orgId: seed.orgId,
@@ -774,7 +851,7 @@ describe("the knowledge reader seam", () => {
     expect(shapeOf(planeRelated)).toMatchSnapshot()
   })
 
-  it("on: get_related keeps what answers, explores the hubs, and gives the why path", async () => {
+  it("on: get_related keeps what answers and each step to it, explores the hubs, and gives the why path", async () => {
     await setFlag("on")
     const result = await relatedCall({ maxDepth: 3 })
     expect(result.isError).toBeFalsy()
@@ -814,6 +891,22 @@ describe("the knowledge reader seam", () => {
           },
         ],
       }),
+      // The ledger does not answer, but it is the step from the seed to the
+      // decision (CTX-1520). It comes after the results that answer, with
+      // its own p(answers) as its score. The note is no step, so it is out.
+      expect.objectContaining({
+        ref: "knowledge/databases/ledger.md",
+        score: 0.1,
+        depth: 1,
+        path: [
+          {
+            from: "knowledge/services/checkout.md",
+            to: "knowledge/databases/ledger.md",
+            predicate: "DEPENDS_ON",
+            weight: 0.9,
+          },
+        ],
+      }),
     ])
     // Layer 0 judges the seed; layer 1 the three neighbors; layer 2 the one
     // neighbor of the hub.
@@ -848,6 +941,34 @@ describe("the knowledge reader seam", () => {
         against: [{ position: 0, label: "updates" }],
       },
     ])
+  })
+
+  it("on: get_related keeps the step of each kept answer when the answers pass the result limit", async () => {
+    await setFlag("on")
+    const refs: string[] = []
+    let cursor: string | undefined
+    do {
+      const content = structured(
+        await relatedCall({
+          workspace: "wide",
+          seeds: ["wide/seed.md"],
+          maxDepth: 3,
+          limit: 50,
+          maxTokens: 8_000,
+          ...(cursor ? { cursor } : {}),
+        }),
+      )
+      refs.push(...(content.results as { ref: string }[]).map((r) => r.ref))
+      cursor = content.cursor as string | undefined
+    } while (cursor)
+    // 148 documents answer. The 100 results are the best answers, each with
+    // its steps: the 49 answers of layer 1, the far answer and its step (the
+    // middle document), and the 49 other answers of layer 2. The answers of
+    // layer 3 do not fit with their steps.
+    expect(refs).toHaveLength(100)
+    expect(refs.at(-1)).toBe("wide/middle.md")
+    expect(refs).toContain("wide/b-00.md")
+    expect(refs.filter((ref) => ref.startsWith("wide/c-"))).toEqual([])
   })
 
   it("get_related tells agents about the positions in its description and output schema", async () => {
@@ -946,7 +1067,11 @@ describe("the knowledge reader seam", () => {
     ).toEqual(["knowledge/teams/payments.md"])
     expect(
       await refs({ from: "2026-02-01T00:00:00Z", to: "2026-03-01T00:00:00Z" }),
-    ).toEqual(["knowledge/teams/payments.md", "knowledge/decisions/adr-7.md"])
+    ).toEqual([
+      "knowledge/teams/payments.md",
+      "knowledge/decisions/adr-7.md",
+      "knowledge/databases/ledger.md",
+    ])
   })
 
   it("on: search_knowledge filters the sources in the store", async () => {
@@ -1103,7 +1228,12 @@ describe("the knowledge reader seam", () => {
       expect(content.partial).toBe(false)
       expect(
         (content.results as { ref: string }[]).map((result) => result.ref),
-      ).toEqual(["knowledge/teams/payments.md", "knowledge/decisions/adr-7.md"])
+      ).toEqual([
+        "knowledge/teams/payments.md",
+        "knowledge/decisions/adr-7.md",
+        "knowledge/databases/ledger.md",
+      ])
+      // The ledger is a step, not an answer, so no position holds it.
       expect(content.positions).toHaveLength(2)
     } finally {
       ORCHESTRATOR_DEFAULTS.timeBudgetMs = before
@@ -1119,7 +1249,8 @@ describe("the knowledge reader seam", () => {
       partial: true,
       partialReason: "total_timeout",
     })
-    expect((content.results as unknown[]).length).toBe(2)
+    // The two results that answer, and the ledger, the step to the decision.
+    expect((content.results as unknown[]).length).toBe(3)
     expect(content.positions).toBeUndefined()
   }, 15_000)
 

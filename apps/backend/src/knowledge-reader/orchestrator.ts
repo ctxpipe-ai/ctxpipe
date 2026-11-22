@@ -36,7 +36,10 @@ export const ORCHESTRATOR_DEFAULTS = {
   timeBudgetMs: 3_000,
   /** The top results that the disagreement step compares (N). */
   disagreementItems: 10,
-  /** A candidate is a result when p(answers) is at least this value. */
+  /**
+   * A candidate answers when p(answers) is at least this value. Each answer
+   * is a result, and so is each step on its "why" path (CTX-1520).
+   */
   keepAt: 0.5,
   /** The loop explores from a candidate when p(explore) is at least this. */
   exploreAt: 0.5,
