@@ -36,6 +36,18 @@ The baseline (the current stack) is weak. Thus a high baseline recall is a sign 
 
 `fixtures/ctxpipe-memory.dataset.json` holds 12 example questions over `.ai/memory/` of this repository, written by hand. Its corpus is this repository at a fixed SHA with the root `.ai/memory`. The ADRs with superseded entries are the disagreement questions. `fixtures/ctxpipe-memory.workspace.json` is the small Workspace that the integration test writes to both stacks. The real question set comes from the frozen corpora ([CTX-1393](https://linear.app/ctxpipe/issue/CTX-1393)).
 
+`fixtures/corpora-v0.dataset.json` is the question set v0 ([CTX-1499](https://linear.app/ctxpipe/issue/CTX-1499)). It holds 99 questions:
+
+- **Kubernetes** (`eval-v0-kubernetes-context` at `148b39dd`): 49 questions.
+- **Rust** (`eval-v0-rust-context` at `68e37931`): 50 questions.
+- **The categories of each Workspace:** 4 lookups, 12 multi-hop, 10 across sources (9 for Kubernetes), 8 time, 10 disagreement and 6 no-answer, with 60% `dev` and 40% `holdout` in each category.
+
+Opus 5.5 drafted them (`draft`). The panel labeled them: Sonnet 5.5, GPT-6.1-Terra and Gemini 3.8 Flash (`label`). `finalize` made the file. Each model call went only to a ZDR endpoint of the provider allowlist of production. The context repos are private, so a run serves them from a local Git server at the same SHAs (see `hydrate`). The Backstage questions (`eval-v0-backstage-context` at `144bda17`) come in a later change with the same commands.
+
+### One label version for each dataset
+
+Each run of a dataset, and its baseline, is scored against the same labels. A change of the labels of a dataset (a new `label` run, or a new version) scores each kept run of that dataset again, and its baseline, with `rescore` (no model calls). A question that a kept run never answered cannot be scored again: the report of the change names those questions.
+
 ## The metrics
 
 | Level | Metrics |

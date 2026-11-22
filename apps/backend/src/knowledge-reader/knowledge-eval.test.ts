@@ -46,6 +46,35 @@ const datasetFile = new URL(
 ).pathname
 
 describe("the dataset", () => {
+  it("reads the question set v0, balanced in each Workspace", async () => {
+    const dataset = await readDataset(
+      new URL(
+        "../../evals/knowledge/fixtures/corpora-v0.dataset.json",
+        import.meta.url,
+      ).pathname,
+    )
+    expect(dataset.corpora.map((corpus) => corpus.id)).toEqual([
+      "kubernetes",
+      "rust",
+    ])
+    for (const corpus of dataset.corpora) {
+      const questions = dataset.questions.filter(
+        (question) => question.corpus === corpus.id,
+      )
+      expect(questions.length).toBeGreaterThanOrEqual(45)
+      // No image in the corpora, and no validAt in v0.
+      expect(questions.some((question) => question.category === "image")).toBe(
+        false,
+      )
+      expect(questions.some((question) => question.validAt)).toBe(false)
+      const holdout = questions.filter(
+        (question) => question.split === "holdout",
+      ).length
+      expect(holdout / questions.length).toBeGreaterThan(0.3)
+      expect(holdout / questions.length).toBeLessThan(0.5)
+    }
+  })
+
   it("reads the example questions", async () => {
     const dataset = await readDataset(datasetFile)
     expect(dataset.questions).toHaveLength(12)
