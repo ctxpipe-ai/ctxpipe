@@ -12,6 +12,8 @@ The critics review the diff between `HEAD` and a fixed point along separate axes
 
 Each axis reviews alone, so that one axis cannot hide the findings of another. Do **not** run the review as spec-only.
 
+Spec, Standards and Simplicity skip each hunk that only moves a dependency to another version (`skipDependencyHunks`). Such a hunk is a lockfile, a version range in `package.json`, a `FROM` image tag, a `uses:` ref, or a toolchain version. Security always reviews those hunks. Thus a batch of dependency updates gets only the Security review. The factory decides which hunks are dependency hunks (factory `machines/cli/README.md`, "Review critics").
+
 The issue tracker should have been provided to you — run `/setup-matt-pocock-skills` if `.ai/agents/issue-tracker.md` is missing.
 
 ## Run the critics with `factory check`

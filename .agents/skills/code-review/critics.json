@@ -2,12 +2,13 @@
   "critics": [
     {
       "name": "spec",
-      "intent": "Does the diff do what the ticket and the brief ask, and does it do it correctly: missing or partial requirements, scope creep, and wrong behavior (false cache hits, exit codes, missed inputs, edge cases). It runs on every change.",
+      "intent": "Does the diff do what the ticket and the brief ask, and does it do it correctly: missing or partial requirements, scope creep, and wrong behavior (false cache hits, exit codes, missed inputs, edge cases). It runs on every change, apart from the hunks that only move a dependency to another version (skipDependencyHunks): the Security critic reviews those.",
       "inputs": [
         ".agents/skills/code-review/SKILL.md",
         ".changeset/README.md"
       ],
       "notApplicable": [],
+      "skipDependencyHunks": true,
       "triggers": [
         "**"
       ],
@@ -32,7 +33,7 @@
     },
     {
       "name": "standards",
-      "intent": "Does the diff follow the documented repo rules (the root AGENTS.md, the AGENTS.md of each app, and lessons-learned) and the smell baseline of the code-review skill. It runs on every change.",
+      "intent": "Does the diff follow the documented repo rules (the root AGENTS.md, the AGENTS.md of each app, and lessons-learned) and the smell baseline of the code-review skill. It runs on every change, apart from the hunks that only move a dependency to another version (skipDependencyHunks): the Security critic reviews those.",
       "inputs": [
         ".agents/skills/code-review/SKILL.md",
         "**/AGENTS.md",
@@ -40,6 +41,7 @@
         ".changeset/README.md"
       ],
       "notApplicable": [],
+      "skipDependencyHunks": true,
       "triggers": [
         "**"
       ],
@@ -60,7 +62,7 @@
     },
     {
       "name": "simplicity",
-      "intent": "Is each part of the diff essential for the job, or accidental machinery: unused options, wrappers, fields and modes, and leftover analogue design. Spec-match is not a defense. It runs on every change.",
+      "intent": "Is each part of the diff essential for the job, or accidental machinery: unused options, wrappers, fields and modes, and leftover analogue design. Spec-match is not a defense. It runs on every change, apart from the hunks that only move a dependency to another version (skipDependencyHunks): the Security critic reviews those.",
       "inputs": [
         "AGENTS.md",
         ".agents/skills/simplicity-audit/REVIEW-BRIEF.md",
@@ -68,6 +70,7 @@
         ".changeset/README.md"
       ],
       "notApplicable": [],
+      "skipDependencyHunks": true,
       "triggers": [
         "**"
       ],
