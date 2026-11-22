@@ -1,9 +1,10 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs"
-import { join } from "node:path"
+import { join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { parse as parseYaml } from "yaml"
 
+import { manifests } from "../ci/check-pins.mjs"
 import { logFile, logged } from "./log.mjs"
 import { uiBundledImports } from "./ui-bundled-imports.mjs"
 
@@ -230,15 +231,11 @@ const definitions = () => [
     ],
     [
       "pins",
-      // The folders that hold a package.json, and the allowlist. An ops
-      // package adds only its package.json, so its source changes do not
-      // select the check.
+      // The package.json files that the check reads, found by its own
+      // walk (so the listing runs check-pins.mjs: gate.mjs), and the
+      // allowlist.
       [
-        ...code,
-        "examples/**",
-        "shared/package.json",
-        "scripts/ci/claude-cli/package.json",
-        ...opsPackages().map((directory) => `${directory}/package.json`),
+        ...manifests(root).map((file) => relative(root, file)),
         "scripts/ci/pins.json",
       ],
       "Catches an exact version in a package.json dependency field that scripts/ci/pins.json does not name, and an allowlist entry whose file has no exact version of its package. Run it when a package.json or the allowlist changes; never for a change outside them.",

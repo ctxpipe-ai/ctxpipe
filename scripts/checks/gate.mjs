@@ -199,8 +199,8 @@ export function decideMode({ config, event, fork, changed, read, diff }) {
       /^\.github\/actions\//,
       /^\.github\/merge-gate\.json$/,
       /^scripts\/checks\/(?:schema\/[^/]+\.json|[^/]+\.(?:mjs|json))$/,
-      /^scripts\/ci\/(?:vitest-launch|test-suite|graph-ready|prerequisites|storybook-play)\.mjs$/,
-      /^scripts\/ci\/(?!(?:module-scope-values-baseline|page-story-exemptions|component-descriptions-allowlist|pins)\.json$)[^/]+\.json$/,
+      /^scripts\/ci\/(?:vitest-launch|test-suite|graph-ready|prerequisites|storybook-play|check-pins)\.mjs$/,
+      /^scripts\/ci\/(?!(?:module-scope-values-baseline|page-story-exemptions|component-descriptions-allowlist)\.json$)[^/]+\.json$/,
       /^\.npmrc$/,
       /^patches\//,
       // A committed package folder, or a link with that name: Node loads a
