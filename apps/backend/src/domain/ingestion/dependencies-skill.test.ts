@@ -733,6 +733,36 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
     expect(second.cursorAt).toBe(10)
   }, 120_000)
 
+  it("does not count the claim of an earlier ingest, for example to the old target of a changed call (CTX-1487)", async () => {
+    const own = front(
+      {
+        kind: "Service",
+        name: "Shop API",
+        generated_by: "ctxpipe-extract",
+        sources: [SOURCE_PATH],
+        claims: [
+          {
+            to: "old.md",
+            predicate: "DEPENDS_ON",
+            evidence: { path: "src/client.ts", kind: "model" },
+            confidence: 0.6,
+            valid_from: "2026-10-01T00:00:00.000Z",
+          },
+        ],
+      },
+      "# Shop API\n",
+    )
+    const s = await step(
+      { "src/client.ts": 'await fetch("http://new.internal/x")\n' },
+      { [OWN]: own, "knowledge/services/old.md": serviceFile("Old") },
+    )
+    expect(s.finder()).toEqual({ count: 1 })
+    // The old claim does not resolve the new call: the scan lists it.
+    expect(s.scan()).toMatchObject({ waiting: 1 })
+    s.apply([])
+    expect((await s.validate()).cursorAt).toBe(0)
+  })
+
   it("keeps the cursor below the end while the Service claims of the streams wait (CTX-1487)", async () => {
     // 34 Stream files fit in the 2 MiB of a step, but the Service file that
     // claims them does not fit after them.

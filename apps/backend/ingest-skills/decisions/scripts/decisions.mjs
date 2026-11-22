@@ -431,11 +431,14 @@ for (const path of Object.keys(readDeletes(step)))
   for (const path of stagedPaths(step)) {
     const size = statSync(stagedFile(step, path)).size
     if (size > STEP_LIMITS.fileBytes)
-      problem(path, "The file is larger than 64 KiB. Make it shorter")
+      problem(
+        path,
+        `The file is larger than ${STEP_LIMITS.fileBytes / 1024} KiB. Make it shorter`,
+      )
     else if (total + size > STEP_LIMITS.stagedBytes)
       problem(
         path,
-        "The staged tree is larger than 2 MiB. Remove this file from /ctxpipe/out/files: it waits for the next page. Then run ctxpipe-finish --more",
+        `The staged tree is larger than ${STEP_LIMITS.stagedBytes / 1024 / 1024} MiB. Remove this file from /ctxpipe/out/files: it waits for the next page. Then run ctxpipe-finish --more`,
       )
     else total += size
   }

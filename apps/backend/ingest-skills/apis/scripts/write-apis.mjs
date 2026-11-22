@@ -22,6 +22,7 @@ import { existsSync, readFileSync, statSync } from "node:fs"
 import {
   fileClaims,
   findExisting,
+  planText,
   relativeTo,
   stepArgs,
   writeStep,
@@ -31,6 +32,7 @@ import {
   blobContent,
   currentStep,
   fail,
+  STEP_LIMITS,
   stepTexts,
 } from "../../bin/stage-lib.mjs"
 import {
@@ -291,30 +293,47 @@ for (const api of resolved) {
         false)
 }
 
-const selected = resolved.filter((api) => api.pending)
+/** The plan of the API file of an API. */
+const apiPlan = (api) => ({
+  path: api.path,
+  expectName: api.exists ? undefined : api.name,
+  exactName: true,
+  create: {
+    kind: "API",
+    name: api.name,
+    summary: api.summary,
+    intro: api.summary,
+  },
+  related: [
+    apiLine,
+    ...new Set(api.operations.map((op) => specLine(op.evidence.path))),
+  ],
+  claims: api.operations.map((op) => ({
+    to: relativeTo(api.path, op.file),
+    predicate: "HAS_OPERATION",
+    evidence: op.evidence,
+  })),
+})
+
+// An API file that would be larger than the validator takes gets no file,
+// and its operations get none: no API file would link them (CTX-1487).
+const selected = resolved.filter((api) => {
+  if (!api.pending) return false
+  if (planText(step, apiPlan(api)).skip?.includes("larger than")) {
+    skip(
+      api.path,
+      `${api.name}: the API file would be larger than ${STEP_LIMITS.fileBytes / 1024} KiB. Split the API into smaller APIs, for example by path prefix`,
+    )
+    return false
+  }
+  return true
+})
 
 // --- plans for the shared writer ------------------------------------------------
 
 const plans = []
 for (const api of selected) {
-  const specs = [...new Set(api.operations.map((op) => op.evidence.path))]
-  plans.push({
-    path: api.path,
-    expectName: api.exists ? undefined : api.name,
-    exactName: true,
-    create: {
-      kind: "API",
-      name: api.name,
-      summary: api.summary,
-      intro: api.summary,
-    },
-    related: [apiLine, ...specs.map((path) => specLine(path))],
-    claims: api.operations.map((op) => ({
-      to: relativeTo(api.path, op.file),
-      predicate: "HAS_OPERATION",
-      evidence: op.evidence,
-    })),
-  })
+  plans.push(apiPlan(api))
   for (const op of api.operations)
     plans.push({
       path: op.file,

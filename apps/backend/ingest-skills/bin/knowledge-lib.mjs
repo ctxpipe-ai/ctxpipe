@@ -27,8 +27,6 @@ import {
   writePatch,
 } from "./stage-lib.mjs"
 
-const MAX_RELATED_LINES = 200
-
 /**
  * The one argument parser of the skill scripts (ADR-052 section 6): the host
  * inputs --source <checkout>, --source-url <url>, --source-path <path> (the
@@ -275,7 +273,7 @@ function claimYaml(claim, indent) {
 function newFile({ kind, name, summary, intro, claims, related }) {
   const yaml = [`kind: ${kind}`, `name: ${q(name)}`, `summary: ${q(summary)}`]
   if (claims.length) yaml.push("claims:", ...claims.map((c) => claimYaml(c, 2)))
-  const lines = related.slice(0, MAX_RELATED_LINES)
+  const lines = related
   return `---\n${yaml.join("\n")}\n---\n\n# ${name}\n\n${intro}\n\n## Related\n\n${lines.join("\n")}\n`
 }
 
@@ -443,8 +441,12 @@ function claimPredicate(raw) {
  * continues on the next line, a duplicate key, a tab as indent, an unusual
  * line end, or a `to` with a character that YAML and JS read as different
  * white space. It never infers a claim.
+ *
+ * `records`, when given, gets each claim as `{ to, predicate, evidence,
+ * dated }`: the `path` of its `evidence` mapping (or null), and true when it
+ * has the host field `valid_from` (CTX-1487).
  */
-export function existingClaims(yaml) {
+export function existingClaims(yaml, records) {
   if (/[\u0085\u2028\u2029]/.test(yaml)) return null
   const lines = yaml.split("\n").map((l) => l.replace(/\r$/, ""))
   if (lines.some((l) => l.includes("\r") || /^ *\t/.test(l))) return null
@@ -461,13 +463,22 @@ export function existingClaims(yaml) {
   let keyColumn = null
   let item = null
   const endItem = () => {
-    if (item?.to != null && item.predicate != null)
+    if (item?.to != null && item.predicate != null) {
       found.add(`${item.to} ${item.predicate}`)
+      records?.push({
+        to: item.to,
+        predicate: item.predicate,
+        evidence: item.evidence ?? null,
+        dated: item.dated === true,
+      })
+    }
     item = null
   }
   const read = (key, value, next) => {
+    item.inEvidence = key === "evidence"
     if (key !== "to" && key !== "predicate") {
       if (unreadableValue(value)) return false
+      if (key === "valid_from") item.dated = true
       return true
     }
     if (item[key] !== undefined) return false
@@ -520,7 +531,12 @@ export function existingClaims(yaml) {
       if (indent <= itemColumn) return null
       keyColumn = indent
     }
-    if (indent > keyColumn) continue
+    if (indent > keyColumn) {
+      // The `path` of the `evidence` mapping of the claim.
+      const path = item.inEvidence && /^ *path:(?:[ \t]+(.*))?$/.exec(text)
+      if (path) item.evidence = claimTarget(path[1] ?? "")
+      continue
+    }
     if (indent !== keyColumn) return null
     const key = /^ *([A-Za-z_][A-Za-z0-9_-]*):(?:[ \t]+(.*))?$/.exec(text)
     if (!key) return null
@@ -587,12 +603,11 @@ function mergeFile(text, { claims, related }) {
     const last = headings.at(-1)
     const endsInRelated =
       last?.[1] === "##" && /^related[ \t#]*$/i.test(last[2]?.trim() ?? "")
-    const room = MAX_RELATED_LINES - present.size
-    const lines = newLines.slice(0, Math.max(0, room)).join("\n")
-    if (lines)
-      nextBody = endsInRelated
-        ? `${kept}\n${lines}\n`
-        : `${kept}\n\n## Related\n\n${lines}\n`
+    // No count limit (CTX-1487): writeStep skips a file larger than 64 KiB.
+    const lines = newLines.join("\n")
+    nextBody = endsInRelated
+      ? `${kept}\n${lines}\n`
+      : `${kept}\n\n## Related\n\n${lines}\n`
   }
   return `${header}${nextBody}`
 }
@@ -695,54 +710,12 @@ export function writeStep(step, plans, skipped = [], options = {}) {
   }
   let at = sorted.length
   for (const [index, plan] of sorted.entries()) {
-    const claims = [
-      ...new Map(
-        plan.claims.map((c) => [`${c.to} ${c.predicate}`, c]),
-      ).values(),
-    ]
-    const related = [...new Set(plan.related)].sort()
-    const before = baseText(step, plan.path)
-    const name =
-      before === null ? null : frontValue(frontMatter(before) ?? "", "name")
-    if (
-      plan.expectName &&
-      before !== null &&
-      (plan.exactName
-        ? name?.toLowerCase() !== plan.expectName.toLowerCase()
-        : nameKey(name) !== nameKey(plan.expectName))
-    ) {
-      skipped.push({
-        path: plan.path,
-        reason: "A file with another name has this path",
-      })
-      continue
-    }
-    if (before === null && !plan.create) {
-      skipped.push({
-        path: plan.path,
-        reason: "The file is not in the context",
-      })
-      continue
-    }
-    const text =
-      before === null
-        ? newFile({ ...plan.create, claims, related })
-        : mergeFile(before, { claims, related })
-    if (typeof text !== "string") {
-      skipped.push({ path: plan.path, reason: text.skip })
+    const { text, before, skip } = planText(step, plan)
+    if (skip) {
+      skipped.push({ path: plan.path, reason: skip })
       continue
     }
     if (text === before) continue
-    // The validator refuses a file larger than 64 KiB in any step, so a next
-    // page cannot take it either.
-    if (Buffer.byteLength(text) > STEP_LIMITS.fileBytes) {
-      skipped.push({
-        path: plan.path,
-        reason:
-          "The file would be larger than 64 KiB, so the script does not write it",
-      })
-      continue
-    }
     const earlier = stagedBefore.get(plan.path)
     const grows = Buffer.byteLength(text) - (earlier ?? 0)
     const opSize = earlier === undefined ? opBytes(updateOf(plan.path)) : 0
@@ -774,11 +747,59 @@ export function writeStep(step, plans, skipped = [], options = {}) {
 }
 
 /**
+ * The text that writeStep writes for one plan: `{ text, before }`, with the
+ * text at the step base (null for a new file), or `{ skip }` with the reason
+ * when the script cannot write the file. The validator refuses a file larger
+ * than 64 KiB in any step, so a next page cannot take it either: that file
+ * is a skip too.
+ */
+export function planText(step, plan) {
+  const claims = [
+    ...new Map(plan.claims.map((c) => [`${c.to} ${c.predicate}`, c])).values(),
+  ]
+  const related = [...new Set(plan.related)].sort()
+  const before = baseText(step, plan.path)
+  const name =
+    before === null ? null : frontValue(frontMatter(before) ?? "", "name")
+  if (
+    plan.expectName &&
+    before !== null &&
+    (plan.exactName
+      ? name?.toLowerCase() !== plan.expectName.toLowerCase()
+      : nameKey(name) !== nameKey(plan.expectName))
+  )
+    return { skip: "A file with another name has this path" }
+  if (before === null && !plan.create)
+    return { skip: "The file is not in the context" }
+  const text =
+    before === null
+      ? newFile({ ...plan.create, claims, related })
+      : mergeFile(before, { claims, related })
+  if (typeof text !== "string") return { skip: text.skip }
+  if (text !== before && Buffer.byteLength(text) > STEP_LIMITS.fileBytes)
+    return {
+      skip: `The file would be larger than ${STEP_LIMITS.fileBytes / 1024} KiB, so the script does not write it`,
+    }
+  return { text, before }
+}
+
+/**
  * The claims of the text of a file, as `existingClaims` gives them: each
  * `<to> <predicate>`, or null when the front matter cannot be read.
  */
 export function fileClaims(text) {
   return existingClaims(frontMatter(text) ?? "")
+}
+
+/**
+ * Each claim of the text of a file, as `existingClaims` gives it in
+ * `records`, or null when the front matter cannot be read.
+ */
+export function fileClaimRecords(text) {
+  const records = []
+  return existingClaims(frontMatter(text) ?? "", records) === null
+    ? null
+    : records
 }
 
 /** Relative link from one context file to another. */

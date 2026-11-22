@@ -15,7 +15,7 @@ import { lstatSync, realpathSync } from "node:fs"
 import { dirname, join, posix, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { frontMatter, nameKey } from "../../bin/knowledge-lib.mjs"
+import { fileClaimRecords, nameKey } from "../../bin/knowledge-lib.mjs"
 import { stepTexts } from "../../bin/stage-lib.mjs"
 import {
   safePath,
@@ -441,46 +441,11 @@ export function scan({
 // --- the cursor (CTX-1487) ---------------------------------------------------
 
 /** The claims that a candidate can give in its step. */
-export function claimPredicates(candidate, repositoryStep) {
+function claimPredicates(candidate, repositoryStep) {
   if (!repositoryStep) return ["DEPENDS_ON", "CONSUMES_API"]
   if (candidate.direction === "produce") return ["PRODUCES_TO"]
   if (candidate.direction === "consume") return ["CONSUMES_FROM"]
   return ["PRODUCES_TO", "CONSUMES_FROM"]
-}
-
-/** Each claim in the front matter of `text`: `{ to, predicate, path }`, with the evidence path. */
-function evidenceClaims(text) {
-  const found = []
-  const lines = (frontMatter(text) ?? "").split("\n")
-  const at = lines.findIndex((line) => /^claims:/.test(line))
-  if (at === -1) return found
-  const unquote = (raw) => {
-    if (!raw.startsWith('"')) return raw.replace(/^'(.*)'$/, "$1")
-    try {
-      return JSON.parse(raw)
-    } catch {
-      return raw
-    }
-  }
-  let column = null
-  let item = null
-  const end = () => {
-    if (item?.to && item.predicate && item.path) found.push(item)
-  }
-  for (const line of lines.slice(at + 1)) {
-    if (/^\S/.test(line)) break
-    const dash = /^( *)- /.exec(line)
-    if (dash && (column === null || dash[1].length === column)) {
-      end()
-      column = dash[1].length
-      item = {}
-    }
-    // In a claim, only the evidence has a `path`.
-    const pair = /^[ -]*(to|predicate|path):[ \t]*(.*?)[ \t]*$/.exec(line)
-    if (item && pair) item[pair[1]] ??= unquote(pair[2])
-  }
-  end()
-  return found
 }
 
 /**
@@ -490,10 +455,14 @@ function evidenceClaims(text) {
  * predicate) on each Service file, with the file of the candidate as
  * evidence. So the distinct claims of a file that each Service file has,
  * and that the candidates of the file can give (`claimPredicates`), are a
- * lower bound of the resolved candidates of the file: `resolved`. Two
- * candidates with one target leave one claim, so the bound can be low but
- * not high. No file holds the candidate id, so the bound does not say which
- * candidates of the file are resolved.
+ * lower bound of the resolved candidates of the file: `resolved`. Only a
+ * claim of this run counts: a claim with no `valid_from`. The hydrate job
+ * sets `valid_from` on each published claim, and the validator copies it
+ * only from a base claim with the same target and predicate, so the claim
+ * of an earlier ingest (also an old target of a changed call) does not
+ * count. Two candidates with one target leave one claim, so the bound can
+ * be low but not high. No file holds the candidate id, so the bound does
+ * not say which candidates of the file are resolved.
  */
 export function claimGroups(step, root, candidates, repositoryStep) {
   const byFile = new Map()
@@ -504,7 +473,9 @@ export function claimGroups(step, root, candidates, repositoryStep) {
     step,
     services.map((f) => f.path),
   )
-  const claims = services.map((f) => evidenceClaims(texts.get(f.path) ?? ""))
+  const claims = services.map(
+    (f) => fileClaimRecords(texts.get(f.path) ?? "") ?? [],
+  )
   return [...byFile].map(([file, members]) => {
     const predicates = new Set(
       members.flatMap((c) => claimPredicates(c, repositoryStep)),
@@ -513,7 +484,10 @@ export function claimGroups(step, root, candidates, repositoryStep) {
       (list) =>
         new Set(
           list
-            .filter((c) => c.path === file && predicates.has(c.predicate))
+            .filter(
+              (c) =>
+                !c.dated && c.evidence === file && predicates.has(c.predicate),
+            )
             .map((c) => `${c.to} ${c.predicate}`),
         ).size,
     )

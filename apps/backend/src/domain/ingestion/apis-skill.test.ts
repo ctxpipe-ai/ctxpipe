@@ -491,6 +491,21 @@ describe("find-apis", () => {
       /symbolic link|not in the checkout/,
     )
   })
+
+  it("lists 4000 operations of one specification with no count limit, and ends the list at its size limit (CTX-1487)", async () => {
+    const paths: Record<string, object> = {}
+    for (let i = 0; i < 4000; i++) paths[`/items/${i}`] = { get: {} }
+    const s = await fixture({
+      "apps/big/openapi.json": JSON.stringify({ openapi: "3.0.0", paths }),
+    })
+    expect(s.find("apps/big", "--count")).toEqual({ count: 4000 })
+    const out = s.find("apps/big")
+    expect(out).toMatchObject({ done: 0, waiting: 4000, more: true })
+    const listed = out.specs[0]?.operations.length ?? 0
+    expect(listed).toBeGreaterThan(1000)
+    expect(listed).toBeLessThan(4000)
+    expect(out.skipped).toEqual([])
+  })
 })
 
 const SERVICE = front(
@@ -854,21 +869,6 @@ describe("write-apis", () => {
     )
   })
 
-  it("lists 4000 operations of one specification with no count limit, and ends the list at its size limit (CTX-1487)", async () => {
-    const paths: Record<string, object> = {}
-    for (let i = 0; i < 4000; i++) paths[`/items/${i}`] = { get: {} }
-    const s = await fixture({
-      "apps/big/openapi.json": JSON.stringify({ openapi: "3.0.0", paths }),
-    })
-    expect(s.find("apps/big", "--count")).toEqual({ count: 4000 })
-    const out = s.find("apps/big")
-    expect(out).toMatchObject({ done: 0, waiting: 4000, more: true })
-    const listed = out.specs[0]?.operations.length ?? 0
-    expect(listed).toBeGreaterThan(1000)
-    expect(listed).toBeLessThan(4000)
-    expect(out.skipped).toEqual([])
-  })
-
   it("writes a plan of 45 operations on one page, with no file count (CTX-1482)", async () => {
     const paths: Record<string, object> = {}
     for (let i = 0; i < 45; i++) paths[`/items/${i}`] = { get: {} }
@@ -1001,7 +1001,7 @@ describe("write-apis", () => {
     ).toHaveLength(35)
   })
 
-  it("does not write an API file that would be larger than 64 KiB, and says so (CTX-1487)", async () => {
+  it("writes no file for an API whose file would be larger than 64 KiB, and asks for smaller APIs (CTX-1487)", async () => {
     const paths: Record<string, object> = {}
     for (let i = 0; i < 600; i++) paths[`/items/${i}`] = { get: {} }
     const s = await fixture({
@@ -1022,11 +1022,10 @@ describe("write-apis", () => {
     expect(out.skipped).toContainEqual({
       path: "knowledge/apis/items-api.md",
       reason:
-        "The file would be larger than 64 KiB, so the script does not write it",
+        "Items API: the API file would be larger than 64 KiB. Split the API into smaller APIs, for example by path prefix",
     })
-    expect(out.ops.map((op) => op.path)).not.toContain(
-      "knowledge/apis/items-api.md",
-    )
+    // No Operation file either: no API file would link it.
+    expect(out.ops).toEqual([])
     // No operation is done: no API file links it.
     expect((await s.validate()).cursorAt).toBe(0)
   })
