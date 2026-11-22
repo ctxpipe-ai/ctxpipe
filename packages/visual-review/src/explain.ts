@@ -12,15 +12,16 @@ import { createHash } from "node:crypto"
 import { readFile, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 
-import { decode, encode } from "@blazediff/codec-png-native"
+import { decode, encode, type Image } from "@blazediff/codec-png-native"
 import { z } from "zod"
 
 import { askOpenRouter, judgeNewWithOpenRouter } from "./adapters/openrouter.ts"
+import type { PixelBox } from "./compare/diff.ts"
 import { maxSide, pngSize, prepareImage } from "./prepare.ts"
 import { judgingRule, scopeLine, storyData, type Prompt } from "./prompt.ts"
 import { isRedesign } from "./review.ts"
 import type { RubricEntry } from "./rubric.ts"
-import type { NewStoryInput, StoryImage, StoryInput } from "./story.ts"
+import type { Box, NewStoryInput, StoryImage, StoryInput } from "./story.ts"
 import { parseJsonReply, type Verdict } from "./verdict.ts"
 
 /**
@@ -275,18 +276,100 @@ ${brief ? brief.replace(/<\/data/gi, "<\\/data") : "(none)"}
 }
 
 /**
+ * The largest changed region of a changed screenshot that is a redesign
+ * (`isRedesign`) and not a block that only moved, in fractions of the image,
+ * or undefined when it has none (CTX-1509, ADR-063 rule 20). A scroll or a
+ * layout shift moves text by a few pixels and changes each pixel of its
+ * region, so the size of a region does not tell a move from a redesign. A
+ * region only moved when its head pixels are in the base image at an offset
+ * of up to 160 px on one axis, with a mean difference of at most 1 of 255
+ * for each channel. An empty area that a removal leaves is such a region too.
+ */
+export async function redesignedRegion(
+  story: StoryInput,
+): Promise<Box | undefined> {
+  const read = async (role: StoryImage["role"]) => {
+    const path = story.images.find((image) => image.role === role)?.path
+    return path ? decode(await readFile(path)) : undefined
+  }
+  const before = await read("before")
+  const after = await read("after")
+  if (
+    !before ||
+    !after ||
+    before.width !== after.width ||
+    before.height !== after.height
+  )
+    return undefined
+  return story.regions
+    .map(({ box, changeType }) => ({
+      box,
+      change: changeType ?? "unlabeled",
+      pixels: {
+        x: Math.round(box.x * after.width),
+        y: Math.round(box.y * after.height),
+        width: Math.round(box.width * after.width),
+        height: Math.round(box.height * after.height),
+      },
+    }))
+    .filter(({ change, pixels }) => isRedesign({ change, ...pixels }))
+    .sort((a, b) => b.box.width * b.box.height - a.box.width * a.box.height)
+    .find(({ pixels }) => !moved(before, after, pixels))?.box
+}
+
+/**
+ * True when the `after` pixels of `box` are in `before` at an offset of up to
+ * 160 px on one axis, with a mean difference of at most 1 of 255 for each
+ * channel. It compares every second pixel of every second row, and the
+ * nearest offsets first.
+ */
+function moved(before: Image, after: Image, box: PixelBox): boolean {
+  const samples = Math.ceil(box.width / 2) * Math.ceil(box.height / 2)
+  const most = 1 * 3 * samples
+  for (let distance = 1; distance <= 160; distance++)
+    for (const [dx, dy] of [
+      [0, distance],
+      [0, -distance],
+      [distance, 0],
+      [-distance, 0],
+    ] as const) {
+      if (
+        box.x + dx < 0 ||
+        box.y + dy < 0 ||
+        box.x + dx + box.width > before.width ||
+        box.y + dy + box.height > before.height
+      )
+        continue
+      let sum = 0
+      for (let y = 0; y < box.height && sum <= most; y += 2)
+        for (let x = 0; x < box.width; x += 2) {
+          const to = ((box.y + y) * after.width + box.x + x) * 4
+          const from = ((box.y + dy + y) * before.width + box.x + dx + x) * 4
+          for (let channel = 0; channel < 3; channel++)
+            sum += Math.abs(
+              (after.data[to + channel] ?? 0) -
+                (before.data[from + channel] ?? 0),
+            )
+        }
+      if (sum <= most) return true
+    }
+  return false
+}
+
+/**
  * The input of the design review of a changed screenshot in its context
- * (CTX-1509, ADR-063 rule 20): the head image, and a close-up of the largest
- * redesigned region and the elements next to it, written into the private
- * folder `dir`. The review judges the redesigned area as new UI, not against
- * the base image. On the full head image, a small control is a few pixels, so
- * the close-up shows its alignment and spacing. The changed regions are in
- * fractions of the head image that the model gets: `prepareImage` pads a
- * short image at the bottom and the right. Undefined when the story has no
- * full head image that is a PNG, or no changed region.
+ * (CTX-1509, ADR-063 rule 20): the head image, and a close-up of the
+ * redesigned region `shown` (see `redesignedRegion`) and the elements next to
+ * it, written into the private folder `dir`. The review judges the
+ * redesigned area as new UI, not against the base image. On the full head
+ * image, a small control is a few pixels, so the close-up shows its alignment
+ * and spacing. The changed regions are in fractions of the head image that
+ * the model gets: `prepareImage` pads a short image at the bottom and the
+ * right. Undefined when the story has no full head image that is a PNG.
  */
 export async function inContext(
   story: StoryInput,
+  shown: Box,
   dir: string,
 ): Promise<NewStoryInput | undefined> {
   const path = story.images.find(({ role }) => role === "after")?.path
@@ -295,29 +378,20 @@ export async function inContext(
   const regions = story.regions
     .filter(({ changeType }) => changeType !== "rendering-noise")
     .map(({ box }) => box)
-  if (!path || !bytes || !size || !regions.length) return undefined
+  if (!path || !bytes || !size) return undefined
   const { content } = prepareImage(bytes)
-  // The close-up: the largest redesigned region with 64 px more on each side,
-  // at twice the size, or less when a side would pass the side limit of the
-  // models. A small change far from it does not make the close-up larger.
-  const pixels = story.regions
-    .map(({ box, changeType }) => ({
-      change: changeType ?? "unlabeled",
-      x: box.x * size.width,
-      y: box.y * size.height,
-      width: box.width * size.width,
-      height: box.height * size.height,
-    }))
-    .sort((a, b) => b.width * b.height - a.width * a.height)
-  const shown = pixels.find(isRedesign) ?? pixels[0]
-  if (!shown) return undefined
+  // The close-up: the region with 64 px more on each side, at twice the
+  // size, or less when a side would pass the side limit of the models.
   const margin = 64
-  const left = Math.max(0, Math.floor(shown.x) - margin)
-  const top = Math.max(0, Math.floor(shown.y) - margin)
-  const right = Math.min(size.width, Math.ceil(shown.x + shown.width) + margin)
+  const left = Math.max(0, Math.floor(shown.x * size.width) - margin)
+  const top = Math.max(0, Math.floor(shown.y * size.height) - margin)
+  const right = Math.min(
+    size.width,
+    Math.ceil((shown.x + shown.width) * size.width) + margin,
+  )
   const bottom = Math.min(
     size.height,
-    Math.ceil(shown.y + shown.height) + margin,
+    Math.ceil((shown.y + shown.height) * size.height) + margin,
   )
   const zoom = Math.max(
     1,

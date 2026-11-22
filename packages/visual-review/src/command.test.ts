@@ -2168,6 +2168,37 @@ export const Primary = { render: () => null }
           )
         })
 
+        test("a block that only moved gets no design review: its head pixels are in the base image at an offset", async () => {
+          serveJev(jevSame)
+          // A striped block, like lines of text: a move of 1 px changes
+          // each of its pixels, so the changed region is the whole block.
+          const block = (y: number) =>
+            screenshot(
+              400,
+              300,
+              Array.from({ length: 15 }, (_, line) => ({
+                box: { x: 100, y: y + 4 * line, width: 200, height: 2 },
+                color: [20, 20, 20] as const,
+              })),
+            )
+          await put("base", card, block(60))
+          await put("head", card, block(61))
+
+          expect(
+            await run(
+              "--json",
+              "--judge",
+              "jev",
+              "--images",
+              images,
+              "--",
+              card,
+            ),
+          ).toBe(0)
+
+          expect(chats).toHaveLength(0)
+        })
+
         test("a color change gets no design review", async () => {
           serveJev(jevSame)
           await put("base", button, before)
