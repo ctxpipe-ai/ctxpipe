@@ -1,9 +1,11 @@
+import { execFileSync } from "node:child_process"
 import { randomBytes } from "node:crypto"
 import { readdirSync, readFileSync, statSync } from "node:fs"
 import { join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { chat } from "@tanstack/ai"
+import { initLogger } from "evlog"
 import { HttpResponse, http } from "msw"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { z } from "zod"
@@ -336,6 +338,71 @@ describe("scrubForModel", () => {
     ).toBe("\ufffd [REDACTED:betterleaks.github-pat]")
     // The scrubber still answers.
     expect(await scrubForModel("ok")).toBe("ok")
+  })
+
+  it("scrubs a text with U+2028 and U+2029, and the requests in flight with it get their answers (CTX-1504)", async () => {
+    // A GitHub issue body of about 11 KB with the line separator and the
+    // paragraph separator, as a hydrate unit: the scrubber writes these
+    // characters as they are, inside its answer line.
+    const secret = secretOf("betterleaks.github-pat")
+    const body = `${"Steps to reproduce.\u2028See the log.\u2029\n".repeat(
+      300,
+    )}token ${secret}\u2028end`
+    const answers = await Promise.all([
+      scrubForModel({ title: "Issue\u2029title", body }),
+      ...Array.from({ length: 7 }, (_, at) => scrubForModel(`other ${at}`)),
+    ])
+    expect(answers[0]).toEqual({
+      title: "Issue\u2029title",
+      body: body.replace(secret, "[REDACTED:betterleaks.github-pat]"),
+    })
+    expect(answers.slice(1)).toEqual(
+      Array.from({ length: 7 }, (_, at) => `other ${at}`),
+    )
+  })
+
+  it("logs a stop of the scrubber, fails each request in flight, and starts a new scrubber for the next call", async () => {
+    const events: Record<string, unknown>[] = []
+    initLogger({
+      env: { service: "ctxpipe-backend-test" },
+      pretty: false,
+      drain: (ctx) => {
+        events.push(ctx.event as Record<string, unknown>)
+      },
+    })
+    try {
+      await scrubForModel("warm")
+      // The scrubber of this test file (each file has its own process). The
+      // kill and the request come in the same tick, so the request is in
+      // flight when the process stops.
+      const pid = Number(
+        execFileSync("pgrep", [
+          "-P",
+          String(process.pid),
+          "-f",
+          "--",
+          "--scrub",
+        ])
+          .toString()
+          .trim(),
+      )
+      process.kill(pid, "SIGKILL")
+      const inFlight = scrubForModel("in flight")
+      await expect(inFlight).rejects.toThrow(
+        /The secret scrubber stopped \(SIGKILL\)/,
+      )
+      await expect
+        .poll(() => events)
+        .toContainEqual(
+          expect.objectContaining({
+            step: "secret-scrubber.stopped",
+            inFlight: 1,
+          }),
+        )
+      expect(await scrubForModel("ok")).toBe("ok")
+    } finally {
+      initLogger({ enabled: false, env: { service: "ctxpipe-backend-test" } })
+    }
   })
 
   it("gives the same output for the same input, alone or in a batch", async () => {
