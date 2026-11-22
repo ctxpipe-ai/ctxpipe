@@ -21,6 +21,20 @@ const replySchema = z.object({
 export class OutOfSchemaError extends Error {}
 
 /**
+ * Why the eval tools cannot call a model with `env`, or null when they can:
+ * the text goes only to the OpenRouter endpoint that the operator chose.
+ */
+export function modelProviderProblem(
+  env: Record<string, string | undefined>,
+): string | null {
+  const provider = env.MODEL_PROVIDER || "openai-like"
+  return ["openrouter", "openai-like"].includes(provider) &&
+    env.MODEL_PROVIDER_API_KEY
+    ? null
+    : "The eval tools need MODEL_PROVIDER openrouter or openai-like, and MODEL_PROVIDER_API_KEY (the OpenRouter key)."
+}
+
+/**
  * One chat call of the eval tools (the drafter and the judge panel) through
  * the OpenRouter chat API, with a JSON answer of `schema`. As the Jev client
  * does, the text goes only to the OpenRouter endpoint that the operator
@@ -34,12 +48,9 @@ export async function askJson<T>(input: {
   name: string
   env: Record<string, string | undefined>
 }): Promise<T> {
-  const provider = input.env.MODEL_PROVIDER || "openai-like"
+  const problem = modelProviderProblem(input.env)
+  if (problem) throw new Error(problem)
   const apiKey = input.env.MODEL_PROVIDER_API_KEY
-  if (!["openrouter", "openai-like"].includes(provider) || !apiKey)
-    throw new Error(
-      "The eval tools need MODEL_PROVIDER openrouter or openai-like, and MODEL_PROVIDER_API_KEY (the OpenRouter key).",
-    )
   const base = (
     input.env.MODEL_PROVIDER_URL || DEFAULT_OPENROUTER_BASE
   ).replace(/\/+$/, "")

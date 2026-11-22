@@ -18,17 +18,20 @@ import { type CorpusDocument, termIndex } from "./documents.js"
  *
  * The questions are hard by construction (the CTO, 2026-11-22): most need
  * more than one document, the gold of a traversal holds documents that are
- * not neighbours of the seeds, and no question reuses the distinctive
+ * not neighbors of the seeds, and no question reuses the distinctive
  * terms of its gold. A keyword search over the question text must not find
  * a gold document in its top 5.
  */
 
-type Category = (typeof CATEGORIES)[number]
+/**
+ * The categories that the drafter drafts. The context repos hold no image
+ * (CTX-1499), so v0 has no image question.
+ */
+type Category = Exclude<(typeof CATEGORIES)[number], "image">
 
 /**
  * The questions of each category for one Workspace. One-document lookups
- * are a small part. The context repos hold no image (CTX-1499), so v0 has
- * no image question.
+ * are a small part.
  */
 export const QUOTAS: Record<Category, number> = {
   lookup: 4,
@@ -36,7 +39,6 @@ export const QUOTAS: Record<Category, number> = {
   "cross-source": 10,
   time: 8,
   disagreement: 10,
-  image: 0,
   "no-answer": 6,
 }
 
@@ -151,25 +153,32 @@ export function pickSources(
     ]),
   )
 
-  // The links in both directions, between usable documents.
-  const neighbours = new Map<string, Set<string>>()
-  const link = (from: string, to: string) =>
-    neighbours.set(from, (neighbours.get(from) ?? new Set()).add(to))
+  // The links in both directions, between usable documents: all of them,
+  // and the edges that the stacks follow (no short issue reference).
+  const neighbors = new Map<string, Set<string>>()
+  const edges = new Map<string, Set<string>>()
+  const link = (map: typeof neighbors, from: string, to: string) =>
+    map.set(from, (map.get(from) ?? new Set()).add(to))
   for (const document of candidates)
-    for (const { to } of document.links) {
+    for (const { to, via } of document.links) {
       const other = byPath.get(to)
       if (!other || !usable(other)) continue
-      link(document.path, to)
-      link(to, document.path)
+      link(neighbors, document.path, to)
+      link(neighbors, to, document.path)
+      if (via === "short-reference") continue
+      link(edges, document.path, to)
+      link(edges, to, document.path)
     }
-  const around = (path: string) => [...(neighbours.get(path) ?? [])].sort()
+  const around = (path: string, map = neighbors) =>
+    [...(map.get(path) ?? [])].sort()
 
-  // A chain of two hops, s → a → b, where b is not a neighbour of s: the
+  // A chain of two hops on the edges that the stacks follow, s → a → b,
+  // where b is no neighbor of s (also not by a short reference): the
   // traversal from the seed s must go through a to reach b.
   const chains = shuffle(candidates, next).flatMap((start) => {
     const near = new Set(around(start.path))
-    for (const middle of shuffle(around(start.path), next)) {
-      const end = shuffle(around(middle), next).find(
+    for (const middle of shuffle(around(start.path, edges), next)) {
+      const end = shuffle(around(middle, edges), next).find(
         (path) => path !== start.path && !near.has(path),
       )
       const a = byPath.get(middle)
@@ -191,7 +200,7 @@ export function pickSources(
   // part: its title as a whole term. The knowledge of the code is often
   // short (the place of a crate), so it needs no length here. Issues have
   // no links to knowledge documents, so the knowledge document is never a
-  // neighbour of the issue. Each issue is in one pair only.
+  // neighbor of the issue. Each issue is in one pair only.
   const issues = candidates.filter(isIssue)
   const paired = new Set<string>()
   const crossSource = shuffle(
@@ -318,7 +327,6 @@ const CATEGORY_RULES: Record<Category, string> = {
   time: "Write a question whose answer depends on a date or a time order in the text: for example the state of something at a given date, the release in which something changed, or what happened first. Use only dates that the text states. Set validAt to the time of the question (ISO 8601 with an offset, for example 2024-03-01T00:00:00Z): a date of the text, and name its year in the question. One key fact states the date or the release (for example 2024-03 or v1.30) of the answer, as the text gives it.",
   disagreement:
     "The documents disagree about one subject: one position replaces, postpones, withdraws or limits another. Write a question about the subject (not about the disagreement), and give at least two positions. Each position holds the gold documents that state it, and its status: `current` (true now), `superseded` (a later or more authoritative document replaces it), `disputed` (another document contradicts it and the evidence does not decide), or `scoped` (true only for a part of the question). If the documents do not disagree, set usable to false.",
-  image: "",
   "no-answer":
     "Write a plausible question for a developer of this codebase about a feature, a file, or a decision that is not in the corpus. The source document is the overview of a codebase, and the list of titles shows what the corpus holds. The question must not be answerable from the corpus. Set gold and keyFacts to empty lists.",
 }
@@ -469,7 +477,8 @@ export function finalizeQuestions(questions: readonly Question[]): Question[] {
   return questions.flatMap((question) => {
     const key = `${question.corpus}\n${question.category}`
     const index = seen.get(key) ?? 0
-    if (index >= QUOTAS[question.category]) return []
+    const quota = question.category === "image" ? 0 : QUOTAS[question.category]
+    if (index >= quota) return []
     seen.set(key, index + 1)
     return [
       {

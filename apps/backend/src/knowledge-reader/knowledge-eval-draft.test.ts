@@ -79,7 +79,7 @@ labels: [stage/alpha]
 
 # Old queue order
 
-${filler("old order")} This proposal is superseded by #2.
+${filler("old order")} This proposal is superseded by https://github.com/kubernetes/enhancements/issues/2.
 
 ## Comments
 
@@ -118,7 +118,7 @@ labels: []
 
 # The scheduler takes the newest job first
 
-${filler("scheduler queue")} See kubernetes/enhancements#2.`,
+${filler("scheduler queue")} See https://github.com/kubernetes/enhancements/issues/2.`,
 }
 
 const paths = new Set(Object.keys(files))
@@ -153,6 +153,16 @@ describe("the documents of a corpus", () => {
     ])
     expect(old?.issue?.closedAt).toBe("2024-01-01T00:00:00Z")
     expect(old?.comments).toEqual(["a-reviewer", "k8s-ci-robot"])
+    // A short issue reference is a link that the stacks do not follow.
+    expect(
+      documents.find((document) => document.path.endsWith("enhancements/2.md"))
+        ?.links,
+    ).toEqual([
+      {
+        to: "github/issues/kubernetes/enhancements/1.md",
+        via: "short-reference",
+      },
+    ])
     // A relative Markdown link is an edge, as in the stacks.
     expect(
       documents.find((document) => document.path.endsWith("queue.md"))?.links,
@@ -212,7 +222,7 @@ describe("the picks", () => {
     // No overview of a codebase: it is too wide for a question.
     expect(of("lookup").flat()).not.toContain("knowledge/codebases/demo.md")
     expect(of("lookup")).toHaveLength(5)
-    // Chains of two hops whose end is not a neighbour of the start. The
+    // Chains of two hops whose end is not a neighbor of the start. The
     // pair scheduler → queue has no second hop.
     expect(of("multi-hop").sort()).toEqual([
       [

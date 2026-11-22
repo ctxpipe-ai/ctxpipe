@@ -33,7 +33,8 @@ export type CorpusDocument = {
   /**
    * The documents of the corpus that this document links to: each edge that
    * the stacks can make (a claim, a relative Markdown link, a GitHub URL),
-   * and also each short issue reference (`#123`).
+   * and also each short issue reference (`#123`, via `short-reference`),
+   * which the stacks do not follow.
    */
   links: { to: string; via: string }[]
   /** The fields of a mirrored issue that the drafter reads. */
@@ -115,7 +116,10 @@ export function parseDocument(
       /(?:^|[\s(])([\w.-]+\/[\w.-]+)?#(\d+)\b/g,
     ))
       if (number)
-        add(issuePath(repository ?? front.repository, number), "reference")
+        add(
+          issuePath(repository ?? front.repository, number),
+          "short-reference",
+        )
   // The mirror writes each comment under `### <time> · <handle>`.
   const comments = [...body.matchAll(/^### \S+ · (\S+)\s*$/gm)].flatMap(
     ([, handle]) => (handle ? [handle] : []),

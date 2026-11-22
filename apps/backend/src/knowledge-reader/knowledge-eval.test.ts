@@ -821,14 +821,23 @@ describe("the judge panel", () => {
     const labeled = await labelWithPanel({
       draft: {
         ...draft,
-        questions: [noAnswer("absent"), noAnswer("present")],
+        questions: [
+          noAnswer("absent"),
+          noAnswer("present"),
+          noAnswer("nowhere"),
+        ],
       },
       models: Object.keys(replies),
       read: async (_corpus, ref) => `The text of ${ref}.`,
       // One model of three says that lonely.md answers; two say that
       // new.md answers.
+      // No document is near the "nowhere" question.
       nearest: async (_corpus, text) =>
-        text.includes("absent") ? ["lonely.md"] : ["lonely.md", "new.md"],
+        text.includes("absent")
+          ? ["lonely.md"]
+          : text.includes("nowhere")
+            ? []
+            : ["lonely.md", "new.md"],
       env,
       stopped: () => false,
     })
@@ -838,6 +847,10 @@ describe("the judge panel", () => {
     ])
     expect(labeled.dropped).toEqual([
       { question: "present", reason: "the corpus answers it: new.md" },
+      {
+        question: "nowhere",
+        reason: "no nearest document for the panel to judge",
+      },
     ])
   })
 

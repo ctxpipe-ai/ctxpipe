@@ -41,6 +41,7 @@ import { ORCHESTRATOR_DEFAULTS } from "../../src/knowledge-reader/orchestrator.j
 import { initEvlog } from "../../src/observability/logger.js"
 import { closeGraphDb } from "../../src/platform/graph/client.js"
 import { DEFAULT_OPENROUTER_BASE } from "../../src/retrieval/services/openRouterProvider.js"
+import { modelProviderProblem } from "./chat.js"
 import {
   freezeCorpora,
   importCorpusIssues,
@@ -328,15 +329,8 @@ async function draft(values: {
   capUsd: number
 }): Promise<number> {
   const { dataset, repo, model } = values
-  if (
-    !process.env.MODEL_PROVIDER_API_KEY ||
-    !["openrouter", "openai-like"].includes(
-      process.env.MODEL_PROVIDER || "openai-like",
-    )
-  )
-    throw new SetupError(
-      "draft needs MODEL_PROVIDER openrouter or openai-like, and MODEL_PROVIDER_API_KEY (the OpenRouter key).",
-    )
+  const problem = modelProviderProblem(process.env)
+  if (problem) throw new SetupError(problem)
   const scale = Number(values.scale ?? 1)
   if (!(scale > 0 && scale <= 1))
     throw new SetupError("--scale needs a number above 0 and at most 1.")

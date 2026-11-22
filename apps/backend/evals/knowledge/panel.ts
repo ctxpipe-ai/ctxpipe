@@ -235,7 +235,13 @@ export async function labelWithPanel(input: {
     }
     if (noAnswer) {
       const answered = labeled.filter((vote) => vote.answers)
-      if (answered.length > 0)
+      // With no nearest document, the panel has no evidence to judge.
+      if (refs.length === 0)
+        dropped.push({
+          question: question.id,
+          reason: "no nearest document for the panel to judge",
+        })
+      else if (answered.length > 0)
         dropped.push({
           question: question.id,
           reason: `the corpus answers it: ${answered.map((vote) => vote.ref).join(", ")}`,
