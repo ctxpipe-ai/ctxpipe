@@ -119,7 +119,8 @@ const usage = `Usage: pnpm visual:review [--manifest <path>] [--judge model|jev|
               Decisions API, with the same key: the verdict of Jev is the
               final verdict, also for a new screenshot. A Jev regression has
               severity major when a flagged area or quality has a
-              probability of 0.8 or more (a should-fix in the factory), else
+              probability of 0.8 or more on a new screenshot, or 0.99 or
+              more on a changed one (a should-fix in the factory), else
               minor (a nit). After each Jev regression on a change, the
               explainer ${explainerModel} writes the evidence and a fix into
               the summary, or says that it sees no visible defect. It never
