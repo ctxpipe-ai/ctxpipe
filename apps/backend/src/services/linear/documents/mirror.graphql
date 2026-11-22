@@ -95,6 +95,8 @@ fragment LinearIssueCore on Issue {
   priorityLabel
   createdAt
   updatedAt
+  completedAt
+  canceledAt
   state {
     name
   }

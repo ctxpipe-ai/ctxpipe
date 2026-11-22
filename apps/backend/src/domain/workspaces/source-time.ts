@@ -48,17 +48,37 @@ export function sourceTime(file: {
 }
 
 /**
- * The pull requests that closed a GitHub issue mirror file (`closedBy`),
- * with the time of the close, or null. Both stacks link the issue to each
- * of them from that time (CTX-1516).
+ * The pull requests that closed an issue mirror file, with the time of the
+ * close, or null. Both stacks link the issue to each of them from that time
+ * (CTX-1516).
+ *
+ * - A GitHub issue: its `closedBy`, from its `closedAt`.
+ * - A Linear issue: the merged GitHub pull requests of its
+ *   `githubReferences`, from its `completedAt`, else its `canceledAt`
+ *   (CTX-1526). GitHub also gives `closedAt` for an issue that closed as not
+ *   planned.
  */
 export function closingPullRequests(
   attributes: Record<string, unknown>,
 ): { urls: string[]; closedAt: string } | null {
   const closedAt = timeOf(attributes.closedAt)
-  return closedAt
-    ? { urls: asStringArray(attributes.closedBy), closedAt }
-    : null
+  if (closedAt) return { urls: asStringArray(attributes.closedBy), closedAt }
+  if (attributes.source !== "linear" || attributes.type !== "issue") return null
+  const endedAt =
+    timeOf(attributes.completedAt) ?? timeOf(attributes.canceledAt)
+  if (!endedAt) return null
+  const references = Array.isArray(attributes.githubReferences)
+    ? (attributes.githubReferences as unknown[])
+    : []
+  const urls = references.flatMap((reference) => {
+    const { kind, state, url } = (reference ?? {}) as Record<string, unknown>
+    return kind === "pull_request" &&
+      state === "merged" &&
+      typeof url === "string"
+      ? [url]
+      : []
+  })
+  return { urls, closedAt: endedAt }
 }
 
 /**

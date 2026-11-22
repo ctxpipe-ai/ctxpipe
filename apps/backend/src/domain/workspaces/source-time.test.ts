@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { shopIssue } from "../../test/github-issue.js"
+import { linearIssueFile } from "../../test/linear-issue.js"
 import { validFromPersistFiles } from "./hydrate-write-jobs.js"
 import {
   applyEffectiveValidFromToUnits,
@@ -218,6 +219,35 @@ describe("the old stack links an issue to the pull request that closed it from t
       from: issue.path,
       to: pull.path,
       validFrom: "2020-06-01T00:00:00.000Z",
+    })
+  })
+
+  it("links a done Linear issue to each mirrored merged pull request of its attachments from the time it was completed (CTX-1526)", () => {
+    const issue = linearIssueFile({
+      identifier: "ENG-4",
+      completedAt: "2026-03-10T12:00:00Z",
+      pulls: [{ url: "https://github.com/acme/shop/pull/9", state: "merged" }],
+    })
+    const pull = {
+      path: "github/pulls/acme/shop/9--9.md",
+      content:
+        "---\nsource: github\ntype: pull_request\nnumber: 9\nrepository: acme/shop\nurl: https://github.com/acme/shop/pull/9\ncreatedAt: 2026-03-01T00:00:00Z\n---\n# Fix the timeout\n",
+    }
+    const { units } = hydrateKnowledgeTree({
+      workspaceId: "ws_source_time",
+      files: [issue, pull],
+    })
+    const links = hydrateUnitsToProjectionClaims(units, "2026-11-21T09:00:00Z")
+      .filter(({ predicate }) => predicate === "LINKS_TO")
+      .map(({ subjectId, objectId, validFrom }) => ({
+        from: units.find((unit) => unit.servingId === subjectId)?.path,
+        to: units.find((unit) => unit.servingId === objectId)?.path,
+        validFrom,
+      }))
+    expect(links).toContainEqual({
+      from: issue.path,
+      to: pull.path,
+      validFrom: "2026-03-10T12:00:00.000Z",
     })
   })
 })
