@@ -252,7 +252,9 @@ export async function destroyDetachedProviderSandbox(input: {
     const docker = await import("@tanstack/ai-sandbox-docker").catch(() => null)
     await assertDockerDaemonReachable()
     await destroyWithProviderFactory({
-      factory: docker?.dockerSandbox?.({ image: "node:24" }),
+      // Only create() pulls the configured image; destroy() and resume() act
+      // on the container id. No image name, so a create() here would fail.
+      factory: docker?.dockerSandbox?.({ image: "" }),
       provider: "docker",
       providerSandboxId: input.providerSandboxId,
     })
