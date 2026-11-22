@@ -406,10 +406,14 @@ export function defineRepositoryIngestionV2Workflow(
                   ...refused,
                 })
               // No count limits the roots. The step output keeps the packed
-              // list, so its size is the limit: 1 MiB, where the backend
-              // starts to warn about a large step output. A root that does
-              // not fit is refused, with a record.
-              const { packed, left } = packRootsWithin(plan.roots, 2 ** 20)
+              // list, so its size is the limit: the whole output stays below
+              // 1 MiB, where the backend starts to warn about a large step
+              // output, with 64 KiB for the bundle name, version, and skill
+              // names. A root that does not fit is refused, with a record.
+              const { packed, left } = packRootsWithin(
+                plan.roots,
+                2 ** 20 - 64 * 1024,
+              )
               for (const root of left)
                 logIngestEvent("warn", "ingestion-v2.root-refused", {
                   ingestionRunId: run.id,
