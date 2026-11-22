@@ -76,8 +76,17 @@ type Guards = Pick<
 
 export type Report = {
   datasetVersion: string
-  /** `spend-cap`: the spend cap stopped the run before its last question. */
-  status: "complete" | "spend-cap"
+  /**
+   * `spend-cap`: the spend cap stopped the run before its last question.
+   * `errors`: a search or a `get_related` call of an answer failed (see
+   * `errors`). A metric of such a run can be 0 only because a call failed.
+   */
+  status: "complete" | "errors" | "spend-cap"
+  /**
+   * The answers with a failed call, of each arm. An answer that a replay
+   * could not complete is in `incomplete`, not here.
+   */
+  errors: number
   arms: { baseline: string; plane: string }
   run: Omit<Manifest, "datasetVersion">
   comparison: ComparisonRow[]
@@ -199,9 +208,16 @@ export function buildReport(input: {
       })
     }
   const { datasetVersion, ...run } = manifest
+  const errors = input.answers.filter(
+    (answer) =>
+      answer.calls.missing === 0 &&
+      ("error" in answer.search ||
+        (answer.related !== undefined && "error" in answer.related)),
+  ).length
   return {
     datasetVersion,
-    status: manifest.stopped ? "spend-cap" : "complete",
+    status: manifest.stopped ? "spend-cap" : errors ? "errors" : "complete",
+    errors,
     arms: { baseline: ARM_NAMES.legacy, plane: ARM_NAMES.plane },
     run,
     comparison,
@@ -342,6 +358,12 @@ export function renderMarkdown(report: Report): string {
       ? [
           "",
           "**The spend cap stopped the run. The report holds only the questions that both arms answered before the stop.**",
+        ]
+      : []),
+    ...(report.errors
+      ? [
+          "",
+          `**${report.errors} answers have a failed call (see "Errors"). Do not use the metrics of this run: a failed call gives a score of 0.**`,
         ]
       : []),
     "",

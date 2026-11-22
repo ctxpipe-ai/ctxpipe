@@ -18,8 +18,9 @@
  *   bun evals/knowledge/cli.ts latency --out DIR [--runs 50] [--cap-usd 2]
  *   bun evals/knowledge/cli.ts vision --out DIR [--models A,B,C] [--cap-usd 5]
  *
- * See README.md. Exit code 0: done. 2: bad setup. 3: the spend cap stopped
- * the command (the output holds the work before the stop). 4: a check of
+ * See README.md. Exit code 0: done. 1: an error, or (`run`, `rescore`) an
+ * answer with a failed call. 2: bad setup. 3: the spend cap stopped the
+ * command (the output holds the work before the stop). 4: a check of
  * `probe` failed.
  */
 // First: it sets the OpenWorkflow namespace before the client loads.
@@ -429,6 +430,8 @@ async function main(argv: string[]): Promise<number> {
     ? keptRunSchema.parse(await readJson(values.kept))
     : null
   const settings = parseSettings(values.set ?? [])
+  // Each model call of the readers scrubs its text with it (CTX-1452).
+  buildConverter()
   initDb(databaseUrl)
   try {
     let report: Report
@@ -467,7 +470,14 @@ async function main(argv: string[]): Promise<number> {
       })
     }
     process.stdout.write(`The report is in ${join(out, "report.md")}.\n`)
-    return report.run.stopped ? 3 : 0
+    if (report.run.stopped) return 3
+    if (report.errors) {
+      process.stderr.write(
+        `${report.errors} answers have a failed call. The report lists them under "Errors".\n`,
+      )
+      return 1
+    }
+    return 0
   } finally {
     await closeGraphDb()
     await closeDb()

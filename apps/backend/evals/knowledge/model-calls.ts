@@ -27,7 +27,11 @@ export const recordedCallSchema = z.object({
   arm: z.string(),
   question: z.string(),
   kind: z.enum(["jev", "embedding", "chat", "vision"]),
-  /** The SHA-256 of the kind and the request body: the replay key. */
+  /**
+   * The replay key: the SHA-256 of the kind and the request body with no
+   * provider block (`replayKeyOf`). A replay computes the key again from
+   * `request`, so a recording with an older key also replays.
+   */
   key: z.string(),
   request: z.unknown(),
   status: z.number().int(),
@@ -119,6 +123,22 @@ function kindOf(path: string, body: string): CallKind | null {
   return null
 }
 
+/**
+ * The replay key of a request. The `provider` block only routes the call
+ * (ZDR, data collection, the provider allowlist, the sort): it does not
+ * change the answer of the model. Thus the key leaves it out, and a
+ * recording from before a change of the routing still replays (CTX-1450
+ * added `only`). `body` is the parsed JSON body, or the text of a body that
+ * is not JSON.
+ */
+function replayKeyOf(kind: CallKind, body: unknown): string {
+  const answerFields =
+    body && typeof body === "object" && !Array.isArray(body)
+      ? JSON.stringify({ ...body, provider: undefined })
+      : String(body)
+  return createHash("sha256").update(`${kind}\n${answerFields}`).digest("hex")
+}
+
 const unavailable = (reason: string) =>
   Response.json({ error: { message: reason } }, { status: 503 })
 
@@ -169,7 +189,11 @@ export class ModelCalls {
     this.origin = new URL(baseUrl).origin
     this.replay = replay ? new Map() : null
     for (const call of replay ?? []) {
-      const key = this.replayKey(call.arm, call.question, call.key)
+      const key = this.replayKey(
+        call.arm,
+        call.question,
+        replayKeyOf(call.kind, call.request),
+      )
       this.replay?.set(key, [...(this.replay.get(key) ?? []), call])
     }
   }
@@ -234,7 +258,8 @@ export class ModelCalls {
     const body = await request.clone().text()
     const kind = kindOf(url.pathname, body)
     if (!kind) return next(request)
-    const key = createHash("sha256").update(`${kind}\n${body}`).digest("hex")
+    const parsed = parseOr(body, body)
+    const key = replayKeyOf(kind, parsed)
     if (this.replay) return this.replayed(kind, key, body, owner)
     // The hard spend cap: each call in flight holds its worst-case cost, and
     // a call that would take the spent and reserved total over the cap is
@@ -280,7 +305,7 @@ export class ModelCalls {
         question: owner.question,
         kind,
         key,
-        request: parseOr(body, body),
+        request: parsed,
         status: response.status,
         response: text,
         costUsd,
