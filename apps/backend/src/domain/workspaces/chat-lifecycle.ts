@@ -19,6 +19,13 @@ export const ORG_RUNNING_SANDBOX_LIMIT = 50
 export const ORG_INGEST_SANDBOX_LIMIT = 40
 /** One ingest shard runs at most this long; the sweep then deletes its sandbox. */
 export const INGEST_SHARD_LIMIT_MS = 60 * 60_000
+/** When the sandbox of an ingest shard started, in milliseconds. */
+export function ingestShardStartedAt(row: {
+  createdAt?: Date
+  lastHeartbeatAt: Date
+}): number {
+  return (row.createdAt ?? row.lastHeartbeatAt).getTime()
+}
 export const JOB_SANDBOX_IDLE_MS = 60 * 60 * 1000
 const CHAT_HEARTBEAT_INTERVAL_MS = 60 * 1000
 const CHAT_SESSION_BRANCH_PREFIX = "ctxpipe/chat"

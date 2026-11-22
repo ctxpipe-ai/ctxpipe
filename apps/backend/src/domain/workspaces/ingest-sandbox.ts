@@ -7,13 +7,13 @@ import {
   type WorkspaceDefinition,
 } from "@tanstack/ai-sandbox"
 
-import type { SandboxInstanceRecord } from "../../models/workspace-sandboxes.js"
 import { getSandboxInstance } from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
 import { scheduleConversationSandboxSweep } from "../../openworkflow/workflows/conversation-sandbox-sweep.js"
 import {
   INGEST_SHARD_LIMIT_MS,
   ingestSandboxThreadId,
+  ingestShardStartedAt,
 } from "./chat-lifecycle.js"
 import {
   IngestSandboxSlotsFull,
@@ -146,7 +146,10 @@ export function ingestSandbox(input: {
      */
     async ensureExisting(): Promise<SandboxHandle | null> {
       const row = await getSandboxInstance(key, input.orgId)
-      if (row && Date.now() - shardStartedAt(row) >= INGEST_SHARD_LIMIT_MS) {
+      if (
+        row &&
+        Date.now() - ingestShardStartedAt(row) >= INGEST_SHARD_LIMIT_MS
+      ) {
         await definition.destroy(ctx)
         return null
       }
@@ -155,13 +158,6 @@ export function ingestSandbox(input: {
     /** Delete the shard's sandbox and its row. */
     destroy: () => definition.destroy(ctx),
   }
-}
-
-/** When the shard's sandbox started, in milliseconds. */
-function shardStartedAt(
-  row: Pick<SandboxInstanceRecord, "createdAt" | "lastHeartbeatAt">,
-): number {
-  return (row.createdAt ?? row.lastHeartbeatAt).getTime()
 }
 
 /**
@@ -174,7 +170,7 @@ async function scheduleShardSweep(orgId: string, key: string): Promise<void> {
     if (!row) return
     await scheduleConversationSandboxSweep(
       orgId,
-      new Date(shardStartedAt(row) + INGEST_SHARD_LIMIT_MS),
+      new Date(ingestShardStartedAt(row) + INGEST_SHARD_LIMIT_MS),
     )
   } catch (error) {
     log.error({
