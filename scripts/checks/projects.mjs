@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs"
+import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -27,6 +27,12 @@ const node = (script, ...args) => [process.execPath, script, ...args]
 const pnpm = (...args) => ["pnpm", ...args]
 
 const code = ["apps/**", "packages/**"]
+
+// The directories of the ops packages of the workspace (cost-telemetry).
+const opsPackages = () =>
+  parseYaml(
+    readFileSync(join(root, "pnpm-workspace.yaml"), "utf8"),
+  ).packages.filter((directory) => directory.startsWith("ops/"))
 
 // The Dockerfiles and the .dockerignore of the deploy and preview images:
 // the tests ci-deploy-images and ci-preview-images check them against their
@@ -257,7 +263,16 @@ const definitions = () => [
           "packages/visual-review/src/**",
           ...({
             // The manifest of the whole repo, or the files of the apps.
-            "ci-checks-repo": [...code, "ops/**"],
+            // The ops test reads the package file and the tsconfig.json of
+            // each ops package.
+            "ci-checks-repo": [
+              ...code,
+              ...opsPackages().flatMap((directory) =>
+                ["package.json", "tsconfig.json"]
+                  .map((name) => `${directory}/${name}`)
+                  .filter((file) => existsSync(join(root, file))),
+              ),
+            ],
             // The edge hooks resolve the backend packages from this manifest;
             // the lockfile holds their versions.
             "ci-checks": ["apps/backend/package.json"],
@@ -291,28 +306,27 @@ const definitions = () => [
   // The tests of each ops package of the workspace that has a `test` script
   // (cost-telemetry): one check for each package. Its typecheck is a project
   // of scripts/ci/projects.json. The tests run with Bun, so a result key holds
-  // the Bun version.
-  ...parseYaml(readFileSync(join(root, "pnpm-workspace.yaml"), "utf8"))
-    .packages.filter((directory) => directory.startsWith("ops/"))
-    .flatMap((directory) => {
-      const { name, scripts = {} } = JSON.parse(
-        readFileSync(join(root, directory, "package.json"), "utf8"),
-      )
-      if (!scripts.test) return []
-      return [
-        {
-          family: "policy",
-          lane: `tests-${name}`,
-          file: `${directory}/package.json`,
-          root: directory,
-          inputs: [...shared, `${directory}/**`],
-          runtime: "bun",
-          prerequisites: ["bun"],
-          intent: `Catches a failed test of the ${name} package. Run it when a file of the package or the lockfile changes; never for a change outside them.`,
-          commands: [pnpm("--filter", name, "test")],
-        },
-      ]
-    }),
+  // the Bun version. The lane does not start with `tests-`: the merge gate
+  // takes each `policy:tests-*` check as a test of the CI scripts (plan.mjs).
+  ...opsPackages().flatMap((directory) => {
+    const { name, scripts = {} } = JSON.parse(
+      readFileSync(join(root, directory, "package.json"), "utf8"),
+    )
+    if (!scripts.test) return []
+    return [
+      {
+        family: "policy",
+        lane: `package-tests-${name}`,
+        file: `${directory}/package.json`,
+        root: directory,
+        inputs: [...shared, `${directory}/**`],
+        runtime: "bun",
+        prerequisites: ["bun"],
+        intent: `Catches a failed test of the ${name} package. Run it when a file of the package or the lockfile changes; never for a change outside them.`,
+        commands: [pnpm("--filter", name, "test")],
+      },
+    ]
+  }),
   // The production images of the Production build job: one check for each
   // image. A build pulls base images by tag and packages from the network
   // without a lock, so the same inputs can give another result: a result
