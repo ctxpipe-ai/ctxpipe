@@ -239,7 +239,7 @@ export function defineWorkspaceUpgradeReingestRepository(
       name: REINGEST_REPOSITORY_WORKFLOW_NAME,
       schema: repositoryInputSchema,
     },
-    async ({ input: queuedInput, step }): Promise<RepositoryResult> => {
+    async ({ input: queuedInput, step, run }): Promise<RepositoryResult> => {
       const input = repositoryInputSchema.parse(queuedInput)
       const runId = await step.run({ name: "start" }, async () => {
         const handle = await enqueueWorkflow(
@@ -263,6 +263,11 @@ export function defineWorkspaceUpgradeReingestRepository(
             }),
           },
         )
+        // A cancel of the re-ingestion that came during this step found no
+        // ingestion run to stop. Stop it here, before it spends. The state
+        // read works for each workflow run, also this one.
+        if ((await ingestionRunState(run.id)).done)
+          await cancelIngestionRun(handle.workflowRun.id)
         return handle.workflowRun.id
       })
       for (let poll = 0; ; poll++) {

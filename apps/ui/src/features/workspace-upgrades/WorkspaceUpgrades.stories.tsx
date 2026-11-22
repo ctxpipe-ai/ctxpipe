@@ -19,6 +19,7 @@ import {
   upgradeItemFixture,
   upgradesFixture,
   workspaceUpgradeAutomaticHandlers,
+  workspaceUpgradeCancelHandler,
   workspaceUpgradeCheckHandler,
   workspaceUpgradeStartHandler,
   workspaceUpgradesHandler,
@@ -66,7 +67,8 @@ async function expectGroup(
 const startRequests: string[] = []
 const checkRequests: string[] = []
 const automaticRequests: string[] = []
-const state = { started: false, checked: false }
+const cancelRequests: string[] = []
+const state = { started: false, checked: false, canceled: false }
 const setting: {
   mode: "manual" | "automatic" | null
   reason: "no_tip" | "invalid_format" | "unreadable" | null
@@ -100,6 +102,8 @@ const meta = preview.meta({
     checkRequests.length = 0
     state.started = false
     state.checked = false
+    state.canceled = false
+    cancelRequests.length = 0
     automaticRequests.length = 0
     setting.mode = "manual"
     setting.reason = null
@@ -362,6 +366,87 @@ export const ReingestWorkingWithSpend = meta.story({
           { formatVersion: 3 },
         ),
       ),
+    )
+  },
+})
+
+/**
+ * Upgrades card in the Workspace settings, for an admin: a re-ingestion that
+ * runs is known to be broken, so the admin presses Cancel and confirms, as a
+ * destructive confirm dialog of a job runner asks before it stops a job. The
+ * item then shows Canceled with Start again, in Needs you.
+ */
+export const AdminCancelsReingest = meta.story({
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expectGroup(canvas, "Working now", 1)
+    await userEvent.click(
+      await canvas.findByRole("button", {
+        name: "Cancel: Fresh re-ingestion of the source repositories",
+      }),
+    )
+    // The confirm dialog is in a portal, outside the canvas.
+    const dialog = within(
+      await within(canvasElement.ownerDocument.body).findByRole("alertdialog"),
+    )
+    expect(dialog.getByText(/makes no more model calls/)).toBeVisible()
+    expect(cancelRequests).toHaveLength(0)
+    await userEvent.click(
+      dialog.getByRole("button", { name: "Cancel re-ingestion" }),
+    )
+    await waitFor(() => expect(cancelRequests).toHaveLength(1))
+    expect(cancelRequests[0]).toMatch(/\/upgrades\/reingest-3\/cancel$/)
+    const needsYou = await expectGroup(canvas, "Needs you", 1)
+    await waitFor(() => expect(needsYou.getByText("Canceled")).toBeVisible())
+    expect(
+      needsYou.getByRole("button", {
+        name: "Start again: Fresh re-ingestion of the source repositories",
+      }),
+    ).toBeVisible()
+    expect(canvas.queryByRole("button", { name: /^Cancel:/ })).toBeNull()
+  },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      activeMemberRoleHandler("admin"),
+      workspaceUpgradesHandler(() =>
+        upgradesFixture(
+          [
+            upgradeItemFixture({
+              key: "reingest-3",
+              kind: "reingest",
+              status: state.canceled ? "canceled" : "running",
+              approvedAt: "2026-10-16T09:00:00.000Z",
+              repositories: [
+                {
+                  repository: "acme/api",
+                  sha: "abc1234",
+                  runId: "run_1",
+                  status: "done",
+                  report: [],
+                  spendUsd: 1.5,
+                  spendUnknown: false,
+                },
+                {
+                  repository: "acme/web",
+                  sha: "def5678",
+                  runId: "run_2",
+                  status: "pending",
+                  report: [],
+                  spendUsd: 0.4,
+                  spendUnknown: false,
+                },
+              ],
+            }),
+          ],
+          { formatVersion: 3 },
+        ),
+      ),
+      workspaceUpgradeCancelHandler({
+        requests: cancelRequests,
+        onCanceled: () => {
+          state.canceled = true
+        },
+      }),
     )
   },
 })

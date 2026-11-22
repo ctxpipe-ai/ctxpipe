@@ -7,6 +7,7 @@ import {
   upgradesState,
   formatHealthLine,
   upgradeBlockedCopy,
+  upgradeCanCancel,
   upgradeCanCheck,
   upgradeCanStart,
   upgradeGroup,
@@ -57,11 +58,41 @@ describe("upgrade copy", () => {
     )
   })
 
-  it("starts only a waiting or failed item", () => {
+  it("starts only a waiting, failed or canceled item", () => {
     expect(upgradeCanStart(item("awaiting_operator"))).toBe(true)
     expect(upgradeCanStart(item("failed"))).toBe(true)
+    expect(upgradeCanStart(item("canceled"))).toBe(true)
     expect(upgradeCanStart(item("queued"))).toBe(false)
     expect(upgradeCanStart(item("blocked"))).toBe(false)
+  })
+
+  it("cancels only a queued or running re-ingestion (CTX-1507)", () => {
+    for (const status of ["queued", "running"] as const) {
+      expect(upgradeCanCancel({ kind: "reingest", status })).toBe(true)
+      // A git upgrade only opens a pull request: it has no cancel.
+      expect(upgradeCanCancel({ kind: "format", status })).toBe(false)
+    }
+    for (const status of ["awaiting_operator", "failed", "canceled"] as const)
+      expect(upgradeCanCancel({ kind: "reingest", status })).toBe(false)
+    const canceled = upgradeItemFixture({
+      kind: "reingest",
+      status: "canceled",
+      repositories: [
+        {
+          repository: "acme/api",
+          sha: "abc1234",
+          runId: "run_1",
+          status: "pending",
+          report: [],
+          spendUsd: 0.4,
+          spendUnknown: false,
+        },
+      ],
+    })
+    expect(upgradeStatusLabel(canceled)).toBe("Canceled")
+    expect(upgradeGroup(canceled, 3)).toBe("needs_you")
+    // A canceled run spends no more.
+    expect(upgradeSpendLine(canceled)).toBe("Spend: $0.40")
   })
 
   it("words the health line for each format state", () => {

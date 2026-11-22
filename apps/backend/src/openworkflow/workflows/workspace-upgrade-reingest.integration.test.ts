@@ -10,15 +10,11 @@ import { OpenWorkflow } from "openworkflow"
 import { BackendPostgres } from "openworkflow/postgres"
 import { afterAll, beforeAll, expect, it, vi } from "vitest"
 
+import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../../test/db.js"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
-import {
-  closeDb,
-  getSystemDb,
-  initDb,
-  withOrgDbContext,
-} from "../../db/client.js"
-import { organizations } from "../../db/schema/auth.js"
+import { getSystemDb, initDb, withOrgDbContext } from "../../db/client.js"
+import { members, organizations } from "../../db/schema/auth.js"
 import { connections } from "../../db/schema/connections.js"
 import { objects } from "../../db/schema/objects.js"
 import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
@@ -56,6 +52,7 @@ import {
   transitionWorkspaceUpgradeRow,
 } from "../../models/workspace-upgrades.js"
 import { listWorkspaceKnowledgeUnits } from "../../models/workspaces.js"
+import { workspaceUpgradeRoutes } from "../../routes/v1/workspace-upgrades-routes.js"
 import {
   type GithubTokenLog,
   githubTokenHandlers,
@@ -63,6 +60,7 @@ import {
   stubGithubApp,
 } from "../../test/ingest-github.js"
 import { standInIngestShardRuntime } from "../../test/ingest-shard-stand-in.js"
+import { workspaceHttpApp } from "../../test/workspace-http-fixture.js"
 import { openWorkflowNamespaceId } from "../namespace.js"
 import { defineIngestionShardWorkflow } from "./ingestion-shard.js"
 import { repositoryIndex } from "./repository-index.js"
@@ -120,6 +118,7 @@ contexts.push(
   `acme/context-j-${suffix}`,
   `acme/context-k-${suffix}`,
 )
+contexts.push(`acme/context-l-${suffix}`, `acme/context-m-${suffix}`)
 const [
   ready,
   behind,
@@ -132,7 +131,11 @@ const [
   modelDown,
   requeued,
   unqueued,
+  cancelQueued,
+  cancelRunning,
 ] = [
+  generateObjectId("ws"),
+  generateObjectId("ws"),
   generateObjectId("ws"),
   generateObjectId("ws"),
   generateObjectId("ws"),
@@ -158,6 +161,8 @@ const sourcesOf = [
   [sourceName, goneSource],
   [otherSource],
   [goneSource],
+  [otherSource],
+  [otherSource],
   [otherSource],
   [otherSource],
   [otherSource],
@@ -227,6 +232,9 @@ let worker: ReturnType<OpenWorkflow["newWorker"]>
 let runner: OpenWorkflow
 let scan: ReturnType<typeof defineWorkspaceUpgradeScan>
 let reingest: ReturnType<typeof defineWorkspaceUpgradeReingest>
+let repository: ReturnType<typeof defineWorkspaceUpgradeReingestRepository>
+/** An org admin of the org of this file, for the HTTP routes. */
+let admin: SeededOrg
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", args, {
@@ -256,6 +264,7 @@ beforeAll(async () => {
   if (!databaseUrl)
     throw new Error("DATABASE_URL is required for the re-ingestion upgrade")
   initDb(databaseUrl)
+  admin = await seedOrg()
   stubGithubApp()
   vi.stubEnv("SANDBOX_PROVIDER", "docker")
   server.listen({ onUnhandledRequest: "bypass" })
@@ -342,6 +351,16 @@ beforeAll(async () => {
     name: "Re-ingestion upgrade proof",
     createdAt: new Date(),
   })
+  // The admin check of the routes reads a real session role.
+  await getSystemDb()
+    .insert(members)
+    .values({
+      id: `mem_${org.id}`,
+      organizationId: org.id,
+      userId: admin.userId,
+      role: "admin",
+      createdAt: new Date(),
+    })
   await insertGithubConnection({
     orgId: org.id,
     id: connectionId,
@@ -363,6 +382,8 @@ beforeAll(async () => {
     modelDown,
     requeued,
     unqueued,
+    cancelQueued,
+    cancelRunning,
   ].entries()) {
     await withOrgDbContext(org.id, (db) =>
       db.insert(workspaces).values({
@@ -417,7 +438,7 @@ beforeAll(async () => {
     maxSlotPollSeconds: 1,
     maxRunPollSeconds: 1,
   }
-  const repository = defineWorkspaceUpgradeReingestRepository({ throttle })
+  repository = defineWorkspaceUpgradeReingestRepository({ throttle })
   // 11 step attempts hold 2 repositories: 5 fixed, 2 for each repository, and
   // one slot poll of 2.
   reingest = defineWorkspaceUpgradeReingest({
@@ -458,8 +479,10 @@ afterAll(async () => {
     await db.delete(workspaces).where(eq(workspaces.orgId, org.id))
     await db.delete(connections).where(eq(connections.orgId, org.id))
   })
+  await getSystemDb().delete(members).where(eq(members.organizationId, org.id))
   await getSystemDb().delete(organizations).where(eq(organizations.id, org.id))
-  await closeDb()
+  // It closes the database pool too.
+  await cleanupSeededOrg(admin)
   rmSync(folder, { recursive: true, force: true })
 }, 60_000)
 
@@ -1434,5 +1457,246 @@ it(
       }),
     ).toMatchObject({ code: "model", repository: otherSource })
     expect(await reingestRuns(unqueued)).toHaveLength(1)
+  },
+)
+
+/** The cancel route, as the org admin of this file clicks it. */
+async function cancel(workspaceId: string) {
+  const slug = (
+    await withOrgDbContext(org.id, (db) =>
+      db
+        .select({ slug: workspaces.slug })
+        .from(workspaces)
+        .where(eq(workspaces.id, workspaceId)),
+    )
+  )[0]?.slug
+  const response = await workspaceHttpApp(
+    { ...org, name: "Re-ingestion upgrade proof" },
+    workspaceUpgradeRoutes,
+  ).request(`/workspaces/${slug}/upgrades/${await key()}/cancel`, {
+    method: "POST",
+    headers: { cookie: admin.cookie },
+  })
+  return {
+    status: response.status,
+    body: (await response.json()) as Record<string, unknown>,
+  }
+}
+
+/**
+ * Each workflow run of the re-ingestion of the Workspace: the upgrade runs,
+ * their repository runs, the ingestion runs and each child run of those,
+ * with the time of their last step attempt.
+ */
+async function runTree(workspaceId: string) {
+  const result = await getSystemDb().execute<{
+    id: string
+    workflow_name: string
+    status: string
+    last_step_at: Date | null
+  }>(sql`
+    with recursive tree(id) as (
+      select id from openworkflow.workflow_runs
+      where namespace_id = ${openWorkflowNamespaceId()}
+        and (starts_with(idempotency_key, ${`${upgradeJobId(workspaceId, await key())}:`})
+          or starts_with(idempotency_key, ${`upgrade-reingest:${org.id}:${workspaceId}:`})
+          or (workflow_name = 'workspace-upgrade-reingest-repository'
+            and input->>'workspaceId' = ${workspaceId}))
+      union
+      select child.id from openworkflow.workflow_runs child
+      join openworkflow.step_attempts parent_step
+        on parent_step.namespace_id = child.parent_step_attempt_namespace_id
+        and parent_step.id = child.parent_step_attempt_id
+      join tree on tree.id = parent_step.workflow_run_id
+      where child.namespace_id = ${openWorkflowNamespaceId()}
+    )
+    select run.id, run.workflow_name, run.status,
+      (select max(attempt.created_at) from openworkflow.step_attempts attempt
+        where attempt.namespace_id = run.namespace_id
+          and attempt.workflow_run_id = run.id) as last_step_at
+    from openworkflow.workflow_runs run
+    join tree on tree.id = run.id
+    where run.namespace_id = ${openWorkflowNamespaceId()}
+    order by run.created_at
+  `)
+  return result.rows
+}
+
+/** Wait, so that a run that the cancel did not stop has the time to do a step. */
+const quietFor = (ms: number) =>
+  new Promise((resolve) => setTimeout(resolve, ms))
+
+it(
+  "cancels a queued automatic retry and its waiting repository run: no step runs, no model call, no retry",
+  { timeout: 120_000 },
+  async () => {
+    // As a failed run with a temporary cause left the row (CTX-896): queued
+    // again with an `autoRetry` record. Its upgrade run and a repository run
+    // of it wait for a worker.
+    await runScan()
+    expect(await row(cancelQueued)).toMatchObject({
+      status: "awaiting_operator",
+    })
+    const approvedAt = new Date().toISOString()
+    await setRow(cancelQueued, {
+      to: "queued",
+      upgrade: { approvedAt, autoRetry: { failedRunId: "run_failed_before" } },
+      workflowRunId: null,
+    })
+    const later = new Date(Date.now() + 3_600_000)
+    const upgradeRun = await runner.runWorkflow(
+      reingest.spec,
+      { orgId: org.id, workspaceId: cancelQueued, key: await key() },
+      {
+        availableAt: later,
+        idempotencyKey: `${upgradeJobId(cancelQueued, await key())}:${approvedAt}`,
+      },
+    )
+    await runner.runWorkflow(
+      repository.spec,
+      {
+        orgId: org.id,
+        workspaceId: cancelQueued,
+        upgradeRunId: upgradeRun.workflowRun.id,
+        repository: otherSource,
+        url: `https://github.com/${otherSource}`,
+        githubConnectionId: connectionId,
+        sha: "0".repeat(40),
+        authorTime: approvedAt,
+      },
+      { availableAt: later },
+    )
+    expect((await runTree(cancelQueued)).map((run) => run.status)).toEqual([
+      "pending",
+      "pending",
+    ])
+
+    const canceled = await cancel(cancelQueued)
+    expect(canceled).toMatchObject({
+      status: 200,
+      body: { status: "canceled", autoRetried: false, failureReason: null },
+    })
+    expect((await row(cancelQueued))?.upgrade.autoRetry).toBeUndefined()
+    // Both runs ended before a worker claimed them: no step attempt.
+    expect(await runTree(cancelQueued)).toEqual([
+      expect.objectContaining({
+        workflow_name: "workspace-upgrade-reingest",
+        status: "canceled",
+        last_step_at: null,
+      }),
+      expect.objectContaining({
+        workflow_name: "workspace-upgrade-reingest-repository",
+        status: "canceled",
+        last_step_at: null,
+      }),
+    ])
+
+    // A second cancel changes nothing.
+    expect(await cancel(cancelQueued)).toMatchObject({
+      status: 200,
+      body: { status: "canceled" },
+    })
+    // A scan keeps the row canceled: it does not offer it again by itself.
+    await runScan()
+    expect(await row(cancelQueued)).toMatchObject({ status: "canceled" })
+    await quietFor(3_000)
+    expect(await runTree(cancelQueued)).toHaveLength(2)
+    expect(modelCalls).not.toContain(cancelQueued)
+    expect(await reingestRuns(cancelQueued)).toEqual([])
+  },
+)
+
+it(
+  "cancels a running re-ingestion during a model step: no later step, no publish, no retry, and it can start again",
+  { timeout: 420_000 },
+  async () => {
+    // The first model call of the Workspace waits until the test lets it go.
+    let release: () => void = () => undefined
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let calls = 0
+    server.use(
+      http.post(MODEL_URL, async ({ request }) => {
+        const body = (await request.clone().json()) as { workspaceId: string }
+        if (body.workspaceId !== cancelRunning || calls++ > 0) return undefined
+        await held
+        return undefined
+      }),
+    )
+    const published = () =>
+      git(
+        join(remotes, contexts[12] ?? ""),
+        "ls-tree",
+        "-r",
+        "--name-only",
+        "main",
+      )
+    await runScan()
+    expect(await row(cancelRunning)).toMatchObject({
+      status: "awaiting_operator",
+    })
+    expect(await start(cancelRunning)).toMatchObject({ kind: "queued" })
+    await expect
+      .poll(() => calls, { timeout: 240_000, interval: 500 })
+      .toBeGreaterThan(0)
+    expect(await row(cancelRunning)).toMatchObject({ status: "running" })
+
+    const canceled = await cancel(cancelRunning)
+    const [{ canceledAt } = { canceledAt: new Date() }] = (
+      await getSystemDb().execute<{ canceledAt: Date }>(
+        sql`select now() as "canceledAt"`,
+      )
+    ).rows
+    expect(canceled).toMatchObject({
+      status: 200,
+      body: { status: "canceled", autoRetried: false, failureReason: null },
+    })
+    // The model step that was in progress ends now. Its run is canceled, so
+    // the step records nothing and no next step starts.
+    release()
+    await quietFor(8_000)
+
+    const tree = await runTree(cancelRunning)
+    expect(tree.map((run) => run.workflow_name)).toEqual(
+      expect.arrayContaining([
+        "workspace-upgrade-reingest",
+        "workspace-upgrade-reingest-repository",
+        "repository-ingestion-v2",
+      ]),
+    )
+    for (const run of tree) {
+      expect(run.status, run.workflow_name).toBe("canceled")
+      // No step attempt started after the cancel.
+      expect(
+        run.last_step_at === null || run.last_step_at < canceledAt,
+        `${run.workflow_name} started a step after the cancel`,
+      ).toBe(true)
+    }
+    // One upgrade run, so no retry, and the held call is the only model call.
+    expect(
+      tree.filter((run) => run.workflow_name === "workspace-upgrade-reingest"),
+    ).toHaveLength(1)
+    expect(calls).toBe(1)
+    expect(modelCalls.filter((id) => id === cancelRunning)).toHaveLength(1)
+    expect(published()).not.toContain("knowledge/services/ledger.md")
+    expect(await row(cancelRunning)).toMatchObject({
+      status: "canceled",
+      failureReason: null,
+    })
+    expect((await row(cancelRunning))?.upgrade.autoRetry).toBeUndefined()
+
+    // A canceled re-ingestion starts again, and this run publishes.
+    expect(await start(cancelRunning)).toMatchObject({ kind: "queued" })
+    expect(await settled(cancelRunning)).toMatchObject({
+      status: "completed",
+      upgrade: {
+        repositories: [
+          expect.objectContaining({ repository: otherSource, status: "done" }),
+        ],
+      },
+    })
+    expect(published()).toContain("knowledge/services/ledger.md")
+    expect(await cancel(cancelRunning)).toMatchObject({ status: 409 })
   },
 )

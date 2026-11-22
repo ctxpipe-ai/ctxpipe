@@ -9,6 +9,7 @@ import {
   setUpgradeMode,
   type UpgradeSettingReason,
 } from "../../domain/upgrades/automatic.js"
+import { cancelWorkspaceUpgrade } from "../../domain/upgrades/cancel.js"
 import {
   classifyUpgradeFailure,
   UPGRADE_FAILURE_CODES,
@@ -82,7 +83,7 @@ const WorkspaceUpgradeItemSchema = z
     }),
     status: UpgradeStatusSchema.openapi({
       description:
-        "`awaiting_operator`: waits for an owner or admin to start it. `queued` and `running`: ctxpipe prepares the pull request. `pr_open`: merge the pull request to apply it. `completed`: the repository has the target format. `failed`: see `failureReason`; start it again. `blocked`: see `blockedReason` and `note`.",
+        "`awaiting_operator`: waits for an owner or admin to start it. `queued` and `running`: ctxpipe prepares the pull request. `pr_open`: merge the pull request to apply it. `completed`: the repository has the target format. `failed`: see `failureReason`; start it again. `canceled`: only on a re-ingestion, an owner or admin stopped its run; start it again. `blocked`: see `blockedReason` and `note`.",
     }),
     fromFormat: z.number().int(),
     targetFormat: z.number().int().openapi({
@@ -352,6 +353,39 @@ const startUpgradeRoute = createRoute(
   ),
 )
 
+const cancelUpgradeRoute = createRoute(
+  directWriteRoute(
+    {
+      method: "post",
+      path: "/{workspaceSlug}/upgrades/{key}/cancel",
+      request: { params: UpgradeParamsSchema },
+      responses: {
+        200: {
+          content: {
+            "application/json": { schema: WorkspaceUpgradeItemSchema },
+          },
+          description:
+            "The re-ingestion is `canceled`. ctxpipe stopped its upgrade run, its repository runs and their ingestion runs: they start no next step, so they make no new model call and publish nothing. It gets no automatic retry. A second cancel changes nothing and returns the same item. Start it again with `POST /{workspaceSlug}/upgrades/{key}/start`.",
+        },
+        401: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Unauthorized",
+        },
+        404: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "The Workspace or the upgrade does not exist",
+        },
+        409: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description:
+            "The upgrade is not a queued or running re-ingestion. A git upgrade has no cancel.",
+        },
+      },
+    },
+    { orgAdmin: true },
+  ),
+)
+
 const checkUpgradesRoute = createRoute(
   directWriteRoute(
     {
@@ -598,16 +632,44 @@ const routes = new OpenAPIHono<AppEnv>()
         return c.json(serializeUpgrade(result.row), 202)
     }
   })
+  .openapi(cancelUpgradeRoute, async (c) => {
+    const orgId = c.get("orgId")
+    if (!c.get("user") || !c.get("session") || !orgId)
+      return c.json({ error: "Unauthorized" }, 401)
+    const { workspaceSlug, key } = c.req.valid("param")
+    const workspace = await getWorkspaceBySlug(workspaceSlug)
+    if (!workspace) return c.json({ error: "Not found" }, 404)
+    const result = await cancelWorkspaceUpgrade({
+      orgId,
+      workspaceId: workspace.id,
+      key,
+    })
+    switch (result.kind) {
+      case "missing":
+        return c.json({ error: "Not found" }, 404)
+      case "format":
+        return c.json({ error: "Only a re-ingestion can be canceled" }, 409)
+      case "not_running":
+        return c.json(
+          { error: "Only a queued or running re-ingestion can be canceled" },
+          409,
+        )
+      case "canceled":
+        return c.json(serializeUpgrade(result.row), 200)
+    }
+  })
 
 /**
  * The Upgrades of a Workspace (ADR-053 section 7). Only an org owner or
- * admin with a session may start one: the admin check reads a Better Auth
- * session, so it refuses an OAuth token, and the write gate refuses an API
- * key. Each upgrade needs its own click, unless an owner or admin turned on
- * Always update for the Workspace; there is no org-wide approval.
+ * admin with a session may start or cancel one: the admin check reads a
+ * Better Auth session, so it refuses an OAuth token, and the write gate
+ * refuses an API key. Each upgrade needs its own click, unless an owner or
+ * admin turned on Always update for the Workspace; there is no org-wide
+ * approval.
  */
 const gated = new OpenAPIHono<AppEnv>()
 gated.use("/:workspaceSlug/upgrades/:key/start", requireOrgAdminOrOwner)
+gated.use("/:workspaceSlug/upgrades/:key/cancel", requireOrgAdminOrOwner)
 gated.use("/:workspaceSlug/upgrades/check", requireOrgAdminOrOwner)
 // A member may read the setting. Only an owner or admin may change it.
 gated.post(

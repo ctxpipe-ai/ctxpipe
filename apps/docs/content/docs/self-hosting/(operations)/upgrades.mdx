@@ -211,6 +211,14 @@ Workspace already holds.
   continues. If a run stops with no result, a new click on **Start again**
   makes a new run. A repository that an earlier run finished at the same
   commit is not paid for again.
+- **Cancel.** An owner or admin can stop a queued or running re-ingestion
+  with **Cancel** on its row, or with
+  `POST /{orgSlug}/api/v1/workspaces/{workspaceSlug}/upgrades/{key}/cancel`.
+  ctxpipe stops the upgrade run, its repository runs and their ingestion
+  runs. They start no next step, so they make no new model call and publish
+  nothing. A step that runs at the cancel can end, but it records nothing.
+  The item becomes **Canceled** and gets no automatic retry. **Start again**
+  makes a new run.
 
 An organization with GitHub data but no Workspace is a new user. It creates
 its Workspace in normal onboarding, and its repositories get a fresh

@@ -20,7 +20,7 @@ type StartUpgradeResult =
 /**
  * The click of an org owner or admin on one upgrade (ADR-053 section 7). The
  * caller checks the role. Only a row that waits for the operator, or that
- * failed, starts; of two clicks, only one queues a run. A started upgrade
+ * failed or that an owner or admin canceled, starts; of two clicks, only one queues a run. A started upgrade
  * returns its row again, so a second click opens no second pull request.
  * A re-ingestion starts its own workflow; the estimate stays on the row,
  * so the run log keeps what the operator saw. Call it inside the org
@@ -44,7 +44,11 @@ export async function startWorkspaceUpgrade(input: {
   const started = await transitionWorkspaceUpgradeRow({
     workspaceId: input.workspaceId,
     key: input.key,
-    from: [UPGRADE_STATUSES.awaiting_operator, UPGRADE_STATUSES.failed],
+    from: [
+      UPGRADE_STATUSES.awaiting_operator,
+      UPGRADE_STATUSES.failed,
+      UPGRADE_STATUSES.canceled,
+    ],
     to: UPGRADE_STATUSES.queued,
     upgrade: {
       approvedBy: input.userId,

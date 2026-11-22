@@ -365,7 +365,7 @@ export function reingestRunKeyPrefix(input: {
 }
 
 /** The name of the upgrade workflow that holds a throttle slot. */
-const REINGEST_WORKFLOW_NAME = "workspace-upgrade-reingest"
+export const REINGEST_WORKFLOW_NAME = "workspace-upgrade-reingest"
 
 /** The name of the child workflow that runs one repository of a re-ingestion. */
 export const REINGEST_REPOSITORY_WORKFLOW_NAME =

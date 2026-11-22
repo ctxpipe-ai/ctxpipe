@@ -45,6 +45,13 @@ this card.
 An owner or admin chooses **Start** on a row. A member sees **Ask an admin** in
 place of the button.
 
+To stop a re-ingestion that is queued or runs, an owner or admin chooses
+**Cancel** on its row, then confirms. ctxpipe stops the run and each ingestion
+run of it. The run makes no more model calls and publishes nothing more. A
+repository that finished before the cancel keeps its new knowledge. The row
+shows **Canceled**, and ctxpipe does not start it again by itself. A format
+upgrade has no **Cancel**: it only opens a pull request.
+
 Upgrades move the Workspace repository to the layout that this version of
 ctxpipe reads. Nothing changes until you merge the pull request. There are two
 kinds of upgrade:
@@ -66,6 +73,7 @@ kinds of upgrade:
 | **Waiting for merge** | Review and merge the pull request. If the card does not change after a few minutes, choose **Check again**. |
 | **Applied** | Nothing. The upgrade is done. |
 | **Failed** | Read the reason, fix the cause, then choose **Start again**. |
+| **Canceled** | An owner or admin stopped the re-ingestion. To run it, choose **Start again**. |
 | **Blocked** | Read the reason and remove the cause. See the table below. |
 
 If someone closes the pull request without a merge, the upgrade goes back to
