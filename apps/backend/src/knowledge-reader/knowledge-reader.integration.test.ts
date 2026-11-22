@@ -1141,9 +1141,10 @@ describe("the knowledge reader seam", () => {
     // no judgment of the seeds: both calls are in flight together.
     jevWaitsForTwo = true
     const content = structured(await relatedCall({ maxDepth: 1 }))
+    // The same results as a walk with no overlap (the maxDepth 1 test).
     expect(
       (content.results as { ref: string }[]).map((result) => result.ref),
-    ).toEqual(["knowledge/teams/payments.md"])
+    ).toEqual(["knowledge/teams/payments.md", "knowledge/databases/ledger.md"])
     // The two calls end in any order.
     expect(jevRequests.map((request) => request.candidates).sort()).toEqual([
       1, 3,
@@ -1159,7 +1160,7 @@ describe("the knowledge reader seam", () => {
     const content = structured(await relatedCall({ maxDepth: 1, query }))
     expect(
       (content.results as { ref: string }[]).map((result) => result.ref),
-    ).toEqual(["knowledge/teams/payments.md"])
+    ).toEqual(["knowledge/teams/payments.md", "knowledge/databases/ledger.md"])
     expect(planeEmbeddings).toBe(1)
   })
 
