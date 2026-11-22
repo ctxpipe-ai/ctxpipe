@@ -121,6 +121,12 @@ export async function pushWorkspaceCommit(
   revision: WorkspaceRevision,
   committed: GitWriteCommit,
   env: Env,
+  /**
+   * True when the writer was canceled, for example the workflow run of an
+   * ingestion publish. It is read last before the push, so that a cancel
+   * during the checks and the credential issuance stops the push.
+   */
+  canceled?: () => Promise<boolean>,
 ): Promise<void> {
   const repositoryName = githubRepoFullNameFromWorkspaceUrl(revision.remote.url)
   const connectionId = revision.remote.connectionId
@@ -209,6 +215,8 @@ export async function pushWorkspaceCommit(
         )
       if (input.mirror)
         await assertConnectorMirrorBinding(input.orgId, input.mirror, revision)
+      if (await canceled?.())
+        throw new Error("The writer was canceled before the push")
       try {
         await nativeGit(
           directory,

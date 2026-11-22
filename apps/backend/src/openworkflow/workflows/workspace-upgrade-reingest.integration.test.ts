@@ -1493,7 +1493,8 @@ async function runTree(workspaceId: string) {
     id: string
     workflow_name: string
     status: string
-    last_step_at: Date | null
+    /** The driver gives a time as text. */
+    last_step_at: string | null
   }>(sql`
     with recursive tree(id) as (
       select id from openworkflow.workflow_runs
@@ -1522,9 +1523,79 @@ async function runTree(workspaceId: string) {
   return result.rows
 }
 
-/** Wait, so that a run that the cancel did not stop has the time to do a step. */
-const quietFor = (ms: number) =>
-  new Promise((resolve) => setTimeout(resolve, ms))
+/**
+ * Stop the worker, then start a new one. A stop waits for each execution in
+ * progress, so a step that was in progress at a cancel has ended after it,
+ * and each step that it led to shows in the step attempts.
+ */
+async function drainWorker() {
+  await worker.stop()
+  worker = runner.newWorker({ concurrency: 4 })
+  await worker.start()
+}
+
+/** The time of the database, which the step attempts record. */
+async function databaseNow(): Promise<Date> {
+  const [row] = (
+    await getSystemDb().execute<{ now: string }>(sql`select now() as now`)
+  ).rows
+  if (!row) throw new Error("The database gave no time")
+  return new Date(row.now)
+}
+
+/**
+ * Each run of the re-ingestion ended: the runs that the cancel found active
+ * are canceled, a child run that ended before it is completed. No run
+ * started a step after the cancel.
+ */
+async function expectStoppedAt(workspaceId: string, canceledAt: Date) {
+  const tree = await runTree(workspaceId)
+  expect(tree.map((run) => run.workflow_name)).toEqual(
+    expect.arrayContaining([
+      "workspace-upgrade-reingest",
+      "workspace-upgrade-reingest-repository",
+      "repository-ingestion-v2",
+    ]),
+  )
+  for (const run of tree) {
+    expect(["completed", "canceled"], run.workflow_name).toContain(run.status)
+    if (
+      [
+        "workspace-upgrade-reingest",
+        "workspace-upgrade-reingest-repository",
+        "repository-ingestion-v2",
+      ].includes(run.workflow_name)
+    )
+      expect(run.status, run.workflow_name).toBe("canceled")
+    expect(
+      run.last_step_at === null || new Date(run.last_step_at) < canceledAt,
+      `${run.workflow_name} started a step after the cancel`,
+    ).toBe(true)
+  }
+  // One upgrade run: the cancel queued no retry.
+  expect(
+    tree.filter((run) => run.workflow_name === "workspace-upgrade-reingest"),
+  ).toHaveLength(1)
+}
+
+/** The files on the default branch of the Workspace repository. */
+const publishedFiles = (workspaceIndex: number) =>
+  git(
+    join(remotes, contexts[workspaceIndex] ?? ""),
+    "ls-tree",
+    "-r",
+    "--name-only",
+    "main",
+  )
+
+/** A promise that the test lets go. */
+function gate() {
+  let release: () => void = () => undefined
+  const held = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  return { held, release }
+}
 
 it(
   "cancels a queued automatic retry and its waiting repository run: no step runs, no model call, no retry",
@@ -1577,7 +1648,8 @@ it(
       body: { status: "canceled", autoRetried: false, failureReason: null },
     })
     expect((await row(cancelQueued))?.upgrade.autoRetry).toBeUndefined()
-    // Both runs ended before a worker claimed them: no step attempt.
+    // Both runs ended before a worker claimed them: no step attempt. A
+    // canceled run is never claimed.
     expect(await runTree(cancelQueued)).toEqual([
       expect.objectContaining({
         workflow_name: "workspace-upgrade-reingest",
@@ -1599,10 +1671,44 @@ it(
     // A scan keeps the row canceled: it does not offer it again by itself.
     await runScan()
     expect(await row(cancelQueued)).toMatchObject({ status: "canceled" })
-    await quietFor(3_000)
     expect(await runTree(cancelQueued)).toHaveLength(2)
     expect(modelCalls).not.toContain(cancelQueued)
     expect(await reingestRuns(cancelQueued)).toEqual([])
+  },
+)
+
+it(
+  "stops the ingestion run that a repository run starts after a cancel of its upgrade run",
+  { timeout: 120_000 },
+  async () => {
+    // A repository run that a canceled upgrade run left: it starts its
+    // ingestion run when nothing can stop it any more.
+    const upgradeRun = await runner.runWorkflow(
+      reingest.spec,
+      { orgId: org.id, workspaceId: cancelQueued, key: await key() },
+      { availableAt: new Date(Date.now() + 3_600_000) },
+    )
+    await runner.cancelWorkflowRun(upgradeRun.workflowRun.id)
+    const orphan = await runner.runWorkflow(repository.spec, {
+      orgId: org.id,
+      workspaceId: cancelQueued,
+      upgradeRunId: upgradeRun.workflowRun.id,
+      repository: otherSource,
+      url: `https://github.com/${otherSource}`,
+      githubConnectionId: connectionId,
+      sha: git(join(remotes, otherSource), "rev-parse", "main"),
+      authorTime: new Date().toISOString(),
+    })
+    expect(await orphan.result({ timeoutMs: 60_000 })).toMatchObject({
+      status: "failed",
+      report: ["The ingestion run was canceled."],
+    })
+    const [ingestion, ...others] = await reingestRuns(cancelQueued)
+    expect(others).toEqual([])
+    expect(
+      (await runTree(cancelQueued)).find((run) => run.id === ingestion),
+    ).toMatchObject({ status: "canceled" })
+    expect(modelCalls).not.toContain(cancelQueued)
   },
 )
 
@@ -1611,10 +1717,7 @@ it(
   { timeout: 420_000 },
   async () => {
     // The first model call of the Workspace waits until the test lets it go.
-    let release: () => void = () => undefined
-    const held = new Promise<void>((resolve) => {
-      release = resolve
-    })
+    const { held, release } = gate()
     let calls = 0
     server.use(
       http.post(MODEL_URL, async ({ request }) => {
@@ -1624,14 +1727,6 @@ it(
         return undefined
       }),
     )
-    const published = () =>
-      git(
-        join(remotes, contexts[12] ?? ""),
-        "ls-tree",
-        "-r",
-        "--name-only",
-        "main",
-      )
     await runScan()
     expect(await row(cancelRunning)).toMatchObject({
       status: "awaiting_operator",
@@ -1643,11 +1738,7 @@ it(
     expect(await row(cancelRunning)).toMatchObject({ status: "running" })
 
     const canceled = await cancel(cancelRunning)
-    const [{ canceledAt } = { canceledAt: new Date() }] = (
-      await getSystemDb().execute<{ canceledAt: Date }>(
-        sql`select now() as "canceledAt"`,
-      )
-    ).rows
+    const canceledAt = await databaseNow()
     expect(canceled).toMatchObject({
       status: 200,
       body: { status: "canceled", autoRetried: false, failureReason: null },
@@ -1655,31 +1746,12 @@ it(
     // The model step that was in progress ends now. Its run is canceled, so
     // the step records nothing and no next step starts.
     release()
-    await quietFor(8_000)
+    await drainWorker()
 
-    const tree = await runTree(cancelRunning)
-    expect(tree.map((run) => run.workflow_name)).toEqual(
-      expect.arrayContaining([
-        "workspace-upgrade-reingest",
-        "workspace-upgrade-reingest-repository",
-        "repository-ingestion-v2",
-      ]),
-    )
-    for (const run of tree) {
-      expect(run.status, run.workflow_name).toBe("canceled")
-      // No step attempt started after the cancel.
-      expect(
-        run.last_step_at === null || run.last_step_at < canceledAt,
-        `${run.workflow_name} started a step after the cancel`,
-      ).toBe(true)
-    }
-    // One upgrade run, so no retry, and the held call is the only model call.
-    expect(
-      tree.filter((run) => run.workflow_name === "workspace-upgrade-reingest"),
-    ).toHaveLength(1)
+    await expectStoppedAt(cancelRunning, canceledAt)
     expect(calls).toBe(1)
     expect(modelCalls.filter((id) => id === cancelRunning)).toHaveLength(1)
-    expect(published()).not.toContain("knowledge/services/ledger.md")
+    expect(publishedFiles(12)).not.toContain("knowledge/services/ledger.md")
     expect(await row(cancelRunning)).toMatchObject({
       status: "canceled",
       failureReason: null,
@@ -1696,7 +1768,7 @@ it(
         ],
       },
     })
-    expect(published()).toContain("knowledge/services/ledger.md")
+    expect(publishedFiles(12)).toContain("knowledge/services/ledger.md")
     expect(await cancel(cancelRunning)).toMatchObject({ status: 409 })
   },
 )

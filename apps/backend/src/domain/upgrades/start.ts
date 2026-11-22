@@ -19,9 +19,10 @@ type StartUpgradeResult =
 
 /**
  * The click of an org owner or admin on one upgrade (ADR-053 section 7). The
- * caller checks the role. Only a row that waits for the operator, or that
- * failed or that an owner or admin canceled, starts; of two clicks, only one queues a run. A started upgrade
- * returns its row again, so a second click opens no second pull request.
+ * caller checks the role. Only a row that waits for the operator, that
+ * failed, or that an owner or admin canceled, starts; of two clicks, only
+ * one queues a run. A started upgrade returns its row again, so a second
+ * click opens no second pull request.
  * A re-ingestion starts its own workflow; the estimate stays on the row,
  * so the run log keeps what the operator saw. Call it inside the org
  * context.

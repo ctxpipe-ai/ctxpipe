@@ -51,6 +51,7 @@ import { enqueueWorkflow } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { enqueueWorkspaceHydrate } from "../enqueue-workspace-hydrate.js"
 import { isWorkflowControlSignal } from "../isSleepSignal.js"
+import { workflowRunActive } from "../run-active.js"
 import type { IngestStepFailures } from "./ingestion-shard.js"
 import { repositoryIngestionV2 } from "./repository-ingestion-v2.js"
 
@@ -264,9 +265,12 @@ export function defineWorkspaceUpgradeReingestRepository(
           },
         )
         // A cancel of the re-ingestion that came during this step found no
-        // ingestion run to stop. Stop it here, before it spends. The state
-        // read works for each workflow run, also this one.
-        if ((await ingestionRunState(run.id)).done)
+        // ingestion run to stop. Stop it here, before it spends. A canceled
+        // upgrade run also stops it: this run is then an orphan.
+        if (
+          !(await workflowRunActive(run.id)) ||
+          !(await workflowRunActive(input.upgradeRunId))
+        )
           await cancelIngestionRun(handle.workflowRun.id)
         return handle.workflowRun.id
       })

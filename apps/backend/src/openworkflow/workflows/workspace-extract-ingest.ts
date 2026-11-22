@@ -57,6 +57,7 @@ import {
 } from "../../services/git/pack.js"
 import { enqueueWorkflow } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
+import { workflowRunActive } from "../run-active.js"
 import { runJobRefStep } from "../write-steps.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
 
@@ -446,7 +447,15 @@ export function defineWorkspaceExtractIngestWorkflow() {
                     await persistWriteJobStatus(input.jobId, "completed")
                     return { unlinked: true as const }
                   }
-                  return attemptWorkspaceCommit(input, revision, committed, env)
+                  // A cancel of the ingestion run tree (CTX-1507) stops
+                  // the push of this step, which can be in progress.
+                  return attemptWorkspaceCommit(
+                    input,
+                    revision,
+                    committed,
+                    env,
+                    async () => !(await workflowRunActive(run.id)),
+                  )
                 },
               )
               if ("unlinked" in attempt)

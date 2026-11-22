@@ -1,21 +1,34 @@
 import { sql } from "drizzle-orm"
 
 import { getSystemDb } from "../../db/client.js"
+import { log } from "../../observability/logger.js"
 import { ow } from "../../openworkflow/client.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { INGESTION_V2_WORKFLOW_NAME } from "../ingestion/ingestion-run.js"
-import { upgradeJobId } from "./registry.js"
 import {
   activeIngestionRunTree,
   REINGEST_REPOSITORY_WORKFLOW_NAME,
-  REINGEST_WORKFLOW_NAME,
   reingestRunKeyPrefix,
 } from "./reingest.js"
 
+/**
+ * Cancel one workflow run. A failure is logged, not thrown, so that the
+ * other runs still stop. A run that ended in the meantime can also fail
+ * the cancel.
+ */
+export async function cancelRun(runId: string): Promise<void> {
+  await ow.cancelWorkflowRun(runId).catch((error: unknown) => {
+    log.warn({
+      step: "upgrade-cancel-run",
+      runId,
+      message: error instanceof Error ? error.message : String(error),
+    })
+  })
+}
+
 /** Cancel an ingestion v2 run and its child runs, so that they spend no more. */
 export async function cancelIngestionRun(runId: string): Promise<void> {
-  for (const id of await activeIngestionRunTree(runId))
-    await ow.cancelWorkflowRun(id).catch(() => undefined)
+  for (const id of await activeIngestionRunTree(runId)) await cancelRun(id)
 }
 
 /**
@@ -23,7 +36,7 @@ export async function cancelIngestionRun(runId: string): Promise<void> {
  * ingestion runs that they started. A canceled parent run does not cancel
  * its children, and they keep spending.
  */
-async function cancelRepositoryRuns(input: {
+export async function cancelRepositoryRuns(input: {
   orgId: string
   workspaceId: string
   upgradeRunId: string
@@ -37,8 +50,7 @@ async function cancelRepositoryRuns(input: {
       and input->>'upgradeRunId' = ${input.upgradeRunId}
   `)
   // Cancel the children first, so that they start no new ingestion run.
-  for (const child of children.rows)
-    await ow.cancelWorkflowRun(child.id).catch(() => undefined)
+  for (const child of children.rows) await cancelRun(child.id)
   const ingestion = await getSystemDb().execute<{ id: string }>(sql`
     select id from openworkflow.workflow_runs
     where namespace_id = ${namespaceId}
@@ -46,33 +58,6 @@ async function cancelRepositoryRuns(input: {
       and starts_with(idempotency_key, ${reingestRunKeyPrefix(input)})
   `)
   for (const run of ingestion.rows) await cancelIngestionRun(run.id)
-}
-
-/**
- * Cancel each run of the re-ingestion row `key` of the Workspace: the
- * upgrade runs (also a queued run and an automatic retry), their repository
- * runs, and the ingestion runs of those. The upgrade runs go first, so that
- * they start no new repository run. A second call cancels nothing new.
- */
-export async function cancelReingestRuns(input: {
-  orgId: string
-  workspaceId: string
-  key: string
-}): Promise<void> {
-  // Each upgrade run of the row has the idempotency key `<row id>:<approvedAt>`
-  // (see `enqueueWorkspaceUpgradeReingest`). An upgrade run that ended can
-  // still have repository runs that spend.
-  const runs = await getSystemDb().execute<{ id: string; active: boolean }>(sql`
-    select id, status in ('pending', 'running', 'sleeping') as active
-    from openworkflow.workflow_runs
-    where namespace_id = ${openWorkflowNamespaceId()}
-      and workflow_name = ${REINGEST_WORKFLOW_NAME}
-      and starts_with(idempotency_key, ${`${upgradeJobId(input.workspaceId, input.key)}:`})
-  `)
-  for (const run of runs.rows)
-    if (run.active) await ow.cancelWorkflowRun(run.id).catch(() => undefined)
-  for (const run of runs.rows)
-    await cancelRepositoryRuns({ ...input, upgradeRunId: run.id })
 }
 
 /**

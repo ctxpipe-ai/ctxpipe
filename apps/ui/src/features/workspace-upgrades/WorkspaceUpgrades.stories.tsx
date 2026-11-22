@@ -386,13 +386,20 @@ export const AdminCancelsReingest = meta.story({
       }),
     )
     // The confirm dialog is in a portal, outside the canvas.
-    const dialog = within(
-      await within(canvasElement.ownerDocument.body).findByRole("alertdialog"),
+    const page = within(canvasElement.ownerDocument.body)
+    // The dialog zooms in: wait until it shows.
+    await waitFor(() =>
+      expect(
+        within(page.getByRole("alertdialog")).getByText(
+          /makes no more model calls/,
+        ),
+      ).toBeVisible(),
     )
-    expect(dialog.getByText(/makes no more model calls/)).toBeVisible()
     expect(cancelRequests).toHaveLength(0)
     await userEvent.click(
-      dialog.getByRole("button", { name: "Cancel re-ingestion" }),
+      within(page.getByRole("alertdialog")).getByRole("button", {
+        name: "Cancel re-ingestion",
+      }),
     )
     await waitFor(() => expect(cancelRequests).toHaveLength(1))
     expect(cancelRequests[0]).toMatch(/\/upgrades\/reingest-3\/cancel$/)

@@ -373,7 +373,7 @@ function UpgradeDetail(props: {
  */
 function CancelUpgradeButton(props: {
   item: WorkspaceUpgradeItem
-  isCanceling: boolean | undefined
+  isCanceling: boolean
   onCancel: () => void
 }) {
   const [isOpen, setOpen] = useState(false)
@@ -423,10 +423,10 @@ function UpgradeItemCard(props: {
   onStart: () => void
   onCheck?: () => void
   /** Stops a queued or running re-ingestion. */
-  onCancel?: () => void
+  onCancel: () => void
   isStarting?: boolean
   isChecking?: boolean
-  isCanceling?: boolean
+  isCanceling: boolean
   /** The org of the item: the failure alert links to its connectors. */
   orgSlug?: string
   /** Opens the chat with this prompt ("Fix using agent"). */
@@ -475,7 +475,7 @@ function UpgradeItemCard(props: {
     spend,
   ].filter((line): line is string => Boolean(line))
   const action =
-    upgradeCanCancel(item) && isAdmin === true && onCancel ? (
+    upgradeCanCancel(item) && isAdmin === true ? (
       <CancelUpgradeButton
         item={item}
         isCanceling={props.isCanceling}

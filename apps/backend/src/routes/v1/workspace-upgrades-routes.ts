@@ -647,8 +647,6 @@ const routes = new OpenAPIHono<AppEnv>()
     switch (result.kind) {
       case "missing":
         return c.json({ error: "Not found" }, 404)
-      case "format":
-        return c.json({ error: "Only a re-ingestion can be canceled" }, 409)
       case "not_running":
         return c.json(
           { error: "Only a queued or running re-ingestion can be canceled" },
