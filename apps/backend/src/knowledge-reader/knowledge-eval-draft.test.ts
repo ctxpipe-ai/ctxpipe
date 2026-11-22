@@ -306,7 +306,7 @@ describe("the drafter", () => {
     text: "Which component dispatches backlog items?",
     gold: [],
     keyFacts: ["The oldest job goes first."],
-    validAt: "",
+    date: "",
     positions: [],
     ...fields,
   })
@@ -367,7 +367,7 @@ describe("the drafter", () => {
             ? {
                 gold: sources,
                 text: "Which component dispatches backlog items in 2024?",
-                validAt: "2024-01-01T00:00:00Z",
+                date: "2024-01-01T00:00:00Z",
                 keyFacts: ["The change came on 2024-01-01."],
               }
             : { gold: sources }
@@ -385,21 +385,16 @@ describe("the drafter", () => {
       )
       expect(question.seeds).toEqual(current?.refs)
     }
-    // The month of validAt is in the text of the two KEP issues only.
-    expect(
-      byCategory("time").map((question) => [question.gold, question.validAt]),
-    ).toEqual(
+    // The month of the date is in the text of the two KEP issues only. The
+    // date stays in the question text: no validAt goes out.
+    expect(byCategory("time").map((question) => question.gold)).toEqual(
       expect.arrayContaining([
-        [
-          ["github/issues/kubernetes/enhancements/1.md"],
-          "2024-01-01T00:00:00Z",
-        ],
-        [
-          ["github/issues/kubernetes/enhancements/2.md"],
-          "2024-01-01T00:00:00Z",
-        ],
+        ["github/issues/kubernetes/enhancements/1.md"],
+        ["github/issues/kubernetes/enhancements/2.md"],
       ]),
     )
+    for (const question of byCategory("time"))
+      expect(question.validAt).toBeUndefined()
     expect(byCategory("time")).toHaveLength(2)
     expect(
       drafted.attempts.find(
@@ -532,16 +527,16 @@ describe("the drafter", () => {
           ? {
               gold: sources,
               text: "Which component dispatches backlog items in 2024?",
-              validAt: "2024-01-01T00:00:00Z",
+              date: "2024-01-01T00:00:00Z",
             }
-          : { gold: sources, validAt: "" }
+          : { gold: sources, date: "" }
     const drafted = await run()
     expect(drafted.questions).toEqual([])
     const reasons = drafted.attempts.map((attempt) => attempt.reason)
     expect(reasons).toContain(
       "no key fact states a date or a release of the sources",
     )
-    expect(reasons).toContain("validAt is not an ISO date-time")
+    expect(reasons).toContain("the date is not an ISO date-time")
   })
 
   it("needs each source document in the gold of a multi-hop question", async () => {

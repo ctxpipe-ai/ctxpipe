@@ -306,8 +306,11 @@ const draftSchema = z.strictObject({
   text: z.string(),
   gold: z.array(z.string()),
   keyFacts: z.array(z.string()),
-  /** An ISO date-time with an offset, or "" when the question has none. */
-  validAt: z.string(),
+  /**
+   * The date of a time question, ISO 8601 with an offset, or "". It stays
+   * in the question text: only the checks of the draft read it.
+   */
+  date: z.string(),
   positions: z.array(
     z.strictObject({
       refs: z.array(z.string()),
@@ -324,7 +327,7 @@ const CATEGORY_RULES: Record<Category, string> = {
     "The source documents form a chain: the first links to the second, and the second links to the third. Write a question that starts from the subject of the first document and needs a fact that only the third document holds, reached through the second. No single document answers it. The gold holds each source document.",
   "cross-source":
     "The first source is a mirrored GitHub issue, the second the knowledge document of a part of the code. Write a question that needs a fact from each: for example the part of the code that a reported problem is in, and a property of that part. If the two documents are not about the same thing, set usable to false. The gold holds each source document.",
-  time: "Write a question whose answer depends on a date or a time order in the text: for example the state of something at a given date, the release in which something changed, or what happened first. Use only dates that the text states. Set validAt to the time of the question (ISO 8601 with an offset, for example 2024-03-01T00:00:00Z): a date of the text, and name its year in the question. One key fact states the date or the release (for example 2024-03 or v1.30) of the answer, as the text gives it.",
+  time: "Write a question whose answer depends on a date or a time order in the text: for example the state of something at a given date, the release in which something changed, or what happened first. Use only dates that the text states. Set date to the time of the question (ISO 8601 with an offset, for example 2024-03-01T00:00:00Z): a date of the text, and name its year in the question. One key fact states the date or the release (for example 2024-03 or v1.30) of the answer, as the text gives it.",
   disagreement:
     "The documents disagree about one subject: one position replaces, postpones, withdraws or limits another. Write a question about the subject (not about the disagreement), and give at least two positions. Each position holds the gold documents that state it, and its status: `current` (true now), `superseded` (a later or more authoritative document replaces it), `disputed` (another document contradicts it and the evidence does not decide), or `scoped` (true only for a part of the question). If the documents do not disagree, set usable to false.",
   "no-answer":
@@ -397,19 +400,19 @@ function draftProblems(
   )
     problems.push("the gold must hold each source document")
   if (category === "time") {
-    // The date comes from the text: the month of validAt is in a source
+    // The date comes from the text: the month of the date is in a source
     // document, and the question names its year. The answer depends on a
     // time: a key fact states a date or a release that a source holds.
     const inSources = (text: string) =>
       pick.sources.some((source) => source.text.includes(text))
-    const month = draft.validAt.slice(0, 7)
+    const month = draft.date.slice(0, 7)
     const times = draft.keyFacts.flatMap(
       (fact) =>
         fact.match(/\b(?:\d{4}-\d{2}(?:-\d{2})?|v?\d+\.\d+(?:\.\d+)?)\b/g) ??
         [],
     )
-    if (!z.iso.datetime({ offset: true }).safeParse(draft.validAt).success)
-      problems.push("validAt is not an ISO date-time")
+    if (!z.iso.datetime({ offset: true }).safeParse(draft.date).success)
+      problems.push("the date is not an ISO date-time")
     else if (!inSources(month))
       problems.push(`no source document has a date in ${month}`)
     else if (!draft.text.includes(month.slice(0, 4)))
@@ -457,7 +460,9 @@ function questionOf(
     text: draft.text.trim(),
     gold: category === "no-answer" ? [] : [...new Set(draft.gold)],
     ...(seeds && seeds.length > 0 ? { seeds } : {}),
-    ...(category === "time" ? { validAt: draft.validAt } : {}),
+    // The date stays in the question text, and no `validAt` goes out (the
+    // lead, 2026-11-22): each claim of the corpora has the date of the
+    // ingest as its `valid_from`, so an earlier `validAt` hides the corpus.
     ...(positions ? { positions } : {}),
     keyFacts: category === "no-answer" ? [] : draft.keyFacts,
   }

@@ -1,6 +1,7 @@
 import { delay, HttpResponse, http } from "msw"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { main } from "../../evals/knowledge/cli.js"
 import {
   type Dataset,
   datasetSchema,
@@ -609,6 +610,32 @@ describe("the comparison with the kept run", () => {
   })
 })
 
+describe("the commands that call a model", () => {
+  it("stop at setup when no provider allowlist is set, or when the model settings do not point at OpenRouter", async () => {
+    vi.stubEnv("MODEL_PROVIDER_ALLOWLIST", "")
+    try {
+      for (const command of [
+        "draft",
+        "label",
+        "hydrate",
+        "run",
+        "latency",
+        "vision",
+      ])
+        await expect(main([command, "--out", "/nowhere"])).rejects.toThrow(
+          /^Set MODEL_PROVIDER_ALLOWLIST/,
+        )
+      vi.stubEnv("MODEL_PROVIDER_ALLOWLIST", "azure")
+      vi.stubEnv("MODEL_PROVIDER", "bedrock")
+      await expect(main(["run", "--out", "/nowhere"])).rejects.toThrow(
+        /^MODEL_PROVIDER_ALLOWLIST needs model settings that point at OpenRouter/,
+      )
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+})
+
 describe("the judge panel", () => {
   const BASE = "https://panel.test/v1"
   /** model → ref → [answers, status]. */
@@ -863,7 +890,6 @@ describe("the judge panel", () => {
       split: "dev" as const,
       text,
       gold: ["new.md"],
-      validAt: "2024-01-01T00:00:00Z",
       keyFacts: ["It changed in 2024-01."],
     })
     const labeled = await labelWithPanel({
@@ -895,6 +921,35 @@ describe("the judge panel", () => {
       true,
       false,
     ])
+  })
+
+  it("counts a needed step of a chain as gold for a multi-hop or across-sources question only", async () => {
+    contents.length = 0
+    const question = (category: "multi-hop" | "lookup") => ({
+      id: category,
+      corpus: "corpus",
+      category,
+      split: "dev" as const,
+      text: "Which rule follows from the chain?",
+      gold: ["old.md"],
+      ...(category === "multi-hop" ? { seeds: ["old.md"] } : {}),
+      keyFacts: ["The chain gives the rule."],
+    })
+    await labelWithPanel({
+      draft: {
+        ...draft,
+        questions: [question("multi-hop"), question("lookup")],
+      },
+      models: Object.keys(replies),
+      read: async (_corpus, ref) => `The text of ${ref}.`,
+      nearest: async () => [],
+      env,
+      stopped: () => false,
+    })
+    expect(contents).toHaveLength(6)
+    const [chain, lookup] = [contents[0] ?? "", contents[3] ?? ""]
+    expect(chain).toContain("is a needed step to the answer")
+    expect(lookup).not.toContain("needed step")
   })
 
   it("drops a multi-hop question when the panel removes one of its documents", async () => {
