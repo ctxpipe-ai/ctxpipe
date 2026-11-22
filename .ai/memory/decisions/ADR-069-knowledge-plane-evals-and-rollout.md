@@ -1,6 +1,6 @@
 # ADR-069: The knowledge plane is proven with public-corpus evals and turned on for one org at a time
 
-**Status:** Accepted (the CTO, 2026-11-19; nothing is built yet) | **Date:** 2026-11-19 | **Tags:** knowledge, evals, dataset, rollout, feature-flags, better-auth, privacy
+**Status:** Accepted (the CTO, 2026-11-19; nothing is built yet; amended 2026-11-22, CTX-1499: hill-climb by generations) | **Date:** 2026-11-19 | **Tags:** knowledge, evals, dataset, rollout, feature-flags, better-auth, privacy
 
 ## Context
 
@@ -115,7 +115,7 @@ The dataset must cover three shapes of customer: one large monorepo, an org with
 The CTO, 2026-11-22: "We don't have hard targets, we want to hillclimb the retrieval for many generations until the improvements plateau. Every generation can be merged as we are behind feature flag."
 
 - **A generation** is one change of the plane, with its run on the dataset.
-- **A change of the plane is kept** when it improves the eval over the last kept generation of the plane, with no guard regression. This replaces the keep rule of decision 7 for the plane.
+- **The reference point of a change is the last kept generation of the plane.** A change of the plane is kept when it improves the eval over that generation, with no guard regression. The hold-out set still decides keep or revert (decisions 5 and 7): this amendment changes only the reference point.
 - **No fixed target:** a change is not measured against a fixed number, and not against the baseline (the current stack, Postgres and FalkorDB). The baseline arm stays in each report, as a reference only.
 - **The loop goes on** until the improvements plateau.
 - **Each kept generation can merge**, because the `knowledge_plane` flag holds the plane back from customers (decision 9).

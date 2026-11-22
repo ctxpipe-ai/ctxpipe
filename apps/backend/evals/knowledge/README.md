@@ -49,13 +49,7 @@ Opus 5.5 drafted them (`draft`). The panel labeled them: Sonnet 5.5, GPT-6.1-Ter
 
 ### Hill-climb by generations
 
-"We don't have hard targets, we want to hillclimb the retrieval for many generations until the improvements plateau. Every generation can be merged as we are behind feature flag" (the CTO, 2026-11-22).
-
-- **A generation** is one change of the plane, with its run on the dataset.
-- **A change of the plane is kept** when it improves the eval over the last kept generation of the plane, with no guard regression. It is not measured against a fixed number, and not against the baseline (the current stack, Postgres and FalkorDB).
-- **The loop goes on** until the improvements plateau.
-- **Each kept generation can merge**, because the `knowledge_plane` flag holds the plane back from customers.
-- **The baseline arm** stays in each report, as a reference only.
+"We don't have hard targets, we want to hillclimb the retrieval for many generations until the improvements plateau. Every generation can be merged as we are behind feature flag" (the CTO, 2026-11-22). The reference point of a change of the plane is its last kept generation, not a fixed number and not the baseline. The hold-out set still decides keep or revert. The rules are in the [amendment of ADR-069](../../../../.ai/memory/decisions/ADR-069-knowledge-plane-evals-and-rollout.md#amendment-2026-11-22-hill-climb-by-generations-with-no-fixed-target-ctx-1499).
 
 ### One label version for each dataset
 
