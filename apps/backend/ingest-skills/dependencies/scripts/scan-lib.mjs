@@ -19,6 +19,7 @@ import { fileClaims, isListPart, nameKey } from "../../bin/knowledge-lib.mjs"
 import { stagedPaths, stepTexts } from "../../bin/stage-lib.mjs"
 import {
   safePath,
+  testFixtureFolder,
   trackedFiles,
 } from "../../discover-roots/scripts/roots-lib.mjs"
 
@@ -46,9 +47,6 @@ const SKIPPED_SEGMENTS = new Set([
   "node_modules",
   "vendor",
   "third_party",
-  "testdata",
-  "fixtures",
-  "__fixtures__",
   "test",
   "tests",
   "__tests__",
@@ -96,7 +94,12 @@ export function rootFiles({ source, path, otherRoots = [] }) {
       const segments = below.split("/")
       return !segments
         .slice(0, -1)
-        .some((s) => s.startsWith(".") || SKIPPED_SEGMENTS.has(s))
+        .some(
+          (s) =>
+            s.startsWith(".") ||
+            SKIPPED_SEGMENTS.has(s) ||
+            testFixtureFolder(s),
+        )
     })
     .sort()
 }

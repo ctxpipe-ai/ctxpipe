@@ -19,7 +19,10 @@ import { readFileSync } from "node:fs"
 import { posix } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { safePath } from "../../discover-roots/scripts/roots-lib.mjs"
+import {
+  safePath,
+  testFixtureFolder,
+} from "../../discover-roots/scripts/roots-lib.mjs"
 
 const MAX_DOCUMENTS = 150
 const READ_LIMIT = 64 * 1024
@@ -29,9 +32,6 @@ const IGNORED = new Set([
   "third_party",
   "dist",
   "build",
-  "fixtures",
-  "__fixtures__",
-  "testdata",
 ])
 const CLASSES = [
   "instructions",
@@ -51,6 +51,7 @@ export function documentClass(path, readmeFolders) {
   const top = segments[0] ?? ""
   if (
     segments.some((s) => IGNORED.has(s)) ||
+    segments.slice(0, -1).some(testFixtureFolder) ||
     segments
       .slice(0, -1)
       .some(

@@ -81,21 +81,42 @@ export function safePath(text) {
   )
 }
 
-/** Folder names that never hold a code root. */
-const IGNORED_SEGMENTS = new Set([
-  "node_modules",
-  "vendor",
-  "third_party",
+/** Folder names of test input; `testFixtureFolder` compares them in lower case. */
+export const TEST_FIXTURE_FOLDERS = new Set([
   "testdata",
+  "test-data",
+  "test_data",
   "fixtures",
+  "fixture",
   "__fixtures__",
+  "test-fixtures",
+  "test_fixtures",
+  "artifacts",
 ])
+
+/**
+ * True when a folder name says that the folder holds test input: files that
+ * a test reads, for example a test copy of an API specification. A file below
+ * such a folder is not content of the source, so no skill reads it. Each skill
+ * uses this one rule (CTX-1531).
+ */
+export function testFixtureFolder(segment) {
+  return TEST_FIXTURE_FOLDERS.has(segment.toLowerCase())
+}
+
+/** Folder names that never hold a code root. */
+const IGNORED_SEGMENTS = new Set(["node_modules", "vendor", "third_party"])
 
 function ignoredFolder(dir) {
   if (dir === ".") return false
   return dir
     .split("/")
-    .some((segment) => segment.startsWith(".") || IGNORED_SEGMENTS.has(segment))
+    .some(
+      (segment) =>
+        segment.startsWith(".") ||
+        IGNORED_SEGMENTS.has(segment) ||
+        testFixtureFolder(segment),
+    )
 }
 
 /** Tracked files of a checkout at HEAD. */

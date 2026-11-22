@@ -1071,3 +1071,55 @@ describe("discover-roots script", () => {
     ])
   })
 })
+
+describe("the test fixture rule (CTX-1531)", () => {
+  const fixturePaths = [
+    "staging/cli/artifacts",
+    "pkg/testdata",
+    "pkg/test-data",
+    "pkg/test_data",
+    "web/__fixtures__",
+    "web/Fixtures",
+    "web/fixture",
+    "e2e/test-fixtures",
+  ]
+
+  it("discover-roots takes no package in a test fixture folder as a root", () => {
+    const files: Record<string, string> = {
+      "package.json": pkg("top", { workspaces: ["packages/*", "**"] }),
+      "packages/app/package.json": pkg("app"),
+    }
+    for (const path of fixturePaths)
+      files[`${path}/package.json`] = pkg(`copy-${path.replace(/\W/g, "-")}`)
+    const result = discover(repo(files))
+    const found = [
+      ...result.roots.map((root) => root.path),
+      ...result.ambiguous.flatMap((entry) =>
+        entry.candidates.map((candidate) => candidate.path),
+      ),
+    ]
+    expect(found).toContain("packages/app")
+    for (const path of fixturePaths) expect(found).not.toContain(path)
+  })
+
+  it("each skill that reads source files leaves out the same folders", async () => {
+    const skill = (path: string) => import(join(INGEST_SKILLS_DIR, path))
+    const { documentClass } = await skill(
+      "instruction-areas/scripts/documents.mjs",
+    )
+    const { excludedPath } = await skill(
+      "instruction-areas/scripts/patterns.mjs",
+    )
+    const { decisionForm } = await skill("decisions/scripts/decision-parse.mjs")
+    const none = () => false
+    // The real paths pass, so each check below shows the fixture rule.
+    expect(documentClass("pkg/AGENTS.md", new Set())).not.toBeNull()
+    expect(excludedPath("pkg/server.ts")).toBe(false)
+    expect(decisionForm("docs/adr/0001-use-go.md", none)).not.toBeNull()
+    for (const path of fixturePaths) {
+      expect(documentClass(`${path}/AGENTS.md`, new Set())).toBeNull()
+      expect(excludedPath(`${path}/server.ts`)).toBe(true)
+      expect(decisionForm(`${path}/docs/adr/0001-use-go.md`, none)).toBeNull()
+    }
+  })
+})
