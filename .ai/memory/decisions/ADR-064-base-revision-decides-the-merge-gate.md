@@ -60,3 +60,19 @@ The threat is the threat of this ADR: a fault, or an agent that wants its PR to 
 - A change to a definition that also changes many check ids, such as a move of test files to another lane, gives a full run.
 - A gated run proves the gated path of each check. The full-run path (`test-suite.mjs`, the screenshot job of a full run) is proven by the full nightly run on `main` (ADR-062).
 - A project key does not hold `run.mjs`. To add it would let a change to the runner files reuse passes too, but every key would then change with any change to a family module.
+
+## Revision 2026-11-23: a change to a runner file runs the selector
+
+The CTO decided this on 2026-11-23 ([CTX-1556](https://linear.app/ctxpipe/issue/CTX-1556)). A PR changed 7 lines of `run.mjs`. Its CI run was full, and `factory check` ran almost every check on the agent host for about 2 hours before the push. A full run does not stop a hostile runner either: the check jobs run the runner of the PR in both modes. It protects against a runner fault. A smaller floor finds such a fault.
+
+- **The runner files run the selector.** They are `run.mjs`, `selected.mjs`, `rerun-failed.mjs` and `scripts/ci/prerequisites.mjs`. No code that lists checks imports them, and a test keeps this true. Thus a runner change cannot change which checks exist or the entry of a check, and the base listing does not need to compare it.
+- **The LLM stage decides.** The selector selects each check whose key holds the changed file, and the LLM stage keeps only the checks that the change can break.
+- **A floor that the LLM stage cannot drop.** The plan runs every test of the CI scripts, which test the runner. Each job that runs checks through the runner must run at least one check. A job without one gets a canary: its check with the fewest seconds in the trace. A canary accepts no stored pass, so CI runs it with the runner of the PR.
+- **These inputs keep the full run.** `families.mjs`, `scripts/checks/prerequisites.mjs`, `scripts/ci/vitest-launch.mjs` and `scripts/ci/graph-ready.mjs` run checks, but the listing imports them too. `toolchain.mjs` is part of each key.
+
+### Consequences of the runner revision
+
+- A runner fault that the LLM stage does not foresee and that no canary or test of the CI scripts finds reaches `main`. The full nightly run on `main` finds it (ADR-062).
+- A screenshot check has `selectAll`, so the LLM stage of the pinned release keeps every screenshot check that a runner change reaches. A factory release stops this for a check that only a runner input reached (CTX-1556).
+- `selected.mjs` is no longer a full-run input. A PR that changes how it reads `plan.json` meets the plan of the base revision in its own run. A mismatch fails the run, because the merge gate needs a record for each planned check.
+- A canary is a real check of the job, so a flaky canary can fail the run. Its job runs a failed canary with a stored pass once more (Contradiction rule).

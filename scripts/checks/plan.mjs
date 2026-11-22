@@ -100,6 +100,54 @@ function withGateTests(selection, inputs) {
   )
 }
 
+// The jobs of ci.yaml that run checks through the runner files in a gated
+// run (selected.mjs, or run.mjs directly). A test keeps this set equal to the
+// jobs of a pull_request run whose steps call one of them.
+export const runnerJobs = new Set([
+  "lint",
+  "typecheck",
+  "test-shards",
+  "package-tests",
+  "packages",
+  "storybook-plays",
+  "storybook-visual",
+  "upgrade-from-previous-release",
+])
+
+// The floor of a change to a runner file (decideMode), which the LLM stage
+// cannot drop. First every test of the CI scripts: they test the runner,
+// and their keys hold scripts/**, so a hit is a pass of this runner. Then,
+// after the hits (`runOf`), a canary in each runner job that runs no check:
+// the check of that job with the fewest seconds in the trace (a check
+// without a trace time comes last). A canary gets no hit, so CI runs it
+// with the runner of the PR. Returns the selection and the canary ids.
+function withRunnerFloor(selection, inputs, seconds, runOf) {
+  let floored = withChecks(
+    selection,
+    (check) => check.id.startsWith("policy:tests-"),
+    { kind: "runner", inputs },
+    { keepHits: true },
+  )
+  const busy = new Set(runOf(floored).ran.map((id) => placeOf(id).job))
+  const cost = (id) => seconds.get(id) ?? Number.POSITIVE_INFINITY
+  const canaries = []
+  for (const job of runnerJobs) {
+    if (busy.has(job)) continue
+    const [canary] = [...floored.selected, ...floored.omitted]
+      .map((check) => check.id)
+      .filter((id) => placeOf(id).job === job)
+      .sort((a, b) => cost(a) - cost(b) || (a < b ? -1 : 1))
+    if (!canary) continue
+    canaries.push(canary)
+    floored = withChecks(floored, (check) => check.id === canary, {
+      kind: "runner",
+      inputs,
+      job,
+    })
+  }
+  return { selection: floored, canaries }
+}
+
 // The checks whose definition the PR changed. It compares two listings of
 // the merge revision. The code of the PR made the manifest that the selector
 // keyed. The code of the base revision made the other listing, before any PR
@@ -211,9 +259,10 @@ export function combine(select, llm, llmCause) {
 
 // A miss whose key has a stored pass that this run does not accept: a check
 // of a job-scoped ci.yaml change (withJobChecks), a check whose definition
-// the PR changed (withDefinitionChecks) or a quarantined key (withStoreHits).
+// the PR changed (withDefinitionChecks), a canary of a runner change
+// (withRunnerFloor) or a quarantined key (withStoreHits).
 export const storedMiss = (miss) =>
-  ["jobs", "definition", "quarantined"].includes(miss.mode)
+  ["jobs", "definition", "runner", "quarantined"].includes(miss.mode)
 
 // The PR store: the passes of the earlier runs of this PR (the `pr` class).
 // The merge gate job writes it to the GitHub Actions cache of the PR, and the
@@ -555,21 +604,39 @@ export function plan({ config, inputs, needs, store }) {
   }
   const gateInputs = mode.gateInputs ?? []
   if (gateInputs.length) selection = withGateTests(selection, gateInputs)
-  const selected = new Set(selection.selected.map((check) => check.id))
-  const hits = new Map()
-  for (const hit of selection.cache?.hits ?? [])
-    if (
-      selected.has(hit.id) &&
-      !hits.has(hit.id) &&
-      accepted(hit.source, config)
-    )
-      hits.set(hit.id, hit)
-  const ran = selection.selected
-    .filter((check) => !hits.has(check.id))
-    .map((check) => check.id)
+  const trace = existsSync(join(inputs, "trace.json.gz"))
+    ? readTrace(join(inputs, "trace.json.gz"))
+    : undefined
+  const seconds = traceSeconds(trace)
+  // The accepted hit of each selected check, and the checks that run.
+  const runOf = (current) => {
+    const selected = new Set(current.selected.map((check) => check.id))
+    const hits = new Map()
+    for (const hit of current.cache?.hits ?? [])
+      if (
+        selected.has(hit.id) &&
+        !hits.has(hit.id) &&
+        accepted(hit.source, config)
+      )
+        hits.set(hit.id, hit)
+    const ran = current.selected
+      .filter((check) => !hits.has(check.id))
+      .map((check) => check.id)
+    return { hits, ran }
+  }
+  const runner = mode.runner ?? []
+  let canaries = []
+  if (runner.length)
+    ({ selection, canaries } = withRunnerFloor(
+      selection,
+      runner,
+      seconds,
+      runOf,
+    ))
+  const { hits, ran } = runOf(selection)
   // A check that runs although a pass is stored for its key: a hit that is
-  // not accepted, a check of a job-scoped ci.yaml change, or a quarantined
-  // key.
+  // not accepted, a check of a job-scoped ci.yaml change, a canary of a
+  // runner change, or a quarantined key.
   const stored = new Set([
     ...(selection.cache?.hits ?? []).map((hit) => hit.id),
     ...(selection.cache?.misses ?? [])
@@ -577,10 +644,6 @@ export function plan({ config, inputs, needs, store }) {
       .map((miss) => miss.id),
   ])
   const rerun = new Set(ran.filter((id) => stored.has(id)))
-  const trace = existsSync(join(inputs, "trace.json.gz"))
-    ? readTrace(join(inputs, "trace.json.gz"))
-    : undefined
-  const seconds = traceSeconds(trace)
   const jobs = gate ? jobPlans(ran, seconds, rerun) : {}
   return {
     schemaVersion: 1,
@@ -591,11 +654,16 @@ export function plan({ config, inputs, needs, store }) {
         ? `; gate inputs changed (${gateInputs.join(", ")}): the gate code and the pin of the base revision decide, and every test of the CI scripts runs`
         : ""
     }${
+      runner.length
+        ? `; runner changed (${runner.join(", ")}): every test of the CI scripts runs, and each job that runs checks through the runner runs a check with no stored pass`
+        : ""
+    }${
       changes
         ? `; definitions of checks changed (${definitions.join(", ")}): the base revision listed the same tree, and ${changes.changed.length} checks whose definition changed run without a stored pass`
         : ""
     }`,
     gateInputs,
+    ...(runner.length && { runner: { inputs: runner, canaries } }),
     ...(changes && {
       definitions: { inputs: definitions, changed: changes.changed },
     }),

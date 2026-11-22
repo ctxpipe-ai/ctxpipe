@@ -12,6 +12,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test } from "node:test"
 import { fileURLToPath } from "node:url"
+import { gzipSync } from "node:zlib"
 
 import { parse as parseYaml } from "yaml"
 
@@ -20,6 +21,7 @@ import {
   fullVerdict,
   gateDecision,
   gateText,
+  offPullRequestJobs,
 } from "../checks/gate.mjs"
 import {
   jobPlans,
@@ -27,6 +29,7 @@ import {
   plan,
   placeOf,
   readStore,
+  runnerJobs,
 } from "../checks/plan.mjs"
 import { runsInOf } from "../checks/shard.mjs"
 
@@ -552,6 +555,127 @@ test("a change to the gate code or its pin runs every test of the CI scripts, an
       "**Gate inputs changed:** `.github/merge-gate.json`. The gate code and the pin of the base revision decided this run, not the code of this PR, and every test of the CI scripts was selected.",
     ),
   )
+})
+
+test("a change to a runner file runs every test of the CI scripts and a canary without its hit in each idle runner job", () => {
+  const runnerInputs = ["scripts/checks/run.mjs"]
+  const policyTest = "policy:tests-ci-checks:scripts/tests/ci-checks.test.mjs"
+  const play = "storybook:plays:apps/ui/src/f.stories.tsx#f--one"
+  const shot = "storybook:visual:apps/ui/src/d.stories.tsx#d--one"
+  const typecheckUi = "typecheck:ui:apps/ui/tsconfig.json"
+  const typecheckCli = "typecheck:cli:packages/cli/tsconfig.json"
+  const llm = llmRecord()
+  const dropped = (id) => ({
+    id,
+    lane: id.split(":")[1],
+    reason: "dropped by the LLM: the runner does not change it",
+  })
+  // The trace times: the required story is the cheapest check of the
+  // Storybook plays job, and one typecheck has no time.
+  const trace = {
+    schemaVersion: 1,
+    commit: sha(7),
+    checks: [
+      [story, 1000],
+      [play, 5000],
+      [typecheckCli, 2000],
+    ].map(([id, durationMs]) => ({ id, cases: [{ durationMs }] })),
+  }
+  const directory = inputs({
+    "mode.json": { mode: "select", reason: "gate", runner: runnerInputs },
+    "selection.json": selectRecord(),
+    "llm-selection.json": {
+      ...llm,
+      omitted: [
+        ...llm.omitted,
+        ...[policyTest, play, shot, typecheckUi, typecheckCli].map(dropped),
+      ],
+    },
+  })
+  writeFileSync(join(directory, "trace.json.gz"), gzipSync(JSON.stringify(trace)))
+  const planned = plan({ config: config(), inputs: directory, needs, store: store() })
+  assert.equal(planned.mode, "gate")
+  assert.match(
+    planned.reason,
+    /; runner changed \(scripts\/checks\/run\.mjs\): every test of the CI scripts runs, and each job that runs checks through the runner runs a check with no stored pass$/,
+  )
+  // The LLM stage dropped the test of the CI scripts; the floor runs it.
+  assert.ok(planned.ran.includes(policyTest))
+  assert.deepEqual(
+    planned.selection.selected.find((item) => item.id === policyTest).reason,
+    { kind: "runner", inputs: runnerInputs },
+  )
+  // Lint runs the test of the CI scripts, Package tests the UI test and the
+  // test shards the contract test, so these jobs get no canary. The
+  // Storybook plays job had only a hit, and the typecheck and screenshot
+  // jobs had no check: each gets its cheapest check. A check without a trace
+  // time comes last.
+  assert.deepEqual(planned.runner, {
+    inputs: runnerInputs,
+    canaries: [typecheckCli, story, shot],
+  })
+  for (const id of [typecheckCli, story, shot]) assert.ok(planned.ran.includes(id), id)
+  assert.ok(!planned.ran.includes(typecheckUi))
+  assert.ok(!planned.ran.includes(play))
+  assert.deepEqual(
+    planned.selection.selected.find((item) => item.id === shot).reason,
+    { kind: "runner", inputs: runnerInputs, job: "storybook-visual" },
+  )
+  assert.equal(
+    describe({ kind: "runner", inputs: runnerInputs, job: "storybook-visual" }),
+    "runner scripts/checks/run.mjs changed: the canary of job storybook-visual",
+  )
+  // A canary gets no hit, and a failure after a stored pass is a
+  // contradiction: its job runs it once more. Another hit stays.
+  assert.ok(!planned.hits.some((item) => item.id === story))
+  assert.ok(planned.rerun.includes(story))
+  assert.ok(planned.hits.some((item) => item.id === lint))
+  assert.ok(planned.jobs["storybook-visual"])
+  assert.ok(planned.jobs.typecheck)
+  // The gate report names the runner files and the canaries.
+  const { decision } = gateDecision({
+    config: config(),
+    planned,
+    records: [],
+    needs,
+    jobs: { jobs: [] },
+    run: { id: "42", attempt: 1, pr: 7, sha: sha(9) },
+    store: store(),
+    now: new Date("2026-10-28T12:00:00Z"),
+  })
+  assert.ok(
+    gateText(decision, "https://example.com/run").includes(
+      `**Runner changed:** \`scripts/checks/run.mjs\`. Every test of the CI scripts was selected, and each job that runs checks through the runner ran at least one check with no stored pass. Canaries that the plan added: \`${typecheckCli}\`, \`${story}\`, \`${shot}\`.`,
+    ),
+  )
+})
+
+test("the runner jobs are the jobs of a pull_request run whose steps call the runner", () => {
+  const { jobs } = parseYaml(
+    readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8"),
+  )
+  const calls = Object.entries(jobs)
+    .filter(([name]) => !offPullRequestJobs.has(name))
+    .filter(([, job]) =>
+      (job.steps ?? []).some((step) =>
+        /scripts\/checks\/(?:selected|run)\.mjs|checks:run\b/.test(step.run ?? ""),
+      ),
+    )
+    .map(([name]) => name)
+  assert.deepEqual(calls.sort(), [...runnerJobs].sort())
+  // The plan places a check of each family in each runner job.
+  const samples = {
+    lint,
+    typecheck: "typecheck:ui:apps/ui/tsconfig.json",
+    "test-shards": backend,
+    "package-tests": ui,
+    packages: "build:package-cli:packages/cli/package.json",
+    "storybook-plays": story,
+    "storybook-visual": "storybook:visual:apps/ui/src/d.stories.tsx#d--one",
+    "upgrade-from-previous-release":
+      "vitest:upgrade:apps/backend/src/upgrade.test.ts",
+  }
+  for (const job of runnerJobs) assert.equal(placeOf(samples[job]).job, job)
 })
 
 // A manifest entry of a check id.
