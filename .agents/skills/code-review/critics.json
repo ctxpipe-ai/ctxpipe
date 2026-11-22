@@ -189,7 +189,7 @@
         ],
         "run": [
           "pnpm",
-          "-s",
+          "--reporter=silent",
           "visual:review",
           "--json",
           "--judge",

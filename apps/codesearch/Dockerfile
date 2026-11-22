@@ -231,8 +231,11 @@ WORKDIR /app
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* tsconfig.json ./
 COPY patches patches
 COPY apps/codesearch/package.json apps/codesearch/package.json
+# The runtime stage leaves apps/backend/certs in /app. pnpm 11 refuses a frozen
+# install of every importer when apps/backend exists without its package.json,
+# so install only codesearch and the root (the trace code of scripts/checks).
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
-    pnpm install --store-dir /pnpm/store --frozen-lockfile --config.confirmModulesPurge=false
+    pnpm install --store-dir /pnpm/store --frozen-lockfile --filter @ctxpipe/codesearch... --filter . --config.confirmModulesPurge=false
 COPY apps/codesearch ./apps/codesearch
 COPY scripts/ci/check-test-report.mjs ./scripts/ci/check-test-report.mjs
 # The trace and result record code (run-vitest-contracts.mjs --trace, --records).
