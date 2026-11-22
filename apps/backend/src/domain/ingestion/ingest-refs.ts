@@ -182,9 +182,7 @@ function assertJobRef(job: IngestJob, ref: string): IngestRefTarget {
  * remote ref is at the expected old tip. A replay of a pushed step returns the
  * same SHA.
  */
-export async function pushIngestStep(
-  input: PushIngestStepInput,
-): Promise<{
+export async function pushIngestStep(input: PushIngestStepInput): Promise<{
   sha: string
   validation: PatchStepResult
   more: boolean

@@ -103,7 +103,11 @@ describe("the finder of a cursor skill (CTX-1487)", () => {
   }
   const cursorInput = () => ({
     ...input("ownership"),
-    step: { ...step("ownership"), run: "script" as const, cursor: true as const },
+    step: {
+      ...step("ownership"),
+      run: "script" as const,
+      cursor: true as const,
+    },
   })
 
   it("runs the finder before the skill and returns its count", async () => {

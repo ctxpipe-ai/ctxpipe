@@ -447,9 +447,7 @@ export type SkillStepBroker = {
     pinnedRevision: string,
     tip: string,
   ): Promise<Array<{ step: string; paths: string[] }>>
-  push(
-    input: Omit<PushIngestStepInput, "remote" | "job">,
-  ): Promise<{
+  push(input: Omit<PushIngestStepInput, "remote" | "job">): Promise<{
     sha: string
     validation: PatchStepResult
     more: boolean
