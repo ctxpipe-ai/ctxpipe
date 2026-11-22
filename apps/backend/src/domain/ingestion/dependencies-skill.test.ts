@@ -1,5 +1,7 @@
 import { execFileSync, spawnSync } from "node:child_process"
+import { createHash } from "node:crypto"
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -14,6 +16,7 @@ import { afterAll, describe, expect, it } from "vitest"
 import { stringify } from "yaml"
 
 import { writeStepIndex } from "../../test/ingest-step-index.js"
+import { isDependencyListPart } from "../workspaces/layout.js"
 import { withExistingRootFiles } from "./ingestion-plan.js"
 import { gitSource, validatePatchStep } from "./patch-validator.js"
 import { INGEST_SKILLS_DIR } from "./skill-bundle.js"
@@ -83,7 +86,8 @@ type ScanResult = {
   root: string
   candidates: Candidate[]
   skipped: Array<{ path: string | null; reason: string }>
-  truncated: boolean
+  waiting: number
+  more: boolean
 }
 type ApplyResult = {
   ops: Array<{ op: string; path: string }>
@@ -238,6 +242,16 @@ async function step(
       ops: unknown[]
       stats?: Record<string, number>
     }
+  /** `scan --count`, the finder of the cursor that the host runs before the model. */
+  const finder = (path: string | null = ".") => {
+    const result = script(
+      "scan",
+      ...(path === null ? [] : ["--path", path]),
+      "--count",
+    )
+    expect(result.status, `${result.stdout}${result.stderr}`).toBe(0)
+    return JSON.parse(result.stdout) as { count: number }
+  }
   /** `scan --gate`, which the host runs before the model. */
   const gate = (path: string | null = ".") => {
     const result = script(
@@ -267,6 +281,7 @@ async function step(
     patch,
     finish,
     gate,
+    finder,
   }
 }
 
@@ -296,6 +311,27 @@ const byTarget = (result: Pick<ScanResult, "candidates">) =>
       `${c.type} ${c.direction} ${c.target.kind}:${c.target.text} @${c.file}:${c.line}`,
   )
 
+/** The id that the scan gives an HTTP call to a literal URL. */
+const candidateId = (url: string) =>
+  `c${createHash("sha256").update(`http|call|literal|${url}`).digest("hex").slice(0, 10)}`
+
+/** The texts of the Service file OWN and of each part of its dependency list. */
+const listFiles = (
+  s: { show: (tree: string, path: string) => string },
+  tree: string,
+) => {
+  const texts: string[] = []
+  for (let n = 1; ; n++) {
+    const path =
+      n === 1 ? OWN : `knowledge/services/shop-api.dependencies-${n}.md`
+    try {
+      texts.push(s.show(tree, path))
+    } catch {
+      return texts
+    }
+  }
+}
+
 describe("dependencies scan", { timeout: 60_000 }, () => {
   it("finds HTTP and queue clients, streams, and config readers in TypeScript", async () => {
     const s = await step({ "src/service.ts": SERVICE_TS }, {})
@@ -321,7 +357,7 @@ describe("dependencies scan", { timeout: 60_000 }, () => {
         "queue produce literal:tasks @src/service.ts:15",
       ].sort(),
     )
-    expect(result.truncated).toBe(false)
+    expect(result).toMatchObject({ more: false })
     const invoices = result.candidates.find((c) =>
       c.target.text.endsWith("/invoices"),
     )
@@ -651,6 +687,10 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
     const s = await step({ "src/service.ts": SERVICE_TS }, context())
     const call = s.candidates().find((c) => c.target.text.endsWith("/invoices"))
     expect(call).toBeDefined()
+    // The finder counts the candidates of the root step and writes nothing
+    // (CTX-1487).
+    expect(s.finder()).toEqual({ count: s.scan().candidates.length })
+    expect(existsSync(join(s.root, "out", "patch.json"))).toBe(false)
     const out = s.apply([
       { id: call?.id, kind: "service", path: BILLING },
       // Fields that the model adds are ignored: the evidence comes from the script.
@@ -663,6 +703,8 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
     const result = await s.validate()
     expect(result.rejections).toEqual([])
     expect(result.status).toBe("complete")
+    // The cursor: one candidate has its claim.
+    expect(result.cursorAt).toBe(1)
     const own = s.show(result.tree, OWN)
     expect(own).toContain("to: billing.md")
     expect(own).toContain("predicate: DEPENDS_ON")
@@ -670,19 +712,671 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
     expect(own).toContain("kind: model")
   })
 
-  it("reads only the first 300 resolutions, counts the others, and still writes the claims", async () => {
+  it("reads each resolution, with no count limit, and still writes the claims (CTX-1487)", async () => {
     const s = await step({ "src/service.ts": SERVICE_TS }, context())
     const call = s.candidates().find((c) => c.target.text.endsWith("/invoices"))
     const out = s.apply([
-      { id: call?.id, kind: "service", path: BILLING },
       ...Array.from({ length: 302 }, () => ({ id: call?.id, kind: "ignore" })),
+      { id: call?.id, kind: "service", path: BILLING },
     ])
     expect(out.ops).toEqual([{ op: "update", path: OWN }])
-    expect(out.skipped.map((x) => x.reason)).toContain(
-      "The script read only the first 300 resolutions",
-    )
-    expect(s.patch().stats?.["skipped.too_many"]).toBe(3)
+    expect(out.skipped.map((x) => x.reason).join()).not.toMatch(/read only/)
+    expect(s.patch().stats?.["skipped.too_many"]).toBeUndefined()
   })
+
+  it("counts the candidates that an earlier page resolved by their identity lines, also when they share a source file (CTX-1487)", async () => {
+    // Ten HTTP calls in one file, to ten Service files of the context.
+    const context: Record<string, string> = {}
+    const calls: string[] = []
+    for (let i = 0; i < 10; i++) {
+      context[`knowledge/services/svc-${i}.md`] = serviceFile(`Svc ${i}`)
+      calls.push(`await fetch("http://svc-${i}.internal/x")`)
+    }
+    const s = await step({ "src/client.ts": calls.join("\n") }, context)
+    expect(s.finder()).toEqual({ count: 10 })
+    const resolution = (c: Candidate) => ({
+      id: c.id,
+      kind: "service",
+      path: `knowledge/services/${/svc-\d+/.exec(c.target.text)?.[0]}.md`,
+    })
+    const all = s.candidates()
+    s.apply(all.slice(0, 6).map(resolution))
+    const first = await s.validate()
+    expect(first.rejections).toEqual([])
+    expect(first.cursorAt).toBe(6)
+    // The identity line of a resolved candidate: the claim, the source file
+    // of the call, and the candidate id. It holds no URL or host of the code.
+    const svc = all[0]?.target.text.match(/svc-\d+/)?.[0]
+    expect(s.show(first.tree, OWN)).toContain(
+      `- DEPENDS_ON \`${svc}.md\` from \`example-org/shop\` root \`.\` file \`src/client.ts\` (candidate \`${all[0]?.id}\`)`,
+    )
+    expect(s.show(first.tree, OWN)).not.toContain("internal")
+    await s.advance(first.tree)
+    // The scan lists only the 4 candidates that have no identity line.
+    const next = s.scan()
+    expect(next).toMatchObject({ waiting: 4 })
+    expect(next.candidates.map((c) => c.id).sort()).toEqual(
+      all
+        .slice(6)
+        .map((c) => c.id)
+        .sort(),
+    )
+    s.apply(next.candidates.map(resolution))
+    const second = await s.validate()
+    expect(second.rejections).toEqual([])
+    expect(second.cursorAt).toBe(10)
+  }, 120_000)
+
+  it("does not count a claim with no identity line, for example the claim of an earlier ingest to the old target of a changed call (CTX-1487)", async () => {
+    const own = front(
+      {
+        kind: "Service",
+        name: "Shop API",
+        generated_by: "ctxpipe-extract",
+        sources: [SOURCE_PATH],
+        claims: [
+          {
+            to: "old.md",
+            predicate: "DEPENDS_ON",
+            evidence: { path: "src/client.ts", kind: "model" },
+            confidence: 0.6,
+            valid_from: "2026-10-01T00:00:00.000Z",
+          },
+        ],
+      },
+      "# Shop API\n",
+    )
+    const s = await step(
+      { "src/client.ts": 'await fetch("http://new.internal/x")\n' },
+      { [OWN]: own, "knowledge/services/old.md": serviceFile("Old") },
+    )
+    expect(s.finder()).toEqual({ count: 1 })
+    // The old claim does not resolve the new call: the scan lists it.
+    expect(s.scan()).toMatchObject({ waiting: 1 })
+    s.apply([])
+    expect((await s.validate()).cursorAt).toBe(0)
+  })
+
+  it("counts an unchanged call of a re-ingestion as resolved, so that a page that resolves only the new calls moves the cursor (CTX-1487)", async () => {
+    const context: Record<string, string> = {
+      "knowledge/services/billing.md": serviceFile("Billing"),
+    }
+    const calls = ['await fetch("http://billing.internal/x")']
+    for (let i = 0; i < 3; i++) {
+      context[`knowledge/services/svc-${i}.md`] = serviceFile(`Svc ${i}`)
+      calls.push(`await fetch("http://svc-${i}.internal/x")`)
+    }
+    const s = await step({ "src/client.ts": calls.join("\n") }, context)
+    const target = (c: Candidate) =>
+      /svc-\d+|billing/.exec(c.target.text)?.[0] ?? ""
+    const resolve = (list: Candidate[]) =>
+      s.apply(
+        list.map((c) => ({
+          id: c.id,
+          kind: "service",
+          path: `knowledge/services/${target(c)}.md`,
+        })),
+      )
+    // An earlier ingest resolved the call to billing.
+    resolve(s.scan().candidates.filter((c) => target(c) === "billing"))
+    const earlier = await s.validate()
+    expect(earlier.rejections).toEqual([])
+    await s.advance(earlier.tree)
+    // Hydrate dates each published claim. A claim of the re-ingestion with
+    // the same target and predicate keeps the date.
+    const dated = s
+      .show(earlier.tree, OWN)
+      .replace(
+        "confidence: 0.5",
+        "confidence: 0.5\n    valid_from: 2026-10-01T00:00:00.000Z",
+      )
+    expect(dated).toContain("valid_from")
+    // Hydrate writes the date in the context tree, not through a step.
+    const contextDir = join(s.root, "context", WORKSPACE_ID)
+    const index = join(s.root, "hydrate.index")
+    const at = (...args: string[]) =>
+      execFileSync("git", ["-C", contextDir, ...args], {
+        env: { ...GIT_ENV, GIT_INDEX_FILE: index },
+        encoding: "utf8",
+      }).trim()
+    const blob = execFileSync(
+      "git",
+      ["-C", contextDir, "hash-object", "-w", "--stdin"],
+      { env: GIT_ENV, input: dated, encoding: "utf8" },
+    ).trim()
+    at("read-tree", earlier.tree)
+    at("update-index", "--cacheinfo", `100644,${blob},${OWN}`)
+    await s.advance(at("write-tree"))
+    // The re-ingestion: the finder counts 4, and the scan lists only the 3
+    // new calls, because the unchanged call has its identity line.
+    expect(s.finder()).toEqual({ count: 4 })
+    const listed = s.scan().candidates
+    expect(listed.map(target).sort()).toEqual(["svc-0", "svc-1", "svc-2"])
+    // Page 1 resolves only svc-0. The unchanged call counts too.
+    resolve(listed.filter((c) => target(c) === "svc-0"))
+    const first = await s.validate()
+    expect(first.rejections).toEqual([])
+    expect(first.cursorAt).toBe(2)
+    expect(s.show(first.tree, OWN)).toContain("valid_from")
+    await s.advance(first.tree)
+    resolve(s.scan().candidates)
+    const second = await s.validate()
+    expect(second.rejections).toEqual([])
+    expect(second.cursorAt).toBe(4)
+  }, 120_000)
+
+  it("reads back the identity line of a target path with a space and parentheses on the next page (CTX-1487)", async () => {
+    const TARGET = "knowledge/services/billing api (v2).md"
+    const s = await step(
+      { "src/client.ts": 'await fetch("http://billing.internal/x")\n' },
+      { [TARGET]: serviceFile("Billing API v2") },
+    )
+    const [call] = s.candidates()
+    s.apply([{ id: call?.id, kind: "service", path: TARGET }])
+    const first = await s.validate()
+    expect(first.rejections).toEqual([])
+    expect(first.cursorAt).toBe(1)
+    expect(s.show(first.tree, OWN)).toContain(
+      `- DEPENDS_ON \`billing api (v2).md\` from \`example-org/shop\` root \`.\` file \`src/client.ts\` (candidate \`${call?.id}\`)`,
+    )
+    await s.advance(first.tree)
+    // The next page finds the line: nothing waits, and the cursor stays at
+    // the end with no new resolution.
+    expect(s.scan()).toMatchObject({ waiting: 0, candidates: [] })
+    s.apply([])
+    expect((await s.validate()).cursorAt).toBe(1)
+  })
+
+  it("does not count the identity line of another repository on a shared Service file (CTX-1487)", async () => {
+    // A Service file of two source repositories. The other repository has a
+    // call with the same target text, so its candidate has the same id.
+    const id = candidateId("http://billing.internal/x")
+    const own = front(
+      {
+        kind: "Service",
+        name: "Shop API",
+        generated_by: "ctxpipe-extract",
+        sources: [SOURCE_PATH, "sources/github/example-org/other.md"],
+        claims: [
+          {
+            to: "billing.md",
+            predicate: "DEPENDS_ON",
+            evidence: { path: "src/client.ts", kind: "model" },
+          },
+        ],
+      },
+      `# Shop API\n\n## Related\n\n- DEPENDS_ON \`billing.md\` from \`example-org/other\` root \`.\` file \`src/client.ts\` (candidate \`${id}\`)\n`,
+    )
+    const s = await step(
+      { "src/client.ts": 'await fetch("http://billing.internal/x")\n' },
+      { [OWN]: own, "knowledge/services/billing.md": serviceFile("Billing") },
+    )
+    const listed = s.scan()
+    expect(listed.candidates.map((c) => c.id)).toEqual([id])
+    s.apply([])
+    expect((await s.validate()).cursorAt).toBe(0)
+    s.apply([{ id, kind: "service", path: "knowledge/services/billing.md" }])
+    const result = await s.validate()
+    expect(result.rejections).toEqual([])
+    expect(result.cursorAt).toBe(1)
+  })
+
+  it("reads each part of a dependency list that exists, also after a gap in the part numbers (CTX-1487)", async () => {
+    // writeStep writes the parts in path order (part 10 before part 2), so a
+    // page can end with part 3 written and part 2 not.
+    const done = candidateId("http://billing.internal/x")
+    const lineOf = (id: string) =>
+      `- DEPENDS_ON \`billing.md\` from \`example-org/shop\` root \`.\` file \`src/client.ts\` (candidate \`${id}\`)`
+    const own = front(
+      {
+        kind: "Service",
+        name: "Shop API",
+        generated_by: "ctxpipe-extract",
+        sources: [SOURCE_PATH],
+        claims: [
+          {
+            to: "billing.md",
+            predicate: "DEPENDS_ON",
+            evidence: { path: "src/client.ts", kind: "model" },
+          },
+        ],
+      },
+      // Larger than the 32 KiB of identity lines of a Service file.
+      `# Shop API\n\n${"The shop API.\n".repeat(2400)}`,
+    )
+    const PART_3 = "knowledge/services/shop-api.dependencies-3.md"
+    const part = front(
+      {
+        kind: "Service",
+        name: "shop-api dependencies 3",
+        summary: "Part 3 of the dependency list of shop-api.",
+        generated_by: "ctxpipe-extract",
+        sources: [SOURCE_PATH],
+      },
+      `# shop-api dependencies 3\n\n## Related\n\n${lineOf(done)}\n`,
+    )
+    const s = await step(
+      {
+        "src/client.ts":
+          'await fetch("http://billing.internal/x")\nawait fetch("http://billing.internal/y")\n',
+      },
+      {
+        [OWN]: own,
+        [PART_3]: part,
+        "knowledge/services/billing.md": serviceFile("Billing"),
+      },
+    )
+    // The line in part 3 resolves its candidate: the scan lists only the
+    // other one.
+    const next = candidateId("http://billing.internal/y")
+    expect(s.scan().candidates.map((c) => c.id)).toEqual([next])
+    s.apply([
+      { id: next, kind: "service", path: "knowledge/services/billing.md" },
+    ])
+    const result = await s.validate()
+    expect(result.rejections).toEqual([])
+    expect(result.cursorAt).toBe(2)
+    // The new line goes to part 3, which has room. No part 2 or part 4 comes.
+    expect(s.show(result.tree, PART_3)).toContain(lineOf(next))
+    expect(() =>
+      s.show(result.tree, "knowledge/services/shop-api.dependencies-2.md"),
+    ).toThrow()
+    expect(() =>
+      s.show(result.tree, "knowledge/services/shop-api.dependencies-4.md"),
+    ).toThrow()
+  })
+
+  it("keeps what an earlier run of the page staged when a later run no longer names it (CTX-1487)", async () => {
+    const s = await step(
+      {
+        "src/client.ts":
+          'await fetch("http://billing.internal/x")\nawait fetch("http://ledger.internal/x")\n',
+      },
+      {
+        "knowledge/services/billing.md": serviceFile("Billing"),
+        "knowledge/services/ledger.md": serviceFile("Ledger"),
+      },
+    )
+    const [billing, ledger] = ["billing", "ledger"].map((name) =>
+      s.candidates().find((c) => c.target.text.includes(name)),
+    )
+    s.apply([
+      {
+        id: billing?.id,
+        kind: "service",
+        path: "knowledge/services/billing.md",
+      },
+    ])
+    // The model writes resolutions.json again with only the next call.
+    s.apply([
+      { id: ledger?.id, kind: "service", path: "knowledge/services/ledger.md" },
+    ])
+    const result = await s.validate()
+    expect(result.rejections).toEqual([])
+    expect(result.cursorAt).toBe(2)
+    const own = s.show(result.tree, OWN)
+    expect(own).toContain("to: billing.md")
+    expect(own).toContain("to: ledger.md")
+  })
+
+  it("gives a part of the dependency list of a Service file with a long name a name that the validator takes (CTX-1487)", async () => {
+    const stem = `shop-${"x".repeat(185)}`
+    const SERVICE = `knowledge/services/${stem}.md`
+    const calls = Array.from(
+      { length: 400 },
+      (_, i) => `await fetch("http://billing.internal/p${i}")`,
+    )
+    const s = await step(
+      { "src/client.ts": calls.join("\n") },
+      {
+        [SERVICE]: front(
+          {
+            kind: "Service",
+            name: "Shop API",
+            generated_by: "ctxpipe-extract",
+            sources: [SOURCE_PATH],
+          },
+          `# Shop API\n\n${"The shop API.\n".repeat(2400)}`,
+        ),
+        "knowledge/services/billing.md": serviceFile("Billing"),
+      },
+      [{ path: ".", files: [SERVICE] }],
+    )
+    s.apply(
+      s.scan().candidates.map((c) => ({
+        id: c.id,
+        kind: "service",
+        path: "knowledge/services/billing.md",
+      })),
+    )
+    const result = await s.validate()
+    expect(result.rejections).toEqual([])
+    const part = s.show(
+      result.tree,
+      `knowledge/services/${stem}.dependencies-2.md`,
+    )
+    // The validator takes a name of at most 200 characters.
+    const name = /^name: "?(.*?)"?$/m.exec(part)?.[1] ?? ""
+    expect(name).toMatch(/ dependencies 2$/)
+    expect(name.length).toBeLessThanOrEqual(200)
+    expect(result.cursorAt).toBeGreaterThan(0)
+  })
+
+  it("counts a candidate that a later page resolves to another target once, and never an ignored candidate (CTX-1487)", async () => {
+    const context = {
+      "knowledge/services/billing.md": serviceFile("Billing"),
+      "knowledge/services/ledger.md": serviceFile("Ledger"),
+    }
+    const s = await step(
+      {
+        "src/client.ts":
+          'await fetch("http://billing.internal/x")\nawait fetch("http://audit.internal/x")\n',
+      },
+      context,
+    )
+    expect(s.finder()).toEqual({ count: 2 })
+    const [billing, audit] = ["billing", "audit"].map((name) =>
+      s.candidates().find((c) => c.target.text.includes(name)),
+    )
+    s.apply([
+      {
+        id: billing?.id,
+        kind: "service",
+        path: "knowledge/services/billing.md",
+      },
+      { id: audit?.id, kind: "ignore" },
+    ])
+    const first = await s.validate()
+    expect(first.rejections).toEqual([])
+    expect(first.cursorAt).toBe(1)
+    await s.advance(first.tree)
+    // The next page resolves the same call to another Service, and ignores
+    // the other call again. The file now has two claims with the call's
+    // file as evidence, but the call is one candidate.
+    s.apply([
+      {
+        id: billing?.id,
+        kind: "service",
+        path: "knowledge/services/ledger.md",
+      },
+      { id: audit?.id, kind: "ignore" },
+    ])
+    const second = await s.validate()
+    expect(second.rejections).toEqual([])
+    const own = s.show(second.tree, OWN)
+    expect(own.match(/predicate: DEPENDS_ON/g)).toHaveLength(2)
+    expect(
+      own.match(new RegExp(`candidate \`${billing?.id}\``, "g")),
+    ).toHaveLength(2)
+    expect(second.cursorAt).toBe(1)
+    await s.advance(second.tree)
+    expect(s.scan().candidates.map((c) => c.id)).toEqual([audit?.id])
+  }, 120_000)
+
+  it("continues the identity lines of a large Service file in parts of its dependency list over more pages, and keeps each dependency (CTX-1487)", async () => {
+    // 1,500 HTTP calls in 15 files to 4 Service files of the context: their
+    // identity lines are larger than one file of 64 KiB.
+    const context: Record<string, string> = {}
+    for (let i = 0; i < 4; i++)
+      context[`knowledge/services/svc-${i}.md`] = serviceFile(`Svc ${i}`)
+    const source: Record<string, string> = {}
+    for (let f = 0; f < 15; f++)
+      source[`src/client-${f}.ts`] = Array.from(
+        { length: 100 },
+        (_, i) => `await fetch("http://svc-${i % 4}.internal/f${f}/p${i}")`,
+      ).join("\n")
+    const s = await step(source, context)
+    expect(s.finder()).toEqual({ count: 1500 })
+    const cursors: number[] = []
+    let tree = ""
+    for (let page = 1; ; page++) {
+      expect(s.finder()).toEqual({ count: 1500 })
+      const listed = s.scan()
+      if (listed.waiting === 0) break
+      expect(page).toBeLessThan(10)
+      s.apply(
+        listed.candidates.map((c) => ({
+          id: c.id,
+          kind: "service",
+          path: `knowledge/services/${/svc-\d/.exec(c.target.text)?.[0]}.md`,
+        })),
+      )
+      const result = await s.validate()
+      expect(result.rejections).toEqual([])
+      cursors.push(result.cursorAt ?? -1)
+      tree = result.tree
+      await s.advance(result.tree)
+    }
+    // More than one page, a cursor that moves forward, and the end.
+    expect(cursors.length).toBeGreaterThan(1)
+    for (let i = 1; i < cursors.length; i++)
+      expect(cursors[i]).toBeGreaterThan(cursors[i - 1] ?? 0)
+    expect(cursors.at(-1)).toBe(1500)
+    // Each file stays below the file limit. The Service file has each claim,
+    // and the parts hold the next identity lines.
+    const texts = listFiles(s, tree)
+    expect(texts.length).toBeGreaterThan(2)
+    const sizes = texts.map((t) => Buffer.byteLength(t))
+    for (const size of sizes) expect(size).toBeLessThanOrEqual(64 * 1024)
+    expect(sizes.reduce((a, b) => a + b, 0)).toBeGreaterThan(64 * 1024)
+    expect(texts[0]?.match(/predicate: DEPENDS_ON/g)).toHaveLength(4)
+    expect(texts[1]).toContain("kind: Service")
+    expect(texts[1]).toContain("[shop-api](shop-api.md)")
+    expect(texts[1]).toContain("to: shop-api.md\n    predicate: PART_OF")
+    const ids = texts.flatMap((t) =>
+      [...t.matchAll(/\(candidate `(c[0-9a-f]{10})`\)/g)].map((m) => m[1]),
+    )
+    expect(ids).toHaveLength(1500)
+    expect(new Set(ids).size).toBe(1500)
+  }, 600_000)
+
+  it("continues the claims in the parts of the dependency list when the targets pass the claim limit, with long evidence paths (CTX-1487)", async () => {
+    // 450 calls to 450 Service files: more than the 200 claims of one file.
+    const context: Record<string, string> = {}
+    for (let i = 0; i < 450; i++)
+      context[`knowledge/services/svc-${i}.md`] = serviceFile(`Svc ${i}`)
+    const source: Record<string, string> = {}
+    const deep = `src/${"module/".repeat(30)}`
+    for (let f = 0; f < 15; f++)
+      source[`${deep}client-${f}.ts`] = Array.from(
+        { length: 30 },
+        (_, i) => `await fetch("http://svc-${f * 30 + i}.internal/x")`,
+      ).join("\n")
+    const s = await step(source, context)
+    expect(s.finder()).toEqual({ count: 450 })
+    let at = 0
+    let tree = ""
+    let pages = 0
+    for (let page = 1; ; page++) {
+      const listed = s.scan()
+      if (listed.waiting === 0) break
+      pages = page
+      expect(page).toBeLessThan(10)
+      s.apply(
+        listed.candidates.map((c) => ({
+          id: c.id,
+          kind: "service",
+          path: `knowledge/services/${/svc-\d+/.exec(c.target.text)?.[0]}.md`,
+        })),
+      )
+      const result = await s.validate()
+      expect(result.rejections).toEqual([])
+      expect(result.cursorAt ?? 0).toBeGreaterThan(at)
+      at = result.cursorAt ?? 0
+      tree = result.tree
+      await s.advance(result.tree)
+    }
+    expect(pages).toBeGreaterThan(1)
+    expect(at).toBe(450)
+    const texts = listFiles(s, tree)
+    expect(texts.length).toBeGreaterThan(3)
+    const claimsOf = (text: string) =>
+      text.match(/predicate: DEPENDS_ON/g)?.length ?? 0
+    // The Service file keeps room for the claims of the other skills.
+    expect(claimsOf(texts[0] ?? "")).toBeLessThanOrEqual(150)
+    for (const text of texts) {
+      expect(Buffer.byteLength(text)).toBeLessThanOrEqual(64 * 1024)
+      expect(claimsOf(text)).toBeLessThanOrEqual(199)
+    }
+    // Each target has its claim in one file of the list: no dependency is lost.
+    const all = texts.join("\n")
+    for (let i = 0; i < 450; i++)
+      expect(all).toContain(`to: svc-${i}.md\n    predicate: DEPENDS_ON`)
+    expect(all).toContain(`path: ${deep}client-14.ts`)
+  }, 600_000)
+
+  it("has the same rule for a part of a dependency list in the skill and in the host (CTX-1487)", async () => {
+    const { isListPart } = (await import(
+      join(INGEST_SKILLS_DIR, "bin/knowledge-lib.mjs")
+    )) as { isListPart: (path: string) => boolean }
+    for (const path of [
+      "knowledge/services/shop-api.dependencies-2.md",
+      "knowledge/services/shop-api.dependencies-12.md",
+      "knowledge/services/shop-api.md",
+      "knowledge/services/shop-api.dependencies.md",
+      "knowledge/services/shop-api-dependencies-2.md",
+      "knowledge/apis/orders.dependencies-2.md",
+    ])
+      expect(isListPart(path), path).toBe(isDependencyListPart(path))
+    expect(isListPart("knowledge/services/a.dependencies-3.md")).toBe(true)
+  })
+
+  it("writes the Service file before the Stream files that exist, so that a page that ends in the Stream files moves the cursor (CTX-1487)", async () => {
+    // A Service file of 40 KiB, and 36 Stream files of about 59 KiB: more
+    // than the 2 MiB of one step. The claims fit in the Service file, and its
+    // identity lines go to part 2 of its dependency list.
+    const context: Record<string, string> = {
+      [OWN]: front(
+        {
+          kind: "Service",
+          name: "Shop API",
+          generated_by: "ctxpipe-extract",
+          sources: [SOURCE_PATH],
+        },
+        `# Shop API\n\n${"The shop API.\n".repeat(2900)}`,
+      ),
+    }
+    const calls: string[] = []
+    for (let i = 0; i < 36; i++) {
+      context[`knowledge/streams/s${i}.md`] = front(
+        { kind: "Stream", name: `stream.s${i}`, summary: "A stream." },
+        `# stream.s${i}\n\n${"The team runs this stream.\n".repeat(2222)}`,
+      )
+      calls.push(`producer.send({ topic: "stream.s${i}", messages: [] })`)
+    }
+    const s = await step({ "src/service.ts": calls.join("\n") }, context)
+    const resolve = () =>
+      s.apply(
+        s.candidates().map((c) => ({
+          root: ".",
+          id: c.id,
+          kind: "stream",
+          path: `knowledge/streams/${c.target.text.replace("stream.", "")}.md`,
+        })),
+        null,
+      )
+    const first = resolve()
+    expect(first.more).toBe(true)
+    const paths = first.ops.map((o) => o.path)
+    expect(paths).toEqual(
+      expect.arrayContaining([
+        OWN,
+        "knowledge/services/shop-api.dependencies-2.md",
+      ]),
+    )
+    const streams = paths.filter((p) => p.startsWith("knowledge/streams/"))
+    expect(streams.length).toBeGreaterThan(0)
+    expect(streams.length).toBeLessThan(36)
+    const page = await s.validate()
+    expect(page.rejections).toEqual([])
+    // The candidates of the Stream files that the page wrote are resolved:
+    // the cursor moves forward and stays below the end of the input.
+    expect(page.cursorAt).toBe(streams.length)
+    expect(s.show(page.tree, OWN).match(/PRODUCES_TO/g)).toHaveLength(36)
+    await s.advance(page.tree)
+    const second = resolve()
+    expect(second.more).toBe(false)
+    const last = await s.validate()
+    expect(last.rejections).toEqual([])
+    expect(last.cursorAt).toBe(36)
+  }, 120_000)
+
+  it("counts more than 300 candidates of two roots, and a candidate that an earlier page resolved (CTX-1487)", async () => {
+    const source: Record<string, string> = {}
+    const context: Record<string, string> = {}
+    const roots = ["apps/a", "apps/b"].map((path) => {
+      const file = `knowledge/services/${path.slice(5)}.md`
+      context[file] = front(
+        {
+          kind: "Service",
+          name: `Service ${path}`,
+          generated_by: "ctxpipe-extract",
+          sources: [SOURCE_PATH],
+        },
+        `# Service ${path}\n`,
+      )
+      for (let i = 0; i < 160; i++)
+        source[`${path}/src/p${i}.ts`] =
+          `producer.send({ topic: "${path.slice(5)}.n${i}", messages: [] })\n`
+      return { path, files: [file] }
+    })
+    const s = await step(source, context, roots)
+    expect(s.finder(null)).toEqual({ count: 320 })
+    const all = roots.flatMap((root) =>
+      s.candidates(root.path).map((c) => ({
+        root: root.path,
+        id: c.id,
+        kind: "stream",
+        name: c.target.text,
+      })),
+    )
+    expect(all).toHaveLength(320)
+    // The first page resolves 310 candidates: a step with more than 300
+    // candidates reads one resolution for each.
+    s.apply(all.slice(0, 310), null)
+    const first = await s.validate()
+    expect(first.rejections).toEqual([])
+    expect(first.cursorAt).toBe(310)
+    await s.advance(first.tree)
+    // The next page lists and resolves only the other 10. The 310 of the
+    // first page count by their identity lines.
+    expect(s.finder(null)).toEqual({ count: 320 })
+    expect(s.scan(null)).toMatchObject({ waiting: 10, more: false })
+    s.apply(all.slice(310), null)
+    const second = await s.validate()
+    expect(second.rejections).toEqual([])
+    expect(second.cursorAt).toBe(320)
+  }, 120_000)
+
+  it("lists only the candidates that wait, up to its size limit, and then the next ones (CTX-1487)", async () => {
+    // 700 candidates with long names: more than the size limit of the list.
+    const calls = Array.from(
+      { length: 700 },
+      (_, i) => `await fetch("http://svc-${i}.internal/${"x".repeat(150)}")`,
+    ).join("\n")
+    const s = await step({ "src/service.ts": calls }, {})
+    expect(s.finder()).toEqual({ count: 700 })
+    const first = s.scan()
+    expect(first).toMatchObject({ waiting: 700, more: true })
+    expect(first.candidates.length).toBeGreaterThan(100)
+    expect(first.candidates.length).toBeLessThan(700)
+    // resolutions.json names the listed candidates: the next scan lists the
+    // next ones.
+    writeFileSync(
+      join(s.root, "out", "resolutions.json"),
+      JSON.stringify({
+        resolutions: first.candidates.map((c) => ({
+          id: c.id,
+          kind: "ignore",
+        })),
+      }),
+    )
+    const next = s.scan()
+    expect(next.waiting).toBe(700 - first.candidates.length)
+    const ids = new Set(first.candidates.map((c) => c.id))
+    expect(next.candidates.some((c) => ids.has(c.id))).toBe(false)
+    expect(next.candidates.length).toBeGreaterThan(0)
+  }, 120_000)
 
   it("creates a Stream file for a new stream and links the producer", async () => {
     const s = await step({ "src/service.ts": SERVICE_TS }, context())
@@ -744,6 +1438,35 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
     expect(stream).toMatch(
       /## Related\n\n- `example-org\/shop` consumes from it in `\.` \(`src\/service\.ts`\)\n- `example-org\/shop` produces to it/,
     )
+  })
+
+  it("keeps the Stream Related line of an earlier run of the page when a later run writes the same Stream file (CTX-1487)", async () => {
+    const human = front(
+      { kind: "Stream", name: "Orders Created", summary: "New orders." },
+      "# Orders Created\n\nThe order service publishes each new order here.\n",
+    )
+    const s = await step(
+      { "src/service.ts": SERVICE_TS },
+      { "knowledge/streams/order-events.md": human },
+    )
+    const [produce, consume] = ["orders.created", "payments.settled"].map(
+      (text) => s.candidates().find((c) => c.target.text === text),
+    )
+    const path = "knowledge/streams/order-events.md"
+    s.apply([{ root: ".", id: produce?.id, kind: "stream", path }], null)
+    // The model writes resolutions.json again with only the next candidate.
+    s.apply([{ root: ".", id: consume?.id, kind: "stream", path }], null)
+    const result = await s.validate()
+    expect(result.rejections).toEqual([])
+    const stream = s.show(result.tree, path)
+    expect(stream).toContain(
+      "- `example-org/shop` produces to it in `.` (`src/service.ts`)",
+    )
+    expect(stream).toContain(
+      "- `example-org/shop` consumes from it in `.` (`src/service.ts`)",
+    )
+    expect(stream.split("produces to it").length - 1).toBe(1)
+    expect(result.cursorAt).toBe(2)
   })
 
   it("leaves each stream to the repository-wide step", async () => {
@@ -1079,6 +1802,45 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
       "has no Service file in the context",
     )
   })
+
+  it("pages the repository-wide step by size, and its cursor reaches the end of the candidates (CTX-1487)", async () => {
+    // 40 Stream files of about 60 KiB that people wrote: more than the
+    // 2 MiB of one step when each one gets a Related line.
+    const body = "The team runs this stream.\n".repeat(2300)
+    const context: Record<string, string> = {}
+    const calls: string[] = []
+    for (let i = 0; i < 40; i++) {
+      context[`knowledge/streams/s${i}.md`] = front(
+        { kind: "Stream", name: `stream.s${i}`, summary: "A stream." },
+        `# stream.s${i}\n\n${body}`,
+      )
+      calls.push(`producer.send({ topic: "stream.s${i}", messages: [] })`)
+    }
+    const s = await step({ "src/service.ts": calls.join("\n") }, context)
+    const cursors: Array<number | undefined> = []
+    for (let page = 1; ; page++) {
+      // The same length of the input on each page.
+      expect(s.finder(null)).toEqual({ count: 40 })
+      // The model resolves each candidate again on each page.
+      const resolutions = s.candidates().map((c) => ({
+        root: ".",
+        id: c.id,
+        kind: "stream",
+        path: `knowledge/streams/${c.target.text.replace("stream.", "")}.md`,
+      }))
+      const out = s.apply(resolutions, null)
+      const result = await s.validate()
+      expect(result.rejections).toEqual([])
+      cursors.push(result.cursorAt)
+      await s.advance(result.tree)
+      if (!out.more) break
+      expect(page).toBeLessThan(5)
+    }
+    expect(cursors).toHaveLength(2)
+    expect(cursors[0]).toBeGreaterThan(0)
+    expect(cursors[0]).toBeLessThan(40)
+    expect(cursors[1]).toBe(40)
+  }, 120_000)
 
   it("writes each stream file of one step, with no file count (CTX-1482)", async () => {
     const calls = Array.from(

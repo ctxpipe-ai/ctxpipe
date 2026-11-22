@@ -106,7 +106,7 @@ describe("the finder of a cursor skill (CTX-1487)", () => {
     step: {
       ...step("ownership"),
       run: "script" as const,
-      cursor: true as const,
+      cursor: { finder: "ownership.mjs" },
     },
   })
 
@@ -124,6 +124,21 @@ describe("the finder of a cursor skill (CTX-1487)", () => {
     )
     expect(finder).toBeGreaterThan(-1)
     expect(skill).toBeGreaterThan(finder)
+  })
+
+  it("runs the finder that the plan names before the model of a model skill", async () => {
+    const s = finderSandbox({ exitCode: 0, stdout: '{"count":7}\n' })
+    const result = await runIngestShardStep(s.root, {
+      ...input("apis"),
+      step: { ...step("apis"), cursor: { finder: "find-apis.mjs" } },
+    })
+    expect(result).toMatchObject({ inputs: 7 })
+    const finder = s.commands.findIndex(
+      (c) => c.includes("apis/scripts/find-apis.mjs") && c.includes("--count"),
+    )
+    const model = s.commands.findIndex((c) => c.includes("opencode"))
+    expect(finder).toBeGreaterThan(-1)
+    expect(model).toBeGreaterThan(finder)
   })
 
   it("fails the step when the finder gives no count", async () => {

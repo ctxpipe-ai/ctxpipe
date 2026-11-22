@@ -30,6 +30,44 @@ export function parseArgs(argv = process.argv.slice(2)) {
   return { root, args: [...argv.slice(0, at), ...argv.slice(at + 2)] }
 }
 
+/**
+ * The step limits of the host patch validator (patch-validator.ts): a file
+ * of at most 64 KiB, at most 2 MiB of staged files, and a patch.json of at
+ * most 1 MiB and 10,000 ops.
+ */
+export const STEP_LIMITS = {
+  fileBytes: 64 * 1024,
+  /** Claims of one file, without the legacy claims. */
+  claims: 200,
+  stagedBytes: 2 * 1024 * 1024,
+  patchBytes: 1024 * 1024,
+  ops: 10_000,
+}
+
+/**
+ * The size limit of a list that the model reads (CTX-1487): a list has no
+ * count limit, but its JSON ends at 128 KiB. `take(item)` is true while the
+ * item fits. After the first item that does not fit, `take` is always
+ * false, and `more()` is true: the model writes the listed inputs and runs
+ * the script again for the next ones.
+ */
+export function outputBudget() {
+  let room = 128 * 1024
+  let more = false
+  return {
+    take(item) {
+      const size = Buffer.byteLength(JSON.stringify(item)) + 1
+      if (more || size > room) {
+        more = true
+        return false
+      }
+      room -= size
+      return true
+    },
+    more: () => more,
+  }
+}
+
 export function fail(message) {
   process.stderr.write(`${message}\n`)
   process.exit(1)
@@ -101,6 +139,37 @@ export function baseBlob(step, path) {
 
 export function blobContent(step, id) {
   return git(step.contextDir, ["cat-file", "blob", id])
+}
+
+/**
+ * The text of each path in the step: the staged file, else the file at the
+ * step base, with one `git cat-file --batch` for all of them. A path that is
+ * in neither has no entry. With `{ staged: false }`, only the step base.
+ */
+export function stepTexts(step, paths, { staged = true } = {}) {
+  const texts = new Map()
+  const base = []
+  for (const path of new Set(paths)) {
+    const file = stagedFile(step, path)
+    if (staged && existsSync(file)) texts.set(path, readFileSync(file, "utf8"))
+    else if (!path.includes("\n")) base.push(path)
+  }
+  if (!base.length) return texts
+  const out = git(
+    step.contextDir,
+    ["cat-file", "--batch"],
+    base.map((path) => `${step.baseCommit}:${path}\n`).join(""),
+  )
+  let at = 0
+  for (const path of base) {
+    const end = out.indexOf(0x0a, at)
+    const size = /^\S+ blob (\d+)$/.exec(out.toString("utf8", at, end))?.[1]
+    at = end + 1
+    if (size === undefined) continue
+    texts.set(path, out.toString("utf8", at, at + Number(size)))
+    at += Number(size) + 1
+  }
+  return texts
 }
 
 export function contentBlob(step, file) {

@@ -5,9 +5,6 @@
     "MAX_YAML_LINE",
     "UPPER_METHODS"
   ],
-  "apps/backend/ingest-skills/apis/scripts/write-apis.mjs": [
-    "MAX_APIS"
-  ],
   "apps/backend/ingest-skills/datasources-infra/scripts/find-stores.mjs": [
     "MAX_EVIDENCE",
     "MAX_EXISTING",
@@ -15,12 +12,6 @@
   ],
   "apps/backend/ingest-skills/decisions/scripts/decision-parse.mjs": [
     "MAX_STATUS_TEXT"
-  ],
-  "apps/backend/ingest-skills/decisions/scripts/decisions.mjs": [
-    "MAX_CLAUSE_EDGES",
-    "MAX_RELATED",
-    "MAX_SKIPPED",
-    "MAX_STALE"
   ],
   "apps/backend/ingest-skills/dependencies/scripts/scan-lib.mjs": [
     "MAX_CAPTURE",

@@ -15,18 +15,18 @@ import { lstatSync, realpathSync } from "node:fs"
 import { dirname, join, posix, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { nameKey } from "../../bin/knowledge-lib.mjs"
+import { fileClaims, isListPart, nameKey } from "../../bin/knowledge-lib.mjs"
+import { stagedPaths, stepTexts } from "../../bin/stage-lib.mjs"
 import {
   safePath,
   trackedFiles,
 } from "../../discover-roots/scripts/roots-lib.mjs"
 
 const SKILL_DIR = join(dirname(fileURLToPath(import.meta.url)), "..")
-const MAX_FILES = 5000
+// No count limit on files, matches, or candidates (CTX-1487): the cursor
+// pages over the candidates. A file larger than MAX_FILE_BYTES is not read.
 const MAX_FILE_BYTES = 512 * 1024
 const BATCH = 100
-const MAX_MATCHES = 20_000
-const MAX_CANDIDATES = 300
 const MAX_TARGET = 200
 const MAX_CAPTURE = 2000
 
@@ -105,11 +105,7 @@ export function rootFiles({ source, path, otherRoots = [] }) {
 function runRules(source, files, skipped) {
   const matches = []
   const realSource = realpathSync(source)
-  for (
-    let at = 0;
-    at < files.length && matches.length < MAX_MATCHES;
-    at += BATCH
-  ) {
+  for (let at = 0; at < files.length; at += BATCH) {
     const batch = files.slice(at, at + BATCH)
     const run = spawnSync(
       "ast-grep",
@@ -142,7 +138,7 @@ function runRules(source, files, skipped) {
     if (run.status !== 0 && run.status !== 1)
       throw new Error(`ast-grep exited with ${run.status}`)
     for (const line of run.stdout.split("\n")) {
-      if (!line || matches.length >= MAX_MATCHES) continue
+      if (!line) continue
       let hit
       try {
         hit = JSON.parse(line)
@@ -300,7 +296,12 @@ function hints(target, type, index, own) {
   const want = new Set(nameGuesses(target, type).map(nameKey).filter(Boolean))
   if (!want.size) return []
   return index
-    .filter((entry) => kinds.includes(entry.kind) && !own.has(entry.path))
+    .filter(
+      (entry) =>
+        kinds.includes(entry.kind) &&
+        !own.has(entry.path) &&
+        !isListPart(entry.path),
+    )
     .filter((entry) => {
       const base = posix.basename(entry.path, ".md")
       return want.has(nameKey(entry.title)) || want.has(nameKey(base))
@@ -312,6 +313,18 @@ function hints(target, type, index, own) {
     }))
     .sort((a, b) => (a.path < b.path ? -1 : 1))
     .slice(0, 3)
+}
+
+/**
+ * The roots of a step: each root in the repository-wide step (`rootPath`
+ * null), else the root of the step. The finder, the list, the writer, and
+ * the counts use this one list (CTX-1487).
+ */
+export function stepRoots(roots, rootPath) {
+  if (rootPath === null) return roots
+  return [
+    roots.find((r) => r.path === rootPath) ?? { path: rootPath, files: [] },
+  ]
 }
 
 /**
@@ -328,6 +341,19 @@ export function stepCandidates(candidates, repositoryStep) {
 }
 
 /**
+ * The count of the candidates of a step: the length of the input of the
+ * cursor. The finder (`scan.mjs --count`) and the writer count this one
+ * list. `scanRoot` gives the scan of one root.
+ */
+export function stepCandidateCount(roots, rootPath, scanRoot) {
+  return stepRoots(roots, rootPath).reduce(
+    (sum, root) =>
+      sum + stepCandidates(scanRoot(root).candidates, rootPath === null).length,
+    0,
+  )
+}
+
+/**
  * The counts of the candidates of one step, for patch.json: the candidates
  * of each type, and the roots that have candidates but no Service file.
  * `claimable` is true when a root with a candidate has a Service file. Only
@@ -339,9 +365,7 @@ export function stepStats(roots, rootPath, scanRoot) {
     stats[name] = (stats[name] ?? 0) + 1
   }
   let claimable = false
-  for (const root of rootPath === null
-    ? roots
-    : roots.filter((r) => r.path === rootPath)) {
+  for (const root of stepRoots(roots, rootPath)) {
     const mine = stepCandidates(scanRoot(root).candidates, rootPath === null)
     for (const candidate of mine) count(`candidates.${candidate.type}`)
     if (!mine.length) continue
@@ -354,7 +378,7 @@ export function stepStats(roots, rootPath, scanRoot) {
 /**
  * Scan one root. `index` is the context index entries; `own` is the set of
  * context file paths of this root (a hint never names them).
- * Returns { candidates, skipped, truncated }.
+ * Returns { candidates, skipped }.
  */
 export function scan({
   source,
@@ -365,17 +389,14 @@ export function scan({
 }) {
   const skipped = []
   let files = rootFiles({ source, path, otherRoots })
-  let truncated = false
-  if (files.length > MAX_FILES) {
-    files = files.slice(0, MAX_FILES)
-    truncated = true
+  const realSource = realpathSync(source)
+  const kept = files.filter((file) => readable(source, realSource, file))
+  if (kept.length < files.length)
     skipped.push({
       path: null,
-      reason: `The script read only the first ${MAX_FILES} source files`,
+      reason: `${files.length - kept.length} files are larger than ${MAX_FILE_BYTES} bytes, not regular files, or behind a symbolic link, and are not read`,
     })
-  }
-  const realSource = realpathSync(source)
-  files = files.filter((file) => readable(source, realSource, file))
+  files = kept
   const groups = new Map()
   let dropped = 0
   for (const match of runRules(source, files, skipped)) {
@@ -418,17 +439,13 @@ export function scan({
       path: null,
       reason: `${dropped} calls have a target that is a variable or has no name shape`,
     })
-  let candidates = [...groups.values()].sort((a, b) =>
+  const candidates = [...groups.values()].sort((a, b) =>
     a.file !== b.file
       ? a.file < b.file
         ? -1
         : 1
       : a.line - b.line || (a.id < b.id ? -1 : 1),
   )
-  if (candidates.length > MAX_CANDIDATES) {
-    candidates = candidates.slice(0, MAX_CANDIDATES)
-    truncated = true
-  }
   return {
     candidates: candidates.map((c) => ({
       ...c,
@@ -436,6 +453,166 @@ export function scan({
       hints: hints(c.target, c.type, index, own),
     })),
     skipped,
-    truncated,
   }
+}
+
+// --- the cursor (CTX-1487) ---------------------------------------------------
+
+/**
+ * The identity of one resolved candidate: a Related line of the
+ * dependency list of a Service file. It holds the claim (predicate and
+ * target), the source repository, the root, the source file of the call,
+ * and the candidate id. The id is the hash that the scan gives the
+ * candidate (`c` and 10 hex digits), not a text of the code. Two
+ * repositories or two roots can give the same id, so the line names them.
+ * The same resolution of a candidate gives the same line. The values are
+ * code spans, so each path that `safePath` takes (also one with a space or
+ * a parenthesis) reads back the same.
+ */
+export function dependencyLine({
+  predicate,
+  link,
+  repository,
+  root,
+  file,
+  id,
+}) {
+  return `- ${predicate} \`${link}\` from \`${repository}\` root \`${root}\` file \`${file}\` (candidate \`${id}\`)`
+}
+
+/** The fields of a `dependencyLine`, or null for another line. */
+export function parseDependencyLine(text) {
+  const line =
+    /^- ([A-Z_]+) `([^`\n]+)` from `([^`\n]+)` root `([^`\n]+)` file `([^`\n]+)` \(candidate `(c[0-9a-f]{10})`\)$/.exec(
+      text.trim(),
+    )
+  if (!line) return null
+  const [, predicate, link, repository, root, file, id] = line
+  return { predicate, link, repository, root, file, id }
+}
+
+/** The Related line of a Stream file for one root that produces to or consumes from it. */
+export function streamLine({ repository, predicate, root, file }) {
+  const verb = predicate === "PRODUCES_TO" ? "produces to" : "consumes from"
+  return `- \`${repository}\` ${verb} it in \`${root}\` (\`${file}\`)`
+}
+
+/**
+ * Part `n` (2 or more) of the dependency list of a Service file. A part
+ * holds the claims and the identity lines that do not fit in the Service
+ * file (`listPlans` of apply.mjs). The host does not put a part into the
+ * root-to-file map (`isDependencyListPart` of
+ * apps/backend/src/domain/workspaces/layout.ts, the same path rule), so no
+ * skill writes a claim on it for the root.
+ */
+export function listPart(servicePath, n) {
+  return `${servicePath.replace(/\.md$/, "")}.dependencies-${n}.md`
+}
+
+/**
+ * The texts of a Service file and of each part of its dependency list that
+ * exists at the step base or in the staged tree (only the base with
+ * `{ staged: false }`): `[{ path, n, text }]`, with the part number `n` (1
+ * for the Service file), in number order. writeStep writes the parts in
+ * path order (part 10 before part 2), so a page can end with a gap in the
+ * numbers: the list reads each part that exists.
+ */
+export function listTexts(step, servicePath, { staged = true } = {}) {
+  const prefix = `${servicePath.replace(/\.md$/, "")}.dependencies-`
+  const numberOf = (path) =>
+    path.startsWith(prefix)
+      ? Number(/^([1-9]\d*)\.md$/.exec(path.slice(prefix.length))?.[1] ?? 0)
+      : 0
+  const listing = spawnSync(
+    "git",
+    [
+      "-C",
+      step.contextDir,
+      "ls-tree",
+      "-z",
+      "--name-only",
+      step.baseCommit,
+      "--",
+      `${posix.dirname(servicePath)}/`,
+    ],
+    { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
+  )
+  if (listing.error || listing.status !== 0)
+    throw new Error(`git ls-tree failed: ${listing.stderr}`)
+  const parts = new Set(listing.stdout.split("\0").filter(numberOf))
+  if (staged)
+    for (const path of stagedPaths(step)) if (numberOf(path)) parts.add(path)
+  const paths = [
+    servicePath,
+    ...[...parts].sort((a, b) => numberOf(a) - numberOf(b)),
+  ]
+  const texts = stepTexts(step, paths, { staged })
+  return paths
+    .filter((path) => texts.has(path))
+    .map((path) => ({
+      path,
+      n: path === servicePath ? 1 : numberOf(path),
+      text: texts.get(path),
+    }))
+}
+
+/**
+ * The ids of the candidates of one root that are resolved in this step, at
+ * the step base or in the staged tree. A candidate is resolved when, for
+ * each Service file of the root, its dependency list (the Service file and
+ * its parts) has an identity line of this repository and root for the
+ * candidate with a claim of the step, and has that claim. In the
+ * repository-wide step, the Stream file of the claim must also have the
+ * Related line of the root. An ignored candidate has no identity line, so
+ * it is never resolved. A candidate with two lines (resolved to one target
+ * and later to another) is one id.
+ */
+export function resolvedIds(step, root, { repositoryStep, repository }) {
+  const services = root.files.filter((f) => f.kind === "Service")
+  if (!services.length) return new Set()
+  const predicates = repositoryStep
+    ? ["PRODUCES_TO", "CONSUMES_FROM"]
+    : ["DEPENDS_ON", "CONSUMES_API"]
+  const streams = new Map()
+  const streamHas = (path, line) => {
+    if (!streams.has(path))
+      streams.set(
+        path,
+        new Set(
+          (stepTexts(step, [path]).get(path) ?? "")
+            .split("\n")
+            .map((l) => l.trim()),
+        ),
+      )
+    return streams.get(path).has(line)
+  }
+  let done = null
+  for (const service of services) {
+    const ids = new Set()
+    const texts = listTexts(step, service.path).map((part) => part.text)
+    const claims = new Set(
+      texts.flatMap((text) => [...(fileClaims(text) ?? [])]),
+    )
+    for (const text of texts) {
+      for (const raw of text.split("\n")) {
+        const line = parseDependencyLine(raw)
+        if (!line) continue
+        const { predicate, link, file, id } = line
+        if (line.repository !== repository || line.root !== root.path) continue
+        if (!predicates.includes(predicate)) continue
+        if (!claims.has(`${link} ${predicate}`)) continue
+        if (
+          repositoryStep &&
+          !streamHas(
+            posix.normalize(posix.join(posix.dirname(service.path), link)),
+            streamLine({ repository, predicate, root: root.path, file }),
+          )
+        )
+          continue
+        ids.add(id)
+      }
+    }
+    done = done === null ? ids : new Set([...done].filter((id) => ids.has(id)))
+  }
+  return done
 }

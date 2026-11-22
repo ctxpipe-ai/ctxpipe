@@ -118,9 +118,9 @@ const modelCalls: Array<{
 }> = []
 
 /**
- * The stand-in agent: one Service file for each root. The first page of the
- * `services/orders` step of the first Workspace says `more`, so the host runs
- * that skill again on the new tip (one paging channel, ADR-052 section 6).
+ * The stand-in agent: one Service file for each root. The fixture model
+ * skill has no cursor, so it has one page (CTX-1487); the page loop tests
+ * of `runSkillPages` prove the pages of a cursor skill.
  */
 function modelReply(body: IngestModelStep) {
   if (body.args?.includes(`https://github.com/${stallName}`))
@@ -131,12 +131,7 @@ function modelReply(body: IngestModelStep) {
     }
   const root = body.root ?? "."
   const name = root === "." ? "checkout-api" : root.split("/").pop()
-  const firstPage = !/\.\d+:/.test(body.step)
   return {
-    more:
-      root === "services/orders" &&
-      body.workspaceId === workspaceIds[0] &&
-      firstPage,
     files: [
       {
         path: `knowledge/services/${name}.md`,
@@ -425,15 +420,9 @@ describe("ingestion v2 in shadow mode", () => {
       const runId = handle.workflowRun.id
 
       // One model run per root and destination Workspace (2 roots, 2
-      // Workspaces), and a second page for the step that said `more`.
-      expect(modelCalls).toHaveLength(5)
-      expect(new Set(modelCalls.map((c) => `${c.step}`)).size).toBe(5)
-      expect(modelCalls.filter((c) => /\.2:/.test(c.step))).toEqual([
-        expect.objectContaining({
-          root: "services/orders",
-          workspaceId: workspaceIds[0],
-        }),
-      ])
+      // Workspaces).
+      expect(modelCalls).toHaveLength(4)
+      expect(new Set(modelCalls.map((c) => `${c.step}`)).size).toBe(4)
       expect(new Set(modelCalls.map((c) => c.workspaceId))).toEqual(
         new Set(workspaceIds),
       )
@@ -456,9 +445,7 @@ describe("ingestion v2 in shadow mode", () => {
       // The `services/orders` step runs after the `.` step of its shard, so
       // its index holds the file that the earlier step wrote.
       expect(
-        modelCalls.find(
-          (c) => c.root === "services/orders" && !/\.2:/.test(c.step),
-        )?.index,
+        modelCalls.find((c) => c.root === "services/orders")?.index,
       ).toContain("knowledge/services/checkout-api.md")
 
       expect(result).toMatchObject({ status: "done", shards: 1 })
@@ -514,11 +501,9 @@ describe("ingestion v2 in shadow mode", () => {
           and step_name like 'skill:%' and step_name not like 'skill:repository:%'
           and status = 'completed'
       `)
-      expect(
-        steps.rows
-          .filter((row) => !/\.2:/.test(row.step_name))
-          .map((row) => row.output),
-      ).toEqual(Array(4).fill(expect.objectContaining({ ops: 1, rejects: 0 })))
+      expect(steps.rows.map((row) => row.output)).toEqual(
+        Array(4).fill(expect.objectContaining({ ops: 1, rejects: 0 })),
+      )
       for (const [i, name] of contexts.entries()) {
         const workspaceId = workspaceIds[i] ?? ""
         const refs = refsOf(name)
@@ -659,8 +644,8 @@ describe("ingestion v2 paging", () => {
         authorTime: "2026-10-04T00:00:00.000Z",
       })
       const result = await handle.result({ timeoutMs: 400_000 })
-      // One page for each Workspace, not 20: no page after a page that
-      // accepted nothing.
+      // One page for each Workspace: no page after a page that accepted
+      // nothing.
       const calls = modelCalls.slice(before)
       expect(calls).toHaveLength(2)
       expect(calls.every((c) => !/\.\d+:/.test(c.step))).toBe(true)
@@ -817,9 +802,10 @@ process.exit(result.status ?? 1);
         launch(false)
         const result = await handle.result({ timeoutMs: 400_000 })
         expect(result).toMatchObject({ status: "done", shards: 1 })
-        // One model call per step: the crashed step found its commit.
-        expect(calls).toHaveLength(5)
-        expect(new Set(calls).size).toBe(5)
+        // One model call per step (2 roots, 2 Workspaces): the crashed step
+        // found its commit.
+        expect(calls).toHaveLength(4)
+        expect(new Set(calls).size).toBe(4)
         expect(calls.filter((step) => step === crashedStep)).toHaveLength(1)
         for (const [i, name] of contexts.entries()) {
           const prefix = `refs/ctxpipe/ingest/${runId}/${workspaceIds[i]}`

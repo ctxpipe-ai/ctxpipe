@@ -23,10 +23,9 @@ import {
   readDeletes,
   stagedFile,
   stagedPaths,
+  STEP_LIMITS,
   writePatch,
 } from "./stage-lib.mjs"
-
-const MAX_RELATED_LINES = 200
 
 /**
  * The one argument parser of the skill scripts (ADR-052 section 6): the host
@@ -175,7 +174,8 @@ function sourceFile(step, path, sourcePath) {
   return { path, kind: frontValue(yaml, "kind") }
 }
 
-function frontMatter(text) {
+/** The front matter block of a file text, or null. */
+export function frontMatter(text) {
   return (
     /^---[ \t]*\r?\n((?:.*\n)*?)---[ \t]*(?:\r?\n|$)/.exec(text)?.[1] ?? null
   )
@@ -184,7 +184,7 @@ function frontMatter(text) {
 const unquote = (text) => text.trim().replace(/^(["'])(.*)\1$/, "$2")
 
 /** A top-level scalar of a front matter block, or null. */
-function frontValue(yaml, key) {
+export function frontValue(yaml, key) {
   const line = yaml.split("\n").find((l) => l.startsWith(`${key}:`))
   return line ? unquote(line.slice(key.length + 1)) || null : null
 }
@@ -269,12 +269,21 @@ function claimYaml(claim, indent) {
   ].join("\n")
 }
 
+/**
+ * The bytes of a claim in a file after the validator wrote it: the YAML of
+ * the writer and the host fields `confidence` and `valid_from`.
+ */
+export function claimBytes(claim) {
+  return Buffer.byteLength(
+    `${claimYaml(claim, 2)}\n    confidence: 0.5\n    valid_from: 2026-01-01T00:00:00.000Z\n`,
+  )
+}
+
 /** Text of a new file. */
 function newFile({ kind, name, summary, intro, claims, related }) {
   const yaml = [`kind: ${kind}`, `name: ${q(name)}`, `summary: ${q(summary)}`]
   if (claims.length) yaml.push("claims:", ...claims.map((c) => claimYaml(c, 2)))
-  const lines = related.slice(0, MAX_RELATED_LINES)
-  return `---\n${yaml.join("\n")}\n---\n\n# ${name}\n\n${intro}\n\n## Related\n\n${lines.join("\n")}\n`
+  return `---\n${yaml.join("\n")}\n---\n\n# ${name}\n\n${intro}\n\n## Related\n\n${related.join("\n")}\n`
 }
 
 const YAML_ESCAPES = {
@@ -585,12 +594,11 @@ function mergeFile(text, { claims, related }) {
     const last = headings.at(-1)
     const endsInRelated =
       last?.[1] === "##" && /^related[ \t#]*$/i.test(last[2]?.trim() ?? "")
-    const room = MAX_RELATED_LINES - present.size
-    const lines = newLines.slice(0, Math.max(0, room)).join("\n")
-    if (lines)
-      nextBody = endsInRelated
-        ? `${kept}\n${lines}\n`
-        : `${kept}\n\n## Related\n\n${lines}\n`
+    // No count limit (CTX-1487): writeStep skips a file larger than 64 KiB.
+    const lines = newLines.join("\n")
+    nextBody = endsInRelated
+      ? `${kept}\n${lines}\n`
+      : `${kept}\n\n## Related\n\n${lines}\n`
   }
   return `${header}${nextBody}`
 }
@@ -608,8 +616,10 @@ function mergeFile(text, { claims, related }) {
  * validator could not take in this step: it takes at most 2 MiB of staged
  * files, and a patch.json of at most 1 MiB and 10,000 ops
  * (patch-validator.ts). The files and deletes that the step staged before
- * count too. `more` is true when a plan waits for the next page: the host
- * runs the skill again on the new base until `more` is false. A file that
+ * count too. A file larger than 64 KiB, or with more than 200 claims, gets
+ * a `skipped` entry, because no page can write it. `more` is true when a
+ * plan waits for the next page: the host runs the skill again on the new
+ * base until `more` is false. A file that
  * already has a claim or a line does not change again, so each page
  * continues where the last one stopped. `options.stats` are counts (a name
  * to a whole number) for the host.
@@ -618,8 +628,12 @@ function mergeFile(text, { claims, related }) {
  * inputs of the page loop. With `--count`, the script writes nothing and
  * prints `{"count": <plans>}`: the host runs it before the step and takes
  * the count as the length of the input. Else patch.json gets `cursor.at`,
- * the plans that the page handled before it ended. patch.json holds `more` and
- * `stats` for the host. Prints and returns { ops, skipped, more }.
+ * the plans that the page handled before it ended. A skill whose input is
+ * not its plans (a model writes the plan) gives `options.cursorAt`: a
+ * function that counts the inputs that are done after the page wrote its
+ * files. `options.claimOrder` is described at the order of the plans.
+ * patch.json holds `more` and `stats` for the host. Prints and returns
+ * { ops, skipped, more }.
  */
 export function writeStep(step, plans, skipped = [], options = {}) {
   const byPath = new Map()
@@ -643,9 +657,9 @@ export function writeStep(step, plans, skipped = [], options = {}) {
     Buffer.byteLength(JSON.stringify(op, null, 2)) + 4 * 6 + 2
   const tailReserve = 64 * 1024 // `more` and `stats` at the end of patch.json
   const room = {
-    staged: 2 * 1024 * 1024,
-    patch: 1024 * 1024 - tailReserve,
-    ops: 10_000,
+    staged: STEP_LIMITS.stagedBytes,
+    patch: STEP_LIMITS.patchBytes - tailReserve,
+    ops: STEP_LIMITS.ops,
   }
   const updateOf = (path) => ({ op: "update", path, baseBlob: "0".repeat(40) })
   // The size of each file that the step staged before. A plan that writes
@@ -666,16 +680,25 @@ export function writeStep(step, plans, skipped = [], options = {}) {
   // Path order, but each plan comes after the plans of this step that its
   // claims link to. A page that ends at a size limit then has no claim to a
   // file that the page does not write (an API file and its operations).
+  // With `options.claimOrder` "created", a claim orders only before a plan
+  // that creates its file: a file at the step base needs no order.
   const sorted = []
   const placed = new Set()
+  const atBase = new Map()
+  const existsAtBase = (path) => {
+    if (!atBase.has(path)) atBase.set(path, baseBlob(step, path) !== null)
+    return atBase.get(path)
+  }
   const place = (plan) => {
     if (placed.has(plan.path)) return
     placed.add(plan.path)
     for (const claim of plan.claims) {
-      const target = byPath.get(
-        posix.normalize(posix.join(posix.dirname(plan.path), claim.to)),
+      const path = posix.normalize(
+        posix.join(posix.dirname(plan.path), claim.to),
       )
-      if (target) place(target)
+      const target = byPath.get(path)
+      if (target && (options.claimOrder !== "created" || !existsAtBase(path)))
+        place(target)
     }
     sorted.push(plan)
   }
@@ -689,41 +712,9 @@ export function writeStep(step, plans, skipped = [], options = {}) {
   }
   let at = sorted.length
   for (const [index, plan] of sorted.entries()) {
-    const claims = [
-      ...new Map(
-        plan.claims.map((c) => [`${c.to} ${c.predicate}`, c]),
-      ).values(),
-    ]
-    const related = [...new Set(plan.related)].sort()
-    const before = baseText(step, plan.path)
-    const name =
-      before === null ? null : frontValue(frontMatter(before) ?? "", "name")
-    if (
-      plan.expectName &&
-      before !== null &&
-      (plan.exactName
-        ? name?.toLowerCase() !== plan.expectName.toLowerCase()
-        : nameKey(name) !== nameKey(plan.expectName))
-    ) {
-      skipped.push({
-        path: plan.path,
-        reason: "A file with another name has this path",
-      })
-      continue
-    }
-    if (before === null && !plan.create) {
-      skipped.push({
-        path: plan.path,
-        reason: "The file is not in the context",
-      })
-      continue
-    }
-    const text =
-      before === null
-        ? newFile({ ...plan.create, claims, related })
-        : mergeFile(before, { claims, related })
-    if (typeof text !== "string") {
-      skipped.push({ path: plan.path, reason: text.skip })
+    const { text, before, skip } = planText(step, plan)
+    if (skip) {
+      skipped.push({ path: plan.path, reason: skip })
       continue
     }
     if (text === before) continue
@@ -750,11 +741,66 @@ export function writeStep(step, plans, skipped = [], options = {}) {
   const ops = writePatch(step, {
     more,
     stats: options.stats,
-    cursor: { at },
+    cursor: { at: options.cursorAt ? options.cursorAt() : at },
   }).map(({ op, path }) => ({ op, path }))
   const result = { ops, skipped, more }
   process.stdout.write(`${JSON.stringify(result)}\n`)
   return result
+}
+
+/**
+ * The text that writeStep writes for one plan: `{ text, before }`, with the
+ * text at the step base (null for a new file), or `{ skip }` with the reason
+ * when the script cannot write the file. The validator refuses a file
+ * larger than 64 KiB (also after it adds its fields) in any step. It also
+ * refuses a file with more than 200 claims; legacy claims do not count. A
+ * next page cannot take such a file either, so it is a skip too, with
+ * `tooLarge`.
+ */
+export function planText(step, plan) {
+  const claims = [
+    ...new Map(plan.claims.map((c) => [`${c.to} ${c.predicate}`, c])).values(),
+  ]
+  const related = [...new Set(plan.related)].sort()
+  const before = baseText(step, plan.path)
+  const name =
+    before === null ? null : frontValue(frontMatter(before) ?? "", "name")
+  if (
+    plan.expectName &&
+    before !== null &&
+    (plan.exactName
+      ? name?.toLowerCase() !== plan.expectName.toLowerCase()
+      : nameKey(name) !== nameKey(plan.expectName))
+  )
+    return { skip: "A file with another name has this path" }
+  if (before === null && !plan.create)
+    return { skip: "The file is not in the context" }
+  const text =
+    before === null
+      ? newFile({ ...plan.create, claims, related })
+      : mergeFile(before, { claims, related })
+  if (typeof text !== "string") return { skip: text.skip }
+  const legacy =
+    frontMatter(text)?.match(/^ +kind: legacy[ \t]*$/gm)?.length ?? 0
+  const claimCount = fileClaims(text)?.size ?? 0
+  // The validator checks the file that it stores, too. It adds the host
+  // fields to a new file (at most 1 KiB). A file at the base has them, but
+  // `skill` gets the name of this skill, which can be longer (64 bytes).
+  // Each new claim gets `confidence`.
+  const newClaims = claimCount - (fileClaims(before ?? "")?.size ?? 0)
+  const stored =
+    Buffer.byteLength(text) +
+    (before === null ? 1024 : 64) +
+    "    confidence: 0.5\n".length * newClaims
+  if (
+    text !== before &&
+    (stored > STEP_LIMITS.fileBytes || claimCount - legacy > STEP_LIMITS.claims)
+  )
+    return {
+      skip: `The file would be larger than ${STEP_LIMITS.fileBytes / 1024} KiB or have more than ${STEP_LIMITS.claims} claims, so the script does not write it`,
+      tooLarge: true,
+    }
+  return { text, before }
 }
 
 /**
@@ -764,6 +810,16 @@ export function writeStep(step, plans, skipped = [], options = {}) {
 export function fileClaims(text) {
   return existingClaims(frontMatter(text) ?? "")
 }
+
+/**
+ * The path is a part of the dependency list of a Service file. The
+ * `dependencies` skill writes the parts (CTX-1487). A part has the kind
+ * Service, but it is not a Service, so a skill that takes a Service file
+ * from the context index refuses one. The host has the same rule
+ * (`isDependencyListPart`); a test checks both.
+ */
+export const isListPart = (path) =>
+  /^knowledge\/services\/.+\.dependencies-\d+\.md$/.test(path)
 
 /** Relative link from one context file to another. */
 export function relativeTo(from, to) {

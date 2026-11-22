@@ -1,3 +1,6 @@
+import { existsSync } from "node:fs"
+import { join } from "node:path"
+
 import { describe, expect, it } from "vitest"
 
 import {
@@ -8,6 +11,7 @@ import {
   plannedIngestSkills,
   skillStepName,
 } from "./ingestion-plan.js"
+import { INGEST_SKILLS_DIR } from "./skill-bundle.js"
 
 const root = (path: string) => ({
   path,
@@ -75,7 +79,12 @@ describe("ingestion v2 plan", () => {
       "instruction-areas",
     ]
     expect(plannedIngestSkills(bundle, "first")).toEqual([
-      { name: "repository", scope: "first", run: "script", cursor: true },
+      {
+        name: "repository",
+        scope: "first",
+        run: "script",
+        cursor: { finder: "repository.mjs" },
+      },
     ])
     expect(plannedIngestSkills(bundle, "root").map((s) => s.name)).toEqual([
       "classify-kind",
@@ -92,6 +101,34 @@ describe("ingestion v2 plan", () => {
       "decisions",
       "instruction-areas",
     ])
+  })
+
+  it("names a finder script of the bundle for each cursor skill, and gives the other skills one page (CTX-1487)", () => {
+    const bundle = [
+      "repository",
+      "classify-kind",
+      "apis",
+      "dependencies",
+      "datasources-infra",
+      "libraries",
+      "ownership",
+      "decisions",
+      "instruction-areas",
+    ]
+    const skills = (["first", "root", "repository"] as const).flatMap((scope) =>
+      plannedIngestSkills(bundle, scope),
+    )
+    for (const skill of skills)
+      if (skill.cursor)
+        expect(
+          existsSync(
+            join(INGEST_SKILLS_DIR, skill.name, "scripts", skill.cursor.finder),
+          ),
+          `${skill.name}: ${skill.cursor.finder}`,
+        ).toBe(true)
+    expect(
+      skills.filter((skill) => !skill.cursor).map((skill) => skill.name),
+    ).toEqual(["classify-kind", "datasources-infra", "instruction-areas"])
   })
 
   it("refuses a bundle skill that the plan does not know", () => {
@@ -132,6 +169,11 @@ describe("ingestRootMap", () => {
       {
         step: skillStepName("services/api", "apis", "ws_a"),
         paths: ["knowledge/services/api.md", "knowledge/apis/orders.md"],
+      },
+      {
+        // A part of a dependency list is not a file of the root (CTX-1487).
+        step: skillStepName("services/api", "dependencies", "ws_a"),
+        paths: ["knowledge/services/api.dependencies-2.md"],
       },
       {
         step: skillStepName("services/api", "classify-kind", "ws_a"),

@@ -501,7 +501,7 @@ export async function runIngestShardStep(
     const count = await root(
       ingestAgentCommand({
         env,
-        command: `node ${INGEST_SKILLS_ROOT}/${step.skill}/scripts/${step.skill}.mjs ${skillArguments} --count`,
+        command: `node ${INGEST_SKILLS_ROOT}/${step.skill}/scripts/${step.cursor.finder} ${skillArguments} --count`,
       }),
       { signal: step.signal },
     )

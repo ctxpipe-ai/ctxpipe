@@ -26,6 +26,17 @@ export const KNOWLEDGE_KIND_FOLDERS: Readonly<Record<string, string>> = {
   Team: "teams",
 }
 
+/**
+ * A part of the dependency list of a Service file,
+ * `knowledge/services/<service>.dependencies-<n>.md` (CTX-1487). The
+ * `dependencies` skill writes it when the identity lines of its resolved
+ * candidates do not fit in the Service file. It is not a package file of a
+ * root: the root-to-file map never lists it, so no skill writes a claim on it.
+ */
+export function isDependencyListPart(path: string): boolean {
+  return /^knowledge\/services\/.+\.dependencies-\d+\.md$/.test(path)
+}
+
 export function knowledgeAreaFromObjectKind(kind: string): string {
   const mapped = KNOWLEDGE_KIND_FOLDERS[kind.trim()]
   if (mapped) return mapped

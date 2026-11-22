@@ -146,7 +146,7 @@ describe("the package files of each root at the step base", () => {
   const unit = (kind: string, root: string, sources: string[]) =>
     `---\nkind: ${kind}\nname: x\ngenerated_by: ctxpipe-extract\nsources:\n${sources.map((s) => `  - ${s}\n`).join("")}root: ${JSON.stringify(root)}\n---\n# x\n`
 
-  it("lists each file of the run's source that has a root, read exactly from the front matter", async () => {
+  it("lists each file of the run's source that has a root, read exactly from the front matter, and no part of a dependency list", async () => {
     const dir = mkdtempSync(join(tmpdir(), "context-index-"))
     made.push(dir)
     git(dir, "init", "-q", "-b", "main")
@@ -157,6 +157,10 @@ describe("the package files of each root at the step base", () => {
       "knowledge/libraries/gone.md": unit("Library", "lib", [SOURCE_PATH]),
       "knowledge/services/human.md":
         "---\nkind: Service\nname: x\nroot: apps/api\n---\n",
+      // A part of the dependency list of the Service file (CTX-1487).
+      "knowledge/services/api.dependencies-2.md": unit("Service", "apps/api", [
+        SOURCE_PATH,
+      ]),
     })
     const base = commit(dir, {
       "knowledge/libraries/gone.md": null,
@@ -169,6 +173,11 @@ describe("the package files of each root at the step base", () => {
         { path: "knowledge/services/other.md", kind: "Service", links: [] },
         { path: "knowledge/libraries/gone.md", kind: "Library", links: [] },
         { path: "knowledge/services/human.md", kind: "Service", links: [] },
+        {
+          path: "knowledge/services/api.dependencies-2.md",
+          kind: "Service",
+          links: [],
+        },
       ],
       pinnedRevision: pinned,
       base,

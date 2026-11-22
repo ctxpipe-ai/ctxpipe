@@ -8,14 +8,20 @@
 //
 // The source repository is hostile. The code reads only tracked files at HEAD
 // (never a symbolic link), parses text with no regular expression that comes
-// from the repository, caps each list, and returns only text that has passed
-// `plainText` or `normalizePath`.
+// from the repository, and returns only text that has passed `plainText` or
+// `normalizePath`.
 
 import { spawnSync } from "node:child_process"
 import { mkdtempSync, realpathSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join, relative } from "node:path"
+import { join, posix, relative } from "node:path"
 
+import {
+  fileClaims,
+  frontMatter,
+  frontValue,
+} from "../../bin/knowledge-lib.mjs"
+import { stagedPaths, stepTexts } from "../../bin/stage-lib.mjs"
 import {
   readTracked,
   safePath,
@@ -33,9 +39,9 @@ export const HTTP_METHODS = [
 ]
 const METHOD_SET = new Set(HTTP_METHODS)
 
-export const MAX_SPECS = 20
-export const MAX_SPEC_OPERATIONS = 500
-export const MAX_ROUTES = 1000
+// No count limit on specification files, operations, or routes (CTX-1487):
+// the cursor pages over them. The limits below protect a process; each one
+// gives a `skipped` entry.
 const MAX_SPEC_LINES = 200_000
 const AST_GREP_TIMEOUT_MS = 90_000
 const AST_GREP_MAX_BUFFER = 32 * 1024 * 1024
@@ -291,13 +297,6 @@ function discoverSpecs(source, files, skipped) {
   const specs = []
   const candidates = files.filter((file) => SPEC_NAME.test(file)).sort()
   for (const file of candidates) {
-    if (specs.length >= MAX_SPECS) {
-      skipped.push({
-        path: null,
-        reason: `The script read only the first ${MAX_SPECS} specification files`,
-      })
-      break
-    }
     const text = readTracked(source, file)
     if (!text) {
       skipped.push({
@@ -323,10 +322,6 @@ function discoverSpecs(source, files, skipped) {
       const key = operationKey(operation.method, path)
       if (seen.has(key)) continue
       seen.add(key)
-      if (operations.length >= MAX_SPEC_OPERATIONS) {
-        refused++
-        continue
-      }
       operations.push({
         method: operation.method,
         path,
@@ -341,7 +336,7 @@ function discoverSpecs(source, files, skipped) {
     if (refused > 0)
       skipped.push({
         path: file,
-        reason: `${refused} operations were not listed: a path the script does not write, or more than ${MAX_SPEC_OPERATIONS}`,
+        reason: `${refused} operations were not listed: a path the script does not write`,
       })
     if (read.skipRefs > 0)
       skipped.push({
@@ -737,17 +732,7 @@ export function discoverApis(source, codeRoot, otherRoots = []) {
       (a.path < b.path ? -1 : a.path > b.path ? 1 : 0) ||
       (a.method < b.method ? -1 : a.method > b.method ? 1 : 0),
   )
-  if (routes.length > MAX_ROUTES)
-    skipped.push({
-      path: null,
-      reason: `The script listed only the first ${MAX_ROUTES} routes`,
-    })
-  return {
-    root: codeRoot,
-    specs,
-    routes: routes.slice(0, MAX_ROUTES),
-    skipped,
-  }
+  return { root: codeRoot, specs, routes, skipped }
 }
 
 /** Candidate operations by key: the script evidence that the writer accepts. */
@@ -770,4 +755,86 @@ export function candidateOperations(result) {
       })
   }
   return found
+}
+
+// --- the cursor (CTX-1487) ---------------------------------------------------
+
+/** The Related line of an API file of the root `codeRoot`. */
+export const apiLine = (repository, codeRoot) =>
+  `- \`${repository}\` exposes it from \`${codeRoot}\``
+
+/**
+ * The candidate operations that are done, at the step base or in the staged
+ * tree: `{ done, apiFiles }`, with the keys of the done candidates and the
+ * API files of the root (path and text) that link an Operation file. A
+ * candidate is done when an API file of the root (it has the `apiLine` of
+ * the root) has a HAS_OPERATION claim to an Operation
+ * file that matches the candidate. An Operation file matches when it has
+ * the same method (each method for a route with the method `ANY`), and its
+ * path is the candidate path or ends with it: a router under a mount prefix
+ * gives an operation with the full path.
+ */
+export function doneOperations(step, { repository, codeRoot, candidates }) {
+  const line = apiLine(repository, codeRoot)
+  // The API files of this root at the step base. git grep exits with 1
+  // when no file matches.
+  const grep = spawnSync(
+    "git",
+    [
+      "-C",
+      step.contextDir,
+      "grep",
+      "-l",
+      "-z",
+      "-F",
+      "-e",
+      line.slice(2),
+      step.baseCommit,
+      "--",
+      "knowledge/",
+    ],
+    { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
+  )
+  if (grep.error || (grep.status !== 0 && grep.status !== 1))
+    throw new Error(`git grep failed: ${grep.stderr}`)
+  const prefix = `${step.baseCommit}:`
+  const apiPaths = new Set(stagedPaths(step))
+  for (const path of grep.stdout.split("\0"))
+    if (path.startsWith(prefix)) apiPaths.add(path.slice(prefix.length))
+  const linked = new Set()
+  const apiFiles = []
+  for (const [path, text] of stepTexts(step, [...apiPaths])) {
+    const yaml = frontMatter(text)
+    if (!yaml || frontValue(yaml, "kind") !== "API" || !text.includes(line))
+      continue
+    let links = 0
+    for (const claim of fileClaims(text) ?? []) {
+      const split = claim.lastIndexOf(" ")
+      if (claim.slice(split + 1) !== "HAS_OPERATION") continue
+      links++
+      linked.add(
+        posix.normalize(posix.join(posix.dirname(path), claim.slice(0, split))),
+      )
+    }
+    if (links) apiFiles.push({ path, text })
+  }
+  // Each method and path suffix of the linked Operation files:
+  // `GET /v1/users/{id}` gives `GET /users/{id}` and `ANY /{id}`, for
+  // example.
+  const covered = new Set()
+  for (const text of stepTexts(step, [...linked]).values()) {
+    const yaml = frontMatter(text) ?? ""
+    const name = /^([A-Z]+) (\/\S*)$/.exec(frontValue(yaml, "name") ?? "")
+    if (frontValue(yaml, "kind") !== "Operation" || !name) continue
+    const segments = name[2].split("/").slice(1)
+    for (let i = 0; i < segments.length; i++) {
+      const suffix = `/${segments.slice(i).join("/")}`
+      covered.add(operationKey(name[1], suffix))
+      covered.add(operationKey("ANY", suffix))
+    }
+  }
+  return {
+    done: new Set([...candidates.keys()].filter((key) => covered.has(key))),
+    apiFiles,
+  }
 }

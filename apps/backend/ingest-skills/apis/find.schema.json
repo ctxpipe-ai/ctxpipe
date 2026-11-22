@@ -3,9 +3,23 @@
   "title": "find-apis result",
   "type": "object",
   "additionalProperties": false,
-  "required": ["root", "specs", "routes", "skipped"],
+  "required": ["root", "done", "waiting", "more", "specs", "routes", "skipped"],
   "properties": {
     "root": { "type": "string" },
+    "done": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Operations that have their file and API link already; the lists leave them out."
+    },
+    "waiting": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Operations that wait for their file."
+    },
+    "more": {
+      "type": "boolean",
+      "description": "The lists end at their size limit: run the script again after the writer has written the listed operations."
+    },
     "specs": {
       "type": "array",
       "items": {

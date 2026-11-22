@@ -13,11 +13,22 @@
 // resolved once, in the repository-wide step, because only that step writes
 // the Stream files that more than one root can share (ADR-052 section 6).
 
-import { scriptStep } from "../../bin/knowledge-lib.mjs"
-import { writePatch } from "../../bin/stage-lib.mjs"
-import { scan, stepCandidates, stepStats } from "./scan-lib.mjs"
+import { readFileSync } from "node:fs"
+import { join } from "node:path"
 
-const { step, source, roots, rootPath, index, skipped } = scriptStep()
+import { scriptStep } from "../../bin/knowledge-lib.mjs"
+import { outputBudget, writePatch } from "../../bin/stage-lib.mjs"
+import {
+  resolvedIds,
+  scan,
+  stepCandidateCount,
+  stepCandidates,
+  stepRoots,
+  stepStats,
+} from "./scan-lib.mjs"
+
+const { step, source, repository, roots, rootPath, index, skipped } =
+  scriptStep()
 const scanRoot = (root) =>
   scan({
     source,
@@ -27,12 +38,19 @@ const scanRoot = (root) =>
     own: new Set(root.files.map((f) => f.path)),
   })
 
+// --count: the finder of the cursor (CTX-1487). It prints `{"count": <n>}`,
+// the candidates of this step (`stepCandidates`) in each root of the step,
+// and writes nothing. apply.mjs counts the candidates that are resolved.
+//
 // --gate: the host runs this before the model. It prints `needsModel`, true
 // when a claim is possible: a candidate of this step, in a root with a Service
 // file. The script writes the counts to patch.json. When the model runs and
 // does not run apply.mjs, ctxpipe-finish keeps these counts. When
 // `needsModel` is false, the host runs no model.
-if (process.argv.includes("--gate")) {
+if (process.argv.includes("--count")) {
+  const count = stepCandidateCount(roots, rootPath, scanRoot)
+  process.stdout.write(`${JSON.stringify({ count })}\n`)
+} else if (process.argv.includes("--gate")) {
   const { stats, claimable } = stepStats(roots, rootPath, scanRoot)
   if (!claimable)
     stats[
@@ -40,29 +58,52 @@ if (process.argv.includes("--gate")) {
     ] = 1
   writePatch(step, { stats })
   process.stdout.write(`${JSON.stringify({ needsModel: claimable })}\n`)
-} else if (rootPath !== null) {
-  const current = roots.find((r) => r.path === rootPath) ?? {
-    path: rootPath,
-    files: [],
-  }
-  const result = scanRoot(current)
-  process.stdout.write(
-    `${JSON.stringify({
-      root: rootPath,
-      ...result,
-      candidates: stepCandidates(result.candidates, false),
-      skipped: [...skipped, ...result.skipped],
-    })}\n`,
-  )
 } else {
-  const out = roots.map((root) => {
+  // The list holds only the candidates that wait (CTX-1487): a candidate of
+  // the step with no identity line (`resolvedIds`), which resolutions.json
+  // of this page does not name. It has no count limit. It ends at the size
+  // limit of `outputBudget`, so that the model can read it; then `more` is
+  // true.
+  const repositoryStep = rootPath === null
+  let named = []
+  try {
+    const parsed = JSON.parse(
+      readFileSync(join(step.stepDir, "resolutions.json"), "utf8"),
+    )
+    if (Array.isArray(parsed?.resolutions)) named = parsed.resolutions
+  } catch {}
+  const listed = new Set(
+    named
+      .filter((r) => typeof r?.id === "string")
+      .map((r) => `${repositoryStep ? r.root : rootPath} ${r.id}`),
+  )
+  const budget = outputBudget()
+  let waiting = 0
+  const list = (root) => {
     const result = scanRoot(root)
-    return {
-      root: root.path,
-      candidates: stepCandidates(result.candidates, true),
-      skipped: result.skipped,
-      truncated: result.truncated,
-    }
-  })
-  process.stdout.write(`${JSON.stringify({ roots: out, skipped })}\n`)
+    const done = resolvedIds(step, root, { repositoryStep, repository })
+    const open = stepCandidates(result.candidates, repositoryStep).filter(
+      (c) => !done.has(c.id) && !listed.has(`${root.path} ${c.id}`),
+    )
+    waiting += open.length
+    const candidates = open.filter((c) => budget.take(c))
+    return { root: root.path, candidates, skipped: result.skipped }
+  }
+  const out = stepRoots(roots, rootPath).map(list)
+  const more = budget.more()
+  if (!repositoryStep) {
+    process.stdout.write(
+      `${JSON.stringify({
+        root: rootPath,
+        waiting,
+        more,
+        candidates: out[0].candidates,
+        skipped: [...skipped, ...out[0].skipped],
+      })}\n`,
+    )
+  } else {
+    process.stdout.write(
+      `${JSON.stringify({ waiting, more, roots: out, skipped })}\n`,
+    )
+  }
 }

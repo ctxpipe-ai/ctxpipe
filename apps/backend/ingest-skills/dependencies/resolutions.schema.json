@@ -6,7 +6,7 @@
   "properties": {
     "resolutions": {
       "type": "array",
-      "maxItems": 300,
+      "description": "At most one resolution for each candidate of the step.",
       "items": {
         "type": "object",
         "required": ["id", "kind"],
