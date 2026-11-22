@@ -280,6 +280,59 @@ const wideUnits: (RelatedUnit & { text: string })[] = [
   ),
 ]
 
+/**
+ * A Workspace for the steps of CTX-1534. Two paths of the same length go
+ * from the seed to the answer, each through a middle document that is only
+ * a hub. The dead end is a hub with no answer after it. The aside is
+ * neither a hub nor an answer.
+ */
+const diamondUnits: (RelatedUnit & { text: string })[] = [
+  {
+    path: "diamond/seed.md",
+    kind: "Note",
+    title: "Diamond seed",
+    text: "The start.",
+    claims: [
+      { to: "diamond/left.md", predicate: "MENTIONS", confidence: 0.8 },
+      { to: "diamond/right.md", predicate: "MENTIONS", confidence: 0.8 },
+      { to: "diamond/dead-end.md", predicate: "MENTIONS", confidence: 0.8 },
+      { to: "diamond/aside.md", predicate: "MENTIONS", confidence: 0.8 },
+    ],
+  },
+  {
+    path: "diamond/dead-end.md",
+    kind: "Note",
+    title: "Diamond dead end",
+    text: "A bridge to nothing. hub",
+  },
+  {
+    path: "diamond/aside.md",
+    kind: "Note",
+    title: "Diamond aside",
+    text: "A note about lunch.",
+  },
+  {
+    path: "diamond/left.md",
+    kind: "Note",
+    title: "Diamond left",
+    text: "A bridge. hub",
+    claims: [{ to: "diamond/far.md", predicate: "MENTIONS", confidence: 0.8 }],
+  },
+  {
+    path: "diamond/right.md",
+    kind: "Note",
+    title: "Diamond right",
+    text: "A second bridge. hub",
+    claims: [{ to: "diamond/far.md", predicate: "MENTIONS", confidence: 0.7 }],
+  },
+  {
+    path: "diamond/far.md",
+    kind: "Note",
+    title: "Diamond far",
+    text: "answer",
+  },
+]
+
 /** The rows of `list` in the knowledge plane for one Workspace. */
 function planeRows(
   workspaceId: string,
@@ -579,9 +632,28 @@ describe("the knowledge reader seam", () => {
     } finally {
       await wideWriter.close()
     }
+    // The diamond Workspace is only on the plane.
+    const diamondWorkspace = await seedRelatedWorkspace({
+      seed,
+      slug: "diamond",
+      sha: legacySha,
+      units: [],
+    })
+    ids.diamond = diamondWorkspace.workspaceId
+    const diamondWriter = createKnowledgeStore(url)
+    try {
+      await writePlaneDocuments(
+        diamondWriter,
+        { orgId: seed.orgId, workspaceId: diamondWorkspace.workspaceId },
+        planeRows(diamondWorkspace.workspaceId, diamondUnits),
+      )
+    } finally {
+      await diamondWriter.close()
+    }
     await markReady(ids.ready as string)
     await markReady(ids.paging as string)
     await markReady(ids.wide as string)
+    await markReady(ids.diamond as string)
     // A first run that has not ended: not ready.
     await beginKnowledgeRun({
       orgId: seed.orgId,
@@ -971,6 +1043,35 @@ describe("the knowledge reader seam", () => {
     expect(refs.filter((ref) => ref.startsWith("wide/c-"))).toEqual([])
   })
 
+  it("on: get_related keeps each document that Jev marks to explore as a step, also with no answer after it", async () => {
+    await setFlag("on")
+    const content = structured(
+      await relatedCall({
+        workspace: "diamond",
+        seeds: ["diamond/seed.md"],
+        maxDepth: 3,
+      }),
+    )
+    const results = content.results as {
+      ref: string
+      path: { from: string; to: string }[]
+    }[]
+    // The why path of the answer goes through the left document, the
+    // relation with the higher confidence. The right document is the step
+    // of the other path, and the dead end is a step with no answer after
+    // it. The aside has a low p(explore), so it is no step.
+    expect(results.map((result) => result.ref)).toEqual([
+      "diamond/far.md",
+      "diamond/dead-end.md",
+      "diamond/left.md",
+      "diamond/right.md",
+    ])
+    expect(results[0]?.path.map((step) => step.to)).toEqual([
+      "diamond/left.md",
+      "diamond/far.md",
+    ])
+  })
+
   it("get_related tells agents about the positions in its description and output schema", async () => {
     const { tools } = await related.listTools()
     const tool = tools.find((item) => item.name === "get_related")
@@ -1001,9 +1102,11 @@ describe("the knowledge reader seam", () => {
   it("on: get_related with maxDepth 1 does not explore past the first layer", async () => {
     await setFlag("on")
     const content = structured(await relatedCall({ maxDepth: 1 }))
+    // Jev marks the ledger to explore, so it is a step (CTX-1534), also
+    // when the depth stops the loop before the decision after it.
     expect(
       (content.results as { ref: string }[]).map((result) => result.ref),
-    ).toEqual(["knowledge/teams/payments.md"])
+    ).toEqual(["knowledge/teams/payments.md", "knowledge/databases/ledger.md"])
     expect(jevRequests).toEqual([{ candidates: 1 }, { candidates: 3 }])
   })
 
@@ -1016,15 +1119,18 @@ describe("the knowledge reader seam", () => {
         }[]
       ).map((result) => result.ref)
     // The checkout seed does not answer ("hub" only), so it is no result.
+    // The ledger is a step (a hub).
     expect(await refs({ includeSeeds: true })).toEqual([
       "knowledge/teams/payments.md",
+      "knowledge/databases/ledger.md",
     ])
     expect(
       await refs({
         seeds: ["knowledge/teams/payments.md"],
         includeSeeds: true,
       }),
-    ).toEqual(["knowledge/teams/payments.md"])
+      // Its neighbor, the checkout service, is a step (a hub).
+    ).toEqual(["knowledge/teams/payments.md", "knowledge/services/checkout.md"])
     // Layer 0 judges the payments seed, and layer 1 judges its neighbor.
     expect(jevRequests.slice(-2)).toEqual([
       { candidates: 1 },
@@ -1061,10 +1167,11 @@ describe("the knowledge reader seam", () => {
           ref: string
         }[]
       ).map((result) => result.ref)
-    // GOVERNED_BY is valid from 2026-01-01.
+    // GOVERNED_BY is valid from 2026-01-01. The ledger is a step (a hub)
+    // in both windows.
     expect(
       await refs({ from: "2025-01-01T00:00:00Z", to: "2025-06-01T00:00:00Z" }),
-    ).toEqual(["knowledge/teams/payments.md"])
+    ).toEqual(["knowledge/teams/payments.md", "knowledge/databases/ledger.md"])
     expect(
       await refs({ from: "2026-02-01T00:00:00Z", to: "2026-03-01T00:00:00Z" }),
     ).toEqual([
@@ -1210,9 +1317,10 @@ describe("the knowledge reader seam", () => {
       partial: true,
       partialReason: "total_timeout",
     })
+    // The judged layers: the answer and the hub of layer 1, a step.
     expect(
       (content.results as { ref: string }[]).map((result) => result.ref),
-    ).toEqual(["knowledge/teams/payments.md"])
+    ).toEqual(["knowledge/teams/payments.md", "knowledge/databases/ledger.md"])
     expect(content.positions).toBeUndefined()
   }, 15_000)
 

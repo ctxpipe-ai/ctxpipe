@@ -343,8 +343,10 @@ function claimsByDocument(
 /**
  * `get_related`: layer 0 judges the seeds, then up to D layers of the loop.
  * A result is a judged document with p(answers) of at least the `keepAt`
- * setting (a seed only with `includeSeeds`), or a step on the "why" path of
- * such a result; p(answers) is its score. Then the disagreement step gives
+ * setting (a seed only with `includeSeeds`), or a step: a document on the
+ * "why" path of such a result, or one with p(explore) of at least the
+ * `exploreAt` setting (not a seed); p(answers) is its score. Then the
+ * disagreement step gives
  * the positions of the top results that answer (ADR-068 decision 4). When
  * the time budget ends, the result is partial, with `total_timeout` and no
  * positions. When Jev fails, the call fails with `judge_unavailable`.
@@ -438,7 +440,7 @@ async function related(
     })
     const keepsKind = kindFilter(input)
     const answers = answerNodes(traversal.nodes, input.includeSeeds, keepsKind)
-    results = withSteps(answers, keepsKind)
+    results = withSteps(answers, traversal.nodes, keepsKind)
     const top = answers.slice(0, ORCHESTRATOR_DEFAULTS.disagreementItems)
     if (top.length > 0 && !traversal.partialReason)
       positions = await disagreementPositions(
@@ -502,12 +504,20 @@ function answerNodes(
  * an answer, so the caller gets the chain. The `RANKED_LIMIT` applies to an
  * answer and its steps together: an answer whose new steps do not fit ends
  * the results, so that no kept answer loses a step. The cut is strictly by
- * rank: no answer after it is a result, also when it would fit. A step
- * keeps its own p(answers) as its score, which is below `keepAt`, so the
- * steps come after the answers.
+ * rank: no answer after it is a result, also when it would fit.
+ *
+ * Then, while they fit, the other steps: each document that is not a seed,
+ * passes the kind filters, and has a p(explore) of at least `exploreAt`
+ * (CTX-1534). Jev judged that the search must explore from it to answer the
+ * question, so it is a needed step, also when no answer comes after it: two
+ * paths of the same length reach one answer, or the answer at the end of
+ * the path is under `keepAt`, or the loop reached its depth. A step keeps
+ * its own p(answers) as its score, which is below `keepAt`, so the steps
+ * come after the answers.
  */
 function withSteps(
   answers: readonly TraversalNode[],
+  nodes: readonly TraversalNode[],
   keepsKind: (node: TraversalNode) => boolean,
 ): TraversalNode[] {
   const kept = new Set<TraversalNode>()
@@ -516,9 +526,19 @@ function withSteps(
     for (let step = answer.parent?.node; step; step = step.parent?.node)
       if (step.depth > 0 && keepsKind(step)) chain.push(step)
     const added = chain.filter((node) => !kept.has(node))
-    if (kept.size + added.length > RANKED_LIMIT) break
+    if (kept.size + added.length > RANKED_LIMIT) return [...kept].sort(byScore)
     for (const node of added) kept.add(node)
   }
+  const steps = nodes
+    .filter(
+      (node) =>
+        node.depth > 0 &&
+        node.pExplore >= ORCHESTRATOR_DEFAULTS.exploreAt &&
+        !kept.has(node) &&
+        keepsKind(node),
+    )
+    .sort(byScore)
+  for (const step of steps.slice(0, RANKED_LIMIT - kept.size)) kept.add(step)
   return [...kept].sort(byScore)
 }
 

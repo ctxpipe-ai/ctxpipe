@@ -563,20 +563,19 @@ describe("the knowledge eval harness", () => {
       pageBytes,
     })
     expect(page(rescored.checks.plane)).toEqual(page(live.checks.plane))
-    // At 0.95, get_related on the plane keeps no document (Jev gave 0.9),
-    // so each question with seeds gets worse; a no-answer stays correct.
+    // At 0.95, no document of get_related on the plane answers (Jev gave
+    // 0.9). A gold document stays a step, because Jev gave it a p(explore)
+    // of 0.9 (CTX-1534), so traversal recall stays. The questions with
+    // positions get worse, because the disagreement step compares only the
+    // answers. A no-answer stays correct.
     expect(
       rescored.questions
         .filter((question) => question.change !== "same")
         .map(({ arm, question, change }) => ({ arm, question, change })),
     ).toEqual(
-      [
-        "local-dev-infra",
-        "agent-memory",
-        "hosted-region",
-        "ops-observability",
-        "knowledge-store",
-      ].map((question) => ({ arm: "plane", question, change: "worse" })),
+      ["local-dev-infra", "agent-memory", "ops-observability"].map(
+        (question) => ({ arm: "plane", question, change: "worse" }),
+      ),
     )
     expect(
       rescored.questions.find(
@@ -585,7 +584,8 @@ describe("the knowledge eval harness", () => {
       )?.metrics.noAnswer,
     ).toBe(1)
     // The keep-or-revert rule reads the plane against the kept run: the
-    // hold-out set gets worse, and a replay gives no latency guard.
+    // positions of the hold-out set get worse, and a replay gives no
+    // latency guard.
     const round = (values: Record<string, number | null>) =>
       Object.fromEntries(
         Object.entries(values).map(([key, value]) => [
@@ -606,7 +606,7 @@ describe("the knowledge eval harness", () => {
           "positions": -1,
           "recall5": 0,
           "searchRecall50": 0,
-          "traversalRecall": -1,
+          "traversalRecall": 0,
         },
         "kept": {
           "ndcg10": 1,
@@ -622,7 +622,7 @@ describe("the knowledge eval harness", () => {
           "positions": 0,
           "recall5": 1,
           "searchRecall50": 1,
-          "traversalRecall": 0,
+          "traversalRecall": 1,
         },
         "questions": 4,
         "split": "holdout",
@@ -686,7 +686,7 @@ describe("the knowledge eval harness", () => {
     )
     expect(markdown).toContain("## The plane against the kept run")
     expect(markdown).toContain(
-      "| holdout | all | 4 | traversal recall | 1.000 | 0.000 | -1.000 |",
+      "| holdout | all | 4 | positions correct | 1.000 | 0.000 | -1.000 |",
     )
     expect(markdown).toContain(
       "| holdout | 4 | Jev calls / question | 3.000 | 2.500 | -0.500 |",
