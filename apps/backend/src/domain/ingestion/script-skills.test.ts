@@ -932,6 +932,39 @@ describe("ownership skill", () => {
       expect(web).not.toContain("predicate: OWNS")
     })
 
+    it("lists an OWNERS file larger than 1 MiB in skipped, not as an empty file", () => {
+      const s = step(
+        {
+          ...OWNED_SHOP,
+          "apps/web/OWNERS": `approvers:\n  - web-approvers\n${"# x\n".repeat(300_000)}`,
+        },
+        {},
+      )
+      const out = s.run("ownership")
+      expect(out.skipped).toEqual([
+        {
+          path: "apps/web/OWNERS",
+          reason: "The script cannot read the file: it is larger than 1 MiB",
+        },
+      ])
+    })
+
+    it("lists an OWNERS_ALIASES file larger than 1 MiB in skipped", () => {
+      const s = step(
+        {
+          ...OWNED_SHOP,
+          OWNERS_ALIASES: `aliases:\n  web-approvers: [dave]\n${"# x\n".repeat(300_000)}`,
+        },
+        {},
+      )
+      const out = s.run("ownership")
+      expect(out.skipped).toContainEqual({
+        path: "OWNERS_ALIASES",
+        reason: "The script cannot read the file: it is larger than 1 MiB",
+      })
+      expect(out.ops.map((o) => o.path).join()).not.toContain("approvers")
+    })
+
     it("lists an OWNERS file that it cannot read in skipped and reads the others", () => {
       const s = step(
         {
@@ -1879,6 +1912,26 @@ describe("feature-gates skill (CTX-1513)", () => {
     expect(gift).not.toContain("- Stage: alpha\n")
     s.advance(result.tree)
     expect(s.run("feature-gates").ops).toEqual([])
+  })
+
+  it("lists a gate file larger than 1 MiB in skipped", () => {
+    const s = step(
+      {
+        "go.mod": "module example.org/shop\n\ngo 1.24\n",
+        "pkg/features/features.go": `package features\n\nconst (\n\tGiftCards featuregate.Feature = "GiftCards"\n)\n${"// x\n".repeat(300_000)}`,
+      },
+      CONTEXT,
+    )
+    expect(s.run("feature-gates")).toEqual({
+      ops: [],
+      skipped: [
+        {
+          path: "pkg/features/features.go",
+          reason: "The script cannot read the file: it is larger than 1 MiB",
+        },
+      ],
+      more: false,
+    })
   })
 
   it("cuts a description at 2 KiB and records the cut in skipped", async () => {

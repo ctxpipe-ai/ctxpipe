@@ -143,12 +143,24 @@ function goSpecList(body) {
 }
 
 /**
- * The feature gates of the given files. Each gate is
+ * The feature gates of the given files. A file that the script cannot read
+ * gets an entry in `skipped`. Each gate is
  * { name, file, line, convention, stage, default, locked, since, history,
  *   owners, keps, issue, description, descriptionCut }.
  */
-export function findGates(source, paths) {
-  const texts = new Map(paths.map((p) => [p, readTracked(source, p)]))
+export function findGates(source, paths, skipped = []) {
+  const texts = new Map()
+  for (const path of paths) {
+    const text = readTracked(source, path, null)
+    // A file that git cannot give (larger than 1 MiB) is recorded, not read
+    // as an empty file.
+    if (text === null)
+      skipped.push({
+        path,
+        reason: "The script cannot read the file: it is larger than 1 MiB",
+      })
+    else texts.set(path, text)
+  }
   const gates = []
   for (const [file, text] of texts) {
     const lines = text.split("\n")

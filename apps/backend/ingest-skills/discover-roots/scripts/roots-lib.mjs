@@ -159,14 +159,17 @@ export function trackedFiles(source) {
     .filter(Boolean)
 }
 
-/** Text of a tracked file at HEAD; "" when it is missing or larger than 1 MiB (a manifest is small). */
-export function readTracked(source, path) {
+/**
+ * Text of a tracked file at HEAD; `missing` ("" when not given) when it is
+ * missing or larger than 1 MiB (a manifest is small).
+ */
+export function readTracked(source, path, missing = "") {
   try {
     return execFileSync("git", ["-C", source, "show", `HEAD:${path}`], {
       maxBuffer: 1024 * 1024,
     }).toString("utf8")
   } catch {
-    return ""
+    return missing
   }
 }
 

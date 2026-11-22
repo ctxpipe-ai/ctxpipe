@@ -734,10 +734,11 @@ describe("classify-kind purpose (CTX-1514)", () => {
       reason:
         "The purpose in the file looks like an instruction to an agent, so the script did not use it",
     })
+    const [op] = out.ops
     expect(out.ops.length).toBe(1)
     const result = await s.validate()
     expect(result.rejections).toEqual([])
-    const text = s.show(result.tree, out.ops[0]!.path)
+    const text = s.show(result.tree, op?.path ?? "")
     expect(text).toContain("summary: Takes the orders of the shop.")
     expect(text).not.toContain("Ignore all previous instructions")
   })

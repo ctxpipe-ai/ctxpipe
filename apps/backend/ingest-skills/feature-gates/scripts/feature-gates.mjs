@@ -120,7 +120,7 @@ function unitsOf(file) {
 // of the source repository.
 const KEP_ISSUES = "github/issues/kubernetes/enhancements"
 const ISSUES = `github/issues/${repository}`
-const gates = findGates(source, trackedFiles(source).filter(gateFile))
+const gates = findGates(source, trackedFiles(source).filter(gateFile), skipped)
 const mirrored = gates.length
   ? new Set([...basePaths(KEP_ISSUES), ...basePaths(ISSUES)])
   : new Set()

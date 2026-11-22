@@ -184,7 +184,20 @@ const where = (dir) => (dir === "." ? "the repository top" : `\`${dir}\``)
 export function ownersPlans({ source, files, repository, roots, index }) {
   const skipped = []
   if (!files.has(ALIASES_FILE)) return { plans: [], skipped }
-  const aliasesYaml = readOwnersYaml(readTracked(source, ALIASES_FILE))
+  // A file that git cannot give (larger than 1 MiB) is recorded, not read
+  // as an empty file.
+  const read = (file) => {
+    const text = readTracked(source, file, null)
+    if (text === null)
+      skipped.push({
+        path: file,
+        reason: "The script cannot read the file: it is larger than 1 MiB",
+      })
+    return text
+  }
+  const aliasesText = read(ALIASES_FILE)
+  if (aliasesText === null) return { plans: [], skipped }
+  const aliasesYaml = readOwnersYaml(aliasesText)
   const aliases = new Map()
   if (!aliasesYaml) {
     skipped.push({
@@ -215,7 +228,9 @@ export function ownersPlans({ source, files, repository, roots, index }) {
   for (const file of [...files].filter((f) => OWNERS_FILE.test(f)).sort()) {
     const dir = folderOf(file)
     if (ignoredFolder(dir)) continue
-    const yaml = readOwnersYaml(readTracked(source, file))
+    const text = read(file)
+    if (text === null) continue
+    const yaml = readOwnersYaml(text)
     if (!yaml) {
       skipped.push({
         path: file,
