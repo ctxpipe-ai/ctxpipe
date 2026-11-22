@@ -752,9 +752,10 @@ export function writeStep(step, plans, skipped = [], options = {}) {
  * The text that writeStep writes for one plan: `{ text, before }`, with the
  * text at the step base (null for a new file), or `{ skip }` with the reason
  * when the script cannot write the file. The validator refuses a file
- * larger than 64 KiB (also after it adds its fields), or with more than
- * 200 claims (legacy claims do not count), in any step. So a next page cannot take it either: that file is
- * a skip too, with `tooLarge`.
+ * larger than 64 KiB (also after it adds its fields) in any step. It also
+ * refuses a file with more than 200 claims; legacy claims do not count. A
+ * next page cannot take such a file either, so it is a skip too, with
+ * `tooLarge`.
  */
 export function planText(step, plan) {
   const claims = [
@@ -782,11 +783,14 @@ export function planText(step, plan) {
   const legacy =
     frontMatter(text)?.match(/^ +kind: legacy[ \t]*$/gm)?.length ?? 0
   const claimCount = fileClaims(text)?.size ?? 0
-  // The validator checks the file that it stores, too: it adds the host
-  // fields (at most 1 KiB) and `confidence` to each new claim.
+  // The validator checks the file that it stores, too. It adds the host
+  // fields to a new file (at most 1 KiB; a file at the base has them), and
+  // `confidence` to each new claim.
   const newClaims = claimCount - (fileClaims(before ?? "")?.size ?? 0)
   const stored =
-    Buffer.byteLength(text) + 1024 + "    confidence: 0.5\n".length * newClaims
+    Buffer.byteLength(text) +
+    (before === null ? 1024 : 0) +
+    "    confidence: 0.5\n".length * newClaims
   if (
     text !== before &&
     (stored > STEP_LIMITS.fileBytes || claimCount - legacy > STEP_LIMITS.claims)
