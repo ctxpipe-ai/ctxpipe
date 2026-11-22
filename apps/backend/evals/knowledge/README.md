@@ -185,7 +185,7 @@ Exit codes: 0 done, 2 bad setup, 3 the spend cap stopped the command.
 bun evals/knowledge/cli.ts finalize --draft LABELED-A.json,LABELED-B.json --out DATASET.json
 ```
 
-`finalize` merges the labeled files (for example one for Kubernetes and Rust, and one for Backstage after its freeze). It gives each document one position, and it drops and lists each question that the rules of `dataset.ts` reject, for example a disagreement question whose positions do not disagree. It makes no model call. It keeps the first questions of each corpus and category up to the quota, and gives the splits: in each corpus and category, 40% of the questions are `holdout`, spread evenly, so that each count is as near to 3:2 as it can be (4 give 2:2, 5 give 3:2, 8 give 5:3). It refuses files with different versions or two different corpora of one id, and it writes the dataset only when `dataset.ts` accepts it.
+`finalize` merges the labeled files (for example one for Kubernetes and Rust, and one for Backstage after its freeze). It gives each document one position, and it drops each question that the rules of `dataset.ts` reject, for example a disagreement question whose positions do not disagree. It lists each dropped question and its reason, also in `OUT.dropped.json`. It makes no model call. It keeps the first questions of each corpus and category up to the quota, and gives the splits: in each corpus and category, 40% of the questions are `holdout`, spread evenly, so that each count is as near to 3:2 as it can be (4 give 2:2, 5 give 3:2, 8 give 5:3). It refuses files with different versions or two different corpora of one id, and it writes the dataset only when `dataset.ts` accepts it.
 
 ### Make the public corpora
 

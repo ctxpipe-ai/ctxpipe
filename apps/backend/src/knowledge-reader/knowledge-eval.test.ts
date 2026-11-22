@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -111,6 +111,13 @@ describe("the dataset", () => {
       disagreement([
         { refs: ["a.md"], status: "superseded" },
         { refs: ["b.md"], status: "current" },
+      ]),
+    ).toBeUndefined()
+    // Two disputed documents disagree, also with one status.
+    expect(
+      disagreement([
+        { refs: ["a.md"], status: "disputed" },
+        { refs: ["b.md"], status: "disputed" },
       ]),
     ).toBeUndefined()
     expect(check({ gold: ["../outside.md"] })?.[0]).toBe(
@@ -675,13 +682,6 @@ describe("the commands that call a model", () => {
 describe("finalize", () => {
   it("gives each document one position, and drops and lists the questions that the rules reject", async () => {
     const dir = mkdtempSync(join(tmpdir(), "eval-finalize-"))
-    const written: string[] = []
-    const stderr = vi
-      .spyOn(process.stderr, "write")
-      .mockImplementation((chunk: string | Uint8Array) => {
-        written.push(String(chunk))
-        return true
-      })
     try {
       const dataset = await readDataset(datasetFile)
       const disagreement = dataset.questions.filter(
@@ -700,7 +700,7 @@ describe("finalize", () => {
               ...first,
               positions: [...(first.positions ?? []), first.positions?.[0]],
             },
-            // All current: one position, so no disagreement.
+            // All current: no disagreement.
             {
               ...second,
               positions: second.positions?.map((position) => ({
@@ -720,11 +720,16 @@ describe("finalize", () => {
         first.id,
       ])
       expect(result.questions[0]?.positions).toEqual(first.positions)
-      expect(written.join("")).toContain(
-        `Dropped ${second.id}: a disagreement question needs at least two positions.`,
-      )
+      expect(
+        JSON.parse(readFileSync(`${out}.dropped.json`, "utf8")).dropped,
+      ).toEqual([
+        {
+          question: second.id,
+          reason:
+            "a disagreement question needs a position that is not current",
+        },
+      ])
     } finally {
-      stderr.mockRestore()
       rmSync(dir, { recursive: true, force: true })
     }
   })
@@ -1064,15 +1069,20 @@ describe("the judge panel", () => {
         ...draft,
         questions: [
           {
-            ...draft.questions[0],
             id: "twice",
+            corpus: "corpus",
+            category: "disagreement",
+            split: "dev",
+            text: "Which rule is current?",
             gold: ["old.md", "new.md"],
+            seeds: ["new.md"],
             // old.md is in two drafted positions.
             positions: [
               { refs: ["old.md"], status: "superseded" },
               { refs: ["old.md", "new.md"], status: "current" },
             ],
-          } as Dataset["questions"][number],
+            keyFacts: ["The new rule is current."],
+          },
         ],
       },
       models: Object.keys(replies),

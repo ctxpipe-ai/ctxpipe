@@ -594,11 +594,15 @@ export async function main(argv: string[]): Promise<number> {
           : question
         return { question: next, problems: questionProblems(next) }
       })
-    for (const { question, problems } of checked)
-      if (problems.length > 0)
-        process.stderr.write(
-          `Dropped ${question.id}: ${problems.join("; ")}.\n`,
-        )
+    const dropped = checked
+      .filter(({ problems }) => problems.length > 0)
+      .map(({ question, problems }) => ({
+        question: question.id,
+        reason: problems.join("; "),
+      }))
+    for (const { question, reason } of dropped)
+      process.stderr.write(`Dropped ${question}: ${reason}.\n`)
+    await writeJson(`${out}.dropped.json`, { dropped })
     await writeJson(
       out,
       datasetSchema.parse({

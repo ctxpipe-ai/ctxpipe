@@ -95,22 +95,18 @@ export type Question = z.infer<typeof questionSchema>
 export type Position = z.infer<typeof positionSchema>
 
 /**
- * `positions` with each document one time: a document keeps the status of
- * its first position, and the documents of one status form one position.
+ * `positions` with each document one time: a document stays only in its
+ * first position, and a position with no document left goes out. The other
+ * positions stay apart, also when their status is the same (two disputed
+ * positions are a disagreement).
  */
 export function onePositionEach(positions: readonly Position[]): Position[] {
-  const byStatus = new Map<Position["status"], string[]>()
   const placed = new Set<string>()
-  for (const position of positions)
-    for (const ref of position.refs) {
-      if (placed.has(ref)) continue
-      placed.add(ref)
-      byStatus.set(position.status, [
-        ...(byStatus.get(position.status) ?? []),
-        ref,
-      ])
-    }
-  return [...byStatus].map(([status, refs]) => ({ refs, status }))
+  return positions.flatMap((position) => {
+    const refs = [...new Set(position.refs)].filter((ref) => !placed.has(ref))
+    for (const ref of refs) placed.add(ref)
+    return refs.length > 0 ? [{ ...position, refs }] : []
+  })
 }
 
 /** The problems of one question that the field types do not catch. */
