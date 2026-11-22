@@ -62,7 +62,7 @@ describe("issue mentions (CTX-1502)", () => {
       body: [
         "The cache in packages/client-lib/src/cache.ts is stale after",
         "GET /orders/{orderId} and a call to /api/v1/orders or `/status/`.",
-        "DELETE /api/v1/carts works.",
+        "DELETE /api/v1/carts works, and POST `/carts` too.",
         "The `order-worker` also uses client-lib, not `x`, `db` or `HOME`.",
         "The page docs/guide/payment-service.md names no unit, nor @ops-team.",
         "See https://example.com/docs/guide.md for the guide.",
@@ -85,6 +85,7 @@ describe("issue mentions (CTX-1502)", () => {
       ["name:order-worker", 0.8],
       ["op:DELETE /api/v1/carts", 0.9],
       ["op:GET /orders/{}", 0.9],
+      ["op:POST /carts", 0.9],
       ["oppath:/api/v1/orders", 0.8],
       ["oppath:/status", 0.8],
     ])

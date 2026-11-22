@@ -248,21 +248,23 @@ function mentionLinks(input: {
       for (const key of folderKeysOf(repository, file))
         mention(key, 0.9, match[0])
   }
+  // A method and a path, also with the path in a code span (GET `/orders`).
   const operation = new RegExp(
-    `\\b(${HTTP_METHODS})\\s+(\\/(?:[\\w./{}:-]*[\\w}])?)`,
+    `\\b(${HTTP_METHODS})\\s+(\`?)(\\/(?:[\\w./{}:-]*[\\w}])?)\\2`,
     "g",
   )
   for (const match of body.matchAll(operation))
-    mention(operationKey(match[1] ?? "", match[2] ?? ""), 0.9, match[0])
+    mention(operationKey(match[1] ?? "", match[3] ?? ""), 0.9, match[0])
 
   // A path with its method names only the operation of that method, so the
   // rules of a path with no method do not read it.
-  for (const span of spans)
-    if (/^(?:\/[\w.{}:-]+)+\/?$/.test(span))
-      mention(operationPathKey(span), 0.8, span)
-  for (const match of prose
-    .replace(operation, " ")
-    .matchAll(/(?<![\w./-])\/apis?\/(?:[\w./{}:-]*[\w}])?/g))
+  const pathText = prose.replace(operation, " ")
+  for (const [, span = ""] of pathText.matchAll(/`([^`\n]+)`/g))
+    if (/^(?:\/[\w.{}:-]+)+\/?$/.test(span.trim()))
+      mention(operationPathKey(span.trim()), 0.8, span.trim())
+  for (const match of pathText.matchAll(
+    /(?<![\w./-])\/apis?\/(?:[\w./{}:-]*[\w}])?/g,
+  ))
     mention(operationPathKey(match[0]), 0.8, match[0])
   for (const label of asStringArray(input.attributes.labels)) {
     const name = /^(?:area|component)\/(.+)$/.exec(label)?.[1]
