@@ -1435,7 +1435,8 @@ export const StartRefused = meta.story({
 
 /**
  * Upgrades section of a Workspace: the user role never loads, so neither Start
- * nor "Ask an admin" is visible.
+ * nor "Ask an admin" is visible. The automatic upgrades switch is disabled,
+ * and it shows neither the admin line nor the member line.
  */
 export const RoleNeverAnswers = meta.story({
   play: async ({ canvasElement }) => {
@@ -1443,6 +1444,17 @@ export const RoleNeverAnswers = meta.story({
     await expectGroup(canvas, "Needs you", 1)
     expect(canvas.queryByRole("button", { name: /^Start/ })).toBeNull()
     expect(canvas.queryByText("Ask an admin")).toBeNull()
+    await waitFor(() => {
+      const automatic = canvas.getByRole("switch", {
+        name: "Automatic upgrades",
+      })
+      expect(automatic).toBeDisabled()
+      expect(automatic).not.toBeChecked()
+    })
+    expect(canvas.queryByText(/^You start each upgrade/)).toBeNull()
+    expect(
+      canvas.queryByText(/^An owner or admin starts each upgrade/),
+    ).toBeNull()
   },
   beforeEach: ({ msw }) => {
     msw.use(

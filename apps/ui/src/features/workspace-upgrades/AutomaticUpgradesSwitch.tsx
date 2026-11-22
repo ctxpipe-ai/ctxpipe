@@ -86,26 +86,33 @@ export function AutomaticUpgradesSwitch(props: {
     ? save.variables === "automatic"
     : setting.mode === "automatic"
   const canChange = props.isAdmin === true
+  // While the role loads, the switch shows neither the admin line nor the
+  // member line (see `useIsOrgAdmin`).
+  const help = on
+    ? "ctxpipe starts each upgrade by itself, paid re-ingestions too. A failed upgrade waits for you."
+    : props.isAdmin === null
+      ? null
+      : canChange
+        ? "You start each upgrade. Turn this on to let ctxpipe start them."
+        : "An owner or admin starts each upgrade, and can turn this on."
   return (
     <div className="flex min-w-0 basis-120 flex-col gap-1">
       <Switch
         isSelected={on}
         isDisabled={!canChange || save.isPending}
         onChange={(next) => save.mutate(next ? "automatic" : "manual")}
-        aria-describedby={helpId}
+        aria-describedby={help ? helpId : undefined}
       >
         Automatic upgrades
         {save.isPending ? (
           <span className="text-xs text-muted-foreground">Saving…</span>
         ) : null}
       </Switch>
-      <p id={helpId} className="pl-9.5 text-xs text-muted-foreground">
-        {on
-          ? "ctxpipe starts each upgrade by itself, paid re-ingestions too. A failed upgrade waits for you."
-          : canChange
-            ? "You start each upgrade. Turn this on to let ctxpipe start them."
-            : "An owner or admin starts each upgrade, and can turn this on."}
-      </p>
+      {help ? (
+        <p id={helpId} className="pl-9.5 text-xs text-muted-foreground">
+          {help}
+        </p>
+      ) : null}
     </div>
   )
 }
