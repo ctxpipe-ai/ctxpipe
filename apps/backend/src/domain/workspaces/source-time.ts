@@ -9,18 +9,18 @@ import { normalizeValidityBound } from "./hydrate-phases.js"
  * alone, so all branches can share it (ADR-071 decision 2):
  *
  * - a connector mirror file: its `createdAt` (GitHub issues and pull
- *   requests, Linear, Plain, PagerDuty, Buildkite), or the `thread_ts` of a
- *   Slack thread;
- * - a design record (kind `Decision`, or an `ADR-<n>` file name): its
- *   front matter `date`, else its `**Date:**` (or `Date:`) line. The
- *   `decisions` ingest skill writes this line from the date of the KEP, the
- *   RFC, the PEP or the ADR.
+ *   requests, Linear) or `created_at` (Plain, PagerDuty, Buildkite), or the
+ *   `thread_ts` of a Slack thread;
+ * - a design record (front matter kind `Decision`, or an `ADR-<n>` file
+ *   name): its front matter `date`, else its `**Date:**` (or `Date:`) line.
+ *   The `decisions` ingest skill writes this line from the date of the KEP,
+ *   the RFC, the PEP or the ADR.
  *
  * A Notion or Confluence mirror file gives no creation time.
  */
 export function sourceTime(file: {
   path: string
-  kind: string | null | undefined
+  /** The front matter of the file. */
   attributes: Record<string, unknown>
   body: string
 }): string | null {
@@ -32,9 +32,11 @@ export function sourceTime(file: {
       ? new Date(seconds * 1000).toISOString()
       : null
   }
-  if (root !== null) return timeOf(attributes.createdAt)
+  if (root !== null)
+    return timeOf(attributes.createdAt) ?? timeOf(attributes.created_at)
   const name = file.path.slice(file.path.lastIndexOf("/") + 1)
-  if (file.kind?.toLowerCase() !== "decision" && !/^adr-\d/i.test(name))
+  const kind = typeof attributes.kind === "string" ? attributes.kind : ""
+  if (kind.trim().toLowerCase() !== "decision" && !/^adr-\d/i.test(name))
     return null
   return (
     timeOf(attributes.date) ??
@@ -44,9 +46,10 @@ export function sourceTime(file: {
   )
 }
 
-/** A YAML time (a string or a date) as an ISO time, or null. */
+/**
+ * A front matter time as an ISO time, or null. The YAML core schema of the
+ * front matter parse gives a time as a string.
+ */
 function timeOf(value: unknown): string | null {
-  if (value instanceof Date)
-    return Number.isNaN(value.getTime()) ? null : value.toISOString()
   return typeof value === "string" ? normalizeValidityBound(value) : null
 }

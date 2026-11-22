@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 
+import { shopIssue } from "../../test/github-issue.js"
 import { validFromPersistFiles } from "./hydrate-write-jobs.js"
 import {
   applyEffectiveValidFromToUnits,
@@ -42,6 +43,21 @@ describe("the source time of a file (CTX-1516)", () => {
         "---\nsource: linear\ntype: issue\nidentifier: ENG-7\ncreatedAt: 2022-02-02T02:02:02.000Z\nupdatedAt: 2023-01-01T00:00:00.000Z\n---\n# ENG-7: Retry\n",
       ),
     ).toBe("2022-02-02T02:02:02.000Z")
+  })
+
+  it("is the created_at of a Plain, PagerDuty or Buildkite mirror file", () => {
+    for (const path of [
+      "plain/threads/th_1.md",
+      "pagerduty/incidents/P1.md",
+      "buildkite/builds/b1.md",
+    ])
+      expect(
+        sourceTimeOf(
+          path,
+          '---\ncreated_at: "2021-04-05T06:07:08Z"\n---\n# A\n',
+        ),
+        path,
+      ).toBe("2021-04-05T06:07:08.000Z")
   })
 
   it("is the thread_ts of a Slack thread", () => {
@@ -168,5 +184,40 @@ describe("the old stack takes the source time before the commit time", () => {
         new Map([["knowledge/services/api.md", commit]]),
       )[0]?.claims[0]?.validFrom,
     ).toBe(commit)
+  })
+})
+
+describe("the old stack links an issue to the pull request that closed it from the close", () => {
+  it("in the graph projection, as on the plane", () => {
+    const issue = shopIssue({
+      number: 7,
+      title: "Checkout times out",
+      body: "The checkout times out.",
+      closed: {
+        at: "2020-06-01T00:00:00Z",
+        by: ["https://github.com/acme/shop/pull/9"],
+      },
+    })
+    const pull = {
+      path: "github/pulls/acme/shop/9--9.md",
+      content:
+        "---\nsource: github\ntype: pull_request\nnumber: 9\nrepository: acme/shop\nurl: https://github.com/acme/shop/pull/9\ncreatedAt: 2020-05-20T00:00:00Z\n---\n# Fix the timeout\n",
+    }
+    const { units } = hydrateKnowledgeTree({
+      workspaceId: "ws_source_time",
+      files: [issue, pull],
+    })
+    const links = hydrateUnitsToProjectionClaims(units, "2026-11-21T09:00:00Z")
+      .filter(({ predicate }) => predicate === "LINKS_TO")
+      .map(({ subjectId, objectId, validFrom }) => ({
+        from: units.find((unit) => unit.servingId === subjectId)?.path,
+        to: units.find((unit) => unit.servingId === objectId)?.path,
+        validFrom,
+      }))
+    expect(links).toContainEqual({
+      from: issue.path,
+      to: pull.path,
+      validFrom: "2020-06-01T00:00:00.000Z",
+    })
   })
 })

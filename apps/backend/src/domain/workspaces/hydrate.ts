@@ -2,6 +2,7 @@ import { createHash } from "node:crypto"
 
 import { base32nopad } from "@scure/base"
 
+import { asStringArray } from "../codeIngestion/connectorFrontmatter.js"
 import { connectorMirrorRoot } from "../codeIngestion/connectorMirrorPaths.js"
 import { githubSourceRepositories } from "../workspace-sources/github-sources.js"
 import type {
@@ -10,7 +11,7 @@ import type {
 } from "../workspace-sources/projection-plan.js"
 import { SOURCES_FOLDER_PREFIX } from "../workspace-sources/source-tree.js"
 import { FROM_SOURCE_PREDICATE } from "./graph-relevance.js"
-import { effectiveValidFrom } from "./hydrate-phases.js"
+import { effectiveValidFrom, normalizeValidityBound } from "./hydrate-phases.js"
 import { markdownLines } from "./knowledge-chunks.js"
 import {
   isLinkedRepositoryDeclaration,
@@ -99,6 +100,12 @@ export type HydrateUnit = {
    * when the file states none: the introducing commit gives the time.
    */
   sourceTime?: string | null
+  /**
+   * The time from which a link of the body to a Workspace path is valid, by
+   * the path. A GitHub issue links to each pull request that closed it from
+   * `closedAt` (CTX-1516). A link with no entry has no time.
+   */
+  linkValidFrom?: Record<string, string>
   /** File line of the first body line, after front matter. Read from Git only. */
   bodyStartLine?: number
 }
@@ -262,10 +269,6 @@ export function hydrateKnowledgeTree(input: {
       updatedAt: file.lastCommitTimestamp ?? null,
       sourceTime: sourceTime({
         path,
-        kind:
-          typeof parsed.attributes.kind === "string"
-            ? parsed.attributes.kind
-            : null,
         attributes: parsed.attributes,
         body: parsed.body,
       }),
@@ -287,6 +290,26 @@ export function hydrateKnowledgeTree(input: {
   for (const unit of units) {
     const extra = references.get(unit.path)
     if (extra) unit.links.push(...extra)
+  }
+  // A GitHub issue links to each mirrored pull request that closed it
+  // (`closedBy`) from the time of the close (CTX-1516), as on the plane.
+  const pathOfUrl = new Map(
+    units.flatMap((unit) => {
+      const url = attributes.get(unit.path)?.url
+      return typeof url === "string" ? [[url, unit.path] as const] : []
+    }),
+  )
+  for (const unit of units) {
+    const own = attributes.get(unit.path) ?? {}
+    const closedAt =
+      typeof own.closedAt === "string"
+        ? normalizeValidityBound(own.closedAt)
+        : null
+    if (!closedAt) continue
+    for (const url of asStringArray(own.closedBy)) {
+      const path = pathOfUrl.get(url)
+      if (path) unit.linkValidFrom = { ...unit.linkValidFrom, [path]: closedAt }
+    }
   }
   // Each GitHub repository of the Workspace, from every connection. The
   // CHANGED lookup uses all of them; `linked` keeps the connected ones.
@@ -403,8 +426,8 @@ export function applyEffectiveValidFromToUnits(
       ...claim,
       validFrom: effectiveValidFrom({
         recorded: claim.validFrom,
-        introducingCommitTimestamp:
-          unit.sourceTime ?? introducingCommits.get(unit.path) ?? null,
+        sourceTime: unit.sourceTime,
+        introducingCommitTimestamp: introducingCommits.get(unit.path) ?? null,
       }),
     })),
   }))
@@ -452,10 +475,10 @@ export function hydrateUnitsToProjectionClaims(
       const validFrom = isClaim
         ? effectiveValidFrom({
             recorded: relation.validFrom,
-            introducingCommitTimestamp:
-              unit.sourceTime ?? introducingCommitTimestamp ?? null,
+            sourceTime: unit.sourceTime,
+            introducingCommitTimestamp: introducingCommitTimestamp ?? null,
           })
-        : null
+        : relation.validFrom
       claims.push({
         id: isClaim
           ? `${unit.servingId}:${relation.index}`
@@ -528,7 +551,7 @@ export function unitRelations(unit: HydrateUnit): UnitRelation[] {
       target,
       predicate: "LINKS_TO",
       confidence: 1,
-      validFrom: null,
+      validFrom: unit.linkValidFrom?.[target] ?? null,
       validTo: null,
       source: "git",
     })

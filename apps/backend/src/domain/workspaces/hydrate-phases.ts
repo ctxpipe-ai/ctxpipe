@@ -32,20 +32,26 @@ export function looksLikeGitSha(value: string): boolean {
 
 /**
  * True when a recorded `valid_from` is empty or a Git SHA: the claim then
- * takes the time of the commit that introduced its file.
+ * takes the time of its file (`effectiveValidFrom`).
  */
 export function takesIntroducingTime(recorded: string | null): boolean {
   const value = recorded?.trim() ?? ""
   return !value || looksLikeGitSha(value)
 }
 
+/**
+ * The `valid_from` of a claim: its recorded time, else the source time of
+ * its file (`sourceTime`, CTX-1516), else the time of the commit that
+ * introduced the file.
+ */
 export function effectiveValidFrom(input: {
   recorded: string | null
+  sourceTime?: string | null
   introducingCommitTimestamp: string | null
 }): string | null {
   if (!takesIntroducingTime(input.recorded))
     return input.recorded?.trim() ?? null
-  return input.introducingCommitTimestamp
+  return input.sourceTime ?? input.introducingCommitTimestamp
 }
 
 /** A non-time value is no bound. A time without an offset uses UTC. */
