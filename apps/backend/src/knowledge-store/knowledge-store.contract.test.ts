@@ -84,6 +84,7 @@ function rowsOf(
       source: "workspace",
       summary: `${title} summary`,
       mime: "",
+      validFrom: null,
       validTo: null,
       observedAt,
     },

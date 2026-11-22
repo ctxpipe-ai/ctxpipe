@@ -33,10 +33,9 @@ export async function writePlaneDocuments(
   { branch = "main", treeVersion = 1 } = {},
 ): Promise<void> {
   const versions = documents.map(({ document, relations, ...rows }) => {
-    const { validFrom: _validFrom, ...fields } = document
     const content = {
       ...rows,
-      document: fields,
+      document,
       relations: relations.map((relation) => ({
         ...relation,
         validFromIntroduced: relation.validFromIntroduced ?? false,

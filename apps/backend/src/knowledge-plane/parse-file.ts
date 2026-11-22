@@ -52,7 +52,8 @@ export function isKnowledgePath(path: string): boolean {
  *   documents of a key.
  *
  * The claims keep the `valid_from` of the file. The mapper (`knowledgeRows`)
- * gives a claim with no time the time of the introducing commit.
+ * gives a claim with no time the time of the tree row: the source time of
+ * the file, else the time of the introducing commit.
  */
 export function parseKnowledgeFile(input: {
   workspaceId: string

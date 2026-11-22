@@ -23,6 +23,7 @@ import {
 } from "./mirror-units.js"
 import { pullRequestChangedClaims } from "./pull-request-changes.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
+import { sourceTime } from "./source-time.js"
 
 export function servingIdForKnowledgePath(
   workspaceId: string,
@@ -92,6 +93,12 @@ export type HydrateUnit = {
   merged?: boolean
   /** ISO time of the last commit that changed the path, when known. */
   updatedAt: string | null
+  /**
+   * The source's own time of the file (`sourceTime`): the `valid_from` of
+   * the document and of each claim with no time of its own. Null or absent
+   * when the file states none: the introducing commit gives the time.
+   */
+  sourceTime?: string | null
   /** File line of the first body line, after front matter. Read from Git only. */
   bodyStartLine?: number
 }
@@ -253,6 +260,15 @@ export function hydrateKnowledgeTree(input: {
       source: connectorMirrorRoot(path) ?? "authored",
       merged: parsed.attributes.merged === true,
       updatedAt: file.lastCommitTimestamp ?? null,
+      sourceTime: sourceTime({
+        path,
+        kind:
+          typeof parsed.attributes.kind === "string"
+            ? parsed.attributes.kind
+            : null,
+        attributes: parsed.attributes,
+        body: parsed.body,
+      }),
       bodyStartLine: file.content
         .slice(0, file.content.length - parsed.body.length)
         .split("\n").length,
@@ -387,7 +403,8 @@ export function applyEffectiveValidFromToUnits(
       ...claim,
       validFrom: effectiveValidFrom({
         recorded: claim.validFrom,
-        introducingCommitTimestamp: introducingCommits.get(unit.path) ?? null,
+        introducingCommitTimestamp:
+          unit.sourceTime ?? introducingCommits.get(unit.path) ?? null,
       }),
     })),
   }))
@@ -435,7 +452,8 @@ export function hydrateUnitsToProjectionClaims(
       const validFrom = isClaim
         ? effectiveValidFrom({
             recorded: relation.validFrom,
-            introducingCommitTimestamp: introducingCommitTimestamp ?? null,
+            introducingCommitTimestamp:
+              unit.sourceTime ?? introducingCommitTimestamp ?? null,
           })
         : null
       claims.push({

@@ -341,6 +341,22 @@ export function fileReferences(input: {
   const linkTo = (key: string, text: string) =>
     add({ key, predicate: "LINKS_TO", confidence: 1, validFrom: null, text })
 
+  // A pull request that closed a GitHub issue (`closedBy`, which the mirror
+  // also writes in the `## Closed by` section) is linked from the time of
+  // the close (CTX-1516). It comes first, so the link of the body URL does
+  // not replace it.
+  if (typeof attributes.closedAt === "string")
+    for (const url of asStringArray(attributes.closedBy))
+      if (URL.canParse(url))
+        for (const key of referenceKeysOfUrl(url))
+          add({
+            key,
+            predicate: "LINKS_TO",
+            confidence: 1,
+            validFrom: attributes.closedAt,
+            text: url,
+          })
+
   const urls = extractUrls(input.body)
   for (const url of urls) {
     // Text that only looks like a URL (a template or a placeholder host)

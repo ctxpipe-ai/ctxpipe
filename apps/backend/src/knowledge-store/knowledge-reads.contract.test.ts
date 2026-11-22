@@ -79,6 +79,7 @@ function document(
       source: "workspace",
       summary: "",
       mime: "",
+      validFrom: null,
       validTo: null,
       observedAt,
       ...fields,

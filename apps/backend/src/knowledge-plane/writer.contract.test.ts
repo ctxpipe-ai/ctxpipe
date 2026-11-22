@@ -552,7 +552,12 @@ function linearIssue(identifier: string, description = "") {
 const MERGED_AT = "2026-09-01T10:00:00.000Z"
 
 /** A merged pull request mirror file of acme/shop, as the GitHub sync writes it. */
-function mergedPull(number: number, body: string, files: string[] = []) {
+function mergedPull(
+  number: number,
+  body: string,
+  files: string[] = [],
+  createdAt = "2026-08-30T10:00:00Z",
+) {
   return renderGithubPullRequest({
     id: number,
     number,
@@ -570,7 +575,7 @@ function mergedPull(number: number, body: string, files: string[] = []) {
     reviewDecision: null,
     labels: [],
     requestedReviewers: [],
-    createdAt: "2026-08-30T10:00:00Z",
+    createdAt,
     updatedAt: MERGED_AT,
     files: files.map((path) => ({ path, status: "modified" as const })),
     reviews: [],
@@ -740,14 +745,14 @@ describe("projectKnowledgePlane", () => {
         expect(left[table], table).toEqual(right[table])
       // A document gets the time of the commit that introduced its file. A
       // change of the file keeps it; a rename is a new file. An image gets
-      // none.
+      // none. A mirror file gets the time of its source (CTX-1516).
       const time = (index: number) => Remote.timeOf(index).toISOString()
       expect(validFromOf(right)).toEqual({
         "a.md": time(0),
         "notes/c.md": time(0),
-        [historyPull.path]: time(0),
+        [historyPull.path]: "2026-08-30T10:00:00.000Z",
         [SHOP_SOURCE.path]: time(0),
-        [historyIssue.path]: time(1),
+        [historyIssue.path]: "2026-01-01T00:00:00.000Z",
         "knowledge/services/api.md": time(1),
         "e.md": time(2),
         "g.md": time(4),
@@ -2425,6 +2430,138 @@ describe("branches (ADR-071)", () => {
       expect(await statusOf(workspaceId, "main")).toEqual(
         await statusOf(workspaceId),
       )
+    } finally {
+      await remote.remove()
+    }
+  })
+})
+
+describe("the source time of a file (CTX-1516)", () => {
+  // One commit, as a snapshot context repo has: each file is introduced at
+  // Remote.timeOf(0), 2026-01-01. Only a file with no time of its own takes
+  // that time.
+  const pull = mergedPull(9, "Fix the timeout.", [], "2020-05-20T10:00:00Z")
+  const issue = shopIssue({
+    number: 7,
+    title: "Checkout times out",
+    body: "The checkout times out.",
+    createdAt: "2020-05-01T00:00:00Z",
+    closed: {
+      at: "2020-06-01T00:00:00Z",
+      by: ["https://github.com/acme/shop/pull/9"],
+    },
+  })
+  const decision = {
+    path: "knowledge/decisions/kep-1287.md",
+    content: `---\n${stringify({
+      kind: "Decision",
+      name: "In-place resize",
+      claims: [
+        {
+          to: `../../${issue.path}`,
+          predicate: "INFLUENCES",
+          evidence: { kind: "script" },
+        },
+      ],
+    })}---\n# In-place resize\n\n**Status:** Implementable\n**Date:** 2019-01-18\n\nResize the pods in place.\n`,
+  }
+  const plain = {
+    path: "knowledge/services/kubelet.md",
+    content: "---\nkind: Service\n---\n# Kubelet\n\nResize the pods.\n",
+  }
+  const files = {
+    [pull.path]: pull.content,
+    [issue.path]: issue.content,
+    [decision.path]: decision.content,
+    [plain.path]: plain.content,
+  }
+  // The issue names the source file of acme/shop, which has no row.
+  const paths = [...Object.keys(files), SHOP_SOURCE.path]
+
+  async function frontierAt(workspaceId: string, path: string, at: string) {
+    const relations = await store.readFrontier(
+      await viewOf(workspaceId),
+      [{ workspaceId, docKey: key(workspaceId, path) }],
+      new Date(at),
+    )
+    return relations
+      .filter(({ relation }) => relation.predicate !== "FROM_SOURCE")
+      .map(({ direction, relation, neighbor }) => [
+        direction,
+        relation.predicate,
+        neighbor?.path,
+      ])
+  }
+
+  it("a document is valid from the time of its source, and a time question with validAt finds it", async () => {
+    const remote = await Remote.create()
+    try {
+      const workspaceId = await newWorkspace()
+      await run(remote, workspaceId, await remote.commit(files))
+      expect(validFromOf(await content(workspaceId, paths))).toEqual({
+        [pull.path]: "2020-05-20T10:00:00.000Z",
+        [issue.path]: "2020-05-01T00:00:00.000Z",
+        [decision.path]: "2019-01-18T00:00:00.000Z",
+        [plain.path]: Remote.timeOf(0).toISOString(),
+      })
+
+      // Before the ingest date, the search finds the sources of that time,
+      // and not the file with no time of its own.
+      const found = await store.search(await viewOf(workspaceId), {
+        vector: vectorOf("resize"),
+        terms: ["checkout", "Resize", "timeout"],
+        chunksPerDocument: 1,
+        validAt: new Date("2020-05-25T00:00:00Z"),
+      })
+      expect(found.map((hit) => hit.document.path).sort()).toEqual(
+        [decision.path, issue.path, pull.path].sort(),
+      )
+
+      // A claim with no time of its own is valid from the Date of its
+      // decision; its neighbor from the creation of the issue.
+      expect(
+        await frontierAt(workspaceId, decision.path, "2019-06-01T00:00:00Z"),
+      ).toEqual([])
+      expect(
+        await frontierAt(workspaceId, decision.path, "2020-05-25T00:00:00Z"),
+      ).toEqual([["out", "INFLUENCES", issue.path]])
+      // The pull request that closed the issue is linked from the close.
+      expect(
+        await frontierAt(workspaceId, issue.path, "2020-05-25T00:00:00Z"),
+      ).toEqual([["in", "INFLUENCES", decision.path]])
+      expect(
+        (
+          await frontierAt(workspaceId, issue.path, "2020-07-01T00:00:00Z")
+        ).sort(),
+      ).toEqual(
+        [
+          ["in", "INFLUENCES", decision.path],
+          ["out", "LINKS_TO", pull.path],
+        ].sort(),
+      )
+    } finally {
+      await remote.remove()
+    }
+  })
+
+  it("a delta that uses a stored file version gives the source time of a full rebuild", async () => {
+    const remote = await Remote.create()
+    try {
+      const workspaceId = await newWorkspace()
+      await run(remote, workspaceId, await remote.commit(files))
+      // The issue goes away and comes back with the same content: the
+      // delta writes its tree row from the stored file version, with no
+      // parse of the file.
+      await remote.commit({ [issue.path]: null })
+      const tip = await remote.commit({ [issue.path]: issue.content })
+      expect(await run(remote, workspaceId, tip)).toMatchObject({
+        mode: "delta",
+      })
+      const rebuilt = await newWorkspace()
+      await run(remote, rebuilt, tip)
+      const delta = await content(workspaceId, paths)
+      expect(delta).toEqual(await content(rebuilt, paths))
+      expect(validFromOf(delta)[issue.path]).toBe("2020-05-01T00:00:00.000Z")
     } finally {
       await remote.remove()
     }

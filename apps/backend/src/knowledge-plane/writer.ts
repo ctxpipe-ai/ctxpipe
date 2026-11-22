@@ -116,9 +116,10 @@ type KnowledgeRunSummary =
  *    file (Markdown) that does not parse, or a file that does not convert,
  *    gets a `failed` file version.
  * 4. Each path whose file version or `valid_from` changed gets a tree row
- *    with the next tree version. The `valid_from` of a knowledge file is the
- *    time of the commit that introduced it, from one walk of the Git history
- *    of the tip (`fileIntroductions`).
+ *    with the next tree version. The `valid_from` of a document is the
+ *    source time of its file version (CTX-1516), else, for a knowledge
+ *    file, the time of the commit that introduced it, from one walk of the
+ *    Git history of the tip (`fileIntroductions`).
  * 5. Each path whose file is gone gets a tombstone row. A full rebuild does
  *    this for each path of the head that the tree does not give. An overlay
  *    gets an `inherit` row for each path that left it.
@@ -559,6 +560,7 @@ async function applyChangeSet(input: {
         status: error === undefined ? "active" : "failed",
         kind: document.kind,
         observedAt: document.observedAt,
+        validFrom: document.validFrom,
         validTo: document.validTo,
       })
     // A knowledge file that gives no unit has no file version.
@@ -571,9 +573,13 @@ async function applyChangeSet(input: {
         ...key,
         ...version,
         path,
-        validFrom: isKnowledgePath(path)
-          ? dateOrNull(input.introductions.introducedAtByPath.get(path))
-          : null,
+        // The source time of the file version first (CTX-1516), else the
+        // time of the commit that introduced the knowledge file.
+        validFrom:
+          version.validFrom ??
+          (isKnowledgePath(path)
+            ? dateOrNull(input.introductions.introducedAtByPath.get(path))
+            : null),
         deletedAt: null,
       }
       return sameEntry(current.get(key.docKey), entry) ? [] : [entry]
@@ -718,6 +724,7 @@ const failedDocument = (
   source: "",
   summary: "",
   mime: "",
+  validFrom: null,
   validTo: null,
   observedAt,
 })

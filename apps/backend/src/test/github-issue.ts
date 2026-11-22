@@ -13,6 +13,9 @@ export function shopIssue(input: {
   title: string
   body: string
   labels?: string[]
+  createdAt?: string
+  /** The time of the close and the pull requests that closed the issue. */
+  closed?: { at: string; by: string[] }
 }) {
   const number = input.number ?? 1
   const file = renderGithubIssue({
@@ -22,17 +25,17 @@ export function shopIssue(input: {
     url: `https://github.com/acme/shop/issues/${number}`,
     title: input.title,
     body: input.body,
-    state: "open",
+    state: input.closed ? "closed" : "open",
     stateReason: null,
     author: { login: "dev", type: "human" },
     labels: input.labels ?? [],
     assignees: [],
-    createdAt: "2026-09-01T00:00:00Z",
+    createdAt: input.createdAt ?? "2026-09-01T00:00:00Z",
     updatedAt: "2026-09-01T00:00:00Z",
-    closedAt: null,
+    closedAt: input.closed?.at ?? null,
     comments: [],
     commentsTotal: 0,
-    closedBy: [],
+    closedBy: input.closed?.by ?? [],
   })
   return { ...file, content: stampSources(file.content, [SHOP_SOURCE_PATH]) }
 }
