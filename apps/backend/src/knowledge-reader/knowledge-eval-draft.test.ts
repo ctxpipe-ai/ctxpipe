@@ -1,11 +1,18 @@
 import { execFileSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { HttpResponse, http } from "msw"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
+import { main } from "../../evals/knowledge/cli.js"
 import type { Corpus } from "../../evals/knowledge/dataset.js"
 import {
   loadDocuments,
@@ -137,6 +144,33 @@ const corpus: Corpus = {
   workspace: "demo-v0",
 }
 
+/** A Git repository in `dir` with `fixture` committed. Gives its path and SHA. */
+function commitFixture(
+  dir: string,
+  fixture: Record<string, string>,
+): { repo: string; sha: string } {
+  const repo = join(dir, "context")
+  const git = (...args: string[]) =>
+    execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim()
+  for (const [path, text] of Object.entries(fixture)) {
+    mkdirSync(join(repo, path, ".."), { recursive: true })
+    writeFileSync(join(repo, path), text)
+  }
+  git("init", "-q")
+  git("add", ".")
+  git(
+    "-c",
+    "user.name=eval",
+    "-c",
+    "user.email=eval@example.test",
+    "commit",
+    "-q",
+    "-m",
+    "fixture",
+  )
+  return { repo, sha: git("rev-parse", "HEAD") }
+}
+
 describe("the documents of a corpus", () => {
   it("reads the claim links, the issue references and the handles", () => {
     const scheduler = documents.find(
@@ -178,27 +212,14 @@ describe("the documents of a corpus", () => {
 
 describe("the documents of a clone", () => {
   it("reads each document below the root of the Workspace, with paths relative to it", () => {
-    const repo = mkdtempSync(join(tmpdir(), "eval-documents-"))
+    const dir = mkdtempSync(join(tmpdir(), "eval-documents-"))
     try {
-      const git = (...args: string[]) =>
-        execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim()
-      git("init", "-q")
-      mkdirSync(join(repo, "context/knowledge/apis"), { recursive: true })
-      writeFileSync(join(repo, "context/knowledge/apis/a.md"), "# A\n\nOne.\n")
-      writeFileSync(join(repo, "context/b.md"), "# B\n\nTwo.\n")
-      writeFileSync(join(repo, "outside.md"), "# Outside\n")
-      git("add", ".")
-      git(
-        "-c",
-        "user.name=eval",
-        "-c",
-        "user.email=eval@example.test",
-        "commit",
-        "-q",
-        "-m",
-        "fixture",
-      )
-      const loaded = loadDocuments(repo, git("rev-parse", "HEAD"), "context")
+      const { repo, sha } = commitFixture(dir, {
+        "context/knowledge/apis/a.md": "# A\n\nOne.\n",
+        "context/b.md": "# B\n\nTwo.\n",
+        "outside.md": "# Outside\n",
+      })
+      const loaded = loadDocuments(repo, sha, "context")
       expect(
         loaded.map((document) => [document.path, document.title]).sort(),
       ).toEqual([
@@ -206,7 +227,7 @@ describe("the documents of a clone", () => {
         ["knowledge/apis/a.md", "A"],
       ])
     } finally {
-      rmSync(repo, { recursive: true, force: true })
+      rmSync(dir, { recursive: true, force: true })
     }
   })
 })
@@ -299,6 +320,9 @@ describe("the drafter", () => {
     sources: string[],
   ) => Record<string, unknown> = () => ({})
   let capAt = Number.POSITIVE_INFINITY
+  /** The 429 answers before the next answers, each with its Retry-After. */
+  let limited: (string | null)[] = []
+  let requests = 0
   const draftOf = (fields: Record<string, unknown>) => ({
     usable: true,
     reason: "",
@@ -312,6 +336,20 @@ describe("the drafter", () => {
   })
   useMswServer(
     http.post(`${BASE}/chat/completions`, async ({ request }) => {
+      requests++
+      if (limited.length > 0) {
+        const retryAfter = limited.shift()
+        return HttpResponse.json(
+          { error: "rate limited" },
+          {
+            status: 429,
+            headers:
+              typeof retryAfter === "string"
+                ? { "retry-after": retryAfter }
+                : {},
+          },
+        )
+      }
       if (bodies.length >= capAt)
         return HttpResponse.json({ error: "capped" }, { status: 503 })
       const body = (await request.json()) as {
@@ -510,13 +548,54 @@ describe("the drafter", () => {
     expect(reasons[1]).toBe(
       "anthropic/drafter gave an answer out of the schema.",
     )
-    // A failed call is no draft to drop: the command stops.
-    capAt = 0
+  })
+
+  it("stops at a failed call, and keeps the drafts before it", async () => {
+    bodies.length = 0
+    capAt = 2
+    answer = (_category, sources) => ({ gold: sources })
     try {
-      await expect(run()).rejects.toThrow(/OpenRouter answered 503/)
+      // A failed call is no draft to drop: the corpus stops there.
+      const drafted = await run()
+      expect(drafted.failed).toBe(
+        "OpenRouter answered 503 for anthropic/drafter.",
+      )
+      expect(drafted.stopped).toBe(false)
+      expect(drafted.questions).toHaveLength(2)
+      expect(drafted.attempts.at(-1)?.reason).toBe(drafted.failed)
     } finally {
       capAt = Number.POSITIVE_INFINITY
     }
+  })
+
+  it("waits as a rate limit says, at most 3 times, and fails at a rate limit with no wait", async () => {
+    answer = (category, sources) =>
+      category === "lookup"
+        ? { gold: sources }
+        : { usable: false, reason: "skip" }
+    // Two waits, then an answer.
+    requests = 0
+    limited = ["0", "0"]
+    const waited = await run({ scale: 0.25 })
+    expect(waited.failed).toBeUndefined()
+    expect(waited.questions.length).toBeGreaterThan(0)
+    // A fourth 429 after three waits fails the call.
+    requests = 0
+    limited = ["0", "0", "0", "0"]
+    expect((await run({ scale: 0.25 })).failed).toBe(
+      "OpenRouter answered 429 for anthropic/drafter.",
+    )
+    expect(requests).toBe(4)
+    // No Retry-After, or a wait above 60 s: no wait.
+    for (const retryAfter of [null, "61"]) {
+      requests = 0
+      limited = [retryAfter]
+      expect((await run({ scale: 0.25 })).failed).toBe(
+        "OpenRouter answered 429 for anthropic/drafter.",
+      )
+      expect(requests).toBe(1)
+    }
+    limited = []
   })
 
   it("needs a time question to give a date of the sources, and a key fact with a date or a release", async () => {
@@ -570,6 +649,64 @@ describe("the drafter", () => {
       })
       for (const line of key.split("\n").slice(1, -1))
         expect(body.content).not.toContain(line)
+    }
+  })
+
+  it("waits at a rate limit through the recorder, and writes the draft also when a call fails", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "eval-draft-cli-"))
+    try {
+      const { repo, sha } = commitFixture(dir, files)
+      const frozen = join(dir, "frozen.json")
+      writeFileSync(
+        frozen,
+        JSON.stringify({
+          version: "0",
+          corpora: [
+            {
+              ...corpus,
+              contextRepo: {
+                ...corpus.contextRepo,
+                sha,
+              },
+            },
+          ],
+        }),
+      )
+      const out = join(dir, "draft.json")
+      bodies.length = 0
+      capAt = 2
+      // A rate limit first: its wait passes through the recorder.
+      limited = ["0"]
+      answer = (_category, sources) => ({ gold: sources })
+      vi.stubEnv("MODEL_PROVIDER", "openrouter")
+      vi.stubEnv("MODEL_PROVIDER_URL", BASE)
+      vi.stubEnv("MODEL_PROVIDER_API_KEY", "fixture-only")
+      vi.stubEnv("MODEL_PROVIDER_ALLOWLIST", "azure")
+      await expect(
+        main([
+          "draft",
+          "--out",
+          out,
+          "--dataset",
+          frozen,
+          "--corpus",
+          "demo",
+          "--repo",
+          repo,
+          "--model",
+          "anthropic/drafter",
+        ]),
+      ).rejects.toThrow(/OpenRouter answered 503/)
+      const written = JSON.parse(readFileSync(out, "utf8"))
+      expect(written.questions).toHaveLength(2)
+      expect(
+        JSON.parse(readFileSync(`${out}.attempts.json`, "utf8")).failed,
+      ).toBe("OpenRouter answered 503 for anthropic/drafter.")
+    } finally {
+      capAt = Number.POSITIVE_INFINITY
+      limited = []
+      vi.unstubAllEnvs()
+      rmSync(dir, { recursive: true, force: true })
     }
   })
 

@@ -21,6 +21,17 @@ const replySchema = z.object({
 export class OutOfSchemaError extends Error {}
 
 /**
+ * The seconds of a `Retry-After` header, or null when it gives no number of
+ * seconds.
+ */
+function retryAfterSeconds(value: string | null): number | null {
+  const seconds = Number(value ?? "")
+  return value && Number.isFinite(seconds) && seconds >= 0
+    ? Math.ceil(seconds)
+    : null
+}
+
+/**
  * Why the eval tools cannot call a model with `env`, or null when they can:
  * the text goes only to the OpenRouter endpoint that the operator chose.
  */
@@ -54,30 +65,44 @@ export async function askJson<T>(input: {
   const base = (
     input.env.MODEL_PROVIDER_URL || DEFAULT_OPENROUTER_BASE
   ).replace(/\/+$/, "")
-  const response = await fetch(`${base}/chat/completions`, {
-    method: "POST",
-    signal: AbortSignal.timeout(300_000),
-    headers: {
-      authorization: `Bearer ${apiKey}`,
-      "content-type": "application/json",
-    },
-    // The model gets the scrubbed text, as each model of the product does.
-    body: JSON.stringify(
-      await scrubForModel({
-        model: openRouterModelId(input.model),
-        messages: [{ role: "user", content: input.content }],
-        response_format: {
-          type: "json_schema",
-          json_schema: {
-            name: input.name,
-            strict: true,
-            schema: z.toJSONSchema(input.schema),
-          },
+  const body = JSON.stringify(
+    await scrubForModel({
+      model: openRouterModelId(input.model),
+      messages: [{ role: "user", content: input.content }],
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: input.name,
+          strict: true,
+          schema: z.toJSONSchema(input.schema),
         },
-        provider: openRouterProvider(),
-      }),
-    ),
-  })
+      },
+      provider: openRouterProvider(),
+    }),
+  )
+  const send = () =>
+    fetch(`${base}/chat/completions`, {
+      method: "POST",
+      signal: AbortSignal.timeout(300_000),
+      headers: {
+        authorization: `Bearer ${apiKey}`,
+        "content-type": "application/json",
+      },
+      // The model gets the scrubbed text, as each model of the product does.
+      body,
+    })
+  let response = await send()
+  // A rate limit names its wait: wait that long, at most 3 times and at
+  // most 60 s each, then fail. A 429 with no wait fails at once.
+  for (let wait = 1; response.status === 429 && wait <= 3; wait++) {
+    const seconds = retryAfterSeconds(response.headers.get("retry-after"))
+    if (seconds === null || seconds > 60) break
+    process.stderr.write(
+      `OpenRouter answered 429 for ${input.model}: wait ${wait} of 3, ${seconds} s.\n`,
+    )
+    await new Promise((resolve) => setTimeout(resolve, seconds * 1_000))
+    response = await send()
+  }
   if (!response.ok)
     throw new Error(
       `OpenRouter answered ${response.status} for ${input.model}.`,
