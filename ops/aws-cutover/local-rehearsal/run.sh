@@ -46,7 +46,7 @@ command -v openssl >/dev/null || { echo "Install openssl." >&2; exit 2; }
 root="$(cd "$(dirname "$0")/../../.." && pwd)"
 pins="$root/scripts/ci/service-pins.json"
 postgres="$(jq -r '.postgres | "\(.image):\(.tag)@\(.digest)"' "$pins")"
-falkordb="$(jq -r '.falkordb | "\(.image)@\(.digest)"' "$pins")"
+falkordb="$(jq -r '.falkordb | "\(.image):\(.tag)@\(.digest)"' "$pins")"
 s3_image="${CTXPIPE_CODESEARCH_TEST_IMAGE:-ctxpipe-codesearch:test}"
 
 p=ctx1217-local
