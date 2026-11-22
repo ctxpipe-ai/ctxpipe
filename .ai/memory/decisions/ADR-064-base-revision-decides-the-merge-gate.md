@@ -75,4 +75,4 @@ The CTO decided this on 2026-11-23 ([CTX-1556](https://linear.app/ctxpipe/issue/
 - A runner fault that the LLM stage does not foresee and that no canary or test of the CI scripts finds reaches `main`. The full nightly run on `main` finds it (ADR-062).
 - A screenshot check has `selectAll`, so the LLM stage of the pinned release keeps every screenshot check that a runner change reaches. A factory release stops this for a check that only a runner input reached (CTX-1556).
 - `selected.mjs` is no longer a full-run input. A PR that changes how it reads `plan.json` meets the plan of the base revision in its own run. A mismatch fails the run, because the merge gate needs a record for each planned check.
-- A canary is a real check of the job, so a flaky canary can fail the run. Its job runs a failed canary with a stored pass once more (Contradiction rule).
+- A canary is a real check of the job, so a flaky canary can fail the run. Its job runs a failed canary with a stored pass once more (Contradiction rule). The upgrade job runs no failed check once more on a pull request, so a flaky upgrade canary fails the run (CTX-1557).

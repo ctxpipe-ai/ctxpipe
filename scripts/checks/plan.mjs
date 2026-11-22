@@ -116,9 +116,9 @@ export const runnerJobs = new Set([
   "upgrade-from-previous-release",
 ])
 
-// The accepted hit of each selected check, and the ids of the checks that
-// run.
-function runOf(selection, config) {
+// The selection split into the accepted hit of each selected check and the
+// ids of the checks that run.
+function hitsAndRuns(selection, config) {
   const selected = new Set(selection.selected.map((check) => check.id))
   const hits = new Map()
   for (const hit of selection.cache?.hits ?? [])
@@ -143,7 +143,7 @@ function runOf(selection, config) {
 function withRunnerFloor(selection, { inputs, seconds, stored, config }) {
   let floored = withScriptTests(selection, { kind: "runner", inputs })
   const busy = new Set(
-    runOf(floored, config).ran.map((id) => placeOf(id).job),
+    hitsAndRuns(floored, config).ran.map((id) => placeOf(id).job),
   )
   const cost = (id) => seconds.get(id) ?? Number.POSITIVE_INFINITY
   const canaries = []
@@ -650,7 +650,7 @@ export function plan({ config, inputs, needs, store }) {
       stored: withStoreHits(select, store).cache?.hits ?? [],
       config,
     }))
-  const { hits, ran } = runOf(selection, config)
+  const { hits, ran } = hitsAndRuns(selection, config)
   // A check that runs although a pass is stored for its key: a hit that is
   // not accepted, a check of a job-scoped ci.yaml change, a canary of a
   // runner change, or a quarantined key.
