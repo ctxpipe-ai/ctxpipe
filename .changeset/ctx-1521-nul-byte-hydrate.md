@@ -1,4 +1,5 @@
 ---
+"@ctxpipe/aws-cdk": patch
 ---
 
-The hydrate removes each NUL character from the unit text before it writes Postgres, so a mirrored issue body with a NUL character does not fail the hydrate (CTX-1521).
+A mirrored file that holds a NUL character (for example a GitHub issue body that quotes a Git protocol error) no longer fails the hydrate of its Workspace. The hydrate removes each NUL character before it writes Postgres and the graph.

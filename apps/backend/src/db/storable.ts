@@ -15,7 +15,7 @@ export function storable<T>(value: T, text = JSON.stringify(value)): T {
       .replaceAll("\u0000", "")
       .replace(
         /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g,
-        "�",
+        "\ufffd",
       )
   return JSON.parse(text, (_key, item: unknown) => {
     if (typeof item === "string") return clean(item)

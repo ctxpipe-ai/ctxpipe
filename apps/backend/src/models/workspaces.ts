@@ -25,6 +25,7 @@ import {
   workspaceKnowledgeUnits,
   workspaces,
 } from "../db/schema/workspaces.js"
+import { storable } from "../db/storable.js"
 import { firstConnectorTarget } from "../domain/workspaces/dest-workspace-first.js"
 import {
   diffHydrateUnits,
@@ -33,7 +34,6 @@ import {
   hydrateUnitHash,
   partialUnitBound,
 } from "../domain/workspaces/hydrate-delta.js"
-import { storable } from "../db/storable.js"
 import { initialHydratePhases } from "../domain/workspaces/hydrate-phases.js"
 import {
   type HydrateSkip,
@@ -1428,6 +1428,10 @@ export type HydrateCommit = {
  * secret, so that no rule finds it. Thus the stored units and chunks hold the
  * scrubbed text. The unit hash covers the body, so a stored unit with a
  * secret changes, and the next hydrate of its Workspace writes it again.
+ * The units are also storable: a mirror file can hold a NUL character (for
+ * example an issue body that quotes a Git protocol error), which Postgres
+ * refuses, and the whole commit failed (CTX-1521). Postgres and a partial
+ * graph write get these units, so both hold the same text.
  * One scrubber request for each unit, a few in flight: no request holds a
  * whole Workspace. It runs outside the org database context, so that no
  * transaction stays open while the scrubber works.
@@ -1436,13 +1440,15 @@ export async function scrubHydrateUnits(
   units: readonly HydrateUnit[],
 ): Promise<HydrateUnit[]> {
   assertNotInOrgDbContext()
-  return mapPool([...units], 8, async (unit) => {
-    const { title, body } = await scrubForModel({
-      title: unit.title,
-      body: unit.body,
-    })
-    return { ...unit, title, body }
-  })
+  return storable(
+    await mapPool([...units], 8, async (unit) => {
+      const { title, body } = await scrubForModel({
+        title: unit.title,
+        body: unit.body,
+      })
+      return { ...unit, title, body }
+    }),
+  )
 }
 
 /**
@@ -1472,16 +1478,8 @@ export async function commitHydrateProjection(input: {
    */
   base?: HydrateCommitBase
 }): Promise<HydrateCommit | null> {
-  // A mirror file can hold a NUL character (for example an issue body that
-  // quotes a Git protocol error). Postgres refuses it, and the whole commit
-  // fails. This is the one place where the units and the skips go to
-  // Postgres, so the text becomes storable here (CTX-1521). The unit hash
-  // and the chunks come from the same text.
-  const { units, skipped, displayName } = storable({
-    units: input.units,
-    skipped: input.skipped,
-    displayName: input.displayName,
-  })
+  // The heading of AGENTS.md can hold a NUL character too (CTX-1521).
+  const displayName = input.displayName && storable(input.displayName)
   return orgSql(async () => {
     const db = getOrgDb()
     return db.transaction(async (tx) => {
@@ -1507,7 +1505,7 @@ export async function commitHydrateProjection(input: {
               sha: input.revision.sha,
               revision: input.revision,
             }),
-            skipped,
+            skipped: input.skipped,
           })}::jsonb || jsonb_build_object('publishedIndex', coalesce(
             ${workspaces.hydratePhases}->'publishedIndex',
             case when ${workspaces.hydratePhases}->'index'->'result'->>'kind' = 'ready'
@@ -1574,7 +1572,7 @@ export async function commitHydrateProjection(input: {
           )
         delta = {
           base: base.revision,
-          ...diffHydrateUnits(stored, units, input.embeddingModel),
+          ...diffHydrateUnits(stored, input.units, input.embeddingModel),
         }
         if (
           delta.changed.length + delta.removed.length >
@@ -1651,20 +1649,20 @@ export async function commitHydrateProjection(input: {
           eq(workspaceKnowledgeUnits.workspaceId, input.revision.workspaceId),
         )
       // Postgres caps bind parameters at 65,535; ~14 per unit row.
-      for (let start = 0; start < units.length; start += 500) {
+      for (let start = 0; start < input.units.length; start += 500) {
         await tx
           .insert(workspaceKnowledgeUnits)
-          .values(units.slice(start, start + 500).map(row))
+          .values(input.units.slice(start, start + 500).map(row))
       }
       const chunks = await replaceKnowledgeChunks(tx, {
         orgId: input.orgId,
         workspaceId: input.revision.workspaceId,
-        rows: knowledgeChunkRows(units, input.embeddingModel),
+        rows: knowledgeChunkRows(input.units, input.embeddingModel),
       })
       return {
         mode: "full" as const,
         fullReason,
-        unitRowsWritten: units.length,
+        unitRowsWritten: input.units.length,
         unitRowsDeleted: deleted.rowCount ?? 0,
         chunkRowsInserted: chunks.inserted,
         chunkRowsDeleted: chunks.deleted,
