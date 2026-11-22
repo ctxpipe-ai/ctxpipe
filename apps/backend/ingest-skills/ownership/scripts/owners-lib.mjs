@@ -151,7 +151,8 @@ function ownersOf(yaml) {
   }
 }
 
-const slug = (text) =>
+/** A file-name part: lower case letters and digits, with `-` between. */
+export const slug = (text) =>
   String(text)
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")

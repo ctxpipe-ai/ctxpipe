@@ -390,9 +390,17 @@ const MAX_AMBIGUOUS_BYTES = 256 * 1024
 export async function discoverIngestRoots(
   root: RootExec,
   agentEnv: Record<string, string>,
-  options: { signal?: AbortSignal; model: string },
+  options: {
+    signal?: AbortSignal
+    model: string
+    /**
+     * Before the step limit: the model stops, and the step plans the
+     * script roots with no model choice, so the step keeps its work.
+     */
+    checkpoint?: AbortSignal
+  },
 ): Promise<IngestDiscovery> {
-  const { signal, model } = options
+  const { signal, model, checkpoint } = options
   const result = await root(
     ingestAgentCommand({
       env: agentEnv,
@@ -442,7 +450,10 @@ export async function discoverIngestRoots(
         model,
       }),
     }),
-    signal ? { signal } : undefined,
+    {
+      ...(signal ? { signal } : {}),
+      ...(checkpoint ? { stop: checkpoint } : {}),
+    },
   ).finally(() => stopIngestAgentProcesses(root))
   signal?.throwIfAborted()
   // A step that reports no usage makes the spend of the run unknown.
@@ -453,6 +464,12 @@ export async function discoverIngestRoots(
       unknownSteps: 1,
     }),
     ...(run.stdoutTruncated ? { unknownSteps: 1 } : {}),
+  }
+  if (run.stopped) {
+    problems.push(
+      "The model step reached its time limit, so no ambiguous root is planned",
+    )
+    return { script, model: null, usage, problems }
   }
   if (run.exitCode !== 0) {
     problems.push(

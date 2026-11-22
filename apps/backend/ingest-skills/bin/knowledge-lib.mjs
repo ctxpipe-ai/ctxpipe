@@ -261,7 +261,7 @@ export function findExisting(index, kind, names) {
 }
 
 /** Text of `path` at the step's base commit, or null. */
-function baseText(step, path) {
+export function baseText(step, path) {
   return stepTexts(step, [path], { staged: false }).get(path) ?? null
 }
 
@@ -1216,11 +1216,6 @@ export function ownsWholeFile(step, path, sourcePath) {
     ownSummary(step, path, sourcePath) !== undefined &&
     !(baseText(step, path) ?? "").includes("<!-- ctxpipe:human -->")
   )
-}
-
-/** The text of the base file at `path`, or null. */
-export function baseFileText(step, path) {
-  return baseText(step, path)
 }
 
 /** Relative link from one context file to another. */

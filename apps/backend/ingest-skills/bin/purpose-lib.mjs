@@ -1,10 +1,10 @@
-// The purpose of one code root for the classify-kind and repository skills (CTX-1514): one
-// or two sentences that say what the package does. The script reads, in
-// this order: the description of a manifest (package.json, Cargo.toml,
-// pyproject.toml), the doc comment of the package (a Go `// Package x`
-// comment, Rust `//!` lines of src/lib.rs or src/main.rs), and the first
-// paragraph of the README. When no file gives one, the model writes it.
-
+// The purpose of one code root for the classify-kind and repository skills
+// (CTX-1514): one or two sentences that say what the package does. The
+// script reads, in this order: the description of a manifest (package.json,
+// Cargo.toml, pyproject.toml), the doc comment of the package (the Go
+// comment above the `package` clause, the Rust `//!` lines or `/*!` block of
+// src/lib.rs or src/main.rs), and the first paragraph of the README. When no
+// file gives one, the model of classify-kind writes it.
 import { posix } from "node:path"
 
 import {

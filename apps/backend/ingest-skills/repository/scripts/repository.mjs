@@ -40,7 +40,10 @@ const summary =
 // The summary that this step wrote before CTX-1514.
 const current = baseBlob(step, path) ? ownSummary(step, path, sourcePath) : null
 const replaces =
-  typeof current === "string" && /^The source repository \S+\.$/.test(current)
+  typeof current === "string" &&
+  // The old summary, or the fallback when no file gave a purpose.
+  /^The source repository \S+(?:\.|, with .*\.)$/.test(current) &&
+  current !== summary
 
 writeStep(
   step,
