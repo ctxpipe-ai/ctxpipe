@@ -9,6 +9,9 @@
  *     [--split dev|holdout] [--cap-usd 5] [--set NAME=VALUE] [--kept REPORT]
  *   bun evals/knowledge/cli.ts rescore --from DIR --out DIR \
  *     [--set NAME=VALUE] [--kept REPORT]
+ *   bun evals/knowledge/cli.ts draft --dataset FILE --corpus ID,... --repo DIR \
+ *     --model MODEL --out FILE [--seed TEXT] [--scale 0.4] [--cap-usd 10]
+ *   bun evals/knowledge/cli.ts finalize --draft LABELED,... --out FILE
  *   bun evals/knowledge/cli.ts label --draft FILE --repo DIR \
  *     --models A,B,C --out FILE [--cap-usd 5]
  *   bun evals/knowledge/cli.ts corpus snapshot|issues|freeze --plan FILE \
@@ -26,7 +29,7 @@
 // First: it sets the OpenWorkflow namespace before the client loads.
 import "./eval-namespace.js"
 import { execFile, execFileSync } from "node:child_process"
-import { mkdir, writeFile } from "node:fs/promises"
+import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { parseArgs, promisify } from "node:util"
@@ -38,13 +41,25 @@ import { ORCHESTRATOR_DEFAULTS } from "../../src/knowledge-reader/orchestrator.j
 import { initEvlog } from "../../src/observability/logger.js"
 import { closeGraphDb } from "../../src/platform/graph/client.js"
 import { DEFAULT_OPENROUTER_BASE } from "../../src/retrieval/services/openRouterProvider.js"
+import { modelProviderProblem } from "./chat.js"
 import {
   freezeCorpora,
   importCorpusIssues,
   planSchema,
   snapshotRepositories,
 } from "./corpus.js"
-import { type Dataset, readDataset } from "./dataset.js"
+import {
+  type Dataset,
+  datasetSchema,
+  frozenCorporaSchema,
+  readDataset,
+} from "./dataset.js"
+import { loadDocuments, termIndex } from "./documents.js"
+import {
+  type DraftAttempt,
+  draftQuestions,
+  finalizeQuestions,
+} from "./draft.js"
 import type { EvalOrg } from "./hydrate.js"
 import { measureLatency } from "./latency.js"
 import { ModelCalls, type RecordedCall } from "./model-calls.js"
@@ -249,6 +264,22 @@ async function label(values: {
       root ? `${sha}:${root}/` : `${sha}:`,
     ]),
   )
+  // The nearest documents of a no-answer question, from the term index of
+  // its corpus. The panel judges them.
+  const indexes = new Map<string, ReturnType<typeof termIndex>>()
+  const nearest = async (id: string, text: string) => {
+    const corpus = draft.corpora.find((item) => item.id === id)
+    if (!corpus) return []
+    const index =
+      indexes.get(id) ??
+      termIndex(
+        loadDocuments(repo, corpus.contextRepo.sha, corpus.contextRepo.root),
+      )
+    indexes.set(id, index)
+    return index.nearest(text, 3)
+  }
+  // The panel scrubs each document with the converter.
+  buildConverter()
   const calls = modelCalls(values.capUsd)
   const restore = calls.install()
   try {
@@ -257,24 +288,102 @@ async function label(values: {
       models: values.models.split(",").filter(Boolean),
       read: async (corpus, ref) =>
         (
-          await promisify(execFile)("git", [
-            "-C",
-            repo,
-            "show",
-            `${trees.get(corpus)}${ref}`,
-          ])
+          await promisify(execFile)(
+            "git",
+            ["-C", repo, "show", `${trees.get(corpus)}${ref}`],
+            { maxBuffer: 1 << 28 },
+          )
         ).stdout,
+      nearest,
       env: process.env,
       stopped: () => calls.stopped,
     })
     await writeJson(values.out, labeled.dataset)
     await writeJson(`${values.out}.votes.json`, {
       votes: labeled.votes,
+      timeVotes: labeled.timeVotes,
       dropped: labeled.dropped,
       stopped: labeled.stopped,
       spentUsd: calls.spentUsd,
     })
     return labeled.stopped ? 3 : 0
+  } finally {
+    restore()
+  }
+}
+
+/**
+ * Draft the questions of the corpora `corpus` of the frozen dataset
+ * `dataset` (`draft.ts`). The output holds those corpora and their drafted
+ * questions, and `label` labels it. Each attempt goes to
+ * `OUT.attempts.json`.
+ */
+async function draft(values: {
+  dataset?: string
+  corpus?: string
+  repo?: string
+  model?: string
+  seed?: string
+  scale?: string
+  out: string
+  capUsd: number
+}): Promise<number> {
+  const { dataset, repo, model } = values
+  const problem = modelProviderProblem(process.env)
+  if (problem) throw new SetupError(problem)
+  const scale = Number(values.scale ?? 1)
+  if (!(scale > 0 && scale <= 1))
+    throw new SetupError("--scale needs a number above 0 and at most 1.")
+  if (!dataset || !values.corpus || !repo || !model)
+    throw new SetupError("draft needs --dataset, --corpus, --repo and --model.")
+  const frozen = frozenCorporaSchema.parse(
+    JSON.parse(await readFile(dataset, "utf8")),
+  )
+  const corpora = values.corpus
+    .split(",")
+    .filter(Boolean)
+    .map((id) => {
+      const corpus = frozen.corpora.find((item) => item.id === id)
+      if (!corpus) throw new SetupError(`The dataset has no corpus ${id}.`)
+      return corpus
+    })
+  // The drafter scrubs each document with the converter.
+  buildConverter()
+  const calls = modelCalls(values.capUsd)
+  const restore = calls.install()
+  const questions: Dataset["questions"] = []
+  const attempts: DraftAttempt[] = []
+  let stopped = false
+  try {
+    for (const corpus of corpora) {
+      const drafted = await draftQuestions({
+        corpus,
+        documents: loadDocuments(
+          repo,
+          corpus.contextRepo.sha,
+          corpus.contextRepo.root,
+        ),
+        model,
+        seed: `${values.seed ?? "v0"} ${corpus.id}`,
+        scale,
+        env: process.env,
+        stopped: () => calls.stopped,
+      })
+      questions.push(...drafted.questions)
+      attempts.push(...drafted.attempts)
+      process.stderr.write(
+        `${corpus.id}: ${drafted.questions.length} questions, $${calls.spentUsd.toFixed(2)} spent.\n`,
+      )
+      stopped = drafted.stopped
+      if (stopped) break
+    }
+    await writeJson(values.out, { version: frozen.version, corpora, questions })
+    await writeJson(`${values.out}.attempts.json`, {
+      attempts,
+      stopped,
+      spentUsd: calls.spentUsd,
+    })
+    return stopped ? 3 : 0
   } finally {
     restore()
   }
@@ -333,6 +442,10 @@ async function main(argv: string[]): Promise<number> {
       draft: { type: "string" },
       repo: { type: "string" },
       models: { type: "string" },
+      corpus: { type: "string" },
+      model: { type: "string" },
+      seed: { type: "string" },
+      scale: { type: "string" },
       runs: { type: "string" },
       setting: { type: "string", multiple: true },
     },
@@ -346,6 +459,32 @@ async function main(argv: string[]): Promise<number> {
   if (!values.out) throw new SetupError("Give --out.")
   const out = values.out
   if (command === "label") return label({ ...values, out, capUsd })
+  if (command === "draft") return draft({ ...values, out, capUsd })
+  if (command === "finalize") {
+    if (!values.draft)
+      throw new SetupError("finalize needs --draft (the labeled files).")
+    const labeled = await Promise.all(
+      values.draft.split(",").filter(Boolean).map(readDataset),
+    )
+    if (new Set(labeled.map((item) => item.version)).size > 1)
+      throw new SetupError("The labeled files have different versions.")
+    const corpora = new Map<string, Dataset["corpora"][number]>()
+    for (const corpus of labeled.flatMap((item) => item.corpora)) {
+      const known = corpora.get(corpus.id)
+      if (known && JSON.stringify(known) !== JSON.stringify(corpus))
+        throw new SetupError(`The labeled files give two corpora ${corpus.id}.`)
+      corpora.set(corpus.id, corpus)
+    }
+    await writeJson(
+      out,
+      datasetSchema.parse({
+        version: labeled[0]?.version,
+        corpora: [...corpora.values()],
+        questions: finalizeQuestions(labeled.flatMap((item) => item.questions)),
+      }),
+    )
+    return 0
+  }
   if (command === "corpus") return corpus(positionals[0], values.plan, out)
   if (command === "probe") {
     if (!process.env.MODEL_PROVIDER_API_KEY)
@@ -400,7 +539,7 @@ async function main(argv: string[]): Promise<number> {
 
   if (command !== "run" && command !== "rescore" && command !== "hydrate")
     throw new SetupError(
-      "Use the command hydrate, run, rescore, label, corpus, probe, latency or vision.",
+      "Use the command hydrate, run, rescore, draft, label, finalize, corpus, probe, latency or vision.",
     )
   const databaseUrl = process.env.DATABASE_URL
   if (!databaseUrl) throw new SetupError("Set DATABASE_URL.")
