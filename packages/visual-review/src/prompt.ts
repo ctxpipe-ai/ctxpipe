@@ -296,11 +296,11 @@ const newImages = (input: NewStoryInput): StoryImage[] =>
 // (CTX-1509): a large improvement must not hide the defects that remain, so
 // the review does not compare with the earlier version.
 const changedText = ({ changed }: NewStoryInput) =>
-  changed?.length
+  changed?.regions.length
     ? `
-This screenshot changed. An element in the changed regions below is new or redesigned. Review each changed region and the elements next to it as new UI in its context: how its visible content aligns with its neighbors, its space to the edges of its container, and how it sits with the elements around it. Do not compare it with an earlier version. Do not report the rest of the screenshot.
+This screenshot changed. An element in the changed regions below is new or redesigned. Review each changed region and the elements next to it as new UI in its context, not against an earlier version. Image 2 shows them close up. Check that the visible content of each changed element, its text or its icon, starts on the edge of the content of its neighbors; that its space to each edge of its container matches the space of its siblings; and that it does not crowd or clash with the elements above and below it. Do not report the rest of the screenshot.
 Changed regions, in fractions (0 to 1) of Image 1:
-${changed
+${changed.regions
   .map(
     ({ x, y, width, height }, index) =>
       `${index + 1}. x ${x.toFixed(2)}, y ${y.toFixed(2)}, width ${width.toFixed(2)}, height ${height.toFixed(2)}`,
@@ -316,9 +316,10 @@ ${storyData(input)}
 
 New screenshots, in the order attached:
 ${input.images
-  .map(
-    ({ size }, index) =>
-      `Image ${index + 1}: the full new screenshot, ${size.width} × ${size.height}`,
+  .map(({ size }, index) =>
+    input.changed && index === 1
+      ? `Image 2: a close-up of the changed regions and the elements next to them, at ${input.changed.zoom}× size`
+      : `Image ${index + 1}: the full new screenshot, ${size.width} × ${size.height}`,
   )
   .join("\n")}
 ${changedText(input)}

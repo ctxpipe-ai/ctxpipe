@@ -15,6 +15,7 @@ import {
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 
+import { decode } from "@blazediff/codec-png-native"
 import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
 import {
@@ -81,6 +82,8 @@ type Chat = {
   messages: { content: { type: string; text?: string }[] }[]
   response_format: { json_schema: { schema: object } }
 }
+// An image part of a chat request: a data URL of a PNG.
+type ImagePart = { type: "image_url"; image_url: { url: string } }
 const chats: Chat[] = []
 let content = JSON.stringify(regression)
 const server = setupServer(
@@ -1905,11 +1908,31 @@ export const Primary = { render: () => null }
           const [request] = chats
           const parts =
             request?.messages.flatMap(({ content }) => content) ?? []
-          // The head image alone: the review does not compare with the base.
-          expect(parts.filter(({ type }) => type === "image_url")).toHaveLength(
-            1,
+          // The head image and its close-up: the review does not compare
+          // with the base.
+          const sent = parts.flatMap((part) =>
+            part.type === "image_url" ? [part as unknown as ImagePart] : [],
           )
+          expect(sent).toHaveLength(2)
+          const [whole, closeUp] = sent.map(({ image_url: { url } }) =>
+            decode(Buffer.from(url.split(",")[1] ?? "", "base64")),
+          )
+          expect(whole).toMatchObject({ width: 400, height: 300 })
+          // The close-up holds the changed region and 64 px around it, at
+          // twice the size: wider and higher than the region alone.
+          expect(closeUp?.width).toBeGreaterThan(2 * 200)
+          expect(closeUp?.height).toBeGreaterThan(2 * 60)
+
           const text = parts.map(({ text }) => text ?? "").join("\n")
+          expect(text).toContain(
+            "Image 2: a close-up of the changed regions and the elements next to them, at 2× size",
+          )
+          // The close-ups were in a private folder that the run removed.
+          expect(
+            (await readdir(work)).filter((name) =>
+              name.startsWith("visual-review-close-ups-"),
+            ),
+          ).toEqual([])
           const [x = 0, y = 0, width = 0, height = 0] = (
             /Changed regions, in fractions \(0 to 1\) of Image 1:\n1\. x ([\d.]+), y ([\d.]+), width ([\d.]+), height ([\d.]+)\n/.exec(
               text,
