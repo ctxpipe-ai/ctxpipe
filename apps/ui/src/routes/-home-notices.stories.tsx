@@ -124,36 +124,31 @@ const threeItems = {
   handbook: [upgradeItemFixture()],
 }
 
-/**
- * Waits for the first load of the notice stack, until it holds `count`
- * toasts, and returns it. Each play starts with this wait. Upgrade toasts
- * come from the org read. Problem toasts come from the detail read of each
- * Workspace, which waits for the Workspace list. Then a render and a view
- * transition show the stack. All of these reads start when the play starts.
- * With the default bound of 1 s, ProblemLegacyOverlayAndFile and
- * ProblemLegacyOverlayOnly failed once on mobile in a factory check on a
- * shared host, where one capture container got less than 1 CPU (CTX-1498).
- * In a capture container with 1 CPU, a problem story got its stack after
- * 0.5 s; with 0.25 CPU after 2 s, and with 0.1 CPU after 4.8 s. The bound
- * is about 2x the time at 0.1 CPU, and much less than the 120 s that the
- * runner gives each story. It is a ceiling, not a delay: the wait ends when
- * the stack is full.
- */
-async function findNotices(canvasElement: HTMLElement, count: number) {
-  await waitFor(() => expect(toastItems(canvasElement)).toHaveLength(count), {
-    timeout: 10_000,
-  })
+/** The notice stack of the page. */
+function noticesRegion(canvasElement: HTMLElement) {
   return within(canvasElement).getByRole("region", {
     name: "Workspace notices",
   })
 }
 
+/**
+ * Waits until the notice stack of the first load holds `count` toasts, and
+ * returns it. Each play that shows a notice starts with this wait. A problem
+ * toast waits for the Workspace list and then the detail reads, so a capture
+ * container with little CPU needs more than the default bound of 1 s. The
+ * 10 s bound is a ceiling, not a delay. The measurements are in a comment of
+ * CTX-1498.
+ */
+async function findNotices(canvasElement: HTMLElement, count: number) {
+  await waitFor(() => expect(toastItems(canvasElement)).toHaveLength(count), {
+    timeout: 10_000,
+  })
+  return noticesRegion(canvasElement)
+}
+
 /** The toasts of the stack, front first. */
 function toastItems(canvasElement: HTMLElement) {
-  const region = within(canvasElement).getByRole("region", {
-    name: "Workspace notices",
-  })
-  return within(region).getAllByRole("listitem")
+  return within(noticesRegion(canvasElement)).getAllByRole("listitem")
 }
 
 /** The title of the front toast. Two toasts of one Workspace share a title. */
@@ -275,9 +270,13 @@ export const UpdateOnce = meta.story({
     (Story) => (
       <>
         <Story />
-        {/* The props of the Toaster of the app root. The toast stays: its
-            4 s timer ran out before the shot of a slow capture (CTX-1498). */}
-        <Toaster richColors position="top-center" duration={Infinity} />
+        {/* The props of the Toaster of the app root, but the toast stays:
+            its 4 s timer ran out before the shot of a slow capture. */}
+        <Toaster
+          richColors
+          position="top-center"
+          duration={Number.POSITIVE_INFINITY}
+        />
       </>
     ),
   ],
