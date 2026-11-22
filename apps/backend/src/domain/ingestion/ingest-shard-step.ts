@@ -1,7 +1,7 @@
 import { log } from "../../observability/logger.js"
 import { RunVaultLostError } from "../workspaces/agent-vault.js"
 import type { RootExec } from "./ingest-root.js"
-import { ingestShardPrepared } from "./ingest-shard-ops.js"
+import { ingestShardPreparedBundle } from "./ingest-shard-ops.js"
 
 /*
  * The sandbox part of one ingest shard step. It decides if the step
@@ -17,8 +17,10 @@ type ShardStepBox = { handle: { id: string }; root: RootExec }
  * not finish, runs `prepare` first. Only during that prepare may the
  * sandbox reach a plain git source host: a step's agent never can (see
  * `ingestCredentialRules`). The source fetch rules end with the prepare,
- * also when it fails, before `run` starts an agent. When a step fails,
- * `stopAgents` stops each agent process before the shard lock is released.
+ * also when it fails, before `run` starts an agent. A prepared sandbox with
+ * another bundle (a deploy, CTX-1503) runs `refreshBundle`, with no source
+ * fetch rules: an agent ran in it already. When a step fails, `stopAgents`
+ * stops each agent process before the shard lock is released.
  *
  * When Agent Vault lost the sandbox's vault (a replaced Agent Vault task),
  * the sandbox holds a session and a CA of the old instance. The step then
@@ -28,6 +30,8 @@ type ShardStepBox = { handle: { id: string }; root: RootExec }
 export async function withShardStep<T, B extends ShardStepBox>(input: {
   /** The root commands of the sandbox that exists already; null: none. */
   existingRoot: RootExec | null
+  /** The bundle name of the step. */
+  bundle: string
   /** True when the source is a plain git repository. */
   plainGitSource: boolean
   /** Set the Agent Vault rules of the sandbox again. */
@@ -37,6 +41,8 @@ export async function withShardStep<T, B extends ShardStepBox>(input: {
   /** Attach to the existing sandbox, or make one. */
   attach: () => Promise<B>
   prepare: (box: B) => Promise<void>
+  /** Put the step's bundle in a prepared sandbox. */
+  refreshBundle: (box: B) => Promise<void>
   run: (box: B) => Promise<T>
   stopAgents: (root: RootExec) => Promise<void>
   logContext: { orgId: string; runId: string }
@@ -57,8 +63,10 @@ export async function withShardStep<T, B extends ShardStepBox>(input: {
       throw error
     }
   }
-  const prepare =
-    !input.existingRoot || !(await ingestShardPrepared(input.existingRoot))
+  const preparedBundle = input.existingRoot
+    ? await ingestShardPreparedBundle(input.existingRoot)
+    : null
+  const prepare = preparedBundle === null
   const fetchSource = prepare && input.plainGitSource
   // A new sandbox gets the source fetch rules at create; an existing one
   // gets this step's rules now.
@@ -73,7 +81,7 @@ export async function withShardStep<T, B extends ShardStepBox>(input: {
         // also when the prepare fails.
         if (fetchSource) await refresh(false)
       }
-    }
+    } else if (preparedBundle !== input.bundle) await input.refreshBundle(box)
     return await input.run(box)
   } catch (error) {
     await input.stopAgents(box.root).catch((stopError: unknown) =>

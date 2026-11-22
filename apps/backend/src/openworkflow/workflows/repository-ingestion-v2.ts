@@ -19,11 +19,13 @@ import {
 } from "../../domain/ingestion/ingest-source-tree.js"
 import {
   capIngestText,
+  ingestBundleAttributes,
   logIngestEvent,
   withIngestRunSpan,
 } from "../../domain/ingestion/ingest-telemetry.js"
 import {
   INGEST_SHARD_MAX_ROOTS,
+  ingestRunSkills,
   packRoots,
   planIngestRoots,
   plannedIngestSkills,
@@ -43,7 +45,6 @@ import {
   ingestPublishTurn,
   waitForPublishTurn,
 } from "../../domain/ingestion/publish-turn.js"
-import { assertSameReingestVersion } from "../../domain/ingestion/skill-bundle.js"
 import {
   resolveIngestConflicts,
   SemanticResolveError,
@@ -453,7 +454,6 @@ export function defineRepositoryIngestionV2Workflow(
           mode,
           roots,
           bundle: scope.bundle,
-          version: scope.version ?? scope.bundle,
           skills: scope.skills,
           source,
           authorTime: input.authorTime,
@@ -461,10 +461,31 @@ export function defineRepositoryIngestionV2Workflow(
           start,
         })
 
+        // A deploy can change the bundle while the run is in progress. The
+        // run goes on with the current bundle and its skills: each finished
+        // step keeps its output, so it does not run again. A re-ingestion
+        // keeps the key of its planned version, so the upgrade scan still
+        // offers the re-ingestion of the new version (CTX-1503).
+        const bundle = await deps.bundle()
+        Object.assign(
+          attributes,
+          ingestBundleAttributes(scope.bundle, bundle.name),
+        )
+        // A step, so that each replay of the run does not log it again.
+        if (bundle.name !== scope.bundle)
+          await step.run({ name: `bundle-changed:${bundle.name}` }, () => {
+            logIngestEvent("warn", "ingestion-v2.bundle-changed", {
+              ingestionRunId: run.id,
+              plannedBundle: scope.bundle,
+              plannedVersion: scope.version ?? scope.bundle,
+              bundle: bundle.name,
+              version: bundle.version,
+            })
+            return Promise.resolve({ logged: true })
+          })
+
         // The repository unit, on the assembled ref and in the sandbox of
         // shard 0. Its tip is the run base of each Workspace.
-        const bundle = await deps.bundle()
-        assertSameReingestVersion(scope, bundle)
         const runtime = deps.runtime({
           orgId: input.orgId,
           runId: run.id,
@@ -481,7 +502,11 @@ export function defineRepositoryIngestionV2Workflow(
           partial: 0,
           partialRoots: [],
         }))
-        for (const skill of plannedIngestSkills(bundle.skills, "first"))
+        for (const skill of ingestRunSkills(
+          bundle.skills,
+          "first",
+          scope.skills,
+        ))
           for (const [i, destination] of destinations.entries()) {
             const state = first[i]
             if (!state) continue
@@ -491,7 +516,7 @@ export function defineRepositoryIngestionV2Workflow(
               run: {
                 runId: run.id,
                 shard: 0,
-                bundle: scope.bundle,
+                bundle: bundle.name,
                 source,
                 authorTime: input.authorTime,
                 roots,
@@ -515,9 +540,15 @@ export function defineRepositoryIngestionV2Workflow(
               state,
             })
           }
-        const runBase = Object.fromEntries(
-          first.flatMap((w) =>
-            w.tip ? [[w.workspaceId, { tip: w.tip, ops: w.ops }]] : [],
+        // A step keeps the run base. A deploy that removes a first skill
+        // skips its finished step in a replay, and the base must not change.
+        const runBase = await step.run({ name: "run-base" }, () =>
+          Promise.resolve(
+            Object.fromEntries(
+              first.flatMap((w) =>
+                w.tip ? [[w.workspaceId, { tip: w.tip, ops: w.ops }]] : [],
+              ),
+            ),
           ),
         )
 
@@ -598,7 +629,7 @@ export function defineRepositoryIngestionV2Workflow(
                       oldTip: runBase[destination.workspaceId]?.tip ?? null,
                       commit: {
                         step: assembleStep,
-                        bundle: scope.bundle,
+                        bundle: bundle.name,
                         authorTime: new Date(input.authorTime),
                       },
                       // Two shards that change one path: the semantic
@@ -693,6 +724,8 @@ export function defineRepositoryIngestionV2Workflow(
           ),
         )
         const ready = destinations.filter((d) => start[d.workspaceId])
+        // The planned count: a child that finished before a deploy removed
+        // the repository-wide skills keeps its output.
         if (scope.repositorySkills > 0 && ready.length) {
           const repository = await step.runWorkflow(
             deps.shard.spec,
@@ -808,7 +841,7 @@ export function defineRepositoryIngestionV2Workflow(
                           ),
                         ),
                       ].sort(),
-                      bundle: scope.bundle,
+                      bundle: bundle.name,
                       source: input.source,
                       sourcePath: destination.sourcePath,
                       sourceSha: input.sha,

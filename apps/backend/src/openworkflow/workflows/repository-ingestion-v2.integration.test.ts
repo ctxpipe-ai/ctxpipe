@@ -1,4 +1,4 @@
-import { type ChildProcess, execFileSync, spawn } from "node:child_process"
+import { execFileSync } from "node:child_process"
 import {
   existsSync,
   mkdirSync,
@@ -6,12 +6,9 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs"
-import { createServer } from "node:http"
-import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { setTimeout as delay } from "node:timers/promises"
-import { pathToFileURL } from "node:url"
 
 import {
   InMemorySpanExporter,
@@ -43,6 +40,10 @@ import {
 import { generateObjectId } from "../../lib/id.js"
 import { replaceWorkspaceSourceRows } from "../../models/workspace-sources.js"
 import { usePlainGitNetwork } from "../../services/git/plain-git-remote.js"
+import {
+  type IngestModelStep,
+  ingestChildWorker,
+} from "../../test/ingest-child-worker.js"
 import {
   type GithubTokenLog,
   githubTokenHandlers,
@@ -121,12 +122,7 @@ const modelCalls: Array<{
  * `services/orders` step of the first Workspace says `more`, so the host runs
  * that skill again on the new tip (one paging channel, ADR-052 section 6).
  */
-function modelReply(body: {
-  step: string
-  root: string | null
-  workspaceId: string
-  args?: string[]
-}) {
+function modelReply(body: IngestModelStep) {
   if (body.args?.includes(`https://github.com/${stallName}`))
     return {
       more: true,
@@ -758,71 +754,15 @@ describe("ingestion v2 after a killed worker", () => {
       // Only the child workers below may claim this run.
       await worker.stop()
       const calls: string[] = []
-      const local = createServer(async (request, response) => {
-        const chunks: Buffer[] = []
-        for await (const chunk of request) chunks.push(Buffer.from(chunk))
-        const body = JSON.parse(Buffer.concat(chunks).toString() || "{}")
-        response.setHeader("content-type", "application/json")
-        if (request.url?.endsWith("/access_tokens")) {
-          response.statusCode = 201
-          response.end(
-            JSON.stringify({
-              token: "fixture-only-github-token",
-              expires_at: new Date(Date.now() + 3600_000).toISOString(),
-              permissions: { contents: "write", metadata: "read" },
-            }),
-          )
-        } else if (request.url === "/v1/step") {
+      const workers = await ingestChildWorker({
+        folder,
+        bundleDir,
+        modelUrl: MODEL_URL,
+        reply: (body) => {
           calls.push(body.step)
-          response.end(JSON.stringify(modelReply(body)))
-        } else {
-          response.statusCode = 404
-          response.end("{}")
-        }
+          return modelReply(body)
+        },
       })
-      await new Promise<void>((resolve) =>
-        local.listen(0, "127.0.0.1", resolve),
-      )
-      const address = local.address()
-      if (!address || typeof address === "string")
-        throw new Error("The local GitHub and model stand-in has no port")
-      const proxy = `http://127.0.0.1:${address.port}`
-      const require = createRequire(import.meta.url)
-      const module = (path: string) =>
-        JSON.stringify(new URL(path, import.meta.url).href)
-      const script = join(folder, "ingestion-v2-worker.ts")
-      writeFileSync(
-        script,
-        `
-const nativeFetch = globalThis.fetch.bind(globalThis);
-globalThis.fetch = (input, init) => {
-  const request = new Request(input, init);
-  const url = new URL(request.url);
-  return nativeFetch(["api.github.com", "ingest-model.test"].includes(url.hostname)
-    ? new Request(${JSON.stringify(proxy)} + url.pathname + url.search, request) : request);
-};
-const { OpenWorkflow } = await import(${JSON.stringify(pathToFileURL(require.resolve("openworkflow")).href)});
-const { BackendPostgres } = await import(${JSON.stringify(pathToFileURL(require.resolve("openworkflow/postgres")).href)});
-const { initDb } = await import(${module("../../db/client.ts")});
-const { readIngestSkillBundle } = await import(${module("../../domain/ingestion/skill-bundle.ts")});
-const { standInIngestShardRuntime } = await import(${module("../../test/ingest-shard-stand-in.ts")});
-const { defineIngestionShardWorkflow } = await import(${module("./ingestion-shard.ts")});
-const { defineRepositoryIngestionV2Workflow } = await import(${module("./repository-ingestion-v2.ts")});
-initDb(process.env.DATABASE_URL);
-const backend = await BackendPostgres.connect(process.env.DATABASE_URL, { namespaceId: ${JSON.stringify(openWorkflowNamespaceId())}, runMigrations: false });
-const runner = new OpenWorkflow({ backend });
-const deps = {
-  runtime: standInIngestShardRuntime({ modelUrl: ${JSON.stringify(MODEL_URL)}, folder: ${JSON.stringify(folder)} }),
-  bundle: () => readIngestSkillBundle(${JSON.stringify(bundleDir)}),
-};
-const shard = defineIngestionShardWorkflow(deps);
-const parent = defineRepositoryIngestionV2Workflow({ ...deps, shard });
-runner.implementWorkflow(shard.spec, shard.fn);
-runner.implementWorkflow(parent.spec, parent.fn);
-await runner.newWorker({ concurrency: 4 }).start();
-await new Promise(() => {});
-`,
-      )
       // A git that stops after the first push to a shard ref has landed,
       // before the step can record its output.
       const pushed = join(folder, "step-pushed")
@@ -846,25 +786,9 @@ process.exit(result.status ?? 1);
 `,
         { mode: 0o700 },
       )
-      const children: ChildProcess[] = []
-      let childErrors = ""
-      const launch = (crash: boolean) => {
-        const child = spawn("bun", [script], {
-          cwd: folder,
-          detached: true,
-          env: {
-            ...process.env,
-            ...(crash ? { PATH: `${bin}:${process.env.PATH}` } : {}),
-          },
-          stdio: ["ignore", "ignore", "pipe"],
-        })
-        child.stderr?.on("data", (data) => {
-          childErrors = (childErrors + data.toString()).slice(-8_000)
-        })
-        children.push(child)
-        return child
-      }
-      try {
+      const launch = (crash: boolean) =>
+        workers.launch(crash ? { PATH: `${bin}:${process.env.PATH}` } : {})
+      await workers.run(async () => {
         const handle = await runner.runWorkflow(parent.spec, {
           orgId,
           shadow: true,
@@ -879,11 +803,10 @@ process.exit(result.status ?? 1);
         const crashing = launch(true)
         const deadline = Date.now() + 90_000
         while (!existsSync(pushed)) {
-          if (Date.now() > deadline)
-            throw new Error(`No step push happened: ${childErrors}`)
+          if (Date.now() > deadline) throw new Error("No step push happened")
           await delay(200)
         }
-        if (crashing.pid) process.kill(-crashing.pid, "SIGKILL")
+        workers.kill(crashing)
         const crashedStep = calls[0]
         expect(calls).toHaveLength(1)
         // The step's commit is on the shard ref, but the step has no output.
@@ -907,18 +830,7 @@ process.exit(result.status ?? 1);
             ]),
           )
         }
-      } catch (error) {
-        throw new Error(
-          `${error instanceof Error ? error.message : String(error)}\nChild worker stderr: ${childErrors}`,
-        )
-      } finally {
-        for (const child of children)
-          if (child.pid && child.exitCode === null && child.signalCode === null)
-            try {
-              process.kill(-child.pid, "SIGKILL")
-            } catch {}
-        local.close()
-      }
+      })
     },
   )
 })
