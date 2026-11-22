@@ -61,6 +61,20 @@ function alike(a: Part[], b: Part[], anyPosition = false): boolean {
   return a.length === b.length && a.every((part) => pair(part, new Set()))
 }
 
+/**
+ * True when two stories show the same diff: the same scope and viewport, and
+ * alike regions (with `anyPosition`, at any position).
+ */
+const sameDiff = (
+  a: { story: StoryInput; parts: Part[] },
+  b: { story: StoryInput; parts: Part[] },
+  anyPosition = false,
+) =>
+  a.story.scope === b.story.scope &&
+  a.story.viewport.width === b.story.viewport.width &&
+  a.story.viewport.height === b.story.viewport.height &&
+  alike(a.parts, b.parts, anyPosition)
+
 type Member = { story: StoryInput; index: number }
 // The first member is the representative.
 type Group = {
@@ -111,12 +125,10 @@ export async function reviewStories(
       ? groups.find(
           (candidate) =>
             candidate.parts &&
-            alike(candidate.parts, parts) &&
-            candidate.members[0].story.scope === story.scope &&
-            candidate.members[0].story.viewport.width ===
-              story.viewport.width &&
-            candidate.members[0].story.viewport.height ===
-              story.viewport.height,
+            sameDiff(
+              { story: candidate.members[0].story, parts: candidate.parts },
+              { story, parts },
+            ),
         )
       : undefined
     if (group) group.members.push(member)
@@ -152,10 +164,13 @@ export async function reviewStories(
  * UI (CTX-1509, ADR-063 rule 20). A story qualifies when an element is added,
  * removed or replaced in a region of at least 100 × 32 px: larger than a line
  * of text or a small control that moves. A color change, a shift and
- * rendering noise do not qualify. Stories with alike diffs (the same scope and
- * viewport, alike regions at any position) are one redesign, and the first
- * one stands for them. The largest change comes first, and at most `limit`
- * stories come back: each review is a paid call of a large model.
+ * rendering noise do not qualify. A screenshot whose size changed does not
+ * qualify either: the compare engine measures no region for it, so the
+ * critic cannot tell a redesign from a small change, group it, or scope the
+ * review. Stories with alike diffs (the same scope and viewport, alike
+ * regions at any position) are one redesign, and the first one stands for
+ * them. The largest change comes first, and at most `limit` stories come
+ * back: each review is a paid call of a large model.
  */
 export function redesigns(
   stories: readonly StoryInput[],
@@ -179,13 +194,7 @@ export function redesigns(
     if (
       parts &&
       largest > 0 &&
-      !kept.some(
-        (other) =>
-          other.story.scope === story.scope &&
-          other.story.viewport.width === story.viewport.width &&
-          other.story.viewport.height === story.viewport.height &&
-          alike(other.parts, parts, true),
-      )
+      !kept.some((other) => sameDiff(other, { story, parts }, true))
     )
       kept.push({ story, parts, largest })
   }

@@ -1902,17 +1902,23 @@ export const Primary = { render: () => null }
             1,
           )
           const text = parts.map(({ text }) => text ?? "").join("\n")
-          const [x, y, width, height] = (
-            /Changed regions, in pixels of Image 1:\n1\. x (\d+), y (\d+), width (\d+), height (\d+)\n/.exec(
+          const [x = 0, y = 0, width = 0, height = 0] = (
+            /Changed regions, in fractions \(0 to 1\) of Image 1:\n1\. x ([\d.]+), y ([\d.]+), width ([\d.]+), height ([\d.]+)\n/.exec(
               text,
             ) ?? []
           )
             .slice(1)
             .map(Number)
-          // The measured region holds the new block.
+          // The measured region holds the new block, in fractions of the
+          // 400 × 300 image, to 0.01.
           expect(
             contains(
-              { x: x ?? 0, y: y ?? 0, width: width ?? 0, height: height ?? 0 },
+              {
+                x: (x - 0.01) * 400,
+                y: (y - 0.01) * 300,
+                width: (width + 0.02) * 400,
+                height: (height + 0.02) * 300,
+              },
               { x: 100, y: 60, width: 200, height: 60 },
             ),
           ).toBe(true)
@@ -1925,6 +1931,57 @@ export const Primary = { render: () => null }
             "Design review (openai/gpt-6.1-sol, it makes the verdict regression major)",
           )
           expect(verdicts()[1]).toMatchObject({ path: card, verdict: "unsure" })
+        })
+
+        test("the design review of a redesign runs before the explainer of a smaller change, so a short budget goes to it first", async () => {
+          serveJev(spacingWorse)
+          await put("base", button, before)
+          await put("head", button, after)
+          await put("base", card, before)
+          await put("head", card, redesigned)
+
+          // Room for both calls only when the review comes first: the review
+          // keeps $0.03 free, the explainer $0.005, and each call costs $0.01.
+          await run(
+            "--json",
+            "--judge",
+            "jev",
+            "--budget-usd",
+            "0.035",
+            "--images",
+            images,
+            "--",
+            button,
+            card,
+          )
+
+          expect(chats.map(({ model }) => model)).toEqual([
+            "openai/gpt-6.1-sol",
+            "openai/gpt-6-luna",
+          ])
+        })
+
+        test("when the budget has room for the explainer but not for the review, a redesign keeps its explainer", async () => {
+          serveJev(spacingWorse)
+          await put("base", card, before)
+          await put("head", card, redesigned)
+
+          await run(
+            "--json",
+            "--judge",
+            "jev",
+            "--budget-usd",
+            "0.02",
+            "--images",
+            images,
+            "--",
+            card,
+          )
+
+          expect(chats.map(({ model }) => model)).toEqual(["openai/gpt-6-luna"])
+          expect(verdicts()[0]?.summary).toContain(
+            "Explainer (openai/gpt-6-luna",
+          )
         })
 
         test("a color change gets no design review", async () => {

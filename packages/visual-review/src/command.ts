@@ -302,7 +302,7 @@ export async function visualReview(
           summary: `${member.summary} Jev on ${verdict.storyId}: ${verdict.summary}`,
         }
       : member
-  const feedbackOf = (input: Explained, redesigned: ReadonlySet<string>) =>
+  const feedbackOf = (input: Explained, reviewed: boolean) =>
     input.kind === "new"
       ? {
           call: (verdict: Verdict) =>
@@ -313,7 +313,7 @@ export async function visualReview(
           share: (verdict: Verdict, member: Verdict) =>
             viewportCopy(verdict, member.storyId),
         }
-      : redesigned.has(input.story.storyId)
+      : reviewed
         ? {
             call: async (verdict: Verdict) => {
               const story = await inContext(input.story)
@@ -335,24 +335,42 @@ export async function visualReview(
           }
   const explainAll = async (verdicts: Verdict[]) => {
     // A redesigned area gets a design review in its context: at most 4 for
-    // each run, the largest first (ADR-063 rule 20).
-    const redesigned = new Set(
-      redesigns(
-        [...jevInputs.values()].flatMap((input) =>
-          input.kind === "change" ? [input.story] : [],
-        ),
-        4,
-      ).map(({ storyId }) => storyId),
+    // each run, the largest first, before the explainers of other changes,
+    // so that a short budget goes to the reviews (ADR-063 rule 20).
+    const redesigned = redesigns(
+      [...jevInputs.values()].flatMap((input) =>
+        input.kind === "change" ? [input.story] : [],
+      ),
+      4,
+    ).map(({ storyId }) => storyId)
+    const rank = (storyId: string) => {
+      const at = redesigned.indexOf(storyId)
+      return jevInputs.get(storyId)?.kind === "new"
+        ? -1
+        : at >= 0
+          ? at
+          : redesigned.length
+    }
+    const order = [...verdicts.keys()].sort(
+      (a, b) =>
+        rank(verdicts[a]?.storyId ?? "") - rank(verdicts[b]?.storyId ?? ""),
     )
-    for (const [index, verdict] of verdicts.entries()) {
-      const input = jevInputs.get(verdict.storyId)
+    const fits = (reserve: number) =>
+      budget.limitUsd === undefined ||
+      budget.spentUsd + reserve <= budget.limitUsd
+    for (const index of order) {
+      const verdict = verdicts[index]
+      const input = verdict && jevInputs.get(verdict.storyId)
       if (!input || verdict.groupedWith !== undefined) continue
-      const { call, reserve, skipped, share } = feedbackOf(input, redesigned)
+      // A redesign keeps its explainer when the budget has no room for the
+      // review.
+      const { call, reserve, skipped, share } = feedbackOf(
+        input,
+        redesigned.includes(verdict.storyId) &&
+          (fits(unknownDesignUsd) || !fits(unknownExplainerUsd)),
+      )
       let updated: Verdict
-      if (
-        budget.limitUsd !== undefined &&
-        budget.spentUsd + reserve > budget.limitUsd
-      ) {
+      if (!fits(reserve)) {
         if (!skipped || verdict.error !== undefined) continue
         updated = { ...verdict, summary: `${verdict.summary} ${skipped}` }
       } else {
