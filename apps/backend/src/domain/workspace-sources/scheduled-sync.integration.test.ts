@@ -180,12 +180,15 @@ describe("Scheduled full sync of Workspace sources (Postgres)", () => {
       scope: { channels: ["C1"] },
     })
     const ids = [pagerduty, linear, unused, lost, slack]
-    const today = new Date()
+    // Noon UTC: the second run, 1 minute later, is on the same UTC day also
+    // when the test runs in the last minute before midnight.
+    const now = new Date()
     const dayStart = Date.UTC(
-      today.getUTCFullYear(),
-      today.getUTCMonth(),
-      today.getUTCDate(),
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate(),
     )
+    const today = new Date(dayStart + DAY_MS / 2)
 
     await enqueue.enqueueDailySourcesSyncs(today)
     // A second scheduler run on the same day (a worker restart) adds nothing.
