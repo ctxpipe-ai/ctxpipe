@@ -3,6 +3,8 @@ import { setTimeout as delay } from "node:timers/promises"
 import { expect, it } from "vitest"
 
 import { withAgentVault } from "../../test/agent-vault-fixture.js"
+import { runAsRoot } from "../ingestion/ingest-root.js"
+import { ingestErrorFields } from "../ingestion/ingest-telemetry.js"
 import { openRunVault, writeProxyCaCommand } from "./agent-vault.js"
 import { workspaceChatDockerImage } from "./chat-runtime.js"
 import { ingestCredentialRules } from "./ingest-sandbox-egress.js"
@@ -62,6 +64,16 @@ it(
             const ended = await box.process.exec(fetch)
             expect(ended.exitCode, ended.stderr).toBe(128)
             expect(ended.stderr).toContain("407")
+            // The step event names the proxy status, not the URL (CTX-1517).
+            const failure = await runAsRoot(async () => ended, fetch).catch(
+              (error: unknown) => error,
+            )
+            expect(ingestErrorFields(failure)).toMatchObject({
+              errorKind: "Ingest root command failed (exit 128)",
+              errorHead: expect.stringMatching(
+                /^(?:CONNECT tunnel failed, response 407|Received HTTP code 407 from proxy after CONNECT)$/,
+              ),
+            })
           } finally {
             await box.remove()
           }
