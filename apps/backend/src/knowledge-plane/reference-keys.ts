@@ -221,9 +221,11 @@ function mentionLinks(input: {
     (m[1] ?? "").trim(),
   )
 
-  // A path from `./` or `../` is a local file of the reporter, and a path
-  // whose first folder holds a dot is a Go import path or a host
-  // (`k8s.io/…`). Neither names a file of the repository.
+  // The path and the operation rules also read fenced code, because a stack
+  // trace or a request log names real files and operations. The name rules
+  // read only the prose. A path from `./` or `../` is a local file of the
+  // reporter, and a path whose first folder holds a dot is a Go import path
+  // or a host (`k8s.io/…`). Neither names a file of the repository.
   for (const match of body.matchAll(
     /(?<![\w/.:~-])((?:[\w-]+\/)(?:[\w.-]+\/)*[\w-]+\.[A-Za-z][A-Za-z0-9]{0,7})(?![\w/])/g,
   )) {
