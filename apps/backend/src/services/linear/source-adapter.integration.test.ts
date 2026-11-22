@@ -1,5 +1,6 @@
 import { HttpResponse, http } from "msw"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
+import { parse } from "yaml"
 
 import {
   emptyLinearPage,
@@ -345,6 +346,66 @@ describe("Linear source adapter on the sync frame (Postgres, msw)", () => {
           .some((part) => part === "" || part === "." || part === ".."),
       ).toBe(false)
     }
+  })
+
+  it("writes the status dates of each issue in its front matter (CTX-1526)", async () => {
+    server.use(
+      http.post("https://api.linear.app/graphql", async ({ request }) => {
+        const body = (await request.clone().json()) as {
+          query?: string
+          variables?: Record<string, unknown>
+        }
+        const name = linearOperationName(body.query ?? "")
+        if (!name.startsWith("TeamIssues") || body.variables?.id !== "team-ops")
+          return undefined
+        const issue = (key: string, dates: Record<string, string>) =>
+          linearIssueData({
+            id: `issue-${key}`,
+            identifier: `OPS-${key}`,
+            teamId: "team-ops",
+            ...dates,
+          })
+        return HttpResponse.json(
+          {
+            data: {
+              team: {
+                issues: emptyLinearPage([
+                  issue("1", { completedAt: "2026-08-03T10:00:00.000Z" }),
+                  issue("2", { canceledAt: "2026-08-04T11:00:00.000Z" }),
+                  issue("3", {}),
+                ]),
+              },
+            },
+          },
+          { headers: linearBudgetHeaders() },
+        )
+      }),
+    )
+    await project({ teams: ["OPS"], customerRequests: "exclude" })
+    const { byWorkspace } = await sync()
+    const datesOf = (key: string) => {
+      const file = byWorkspace
+        .get(opsWorkspace)
+        ?.files.find(
+          (entry) =>
+            entry.path ===
+            `linear/teams/OPS/issues/ops-${key}--issue-${key}.md`,
+        )
+      const front = parse(file?.content.split("---\n")[1] ?? "") as Record<
+        string,
+        unknown
+      >
+      return { completedAt: front.completedAt, canceledAt: front.canceledAt }
+    }
+    expect(datesOf("1")).toEqual({
+      completedAt: "2026-08-03T10:00:00.000Z",
+      canceledAt: null,
+    })
+    expect(datesOf("2")).toEqual({
+      completedAt: null,
+      canceledAt: "2026-08-04T11:00:00.000Z",
+    })
+    expect(datesOf("3")).toEqual({ completedAt: null, canceledAt: null })
   })
 
   it("syncs only the sources that a webhook event touches", async () => {

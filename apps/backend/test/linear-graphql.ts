@@ -108,6 +108,9 @@ export function linearIssueData(
       endCursor?: string | null
     }
     parent?: { id: string; identifier: string } | null
+    /** The status dates of the issue, as ISO times. */
+    completedAt?: string | null
+    canceledAt?: string | null
     projectMilestone?: { id: string; name: string } | null
     relations?: {
       nodes: LinearIssueRelation[]
@@ -128,6 +131,8 @@ export function linearIssueData(
     priorityLabel: "High",
     createdAt: "2026-08-01T00:00:00.000Z",
     updatedAt: "2026-08-02T00:00:00.000Z",
+    completedAt: input.completedAt ?? null,
+    canceledAt: input.canceledAt ?? null,
     state: { name: "In Progress" },
     team: {
       id: input.teamId ?? "team-1",
