@@ -221,16 +221,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # The full run: shard counts come from the measured file times in
-        # scripts/ci/test-weights.json, about 200 s of backend test time and
-        # 240 s of contract test time per shard. In gate mode the plan job
-        # gives the shards of the selected checks (lane `selected`).
+        # The full run: scripts/ci/test-weights.json holds the measured time
+        # of each file of 5 s or more (CI run 44983741063), which balances the
+        # shards. A full run had about 3,100 s of backend shard time and
+        # 2,700 s of contract shard time, so each shard runs about 10
+        # minutes. In gate mode the plan job gives the shards of the selected
+        # checks (lane `selected`).
         include: >-
           ${{ fromJSON(needs.merge-gate-plan.outputs.test-shards || '[
-          {"lane": "backend", "shard": 1, "count": 4},
-          {"lane": "backend", "shard": 2, "count": 4},
-          {"lane": "backend", "shard": 3, "count": 4},
-          {"lane": "backend", "shard": 4, "count": 4},
+          {"lane": "backend", "shard": 1, "count": 5},
+          {"lane": "backend", "shard": 2, "count": 5},
+          {"lane": "backend", "shard": 3, "count": 5},
+          {"lane": "backend", "shard": 4, "count": 5},
+          {"lane": "backend", "shard": 5, "count": 5},
           {"lane": "contracts", "shard": 1, "count": 5},
           {"lane": "contracts", "shard": 2, "count": 5},
           {"lane": "contracts", "shard": 3, "count": 5},

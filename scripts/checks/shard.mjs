@@ -11,7 +11,7 @@ import { gunzipSync } from "node:zlib"
 export const profiles = {
   project: { setupMinutes: 0.4, maxShards: 2 },
   node: { setupMinutes: 0.3, maxShards: 1 },
-  database: { setupMinutes: 1.4, maxShards: 9 },
+  database: { setupMinutes: 1.4, maxShards: 10 },
   upgrade: { setupMinutes: 1.1, maxShards: 1 },
   codesearch: { setupMinutes: 0.3, maxShards: 1 },
   storybook: { setupMinutes: 0.6, maxShards: 5 },
