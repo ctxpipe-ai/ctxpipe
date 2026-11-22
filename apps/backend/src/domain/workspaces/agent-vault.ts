@@ -364,6 +364,29 @@ export class RunVaultRuleRefusedError extends Error {
 }
 
 /**
+ * The run's vault is gone: ECS replaced the Agent Vault task, and a new
+ * instance keeps no data. The run's sandbox holds a proxy session and trusts
+ * a CA of the old instance, so it cannot work again in place. The owner of
+ * the sandbox destroys it, and a new sandbox gets a new vault, session and
+ * CA.
+ */
+export class RunVaultLostError extends Error {
+  constructor(options?: { cause?: unknown }) {
+    super(
+      "Agent Vault restarted and lost the credentials of this sandbox. Run it again: a new sandbox gets new credentials.",
+      options,
+    )
+    this.name = "RunVaultLostError"
+  }
+}
+
+/** Agent Vault's answer for a vault that it does not have: 404 `Vault "<name>" not found`. */
+function isLostVault(error: unknown): boolean {
+  const { status, code } = error as { status?: number; code?: string }
+  return status === 404 && /^Vault\b.*\bnot found$/.test(code ?? "")
+}
+
+/**
  * The rules as the run vault of a hosted AgentCore sandbox may hold them
  * (CTX-1287). Other deployments get `rules` as they are.
  *
@@ -435,7 +458,8 @@ export function runVaultName(runKey: string): string {
  * Add `rules` to the run's vault, or replace the rules with the same names
  * (Agent Vault keys a service by its name). With `replace`, the vault keeps
  * no other rule. A later step of the same run calls this from any process:
- * the session of the sandbox stays the same.
+ * the session of the sandbox stays the same. Throws
+ * {@link RunVaultLostError} when Agent Vault no longer has the vault.
  */
 export async function setRunVaultRules(
   access: AgentVaultAccess,
@@ -460,12 +484,17 @@ async function writeRunVaultRules(
 ): Promise<void> {
   if (rules.length === 0 && !options.replace) return
   const { credentials, services } = servicesFor(rules)
-  await asOwner(access, async (client) => {
-    const vault = client.vault(runVaultName(runKey))
-    await vault.credentials?.set(credentials)
-    if (options.replace) await vault.services?.replaceAll(services)
-    else await vault.services?.set(services)
-  })
+  try {
+    await asOwner(access, async (client) => {
+      const vault = client.vault(runVaultName(runKey))
+      await vault.credentials?.set(credentials)
+      if (options.replace) await vault.services?.replaceAll(services)
+      else await vault.services?.set(services)
+    })
+  } catch (error) {
+    if (isLostVault(error)) throw new RunVaultLostError({ cause: error })
+    throw error
+  }
 }
 
 /**
