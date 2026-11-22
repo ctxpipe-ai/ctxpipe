@@ -506,6 +506,70 @@ describe("find-apis", () => {
     expect(listed).toBeLessThan(4000)
     expect(out.skipped).toEqual([])
   })
+
+  it("reads each specification file larger than 1 MiB, in JSON and YAML (CTX-1511)", async () => {
+    const description = "Reads the item. ".repeat(40)
+    const paths: Record<string, object> = {}
+    const yaml = ['openapi: "3.0.0"', "info:", "  title: Big YAML", "paths:"]
+    for (let i = 0; i < 2000; i++) {
+      paths[`/items/${i}`] = { get: { description } }
+      yaml.push(
+        `  /things/${i}:`,
+        "    get:",
+        `      description: ${description}`,
+      )
+    }
+    const json = JSON.stringify({ openapi: "3.0.0", paths })
+    const s = await fixture({
+      "apps/big/openapi.json": json,
+      "apps/big/docs/swagger.yaml": yaml.join("\n"),
+    })
+    expect(json.length).toBeGreaterThan(1024 * 1024)
+    expect(yaml.join("\n").length).toBeGreaterThan(1024 * 1024)
+    expect(s.find("apps/big", "--count")).toEqual({ count: 4000 })
+    expect(s.find("apps/big").skipped).toEqual([])
+  })
+
+  it("keeps the operations that fit in a specification larger than 32 MiB, and records the cut (CTX-1511)", async () => {
+    // About 34 MiB in each file: the first 32 MiB are read.
+    const description = "Reads the item. ".repeat(60)
+    const paths: Record<string, object> = {}
+    const yaml = ['openapi: "3.0.0"', "paths:"]
+    const total = 34_000
+    for (let i = 0; i < total; i++) {
+      paths[`/items/${i}`] = { get: { description }, put: { summary: "Put" } }
+      yaml.push(
+        `  /things/${i}:`,
+        "    get:",
+        `      description: ${description}`,
+      )
+    }
+    const s = await fixture({
+      "apps/json/openapi.json": JSON.stringify({ openapi: "3.0.0", paths }),
+      "apps/yaml/openapi.yaml": yaml.join("\n"),
+    })
+    for (const [root, prefix] of [
+      ["apps/json", "/items/"],
+      ["apps/yaml", "/things/"],
+    ] as const) {
+      const { count } = s.find(root, "--count") as { count: number }
+      // The operations before the cut are read, the operations after it are not.
+      expect(count).toBeGreaterThan(total * 0.8)
+      expect(count).toBeLessThan(total * (root === "apps/json" ? 2 : 1))
+      const out = s.find(root)
+      expect(out.specs[0]?.operations[0]).toMatchObject({
+        method: "GET",
+        path: `${prefix}0`,
+      })
+      expect(out.skipped).toEqual([
+        {
+          path: `${root}/${root === "apps/json" ? "openapi.json" : "openapi.yaml"}`,
+          reason:
+            "The file is larger than 32 MiB. The script read the first 32 MiB, and it did not list the operations after them",
+        },
+      ])
+    }
+  })
 })
 
 const SERVICE = front(

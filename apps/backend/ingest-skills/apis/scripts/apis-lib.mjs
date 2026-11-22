@@ -41,8 +41,10 @@ const METHOD_SET = new Set(HTTP_METHODS)
 
 // No count limit on specification files, operations, or routes (CTX-1487):
 // the cursor pages over them. The limits below protect a process; each one
-// gives a `skipped` entry.
-const MAX_SPEC_LINES = 200_000
+// gives a `skipped` entry. The script reads a specification file up to
+// MAX_SPEC_BYTES and keeps the operations in the part that it read
+// (CTX-1511).
+const MAX_SPEC_BYTES = 32 * 1024 * 1024
 const AST_GREP_TIMEOUT_MS = 90_000
 const AST_GREP_MAX_BUFFER = 32 * 1024 * 1024
 
@@ -184,7 +186,6 @@ export function yamlEntry(line) {
  */
 function readYamlSpec(text) {
   const lines = text.split("\n")
-  if (lines.length > MAX_SPEC_LINES) return { skip: "The file is too long" }
   let version = null
   let title = null
   let pathsAt = -1
@@ -247,10 +248,10 @@ function readYamlSpec(text) {
   return { version, title, operations, skipRefs }
 }
 
-function readJsonSpec(text) {
+function readJsonSpec(text, cut) {
   let json
   try {
-    json = JSON.parse(text)
+    json = JSON.parse(cut ? (closeJsonPrefix(text) ?? "") : text)
   } catch {
     return { skip: "The file is not valid JSON" }
   }
@@ -292,20 +293,81 @@ function readJsonSpec(text) {
   }
 }
 
+/**
+ * The longest prefix of a cut JSON text that ends after a whole object or
+ * array, with the closers of the containers that are still open; null when
+ * there is no such prefix or the brackets do not match. The scan is linear.
+ *
+ * The containers below the depth of the last whole value change only when
+ * a later value closes, and that close moves the prefix. So the closers are
+ * the containers below that depth at the end of the scan.
+ */
+function closeJsonPrefix(text) {
+  const open = []
+  let end = -1
+  let depth = 0
+  let inString = false
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]
+    if (inString) {
+      if (c === "\\") i++
+      else if (c === '"') inString = false
+    } else if (c === '"') inString = true
+    else if (c === "{") open.push("}")
+    else if (c === "[") open.push("]")
+    else if (c === "}" || c === "]") {
+      if (open.pop() !== c) return null
+      if (open.length === 0) return text.slice(0, i + 1)
+      end = i + 1
+      depth = open.length
+    }
+  }
+  if (end === -1) return null
+  return text.slice(0, end) + open.slice(0, depth).reverse().join("")
+}
+
+/**
+ * The text of a tracked specification file at HEAD, up to MAX_SPEC_BYTES:
+ * { text, cut }, or null when the file is empty or not readable. A cut YAML
+ * text ends at its last whole line.
+ */
+function readSpecFile(source, file) {
+  const read = spawnSync(
+    "git",
+    ["-C", source, "cat-file", "blob", `HEAD:${file}`],
+    {
+      maxBuffer: MAX_SPEC_BYTES,
+    },
+  )
+  const cut = read.error?.code === "ENOBUFS"
+  if ((read.error && !cut) || (!cut && read.status !== 0) || !read.stdout)
+    return null
+  let bytes = cut ? read.stdout.subarray(0, MAX_SPEC_BYTES) : read.stdout
+  if (cut && !/\.json$/i.test(file))
+    bytes = bytes.subarray(0, bytes.lastIndexOf(10) + 1)
+  const text = bytes.toString("utf8")
+  return text ? { text, cut } : null
+}
+
 /** The OpenAPI files of the root, each with its operations. */
 function discoverSpecs(source, files, skipped) {
   const specs = []
   const candidates = files.filter((file) => SPEC_NAME.test(file)).sort()
   for (const file of candidates) {
-    const text = readTracked(source, file)
-    if (!text) {
-      skipped.push({
-        path: file,
-        reason: "The file is empty, larger than 1 MiB, or not readable",
-      })
+    const spec = readSpecFile(source, file)
+    if (!spec) {
+      skipped.push({ path: file, reason: "The file is empty or not readable" })
       continue
     }
-    const read = /\.json$/i.test(file) ? readJsonSpec(text) : readYamlSpec(text)
+    const { text, cut } = spec
+    if (cut)
+      skipped.push({
+        path: file,
+        reason: `The file is larger than ${MAX_SPEC_BYTES / 1024 / 1024} MiB. The script read the first ${MAX_SPEC_BYTES / 1024 / 1024} MiB, and it did not list the operations after them`,
+      })
+    const read = /\.json$/i.test(file)
+      ? readJsonSpec(text, cut)
+      : readYamlSpec(text)
     if (read.skip) {
       skipped.push({ path: file, reason: read.skip })
       continue
