@@ -28,6 +28,7 @@ import type {
 import { logIngestEvent } from "./ingest-telemetry.js"
 import {
   INGEST_CONTEXT_ROOT,
+  INGEST_HOME,
   INGEST_OUT_ROOT,
   INGEST_ROOT,
   INGEST_SKILLS_ROOT,
@@ -49,7 +50,10 @@ type SandboxExec = { process: Pick<SandboxProcess, "exec"> }
 /** The source checkout: `/ctxpipe/source/source`. */
 const INGEST_SOURCE_HANDLE = "source"
 const SOURCE_DIR = `${INGEST_SOURCE_ROOT}/${INGEST_SOURCE_HANDLE}`
-/** Root writes it last in prepare; the agent cannot write in /ctxpipe. */
+/**
+ * Root writes it last in prepare, with the bundle name; the agent cannot
+ * write in /ctxpipe.
+ */
 const PREPARED = `${INGEST_ROOT}/prepared`
 /** Concept section 5.4: 180 days of history. */
 const HISTORY_DAYS = 180
@@ -199,9 +203,46 @@ async function waitFor(ms: number, signal?: AbortSignal): Promise<void> {
   })
 }
 
-/** True when an earlier `prepareIngestShard` finished in this sandbox. */
-export async function ingestShardPrepared(root: RootExec): Promise<boolean> {
-  return (await root(`test -f ${PREPARED}`)).exitCode === 0
+/**
+ * The bundle name of the sandbox when an earlier `prepareIngestShard`
+ * finished in it, and null when no prepare finished. An empty name: the
+ * bundle is not known (a marker of an earlier version, or a bundle refresh
+ * that did not finish).
+ */
+export async function ingestShardPreparedBundle(
+  root: RootExec,
+): Promise<string | null> {
+  const marker = await root(`cat ${PREPARED}`)
+  return marker.exitCode === 0 ? marker.stdout.trim() : null
+}
+
+/** Root writes the marker of a finished prepare with its bundle name. */
+function writePreparedMarker(root: RootExec, bundle: string): Promise<void> {
+  return runAsRoot(
+    root,
+    `printf %s ${quote(bundle)} > ${PREPARED} && chmod 644 ${PREPARED}`,
+  )
+}
+
+/**
+ * A prepared sandbox that a deploy left with another bundle (CTX-1503): root
+ * puts the step's bundle and OpenCode config in place. The source and the
+ * checkouts stay, no fetch rule opens, and no agent process runs. The marker
+ * has no bundle name until the copy is complete, so a refresh that stops
+ * part of the way runs again at the next step. Root first deletes the two
+ * folders of the agent, so the prepare gives the agent no file that an
+ * earlier agent left (for example a hard link to a file of root).
+ */
+export async function refreshIngestShardBundle(
+  handle: Sandbox,
+  root: RootExec,
+  input: { bundle: IngestSkillBundle; opencodeConfig: IngestOpenCodeConfig },
+): Promise<void> {
+  // An empty name: the bundle is not known until the copy is complete.
+  await writePreparedMarker(root, "")
+  await runAsRoot(root, `rm -rf ${INGEST_OUT_ROOT} ${INGEST_HOME}`)
+  await prepareIngestSandbox(handle, root, input)
+  await writePreparedMarker(root, input.bundle.name)
 }
 
 /**
@@ -298,7 +339,7 @@ export async function prepareIngestShard(
     handle,
     `rm -rf ${sourceClone} ${input.contexts.map((c) => quote(`/tmp/ctxpipe-clone-${c.workspaceId}`)).join(" ")}`,
   )
-  await runAsRoot(root, `touch ${PREPARED} && chmod 644 ${PREPARED}`)
+  await writePreparedMarker(root, input.bundle.name)
 }
 
 /**

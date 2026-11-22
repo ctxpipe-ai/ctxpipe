@@ -7,6 +7,7 @@ import {
   type StoryInput,
   type Verdict,
 } from "./index.ts"
+import { redesigns } from "./review.ts"
 
 const region = (changeType: "color-change" | "rendering-noise") => ({
   box: { x: 0.1, y: 0.2, width: 0.2, height: 0.1 },
@@ -529,5 +530,69 @@ describe("reviewStories", () => {
     await expect(
       reviewStories([story("a--b", "color-change@left:288x90")], failing),
     ).rejects.toThrow("The provider is down.")
+  })
+})
+
+describe("redesigns", () => {
+  const ids = (found: readonly { story: StoryInput }[]) =>
+    found.map(({ story: { storyId } }) => storyId)
+
+  test("an element added, removed or replaced in a region of at least 100 × 32 px is a redesign; a color change, a shift, noise or a smaller region is not", () => {
+    const stories = [
+      story("added", "addition@center:200x40"),
+      story("removed", "color-change@top:300x200,deletion@left:248x52"),
+      story("replaced", "content-change@right:100x32"),
+      story("unlabeled", "unlabeled@right:120x40"),
+      story("recolored", "color-change@left:400x300"),
+      story("moved", "shift@left:400x60"),
+      story("noise", "rendering-noise@left:400x60"),
+      story("small-button", "content-change@right:60x60"),
+      story("one-line", "content-change@left:225x31"),
+      story("no-signature", undefined),
+    ]
+
+    expect(ids(redesigns(stories))).toEqual([
+      "removed",
+      "added",
+      "unlabeled",
+      "replaced",
+    ])
+  })
+
+  test("alike diffs at other positions are one redesign: the first story stands for them, and names the others", () => {
+    const stories = [
+      story("composer-a", "deletion@left:248x52,content-change@right:60x60"),
+      story("composer-b", "content-change@center:60x60,deletion@center:247x52"),
+      story("composer-c", "deletion@left:248x52,content-change@right:60x60"),
+    ]
+
+    expect(redesigns(stories)).toMatchObject([
+      {
+        story: { storyId: "composer-a" },
+        alike: ["composer-b", "composer-c"],
+      },
+    ])
+  })
+
+  test("another viewport or scope is another redesign", () => {
+    const stories = [
+      story("desktop", "deletion@left:248x52"),
+      story("mobile", "deletion@left:248x52", {
+        viewport: { width: 390, height: 844 },
+      }),
+      story("page", "deletion@left:248x52", { scope: "page" }),
+    ]
+
+    expect(ids(redesigns(stories))).toEqual(["desktop", "mobile", "page"])
+  })
+
+  test("the largest change comes first", () => {
+    const stories = [
+      story("small", "addition@left:100x32"),
+      story("large", "addition@left:600x400"),
+      story("medium", "deletion@left:248x52"),
+    ]
+
+    expect(ids(redesigns(stories))).toEqual(["large", "medium", "small"])
   })
 })

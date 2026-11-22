@@ -82,6 +82,7 @@
     "src/domain/workspaces/workspace-chat-run-capability-native.contract.test.ts",
     "src/domain/workspaces/agent-vault-native.contract.test.ts",
     "src/domain/workspaces/agent-vault-auth-gate.contract.test.ts",
+    "src/domain/workspaces/agent-vault-session-expiry.contract.test.ts",
     "src/domain/workspaces/ingest-sandbox-egress-native.contract.test.ts",
     "src/domain/workspaces/sandbox-dind-egress-native.contract.test.ts",
     "src/domain/workspaces/sandbox-host-network.contract.test.ts",
@@ -100,6 +101,9 @@
     "src/knowledge-plane/writer.contract.test.ts",
     "src/openworkflow/workflows/knowledge-maintenance.contract.test.ts",
     "src/openworkflow/workflows/workspace-hydrate-knowledge.contract.test.ts"
+  ],
+  "knowledge plane faults (ClickHouse restart, refused tenant, rebuild)": [
+    "src/knowledge-plane/faults.contract.test.ts"
   ],
   "host Docker, zoekt and process environment": [
     "src/domain/ingestion/classify-kind-skill.contract.test.ts",

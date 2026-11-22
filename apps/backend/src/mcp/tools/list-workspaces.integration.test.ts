@@ -10,6 +10,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../../test/db.js"
 import { useMswServer } from "../../../test/msw.js"
+import { recordSpans } from "../../../test/spans.js"
 import type { AppEnv } from "../../app/env.js"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
@@ -32,6 +33,7 @@ import { registerMcpReadTools } from "../framework/tool-registry.js"
 import { listWorkspaces } from "./list-workspaces.js"
 
 const server = useMswServer()
+const spans = recordSpans()
 const CODESEARCH = "http://codesearch.test"
 
 let seed: SeededOrg
@@ -137,6 +139,10 @@ describe("list_workspaces through MCP", () => {
         workspaces: unknown[]
       }>
       expect(orgs[0]?.workspaces).toHaveLength(100)
+      // Retrieval facts (CTX-1137): the count of listed Workspaces.
+      expect(
+        spans.spanNamed("mcp.tool list_workspaces")?.attributes,
+      ).toMatchObject({ "ctxpipe.mcp.result.count": 100 })
       expect(orgs[0]?.workspaces[0]).toEqual({
         slug: "space-000",
         title: "Space 0",

@@ -29,6 +29,7 @@ import {
   CHAT_SANDBOX_IDLE_STOP_MS,
   CHAT_SANDBOX_RETENTION_MS,
   INGEST_SHARD_LIMIT_MS,
+  ingestShardStartedAt,
   ORG_INGEST_SANDBOX_LIMIT,
   ORG_RUNNING_SANDBOX_LIMIT,
 } from "./chat-lifecycle.js"
@@ -542,7 +543,7 @@ export async function sweepConversationSandboxes(
       [...new Set(ingest.flatMap((row) => row.latestRunId ?? []))],
     )
     for (const row of ingest) {
-      const startedAt = (row.createdAt ?? row.lastHeartbeatAt).getTime()
+      const startedAt = ingestShardStartedAt(row)
       if (
         row.state !== "destroy_failed" &&
         row.latestRunId &&

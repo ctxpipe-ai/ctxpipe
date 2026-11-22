@@ -78,9 +78,9 @@ export const DraftSurvivesRemount = meta.story({
 })
 
 /**
- * Chat message composer with suggested prompts: the user opened the list and
- * picked one. The prompt fills the composer and the composer gets focus, but
- * nothing is sent.
+ * Chat message composer with a centered row of suggested prompt pills under
+ * it: the user picked "Summarize last week". The full prompt fills the
+ * composer and the composer gets focus, but nothing is sent.
  */
 export const SuggestionFillsComposer = meta.story({
   beforeEach: () => {
@@ -91,16 +91,12 @@ export const SuggestionFillsComposer = meta.story({
   },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
-    const trigger = canvas.getByRole("button", { name: "Suggested" })
-    expect(trigger).toHaveAttribute("aria-expanded", "false")
-    await userEvent.click(trigger)
-    await waitFor(() =>
-      expect(trigger).toHaveAttribute("aria-expanded", "true"),
-    )
     const suggestion = workspaceSuggestions[2]
-    await userEvent.click(canvas.getByRole("button", { name: suggestion }))
+    await userEvent.click(
+      canvas.getByRole("button", { name: suggestion.label }),
+    )
     const composer = canvas.getByRole("textbox")
-    expect(composer).toHaveValue(suggestion)
+    expect(composer).toHaveValue(suggestion.prompt)
     expect(composer).toHaveFocus()
     expect(args.sendMessage).not.toHaveBeenCalled()
   },

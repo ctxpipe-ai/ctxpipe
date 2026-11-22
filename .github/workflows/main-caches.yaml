@@ -12,6 +12,11 @@ name: Main caches
 # jobs after a toolchain change. The nightly jobs of ci.yaml
 # also save the store when they miss it. When the key is already in the
 # cache, setup-node saves nothing.
+#
+# The GitHub-hosted job also restores or builds the file converter
+# (.github/actions/converter), keyed by the files of the converter. Without
+# it, each pull request run after a converter change builds the converter in
+# each test shard (about 200 s) before its tests start.
 
 on:
   push:
@@ -20,6 +25,7 @@ on:
     paths:
       - pnpm-lock.yaml
       - .node-version
+      - apps/backend/converter/**
   workflow_dispatch:
 
 # A later push must not cancel a fill: its paths can be different.
@@ -31,7 +37,7 @@ permissions:
 
 jobs:
   # The GitHub Actions cache, for the jobs on GitHub-hosted runners: the pnpm
-  # store.
+  # store and the file converter.
   github-cache:
     timeout-minutes: 15
     name: GitHub-hosted cache
@@ -47,6 +53,7 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/converter
 
   # The Blacksmith cache, for the jobs that stay on Blacksmith: the pnpm store.
   blacksmith-cache:

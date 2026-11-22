@@ -1,9 +1,7 @@
-import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
-import { dirname, join, resolve } from "node:path"
-import { fileURLToPath, pathToFileURL } from "node:url"
+import { readFile } from "node:fs/promises"
+import { resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 
 import { type ClickHouseClient, createClient } from "@clickhouse/client"
 import { config } from "dotenv"
@@ -49,6 +47,8 @@ import { textEmbeddingConfig } from "../retrieval/embeddings/textEmbeddings.js"
 import { renderGithubPullRequest } from "../services/github/pull-request-mirror/converter.js"
 import { renderLinearIssue } from "../services/linear/converter.js"
 import { startClickHouse, userUrl } from "../test/clickhouse.js"
+import { shopIssue } from "../test/github-issue.js"
+import { Remote } from "../test/knowledge-remote.js"
 import { cleanUpKnowledgePlane } from "./cleanup.js"
 import { projectKnowledgePlane } from "./writer.js"
 
@@ -295,81 +295,6 @@ async function newWorkspace(): Promise<string> {
     }),
   )
   return workspaceId
-}
-
-/**
- * A Git repository that a shallow fetch by SHA can read, and a fetch with no
- * blobs too. Each commit is one day after the commit before it, so each
- * commit has its own time.
- */
-class Remote {
-  private commits = 0
-
-  private constructor(readonly directory: string) {}
-
-  /** The committer time of the commit `index` (from 0). */
-  static timeOf(index: number): Date {
-    return new Date(Date.UTC(2026, 0, 1 + index))
-  }
-
-  static async create(): Promise<Remote> {
-    const remote = new Remote(
-      await mkdtemp(join(tmpdir(), "knowledge-writer-")),
-    )
-    remote.git("init", "-q", "-b", "main")
-    remote.git("config", "uploadpack.allowAnySHA1InWant", "true")
-    remote.git("config", "uploadpack.allowFilter", "true")
-    return remote
-  }
-
-  get url(): string {
-    return pathToFileURL(this.directory).toString()
-  }
-
-  git(...args: string[]): string {
-    const date = `@${Remote.timeOf(this.commits).getTime() / 1000} +0000`
-    return execFileSync(
-      "git",
-      [
-        "-c",
-        "user.name=Test",
-        "-c",
-        "user.email=test@example.com",
-        "-c",
-        "commit.gpgsign=false",
-        "-C",
-        this.directory,
-        ...args,
-      ],
-      {
-        encoding: "utf8",
-        env: {
-          ...process.env,
-          GIT_AUTHOR_DATE: date,
-          GIT_COMMITTER_DATE: date,
-        },
-      },
-    ).trim()
-  }
-
-  /** Write (text or bytes) or remove (null) each file, commit, and give the SHA. */
-  async commit(files: Record<string, string | Buffer | null>): Promise<string> {
-    for (const [path, content] of Object.entries(files)) {
-      if (content === null) this.git("rm", "-q", "--cached", path)
-      else {
-        await mkdir(dirname(join(this.directory, path)), { recursive: true })
-        await writeFile(join(this.directory, path), content)
-        this.git("add", path)
-      }
-    }
-    this.git("commit", "-q", "--allow-empty", "-m", "change")
-    this.commits++
-    return this.git("rev-parse", "HEAD")
-  }
-
-  async remove(): Promise<void> {
-    await rm(this.directory, { recursive: true, force: true })
-  }
 }
 
 function run(
@@ -1744,6 +1669,177 @@ describe("reference keys (CTX-1400)", () => {
           predicate: "CHANGED",
           neighbor: changes.path,
           status: "active",
+        },
+      ])
+    } finally {
+      await remote.remove()
+    }
+  })
+})
+
+describe("issue mentions (CTX-1502)", () => {
+  /** A unit that the extract wrote for acme/shop, with its name. */
+  const named = (kind: string, name: string, root?: string) =>
+    `---\n${stringify({
+      kind,
+      name,
+      generated_by: "ctxpipe-extract",
+      sources: [SHOP_SOURCE.path],
+      ...(root === undefined ? {} : { root }),
+    })}---\n# ${name}\n`
+  const issue = (number: number, title: string, body: string) =>
+    shopIssue({ number, title, body })
+  const LIBRARY = "knowledge/libraries/client-lib.md"
+  const REPOSITORY = "knowledge/codebases/shop.md"
+  const OPERATION = "knowledge/operations/get-order.md"
+  const units = {
+    [SHOP_SOURCE.path]: SHOP_SOURCE.content,
+    [LIBRARY]: named("Library", "client-lib", "packages/client-lib"),
+    [REPOSITORY]: named("Repository", "shop"),
+    [OPERATION]: named("Operation", "GET /orders/{orderId}"),
+  }
+  // Each issue names the `shop` repository, so its name is a weak key.
+  const stale = issue(
+    1,
+    "Stale cache",
+    "The cache in packages/client-lib/src/cache.ts of `shop` is stale.",
+  )
+  const total = issue(2, "Wrong total", "GET /orders/{id} of `shop` is wrong.")
+  const slow = issue(3, "Slow page", "The `shop` is slow, as NOT-1 says.")
+  const renamed = issue(4, "Rename", "The `client-core` has no tests.")
+  /** The `MENTIONS` relations of a file, as [direction, neighbor, confidence]. */
+  async function mentionsOf(workspaceId: string, path: string) {
+    const relations = await store.readFrontier(await viewOf(workspaceId), [
+      { workspaceId, docKey: key(workspaceId, path) },
+    ])
+    return relations
+      .filter(({ relation }) => relation.predicate === "MENTIONS")
+      .map(({ direction, neighbor, relation }) => ({
+        direction,
+        neighbor: neighbor.path || neighbor.docKey,
+        status: neighbor.status,
+        confidence: relation.confidence,
+      }))
+      .sort((a, b) => a.neighbor.localeCompare(b.neighbor))
+  }
+  // The weights of a mention with 8 files in the view (the source, three
+  // units and four issues): confidence × ln((8 + 1) / (sources + 1)) /
+  // ln(8 + 1), calculated by hand.
+  const PATH_OF_ONE_FILE = 0.6161 // 0.9, 1 file mentions the key
+  const NAME_OF_THREE_FILES = 0.2953 // 0.8, 3 files mention the key
+
+  it("an issue mentions the units that it names, the units link back to it, and a key with no unit is no relation", async () => {
+    const remote = await Remote.create()
+    try {
+      const workspaceId = await newWorkspace()
+      await run(
+        remote,
+        workspaceId,
+        await remote.commit({
+          ...units,
+          [stale.path]: stale.content,
+          [total.path]: total.content,
+          [slow.path]: slow.content,
+          [renamed.path]: renamed.content,
+        }),
+      )
+      // The library has two keys of this issue: its root, which holds the
+      // path, and its name `client-lib`. The relation has the higher
+      // confidence, that of the path. The name `shop` of the Repository is
+      // in each issue, so its mentions are weak.
+      expect(await mentionsOf(workspaceId, stale.path)).toEqual([
+        {
+          direction: "out",
+          neighbor: REPOSITORY,
+          status: "active",
+          confidence: expect.closeTo(NAME_OF_THREE_FILES, 3),
+        },
+        {
+          direction: "out",
+          neighbor: LIBRARY,
+          status: "active",
+          confidence: expect.closeTo(PATH_OF_ONE_FILE, 3),
+        },
+      ])
+      expect(await mentionsOf(workspaceId, total.path)).toEqual([
+        {
+          direction: "out",
+          neighbor: REPOSITORY,
+          status: "active",
+          confidence: expect.closeTo(NAME_OF_THREE_FILES, 3),
+        },
+        {
+          direction: "out",
+          neighbor: OPERATION,
+          status: "active",
+          confidence: expect.closeTo(PATH_OF_ONE_FILE, 3),
+        },
+      ])
+      // The back-links of a unit, for `get_related` from the unit.
+      expect(await mentionsOf(workspaceId, LIBRARY)).toEqual([
+        {
+          direction: "in",
+          neighbor: stale.path,
+          status: "active",
+          confidence: expect.closeTo(PATH_OF_ONE_FILE, 3),
+        },
+      ])
+      expect(
+        (await mentionsOf(workspaceId, REPOSITORY)).map(
+          ({ neighbor }) => neighbor,
+        ),
+      ).toEqual([stale.path, total.path, slow.path].sort())
+      // `client-core` names no unit: no `missing` neighbor, no broken link
+      // for the maintenance job, and no relation in the graph view.
+      expect(await mentionsOf(workspaceId, renamed.path)).toEqual([])
+      const scope = await viewOf(workspaceId)
+      expect(await store.listUnresolvedReferences(scope)).toEqual([
+        {
+          srcDoc: key(workspaceId, slow.path),
+          dstDoc: `${REFERENCE_TARGET_PREFIX}iss:linear:NOT-1`,
+        },
+      ])
+      expect(
+        (await store.readGraph(scope, 1000)).relations.filter(
+          (relation) =>
+            relation.predicate === "MENTIONS" &&
+            relation.dstDoc.startsWith(REFERENCE_TARGET_PREFIX),
+        ),
+      ).toEqual([])
+    } finally {
+      await remote.remove()
+    }
+  })
+
+  it("a new name of a unit moves the mentions to it, with no change to the rows of the issue", async () => {
+    const remote = await Remote.create()
+    try {
+      const workspaceId = await newWorkspace()
+      await run(
+        remote,
+        workspaceId,
+        await remote.commit({ ...units, [renamed.path]: renamed.content }),
+      )
+      const before = await readOne(workspaceId, key(workspaceId, renamed.path))
+      expect(
+        await run(
+          remote,
+          workspaceId,
+          await remote.commit({
+            [LIBRARY]: named("Library", "client-core", "packages/client-lib"),
+          }),
+        ),
+      ).toMatchObject({ mode: "delta", documentsChanged: 1 })
+      expect(
+        await readOne(workspaceId, key(workspaceId, renamed.path)),
+      ).toEqual(before)
+      expect(await mentionsOf(workspaceId, renamed.path)).toEqual([
+        {
+          direction: "out",
+          neighbor: LIBRARY,
+          status: "active",
+          // 0.8 × ln(6 / 2) / ln(6): the source, three units and one issue.
+          confidence: expect.closeTo(0.4905, 3),
         },
       ])
     } finally {

@@ -88,6 +88,20 @@ export function withIngestSpan<T>(
 }
 
 /**
+ * The span attributes of the bundle that runs a run or a shard, against
+ * the bundle that the run planned with: a deploy can change it (CTX-1503).
+ */
+export function ingestBundleAttributes(
+  planned: string,
+  current: string,
+): Record<string, string | boolean> {
+  return {
+    "ctxpipe.ingest.bundle.current": current,
+    "ctxpipe.ingest.bundle.changed": current !== planned,
+  }
+}
+
+/**
  * One log event for an ingestion fact (a rejected op, a `partial` reason).
  * It is its own event, not a field of the run's wide event: the wide event
  * keeps one value for each field, so two rejects would overwrite each other.

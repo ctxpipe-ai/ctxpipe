@@ -1,6 +1,7 @@
 import { delay, HttpResponse, http } from "msw"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { main } from "../../evals/knowledge/cli.js"
 import {
   type Dataset,
   datasetSchema,
@@ -609,6 +610,32 @@ describe("the comparison with the kept run", () => {
   })
 })
 
+describe("the commands that call a model", () => {
+  it("stop at setup when no provider allowlist is set, or when the model settings do not point at OpenRouter", async () => {
+    vi.stubEnv("MODEL_PROVIDER_ALLOWLIST", "")
+    try {
+      for (const command of [
+        "draft",
+        "label",
+        "hydrate",
+        "run",
+        "latency",
+        "vision",
+      ])
+        await expect(main([command, "--out", "/nowhere"])).rejects.toThrow(
+          /^Set MODEL_PROVIDER_ALLOWLIST/,
+        )
+      vi.stubEnv("MODEL_PROVIDER_ALLOWLIST", "azure")
+      vi.stubEnv("MODEL_PROVIDER", "bedrock")
+      await expect(main(["run", "--out", "/nowhere"])).rejects.toThrow(
+        /^MODEL_PROVIDER_ALLOWLIST needs model settings that point at OpenRouter/,
+      )
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+})
+
 describe("the judge panel", () => {
   const BASE = "https://panel.test/v1"
   /** model → ref → [answers, status]. */
@@ -643,10 +670,22 @@ describe("the judge panel", () => {
   const contents: string[] = []
   /** From this call on, the endpoint answers 503, as the spend cap does. */
   let capAt = Number.POSITIVE_INFINITY
+  /** From this call on, the workspace budget of OpenRouter is spent. */
+  let budgetAt = Number.POSITIVE_INFINITY
   useMswServer(
     http.post(`${BASE}/chat/completions`, async ({ request }) => {
       if (asked.length >= capAt)
         return HttpResponse.json({ error: "capped" }, { status: 503 })
+      if (asked.length >= budgetAt)
+        return HttpResponse.json(
+          {
+            error: {
+              code: 403,
+              message: "Workspace daily budget of $30.00 exceeded.",
+            },
+          },
+          { status: 403 },
+        )
       const body = (await request.json()) as {
         model: string
         messages: { content: string }[]
@@ -654,6 +693,23 @@ describe("the judge panel", () => {
       }
       providers.push(body.provider)
       contents.push(body.messages[0]?.content ?? "")
+      const time =
+        /^You check a time question.*Question: <data>(.*?)<\/data>/s.exec(
+          body.messages[0]?.content ?? "",
+        )
+      if (time) {
+        asked.push(body.model)
+        // Two models of three say that "When did it change?" depends on
+        // its time; one says that "Which rule holds?" does.
+        const dependsOnTime =
+          time[1] === "When did it change?" ||
+          body.model === "anthropic/judge-a"
+        return HttpResponse.json({
+          choices: [
+            { message: { content: JSON.stringify({ dependsOnTime }) } },
+          ],
+        })
+      }
       const ref = /Document <data>(.*?)<\/data>/.exec(
         body.messages[0]?.content ?? "",
       )?.[1]
@@ -737,6 +793,7 @@ describe("the judge panel", () => {
       models: Object.keys(replies),
       // The cut (12,000 characters) falls inside the key.
       read: async () => `${"x".repeat(10_000)}\n${key}\n`,
+      nearest: async () => [],
       env,
       stopped: () => false,
     })
@@ -752,6 +809,7 @@ describe("the judge panel", () => {
       draft,
       models: Object.keys(replies),
       read: async (_corpus, ref) => `The text of ${ref}.`,
+      nearest: async () => [],
       env,
       stopped: () => false,
     })
@@ -788,6 +846,157 @@ describe("the judge panel", () => {
     ).toHaveLength(3)
   })
 
+  it("keeps a no-answer question only when no nearest document gets a majority that it answers", async () => {
+    asked.length = 0
+    const noAnswer = (id: string) => ({
+      id,
+      corpus: "corpus",
+      category: "no-answer" as const,
+      split: "dev" as const,
+      text: `Where is the ${id} feature?`,
+      gold: [],
+      keyFacts: [],
+    })
+    const labeled = await labelWithPanel({
+      draft: {
+        ...draft,
+        questions: [
+          noAnswer("absent"),
+          noAnswer("present"),
+          noAnswer("nowhere"),
+        ],
+      },
+      models: Object.keys(replies),
+      read: async (_corpus, ref) => `The text of ${ref}.`,
+      // One model of three says that lonely.md answers; two say that
+      // new.md answers.
+      // No document is near the "nowhere" question.
+      nearest: async (_corpus, text) =>
+        text.includes("absent")
+          ? ["lonely.md"]
+          : text.includes("nowhere")
+            ? []
+            : ["lonely.md", "new.md"],
+      env,
+      stopped: () => false,
+    })
+    expect(asked).toHaveLength(9)
+    expect(labeled.dataset.questions.map((question) => question.id)).toEqual([
+      "absent",
+    ])
+    expect(labeled.dropped).toEqual([
+      { question: "present", reason: "the corpus answers it: new.md" },
+      {
+        question: "nowhere",
+        reason: "no nearest document for the panel to judge",
+      },
+    ])
+  })
+
+  it("keeps a time question only when most models say that its answer depends on its time", async () => {
+    asked.length = 0
+    const time = (id: string, text: string) => ({
+      id,
+      corpus: "corpus",
+      category: "time" as const,
+      split: "dev" as const,
+      text,
+      gold: ["new.md"],
+      keyFacts: ["It changed in 2024-01."],
+    })
+    const labeled = await labelWithPanel({
+      draft: {
+        ...draft,
+        questions: [
+          time("changed", "When did it change?"),
+          time("holds", "Which rule holds?"),
+        ],
+      },
+      models: Object.keys(replies),
+      read: async (_corpus, ref) => `The text of ${ref}.`,
+      nearest: async () => [],
+      env,
+      stopped: () => false,
+    })
+    // For each question: 3 votes on new.md, then 3 on the time.
+    expect(asked).toHaveLength(12)
+    expect(labeled.dataset.questions.map((question) => question.id)).toEqual([
+      "changed",
+    ])
+    expect(labeled.dropped).toEqual([
+      {
+        question: "holds",
+        reason: "the answer does not depend on the time of the question",
+      },
+    ])
+    expect(labeled.timeVotes.map((vote) => vote.dependsOnTime)).toEqual([
+      true,
+      false,
+    ])
+  })
+
+  it("counts a needed step of a chain as gold for a multi-hop or across-sources question only", async () => {
+    contents.length = 0
+    const question = (category: "multi-hop" | "lookup") => ({
+      id: category,
+      corpus: "corpus",
+      category,
+      split: "dev" as const,
+      text: "Which rule follows from the chain?",
+      gold: ["old.md"],
+      ...(category === "multi-hop" ? { seeds: ["old.md"] } : {}),
+      keyFacts: ["The chain gives the rule."],
+    })
+    await labelWithPanel({
+      draft: {
+        ...draft,
+        questions: [question("multi-hop"), question("lookup")],
+      },
+      models: Object.keys(replies),
+      read: async (_corpus, ref) => `The text of ${ref}.`,
+      nearest: async () => [],
+      env,
+      stopped: () => false,
+    })
+    expect(contents).toHaveLength(6)
+    const [chain, lookup] = [contents[0] ?? "", contents[3] ?? ""]
+    expect(chain).toContain("is a needed step to the answer")
+    expect(lookup).not.toContain("needed step")
+  })
+
+  it("drops a multi-hop question when the panel removes one of its documents", async () => {
+    const labeled = await labelWithPanel({
+      draft: {
+        ...draft,
+        questions: [
+          {
+            id: "chain",
+            corpus: "corpus",
+            category: "multi-hop",
+            split: "dev",
+            text: "Which rule follows from the chain?",
+            // One model of three says that noise.md answers.
+            gold: ["old.md", "noise.md"],
+            seeds: ["old.md"],
+            keyFacts: ["The chain gives the rule."],
+          },
+        ],
+      },
+      models: Object.keys(replies),
+      read: async (_corpus, ref) => `The text of ${ref}.`,
+      nearest: async () => [],
+      env,
+      stopped: () => false,
+    })
+    expect(labeled.dataset.questions).toEqual([])
+    expect(labeled.dropped).toEqual([
+      {
+        question: "chain",
+        reason: "the panel removed the needed document noise.md",
+      },
+    ])
+  })
+
   it("sends each judge call with the provider block of ADR-070", async () => {
     vi.stubEnv("MODEL_PROVIDER_ALLOWLIST", "openai,anthropic")
     providers.length = 0
@@ -796,6 +1005,7 @@ describe("the judge panel", () => {
         draft: { ...draft, questions: draft.questions.slice(1, 2) },
         models: Object.keys(replies),
         read: async (_corpus, ref) => `The text of ${ref}.`,
+        nearest: async () => [],
         env,
         stopped: () => false,
       })
@@ -819,6 +1029,7 @@ describe("the judge panel", () => {
         draft,
         models: Object.keys(replies),
         read: async (_corpus, ref) => `The text of ${ref}.`,
+        nearest: async () => [],
         env,
         stopped: () => asked.length >= capAt,
       })
@@ -831,6 +1042,26 @@ describe("the judge panel", () => {
     }
   })
 
+  it("stops as at the spend cap when the workspace budget is spent, and keeps the votes before", async () => {
+    asked.length = 0
+    budgetAt = 3
+    try {
+      const labeled = await labelWithPanel({
+        draft,
+        models: Object.keys(replies),
+        read: async (_corpus, ref) => `The text of ${ref}.`,
+        nearest: async () => [],
+        env,
+        stopped: () => false,
+      })
+      expect(labeled.stopped).toBe(true)
+      expect(labeled.budget).toEqual({ limitUsd: 30 })
+      expect(labeled.votes.map((vote) => vote.ref)).toEqual(["old.md"])
+    } finally {
+      budgetAt = Number.POSITIVE_INFINITY
+    }
+  })
+
   it("sends nothing when the model provider is not OpenRouter", async () => {
     asked.length = 0
     await expect(
@@ -838,6 +1069,7 @@ describe("the judge panel", () => {
         draft,
         models: Object.keys(replies),
         read: async (_corpus, ref) => `The text of ${ref}.`,
+        nearest: async () => [],
         env: { ...env, MODEL_PROVIDER: "bedrock" },
         stopped: () => false,
       }),

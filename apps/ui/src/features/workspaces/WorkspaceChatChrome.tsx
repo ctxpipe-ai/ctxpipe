@@ -20,6 +20,7 @@ import { WorkspaceFormatUpgradeBanner } from "@/features/workspace-upgrades/Work
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
 
+import { BranchName } from "./BranchName"
 import { conversationCtaPlan } from "./conversationPublish"
 import type { Workspace } from "./types"
 import {
@@ -73,54 +74,61 @@ function ChromeTooltip(props: {
 type ConversationBranchChrome = {
   shortName: string
   /**
-   * The base branch when it is not the default branch (ADR-071): the
-   * session branch starts from it, and its pull request targets it.
+   * The base branch (ADR-071): the session branch starts from it, and its
+   * pull request targets it. `null` when the Workspace does not know its
+   * default branch yet.
    */
   base?: string | null
   href?: string | null
 }
 
-/** The branch name as a label with a git-branch icon. */
+/**
+ * The branches of the conversation as plain text after the title: the base
+ * branch, an arrow and the session branch. It is not a control: the base is
+ * fixed after the first message. A published branch links to GitHub.
+ */
 function BranchLabel(props: { branch: ConversationBranchChrome }) {
   const { shortName, base, href } = props.branch
-  const labelClassName = cn(
-    "ml-3 inline-flex min-w-0 shrink items-center gap-1.5 rounded-md border border-border bg-zinc-800 px-2 py-0.5 font-mono text-xs font-normal text-muted-foreground",
-    base ? "max-w-72" : "max-w-40",
-  )
   const content = (
     <>
-      <IconGitBranch className="size-3 shrink-0" stroke={1.8} aria-hidden />
+      <IconGitBranch className="size-3.5 shrink-0" stroke={1.75} aria-hidden />
       {base ? (
         <>
-          <span className="min-w-0 truncate">{base}</span>
+          <BranchName name={base} />
           <IconArrowRight
-            className="size-3 shrink-0"
-            stroke={1.8}
+            className="size-3 shrink-0 text-zinc-500"
+            stroke={1.75}
             aria-hidden
           />
           <span className="sr-only">to</span>
         </>
       ) : null}
-      <span className={base ? "shrink-0" : "truncate"}>{shortName}</span>
+      <BranchName name={shortName} className={base ? "shrink-0" : undefined} />
     </>
   )
-  return (
-    <span className={labelClassName}>
-      {href ? (
-        <AriaLink
-          href={href}
-          target="_blank"
-          rel="noopener noreferrer"
-          className={cn(
-            "inline-flex min-w-0 items-center gap-1.5 rounded-sm hover:text-teal-400",
-            focusVisibleClassName,
-          )}
-        >
-          {content}
-        </AriaLink>
-      ) : (
-        content
+  // The cap keeps the width for the title, which leads the header. A phone
+  // has no width for the branches next to the title and the actions.
+  const labelClassName = cn(
+    "ml-3 inline-flex min-w-0 items-center gap-1.5 text-xs font-normal text-muted-foreground max-sm:hidden",
+    base ? "max-w-72" : "max-w-48",
+  )
+  return href ? (
+    <AriaLink
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      data-branch-label=""
+      className={cn(
+        labelClassName,
+        "rounded-sm hover:text-teal-400",
+        focusVisibleClassName,
       )}
+    >
+      {content}
+    </AriaLink>
+  ) : (
+    <span data-branch-label="" className={labelClassName}>
+      {content}
     </span>
   )
 }

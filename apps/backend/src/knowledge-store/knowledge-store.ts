@@ -289,6 +289,12 @@ export type KnowledgeStore = {
   /** The tree rows that `head` shows: one row for each path that has one. */
   readTree(scope: KnowledgeScope, head: TreeHead): Promise<TreeEntry[]>
   /**
+   * True when `head` shows at least one tree row, a tombstone included. A
+   * head of the default branch with no row lost its rows, or its tree has
+   * no document file (ADR-067 decision 8).
+   */
+  hasTree(scope: KnowledgeScope, head: TreeHead): Promise<boolean>
+  /**
    * Inserts `entries` with the tree version `treeVersion` of `branch`. No
    * read sees them until the head of the branch moves to that version.
    */
@@ -363,7 +369,9 @@ export type KnowledgeStore = {
   /**
    * Each relation target that is a reference key with no document of the
    * view (`ref:<key>`), with each document that states it. Such a key has
-   * no row: it is a missing link of its own kind.
+   * no row: it is a missing link of its own kind. A `MENTIONS` key is not
+   * in the list: a mention that names no document is not a broken link
+   * (CTX-1502).
    */
   listUnresolvedReferences(
     scope: KnowledgeReadScope,
@@ -436,6 +444,18 @@ export function createKnowledgeStore(url: string | undefined): KnowledgeStore {
     writeFileVersions: (scope, versions, counter) =>
       writeFileVersions(client, scope, versions, counted(counter)),
     readTree: (scope, head) => readTree(client, scope, head),
+    hasTree: async (scope, head) =>
+      (
+        await select<{ found: number }>(
+          client,
+          scope,
+          `SELECT 1 AS found FROM trees
+           WHERE ${scoped} AND branch = {branch:String}
+             AND tree_version <= {treeVersion:UInt64}
+           LIMIT 1`,
+          head,
+        )
+      ).length > 0,
     writeTree: (scope, branch, treeVersion, entries) =>
       writeTree(client, scope, branch, treeVersion, entries),
     deleteTreeAbove: (scope, branch, treeVersion, counter) =>
@@ -1613,6 +1633,13 @@ const resolvedTarget = (alias: string) =>
  * else one time with a `missing` neighbor; an in-relation to a key of a
  * frontier document has that document as `dstDoc`. Two keys of one target
  * give one relation when all its fields are the same.
+ *
+ * A `MENTIONS` relation of an issue (CTX-1502) names a key that most often
+ * has no document. Such a relation is not returned: it is not a broken
+ * link. Each other one gets the confidence of {@link mentionConfidence}, so
+ * a key that many files mention (the name of the whole project) is weak.
+ * The mentions of one target by one file give one relation, with the
+ * chunk and the confidence of the strongest.
  */
 async function readFrontier(
   client: ClickHouseClient,
@@ -1632,6 +1659,7 @@ async function readFrontier(
       direction: "out" | "in"
       workspaceId: string
       neighbor: DocumentRecord
+      viaKey: string
     }
   >(
     client,
@@ -1661,10 +1689,11 @@ async function readFrontier(
        ) WHERE ${validDuring()}
      ),
      edges AS (
-       SELECT 'out' AS direction, dst_doc AS neighbor_doc, ${edgeColumns}
+       SELECT 'out' AS direction, dst_doc AS neighbor_doc, '' AS via_key,
+         ${edgeColumns}
        FROM out_edges WHERE NOT ${isKey("dst_doc")}
        UNION ALL
-       SELECT 'out', ${resolvedTarget("o")},
+       SELECT 'out', ${resolvedTarget("o")}, ${mentionKey("o")},
          o.workspace_id, o.src_doc, o.src_chunk, o.predicate,
          ${resolvedTarget("o")}, o.confidence,
          o.valid_from, o.valid_to, o.source, o.alt_text, o.observed_at
@@ -1676,18 +1705,20 @@ async function readFrontier(
        ) AS keys
          ON keys.workspace_id = o.workspace_id AND keys.target = o.dst_doc
        WHERE ${isKey("o.dst_doc")}
+         AND NOT (o.predicate = 'MENTIONS' AND empty(keys.doc_key))
        UNION ALL
-       SELECT 'in', src_doc, ${edgeColumns}
+       SELECT 'in', src_doc, '', ${edgeColumns}
        FROM in_edges WHERE ${inRefs("workspace_id, dst_doc")}
        UNION ALL
-       SELECT 'in', i.src_doc, i.workspace_id, i.src_doc, i.src_chunk,
-         i.predicate, k.doc_key, i.confidence, i.valid_from, i.valid_to,
-         i.source, i.alt_text, i.observed_at
+       SELECT 'in', i.src_doc, ${mentionKey("i")}, i.workspace_id, i.src_doc,
+         i.src_chunk, i.predicate, k.doc_key, i.confidence, i.valid_from,
+         i.valid_to, i.source, i.alt_text, i.observed_at
        FROM in_edges AS i
        INNER JOIN own_keys AS k
          ON k.workspace_id = i.workspace_id AND k.target = i.dst_doc
      )
      SELECT DISTINCT edges.direction AS direction,
+       edges.via_key AS viaKey,
        edges.workspace_id AS workspaceId,
        edges.src_doc AS srcDoc, edges.src_chunk AS srcChunk,
        edges.predicate AS predicate, edges.dst_doc AS dstDoc,
@@ -1713,16 +1744,152 @@ async function readFrontier(
       prefix: REFERENCE_TARGET_PREFIX,
     },
   )
-  return rows.map(({ direction, workspaceId, neighbor, ...relation }) => ({
-    direction,
-    workspaceId,
-    relation: toRelation(relation),
-    // Without a match, the LEFT JOIN gives a tuple of default values: the
-    // view has no row for the target, so it is `missing`.
-    neighbor: neighbor.docKey
-      ? toDocument(neighbor)
-      : missingDocument(relation.dstDoc, new Date(relation.observedAt)),
-  }))
+  const mentionKeys = new Map<string, [string, string]>()
+  for (const { workspaceId, viaKey } of rows)
+    if (viaKey)
+      mentionKeys.set(keyId(workspaceId, viaKey), [workspaceId, viaKey])
+  const stats = await readMentionStats(client, scope, [...mentionKeys.values()])
+  const relations = new Map<string, FrontierRelation>()
+  for (const { direction, workspaceId, neighbor, viaKey, ...row } of rows) {
+    const relation = toRelation(row)
+    const counts = viaKey && stats.get(keyId(workspaceId, viaKey))
+    if (counts) relation.confidence = mentionConfidence(row.confidence, counts)
+    // One relation for each of its fields but the confidence, with the
+    // highest confidence of its keys. A mention also ignores its chunk.
+    const id = JSON.stringify([
+      direction,
+      workspaceId,
+      {
+        ...relation,
+        confidence: 0,
+        srcChunk: relation.predicate === "MENTIONS" ? 0 : relation.srcChunk,
+      },
+    ])
+    const seen = relations.get(id)
+    if (seen && seen.relation.confidence >= relation.confidence) continue
+    relations.set(id, {
+      direction,
+      workspaceId,
+      relation,
+      // Without a match, the LEFT JOIN gives a tuple of default values: the
+      // view has no row for the target, so it is `missing`.
+      neighbor: neighbor.docKey
+        ? toDocument(neighbor)
+        : missingDocument(relation.dstDoc, relation.observedAt),
+    })
+  }
+  return [...relations.values()]
+}
+
+/** The id of a (Workspace, key target) pair of a mention. */
+const keyId = (workspaceId: string, target: string) =>
+  JSON.stringify([workspaceId, target])
+
+/**
+ * The key target of the `MENTIONS` relation `alias`, else `''`. Only a
+ * mention gets the weight of its key.
+ */
+const mentionKey = (alias: string) =>
+  `if(${alias}.predicate = 'MENTIONS', ${alias}.dst_doc, '')`
+
+/** The counts that weigh a mention of one key (`mentionConfidence`). */
+type MentionStats = {
+  /** The files of the view that mention the key. */
+  sources: number
+  /** The documents of the view that state the key. */
+  documents: number
+  /** The files of the view. */
+  files: number
+}
+
+/**
+ * The confidence of a `MENTIONS` relation to a key at the read: the
+ * confidence of its rule, times the specificity of the key, divided by the
+ * count of documents that state the key. The specificity is an inverse
+ * document frequency, from 1 for a key that one file mentions to 0 for a
+ * key that each file mentions. The counts come from the view of the read,
+ * because a stored value cannot depend on other files (ADR-066 decision 5).
+ */
+function mentionConfidence(
+  confidence: number,
+  { sources, documents, files }: MentionStats,
+): number {
+  const specificity =
+    files > 1
+      ? Math.log((files + 1) / (Math.min(sources, files) + 1)) /
+        Math.log(files + 1)
+      : 1
+  return (confidence * specificity) / Math.max(1, documents)
+}
+
+/**
+ * The {@link MentionStats} of each (Workspace, key target) of `keys` in the
+ * view, in one query. The sources come from `relations_in`, which sorts by
+ * `dst_doc`, so the query reads only the rows of these keys.
+ */
+async function readMentionStats(
+  client: ClickHouseClient,
+  scope: KnowledgeReadScope,
+  keys: [string, string][],
+): Promise<Map<string, MentionStats>> {
+  if (keys.length === 0) return new Map()
+  const rows = await selectIn<{
+    workspaceId: string
+    target: string
+    sources: string | number
+    documents: string | number
+    files: string | number
+  }>(
+    client,
+    scope,
+    `WITH tree_view AS (${treeView})
+     SELECT w.workspace_id AS workspaceId, w.target AS target,
+       s.sources AS sources, d.documents AS documents, f.files AS files
+     FROM (
+       SELECT tupleElement(key, 1) AS workspace_id,
+         tupleElement(key, 2) AS target
+       FROM (SELECT arrayJoin({keys:Array(Tuple(String, String))}) AS key)
+     ) AS w
+     LEFT JOIN (
+       SELECT r.workspace_id AS workspace_id, r.dst_doc AS target,
+         uniqExact(r.src_doc) AS sources
+       FROM (${relationsOf("relations_in", viewFiles)}
+         AND r.predicate = 'MENTIONS'
+         AND (r.workspace_id, r.dst_doc) IN {keys:Array(Tuple(String, String))}
+       ) AS r
+       GROUP BY workspace_id, target
+     ) AS s ON s.workspace_id = w.workspace_id AND s.target = w.target
+     LEFT JOIN (
+       SELECT workspace_id, target, uniqExact(doc_key) AS documents
+       FROM (${keyTargets("ref_key IN {refKeys:Array(String)}")})
+       GROUP BY workspace_id, target
+     ) AS d ON d.workspace_id = w.workspace_id AND d.target = w.target
+     LEFT JOIN (
+       SELECT workspace_id, count() AS files FROM tree_view
+       WHERE kind = 'file' GROUP BY workspace_id
+     ) AS f ON f.workspace_id = w.workspace_id`,
+    {
+      keys: keys.map((key) => new TupleParam(key)),
+      refKeys: [
+        ...new Set(
+          keys.map(([, target]) =>
+            target.slice(REFERENCE_TARGET_PREFIX.length),
+          ),
+        ),
+      ],
+      prefix: REFERENCE_TARGET_PREFIX,
+    },
+  )
+  return new Map(
+    rows.map((row) => [
+      keyId(row.workspaceId, row.target),
+      {
+        sources: Number(row.sources),
+        documents: Number(row.documents),
+        files: Number(row.files),
+      },
+    ]),
+  )
 }
 
 /** A `missing` document: a target with no row in the view. */
@@ -1850,7 +2017,9 @@ async function readGraph(
     ),
     // A relation to a reference key gets the documents of the key
     // (ADR-066 decision 5). Two keys of one target give one relation when
-    // all its fields are the same.
+    // all its fields are the same. A `MENTIONS` key with no document is no
+    // relation. The view shows the confidence of the rule of a mention, not
+    // the weight of `readFrontier`: the graph view does not rank.
     selectIn<RelationRecord>(
       client,
       scope,
@@ -1863,6 +2032,8 @@ async function readGraph(
        FROM (${relationsOf("relations", viewFiles)}) AS rel
        LEFT JOIN (${keyTargets("1")}) AS keys
          ON keys.workspace_id = rel.workspace_id AND keys.target = rel.dst_doc
+       WHERE NOT (rel.predicate = 'MENTIONS'
+         AND startsWith(rel.dst_doc, {prefix:String}) AND empty(keys.doc_key))
        ORDER BY srcDoc, srcChunk, predicate, dstDoc
        LIMIT {limit:UInt32}`,
       params,
@@ -1911,6 +2082,7 @@ const listUnresolvedReferences = (
      SELECT DISTINCT rel.src_doc AS srcDoc, rel.dst_doc AS dstDoc
      FROM (${relationsOf("relations", viewFiles)}) AS rel
      WHERE startsWith(rel.dst_doc, {prefix:String})
+       AND rel.predicate != 'MENTIONS'
        AND (rel.workspace_id, rel.dst_doc) NOT IN (
          SELECT workspace_id, target FROM (${keyTargets("1")}))
      ORDER BY srcDoc, dstDoc`,

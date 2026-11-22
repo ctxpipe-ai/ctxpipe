@@ -124,6 +124,12 @@ const threeItems = {
   handbook: [upgradeItemFixture()],
 }
 
+/**
+ * The ceiling of a wait for a state that comes after two reads in series
+ * (see {@link findNotices}).
+ */
+const serialReadsCeiling = 10_000
+
 /** The notice stack of the page. */
 function noticesRegion(canvasElement: HTMLElement) {
   return within(canvasElement).getByRole("region", {
@@ -144,9 +150,25 @@ function noticesRegion(canvasElement: HTMLElement) {
  */
 async function findNotices(canvasElement: HTMLElement, count: number) {
   await waitFor(() => expect(toastItems(canvasElement)).toHaveLength(count), {
-    timeout: 10_000,
+    timeout: serialReadsCeiling,
   })
   return noticesRegion(canvasElement)
+}
+
+/**
+ * Waits until the toast shows the result of an Always update save. The
+ * result comes after the save request and then the job read, two reads in
+ * series as in the first load, so it gets the same ceiling as
+ * {@link findNotices}.
+ */
+async function waitForSaveResult(
+  canvasElement: HTMLElement,
+  text: string | RegExp,
+) {
+  await waitFor(
+    () => expect(within(canvasElement).getByText(text)).toBeVisible(),
+    { timeout: serialReadsCeiling },
+  )
 }
 
 /** The toasts of the stack, front first. */
@@ -325,12 +347,9 @@ export const AlwaysUpdate = meta.story({
         name: "Always update: Docs, Upgrade to format 3",
       }),
     )
-    await waitFor(() =>
-      expect(
-        canvas.getByText(
-          "ctxpipe saved the setting. The upgrade starts in a moment.",
-        ),
-      ).toBeVisible(),
+    await waitForSaveResult(
+      canvasElement,
+      "ctxpipe saved the setting. The upgrade starts in a moment.",
     )
     expect(requests).toEqual([
       "POST /acme/api/v1/workspaces/docs/upgrades/automatic automatic",
@@ -403,10 +422,9 @@ export const AlwaysUpdateSaveFails = meta.story({
         name: "Always update: Docs, Upgrade to format 3",
       }),
     )
-    await waitFor(() =>
-      expect(
-        canvas.getByText(/ctxpipe could not save the setting\./),
-      ).toBeVisible(),
+    await waitForSaveResult(
+      canvasElement,
+      /ctxpipe could not save the setting\./,
     )
     expect(canvas.getByText(/stdout maxBuffer length exceeded/)).toBeVisible()
     expect(

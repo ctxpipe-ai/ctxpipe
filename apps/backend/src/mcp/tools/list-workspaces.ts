@@ -203,6 +203,12 @@ export const listWorkspaces = defineMcpReadTool({
       .optional(),
     skipped: z.array(skippedSchema).optional(),
   }),
+  // The listed Workspaces, or the one Workspace of a detail call.
+  describeResult: ({ orgs }) => ({
+    count: orgs
+      ? orgs.reduce((total, entry) => total + entry.workspaces.length, 0)
+      : 1,
+  }),
   async run({ workspace, cursor }, { org }) {
     if (workspace) {
       if (!org) throw orgRequired()

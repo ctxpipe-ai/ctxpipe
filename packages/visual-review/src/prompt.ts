@@ -292,6 +292,23 @@ ${JSON.stringify(schema)}`
 const newImages = (input: NewStoryInput): StoryImage[] =>
   input.images.map(({ path }) => ({ role: "after", path }))
 
+// The scope of the review of a changed screenshot as new UI in its context
+// (CTX-1509): a large improvement must not hide the defects that remain, so
+// the review does not compare with the earlier version.
+const changedText = ({ changed }: NewStoryInput) =>
+  changed?.regions.length
+    ? `
+This screenshot changed. An element in the changed regions below is new or redesigned. Review each changed region and the elements next to it as new UI in its context, not against an earlier version. Image 2 shows the largest one and the elements next to it close up. Check three things there. The visible content of each changed element, its text or its icon, starts on the edge of the content of its neighbors. Its inset from each edge of its container matches the inset on the opposite side and the inset of its siblings. The elements just above and below it, inside or outside its container, share its edge or the edge of the container, and do not crowd it. Do not report the rest of the screenshot.
+Changed regions, in fractions (0 to 1) of Image 1:
+${changed.regions
+  .map(
+    ({ x, y, width, height }, index) =>
+      `${index + 1}. x ${x.toFixed(2)}, y ${y.toFixed(2)}, width ${width.toFixed(2)}, height ${height.toFixed(2)}`,
+  )
+  .join("\n")}
+`
+    : ""
+
 /** The story part of the prompt of a new screenshot. */
 const newStoryText = (input: NewStoryInput) => `Story: ${input.storyId}
 ${scopeLine(input.scope, input.rubric)}
@@ -299,12 +316,13 @@ ${storyData(input)}
 
 New screenshots, in the order attached:
 ${input.images
-  .map(
-    ({ size }, index) =>
-      `Image ${index + 1}: the full new screenshot, ${size.width} × ${size.height}`,
+  .map(({ size }, index) =>
+    input.changed && index === 1
+      ? `Image 2: a close-up of the largest changed region and the elements next to it, at ${input.changed.zoom}× size`
+      : `Image ${index + 1}: the full new screenshot, ${size.width} × ${size.height}`,
   )
   .join("\n")}
-
+${changedText(input)}
 ${data("brief", input.brief)}
 
 ${data("source-diff", input.sourceDiff)}`

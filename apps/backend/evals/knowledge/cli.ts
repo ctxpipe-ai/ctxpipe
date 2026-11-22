@@ -9,6 +9,10 @@
  *     [--split dev|holdout] [--cap-usd 5] [--set NAME=VALUE] [--kept REPORT]
  *   bun evals/knowledge/cli.ts rescore --from DIR --out DIR \
  *     [--set NAME=VALUE] [--kept REPORT]
+ *   bun evals/knowledge/cli.ts draft --dataset FILE --corpus ID --repo DIR \
+ *     --model MODEL --out FILE [--seed TEXT] [--scale 0.4] [--resume DRAFT]
+ *     [--cap-usd 10]
+ *   bun evals/knowledge/cli.ts finalize --draft LABELED,... --out FILE
  *   bun evals/knowledge/cli.ts label --draft FILE --repo DIR \
  *     --models A,B,C --out FILE [--cap-usd 5]
  *   bun evals/knowledge/cli.ts corpus snapshot|issues|freeze --plan FILE \
@@ -26,25 +30,44 @@
 // First: it sets the OpenWorkflow namespace before the client loads.
 import "./eval-namespace.js"
 import { execFile, execFileSync } from "node:child_process"
-import { mkdir, writeFile } from "node:fs/promises"
+import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { parseArgs, promisify } from "node:util"
 
 import { Octokit } from "octokit"
+import { z } from "zod"
 
 import { closeDb, initDb } from "../../src/db/client.js"
 import { ORCHESTRATOR_DEFAULTS } from "../../src/knowledge-reader/orchestrator.js"
 import { initEvlog } from "../../src/observability/logger.js"
 import { closeGraphDb } from "../../src/platform/graph/client.js"
-import { DEFAULT_OPENROUTER_BASE } from "../../src/retrieval/services/openRouterProvider.js"
+import {
+  allowlistSettingsProblem,
+  DEFAULT_OPENROUTER_BASE,
+  providerAllowlist,
+} from "../../src/retrieval/services/openRouterProvider.js"
+import { modelProviderProblem } from "./chat.js"
 import {
   freezeCorpora,
   importCorpusIssues,
   planSchema,
   snapshotRepositories,
 } from "./corpus.js"
-import { type Dataset, readDataset } from "./dataset.js"
+import {
+  type Dataset,
+  datasetSchema,
+  frozenCorporaSchema,
+  questionSchema,
+  readDataset,
+} from "./dataset.js"
+import { loadDocuments, termIndex } from "./documents.js"
+import {
+  attemptsFileSchema,
+  draftQuestions,
+  finalizeQuestions,
+  ResumeMismatchError,
+} from "./draft.js"
 import type { EvalOrg } from "./hydrate.js"
 import { measureLatency } from "./latency.js"
 import { ModelCalls, type RecordedCall } from "./model-calls.js"
@@ -97,6 +120,8 @@ export async function executeRun(input: {
   out: string
   kept: KeptRun | null
   replay?: { calls: readonly RecordedCall[] }
+  /** The quiet time before the first calls of each arm (check 7). */
+  quietMs: number
 }): Promise<Report> {
   // A replay sends no call. Each client of a live run sends the provider
   // block (ADR-070).
@@ -115,6 +140,7 @@ export async function executeRun(input: {
       targets: input.targets,
       calls,
       now: input.now,
+      quietMs: input.quietMs,
     })
     const manifest: Manifest = {
       datasetVersion: input.dataset.version,
@@ -123,6 +149,7 @@ export async function executeRun(input: {
       settings: input.settings,
       loop: { ...ORCHESTRATOR_DEFAULTS },
       productBudgetMs,
+      quietMs: input.quietMs,
       mode: input.replay ? "replay" : "live",
       ...calls.summary(),
     }
@@ -147,6 +174,12 @@ export async function executeRun(input: {
     restoreSettings()
   }
 }
+
+/**
+ * The quiet time before the first calls of each arm (check 7): longer than
+ * the idle timeout of the Postgres pool (30 s, `src/db/client.ts`).
+ */
+const QUIET_MS = 31_000
 
 class SetupError extends Error {}
 
@@ -249,6 +282,22 @@ async function label(values: {
       root ? `${sha}:${root}/` : `${sha}:`,
     ]),
   )
+  // The nearest documents of a no-answer question, from the term index of
+  // its corpus. The panel judges them.
+  const indexes = new Map<string, ReturnType<typeof termIndex>>()
+  const nearest = async (id: string, text: string) => {
+    const corpus = draft.corpora.find((item) => item.id === id)
+    if (!corpus) return []
+    const index =
+      indexes.get(id) ??
+      termIndex(
+        loadDocuments(repo, corpus.contextRepo.sha, corpus.contextRepo.root),
+      )
+    indexes.set(id, index)
+    return index.nearest(text, 3)
+  }
+  // The panel scrubs each document with the converter.
+  buildConverter()
   const calls = modelCalls(values.capUsd)
   const restore = calls.install()
   try {
@@ -257,24 +306,158 @@ async function label(values: {
       models: values.models.split(",").filter(Boolean),
       read: async (corpus, ref) =>
         (
-          await promisify(execFile)("git", [
-            "-C",
-            repo,
-            "show",
-            `${trees.get(corpus)}${ref}`,
-          ])
+          await promisify(execFile)(
+            "git",
+            ["-C", repo, "show", `${trees.get(corpus)}${ref}`],
+            { maxBuffer: 1 << 28 },
+          )
         ).stdout,
+      nearest,
       env: process.env,
       stopped: () => calls.stopped,
     })
     await writeJson(values.out, labeled.dataset)
     await writeJson(`${values.out}.votes.json`, {
       votes: labeled.votes,
+      timeVotes: labeled.timeVotes,
       dropped: labeled.dropped,
       stopped: labeled.stopped,
+      budget: labeled.budget,
       spentUsd: calls.spentUsd,
     })
     return labeled.stopped ? 3 : 0
+  } finally {
+    restore()
+  }
+}
+
+/**
+ * The draft `file` (and `file.attempts.json`) of the corpus `corpusId`, for a
+ * resume with `seed` and `scale`.
+ */
+async function readResume(
+  file: string,
+  corpusId: string,
+  seed: string,
+  scale: number,
+) {
+  const earlier = z
+    .object({
+      corpora: z.array(z.object({ id: z.string() })),
+      questions: z.array(questionSchema),
+    })
+    .parse(JSON.parse(await readFile(file, "utf8")))
+  const audit = attemptsFileSchema.parse(
+    JSON.parse(await readFile(`${file}.attempts.json`, "utf8")),
+  )
+  if (earlier.corpora.some((item) => item.id !== corpusId))
+    throw new SetupError(`--resume ${file} is not a draft of ${corpusId}.`)
+  if (
+    (audit.seed !== undefined && audit.seed !== seed) ||
+    (audit.scale !== undefined && audit.scale !== scale)
+  )
+    throw new SetupError(
+      `--resume ${file} has another seed or scale: use the same ones.`,
+    )
+  return {
+    questions: earlier.questions,
+    // An older attempts file also keeps the pick of the failed call as an
+    // attempt, with the failure as its reason. Remove that attempt, so that
+    // the resume drafts the pick again. A refused pick stays.
+    attempts: audit.attempts.filter(
+      (attempt) =>
+        !audit.failed || attempt.refused || attempt.reason !== audit.failed,
+    ),
+    spentUsd: audit.spentUsd ?? 0,
+  }
+}
+
+/**
+ * Draft the questions of the corpus `corpus` of the frozen dataset
+ * `dataset` (`draft.ts`). The output holds that corpus and its drafted
+ * questions, and `label` labels it. Each attempt goes to
+ * `OUT.attempts.json`. The output is written also when the spend cap stops
+ * the command or a call fails, with the drafts before it.
+ */
+async function draft(values: {
+  dataset?: string
+  corpus?: string
+  repo?: string
+  model?: string
+  seed?: string
+  scale?: string
+  resume?: string
+  out: string
+  capUsd: number
+}): Promise<number> {
+  const { dataset, repo, model } = values
+  const problem = modelProviderProblem(process.env)
+  if (problem) throw new SetupError(problem)
+  const scale = Number(values.scale ?? 1)
+  if (!(scale > 0 && scale <= 1))
+    throw new SetupError("--scale needs a number above 0 and at most 1.")
+  if (!dataset || !values.corpus || !repo || !model)
+    throw new SetupError("draft needs --dataset, --corpus, --repo and --model.")
+  const frozen = frozenCorporaSchema.parse(
+    JSON.parse(await readFile(dataset, "utf8")),
+  )
+  // One corpus for each command, so that a failure costs one corpus only.
+  const corpus = frozen.corpora.find((item) => item.id === values.corpus)
+  if (!corpus)
+    throw new SetupError(
+      `--corpus names one corpus of the dataset: ${frozen.corpora.map((item) => item.id).join(", ")}.`,
+    )
+  const seed = `${values.seed ?? "v0"} ${corpus.id}`
+  const resume = values.resume
+    ? await readResume(values.resume, corpus.id, seed, scale)
+    : undefined
+  // The drafter scrubs each document with the converter.
+  buildConverter()
+  const calls = modelCalls(values.capUsd)
+  const restore = calls.install()
+  try {
+    const drafted = await draftQuestions({
+      ...(resume ? { resume } : {}),
+      corpus,
+      documents: loadDocuments(
+        repo,
+        corpus.contextRepo.sha,
+        corpus.contextRepo.root,
+      ),
+      model,
+      seed,
+      scale,
+      env: process.env,
+      stopped: () => calls.stopped,
+    }).catch((error: unknown) => {
+      if (error instanceof ResumeMismatchError)
+        throw new SetupError(error.message)
+      throw error
+    })
+    // Also after a stop or a failed call: the drafts before it stay.
+    await writeJson(values.out, {
+      version: frozen.version,
+      corpora: [corpus],
+      questions: drafted.questions,
+    })
+    await writeJson(`${values.out}.attempts.json`, {
+      attempts: drafted.attempts,
+      seed,
+      scale,
+      stopped: drafted.stopped,
+      failed: drafted.failed,
+      failedRefusal: drafted.failedRefusal,
+      budget: drafted.budget,
+      // The picks that OpenRouter refused (HTTP 403).
+      refused: drafted.attempts.filter((attempt) => attempt.refused).length,
+      // The spend of the corpus: of this command and of the draft it resumed.
+      spentUsd: calls.spentUsd + (resume?.spentUsd ?? 0),
+    })
+    process.stderr.write(
+      `${corpus.id}: ${drafted.questions.length} questions, $${calls.spentUsd.toFixed(2)} spent by this command.\n`,
+    )
+    if (drafted.failed) throw new Error(drafted.failed)
+    return drafted.stopped ? 3 : 0
   } finally {
     restore()
   }
@@ -313,7 +496,7 @@ async function corpus(
   return 0
 }
 
-async function main(argv: string[]): Promise<number> {
+export async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = argv
   const { values, positionals } = parseArgs({
     args: rest,
@@ -333,6 +516,11 @@ async function main(argv: string[]): Promise<number> {
       draft: { type: "string" },
       repo: { type: "string" },
       models: { type: "string" },
+      corpus: { type: "string" },
+      model: { type: "string" },
+      seed: { type: "string" },
+      scale: { type: "string" },
+      resume: { type: "string" },
       runs: { type: "string" },
       setting: { type: "string", multiple: true },
     },
@@ -345,7 +533,56 @@ async function main(argv: string[]): Promise<number> {
     throw new SetupError("--cap-usd needs a number of 0 or more.")
   if (!values.out) throw new SetupError("Give --out.")
   const out = values.out
+  // Each eval model call goes only to the providers of the allowlist (ADR-070):
+  // `factory eval` gives the list of production. A command that sends a
+  // model call stops without it, so that no run can forget it.
+  // `probe` checks the list itself, with its own setting (`provider-allowlist`).
+  if (
+    ["draft", "label", "hydrate", "run", "latency", "vision"].includes(
+      command ?? "",
+    )
+  ) {
+    let problem: string | undefined
+    try {
+      problem = providerAllowlist()
+        ? allowlistSettingsProblem({
+            MODEL_PROVIDER: process.env.MODEL_PROVIDER,
+            MODEL_PROVIDER_URL: process.env.MODEL_PROVIDER_URL,
+            MODEL_PROVIDER_ALLOWLIST: process.env.MODEL_PROVIDER_ALLOWLIST,
+          })
+        : "Set MODEL_PROVIDER_ALLOWLIST: each eval model call goes only to the providers of the allowlist (factory eval gives the list of production)."
+    } catch (error) {
+      problem = (error as Error).message
+    }
+    if (problem) throw new SetupError(problem)
+  }
   if (command === "label") return label({ ...values, out, capUsd })
+  if (command === "draft") return draft({ ...values, out, capUsd })
+  if (command === "finalize") {
+    if (!values.draft)
+      throw new SetupError("finalize needs --draft (the labeled files).")
+    const labeled = await Promise.all(
+      values.draft.split(",").filter(Boolean).map(readDataset),
+    )
+    if (new Set(labeled.map((item) => item.version)).size > 1)
+      throw new SetupError("The labeled files have different versions.")
+    const corpora = new Map<string, Dataset["corpora"][number]>()
+    for (const corpus of labeled.flatMap((item) => item.corpora)) {
+      const known = corpora.get(corpus.id)
+      if (known && JSON.stringify(known) !== JSON.stringify(corpus))
+        throw new SetupError(`The labeled files give two corpora ${corpus.id}.`)
+      corpora.set(corpus.id, corpus)
+    }
+    await writeJson(
+      out,
+      datasetSchema.parse({
+        version: labeled[0]?.version,
+        corpora: [...corpora.values()],
+        questions: finalizeQuestions(labeled.flatMap((item) => item.questions)),
+      }),
+    )
+    return 0
+  }
   if (command === "corpus") return corpus(positionals[0], values.plan, out)
   if (command === "probe") {
     if (!process.env.MODEL_PROVIDER_API_KEY)
@@ -400,7 +637,7 @@ async function main(argv: string[]): Promise<number> {
 
   if (command !== "run" && command !== "rescore" && command !== "hydrate")
     throw new SetupError(
-      "Use the command hydrate, run, rescore, label, corpus, probe, latency or vision.",
+      "Use the command hydrate, run, rescore, draft, label, finalize, corpus, probe, latency or vision.",
     )
   const databaseUrl = process.env.DATABASE_URL
   if (!databaseUrl) throw new SetupError("Set DATABASE_URL.")
@@ -452,6 +689,7 @@ async function main(argv: string[]): Promise<number> {
         out,
         kept,
         replay: { calls: recorded.calls },
+        quietMs: QUIET_MS,
       })
     } else {
       if (!dataset || !values.targets)
@@ -472,6 +710,7 @@ async function main(argv: string[]): Promise<number> {
         now: new Date(),
         out,
         kept,
+        quietMs: QUIET_MS,
       })
     }
     process.stdout.write(`The report is in ${join(out, "report.md")}.\n`)

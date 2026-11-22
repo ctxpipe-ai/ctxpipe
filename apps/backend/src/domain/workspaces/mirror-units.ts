@@ -229,7 +229,21 @@ export function workspaceBlobTarget(
   url: string,
   workspaceRepository: string | null,
 ): string | null {
-  if (!workspaceRepository || !URL.canParse(url)) return null
+  if (!workspaceRepository) return null
+  const blob = githubBlobOf(url)
+  return blob?.repository === workspaceRepository ? blob.path : null
+}
+
+/**
+ * The repository and the file path of a GitHub blob URL
+ * (`https://github.com/<owner>/<repo>/blob/<ref>/<path>`), else null. The
+ * ref is one path segment, so a ref with `/` gives a longer path that names
+ * no file.
+ */
+export function githubBlobOf(
+  url: string,
+): { repository: string; path: string } | null {
+  if (!URL.canParse(url)) return null
   const parsed = new URL(url)
   if (parsed.hostname.toLowerCase() !== "github.com") return null
   const [owner, repo, blob, ref, ...rest] = parsed.pathname
@@ -238,13 +252,12 @@ export function workspaceBlobTarget(
   if (blob !== "blob" || !owner || !repo || !ref || rest.length === 0) {
     return null
   }
-  if (
-    normalizeWorkspaceRepositoryUrl(`https://github.com/${owner}/${repo}`) !==
-    workspaceRepository
-  ) {
-    return null
+  return {
+    repository: normalizeWorkspaceRepositoryUrl(
+      `https://github.com/${owner}/${repo}`,
+    ),
+    path: decodeURIComponent(rest.join("/")),
   }
-  return decodeURIComponent(rest.join("/"))
 }
 
 /**

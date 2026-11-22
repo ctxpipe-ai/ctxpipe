@@ -25,6 +25,8 @@ import {
   githubRepoFullNameFromWorkspaceUrl,
   WORKSPACE_WRITE_STATUSES,
 } from "../../domain/workspaces/write-status.js"
+import { selectKnowledgeReader } from "../../knowledge-reader/knowledge-reader.js"
+import { FEATURE_VALUES, getOrgFeature } from "../../models/org-features.js"
 import { isRepositoryLostAccess } from "../../models/repositories.js"
 import { listWorkspaceUpgradeRows } from "../../models/workspace-upgrades.js"
 import {
@@ -37,6 +39,7 @@ import {
   persistWriteCheckRetry,
   projectionFromWorkspace,
   touchLastUsedWorkspace,
+  type WorkspaceRecord,
 } from "../../models/workspaces.js"
 import { detachedErrorLog, getLogger } from "../../observability/logger.js"
 import { startLostAccessRebuilds } from "../../openworkflow/enqueue-codesearch-rebuild.js"
@@ -92,6 +95,10 @@ const WorkspaceSchema = z
     githubConnectionId: z.string().nullable(),
     desiredGeneration: z.number().int(),
     desiredSha: z.string().nullable(),
+    defaultBranch: z.string().nullable().openapi({
+      description:
+        "The default branch of the Workspace repository, from the last read of its tip. A new conversation starts from it when the member picks no other base branch. `null` before the first read.",
+    }),
     activeProjectionUrl: z.string().nullable(),
     activeProjectionSha: z.string().nullable(),
     indexedSha: z.string().nullable(),
@@ -125,6 +132,10 @@ const WorkspaceDetailSchema = WorkspaceSchema.extend({
 const ListWorkspacesResponseSchema = z
   .object({
     lastUsedWorkspaceId: z.string().nullable(),
+    knowledgePlane: z.enum(FEATURE_VALUES.knowledge_plane).openapi({
+      description:
+        "The `knowledge_plane` flag of the org. The chat composer shows the base branch picker only when it is not `off`.",
+    }),
     items: z.array(WorkspaceSchema),
   })
   .openapi("WorkspaceListResponse")
@@ -176,6 +187,23 @@ function hydratePhasesView(state: ProjectionState): {
   return { graph: { kind: state.kind === "failed" ? "failed" : "pending" } }
 }
 
+/**
+ * The phases that the Workspace pane shows. With the `knowledge_plane` flag
+ * `on` and a ready head of the plane, the graph route reads the plane
+ * (`selectKnowledgeReader`), so the graph is ready whatever the phase of the
+ * FalkorDB graph. Else the pane shows the FalkorDB phase.
+ */
+async function workspaceHydratePhases(
+  workspace: WorkspaceRecord,
+): Promise<ReturnType<typeof hydratePhasesView>> {
+  const phases = hydratePhasesView(projectionFromWorkspace(workspace))
+  if (phases.graph.kind === "ready") return phases
+  const { planeHeads } = await selectKnowledgeReader(workspace.orgId, [
+    workspace.id,
+  ])
+  return planeHeads.has(workspace.id) ? { graph: { kind: "ready" } } : phases
+}
+
 function serializeWorkspace(row: {
   id: string
   orgId: string
@@ -186,6 +214,7 @@ function serializeWorkspace(row: {
   githubConnectionId: string | null
   desiredGeneration: number
   desiredSha: string | null
+  desiredDefaultBranch?: string | null
   activeProjectionUrl: string | null
   activeProjectionSha: string | null
   indexedSha: string | null
@@ -207,6 +236,7 @@ function serializeWorkspace(row: {
     githubConnectionId: row.githubConnectionId,
     desiredGeneration: row.desiredGeneration,
     desiredSha: row.desiredSha,
+    defaultBranch: row.desiredDefaultBranch ?? null,
     activeProjectionUrl: row.activeProjectionUrl,
     activeProjectionSha: row.activeProjectionSha,
     indexedSha: row.indexedSha,
@@ -467,10 +497,16 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     if (!c.get("user") || !c.get("session")) {
       return c.json({ error: "Unauthorized" }, 401)
     }
-    const { items, lastUsedWorkspaceId } = await listWorkspaces()
+    const orgId = c.get("orgId")
+    if (!orgId) return c.json({ error: "Unauthorized" }, 401)
+    const [{ items, lastUsedWorkspaceId }, knowledgePlane] = await Promise.all([
+      listWorkspaces(),
+      getOrgFeature(orgId, "knowledge_plane"),
+    ])
     return c.json(
       {
         lastUsedWorkspaceId,
+        knowledgePlane,
         items: items.map((row) => serializeWorkspace(row)),
       },
       200,
@@ -537,7 +573,7 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
           createdAt: row.createdAt.toISOString(),
         })),
         skippedFiles: workspace.hydratePhases?.skipped ?? [],
-        hydratePhases: hydratePhasesView(projectionFromWorkspace(workspace)),
+        hydratePhases: await workspaceHydratePhases(workspace),
       },
       200,
     )

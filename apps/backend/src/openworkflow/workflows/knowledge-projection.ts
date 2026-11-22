@@ -57,12 +57,19 @@ export const knowledgeProjection = defineWorkflow(
         workspaceId: z.string().min(1),
         /** The branch of the run; absent: the default branch. */
         branch: z.string().min(1).optional(),
+        /**
+         * Rebuild the tree of the default branch in full from Git
+         * (`rebuildKnowledgePlane`, ADR-067 decision 8). Ignored for another
+         * branch.
+         */
+        rebuild: z.boolean().optional(),
       })
       .strict(),
     logFields: (input) => ({
       orgId: input.orgId,
       workspaceId: input.workspaceId,
       ...(input.branch ? { branch: input.branch } : {}),
+      ...(input.rebuild ? { rebuild: true } : {}),
     }),
   },
   async ({ input, step }) => {
@@ -130,6 +137,7 @@ export const knowledgeProjection = defineWorkflow(
                   defaultTip: isDefault ? null : workspace.desiredSha,
                   store,
                   observedAt: new Date(),
+                  rebuild: input.rebuild,
                 })
               : before?.branch === branch
                 ? { mode: "waiting" as const }

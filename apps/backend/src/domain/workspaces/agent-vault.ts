@@ -189,51 +189,83 @@ async function avFetch(
 async function login(access: AgentVaultAccess): Promise<string> {
   const password = await access.ownerPassword()
   const credentials = { email: OWNER_EMAIL, password }
-  const loggedIn = await avFetch(access, "/v1/auth/login", {
-    method: "POST",
-    body: credentials,
-  })
-  if (loggedIn.ok && typeof loggedIn.body.token === "string")
-    return loggedIn.body.token
+  const tryLogin = async () => {
+    const response = await avFetch(access, "/v1/auth/login", {
+      method: "POST",
+      body: credentials,
+    })
+    const token =
+      response.ok && typeof response.body.token === "string"
+        ? response.body.token
+        : undefined
+    return { response, token }
+  }
+  const first = await tryLogin()
+  if (first.token) return first.token
+  // A new instance answers each login with 503 `not_initialized` until an
+  // owner registers.
+  const empty = first.response.body.error === "not_initialized"
   // Register only while the instance has no owner (the first account becomes
   // the owner). An instance with an owner that refuses this password stays
   // closed: the password changed, or another backend owns it.
   const status = await avFetch(access, "/v1/status")
   const initialized = status.ok ? status.body.needs_first_user === false : true
-  if (initialized)
+  if (initialized && !empty)
     throw new AgentVaultUnavailableError(
-      `Agent Vault refused the backend's owner password (${loggedIn.status}); see "Agent Vault owner password" in the self-hosting docs`,
+      `Agent Vault refused the backend's owner password (${first.response.status}); see "Agent Vault owner password" in the self-hosting docs`,
     )
-  const registered = await avFetch(access, "/v1/auth/register", {
-    method: "POST",
-    body: credentials,
-  })
-  if (registered.ok && typeof registered.body.token === "string")
+  const registered = initialized
+    ? undefined
+    : await avFetch(access, "/v1/auth/register", {
+        method: "POST",
+        body: credentials,
+      })
+  if (registered?.ok && typeof registered.body.token === "string")
     return registered.body.token
+  // Another process (the worker or another backend task) registered the owner
+  // after this process's first login, or before its own register.
+  const again = await tryLogin()
+  if (again.token) return again.token
   throw new AgentVaultUnavailableError(
-    `Agent Vault refused the backend's owner account (${loggedIn.status}, ${registered.status})`,
+    `Agent Vault refused the backend's owner account (${first.response.status}, ${registered?.status ?? "registered"}, ${again.response.status})`,
   )
 }
 
-async function ownerToken(
+/**
+ * The cached owner login, or a new one. `stale` is a login that the instance
+ * no longer takes: a new login replaces it once, and each caller that held
+ * it shares that new login, so a replaced instance gets one register.
+ */
+function ownerToken(
   access: AgentVaultAccess,
-  refresh = false,
+  stale?: Promise<string>,
 ): Promise<string> {
   const cached = ownerTokens.get(access.address)
-  if (cached && !refresh) return cached
+  if (cached && cached !== stale) return cached
   const next = login(access)
   ownerTokens.set(access.address, next)
   next.catch(() => ownerTokens.delete(access.address))
   return next
 }
 
-/** Run `fn` with an owner client; logs in again once when the session ended. */
+/**
+ * The instance does not take the cached login: the session ended (401), or
+ * the instance is a new one with no owner yet (503 `not_initialized`). Agent
+ * Vault keeps no data across a restart, so a replaced task answers the old
+ * token with 503 until the backend registers the owner again.
+ */
+function needsLogin(error: unknown): boolean {
+  const { status, code } = error as { status?: number; code?: string }
+  return status === 401 || (status === 503 && code === "not_initialized")
+}
+
+/** Run `fn` with an owner client; logs in again once when the instance does not take the login. */
 async function asOwner<T>(
   access: AgentVaultAccess,
   fn: (client: AgentVault, token: string) => Promise<T>,
 ): Promise<T> {
-  const attempt = async (refresh: boolean) => {
-    const token = await ownerToken(access, refresh)
+  const attempt = async (session: Promise<string>) => {
+    const token = await session
     return fn(
       new AgentVault({
         token,
@@ -245,11 +277,16 @@ async function asOwner<T>(
       token,
     )
   }
+  const session = ownerToken(access)
   try {
-    return await attempt(false)
+    return await attempt(session)
   } catch (error) {
-    if ((error as { status?: number }).status === 401) return attempt(true)
-    throw unavailable(error)
+    if (!needsLogin(error)) throw unavailable(error)
+    try {
+      return await attempt(ownerToken(access, session))
+    } catch (retried) {
+      throw unavailable(retried)
+    }
   }
 }
 
@@ -327,6 +364,29 @@ export class RunVaultRuleRefusedError extends Error {
 }
 
 /**
+ * The run's vault is gone: ECS replaced the Agent Vault task, and a new
+ * instance keeps no data. The run's sandbox holds a proxy session and trusts
+ * a CA of the old instance, so it cannot work again in place. The owner of
+ * the sandbox destroys it, and a new sandbox gets a new vault, session and
+ * CA.
+ */
+export class RunVaultLostError extends Error {
+  constructor(options?: { cause?: unknown }) {
+    super(
+      "Agent Vault restarted and lost the credentials of this sandbox. Run it again: a new sandbox gets new credentials.",
+      options,
+    )
+    this.name = "RunVaultLostError"
+  }
+}
+
+/** Agent Vault's answer for a vault that it does not have: 404 `Vault "<name>" not found`. */
+function isLostVault(error: unknown): boolean {
+  const { status, code } = error as { status?: number; code?: string }
+  return status === 404 && /^Vault\b.*\bnot found$/.test(code ?? "")
+}
+
+/**
  * The rules as the run vault of a hosted AgentCore sandbox may hold them
  * (CTX-1287). Other deployments get `rules` as they are.
  *
@@ -398,7 +458,8 @@ export function runVaultName(runKey: string): string {
  * Add `rules` to the run's vault, or replace the rules with the same names
  * (Agent Vault keys a service by its name). With `replace`, the vault keeps
  * no other rule. A later step of the same run calls this from any process:
- * the session of the sandbox stays the same.
+ * the session of the sandbox stays the same. Throws
+ * {@link RunVaultLostError} when Agent Vault no longer has the vault.
  */
 export async function setRunVaultRules(
   access: AgentVaultAccess,
@@ -423,12 +484,17 @@ async function writeRunVaultRules(
 ): Promise<void> {
   if (rules.length === 0 && !options.replace) return
   const { credentials, services } = servicesFor(rules)
-  await asOwner(access, async (client) => {
-    const vault = client.vault(runVaultName(runKey))
-    await vault.credentials?.set(credentials)
-    if (options.replace) await vault.services?.replaceAll(services)
-    else await vault.services?.set(services)
-  })
+  try {
+    await asOwner(access, async (client) => {
+      const vault = client.vault(runVaultName(runKey))
+      await vault.credentials?.set(credentials)
+      if (options.replace) await vault.services?.replaceAll(services)
+      else await vault.services?.set(services)
+    })
+  } catch (error) {
+    if (isLostVault(error)) throw new RunVaultLostError({ cause: error })
+    throw error
+  }
 }
 
 /**
@@ -549,8 +615,9 @@ async function setUnmatchedHostPolicy(
         new AgentVaultUnavailableError(
           `Agent Vault did not set the unmatched host policy "${policy}" (${response.status})`,
         ),
-        // A 401 makes `asOwner` log in again and retry.
-        { status: response.status },
+        // A login that the instance does not take makes `asOwner` log in
+        // again and retry (`needsLogin`).
+        { status: response.status, code: response.body.error },
       )
   })
 }
@@ -582,6 +649,7 @@ export async function sweepRunVaults(
       if (!response.ok)
         throw Object.assign(new Error("Listing vaults failed"), {
           status: response.status,
+          code: response.body.error,
         })
       return response.body as {
         vaults?: Array<{ name: string; created_at: string }>

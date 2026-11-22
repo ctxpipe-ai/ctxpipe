@@ -1,3 +1,5 @@
+import { asStringArray } from "../domain/codeIngestion/connectorFrontmatter.js"
+import { connectorMirrorRoot } from "../domain/codeIngestion/connectorMirrorPaths.js"
 import {
   confluencePageDedupKey,
   extractUrls,
@@ -14,12 +16,14 @@ import {
 import { resolveHydrateLink } from "../domain/workspaces/hydrate.js"
 import {
   confluencePageIdOfPath,
+  githubBlobOf,
   mirrorUnitKeys,
   parseNotionPageUrl,
 } from "../domain/workspaces/mirror-units.js"
 import {
   changeTargetOf,
   mergedPullRequest,
+  sourceRepositoriesOf,
 } from "../domain/workspaces/pull-request-changes.js"
 
 /**
@@ -44,7 +48,9 @@ export type FileReferences = {
 /** One relation of a file to a reference key. */
 export type ReferenceLink = {
   key: string
-  predicate: "LINKS_TO" | "CHANGED"
+  predicate: "LINKS_TO" | "CHANGED" | "MENTIONS"
+  /** 1, except for a `MENTIONS` link: the confidence of its rule. */
+  confidence: number
   /** An ISO time, or null. */
   validFrom: string | null
   /**
@@ -96,13 +102,206 @@ function changedKey(repositoryUrl: string, root: string | null): string {
 }
 
 /**
+ * The keys of each package root below the repository top that can hold
+ * `file`: each folder that holds it. A file cannot see which roots exist,
+ * so it names all of them (ADR-066 decision 5).
+ */
+function folderKeysOf(repositoryUrl: string, file: string): string[] {
+  const folders = file.split("/").slice(0, -1)
+  return folders.map((_, depth) =>
+    changedKey(repositoryUrl, folders.slice(0, depth + 1).join("/")),
+  )
+}
+
+/** The HTTP methods of an operation, as a regular expression group. */
+const HTTP_METHODS = "GET|PUT|POST|PATCH|DELETE|HEAD|OPTIONS"
+
+/** The key of a name of a knowledge unit: lowercase, with single spaces. */
+const nameKey = (name: string) =>
+  `name:${name.trim().replace(/\s+/g, " ").toLowerCase()}`
+
+/** An HTTP path with each parameter (`{name}`) as `{}` and no end slash. */
+const operationPath = (path: string) =>
+  path.replace(/\{[^}]*\}/g, "{}").replace(/\/+$/, "") || "/"
+
+const operationKey = (method: string, path: string) =>
+  `op:${method.toUpperCase()} ${operationPath(path)}`
+
+const operationPathKey = (path: string) => `oppath:${operationPath(path)}`
+
+/**
+ * The keys by which an issue can mention a knowledge unit: its name and,
+ * for an operation, its method and path. The keys of its package root are
+ * the `CHANGED` keys. A connector mirror file is not a knowledge unit.
+ */
+function mentionTargetKeys(
+  path: string,
+  kind: string | null,
+  attributes: Record<string, unknown>,
+): string[] {
+  // The kinds of code knowledge that the ingest skills write (CTX-1502).
+  const kinds = [
+    "Service",
+    "App",
+    "Library",
+    "API",
+    "Operation",
+    "Database",
+    "Infrastructure",
+    "Repository",
+  ]
+  if (connectorMirrorRoot(path) !== null || !kinds.includes(kind ?? ""))
+    return []
+  const name = typeof attributes.name === "string" ? attributes.name : ""
+  if (!name.trim()) return []
+  const operation =
+    kind === "Operation"
+      ? new RegExp(`^(${HTTP_METHODS}) (\\/\\S*)$`).exec(name)
+      : null
+  return operation?.[1] && operation[2]
+    ? [
+        nameKey(name),
+        operationKey(operation[1], operation[2]),
+        operationPathKey(operation[2]),
+      ]
+    : [nameKey(name)]
+}
+
+/** The text with each fenced code block made empty. */
+const withoutFences = (text: string) =>
+  text.replace(/^ {0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?^ {0,3}\1[^\n]*$/gm, " ")
+
+/**
+ * The knowledge units that the text of an issue names, as `MENTIONS` links
+ * with the confidence of the rule that found each one (CTX-1502). The
+ * rules use only the issue file, so its rows do not depend on other files
+ * (ADR-066 decision 5). Most keys name no document; the read drops such a
+ * link, and it weighs each other one by how many files mention its key.
+ * The rules, from the highest confidence:
+ * - 0.9: a file path, which names each package root below the repository
+ *   top that can hold it, in each repository of the issue, and a GitHub
+ *   permalink of a file, in its own repository; a method and an HTTP path.
+ *   The Repository and the top hold each path, also a file of the reporter
+ *   (`src/main.rs`), so a match on them is no evidence.
+ * - 0.8: an HTTP path with no method, in a code span or under `/api`; a
+ *   label `area/<name>` or `component/<name>`; a full code span with a
+ *   lowercase letter.
+ * - 0.7: a name with `-` or `_` in the title or the text (`client-go`).
+ * A plain word of the title or the text is not a rule, also the first word
+ * of a title before a colon (`Bug: …`): most such words name nothing, and
+ * some name the wrong unit (`kind`). A name of one or two characters is a
+ * variable more often than a unit (`x`), so it is not a mention.
+ */
+function mentionLinks(input: {
+  title: string
+  body: string
+  attributes: Record<string, unknown>
+  repositories: readonly string[]
+  urls: readonly string[]
+}): ReferenceLink[] {
+  const links: ReferenceLink[] = []
+  const mention = (key: string, confidence: number, text: string) =>
+    links.push({
+      key,
+      predicate: "MENTIONS",
+      confidence,
+      validFrom: null,
+      text,
+    })
+  const mentionName = (name: string, confidence: number, text: string) => {
+    if (name.trim().length > 2) mention(nameKey(name), confidence, text)
+  }
+  // A GitHub permalink of a file names the folders of the file in its own
+  // repository.
+  for (const url of input.urls) {
+    let blob: ReturnType<typeof githubBlobOf> = null
+    try {
+      blob = githubBlobOf(url)
+    } catch {
+      // A malformed escape in the URL: it names no file.
+    }
+    if (blob)
+      for (const key of folderKeysOf(blob.repository, blob.path))
+        mention(key, 0.9, url)
+  }
+  // Each other URL is a link of its own, not a path or a name.
+  const body = input.urls.reduce(
+    (text, url) => text.replaceAll(url, " "),
+    input.body,
+  )
+  const prose = withoutFences(body)
+  const spans = Array.from(prose.matchAll(/`([^`\n]+)`/g), (m) =>
+    (m[1] ?? "").trim(),
+  )
+
+  // The path and the operation rules also read fenced code, because a stack
+  // trace or a request log names real files and operations. The name rules
+  // read only the prose. A path from `./` or `../` is a local file of the
+  // reporter, and a path whose first folder holds a dot is a Go import path
+  // or a host (`k8s.io/…`). Neither names a file of the repository.
+  for (const match of body.matchAll(
+    /(?<![\w/.:~-])((?:[\w-]+\/)(?:[\w.-]+\/)*[\w-]+\.[A-Za-z][A-Za-z0-9]{0,7})(?![\w/])/g,
+  )) {
+    const file = match[1] ?? ""
+    for (const repository of input.repositories)
+      for (const key of folderKeysOf(repository, file))
+        mention(key, 0.9, match[0])
+  }
+  // A method and a path, also with the path in a code span (GET `/orders/`).
+  // The key of the operation drops an end slash.
+  const operation = new RegExp(
+    `\\b(${HTTP_METHODS})\\s+(\`?)(\\/(?:[\\w./{}:-]*[\\w}])?\\/?)\\2`,
+    "g",
+  )
+  for (const match of body.matchAll(operation))
+    mention(operationKey(match[1] ?? "", match[3] ?? ""), 0.9, match[0])
+
+  // A path with its method names only the operation of that method, so the
+  // rules of a path with no method do not read it.
+  const pathText = prose.replace(operation, " ")
+  for (const [, span = ""] of pathText.matchAll(/`([^`\n]+)`/g))
+    if (/^(?:\/[\w.{}:-]+)+\/?$/.test(span.trim()))
+      mention(operationPathKey(span.trim()), 0.8, span.trim())
+  for (const match of pathText.matchAll(
+    /(?<![\w./-])\/apis?\/(?:[\w./{}:-]*[\w}])?/g,
+  ))
+    mention(operationPathKey(match[0]), 0.8, match[0])
+  for (const label of asStringArray(input.attributes.labels)) {
+    const name = /^(?:area|component)\/(.+)$/.exec(label)?.[1]
+    if (name) mentionName(name, 0.8, "")
+  }
+  // A code span with no lowercase letter is a constant or an environment
+  // variable (`HOME`), and a span from `/` is a path: neither is the name
+  // of a unit.
+  for (const span of spans)
+    if (/[a-z]/.test(span) && !span.startsWith("/"))
+      mentionName(span, 0.8, span)
+
+  // The name of a file names a page, not a unit
+  // (`docs/concepts/dynamic-resource-allocation.md`), so the name rule does
+  // not read it. A folder of the path can name a unit (`client-go/tools`).
+  // A login is not a unit either: a handle (`@k8s-ci-robot`) and the heading
+  // of a mirrored comment (`### <time> · <login>`).
+  const nameText = `${input.title}\n${prose}`
+    .replace(/^### \S+ · .*$/gm, " ")
+    .replace(/@[\w/-]+/g, " ")
+    .replace(/[\w-]+\.[A-Za-z][A-Za-z0-9]{0,7}(?![\w/-])/g, " ")
+  for (const match of nameText.matchAll(
+    /(?<![\w.-])[a-z][a-z0-9]*(?:[-_][a-z0-9]+)+(?![\w-])/gi,
+  ))
+    mentionName(match[0], 0.7, match[0])
+  return links
+}
+
+/**
  * The reference keys of one parsed file.
  * - `keys`: from the front matter of a mirror file (`notion_id`, `url`,
- *   `identifier`), from the path of a Confluence page or a Slack thread, and
- *   the `CHANGED` keys of a package or a Repository file.
+ *   `identifier`), from the path of a Confluence page or a Slack thread, the
+ *   `CHANGED` keys of a package or a Repository file, and the keys by which
+ *   an issue can mention a knowledge unit (`name:`, `op:`, `oppath:`).
  * - `links`: the provider URLs and the Linear identifiers of the body, the
- *   page id of a relative Confluence link, and the `CHANGED` claims of a
- *   merged pull request.
+ *   page id of a relative Confluence link, the `CHANGED` claims of a merged
+ *   pull request, and the `MENTIONS` links of an issue (`mentionLinks`).
  *
  * A key that the file states for itself gives no link.
  */
@@ -120,7 +319,10 @@ export function fileReferences(input: {
   sourceRepositories: ReadonlyMap<string, string>
 }): FileReferences {
   const { path, attributes } = input
-  const keys = new Set(mirrorUnitKeys(path, attributes, referenceKeysOfUrl))
+  const keys = new Set([
+    ...mirrorUnitKeys(path, attributes, referenceKeysOfUrl),
+    ...mentionTargetKeys(path, input.kind, attributes),
+  ])
   const target = changeTargetOf(
     { path, kind: input.kind, attributes },
     input.sourceRepositories,
@@ -130,12 +332,14 @@ export function fileReferences(input: {
       keys.add(changedKey(repository, target.root))
 
   const links = new Map<string, ReferenceLink>()
+  // The first link of a predicate and a key wins, so a rule with a higher
+  // confidence comes first.
   const add = (link: ReferenceLink) => {
     const id = `${link.predicate}\0${link.key}`
     if (!keys.has(link.key) && !links.has(id)) links.set(id, link)
   }
   const linkTo = (key: string, text: string) =>
-    add({ key, predicate: "LINKS_TO", validFrom: null, text })
+    add({ key, predicate: "LINKS_TO", confidence: 1, validFrom: null, text })
 
   const urls = extractUrls(input.body)
   for (const url of urls) {
@@ -171,23 +375,31 @@ export function fileReferences(input: {
   // file, and its repository.
   const pull =
     input.kind === "PullRequest" ? mergedPullRequest(attributes) : null
-  if (pull) {
-    const named = new Set<string>()
-    for (const file of pull.paths) {
-      named.add(changedKey(pull.repositoryUrl, null))
-      const folders = file.split("/").slice(0, -1)
-      for (let depth = 0; depth <= folders.length; depth++)
-        named.add(
-          changedKey(pull.repositoryUrl, folders.slice(0, depth).join("/")),
-        )
-    }
-    for (const key of named)
-      add({
-        key,
-        predicate: "CHANGED",
-        validFrom: pull.mergedAt,
-        text: "",
-      })
-  }
+  if (pull)
+    for (const file of pull.paths)
+      for (const key of [
+        changedKey(pull.repositoryUrl, null),
+        changedKey(pull.repositoryUrl, ""),
+        ...folderKeysOf(pull.repositoryUrl, file),
+      ])
+        add({
+          key,
+          predicate: "CHANGED",
+          confidence: 1,
+          validFrom: pull.mergedAt,
+          text: "",
+        })
+
+  // The repositories of an issue are those of its `sources`, which the
+  // mirror writes (`stampMirrorFiles`), as for a package unit.
+  if (input.kind === "Issue")
+    for (const link of mentionLinks({
+      title: typeof attributes.title === "string" ? attributes.title : "",
+      body: input.body,
+      attributes,
+      repositories: sourceRepositoriesOf(attributes, input.sourceRepositories),
+      urls,
+    }))
+      add(link)
   return { keys: [...keys].sort(), links: [...links.values()] }
 }

@@ -2,12 +2,16 @@
 //
 // The default `runs-on` in .github/workflows is
 // `blacksmith-<n>vcpu-ubuntu-2404-arm`, also in a matrix expression. A laptop
-// runs linux/arm64 containers, so CI runs the same platform. A light job
-// without Docker can run on a free GitHub-hosted runner, usually
-// `ubuntu-24.04-arm` (ADR-065). A job may use another label only when
-// `runs-on` carries a reason comment on its own line or on the line before:
+// runs linux/arm64 containers, so CI runs the same platform. The jobs that
+// ADR-065 names run on a free GitHub-hosted runner, usually
+// `ubuntu-24.04-arm`. A job may use another label only when `runs-on` carries
+// a reason comment on its own line or on the line before:
 //   `amd64: <reason>`        for `blacksmith-<n>vcpu-ubuntu-2404` (x64)
 //   `github-hosted: <reason>` for any other label
+// An expression (`${{ … }}`) passes when it names one or more labels and
+// each one is an arm64 Blacksmith label, for example a matrix that picks 2 or
+// 4 vCPU for each entry. Each quoted literal of the expression counts as a
+// label, except a JSON list or object.
 //
 // Pick the size by the load of the job. A job that only orchestrates, calls
 // APIs, moves artifacts or runs a small script uses 2 vCPU (6 GB). Tests,
@@ -35,6 +39,18 @@ for (const name of readdirSync(directory).sort()) {
     if (!match) return
     const value = match[1].replace(/\s+#.*$/, "").trim()
     if (/^blacksmith-\d+vcpu-ubuntu-2404-arm$/.test(value)) return
+    // Each quoted literal of the expression is a label, except a JSON list
+    // or object (the names of a `contains(fromJSON('[…]'), …)`).
+    const labels = /^\$\{\{.*\}\}$/.test(value)
+      ? [...value.matchAll(/'([^']*)'/g)]
+          .map((literal) => literal[1])
+          .filter((literal) => !/^\s*[[{]/.test(literal))
+      : []
+    if (
+      labels.length > 0 &&
+      labels.every((label) => /^blacksmith-\d+vcpu-ubuntu-2404-arm$/.test(label))
+    )
+      return
     const near = `${lines[index - 1] ?? ""}\n${line}`
     const reason = /^blacksmith-\d+vcpu-ubuntu-2404$/.test(value)
       ? AMD64

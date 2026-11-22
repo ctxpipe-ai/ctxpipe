@@ -247,7 +247,7 @@ export function knowledgeRows(input: {
       ),
       predicate: link.predicate,
       dstDoc: `${REFERENCE_TARGET_PREFIX}${link.key}`,
-      confidence: 1,
+      confidence: link.confidence,
       validFrom: dateOrNull(normalizeValidityBound(link.validFrom)),
       validFromIntroduced: false,
       validTo: null,

@@ -11,15 +11,18 @@ import { gunzipSync } from "node:zlib"
 export const profiles = {
   project: { setupMinutes: 0.4, maxShards: 2 },
   node: { setupMinutes: 0.3, maxShards: 1 },
-  database: { setupMinutes: 1.4, maxShards: 9 },
+  // The database shards run on GitHub-hosted runners (ADR-065): 84 to 100
+  // seconds before the tests start on CI run 44989551535.
+  database: { setupMinutes: 1.5, maxShards: 10 },
   upgrade: { setupMinutes: 1.1, maxShards: 1 },
   codesearch: { setupMinutes: 0.3, maxShards: 1 },
   storybook: { setupMinutes: 0.6, maxShards: 5 },
   // The screenshots job: checkout, install, the Storybook build and the pull
   // of the pinned Playwright image, from the job start to the first capture
   // (43 seconds on CI run 42552424967; 22 to 39 seconds to the capture step
-  // in 3 more runs). Its one job captured about 900 stories in 30 minutes,
-  // so a full run has 4 shards.
+  // in 3 more runs, on Blacksmith). On a GitHub-hosted runner the job got
+  // to the capture step in 39 to 43 seconds (CI run 44989551535). Its one
+  // job captured about 900 stories in 30 minutes, so a full run has 4 shards.
   visual: { setupMinutes: 0.8, maxShards: 4 },
 }
 

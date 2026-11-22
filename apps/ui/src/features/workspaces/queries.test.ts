@@ -49,6 +49,7 @@ function ws(id: string, slug: string): Workspace {
     githubConnectionId: null,
     desiredGeneration: 1,
     desiredSha: null,
+    defaultBranch: null,
     activeProjectionUrl: null,
     activeProjectionSha: null,
     indexedSha: null,
@@ -65,6 +66,7 @@ function ws(id: string, slug: string): Workspace {
 describe("landingWorkspace", () => {
   it("returns null when the org has none", () => {
     const list: WorkspaceListResponse = {
+      knowledgePlane: "off",
       lastUsedWorkspaceId: null,
       items: [],
     }
@@ -75,14 +77,22 @@ describe("landingWorkspace", () => {
     const a = ws("ws_a", "alpha")
     const b = ws("ws_b", "beta")
     expect(
-      landingWorkspace({ lastUsedWorkspaceId: "ws_b", items: [a, b] })?.slug,
+      landingWorkspace({
+        knowledgePlane: "off",
+        lastUsedWorkspaceId: "ws_b",
+        items: [a, b],
+      })?.slug,
     ).toBe("beta")
   })
 
   it("falls back to the first Workspace when last-used is gone", () => {
     const a = ws("ws_a", "alpha")
     expect(
-      landingWorkspace({ lastUsedWorkspaceId: "ws_missing", items: [a] })?.slug,
+      landingWorkspace({
+        knowledgePlane: "off",
+        lastUsedWorkspaceId: "ws_missing",
+        items: [a],
+      })?.slug,
     ).toBe("alpha")
   })
 })
@@ -94,6 +104,7 @@ describe("forgetDeletedWorkspace", () => {
   it("drops the Workspace from the list and the cached org activity", async () => {
     const client = new QueryClient()
     const list: WorkspaceListResponse = {
+      knowledgePlane: "off",
       lastUsedWorkspaceId: null,
       items: [ws("ws_a", "alpha"), ws("ws_b", "beta")],
     }

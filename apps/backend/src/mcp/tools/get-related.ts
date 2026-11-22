@@ -19,7 +19,7 @@ import {
   workspaceArgument,
 } from "../framework/schemas.js"
 import { McpToolError } from "../framework/tool-errors.js"
-import { defineMcpReadTool } from "../framework/tool-registry.js"
+import { defineMcpReadTool, scoredResult } from "../framework/tool-registry.js"
 
 export { rankWorkspaceRelated } from "../../domain/workspaces/related-ranking.js"
 
@@ -287,6 +287,7 @@ export const getRelatedTool = defineMcpReadTool({
     cursor: z.string().optional(),
     truncated: z.boolean().optional(),
   }),
+  describeResult: ({ results }) => scoredResult(results),
   async run(input, { org }) {
     if (input.validAt && input.validBetween) {
       throw new McpToolError(

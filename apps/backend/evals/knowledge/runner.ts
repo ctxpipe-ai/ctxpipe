@@ -1,6 +1,8 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join } from "node:path"
+import { setTimeout as sleep } from "node:timers/promises"
 
+import { sql } from "drizzle-orm"
 import { z } from "zod"
 
 import { withOrgDbContext } from "../../src/db/client.js"
@@ -14,6 +16,10 @@ import { planeKnowledgeReader } from "../../src/knowledge-reader/plane-reader.js
 import { resolveCallWorkspace } from "../../src/mcp/framework/call-workspace.js"
 import { McpToolError } from "../../src/mcp/framework/tool-errors.js"
 import { getRelatedInputShape } from "../../src/mcp/tools/get-related.js"
+import {
+  SEARCH_PAGE_LIMIT,
+  searchKnowledgePage,
+} from "../../src/mcp/tools/search-knowledge.js"
 import {
   getKnowledgeState,
   type KnowledgeHead,
@@ -101,24 +107,61 @@ export function applySettings(settings: Settings): () => void {
 }
 
 /** A call that failed: the kind of the failure, and its latency. */
-const callFailureSchema = z.object({ error: z.string(), latencyMs: z.number() })
+const callFailureSchema = z.object({
+  error: z.string(),
+  latencyMs: z.number(),
+  /** As in a ranked answer. */
+  quietMs: z.number().optional(),
+})
 
 const rankedSchema = z.object({
   refs: z.array(z.string()),
   scores: z.array(z.number()),
   partialReason: z.string().optional(),
   latencyMs: z.number(),
+  /**
+   * The quiet time before the call, in ms: only on the first search and the
+   * first `get_related` of each arm (check 7). Absent in a run from before
+   * CTX-1518.
+   */
+  quietMs: z.number().optional(),
 })
+
+/**
+ * The first page of `search_knowledge` for the search, as a client gets it
+ * with the default limit (without the cursor). The regression checks read
+ * it. Absent in a run from before CTX-1518.
+ */
+const searchPageSchema = z.looseObject({
+  hits: z.array(
+    z.looseObject({
+      ref: z.string(),
+      title: z.string().nullable(),
+      source: z.string(),
+      snippet: z.string(),
+    }),
+  ),
+})
+export type SearchPage = z.infer<typeof searchPageSchema>
 
 /** The answer of one arm to one question (`answers.jsonl`). */
 const armAnswerSchema = z.object({
   arm: z.enum(ARMS),
   question: z.string(),
-  search: z.union([rankedSchema, callFailureSchema]),
+  search: z.union([
+    rankedSchema.extend({ page: searchPageSchema.optional() }),
+    callFailureSchema,
+  ]),
   /** Only for a question with seeds. */
   related: z
     .union([
       rankedSchema.extend({
+        /**
+         * The refs of the results that are high-degree units of the corpus
+         * (`highDegreeUnits`), for the hub check. Absent in a run from before
+         * CTX-1518.
+         */
+        hubs: z.array(z.string()).optional(),
         positions: z
           .array(
             z.object({
@@ -150,6 +193,12 @@ const manifestSchema = z.object({
    * each answer that is over it. Absent in a run from before 2026-11-22.
    */
   productBudgetMs: z.number().optional(),
+  /**
+   * The quiet time that the run waits before the first search and the first
+   * `get_related` of each arm, in ms (check 7). Absent in a run from before
+   * CTX-1518.
+   */
+  quietMs: z.number().optional(),
   mode: z.enum(["live", "replay"]),
   capUsd: z.number(),
   spentUsd: z.number(),
@@ -172,7 +221,10 @@ const relatedInput = z.object(getRelatedInputShape)
 type EvalTarget = {
   org: { id: string; slug: string }
   workspace: { id: string; slug: string }
-  sha: string
+  /** The branch and the frozen SHA that both stacks serve. */
+  served: { branch: string; sha: string }
+  /** The high-degree units of the corpus (`highDegreeUnits`). */
+  hubs: ReadonlySet<string>
   head: KnowledgeHead
 }
 
@@ -229,11 +281,39 @@ async function resolveWorkspaces(
     resolved.set(corpus.id, {
       org,
       workspace: { id: workspace.id, slug: workspace.slug },
-      sha,
+      served: { branch: workspace.served.branch, sha },
       head,
+      hubs: await highDegreeUnits(org.id, workspace.id),
     })
   }
   return resolved
+}
+
+/**
+ * The paths of the high-degree units of a Workspace, for the hub check
+ * (CTX-1135): an out-degree (links and claims) of at least 10, and at or
+ * above the 99th percentile of the units. The degree comes from the units of the frozen SHA in
+ * the old stack. Both stacks hydrate the same files, so the degree is a fact
+ * of the corpus, the same for both arms.
+ */
+export async function highDegreeUnits(
+  orgId: string,
+  workspaceId: string,
+): Promise<Set<string>> {
+  const result = await withOrgDbContext(orgId, (db) =>
+    db.execute<{ path: string }>(sql`
+      WITH degrees AS (
+        SELECT path, jsonb_array_length(links) + jsonb_array_length(claims) AS degree
+        FROM workspace_knowledge_units
+        WHERE org_id = ${orgId} AND workspace_id = ${workspaceId}
+      )
+      SELECT path FROM degrees
+      WHERE degree >= greatest(10, (
+        SELECT percentile_disc(0.99) WITHIN GROUP (ORDER BY degree) FROM degrees
+      ))
+    `),
+  )
+  return new Set(result.rows.map((row) => row.path))
 }
 
 /**
@@ -247,9 +327,12 @@ export async function runEval(input: {
   targets: Targets
   calls: ModelCalls
   now: Date
+  /** The quiet time before the first call of each kind of each arm. */
+  quietMs: number
 }): Promise<ArmAnswer[]> {
   const { calls, now } = input
   const workspaces = await resolveWorkspaces(input.dataset, input.targets)
+  const quiet = quietTimer(input.quietMs)
   const answers: ArmAnswer[] = []
   for (const question of input.questions) {
     const target = workspaces.get(question.corpus)
@@ -262,7 +345,7 @@ export async function runEval(input: {
               heads: new Map([[target.workspace.id, target.head]]),
             })
       calls.begin(arm, question.id)
-      const answer = await ask(reader, question, target, now)
+      const answer = await ask(reader, question, target, now, quiet)
       await calls.settle()
       const counts = calls.end()
       if (calls.stopped) return answers
@@ -277,14 +360,46 @@ export async function runEval(input: {
   return answers
 }
 
+/**
+ * The quiet time of check 7 (CTX-1043: a first call after a quiet time took
+ * 40 s on the old stack). Before the first search and the first
+ * `get_related` of each arm, `before` waits until no call of the run has
+ * ended for `quietMs`, and gives the quiet time. Then the Postgres pool
+ * closes its idle connections (30 s, `src/db/client.ts`), and the next call
+ * opens them again, as after a quiet time in production. The caches of the
+ * stores stay warm.
+ */
+function quietTimer(quietMs: number) {
+  let lastEnd = performance.now()
+  const first = new Set<string>()
+  return {
+    async before(call: string): Promise<{ quietMs?: number }> {
+      if (first.has(call)) return {}
+      first.add(call)
+      // A timer can fire a fraction of a millisecond early.
+      let quiet = performance.now() - lastEnd
+      while (quiet < quietMs) {
+        await sleep(Math.ceil(quietMs - quiet))
+        quiet = performance.now() - lastEnd
+      }
+      return { quietMs: quiet }
+    },
+    after() {
+      lastEnd = performance.now()
+    },
+  }
+}
+
 /** The search, then `get_related` from the seeds, of one question. */
 async function ask(
   reader: KnowledgeReader,
   question: Question,
   target: EvalTarget,
   now: Date,
+  quiet: ReturnType<typeof quietTimer>,
 ): Promise<Pick<ArmAnswer, "search" | "related">> {
   const validAt = question.validAt ? new Date(question.validAt) : undefined
+  let quietBefore = await quiet.before(`${reader.stack} search`)
   let started = performance.now()
   let search: ArmAnswer["search"]
   try {
@@ -297,23 +412,41 @@ async function ask(
       ...(validAt ? { validAt } : {}),
       now,
     })
+    const latencyMs = performance.now() - started
+    quiet.after()
+    const { page } = searchKnowledgePage({
+      hits: result.hits,
+      workspaces: [{ ...target.workspace, served: target.served }],
+      skipped: [],
+      partialReason: result.partialReason,
+      offset: 0,
+      limit: SEARCH_PAGE_LIMIT,
+    })
     search = {
       refs: result.hits.map((hit) => hit.path),
       scores: result.hits.map((hit) => hit.score),
       ...(result.partialReason ? { partialReason: result.partialReason } : {}),
-      latencyMs: performance.now() - started,
+      latencyMs,
+      ...quietBefore,
+      page,
     }
   } catch (error) {
-    search = { error: failure(error), latencyMs: performance.now() - started }
+    search = {
+      error: failure(error),
+      latencyMs: performance.now() - started,
+      ...quietBefore,
+    }
+    quiet.after()
   }
   if (!question.seeds) return { search }
+  quietBefore = await quiet.before(`${reader.stack} get_related`)
   started = performance.now()
   let related: ArmAnswer["related"]
   try {
     const ranking = await reader.related({
       org: target.org,
       workspace: target.workspace,
-      sha: target.sha,
+      sha: target.served.sha,
       input: relatedInput.parse({
         workspace: target.workspace.slug,
         seeds: question.seeds,
@@ -325,9 +458,14 @@ async function ask(
       }),
       now,
     })
+    const latencyMs = performance.now() - started
+    quiet.after()
     related = {
       refs: ranking.results.map((result) => result.ref),
       scores: ranking.results.map((result) => result.score),
+      hubs: ranking.results
+        .map((result) => result.ref)
+        .filter((ref) => target.hubs.has(ref)),
       ...(ranking.positions
         ? {
             positions: ranking.positions.map(({ refs, status }) => ({
@@ -339,10 +477,16 @@ async function ask(
       ...(ranking.partialReason
         ? { partialReason: ranking.partialReason }
         : {}),
-      latencyMs: performance.now() - started,
+      latencyMs,
+      ...quietBefore,
     }
   } catch (error) {
-    related = { error: failure(error), latencyMs: performance.now() - started }
+    related = {
+      error: failure(error),
+      latencyMs: performance.now() - started,
+      ...quietBefore,
+    }
+    quiet.after()
   }
   return { search, related }
 }

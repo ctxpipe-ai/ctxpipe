@@ -1,5 +1,12 @@
 import { z } from "zod"
 
+import {
+  type Check,
+  CHECK_INFO,
+  CHECKS,
+  type CheckValues,
+  regressionChecks,
+} from "./checks.js"
 import { CATEGORIES, type Dataset, type Question } from "./dataset.js"
 import {
   meanMetrics,
@@ -91,6 +98,8 @@ export type Report = {
   arms: { baseline: string; plane: string }
   run: Omit<Manifest, "datasetVersion">
   comparison: ComparisonRow[]
+  /** The regression checks of CTX-1518 for each arm (`checks.ts`). */
+  checks: Record<Arm, CheckValues>
   operations: ({ arm: Arm; split: Question["split"] } & ReturnType<
     typeof operations
   >)[]
@@ -216,6 +225,7 @@ export function buildReport(input: {
         change: delta(plane, baseline),
       })
     }
+  const scored = new Set(scores.map((score) => score.question))
   const { datasetVersion, ...run } = manifest
   const errors = scores.filter((score) => score.error).length
   return {
@@ -225,6 +235,11 @@ export function buildReport(input: {
     arms: { baseline: ARM_NAMES.legacy, plane: ARM_NAMES.plane },
     run,
     comparison,
+    checks: regressionChecks({
+      questions: new Map(asked.map((question) => [question.id, question])),
+      answers: input.answers,
+      scored: input.answers.filter((answer) => scored.has(answer.question)),
+    }),
     operations: ARMS.flatMap((arm) =>
       manifest.splits.flatMap((split) => {
         const group = scores.filter(
@@ -406,6 +421,42 @@ export function renderMarkdown(report: Report): string {
         `| ${row.split} | ${row.category} | ${row.questions} | ${METRIC_NAMES[metric]} | ${value(row.baseline[metric])} | ${value(row.plane[metric])} | ${signed(row.change[metric])} |`,
       )
     }
+  const checkValue = (check: Check, measured: number | null) => {
+    if (measured === null) return "n/a"
+    const { unit } = CHECK_INFO[check]
+    return unit === "share"
+      ? measured.toFixed(3)
+      : unit === "ms"
+        ? ms(measured)
+        : unit === "bytes"
+          ? `${Math.round(measured)} B`
+          : String(measured)
+  }
+  lines.push(
+    "",
+    "## Regression checks",
+    "",
+    "The known failures of the Falkor retrieval (CTX-1518). Each check reads the kept answers of the scored questions. See the evals README for each rule.",
+    ...(report.run.quietMs === undefined
+      ? []
+      : [
+          "",
+          `Check 7: the run waited ${ms(report.run.quietMs)} with no call before the first search and the first get_related of each arm.`,
+        ]),
+    ...(report.run.mode === "replay"
+      ? [
+          "",
+          "A replay answers each model call at once, so check 7 holds only the time of the stores.",
+        ]
+      : []),
+    "",
+    `| Check | Better | Baseline | ${report.arms.plane} |`,
+    "| --- | --- | ---: | ---: |",
+    ...CHECKS.map(
+      (check) =>
+        `| ${CHECK_INFO[check].name} | ${CHECK_INFO[check].better} | ${checkValue(check, report.checks.legacy[check])} | ${checkValue(check, report.checks.plane[check])} |`,
+    ),
+  )
   lines.push(
     "",
     "## Operations",

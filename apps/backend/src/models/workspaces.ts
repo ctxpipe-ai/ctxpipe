@@ -25,6 +25,7 @@ import {
   workspaceKnowledgeUnits,
   workspaces,
 } from "../db/schema/workspaces.js"
+import { storable } from "../db/storable.js"
 import { firstConnectorTarget } from "../domain/workspaces/dest-workspace-first.js"
 import {
   diffHydrateUnits,
@@ -1427,6 +1428,10 @@ export type HydrateCommit = {
  * secret, so that no rule finds it. Thus the stored units and chunks hold the
  * scrubbed text. The unit hash covers the body, so a stored unit with a
  * secret changes, and the next hydrate of its Workspace writes it again.
+ * The units are also storable: a mirror file can hold a NUL character (for
+ * example an issue body that quotes a Git protocol error), which Postgres
+ * refuses, and the whole commit failed (CTX-1521). Postgres and a partial
+ * graph write get these units, so both hold the same text.
  * One scrubber request for each unit, a few in flight: no request holds a
  * whole Workspace. It runs outside the org database context, so that no
  * transaction stays open while the scrubber works.
@@ -1435,13 +1440,15 @@ export async function scrubHydrateUnits(
   units: readonly HydrateUnit[],
 ): Promise<HydrateUnit[]> {
   assertNotInOrgDbContext()
-  return mapPool([...units], 8, async (unit) => {
-    const { title, body } = await scrubForModel({
-      title: unit.title,
-      body: unit.body,
-    })
-    return { ...unit, title, body }
-  })
+  return storable(
+    await mapPool([...units], 8, async (unit) => {
+      const { title, body } = await scrubForModel({
+        title: unit.title,
+        body: unit.body,
+      })
+      return { ...unit, title, body }
+    }),
+  )
 }
 
 /**
@@ -1471,6 +1478,8 @@ export async function commitHydrateProjection(input: {
    */
   base?: HydrateCommitBase
 }): Promise<HydrateCommit | null> {
+  // The heading of AGENTS.md can hold a NUL character too (CTX-1521).
+  const displayName = input.displayName && storable(input.displayName)
   return orgSql(async () => {
     const db = getOrgDb()
     return db.transaction(async (tx) => {
@@ -1502,7 +1511,7 @@ export async function commitHydrateProjection(input: {
             case when ${workspaces.hydratePhases}->'index'->'result'->>'kind' = 'ready'
               then ${workspaces.hydratePhases}->'index'->'revision' end
           ))`,
-          ...(input.displayName ? { displayName: input.displayName } : {}),
+          ...(displayName ? { displayName } : {}),
           updatedAt: new Date(),
         })
         .where(

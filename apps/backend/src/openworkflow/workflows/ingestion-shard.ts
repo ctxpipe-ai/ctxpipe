@@ -37,6 +37,7 @@ import {
 } from "../../domain/ingestion/ingest-step-output.js"
 import {
   capIngestText,
+  ingestBundleAttributes,
   ingestErrorFields,
   logIngestEvent,
   withIngestSpan,
@@ -45,7 +46,7 @@ import {
   INGEST_SHARD_MAX_ROOTS,
   type IngestSkillPlan,
   ingestRootMap,
-  plannedIngestSkills,
+  ingestRunSkills,
   skillStepName,
 } from "../../domain/ingestion/ingestion-plan.js"
 import {
@@ -56,7 +57,6 @@ import { withIngestionOrg } from "../../domain/ingestion/ingestion-v2-resolve.js
 import type { PatchStepResult } from "../../domain/ingestion/patch-validator.js"
 import {
   type IngestSkillBundle,
-  assertSameReingestVersion,
   readIngestSkillBundle,
 } from "../../domain/ingestion/skill-bundle.js"
 import { checkSourcePath } from "../../domain/workspace-sources/source-file.js"
@@ -130,11 +130,17 @@ export const ingestionShardInputSchema = z.object({
    * its part of the list by its number.
    */
   roots: z.array(ingestionRootSchema),
-  /** The bundle name that the parent planned with. */
+  /**
+   * The bundle name that the parent planned with. A deploy can change the
+   * bundle while the run is in progress; the shard then goes on with the
+   * current bundle (CTX-1503).
+   */
   bundle: z.string().min(1),
-  /** The re-ingestion version that the parent planned with. */
-  version: z.string().min(1).optional(),
-  /** The skill folder names that the parent planned with. */
+  /**
+   * The skill folder names that the parent planned with; the shard runs only
+   * these (`ingestRunSkills`). A run planned before the plan kept the list
+   * has none.
+   */
   skills: z.array(z.string()).optional(),
   /** A GitHub or a plain git source (CTX-815), at the run's SHA. */
   source: ingestSourceWith({ sha, repositoryId: z.string().nullable() }),
@@ -276,9 +282,9 @@ export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
     },
     async ({ input, step, run }) => {
       const execution = openWorkflowExecution(step, run.id)
-      const runShard = async (): Promise<IngestionShardOutput> => {
+      const runShard = async (span: Span): Promise<IngestionShardOutput> => {
         const bundle = await deps.bundle()
-        assertSameReingestVersion(input, bundle)
+        span.setAttributes(ingestBundleAttributes(input.bundle, bundle.name))
         const runtime = deps.runtime({
           orgId: input.orgId,
           runId: input.runId,
@@ -297,9 +303,10 @@ export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
               return { ready: true }
             }),
         )
-        const skills = plannedIngestSkills(
+        const skills = ingestRunSkills(
           bundle.skills,
           input.mode === "roots" ? "root" : "repository",
+          input.skills,
         )
         // A `roots` shard ref starts at the run base; the `repository`
         // steps go on from the assembled tip.
@@ -331,7 +338,8 @@ export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
               await runSkillPages({
                 step: guardedSkillStep(step, run.id, input.orgId),
                 execution,
-                run: input,
+                // Each step commit names the bundle that wrote it.
+                run: { ...input, bundle: bundle.name },
                 broker: workspaceSkillBroker({
                   orgId: input.orgId,
                   runId: input.runId,
@@ -380,7 +388,7 @@ export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
             "ctxpipe.ingest.bundle": input.bundle,
           },
           async (span) => {
-            const output = await runShard()
+            const output = await runShard(span)
             span.setAttributes({
               "ctxpipe.ingest.workspaces": output.workspaces.length,
               "ctxpipe.ingest.ops": sum(output.workspaces, "ops"),

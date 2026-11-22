@@ -1,18 +1,27 @@
 // The explainer of a Jev regression (CTX-1256, ADR-063), and the design
-// review of new UI (CTX-1469, CTX-1493, see `reviewDesign`: it can make a
-// verdict regression major, never a blocker). Jev gives no text:
+// review of new UI and of a redesigned area (CTX-1469, CTX-1493, CTX-1509,
+// see `reviewDesign`: it can make a verdict regression major, never a
+// blocker). Jev gives no text:
 // a suspected regression has an area, a region and a probability, but no
 // evidence. After a Jev `regression`, one call to a cheap vision model writes
 // the evidence and a suggestion for each flagged entry. The explainer never
 // judges: the verdict, the severity, the confidence and the regions stay the
 // ones of Jev. In the bake-off, a cascade that let an LLM replace the Jev
 // verdict lost recall (0.74 against 0.95).
+import { createHash } from "node:crypto"
+import { readFile, writeFile } from "node:fs/promises"
+import { join } from "node:path"
+
+import { decode, encode, type Image } from "@blazediff/codec-png-native"
 import { z } from "zod"
 
 import { askOpenRouter, judgeNewWithOpenRouter } from "./adapters/openrouter.ts"
+import type { PixelBox } from "./compare/diff.ts"
+import { maxSide, pngSize, prepareImage } from "./prepare.ts"
 import { judgingRule, scopeLine, storyData, type Prompt } from "./prompt.ts"
+import { isRedesign } from "./review.ts"
 import type { RubricEntry } from "./rubric.ts"
-import type { NewStoryInput, StoryImage, StoryInput } from "./story.ts"
+import type { Box, NewStoryInput, StoryImage, StoryInput } from "./story.ts"
 import { parseJsonReply, type Verdict } from "./verdict.ts"
 
 /**
@@ -267,10 +276,193 @@ ${brief ? brief.replace(/<\/data/gi, "<\\/data") : "(none)"}
 }
 
 /**
- * The design review of the new screenshots of one story, after the Jev
- * `verdict` (CTX-1469, ADR-063 rules 18 and 19). Jev does not tell a clean
- * new screenshot from a broken one (rule 13), and it answers one rubric entry
- * at a time. The design review asks `model` the prompt of a new screenshot
+ * The redesign of a changed screenshot (CTX-1509, ADR-063 rule 20): `shown`,
+ * its largest changed region that is a redesign (`isRedesign`) and not a
+ * block that only moved, and `changed`, its changed regions with no noise
+ * and no moved block, in fractions of the image. Undefined when no such
+ * region is there. A scroll or a layout shift moves text by a few pixels and
+ * changes each pixel of its region, so the size of a region does not tell a
+ * move from a redesign. A region only moved when its head pixels are in the
+ * base image at an offset of up to 160 px on one axis, and the head image
+ * changed at that source too (see `moved`). An empty area that a removal
+ * leaves is not a move: its source did not change.
+ */
+export async function redesignOf(
+  story: StoryInput,
+): Promise<{ shown: Box; changed: Box[] } | undefined> {
+  const read = async (role: StoryImage["role"]) => {
+    const path = story.images.find((image) => image.role === role)?.path
+    return path ? decode(await readFile(path)) : undefined
+  }
+  const before = await read("before")
+  const after = await read("after")
+  if (
+    !before ||
+    !after ||
+    before.width !== after.width ||
+    before.height !== after.height
+  )
+    return undefined
+  const regions = story.regions
+    .filter(({ changeType }) => changeType !== "rendering-noise")
+    .map(({ box, changeType }) => {
+      const pixels = {
+        x: Math.round(box.x * after.width),
+        y: Math.round(box.y * after.height),
+        width: Math.round(box.width * after.width),
+        height: Math.round(box.height * after.height),
+      }
+      const large = isRedesign({ change: changeType ?? "unlabeled", ...pixels })
+      return { box, large, moved: large && moved(before, after, pixels) }
+    })
+  const shown = regions
+    .filter(({ large, moved }) => large && !moved)
+    .sort((a, b) => b.box.width * b.box.height - a.box.width * a.box.height)[0]
+  return shown
+    ? {
+        shown: shown.box,
+        changed: regions.filter(({ moved }) => !moved).map(({ box }) => box),
+      }
+    : undefined
+}
+
+/**
+ * True when the block `box` only moved: its `after` pixels are in `before` at
+ * an offset of up to 160 px on one axis, and the `after` image changed at
+ * that source. Without the second test, a copy of a control next to the
+ * original would be a move. Pixels match when their mean difference is at
+ * most 1 of 255 for each channel, on every second pixel of every second row.
+ * The nearest offsets come first.
+ */
+function moved(before: Image, after: Image, box: PixelBox): boolean {
+  const most = 3 * Math.ceil(box.width / 2) * Math.ceil(box.height / 2)
+  // The sum of the differences between `after` at `at` and `before` at `at`
+  // moved by (dx, dy), up to a little more than `most`.
+  const difference = (at: PixelBox, dx: number, dy: number) => {
+    let sum = 0
+    for (let y = 0; y < at.height && sum <= most; y += 2)
+      for (let x = 0; x < at.width; x += 2) {
+        const to = ((at.y + y) * after.width + at.x + x) * 4
+        const from = ((at.y + dy + y) * before.width + at.x + dx + x) * 4
+        for (let channel = 0; channel < 3; channel++)
+          sum += Math.abs(
+            (after.data[to + channel] ?? 0) -
+              (before.data[from + channel] ?? 0),
+          )
+      }
+    return sum
+  }
+  for (let distance = 1; distance <= 160; distance++)
+    for (const [dx, dy] of [
+      [0, distance],
+      [0, -distance],
+      [distance, 0],
+      [-distance, 0],
+    ] as const) {
+      const source = { ...box, x: box.x + dx, y: box.y + dy }
+      if (
+        source.x >= 0 &&
+        source.y >= 0 &&
+        source.x + box.width <= before.width &&
+        source.y + box.height <= before.height &&
+        difference(box, dx, dy) <= most &&
+        // The block left its source: the head image changed there.
+        difference(source, 0, 0) > most
+      )
+        return true
+    }
+  return false
+}
+
+/**
+ * The input of the design review of a changed screenshot in its context
+ * (CTX-1509, ADR-063 rule 20): the head image with the regions `changed`,
+ * and a close-up of the redesigned region `shown` (see `redesignOf`) and the
+ * elements next to it, written into the private folder `dir`. The review judges the
+ * redesigned area as new UI, not against the base image. On the full head
+ * image, a small control is a few pixels, so the close-up shows its alignment
+ * and spacing. The changed regions are in fractions of the head image that
+ * the model gets: `prepareImage` pads a short image at the bottom and the
+ * right. Undefined when the story has no full head image that is a PNG.
+ */
+export async function inContext(
+  story: StoryInput,
+  { shown, changed }: { shown: Box; changed: readonly Box[] },
+  dir: string,
+): Promise<NewStoryInput | undefined> {
+  const path = story.images.find(({ role }) => role === "after")?.path
+  const bytes = path ? await readFile(path) : undefined
+  const size = bytes ? pngSize(bytes) : undefined
+  if (!path || !bytes || !size) return undefined
+  const { content } = prepareImage(bytes)
+  // The close-up: the region with 64 px more on each side, at twice the
+  // size, or less when a side would pass the side limit of the models.
+  const margin = 64
+  const left = Math.max(0, Math.floor(shown.x * size.width) - margin)
+  const top = Math.max(0, Math.floor(shown.y * size.height) - margin)
+  const right = Math.min(
+    size.width,
+    Math.ceil((shown.x + shown.width) * size.width) + margin,
+  )
+  const bottom = Math.min(
+    size.height,
+    Math.ceil((shown.y + shown.height) * size.height) + margin,
+  )
+  const zoom = Math.max(
+    1,
+    Math.floor(
+      Math.min(2, maxSide / (right - left), maxSide / (bottom - top)) * 4,
+    ) / 4,
+  )
+  const image = decode(bytes)
+  const width = Math.round((right - left) * zoom)
+  const height = Math.round((bottom - top) * zoom)
+  const data = new Uint8Array(width * height * 4)
+  for (let y = 0; y < height; y++)
+    for (let x = 0; x < width; x++) {
+      const from =
+        ((top + Math.floor(y / zoom)) * image.width +
+          left +
+          Math.floor(x / zoom)) *
+        4
+      data.set(image.data.subarray(from, from + 4), (y * width + x) * 4)
+    }
+  const closeUp = join(
+    dir,
+    `${createHash("sha256").update(story.storyId).digest("hex").slice(0, 16)}.png`,
+  )
+  await writeFile(closeUp, encode({ data, width, height }))
+  const { storyId, scope, name, purpose, brief, sourceDiff, rubric } = story
+  return {
+    storyId,
+    scope,
+    ...(name ? { name } : {}),
+    ...(purpose ? { purpose } : {}),
+    ...(brief === undefined ? {} : { brief }),
+    ...(sourceDiff === undefined ? {} : { sourceDiff }),
+    rubric,
+    images: [
+      { path, size },
+      { path: closeUp, size: { width, height } },
+    ],
+    changed: {
+      regions: changed.map(({ x, y, width, height }) => ({
+        x: x * content.width,
+        y: y * content.height,
+        width: width * content.width,
+        height: height * content.height,
+      })),
+      zoom,
+    },
+  }
+}
+
+/**
+ * The design review of the new screenshots of one story, or of the head
+ * image of a changed screenshot in its context (see `inContext`), after the
+ * Jev `verdict` (CTX-1469, CTX-1509, ADR-063 rules 18 to 20). Jev does not
+ * tell a clean new screenshot from a broken one (rule 13), and it answers one
+ * rubric entry at a time. The design review asks `model` the prompt of a new screenshot
  * (`buildNewPrompt`), which compares each element with the elements around it.
  * Its text gives the agent a direction for each new story, also when Jev is
  * not sure. It replaces the explainer for a new story.
@@ -285,7 +477,8 @@ ${brief ? brief.replace(/<\/data/gi, "<\\/data") : "(none)"}
  * (the factory shows only the summary). `costUsd` and `latencyMs` add the call
  * to the Jev call; the cost is null when either one is unknown, also after a
  * failed call. `explainer` has the cost of the call alone, for the budget of
- * the run, as for `explainRegression`.
+ * the run, as for `explainRegression`. `review` is the result of the review
+ * alone, when it is a regression.
  *
  * A failed call or a reply that is not usable keeps the Jev verdict, with a
  * sentence in the summary and no `error`: the review never fails a run. A
@@ -296,7 +489,11 @@ export async function reviewDesign(
   story: NewStoryInput,
   model: string,
   env: Record<string, string | undefined>,
-): Promise<{ verdict: Verdict; explainer?: { costUsd: number | null } }> {
+): Promise<{
+  verdict: Verdict
+  explainer?: { costUsd: number | null }
+  review?: Review
+}> {
   if (verdict.error !== undefined) return { verdict }
   let review: Verdict
   try {
@@ -369,6 +566,7 @@ export async function reviewDesign(
     ({ kind, evidence, suggestion }) =>
       `${kind}: ${evidence}${suggestion ? ` Fix: ${suggestion}` : ""}`,
   )
+  const text = [oneLine(review.summary, 400), ...sentences].join(" ")
   return {
     verdict: {
       ...verdict,
@@ -383,8 +581,29 @@ export async function reviewDesign(
       latencyMs,
       observations: review.observations,
       findings: [...verdict.findings, ...findings],
-      summary: `${verdict.summary} Design review (${model}, ${raises ? `it makes the verdict regression ${severity}` : `it says ${review.verdict}`}): ${[oneLine(review.summary, 400), ...sentences].join(" ")}`,
+      summary: `${verdict.summary} Design review (${model}, ${raises ? `it makes the verdict regression ${severity}` : `it says ${review.verdict}`}): ${text}`,
     },
     explainer,
+    ...(severity
+      ? {
+          review: {
+            severity,
+            confidence: review.confidence,
+            text: `Design review (${model}, it says regression ${severity}): ${text}`,
+          },
+        }
+      : {}),
   }
+}
+
+/**
+ * The result of the design review alone, when it is a regression: its
+ * severity (major only when a finding names a rubric principle with evidence
+ * and a fix), its confidence and its text. A screenshot with the same
+ * redesign takes it (CTX-1509).
+ */
+export type Review = {
+  severity: "minor" | "major"
+  confidence: number
+  text: string
 }

@@ -348,11 +348,11 @@ test("each planned check goes to the job that runs it, and a job without one doe
       plan: { ids: [contract], rerun: [] },
     },
   ])
-  // The report of the shards: the selected contract fits one of the nine
+  // The report of the shards: the selected contract fits one of the ten
   // shards of a full run.
   assert.deepEqual(Object.keys(planned.shards), ["test-shards"])
   assert.equal(planned.shards["test-shards"].shards, 1)
-  assert.equal(planned.shards["test-shards"].fullShards, 9)
+  assert.equal(planned.shards["test-shards"].fullShards, 10)
   assert.deepEqual(JSON.parse(planned.outputs["production-builds"]), [
     { name: "ui", dockerfile: "apps/ui/Dockerfile" },
   ])
@@ -1121,7 +1121,7 @@ test("the summary shows the selection, the hits, the LLM decisions and the minut
     "`same path`",
     "### Omitted",
     "a full run about",
-    "**Shards:** `test-shards` 1 of 9 (about",
+    "**Shards:** `test-shards` 1 of 10 (about",
   ])
     assert.ok(text.includes(part), part)
 })

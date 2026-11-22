@@ -1,6 +1,6 @@
 # ADR-067: The knowledge projection applies the Git diff, with eventual consistency
 
-**Status:** Accepted (the CTO, 2026-11-19; the writer, the state and the maintenance job are built) | **Date:** 2026-11-19 (revised 2026-11-20: the projection runs as its own workflow, outside the hydrate lock; amended 2026-11-21 by [ADR-071](ADR-071-knowledge-plane-branches.md): one projection for each branch) | **Tags:** knowledge, clickhouse, hydrate, consistency, git
+**Status:** Accepted (the CTO, 2026-11-19; the writer, the state and the maintenance job are built) | **Date:** 2026-11-19 (revised 2026-11-20: the projection runs as its own workflow, outside the hydrate lock; amended 2026-11-21 by [ADR-071](ADR-071-knowledge-plane-branches.md): one projection for each branch; amended 2026-11-22 by [CTX-1519](https://linear.app/ctxpipe/issue/CTX-1519): the rebuild from Git after lost rows) | **Tags:** knowledge, clickhouse, hydrate, consistency, git
 
 ## Context
 
@@ -40,7 +40,9 @@ Since [CTX-1369](https://linear.app/ctxpipe/issue/CTX-1369), a hydrate writes on
    The conditions for a full rebuild are:
    - the projection version in the code is different; or
    - the old commit is missing; or
-   - the sources config file ([ADR-050](ADR-050-workspace-sources-config-file.md)) changed.
+   - the sources config file ([ADR-050](ADR-050-workspace-sources-config-file.md)) changed; or
+   - the head of the default branch shows no tree row (`empty_tree`, decision 8); or
+   - an operator asked for a rebuild (`rebuild`, decision 8).
 
    **Amended by [ADR-071](ADR-071-knowledge-plane-branches.md):** `attempt_shas` goes. The rows of a stopped run are tree rows above the head, which no read sees. The next run deletes them, then applies the diff from the tip of the head.
 
@@ -64,6 +66,14 @@ Since [CTX-1369](https://linear.app/ctxpipe/issue/CTX-1369), a hydrate writes on
    - A content error that the run records as a `failed` row counts as completed work. Only an infrastructure error stops `last_sha`.
    - `last_sha` moves to the tip only when all of the work passes. In the same update, the run clears `attempt_shas`. Nothing fails silently.
    - **Amended by [ADR-071](ADR-071-knowledge-plane-branches.md):** a run retries from the tip of the head of its branch. `last_sha` and the tree version of the head move in one update, and there is no `attempt_shas`. A content error makes a `failed` file version, which the branches share.
+   - **Repair after lost rows** (the lead, 2026-11-22, [CTX-1519](https://linear.app/ctxpipe/issue/CTX-1519)). In [CTX-1007](https://linear.app/ctxpipe/issue/CTX-1007), a broken FalkorDB graph needed a person (`GRAPH.DELETE`). The plane repairs itself from Git:
+     - **Automatic.** The rows of ClickHouse can be lost while the head in Postgres stays `completed`, for example after a fault of a table part. Then a run returns `current`, or applies only the delta, and the tree stays empty. Thus each run of the default branch first reads if the tree of its head has at least one row (one `SELECT … LIMIT 1` on the sort key prefix of `trees`, on each run). When it has no row, the run rebuilds in full from Git (reason `empty_tree`), also at the same tip. The head stays until the run completes, so reads use the old head until then.
+     - **Cost of a false positive:** the tree of a Workspace with no document file is empty too. Each run of such a Workspace is then a full rebuild that writes no row: a fetch and a tree list of a repository with no documents, for example a new empty Workspace.
+     - **Limit:** the check sees only an empty tree. A partial loss (for example the document rows of some files, with their tree rows) does not show to a run.
+     - **A rebuild writes new file versions.** Its variant (ADR-071 decision 2) also holds the time of the run, so it uses no stored file version: a stored one can have lost chunks or relations that its document row does not show. The vectors and the image texts still come from their caches (decision 5, ADR-071 decision 8), so the rebuild pays the conversion again, but few model calls. The cleanup removes the earlier file versions after its grace time.
+     - **Operator.** The script `apps/backend/src/scripts/rebuildKnowledgePlane.ts` queues one `knowledge-projection` run of the default branch with `rebuild: true` (reason `rebuild`). It refuses an org whose flag is `off`, and it logs the run that it queued. Its run in production is an ops action that a human approves. There is no admin HTTP route.
+     - A rebuild queues no run of another branch. An overlay keeps its rows, and an empty overlay is normal.
+     - The maintenance job (decision 9) does not change: it has one run for each tip, so after a loss at the same tip it does not run again.
 9. **The maintenance job** is queued after each run.
    - **Amended by [ADR-071](ADR-071-knowledge-plane-branches.md):** the job is queued only after a run of the default branch. No run of another branch starts maintenance or writes to the repository.
    - It finds `deleted`, `missing` and `failed` documents.

@@ -16,12 +16,13 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { createInterface } from "node:readline"
+import type { Readable } from "node:stream"
 
 import { z } from "zod"
 
 import { converterBinary } from "../../knowledge-plane/convert-file.js"
 import { parseJson } from "../../lib/parseJson.js"
+import { log } from "../../observability/logger.js"
 
 type Pending = {
   /** The id of the request line, which its answer repeats. */
@@ -72,12 +73,34 @@ function start(): Scrubber {
   child.stderr.on("data", (chunk: Buffer) => {
     stderr = (stderr + chunk.toString("utf8")).slice(-2000)
   })
-  createInterface({ input: child.stdout }).on("line", (line) => {
+  // The process stops only when it fails: while the backend process runs,
+  // the scrubber stays alive. Each stop is an error event, which the alert
+  // "Secret scrubber stopped" counts. The first stop gives the error of the
+  // requests in flight.
+  let stopped = false
+  const stop = (error: Error) => {
+    if (scrubber === own) scrubber = undefined
+    if (!stopped)
+      log.error({
+        step: "secret-scrubber.stopped",
+        message: error.message,
+        inFlight: own.pending.length,
+      })
+    stopped = true
+    for (const request of own.pending.splice(0)) request.reject(error)
+    holdWhileInFlight(own)
+  }
+  onLines(child.stdout, (line) => {
     const answer = answerSchema.safeParse(parseJson(line))
     // An answer that is not the answer of the oldest request stops the
     // process, and each request in flight fails: an answer never goes to
     // another request (of another organization).
     if (!answer.success || answer.data.id !== own.pending[0]?.id) {
+      stop(
+        new Error(
+          "The secret scrubber gave an answer that is not the answer of the oldest request, so it was stopped.",
+        ),
+      )
       child.kill("SIGKILL")
       return
     }
@@ -90,11 +113,6 @@ function start(): Scrubber {
     else request.resolve(answer.data.texts)
     holdWhileInFlight(own)
   })
-  const stop = (error: Error) => {
-    if (scrubber === own) scrubber = undefined
-    for (const request of own.pending.splice(0)) request.reject(error)
-    holdWhileInFlight(own)
-  }
   child.on("error", stop)
   child.on("close", (code, signal) =>
     stop(
@@ -108,6 +126,33 @@ function start(): Scrubber {
   for (const handle of [child, child.stdin, child.stdout, child.stderr])
     (handle as { unref?(): void }).unref?.()
   return own
+}
+
+/**
+ * Calls `onLine` with each line of `stream`, without its end. A line ends at
+ * "\n" only, as the lines of the scrubber do. (`node:readline` also ends a
+ * line at "\r", U+2028 and U+2029. The scrubber writes U+2028 and U+2029 as
+ * they are, inside a JSON string, so that cut an answer in two: CTX-1504.)
+ */
+function onLines(stream: Readable, onLine: (line: string) => void) {
+  // The decoder of the stream keeps a character that two chunks split.
+  stream.setEncoding("utf8")
+  let parts: string[] = []
+  stream.on("data", (chunk: string) => {
+    let from = 0
+    for (
+      let end = chunk.indexOf("\n");
+      end >= 0;
+      end = chunk.indexOf("\n", from)
+    ) {
+      parts.push(chunk.slice(from, end))
+      const line = parts.join("")
+      parts = []
+      from = end + 1
+      onLine(line)
+    }
+    if (from < chunk.length) parts.push(chunk.slice(from))
+  })
 }
 
 /**

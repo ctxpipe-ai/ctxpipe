@@ -6,7 +6,7 @@ import { orgFeatures } from "../db/schema/org_features.js"
 import { log } from "../observability/logger.js"
 
 /** The permitted values of each feature. The first value is the default. */
-const FEATURE_VALUES = {
+export const FEATURE_VALUES = {
   knowledge_plane: ["off", "shadow", "on"],
 } as const
 

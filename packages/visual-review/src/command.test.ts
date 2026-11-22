@@ -15,6 +15,7 @@ import {
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 
+import { decode } from "@blazediff/codec-png-native"
 import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
 import {
@@ -30,7 +31,7 @@ import {
 import { z } from "zod"
 
 import { visualReview } from "./command.ts"
-import { screenshot } from "./compare/fixtures.ts"
+import { contains, screenshot } from "./compare/fixtures.ts"
 import {
   diff,
   packagedRubric,
@@ -78,9 +79,20 @@ const intended = {
 // The parts of a chat request that the tests read.
 type Chat = {
   model: string
-  messages: { content: { type: string; text?: string }[] }[]
+  messages: {
+    content: { type: string; text?: string; image_url?: { url: string } }[]
+  }[]
   response_format: { json_schema: { schema: object } }
 }
+// The PNG images of a chat request, in the order sent.
+const sentImages = (chat: Chat | undefined) =>
+  (chat?.messages ?? [])
+    .flatMap(({ content }) => content)
+    .flatMap(({ image_url }) =>
+      image_url
+        ? [decode(Buffer.from(image_url.url.split(",")[1] ?? "", "base64"))]
+        : [],
+    )
 const chats: Chat[] = []
 let content = JSON.stringify(regression)
 const server = setupServer(
@@ -1838,6 +1850,435 @@ export const Primary = { render: () => null }
             expect(summary).toContain(
               "The design review did not run: the budget of the run is short.",
             )
+        })
+      })
+
+      describe("the design review of a redesigned area in its context (CTX-1509)", () => {
+        // Jev compares the change and is not sure: nothing is worse.
+        const jevSame = (name: string, type: string) =>
+          name === "defect-box"
+            ? box
+            : type === "noul"
+              ? { type: "noul", noul: 0.05 }
+              : {
+                  type: "choice",
+                  probabilities: { better: 0.3, same: 0.6, worse: 0.1 },
+                }
+        // The head adds a 200 × 60 px block under the button: an element
+        // that is new, not a small shift.
+        const redesigned = screenshot(400, 300, [
+          {
+            box: { x: 240, y: 180, width: 120, height: 60 },
+            color: [37, 99, 235],
+          },
+          {
+            box: { x: 100, y: 60, width: 200, height: 60 },
+            color: [20, 20, 20],
+          },
+        ])
+        const card =
+          "apps/ui/src/components/screenshots/Card.Primary.desktop.screenshot.png"
+        // Jev finds the spacing area worse at 0.95: a should-fix.
+        const spacingStrong = (name: string, type: string) =>
+          name === "area.spacing"
+            ? {
+                type: "choice",
+                probabilities: { better: 0.02, same: 0.03, worse: 0.95 },
+              }
+            : spacingWorse(name, type)
+
+        test("a changed screenshot with a new element gets the design review of its head image, scoped to the changed regions; one review stands for alike diffs", async () => {
+          serveJev(jevSame)
+          content = designReply("regression", "major", {
+            rubricRef: "apps/ui/DESIGN.md › Gestalt lens",
+          })
+          for (const path of [button, card]) {
+            await put("base", path, before)
+            await put("head", path, redesigned)
+          }
+
+          // A should-fix: the exit code of major.
+          expect(
+            await run(
+              "--json",
+              "--judge",
+              "jev",
+              "--images",
+              images,
+              "--",
+              button,
+              card,
+            ),
+          ).toBe(1)
+
+          expect(chats.map(({ model }) => model)).toEqual([
+            "openai/gpt-6.1-sol",
+          ])
+          const [request] = chats
+          const parts =
+            request?.messages.flatMap(({ content }) => content) ?? []
+          // The head image and its close-up: the review does not compare
+          // with the base.
+          const sent = sentImages(request)
+          expect(sent).toHaveLength(2)
+          const [whole, closeUp] = sent
+          expect(whole).toMatchObject({ width: 400, height: 300 })
+          // The close-up holds the changed region and 64 px around it, at
+          // twice the size: wider and higher than the region alone.
+          expect(closeUp?.width).toBeGreaterThan(2 * 200)
+          expect(closeUp?.height).toBeGreaterThan(2 * 60)
+
+          const text = parts.map(({ text }) => text ?? "").join("\n")
+          expect(text).toContain(
+            "Image 2: a close-up of the largest changed region and the elements next to it, at 2× size",
+          )
+          // The close-ups were in a private folder that the run removed.
+          expect(
+            (await readdir(work)).filter((name) =>
+              name.startsWith("visual-review-close-ups-"),
+            ),
+          ).toEqual([])
+          const [x = 0, y = 0, width = 0, height = 0] = (
+            /Changed regions, in fractions \(0 to 1\) of Image 1:\n1\. x ([\d.]+), y ([\d.]+), width ([\d.]+), height ([\d.]+)\n/.exec(
+              text,
+            ) ?? []
+          )
+            .slice(1)
+            .map(Number)
+          // The measured region holds the new block, in fractions of the
+          // 400 × 300 image, to 0.01.
+          expect(
+            contains(
+              {
+                x: (x - 0.01) * 400,
+                y: (y - 0.01) * 300,
+                width: (width + 0.02) * 400,
+                height: (height + 0.02) * 300,
+              },
+              { x: 100, y: 60, width: 200, height: 60 },
+            ),
+          ).toBe(true)
+          expect(verdicts()[0]).toMatchObject({
+            path: button,
+            verdict: "regression",
+            severity: "major",
+          })
+          expect(verdicts()[0]?.summary).toContain(
+            "Design review (openai/gpt-6.1-sol, it makes the verdict regression major)",
+          )
+          // The alike diff takes the verdict of the review, with its text.
+          expect(verdicts()[1]).toMatchObject({
+            path: card,
+            verdict: "regression",
+            severity: "major",
+          })
+          expect(verdicts()[1]?.summary).toContain(
+            `Design review on ${button}, an alike diff:`,
+          )
+        })
+
+        test("an alike diff takes only the result of the review, merged with its own Jev verdict", async () => {
+          // Jev flags the first screenshot strongly, and the second not.
+          serveJev((name, type) =>
+            decisions.length === 1
+              ? spacingStrong(name, type)
+              : jevSame(name, type),
+          )
+          content = designReply("regression", "minor")
+          for (const path of [button, card]) {
+            await put("base", path, before)
+            await put("head", path, redesigned)
+          }
+
+          await run(
+            "--json",
+            "--judge",
+            "jev",
+            "--images",
+            images,
+            "--",
+            button,
+            card,
+          )
+
+          expect(chats).toHaveLength(1)
+          expect(verdicts()).toMatchObject([
+            { path: button, verdict: "regression", severity: "major" },
+            { path: card, verdict: "regression", severity: "minor" },
+          ])
+          expect(verdicts()[1]?.summary).toContain(
+            `Design review on ${button}, an alike diff: Design review (openai/gpt-6.1-sol, it says regression minor)`,
+          )
+        })
+
+        test("an alike diff gets its own feedback when the review finds no regression", async () => {
+          serveJev((name, type) =>
+            decisions.length === 1
+              ? jevSame(name, type)
+              : spacingWorse(name, type),
+          )
+          content = designReply("intended", "none")
+          for (const path of [button, card]) {
+            await put("base", path, before)
+            await put("head", path, redesigned)
+          }
+
+          await run(
+            "--json",
+            "--judge",
+            "jev",
+            "--images",
+            images,
+            "--",
+            button,
+            card,
+          )
+
+          // The review of the first one, then the explainer of the Jev
+          // regression of the second one.
+          expect(chats.map(({ model }) => model)).toEqual([
+            "openai/gpt-6.1-sol",
+            "openai/gpt-6-luna",
+          ])
+          expect(verdicts()[1]).toMatchObject({
+            verdict: "regression",
+            severity: "minor",
+          })
+        })
+
+        test("the close-up shows the redesigned region at twice the size, also when a small change is far from it", async () => {
+          serveJev(jevSame)
+          content = designReply("intended", "none")
+          const tall = (
+            blocks: { y: number; width: number; height: number }[],
+          ) =>
+            screenshot(
+              1440,
+              900,
+              blocks.map(({ y, width, height }) => ({
+                box: { x: 100, y, width, height },
+                color: [20, 20, 20] as const,
+              })),
+            )
+          // A new 300 × 60 px block at the top, and a small 40 × 20 px
+          // change at the bottom.
+          await put("base", card, tall([{ y: 860, width: 40, height: 10 }]))
+          await put(
+            "head",
+            card,
+            tall([
+              { y: 60, width: 300, height: 60 },
+              { y: 860, width: 40, height: 20 },
+            ]),
+          )
+
+          await run("--json", "--judge", "jev", "--images", images, "--", card)
+
+          const [, closeUp] = sentImages(chats[0])
+          // The block and 64 px around it, twice: about 856 × 376 px.
+          expect(closeUp?.width).toBeGreaterThan(2 * 300)
+          expect(closeUp?.width).toBeLessThan(2 * 600)
+          expect(closeUp?.height).toBeLessThan(2 * 300)
+        })
+
+        test("on a short screenshot that is padded before the call, the changed regions are in fractions of the sent image", async () => {
+          serveJev(jevSame)
+          content = designReply("intended", "none")
+          // 400 × 100 px: the sent image is padded to 400 × 280 px.
+          await put("base", card, screenshot(400, 100, []))
+          await put(
+            "head",
+            card,
+            screenshot(400, 100, [
+              {
+                box: { x: 100, y: 40, width: 200, height: 40 },
+                color: [20, 20, 20],
+              },
+            ]),
+          )
+
+          await run("--json", "--judge", "jev", "--images", images, "--", card)
+
+          const text = chats
+            .flatMap(({ messages }) => messages)
+            .flatMap(({ content }) => content)
+            .map(({ text }) => text ?? "")
+            .join("\n")
+          const [y = 0, height = 0] = (
+            /1\. x [\d.]+, y ([\d.]+), width [\d.]+, height ([\d.]+)\n/.exec(
+              text,
+            ) ?? []
+          )
+            .slice(1)
+            .map(Number)
+          // The block is at 40 to 80 px of 280: about 0.14 to 0.29.
+          expect(y).toBeLessThanOrEqual(0.15)
+          expect(y + height).toBeGreaterThanOrEqual(0.28)
+          expect(y + height).toBeLessThanOrEqual(100 / 280 + 0.01)
+        })
+
+        test("the design review of a redesign runs before the explainer of a smaller change, so a short budget goes to it first", async () => {
+          serveJev(spacingWorse)
+          await put("base", button, before)
+          await put("head", button, after)
+          await put("base", card, before)
+          await put("head", card, redesigned)
+
+          // Room for both calls only when the review comes first: the review
+          // keeps $0.03 free, the explainer $0.005, and each call costs $0.01.
+          await run(
+            "--json",
+            "--judge",
+            "jev",
+            "--budget-usd",
+            "0.035",
+            "--images",
+            images,
+            "--",
+            button,
+            card,
+          )
+
+          expect(chats.map(({ model }) => model)).toEqual([
+            "openai/gpt-6.1-sol",
+            "openai/gpt-6-luna",
+          ])
+        })
+
+        test("when the budget has room for the explainer but not for the review, a redesign keeps its explainer", async () => {
+          serveJev(spacingWorse)
+          await put("base", card, before)
+          await put("head", card, redesigned)
+
+          await run(
+            "--json",
+            "--judge",
+            "jev",
+            "--budget-usd",
+            "0.02",
+            "--images",
+            images,
+            "--",
+            card,
+          )
+
+          expect(chats.map(({ model }) => model)).toEqual(["openai/gpt-6-luna"])
+          expect(verdicts()[0]?.summary).toContain(
+            "Explainer (openai/gpt-6-luna",
+          )
+        })
+
+        test("a block that only moved gets no design review: its head pixels are in the base image at an offset", async () => {
+          serveJev(jevSame)
+          // A striped block, like lines of text: a move of 1 px changes
+          // each of its pixels, so the changed region is the whole block.
+          const block = (y: number) =>
+            screenshot(
+              400,
+              300,
+              Array.from({ length: 15 }, (_, line) => ({
+                box: { x: 100, y: y + 4 * line, width: 200, height: 2 },
+                color: [20, 20, 20] as const,
+              })),
+            )
+          await put("base", card, block(60))
+          await put("head", card, block(61))
+
+          expect(
+            await run(
+              "--json",
+              "--judge",
+              "jev",
+              "--images",
+              images,
+              "--",
+              card,
+            ),
+          ).toBe(0)
+
+          expect(chats).toHaveLength(0)
+        })
+
+        test("a copy of a control that stays in place is an addition, not a move, and gets the review", async () => {
+          serveJev(jevSame)
+          content = designReply("intended", "none")
+          const lines = (ys: number[]) =>
+            screenshot(
+              400,
+              300,
+              ys.flatMap((y) =>
+                Array.from({ length: 15 }, (_, line) => ({
+                  box: { x: 100, y: y + 4 * line, width: 200, height: 2 },
+                  color: [20, 20, 20] as const,
+                })),
+              ),
+            )
+          // The block at y 40 stays, and a copy comes at y 140.
+          await put("base", card, lines([40]))
+          await put("head", card, lines([40, 140]))
+
+          await run("--json", "--judge", "jev", "--images", images, "--", card)
+
+          expect(chats.map(({ model }) => model)).toEqual([
+            "openai/gpt-6.1-sol",
+          ])
+        })
+
+        test("a candidate that only moved gives its place to the next one, which gets the review", async () => {
+          serveJev(jevSame)
+          content = designReply("intended", "none")
+          // The larger change: a striped block that moved 1 px.
+          const block = (y: number) =>
+            screenshot(
+              400,
+              300,
+              Array.from({ length: 20 }, (_, line) => ({
+                box: { x: 50, y: y + 4 * line, width: 300, height: 2 },
+                color: [20, 20, 20] as const,
+              })),
+            )
+          await put("base", button, block(60))
+          await put("head", button, block(61))
+          await put("base", card, before)
+          await put("head", card, redesigned)
+
+          await run(
+            "--json",
+            "--judge",
+            "jev",
+            "--images",
+            images,
+            "--",
+            button,
+            card,
+          )
+
+          expect(chats.map(({ model }) => model)).toEqual([
+            "openai/gpt-6.1-sol",
+          ])
+          expect(verdicts()[1]?.summary).toContain("Design review")
+          expect(verdicts()[0]?.summary).not.toContain("Design review")
+        })
+
+        test("a color change gets no design review", async () => {
+          serveJev(jevSame)
+          await put("base", button, before)
+          await put("head", button, after)
+
+          expect(
+            await run(
+              "--json",
+              "--judge",
+              "jev",
+              "--images",
+              images,
+              "--",
+              button,
+            ),
+          ).toBe(0)
+
+          expect(chats).toHaveLength(0)
+          expect(verdicts()[0]).toMatchObject({ verdict: "unsure" })
         })
       })
 

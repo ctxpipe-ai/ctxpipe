@@ -53,6 +53,7 @@ import { workspaceRelativePath } from "../services/git/root-folder.js"
 import {
   type KnowledgeChangeSet,
   type KnowledgeFullReason,
+  type KnowledgeRebuildReason,
   knowledgeProjectionVersion,
   mergeBaseOf,
   planKnowledgeChangeSet,
@@ -152,6 +153,12 @@ export async function projectKnowledgePlane(input: {
   /** A store with the writer user. */
   store: KnowledgeStore
   observedAt: Date
+  /**
+   * Rebuild the tree of the default branch in full, also when the head is
+   * the tip (`rebuildKnowledgePlane`, ADR-067 decision 8). Not for another
+   * branch.
+   */
+  rebuild?: boolean
 }): Promise<KnowledgeRunSummary> {
   const key = { orgId: input.orgId, workspaceId: input.workspaceId }
   const branchKey = { ...key, branch: input.branch }
@@ -176,15 +183,29 @@ export async function projectKnowledgePlane(input: {
     return { mode: "waiting" }
   }
   const state = await getBranchHead(branchKey)
-  if (
+  // The default branch always has a tree row when its tip has a document
+  // file. A head with no row lost its rows, for example to a fault of
+  // ClickHouse: `current` or a delta cannot repair that, so the run
+  // rebuilds in full from Git (ADR-067 decision 8). One read on each run.
+  const defaultHead = isDefault ? treeHeadOf(state) : null
+  const rebuildReason = async (): Promise<KnowledgeRebuildReason | null> => {
+    if (!isDefault) return null
+    if (input.rebuild) return "rebuild"
+    if (defaultHead && !(await input.store.hasTree(key, defaultHead)))
+      return "empty_tree"
+    return null
+  }
+  const current =
     state?.lastSha === input.tip &&
     state.runStatus === "completed" &&
     state.projectionVersion === projectionVersion &&
     // The tree is of the right kind: a full tree for the default branch, an
     // overlay on the current default branch for each other branch.
     state.baseBranch === (base?.branch ?? null)
-  )
-    return { mode: "current" }
+  // A run of the tip reads it here. Each other run reads it after
+  // `beginKnowledgeRun`, so that an error of ClickHouse fails the run.
+  const earlyReason = current ? await rebuildReason() : undefined
+  if (current && !earlyReason) return { mode: "current" }
 
   const started = performance.now()
   return trace
@@ -209,6 +230,7 @@ export async function projectKnowledgePlane(input: {
       }
       try {
         await beginKnowledgeRun({ ...branchKey, isDefault })
+        const forcedReason = earlyReason ?? (await rebuildReason())
         // The head of the branch, or none before its first run. The tree
         // rows above the head are the rows of a run that stopped: no read
         // sees them, and this run must not show them either (ADR-071
@@ -262,6 +284,7 @@ export async function projectKnowledgePlane(input: {
                   state,
                   tip: input.tip,
                   projectionVersion,
+                  rebuild: forcedReason,
                 })
             const applied = await applyChangeSet({
               ...input,
@@ -271,6 +294,9 @@ export async function projectKnowledgePlane(input: {
               head,
               base,
               treeVersion,
+              // A rebuild writes new file versions: a stored one can have
+              // lost rows that its document row does not show.
+              rebuildId: forcedReason ? input.observedAt.toISOString() : null,
               introductions: await fileIntroductions({
                 directory,
                 remote: input.remote,
@@ -357,6 +383,10 @@ const fileVersion = (blobSha: string, variant: string) =>
  *   resolves to a Workspace path (`workspaceBlobPath`);
  * - the source repositories of the tree, because the `CHANGED` keys of a
  *   package file come from them.
+ *
+ * A full rebuild after lost rows also adds its `rebuildId` (ADR-067 decision
+ * 8), so that it writes each file version again. Without it, the variant is
+ * the same as before.
  */
 const fileVariant = (
   projectionVersion: string,
@@ -364,6 +394,7 @@ const fileVariant = (
     remoteUrl: string
     sourceRepositories: ReadonlyMap<string, string>
   } | null,
+  rebuildId: string | null,
 ) =>
   createHash("sha256")
     .update(
@@ -373,6 +404,7 @@ const fileVariant = (
           knowledge.remoteUrl,
           [...knowledge.sourceRepositories].sort(),
         ],
+        ...(rebuildId ? [rebuildId] : []),
       ]),
     )
     .digest("hex")
@@ -410,6 +442,8 @@ async function applyChangeSet(input: {
   /** For an overlay: the head of the default branch, its base. */
   base: TreeHead | null
   treeVersion: number
+  /** A full rebuild: the id that makes its file versions new (`fileVariant`). */
+  rebuildId: string | null
   introductions: FileIntroductions
   counter: MutationCounter
   embedding: EmbeddingCounter
@@ -431,11 +465,12 @@ async function applyChangeSet(input: {
     input.remote.url,
   )
   const variants = {
-    knowledge: fileVariant(input.projectionVersion, {
-      remoteUrl: input.remote.url,
-      sourceRepositories,
-    }),
-    other: fileVariant(input.projectionVersion, null),
+    knowledge: fileVariant(
+      input.projectionVersion,
+      { remoteUrl: input.remote.url, sourceRepositories },
+      input.rebuildId,
+    ),
+    other: fileVariant(input.projectionVersion, null, input.rebuildId),
   }
   const keyAt = (path: string): FileVersionKey => ({
     docKey: keyOf(path),

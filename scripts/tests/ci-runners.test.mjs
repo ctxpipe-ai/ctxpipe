@@ -72,6 +72,27 @@ test("a matrix runs-on expression fails", () => {
   assert.equal(result.status, 1)
 })
 
+test("an expression of arm64 Blacksmith labels passes", () => {
+  const both = check({
+    "a.yaml":
+      "jobs:\n  a:\n    runs-on: $" +
+      "{{ matrix.small && 'blacksmith-2vcpu-ubuntu-2404-arm' || 'blacksmith-4vcpu-ubuntu-2404-arm' }}\n",
+  })
+  assert.equal(both.status, 0, both.stderr)
+  const other = check({
+    "a.yaml":
+      "jobs:\n  a:\n    runs-on: $" +
+      "{{ matrix.small && 'blacksmith-2vcpu-ubuntu-2404-arm' || 'ubuntu-latest' }}\n",
+  })
+  assert.equal(other.status, 1)
+  const macos = check({
+    "a.yaml":
+      "jobs:\n  a:\n    runs-on: $" +
+      "{{ contains(fromJSON('[\"x\"]'), matrix.name) && 'macos-latest' || 'blacksmith-4vcpu-ubuntu-2404-arm' }}\n",
+  })
+  assert.equal(macos.status, 1)
+})
+
 test("a github-hosted comment with a reason allows the label", () => {
   const same = check({
     "a.yaml":
@@ -101,14 +122,20 @@ test("the repository workflows pass", () => {
   assert.equal(result.status, 0, result.stderr)
 })
 
-// ADR-065: the light jobs run on free GitHub-hosted arm runners, and each job
-// that uses Docker stays on Blacksmith.
+// ADR-065: the light jobs, the test shards, the screenshots and the light
+// deploy jobs run on free GitHub-hosted arm runners. The other jobs that use
+// Docker stay on Blacksmith. The tests below check the Docker of the
+// GitHub-hosted jobs, not the choice of each label.
 const ci = parse(
   readFileSync(
     fileURLToPath(new URL("../../.github/workflows/ci.yaml", import.meta.url)),
     "utf8",
   ),
 ).jobs
+
+// A Blacksmith label, or an expression of Blacksmith labels (check-runners.mjs
+// allows only arm64 Blacksmith labels in an expression).
+const onBlacksmith = (job) => /\bblacksmith-/.test(String(job["runs-on"]))
 
 // Each job of each workflow, as [<file>#<job>, job, workflow].
 const directory = fileURLToPath(
@@ -125,14 +152,34 @@ const allJobs = readdirSync(directory)
     ])
   })
 
-test("a GitHub-hosted job uses no Docker", () => {
-  for (const [name, job] of allJobs) {
-    if (String(job["runs-on"]).startsWith("blacksmith-")) continue
+test("a GitHub-hosted job uses no Docker, except the listed jobs", () => {
+  // The GitHub-hosted jobs with Docker in their steps: the test shards
+  // (service containers, FalkorDB, the chat sandbox image from the registry
+  // cache) and the publish job of the deploy (manifest lists through `docker
+  // buildx imagetools`, no container). The test reads only the steps: the
+  // screenshots job starts the Playwright container from a script
+  // (scripts/ci/visual-capture.mjs).
+  const githubHostedDocker = [
+    "ci.yaml#test-shards",
+    "deploy.yaml#publish_images",
+  ]
+  const jobs = new Map(allJobs)
+  for (const name of githubHostedDocker) {
+    assert.ok(jobs.has(name), name)
+    assert.ok(!onBlacksmith(jobs.get(name)), name)
+  }
+  for (const [name, job] of jobs) {
+    if (onBlacksmith(job)) continue
+    for (const step of job.steps ?? [])
+      assert.doesNotMatch(step.uses ?? "", /useblacksmith/, name)
+    if (githubHostedDocker.includes(name)) continue
     assert.equal(job.services, undefined, name)
     assert.equal(job.container, undefined, name)
     for (const step of job.steps ?? []) {
-      assert.doesNotMatch(step.run ?? "", /\bdocker\b/, name)
-      assert.doesNotMatch(step.uses ?? "", /docker|useblacksmith/, name)
+      // An image reference on docker.io (the pins of the ECR copy job) is
+      // no Docker command.
+      assert.doesNotMatch(step.run ?? "", /\bdocker\b(?!\.io\/)/, name)
+      assert.doesNotMatch(step.uses ?? "", /docker/, name)
     }
   }
 })
@@ -184,7 +231,7 @@ test("a lockfile change on main fills the pnpm store of both cache stores", () =
     if (!("pull_request" in (workflow.on ?? {}))) continue
     const setup = uses(job, "actions/setup-node@")
     if (setup?.with?.cache !== "pnpm") continue
-    const store = String(job["runs-on"]).startsWith("blacksmith-")
+    const store = onBlacksmith(job)
       ? "blacksmith-cache"
       : "github-cache"
     assert.deepEqual(
