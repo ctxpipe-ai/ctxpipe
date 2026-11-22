@@ -1438,10 +1438,8 @@ async function search(
   // One branch for each term, each with at most 1000 chunks of searchable
   // documents: the cap before the score. The cap takes the chunks in the
   // order of a hash of their key: a fixed sample, so the same query always
-  // takes the same chunks (CTX-1547). Before, the cap took the chunks that the
-  // parallel read gave first. On the question set v0, the hash order kept the
-  // holdout search recall@50 (0.718), and the order of the key lost 0.011.
-  // Only the parameter names go into the SQL text.
+  // takes the same chunks (ADR-068, CTX-1547). Only the parameter names go
+  // into the SQL text.
   const termMatches = uniqueTerms
     .map(
       (_, i) => `SELECT {term${i}:String} AS word,
