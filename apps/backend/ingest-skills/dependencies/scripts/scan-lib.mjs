@@ -16,7 +16,7 @@ import { dirname, join, posix, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { fileClaims, isListPart, nameKey } from "../../bin/knowledge-lib.mjs"
-import { stepTexts } from "../../bin/stage-lib.mjs"
+import { stagedPaths, stepTexts } from "../../bin/stage-lib.mjs"
 import {
   safePath,
   trackedFiles,
@@ -341,6 +341,19 @@ export function stepCandidates(candidates, repositoryStep) {
 }
 
 /**
+ * The count of the candidates of a step: the length of the input of the
+ * cursor. The finder (`scan.mjs --count`) and the writer count this one
+ * list. `scanRoot` gives the scan of one root.
+ */
+export function stepCandidateCount(roots, rootPath, scanRoot) {
+  return stepRoots(roots, rootPath).reduce(
+    (sum, root) =>
+      sum + stepCandidates(scanRoot(root).candidates, rootPath === null).length,
+    0,
+  )
+}
+
+/**
  * The counts of the candidates of one step, for patch.json: the candidates
  * of each type, and the roots that have candidates but no Service file.
  * `claimable` is true when a root with a candidate has a Service file. Only
@@ -486,18 +499,50 @@ export function listPart(servicePath, n) {
 }
 
 /**
- * The texts of a Service file and of each part of its dependency list:
- * `[{ path, text }]`, the Service file first. `read(paths)` gives a Map of
- * the texts that exist.
+ * The texts of a Service file and of each part of its dependency list that
+ * exists at the step base or in the staged tree (only the base with
+ * `{ staged: false }`): `[{ path, n, text }]`, with the part number `n` (1
+ * for the Service file), in number order. writeStep writes the parts in
+ * path order (part 10 before part 2), so a page can end with a gap in the
+ * numbers: the list reads each part that exists.
  */
-export function listTexts(read, servicePath) {
-  const texts = []
-  for (let n = 1; ; n++) {
-    const path = n === 1 ? servicePath : listPart(servicePath, n)
-    const text = read([path]).get(path)
-    if (text === undefined) return texts
-    texts.push({ path, text })
-  }
+export function listTexts(step, servicePath, { staged = true } = {}) {
+  const prefix = `${servicePath.replace(/\.md$/, "")}.dependencies-`
+  const numberOf = (path) =>
+    path.startsWith(prefix)
+      ? Number(/^([1-9]\d*)\.md$/.exec(path.slice(prefix.length))?.[1] ?? 0)
+      : 0
+  const listing = spawnSync(
+    "git",
+    [
+      "-C",
+      step.contextDir,
+      "ls-tree",
+      "-z",
+      "--name-only",
+      step.baseCommit,
+      "--",
+      `${posix.dirname(servicePath)}/`,
+    ],
+    { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
+  )
+  if (listing.error || listing.status !== 0)
+    throw new Error(`git ls-tree failed: ${listing.stderr}`)
+  const parts = new Set(listing.stdout.split("\0").filter(numberOf))
+  if (staged)
+    for (const path of stagedPaths(step)) if (numberOf(path)) parts.add(path)
+  const paths = [
+    servicePath,
+    ...[...parts].sort((a, b) => numberOf(a) - numberOf(b)),
+  ]
+  const texts = stepTexts(step, paths, { staged })
+  return paths
+    .filter((path) => texts.has(path))
+    .map((path) => ({
+      path,
+      n: path === servicePath ? 1 : numberOf(path),
+      text: texts.get(path),
+    }))
 }
 
 /**
@@ -505,10 +550,11 @@ export function listTexts(read, servicePath) {
  * the step base or in the staged tree. A candidate is resolved when, for
  * each Service file of the root, its dependency list (the Service file and
  * its parts) has an identity line of this repository and root for the
- * candidate with a claim of the step, and has that claim. In the repository-wide step, the Stream file
- * of the claim must also have the Related line of the root. An ignored
- * candidate has no identity line, so it is never resolved. A candidate with
- * two lines (resolved to one target and later to another) is one id.
+ * candidate with a claim of the step, and has that claim. In the
+ * repository-wide step, the Stream file of the claim must also have the
+ * Related line of the root. An ignored candidate has no identity line, so
+ * it is never resolved. A candidate with two lines (resolved to one target
+ * and later to another) is one id.
  */
 export function resolvedIds(step, root, { repositoryStep, repository }) {
   const services = root.files.filter((f) => f.kind === "Service")
@@ -534,7 +580,7 @@ export function resolvedIds(step, root, { repositoryStep, repository }) {
   let done = null
   for (const service of services) {
     const ids = new Set()
-    const texts = listTexts(read, service.path).map((part) => part.text)
+    const texts = listTexts(step, service.path).map((part) => part.text)
     const claims = new Set(
       texts.flatMap((text) => [...(fileClaims(text) ?? [])]),
     )
@@ -542,8 +588,8 @@ export function resolvedIds(step, root, { repositoryStep, repository }) {
       for (const raw of text.split("\n")) {
         const line = identity.exec(raw.trim())
         if (!line) continue
-        const [, predicate, link, from, at, file, id] = line
-        if (from !== repository || at !== root.path) continue
+        const [, predicate, link, lineRepository, lineRoot, file, id] = line
+        if (lineRepository !== repository || lineRoot !== root.path) continue
         if (!predicates.includes(predicate)) continue
         if (!claims.has(`${link} ${predicate}`)) continue
         if (

@@ -21,6 +21,7 @@ import { outputBudget, writePatch } from "../../bin/stage-lib.mjs"
 import {
   resolvedIds,
   scan,
+  stepCandidateCount,
   stepCandidates,
   stepRoots,
   stepStats,
@@ -47,11 +48,7 @@ const scanRoot = (root) =>
 // does not run apply.mjs, ctxpipe-finish keeps these counts. When
 // `needsModel` is false, the host runs no model.
 if (process.argv.includes("--count")) {
-  const count = stepRoots(roots, rootPath).reduce(
-    (sum, root) =>
-      sum + stepCandidates(scanRoot(root).candidates, rootPath === null).length,
-    0,
-  )
+  const count = stepCandidateCount(roots, rootPath, scanRoot)
   process.stdout.write(`${JSON.stringify({ count })}\n`)
 } else if (process.argv.includes("--gate")) {
   const { stats, claimable } = stepStats(roots, rootPath, scanRoot)

@@ -31,7 +31,7 @@ import {
   scriptStep,
   writeStep,
 } from "../../bin/knowledge-lib.mjs"
-import { fail, STEP_LIMITS, stepTexts } from "../../bin/stage-lib.mjs"
+import { fail, STEP_LIMITS } from "../../bin/stage-lib.mjs"
 import { safePath } from "../../discover-roots/scripts/roots-lib.mjs"
 import {
   dependencyLine,
@@ -39,6 +39,7 @@ import {
   listTexts,
   resolvedIds,
   scan,
+  stepCandidateCount,
   stepCandidates,
   stepRoots,
   stepStats,
@@ -88,10 +89,7 @@ const entryAt = (p) => index.find((e) => e.path === p)
 const rootsOfStep = stepRoots(roots, rootPath)
 const candidatesOf = (root) =>
   stepCandidates(scanOf(root).candidates, repositoryStep)
-const candidateCount = rootsOfStep.reduce(
-  (sum, root) => sum + candidatesOf(root).length,
-  0,
-)
+const candidateCount = stepCandidateCount(roots, rootPath, scanOf)
 
 // The resolutions file has no count limit (CTX-1487). Its size limit
 // protects the parse: 1 KiB for each candidate of the step, at least
@@ -290,24 +288,22 @@ for (const resolution of resolutions) {
   // the resolution, in its dependency list (`listPlans`).
   for (const user of users) {
     const link = relativeTo(user.path, target.path)
-    entries.set(user.path, [
-      ...(entries.get(user.path) ?? []),
-      {
-        claim: {
-          to: link,
-          predicate,
-          evidence: { path: candidate.file, kind: "model" },
-        },
-        line: dependencyLine({
-          predicate,
-          link,
-          repository,
-          root: current.path,
-          file: candidate.file,
-          id: candidate.id,
-        }),
+    if (!entries.has(user.path)) entries.set(user.path, [])
+    entries.get(user.path).push({
+      claim: {
+        to: link,
+        predicate,
+        evidence: { path: candidate.file, kind: "model" },
       },
-    ])
+      line: dependencyLine({
+        predicate,
+        link,
+        repository,
+        root: current.path,
+        file: candidate.file,
+        id: candidate.id,
+      }),
+    })
   }
 }
 
@@ -341,11 +337,10 @@ function listPlans(servicePath, list) {
       related: [],
     }
   }
-  const files = listTexts(
-    (paths) => stepTexts(step, paths, { staged: false }),
-    servicePath,
-  ).map(({ path, text }) => fileOf(path, text))
-  if (!files.length) files.push(fileOf(servicePath, ""))
+  const files = listTexts(step, servicePath, { staged: false }).map(
+    ({ path, n, text }) => ({ ...fileOf(path, text), n }),
+  )
+  if (!files.length) files.push({ ...fileOf(servicePath, ""), n: 1 })
   // The budgets of the list. The Service file keeps room for the claims of
   // the other skills; a part keeps a margin for the host fields.
   const limit = STEP_LIMITS.fileBytes
@@ -364,8 +359,9 @@ function listPlans(servicePath, list) {
         file.count + claims <= room(i, kind).claims,
     )
     if (at !== -1) return files[at]
-    const next = fileOf(listPart(servicePath, files.length + 1), "")
-    files.push({ ...next, bytes: newPartBytes, count: 1, create: true })
+    const n = Math.max(...files.map((file) => file.n)) + 1
+    const next = fileOf(listPart(servicePath, n), "")
+    files.push({ ...next, n, bytes: newPartBytes, count: 1, create: true })
     return files.at(-1)
   }
   const sorted = [...new Map(list.map((e) => [e.line, e])).values()].sort(
@@ -392,7 +388,7 @@ function listPlans(servicePath, list) {
     const claims = [...file.added.values()]
     if (i === 0)
       return [{ path: file.path, create: null, claims, related: file.related }]
-    const name = `${base} dependencies ${i + 1}`
+    const name = `${base} dependencies ${file.n}`
     const evidence = claims[0]?.evidence.path ?? file.evidence
     return [
       {
@@ -413,7 +409,7 @@ function listPlans(servicePath, list) {
         create: {
           kind: "Service",
           name,
-          summary: `Part ${i + 1} of the dependency list of ${base}.`,
+          summary: `Part ${file.n} of the dependency list of ${base}.`,
           intro: `This file continues the dependency list of [${base}](${base}.md). A script writes it when the list does not fit in one file.`,
         },
       },

@@ -616,9 +616,10 @@ function mergeFile(text, { claims, related }) {
  * validator could not take in this step: it takes at most 2 MiB of staged
  * files, and a patch.json of at most 1 MiB and 10,000 ops
  * (patch-validator.ts). The files and deletes that the step staged before
- * count too. A file larger than 64 KiB gets a `skipped` entry, because no
- * page can write it. `more` is true when a plan waits for the next page: the host
- * runs the skill again on the new base until `more` is false. A file that
+ * count too. A file larger than 64 KiB, or with more than 200 claims, gets
+ * a `skipped` entry, because no page can write it. `more` is true when a
+ * plan waits for the next page: the host runs the skill again on the new
+ * base until `more` is false. A file that
  * already has a claim or a line does not change again, so each page
  * continues where the last one stopped. `options.stats` are counts (a name
  * to a whole number) for the host.

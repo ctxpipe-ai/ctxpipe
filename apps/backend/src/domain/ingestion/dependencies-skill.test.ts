@@ -917,6 +917,73 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
     expect(result.cursorAt).toBe(1)
   })
 
+  it("reads each part of a dependency list that exists, also after a gap in the part numbers (CTX-1487)", async () => {
+    // writeStep writes the parts in path order (part 10 before part 2), so a
+    // page can end with part 3 written and part 2 not.
+    const idOf = (url: string) =>
+      `c${createHash("sha256").update(`http|call|literal|${url}`).digest("hex").slice(0, 10)}`
+    const done = idOf("http://billing.internal/x")
+    const lineOf = (id: string) =>
+      `- DEPENDS_ON \`billing.md\` from \`example-org/shop\` root \`.\` file \`src/client.ts\` (candidate \`${id}\`)`
+    const own = front(
+      {
+        kind: "Service",
+        name: "Shop API",
+        generated_by: "ctxpipe-extract",
+        sources: [SOURCE_PATH],
+        claims: [
+          {
+            to: "billing.md",
+            predicate: "DEPENDS_ON",
+            evidence: { path: "src/client.ts", kind: "model" },
+          },
+        ],
+      },
+      // Larger than the 32 KiB of identity lines of a Service file.
+      `# Shop API\n\n${"The shop API.\n".repeat(2400)}`,
+    )
+    const PART_3 = "knowledge/services/shop-api.dependencies-3.md"
+    const part = front(
+      {
+        kind: "Service",
+        name: "shop-api dependencies 3",
+        summary: "Part 3 of the dependency list of shop-api.",
+        generated_by: "ctxpipe-extract",
+        sources: [SOURCE_PATH],
+      },
+      `# shop-api dependencies 3\n\n## Related\n\n${lineOf(done)}\n`,
+    )
+    const s = await step(
+      {
+        "src/client.ts":
+          'await fetch("http://billing.internal/x")\nawait fetch("http://billing.internal/y")\n',
+      },
+      {
+        [OWN]: own,
+        [PART_3]: part,
+        "knowledge/services/billing.md": serviceFile("Billing"),
+      },
+    )
+    // The line in part 3 resolves its candidate: the scan lists only the
+    // other one.
+    const next = idOf("http://billing.internal/y")
+    expect(s.scan().candidates.map((c) => c.id)).toEqual([next])
+    s.apply([
+      { id: next, kind: "service", path: "knowledge/services/billing.md" },
+    ])
+    const result = await s.validate()
+    expect(result.rejections).toEqual([])
+    expect(result.cursorAt).toBe(2)
+    // The new line goes to part 3, which has room. No part 2 or part 4 comes.
+    expect(s.show(result.tree, PART_3)).toContain(lineOf(next))
+    expect(() =>
+      s.show(result.tree, "knowledge/services/shop-api.dependencies-2.md"),
+    ).toThrow()
+    expect(() =>
+      s.show(result.tree, "knowledge/services/shop-api.dependencies-4.md"),
+    ).toThrow()
+  })
+
   it("counts a candidate that a later page resolves to another target once, and never an ignored candidate (CTX-1487)", async () => {
     const context = {
       "knowledge/services/billing.md": serviceFile("Billing"),
