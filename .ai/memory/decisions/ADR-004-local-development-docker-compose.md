@@ -15,7 +15,7 @@ We run **application processes on the host** (root **`pnpm dev`** — portless +
    - **postgres**: `pgvector/pgvector:pg17`; configurable via `POSTGRES_*` and `CTXPIPE_POSTGRES_HOST_PORT` (default host **5433**); healthcheck for readiness.
    - **falkordb**: graph / Redis protocol; host ports via `CTXPIPE_FALKOR_*`.
    - **otel-collector**: OpenTelemetry Collector (Better Stack + LangFuse fan-out when env is configured).
-   - **zoekt-webserver** — **removed** from Compose (2026-03); Zoekt runs inside the codesearch Docker container during **`pnpm dev`** ([`scripts/codesearch-docker-dev.sh`](../../../scripts/codesearch-docker-dev.sh)). Historical: was built from [`Dockerfile.zoekt`](../../../apps/codesearch/Dockerfile.zoekt).
+   - **zoekt-webserver** — **removed** from Compose (2026-03); Zoekt runs inside the codesearch Docker container during **`pnpm dev`** ([`scripts/codesearch-docker-dev.sh`](../../../scripts/codesearch-docker-dev.sh)). Historical: it was built from `apps/codesearch/Dockerfile.zoekt`, which was removed in 2026-11.
 
 2. **Root `pnpm dev:infra`** runs `docker compose up -d postgres falkordb otel-collector` (profile `infra`). Application code: backend + UI via root **`pnpm dev`**; codesearch via Docker as above. See root [AGENTS.md](../../../AGENTS.md).
 
