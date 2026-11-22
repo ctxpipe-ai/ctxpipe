@@ -2,7 +2,6 @@ import {
   appendFileSync,
   chmodSync,
   cpSync,
-  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -14,11 +13,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { reingestUpgradeKey } from "../upgrades/keys.js"
-import {
-  assertSameReingestVersion,
-  INGEST_SKILLS_DIR,
-  readIngestSkillBundle,
-} from "./skill-bundle.js"
+import { INGEST_SKILLS_DIR, readIngestSkillBundle } from "./skill-bundle.js"
 
 const copies: string[] = []
 
@@ -110,12 +105,6 @@ describe("readIngestSkillBundle", () => {
     expect(reingestUpgradeKey(after.version)).toBe(
       reingestUpgradeKey(before.version),
     )
-    expect(() =>
-      assertSameReingestVersion(
-        { bundle: before.name, version: before.version },
-        after,
-      ),
-    ).not.toThrow()
   })
 
   it("gives a new re-ingestion key when the version changes", async () => {
@@ -128,54 +117,6 @@ describe("readIngestSkillBundle", () => {
     const after = await readIngestSkillBundle(dir)
     expect(reingestUpgradeKey(after.version)).toBe(
       "reingest-ingest-1111111111111111",
-    )
-    expect(() =>
-      assertSameReingestVersion(
-        { bundle: before.name, version: before.version },
-        after,
-      ),
-    ).toThrow(/changed during the run/)
-  })
-
-  it("lets a run planned with no version continue when its bundle equals the version", async () => {
-    const dir = copyBundle()
-    const before = await readIngestSkillBundle(dir)
-    writeFileSync(
-      join(dir, "version.json"),
-      JSON.stringify({ version: before.name, hash: before.name }),
-    )
-    const same = await readIngestSkillBundle(dir)
-    expect(() =>
-      assertSameReingestVersion({ bundle: before.name }, same),
-    ).not.toThrow()
-    writeFileSync(
-      join(dir, "version.json"),
-      JSON.stringify({ version: "ingest-1111111111111111", hash: before.name }),
-    )
-    const other = await readIngestSkillBundle(dir)
-    expect(() =>
-      assertSameReingestVersion({ bundle: before.name }, other),
-    ).toThrow(/changed during the run/)
-  })
-
-  it("stops a run when a skill folder is added and the version stays", async () => {
-    const dir = copyBundle()
-    const before = await readIngestSkillBundle(dir)
-    const planned = {
-      bundle: before.name,
-      version: before.version,
-      skills: before.skills,
-    }
-    expect(() => assertSameReingestVersion(planned, before)).not.toThrow()
-    mkdirSync(join(dir, "added-skill"))
-    writeFileSync(
-      join(dir, "added-skill/SKILL.md"),
-      "---\nname: added-skill\ndescription: Fixture.\n---\n# added-skill\n",
-    )
-    const after = await readIngestSkillBundle(dir)
-    expect(after.version).toBe(before.version)
-    expect(() => assertSameReingestVersion(planned, after)).toThrow(
-      /skill list changed during the run/,
     )
   })
 

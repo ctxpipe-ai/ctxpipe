@@ -20,8 +20,9 @@ import {
 import {
   discoverIngestRoots,
   ingestAgentEnv,
-  ingestShardPrepared,
+  ingestShardPreparedBundle,
   prepareIngestShard,
+  refreshIngestShardBundle,
   runIngestShardStep,
 } from "./ingest-shard-ops.js"
 import { withIngestStepOutput } from "./ingest-step-output.js"
@@ -212,7 +213,7 @@ describe("ingest shard commands in a Docker sandbox", () => {
         const agentEnv = await ingestAgentEnv(root, {
           modelProxyUrl: "http://127.0.0.1:9/v1",
         })
-        expect(await ingestShardPrepared(root)).toBe(false)
+        expect(await ingestShardPreparedBundle(root)).toBeNull()
         await prepareIngestShard(handle, root, {
           bundle,
           opencodeConfig: ingestOpenCodeConfig({
@@ -235,7 +236,7 @@ describe("ingest shard commands in a Docker sandbox", () => {
           ],
           now: new Date("2026-10-01T00:00:00Z"),
         })
-        expect(await ingestShardPrepared(root)).toBe(true)
+        expect(await ingestShardPreparedBundle(root)).toBe(bundle.name)
         const heads = await root(
           `git -C /ctxpipe/source/source rev-parse HEAD --is-shallow-repository && stat -c %U /ctxpipe/source/source /ctxpipe/context/${WORKSPACE_ID}`,
         )
@@ -244,6 +245,43 @@ describe("ingest shard commands in a Docker sandbox", () => {
           "true",
           "root",
           "root",
+        ])
+
+        // A deploy with another bundle (CTX-1503): root puts the new skills
+        // in place and keeps the sealed checkouts.
+        const next = {
+          ...bundle,
+          name: "ingest-1111111111111111",
+          files: [
+            ...bundle.files,
+            {
+              path: "bin/deploy-note.txt",
+              content: Buffer.from("Bundle B\n"),
+              executable: false,
+            },
+          ],
+        }
+        // A file that an earlier agent left in its home.
+        await runAsRoot(root, "touch /ctxpipe/home/left-by-agent")
+        await refreshIngestShardBundle(handle, root, {
+          bundle: next,
+          opencodeConfig: ingestOpenCodeConfig({
+            modelBase: "stub",
+            models: [],
+            skills: next.skills,
+            proxyAddsCredentials: true,
+            toolBridgeUrl: "http://127.0.0.1:9/tool-bridge",
+          }),
+        })
+        expect(await ingestShardPreparedBundle(root)).toBe(next.name)
+        const refreshed = await root(
+          `cat /ctxpipe/skills/bin/deploy-note.txt && stat -c %U /ctxpipe/skills/bin/deploy-note.txt && git -C /ctxpipe/source/source rev-parse HEAD && ls -A /ctxpipe/home | wc -l`,
+        )
+        expect(refreshed.stdout.trim().split("\n")).toEqual([
+          "Bundle B",
+          "root",
+          sourceSha,
+          "0",
         ])
 
         // No workspace manifest names `services/orders`, so the script keeps
@@ -590,7 +628,7 @@ describe("ingest shard commands in a Docker sandbox", () => {
         controller.abort(new Error("The ingest step reached its time limit"))
         expect(await outcome).not.toBe("prepared")
         expect(Date.now() - started).toBeLessThan(45_000)
-        expect(await ingestShardPrepared(root)).toBe(false)
+        expect(await ingestShardPreparedBundle(root)).toBeNull()
         expect(clone).toContain(
           "git clone -q -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=60 --no-checkout",
         )

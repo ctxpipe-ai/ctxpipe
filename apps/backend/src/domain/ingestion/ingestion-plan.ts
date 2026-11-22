@@ -120,6 +120,24 @@ export function plannedIngestSkills(
 }
 
 /**
+ * The skills of one scope that a run runs: the skills of the current bundle
+ * that the run planned with (CTX-1503). A deploy can change the bundle while
+ * the run is in progress. A skill that the deploy adds does not run, so no
+ * step runs on a finished root or under the base of a running shard. A
+ * skill that it removes stops. A run that was planned before the plan kept
+ * the skill list (`planned` is undefined) runs each skill of the bundle.
+ */
+export function ingestRunSkills(
+  bundleSkills: readonly string[],
+  scope: IngestSkillPlan["scope"],
+  planned: readonly string[] | undefined,
+): IngestSkillPlan[] {
+  return plannedIngestSkills(bundleSkills, scope).filter(
+    (skill) => !planned || planned.includes(skill.name),
+  )
+}
+
+/**
  * The root part of a root step name: `<label>~<hash>`. The label is the end
  * of the root path in safe ASCII, for a person who reads the run; the hash
  * of the full root makes it unique.

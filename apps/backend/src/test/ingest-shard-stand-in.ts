@@ -28,7 +28,8 @@ const exec = promisify(execFile)
  * reports.
  *
  * The folder is named by run and shard, so a replacement worker process finds
- * it, and `ensure` makes it again when it is gone (a lost sandbox).
+ * it, and `ensure` makes it again when it is gone (a lost sandbox). A folder
+ * with another bundle (a deploy) gets the new skills.
  */
 export function standInIngestShardRuntime(options: {
   modelUrl: string
@@ -50,13 +51,25 @@ export function standInIngestShardRuntime(options: {
       }).then((r) => r.stdout)
     const runtime: IngestShardRuntime = {
       async ensure() {
-        if (existsSync(ready)) return
-        await rm(root, { recursive: true, force: true })
-        for (const file of spec.bundle.files) {
-          const path = join(root, "skills", file.path)
-          await mkdir(dirname(path), { recursive: true })
-          await writeFile(path, file.content)
+        const writeSkills = async () => {
+          await rm(join(root, "skills"), { recursive: true, force: true })
+          for (const file of spec.bundle.files) {
+            const path = join(root, "skills", file.path)
+            await mkdir(dirname(path), { recursive: true })
+            await writeFile(path, file.content)
+          }
         }
+        if (existsSync(ready)) {
+          // The rule of the real sandbox: a deploy puts the new bundle in
+          // place, and the clones stay.
+          if ((await readFile(ready, "utf8")) !== spec.bundle.name) {
+            await writeSkills()
+            await writeFile(ready, spec.bundle.name)
+          }
+          return
+        }
+        await rm(root, { recursive: true, force: true })
+        await writeSkills()
         await mkdir(join(root, "source"), { recursive: true })
         await exec("git", ["clone", "-q", spec.source.url, sourceDir])
         await git(sourceDir, "checkout", "-q", "--detach", spec.source.sha)
@@ -67,7 +80,7 @@ export function standInIngestShardRuntime(options: {
             destination.url,
             join(root, "context", destination.workspaceId),
           ])
-        await writeFile(ready, "")
+        await writeFile(ready, spec.bundle.name)
       },
       async discoverRoots() {
         await runtime.ensure()

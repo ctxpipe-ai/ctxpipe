@@ -56,6 +56,7 @@ import {
   ingestAgentEnv,
   prepareIngestShard,
   probeIngestModelProxy,
+  refreshIngestShardBundle,
   runIngestShardStep,
 } from "./ingest-shard-ops.js"
 import {
@@ -408,12 +409,20 @@ function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
       async (lockOwner, lockSignal) => {
         const egress = await ingestShardStepEgress({ spec, lockOwner, step })
         const box = await shardSandbox(target, { egress, signal: lockSignal })
+        const opencodeConfig = ingestOpenCodeConfig({
+          modelBase: defaultTier,
+          models: ["fast" satisfies IngestModelTier],
+          skills: spec.bundle.skills,
+          proxyAddsCredentials: true,
+          toolBridgeUrl: egress.bridge.url,
+        })
         const existing = await box.sandbox.ensureExisting()
         const existingRoot = existing ? await box.root(existing.id) : null
         // A process of an earlier step must not get this step's credentials.
         if (existingRoot) await stopIngestAgentProcesses(existingRoot)
         return withShardStep({
           existingRoot,
+          bundle: spec.bundle.name,
           plainGitSource: spec.source.kind === "git",
           refresh: (fetchSource) =>
             refreshIngestSandboxEgress({
@@ -435,13 +444,7 @@ function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
           prepare: async ({ handle, root, agentEnv }) => {
             await prepareIngestShard(handle, root, {
               bundle: spec.bundle,
-              opencodeConfig: ingestOpenCodeConfig({
-                modelBase: defaultTier,
-                models: ["fast" satisfies IngestModelTier],
-                skills: spec.bundle.skills,
-                proxyAddsCredentials: true,
-                toolBridgeUrl: egress.bridge.url,
-              }),
+              opencodeConfig,
               agentEnv,
               source: {
                 url: sandboxFetchUrl(spec.source),
@@ -464,6 +467,11 @@ function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
               status: await probeIngestModelProxy(root, agentEnv),
             })
           },
+          refreshBundle: ({ handle, root }) =>
+            refreshIngestShardBundle(handle, root, {
+              bundle: spec.bundle,
+              opencodeConfig,
+            }),
           run: (box) => fn({ ...box, signal: lockSignal }),
           stopAgents: stopIngestAgentProcesses,
           logContext: { orgId: spec.orgId, runId: spec.runId },

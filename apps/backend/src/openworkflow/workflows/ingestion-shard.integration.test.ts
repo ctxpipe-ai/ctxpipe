@@ -137,6 +137,22 @@ describe("runSkillPages", () => {
     expect(state).toMatchObject({ ops: 2, partial: 1 })
   })
 
+  it("goes on with a cursor whose pages cross a bundle change while the finder gives the same length, and else stops it as partial (CTX-1503)", async () => {
+    // Page 1 is the cached page of the old bundle; page 2 runs the finder
+    // of the new bundle.
+    const same = [page(2, 10), page(6, 10), page(10, 10, false)]
+    expect(await pages("services/i", same, ownership)).toMatchObject({
+      ops: 3,
+      partial: 0,
+    })
+    const changed = [page(2, 10), page(6, 12), page(10, 12, false)]
+    expect(await pages("services/j", changed, ownership)).toMatchObject({
+      ops: 2,
+      partial: 1,
+    })
+    expect(changed).toHaveLength(1)
+  })
+
   it("stops a skill with no cursor after 20 pages", async () => {
     const results = Array.from({ length: 25 }, (_, i) => page(i + 1, 30))
     const state = await pages("services/g", results)

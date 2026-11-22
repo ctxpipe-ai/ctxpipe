@@ -103,24 +103,3 @@ export async function readIngestSkillBundle(
     files,
   }
 }
-
-/**
- * A run stops when a deploy changes the re-ingestion version or the skill list
- * while it runs. A run planned before the version existed has only the content
- * hash, which equals the first version. A run planned before the plan kept the
- * skill list has no list to compare.
- */
-export function assertSameReingestVersion(
-  planned: { bundle: string; version?: string; skills?: string[] },
-  bundle: IngestSkillBundle,
-): void {
-  const plannedVersion = planned.version ?? planned.bundle
-  if (plannedVersion !== bundle.version)
-    throw new Error(
-      `The ingest skill bundle changed during the run (${plannedVersion} to ${bundle.version})`,
-    )
-  if (planned.skills && planned.skills.join() !== bundle.skills.join())
-    throw new Error(
-      `The ingest skill list changed during the run (${planned.skills.join()} to ${bundle.skills.join()})`,
-    )
-}
