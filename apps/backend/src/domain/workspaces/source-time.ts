@@ -1,3 +1,5 @@
+import { z } from "zod"
+
 import { asStringArray } from "../codeIngestion/connectorFrontmatter.js"
 import { connectorMirrorRoot } from "../codeIngestion/connectorMirrorPaths.js"
 import { normalizeValidityBound } from "./hydrate-phases.js"
@@ -67,16 +69,17 @@ export function closingPullRequests(
   const endedAt =
     timeOf(attributes.completedAt) ?? timeOf(attributes.canceledAt)
   if (!endedAt) return null
-  const references = Array.isArray(attributes.githubReferences)
-    ? (attributes.githubReferences as unknown[])
+  const mergedPull = z.object({
+    kind: z.literal("pull_request"),
+    state: z.literal("merged"),
+    url: z.string(),
+  })
+  const references: unknown[] = Array.isArray(attributes.githubReferences)
+    ? attributes.githubReferences
     : []
   const urls = references.flatMap((reference) => {
-    const { kind, state, url } = (reference ?? {}) as Record<string, unknown>
-    return kind === "pull_request" &&
-      state === "merged" &&
-      typeof url === "string"
-      ? [url]
-      : []
+    const parsed = mergedPull.safeParse(reference)
+    return parsed.success ? [parsed.data.url] : []
   })
   return { urls, closedAt: endedAt }
 }

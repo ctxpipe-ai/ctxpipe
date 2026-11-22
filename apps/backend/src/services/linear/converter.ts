@@ -69,8 +69,8 @@ export type LinearIssueForMirror = {
   createdAt: Date
   updatedAt: Date
   /** When the issue was completed or canceled, or null (CTX-1526). */
-  completedAt?: Date | null
-  canceledAt?: Date | null
+  completedAt: Date | null
+  canceledAt: Date | null
   comments: Array<{
     id: string
     body: string
