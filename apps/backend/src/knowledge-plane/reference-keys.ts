@@ -14,7 +14,6 @@ import {
   threadDedupKey,
 } from "../domain/codeIngestion/referenceResolver.js"
 import { resolveHydrateLink } from "../domain/workspaces/hydrate.js"
-import { closingPullRequests } from "../domain/workspaces/source-time.js"
 import {
   confluencePageIdOfPath,
   githubBlobOf,
@@ -26,6 +25,7 @@ import {
   mergedPullRequest,
   sourceRepositoriesOf,
 } from "../domain/workspaces/pull-request-changes.js"
+import { closingPullRequests } from "../domain/workspaces/source-time.js"
 
 /**
  * The reference keys of one file (ADR-066 decision 5, CTX-1400). Some links

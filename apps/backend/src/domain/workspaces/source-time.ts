@@ -56,7 +56,9 @@ export function closingPullRequests(
   attributes: Record<string, unknown>,
 ): { urls: string[]; closedAt: string } | null {
   const closedAt = timeOf(attributes.closedAt)
-  return closedAt ? { urls: asStringArray(attributes.closedBy), closedAt } : null
+  return closedAt
+    ? { urls: asStringArray(attributes.closedBy), closedAt }
+    : null
 }
 
 /**
