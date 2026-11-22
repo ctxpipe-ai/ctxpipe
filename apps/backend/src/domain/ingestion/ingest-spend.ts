@@ -1,7 +1,10 @@
-import { sql } from "drizzle-orm"
+import { and, eq, sql } from "drizzle-orm"
 
-import { getSystemDb } from "../../db/client.js"
+import { getSystemDb, withOrgDbContext } from "../../db/client.js"
+import { sandboxLocks } from "../../db/schema/sandbox-locks.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
+import { ingestSandboxThreadId } from "../workspaces/chat-lifecycle.js"
+import type { WorkspaceChatCompletionUsage } from "../workspaces/workspace-chat-model-proxy.js"
 import type { IngestStepUsage } from "./ingest-shard-runtime.js"
 
 /*
@@ -12,7 +15,9 @@ import type { IngestStepUsage } from "./ingest-shard-runtime.js"
 
 /**
  * USD for one million tokens of the medium tier. The spend converts the
- * reported tokens of a step with it, when the gateway reports no cost. A
+ * reported tokens of a call or a step with it only when the gateway reports
+ * no cost. These prices can be much higher than the prices of the model in
+ * use (CTX-1522), so each such conversion at the model proxy is a log event. A
  * cache read costs a tenth of an input token (CTX-900): a step that reads
  * its prompt from the cache again on each model call would otherwise look
  * many times too expensive.
@@ -29,6 +34,94 @@ export function ingestUsageUsd(usage: IngestStepUsage): number {
       usage.outputTokens * USD_PER_MILLION_TOKENS.output) /
     1_000_000
   )
+}
+
+/**
+ * The USD of one model call of an ingest step at the model proxy: the
+ * gateway cost, else the tokens of the call at the fallback prices
+ * (`estimated`). Undefined when the call reports no usage (a failed call).
+ */
+export function ingestModelCallUsd(
+  usage: WorkspaceChatCompletionUsage | null | undefined,
+): { usd: number; estimated: boolean } | undefined {
+  if (usage?.cost !== undefined) return { usd: usage.cost, estimated: false }
+  if (usage?.inputTokens === undefined && usage?.outputTokens === undefined)
+    return undefined
+  return {
+    usd: ingestUsageUsd({
+      inputTokens: usage.inputTokens ?? 0,
+      outputTokens: usage.outputTokens ?? 0,
+      cacheReadTokens: usage.cachedInputTokens ?? 0,
+    }),
+    estimated: true,
+  }
+}
+
+/** The ingest step that holds the shard lock as `lockOwner`. */
+type IngestStepLock = {
+  orgId: string
+  runId: string
+  shard: number
+  lockOwner: string
+}
+
+function heldBy(lock: IngestStepLock) {
+  return and(
+    eq(sandboxLocks.orgId, lock.orgId),
+    eq(sandboxLocks.key, ingestSandboxThreadId(lock.runId, lock.shard)),
+    eq(sandboxLocks.owner, lock.lockOwner),
+  )
+}
+
+/**
+ * Add the USD of one model call to the step that holds the shard lock. The
+ * lock row keeps it in Postgres, so the model proxy (on the API) and the
+ * step (on the worker) share it. Nothing changes when `lockOwner` does not
+ * hold the lock now.
+ */
+export async function addIngestModelCost(
+  lock: IngestStepLock,
+  usd: number,
+): Promise<void> {
+  await withOrgDbContext(lock.orgId, (db) =>
+    db
+      .update(sandboxLocks)
+      .set({
+        modelCostUsd: sql`coalesce(${sandboxLocks.modelCostUsd}, 0) + ${usd}`,
+      })
+      .where(heldBy(lock)),
+  )
+}
+
+/**
+ * The USD that the model proxy recorded for the step that holds the shard
+ * lock as `lockOwner`. Null when it recorded no call. Read it before the
+ * step releases the lock: the release deletes the row.
+ */
+export async function ingestModelCost(
+  lock: IngestStepLock,
+): Promise<number | null> {
+  const [row] = await withOrgDbContext(lock.orgId, (db) =>
+    db
+      .select({ usd: sandboxLocks.modelCostUsd })
+      .from(sandboxLocks)
+      .where(heldBy(lock))
+      .limit(1),
+  )
+  return row?.usd ?? null
+}
+
+/**
+ * The usage of a step with the cost that the model proxy recorded for it.
+ * With no recorded call (`usd` null), the usage stays as the step reported
+ * it.
+ */
+export function withRecordedModelCost(
+  usage: IngestStepUsage | undefined,
+  usd: number | null,
+): IngestStepUsage | undefined {
+  if (usd === null) return usage
+  return { ...(usage ?? { inputTokens: 0, outputTokens: 0 }), costUsd: usd }
 }
 
 /** The ingestion v2 run `runId` and its child runs (the shards), as a `tree(id)` CTE. */

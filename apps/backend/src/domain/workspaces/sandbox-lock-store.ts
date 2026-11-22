@@ -185,7 +185,8 @@ function postgresLocks(
             .values({ orgId, key, owner, expiresAt })
             .onConflictDoUpdate({
               target: [sandboxLocks.orgId, sandboxLocks.key],
-              set: { owner, expiresAt },
+              // A new owner does not take the model cost of the old one.
+              set: { owner, expiresAt, modelCostUsd: null },
               setWhere: sql`${sandboxLocks.expiresAt} <= clock_timestamp()`,
             })
             .returning({ owner: sandboxLocks.owner }),

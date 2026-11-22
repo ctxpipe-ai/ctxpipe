@@ -67,6 +67,7 @@ import {
   ingestCallbackOrigin,
 } from "./ingest-shard-runtime.js"
 import { withShardStep } from "./ingest-shard-step.js"
+import { ingestModelCost, withRecordedModelCost } from "./ingest-spend.js"
 import { logIngestEvent } from "./ingest-telemetry.js"
 import {
   INGEST_TOOL_BRIDGE_PATH,
@@ -401,6 +402,8 @@ function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
       agentEnv: Record<string, string>
       /** Aborts at the step limit or when the shard lock is lost. */
       signal: AbortSignal
+      /** The owner of the shard lock that this step holds. */
+      lockOwner: string
     }) => Promise<T>,
     signal?: AbortSignal,
   ): Promise<T> {
@@ -472,7 +475,7 @@ function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
               bundle: spec.bundle,
               opencodeConfig,
             }),
-          run: (box) => fn({ ...box, signal: lockSignal }),
+          run: (box) => fn({ ...box, signal: lockSignal, lockOwner }),
           stopAgents: stopIngestAgentProcesses,
           logContext: { orgId: spec.orgId, runId: spec.runId },
         })
@@ -490,14 +493,14 @@ function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
     runStep: (step) =>
       withShard(
         step.name,
-        async ({ handle, root, agentEnv, signal }) => {
+        async ({ handle, root, agentEnv, signal, lockOwner }) => {
           const destination = spec.destinations.find(
             (d) => d.workspaceId === step.workspaceId,
           )
           if (!destination)
             throw new Error("The step's Workspace is not in the shard")
           const { json, rootFiles } = await indexOf(step)
-          const { usage, inputs } = await runIngestShardStep(root, {
+          const { usage: reported, inputs } = await runIngestShardStep(root, {
             step: {
               ...step,
               rootMap: withExistingRootFiles(step.rootMap, rootFiles),
@@ -512,6 +515,20 @@ function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
               ? { model: `ctxpipe/${step.tier ?? defaultTier}` }
               : {}),
           })
+          // The cost is the gateway cost that the model proxy recorded for
+          // this lock owner, not the estimate of OpenCode (CTX-1522).
+          const usage =
+            step.run === "model"
+              ? withRecordedModelCost(
+                  reported,
+                  await ingestModelCost({
+                    orgId: spec.orgId,
+                    runId: spec.runId,
+                    shard: spec.shard,
+                    lockOwner,
+                  }),
+                )
+              : reported
           return {
             tar: await collectIngestStep(handle, root),
             ...(usage ? { usage } : {}),
