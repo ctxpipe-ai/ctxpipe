@@ -1,3 +1,4 @@
+import { asStringArray } from "../domain/codeIngestion/connectorFrontmatter.js"
 import { connectorMirrorRoot } from "../domain/codeIngestion/connectorMirrorPaths.js"
 import {
   confluencePageDedupKey,
@@ -22,7 +23,6 @@ import {
   changeTargetOf,
   mergedPullRequest,
   sourceRepositoriesOf,
-  stringList,
 } from "../domain/workspaces/pull-request-changes.js"
 import { normalizeWorkspaceRepositoryUrl } from "../domain/workspaces/slug.js"
 
@@ -180,17 +180,17 @@ const withoutFences = (text: string) =>
  * The rules, from the highest confidence:
  * - 0.9: a file path, which names each package root below the repository
  *   top that can hold it, in each repository of the issue, and a GitHub
- *   permalink of a file, in its own repository; a method and an HTTP path. The Repository and the top hold each path, also a file of
- *   the reporter (`src/main.rs`), so a match on them is no evidence.
+ *   permalink of a file, in its own repository; a method and an HTTP path.
+ *   The Repository and the top hold each path, also a file of the reporter
+ *   (`src/main.rs`), so a match on them is no evidence.
  * - 0.8: an HTTP path with no method, in a code span or under `/api`; a
  *   label `area/<name>` or `component/<name>`; a full code span with a
  *   lowercase letter.
  * - 0.7: a name with `-` or `_` in the title or the text (`client-go`).
  * A plain word of the title or the text is not a rule, also the first word
  * of a title before a colon (`Bug: …`): most such words name nothing, and
- * some name the wrong unit (`kind`). A name of one or two
- * characters is a variable more often than a unit (`x`), so it is not a
- * mention.
+ * some name the wrong unit (`kind`). A name of one or two characters is a
+ * variable more often than a unit (`x`), so it is not a mention.
  */
 function mentionLinks(input: {
   title: string
@@ -248,19 +248,23 @@ function mentionLinks(input: {
       for (const key of folderKeysOf(repository, file))
         mention(key, 0.9, match[0])
   }
-  for (const match of body.matchAll(
-    new RegExp(`\\b(${HTTP_METHODS})\\s+(\\/(?:[\\w./{}:-]*[\\w}])?)`, "g"),
-  ))
+  const operation = new RegExp(
+    `\\b(${HTTP_METHODS})\\s+(\\/(?:[\\w./{}:-]*[\\w}])?)`,
+    "g",
+  )
+  for (const match of body.matchAll(operation))
     mention(operationKey(match[1] ?? "", match[2] ?? ""), 0.9, match[0])
 
+  // A path with its method names only the operation of that method, so the
+  // rules of a path with no method do not read it.
   for (const span of spans)
     if (/^(?:\/[\w.{}:-]+)+\/?$/.test(span))
       mention(operationPathKey(span), 0.8, span)
-  for (const match of prose.matchAll(
-    /(?<![\w./-])\/apis?\/(?:[\w./{}:-]*[\w}])?/g,
-  ))
+  for (const match of prose
+    .replace(operation, " ")
+    .matchAll(/(?<![\w./-])\/apis?\/(?:[\w./{}:-]*[\w}])?/g))
     mention(operationPathKey(match[0]), 0.8, match[0])
-  for (const label of stringList(input.attributes.labels)) {
+  for (const label of asStringArray(input.attributes.labels)) {
     const name = /^(?:area|component)\/(.+)$/.exec(label)?.[1]
     if (name) mentionName(name, 0.8, "")
   }
@@ -276,11 +280,11 @@ function mentionLinks(input: {
   // not read it. A folder of the path can name a unit (`client-go/tools`).
   // A login is not a unit either: a handle (`@k8s-ci-robot`) and the heading
   // of a mirrored comment (`### <time> · <login>`).
-  const withoutFileNames = `${input.title}\n${prose}`
+  const nameText = `${input.title}\n${prose}`
     .replace(/^### \S+ · .*$/gm, " ")
     .replace(/@[\w/-]+/g, " ")
     .replace(/[\w-]+\.[A-Za-z][A-Za-z0-9]{0,7}(?![\w/-])/g, " ")
-  for (const match of withoutFileNames.matchAll(
+  for (const match of nameText.matchAll(
     /(?<![\w.-])[a-z][a-z0-9]*(?:[-_][a-z0-9]+)+(?![\w-])/gi,
   ))
     mentionName(match[0], 0.7, match[0])
