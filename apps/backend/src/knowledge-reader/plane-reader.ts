@@ -437,6 +437,10 @@ async function related(
   let results: TraversalNode[]
   let positions: RelatedPosition[] | undefined
   const keepsKind = kindFilter(input)
+  // A document that can be a result: not a seed (unless `includeSeeds`),
+  // and of a kind that the call keeps.
+  const canAnswer = (node: TraversalNode) =>
+    (node.depth > 0 || input.includeSeeds) && keepsKind(node)
   const { disagreementItems } = ORCHESTRATOR_DEFAULTS
   // The facts of the disagreement step, asked with the judge of the last
   // layer: see `onLastLayer` below.
@@ -467,30 +471,14 @@ async function related(
       // are asked after the walk, for the top answers only.
       onLastLayer: (judged, pending) => {
         const possible = [
-          ...answerNodes(judged, input.includeSeeds, keepsKind).slice(
-            0,
-            disagreementItems,
-          ),
-          ...pending.filter(
-            (node) => (node.depth > 0 || input.includeSeeds) && keepsKind(node),
-          ),
+          ...answerNodes(judged, canAnswer).slice(0, disagreementItems),
+          ...pending.filter(canAnswer),
         ]
-        if (possible.length === 0 || possible.length > disagreementItems) return
-        meter.jevCalls += disagreementCalls(possible.length)
-        meter.jevCandidates += possible.length
-        earlyFacts = beforeDeadline(deadline, () =>
-          askDisagreementFacts({
-            question,
-            items: possible.map(evidenceItem),
-            timeoutMs: callTimeLimitMs(deadline),
-          }),
-        )
-        // The step awaits it later; until then, a failure must not be an
-        // unhandled rejection.
-        earlyFacts.catch(() => {})
+        if (possible.length > 0 && possible.length <= disagreementItems)
+          earlyFacts = askFacts(question, possible, deadline, meter)
       },
     })
-    const answers = answerNodes(traversal.nodes, input.includeSeeds, keepsKind)
+    const answers = answerNodes(traversal.nodes, canAnswer)
     results = withSteps(answers, traversal.nodes, keepsKind)
     const top = answers.slice(0, disagreementItems)
     if (top.length > 0 && !traversal.partialReason)
@@ -500,8 +488,7 @@ async function related(
         traversal.relations,
         now,
         deadline,
-        meter,
-        earlyFacts,
+        earlyFacts ?? askFacts(question, top, deadline, meter),
       ).catch((error: unknown) => {
         // The end of the budget gives the ranking with no positions.
         if (!isBudgetSpent(error, deadline)) throw error
@@ -531,20 +518,16 @@ async function related(
 
 /**
  * The judged documents that answer (p(answers) of at least `keepAt`) and
- * pass the kind filters of the call, best first. A seed is one only with
- * `includeSeeds`.
+ * `canAnswer` accepts, best first.
  */
 function answerNodes(
   nodes: readonly TraversalNode[],
-  includeSeeds: boolean,
-  keepsKind: (node: TraversalNode) => boolean,
+  canAnswer: (node: TraversalNode) => boolean,
 ): TraversalNode[] {
   return nodes
     .filter(
       (node) =>
-        (node.depth > 0 || includeSeeds) &&
-        node.pAnswers >= ORCHESTRATOR_DEFAULTS.keepAt &&
-        keepsKind(node),
+        node.pAnswers >= ORCHESTRATOR_DEFAULTS.keepAt && canAnswer(node),
     )
     .sort(byScore)
 }
@@ -631,12 +614,35 @@ function evidenceItem({ ref, document, text }: TraversalNode): EvidenceItem {
 }
 
 /**
+ * Ask Jev the disagreement facts of `nodes` (ADR-068 decision 4), before
+ * `deadline`. The caller awaits the result later, so a failure is not an
+ * unhandled rejection until then.
+ */
+function askFacts(
+  question: string,
+  nodes: readonly TraversalNode[],
+  deadline: number,
+  meter: ModelMeter,
+): Promise<DisagreementFacts> {
+  meter.jevCalls += disagreementCalls(nodes.length)
+  meter.jevCandidates += nodes.length
+  const facts = beforeDeadline(deadline, () =>
+    askDisagreementFacts({
+      question,
+      items: nodes.map(evidenceItem),
+      timeoutMs: callTimeLimitMs(deadline),
+    }),
+  )
+  facts.catch(() => {})
+  return facts
+}
+
+/**
  * The disagreement step of ADR-068 decision 4 on the top results: the
  * positions, each with its refs, its status, the reason of the status, and
- * the positions that it contradicts or updates. `facts` are the facts that
- * Jev gave in the round of the last layer, about a set of documents that
- * holds the top results; without them, Jev answers the facts now. A Jev
- * failure throws its `JevError`.
+ * the positions that it contradicts or updates. `facts` are the facts of a
+ * set of documents that holds the top results (`askFacts`). A Jev failure
+ * throws its `JevError`.
  */
 async function disagreementPositions(
   question: string,
@@ -644,13 +650,8 @@ async function disagreementPositions(
   relations: readonly KnowledgeRelation[],
   queryTime: Date,
   deadline: number,
-  meter: ModelMeter,
-  facts: Promise<DisagreementFacts> | undefined,
+  facts: Promise<DisagreementFacts>,
 ): Promise<RelatedPosition[]> {
-  if (!facts) {
-    meter.jevCalls += disagreementCalls(top.length)
-    meter.jevCandidates += top.length
-  }
   const { sameAt, disagreeAt, replacesAt, scopedAt } = ORCHESTRATOR_DEFAULTS
   const items = top.map(evidenceItem)
   const pathOf = new Map(
@@ -661,9 +662,8 @@ async function disagreementPositions(
       question,
       queryTime,
       thresholds: { sameAt, disagreeAt, replacesAt, scopedAt },
-      timeoutMs: callTimeLimitMs(deadline),
       items,
-      facts: facts && (await facts),
+      facts: await facts,
       relations,
     }),
   )

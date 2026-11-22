@@ -19,6 +19,7 @@ import {
 } from "../../evals/knowledge/metrics.js"
 import {
   ModelCalls,
+  type RecordedCall,
   recordedCallSchema,
 } from "../../evals/knowledge/model-calls.js"
 import { checkPanel, labelWithPanel } from "../../evals/knowledge/panel.js"
@@ -484,38 +485,40 @@ describe("the replay key", () => {
   })
 })
 
-describe("the replay of a Jev question in another batch", () => {
+describe("the replay of a Jev question in another call", () => {
   const BASE = "https://openrouter.ai/api/v1"
   const JEV = "https://openrouter.ai/api/alpha/decisions"
   const server = useMswServer()
   afterEach(() => vi.unstubAllEnvs())
 
-  const candidate = (id: string) => ({
-    id,
-    text: `The text of ${id}.`,
-    meta: {
-      status: "active",
-      sourceType: "docs",
-      observedAt: "2026-11-01T00:00:00.000Z",
-      validFrom: null,
-      validTo: null,
-      confidence: null,
-    },
-  })
+  const meta = {
+    status: "active",
+    sourceType: "docs",
+    observedAt: "2026-11-01T00:00:00.000Z",
+    validFrom: null,
+    validTo: null,
+    confidence: null,
+  }
   const judgeWhy = (ids: string[]) =>
-    judgeLayer({ question: "q", intent: "why", candidates: ids.map(candidate) })
+    judgeLayer({
+      question: "q",
+      intent: "why",
+      candidates: ids.map((id) => ({ id, text: `The text of ${id}.`, meta })),
+    })
+  const item = (id: string) => ({
+    id,
+    passage: `The passage of ${id}.`,
+    meta: { ...meta, documentKey: id },
+  })
 
-  it("answers each question from a recorded call that asked it about the same item, and gives an unrecorded question p(yes) 0", async () => {
+  /** Record the calls of `ask` with a Jev that answers from `record`. */
+  async function recorded(
+    record: Record<string, number>,
+    ask: () => Promise<unknown>,
+  ) {
     vi.stubEnv("MODEL_PROVIDER", "openrouter")
     vi.stubEnv("MODEL_PROVIDER_URL", BASE)
     vi.stubEnv("MODEL_PROVIDER_API_KEY", "test-key")
-    // Live: Jev judges a and b in one call.
-    const recorded: Record<string, number> = {
-      "answers.1": 0.9,
-      "explore.1": 0.2,
-      "answers.2": 0.3,
-      "explore.2": 0.8,
-    }
     server.use(
       http.post(JEV, async ({ request }) => {
         const { questions } = (await request.json()) as {
@@ -525,144 +528,131 @@ describe("the replay of a Jev question in another batch", () => {
           answers: Object.fromEntries(
             Object.keys(questions).map((key) => [
               key,
-              { type: "noul", noul: recorded[key] },
+              { type: "noul", noul: record[key] },
             ]),
           ),
         })
       }),
     )
     const live = new ModelCalls(BASE, 1)
-    let restore = live.install()
+    const restore = live.install()
     try {
       live.begin("plane", "question")
-      await judgeWhy(["a", "b"])
+      await ask()
     } finally {
       restore()
     }
-
     // A replay sends nothing.
     server.use(
       http.post(JEV, () =>
         HttpResponse.json({ error: "live" }, { status: 500 }),
       ),
     )
-    const replay = new ModelCalls(BASE, 0, live.records)
-    restore = replay.install()
+    return live.records
+  }
+
+  /** Run `step` on a replay of `records`, then give its counts. */
+  async function replayed(
+    records: readonly RecordedCall[],
+    step: () => Promise<unknown>,
+    options?: { unrecordedYes?: number },
+  ) {
+    const replay = new ModelCalls(BASE, 0, records, options)
+    const restore = replay.install()
     try {
-      // b is Candidate 2 of a new batch with c.
       replay.begin("plane", "question")
-      const judged = await judgeWhy(["c", "b"])
-      expect(judged.get("b")).toEqual({ pAnswers: 0.3, pExplore: 0.8 })
-      expect(judged.get("c")).toEqual({ pAnswers: 0, pExplore: 0 })
-      expect(replay.end()).toMatchObject({
-        jev: 1,
-        jevQuestions: 4,
-        unrecorded: 2,
-        missing: 0,
-      })
-      // A call with no recorded question also gets p(yes) 0, for example
-      // a batch of facts that the change asks but does not read.
-      replay.begin("plane", "question")
-      expect((await judgeWhy(["c"])).get("c")).toEqual({
+      const result = await step().catch((error: unknown) => error)
+      return { result, counts: replay.end(), records: replay.records }
+    } finally {
+      restore()
+    }
+  }
+
+  it("answers a question from a recorded call that asked it about the same item, and keeps that call", async () => {
+    const calls = await recorded(
+      {
+        "answers.1": 0.9,
+        "explore.1": 0.2,
+        "answers.2": 0.3,
+        "explore.2": 0.8,
+      },
+      () => judgeWhy(["a", "b"]),
+    )
+    // b and a in their own calls, under other numbers.
+    const first = await replayed(calls, () =>
+      Promise.all([judgeWhy(["b"]), judgeWhy(["a"])]),
+    )
+    const [b, a] = first.result as Map<string, unknown>[]
+    expect(b?.get("b")).toEqual({ pAnswers: 0.3, pExplore: 0.8 })
+    expect(a?.get("a")).toEqual({ pAnswers: 0.9, pExplore: 0.2 })
+    expect(first.counts).toMatchObject({ jev: 2, missing: 0, unrecorded: 0 })
+    // The replay keeps the recorded call, so a replay of it answers again.
+    const second = await replayed(first.records, () => judgeWhy(["b"]))
+    expect((second.result as Map<string, unknown>).get("b")).toEqual({
+      pAnswers: 0.3,
+      pExplore: 0.8,
+    })
+  })
+
+  it("misses a call with an unrecorded question, unless --unrecorded-yes gives its p(yes)", async () => {
+    const calls = await recorded({ "answers.1": 0.9, "explore.1": 0.2 }, () =>
+      judgeWhy(["a"]),
+    )
+    // c is new: a deeper walk, for example, stays incomplete.
+    const missed = await replayed(calls, () => judgeWhy(["c", "a"]))
+    expect(missed.result).toBeInstanceOf(Error)
+    expect(missed.counts).toMatchObject({ jev: 0, missing: 1, unrecorded: 0 })
+    const filled = await replayed(calls, () => judgeWhy(["c", "a"]), {
+      unrecordedYes: 1,
+    })
+    const judged = filled.result as Map<string, unknown>
+    expect(judged.get("c")).toEqual({ pAnswers: 1, pExplore: 1 })
+    expect(judged.get("a")).toEqual({ pAnswers: 0.9, pExplore: 0.2 })
+    expect(filled.counts).toMatchObject({ jev: 1, missing: 0, unrecorded: 2 })
+    // The answers of one question of the eval do not answer another.
+    const replay = new ModelCalls(BASE, 0, calls, { unrecordedYes: 0 })
+    const restore = replay.install()
+    try {
+      replay.begin("plane", "other question")
+      expect((await judgeWhy(["a"])).get("a")).toEqual({
         pAnswers: 0,
         pExplore: 0,
       })
-      expect(replay.end()).toMatchObject({ jev: 1, missing: 0, unrecorded: 2 })
-      // The answers of one question of the eval do not answer another.
-      replay.begin("plane", "other question")
-      await expect(judgeWhy(["b", "c"])).rejects.toThrow()
-      expect(replay.end()).toMatchObject({ missing: 1 })
+      expect(replay.end()).toMatchObject({ jev: 1, unrecorded: 2 })
     } finally {
       restore()
     }
-  })
-})
-
-describe("the replay of a disagreement fact in another order", () => {
-  const BASE = "https://openrouter.ai/api/v1"
-  const JEV = "https://openrouter.ai/api/alpha/decisions"
-  const server = useMswServer()
-  afterEach(() => vi.unstubAllEnvs())
-
-  const item = (id: string) => ({
-    id,
-    passage: `The passage of ${id}.`,
-    meta: {
-      status: "active",
-      sourceType: "docs",
-      observedAt: "2026-11-01T00:00:00.000Z",
-      validFrom: null,
-      validTo: null,
-      confidence: null,
-      documentKey: id,
-    },
   })
 
   it("reads a symmetric pair fact in either order of the items, and a directed one only in its own direction", async () => {
-    vi.stubEnv("MODEL_PROVIDER", "openrouter")
-    vi.stubEnv("MODEL_PROVIDER_URL", BASE)
-    vi.stubEnv("MODEL_PROVIDER_API_KEY", "test-key")
-    // Live: a is Item 1 and b is Item 2. b replaces a.
-    const live: Record<string, number> = {
-      "same.1.2": 0.9,
-      "disagree.1.2": 0.8,
-      "replaces.1.2": 0.1,
-      "replaces.2.1": 0.7,
-      "scoped.1": 0.2,
-      "scoped.2": 0.3,
-    }
-    server.use(
-      http.post(JEV, async ({ request }) => {
-        const { questions } = (await request.json()) as {
-          questions: Record<string, unknown>
-        }
-        return HttpResponse.json({
-          answers: Object.fromEntries(
-            Object.keys(questions).map((key) => [
-              key,
-              { type: "noul", noul: live[key] },
-            ]),
-          ),
-        })
-      }),
-    )
-    const recorder = new ModelCalls(BASE, 1)
-    let restore = recorder.install()
-    try {
-      recorder.begin("plane", "question")
-      await askDisagreementFacts({
-        question: "q",
-        items: [item("a"), item("b")],
-      })
-    } finally {
-      restore()
-    }
-    server.use(
-      http.post(JEV, () =>
-        HttpResponse.json({ error: "live" }, { status: 500 }),
-      ),
-    )
-    const replay = new ModelCalls(BASE, 0, recorder.records)
-    restore = replay.install()
-    try {
-      // b is Item 1 and a is Item 2 now.
-      replay.begin("plane", "question")
-      const facts = await askDisagreementFacts({
-        question: "q",
-        items: [item("b"), item("a")],
-      })
-      expect(Object.fromEntries(facts.answers)).toEqual({
+    // a is Item 1 and b is Item 2. b replaces a.
+    const calls = await recorded(
+      {
         "same.1.2": 0.9,
         "disagree.1.2": 0.8,
-        "replaces.1.2": 0.7,
-        "replaces.2.1": 0.1,
-        "scoped.1": 0.3,
-        "scoped.2": 0.2,
-      })
-      expect(replay.end()).toMatchObject({ jev: 1, unrecorded: 0 })
-    } finally {
-      restore()
-    }
+        "replaces.1.2": 0.1,
+        "replaces.2.1": 0.7,
+        "scoped.1": 0.2,
+        "scoped.2": 0.3,
+      },
+      () =>
+        askDisagreementFacts({ question: "q", items: [item("a"), item("b")] }),
+    )
+    // b is Item 1 and a is Item 2 now.
+    const { result, counts } = await replayed(calls, () =>
+      askDisagreementFacts({ question: "q", items: [item("b"), item("a")] }),
+    )
+    expect(
+      Object.fromEntries((result as { answers: Map<string, number> }).answers),
+    ).toEqual({
+      "same.1.2": 0.9,
+      "disagree.1.2": 0.8,
+      "replaces.1.2": 0.7,
+      "replaces.2.1": 0.1,
+      "scoped.1": 0.3,
+      "scoped.2": 0.2,
+    })
+    expect(counts).toMatchObject({ jev: 1, unrecorded: 0 })
   })
 })
 

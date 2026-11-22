@@ -61,8 +61,9 @@ export const callCountsSchema = z.object({
   failed: z.number().default(0),
   /**
    * Replay only: the Jev questions that no recorded call asked about the
-   * same items (see `ModelCalls.composed`). Each one got p(yes) 0. A run
-   * folder from before this count has none (0).
+   * same items, which got the p(yes) of `unrecordedYes` (see
+   * `ModelCalls.composed`). A run folder from before this count has none
+   * (0).
    */
   unrecorded: z.number().default(0),
 })
@@ -265,11 +266,15 @@ export class ModelCalls {
   private readonly reuse = { reused: 0, live: 0 }
   /**
    * The recorded Jev answer of each arm, question and content key of a Jev
-   * question (`contentKeysOf`): the first one that the recording holds.
+   * question (`contentKeysOf`), with its call: the first one that the
+   * recording holds.
    */
-  private readonly recordedAnswers = new Map<string, unknown>()
-  /** The arm and question pairs with at least one recorded Jev answer. */
-  private readonly answeredQuestions = new Set<string>()
+  private readonly recordedAnswers = new Map<
+    string,
+    { answer: unknown; call: RecordedCall }
+  >()
+  /** The recorded calls that a composed answer used, kept in `records`. */
+  private readonly composedFrom = new Set<RecordedCall>()
 
   /**
    * `baseUrl` is `MODEL_PROVIDER_URL`. `capUsd` is the spend cap of the run.
@@ -279,6 +284,8 @@ export class ModelCalls {
    * call that failed (HTTP 400 or more) is then no answer: the request goes
    * out again, so a failure of the earlier run does not come back on each
    * later run.
+   * With `unrecordedYes`, a replay with no live fallback gives a Jev question that no recorded
+   * call asked this p(yes), and the call does not miss (`composed`).
    */
   constructor(
     baseUrl: string,
@@ -289,6 +296,7 @@ export class ModelCalls {
       keepRecords?: boolean
       /** Send a call that `replay` does not hold, instead of a 503. */
       liveFallback?: boolean
+      unrecordedYes?: number
     } = {},
   ) {
     this.origin = new URL(baseUrl).origin
@@ -310,10 +318,11 @@ export class ModelCalls {
           const answerKey = this.replayKey(call.arm, call.question, content)
           if (answers?.[question] !== undefined)
             if (!this.recordedAnswers.has(answerKey))
-              this.recordedAnswers.set(answerKey, answers[question])
+              this.recordedAnswers.set(answerKey, {
+                answer: answers[question],
+                call,
+              })
         }
-      if (answers)
-        this.answeredQuestions.add(this.replayKey(call.arm, call.question, ""))
     }
   }
 
@@ -505,33 +514,41 @@ export class ModelCalls {
    * change the answers of a live call, so a live run still judges such a
    * change.
    *
-   * A question that no recorded call asked gets p(yes) 0 and counts as
-   * `unrecorded`: a change that asks more questions than it reads (for
-   * example facts that it asks before it knows which items it needs) still
-   * replays, also when one of its calls holds only such questions. Null,
-   * and no count, when the recording has no Jev answer of this arm and
-   * question. The composed answer has no cost.
+   * A question that no recorded call asked makes the call miss (null), as
+   * a new request does. With `unrecordedYes`, it gets that p(yes) instead
+   * and counts as `unrecorded`: then a change that asks more questions than
+   * it reads (for example facts that it asks before it knows which items it
+   * needs) replays. Two rescores, with 0 and with 1, show that the change
+   * does not read these answers when they give the same scores.
+   *
+   * The composed answer has no cost. The recorded calls that it used go to
+   * `records`, so that a replay of this run composes the same answer.
    */
   private composed(body: unknown, owner: Owner): Response | null {
     const keys = contentKeysOf(body)
-    if (
-      !keys ||
-      !this.answeredQuestions.has(this.replayKey(owner.arm, owner.question, ""))
-    )
-      return null
+    if (!keys) return null
+    const fill = this.options.unrecordedYes
     const answers: Record<string, unknown> = {}
+    const used: RecordedCall[] = []
     let unrecorded = 0
     for (const [question, contents] of keys) {
-      const answer = contents
+      const found = contents
         .map((content) =>
           this.recordedAnswers.get(
             this.replayKey(owner.arm, owner.question, content),
           ),
         )
-        .find((found) => found !== undefined)
-      if (answer === undefined) unrecorded += 1
-      answers[question] = answer ?? { type: "noul", noul: 0 }
+        .find((entry) => entry !== undefined)
+      if (found) used.push(found.call)
+      else if (fill === undefined) return null
+      else unrecorded += 1
+      answers[question] = found?.answer ?? { type: "noul", noul: fill }
     }
+    for (const call of used)
+      if (!this.composedFrom.has(call)) {
+        this.composedFrom.add(call)
+        this.records.push(call)
+      }
     owner.counts.jev += 1
     owner.counts.jevQuestions += keys.size
     owner.counts.unrecorded += unrecorded

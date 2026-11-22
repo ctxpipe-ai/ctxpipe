@@ -268,11 +268,11 @@ function factsOf(
     copy(KEYS.scoped(a), KEYS.scoped(n))
     asked.slice(index + 1).forEach((m, offset) => {
       const b = a + offset + 1
-      // `same` and `disagree` are asked once for each pair, with the lower
-      // number first.
+      // A symmetric fact is asked once for each pair, with the lower number
+      // first.
       const [low, high] = n < m ? [n, m] : [m, n]
-      copy(KEYS.same(a, b), KEYS.same(low, high))
-      copy(KEYS.disagree(a, b), KEYS.disagree(low, high))
+      for (const fact of SYMMETRIC_FACTS)
+        copy(KEYS[fact](a, b), KEYS[fact](low, high))
       copy(KEYS.replaces(a, b), KEYS.replaces(n, m))
       copy(KEYS.replaces(b, a), KEYS.replaces(m, n))
     })

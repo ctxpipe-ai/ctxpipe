@@ -174,12 +174,20 @@ Write each run folder outside the checkout, as in these examples. The folder hol
 ```sh
 bun --env-file=.env.local evals/knowledge/cli.ts rescore \
   --from "$TMPDIR/knowledge-eval/RUN" --out "$TMPDIR/knowledge-eval/RUN-keepAt-0.6" \
-  --set keepAt=0.6 [--kept KEPT/report.json]
+  --set keepAt=0.6 [--kept KEPT/report.json] [--unrecorded-yes 0]
 ```
 
 `rescore` runs the questions again against the same stores, at the query time of the earlier run. Each model call gets its recorded answer from `calls.jsonl` of the earlier run, in the recorded order, and no call goes out. The replay key of a call is its kind and its request body with no `provider` block: that block only routes the call (ZDR, data collection, the provider allowlist, the sort), and it does not change the answer. Thus a run from before a change of the routing (for example the `only` field of CTX-1450) replays. A setting that needs a call that the recording does not hold (for example a deeper walk) makes that answer incomplete: the report leaves the question out of the metrics and lists it. The cost of a replay is the cost of the recorded calls when they were made. A replay gives no latency.
 
-A Jev call that the recording does not hold gets its answers from the recorded answers of its questions in other calls of the same arm and question: the same question about the same items, with the same other lines of the state (the question and the intent). The numbers of the items and the other items of the batch can be different. A pair fact of the disagreement step whose meaning does not depend on the order of the two items (`same`, `disagree`) is read in either order. Thus a change of the Jev batches, or a step that asks its questions in another round, replays. A question that no recorded call asked gets p(yes) 0, and the report lists the answers with such questions ("Jev questions with no recorded answer"). Their scores are correct only when the change does not read these answers, for example facts that it asks before it knows which items it needs. A Jev call is missing, as above, only when the recording has no Jev answer of that arm and question. A composed answer has no cost. The batch can change the answers of a live call (Jev reads the other items of the batch, and the order of a pair), so only a live run measures that effect.
+A Jev call that the recording does not hold can still replay, question by question:
+
+- Each question gets the recorded answer of the same question about the same items, from another call of the same arm and question. The other lines of the state (the question and the intent) must also be the same. The numbers of the items and the other items of the call can be different.
+- The pair facts `same` and `disagree` of the disagreement step do not depend on the order of the two items. The replay reads them in either order.
+- Thus a change of the Jev batches, or a step that asks its questions in another round, replays.
+- A question that no recorded call asked makes the call missing, as above. Thus a deeper walk still gives an incomplete answer.
+- `--unrecorded-yes P` gives each such question p(yes) P (0 to 1) instead. Use it for a change that asks questions that it does not read, for example facts that it asks before it knows which items it needs. The report lists the answers with such questions ("Jev questions with no recorded answer"). Run the rescore two times, with 0 and with 1. When the scores are the same, the change does not read these answers.
+- A composed answer has no cost. The run folder keeps the recorded calls that it used, so that a rescore of the new folder composes the same answers.
+- Jev reads the other items of a call and the order of a pair. Thus another batch can change the answers of a live call, and only a live run measures that effect.
 
 The disagreement step asks Jev only yes/no facts, and code decides the pair labels and the position status from them (ADR-068 decision 4). Thus a change of that code, or of a fact threshold (`sameAt`, `disagreeAt`, `replacesAt`, `scopedAt`), is scored again with no call.
 

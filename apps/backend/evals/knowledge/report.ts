@@ -123,7 +123,7 @@ export type Report = {
   incomplete: string[]
   /**
    * Replay only: the answers with Jev questions that no recorded call asked
-   * about the same items. The replay gave each one p(yes) 0.
+   * about the same items. Each got the p(yes) of `--unrecorded-yes`.
    */
   unrecorded: { question: string; arm: Arm; count: number }[]
 }
@@ -665,7 +665,7 @@ export function renderMarkdown(report: Report): string {
       "",
       "## Jev questions with no recorded answer",
       "",
-      "The replay gave each of these Jev questions p(yes) 0, because no recorded call asked it about the same items. The scores are correct only when the change does not read these answers: for example facts that it asks before it knows which items it needs.",
+      `The replay gave each of these Jev questions p(yes) ${report.run.unrecordedYes} (\`--unrecorded-yes\`), because no recorded call asked it about the same items. The scores are correct only when the change does not read these answers. A second rescore with another value shows it: the scores must not change.`,
       "",
       ...report.unrecorded.map(
         ({ question, arm, count }) => `- ${question} (${arm}): ${count}`,
