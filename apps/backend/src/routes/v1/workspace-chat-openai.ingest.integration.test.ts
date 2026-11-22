@@ -27,7 +27,7 @@ import { sandboxLocks } from "../../db/schema/sandbox-locks.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import { parseOpenCodeUsage } from "../../domain/ingestion/ingest-opencode-usage.js"
 import {
-  ingestModelCost,
+  takeIngestModelCost,
   ingestUsageUsd,
   withRecordedModelCost,
 } from "../../domain/ingestion/ingest-spend.js"
@@ -391,7 +391,7 @@ describe("workspace-ingest-model capability", () => {
       step: "skill:root:apis",
       lockOwner,
     })
-    expect(await ingestModelCost(lock)).toBeNull()
+    expect(await takeIngestModelCost(lock)).toBeNull()
     // A streamed answer ends with a usage chunk; with a bring-your-own-key
     // route, the gateway puts the provider charge in `cost_details`.
     const usages = [
@@ -451,8 +451,10 @@ describe("workspace-ingest-model capability", () => {
     // The proxy wrote the cost before the answer ended, so the step reads
     // all of it when `opencode run` exits. OpenCode reports no cost for a
     // model with no price in its config.
-    const recorded = await ingestModelCost(lock)
+    const recorded = await takeIngestModelCost(lock)
     expect(recorded).toBeCloseTo(spanSum, 10)
+    // A take clears the cost, so a retry or a later read cannot count it again.
+    expect(await takeIngestModelCost(lock)).toBeNull()
     const usage = withRecordedModelCost(
       parseOpenCodeUsage(
         `{"type":"step_finish","part":{"cost":0,"tokens":{"input":13000,"output":1150}}}`,
@@ -487,7 +489,7 @@ describe("workspace-ingest-model capability", () => {
         owner = receipt.owner
       },
     ).withLock(ingestSandboxThreadId(runId, 1), () =>
-      ingestModelCost({ orgId, runId, shard: 1, lockOwner: owner }),
+      takeIngestModelCost({ orgId, runId, shard: 1, lockOwner: owner }),
     )
     // The next attempt of the step counts the calls of the stopped worker.
     expect(owner).not.toBe(staleOwner)

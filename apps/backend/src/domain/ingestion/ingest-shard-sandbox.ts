@@ -68,7 +68,7 @@ import {
   withIngestAttemptUsage,
 } from "./ingest-shard-runtime.js"
 import { withShardStep } from "./ingest-shard-step.js"
-import { ingestModelCost, withRecordedModelCost } from "./ingest-spend.js"
+import { takeIngestModelCost, withRecordedModelCost } from "./ingest-spend.js"
 import { logIngestEvent } from "./ingest-telemetry.js"
 import {
   INGEST_TOOL_BRIDGE_PATH,
@@ -504,7 +504,7 @@ function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
           // this lock owner, not the estimate of OpenCode (CTX-1522).
           const recordedCost = () =>
             step.run === "model"
-              ? ingestModelCost({
+              ? takeIngestModelCost({
                   orgId: spec.orgId,
                   runId: spec.runId,
                   shard: spec.shard,
@@ -528,9 +528,11 @@ function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
                 ? { model: `ctxpipe/${step.tier ?? defaultTier}` }
                 : {}),
             })
+            const tar = await collectIngestStep(handle, root)
+            // The last call of the attempt: after the take, nothing fails.
             const usage = withRecordedModelCost(reported, await recordedCost())
             return {
-              tar: await collectIngestStep(handle, root),
+              tar,
               ...(usage ? { usage } : {}),
               ...(inputs === undefined ? {} : { inputs }),
             }

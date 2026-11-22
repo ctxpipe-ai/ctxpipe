@@ -97,21 +97,27 @@ export async function addIngestModelCost(
 }
 
 /**
- * The USD that the model proxy recorded for the step that holds the shard
- * lock as `lockOwner`. Null when it recorded no call. Read it before the
- * step releases the lock: the release deletes the row.
+ * Take the USD that the model proxy recorded for the step that holds the
+ * shard lock as `lockOwner`: return it and clear it, in one transaction, so
+ * that no later read counts it again. Null when no call was recorded. Take
+ * it before the step releases the lock: the release deletes the row.
  */
-export async function ingestModelCost(
+export async function takeIngestModelCost(
   lock: IngestStepLock,
 ): Promise<number | null> {
-  const [row] = await withOrgDbContext(lock.orgId, (db) =>
-    db
+  return withOrgDbContext(lock.orgId, async (db) => {
+    const [row] = await db
       .select({ usd: sandboxLocks.modelCostUsd })
       .from(sandboxLocks)
       .where(heldBy(lock))
-      .limit(1),
-  )
-  return row?.usd ?? null
+      .for("update")
+    if (row?.usd == null) return null
+    await db
+      .update(sandboxLocks)
+      .set({ modelCostUsd: null })
+      .where(heldBy(lock))
+    return row.usd
+  })
 }
 
 /**
