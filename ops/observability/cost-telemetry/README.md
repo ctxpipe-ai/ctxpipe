@@ -68,4 +68,4 @@ AWS has no keys: the SDK default credential chain gives the ECS task role. It re
 
 ## Tests
 
-`pnpm --filter cost-telemetry test`. The tests fake each provider's HTTP API with MSW.
+`pnpm --filter cost-telemetry test`. The tests fake each provider's HTTP API with MSW. The tests and the typecheck (`pnpm --filter cost-telemetry typecheck`) are checks of the manifest (`scripts/checks/README.md`): a change to a file of this package selects them in `factory check` and in the merge gate.

@@ -2,6 +2,8 @@ import { readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
+import { parse as parseYaml } from "yaml"
+
 import { logFile, logged } from "./log.mjs"
 import { uiBundledImports } from "./ui-bundled-imports.mjs"
 
@@ -255,7 +257,7 @@ const definitions = () => [
           "packages/visual-review/src/**",
           ...({
             // The manifest of the whole repo, or the files of the apps.
-            "ci-checks-repo": code,
+            "ci-checks-repo": [...code, "ops/**"],
             // The edge hooks resolve the backend packages from this manifest;
             // the lockfile holds their versions.
             "ci-checks": ["apps/backend/package.json"],
@@ -285,6 +287,31 @@ const definitions = () => [
           name.endsWith(".sh") ? ["bash", file] : node("--test", file),
         ],
       }
+    }),
+  // The tests of each ops package of the workspace that has a `test` script
+  // (cost-telemetry): one check for each package. Its typecheck is a project
+  // of scripts/ci/projects.json. The tests run with Bun, so a result key holds
+  // the Bun version.
+  ...parseYaml(readFileSync(join(root, "pnpm-workspace.yaml"), "utf8"))
+    .packages.filter((directory) => directory.startsWith("ops/"))
+    .flatMap((directory) => {
+      const { name, scripts = {} } = JSON.parse(
+        readFileSync(join(root, directory, "package.json"), "utf8"),
+      )
+      if (!scripts.test) return []
+      return [
+        {
+          family: "policy",
+          lane: `tests-${name}`,
+          file: `${directory}/package.json`,
+          root: directory,
+          inputs: [...shared, `${directory}/**`],
+          runtime: "bun",
+          prerequisites: ["bun"],
+          intent: `Catches a failed test of the ${name} package. Run it when a file of the package or the lockfile changes; never for a change outside them.`,
+          commands: [pnpm("--filter", name, "test")],
+        },
+      ]
     }),
   // The production images of the Production build job: one check for each
   // image. A build pulls base images by tag and packages from the network

@@ -412,7 +412,7 @@ test("only a same-repo pull_request without gate input changes runs the selector
     })
   for (const path of [
     ".github/workflows/deploy.yaml",
-    ".github/workflows/observability.yaml",
+    ".github/workflows/mcp-evals.yaml",
     "scripts/checks/README.md",
     ".node-version",
     "scripts/ci/check-secret-jobs.mjs",

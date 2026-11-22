@@ -21,7 +21,7 @@ import { markPortable } from "../checks/families.mjs"
 import { fullRunResults, stepResults } from "../checks/gate.mjs"
 import { jobPlans, placeOf } from "../checks/plan.mjs"
 import { prerequisites, withNeeds } from "../checks/prerequisites.mjs"
-import { listProjects } from "../checks/projects.mjs"
+import { listProjects, projectCommands } from "../checks/projects.mjs"
 import { runsInOf } from "../checks/shard.mjs"
 import { uiBundledImports } from "../checks/ui-bundled-imports.mjs"
 import { vitestCommand } from "../ci/vitest-launch.mjs"
@@ -983,6 +983,57 @@ test("the inputs of each project check hold its file", () => {
       ),
       id,
     )
+})
+
+// CTX-1465: a change to a file of an ops package must select the typecheck
+// and the tests of that package, as CI runs them.
+test("a change to a file of an ops package selects the typecheck and the tests of that package", () => {
+  const checks = listProjects()
+  const commands = projectCommands()
+  const selected = (path) =>
+    checks
+      .filter(({ inputs }) =>
+        inputs.some((input) =>
+          input.endsWith("/**")
+            ? path.startsWith(input.slice(0, -2))
+            : input === path,
+        ),
+      )
+      .map(({ id }) => id)
+  assert.deepEqual(
+    selected("ops/observability/cost-telemetry/src/providers/linear.test.ts")
+      // The tests of the CI scripts that read the ops files stay out.
+      .filter((id) => !id.startsWith("build:") && id.includes(":ops/"))
+      .sort(),
+    [
+      "policy:tests-cost-telemetry:ops/observability/cost-telemetry/package.json",
+      "typecheck:cost-telemetry:ops/observability/cost-telemetry/tsconfig.json",
+    ],
+  )
+  const packages = parseYaml(
+    readFileSync(join(root, "pnpm-workspace.yaml"), "utf8"),
+  ).packages.filter((directory) => directory.startsWith("ops/"))
+  assert.ok(packages.includes("ops/observability/cost-telemetry"))
+  for (const directory of packages) {
+    const { name, scripts = {} } = JSON.parse(
+      readFileSync(join(root, directory, "package.json"), "utf8"),
+    )
+    const ids = selected(`${directory}/src/index.ts`)
+    if (existsSync(join(root, directory, "tsconfig.json")))
+      assert.ok(
+        ids.some(
+          (id) =>
+            id.startsWith("typecheck:") &&
+            id.endsWith(`:${directory}/tsconfig.json`),
+        ),
+        `${directory} has no typecheck in scripts/ci/projects.json`,
+      )
+    if (scripts.test) {
+      const id = `policy:tests-${name}:${directory}/package.json`
+      assert.ok(ids.includes(id), `${directory} has no test check`)
+      assert.deepEqual(commands.get(id), [["pnpm", "--filter", name, "test"]])
+    }
+  }
 })
 
 test("every check has the root toolchain files among its inputs, and a Storybook check has the UI package file instead of the root package.json", () => {
