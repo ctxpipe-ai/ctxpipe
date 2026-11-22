@@ -62,10 +62,10 @@ export type IngestRuntimeStep = {
   rootMap: IngestRootMap
   /**
    * The skill pages by a cursor (CTX-1487): before the skill runs, the
-   * runtime runs its finder (`<skill>.mjs <arguments> --count`) and returns
-   * the count as `inputs`.
+   * runtime runs its finder (`<skill>/scripts/<finder> <arguments> --count`)
+   * and returns the count as `inputs`.
    */
-  cursor?: true
+  cursor?: { finder: string }
   signal: AbortSignal
   /**
    * Before the step limit (`ingestStepCheckpoint`): a model step then stops

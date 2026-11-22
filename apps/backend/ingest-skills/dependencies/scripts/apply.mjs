@@ -22,16 +22,21 @@ import { readFileSync, statSync } from "node:fs"
 import { posix } from "node:path"
 
 import {
+  fileClaims,
   findExisting,
   relativeTo,
   scriptStep,
   writeStep,
 } from "../../bin/knowledge-lib.mjs"
-import { fail } from "../../bin/stage-lib.mjs"
-import { scan, stepStats } from "./scan-lib.mjs"
+import { fail, stepTexts } from "../../bin/stage-lib.mjs"
+import {
+  claimGroups,
+  scan,
+  stepCandidates,
+  stepRoots,
+  stepStats,
+} from "./scan-lib.mjs"
 
-const MAX_RESOLUTIONS = 300
-const MAX_RESOLUTIONS_BYTES = 256 * 1024
 const STREAM_NAME = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}$/
 
 const { step, source, repository, roots, rootPath, index, skipped, value } =
@@ -50,24 +55,6 @@ if (!repositoryStep && !roots.some((r) => r.path === rootPath))
 const stats = {}
 const count = (name, by = 1) => {
   stats[name] = (stats[name] ?? 0) + by
-}
-
-let resolutions = []
-try {
-  if (statSync(resolutionsFile).size > MAX_RESOLUTIONS_BYTES)
-    fail(`${resolutionsFile} is larger than ${MAX_RESOLUTIONS_BYTES} bytes`)
-  const parsed = JSON.parse(readFileSync(resolutionsFile, "utf8"))
-  resolutions = Array.isArray(parsed?.resolutions) ? parsed.resolutions : []
-} catch (error) {
-  fail(`${resolutionsFile} is not JSON: ${error.message}`)
-}
-if (resolutions.length > MAX_RESOLUTIONS) {
-  skipped.push({
-    path: null,
-    reason: `The script read only the first ${MAX_RESOLUTIONS} resolutions`,
-  })
-  count("skipped.too_many", resolutions.length - MAX_RESOLUTIONS)
-  resolutions = resolutions.slice(0, MAX_RESOLUTIONS)
 }
 
 /** The scan of one root, once for each root. */
@@ -89,6 +76,29 @@ function scanOf(current) {
 }
 const entryAt = (p) => index.find((e) => e.path === p)
 
+/** The roots of the step and their candidates (`scan.mjs --count` counts them). */
+const rootsOfStep = stepRoots(roots, rootPath)
+const candidatesOf = (root) =>
+  stepCandidates(scanOf(root).candidates, repositoryStep)
+const candidateCount = rootsOfStep.reduce(
+  (sum, root) => sum + candidatesOf(root).length,
+  0,
+)
+
+// The resolutions file has no count limit (CTX-1487). Its size limit
+// protects the parse: 1 KiB for each candidate of the step, at least
+// 256 KiB, so that a page can resolve each candidate.
+const maxBytes = 1024 * Math.max(256, candidateCount)
+let resolutions = []
+try {
+  if (statSync(resolutionsFile).size > maxBytes)
+    fail(`${resolutionsFile} is larger than ${maxBytes} bytes`)
+  const parsed = JSON.parse(readFileSync(resolutionsFile, "utf8"))
+  resolutions = Array.isArray(parsed?.resolutions) ? parsed.resolutions : []
+} catch (error) {
+  fail(`${resolutionsFile} is not JSON: ${error.message}`)
+}
+
 const slug = (text) =>
   text
     .toLowerCase()
@@ -101,6 +111,15 @@ const skip = (id, reason, code) => {
   skipped.push({ path: null, reason: `${id}: ${reason}` })
 }
 const noService = new Set()
+/**
+ * `<root> <candidate id>` to what this page's resolution of the candidate
+ * writes: `{ path, claim }` for each Service file, or `{ path, line }` for
+ * the Related line of its Stream file; null for an ignored candidate. The
+ * cursor counts them.
+ */
+const written = new Map()
+/** The Service claims of the stream resolutions of this page. */
+const streamClaims = []
 
 for (const resolution of resolutions) {
   if (!resolution || typeof resolution !== "object") continue
@@ -143,9 +162,14 @@ for (const resolution of resolutions) {
     continue
   }
   const kind = resolution.kind
-  if (kind === "ignore") continue
+  if (kind === "ignore") {
+    const key = `${current.path} ${candidate.id}`
+    if (!written.has(key)) written.set(key, null)
+    continue
+  }
   let target = null
   let predicate = null
+  let line = null
   if (kind === "service" || kind === "api") {
     if (repositoryStep) {
       skip(id, "the root step resolves services and APIs", "wrong_step")
@@ -234,12 +258,11 @@ for (const resolution of resolutions) {
       continue
     }
     const verb = direction === "produce" ? "produces to" : "consumes from"
+    line = `- \`${repository}\` ${verb} it in \`${current.path}\` (\`${candidate.file}\`)`
     plans.push({
       path: target.path,
       claims: [],
-      related: [
-        `- \`${repository}\` ${verb} it in \`${current.path}\` (\`${candidate.file}\`)`,
-      ],
+      related: [line],
       expectName: target.name,
       create: {
         kind: "Stream",
@@ -253,6 +276,15 @@ for (const resolution of resolutions) {
     skip(id, "kind must be service, api, stream, or ignore", "bad_kind")
     continue
   }
+  const claims = users.map((user) => ({
+    path: user.path,
+    claim: `${relativeTo(user.path, target.path)} ${predicate}`,
+  }))
+  written.set(
+    `${current.path} ${candidate.id}`,
+    line ? [{ path: target.path, line }] : claims,
+  )
+  if (line) streamClaims.push(...claims)
   for (const user of users)
     plans.push({
       path: user.path,
@@ -274,4 +306,61 @@ for (const [name, value] of Object.entries(
   stepStats(roots, rootPath, scanOf).stats,
 ))
   count(name, value)
-writeStep(step, plans, skipped, { stats })
+
+/**
+ * The cursor (CTX-1487): the candidates of `scan.mjs --count` that are
+ * resolved, at the step base or in the staged tree. An ignored candidate is
+ * never resolved.
+ *
+ * - A candidate that this page resolves: what the resolution writes exists.
+ *   That is its claim on each Service file of its root (root step), or its
+ *   Related line in its Stream file (repository-wide step). writeStep
+ *   writes a Stream file before the Service files that claim it, so the
+ *   Related line is the first thing that a stream resolution writes.
+ * - For each source file, at least the candidates that the claims of the
+ *   Service files resolve (`claimGroups`): an earlier page wrote them.
+ *
+ * The Service files come after the Stream files. While a Service file does
+ * not have the claim of a stream resolution of this page, the last
+ * candidate is not done: a page that ends before the Service files does not
+ * reach the end of the input.
+ */
+function candidatesResolved() {
+  const texts = stepTexts(step, [
+    ...[...written.values()].flatMap((parts) =>
+      (parts ?? []).map((p) => p.path),
+    ),
+    ...streamClaims.map((part) => part.path),
+  ])
+  const textOf = (path) => texts.get(path) ?? ""
+  /** What this page's resolution of a candidate writes exists. */
+  const writtenNow = (key) =>
+    written.get(key)?.every((part) =>
+      part.claim
+        ? fileClaims(textOf(part.path))?.has(part.claim)
+        : textOf(part.path)
+            .split("\n")
+            .some((line) => line.trim() === part.line),
+    ) === true
+  let at = 0
+  for (const root of rootsOfStep) {
+    for (const group of claimGroups(
+      step,
+      root,
+      candidatesOf(root),
+      repositoryStep,
+    )) {
+      const now = group.members.filter((candidate) =>
+        writtenNow(`${root.path} ${candidate.id}`),
+      ).length
+      at += Math.max(now, group.resolved)
+    }
+  }
+  if (
+    streamClaims.some((part) => !fileClaims(textOf(part.path))?.has(part.claim))
+  )
+    at = Math.min(at, Math.max(0, candidateCount - 1))
+  return at
+}
+
+writeStep(step, plans, skipped, { stats, cursorAt: candidatesResolved })

@@ -207,8 +207,10 @@ export type IngestionShardOutput = {
 /** At most 2 retries for each step (concept section 8). */
 const STEP_ATTEMPTS = 3
 /**
- * A skill with no cursor runs at most this many pages; then it is `partial`
- * (ADR-052 section 6). A cursor skill has no page count (CTX-1487).
+ * The page limit of `datasources-infra` only; then it is `partial` (ADR-052
+ * section 6). It has no cursor yet: a later change of CTX-1487 gives it one
+ * and removes this limit. A cursor skill has no page count, and each other
+ * skill has one page (CTX-1487).
  */
 export const INGEST_MAX_PAGES = 20
 
@@ -566,7 +568,11 @@ type SkillPages = {
  * change from the first page; else the skill stops as `partial`. So a skill
  * has at most `of` pages. The finder runs
  * before the model, so its count is trusted. A forged `at` can only end the
- * loop sooner. Any other skill stops after 20 pages.
+ * loop sooner.
+ *
+ * A skill with no cursor has one page: when its page says `more`, the skill
+ * stops as `partial` and keeps the ops of the page. Only `datasources-infra`
+ * keeps the limit of `INGEST_MAX_PAGES` until it gets a cursor.
  */
 export async function runSkillPages(ctx: SkillPages): Promise<void> {
   const { state } = ctx
@@ -583,7 +589,12 @@ export async function runSkillPages(ctx: SkillPages): Promise<void> {
   )
   let cursorAt = 0
   let cursorOf: number | undefined
-  for (let page = 1; ctx.skill.cursor || page <= INGEST_MAX_PAGES; page++) {
+  const maxPages = ctx.skill.cursor
+    ? Number.POSITIVE_INFINITY
+    : ctx.skill.name === "datasources-infra"
+      ? INGEST_MAX_PAGES
+      : 1
+  for (let page = 1; page <= maxPages; page++) {
     const name = skillStepName(
       ctx.root,
       ctx.skill.name,
@@ -651,7 +662,9 @@ export async function runSkillPages(ctx: SkillPages): Promise<void> {
   logStepPartial(
     ctx,
     label,
-    `The skill still had files after ${INGEST_MAX_PAGES} pages`,
+    maxPages === 1
+      ? "Page 1 said more, but the skill has one page"
+      : `The skill still had files after ${maxPages} pages`,
     seen.executionAttempt,
   )
 }

@@ -1,5 +1,6 @@
 import { execFileSync, spawnSync } from "node:child_process"
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -83,7 +84,8 @@ type ScanResult = {
   root: string
   candidates: Candidate[]
   skipped: Array<{ path: string | null; reason: string }>
-  truncated: boolean
+  waiting: number
+  more: boolean
 }
 type ApplyResult = {
   ops: Array<{ op: string; path: string }>
@@ -238,6 +240,16 @@ async function step(
       ops: unknown[]
       stats?: Record<string, number>
     }
+  /** `scan --count`, the finder of the cursor that the host runs before the model. */
+  const finder = (path: string | null = ".") => {
+    const result = script(
+      "scan",
+      ...(path === null ? [] : ["--path", path]),
+      "--count",
+    )
+    expect(result.status, `${result.stdout}${result.stderr}`).toBe(0)
+    return JSON.parse(result.stdout) as { count: number }
+  }
   /** `scan --gate`, which the host runs before the model. */
   const gate = (path: string | null = ".") => {
     const result = script(
@@ -267,6 +279,7 @@ async function step(
     patch,
     finish,
     gate,
+    finder,
   }
 }
 
@@ -321,7 +334,7 @@ describe("dependencies scan", { timeout: 60_000 }, () => {
         "queue produce literal:tasks @src/service.ts:15",
       ].sort(),
     )
-    expect(result.truncated).toBe(false)
+    expect(result).toMatchObject({ more: false })
     const invoices = result.candidates.find((c) =>
       c.target.text.endsWith("/invoices"),
     )
@@ -651,6 +664,10 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
     const s = await step({ "src/service.ts": SERVICE_TS }, context())
     const call = s.candidates().find((c) => c.target.text.endsWith("/invoices"))
     expect(call).toBeDefined()
+    // The finder counts the candidates of the root step and writes nothing
+    // (CTX-1487).
+    expect(s.finder()).toEqual({ count: s.scan().candidates.length })
+    expect(existsSync(join(s.root, "out", "patch.json"))).toBe(false)
     const out = s.apply([
       { id: call?.id, kind: "service", path: BILLING },
       // Fields that the model adds are ignored: the evidence comes from the script.
@@ -663,6 +680,8 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
     const result = await s.validate()
     expect(result.rejections).toEqual([])
     expect(result.status).toBe("complete")
+    // The cursor: one candidate has its claim.
+    expect(result.cursorAt).toBe(1)
     const own = s.show(result.tree, OWN)
     expect(own).toContain("to: billing.md")
     expect(own).toContain("predicate: DEPENDS_ON")
@@ -670,19 +689,176 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
     expect(own).toContain("kind: model")
   })
 
-  it("reads only the first 300 resolutions, counts the others, and still writes the claims", async () => {
+  it("reads each resolution, with no count limit, and still writes the claims (CTX-1487)", async () => {
     const s = await step({ "src/service.ts": SERVICE_TS }, context())
     const call = s.candidates().find((c) => c.target.text.endsWith("/invoices"))
     const out = s.apply([
-      { id: call?.id, kind: "service", path: BILLING },
       ...Array.from({ length: 302 }, () => ({ id: call?.id, kind: "ignore" })),
+      { id: call?.id, kind: "service", path: BILLING },
     ])
     expect(out.ops).toEqual([{ op: "update", path: OWN }])
-    expect(out.skipped.map((x) => x.reason)).toContain(
-      "The script read only the first 300 resolutions",
-    )
-    expect(s.patch().stats?.["skipped.too_many"]).toBe(3)
+    expect(out.skipped.map((x) => x.reason).join()).not.toMatch(/read only/)
+    expect(s.patch().stats?.["skipped.too_many"]).toBeUndefined()
   })
+
+  it("counts the candidates of one source file that an earlier page resolved, by their distinct claims (CTX-1487)", async () => {
+    // Ten HTTP calls in one file, to ten Service files of the context.
+    const context: Record<string, string> = {}
+    const calls: string[] = []
+    for (let i = 0; i < 10; i++) {
+      context[`knowledge/services/svc-${i}.md`] = serviceFile(`Svc ${i}`)
+      calls.push(`await fetch("http://svc-${i}.internal/x")`)
+    }
+    const s = await step({ "src/client.ts": calls.join("\n") }, context)
+    expect(s.finder()).toEqual({ count: 10 })
+    const resolution = (c: Candidate) => ({
+      id: c.id,
+      kind: "service",
+      path: `knowledge/services/${/svc-\d+/.exec(c.target.text)?.[0]}.md`,
+    })
+    const all = s.candidates()
+    s.apply(all.slice(0, 6).map(resolution))
+    const first = await s.validate()
+    expect(first.rejections).toEqual([])
+    expect(first.cursorAt).toBe(6)
+    await s.advance(first.tree)
+    // No file holds a candidate id, so the scan lists each candidate of the
+    // file again, but it counts only 4 that wait.
+    expect(s.scan()).toMatchObject({ waiting: 4 })
+    // The next page resolves only the other 4. The 6 of the first page count
+    // by the 6 distinct claims of the file.
+    s.apply(all.slice(6).map(resolution))
+    const second = await s.validate()
+    expect(second.rejections).toEqual([])
+    expect(second.cursorAt).toBe(10)
+  }, 120_000)
+
+  it("keeps the cursor below the end while the Service claims of the streams wait (CTX-1487)", async () => {
+    // 34 Stream files fit in the 2 MiB of a step, but the Service file that
+    // claims them does not fit after them.
+    const context: Record<string, string> = {
+      [OWN]: front(
+        {
+          kind: "Service",
+          name: "Shop API",
+          generated_by: "ctxpipe-extract",
+          sources: [SOURCE_PATH],
+        },
+        `# Shop API\n\n${"The shop API.\n".repeat(4140)}`,
+      ),
+    }
+    const calls: string[] = []
+    for (let i = 0; i < 34; i++) {
+      context[`knowledge/streams/s${i}.md`] = front(
+        { kind: "Stream", name: `stream.s${i}`, summary: "A stream." },
+        `# stream.s${i}\n\n${"The team runs this stream.\n".repeat(2222)}`,
+      )
+      calls.push(`producer.send({ topic: "stream.s${i}", messages: [] })`)
+    }
+    const s = await step({ "src/service.ts": calls.join("\n") }, context)
+    const resolve = () =>
+      s.apply(
+        s.candidates().map((c) => ({
+          root: ".",
+          id: c.id,
+          kind: "stream",
+          path: `knowledge/streams/${c.target.text.replace("stream.", "")}.md`,
+        })),
+        null,
+      )
+    const first = resolve()
+    expect(first.more).toBe(true)
+    expect(first.ops.map((o) => o.path)).not.toContain(OWN)
+    const page = await s.validate()
+    expect(page.rejections).toEqual([])
+    // Each Stream file has its Related line, but the page says more: the
+    // cursor stays below the end of the input, so the host runs page 2.
+    expect(page.cursorAt).toBe(33)
+    await s.advance(page.tree)
+    const second = resolve()
+    expect(second.more).toBe(false)
+    const last = await s.validate()
+    expect(last.rejections).toEqual([])
+    expect(last.cursorAt).toBe(34)
+    expect(s.show(last.tree, OWN).match(/PRODUCES_TO/g)).toHaveLength(34)
+  }, 120_000)
+
+  it("counts more than 300 candidates of two roots, and a candidate that an earlier page resolved (CTX-1487)", async () => {
+    const source: Record<string, string> = {}
+    const context: Record<string, string> = {}
+    const roots = ["apps/a", "apps/b"].map((path) => {
+      const file = `knowledge/services/${path.slice(5)}.md`
+      context[file] = front(
+        {
+          kind: "Service",
+          name: `Service ${path}`,
+          generated_by: "ctxpipe-extract",
+          sources: [SOURCE_PATH],
+        },
+        `# Service ${path}\n`,
+      )
+      for (let i = 0; i < 160; i++)
+        source[`${path}/src/p${i}.ts`] =
+          `producer.send({ topic: "${path.slice(5)}.n${i}", messages: [] })\n`
+      return { path, files: [file] }
+    })
+    const s = await step(source, context, roots)
+    expect(s.finder(null)).toEqual({ count: 320 })
+    const all = roots.flatMap((root) =>
+      s.candidates(root.path).map((c) => ({
+        root: root.path,
+        id: c.id,
+        kind: "stream",
+        name: c.target.text,
+      })),
+    )
+    expect(all).toHaveLength(320)
+    // The first page resolves 310 candidates: a step with more than 300
+    // candidates reads one resolution for each.
+    s.apply(all.slice(0, 310), null)
+    const first = await s.validate()
+    expect(first.rejections).toEqual([])
+    expect(first.cursorAt).toBe(310)
+    await s.advance(first.tree)
+    // The next page lists and resolves only the other 10. The 310 of the
+    // first page count by the claims of the Service files.
+    expect(s.finder(null)).toEqual({ count: 320 })
+    expect(s.scan(null)).toMatchObject({ waiting: 10, more: false })
+    s.apply(all.slice(310), null)
+    const second = await s.validate()
+    expect(second.rejections).toEqual([])
+    expect(second.cursorAt).toBe(320)
+  }, 120_000)
+
+  it("lists only the candidates that wait, up to its size limit, and then the next ones (CTX-1487)", async () => {
+    // 700 candidates with long names: more than the size limit of the list.
+    const calls = Array.from(
+      { length: 700 },
+      (_, i) => `await fetch("http://svc-${i}.internal/${"x".repeat(150)}")`,
+    ).join("\n")
+    const s = await step({ "src/service.ts": calls }, {})
+    expect(s.finder()).toEqual({ count: 700 })
+    const first = s.scan()
+    expect(first).toMatchObject({ waiting: 700, more: true })
+    expect(first.candidates.length).toBeGreaterThan(100)
+    expect(first.candidates.length).toBeLessThan(700)
+    // resolutions.json names the listed candidates: the next scan lists the
+    // next ones.
+    writeFileSync(
+      join(s.root, "out", "resolutions.json"),
+      JSON.stringify({
+        resolutions: first.candidates.map((c) => ({
+          id: c.id,
+          kind: "ignore",
+        })),
+      }),
+    )
+    const next = s.scan()
+    expect(next.waiting).toBe(700 - first.candidates.length)
+    const ids = new Set(first.candidates.map((c) => c.id))
+    expect(next.candidates.some((c) => ids.has(c.id))).toBe(false)
+    expect(next.candidates.length).toBeGreaterThan(0)
+  }, 120_000)
 
   it("creates a Stream file for a new stream and links the producer", async () => {
     const s = await step({ "src/service.ts": SERVICE_TS }, context())
@@ -1079,6 +1255,45 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
       "has no Service file in the context",
     )
   })
+
+  it("pages the repository-wide step by size, and its cursor reaches the end of the candidates (CTX-1487)", async () => {
+    // 40 Stream files of about 60 KiB that people wrote: more than the
+    // 2 MiB of one step when each one gets a Related line.
+    const body = "The team runs this stream.\n".repeat(2300)
+    const context: Record<string, string> = {}
+    const calls: string[] = []
+    for (let i = 0; i < 40; i++) {
+      context[`knowledge/streams/s${i}.md`] = front(
+        { kind: "Stream", name: `stream.s${i}`, summary: "A stream." },
+        `# stream.s${i}\n\n${body}`,
+      )
+      calls.push(`producer.send({ topic: "stream.s${i}", messages: [] })`)
+    }
+    const s = await step({ "src/service.ts": calls.join("\n") }, context)
+    const cursors: Array<number | undefined> = []
+    for (let page = 1; ; page++) {
+      // The same length of the input on each page.
+      expect(s.finder(null)).toEqual({ count: 40 })
+      // The model resolves each candidate again on each page.
+      const resolutions = s.candidates().map((c) => ({
+        root: ".",
+        id: c.id,
+        kind: "stream",
+        path: `knowledge/streams/${c.target.text.replace("stream.", "")}.md`,
+      }))
+      const out = s.apply(resolutions, null)
+      const result = await s.validate()
+      expect(result.rejections).toEqual([])
+      cursors.push(result.cursorAt)
+      await s.advance(result.tree)
+      if (!out.more) break
+      expect(page).toBeLessThan(5)
+    }
+    expect(cursors).toHaveLength(2)
+    expect(cursors[0]).toBeGreaterThan(0)
+    expect(cursors[0]).toBeLessThan(40)
+    expect(cursors[1]).toBe(40)
+  }, 120_000)
 
   it("writes each stream file of one step, with no file count (CTX-1482)", async () => {
     const calls = Array.from(

@@ -44,7 +44,9 @@ function pages(
         cursor?: { at: number; of: number }
       }
   >,
-  skill: { name: string; cursor?: true } = { name: "apis" },
+  skill: { name: string; cursor?: { finder: string } } = {
+    name: "classify-kind",
+  },
 ) {
   const state: IngestionShardWorkspace = {
     workspaceId: "ws_alpha",
@@ -96,7 +98,7 @@ describe("runSkillPages", () => {
     more,
     cursor: { at, of },
   })
-  const ownership = { name: "ownership", cursor: true as const }
+  const ownership = { name: "ownership", cursor: { finder: "ownership.mjs" } }
 
   it("runs a cursor skill for more than 20 pages while its cursor moves forward (CTX-1487)", async () => {
     const results = [
@@ -137,11 +139,24 @@ describe("runSkillPages", () => {
     expect(state).toMatchObject({ ops: 2, partial: 1 })
   })
 
-  it("stops a skill with no cursor after 20 pages", async () => {
+  it("stops datasources-infra, which has no cursor yet, after 20 pages", async () => {
     const results = Array.from({ length: 25 }, (_, i) => page(i + 1, 30))
-    const state = await pages("services/g", results)
+    const state = await pages(null, results, { name: "datasources-infra" })
     expect(results).toHaveLength(5)
     expect(state).toMatchObject({ ops: 20, partial: 1 })
+  })
+
+  it("stops a skill with no cursor as partial when its one page says more, and keeps the ops of the page (CTX-1487)", async () => {
+    for (const name of ["classify-kind", "instruction-areas"]) {
+      const results = [
+        { tip: "b".repeat(40), ops: 3, rejects: 0, more: true },
+        { tip: "c".repeat(40), ops: 1, rejects: 0, more: false },
+      ]
+      const state = await pages(null, results, { name })
+      // The second page does not run.
+      expect(results).toHaveLength(1)
+      expect(state).toMatchObject({ tip: "b".repeat(40), ops: 3, partial: 1 })
+    }
   })
 
   it("records no root for a root whose steps all pass", async () => {
@@ -299,7 +314,7 @@ describe("runSkillPages on a shard ref that another execution moved", () => {
     skill: string,
     state: IngestionShardWorkspace,
     runtime: IngestShardRuntime,
-    cursor?: true,
+    cursor?: { finder: string },
   ) {
     return withLogger(createLogger({ test: "skill-pages-twice" }), () =>
       runSkillPages({
@@ -341,9 +356,9 @@ describe("runSkillPages on a shard ref that another execution moved", () => {
    * new file, say `more`, and give `cursor.at` 1.
    */
   function stuckCursorSandbox() {
-    const calls: Array<{ name: string; cursor?: boolean }> = []
+    const calls: Array<{ name: string; cursor?: { finder: string } }> = []
     const runtime = {
-      runStep: async (step: { name: string; cursor?: boolean }) => {
+      runStep: async (step: { name: string; cursor?: { finder: string } }) => {
         calls.push({ name: step.name, cursor: step.cursor })
         const out = join(dir, `step-${++count}`)
         const path = `knowledge/services/page-${calls.length}.md`
@@ -381,11 +396,12 @@ describe("runSkillPages on a shard ref that another execution moved", () => {
     freshRemote()
     const state = workspace()
     const { runtime, calls } = stuckCursorSandbox()
-    await runSkill("ownership", state, runtime, true)
+    const cursor = { finder: "ownership.mjs" }
+    await runSkill("ownership", state, runtime, cursor)
     // The runtime runs the finder of each page; page 2 repeats the cursor.
     expect(calls).toEqual([
-      { name: skillStepName(ROOT, "ownership", WS, 1), cursor: true },
-      { name: skillStepName(ROOT, "ownership", WS, 2), cursor: true },
+      { name: skillStepName(ROOT, "ownership", WS, 1), cursor },
+      { name: skillStepName(ROOT, "ownership", WS, 2), cursor },
     ])
     expect(state).toMatchObject({ ops: 2, partial: 1, partialRoots: [ROOT] })
     expect(git(remote, ["log", "-1", "--format=%B", REF])).toContain(

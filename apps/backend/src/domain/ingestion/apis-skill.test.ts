@@ -73,6 +73,9 @@ const front = (attributes: object, body: string) =>
 
 type Found = {
   root: string
+  done: number
+  waiting: number
+  more: boolean
   specs: Array<{
     path: string
     title: string | null
@@ -155,6 +158,8 @@ async function fixture(
       process.execPath,
       [
         FIND,
+        "--root",
+        root,
         "--source",
         sourceDir,
         "--source-url",
@@ -466,7 +471,9 @@ describe("find-apis", () => {
     const found = s.find("api")
     expect(found.routes.map(key)).toEqual(["GET /real"])
     const operations = found.specs[0]?.operations ?? []
-    expect(operations.length).toBeLessThanOrEqual(500)
+    // No count limit (CTX-1487): each operation with a path that the script
+    // writes is listed.
+    expect(operations.length).toBe(601)
     expect(found.specs[0]?.title).toBeNull()
     expect(operations.map((o) => o.path)).not.toContain("/bad/../escape")
     expect(operations.map((o) => o.path)).not.toContain("/with`tick")
@@ -715,6 +722,53 @@ describe("write-apis", () => {
     )
   })
 
+  it("counts a script operation as done when a model operation adds a mount prefix to its path, also on the next page (CTX-1487)", async () => {
+    const s = await fixture(BILLING_SOURCE)
+    // GET /invoices, POST /invoices, GET /invoices/{id}, GET /internal/ping.
+    expect(s.find("apps/billing", "--count")).toEqual({ count: 4 })
+    const evidence = "apps/billing/src/routes.ts"
+    s.write({
+      root: "apps/billing",
+      apis: [
+        {
+          name: "Billing API",
+          operations: [
+            { method: "GET", path: "/v1/invoices", evidence },
+            { method: "GET", path: "/v1/invoices/:id", evidence },
+            { method: "POST", path: "/v1/refunds", evidence },
+          ],
+        },
+      ],
+    })
+    const first = await s.validate()
+    expect(first.rejections).toEqual([])
+    // GET /invoices and GET /invoices/{id} are done under the prefix /v1.
+    expect(first.cursorAt).toBe(2)
+    // The finder lists only the operations that wait.
+    const waits = s.find("apps/billing")
+    expect(waits).toMatchObject({ done: 2, waiting: 2, more: false })
+    expect(
+      [...waits.specs.flatMap((spec) => spec.operations), ...waits.routes]
+        .map(key)
+        .sort(),
+    ).toEqual(["GET /internal/ping", "POST /invoices"])
+    await s.advance(first.tree)
+    expect(s.find("apps/billing", "--count")).toEqual({ count: 4 })
+    // The files of the first page count on the next page.
+    s.write({
+      root: "apps/billing",
+      apis: [
+        {
+          name: "Billing API",
+          operations: [{ method: "POST", path: "/invoices" }],
+        },
+      ],
+    })
+    const second = await s.validate()
+    expect(second.rejections).toEqual([])
+    expect(second.cursorAt).toBe(3)
+  })
+
   it("replaces text that has a link, markup, or a line break, and refuses an unsafe name", async () => {
     const s = await fixture(BILLING_SOURCE)
     const out = s.write({
@@ -800,6 +854,21 @@ describe("write-apis", () => {
     )
   })
 
+  it("lists 4000 operations of one specification with no count limit, and ends the list at its size limit (CTX-1487)", async () => {
+    const paths: Record<string, object> = {}
+    for (let i = 0; i < 4000; i++) paths[`/items/${i}`] = { get: {} }
+    const s = await fixture({
+      "apps/big/openapi.json": JSON.stringify({ openapi: "3.0.0", paths }),
+    })
+    expect(s.find("apps/big", "--count")).toEqual({ count: 4000 })
+    const out = s.find("apps/big")
+    expect(out).toMatchObject({ done: 0, waiting: 4000, more: true })
+    const listed = out.specs[0]?.operations.length ?? 0
+    expect(listed).toBeGreaterThan(1000)
+    expect(listed).toBeLessThan(4000)
+    expect(out.skipped).toEqual([])
+  })
+
   it("writes a plan of 45 operations on one page, with no file count (CTX-1482)", async () => {
     const paths: Record<string, object> = {}
     for (let i = 0; i < 45; i++) paths[`/items/${i}`] = { get: {} }
@@ -833,6 +902,8 @@ describe("write-apis", () => {
         op.path.startsWith("knowledge/operations/"),
       ),
     ).toHaveLength(45)
+    // The Service file links the API, so each operation is done (CTX-1487).
+    expect(result.cursorAt).toBe(45)
     await s.advance(result.tree)
     // A second run on the finished base changes nothing.
     const again = s.write(plan)
@@ -857,10 +928,13 @@ describe("write-apis", () => {
       {
         "apps/big/openapi.json": JSON.stringify({ openapi: "3.0.0", paths }),
       },
-      context,
+      { ...context, "knowledge/services/big.md": SERVICE },
     )
+    // The Service file comes after all API files, so the first page does
+    // not write it.
     const plan: Plan = {
       root: "apps/big",
+      service: "knowledge/services/big.md",
       apis: Array.from({ length: 35 }, (_, i) => ({
         name: `Items ${i} API`,
         existing: `knowledge/apis/items-${i}.md`,
@@ -868,22 +942,48 @@ describe("write-apis", () => {
       })),
     }
     const accepted: string[] = []
+    const cursors: Array<number | undefined> = []
+    let firstApis = 0
     let pages = 0
     let tree = ""
     for (;;) {
-      const out = s.write(plan)
+      // The finder gives the same length of the input on each page
+      // (CTX-1487): the 35 operations of the specification.
+      expect(s.find("apps/big", "--count")).toEqual({ count: 35 })
+      // Each page plans only the operations that the finder lists: an API
+      // of an earlier page is not in the plan of a later page.
+      const waits = new Set(
+        s.find("apps/big").specs.flatMap((spec) => spec.operations.map(key)),
+      )
+      const out = s.write({
+        ...plan,
+        apis: plan.apis.filter((api) =>
+          api.operations.some((op) => waits.has(key(op))),
+        ),
+      })
       pages++
       // The validator rejects no claim: each API file of a page has its
       // operation on the same page or an earlier one.
       const result = await s.validate()
       expect(result.rejections).toEqual([])
       accepted.push(...result.accepted.map((op) => op.path))
+      cursors.push(result.cursorAt)
+      if (pages === 1)
+        firstApis = result.accepted.filter((op) =>
+          op.path.startsWith("knowledge/apis/"),
+        ).length
       tree = result.tree
       await s.advance(result.tree)
       if (!out.more) break
       expect(pages).toBeLessThan(5)
     }
     expect(pages).toBe(2)
+    // The cursor moves forward and reaches the end of the input on the last
+    // page. The first page writes the operation of the API file that does
+    // not fit, but that operation is not done until its API file links it.
+    expect(firstApis).toBeGreaterThan(0)
+    expect(firstApis).toBeLessThan(35)
+    expect(cursors).toEqual([firstApis, 35])
     expect(
       accepted.filter((p) => p.startsWith("knowledge/apis/")),
     ).toHaveLength(35)
@@ -896,6 +996,39 @@ describe("write-apis", () => {
       expect(s.show(tree, `knowledge/apis/items-${i}.md`)).toContain(
         "predicate: HAS_OPERATION",
       )
+    expect(
+      s.show(tree, "knowledge/services/big.md").match(/EXPOSES_API/g),
+    ).toHaveLength(35)
+  })
+
+  it("does not write an API file that would be larger than 64 KiB, and says so (CTX-1487)", async () => {
+    const paths: Record<string, object> = {}
+    for (let i = 0; i < 600; i++) paths[`/items/${i}`] = { get: {} }
+    const s = await fixture({
+      "apps/big/openapi.json": JSON.stringify({ openapi: "3.0.0", paths }),
+    })
+    const out = s.write({
+      root: "apps/big",
+      apis: [
+        {
+          name: "Items API",
+          operations: Array.from({ length: 600 }, (_, i) => ({
+            method: "GET",
+            path: `/items/${i}`,
+          })),
+        },
+      ],
+    })
+    expect(out.skipped).toContainEqual({
+      path: "knowledge/apis/items-api.md",
+      reason:
+        "The file would be larger than 64 KiB, so the script does not write it",
+    })
+    expect(out.ops.map((op) => op.path)).not.toContain(
+      "knowledge/apis/items-api.md",
+    )
+    // No operation is done: no API file links it.
+    expect((await s.validate()).cursorAt).toBe(0)
   })
 
   it("is deterministic: the same inputs give the same staged tree", async () => {

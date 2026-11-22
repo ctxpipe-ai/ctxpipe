@@ -12,6 +12,9 @@
 // Plan: { "root": "apps/api", "service": "knowledge/services/api.md" | null,
 //   "apis": [{ "name", "existing"?, "summary"?, "operations": [{ "method",
 //   "path", "summary"?, "evidence"? }] }] }
+//
+// The cursor (CTX-1487): patch.json gets `cursor.at`, the candidate
+// operations of `find-apis.mjs --count` that are done (`operationsDone`).
 
 import { createHash } from "node:crypto"
 import { existsSync, readFileSync, statSync } from "node:fs"
@@ -28,14 +31,17 @@ import {
   blobContent,
   currentStep,
   fail,
+  stepTexts,
 } from "../../bin/stage-lib.mjs"
 import {
   safePath,
   trackedFiles,
 } from "../../discover-roots/scripts/roots-lib.mjs"
 import {
+  apiLine as apiLineOf,
   candidateOperations,
   discoverApis,
+  doneOperations,
   HTTP_METHODS,
   normalizePath,
   operationKey,
@@ -43,8 +49,6 @@ import {
 } from "./apis-lib.mjs"
 
 const MAX_PLAN_BYTES = 256 * 1024
-const MAX_APIS = 50
-const MAX_OPERATIONS_PER_API = 100
 const API_NAME = /^[A-Za-z0-9][A-Za-z0-9 ._()-]{0,79}$/
 const METHOD_SET = new Set(HTTP_METHODS)
 
@@ -163,7 +167,7 @@ function resolveOperation(api, input) {
 
 const resolved = []
 const seenApiPaths = new Set()
-for (const input of plan.apis.slice(0, MAX_APIS)) {
+for (const input of plan.apis) {
   const name = typeof input?.name === "string" ? input.name.trim() : ""
   if (!API_NAME.test(name) || !slug(name)) {
     skip(null, "An API name has characters that the script does not write")
@@ -202,13 +206,6 @@ for (const input of plan.apis.slice(0, MAX_APIS)) {
   const operations = Array.isArray(input.operations) ? input.operations : []
   const seen = new Set()
   for (const operation of operations) {
-    if (api.operations.length >= MAX_OPERATIONS_PER_API) {
-      skip(
-        null,
-        `${name} has more than ${MAX_OPERATIONS_PER_API} operations: the script wrote the first ones`,
-      )
-      break
-    }
     const op = resolveOperation(api, operation)
     if (!op || seen.has(op.key)) continue
     seen.add(op.key)
@@ -266,7 +263,7 @@ for (const api of resolved) {
 // --- the related lines, and what is left to write ----------------------------
 
 const specLine = (path) => `- \`${repository}\` defines it in \`${path}\``
-const apiLine = `- \`${repository}\` exposes it from \`${codeRoot}\``
+const apiLine = apiLineOf(repository, codeRoot)
 const opLine = (op) => specLine(op.evidence.path)
 
 for (const api of resolved) {
@@ -347,4 +344,70 @@ for (const api of selected) {
     })
 }
 
-writeStep(step, plans, skipped)
+// The API files of this root from earlier pages: an earlier page can end
+// before the Service file, and a new plan holds only the operations that
+// wait. So the script adds each EXPOSES_API claim that the Service file
+// does not have, with a source file of the API file as evidence.
+if (service) {
+  const serviceClaims =
+    fileClaims(stepTexts(step, [service]).get(service) ?? "") ?? new Set()
+  const scriptPaths = new Set([...candidates.values()].map((c) => c.evidence))
+  for (const file of doneOperations(step, { repository, codeRoot, candidates })
+    .apiFiles) {
+    const to = relativeTo(service, file.path)
+    const prefix = specLine("").slice(0, -1)
+    const evidence = file.text
+      .split("\n")
+      .map((l) => l.trim())
+      .find((l) => l.startsWith(prefix) && l.endsWith("`"))
+      ?.slice(prefix.length, -1)
+    if (serviceClaims.has(`${to} EXPOSES_API`) || !evidence) continue
+    plans.push({
+      path: service,
+      create: null,
+      related: [],
+      claims: [
+        {
+          to,
+          predicate: "EXPOSES_API",
+          evidence: {
+            path: evidence,
+            kind: scriptPaths.has(evidence) ? "script" : "model",
+          },
+        },
+      ],
+    })
+  }
+}
+
+/**
+ * The cursor (CTX-1487): the candidate operations of the root that are done
+ * (`doneOperations`). writeStep writes an Operation file before its API
+ * file, so a page that ends between them has not done the candidate yet.
+ *
+ * The Service file of the plan comes after all API files. While it does not
+ * have the EXPOSES_API claim to each API file of the root, the last
+ * candidate is not done: a page that ends before the Service file does not
+ * reach the end of the input.
+ */
+function operationsDone() {
+  const { done, apiFiles } = doneOperations(step, {
+    repository,
+    codeRoot,
+    candidates,
+  })
+  let at = done.size
+  if (service) {
+    const claims =
+      fileClaims(stepTexts(step, [service]).get(service) ?? "") ?? new Set()
+    if (
+      apiFiles.some(
+        (file) => !claims.has(`${relativeTo(service, file.path)} EXPOSES_API`),
+      )
+    )
+      at = Math.min(at, Math.max(0, candidates.size - 1))
+  }
+  return at
+}
+
+writeStep(step, plans, skipped, { cursorAt: operationsDone })

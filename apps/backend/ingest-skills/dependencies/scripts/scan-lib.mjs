@@ -15,18 +15,18 @@ import { lstatSync, realpathSync } from "node:fs"
 import { dirname, join, posix, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { nameKey } from "../../bin/knowledge-lib.mjs"
+import { frontMatter, nameKey } from "../../bin/knowledge-lib.mjs"
+import { stepTexts } from "../../bin/stage-lib.mjs"
 import {
   safePath,
   trackedFiles,
 } from "../../discover-roots/scripts/roots-lib.mjs"
 
 const SKILL_DIR = join(dirname(fileURLToPath(import.meta.url)), "..")
-const MAX_FILES = 5000
+// No count limit on files, matches, or candidates (CTX-1487): the cursor
+// pages over the candidates. A file larger than MAX_FILE_BYTES is not read.
 const MAX_FILE_BYTES = 512 * 1024
 const BATCH = 100
-const MAX_MATCHES = 20_000
-const MAX_CANDIDATES = 300
 const MAX_TARGET = 200
 const MAX_CAPTURE = 2000
 
@@ -105,11 +105,7 @@ export function rootFiles({ source, path, otherRoots = [] }) {
 function runRules(source, files, skipped) {
   const matches = []
   const realSource = realpathSync(source)
-  for (
-    let at = 0;
-    at < files.length && matches.length < MAX_MATCHES;
-    at += BATCH
-  ) {
+  for (let at = 0; at < files.length; at += BATCH) {
     const batch = files.slice(at, at + BATCH)
     const run = spawnSync(
       "ast-grep",
@@ -142,7 +138,7 @@ function runRules(source, files, skipped) {
     if (run.status !== 0 && run.status !== 1)
       throw new Error(`ast-grep exited with ${run.status}`)
     for (const line of run.stdout.split("\n")) {
-      if (!line || matches.length >= MAX_MATCHES) continue
+      if (!line) continue
       let hit
       try {
         hit = JSON.parse(line)
@@ -315,6 +311,18 @@ function hints(target, type, index, own) {
 }
 
 /**
+ * The roots of a step: each root in the repository-wide step (`rootPath`
+ * null), else the root of the step. The finder, the list, the writer, and
+ * the counts use this one list (CTX-1487).
+ */
+export function stepRoots(roots, rootPath) {
+  if (rootPath === null) return roots
+  return [
+    roots.find((r) => r.path === rootPath) ?? { path: rootPath, files: [] },
+  ]
+}
+
+/**
  * The candidates that one step resolves. The root step resolves the HTTP and
  * config candidates. The repository-wide step resolves the other candidates
  * (stream, queue, and config).
@@ -339,9 +347,7 @@ export function stepStats(roots, rootPath, scanRoot) {
     stats[name] = (stats[name] ?? 0) + 1
   }
   let claimable = false
-  for (const root of rootPath === null
-    ? roots
-    : roots.filter((r) => r.path === rootPath)) {
+  for (const root of stepRoots(roots, rootPath)) {
     const mine = stepCandidates(scanRoot(root).candidates, rootPath === null)
     for (const candidate of mine) count(`candidates.${candidate.type}`)
     if (!mine.length) continue
@@ -354,7 +360,7 @@ export function stepStats(roots, rootPath, scanRoot) {
 /**
  * Scan one root. `index` is the context index entries; `own` is the set of
  * context file paths of this root (a hint never names them).
- * Returns { candidates, skipped, truncated }.
+ * Returns { candidates, skipped }.
  */
 export function scan({
   source,
@@ -365,17 +371,14 @@ export function scan({
 }) {
   const skipped = []
   let files = rootFiles({ source, path, otherRoots })
-  let truncated = false
-  if (files.length > MAX_FILES) {
-    files = files.slice(0, MAX_FILES)
-    truncated = true
+  const realSource = realpathSync(source)
+  const kept = files.filter((file) => readable(source, realSource, file))
+  if (kept.length < files.length)
     skipped.push({
       path: null,
-      reason: `The script read only the first ${MAX_FILES} source files`,
+      reason: `${files.length - kept.length} files are larger than ${MAX_FILE_BYTES} bytes, not regular files, or behind a symbolic link, and are not read`,
     })
-  }
-  const realSource = realpathSync(source)
-  files = files.filter((file) => readable(source, realSource, file))
+  files = kept
   const groups = new Map()
   let dropped = 0
   for (const match of runRules(source, files, skipped)) {
@@ -418,17 +421,13 @@ export function scan({
       path: null,
       reason: `${dropped} calls have a target that is a variable or has no name shape`,
     })
-  let candidates = [...groups.values()].sort((a, b) =>
+  const candidates = [...groups.values()].sort((a, b) =>
     a.file !== b.file
       ? a.file < b.file
         ? -1
         : 1
       : a.line - b.line || (a.id < b.id ? -1 : 1),
   )
-  if (candidates.length > MAX_CANDIDATES) {
-    candidates = candidates.slice(0, MAX_CANDIDATES)
-    truncated = true
-  }
   return {
     candidates: candidates.map((c) => ({
       ...c,
@@ -436,6 +435,89 @@ export function scan({
       hints: hints(c.target, c.type, index, own),
     })),
     skipped,
-    truncated,
   }
+}
+
+// --- the cursor (CTX-1487) ---------------------------------------------------
+
+/** The claims that a candidate can give in its step. */
+export function claimPredicates(candidate, repositoryStep) {
+  if (!repositoryStep) return ["DEPENDS_ON", "CONSUMES_API"]
+  if (candidate.direction === "produce") return ["PRODUCES_TO"]
+  if (candidate.direction === "consume") return ["CONSUMES_FROM"]
+  return ["PRODUCES_TO", "CONSUMES_FROM"]
+}
+
+/** Each claim in the front matter of `text`: `{ to, predicate, path }`, with the evidence path. */
+function evidenceClaims(text) {
+  const found = []
+  const lines = (frontMatter(text) ?? "").split("\n")
+  const at = lines.findIndex((line) => /^claims:/.test(line))
+  if (at === -1) return found
+  const unquote = (raw) => {
+    if (!raw.startsWith('"')) return raw.replace(/^'(.*)'$/, "$1")
+    try {
+      return JSON.parse(raw)
+    } catch {
+      return raw
+    }
+  }
+  let column = null
+  let item = null
+  const end = () => {
+    if (item?.to && item.predicate && item.path) found.push(item)
+  }
+  for (const line of lines.slice(at + 1)) {
+    if (/^\S/.test(line)) break
+    const dash = /^( *)- /.exec(line)
+    if (dash && (column === null || dash[1].length === column)) {
+      end()
+      column = dash[1].length
+      item = {}
+    }
+    // In a claim, only the evidence has a `path`.
+    const pair = /^[ -]*(to|predicate|path):[ \t]*(.*?)[ \t]*$/.exec(line)
+    if (item && pair) item[pair[1]] ??= unquote(pair[2])
+  }
+  end()
+  return found
+}
+
+/**
+ * The candidates of one root that the claims of its Service files resolve,
+ * at the step base or in the staged tree, for each source file:
+ * `[{ members, resolved }]`. One resolution writes one claim (target and
+ * predicate) on each Service file, with the file of the candidate as
+ * evidence. So the distinct claims of a file that each Service file has,
+ * and that the candidates of the file can give (`claimPredicates`), are a
+ * lower bound of the resolved candidates of the file: `resolved`. Two
+ * candidates with one target leave one claim, so the bound can be low but
+ * not high. No file holds the candidate id, so the bound does not say which
+ * candidates of the file are resolved.
+ */
+export function claimGroups(step, root, candidates, repositoryStep) {
+  const byFile = new Map()
+  for (const c of candidates)
+    byFile.set(c.file, [...(byFile.get(c.file) ?? []), c])
+  const services = root.files.filter((f) => f.kind === "Service")
+  const texts = stepTexts(
+    step,
+    services.map((f) => f.path),
+  )
+  const claims = services.map((f) => evidenceClaims(texts.get(f.path) ?? ""))
+  return [...byFile].map(([file, members]) => {
+    const predicates = new Set(
+      members.flatMap((c) => claimPredicates(c, repositoryStep)),
+    )
+    const counts = claims.map(
+      (list) =>
+        new Set(
+          list
+            .filter((c) => c.path === file && predicates.has(c.predicate))
+            .map((c) => `${c.to} ${c.predicate}`),
+        ).size,
+    )
+    const resolved = services.length ? Math.min(...counts) : 0
+    return { members, resolved: Math.min(resolved, members.length) }
+  })
 }

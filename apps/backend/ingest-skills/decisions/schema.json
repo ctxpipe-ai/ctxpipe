@@ -7,6 +7,7 @@
     "repository",
     "total",
     "done",
+    "waiting",
     "more",
     "decisions",
     "stale",
@@ -26,13 +27,18 @@
       "minimum": 0,
       "description": "Decision files whose context file this run already wrote (earlier pages)."
     },
+    "waiting": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Decision files that wait: no context file of this run at the step base, and none staged with no problem."
+    },
     "more": {
       "type": "boolean",
-      "description": "Decision files wait for a next page. Run ctxpipe-finish --more."
+      "description": "The list ends at its size limit: write the listed files, run --check, and run the script again for the next ones."
     },
     "decisions": {
       "type": "array",
-      "maxItems": 20,
+      "description": "The decision files that wait, in the run order, up to the size limit of the list.",
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -107,7 +113,7 @@
           "scope": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["basis", "roots", "truncated"],
+            "required": ["basis", "roots"],
             "properties": {
               "basis": {
                 "enum": ["package", "reference", "repository"]
@@ -117,9 +123,6 @@
                 "items": {
                   "type": "string"
                 }
-              },
-              "truncated": {
-                "type": "boolean"
               }
             }
           },

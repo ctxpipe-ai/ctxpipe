@@ -5,24 +5,33 @@
 // declared supersession, and scope. It gives the agent one entry for each
 // decision file, with the path of the context file to write and the claims
 // that scripts found. The agent reads each decision file and writes the
-// context file. No script writes a file.
+// context file. No script writes a context file; each run of this script
+// writes the cursor to patch.json.
 //
 // node decisions.mjs --root /ctxpipe --source /ctxpipe/source/<handle> \
-//   --source-url <url> --source-path <path> --roots <root-to-file map> [--check]
+//   --source-url <url> --source-path <path> --roots <root-to-file map> [--check | --count]
 //
-// Paging (ADR-052 section 6): a page is the first 20 decision files, in the
-// run order, whose context file this run has not written yet at the step
-// base. The host runs the skill again on the new tip while `more` is true,
-// so the script computes the page again from the tip; there is no offset.
+// Paging (ADR-052 section 6): a page lists each decision file, in the run
+// order, whose context file this run has not written yet at the step base.
+// A page has no file count: it ends at the step limits of the validator or
+// at the step checkpoint. The host runs the skill again on the new tip while
+// `more` is true, so the script computes the page again from the tip; there
+// is no offset.
 //
-// Without --check, the script prints the entries of one page (20 decision
-// files) to stdout. With --check, it compares the staged tree in
-// <root>/out/files with the entries and prints the problems; it exits with 1
-// when there are problems.
+// The cursor (CTX-1487): with --count, the script prints `{"count": <n>}`,
+// the decision files of the run order, and writes nothing. The other runs
+// write `cursor.at` in patch.json: the decision files that are done at the
+// step base, and the entries of this page whose context file is staged and
+// has no problem.
+//
+// Without --check, the script prints the entries of the page to stdout.
+// With --check, it compares the staged tree in <root>/out/files with the
+// entries and prints the problems and the count of the entries that wait;
+// it exits with 1 when there are problems.
 
 import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import { readFileSync } from "node:fs"
+import { readFileSync, statSync } from "node:fs"
 import { posix } from "node:path"
 
 import { nameKey, relativeTo, scriptStep } from "../../bin/knowledge-lib.mjs"
@@ -31,7 +40,10 @@ import {
   blobContent,
   readDeletes,
   stagedFile,
+  outputBudget,
   stagedPaths,
+  STEP_LIMITS,
+  writePatch,
 } from "../../bin/stage-lib.mjs"
 import {
   readTracked,
@@ -48,12 +60,12 @@ import {
   referencedPaths,
 } from "./decision-parse.mjs"
 
-const PAGE_SIZE = 20
-const MAX_FILES = 300
-const MAX_TARGETS = 15
-const MAX_RELATED = 10
-const MAX_CLAUSE_EDGES = 10
-const MAX_STALE = 10
+// No count limit on decision files, scope targets, Related lines,
+// supersession edges, or stale files (CTX-1487): the cursor pages over the
+// decision files. The list of a run ends at the size limit of
+// `outputBudget` so that the model can read it, and says how many entries
+// wait. `skipped` is a report, not input: it lists MAX_SKIPPED entries and
+// the count of the others.
 const MAX_SKIPPED = 30
 
 const slug = (text) =>
@@ -116,13 +128,6 @@ if (found.some((p) => !safePath(p)))
       "A decision file path has characters that the script does not quote",
   })
 found = found.filter(safePath)
-if (found.length > MAX_FILES) {
-  skipped.push({
-    path: null,
-    reason: `The script read only the first ${MAX_FILES} of ${found.length} decision files`,
-  })
-  found = found.slice(0, MAX_FILES)
-}
 
 const candidates = []
 for (const path of found) {
@@ -159,7 +164,6 @@ const decisionAt = (path) =>
 // 2. Declared supersession, only between decision files of this source.
 const edges = new Map() // "from>to" -> { from, to, evidence }
 for (const c of candidates) {
-  let count = 0
   for (const clause of c.clauses) {
     const refs = extractRefs(clause, {
       dir: c.dir,
@@ -184,7 +188,6 @@ for (const c of candidates) {
       if (pick) hits.add(pick)
     }
     for (const hit of hits) {
-      if (count++ >= MAX_CLAUSE_EDGES) break
       const [from, to] = clause.kind === "supersedes" ? [c, hit] : [hit, c]
       edges.set(`${from.path}>${to.path}`, { from, to, evidence: c.path })
     }
@@ -240,6 +243,12 @@ const order = []
 for (const c of candidates)
   c.replacedBy = [...edges.values()].filter((e) => e.to === c)
 
+// The finder of the cursor (CTX-1487): the run order is the input.
+if (process.argv.slice(2).includes("--count")) {
+  process.stdout.write(`${JSON.stringify({ count: order.length })}\n`)
+  process.exit(0)
+}
+
 // 3. Scope: the narrowest signal. A package alone scopes a decision, unless
 //    the package is the repository root. Else the roots that the text names.
 //    Else every Service of the repository. Only Service files get a claim.
@@ -273,7 +282,7 @@ for (const c of candidates) {
   const services = files.filter((f) => f.kind === "Service").map((f) => f.path)
   c.scope = {
     basis,
-    roots: scoped.map((r) => r.path).slice(0, MAX_TARGETS),
+    roots: scoped.map((r) => r.path),
     services: [...new Set(services)].sort(),
     related:
       basis === "repository"
@@ -374,8 +383,6 @@ function done(c) {
 }
 
 const waiting = order.filter((c) => !done(c))
-const page = waiting.slice(0, PAGE_SIZE)
-const more = waiting.length > PAGE_SIZE
 
 function entryOf(c) {
   const rel = (path) => relativeTo(c.target, path)
@@ -394,35 +401,19 @@ function entryOf(c) {
     scope: {
       basis: c.scope.basis,
       roots: c.scope.roots,
-      truncated: c.scope.services.length > MAX_TARGETS,
     },
-    influences: c.scope.services.slice(0, MAX_TARGETS).map(rel),
+    influences: c.scope.services.map(rel),
     supersedes: [...edges.values()]
       .filter((e) => e.from === c)
       .map((e) => ({ to: rel(e.to.target), evidence: e.evidence })),
-    related: c.scope.related.slice(0, MAX_RELATED).map(rel),
+    related: c.scope.related.map(rel),
   }
 }
 
-if (!check) {
-  const staleFiles = !more && skipped.length === 0 ? stale() : []
-  const result = {
-    repository,
-    total: order.length,
-    done: order.length - waiting.length,
-    more,
-    decisions: page.map(entryOf),
-    stale: staleFiles.slice(0, MAX_STALE),
-    skipped: skipped.slice(0, MAX_SKIPPED),
-  }
-  process.stdout.write(`${JSON.stringify(result)}\n`)
-  process.exit(0)
-}
-
-// --check: compare the staged tree with the entries.
+// The staged tree and its problems.
 const problems = []
 const problem = (path, text) => problems.push({ path, problem: text })
-const entries = new Map(page.map((c) => [c.target, entryOf(c)]))
+const entries = new Map(waiting.map((c) => [c.target, entryOf(c)]))
 const staleSet = new Set(stale())
 const staged = stagedPaths(step).filter((p) =>
   p.startsWith("knowledge/decisions/"),
@@ -433,6 +424,22 @@ for (const path of Object.keys(readDeletes(step)))
       path,
       "The file is not a decision file of the source that has left it",
     )
+// The step limits of the validator, in its order: a file of at most
+// 64 KiB, and at most 2 MiB of staged files.
+{
+  let total = 0
+  for (const path of stagedPaths(step)) {
+    const size = statSync(stagedFile(step, path)).size
+    if (size > STEP_LIMITS.fileBytes)
+      problem(path, "The file is larger than 64 KiB. Make it shorter")
+    else if (total + size > STEP_LIMITS.stagedBytes)
+      problem(
+        path,
+        "The staged tree is larger than 2 MiB. Remove this file from /ctxpipe/out/files: it waits for the next page. Then run ctxpipe-finish --more",
+      )
+    else total += size
+  }
+}
 const unquote = (text) => {
   const t = text.trim()
   if (t.startsWith('"')) {
@@ -495,10 +502,53 @@ for (const path of staged) {
       problem(path, `The Status line must say ${statusLabel(entry.status)}`)
   }
 }
-for (const [path, entry] of entries)
-  if (!staged.includes(path))
-    problem(path, `The decision file ${entry.path} has no context file yet`)
-process.stdout.write(
-  `${JSON.stringify({ checked: staged.length, problems })}\n`,
+
+// The cursor: the decision files done at the step base, and the entries of
+// this page whose context file is staged and has no problem.
+const flagged = new Set(problems.map((p) => p.path))
+const written = waiting.filter(
+  (c) => staged.includes(c.target) && !flagged.has(c.target),
 )
-process.exit(problems.length ? 1 : 0)
+writePatch(step, {
+  cursor: { at: order.length - waiting.length + written.length },
+})
+
+// The exit code and no process.exit: a page can be larger than the pipe
+// buffer, and process.exit can cut the output.
+if (!check) {
+  // The entries that wait: no context file at the step base, and none in
+  // the staged tree with no problem. In the run order, up to the size limit.
+  const open = waiting.filter((c) => !written.includes(c))
+  const budget = outputBudget()
+  const decisions = open.map(entryOf).filter(budget.take)
+  const result = {
+    repository,
+    total: order.length,
+    done: order.length - waiting.length,
+    waiting: open.length,
+    more: budget.more(),
+    decisions,
+    stale: skipped.length === 0 ? [...staleSet] : [],
+    skipped: [
+      ...skipped.slice(0, MAX_SKIPPED),
+      ...(skipped.length > MAX_SKIPPED
+        ? [
+            {
+              path: null,
+              reason: `${skipped.length - MAX_SKIPPED} more entries are not listed`,
+            },
+          ]
+        : []),
+    ],
+  }
+  process.stdout.write(`${JSON.stringify(result)}\n`)
+} else {
+  process.stdout.write(
+    `${JSON.stringify({
+      checked: staged.length,
+      waiting: waiting.filter((c) => !staged.includes(c.target)).length,
+      problems,
+    })}\n`,
+  )
+  process.exitCode = problems.length ? 1 : 0
+}

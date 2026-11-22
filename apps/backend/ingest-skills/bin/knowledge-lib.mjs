@@ -23,6 +23,7 @@ import {
   readDeletes,
   stagedFile,
   stagedPaths,
+  STEP_LIMITS,
   writePatch,
 } from "./stage-lib.mjs"
 
@@ -175,7 +176,8 @@ function sourceFile(step, path, sourcePath) {
   return { path, kind: frontValue(yaml, "kind") }
 }
 
-function frontMatter(text) {
+/** The front matter block of a file text, or null. */
+export function frontMatter(text) {
   return (
     /^---[ \t]*\r?\n((?:.*\n)*?)---[ \t]*(?:\r?\n|$)/.exec(text)?.[1] ?? null
   )
@@ -184,7 +186,7 @@ function frontMatter(text) {
 const unquote = (text) => text.trim().replace(/^(["'])(.*)\1$/, "$2")
 
 /** A top-level scalar of a front matter block, or null. */
-function frontValue(yaml, key) {
+export function frontValue(yaml, key) {
   const line = yaml.split("\n").find((l) => l.startsWith(`${key}:`))
   return line ? unquote(line.slice(key.length + 1)) || null : null
 }
@@ -608,7 +610,8 @@ function mergeFile(text, { claims, related }) {
  * validator could not take in this step: it takes at most 2 MiB of staged
  * files, and a patch.json of at most 1 MiB and 10,000 ops
  * (patch-validator.ts). The files and deletes that the step staged before
- * count too. `more` is true when a plan waits for the next page: the host
+ * count too. A file larger than 64 KiB gets a `skipped` entry, because no
+ * page can write it. `more` is true when a plan waits for the next page: the host
  * runs the skill again on the new base until `more` is false. A file that
  * already has a claim or a line does not change again, so each page
  * continues where the last one stopped. `options.stats` are counts (a name
@@ -618,8 +621,11 @@ function mergeFile(text, { claims, related }) {
  * inputs of the page loop. With `--count`, the script writes nothing and
  * prints `{"count": <plans>}`: the host runs it before the step and takes
  * the count as the length of the input. Else patch.json gets `cursor.at`,
- * the plans that the page handled before it ended. patch.json holds `more` and
- * `stats` for the host. Prints and returns { ops, skipped, more }.
+ * the plans that the page handled before it ended. A skill whose input is
+ * not its plans (a model writes the plan) gives `options.cursorAt`: a
+ * function that counts the inputs that are done after the page wrote its
+ * files. patch.json holds `more` and `stats` for the host. Prints and
+ * returns { ops, skipped, more }.
  */
 export function writeStep(step, plans, skipped = [], options = {}) {
   const byPath = new Map()
@@ -643,9 +649,9 @@ export function writeStep(step, plans, skipped = [], options = {}) {
     Buffer.byteLength(JSON.stringify(op, null, 2)) + 4 * 6 + 2
   const tailReserve = 64 * 1024 // `more` and `stats` at the end of patch.json
   const room = {
-    staged: 2 * 1024 * 1024,
-    patch: 1024 * 1024 - tailReserve,
-    ops: 10_000,
+    staged: STEP_LIMITS.stagedBytes,
+    patch: STEP_LIMITS.patchBytes - tailReserve,
+    ops: STEP_LIMITS.ops,
   }
   const updateOf = (path) => ({ op: "update", path, baseBlob: "0".repeat(40) })
   // The size of each file that the step staged before. A plan that writes
@@ -727,6 +733,16 @@ export function writeStep(step, plans, skipped = [], options = {}) {
       continue
     }
     if (text === before) continue
+    // The validator refuses a file larger than 64 KiB in any step, so a next
+    // page cannot take it either.
+    if (Buffer.byteLength(text) > STEP_LIMITS.fileBytes) {
+      skipped.push({
+        path: plan.path,
+        reason:
+          "The file would be larger than 64 KiB, so the script does not write it",
+      })
+      continue
+    }
     const earlier = stagedBefore.get(plan.path)
     const grows = Buffer.byteLength(text) - (earlier ?? 0)
     const opSize = earlier === undefined ? opBytes(updateOf(plan.path)) : 0
@@ -750,7 +766,7 @@ export function writeStep(step, plans, skipped = [], options = {}) {
   const ops = writePatch(step, {
     more,
     stats: options.stats,
-    cursor: { at },
+    cursor: { at: options.cursorAt ? options.cursorAt() : at },
   }).map(({ op, path }) => ({ op, path }))
   const result = { ops, skipped, more }
   process.stdout.write(`${JSON.stringify(result)}\n`)

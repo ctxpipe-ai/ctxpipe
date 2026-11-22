@@ -13,7 +13,6 @@
     },
     "apis": {
       "type": "array",
-      "maxItems": 50,
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -27,7 +26,6 @@
           "summary": { "type": "string", "maxLength": 300 },
           "operations": {
             "type": "array",
-            "maxItems": 100,
             "items": {
               "type": "object",
               "additionalProperties": false,

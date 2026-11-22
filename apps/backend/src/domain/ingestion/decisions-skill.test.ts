@@ -114,7 +114,7 @@ type Entry = {
   target: string
   write: "create" | "update" | "additive"
   existing: string | null
-  scope: { basis: string; roots: string[]; truncated: boolean }
+  scope: { basis: string; roots: string[] }
   influences: string[]
   supersedes: Array<{ to: string; evidence: string }>
   related: string[]
@@ -124,6 +124,7 @@ type Result = {
   repository: string
   total: number
   done: number
+  waiting: number
   more: boolean
   decisions: Entry[]
   stale: string[]
@@ -197,6 +198,7 @@ async function step(
       status: result.status,
       ...(JSON.parse(result.stdout) as {
         checked: number
+        waiting: number
         problems: Array<{ path: string; problem: string }>
       }),
     }
@@ -214,7 +216,13 @@ async function step(
     mkdirSync(dirname(file), { recursive: true })
     writeFileSync(file, text)
   }
-  const finish = () => helper("ctxpipe-finish")
+  const finish = (...args: string[]) => helper("ctxpipe-finish", ...args)
+  /** The finder of the cursor (CTX-1487), which the host runs before the model. */
+  const count = () => {
+    const result = exec(["--count"])
+    expect(result.status, `${result.stdout}${result.stderr}`).toBe(0)
+    return JSON.parse(result.stdout) as { count: number }
+  }
   const validate = () =>
     validatePatchStep({
       repoDir: contextDir,
@@ -232,6 +240,7 @@ async function step(
   const patch = () =>
     JSON.parse(readFileSync(join(root, "out", "patch.json"), "utf8")) as {
       ops: Array<{ op: string; path: string }>
+      cursor?: { at: number }
     }
   /** Commit a validated tree as the next page's base and empty the step output. */
   const advance = async (tree: string) => {
@@ -244,7 +253,18 @@ async function step(
     mkdirSync(join(root, "out", "files"), { recursive: true })
     await index()
   }
-  return { root, run, check, write, finish, validate, show, patch, advance }
+  return {
+    root,
+    run,
+    check,
+    count,
+    write,
+    finish,
+    validate,
+    show,
+    patch,
+    advance,
+  }
 }
 
 const capital = (word: string) => word.charAt(0).toUpperCase() + word.slice(1)
@@ -346,7 +366,6 @@ describe("decisions skill: finder and metadata", () => {
     ])
     expect(out.repository).toBe("example-org/shop")
     expect(out.total).toBe(4)
-    expect(out.more).toBe(false)
   })
 
   it("reads the title, number, declared status, and date of each style", async () => {
@@ -769,28 +788,80 @@ describe("decisions skill: supersession", () => {
     for (let i = 10; i < 40; i++)
       files[`docs/adr/00${i}-m${i}.md`] = `# ${i}. M${i}\n\nStatus: Accepted\n`
     const s = await step(files)
+    expect(s.count()).toEqual({ count: 32 })
+    // A page has no file count: it lists each decision file that waits.
     const first = s.run()
-    expect(first.decisions).toHaveLength(20)
-    expect(first.more).toBe(true)
+    expect(first.decisions).toHaveLength(32)
     expect(first.done).toBe(0)
-    // The agent writes the page; the host commits it and runs the skill
-    // again on the new tip. The script finds the files of the first page.
-    for (const entry of first.decisions) s.write(entry.target, agentFile(entry))
-    s.finish()
+    // The agent writes 20 files before the host ends the page at its time
+    // limit; the host commits it and runs the skill again on the new tip.
+    for (const entry of first.decisions.slice(0, 20))
+      s.write(entry.target, agentFile(entry))
+    expect(s.check()).toMatchObject({ status: 0, waiting: 12, problems: [] })
+    // A list run of the same page gives only the entries that wait.
+    const rest = s.run()
+    expect(rest).toMatchObject({ waiting: 12, more: false })
+    expect(rest.decisions.map((d) => d.path)).toEqual(
+      first.decisions.slice(20).map((d) => d.path),
+    )
+    s.finish("--more")
     const page = await s.validate()
     expect(page.rejections).toEqual([])
+    expect(page).toMatchObject({ more: true, cursorAt: 20 })
     await s.advance(page.tree)
+    // The script finds the files of the first page.
+    expect(s.count()).toEqual({ count: 32 })
     const second = s.run()
     expect(second.done).toBe(20)
-    const order = [...first.decisions, ...second.decisions].map((d) => d.number)
+    expect(second.decisions).toHaveLength(12)
+    const order = [...first.decisions.slice(0, 20), ...second.decisions].map(
+      (d) => d.number,
+    )
     expect(order.indexOf(2)).toBeLessThan(order.indexOf(9))
-    expect(second.more).toBe(false)
-    expect(first.decisions.length + second.decisions.length).toBe(32)
-    expect(
-      new Set([...first.decisions, ...second.decisions].map((d) => d.path))
-        .size,
-    ).toBe(32)
+    expect(new Set(order).size).toBe(32)
+    for (const entry of second.decisions)
+      s.write(entry.target, agentFile(entry))
+    expect(s.check()).toMatchObject({ status: 0, waiting: 0, problems: [] })
+    s.finish()
+    const last = await s.validate()
+    expect(last.rejections).toEqual([])
+    expect(last).toMatchObject({ more: false, cursorAt: 32 })
   }, 60_000)
+
+  it("ends a page at the 2 MiB of staged files, not at a file count, and the cursor reaches the end on the next page (CTX-1487)", async () => {
+    const files: Record<string, string> = {}
+    for (let i = 10; i < 50; i++)
+      files[`docs/adr/00${i}-d${i}.md`] = `# ${i}. D${i}\n\nStatus: Accepted\n`
+    const s = await step(files)
+    // About 60 KiB for each context file: 40 files are more than 2 MiB.
+    const body = "The team chose this option for a clear reason.\n".repeat(1250)
+    const cursors: Array<number | undefined> = []
+    for (let page = 1; ; page++) {
+      expect(s.count()).toEqual({ count: 40 })
+      const out = s.run()
+      for (const entry of out.decisions)
+        s.write(entry.target, agentFile(entry, body))
+      // The check names the files past the 2 MiB of the validator. The
+      // agent removes them, and they wait for the next page.
+      const checked = s.check()
+      const over = checked.problems.filter((p) => /2 MiB/.test(p.problem))
+      expect(over).toEqual(checked.problems)
+      for (const { path } of over)
+        rmSync(join(s.root, "out", "files", path), { force: true })
+      s.finish(...(over.length ? ["--more"] : []))
+      const result = await s.validate()
+      expect(result.rejections).toEqual([])
+      expect(result.accepted).toHaveLength(out.decisions.length - over.length)
+      cursors.push(result.cursorAt)
+      await s.advance(result.tree)
+      if (!result.more) break
+      expect(page).toBeLessThan(5)
+    }
+    expect(cursors).toHaveLength(2)
+    expect(cursors[0]).toBeGreaterThan(30)
+    expect(cursors[0]).toBeLessThan(40)
+    expect(cursors[1]).toBe(40)
+  }, 120_000)
 
   it("reads prose only when the sentence is about this ADR", async () => {
     const out = (
@@ -930,7 +1001,7 @@ describe("decisions skill: scope", () => {
     expect(a?.scope).toMatchObject({ basis: "reference", roots: ["apps/api"] })
   })
 
-  it("caps the targets of a repository-wide decision", async () => {
+  it("links each Service of a repository-wide decision, with no count limit (CTX-1487)", async () => {
     const roots = Array.from({ length: 20 }, (_, i) => ({
       path: `services/s${i}`,
       manifests: ["package.json"],
@@ -946,8 +1017,8 @@ describe("decisions skill: scope", () => {
     const out = (
       await step({ "docs/adr/0001-a.md": "# 1. A\n" }, context, roots)
     ).run()
-    expect(out.decisions[0]?.influences).toHaveLength(15)
-    expect(out.decisions[0]?.scope.truncated).toBe(true)
+    expect(out.decisions[0]?.influences).toHaveLength(20)
+    expect(out.decisions[0]?.scope.roots).toHaveLength(20)
   })
 })
 
@@ -1071,15 +1142,17 @@ describe("decisions skill: hostile source", () => {
     ).toBe(true)
   })
 
-  it("keeps the output small for a very large repository of decision files", async () => {
+  it("reads each decision file of a very large repository, and ends the list at its size limit (CTX-1487)", async () => {
     const files: Record<string, string> = {}
-    for (let i = 0; i < 330; i++)
+    for (let i = 0; i < 600; i++)
       files[`docs/adr/${String(i).padStart(4, "0")}-n.md`] = `# ${i}. N\n`
-    const out = (await step(files)).run()
-    expect(out.total).toBe(300)
-    expect(out.skipped.some((s) => /first 300 of 330/.test(s.reason))).toBe(
-      true,
-    )
+    const s = await step(files)
+    expect(s.count()).toEqual({ count: 600 })
+    const out = s.run()
+    expect(out).toMatchObject({ total: 600, waiting: 600, more: true })
+    expect(out.decisions.length).toBeGreaterThan(100)
+    expect(out.decisions.length).toBeLessThan(600)
+    expect(JSON.stringify(out.decisions).length).toBeLessThanOrEqual(128 * 1024)
   }, 120_000)
 
   it("reads at most the first 256 KiB of a file and ignores a claim that follows it", async () => {
@@ -1227,11 +1300,12 @@ describe("decisions skill: staged trees and the check", () => {
       ),
     )
     expect(text).toMatch(/did not find this claim|claim is missing/)
-    expect(text).toMatch(
-      new RegExp(
-        `${first.target.replace(/\./g, "\\.")}: The decision file .* has no context file yet`,
-      ),
-    )
+    // A decision file with no context file is not a problem: it waits.
+    expect(text).not.toContain(first.target)
+    expect(checked.waiting).toBe(out.decisions.length - 1)
+    // The cursor does not count a file with a problem (CTX-1487): a page
+    // with only these files does not move it, and the host stops the skill.
+    expect(s.patch().cursor).toEqual({ at: 0 })
   })
 
   it("flags a delete of a file that is not stale", async () => {

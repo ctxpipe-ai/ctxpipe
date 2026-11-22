@@ -133,7 +133,7 @@ export function standInIngestShardRuntime(options: {
               JSON.parse(
                 (
                   await node(
-                    `${step.skill}/scripts/${step.skill}.mjs`,
+                    `${step.skill}/scripts/${step.cursor.finder}`,
                     "--root",
                     root,
                     ...args,

@@ -6,14 +6,22 @@
     {
       "type": "object",
       "additionalProperties": false,
-      "required": ["root", "candidates", "skipped", "truncated"],
+      "required": ["root", "waiting", "more", "candidates", "skipped"],
       "properties": {
         "root": {
           "type": "string"
         },
+        "waiting": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Candidates that wait: no earlier page resolved them, and resolutions.json of this page does not name them."
+        },
+        "more": {
+          "type": "boolean",
+          "description": "The list ends at its size limit: run apply.mjs for the listed candidates, then run the scan again for the next ones."
+        },
         "candidates": {
           "type": "array",
-          "maxItems": 300,
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -108,31 +116,35 @@
               }
             }
           }
-        },
-        "truncated": {
-          "type": "boolean",
-          "description": "True when the script stopped at its file or candidate cap."
         }
       }
     },
     {
       "type": "object",
       "additionalProperties": false,
-      "required": ["roots", "skipped"],
+      "required": ["waiting", "more", "roots", "skipped"],
       "properties": {
+        "waiting": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Candidates that wait: no earlier page resolved them, and resolutions.json of this page does not name them."
+        },
+        "more": {
+          "type": "boolean",
+          "description": "The list ends at its size limit: run apply.mjs for the listed candidates, then run the scan again for the next ones."
+        },
         "roots": {
           "type": "array",
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["root", "candidates", "skipped", "truncated"],
+            "required": ["root", "candidates", "skipped"],
             "properties": {
               "root": {
                 "type": "string"
               },
               "candidates": {
                 "type": "array",
-                "maxItems": 300,
                 "items": {
                   "type": "object",
                   "additionalProperties": false,
@@ -227,10 +239,6 @@
                     }
                   }
                 }
-              },
-              "truncated": {
-                "type": "boolean",
-                "description": "True when the script stopped at its file or candidate cap."
               }
             }
           }

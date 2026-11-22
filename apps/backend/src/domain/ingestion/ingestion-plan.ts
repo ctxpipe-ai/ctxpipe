@@ -56,11 +56,13 @@ export type IngestSkillPlan = {
   run: "script" | "model"
   tier?: IngestModelTier
   /**
-   * The skill pages by a cursor over its finite input (CTX-1487): its
-   * finder gives the length before each page, and the page loop of the
-   * skill has no page count.
+   * The skill pages by a cursor over its finite input (CTX-1487). Before
+   * each page, the host runs the finder script of the skill
+   * (`<skill>/scripts/<finder> <arguments> --count`): its count is the
+   * length of the input, and the page loop of the skill has no page count.
+   * A skill with no cursor has one page.
    */
-  cursor?: true
+  cursor?: { finder: string }
 }
 
 /**
@@ -75,21 +77,60 @@ export type IngestSkillPlan = {
  */
 const INGEST_SKILLS: readonly IngestSkillPlan[] = [
   // The repository unit, which every later step can link to.
-  { name: "repository", scope: "first", run: "script", cursor: true },
+  {
+    name: "repository",
+    scope: "first",
+    run: "script",
+    cursor: { finder: "repository.mjs" },
+  },
   { name: "classify-kind", scope: "root", run: "model", tier: "fast" },
-  { name: "apis", scope: "root", run: "model", tier: "medium" },
-  { name: "dependencies", scope: "root", run: "model", tier: "medium" },
+  {
+    name: "apis",
+    scope: "root",
+    run: "model",
+    tier: "medium",
+    cursor: { finder: "find-apis.mjs" },
+  },
+  {
+    name: "dependencies",
+    scope: "root",
+    run: "model",
+    tier: "medium",
+    cursor: { finder: "scan.mjs" },
+  },
   // `libraries` writes shared files, so it runs on the assembled ref.
-  { name: "libraries", scope: "repository", run: "script", cursor: true },
-  { name: "ownership", scope: "repository", run: "script", cursor: true },
-  { name: "dependencies", scope: "repository", run: "model", tier: "medium" },
+  {
+    name: "libraries",
+    scope: "repository",
+    run: "script",
+    cursor: { finder: "libraries.mjs" },
+  },
+  {
+    name: "ownership",
+    scope: "repository",
+    run: "script",
+    cursor: { finder: "ownership.mjs" },
+  },
+  {
+    name: "dependencies",
+    scope: "repository",
+    run: "model",
+    tier: "medium",
+    cursor: { finder: "scan.mjs" },
+  },
   {
     name: "datasources-infra",
     scope: "repository",
     run: "model",
     tier: "medium",
   },
-  { name: "decisions", scope: "repository", run: "model", tier: "medium" },
+  {
+    name: "decisions",
+    scope: "repository",
+    run: "model",
+    tier: "medium",
+    cursor: { finder: "decisions.mjs" },
+  },
   {
     name: "instruction-areas",
     scope: "repository",
