@@ -81,6 +81,8 @@ const unitText = (unit: Unit) => `${unit.title}\n\n${unit.body}`
 
 /** The model requests that reached msw, by kind. */
 const requests = { jev: 0, embedding: 0 }
+/** The embedding requests of the old stack (its own dimension). */
+let legacyEmbeddings = 0
 
 /**
  * The fixed Jev replies. The layer judge gives a high p(answers) and
@@ -143,6 +145,7 @@ const models = setupServer(
     }
     // Both stacks use one model; the plane asks for its own dimension.
     const plane = body.dimensions === textEmbeddingConfig.dimensions
+    if (!plane) legacyEmbeddings += 1
     return HttpResponse.json({
       data: body.input.map((input, index) => ({
         index,
@@ -531,6 +534,117 @@ describe("the knowledge eval harness", () => {
       expect(call.request).toMatchObject({
         provider: { data_collection: "deny", zdr: true },
       })
+  })
+
+  it("--baseline-from: reuses the stored answers of the old stack, and runs only the plane", async () => {
+    const stored = await readRun(join(folder, "live"))
+    const before = legacyEmbeddings
+    const candidate = await run("candidate", {
+      // Another clock: the run takes the query time of the stored run.
+      now: new Date("2027-01-01T00:00:00.000Z"),
+      baseline: { folder: join(folder, "live"), run: stored },
+    })
+    // The old stack made no call.
+    expect(legacyEmbeddings).toBe(before)
+    expect(candidate.status).toBe("complete")
+    expect(candidate.run.now).toBe(stored.manifest.now)
+    expect(candidate.run.baselineFrom).toBe(join(folder, "live"))
+    const recorded = await readRun(join(folder, "candidate"))
+    const legacy = (answers: typeof stored.answers) =>
+      answers.filter((answer) => answer.arm === "legacy")
+    expect(legacy(recorded.answers)).toEqual(legacy(stored.answers))
+    // The folder keeps the calls of the reused answers for a replay.
+    expect(recorded.calls.filter((call) => call.arm === "legacy")).toEqual(
+      stored.calls.filter((call) => call.arm === "legacy"),
+    )
+    // The same answers of both arms give the same comparison.
+    expect(compact(candidate).comparison).toEqual(compact(live).comparison)
+    expect(
+      await readFile(join(folder, "candidate", "report.md"), "utf8"),
+    ).toContain(
+      `The baseline answers are the stored answers of ${join(folder, "live")}`,
+    )
+  })
+
+  it("--baseline-from: refuses another dataset version, other labels, another snapshot, or a missing answer", async () => {
+    const stored = await readRun(join(folder, "live"))
+    const before = { ...requests }
+    const from = (run: typeof stored) => ({
+      baseline: { folder: join(folder, "live"), run },
+    })
+    await expect(
+      run(
+        "refused",
+        from({
+          ...stored,
+          manifest: { ...stored.manifest, datasetVersion: "other" },
+        }),
+      ),
+    ).rejects.toThrow(/has dataset version other, and the run has version/)
+    const [first, ...rest] = stored.dataset.questions
+    if (!first) throw new Error("The dataset has no question")
+    await expect(
+      run(
+        "refused",
+        from({
+          ...stored,
+          dataset: {
+            ...stored.dataset,
+            questions: [
+              { ...first, gold: [...first.gold, "other.md"] },
+              ...rest,
+            ],
+          },
+        }),
+      ),
+    ).rejects.toThrow(`has other labels for the question ${first.id}`)
+    await expect(
+      run(
+        "refused",
+        from({
+          ...stored,
+          dataset: {
+            ...stored.dataset,
+            corpora: stored.dataset.corpora.map((corpus) => ({
+              ...corpus,
+              contextRepo: { ...corpus.contextRepo, sha: "e".repeat(40) },
+            })),
+          },
+        }),
+      ),
+    ).rejects.toThrow(/has another snapshot of the corpus/)
+    await expect(
+      run(
+        "refused",
+        from({
+          ...stored,
+          answers: stored.answers.filter(
+            (answer) =>
+              !(answer.arm === "legacy" && answer.question === first.id),
+          ),
+        }),
+      ),
+    ).rejects.toThrow(
+      `has no complete answer of the old stack to the question ${first.id}`,
+    )
+    // An answer with a failed call is no baseline either.
+    await expect(
+      run(
+        "refused",
+        from({
+          ...stored,
+          answers: stored.answers.map((answer) =>
+            answer.arm === "legacy" && answer.question === first.id
+              ? { ...answer, calls: { ...answer.calls, failed: 1 } }
+              : answer,
+          ),
+        }),
+      ),
+    ).rejects.toThrow(
+      `has no complete answer of the old stack to the question ${first.id}`,
+    )
+    // A refusal comes before any call.
+    expect(requests).toEqual(before)
   })
 
   it("scores a new threshold again from the kept calls, with no model call", async () => {
