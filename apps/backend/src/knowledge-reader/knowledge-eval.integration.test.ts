@@ -248,6 +248,8 @@ const run = async (
     now,
     out: join(folder, name),
     kept: null,
+    // Short, so that the test is fast. The command waits 31 s.
+    quietMs: 200,
     ...options,
   })
 
@@ -490,8 +492,33 @@ describe("the knowledge eval harness", () => {
     expect(markdown).toContain(
       '| holdout | no-answer | 1 | correct "no answer" | 0.000 | 1.000 | +1.000 |',
     )
+    // The regression checks (CTX-1518) read the first page of each search,
+    // the get_related results and the latency of the first calls. The
+    // example has no GitHub hit and no stale label.
+    expect(markdown).toContain("## Regression checks")
+    for (const arm of ["legacy", "plane"] as const)
+      expect(live.checks[arm]).toEqual({
+        duplicateSlots: expect.any(Number),
+        headingOnlyHits: expect.any(Number),
+        botBestChunk: null,
+        hubSlots: expect.any(Number),
+        liveFirst: null,
+        noAnswerSeparation: expect.any(Number),
+        coldSearchMs: expect.any(Number),
+        coldRelatedMs: expect.any(Number),
+        pageBytes: expect.any(Number),
+      })
     const kept = await readRun(join(folder, "live"))
     expect(kept.answers).toHaveLength(24)
+    // The run waited the quiet time before the first search and the first
+    // get_related of each arm, and only before them.
+    const quiet = kept.answers.flatMap((answer) =>
+      [answer.search, answer.related].flatMap((call) =>
+        call?.quietMs === undefined ? [] : [call.quietMs],
+      ),
+    )
+    expect(quiet).toHaveLength(4)
+    for (const ms of quiet) expect(ms).toBeGreaterThanOrEqual(200)
     // The raw Jev answers and the vectors are in the run folder.
     const jev = kept.calls.filter((call) => call.kind === "jev")
     expect(jev).toHaveLength(30)
@@ -518,6 +545,24 @@ describe("the knowledge eval harness", () => {
     expect(requests).toEqual(before)
     expect(rescored.run.mode).toBe("replay")
     expect(rescored.incomplete).toEqual([])
+    // A rescore gives each regression check from the same stores. keepAt
+    // does not change the old stack or the search page of the plane. Check
+    // 7 holds only the time of the stores in a replay.
+    const cold = {
+      coldSearchMs: expect.any(Number),
+      coldRelatedMs: expect.any(Number),
+    }
+    expect(rescored.checks.legacy).toEqual({ ...live.checks.legacy, ...cold })
+    const page = ({
+      duplicateSlots,
+      headingOnlyHits,
+      pageBytes,
+    }: Report["checks"]["plane"]) => ({
+      duplicateSlots,
+      headingOnlyHits,
+      pageBytes,
+    })
+    expect(page(rescored.checks.plane)).toEqual(page(live.checks.plane))
     // At 0.95, get_related on the plane keeps no document (Jev gave 0.9),
     // so each question with seeds gets worse; a no-answer stays correct.
     expect(
