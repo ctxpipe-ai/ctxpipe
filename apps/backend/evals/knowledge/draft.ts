@@ -513,9 +513,10 @@ export type DraftAttempt = {
  * category takes picks until it has its quota (times `scale`) and the
  * overdraft, or until its picks end. A question whose gold a keyword search
  * finds in its top 5 goes back to the model one time with the found
- * documents, and drops when it leaks again. Returns the questions with
- * their splits, each attempt, and `stopped` when `stopped()` became true
- * (the spend cap): the questions then hold the drafts before the stop.
+ * documents, and drops when it leaks again. Returns the questions, each
+ * attempt, `stopped` when `stopped()` became true (the spend cap), and
+ * `failed` with the error when a call failed. After a stop or a failure,
+ * the questions hold the drafts before it.
  */
 export async function draftQuestions(input: {
   corpus: Corpus
@@ -530,6 +531,7 @@ export async function draftQuestions(input: {
   questions: Question[]
   attempts: DraftAttempt[]
   stopped: boolean
+  failed?: string
 }> {
   const { corpus, documents } = input
   const index = termIndex(documents)
@@ -616,8 +618,12 @@ export async function draftQuestions(input: {
           })
         } catch (error) {
           if (input.stopped()) return done(true)
-          // A setup or transport error stops the command.
-          if (!(error instanceof OutOfSchemaError)) throw error
+          // A setup or transport error stops the command, with the drafts
+          // before it.
+          if (!(error instanceof OutOfSchemaError)) {
+            attempt.reason = (error as Error).message
+            return { ...done(false), failed: (error as Error).message }
+          }
           problems = [error.message]
           break
         }

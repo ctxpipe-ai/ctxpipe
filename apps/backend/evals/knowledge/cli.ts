@@ -9,7 +9,7 @@
  *     [--split dev|holdout] [--cap-usd 5] [--set NAME=VALUE] [--kept REPORT]
  *   bun evals/knowledge/cli.ts rescore --from DIR --out DIR \
  *     [--set NAME=VALUE] [--kept REPORT]
- *   bun evals/knowledge/cli.ts draft --dataset FILE --corpus ID,... --repo DIR \
+ *   bun evals/knowledge/cli.ts draft --dataset FILE --corpus ID --repo DIR \
  *     --model MODEL --out FILE [--seed TEXT] [--scale 0.4] [--cap-usd 10]
  *   bun evals/knowledge/cli.ts finalize --draft LABELED,... --out FILE
  *   bun evals/knowledge/cli.ts label --draft FILE --repo DIR \
@@ -59,11 +59,7 @@ import {
   readDataset,
 } from "./dataset.js"
 import { loadDocuments, termIndex } from "./documents.js"
-import {
-  type DraftAttempt,
-  draftQuestions,
-  finalizeQuestions,
-} from "./draft.js"
+import { draftQuestions, finalizeQuestions } from "./draft.js"
 import type { EvalOrg } from "./hydrate.js"
 import { measureLatency } from "./latency.js"
 import { ModelCalls, type RecordedCall } from "./model-calls.js"
@@ -317,10 +313,11 @@ async function label(values: {
 }
 
 /**
- * Draft the questions of the corpora `corpus` of the frozen dataset
- * `dataset` (`draft.ts`). The output holds those corpora and their drafted
+ * Draft the questions of the corpus `corpus` of the frozen dataset
+ * `dataset` (`draft.ts`). The output holds that corpus and its drafted
  * questions, and `label` labels it. Each attempt goes to
- * `OUT.attempts.json`.
+ * `OUT.attempts.json`. The output is written also when the spend cap stops
+ * the command or a call fails, with the drafts before it.
  */
 async function draft(values: {
   dataset?: string
@@ -343,51 +340,47 @@ async function draft(values: {
   const frozen = frozenCorporaSchema.parse(
     JSON.parse(await readFile(dataset, "utf8")),
   )
-  const corpora = values.corpus
-    .split(",")
-    .filter(Boolean)
-    .map((id) => {
-      const corpus = frozen.corpora.find((item) => item.id === id)
-      if (!corpus) throw new SetupError(`The dataset has no corpus ${id}.`)
-      return corpus
-    })
+  // One corpus for each command, so that a failure costs one corpus only.
+  const corpus = frozen.corpora.find((item) => item.id === values.corpus)
+  if (!corpus)
+    throw new SetupError(
+      `--corpus names one corpus of the dataset: ${frozen.corpora.map((item) => item.id).join(", ")}.`,
+    )
   // The drafter scrubs each document with the converter.
   buildConverter()
   const calls = modelCalls(values.capUsd)
   const restore = calls.install()
-  const questions: Dataset["questions"] = []
-  const attempts: DraftAttempt[] = []
-  let stopped = false
   try {
-    for (const corpus of corpora) {
-      const drafted = await draftQuestions({
-        corpus,
-        documents: loadDocuments(
-          repo,
-          corpus.contextRepo.sha,
-          corpus.contextRepo.root,
-        ),
-        model,
-        seed: `${values.seed ?? "v0"} ${corpus.id}`,
-        scale,
-        env: process.env,
-        stopped: () => calls.stopped,
-      })
-      questions.push(...drafted.questions)
-      attempts.push(...drafted.attempts)
-      process.stderr.write(
-        `${corpus.id}: ${drafted.questions.length} questions, $${calls.spentUsd.toFixed(2)} spent.\n`,
-      )
-      stopped = drafted.stopped
-      if (stopped) break
-    }
-    await writeJson(values.out, { version: frozen.version, corpora, questions })
+    const drafted = await draftQuestions({
+      corpus,
+      documents: loadDocuments(
+        repo,
+        corpus.contextRepo.sha,
+        corpus.contextRepo.root,
+      ),
+      model,
+      seed: `${values.seed ?? "v0"} ${corpus.id}`,
+      scale,
+      env: process.env,
+      stopped: () => calls.stopped,
+    })
+    // Also after a stop or a failed call: the drafts before it stay.
+    await writeJson(values.out, {
+      version: frozen.version,
+      corpora: [corpus],
+      questions: drafted.questions,
+    })
     await writeJson(`${values.out}.attempts.json`, {
-      attempts,
-      stopped,
+      attempts: drafted.attempts,
+      stopped: drafted.stopped,
+      ...(drafted.failed ? { failed: drafted.failed } : {}),
       spentUsd: calls.spentUsd,
     })
-    return stopped ? 3 : 0
+    process.stderr.write(
+      `${corpus.id}: ${drafted.questions.length} questions, $${calls.spentUsd.toFixed(2)} spent.\n`,
+    )
+    if (drafted.failed) throw new Error(drafted.failed)
+    return drafted.stopped ? 3 : 0
   } finally {
     restore()
   }
