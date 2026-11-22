@@ -30,7 +30,7 @@ const slug = name
   .replace(/^-+|-+$/g, "")
 const existing = findExisting(index, "Repository", [repository, name])
 const path = existing ?? `knowledge/codebases/${slug || "repository"}.md`
-const purpose = purposeOf(source, new Set(trackedFiles(source)), ".")
+const purpose = purposeOf(source, new Set(trackedFiles(source)), ".", skipped)
 const listed = roots.map((r) => r.path).filter((p) => p !== ".")
 const summary =
   purpose?.text ??

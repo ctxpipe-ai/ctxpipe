@@ -29,6 +29,7 @@ import {
 } from "../../bin/knowledge-lib.mjs"
 import {
   cleanPurpose,
+  looksLikeInstruction,
   MAX_PURPOSE_CHARS,
   purposeOf,
 } from "../../bin/purpose-lib.mjs"
@@ -237,27 +238,42 @@ const current = baseBlob(step, path) ? ownSummary(step, path, sourcePath) : null
 const replaces =
   typeof current === "string" && PLACEHOLDER_SUMMARY.test(current)
 let purpose = null
+// The purposes that look like an instruction to an agent (CTX-1536).
+const refused = []
 if (current === null || replaces) {
-  const found = purposeOf(source, files, rootPath)
+  const found = purposeOf(source, files, rootPath, refused)
   if (found && chosenSummary !== null)
     fail(
       `The scripts found the purpose in ${found.evidence}. Do not give --summary for this root.`,
     )
+  const chosen =
+    chosenSummary === null
+      ? null
+      : (cleanPurpose(chosenSummary) ??
+        fail(
+          `Give --summary with one or two sentences of plain text, at most ${MAX_PURPOSE_CHARS} characters`,
+        ))
+  // A model summary that looks like an instruction gets the neutral
+  // placeholder, so the file is still written.
+  if (chosen !== null && looksLikeInstruction(chosen))
+    refused.push({
+      path: null,
+      reason:
+        "The purpose of the model looks like an instruction to an agent, so the script did not use it",
+    })
   purpose =
     found ??
-    (chosenSummary === null
+    (chosen === null
       ? null
       : {
-          text:
-            cleanPurpose(chosenSummary) ??
-            fail(
-              `Give --summary with one or two sentences of plain text, at most ${MAX_PURPOSE_CHARS} characters`,
-            ),
+          text: looksLikeInstruction(chosen)
+            ? `${LABELS[kind][0].toUpperCase()}${LABELS[kind].slice(1)} in the ${repository} repository.`
+            : chosen,
           evidence: null,
         })
   if (!purpose) {
     result.needsSummary = { files: modelFiles(files, rootPath) }
-    finish([])
+    finish([], refused)
   }
   result.purpose = purpose
 } else if (chosenSummary !== null)
@@ -277,37 +293,40 @@ const codebase = index
   .sort()[0]
 const where = rootPath === "." ? "the repository root" : `\`${rootPath}\``
 const label = LABELS[kind]
-finish([
-  {
-    path,
-    claims: codebase
-      ? [
-          {
-            to: relativeTo(path, codebase),
-            predicate: "IMPLEMENTED_IN",
-            evidence: { path: evidence, kind: result.decidedBy },
-          },
-        ]
-      : [],
-    related: [`- \`${repository}\` has it at ${where} (\`${evidence}\`)`],
-    ...(replaces ? { summary: purpose.text } : {}),
-    create: !purpose
-      ? null
-      : {
-          kind,
-          name,
-          summary: purpose.text,
-          intro: [
-            result.decidedBy === "script"
-              ? `A script classified it as ${label} of \`${repository}\`: ${reason} (\`${evidence}\`).`
-              : `The model classified it as ${label} of \`${repository}\`, because ${reason}.`,
-            // A purpose from a file is source text: a quote with its source.
-            purpose.evidence
-              ? `> ${purpose.text}\n\nSource: ${purpose.evidence}`
-              : null,
+finish(
+  [
+    {
+      path,
+      claims: codebase
+        ? [
+            {
+              to: relativeTo(path, codebase),
+              predicate: "IMPLEMENTED_IN",
+              evidence: { path: evidence, kind: result.decidedBy },
+            },
           ]
-            .filter(Boolean)
-            .join("\n\n"),
-        },
-  },
-])
+        : [],
+      related: [`- \`${repository}\` has it at ${where} (\`${evidence}\`)`],
+      ...(replaces ? { summary: purpose.text } : {}),
+      create: !purpose
+        ? null
+        : {
+            kind,
+            name,
+            summary: purpose.text,
+            intro: [
+              result.decidedBy === "script"
+                ? `A script classified it as ${label} of \`${repository}\`: ${reason} (\`${evidence}\`).`
+                : `The model classified it as ${label} of \`${repository}\`, because ${reason}.`,
+              // A purpose from a file is source text: a quote with its source.
+              purpose.evidence
+                ? `> ${purpose.text}\n\nSource: ${purpose.evidence}`
+                : null,
+            ]
+              .filter(Boolean)
+              .join("\n\n"),
+          },
+    },
+  ],
+  refused,
+)

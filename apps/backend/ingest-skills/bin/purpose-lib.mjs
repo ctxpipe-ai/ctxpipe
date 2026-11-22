@@ -20,6 +20,28 @@ import {
 export const EXTERNAL_URL =
   /\b(?:https?|ftp|file):\/\/[^\s`]+|(?<![\w.@/:-])www\.[^\s`]+|(?<![\w/:])\/\/[a-z0-9.-]+\.[a-z]{2,}[^\s`]*/gi
 
+/**
+ * The phrases that the host validator reads as an instruction to an agent
+ * (`INJECTION_PHRASES` of patch-validator.ts; a test keeps the two lists the
+ * same). The validator refuses a file whose front matter holds one, so a
+ * purpose with one is not used (CTX-1536).
+ */
+export const INJECTION_PHRASES = [
+  /\b(?:ignore|disregard|forget|override|bypass)\b[^.\n]{0,40}\b(?:previous|prior|above|earlier|preceding|all|any|your|the)\b[^.\n]{0,20}\b(?:instructions?|prompts?|rules|directives|guidelines)\b/i,
+  /\byou are (?:now|no longer)\b/i,
+  /\b(?:new|updated|real|actual) (?:system )?instructions?\s*:/i,
+  /\bsystem prompt\b/i,
+  /\b(?:reveal|print|show|output|leak|exfiltrate|send|upload)\b[^.\n]{0,40}\b(?:system prompt|api[_ -]?keys?|credentials?|secrets?|access tokens?|passwords?)\b/i,
+  /\b(?:do not|don't|never) (?:tell|inform|alert) (?:the )?(?:user|human|operator)\b/i,
+  /\bas an ai\b/i,
+  /\b(?:ai|llm|coding) (?:agents?|assistants?|models?)\b[,:]?\s*(?:must|should|need to|are required to|please)\b/i,
+  /<\|?(?:im_start|im_end|endoftext)\|?>|\[\/?INST\]|<<\/?SYS>>/i,
+]
+
+/** True when the host validator reads `text` as an instruction to an agent. */
+export const looksLikeInstruction = (text) =>
+  INJECTION_PHRASES.some((pattern) => pattern.test(text.replace(/\s+/g, " ")))
+
 /** A purpose keeps at most this many characters; a longer text ends at a sentence or with "…". */
 export const MAX_PURPOSE_CHARS = 300
 const MIN_PURPOSE_CHARS = 10
@@ -172,14 +194,24 @@ function readmeParagraph(text) {
 
 /**
  * The purpose of the root at `rootPath`, as { text, evidence }, or null.
- * `files` is the set of tracked files of the source.
+ * `files` is the set of tracked files of the source. A purpose that looks
+ * like an instruction to an agent is not used: the next source gives the
+ * purpose, and `refused` gets an entry for `skipped` (CTX-1536).
  */
-export function purposeOf(source, files, rootPath) {
+export function purposeOf(source, files, rootPath, refused = []) {
   const dir = rootPath === "." ? "" : `${rootPath}/`
   const at = (path) => `${dir}${path}`
   const read = (path) => readTracked(source, at(path))
   const found = (raw, path) => {
     const text = cleanPurpose(raw)
+    if (text && looksLikeInstruction(text)) {
+      refused.push({
+        path: at(path),
+        reason:
+          "The purpose in the file looks like an instruction to an agent, so the script did not use it",
+      })
+      return null
+    }
     return text ? { text, evidence: at(path) } : null
   }
   const direct = [...files].filter(

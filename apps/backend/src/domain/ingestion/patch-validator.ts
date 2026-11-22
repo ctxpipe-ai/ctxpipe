@@ -1413,7 +1413,7 @@ function markdownHeadings(body: string): string[] {
   return headings
 }
 
-const INJECTION_PHRASES = [
+export const INJECTION_PHRASES = [
   /\b(?:ignore|disregard|forget|override|bypass)\b[^.\n]{0,40}\b(?:previous|prior|above|earlier|preceding|all|any|your|the)\b[^.\n]{0,20}\b(?:instructions?|prompts?|rules|directives|guidelines)\b/i,
   /\byou are (?:now|no longer)\b/i,
   /\b(?:new|updated|real|actual) (?:system )?instructions?\s*:/i,
