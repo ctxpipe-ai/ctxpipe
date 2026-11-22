@@ -1405,18 +1405,16 @@ async function search(
     AND ${validDuring()}`
   const inSearchable = `(workspace_id, doc_key, version) IN (
     SELECT workspace_id, doc_key, version FROM tree_view WHERE ${searchable})`
-  // The searchable chunks that have the term `i`, through the text index.
-  // Only the parameter names go into the SQL text.
-  const withTerm = (i: number) => `FROM chunks
-    WHERE ${inWorkspaces} AND hasToken(text, {term${i}:String})
-      AND ${inSearchable}`
   // One branch for each term, each with at most 1000 chunks of searchable
-  // documents: the cap before the score.
+  // documents: the cap before the score. Only the parameter names go into the
+  // SQL text.
   const termMatches = uniqueTerms
     .map(
       (_, i) => `SELECT {term${i}:String} AS word,
           workspace_id, doc_key, version, ordinal
-        ${withTerm(i)}
+        FROM chunks
+        WHERE ${inWorkspaces} AND hasToken(text, {term${i}:String})
+          AND ${inSearchable}
         LIMIT 1000`,
     )
     .join(" UNION ALL ")
@@ -1433,7 +1431,7 @@ async function search(
       )
       .join(" UNION ALL ")}) AS counts
     CROSS JOIN (SELECT count() AS total FROM chunks
-      WHERE ${inWorkspaces}) AS searchable`
+      WHERE ${inWorkspaces}) AS totals`
   const [vectorOrder, lexicalOrder] = await Promise.all([
     selectIn<ChunkKey>(
       client,
@@ -1553,11 +1551,13 @@ async function search(
     ]),
   )
   const textById = new Map(texts.map((row) => [chunkId(row), row]))
-  return [...byDocument].flatMap(([id, found]): SearchHit[] => {
+  return [...byDocument].flatMap(([id, bestChunks]): SearchHit[] => {
     const current = documentById.get(id)
     // A chunk of a file version that the view does not show any more is
     // not a hit.
-    const chunks = found.filter((chunk) => chunk.version === current?.version)
+    const chunks = bestChunks.filter(
+      (chunk) => chunk.version === current?.version,
+    )
     const first = chunks[0]
     if (!current || !first) return []
     return [
