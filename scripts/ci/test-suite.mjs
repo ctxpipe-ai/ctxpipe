@@ -185,16 +185,11 @@ try {
       cwd: launch.cwd,
       env: launch.env,
       stdio: "inherit",
-      // Native contracts include real lease expiry and resource cleanup deadlines.
-      // Each file runs in exactly one lane. Ownership contracts add real lease
-      // expiry and writer-loss recovery; 30 minutes once killed the contract
-      // suite before Failed Tests. Only that lane needs the extra ceiling.
-      timeout:
-        name === "backend"
-          ? 1_800_000
-          : name === "contracts"
-            ? 2_700_000
-            : 600_000,
+      // A backend or contract shard runs about 10 minutes of tests (the
+      // shards of ci.yaml, ADR-065), so 20 minutes stops a hung shard before
+      // the job limit of 30 minutes. The contract files include real lease
+      // expiry and resource cleanup deadlines.
+      timeout: name === "backend" || name === "contracts" ? 1_200_000 : 600_000,
     })
     if (result.error || result.signal)
       throw new Error(

@@ -201,10 +201,12 @@ jobs:
 
   # outside-manifest: it builds the chat sandbox image, a prerequisite of the backend lanes, from the layer cache of main
   test-shards:
-    # The runner's own limit (scripts/ci/test-suite.mjs) is 30 min for backend
-    # and 45 min for contracts. The job limit adds 15 min for setup, so the
-    # named runner timeout fires before the job is cancelled.
-    timeout-minutes: ${{ matrix.lane != 'backend' && 60 || 45 }}
+    # In a full run, the runner's own limit (scripts/ci/test-suite.mjs) is 20
+    # min for backend and contracts. The job limit adds 10 min for setup, so
+    # the named runner timeout fires before the job is cancelled. The slowest
+    # shard of a full run on a GitHub-hosted runner took 14 min, and a gated
+    # shard plans about 10 min of tests (shard.mjs, ADR-065).
+    timeout-minutes: 30
     # One shard runs its files in series in its own database, so a worker in
     # one shard cannot claim a run that a file in another shard opened.
     name: ${{ matrix.lane }} tests (shard ${{ matrix.shard }}/${{ matrix.count }})
@@ -791,7 +793,9 @@ jobs:
       contents: read
       packages: write
     # The caches are for linux/arm64, the platform of the jobs that read them.
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    # 2 vCPU: most builds take 20 s to 50 s, and only a push to main runs
+    # them, so no pull request waits for this job.
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     strategy:
       fail-fast: false
       matrix:
@@ -1082,7 +1086,8 @@ jobs:
       (github.event_name == 'workflow_dispatch' ||
       github.event_name == 'pull_request') &&
       needs.merge-gate-plan.outputs.mode != 'gate'
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    # github-hosted: Playwright runs on the runner, without Docker (ADR-065)
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -1127,7 +1132,8 @@ jobs:
       github.event_name == 'schedule' ||
       github.event_name == 'pull_request') &&
       (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.storybook-plays != '')
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    # github-hosted: Playwright runs on the runner, without Docker (ADR-065)
+    runs-on: ubuntu-24.04-arm
     # The id of the result artifact of each shard: the job Nightly tickets
     # downloads only these, not an artifact of another job with the same name.
     outputs:
@@ -1443,7 +1449,9 @@ jobs:
     if: |
       github.event_name == 'workflow_dispatch' ||
       github.event_name == 'pull_request'
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    # 2 vCPU: the job takes about 50 s, and it starts with the run, so it is
+    # not on the critical path. main-caches.yaml fills its converter cache.
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     services:
       postgres:
         # Matches local Compose (pgvector); plain postgres:16 lacks the vector extension.
