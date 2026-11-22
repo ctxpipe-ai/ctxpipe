@@ -219,7 +219,15 @@ RUN mkdir -p /data/zoekt-index /data/repo-cache
 EXPOSE 3001
 CMD ["/start.sh"]
 
-# ── Stage 10: Vitest (reuses the production toolchain; adds devDependencies) ──
+# ── Stage 10: Test dependencies (adds the devDependencies to the deps stage) ──
+# The install runs here, not in the test stage: the runtime has
+# apps/backend/certs, and pnpm 11 refuses a frozen install when a lockfile
+# importer (apps/backend) is a folder with no package.json.
+FROM deps AS test-deps
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+    pnpm install --store-dir /pnpm/store --frozen-lockfile --config.confirmModulesPurge=false
+
+# ── Stage 11: Vitest (reuses the production toolchain; adds devDependencies) ──
 # Build: docker build -f apps/codesearch/Dockerfile --target test -t ctxpipe-codesearch:test .
 # Run:   docker run --rm ctxpipe-codesearch:test
 FROM runtime AS test
@@ -229,10 +237,8 @@ COPY --from=release-tools /test-out/versitygw /usr/local/bin/versitygw
 RUN npm install -g pnpm@11.28.11
 WORKDIR /app
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* tsconfig.json ./
-COPY patches patches
-COPY apps/codesearch/package.json apps/codesearch/package.json
-RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
-    pnpm install --store-dir /pnpm/store --frozen-lockfile --config.confirmModulesPurge=false
+COPY --from=test-deps /app/node_modules ./node_modules
+COPY --from=test-deps /app/apps/codesearch/node_modules ./apps/codesearch/node_modules
 COPY apps/codesearch ./apps/codesearch
 COPY scripts/ci/check-test-report.mjs ./scripts/ci/check-test-report.mjs
 # The trace and result record code (run-vitest-contracts.mjs --trace, --records).
