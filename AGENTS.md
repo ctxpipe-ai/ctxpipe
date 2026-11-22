@@ -8,7 +8,7 @@ This file holds repo-wide rules. In an app or package, also read that folder's `
 - **apps/ui**: [apps/ui/AGENTS.md](apps/ui/AGENTS.md) — TanStack Start frontend, React Aria, Tailwind, Storybook, Vitest; **[React skill](.agents/skills/react/)** when building or editing components; **[product-ui skill](.agents/skills/product-ui/)** and [DESIGN.md](apps/ui/DESIGN.md) when building or restyling product screens.
 - **apps/docs**: [apps/docs/AGENTS.md](apps/docs/AGENTS.md) — Fumadocs documentation site (Next.js 15, Shiki, forced-dark, deploys to docs.ctxpipe.ai).
 - **examples/**: runnable consumer examples for ctxpipe packages (manual e2e tests against real infra). See [examples/README.md](examples/README.md).
-- **ops/observability**: [USING.md](ops/observability/USING.md) and the old Railway stack. The stack runs on AWS (factory `machines/observability`).
+- **ops/observability**: [USING.md](ops/observability/USING.md) and `cost-telemetry`. The stack runs on AWS (factory `machines/observability`).
 - **plugins/ctxpipe**: Claude plugin for the hosted product MCP. See [ADR-026](.ai/memory/decisions/ADR-026-claude-plugin-mcp-distribution.md).
 
 **Agent harness layout:** Shared agent content lives in `AGENTS.md` and `.agents/` (`.agents/skills/`, `.agents/hooks/`). `.claude/`, `.codex/`, `.cursor/`, and `opencode.json` are thin adapters that point at it. Put a new skill or hook in `.agents/`. Keep this file under 24 KiB, because Codex reads only the first 32 KiB of all `AGENTS.md` files together. CI runs [`scripts/ci/check-agent-harness.mjs`](scripts/ci/check-agent-harness.mjs) to check the sizes, MCP parity, and skill symlinks. See [ADR-055](.ai/memory/decisions/ADR-055-harness-agnostic-agent-setup.md).
@@ -26,7 +26,6 @@ Claude Code and Codex read keys from environment variables. Only `ctxpipe` can f
 
 1. **HyperDX MCP** (`hyperdx`) — logs, traces with prompt text, metrics. Filter `DeploymentEnvironment` (`production`, `pr-N`, `observability`, `local-<name>`).
 2. **AWS reads, audit role** — CloudWatch, ECS, RDS, EC2, AgentCore ([setup](ops/observability/USING.md#agent-hosts)).
-3. **Railway MCP** (`railway`) — until the AWS cutover: stdout that never exported.
 
 For Storybook conventions and tools, read [.agents/skills/storybook/SKILL.md](.agents/skills/storybook/SKILL.md) with [apps/ui/AGENTS.md](apps/ui/AGENTS.md).
 
@@ -91,21 +90,22 @@ Customer-facing documentation lives in [`apps/docs/content/docs/`](apps/docs/con
 
 ### Preview environments
 
-**preview-env:** critical-flow run against local dev, a Railway PR preview, or AWS before cutover from a fresh registration: the full browser + MCP catalogue or one area (onboarding, auth, org-home, workspaces, hydrate, graph, chat, files-publish, connectors, mcp, resilience). Never production. [`.agents/skills/preview-env/`](.agents/skills/preview-env/)
+**preview-env:** critical-flow run against local dev, an AWS PR preview, or AWS before cutover from a fresh registration: the full browser + MCP catalogue or one area (onboarding, auth, org-home, workspaces, hydrate, graph, chat, files-publish, connectors, mcp, resilience). Never production. [`.agents/skills/preview-env/`](.agents/skills/preview-env/)
 
 ### GitHub environments
 
-- `Preview`: only the jobs that deploy, roll or delete the Railway PR preview.
+- `Preview`: retired with the Railway project ([CTX-1220](https://linear.app/ctxpipe/issue/CTX-1220)). No job uses it.
+- `pr-preview`: only the Deployments of the AWS PR preview. No secret, and no job runs in it.
 - `workbench`: the environment for checks, evals, proofs and live contracts that call outside services, with spend-capped or test-scoped keys.
 - `Production`: the production deploy.
-- Each environment holds its own value of each credential. `Production` and `Preview` never share a token, key, or secret. When you add or rotate a secret, make one value for each environment that needs it. `OBSERVABILITY_OTLP_HEADERS` too: `Production` holds the `telemetry` Access token, `Preview` holds `telemetry-preview`, and it is never a repository secret.
+- Each environment holds its own value of each credential. `Production` and `Preview` never share a token, key, or secret. When you add or rotate a secret, make one value for each environment that needs it. `OBSERVABILITY_OTLP_HEADERS` too: `Production` holds the `telemetry` Access token, and it is never a repository secret.
 - A new check that needs a paid or outside service uses `workbench`. Do not add another environment without a stated need. `scripts/ci/check-secret-jobs.mjs` enforces this.
 
 ### Adversarial review
 
 Every adversarial review of a diff is three axes — **Standards**, **Spec**, and **Simplicity** — and Security when triggered. `factory check` runs these critics ([`code-review`](.agents/skills/code-review/SKILL.md)) and stores verdicts for the merge gate. Do not start review sub-agents or run `/code-review` by hand, and never review spec-only. Simplicity names the job, the thinnest machine, and leftover machinery; spec-match is not a defense ([`simplicity-audit`](.agents/skills/simplicity-audit/SKILL.md)).
 
-Fix or dispute each finding. A hold ends when a later review no longer raises the finding (Security too). Ask the human only about an escalated finding that you do not fix: a dismissal is `factory decide <id> --dismissed --reason "<their words>"`; an accepted Security risk is `factory risk propose`. Never write, approve or merge a register entry yourself, or open a PR or edit a ticket, AGENTS.md, an ADR or a skill to avoid a finding. The CTO changes rules.
+Fix or dispute each finding. A hold ends when a later review no longer raises the finding (Security too). Ask the human only about an escalated finding that you do not fix: the lead puts a CTO dismissal in the PR's `## Decisions` list; an accepted Security risk is `factory risk propose`. Never write, approve or merge a register entry yourself, or open a PR or edit a ticket, AGENTS.md, an ADR or a skill to avoid a finding. The CTO changes rules.
 
 ## Architecture decisions & ADRs
 
@@ -117,7 +117,7 @@ Fix or dispute each finding. A hold ends when a later review no longer raises th
 
 ## Local development
 
-One [docker-compose.yml](docker-compose.yml) uses profiles ([ADR-015](.ai/memory/decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md)). `pnpm dev:infra` starts the `infra` profile (Postgres, FalkorDB, OTEL, Agent Vault). `pnpm start` starts the `deploy` profile (production images). Details on Compose, migrations, the docs site, and container deploy: [`.ai/agents/local-development.md`](.ai/agents/local-development.md).
+One [docker-compose.yml](docker-compose.yml) uses profiles ([ADR-015](.ai/memory/decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md)). `pnpm dev:infra` starts the `infra` profile (Postgres, FalkorDB, ClickHouse, OTEL, Agent Vault). `pnpm start` starts the `deploy` profile (production images). Details on Compose, migrations, the docs site, and container deploy: [`.ai/agents/local-development.md`](.ai/agents/local-development.md).
 
 ### Agent runbook — host dev (run from repo root)
 
@@ -169,11 +169,12 @@ This repository is public. **Never** put the name, slug, email, username, id (`o
 - **Environment variables**: Use only for values that differ by **environment** or that **operators/customers must set** (secrets, base URLs, infra limits). Do not use env for **feature toggles** or **internal logic**; keep those in code or committed config. See [.ai/memory/lessons-learned.md](.ai/memory/lessons-learned.md). **Agents:** Do not add or document **new** environment variables unless they are **required** to complete the assigned task — prefer resolving paths or behavior in committed code rather than expanding operator surface area.
 - **Backend logging**: In `apps/backend`, use **evlog** (`getLogger()` or `log` from `src/observability/logger.ts`) — not `console.*`. See [apps/backend/AGENTS.md](apps/backend/AGENTS.md) (Logging).
 - **Formatting**: run `pnpm format` before a commit. CI runs `pnpm format:check`.
+- **Versions**: write a range in package.json; the lockfile pins.
 - **Unused code**: CI runs **`pnpm knip`** ([knip.json](knip.json)). It fails on an unused file, export, or dependency. Delete the unused code. When you add a file that a tool starts by path (a script, a Dockerfile `CMD`, a CI step), add it to `entry` in `knip.json`.
 
 ## Testing
 
-Before each push, run `factory check`; fix what it reports; run it again. During a red-green loop, you may run the one test file that you work on. Do not run a full suite. Do not start a review or test sub-agent. `factory check` runs the checks that the change can break and the review critics, and CI reuses its passes and verdicts. See the [factory-check skill](.agents/skills/factory-check/SKILL.md), with the fallback when `factory` is not installed.
+During a red-green loop, you may run the one test file that you work on. Do not run a full suite. Do not start a review or test sub-agent. `factory check` runs the checks that the change can break and the review critics, and CI reuses its passes and verdicts. See the [factory-check skill](.agents/skills/factory-check/SKILL.md), with the fallback when `factory` is not installed.
 
 Test through the module's public interface with its real collaborators. Fake the **environment**, not our own modules:
 
