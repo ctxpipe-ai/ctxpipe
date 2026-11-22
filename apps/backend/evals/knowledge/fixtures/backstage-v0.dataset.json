@@ -476,33 +476,6 @@
       ]
     },
     {
-      "id": "backstage-disagreement-20",
-      "corpus": "backstage",
-      "category": "disagreement",
-      "split": "holdout",
-      "text": "Anyone in our company can add new entries to the developer portal's inventory through the self-service registration page. We want only a small trusted group to be able to add project-scaffolding blueprints, while everyone else can keep adding services. Can role-based rules make that decision per person? If not, does it work to ban that entry type everywhere and pull the blueprints in through one curated index file that only a few people can edit?",
-      "gold": [
-        "github/issues/backstage/backstage/29694.md",
-        "github/issues/backstage/backstage/32936.md"
-      ],
-      "seeds": ["github/issues/backstage/backstage/29694.md"],
-      "positions": [
-        {
-          "refs": ["github/issues/backstage/backstage/29694.md"],
-          "status": "superseded"
-        },
-        {
-          "refs": ["github/issues/backstage/backstage/32936.md"],
-          "status": "current"
-        }
-      ],
-      "keyFacts": [
-        "catalog.location.create cannot be made a resource (conditional) permission, because there is no existing resource to evaluate conditions against.",
-        "The suggested workaround was to leave Template out of catalog.rules.allow and reference templates from a curated Location entity in a repo with restricted write access.",
-        "A later report says this workaround fails: Templates referenced from such a Location are rejected with a NotAllowedError ('not of an allowed kind for that location')."
-      ]
-    },
-    {
       "id": "backstage-no-answer-01",
       "corpus": "backstage",
       "category": "no-answer",

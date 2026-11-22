@@ -47,7 +47,7 @@ A disagreement question stays only when its documents make conflicting claims (a
 
 Opus 5.5 drafted the questions (`draft`). The panel labeled them: Sonnet 5.5, GPT-6.1-Terra and Gemini 3.8 Flash (`label`). `finalize` made the file. Each model call went only to a ZDR endpoint of the provider allowlist of production. The context repos are private, so a run serves them from a local Git server at the same SHAs (see `hydrate`).
 
-`fixtures/backstage-v0.dataset.json` (version `backstage-0`) holds the 36 questions of Backstage (`eval-v0-backstage-context` at `144bda17`), made with the same commands and settings. Its categories are 4 lookups, 6 multi-hop, 10 across sources, 8 time, 2 disagreement and 6 no-answer, with the same split rule. Multi-hop has only 6 questions: Backstage has few links between its documents, and the drafter tried each chain. Backstage is its own dataset, not a corpus of `corpora-v0`: the runs of each dataset form their own series, so a new corpus does not change the version of an older series. Each generation of the plane runs both files.
+`fixtures/backstage-v0.dataset.json` (version `backstage-0`) holds the 35 questions of Backstage (`eval-v0-backstage-context` at `144bda17`), made with the same commands and settings. Its categories are 4 lookups, 6 multi-hop, 10 across sources, 8 time, 1 disagreement and 6 no-answer, with the same split rule. Multi-hop has only 6 questions: Backstage has few links between its documents, and the drafter tried each chain. Backstage is its own dataset, not a corpus of `corpora-v0`: the runs of each dataset form their own series, so a new corpus does not change the version of an older series. Each generation of the plane runs both files.
 
 ### Hill-climb by generations
 
