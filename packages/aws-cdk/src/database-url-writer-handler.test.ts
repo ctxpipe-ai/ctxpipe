@@ -11,6 +11,9 @@ type WriterEvent = {
 }
 type WriterResult = { PhysicalResourceId: string }
 
+/** The secret values that the handler wrote, by secret ARN. */
+const written = new Map<string, string>()
+
 // Loads the inline handler from the synthesized template. Only the AWS SDK is faked.
 function loadWriterHandler(): (event: WriterEvent) => Promise<WriterResult> {
   const app = new cdk.App()
@@ -37,16 +40,21 @@ function loadWriterHandler(): (event: WriterEvent) => Promise<WriterResult> {
     .find((zipFile) => zipFile?.includes("WriterPhysicalId"))
   if (!code) throw new Error("DatabaseUrlWriter function code not found")
 
-  class FakeCommand {}
+  class GetSecretValueCommand {}
+  class PutSecretValueCommand {
+    constructor(readonly input: { SecretId: string; SecretString: string }) {}
+  }
   class FakeClient {
-    async send() {
+    async send(command: object) {
+      if (command instanceof PutSecretValueCommand)
+        written.set(command.input.SecretId, command.input.SecretString)
       return { SecretString: JSON.stringify({ password: "secret" }) }
     }
   }
   const fakeSdk = {
     SecretsManagerClient: FakeClient,
-    GetSecretValueCommand: FakeCommand,
-    PutSecretValueCommand: FakeCommand,
+    GetSecretValueCommand,
+    PutSecretValueCommand,
   }
   const exportsObject: {
     handler?: (event: WriterEvent) => Promise<WriterResult>
@@ -93,5 +101,37 @@ describe("DatabaseUrlWriter handler physical id", () => {
       ResourceProperties: properties,
     })
     expect(result.PhysicalResourceId).toBe(generatedId)
+  })
+})
+
+describe("DatabaseUrlWriter handler URL", () => {
+  it("writes the Postgres DATABASE_URL by default", async () => {
+    await loadWriterHandler()({
+      RequestType: "Create",
+      ResourceProperties: properties,
+    })
+    expect(JSON.parse(written.get("arn:url") ?? "")).toEqual({
+      DATABASE_URL: "postgresql://ctxpipe:secret@db.example.com:5432/ctxpipe",
+    })
+  })
+
+  it("writes a ClickHouse CLICKHOUSE_URL with the scheme and key it gets", async () => {
+    await loadWriterHandler()({
+      RequestType: "Create",
+      ResourceProperties: {
+        ...properties,
+        WriterPhysicalId: "ctxpipe_reader-clickhouse-url-writer",
+        Scheme: "http",
+        UrlKey: "CLICKHOUSE_URL",
+        Username: "ctxpipe_reader",
+        DatabaseUrlSecretArn: "arn:clickhouse-url",
+        DbHost: "clickhouse.ctxpipe.local",
+        DbPort: "8123",
+      },
+    })
+    expect(JSON.parse(written.get("arn:clickhouse-url") ?? "")).toEqual({
+      CLICKHOUSE_URL:
+        "http://ctxpipe_reader:secret@clickhouse.ctxpipe.local:8123/ctxpipe",
+    })
   })
 })

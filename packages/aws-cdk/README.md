@@ -166,7 +166,7 @@ What the construct sets up:
 - A single-instance Auto Scaling group in the private subnets (Amazon Linux 2023 on Graviton). EC2 health checks replace a failed host; `cdk deploy` waits until the host reports ready. New AMIs apply when the host is replaced, not on every deploy.
 - A gp3 volume for `/var/lib/docker`. The volume belongs to the instance: a replaced host starts empty. Conversations keep their work in their git branch, so they continue on the new host.
 - The Docker API on port 2376 with mutual TLS at `sandbox-host.ctxpipe.local` (Cloud Map, registered by the host). The host creates the certificates on first boot and stores them in Secrets Manager; a replacement host reuses them. The CA key is not kept.
-- Security groups: backend and worker reach the Docker API; only the backend reaches the sandboxes' agent ports, and only the backend accepts calls from sandboxes (model proxy on 3000 and per-run tool bridges). Sandboxes also reach Git hosts and the internet through NAT, but not Postgres, Neptune, EFS, codesearch, the UI, or the worker.
+- Security groups: backend and worker reach the Docker API; only the backend reaches the sandboxes' agent ports, and only the backend accepts calls from sandboxes (model proxy on 3000 and per-run tool bridges). Sandboxes also reach Git hosts and the internet through NAT, but not Postgres, Neptune, ClickHouse, EFS, codesearch, the UI, or the worker.
 - Each agent port needs a per-conversation password. Agent ports are reachable inside the VPC, so the host also blocks sandboxes from each other, from the host itself, and from instance metadata.
 - All sandbox containers run under one systemd slice capped at 85% of memory, and container logs rotate at 3 × 10 MB.
 - The Workspace chat image is `ghcr.io/ctxpipe-ai/chat-sandbox`, published for arm64 and amd64 with the same release tag as the service images. The backend pulls it through the host's Docker daemon on the first chat after a release, so releases never replace the host.
@@ -189,6 +189,27 @@ new CtxPipe(stack, "CtxPipe", {
 The stack adds each entry after the backend subnets. Each entry must be an IPv4 or IPv6 address or CIDR. Synth rejects an entry with a cloud metadata or link-local address. The sandbox host must also have a route to that address (for example VPC peering or a transit gateway), and the git server must accept connections from the host. A change to the list replaces the host.
 
 The stack output `SandboxHostAutoScalingGroupName` names the group. Open a shell on its instance with Session Manager (no SSH key or open port) for the checks in the [operations docs](https://docs.ctxpipe.ai/docs/self-hosting/operations).
+
+## Knowledge store
+
+`CtxPipe` always deploys ClickHouse 26.10 for the new knowledge store (ADR-066). The new knowledge store is off for every organization, and while it is off the backend and the worker do not use ClickHouse.
+
+- One Graviton EC2 host in an Auto Scaling group of one, in the first private subnet. ClickHouse runs in Docker on the host network, from the same pinned image as Docker Compose.
+- An encrypted gp3 EBS volume for the new parts and the cache of the old parts. The host attaches it when it boots, so a replacement host keeps the data. A stack delete keeps a snapshot.
+- The volume `cold` is an S3 bucket of the stack (private, encrypted, retained) behind a cache disk on the volume, with `boundary_alignment` 131072. The instance role reaches only the bucket prefix `clickhouse/`.
+- Only the backend, the worker, and the migrate task reach port 8123, at `clickhouse.ctxpipe.local` (Cloud Map, registered by the host). No public listener, no SSH key.
+- Three generated passwords in Secrets Manager. Migrate gets the admin `CLICKHOUSE_URL`, `CLICKHOUSE_READER_PASSWORD`, and `CLICKHOUSE_WRITER_PASSWORD`, and makes the users. The backend gets the `ctxpipe_reader` URL, and the worker the `ctxpipe_writer` URL.
+- Logs go to CloudWatch Logs (14 days). The stack output `KnowledgeStoreAutoScalingGroupName` names the group for a Session Manager shell.
+- The VPC has an S3 gateway endpoint, so the cold parts do not go through the NAT gateway.
+- One CloudWatch alarm: the host failed its EC2 status checks. The host has detailed monitoring, so that EC2 publishes the status checks by Auto Scaling group. The alarm has no actions; subscribe it with `ctxPipe.knowledgeStoreAlarms`.
+
+| `size` | Instance | Data volume (gp3) | Cold cache |
+| --- | --- | --- | --- |
+| `small` (default) | `t4g.large` | 50 GiB | 10 GiB |
+| `medium` | `r7g.large` | 100 GiB | 20 GiB |
+| `large` | `r7g.xlarge` | 200 GiB | 40 GiB |
+
+A move to a larger `size` replaces the host and makes the volume larger. EBS cannot make a volume smaller, so a move to a smaller `size` fails. See the [AWS deployment docs](https://docs.ctxpipe.ai/docs/self-hosting/deployment/aws#knowledge-store) for cost and recovery.
 
 ## Observability
 
@@ -244,7 +265,7 @@ Networking note:
 
 ## What `CtxPipe` provisions
 
-- VPC with public + private subnets and NAT egress.
+- VPC with public + private subnets, NAT egress, and an S3 gateway endpoint.
 - ECS cluster and Fargate services for backend, worker, ui, and codesearch.
   - Service deployments use ECS deployment circuit breaker with automatic rollback.
 - Deploy-time database migration as a one-off ECS Fargate task triggered by a CloudFormation custom resource before service deployment.
@@ -253,7 +274,8 @@ Networking note:
 - SES domain identity + DKIM records + SMTP credentials in Secrets Manager for backend email delivery.
 - Public ALB routing to backend only (UI/codesearch remain internal-only).
 - One EC2 Docker host for Workspace chat sandboxes (see [Chat sandbox host](#chat-sandbox-host)).
-- Outputs for app URL, key secret ARNs, and the sandbox host group.
+- One EC2 ClickHouse host for the knowledge store, with an EBS volume and an S3 bucket (see [Knowledge store](#knowledge-store)).
+- Outputs for app URL, key secret ARNs, and the sandbox and knowledge store host groups.
 - No OpenTelemetry collector or ClickStack. Telemetry export is the optional `otel` prop.
 - Backup defaults enabled for Aurora, Neptune, and EFS.
 
@@ -266,6 +288,7 @@ Runtime defaults injected by the construct include:
 - `CODESEARCH_URL=http://codesearch.ctxpipe.local:3001`
 - `AUTH_SECRET` generated in Secrets Manager and injected into backend/worker/codesearch/migrate tasks
 - `DATABASE_URL` secret injected into backend/worker/codesearch tasks (rewritten to the `ctxpipe_app` role during migrate; you do not add a second connection string or `CtxPipe` prop)
+- `CLICKHOUSE_URL` for backend (`ctxpipe_reader`), worker (`ctxpipe_writer`), and migrate (admin), each from its own Secrets Manager secret
 - `SMTP_CONNECTION_URL` and `EMAIL_FROM_ADDRESS` injected into backend from SES SMTP credentials
   - `EMAIL_FROM_ADDRESS` is always `ctxpipe-noreply@<hosted-zone-apex>`
 
@@ -273,7 +296,7 @@ Runtime defaults injected by the construct include:
 
 ## Deploy-time migrations
 
-`CtxPipe` runs Postgres migrations automatically during `cdk deploy` by executing an internal one-off ECS task before the long-running ECS services are deployed or updated.
+`CtxPipe` runs Postgres and ClickHouse migrations automatically during `cdk deploy` by executing an internal one-off ECS task before the long-running ECS services are deployed or updated.
 
 - This migration step is part of the construct internals; consumers do not need to run `ecs run-task` manually.
 - A failed migration fails the CloudFormation deployment, preventing partially-updated services.
@@ -304,6 +327,7 @@ That deploy:
 - runs Postgres migrations (including new enum values) before ECS services update
 - creates the `ctxpipe_app` LOGIN role (no `BYPASSRLS`) during the migrate task if it is missing, then rewrites the runtime `DATABASE_URL` secret to that role. Do not run `psql`, add `CtxPipe` props, or put a second connection string in your CDK app. Image-tag-only rolls without a construct bump do not create the role.
 - adds the chat sandbox host on the first upgrade that includes it (new resources only; nothing that holds data is replaced). The deploy waits for the host to report ready before it rolls backend and worker.
+- adds the ClickHouse knowledge store on the first upgrade that includes it (new resources only). The deploy waits until ClickHouse answers; then migrate makes its tables and the two users, before the services roll.
 
 ### Aurora PostgreSQL minor version
 

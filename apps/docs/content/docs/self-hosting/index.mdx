@@ -21,7 +21,7 @@ Each path provides the same services in a different way:
 | --- | --- | --- |
 | Postgres | `pgvector/pgvector:pg17` container | Aurora PostgreSQL 16 |
 | Graph database | FalkorDB container | Amazon Neptune |
-| Knowledge store | ClickHouse container | Not deployed yet |
+| Knowledge store | ClickHouse container | ClickHouse on one EC2 host, old parts on S3 |
 | Sandboxes | Docker-in-Docker (`dind`) | A Graviton EC2 Docker host |
 | Public origin | Your TLS proxy in front of the backend | Route 53 and a load balancer |
 

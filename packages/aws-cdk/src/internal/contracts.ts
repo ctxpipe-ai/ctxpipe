@@ -71,6 +71,14 @@ export interface CtxPipeSizeProfile {
   }
   readonly backupRetentionDays: number
   readonly sandboxHost: CtxPipeSandboxHostProfile
+  readonly knowledgeStore: CtxPipeKnowledgeStoreProfile
+}
+
+export interface CtxPipeKnowledgeStoreProfile {
+  /** A Graviton (arm64) type. */
+  readonly instanceType: ec2.InstanceType
+  /** The EBS volume of the hot parts and the cache of the cold parts. */
+  readonly dataVolumeSizeGiB: number
 }
 
 export interface CtxPipeSandboxHostProfile {
@@ -121,6 +129,12 @@ export interface SecretsResources {
   readonly smtpSecret: secretsmanager.Secret
   readonly connectorSecret?: secretsmanager.Secret
   readonly connectorEnv: Record<string, ecs.Secret>
+  /** `CLICKHOUSE_URL` of each ClickHouse user, written at deploy. */
+  readonly clickhouseAdminUrlSecret: secretsmanager.Secret
+  readonly clickhouseReaderUrlSecret: secretsmanager.Secret
+  readonly clickhouseWriterUrlSecret: secretsmanager.Secret
+  /** Write the three ClickHouse URLs; must run before migrate. */
+  readonly clickhouseUrlWriters: cdk.CustomResource[]
 }
 
 export interface TaskDefinitionsResources {
@@ -154,6 +168,30 @@ export interface SandboxHostResources {
   readonly alarms: cloudwatch.Alarm[]
 }
 
+export interface KnowledgeStoreResources {
+  readonly autoScalingGroup: autoscaling.AutoScalingGroup
+  /** EC2 status checks of the host, by group; no actions. */
+  readonly alarms: cloudwatch.Alarm[]
+  /** The backend, the worker and the migrate task join it to reach ClickHouse. */
+  readonly clientSecurityGroup: ec2.SecurityGroup
+  /** The host name of ClickHouse in the cluster's private DNS namespace. */
+  readonly host: string
+  readonly port: number
+  readonly database: string
+  /** Migrate only: it makes the two other users. */
+  readonly admin: ClickHouseUser
+  /** The backend (ADR-066 decision 9). */
+  readonly reader: ClickHouseUser
+  /** The worker. */
+  readonly writer: ClickHouseUser
+}
+
+export interface ClickHouseUser {
+  readonly username: string
+  /** Generated `{ username, password }`. */
+  readonly credentialsSecret: secretsmanager.Secret
+}
+
 export interface IngressResources {
   readonly appUrl: string
 }
@@ -181,6 +219,11 @@ export interface SecretsConstructProps {
   readonly hostedZone: route53.IHostedZone
   readonly connectorSecrets?: CtxPipeConnectorSecretsProps
   readonly emailFromAddress: string
+  readonly knowledgeStore: KnowledgeStoreResources
+}
+
+export interface KnowledgeStoreConstructProps extends CtxPipeKnowledgeStoreProfile {
+  readonly networking: NetworkingResources
 }
 
 export interface SandboxHostConstructProps extends CtxPipeSandboxHostProfile {
@@ -199,6 +242,7 @@ export interface TaskDefinitionsConstructProps {
   readonly otel?: CtxPipeOtelProps
   /** Absent when the host is turned off. */
   readonly sandboxHost?: SandboxHostResources
+  readonly knowledgeStore: KnowledgeStoreResources
 }
 
 export interface ServicesConstructProps {
@@ -209,6 +253,7 @@ export interface ServicesConstructProps {
   readonly codesearchEfsMountDependency?: IDependable
   /** Absent when the host is turned off. */
   readonly sandboxHost?: SandboxHostResources
+  readonly knowledgeStore: KnowledgeStoreResources
 }
 
 export interface IngressConstructProps {
@@ -222,6 +267,7 @@ export interface MigrateOnDeployConstructProps {
   readonly dataPlane: DataPlaneResources
   readonly tasks: TaskDefinitionsResources
   readonly secrets: SecretsResources
+  readonly knowledgeStore: KnowledgeStoreResources
 }
 
 export interface OutputsConstructProps {
@@ -232,4 +278,5 @@ export interface OutputsConstructProps {
   readonly smtpSecretArn: string
   readonly connectorSecretArn?: string
   readonly sandboxHostAutoScalingGroupName?: string
+  readonly knowledgeStoreAutoScalingGroupName: string
 }
