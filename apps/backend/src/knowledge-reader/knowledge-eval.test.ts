@@ -520,7 +520,7 @@ describe("the product time budget", () => {
         overProductBudget,
       })),
     ).toEqual([
-      { arm: "legacy", overProductBudget: 0 },
+      { arm: "legacy", overProductBudget: null },
       { arm: "plane", overProductBudget: 1 },
     ])
     const markdown = renderMarkdown(report)

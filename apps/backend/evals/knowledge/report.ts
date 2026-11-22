@@ -235,10 +235,11 @@ export function buildReport(input: {
               {
                 arm,
                 split,
+                // The budget of the product belongs to the plane reader.
                 ...operations(
                   group,
                   manifest.mode === "live",
-                  manifest.productBudgetMs ?? null,
+                  arm === "plane" ? (manifest.productBudgetMs ?? null) : null,
                 ),
               },
             ]
@@ -528,7 +529,8 @@ export function renderMarkdown(report: Report): string {
   const slow =
     budget > 0 && report.run.mode === "live"
       ? report.questions.flatMap((question) => {
-          const calls = overBudgetCalls(question, budget)
+          const calls =
+            question.arm === "plane" ? overBudgetCalls(question, budget) : []
           return calls.length ? [{ question, calls }] : []
         })
       : []
@@ -537,7 +539,7 @@ export function renderMarkdown(report: Report): string {
       "",
       "## Answers over the product time budget",
       "",
-      `These answers took longer than the ${ms(budget)} budget of the product. With that budget, they would be partial.`,
+      `These plane answers took longer than the ${ms(budget)} budget of the product. With that budget, they would be partial.`,
       "",
       ...slow.map(
         ({ question, calls }) =>
