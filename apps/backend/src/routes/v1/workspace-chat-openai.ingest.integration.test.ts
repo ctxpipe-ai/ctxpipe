@@ -460,10 +460,11 @@ describe("workspace-ingest-model capability", () => {
       recorded,
     )
     expect(usage).toMatchObject({ inputTokens: 13_000, outputTokens: 1_150 })
-    expect(ingestUsageUsd(usage!)).toBeCloseTo(spanSum, 10)
+    if (!usage) throw new Error("The step has no usage")
+    expect(ingestUsageUsd(usage)).toBeCloseTo(spanSum, 10)
   })
 
-  it("starts the model cost again for a new owner of an expired shard lock", async () => {
+  it("keeps the model cost of a stopped step for the new owner of its expired shard lock", async () => {
     const runId = await startRun(orgId)
     const staleOwner = await holdShard(
       runId,
@@ -488,8 +489,9 @@ describe("workspace-ingest-model capability", () => {
     ).withLock(ingestSandboxThreadId(runId, 1), () =>
       ingestModelCost({ orgId, runId, shard: 1, lockOwner: owner }),
     )
+    // The next attempt of the step counts the calls of the stopped worker.
     expect(owner).not.toBe(staleOwner)
-    expect(cost).toBeNull()
+    expect(cost).toBe(1.5)
   })
 
   it("sends an ingest step to the configured model of the tier that it asks for", async () => {

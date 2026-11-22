@@ -185,8 +185,10 @@ function postgresLocks(
             .values({ orgId, key, owner, expiresAt })
             .onConflictDoUpdate({
               target: [sandboxLocks.orgId, sandboxLocks.key],
-              // A new owner does not take the model cost of the old one.
-              set: { owner, expiresAt, modelCostUsd: null },
+              // The new owner keeps `modelCostUsd`: the cost of a step
+              // whose worker stopped before it saved its usage then counts
+              // in the next attempt of the step (CTX-1522).
+              set: { owner, expiresAt },
               setWhere: sql`${sandboxLocks.expiresAt} <= clock_timestamp()`,
             })
             .returning({ owner: sandboxLocks.owner }),

@@ -7,6 +7,7 @@ import {
 } from "../../domain/ingestion/ingest-opencode.js"
 import {
   addIngestModelCost,
+  type IngestModelCallCost,
   ingestModelCallUsd,
 } from "../../domain/ingestion/ingest-spend.js"
 import {
@@ -175,7 +176,7 @@ async function chatTokenFromRequest(
 async function recordIngestCallCost(
   orgId: string,
   ingest: NonNullable<ModelCaller["ingest"]>,
-  cost: { usd: number; estimated: boolean },
+  cost: IngestModelCallCost,
 ): Promise<void> {
   if (cost.estimated)
     logIngestEvent("warn", "ingestion-v2.model-cost-estimated", {

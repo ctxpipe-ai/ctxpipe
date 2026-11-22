@@ -171,8 +171,7 @@ function observedBody(
     await observer.onObservedComplete?.(status)
   }
   const abort = () => {
-    void finish(499)
-    void reader.cancel().catch(() => {})
+    void finish(499).finally(() => reader.cancel().catch(() => {}))
   }
   signal?.addEventListener("abort", abort, { once: true })
   if (signal?.aborted) abort()
@@ -188,12 +187,12 @@ function observedBody(
           controller.enqueue(value)
         }
       } catch (error) {
-        void finish(502)
+        await finish(502)
         controller.error(error)
       }
     },
     async cancel(reason) {
-      void finish(499)
+      await finish(499)
       await reader.cancel(reason)
     },
   })

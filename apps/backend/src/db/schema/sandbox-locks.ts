@@ -25,8 +25,9 @@ export const sandboxLocks = pgTable.withRLS(
     /**
      * The model cost in USD of the ingest step that holds the lock (CTX-1522).
      * The model proxy adds the gateway cost of each call of the lock owner.
-     * The step reads it before it releases the lock. Null when the owner
-     * made no model call. A new owner starts again at null.
+     * The step reads it before it releases the lock, and the release deletes
+     * the row. Null when no call was recorded. A new owner of an expired
+     * lock keeps the value: it is the cost of a step whose worker stopped.
      */
     modelCostUsd: doublePrecision("model_cost_usd"),
   },

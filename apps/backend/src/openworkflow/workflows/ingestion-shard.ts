@@ -17,11 +17,12 @@ import {
   ingestStepCheckpoint,
   ingestStepSignal,
 } from "../../domain/ingestion/ingest-shard-ops.js"
-import type {
-  IngestDestination,
-  IngestShardRuntime,
-  IngestShardRuntimeFactory,
-  IngestStepUsage,
+import {
+  type IngestDestination,
+  type IngestShardRuntime,
+  type IngestShardRuntimeFactory,
+  type IngestStepUsage,
+  ingestAttemptUsage,
 } from "../../domain/ingestion/ingest-shard-runtime.js"
 import {
   releaseIngestStepIndexes,
@@ -956,6 +957,8 @@ async function attemptSkillStep(
         ...(pushed.cursor ? { cursor: pushed.cursor } : {}),
       })
     } catch (error) {
+      // The billed calls of a failed attempt count in the spend (CTX-1522).
+      usage = addIngestUsage(usage, ingestAttemptUsage(error))
       if (isWorkflowControlSignal(error)) throw error
       const refused = error instanceof IngestRefRefusedError
       reason = refused ? "broker_refused" : "step_failed"
