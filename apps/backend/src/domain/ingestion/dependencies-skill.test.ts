@@ -763,6 +763,66 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
     expect((await s.validate()).cursorAt).toBe(0)
   })
 
+  it("moves the cursor on each page of a re-ingestion with an unchanged call, when the model resolves the listed candidates (CTX-1487)", async () => {
+    // An earlier ingest resolved the call to billing: its claim is dated.
+    const own = front(
+      {
+        kind: "Service",
+        name: "Shop API",
+        generated_by: "ctxpipe-extract",
+        sources: [SOURCE_PATH],
+        claims: [
+          {
+            to: "billing.md",
+            predicate: "DEPENDS_ON",
+            evidence: { path: "src/client.ts", kind: "model" },
+            confidence: 0.6,
+            valid_from: "2026-10-01T00:00:00.000Z",
+          },
+        ],
+      },
+      "# Shop API\n",
+    )
+    const context: Record<string, string> = {
+      [OWN]: own,
+      "knowledge/services/billing.md": serviceFile("Billing"),
+    }
+    const calls = ['await fetch("http://billing.internal/x")']
+    for (let i = 0; i < 3; i++) {
+      context[`knowledge/services/svc-${i}.md`] = serviceFile(`Svc ${i}`)
+      calls.push(`await fetch("http://svc-${i}.internal/x")`)
+    }
+    const s = await step({ "src/client.ts": calls.join("\n") }, context)
+    expect(s.finder()).toEqual({ count: 4 })
+    const target = (c: Candidate) =>
+      /svc-\d+|billing/.exec(c.target.text)?.[0] ?? ""
+    const resolve = (list: Candidate[]) =>
+      s.apply(
+        list.map((c) => ({
+          id: c.id,
+          kind: "service",
+          path: `knowledge/services/${target(c)}.md`,
+        })),
+      )
+    // Page 1 resolves the unchanged call and svc-0.
+    const listed = s.scan().candidates
+    expect(listed).toHaveLength(4)
+    resolve(listed.filter((c) => /billing|svc-0/.test(c.target.text)))
+    const first = await s.validate()
+    expect(first.rejections).toEqual([])
+    expect(first.cursorAt).toBe(2)
+    await s.advance(first.tree)
+    // Page 2: the scan lists the file again, because the dated claim of the
+    // unchanged call does not count. The model resolves what it lists, and
+    // the cursor moves forward to the end.
+    const again = s.scan().candidates
+    expect(again).toHaveLength(4)
+    resolve(again)
+    const second = await s.validate()
+    expect(second.rejections).toEqual([])
+    expect(second.cursorAt).toBe(4)
+  })
+
   it("keeps the cursor below the end while the Service claims of the streams wait (CTX-1487)", async () => {
     // 34 Stream files fit in the 2 MiB of a step, but the Service file that
     // claims them does not fit after them.
