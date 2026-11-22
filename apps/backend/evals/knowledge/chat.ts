@@ -22,20 +22,20 @@ const replySchema = z.object({
 export class OutOfSchemaError extends Error {}
 
 /**
- * What OpenRouter said about a refused call (HTTP 403, for example a
- * moderation flag). Only what cannot echo the input: the error code, the
- * category names of a moderation flag and the provider (short identifiers
- * only), and the message only when it is a fixed routing text of
- * OpenRouter.
+ * What OpenRouter said about a call that a moderation check refused (HTTP
+ * 403 with a moderation category). Only what cannot echo the input: the
+ * error code, the category names and the provider (short identifiers only),
+ * and the message only when it is a fixed routing text of OpenRouter.
  */
-export type Refusal = {
-  code: number | string | null
-  reasons: string[]
-  provider?: string
-  message?: string
-}
+export const refusalRecordSchema = z.object({
+  code: z.union([z.number(), z.string()]).nullable(),
+  reasons: z.array(z.string()),
+  provider: z.string().optional(),
+  message: z.string().optional(),
+})
+export type Refusal = z.infer<typeof refusalRecordSchema>
 
-/** OpenRouter refused the call (HTTP 403). */
+/** A moderation check of OpenRouter refused the call (HTTP 403). */
 export class RefusedError extends Error {
   constructor(
     model: string,
@@ -47,9 +47,25 @@ export class RefusedError extends Error {
   }
 }
 
+/**
+ * The budget of the OpenRouter workspace of the key is spent (HTTP 403): no
+ * call can go out until it resets. It is no fault of one input.
+ */
+export class BudgetExceededError extends Error {
+  constructor(
+    model: string,
+    readonly budget: { limitUsd: number; resetsAt?: string },
+  ) {
+    super(
+      `The OpenRouter workspace budget of $${budget.limitUsd.toFixed(2)} is spent (403 for ${model})${budget.resetsAt ? `; it resets ${budget.resetsAt}` : ""}.`,
+    )
+  }
+}
+
 const refusalSchema = z.object({
   error: z.object({
     code: z.union([z.number(), z.string()]).nullish(),
+    message: z.string().optional(),
     metadata: z
       .object({
         reasons: z.array(z.string()).optional(),
@@ -60,12 +76,17 @@ const refusalSchema = z.object({
   }),
 })
 
-/** A short identifier (a category or a provider name), never free text. */
+/** A short identifier (a category, a provider or a time), never free text. */
 const identifier = (value: string | undefined) =>
-  value && /^[\w ./-]{1,40}$/.test(value) ? value : undefined
+  value && /^[\w ./:+-]{1,40}$/.test(value) ? value : undefined
 
-/** The refusal of a 403 answer body of a call for `model`. */
-function refusalOf(body: string, model: string): Refusal {
+/**
+ * The error of a 403 answer body of a call for `model`: the spent budget of
+ * the workspace (its fixed text: "Workspace daily budget of $N exceeded …
+ * resets …"), a moderation refusal (a moderation category), or else a
+ * plain error with no text of the answer.
+ */
+function forbidden(body: string, model: string): Error {
   let json: unknown
   try {
     json = JSON.parse(body)
@@ -73,16 +94,35 @@ function refusalOf(body: string, model: string): Refusal {
     json = undefined
   }
   const error = refusalSchema.safeParse(json).data?.error
+  const text = error?.message ?? ""
+  const budget = /^Workspace daily budget of \$(\d+(?:\.\d+)?) exceeded/.exec(
+    text,
+  )
+  if (budget) {
+    const resetsAt = identifier(
+      /resets (?:at |on )?([^;,]+?)\.?$/.exec(text)?.[1],
+    )
+    return new BudgetExceededError(model, {
+      limitUsd: Number(budget[1]),
+      ...(resetsAt ? { resetsAt } : {}),
+    })
+  }
+  const reasons = (error?.metadata?.reasons ?? []).flatMap(
+    (reason) => identifier(reason) ?? [],
+  )
+  if (reasons.length === 0)
+    return new Error(`OpenRouter answered 403 for ${model}.`)
   const provider = identifier(error?.metadata?.provider_name)
   const message = gatewayRoutingError(body, openRouterModelId(model))
-  return {
-    code: error?.code ?? null,
-    reasons: (error?.metadata?.reasons ?? []).flatMap(
-      (reason) => identifier(reason) ?? [],
-    ),
+  return new RefusedError(model, {
+    code:
+      typeof error?.code === "number"
+        ? error.code
+        : (identifier(error?.code ?? undefined) ?? null),
+    reasons,
     ...(provider ? { provider } : {}),
     ...(message ? { message } : {}),
-  }
+  })
 }
 
 /**
@@ -169,10 +209,7 @@ export async function askJson<T>(input: {
     response = await send()
   }
   if (response.status === 403)
-    throw new RefusedError(
-      input.model,
-      refusalOf(await response.text(), input.model),
-    )
+    throw forbidden(await response.text(), input.model)
   if (!response.ok)
     throw new Error(
       `OpenRouter answered ${response.status} for ${input.model}.`,

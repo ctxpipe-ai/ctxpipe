@@ -323,7 +323,9 @@ describe("the drafter", () => {
   /** The 429 answers before the next answers, each with its Retry-After. */
   let limited: (string | null)[] = []
   /** The next answers that refuse the call (HTTP 403, a moderation flag). */
-  let refusals = 0
+  let refuseAt = new Set<number>()
+  /** The requests that get another 403: the spent budget, or no reason. */
+  let forbidAt = new Map<number, { error: { code: number; message: string } }>()
   let requests = 0
   const draftOf = (fields: Record<string, unknown>) => ({
     usable: true,
@@ -339,8 +341,9 @@ describe("the drafter", () => {
   useMswServer(
     http.post(`${BASE}/chat/completions`, async ({ request }) => {
       requests++
-      if (refusals > 0) {
-        refusals--
+      if (forbidAt.has(requests))
+        return HttpResponse.json(forbidAt.get(requests), { status: 403 })
+      if (refuseAt.has(requests)) {
         return HttpResponse.json(
           {
             error: {
@@ -621,24 +624,77 @@ describe("the drafter", () => {
       category === "lookup"
         ? { gold: sources }
         : { usable: false, reason: "skip" }
-    refusals = 1
-    const drafted = await run()
-    const refused = drafted.attempts.filter((attempt) => attempt.refused)
-    expect(refused).toHaveLength(1)
-    expect(refused[0]?.refused).toEqual({
-      code: 403,
-      reasons: ["violence"],
-      provider: "Amazon Bedrock",
-    })
-    expect(JSON.stringify(drafted.attempts)).not.toContain("secret words")
-    expect(drafted.failed).toBeUndefined()
-    expect(drafted.questions.length).toBeGreaterThan(0)
-    // Two refusals in a row, on two picks: the corpus stops.
-    refusals = 2
-    expect((await run()).failed).toBe(
-      "OpenRouter refused the call for anthropic/drafter (403: violence).",
-    )
-    refusals = 0
+    requests = 0
+    refuseAt = new Set([1])
+    try {
+      const drafted = await run()
+      const refused = drafted.attempts.filter((attempt) => attempt.refused)
+      expect(refused).toHaveLength(1)
+      expect(refused[0]?.refused).toEqual({
+        code: 403,
+        reasons: ["violence"],
+        provider: "Amazon Bedrock",
+      })
+      expect(JSON.stringify(drafted.attempts)).not.toContain("secret words")
+      expect(drafted.failed).toBeUndefined()
+      expect(drafted.questions.length).toBeGreaterThan(0)
+      // Two refusals in a row, on two picks: the corpus stops.
+      requests = 0
+      refuseAt = new Set([1, 2])
+      expect((await run()).failed).toBe(
+        "OpenRouter refused the call for anthropic/drafter (403: violence).",
+      )
+      // An answer out of the schema between them is no refusal.
+      requests = 0
+      refuseAt = new Set([1, 3])
+      const lookup = answer
+      answer = (category, sources) =>
+        requests === 2 ? { gold: 7 } : lookup(category, sources)
+      expect((await run()).failed).toBeUndefined()
+    } finally {
+      refuseAt = new Set()
+    }
+  })
+
+  it("stops the corpus at once when the workspace budget is spent, and fails at a 403 with no moderation category", async () => {
+    answer = (_category, sources) => ({ gold: sources })
+    try {
+      requests = 0
+      forbidAt = new Map([
+        [
+          2,
+          {
+            error: {
+              code: 403,
+              message:
+                "Workspace daily budget of $30.00 exceeded. The budget resets at 2026-11-23T00:00:00Z.",
+            },
+          },
+        ],
+      ])
+      const spent = await run()
+      expect(spent.stopped).toBe(true)
+      expect(spent.failed).toBeUndefined()
+      expect(spent.budget).toEqual({
+        limitUsd: 30,
+        resetsAt: "2026-11-23T00:00:00Z",
+      })
+      // No pick is skipped: the pick with no answer is not an attempt.
+      expect(spent.attempts).toHaveLength(1)
+      expect(spent.attempts.some((attempt) => attempt.refused)).toBe(false)
+      expect(requests).toBe(2)
+      requests = 0
+      forbidAt = new Map([
+        [1, { error: { code: 403, message: "Forbidden: some text" } }],
+      ])
+      const plain = await run()
+      expect(plain.failed).toBe(
+        "OpenRouter answered 403 for anthropic/drafter.",
+      )
+      expect(plain.attempts).toEqual([])
+    } finally {
+      forbidAt = new Map()
+    }
   })
 
   it("waits as a rate limit says, at most 3 times, and fails at a rate limit with no wait", async () => {
@@ -788,6 +844,22 @@ describe("the drafter", () => {
       )
       expect(resumedAudit.failed).toBeUndefined()
       expect(resumedAudit.spentUsd).toBeGreaterThan(audit.spentUsd)
+      // A resume with another scale has other picks: a setup error, before
+      // any call.
+      bodies.length = 0
+      await expect(
+        main([
+          "draft",
+          "--out",
+          join(dir, "draft-3.json"),
+          "--resume",
+          out,
+          "--scale",
+          "0.5",
+          ...args,
+        ]),
+      ).rejects.toThrow(/another seed or scale/)
+      expect(bodies).toEqual([])
     } finally {
       capAt = Number.POSITIVE_INFINITY
       limited = []

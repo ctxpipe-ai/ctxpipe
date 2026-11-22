@@ -66,6 +66,7 @@ import {
   attemptsFileSchema,
   draftQuestions,
   finalizeQuestions,
+  ResumeMismatchError,
 } from "./draft.js"
 import type { EvalOrg } from "./hydrate.js"
 import { measureLatency } from "./latency.js"
@@ -330,6 +331,47 @@ async function label(values: {
 }
 
 /**
+ * The draft `file` (and `file.attempts.json`) of the corpus `corpusId`, for a
+ * resume with `seed` and `scale`.
+ */
+async function readResume(
+  file: string,
+  corpusId: string,
+  seed: string,
+  scale: number,
+) {
+  const earlier = z
+    .object({
+      corpora: z.array(z.object({ id: z.string() })),
+      questions: z.array(questionSchema),
+    })
+    .parse(JSON.parse(await readFile(file, "utf8")))
+  const audit = attemptsFileSchema.parse(
+    JSON.parse(await readFile(`${file}.attempts.json`, "utf8")),
+  )
+  if (earlier.corpora.some((item) => item.id !== corpusId))
+    throw new SetupError(`--resume ${file} is not a draft of ${corpusId}.`)
+  if (
+    (audit.seed !== undefined && audit.seed !== seed) ||
+    (audit.scale !== undefined && audit.scale !== scale)
+  )
+    throw new SetupError(
+      `--resume ${file} has another seed or scale: use the same ones.`,
+    )
+  return {
+    questions: earlier.questions,
+    // An older attempts file also keeps the pick of the failed call as an
+    // attempt, with the failure as its reason. Remove that attempt, so that
+    // the resume drafts the pick again. A refused pick stays.
+    attempts: audit.attempts.filter(
+      (attempt) =>
+        !audit.failed || attempt.refused || attempt.reason !== audit.failed,
+    ),
+    spentUsd: audit.spentUsd ?? 0,
+  }
+}
+
+/**
  * Draft the questions of the corpus `corpus` of the frozen dataset
  * `dataset` (`draft.ts`). The output holds that corpus and its drafted
  * questions, and `label` labels it. Each attempt goes to
@@ -364,32 +406,9 @@ async function draft(values: {
     throw new SetupError(
       `--corpus names one corpus of the dataset: ${frozen.corpora.map((item) => item.id).join(", ")}.`,
     )
-  // A resume goes on after an earlier draft of the same corpus. A draft from
-  // before the attempts left out the pick with no answer still holds it:
-  // the attempt whose reason is the failure.
+  const seed = `${values.seed ?? "v0"} ${corpus.id}`
   const resume = values.resume
-    ? await (async (file: string) => {
-        const earlier = z
-          .object({
-            corpora: z.array(z.object({ id: z.string() })),
-            questions: z.array(questionSchema),
-          })
-          .parse(JSON.parse(await readFile(file, "utf8")))
-        const audit = attemptsFileSchema.parse(
-          JSON.parse(await readFile(`${file}.attempts.json`, "utf8")),
-        )
-        if (earlier.corpora.some((item) => item.id !== corpus.id))
-          throw new SetupError(
-            `--resume ${file} is not a draft of ${corpus.id}.`,
-          )
-        return {
-          questions: earlier.questions,
-          attempts: audit.attempts.filter(
-            (attempt) => !audit.failed || attempt.reason !== audit.failed,
-          ),
-          spentUsd: audit.spentUsd ?? 0,
-        }
-      })(values.resume)
+    ? await readResume(values.resume, corpus.id, seed, scale)
     : undefined
   // The drafter scrubs each document with the converter.
   buildConverter()
@@ -405,10 +424,14 @@ async function draft(values: {
         corpus.contextRepo.root,
       ),
       model,
-      seed: `${values.seed ?? "v0"} ${corpus.id}`,
+      seed,
       scale,
       env: process.env,
       stopped: () => calls.stopped,
+    }).catch((error: unknown) => {
+      if (error instanceof ResumeMismatchError)
+        throw new SetupError(error.message)
+      throw error
     })
     // Also after a stop or a failed call: the drafts before it stay.
     await writeJson(values.out, {
@@ -418,8 +441,11 @@ async function draft(values: {
     })
     await writeJson(`${values.out}.attempts.json`, {
       attempts: drafted.attempts,
+      seed,
+      scale,
       stopped: drafted.stopped,
       failed: drafted.failed,
+      budget: drafted.budget,
       // The picks that OpenRouter refused (HTTP 403).
       refused: drafted.attempts.filter((attempt) => attempt.refused).length,
       // The spend of the corpus: of this command and of the draft it resumed.

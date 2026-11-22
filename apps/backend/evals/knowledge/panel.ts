@@ -3,7 +3,7 @@ import { z } from "zod"
 import { JEV_MODEL } from "../../src/retrieval/jev/client.js"
 import { POSITION_STATUSES } from "../../src/retrieval/jev/disagreement.js"
 import { scrubForModel } from "../../src/retrieval/services/scrubForModel.js"
-import { askJson, dataBlock } from "./chat.js"
+import { askJson, BudgetExceededError, dataBlock } from "./chat.js"
 import {
   type Dataset,
   type Position,
@@ -194,7 +194,8 @@ export async function labelWithPanel(input: {
           }),
         })
       } catch (error) {
-        if (input.stopped()) return null
+        // A spent workspace budget of OpenRouter stops as the spend cap.
+        if (input.stopped() || error instanceof BudgetExceededError) return null
         throw error
       }
     }

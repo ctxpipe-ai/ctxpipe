@@ -670,10 +670,22 @@ describe("the judge panel", () => {
   const contents: string[] = []
   /** From this call on, the endpoint answers 503, as the spend cap does. */
   let capAt = Number.POSITIVE_INFINITY
+  /** From this call on, the workspace budget of OpenRouter is spent. */
+  let budgetAt = Number.POSITIVE_INFINITY
   useMswServer(
     http.post(`${BASE}/chat/completions`, async ({ request }) => {
       if (asked.length >= capAt)
         return HttpResponse.json({ error: "capped" }, { status: 503 })
+      if (asked.length >= budgetAt)
+        return HttpResponse.json(
+          {
+            error: {
+              code: 403,
+              message: "Workspace daily budget of $30.00 exceeded.",
+            },
+          },
+          { status: 403 },
+        )
       const body = (await request.json()) as {
         model: string
         messages: { content: string }[]
@@ -1027,6 +1039,25 @@ describe("the judge panel", () => {
       expect(labeled.dataset.questions).toEqual([])
     } finally {
       capAt = Number.POSITIVE_INFINITY
+    }
+  })
+
+  it("stops as at the spend cap when the workspace budget is spent, and keeps the votes before", async () => {
+    asked.length = 0
+    budgetAt = 3
+    try {
+      const labeled = await labelWithPanel({
+        draft,
+        models: Object.keys(replies),
+        read: async (_corpus, ref) => `The text of ${ref}.`,
+        nearest: async () => [],
+        env,
+        stopped: () => false,
+      })
+      expect(labeled.stopped).toBe(true)
+      expect(labeled.votes.map((vote) => vote.ref)).toEqual(["old.md"])
+    } finally {
+      budgetAt = Number.POSITIVE_INFINITY
     }
   })
 
