@@ -1054,9 +1054,9 @@ describe("write-apis", () => {
       reason:
         "Items API: the API file would be larger than 64 KiB or have more than 200 operations. Split the API into smaller APIs, for example by path prefix",
     })
-    // No Operation file either: no API file would link it.
+    // No Operation file either, and no operation is done: no API file
+    // would link it.
     expect(out.ops).toEqual([])
-    // No operation is done: no API file links it.
     expect((await s.validate()).cursorAt).toBe(0)
   })
 

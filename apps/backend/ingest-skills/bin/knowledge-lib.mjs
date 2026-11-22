@@ -784,12 +784,13 @@ export function planText(step, plan) {
     frontMatter(text)?.match(/^ +kind: legacy[ \t]*$/gm)?.length ?? 0
   const claimCount = fileClaims(text)?.size ?? 0
   // The validator checks the file that it stores, too. It adds the host
-  // fields to a new file (at most 1 KiB; a file at the base has them), and
-  // `confidence` to each new claim.
+  // fields to a new file (at most 1 KiB). A file at the base has them, but
+  // `skill` gets the name of this skill, which can be longer (64 bytes).
+  // Each new claim gets `confidence`.
   const newClaims = claimCount - (fileClaims(before ?? "")?.size ?? 0)
   const stored =
     Buffer.byteLength(text) +
-    (before === null ? 1024 : 0) +
+    (before === null ? 1024 : 64) +
     "    confidence: 0.5\n".length * newClaims
   if (
     text !== before &&
