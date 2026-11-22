@@ -285,6 +285,8 @@ async function resolveOpaqueAccessToken(token: string): Promise<{
   const record = tokenRows[0]
   if (!record || !record.userId) return null
   if (!record.expiresAt || record.expiresAt.getTime() <= Date.now()) return null
+  // Better Auth revokes the token, for example when its session signs out.
+  if (record.revoked) return null
   // A key-bound token needs a proof of the key, and ctxpipe checks none.
   if (record.confirmation != null) return null
 

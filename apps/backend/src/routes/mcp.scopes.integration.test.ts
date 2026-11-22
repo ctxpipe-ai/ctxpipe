@@ -316,7 +316,8 @@ describe("MCP scopes (Postgres)", () => {
 
   /** A token row from before the ctxpipe scopes existed. */
   async function legacyOpaqueToken(
-    confirmation?: Record<string, unknown>,
+    row: Partial<typeof oauthAccessTokens.$inferInsert> = {},
+    name = "",
   ): Promise<string> {
     const s = requireSeed()
     const db = getSystemDb()
@@ -326,7 +327,7 @@ describe("MCP scopes (Postgres)", () => {
       .where(eq(sessions.userId, s.userId))
       .limit(1)
     if (!session) throw new Error("sign-up did not store a session")
-    const suffix = confirmation ? "_bound" : ""
+    const suffix = name ? `_${name}` : ""
     const clientId = `legacy_${s.userId}${suffix}`
     const token = `legacy_opaque_${s.userId}${suffix}`
     await db.insert(oauthClients).values({
@@ -348,7 +349,7 @@ describe("MCP scopes (Postgres)", () => {
       expiresAt: new Date(Date.now() + 60 * 60 * 1000),
       createdAt: new Date(),
       scopes: ["openid", "offline_access"],
-      ...(confirmation ? { confirmation } : {}),
+      ...row,
     })
     return token
   }
@@ -396,7 +397,22 @@ describe("MCP scopes (Postgres)", () => {
   })
 
   it("refuses an opaque access token with a key binding", async () => {
-    const token = await legacyOpaqueToken({ jkt: "bound-key-thumbprint" })
+    const token = await legacyOpaqueToken(
+      { confirmation: { jkt: "bound-key-thumbprint" } },
+      "bound",
+    )
+
+    const response = await app.request(`${baseUrl}/mcp`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}` },
+    })
+
+    expect(response.status).toBe(401)
+  })
+
+  // Better Auth 1.7 marks the opaque tokens of a session revoked at sign-out.
+  it("refuses a revoked opaque access token", async () => {
+    const token = await legacyOpaqueToken({ revoked: new Date() }, "revoked")
 
     const response = await app.request(`${baseUrl}/mcp`, {
       method: "POST",
