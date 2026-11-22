@@ -74,6 +74,19 @@ type McpReadToolDefinition<
   }
 }
 
+/** The count and the best score of scored hits, for `describeResult`. */
+export function scoredResult(items: readonly { score: number }[]): {
+  count: number
+  topScore?: number
+} {
+  return {
+    count: items.length,
+    ...(items.length
+      ? { topScore: Math.max(...items.map((item) => item.score)) }
+      : {}),
+  }
+}
+
 export type McpReadTool = {
   name: string
   register(server: McpServer): void

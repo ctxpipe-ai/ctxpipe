@@ -16,7 +16,7 @@ import {
   skippedSchema,
 } from "../framework/schemas.js"
 import { McpToolError } from "../framework/tool-errors.js"
-import { defineMcpReadTool } from "../framework/tool-registry.js"
+import { defineMcpReadTool, scoredResult } from "../framework/tool-registry.js"
 
 /** Workspaces one call searches when it names none (ADR-051 §4). */
 const MAX_DEFAULT_WORKSPACES = 8
@@ -122,12 +122,7 @@ export const searchKnowledgeTool = defineMcpReadTool({
       .describe("True when the hits are in the search order only."),
     partialReason: z.string().optional(),
   }),
-  describeResult: ({ hits }) => ({
-    count: hits.length,
-    topScore: hits.length
-      ? Math.max(...hits.map((hit) => hit.score))
-      : undefined,
-  }),
+  describeResult: ({ hits }) => scoredResult(hits),
   async run(input, { org }) {
     const named = input.workspaces !== undefined
     const slugs = [

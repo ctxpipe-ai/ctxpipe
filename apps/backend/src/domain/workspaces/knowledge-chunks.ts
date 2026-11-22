@@ -82,7 +82,7 @@ export function chunkKnowledgeBody(body: string): KnowledgeChunk[] {
     }
   })
   const blank = (index: number) => !lines[index]?.line.trim()
-  const headings = (from: number, to: number) =>
+  const onlyHeadings = (from: number, to: number) =>
     lines.slice(from, to).every((entry) => entry.heading !== null)
   // Only the first section can be empty, so a heading-only section that is
   // not the last one has a next section with text.
@@ -92,7 +92,7 @@ export function chunkKnowledgeBody(body: string): KnowledgeChunk[] {
     while (start < end && blank(start)) start += 1
     while (end > start && blank(end - 1)) end -= 1
     if (start === end) return
-    if (end - start === 1 && headings(start, end)) {
+    if (end - start === 1 && onlyHeadings(start, end)) {
       if (index < sections.length - 1) {
         pending ??= start
         return
@@ -124,7 +124,7 @@ export function chunkKnowledgeBody(body: string): KnowledgeChunk[] {
       }
       let stop = index
       while (stop < end && !blank(stop)) stop += 1
-      if (headings(index, stop) && stop < end) {
+      if (onlyHeadings(index, stop) && stop < end) {
         carry ??= index
         index = stop
         continue

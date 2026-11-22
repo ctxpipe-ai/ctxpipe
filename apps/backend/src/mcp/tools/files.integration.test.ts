@@ -477,6 +477,9 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
         truncated: false,
       })
       expect(captured).toEqual([])
+      const attributes = spans.spanNamed("mcp.tool read_file")?.attributes
+      expect(attributes?.["ctxpipe.mcp.result.count"]).toBe(1)
+      expect(attributes?.["ctxpipe.mcp.args"]).toMatch(/(^|,)ref(,|$)/)
     })
 
     it("reads a path with a colon as a unit when the part before the colon is not a handle", async () => {

@@ -149,7 +149,7 @@ We do not port the weighted walk, the advisor planner, its eval, or the old retr
 - The server reads `_meta` (`traceparent`, `baggage`, `ai.ctxpipe/conversationId`, `ai.ctxpipe/turnId`, `openai/session`) and `x-ctxpipe-*` headers when they are present.
 - ClickHouse always derives a session (30-minute gap) and a turn (60-second gap) for each connection key. Parallel calls of one turn arrive within milliseconds, so the derived turn groups them.
 - Spans get `ctxpipe.mcp.org.slug_hash` for each call. No query text, paths, or handles go on spans.
-- Read tool spans get retrieval facts on both stacks (CTX-1137): `ctxpipe.mcp.args` (the sorted names of the arguments other than `org`, never their values; a schema default counts as set), `ctxpipe.mcp.query.length`, `ctxpipe.mcp.result.count` (hits, results, files, symbols, or entries), and `ctxpipe.mcp.result.top_score` (`search_knowledge` and `get_related`). No query text or hit ref goes on the span.
+- Read tool spans get retrieval facts on both stacks (CTX-1137): `ctxpipe.mcp.args` (the sorted names of the arguments other than `org`, never their values; a schema default counts as set), `ctxpipe.mcp.query.length`, `ctxpipe.mcp.result.count` (hits, results, files, symbols, entries, or Workspaces; 1 for `read_file`), and `ctxpipe.mcp.result.top_score` (`search_knowledge` and `get_related`). No query text or hit ref goes on the span.
 
 ### 10. Tests and evals
 
