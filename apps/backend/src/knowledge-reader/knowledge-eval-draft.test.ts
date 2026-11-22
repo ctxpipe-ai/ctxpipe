@@ -641,9 +641,16 @@ describe("the drafter", () => {
       // Two refusals in a row, on two picks: the corpus stops.
       requests = 0
       refuseAt = new Set([1, 2])
-      expect((await run()).failed).toBe(
+      const twice = await run()
+      expect(twice.failed).toBe(
         "OpenRouter refused the call for anthropic/drafter (403: violence).",
       )
+      // The refusal that stops the corpus stays.
+      expect(twice.failedRefusal).toEqual({
+        code: 403,
+        reasons: ["violence"],
+        provider: "Amazon Bedrock",
+      })
       // An answer out of the schema between them is no refusal.
       requests = 0
       refuseAt = new Set([1, 3])

@@ -537,9 +537,10 @@ export class ResumeMismatchError extends Error {}
  * category takes picks until it has its quota (times `scale`) and the
  * overdraft, or until its picks end. A question whose gold a keyword search
  * finds in its top 5 goes back to the model one time with the found
- * documents, and drops when it leaks again. A call that OpenRouter refuses
- * (HTTP 403, for example a moderation flag) skips that one pick; a second
- * refusal in a row, on another pick, stops the corpus. Returns the
+ * documents, and drops when it leaks again. A moderation refusal (HTTP 403
+ * with a category) skips that one pick; a second refusal in a row, on
+ * another pick, stops the corpus (`failedRefusal`). A spent workspace
+ * budget stops the corpus, as the spend cap does (`budget`). Returns the
  * questions, each attempt, `stopped` when `stopped()` became true (the
  * spend cap), and `failed` with the error when a call failed. After a stop
  * or a failure, the questions hold the drafts before it, and the attempts
@@ -563,6 +564,8 @@ export async function draftQuestions(input: {
   attempts: DraftAttempt[]
   stopped: boolean
   failed?: string
+  /** The refusal that stopped the corpus: the second in a row. */
+  failedRefusal?: DraftAttempt["refused"]
   /** The workspace budget of OpenRouter is spent: no call goes out. */
   budget?: BudgetExceededError["budget"]
 }> {
@@ -586,6 +589,7 @@ export async function draftQuestions(input: {
   const end = (result: {
     stopped: boolean
     failed?: string
+    failedRefusal?: DraftAttempt["refused"]
     budget?: BudgetExceededError["budget"]
   }) => {
     attempts.pop()
@@ -686,7 +690,11 @@ export async function draftQuestions(input: {
           if (error instanceof RefusedError) {
             // One refused input skips its pick; two picks in a row stop.
             if (refusedLast)
-              return end({ stopped: false, failed: error.message })
+              return end({
+                stopped: false,
+                failed: error.message,
+                failedRefusal: error.refusal,
+              })
             refusedLast = true
             attempt.refused = error.refusal
             problems = [error.message]

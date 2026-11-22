@@ -165,15 +165,18 @@ export async function labelWithPanel(input: {
   timeVotes: TimeVote[]
   dropped: { question: string; reason: string }[]
   stopped: boolean
+  /** The workspace budget of OpenRouter is spent: no call goes out. */
+  budget?: BudgetExceededError["budget"]
 }> {
   checkPanel(input.models)
   const votes: PanelVote[] = []
   const timeVotes: TimeVote[] = []
   const questions: Question[] = []
   const dropped: { question: string; reason: string }[] = []
+  let budget: BudgetExceededError["budget"] | undefined
   /**
    * The answer of each model to `content`, one call at a time, or null when
-   * the spend cap stopped a call.
+   * the spend cap stopped a call or the workspace budget is spent.
    */
   const askAll = async <T>(
     content: string,
@@ -194,8 +197,12 @@ export async function labelWithPanel(input: {
           }),
         })
       } catch (error) {
+        if (input.stopped()) return null
         // A spent workspace budget of OpenRouter stops as the spend cap.
-        if (input.stopped() || error instanceof BudgetExceededError) return null
+        if (error instanceof BudgetExceededError) {
+          budget = error.budget
+          return null
+        }
         throw error
       }
     }
@@ -207,6 +214,7 @@ export async function labelWithPanel(input: {
     timeVotes,
     dropped,
     stopped,
+    ...(budget ? { budget } : {}),
   })
   for (const question of input.draft.questions) {
     const noAnswer = question.category === "no-answer"

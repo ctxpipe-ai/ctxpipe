@@ -62,7 +62,7 @@ export class BudgetExceededError extends Error {
   }
 }
 
-const refusalSchema = z.object({
+const forbiddenBodySchema = z.object({
   error: z.object({
     code: z.union([z.number(), z.string()]).nullish(),
     message: z.string().optional(),
@@ -86,14 +86,14 @@ const identifier = (value: string | undefined) =>
  * resets …"), a moderation refusal (a moderation category), or else a
  * plain error with no text of the answer.
  */
-function forbidden(body: string, model: string): Error {
+function forbiddenError(body: string, model: string): Error {
   let json: unknown
   try {
     json = JSON.parse(body)
   } catch {
     json = undefined
   }
-  const error = refusalSchema.safeParse(json).data?.error
+  const error = forbiddenBodySchema.safeParse(json).data?.error
   const text = error?.message ?? ""
   const budget = /^Workspace daily budget of \$(\d+(?:\.\d+)?) exceeded/.exec(
     text,
@@ -209,7 +209,7 @@ export async function askJson<T>(input: {
     response = await send()
   }
   if (response.status === 403)
-    throw forbidden(await response.text(), input.model)
+    throw forbiddenError(await response.text(), input.model)
   if (!response.ok)
     throw new Error(
       `OpenRouter answered ${response.status} for ${input.model}.`,

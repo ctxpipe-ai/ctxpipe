@@ -322,6 +322,7 @@ async function label(values: {
       timeVotes: labeled.timeVotes,
       dropped: labeled.dropped,
       stopped: labeled.stopped,
+      budget: labeled.budget,
       spentUsd: calls.spentUsd,
     })
     return labeled.stopped ? 3 : 0
@@ -445,6 +446,7 @@ async function draft(values: {
       scale,
       stopped: drafted.stopped,
       failed: drafted.failed,
+      failedRefusal: drafted.failedRefusal,
       budget: drafted.budget,
       // The picks that OpenRouter refused (HTTP 403).
       refused: drafted.attempts.filter((attempt) => attempt.refused).length,

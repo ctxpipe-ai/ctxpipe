@@ -1055,6 +1055,7 @@ describe("the judge panel", () => {
         stopped: () => false,
       })
       expect(labeled.stopped).toBe(true)
+      expect(labeled.budget).toEqual({ limitUsd: 30 })
       expect(labeled.votes.map((vote) => vote.ref)).toEqual(["old.md"])
     } finally {
       budgetAt = Number.POSITIVE_INFINITY
