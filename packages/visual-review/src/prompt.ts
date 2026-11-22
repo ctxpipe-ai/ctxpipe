@@ -292,6 +292,25 @@ ${JSON.stringify(schema)}`
 const newImages = (input: NewStoryInput): StoryImage[] =>
   input.images.map(({ path }) => ({ role: "after", path }))
 
+// The scope of the review of a changed screenshot as new UI in its context
+// (CTX-1509): a large improvement must not hide the defects that remain, so
+// the review does not compare with the earlier version.
+const changedText = ({ changed, images }: NewStoryInput) => {
+  const size = images[0]?.size
+  if (!changed?.length || !size) return ""
+  const px = (fraction: number, side: number) => Math.round(fraction * side)
+  return `
+This screenshot changed. An element in the changed regions below is new or redesigned. Review each changed region and the elements next to it as new UI in its context: how its visible content aligns with its neighbors, its space to the edges of its container, and how it sits with the elements around it. Do not compare it with an earlier version. Do not report the rest of the screenshot.
+Changed regions, in pixels of Image 1:
+${changed
+  .map(
+    ({ x, y, width, height }, index) =>
+      `${index + 1}. x ${px(x, size.width)}, y ${px(y, size.height)}, width ${px(width, size.width)}, height ${px(height, size.height)}`,
+  )
+  .join("\n")}
+`
+}
+
 /** The story part of the prompt of a new screenshot. */
 const newStoryText = (input: NewStoryInput) => `Story: ${input.storyId}
 ${scopeLine(input.scope, input.rubric)}
@@ -304,7 +323,7 @@ ${input.images
       `Image ${index + 1}: the full new screenshot, ${size.width} × ${size.height}`,
   )
   .join("\n")}
-
+${changedText(input)}
 ${data("brief", input.brief)}
 
 ${data("source-diff", input.sourceDiff)}`

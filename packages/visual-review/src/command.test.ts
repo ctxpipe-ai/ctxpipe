@@ -30,7 +30,7 @@ import {
 import { z } from "zod"
 
 import { visualReview } from "./command.ts"
-import { screenshot } from "./compare/fixtures.ts"
+import { contains, screenshot } from "./compare/fixtures.ts"
 import {
   diff,
   packagedRubric,
@@ -1838,6 +1838,114 @@ export const Primary = { render: () => null }
             expect(summary).toContain(
               "The design review did not run: the budget of the run is short.",
             )
+        })
+      })
+
+      describe("the design review of a redesigned area in its context (CTX-1509)", () => {
+        // Jev compares the change and is not sure: nothing is worse.
+        const jevSame = (name: string, type: string) =>
+          name === "defect-box"
+            ? box
+            : type === "noul"
+              ? { type: "noul", noul: 0.05 }
+              : {
+                  type: "choice",
+                  probabilities: { better: 0.3, same: 0.6, worse: 0.1 },
+                }
+        // The head adds a 200 × 60 px block under the button: an element
+        // that is new, not a small shift.
+        const redesigned = screenshot(400, 300, [
+          {
+            box: { x: 240, y: 180, width: 120, height: 60 },
+            color: [37, 99, 235],
+          },
+          {
+            box: { x: 100, y: 60, width: 200, height: 60 },
+            color: [20, 20, 20],
+          },
+        ])
+        const card =
+          "apps/ui/src/components/screenshots/Card.Primary.desktop.screenshot.png"
+
+        test("a changed screenshot with a new element gets the design review of its head image, scoped to the changed regions; one review stands for alike diffs", async () => {
+          serveJev(jevSame)
+          content = designReply("regression", "major", {
+            rubricRef: "apps/ui/DESIGN.md › Gestalt lens",
+          })
+          for (const path of [button, card]) {
+            await put("base", path, before)
+            await put("head", path, redesigned)
+          }
+
+          // A should-fix: the exit code of major.
+          expect(
+            await run(
+              "--json",
+              "--judge",
+              "jev",
+              "--images",
+              images,
+              "--",
+              button,
+              card,
+            ),
+          ).toBe(1)
+
+          expect(chats.map(({ model }) => model)).toEqual([
+            "openai/gpt-6.1-sol",
+          ])
+          const [request] = chats
+          const parts =
+            request?.messages.flatMap(({ content }) => content) ?? []
+          // The head image alone: the review does not compare with the base.
+          expect(parts.filter(({ type }) => type === "image_url")).toHaveLength(
+            1,
+          )
+          const text = parts.map(({ text }) => text ?? "").join("\n")
+          const [x, y, width, height] = (
+            /Changed regions, in pixels of Image 1:\n1\. x (\d+), y (\d+), width (\d+), height (\d+)\n/.exec(
+              text,
+            ) ?? []
+          )
+            .slice(1)
+            .map(Number)
+          // The measured region holds the new block.
+          expect(
+            contains(
+              { x: x ?? 0, y: y ?? 0, width: width ?? 0, height: height ?? 0 },
+              { x: 100, y: 60, width: 200, height: 60 },
+            ),
+          ).toBe(true)
+          expect(verdicts()[0]).toMatchObject({
+            path: button,
+            verdict: "regression",
+            severity: "major",
+          })
+          expect(verdicts()[0]?.summary).toContain(
+            "Design review (openai/gpt-6.1-sol, it makes the verdict regression major)",
+          )
+          expect(verdicts()[1]).toMatchObject({ path: card, verdict: "unsure" })
+        })
+
+        test("a color change gets no design review", async () => {
+          serveJev(jevSame)
+          await put("base", button, before)
+          await put("head", button, after)
+
+          expect(
+            await run(
+              "--json",
+              "--judge",
+              "jev",
+              "--images",
+              images,
+              "--",
+              button,
+            ),
+          ).toBe(0)
+
+          expect(chats).toHaveLength(0)
+          expect(verdicts()[0]).toMatchObject({ verdict: "unsure" })
         })
       })
 

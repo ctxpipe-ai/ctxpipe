@@ -34,19 +34,20 @@ const near = (a: number, b: number) =>
 
 /**
  * True when the regions of `a` and `b` pair one to one, each pair with the
- * same change type and position and sizes that are near. The order of the
- * regions does not matter. A region that has two near candidates may take the
- * place that another region needs, so the pairing is a bipartite match: a
- * taken place moves to another candidate when it can.
+ * same change type and position and sizes that are near. With `anyPosition`,
+ * the positions need not be the same. The order of the regions does not
+ * matter. A region that has two near candidates may take the place that
+ * another region needs, so the pairing is a bipartite match: a taken place
+ * moves to another candidate when it can.
  */
-function alike(a: Part[], b: Part[]): boolean {
+function alike(a: Part[], b: Part[], anyPosition = false): boolean {
   const takenBy: (Part | undefined)[] = []
   const pair = (part: Part, tried: Set<number>): boolean =>
     b.some((other, j) => {
       if (
         tried.has(j) ||
         other.change !== part.change ||
-        other.position !== part.position ||
+        (!anyPosition && other.position !== part.position) ||
         !near(other.width, part.width) ||
         !near(other.height, part.height)
       )
@@ -144,6 +145,54 @@ export async function reviewStories(
       verdicts[index] = grouped(story.storyId, judged)
   }
   return verdicts
+}
+
+/**
+ * The changed stories whose design the critic reviews in its context, as new
+ * UI (CTX-1509, ADR-063 rule 20). A story qualifies when an element is added,
+ * removed or replaced in a region of at least 100 × 32 px: larger than a line
+ * of text or a small control that moves. A color change, a shift and
+ * rendering noise do not qualify. Stories with alike diffs (the same scope and
+ * viewport, alike regions at any position) are one redesign, and the first
+ * one stands for them. The largest change comes first, and at most `limit`
+ * stories come back: each review is a paid call of a large model.
+ */
+export function redesigns(
+  stories: readonly StoryInput[],
+  limit: number,
+): StoryInput[] {
+  const kept: { story: StoryInput; parts: Part[]; largest: number }[] = []
+  for (const story of stories) {
+    const parts = parseSignature(story.signature)
+    const largest = Math.max(
+      0,
+      ...(parts ?? [])
+        .filter(
+          ({ change, width, height }) =>
+            change !== "color-change" &&
+            change !== "shift" &&
+            width >= 100 &&
+            height >= 32,
+        )
+        .map(({ width, height }) => width * height),
+    )
+    if (
+      parts &&
+      largest > 0 &&
+      !kept.some(
+        (other) =>
+          other.story.scope === story.scope &&
+          other.story.viewport.width === story.viewport.width &&
+          other.story.viewport.height === story.viewport.height &&
+          alike(other.parts, parts, true),
+      )
+    )
+      kept.push({ story, parts, largest })
+  }
+  return kept
+    .sort((a, b) => b.largest - a.largest)
+    .slice(0, limit)
+    .map(({ story }) => story)
 }
 
 function noiseVerdict({ storyId, regions }: StoryInput): Verdict {

@@ -1,15 +1,19 @@
 // The explainer of a Jev regression (CTX-1256, ADR-063), and the design
-// review of new UI (CTX-1469, CTX-1493, see `reviewDesign`: it can make a
-// verdict regression major, never a blocker). Jev gives no text:
+// review of new UI and of a redesigned area (CTX-1469, CTX-1493, CTX-1509,
+// see `reviewDesign`: it can make a verdict regression major, never a
+// blocker). Jev gives no text:
 // a suspected regression has an area, a region and a probability, but no
 // evidence. After a Jev `regression`, one call to a cheap vision model writes
 // the evidence and a suggestion for each flagged entry. The explainer never
 // judges: the verdict, the severity, the confidence and the regions stay the
 // ones of Jev. In the bake-off, a cascade that let an LLM replace the Jev
 // verdict lost recall (0.74 against 0.95).
+import { readFile } from "node:fs/promises"
+
 import { z } from "zod"
 
 import { askOpenRouter, judgeNewWithOpenRouter } from "./adapters/openrouter.ts"
+import { pngSize } from "./prepare.ts"
 import { judgingRule, scopeLine, storyData, type Prompt } from "./prompt.ts"
 import type { RubricEntry } from "./rubric.ts"
 import type { NewStoryInput, StoryImage, StoryInput } from "./story.ts"
@@ -267,8 +271,38 @@ ${brief ? brief.replace(/<\/data/gi, "<\\/data") : "(none)"}
 }
 
 /**
- * The design review of the new screenshots of one story, after the Jev
- * `verdict` (CTX-1469, ADR-063 rules 18 and 19). Jev does not tell a clean
+ * The input of the design review of a changed screenshot in its context
+ * (CTX-1509, ADR-063 rule 20): the head image alone, with the changed regions
+ * (`changed`), so that the review judges the redesigned area as new UI and
+ * not against the base image. Undefined when the story has no full head
+ * image that is a PNG.
+ */
+export async function inContext(
+  story: StoryInput,
+): Promise<NewStoryInput | undefined> {
+  const path = story.images.find(({ role }) => role === "after")?.path
+  const size = path ? pngSize(await readFile(path)) : undefined
+  if (!path || !size) return undefined
+  const { storyId, scope, name, purpose, brief, sourceDiff, rubric } = story
+  return {
+    storyId,
+    scope,
+    ...(name ? { name } : {}),
+    ...(purpose ? { purpose } : {}),
+    ...(brief === undefined ? {} : { brief }),
+    ...(sourceDiff === undefined ? {} : { sourceDiff }),
+    rubric,
+    images: [{ path, size }],
+    changed: story.regions
+      .filter(({ changeType }) => changeType !== "rendering-noise")
+      .map(({ box }) => box),
+  }
+}
+
+/**
+ * The design review of the new screenshots of one story, or of the head
+ * image of a changed screenshot in its context (see `inContext`), after the
+ * Jev `verdict` (CTX-1469, CTX-1509, ADR-063 rules 18 to 20). Jev does not tell a clean
  * new screenshot from a broken one (rule 13), and it answers one rubric entry
  * at a time. The design review asks `model` the prompt of a new screenshot
  * (`buildNewPrompt`), which compares each element with the elements around it.
