@@ -856,6 +856,11 @@ describe("the knowledge reader seam", () => {
         includeSeeds: true,
       }),
     ).toEqual(["knowledge/teams/payments.md"])
+    // Layer 0 judges the payments seed, and layer 1 judges its neighbor.
+    expect(jevRequests.slice(-2)).toEqual([
+      { candidates: 1 },
+      { candidates: 1 },
+    ])
   })
 
   it("on: get_related explores from each seed, also from a seed with a low p(explore)", async () => {
@@ -863,7 +868,7 @@ describe("the knowledge reader seam", () => {
     // Jev gives the payments team a low p(explore) ("hub" is not in its
     // text). The caller named it as a seed, so layer 1 reads its relations:
     // it owns the checkout service. The checkout service is a hub, so
-    // p(explore) takes layer 2 on from it.
+    // p(explore) makes it the frontier of layer 2.
     const content = structured(
       await relatedCall({
         seeds: ["knowledge/teams/payments.md"],
