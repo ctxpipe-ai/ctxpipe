@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process"
 import { randomUUID } from "node:crypto"
+import { createServer } from "node:net"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 
@@ -39,16 +40,23 @@ export async function startClickHouse(): Promise<{
    * closes it.
    */
   client(url: string): ClickHouseClient
+  /**
+   * Kills the server and starts it again, as a crash restart. The data, the
+   * port and the URLs stay. Returns when the server answers again.
+   */
+  restart(): Promise<void>
   stop(): Promise<void>
 }> {
   const container = `ctxpipe-knowledge-${randomUUID().slice(0, 8)}`
+  // A fixed host port: Docker gives a new ephemeral port at each restart.
+  const port = await freePort()
   await docker(
     "create",
     ...testLabelArgs(),
     "--name",
     container,
     "-p",
-    "127.0.0.1::8123",
+    `127.0.0.1:${port}:8123`,
     "-e",
     "CLICKHOUSE_USER=knowledge",
     "-e",
@@ -74,21 +82,23 @@ export async function startClickHouse(): Promise<{
     await docker("rm", "-f", "-v", container).catch(() => "")
   }
   try {
-    const address = (await docker("port", container, "8123/tcp")).split("\n")[0]
-    const serverUrl = `http://knowledge:knowledge-test@${address}`
-    // Quiet: the first attempts fail while the server starts.
-    const client = createClient({
-      url: serverUrl,
-      log: { level: ClickHouseLogLevel.OFF },
-    })
-    try {
-      for (let attempt = 0; !(await client.ping()).success; attempt++) {
-        if (attempt >= 120) throw new Error("ClickHouse did not start")
-        await new Promise((resolve) => setTimeout(resolve, 500))
+    const serverUrl = `http://knowledge:knowledge-test@127.0.0.1:${port}`
+    const waitUntilStarted = async () => {
+      // Quiet: the first attempts fail while the server starts.
+      const client = createClient({
+        url: serverUrl,
+        log: { level: ClickHouseLogLevel.OFF },
+      })
+      try {
+        for (let attempt = 0; !(await client.ping()).success; attempt++) {
+          if (attempt >= 120) throw new Error("ClickHouse did not start")
+          await new Promise((resolve) => setTimeout(resolve, 500))
+        }
+      } finally {
+        await client.close()
       }
-    } finally {
-      await client.close()
     }
+    await waitUntilStarted()
     return {
       serverUrl,
       async freshDatabase() {
@@ -111,10 +121,24 @@ export async function startClickHouse(): Promise<{
         clients.push(client)
         return client
       },
+      async restart() {
+        await docker("restart", "--time", "0", container)
+        await waitUntilStarted()
+      },
       stop,
     }
   } catch (error) {
     await stop()
     throw error
   }
+}
+
+/** A TCP port on 127.0.0.1 that no process listens on now. */
+async function freePort(): Promise<number> {
+  const server = createServer()
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+  const address = server.address()
+  await new Promise<void>((resolve) => server.close(() => resolve()))
+  if (!address || typeof address === "string") throw new Error("No port")
+  return address.port
 }

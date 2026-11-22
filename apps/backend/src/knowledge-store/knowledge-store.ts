@@ -289,6 +289,12 @@ export type KnowledgeStore = {
   /** The tree rows that `head` shows: one row for each path that has one. */
   readTree(scope: KnowledgeScope, head: TreeHead): Promise<TreeEntry[]>
   /**
+   * True when `head` shows at least one tree row, a tombstone included. A
+   * head of the default branch with no row lost its rows, or its tree has
+   * no document file (ADR-067 decision 8).
+   */
+  hasTree(scope: KnowledgeScope, head: TreeHead): Promise<boolean>
+  /**
    * Inserts `entries` with the tree version `treeVersion` of `branch`. No
    * read sees them until the head of the branch moves to that version.
    */
@@ -438,6 +444,18 @@ export function createKnowledgeStore(url: string | undefined): KnowledgeStore {
     writeFileVersions: (scope, versions, counter) =>
       writeFileVersions(client, scope, versions, counted(counter)),
     readTree: (scope, head) => readTree(client, scope, head),
+    hasTree: async (scope, head) =>
+      (
+        await select<{ found: number }>(
+          client,
+          scope,
+          `SELECT 1 AS found FROM trees
+           WHERE ${scoped} AND branch = {branch:String}
+             AND tree_version <= {treeVersion:UInt64}
+           LIMIT 1`,
+          head,
+        )
+      ).length > 0,
     writeTree: (scope, branch, treeVersion, entries) =>
       writeTree(client, scope, branch, treeVersion, entries),
     deleteTreeAbove: (scope, branch, treeVersion, counter) =>

@@ -71,6 +71,16 @@ export type KnowledgeFullReason =
   | "missing_commit"
   /** A diff changes the sources (ADR-050): `.ctxpipe/sources.yaml` or `sources/`. */
   | "sources_config"
+  /** The head of the default branch shows no tree row: its rows are lost. */
+  | "empty_tree"
+  /** An operator asked for a full rebuild (`rebuildKnowledgePlane`). */
+  | "rebuild"
+
+/** The reasons for a full rebuild that the state does not show (ADR-067 decision 8). */
+export type KnowledgeRebuildReason = Extract<
+  KnowledgeFullReason,
+  "empty_tree" | "rebuild"
+>
 
 /**
  * The files that a run must apply. A delta gives the files that changed and
@@ -112,6 +122,8 @@ export async function planKnowledgeChangeSet(input: {
   tip: string
   /** The current version (`knowledgeProjectionVersion`). */
   projectionVersion: string
+  /** A reason to rebuild in full that the state does not show. */
+  rebuild?: KnowledgeRebuildReason | null
 }): Promise<KnowledgeChangeSet> {
   const { directory, root, state, tip } = input
   const full = async (reason: KnowledgeFullReason) => ({
@@ -124,6 +136,7 @@ export async function planKnowledgeChangeSet(input: {
       .sort(),
   })
   if (!state?.lastSha) return full("first_run")
+  if (input.rebuild) return full(input.rebuild)
   if (state.projectionVersion !== input.projectionVersion)
     return full("projection_version")
   if (state.baseBranch !== null) return full("branch")
