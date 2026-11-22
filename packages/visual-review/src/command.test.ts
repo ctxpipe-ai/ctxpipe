@@ -1930,7 +1930,51 @@ export const Primary = { render: () => null }
           expect(verdicts()[0]?.summary).toContain(
             "Design review (openai/gpt-6.1-sol, it makes the verdict regression major)",
           )
-          expect(verdicts()[1]).toMatchObject({ path: card, verdict: "unsure" })
+          // The alike diff takes the verdict of the review, with its text.
+          expect(verdicts()[1]).toMatchObject({
+            path: card,
+            verdict: "regression",
+            severity: "major",
+          })
+          expect(verdicts()[1]?.summary).toContain(
+            `Design review on ${button}, an alike diff:`,
+          )
+        })
+
+        test("on a short screenshot that is padded before the call, the changed regions are in fractions of the sent image", async () => {
+          serveJev(jevSame)
+          content = designReply("intended", "none")
+          // 400 × 100 px: the sent image is padded to 400 × 280 px.
+          await put("base", card, screenshot(400, 100, []))
+          await put(
+            "head",
+            card,
+            screenshot(400, 100, [
+              {
+                box: { x: 100, y: 40, width: 200, height: 40 },
+                color: [20, 20, 20],
+              },
+            ]),
+          )
+
+          await run("--json", "--judge", "jev", "--images", images, "--", card)
+
+          const text = chats
+            .flatMap(({ messages }) => messages)
+            .flatMap(({ content }) => content)
+            .map(({ text }) => text ?? "")
+            .join("\n")
+          const [y = 0, height = 0] = (
+            /1\. x [\d.]+, y ([\d.]+), width [\d.]+, height ([\d.]+)\n/.exec(
+              text,
+            ) ?? []
+          )
+            .slice(1)
+            .map(Number)
+          // The block is at 40 to 80 px of 280: about 0.14 to 0.29.
+          expect(y).toBeLessThanOrEqual(0.15)
+          expect(y + height).toBeGreaterThanOrEqual(0.28)
+          expect(y + height).toBeLessThanOrEqual(100 / 280 + 0.01)
         })
 
         test("the design review of a redesign runs before the explainer of a smaller change, so a short budget goes to it first", async () => {

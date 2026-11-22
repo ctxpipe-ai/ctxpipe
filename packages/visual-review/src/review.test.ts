@@ -534,8 +534,8 @@ describe("reviewStories", () => {
 })
 
 describe("redesigns", () => {
-  const ids = (stories: readonly StoryInput[]) =>
-    stories.map(({ storyId }) => storyId)
+  const ids = (found: readonly { story: StoryInput }[]) =>
+    found.map(({ story: { storyId } }) => storyId)
 
   test("an element added, removed or replaced in a region of at least 100 × 32 px is a redesign; a color change, a shift, noise or a smaller region is not", () => {
     const stories = [
@@ -559,14 +559,19 @@ describe("redesigns", () => {
     ])
   })
 
-  test("alike diffs at other positions are one redesign: the first story stands for them", () => {
+  test("alike diffs at other positions are one redesign: the first story stands for them, and names the others", () => {
     const stories = [
       story("composer-a", "deletion@left:248x52,content-change@right:60x60"),
       story("composer-b", "content-change@center:60x60,deletion@center:247x52"),
       story("composer-c", "deletion@left:248x52,content-change@right:60x60"),
     ]
 
-    expect(ids(redesigns(stories, 10))).toEqual(["composer-a"])
+    expect(redesigns(stories, 10)).toMatchObject([
+      {
+        story: { storyId: "composer-a" },
+        alike: ["composer-b", "composer-c"],
+      },
+    ])
   })
 
   test("another viewport or scope is another redesign", () => {

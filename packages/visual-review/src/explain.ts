@@ -13,7 +13,7 @@ import { readFile } from "node:fs/promises"
 import { z } from "zod"
 
 import { askOpenRouter, judgeNewWithOpenRouter } from "./adapters/openrouter.ts"
-import { pngSize } from "./prepare.ts"
+import { pngSize, prepareImage } from "./prepare.ts"
 import { judgingRule, scopeLine, storyData, type Prompt } from "./prompt.ts"
 import type { RubricEntry } from "./rubric.ts"
 import type { NewStoryInput, StoryImage, StoryInput } from "./story.ts"
@@ -274,15 +274,18 @@ ${brief ? brief.replace(/<\/data/gi, "<\\/data") : "(none)"}
  * The input of the design review of a changed screenshot in its context
  * (CTX-1509, ADR-063 rule 20): the head image alone, with the changed regions
  * (`changed`), so that the review judges the redesigned area as new UI and
- * not against the base image. Undefined when the story has no full head
- * image that is a PNG.
+ * not against the base image. The regions are in fractions of the image that
+ * the model gets: `prepareImage` pads a short image at the bottom and the
+ * right. Undefined when the story has no full head image that is a PNG.
  */
 export async function inContext(
   story: StoryInput,
 ): Promise<NewStoryInput | undefined> {
   const path = story.images.find(({ role }) => role === "after")?.path
-  const size = path ? pngSize(await readFile(path)) : undefined
-  if (!path || !size) return undefined
+  const bytes = path ? await readFile(path) : undefined
+  const size = bytes ? pngSize(bytes) : undefined
+  if (!path || !bytes || !size) return undefined
+  const { content } = prepareImage(bytes)
   const { storyId, scope, name, purpose, brief, sourceDiff, rubric } = story
   return {
     storyId,
@@ -295,7 +298,12 @@ export async function inContext(
     images: [{ path, size }],
     changed: story.regions
       .filter(({ changeType }) => changeType !== "rendering-noise")
-      .map(({ box }) => box),
+      .map(({ box: { x, y, width, height } }) => ({
+        x: x * content.width,
+        y: y * content.height,
+        width: width * content.width,
+        height: height * content.height,
+      })),
   }
 }
 

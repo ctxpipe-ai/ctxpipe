@@ -169,14 +169,20 @@ export async function reviewStories(
  * critic cannot tell a redesign from a small change, group it, or scope the
  * review. Stories with alike diffs (the same scope and viewport, alike
  * regions at any position) are one redesign, and the first one stands for
- * them. The largest change comes first, and at most `limit` stories come
- * back: each review is a paid call of a large model.
+ * them: `alike` names the others. The largest change comes first, and at
+ * most `limit` redesigns come back: each review is a paid call of a large
+ * model.
  */
 export function redesigns(
   stories: readonly StoryInput[],
   limit: number,
-): StoryInput[] {
-  const kept: { story: StoryInput; parts: Part[]; largest: number }[] = []
+): { story: StoryInput; alike: string[] }[] {
+  const kept: {
+    story: StoryInput
+    parts: Part[]
+    largest: number
+    alike: string[]
+  }[] = []
   for (const story of stories) {
     const parts = parseSignature(story.signature)
     const largest = Math.max(
@@ -191,17 +197,15 @@ export function redesigns(
         )
         .map(({ width, height }) => width * height),
     )
-    if (
-      parts &&
-      largest > 0 &&
-      !kept.some((other) => sameDiff(other, { story, parts }, true))
-    )
-      kept.push({ story, parts, largest })
+    if (!parts || largest === 0) continue
+    const same = kept.find((other) => sameDiff(other, { story, parts }, true))
+    if (same) same.alike.push(story.storyId)
+    else kept.push({ story, parts, largest, alike: [] })
   }
   return kept
     .sort((a, b) => b.largest - a.largest)
     .slice(0, limit)
-    .map(({ story }) => story)
+    .map(({ story, alike }) => ({ story, alike }))
 }
 
 function noiseVerdict({ storyId, regions }: StoryInput): Verdict {

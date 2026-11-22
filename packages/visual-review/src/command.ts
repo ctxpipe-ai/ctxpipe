@@ -302,6 +302,24 @@ export async function visualReview(
           summary: `${member.summary} Jev on ${verdict.storyId}: ${verdict.summary}`,
         }
       : member
+  // A screenshot with the same redesign takes a regression of the review, with
+  // its text. A stronger verdict of its own stays.
+  const shareRedesign = (verdict: Verdict, member: Verdict): Verdict => {
+    if (verdict.verdict !== "regression") return member
+    const rank = { none: 0, minor: 1, major: 2, blocker: 3 }
+    return {
+      ...member,
+      ...(member.verdict !== "regression" ||
+      rank[verdict.severity] > rank[member.severity]
+        ? {
+            verdict: verdict.verdict,
+            severity: verdict.severity,
+            confidence: verdict.confidence,
+          }
+        : {}),
+      summary: `${member.summary} Design review on ${verdict.storyId}, an alike diff: ${verdict.summary}`,
+    }
+  }
   const feedbackOf = (input: Explained, reviewed: boolean) =>
     input.kind === "new"
       ? {
@@ -324,7 +342,7 @@ export async function visualReview(
             reserve: unknownDesignUsd,
             skipped:
               "The design review of the changed area did not run: the budget of the run is short.",
-            share: shareChange,
+            share: shareRedesign,
           }
         : {
             call: (verdict: Verdict) =>
@@ -337,12 +355,13 @@ export async function visualReview(
     // A redesigned area gets a design review in its context: at most 4 for
     // each run, the largest first, before the explainers of other changes,
     // so that a short budget goes to the reviews (ADR-063 rule 20).
-    const redesigned = redesigns(
+    const found = redesigns(
       [...jevInputs.values()].flatMap((input) =>
         input.kind === "change" ? [input.story] : [],
       ),
       4,
-    ).map(({ storyId }) => storyId)
+    )
+    const redesigned = found.map(({ story }) => story.storyId)
     const rank = (storyId: string) => {
       const at = redesigned.indexOf(storyId)
       return jevInputs.get(storyId)?.kind === "new"
@@ -358,18 +377,25 @@ export async function visualReview(
     const fits = (reserve: number) =>
       budget.limitUsd === undefined ||
       budget.spentUsd + reserve <= budget.limitUsd
+    // The alike diffs of a reviewed redesign: the review stands for them.
+    const covered = new Set<string>()
     for (const index of order) {
       const verdict = verdicts[index]
       const input = verdict && jevInputs.get(verdict.storyId)
-      if (!input || verdict.groupedWith !== undefined) continue
+      if (
+        !input ||
+        verdict.groupedWith !== undefined ||
+        covered.has(verdict.storyId)
+      )
+        continue
       // A redesign keeps its explainer when the budget has no room for the
       // review.
-      const { call, reserve, skipped, share } = feedbackOf(
-        input,
+      const reviewed =
         redesigned.includes(verdict.storyId) &&
-          (fits(unknownDesignUsd) || !fits(unknownExplainerUsd)),
-      )
+        (fits(unknownDesignUsd) || !fits(unknownExplainerUsd))
+      const { call, reserve, skipped, share } = feedbackOf(input, reviewed)
       let updated: Verdict
+      let alike: ReadonlySet<string> = new Set()
       if (!fits(reserve)) {
         if (!skipped || verdict.error !== undefined) continue
         updated = { ...verdict, summary: `${verdict.summary} ${skipped}` }
@@ -378,10 +404,19 @@ export async function visualReview(
         if (!result.explainer) continue
         budget.spentUsd += result.explainer.costUsd ?? reserve
         updated = result.verdict
+        if (reviewed)
+          alike = new Set(
+            found.find(({ story }) => story.storyId === verdict.storyId)?.alike,
+          )
       }
       verdicts[index] = updated
+      for (const id of alike) covered.add(id)
       for (const [other, member] of verdicts.entries())
-        if (member.groupedWith === verdict.storyId)
+        if (
+          member.groupedWith === verdict.storyId ||
+          alike.has(member.storyId) ||
+          alike.has(member.groupedWith ?? "")
+        )
           verdicts[other] = share(updated, member)
     }
   }
