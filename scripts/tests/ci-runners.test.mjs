@@ -122,9 +122,10 @@ test("the repository workflows pass", () => {
   assert.equal(result.status, 0, result.stderr)
 })
 
-// ADR-065: the light jobs, the test shards and the screenshots run on free
-// GitHub-hosted arm runners. The other jobs that use Docker stay on
-// Blacksmith.
+// ADR-065: the light jobs, the test shards, the screenshots and the light
+// deploy jobs run on free GitHub-hosted arm runners. The other jobs that use
+// Docker stay on Blacksmith. The tests below check the Docker of the
+// GitHub-hosted jobs, not the choice of each label.
 const ci = parse(
   readFileSync(
     fileURLToPath(new URL("../../.github/workflows/ci.yaml", import.meta.url)),
@@ -154,9 +155,14 @@ const allJobs = readdirSync(directory)
 test("a GitHub-hosted job uses no Docker, except the listed jobs", () => {
   // The GitHub-hosted jobs with Docker in their steps: the test shards
   // (service containers, FalkorDB, the chat sandbox image from the registry
-  // cache). The test reads only the steps: the screenshots job starts the
-  // Playwright container from a script (scripts/ci/visual-capture.mjs).
-  const githubHostedDocker = ["ci.yaml#test-shards"]
+  // cache) and the publish job of the deploy (manifest lists through `docker
+  // buildx imagetools`, no container). The test reads only the steps: the
+  // screenshots job starts the Playwright container from a script
+  // (scripts/ci/visual-capture.mjs).
+  const githubHostedDocker = [
+    "ci.yaml#test-shards",
+    "deploy.yaml#publish_images",
+  ]
   const jobs = new Map(allJobs)
   for (const name of githubHostedDocker) {
     assert.ok(jobs.has(name), name)
@@ -170,7 +176,9 @@ test("a GitHub-hosted job uses no Docker, except the listed jobs", () => {
     assert.equal(job.services, undefined, name)
     assert.equal(job.container, undefined, name)
     for (const step of job.steps ?? []) {
-      assert.doesNotMatch(step.run ?? "", /\bdocker\b/, name)
+      // An image reference on docker.io (the pins of the ECR copy job) is
+      // no Docker command.
+      assert.doesNotMatch(step.run ?? "", /\bdocker\b(?!\.io\/)/, name)
       assert.doesNotMatch(step.uses ?? "", /docker/, name)
     }
   }
