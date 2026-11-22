@@ -345,15 +345,15 @@ describe("scrubForModel", () => {
     // paragraph separator, as a hydrate unit: the scrubber writes these
     // characters as they are, inside its answer line.
     const secret = secretOf("betterleaks.github-pat")
-    const body = `${"Steps to reproduce. See the log. \n".repeat(
+    const body = `${"Steps to reproduce.\u2028See the log.\u2029\n".repeat(
       300,
-    )}token ${secret} end`
+    )}token ${secret}\u2028end`
     const answers = await Promise.all([
-      scrubForModel({ title: "Issue title", body }),
+      scrubForModel({ title: "Issue\u2029title", body }),
       ...Array.from({ length: 7 }, (_, at) => scrubForModel(`other ${at}`)),
     ])
     expect(answers[0]).toEqual({
-      title: "Issue title",
+      title: "Issue\u2029title",
       body: body.replace(secret, "[REDACTED:betterleaks.github-pat]"),
     })
     expect(answers.slice(1)).toEqual(
