@@ -47,7 +47,7 @@ import {
 } from "../../bin/stage-lib.mjs"
 import {
   inTestFixture,
-  readTracked,
+  readTrackedMany,
   safePath,
   testFixtureSkips,
   trackedFiles,
@@ -139,9 +139,19 @@ if (found.some((p) => !safePath(p)))
   })
 found = found.filter(safePath)
 
+// One batch of git calls reads each decision file and each metadata file.
+const texts = readTrackedMany(
+  source,
+  [
+    ...new Set(
+      found.flatMap((path) => [path, forms.get(path).meta ?? []]).flat(),
+    ),
+  ],
+  (text) => text,
+)
 const candidates = []
 for (const path of found) {
-  const text = readTracked(source, path)
+  const text = texts.get(path)
   if (!text.trim()) {
     skipped.push({
       path,
@@ -151,7 +161,7 @@ for (const path of found) {
   }
   const dir = posix.dirname(path) === "." ? "." : posix.dirname(path)
   const form = forms.get(path)
-  const meta = form.meta === null ? null : readTracked(source, form.meta)
+  const meta = form.meta === null ? null : texts.get(form.meta)
   candidates.push({
     path,
     dir,

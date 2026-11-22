@@ -120,21 +120,42 @@ function git(contextDir, args, input) {
   })
 }
 
+// The file blobs of each base commit: path to blob id. A commit does not
+// change, so one `git ls-tree` gives each later baseBlob call its answer.
+// A script that reads the base for each of 600 files then starts one git
+// process, not 600.
+const baseBlobsOf = new Map()
+
 /** The blob id of `path` at the step's base commit, or null. */
 export function baseBlob(step, path) {
-  const out = git(step.contextDir, [
-    "ls-tree",
-    "-z",
-    step.baseCommit,
-    "--",
-    path,
-  ])
-    .toString("utf8")
-    .split("\0")
-    .find((line) => line.endsWith(`\t${path}`))
-  if (!out) return null
-  const [mode, type, id] = out.split("\t")[0].split(" ")
-  return type === "blob" && mode !== "120000" ? id : null
+  const key = `${step.contextDir}\0${step.baseCommit}`
+  let blobs = baseBlobsOf.get(key)
+  if (!blobs) {
+    blobs = new Map()
+    const out = execFileSync(
+      "git",
+      [
+        "-C",
+        step.contextDir,
+        "ls-tree",
+        "-r",
+        "-z",
+        "--full-tree",
+        step.baseCommit,
+      ],
+      { maxBuffer: 256 * 1024 * 1024 },
+    ).toString("utf8")
+    for (const line of out.split("\0")) {
+      const tab = line.indexOf("\t")
+      if (tab === -1) continue
+      const [mode, type, id] = line.slice(0, tab).split(" ")
+      // A symbolic link or a submodule is not a file blob.
+      if (type === "blob" && mode !== "120000")
+        blobs.set(line.slice(tab + 1), id)
+    }
+    baseBlobsOf.set(key, blobs)
+  }
+  return blobs.get(path) ?? null
 }
 
 export function blobContent(step, id) {

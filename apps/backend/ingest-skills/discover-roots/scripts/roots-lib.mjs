@@ -567,7 +567,7 @@ const inTestFolder = (dir) =>
  * the next chunk, so it holds the file text of one chunk (at most 500 MiB)
  * and only the parsed values of the other chunks.
  */
-function readTrackedMany(source, paths, parse) {
+export function readTrackedMany(source, paths, parse) {
   const empty = parse("")
   const out = new Map(paths.map((p) => [p, empty]))
   const list = paths.filter((p) => !p.includes("\n") && !p.includes("\r"))
