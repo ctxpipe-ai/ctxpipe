@@ -1,6 +1,11 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
+import {
+  InMemorySpanExporter,
+  SimpleSpanProcessor,
+} from "@opentelemetry/sdk-trace-base"
+import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 import { eq, inArray, sql } from "drizzle-orm"
 import { evlog } from "evlog/hono"
 import { Hono } from "hono"
@@ -34,6 +39,19 @@ const workspaceId = generateObjectId("ws")
 const repositoryId = generateObjectId("repo")
 let zoektRepoId: number
 let requests: Record<string, unknown>[] = []
+const spans = new InMemorySpanExporter()
+const tracerProvider = new NodeTracerProvider({
+  spanProcessors: [new SimpleSpanProcessor(spans)],
+})
+
+/** The attributes of the last `mcp.tool <name>` span. */
+function toolSpan(name: string) {
+  const span = spans
+    .getFinishedSpans()
+    .findLast((item) => item.name === `mcp.tool ${name}`)
+  if (!span) throw new Error(`No span ${name}`)
+  return span.attributes
+}
 
 function createApp() {
   const app = new Hono<AppEnv>()
@@ -93,6 +111,7 @@ beforeAll(async () => {
   if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required")
   vi.stubEnv("BETTER_AUTH_API_KEY", "")
   vi.stubEnv("CODESEARCH_URL", "http://codesearch.test")
+  tracerProvider.register()
   seed = await seedOrg()
   expect(
     (await getSystemDb().execute(sql`select current_user as role`)).rows[0],
@@ -147,6 +166,7 @@ afterAll(async () => {
     })
     await cleanupSeededOrg(seed)
   }
+  await tracerProvider.shutdown()
   vi.unstubAllEnvs()
 })
 
@@ -207,6 +227,16 @@ it("searches literal text and returns a file ref, served revision, and skipped r
     Q: '"charge(1)"',
     RepoIDs: [zoektRepoId],
   })
+  // Retrieval facts (CTX-1137): names, lengths and counts, no query text.
+  const attributes = toolSpan("search_code")
+  expect(attributes).toMatchObject({
+    "ctxpipe.mcp.args": "excludeRepositories,limit,mode,query",
+    "ctxpipe.mcp.query.length": "charge(1)".length,
+    "ctxpipe.mcp.mode": "literal",
+    "ctxpipe.mcp.result.count": 1,
+  })
+  expect(attributes["ctxpipe.mcp.result.top_score"]).toBeUndefined()
+  expect(JSON.stringify(attributes)).not.toContain("charge")
 })
 
 it("sends regex syntax unchanged and reports rejected syntax without a literal retry", async () => {
@@ -429,6 +459,10 @@ it("returns SCIP definitions and references as one-based file locations", async 
       excluded: [],
     })
     expect(JSON.stringify(result)).not.toContain(repositoryId)
+    expect(toolSpan("find_symbol")).toMatchObject({
+      "ctxpipe.mcp.args": "excludeRepositories,filePath,limit,relation,symbol",
+      "ctxpipe.mcp.result.count": 1,
+    })
   }
   expect(requests).toEqual([
     {

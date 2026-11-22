@@ -1,6 +1,11 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
+import {
+  InMemorySpanExporter,
+  SimpleSpanProcessor,
+} from "@opentelemetry/sdk-trace-base"
+import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 import { eq } from "drizzle-orm"
 import { evlog } from "evlog/hono"
 import { Hono } from "hono"
@@ -47,6 +52,10 @@ const CODESEARCH = "http://codesearch.test"
 const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
 const sha1 = "a".repeat(40)
 const sha2 = "b".repeat(40)
+const spans = new InMemorySpanExporter()
+const tracerProvider = new NodeTracerProvider({
+  spanProcessors: [new SimpleSpanProcessor(spans)],
+})
 const owner = `ex${suffix}`
 const handle = (short: string) => `${owner}/${short}`
 
@@ -263,6 +272,7 @@ function errorCode(result: ToolResult): unknown {
 describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)", () => {
   beforeAll(async () => {
     if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required")
+    tracerProvider.register()
     seed = await seedOrg()
     await getSystemDb().insert(organizations).values({
       id: foreignOrg.id,
@@ -444,6 +454,7 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
   })
 
   afterAll(async () => {
+    await tracerProvider.shutdown()
     if (!seed) return
     for (const org of [seed.orgId, foreignOrg.id]) {
       await withOrgDbContext(org, async (db) => {
@@ -932,7 +943,17 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
   describe("list_files", () => {
     it("lists two folder levels of the Workspace repository with sizes and unit counts", async () => {
       const size = (path: string) => Buffer.byteLength(UNITS[path] ?? "")
+      spans.reset()
       const root = await call("list_files", {})
+      // Retrieval facts (CTX-1137): the count of entries.
+      const span = spans
+        .getFinishedSpans()
+        .find((item) => item.name === "mcp.tool list_files")
+      expect(span?.attributes).toMatchObject({
+        "ctxpipe.mcp.result.count": (
+          root.structuredContent as { entries: unknown[] }
+        ).entries.length,
+      })
       expect(root.structuredContent).toEqual({
         repository: null,
         path: "",
