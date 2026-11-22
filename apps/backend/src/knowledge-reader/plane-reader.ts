@@ -502,9 +502,9 @@ function answerNodes(
  * an answer, so the caller gets the chain. The `RANKED_LIMIT` applies to an
  * answer and its steps together: an answer whose new steps do not fit ends
  * the results, so that no kept answer loses a step. The cut is strictly by
- * rank: no answer after it is a result, also when it would fit. A step keeps its own
- * p(answers) as its score, which is below `keepAt`, so the steps come after
- * the answers.
+ * rank: no answer after it is a result, also when it would fit. A step
+ * keeps its own p(answers) as its score, which is below `keepAt`, so the
+ * steps come after the answers.
  */
 function withSteps(
   answers: readonly TraversalNode[],

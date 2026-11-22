@@ -226,10 +226,10 @@ const units: (RelatedUnit & { text: string })[] = [
 ]
 
 /** The path of document `index` (from 0) of a layer of the wide Workspace. */
-const wide = (prefix: string, index: number) =>
+const widePath = (prefix: string, index: number) =>
   `wide/${prefix}-${String(index + 1).padStart(2, "0")}.md`
-const layer = (prefix: string) =>
-  Array.from({ length: 49 }, (_, index) => wide(prefix, index))
+const widePaths = (prefix: string) =>
+  Array.from({ length: 49 }, (_, index) => widePath(prefix, index))
 /**
  * A Workspace with more answers than the 100 results of a ranking. The seed
  * reaches a middle document that is only a hub, and 49 answers that are
@@ -245,7 +245,7 @@ const wideUnits: (RelatedUnit & { text: string })[] = [
     text: "The start.",
     claims: [
       { to: "wide/middle.md", predicate: "DEPENDS_ON", confidence: 0.9 },
-      ...layer("a").map((to) => ({
+      ...widePaths("a").map((to) => ({
         to,
         predicate: "MENTIONS",
         confidence: 0.8,
@@ -261,7 +261,7 @@ const wideUnits: (RelatedUnit & { text: string })[] = [
   },
   { path: "wide/b-00.md", kind: "Note", title: "Wide far", text: "answer" },
   ...(["a", "b", "c"] as const).flatMap((prefix) =>
-    layer(prefix).map((path, index) => ({
+    widePaths(prefix).map((path, index) => ({
       path,
       kind: "Note",
       title: `Wide ${prefix} ${index + 1}`,
@@ -271,7 +271,7 @@ const wideUnits: (RelatedUnit & { text: string })[] = [
           ? []
           : [
               {
-                to: wide(prefix === "a" ? "b" : "c", index),
+                to: widePath(prefix === "a" ? "b" : "c", index),
                 predicate: "MENTIONS",
                 confidence: 0.8,
               },
@@ -562,19 +562,19 @@ describe("the knowledge reader seam", () => {
       await writer.close()
     }
     // The wide Workspace is only on the plane.
-    const wide = await seedRelatedWorkspace({
+    const wideWorkspace = await seedRelatedWorkspace({
       seed,
       slug: "wide",
       sha: legacySha,
       units: [],
     })
-    ids.wide = wide.workspaceId
+    ids.wide = wideWorkspace.workspaceId
     const wideWriter = createKnowledgeStore(url)
     try {
       await writePlaneDocuments(
         wideWriter,
-        { orgId: seed.orgId, workspaceId: wide.workspaceId },
-        planeRows(wide.workspaceId, wideUnits),
+        { orgId: seed.orgId, workspaceId: wideWorkspace.workspaceId },
+        planeRows(wideWorkspace.workspaceId, wideUnits),
       )
     } finally {
       await wideWriter.close()
