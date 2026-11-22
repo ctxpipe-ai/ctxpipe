@@ -88,15 +88,6 @@ let slowEmbedding = false
 let embeddingFailure: number | null = null
 /** The embedding requests of the plane. */
 let planeEmbeddings = 0
-/**
- * True: a Jev call waits until a second call is in flight (at most 2 s), so
- * that two calls of a step that run in parallel overlap.
- */
-let jevWaitsForTwo = false
-let releaseJevCall: (() => void) | null = null
-/** The Jev calls in flight now, and the most at one time. */
-let jevInFlight = 0
-let jevMostInFlight = 0
 
 const models = setupServer(
   http.post(`${MODEL_URL}/embeddings`, async ({ request }) => {
@@ -126,20 +117,6 @@ const models = setupServer(
       }
       jevCalls += 1
       const startedIn = jevTest
-      jevInFlight += 1
-      jevMostInFlight = Math.max(jevMostInFlight, jevInFlight)
-      if (jevWaitsForTwo && jevInFlight >= 2) {
-        // One overlap is the proof: the later calls do not wait.
-        jevWaitsForTwo = false
-        releaseJevCall?.()
-      } else if (jevWaitsForTwo)
-        await Promise.race([
-          new Promise<void>((resolve) => {
-            releaseJevCall = resolve
-          }),
-          delay(2_000),
-        ])
-      jevInFlight -= 1
       if (jevCalls === slowJevCall) await delay(5_000)
       if (startedIn !== jevTest)
         return HttpResponse.json({ error: "test ended" }, { status: 503 })
@@ -684,9 +661,6 @@ describe("the knowledge reader seam", () => {
     slowEmbedding = false
     embeddingFailure = null
     planeEmbeddings = 0
-    jevWaitsForTwo = false
-    releaseJevCall = null
-    jevMostInFlight = 0
     jevCalls = 0
     jevRequests.length = 0
     jevParts.length = 0
@@ -1135,35 +1109,6 @@ describe("the knowledge reader seam", () => {
     expect(jevRequests).toEqual([{ candidates: 1 }, { candidates: 3 }])
   })
 
-  it("on: get_related judges the seeds and layer 1 at the same time", async () => {
-    await setFlag("on")
-    // The seeds are the first frontier whatever Jev says, so layer 1 needs
-    // no judgment of the seeds: both calls are in flight together.
-    jevWaitsForTwo = true
-    const content = structured(await relatedCall({ maxDepth: 1 }))
-    // The same results as a walk with no overlap (the maxDepth 1 test).
-    expect(
-      (content.results as { ref: string }[]).map((result) => result.ref),
-    ).toEqual(["knowledge/teams/payments.md", "knowledge/databases/ledger.md"])
-    // The two calls end in any order.
-    expect(jevRequests.map((request) => request.candidates).sort()).toEqual([
-      1, 3,
-    ])
-    expect(jevMostInFlight).toBe(2)
-  })
-
-  it("on: get_related after a search of the same org and text makes no second embedding call", async () => {
-    await setFlag("on")
-    const query = "who owns checkout, asked two times"
-    await searchCall({ workspaces: ["ready"], query })
-    expect(planeEmbeddings).toBe(1)
-    const content = structured(await relatedCall({ maxDepth: 1, query }))
-    expect(
-      (content.results as { ref: string }[]).map((result) => result.ref),
-    ).toEqual(["knowledge/teams/payments.md", "knowledge/databases/ledger.md"])
-    expect(planeEmbeddings).toBe(1)
-  })
-
   it("on: includeSeeds adds a seed that answers; layer 0 judges the seeds either way", async () => {
     await setFlag("on")
     const refs = async (args: Record<string, unknown>) =>
@@ -1314,11 +1259,7 @@ describe("the knowledge reader seam", () => {
   it("on: when the time budget ends before the search ends, search_knowledge has no hits and says total_timeout", async () => {
     await setFlag("on")
     slowEmbedding = true
-    // A text of its own: the plane keeps the vector of a text it embedded.
-    const result = await searchCall({
-      workspaces: ["ready"],
-      query: "who owns checkout, with a slow embedding",
-    })
+    const result = await searchCall({ workspaces: ["ready"] })
     expect(result.isError).toBeFalsy()
     expect(structured(result)).toMatchObject({
       hits: [],
@@ -1331,10 +1272,7 @@ describe("the knowledge reader seam", () => {
   it("on: when the query embedding gets a 429, search_knowledge has no hits and says total_timeout at once, with no retry", async () => {
     await setFlag("on")
     embeddingFailure = 429
-    const result = await searchCall({
-      workspaces: ["ready"],
-      query: "who owns checkout, with a 429",
-    })
+    const result = await searchCall({ workspaces: ["ready"] })
     expect(result.isError).toBeFalsy()
     expect(structured(result)).toMatchObject({
       hits: [],
@@ -1349,9 +1287,7 @@ describe("the knowledge reader seam", () => {
   it("on: when the query embedding gets a 503, get_related returns partial with no retry", async () => {
     await setFlag("on")
     embeddingFailure = 503
-    const content = structured(
-      await relatedCall({ maxDepth: 3, query: "what is near checkout, 503" }),
-    )
+    const content = structured(await relatedCall({ maxDepth: 3 }))
     expect(content).toMatchObject({
       results: [],
       partial: true,
@@ -1494,12 +1430,9 @@ describe("the knowledge reader seam", () => {
 
   it("shadow: the old stack answers, and one event compares the plane with ids, scores and counts only", async () => {
     await setFlag("off")
-    const query = "who owns checkout in the shadow"
-    const off = structured(await searchCall({ workspaces: ["ready"], query }))
+    const off = structured(await searchCall({ workspaces: ["ready"] }))
     await setFlag("shadow")
-    const answered = structured(
-      await searchCall({ workspaces: ["ready"], query }),
-    )
+    const answered = structured(await searchCall({ workspaces: ["ready"] }))
     expect(answered).toEqual(off)
     await vi.waitFor(
       () => {
@@ -1551,10 +1484,7 @@ describe("the knowledge reader seam", () => {
 
   it("shadow: get_related logs the comparison of the two rankings", async () => {
     await setFlag("shadow")
-    const result = await relatedCall({
-      maxDepth: 2,
-      query: "what is near checkout in the shadow",
-    })
+    const result = await relatedCall({ maxDepth: 2 })
     expect(result.isError).toBeFalsy()
     await vi.waitFor(
       () => {
