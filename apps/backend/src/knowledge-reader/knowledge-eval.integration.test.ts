@@ -627,6 +627,22 @@ describe("the knowledge eval harness", () => {
     ).rejects.toThrow(
       `has no complete answer of the old stack to the question ${first.id}`,
     )
+    // An answer with a failed call is no baseline either.
+    await expect(
+      run(
+        "refused",
+        from({
+          ...stored,
+          answers: stored.answers.map((answer) =>
+            answer.arm === "legacy" && answer.question === first.id
+              ? { ...answer, calls: { ...answer.calls, failed: 1 } }
+              : answer,
+          ),
+        }),
+      ),
+    ).rejects.toThrow(
+      `has no complete answer of the old stack to the question ${first.id}`,
+    )
     // A refusal comes before any call.
     expect(requests).toEqual(before)
   })

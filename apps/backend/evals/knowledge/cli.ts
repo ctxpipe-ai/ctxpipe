@@ -210,7 +210,8 @@ export async function executeRun(input: {
  * - another snapshot of a corpus;
  * - other labels of a question of the run: its gold, positions, seeds,
  *   split or text, so a new `label` run is a refusal too;
- * - no complete old-stack answer to a question of the run.
+ * - no complete old-stack answer to a question of the run: no answer, a
+ *   missed call of a replay, or a failed call.
  */
 function storedBaseline(
   dataset: Dataset,
@@ -255,9 +256,16 @@ function storedBaseline(
       throw new SetupError(
         `--baseline-from ${folder} has other labels for the question ${question.id}.`,
       )
-    // A replay that missed a call scores no answer, so it is no baseline.
+    // A replay that missed a call scores no answer, and the metrics of a
+    // run with a failed call are not for use: neither is a baseline.
     const answer = answers.get(question.id)
-    if (!answer || answer.calls.missing > 0)
+    const failed =
+      !answer ||
+      answer.calls.missing > 0 ||
+      answer.calls.failed > 0 ||
+      "error" in answer.search ||
+      (answer.related !== undefined && "error" in answer.related)
+    if (failed)
       throw new SetupError(
         `--baseline-from ${folder} has no complete answer of the old stack to the question ${question.id}.`,
       )

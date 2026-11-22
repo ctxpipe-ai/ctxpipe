@@ -151,7 +151,7 @@ Write each run folder outside the checkout, as in these examples. The folder hol
   - The run uses the query time of that folder, so both arms answer at the same query time.
   - The new folder keeps the reused calls, so a `rescore` of it replays both arms.
   - The report says that the baseline answers are stored. Their latency and cost are of the earlier run.
-  - Before any call, the run refuses the folder (exit 2) in these cases: another dataset version, another snapshot of a corpus (source, SHA, root or Workspace), other labels of a question of the run, or no complete answer of the old stack to a question of the run.
+  - Before any call, the run refuses the folder (exit 2) in these cases: another dataset version, another snapshot of a corpus (source, SHA, root or Workspace), other labels of a question of the run, or no complete answer of the old stack to a question of the run (no answer, or an answer with a failed or missed call).
 - `--kept` is the report of the last kept run. The report then compares the plane with it for each split and category, gives its guards against the kept guards, and gives the change of each question.
 - Each model call goes only to a ZDR endpoint of an allowed provider (ADR-068 decision 7, ADR-070). Each client sends the provider block itself; the recorder does not change a request. A model with no such endpoint refuses the call: it does not fall back.
 
