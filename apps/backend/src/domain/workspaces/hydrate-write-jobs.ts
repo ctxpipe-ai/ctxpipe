@@ -231,7 +231,11 @@ export function validFromPersistFiles(input: {
             !looksLikeGitSha(validFrom)
           )
             continue
-          claim.set("valid_from", input.introducingCommitTimestamp)
+          // The source time of the file comes first (CTX-1516).
+          claim.set(
+            "valid_from",
+            unit.sourceTime ?? input.introducingCommitTimestamp,
+          )
         }
       }),
     })

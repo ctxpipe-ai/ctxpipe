@@ -23,6 +23,7 @@ import {
 } from "./mirror-units.js"
 import { pullRequestChangedClaims } from "./pull-request-changes.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
+import { closingPullRequests, sourceTime } from "./source-time.js"
 
 export function servingIdForKnowledgePath(
   workspaceId: string,
@@ -92,6 +93,18 @@ export type HydrateUnit = {
   merged?: boolean
   /** ISO time of the last commit that changed the path, when known. */
   updatedAt: string | null
+  /**
+   * The source's own time of the file (`sourceTime`): the `valid_from` of
+   * the document and of each claim with no time of its own. Null or absent
+   * when the file states none: the introducing commit gives the time.
+   */
+  sourceTime?: string | null
+  /**
+   * The time from which a link of the body to a Workspace path is valid, by
+   * the path. A GitHub issue links to each pull request that closed it from
+   * `closedAt` (CTX-1516). A link with no entry has no time.
+   */
+  linkValidFrom?: Record<string, string>
   /** File line of the first body line, after front matter. Read from Git only. */
   bodyStartLine?: number
 }
@@ -253,6 +266,11 @@ export function hydrateKnowledgeTree(input: {
       source: connectorMirrorRoot(path) ?? "authored",
       merged: parsed.attributes.merged === true,
       updatedAt: file.lastCommitTimestamp ?? null,
+      sourceTime: sourceTime({
+        path,
+        attributes: parsed.attributes,
+        body: parsed.body,
+      }),
       bodyStartLine: file.content
         .slice(0, file.content.length - parsed.body.length)
         .split("\n").length,
@@ -271,6 +289,22 @@ export function hydrateKnowledgeTree(input: {
   for (const unit of units) {
     const extra = references.get(unit.path)
     if (extra) unit.links.push(...extra)
+  }
+  // A GitHub issue links to each mirrored pull request that closed it
+  // (`closedBy`) from the time of the close (CTX-1516), as on the plane.
+  const pathOfUrl = new Map(
+    units.flatMap((unit) => {
+      const url = attributes.get(unit.path)?.url
+      return typeof url === "string" ? [[url, unit.path] as const] : []
+    }),
+  )
+  for (const unit of units) {
+    const closing = closingPullRequests(attributes.get(unit.path) ?? {})
+    for (const url of closing?.urls ?? []) {
+      const path = pathOfUrl.get(url)
+      if (closing && path)
+        unit.linkValidFrom = { ...unit.linkValidFrom, [path]: closing.closedAt }
+    }
   }
   // Each GitHub repository of the Workspace, from every connection. The
   // CHANGED lookup uses all of them; `linked` keeps the connected ones.
@@ -387,6 +421,7 @@ export function applyEffectiveValidFromToUnits(
       ...claim,
       validFrom: effectiveValidFrom({
         recorded: claim.validFrom,
+        sourceTime: unit.sourceTime ?? null,
         introducingCommitTimestamp: introducingCommits.get(unit.path) ?? null,
       }),
     })),
@@ -435,9 +470,10 @@ export function hydrateUnitsToProjectionClaims(
       const validFrom = isClaim
         ? effectiveValidFrom({
             recorded: relation.validFrom,
+            sourceTime: unit.sourceTime ?? null,
             introducingCommitTimestamp: introducingCommitTimestamp ?? null,
           })
-        : null
+        : relation.validFrom
       claims.push({
         id: isClaim
           ? `${unit.servingId}:${relation.index}`
@@ -510,7 +546,7 @@ export function unitRelations(unit: HydrateUnit): UnitRelation[] {
       target,
       predicate: "LINKS_TO",
       confidence: 1,
-      validFrom: null,
+      validFrom: unit.linkValidFrom?.[target] ?? null,
       validTo: null,
       source: "git",
     })

@@ -6,6 +6,8 @@ import {
   servingIdForKnowledgePath,
 } from "../domain/workspaces/hydrate.js"
 import { imageContentType } from "../domain/workspaces/raw-file.js"
+import { shopIssue, SHOP_SOURCE_PATH } from "../test/github-issue.js"
+import { parseKnowledgeFile, workspaceBlobPath } from "./parse-file.js"
 import { fileRows, knowledgeRows } from "./rows.js"
 
 const WS = "ws_1"
@@ -93,6 +95,7 @@ describe("knowledgeRows", () => {
           source: "",
           summary: "See [ledger](../billing/ledger.md).",
           mime: "",
+          validFrom: null,
           validTo: null,
           observedAt: OBSERVED,
         },
@@ -257,8 +260,10 @@ describe("knowledgeRows", () => {
       references: NO_REFERENCES,
       observedAt: OBSERVED,
     })
-    // The rows hold no time that depends on the branch (ADR-071 decision 2).
-    expect("validFrom" in rows.document).toBe(false)
+    // The file states no source time, so the tree row takes the time of
+    // the introducing commit, which depends on the branch (ADR-071
+    // decision 2).
+    expect(rows.document.validFrom).toBeNull()
     // A body link states no validity.
     expect(
       rows.relations.map(
@@ -319,6 +324,7 @@ describe("knowledgeRows", () => {
           source: "",
           summary: "",
           mime: "image/png",
+          validFrom: null,
           validTo: null,
           observedAt: OBSERVED,
         },
@@ -620,5 +626,86 @@ describe("knowledgeRows", () => {
   ])("stores the source authority kind of %s", (path, content, expected) => {
     const [row] = rowsOf([{ path, content }], path)
     expect(row?.document.sourceType).toBe(expected)
+  })
+})
+
+describe("the source time of a file (CTX-1516)", () => {
+  /** The rows of one file, with its references, as the writer maps them. */
+  function parsedRows(path: string, content: string) {
+    const blobPath = workspaceBlobPath("https://github.com/acme/context", "")
+    const parsed = parseKnowledgeFile({
+      workspaceId: WS,
+      blobPath,
+      path,
+      content,
+      sourceRepositories: new Map([
+        [SHOP_SOURCE_PATH, "https://github.com/acme/shop"],
+      ]),
+    })
+    if (parsed.kind !== "unit") throw new Error(`no unit for ${path}`)
+    return knowledgeRows({
+      workspaceId: WS,
+      unit: parsed.unit,
+      references: parsed.references,
+      blobPath,
+      observedAt: OBSERVED,
+    })
+  }
+
+  it("gives a mirrored issue the time of its creation, and the pull request that closed it the time of the close", () => {
+    const file = shopIssue({
+      number: 7,
+      title: "Checkout times out",
+      body: "The checkout times out.",
+      closed: {
+        at: "2026-09-20T08:00:00Z",
+        by: ["https://github.com/acme/shop/pull/9"],
+      },
+    })
+    const rows = parsedRows(file.path, file.content)
+    expect(rows.document.validFrom).toEqual(
+      new Date("2026-09-01T00:00:00.000Z"),
+    )
+    const closing = rows.relations.filter(
+      ({ dstDoc }) => dstDoc === "ref:ghn:acme/shop#9",
+    )
+    expect(closing).toEqual([
+      expect.objectContaining({
+        predicate: "LINKS_TO",
+        validFrom: new Date("2026-09-20T08:00:00.000Z"),
+        validFromIntroduced: false,
+      }),
+    ])
+  })
+
+  it("gives a design record its Date, and a claim with no time of its own takes the time of the tree row", () => {
+    const rows = parsedRows(
+      "knowledge/decisions/kep-1287.md",
+      `---\n${stringify({
+        kind: "Decision",
+        name: "In-place resize",
+        claims: [
+          {
+            to: "./kubelet.md",
+            predicate: "INFLUENCES",
+            evidence: { kind: "script" },
+          },
+        ],
+      })}---\n# In-place resize\n\n**Status:** Implementable\n**Date:** 2019-01-18\n`,
+    )
+    expect(rows.document.validFrom).toEqual(
+      new Date("2019-01-18T00:00:00.000Z"),
+    )
+    expect(
+      rows.relations.find(({ predicate }) => predicate === "INFLUENCES"),
+    ).toEqual(
+      expect.objectContaining({ validFrom: null, validFromIntroduced: true }),
+    )
+  })
+
+  it("gives a file with no time of its own no source time", () => {
+    expect(
+      parsedRows("knowledge/services/api.md", "# API\n").document.validFrom,
+    ).toBeNull()
   })
 })

@@ -101,18 +101,21 @@ export type FileVersionKey = { docKey: string; version: string }
 
 /**
  * The fields of a document that the content of its file gives. The tree
- * gives the status of the path, `deletedAt` and `validFrom` (ADR-071
- * decision 3).
+ * gives the status of the path and `deletedAt` (ADR-071 decision 3).
+ * `validFrom` is the source's own time of the file (`sourceTime`), or null
+ * when it states none: the `validFrom` of the tree row is this time, else
+ * the time of the commit that introduced the file on the branch.
  */
 export type FileDocument = Omit<
   KnowledgeDocument,
-  "status" | "deletedAt" | "error" | "validFrom"
+  "status" | "deletedAt" | "error"
 >
 
 /**
  * A relation that a file version states. With `validFromIntroduced`, the
- * read takes `validFrom` from the tree row of the source: the time of the
- * commit that introduced the file on the branch.
+ * read takes `validFrom` from the tree row of the source: the source time
+ * of the file, else the time of the commit that introduced the file on the
+ * branch.
  */
 export type FileRelation = Omit<KnowledgeRelation, "srcDoc"> & {
   validFromIntroduced: boolean
@@ -141,6 +144,8 @@ export type StoredFileVersion = {
   status: "active" | "failed"
   kind: string
   observedAt: Date
+  /** The source time of the file (`FileDocument.validFrom`). */
+  validFrom: Date | null
   validTo: Date | null
 }
 
@@ -660,6 +665,7 @@ type StoredVersionRecord = FileVersionKey & {
   status: "active" | "failed"
   kind: string
   observedAt: string
+  validFrom: string | null
   validTo: string | null
 }
 
@@ -674,7 +680,8 @@ async function findFileVersions(
       client,
       scope,
       `SELECT doc_key AS docKey, version, status, kind,
-         observed_at AS observedAt, valid_to AS validTo
+         observed_at AS observedAt, valid_from AS validFrom,
+         valid_to AS validTo
        FROM documents
        WHERE ${scoped}
          AND (doc_key, version) IN {keys:Array(Tuple(String, String))}`,
@@ -684,6 +691,7 @@ async function findFileVersions(
         status: row.status,
         kind: row.kind,
         observedAt: new Date(row.observedAt),
+        validFrom: toDate(row.validFrom),
         validTo: toDate(row.validTo),
       })
   return found
@@ -756,6 +764,7 @@ type TableRows = {
     source: string
     summary: string
     mime: string
+    valid_from: string | null
     valid_to: string | null
     observed_at: string
   }
@@ -894,6 +903,7 @@ async function insertRows(
       source: document.source,
       summary: document.summary,
       mime: document.mime,
+      valid_from: isoOrNull(document.validFrom),
       valid_to: isoOrNull(document.validTo),
       observed_at: document.observedAt.toISOString(),
     })),

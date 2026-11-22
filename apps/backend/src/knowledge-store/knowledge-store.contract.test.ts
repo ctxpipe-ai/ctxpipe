@@ -67,6 +67,8 @@ async function rawRows<T>(
 }
 
 const observedAt = new Date("2026-11-19T10:11:12.345Z")
+/** The source's own time of a file version (CTX-1516). */
+const SOURCE_TIME = new Date("2019-01-18T00:00:00.000Z")
 const denied = /ACCESS_DENIED|Not enough privileges/
 
 function rowsOf(
@@ -84,6 +86,7 @@ function rowsOf(
       source: "workspace",
       summary: `${title} summary`,
       mime: "",
+      validFrom: null,
       validTo: null,
       observedAt,
     },
@@ -271,6 +274,7 @@ describe("KnowledgeStore", () => {
       "0009_image_texts.sql",
       "0010_file_versions_and_trees.sql",
       "0011_tree_overlays.sql",
+      "0012_document_source_time.sql",
     ])
   })
 
@@ -1010,11 +1014,14 @@ describe("users and mutations", () => {
       for (const scope of [target, ...others]) {
         await put(writer, scope, seed())
         // A second file version of doc.md at tree version 2, above the head
-        // of the cleanups below.
-        await put(writer, scope, [rowsOf("Doc v2", "doc.md", "new.md")], {
-          version: "v2",
-          treeVersion: 2,
-        })
+        // of the cleanups below. Its file states a source time (CTX-1516).
+        const v2 = rowsOf("Doc v2", "doc.md", "new.md")
+        await put(
+          writer,
+          scope,
+          [{ ...v2, document: { ...v2.document, validFrom: SOURCE_TIME } }],
+          { version: "v2", treeVersion: 2 },
+        )
       }
       before = await Promise.all(others.map(snapshot))
     })
@@ -1036,8 +1043,10 @@ describe("users and mutations", () => {
         status: "active",
         kind: "note",
         observedAt,
+        validFrom: null,
         validTo: null,
       })
+      expect(found.get("doc.md\0v2")?.validFrom).toEqual(SOURCE_TIME)
     })
 
     it("a retry of a write that stopped before its document row stores each row one time", async () => {
