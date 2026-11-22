@@ -1,5 +1,4 @@
-# node:26.13.1-bookworm multi-arch index, pinned 2026-11-14.
-FROM node@sha256:b7087bc4d973034b30854b378ba107f9fab622b47514cb7e2592e41b8bab8d49 AS base
+FROM node:26.13.1-bookworm@sha256:b7087bc4d973034b30854b378ba107f9fab622b47514cb7e2592e41b8bab8d49 AS base
 
 # Build-time tools only; a conversation never installs its harness as root.
 # The ingest skills run ast-grep and ripgrep in this image (ADR-052).

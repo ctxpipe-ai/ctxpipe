@@ -10,7 +10,7 @@ Production uses Neon for PostgreSQL. Neon offers PostgreSQL 18 only in beta, and
 
 Use **PostgreSQL 17** everywhere:
 
-- **Local dev** ([docker-compose.yml](../../../docker-compose.yml)): `pgvector/pgvector:pg17`
+- **Local dev** ([docker-compose.yml](../../../docker-compose.yml)): `pgvector/pgvector` with Postgres 17, pinned to an exact tag and its digest
 - **Production (Neon)**: Neon project configured for PostgreSQL 17
 
 ## Consequences

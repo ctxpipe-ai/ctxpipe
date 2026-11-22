@@ -19,7 +19,7 @@ Each path provides the same services in a different way:
 
 | | Docker Compose | AWS CDK |
 | --- | --- | --- |
-| Postgres | `pgvector/pgvector:pg17` container | Aurora PostgreSQL 16 |
+| Postgres | `pgvector/pgvector` (Postgres 17) container | Aurora PostgreSQL 16 |
 | Graph database | FalkorDB container | Amazon Neptune |
 | Knowledge store | ClickHouse container | ClickHouse on one EC2 host, old parts on S3 |
 | Sandboxes | Docker-in-Docker (`dind`) | A Graviton EC2 Docker host |

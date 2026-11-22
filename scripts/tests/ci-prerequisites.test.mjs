@@ -70,7 +70,7 @@ test("contract images refuse a local image with another digest", async () => {
     assert.match(result.stdout, /does not have the pinned digest/)
     assert.match(
       result.stdout,
-      /docker pull infisical\/agent-vault:latest@sha256:/,
+      /docker pull infisical\/agent-vault:0\.40\.2@sha256:/,
     )
   } finally {
     rmSync(dir, { recursive: true, force: true })

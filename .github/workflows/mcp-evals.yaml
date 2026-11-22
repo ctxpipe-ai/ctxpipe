@@ -48,7 +48,7 @@ jobs:
     environment: workbench
     services:
       postgres:
-        image: pgvector/pgvector:pg17@sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8
+        image: pgvector/pgvector:0.8.7-pg17-bookworm@sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8
         env:
           POSTGRES_USER: ctxpipe
           POSTGRES_PASSWORD: ctxpipe
@@ -61,7 +61,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       falkordb:
-        image: falkordb/falkordb@sha256:13996aa523f0dd283f6bd6df6620b094dcea525452417c4d6ef9bef15dc9998d
+        image: falkordb/falkordb:v4.20.7@sha256:13996aa523f0dd283f6bd6df6620b094dcea525452417c4d6ef9bef15dc9998d
         env:
           # CMD_INFO off, so that the cron thread does not use the Globals lock
           # before module load initializes it (see .github/actions/falkordb).

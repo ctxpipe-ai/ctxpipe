@@ -27,8 +27,8 @@ test("every Postgres image in compose and the workflows is the pinned one", () =
   }
 })
 
-test("the FalkorDB action and compose use the pinned digest", () => {
-  const image = `${pins.falkordb.image}@${pins.falkordb.digest}`
+test("the FalkorDB action and compose use the pinned image", () => {
+  const image = `${pins.falkordb.image}:${pins.falkordb.tag}@${pins.falkordb.digest}`
   assert.ok(read(".github/actions/falkordb/action.yaml").includes(image))
   assert.match(read("docker-compose.yml"), new RegExp(`image: ${image}\\n`))
 })

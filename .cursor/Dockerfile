@@ -2,7 +2,7 @@
 # https://cursor.com/docs/cloud-agent/setup — "Running Docker" / recommended Dockerfile).
 # Paths in environment.json `build` are relative to `.cursor`.
 
-FROM ubuntu:24.04
+FROM ubuntu:noble-20261110.1@sha256:882e1e56091c9ffbc70c026ff5935fe85d3c91ad155917865ba2ffa23ede1560
 
 ENV DEBIAN_FRONTEND=noninteractive
 
