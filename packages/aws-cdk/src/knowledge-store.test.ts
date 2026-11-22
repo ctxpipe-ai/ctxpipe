@@ -302,7 +302,10 @@ describe("knowledge store", () => {
         expect.objectContaining({
           Action: "servicediscovery:RegisterInstance",
           Resource: {
-            "Fn::GetAtt": [expect.stringMatching(new RegExp(`^${service}`)), "Arn"],
+            "Fn::GetAtt": [
+              expect.stringMatching(new RegExp(`^${service}`)),
+              "Arn",
+            ],
           },
         }),
       ])
