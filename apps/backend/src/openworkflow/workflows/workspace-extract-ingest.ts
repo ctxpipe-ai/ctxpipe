@@ -57,7 +57,7 @@ import {
 } from "../../services/git/pack.js"
 import { enqueueWorkflow } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
-import { workflowRunActive } from "../run-active.js"
+import { workflowRunEnded } from "../run-ended.js"
 import { runJobRefStep } from "../write-steps.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
 
@@ -454,7 +454,7 @@ export function defineWorkspaceExtractIngestWorkflow() {
                     revision,
                     committed,
                     env,
-                    async () => !(await workflowRunActive(run.id)),
+                    () => workflowRunEnded(run.id),
                   )
                 },
               )
