@@ -1657,6 +1657,14 @@ export const AutomaticUpgradesOnAndOff = meta.story({
         ),
       ).toBeVisible(),
     )
+    // The line changes when the save starts. The toast shows when it settles.
+    await waitFor(() =>
+      expect(
+        within(document.body).getByText(
+          "Automatic upgrades are off. An owner or admin starts each upgrade.",
+        ),
+      ).toBeVisible(),
+    )
     expect(automaticRequests.filter((line) => line.startsWith("POST"))).toEqual(
       [
         "POST /acme/api/v1/workspaces/docs/upgrades/automatic automatic",
