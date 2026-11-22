@@ -164,8 +164,14 @@ export async function loginWithDeviceFlow({
 
   log.step("Open this URL")
   log.message(pathText(verificationUrl))
-  if (userCode && !stringField(device, "verification_uri_complete")) {
-    log.step("Enter code")
+  if (userCode) {
+    // The browser page shows the code too and asks the person to compare
+    // them before approving, so print it also when the URL carries it.
+    log.step(
+      stringField(device, "verification_uri_complete")
+        ? "Check that the browser shows this code"
+        : "Enter code",
+    )
     log.message(userCode)
   }
   openBrowser(verificationUrl)

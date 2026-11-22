@@ -69,6 +69,54 @@ export const DeviceLoading = meta.story({
   },
 })
 
+let deviceApprovals = 0
+
+/**
+ * Device sign-in screen opened from the CLI's link while signed in: the page
+ * shows the request code and a warning to compare it with the terminal, and
+ * waits for the person to press Approve or Deny. It never approves by itself.
+ */
+export const DevicePendingFromLink = meta.story({
+  tags: ["page"],
+  render: () => <DeviceAuthorizationPage />,
+  beforeEach: ({ msw }) => {
+    deviceApprovals = 0
+    // The meta's handlers sign the user in.
+    msw.use(
+      authConfigHandler,
+      http.get("*/.auth/api/v1/auth/device", () =>
+        HttpResponse.json({ user_code: "ABCD1234", status: "pending" }),
+      ),
+      http.post("*/.auth/api/v1/auth/device/approve", () => {
+        deviceApprovals += 1
+        return HttpResponse.json({ success: true })
+      }),
+      organizationListWithOrgHandler,
+      organizationFullWithOrgHandler,
+    )
+  },
+  parameters: {
+    route: "/.auth/device",
+    storyRoute: {
+      pattern: "flat",
+      path: "/.auth/device",
+      search: "?user_code=ABCD-1234",
+    } satisfies StoryRouteParams,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() =>
+      expect(canvas.getByRole("button", { name: "Approve" })).toBeVisible(),
+    )
+    await expect(canvas.getByRole("button", { name: "Deny" })).toBeVisible()
+    await expect(canvas.getByText("ABCD1234")).toBeVisible()
+    await expect(
+      canvas.getByText(/Approve only if you started the sign-in/),
+    ).toBeVisible()
+    await expect(deviceApprovals).toBe(0)
+  },
+})
+
 /**
  * Sign-in page, where a user signs in with email and password: the user is
  * signed out and the form is empty, with links to reset the password and to

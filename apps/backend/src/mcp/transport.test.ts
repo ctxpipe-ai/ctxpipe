@@ -310,6 +310,42 @@ describe("MCP resource read attribution", () => {
   })
 })
 
+describe("MCP tool input size", () => {
+  it("refuses a tool call with more input elements than any tool takes, before the tool runs", async () => {
+    let toolRan = false
+    const app = buildApp((server) => {
+      server.registerTool(
+        "search_knowledge",
+        {
+          annotations: { readOnlyHint: true },
+          inputSchema: z.object({ items: z.array(z.string()) }),
+        },
+        async () => {
+          toolRan = true
+          return { content: [{ type: "text" as const, text: "ok" }] }
+        },
+      )
+    }, {})
+
+    const call = (items: string[]) =>
+      post(app, {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "search_knowledge", arguments: { items } },
+      })
+
+    const tooMany = await call(Array.from({ length: 10_001 }, () => "x"))
+    expect(tooMany.status).toBe(200)
+    expect(await tooMany.text()).toContain('"isError":true')
+    expect(toolRan).toBe(false)
+
+    const fine = await call(["a", "b"])
+    expect(await fine.text()).toContain('"text":"ok"')
+    expect(toolRan).toBe(true)
+  })
+})
+
 describe("MCP server instructions", () => {
   it("sends the fixed rules when the per-org instructions fail to load", async () => {
     const events: Record<string, unknown>[] = []

@@ -140,10 +140,14 @@ export async function handleMcpTransportRequest(
     }
   }
   const implementation = getMcpServerImplementation(c.get("env").AUTH_BASE_URL)
-  const server = new McpServer(
-    implementation,
-    instructions ? { instructions } : undefined,
-  )
+  const server = new McpServer(implementation, {
+    ...(instructions ? { instructions } : {}),
+    // The most array elements and object keys one tool call may carry. The
+    // tools' input lists hold at most 100 items; this stops a call whose
+    // validation would exhaust memory (GHSA-46jr-4wx8-v453). A call over it
+    // gets an `isError` result.
+    maxToolInputElements: 10_000,
+  })
   registerTools(server)
   const grantedScopes = grantedMcpScopes(c.get("oauthScopes"))
   const hiddenTools = disableToolsOutsideScopes(server, grantedScopes)
