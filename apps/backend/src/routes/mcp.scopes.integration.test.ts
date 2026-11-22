@@ -185,7 +185,7 @@ describe("MCP scopes (Postgres)", () => {
         }),
       },
     )
-    expect(register.status).toBe(200)
+    expect(register.status).toBe(201)
     const { client_id: clientId } = (await register.json()) as {
       client_id: string
     }

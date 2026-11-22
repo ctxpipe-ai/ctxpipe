@@ -14,7 +14,7 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
-    "auth:generate": "pnpm dlx auth@latest generate --config ./src/auth/cli.ts --output ./src/db/schema/auth.ts --adapter drizzle --dialect postgresql -y",
+    "auth:generate": "pnpm dlx auth@latest generate --config ./src/auth/cli.ts --output ./src/db/schema/auth.ts -y",
     "auth:migrate": "pnpm dlx auth@latest migrate --config ./src/auth/cli.ts --yes",
     "db:migrate": "bash ../../scripts/db-migrate.sh",
     "migrate": "pnpm run db:migrate",

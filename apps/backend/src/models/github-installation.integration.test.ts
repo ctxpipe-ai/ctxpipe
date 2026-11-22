@@ -167,7 +167,8 @@ describeWithDatabase("GitHub user token of a linked account (Postgres)", () => {
   let seed: SeededOrg
 
   beforeAll(async () => {
-    // Better Auth reads the GitHub sign-in config when the first test makes it.
+    // Better Auth reads the GitHub sign-in config when seedOrg creates the
+    // auth instance, so set the env before that.
     vi.stubEnv("GITHUB_CLIENT_ID", "github-client-id")
     vi.stubEnv("GITHUB_CLIENT_SECRET", "github-client-secret")
     seed = await seedOrg()
@@ -215,9 +216,18 @@ describeWithDatabase("GitHub user token of a linked account (Postgres)", () => {
   })
 
   it("returns no token when GitHub refuses to refresh an expired token", async () => {
+    const refreshTokensSent: (string | null)[] = []
     server.use(
-      http.post("https://github.com/login/oauth/access_token", () =>
-        HttpResponse.json({ error: "bad_refresh_token" }, { status: 400 }),
+      http.post(
+        "https://github.com/login/oauth/access_token",
+        async ({ request }) => {
+          const form = new URLSearchParams(await request.text())
+          refreshTokensSent.push(form.get("refresh_token"))
+          return HttpResponse.json(
+            { error: "bad_refresh_token" },
+            { status: 400 },
+          )
+        },
       ),
     )
     await linkGithubAccount({
@@ -227,5 +237,7 @@ describeWithDatabase("GitHub user token of a linked account (Postgres)", () => {
     })
 
     await expect(getGithubUserAccessToken(seed.userId)).resolves.toBeUndefined()
+    // Better Auth found the account and tried the refresh.
+    expect(refreshTokensSent).toEqual(["ghr_revoked"])
   })
 })

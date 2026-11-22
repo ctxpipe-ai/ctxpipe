@@ -56,6 +56,7 @@ ALTER TABLE "oauth_refresh_tokens" ADD COLUMN "rotation_replay_response" text;--
 ALTER TABLE "oauth_refresh_tokens" ADD COLUMN "rotation_replay_expires_at" timestamp;--> statement-breakpoint
 ALTER TABLE "oauth_refresh_tokens" ADD COLUMN "confirmation" jsonb;--> statement-breakpoint
 CREATE UNIQUE INDEX "oauthClientResources_clientId_resourceId_uidx" ON "oauth_client_resources" ("client_id","resource_id");--> statement-breakpoint
+CREATE INDEX "oauthClientResources_clientId_idx" ON "oauth_client_resources" ("client_id");--> statement-breakpoint
 CREATE INDEX "oauthClientResources_resourceId_idx" ON "oauth_client_resources" ("resource_id");--> statement-breakpoint
 ALTER TABLE "oauth_client_resources" ADD CONSTRAINT "oauth_client_resources_client_id_oauth_clients_client_id_fkey" FOREIGN KEY ("client_id") REFERENCES "oauth_clients"("client_id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "oauth_client_resources" ADD CONSTRAINT "oauth_client_resources_CxFm94nYigrM_fkey" FOREIGN KEY ("resource_id") REFERENCES "oauth_resources"("identifier") ON DELETE CASCADE;

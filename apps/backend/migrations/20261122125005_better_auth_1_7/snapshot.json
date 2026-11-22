@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "7d3844f7-3681-4145-9f21-7a94321ca6a9",
+  "id": "425ff405-fab3-4428-856e-cd29cb87051e",
   "prevIds": ["5cde68ef-e3ae-43a1-8721-359a50233208"],
   "ddl": [
     {
@@ -7861,6 +7861,27 @@
       "method": "btree",
       "concurrently": false,
       "name": "oauthClientResources_clientId_resourceId_uidx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "oauth_client_resources"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "client_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "oauthClientResources_clientId_idx",
       "entityType": "indexes",
       "schema": "public",
       "table": "oauth_client_resources"

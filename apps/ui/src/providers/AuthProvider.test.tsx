@@ -1,3 +1,5 @@
+import { HttpResponse, http } from "msw"
+import { setupServer } from "msw/node"
 import type { ReactNode } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { beforeEach, describe, expect, it, vi } from "vitest"
@@ -160,5 +162,49 @@ describe("AuthProvider", () => {
       "/.auth/email-verification?redirectTo=%2F.auth%2Fconsent",
     )
     vi.unstubAllGlobals()
+  })
+
+  it("unlinks a provider account by its Better Auth row id", async () => {
+    const unlinkBodies: unknown[] = []
+    const server = setupServer(
+      http.get("*/.auth/api/v1/auth/list-accounts", () =>
+        HttpResponse.json([
+          {
+            id: "acc_row_github",
+            providerId: "github",
+            accountId: "583231",
+            userId: "user_1",
+            scopes: [],
+            createdAt: "2026-11-01T00:00:00.000Z",
+            updatedAt: "2026-11-01T00:00:00.000Z",
+          },
+        ]),
+      ),
+      http.post("*/.auth/api/v1/auth/unlink-account", async ({ request }) => {
+        unlinkBodies.push(await request.json())
+        return HttpResponse.json({ status: true })
+      }),
+    )
+    server.listen({ onUnhandledRequest: "error" })
+    const { AuthProvider } = await import("./AuthProvider")
+
+    renderToStaticMarkup(
+      <AuthProvider>
+        <div>content</div>
+      </AuthProvider>,
+    )
+    const { mutators } = authUiProviderTanstackMock.mock.calls[0]?.[0] as {
+      mutators: {
+        unlinkAccount: (params: {
+          providerId: string
+          accountId?: string
+        }) => Promise<void>
+      }
+    }
+    // better-auth-ui sends the provider's account id.
+    await mutators.unlinkAccount({ providerId: "github", accountId: "583231" })
+    server.close()
+
+    expect(unlinkBodies).toEqual([{ accountId: "acc_row_github" }])
   })
 })

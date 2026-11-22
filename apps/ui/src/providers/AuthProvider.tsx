@@ -4,6 +4,7 @@ import { Link, useRouter } from "@tanstack/react-router"
 import { type ComponentProps, type FC, useEffect, useRef } from "react"
 import { toast } from "sonner"
 
+import { unlinkProviderAccount } from "@/features/auth/unlink-provider-account"
 import { authClient } from "@/lib/auth-client"
 import { orgGateKeys } from "@/lib/org-gate"
 import { useAuthEvlogIdentity } from "@/lib/useAuthEvlogIdentity"
@@ -170,6 +171,9 @@ export const AuthProvider: FC<React.PropsWithChildren> = ({ children }) => {
           else toast[variant](message)
         }}
         twoFactor={["totp"]}
+        mutators={{
+          unlinkAccount: (params) => unlinkProviderAccount(authClient, params),
+        }}
         account={{ basePath: "/.auth/account" }}
         // Keep the library's API-key navigation on organization settings while
         // excluding its organization selector from personal account settings.

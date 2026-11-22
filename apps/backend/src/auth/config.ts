@@ -442,7 +442,13 @@ export function createBetterAuth() {
         issuer,
         allowDynamicClientRegistration: true,
         allowUnauthenticatedClientRegistration: true,
-        validAudiences: [env.AUTH_BASE_URL, `${env.AUTH_BASE_URL}/mcp`],
+        // MCP hosts (Claude Code, Cursor) register an http loopback callback
+        // and send no application_type. The default "web" refuses them.
+        clientRegistrationDefaultApplicationType: "infer",
+        // The RFC 8707 resources that a token can be for. Every client can ask
+        // for each of them, as with validAudiences before Better Auth 1.7.
+        resources: [env.AUTH_BASE_URL, `${env.AUTH_BASE_URL}/mcp`],
+        enforcePerClientResources: false,
         scopes: [
           "openid",
           "profile",

@@ -9,7 +9,7 @@ function normalizeResourcePath(pathname: string): string {
 
 /**
  * When Better Auth accepts resource, rewrite client-sent URLs that differ only by query/hash
- * to the exact strings in oauthProvider.validAudiences (RFC8707 audience vs MCP URL query).
+ * to the exact strings in oauthProvider.resources (RFC8707 audience vs MCP URL query).
  */
 export function canonicalResourceForValidAudiences(
   resourceUrl: URL,
