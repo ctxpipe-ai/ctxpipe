@@ -129,9 +129,7 @@ export function findStores({ index, source, rootsFile }) {
 /**
  * The distinct ids of the result, sorted by id. Each one has `{ id, kind,
  * type, name, roots }`; `roots` maps a root path to the evidence of the id in
- * that root, in the order of the map. The inputs of the cursor are the pairs
- * of an id and a root of its `roots`, in this order: `cursorLength` counts
- * them.
+ * that root, in the order of the map.
  */
 export function storeCandidates(result) {
   const byId = new Map()
@@ -159,9 +157,17 @@ export function storeCandidates(result) {
   return [...byId.values()].sort((a, b) => (a.id < b.id ? -1 : 1))
 }
 
-/** The number of inputs of the cursor: the pairs of an id and a root. */
-export const cursorLength = (candidates) =>
-  candidates.reduce((sum, c) => sum + c.roots.size, 0)
+/**
+ * The root paths of the result, in the order of the map. The inputs of the
+ * cursor are the pairs of an id of `storeCandidates` and each of these roots:
+ * a root can use a store that the finder found in another root (a shared
+ * library), and the writer takes its claim with model evidence.
+ */
+export const rootPathsOf = (result) => result.roots.map((r) => r.root)
+
+/** The number of inputs of the cursor: each id with each root. */
+export const cursorLength = (result) =>
+  storeCandidates(result).length * result.roots.length
 
 /** Paths of the roots below `rootPath`: their files belong to their own steps. */
 function deeperRootsOf(listed, rootPath) {
@@ -641,7 +647,9 @@ function textOf(step, path) {
 
 /**
  * The cursor of the step (CTX-1487): `{ at, of, waiting }`. The inputs are
- * the pairs of an id and a root of `candidates`. A store file serves a pair
+ * the pairs of an id of `candidates` and a root of `rootPaths`. A pair that
+ * no root uses is never done, so `at` stays below `of`, and the pages end
+ * when the model stops saying `more`. A store file serves a pair
  * when the tree (the staged tree, else the step base) has it with the kind
  * of the id, and:
  * - when the root has one Service or App file, that file has a claim to the
@@ -667,8 +675,12 @@ export function storeCursor({
   index,
   roots,
   candidates,
+  rootPaths,
   planned = [],
 }) {
+  // Each store file once: its kind, the types of its lines of an id, and
+  // its lines.
+  const head = `- \`${repository}\` declares \``
   const stores = new Map()
   for (const path of new Set([
     ...index
@@ -680,18 +692,27 @@ export function storeCursor({
     if (!safePath(path) || !path.startsWith("knowledge/")) continue
     const text = textOf(step, path)
     const kind = text && frontValue(frontMatter(text) ?? "", "kind")
-    if (kind === "Database" || kind === "Infrastructure")
-      stores.set(path, {
-        path,
-        kind,
-        lines: text.split("\n").map((l) => l.trimEnd()),
-      })
+    if (kind !== "Database" && kind !== "Infrastructure") continue
+    const lines = new Set(text.split("\n").map((l) => l.trimEnd()))
+    const types = new Set()
+    for (const line of lines)
+      if (line.startsWith(head)) {
+        const type = line.slice(head.length).split("`")[0]
+        const rest = line.slice(head.length + type.length + 1)
+        if (rest === "" || rest.startsWith(" in ")) types.add(type)
+      }
+    stores.set(path, { path, kind, lines, types })
+  }
+  const plannedOf = new Map()
+  for (const p of planned) {
+    const key = `${p.id} ${p.root}`
+    plannedOf.set(key, [...(plannedOf.get(key) ?? []), p.path])
   }
   const claimsOf = new Map()
   const serves = (file, candidate, codeRoot) => {
     if (!file || file.kind !== candidate.kind) return false
     const unit = unitOf(roots, codeRoot)
-    if (!unit) return file.lines.includes(rootLine(repository, codeRoot))
+    if (!unit) return file.lines.has(rootLine(repository, codeRoot))
     if (!claimsOf.has(unit)) {
       const text = textOf(step, unit)
       claimsOf.set(unit, text === null ? null : fileClaims(text))
@@ -701,31 +722,27 @@ export function storeCursor({
       claims?.has(`${relativeTo(unit, file.path)} ${p}`),
     )
   }
-  const done = (candidate, codeRoot) => {
-    const mark = declares(repository, candidate.type)
+  const waiting = []
+  let at = 0
+  for (const candidate of candidates) {
     const marked = [...stores.values()].filter(
-      (f) =>
-        f.kind === candidate.kind &&
-        f.lines.some((l) => l === mark || l.startsWith(`${mark} in `)),
+      (f) => f.kind === candidate.kind && f.types.has(candidate.type),
     )
-    const line = rootLine(repository, codeRoot)
-    const expected = new Set([
-      ...marked.filter((f) => f.lines.includes(line)).map((f) => f.path),
-      ...planned
-        .filter((p) => p.id === candidate.id && p.root === codeRoot)
-        .map((p) => p.path),
-    ])
-    if (expected.size > 0)
-      return [...expected].every((path) =>
-        serves(stores.get(path), candidate, codeRoot),
-      )
-    return marked.some((f) => serves(f, candidate, codeRoot))
+    for (const codeRoot of rootPaths) {
+      const line = rootLine(repository, codeRoot)
+      const expected = new Set([
+        ...marked.filter((f) => f.lines.has(line)).map((f) => f.path),
+        ...(plannedOf.get(`${candidate.id} ${codeRoot}`) ?? []),
+      ])
+      const done =
+        expected.size > 0
+          ? [...expected].every((path) =>
+              serves(stores.get(path), candidate, codeRoot),
+            )
+          : marked.some((f) => serves(f, candidate, codeRoot))
+      if (done) at++
+      else waiting.push({ id: candidate.id, root: codeRoot })
+    }
   }
-  const inputs = candidates.flatMap((c) =>
-    [...c.roots.keys()].map((codeRoot) => ({ c, codeRoot })),
-  )
-  const waiting = inputs
-    .filter(({ c, codeRoot }) => !done(c, codeRoot))
-    .map(({ c, codeRoot }) => ({ id: c.id, root: codeRoot }))
-  return { at: inputs.length - waiting.length, of: inputs.length, waiting }
+  return { at, of: candidates.length * rootPaths.length, waiting }
 }

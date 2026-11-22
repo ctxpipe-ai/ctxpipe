@@ -922,9 +922,9 @@ describe("find-stores script", () => {
     )
     const result = run(dir, "--roots", rootsFile, "--count")
     expect(result.status, result.stderr).toBe(0)
-    // Database:postgres and Infrastructure:docker in each root, and
-    // Database:redis in apps/api: five pairs of an id and a root.
-    expect(result.stdout).toBe('{"count":5}\n')
+    // Three ids (Database:postgres, Database:redis, Infrastructure:docker),
+    // each with each of the two roots: six pairs.
+    expect(result.stdout).toBe('{"count":6}\n')
   })
 
   it("lists the context files that may describe the same store", () => {
@@ -1505,9 +1505,9 @@ describe("datasources-infra skill in a step", () => {
     const s = await step(files, {}, roots)
     const first = s.found()
     expect(JSON.stringify(first).length).toBeLessThanOrEqual(130 * 1024)
-    expect(first).toMatchObject({ done: 0, waiting: 450, more: true })
+    expect(first).toMatchObject({ done: 0, waiting: 600, more: true })
     expect(pairs(first).length).toBeLessThan(450)
-    expect(s.count()).toEqual({ count: 450 })
+    expect(s.count()).toEqual({ count: 600 })
 
     // The model writes the PostgreSQL store for each root. Then the next run
     // lists only the Docker entries, which wait.
@@ -1526,12 +1526,12 @@ describe("datasources-infra skill in a step", () => {
     })
     expect(s.at()).toBe(300)
     const next = s.found()
-    expect(next).toMatchObject({ done: 300, waiting: 150, more: false })
+    expect(next).toMatchObject({ done: 300, waiting: 300, more: false })
     expect(new Set(pairs(next).map((p) => p.split(" ")[0]))).toEqual(
       new Set(["Infrastructure:docker"]),
     )
     expect(pairs(next)).toHaveLength(150)
-    expect(s.count()).toEqual({ count: 450 })
+    expect(s.count()).toEqual({ count: 600 })
   })
 
   it("writes the line of each root of a store, with no line count (CTX-1487)", async () => {
@@ -1655,6 +1655,67 @@ describe("datasources-infra skill in a step", () => {
     expect(s.at()).toBe(40)
   })
 
+  it("pages the claims of roots that use a store of a shared library, with model evidence (CTX-1487)", async () => {
+    // The finder sees PostgreSQL only in libs/db. 40 Service roots use the
+    // library; each Service file has about 60 KiB, so their claims are more
+    // than one page.
+    const files: Record<string, string> = {
+      "libs/db/package.json": pkg("db", { dependencies: { pg: "8" } }),
+    }
+    const context: Record<string, string> = {}
+    const roots: Record<string, string[]> = { "libs/db": [] }
+    const body = "The service handles orders.\n".repeat(2200)
+    for (let i = 0; i < 40; i++) {
+      files[`apps/s${i}/package.json`] = pkg(`s${i}`, {
+        dependencies: { db: "workspace:*" },
+      })
+      files[`apps/s${i}/src/store.ts`] = "import { db } from 'db'\n"
+      context[`knowledge/services/s${i}.md`] = service(`S${i}`, body)
+      roots[`apps/s${i}`] = [`knowledge/services/s${i}.md`]
+    }
+    const plan = {
+      items: [
+        {
+          id: "Database:postgres",
+          name: "PostgreSQL",
+          role: "primary",
+          roots: [
+            { root: "libs/db", predicate: "DEPENDS_ON" },
+            ...Array.from({ length: 40 }, (_, i) => ({
+              root: `apps/s${i}`,
+              predicate: "READS_FROM",
+              evidence: `apps/s${i}/src/store.ts`,
+            })),
+          ],
+        },
+      ],
+    }
+    const s = await step(files, context, roots)
+    // One id with each of the 41 roots.
+    expect(s.count()).toEqual({ count: 41 })
+    const first = s.write(plan)
+    // libs/db has no Service file: its root line is enough.
+    expect(first.skipped.map((k) => k.reason)).toEqual([
+      "Database:postgres: libs/db has no one file of kind Service or App, so the script writes no claim",
+    ])
+    expect(first.more).toBe(true)
+    const firstAt = s.at() ?? 0
+    expect(firstAt).toBeGreaterThan(1)
+    expect(firstAt).toBeLessThan(41)
+    const page = await s.validate()
+    expect(page.rejections).toEqual([])
+    expect(page.cursorAt).toBe(firstAt)
+    await s.advance(page.tree)
+
+    expect(s.count()).toEqual({ count: 41 })
+    const second = s.write(plan)
+    expect(second.more).toBe(false)
+    expect(s.at()).toBe(41)
+    const last = await s.validate()
+    expect(last.rejections).toEqual([])
+    expect(last.cursorAt).toBe(41)
+  })
+
   // One store driver for each root.
   const DRIVERS = [
     ["pg", "postgres"],
@@ -1710,8 +1771,9 @@ describe("datasources-infra skill in a step", () => {
         })),
       }
       const s = await step(files, context, roots)
-      // One input for each pair of an id and a root.
-      expect(s.count()).toEqual({ count: 40 })
+      // One input for each id with each root.
+      const of = byType.size * 40
+      expect(s.count()).toEqual({ count: of })
 
       const first = s.write(plan)
       expect(first.skipped).toEqual([])
@@ -1726,11 +1788,16 @@ describe("datasources-infra skill in a step", () => {
       await s.advance(page.tree)
 
       // The next page: the same count, and the cursor moves to the end.
-      expect(s.count()).toEqual({ count: 40 })
+      expect(s.count()).toEqual({ count: of })
       const second = s.write(plan)
       expect(second.more).toBe(false)
       expect(s.at()).toBe(40)
-      expect(s.found()).toMatchObject({ done: 40, waiting: 0, more: false })
+      // Each root has its store: the other pairs are no use of a store.
+      expect(s.found()).toMatchObject({
+        done: 40,
+        waiting: of - 40,
+        more: false,
+      })
       const last = await s.validate()
       expect(last.rejections).toEqual([])
       expect(last.cursorAt).toBe(40)

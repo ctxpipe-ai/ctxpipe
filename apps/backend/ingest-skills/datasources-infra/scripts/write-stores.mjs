@@ -37,6 +37,7 @@ import {
   markLine,
   findStores,
   rootLine,
+  rootPathsOf,
   STORE_PREDICATES,
   storeCandidates,
   storeCursor,
@@ -72,7 +73,8 @@ try {
 if (!plan || typeof plan !== "object" || !Array.isArray(plan.items))
   fail(`${planFile} has no items list`)
 
-const candidates = storeCandidates(findStores({ index, source, rootsFile }))
+const found = findStores({ index, source, rootsFile })
+const candidates = storeCandidates(found)
 const candidateById = new Map(candidates.map((c) => [c.id, c]))
 const rootByPath = new Map(roots.map((r) => [r.path, r]))
 const tracked = new Set(trackedFiles(source))
@@ -376,5 +378,13 @@ for (const item of resolved) {
 
 writeStep(step, plans, skipped, {
   cursorAt: () =>
-    storeCursor({ step, repository, index, roots, candidates, planned }).at,
+    storeCursor({
+      step,
+      repository,
+      index,
+      roots,
+      candidates,
+      rootPaths: rootPathsOf(found),
+      planned,
+    }).at,
 })

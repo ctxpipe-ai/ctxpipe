@@ -7,8 +7,8 @@
 // node find-stores.mjs --source /ctxpipe/source/<handle> --source-url <url> --source-path <path> \
 //   --roots <root-to-file map> [--root /ctxpipe] [--count]
 //
-// With --count, it prints only `{"count": <n>}`: the number of pairs of an id
-// and a root (the inputs of the cursor), always of the full list. The host
+// With --count, it prints only `{"count": <n>}`: the number of pairs of each id
+// and each root (the inputs of the cursor), always of the full list. The host
 // runs it before each page and takes the count as the length of the cursor
 // (CTX-1487).
 //
@@ -26,6 +26,7 @@ import { outputBudget } from "../../bin/stage-lib.mjs"
 import {
   cursorLength,
   findStores,
+  rootPathsOf,
   storeCandidates,
   storeCursor,
   refuseRootStep,
@@ -38,9 +39,7 @@ const print = (value) => process.stdout.write(`${JSON.stringify(value)}\n`)
 // The count needs no context index: `existing` is not in it.
 if (process.argv.includes("--count"))
   print({
-    count: cursorLength(
-      storeCandidates(findStores({ index: [], source, rootsFile })),
-    ),
+    count: cursorLength(findStores({ index: [], source, rootsFile })),
   })
 else {
   // A pair waits when the tree of the step has not done it.
@@ -53,6 +52,7 @@ else {
     index,
     roots: unitRoots,
     candidates,
+    rootPaths: rootPathsOf(result),
   })
   const waits = new Set(cursor.waiting.map((w) => `${w.id} ${w.root}`))
   const budget = outputBudget()
