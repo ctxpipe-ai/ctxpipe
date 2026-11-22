@@ -1,7 +1,6 @@
 {
   "apps/backend/ingest-skills/apis/scripts/apis-lib.mjs": [
     "AST_GREP_TIMEOUT_MS",
-    "MAX_SPEC_LINES",
     "MAX_YAML_LINE",
     "UPPER_METHODS"
   ],
