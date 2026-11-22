@@ -179,8 +179,8 @@ const withoutFences = (text: string) =>
  * link, and it weighs each other one by how many files mention its key.
  * The rules, from the highest confidence:
  * - 0.9: a file path, which names each package root below the repository
- *   top that can hold it, in each repository of the issue; a method and an
- *   HTTP path. The Repository and the top hold each path, also a file of
+ *   top that can hold it, in each repository of the issue, and a GitHub
+ *   permalink of a file, in its own repository; a method and an HTTP path. The Repository and the top hold each path, also a file of
  *   the reporter (`src/main.rs`), so a match on them is no evidence.
  * - 0.8: an HTTP path with no method, in a code span or under `/api`; a
  *   label `area/<name>` or `component/<name>`; a full code span with a
@@ -211,7 +211,21 @@ function mentionLinks(input: {
   const mentionName = (name: string, confidence: number, text: string) => {
     if (name.trim().length > 2) mention(nameKey(name), confidence, text)
   }
-  // A URL is a link of its own, not a path or a name.
+  // A GitHub permalink of a file names the folders of the file in its own
+  // repository. The ref is one path segment.
+  for (const url of input.urls) {
+    const blob =
+      /^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/blob\/[^/]+\/([^?#]+)/i.exec(
+        url,
+      )
+    if (!blob?.[3]) continue
+    const repository = normalizeWorkspaceRepositoryUrl(
+      `https://github.com/${blob[1]}/${blob[2]}`,
+    )
+    for (const key of folderKeysOf(repository, safeDecode(blob[3])))
+      mention(key, 0.9, url)
+  }
+  // Each other URL is a link of its own, not a path or a name.
   const body = input.urls.reduce(
     (text, url) => text.replaceAll(url, " "),
     input.body,
@@ -260,10 +274,12 @@ function mentionLinks(input: {
   // The name of a file names a page, not a unit
   // (`docs/concepts/dynamic-resource-allocation.md`), so the name rule does
   // not read it. A folder of the path can name a unit (`client-go/tools`).
-  const withoutFileNames = `${input.title}\n${prose}`.replace(
-    /[\w-]+\.[A-Za-z][A-Za-z0-9]{0,7}(?![\w/-])/g,
-    " ",
-  )
+  // A login is not a unit either: a handle (`@k8s-ci-robot`) and the heading
+  // of a mirrored comment (`### <time> · <login>`).
+  const withoutFileNames = `${input.title}\n${prose}`
+    .replace(/^### \S+ · .*$/gm, " ")
+    .replace(/@[\w/-]+/g, " ")
+    .replace(/[\w-]+\.[A-Za-z][A-Za-z0-9]{0,7}(?![\w/-])/g, " ")
   for (const match of withoutFileNames.matchAll(
     /(?<![\w.-])[a-z][a-z0-9]*(?:[-_][a-z0-9]+)+(?![\w-])/gi,
   ))
@@ -368,26 +384,26 @@ export function fileReferences(input: {
           text: "",
         })
 
-  if (input.kind === "Issue") {
-    // The repositories of the `sources` of the issue, else the GitHub
-    // repository of a GitHub issue.
-    const sources = sourceRepositoriesOf(attributes, input.sourceRepositories)
-    const repositories =
-      sources.length || typeof attributes.repository !== "string"
-        ? sources
-        : [
-            normalizeWorkspaceRepositoryUrl(
-              `https://github.com/${attributes.repository}`,
-            ),
-          ]
+  // The repositories of an issue are those of its `sources`, which the
+  // mirror writes (`stampMirrorFiles`), as for a package unit.
+  if (input.kind === "Issue")
     for (const link of mentionLinks({
       title: typeof attributes.title === "string" ? attributes.title : "",
       body: input.body,
       attributes,
-      repositories,
+      repositories: sourceRepositoriesOf(attributes, input.sourceRepositories),
       urls,
     }))
       add(link)
-  }
   return { keys: [...keys].sort(), links: [...links.values()] }
+}
+
+/** The text of a URL path with its escapes decoded, else as it is. */
+function safeDecode(path: string): string {
+  try {
+    return decodeURIComponent(path)
+  } catch {
+    // A malformed escape: the path stays as it is.
+    return path
+  }
 }

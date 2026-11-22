@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { stringify } from "yaml"
 
-import { shopIssue as issue } from "../test/github-issue.js"
+import { shopIssue as issue, SHOP_SOURCE_PATH } from "../test/github-issue.js"
 import { parseKnowledgeFile, workspaceBlobPath } from "./parse-file.js"
 
 const SHOP = "https://github.com/acme/shop"
@@ -9,7 +9,7 @@ const SHOP = "https://github.com/acme/shop"
 function referencesOf(
   path: string,
   content: string,
-  sourceRepositories = new Map<string, string>(),
+  sourceRepositories = new Map([[SHOP_SOURCE_PATH, SHOP]]),
 ) {
   const parsed = parseKnowledgeFile({
     workspaceId: "ws_mentions",
@@ -63,7 +63,7 @@ describe("issue mentions (CTX-1502)", () => {
         "The cache in packages/client-lib/src/cache.ts is stale after",
         "GET /orders/{orderId} and a call to /api/v1/orders or `/status/`.",
         "The `order-worker` also uses client-lib, not `x`, `db` or `HOME`.",
-        "The page docs/guide/payment-service.md names no unit.",
+        "The page docs/guide/payment-service.md names no unit, nor @ops-team.",
         "See https://example.com/docs/guide.md for the guide.",
         "It is not in ./local/config.yaml, k8s.io/client/x.go or HTTP/1.1.",
         "```",
@@ -88,21 +88,22 @@ describe("issue mentions (CTX-1502)", () => {
     ])
   })
 
-  it("a file path takes the repositories of the sources of the issue", () => {
-    const { path, content } = issue({ title: "Slow", body: "In a/b.ts." })
-    const withSources = content.replace(
-      "\n---\n",
-      "\nsources:\n  - sources/github/acme/fork.md\n---\n",
-    )
-    const links = referencesOf(
-      path,
-      withSources,
-      new Map([
-        ["sources/github/acme/fork.md", "https://github.com/acme/fork"],
-      ]),
-    ).links.map((link) => link.key)
-    expect(links).toContain("changed:https://github.com/acme/fork#a")
-    expect(links).not.toContain(`changed:${SHOP}#a`)
+  it("a file path names the folders in the repository of the source of the issue, and a permalink in its own repository", () => {
+    const { path, content } = issue({
+      title: "Slow",
+      body: "In a/b.ts and https://github.com/acme/other/blob/main/lib/c.ts#L3.",
+    })
+    const keys = (sources: Map<string, string>) =>
+      referencesOf(path, content, sources)
+        .links.filter((link) => link.predicate === "MENTIONS")
+        .map((link) => link.key)
+        .sort()
+    expect(
+      keys(new Map([[SHOP_SOURCE_PATH, "https://github.com/acme/fork"]])),
+    ).toEqual([
+      "changed:https://github.com/acme/fork#a",
+      "changed:https://github.com/acme/other#lib",
+    ])
   })
 
   it("a file that is not an issue mentions nothing", () => {
