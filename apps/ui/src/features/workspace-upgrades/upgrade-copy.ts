@@ -41,7 +41,32 @@ export function upgradeToastLine(
 
 /** The owner or admin can press Start on these. */
 export function upgradeCanStart(item: WorkspaceUpgradeItem): boolean {
-  return item.status === "awaiting_operator" || item.status === "failed"
+  return (
+    item.status === "awaiting_operator" ||
+    item.status === "failed" ||
+    item.status === "canceled"
+  )
+}
+
+/** A run of this item ended before it finished: its Start button says "Start again". */
+export function upgradeStartsAgain(
+  item: Pick<WorkspaceUpgradeItem, "status">,
+): boolean {
+  return item.status === "failed" || item.status === "canceled"
+}
+
+/**
+ * The owner or admin can press Cancel on these: a re-ingestion that is
+ * queued or runs. Its model calls cost money while it runs. A git upgrade
+ * only opens a pull request, so it has no cancel.
+ */
+export function upgradeCanCancel(
+  item: Pick<WorkspaceUpgradeItem, "kind" | "status">,
+): boolean {
+  return (
+    item.kind === "reingest" &&
+    (item.status === "queued" || item.status === "running")
+  )
 }
 
 const UPGRADE_STATUS_LABEL: Record<UpgradeStatus, string> = {
@@ -51,6 +76,7 @@ const UPGRADE_STATUS_LABEL: Record<UpgradeStatus, string> = {
   pr_open: "Waiting for merge",
   completed: "Applied",
   failed: "Failed",
+  canceled: "Canceled",
   blocked: "Blocked",
 }
 
@@ -362,8 +388,11 @@ export function upgradeSpendLine(
   const unknown = item.repositories.some(
     (repository) => repository.spendUnknown,
   )
-  // An applied re-ingestion spends no more.
-  const label = item.status === "completed" ? "Spend" : "Spend so far"
+  // An applied or canceled re-ingestion spends no more.
+  const label =
+    item.status === "completed" || item.status === "canceled"
+      ? "Spend"
+      : "Spend so far"
   return `${label}: ${unknown ? "at least " : ""}$${total.toFixed(2)}`
 }
 

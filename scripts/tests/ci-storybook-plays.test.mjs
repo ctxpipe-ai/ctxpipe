@@ -5,6 +5,7 @@ import { join } from "node:path"
 import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 
+import { usesDevShm } from "../ci/storybook-play.mjs"
 import {
   selectRequiredStories,
   selectPlayStories,
@@ -114,6 +115,30 @@ test("CI runs every story with a play function in shards", () => {
   assert.deepEqual(
     shards.map(({ shard, count }) => `${shard}/${count}`),
     ["1/4", "2/4", "3/4", "4/4"],
+  )
+})
+
+test("Chromium keeps its shared memory in /dev/shm only when it is a large memory file system", () => {
+  const tmpfs = 0x01021994
+  const gib = 1024 ** 3
+  const shm = (type, bytes) => () => ({
+    type,
+    bsize: 4096,
+    bavail: bytes / 4096,
+  })
+  // A GitHub-hosted arm runner: a tmpfs of 7.8 GB.
+  assert.equal(usesDevShm(shm(tmpfs, 7.8 * gib)), true)
+  // The Docker default of 64 MB is too small, so Playwright's
+  // --disable-dev-shm-usage stays.
+  assert.equal(usesDevShm(shm(tmpfs, 64 * 1024 ** 2)), false)
+  // A /dev/shm directory on a disk file system (ext4) is no memory.
+  assert.equal(usesDevShm(shm(0xef53, 100 * gib)), false)
+  // No /dev/shm (macOS).
+  assert.equal(
+    usesDevShm(() => {
+      throw Object.assign(new Error("ENOENT"), { code: "ENOENT" })
+    }),
+    false,
   )
 })
 

@@ -1,12 +1,13 @@
 {
   "falkordb": {
     "image": "falkordb/falkordb",
+    "tag": "v4.20.7",
     "digest": "sha256:13996aa523f0dd283f6bd6df6620b094dcea525452417c4d6ef9bef15dc9998d",
     "moduleVersion": 42007
   },
   "postgres": {
     "image": "pgvector/pgvector",
-    "tag": "pg17",
+    "tag": "0.8.7-pg17-bookworm",
     "digest": "sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8",
     "serverVersion": "17.11",
     "pgvectorVersion": "0.8.7",
@@ -20,7 +21,7 @@
   "contracts": {
     "agentVault": {
       "image": "infisical/agent-vault",
-      "tag": "latest",
+      "tag": "0.40.2",
       "digest": "sha256:d09894c86c9b8df64ea37442ace9907dcdf82dabd2730b78b9e0c4c5e070e79a"
     },
     "node": {

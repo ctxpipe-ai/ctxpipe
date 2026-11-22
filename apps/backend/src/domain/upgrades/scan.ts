@@ -63,6 +63,7 @@ const SCAN_OWNED: readonly UpgradeStatus[] = [
   UPGRADE_STATUSES.awaiting_operator,
   UPGRADE_STATUSES.blocked,
   UPGRADE_STATUSES.failed,
+  UPGRADE_STATUSES.canceled,
 ]
 
 /**
@@ -419,12 +420,13 @@ export async function scanWorkspaceReingest(input: {
           ? { note: undefined }
           : {}),
     }
-    // A failed run waits for the operator to start it again, unless it is
-    // now blocked.
+    // A failed or canceled run waits for the operator to start it again,
+    // unless it is now blocked.
     const status = blocked
       ? UPGRADE_STATUSES.blocked
-      : existing?.status === UPGRADE_STATUSES.failed
-        ? UPGRADE_STATUSES.failed
+      : existing?.status === UPGRADE_STATUSES.failed ||
+          existing?.status === UPGRADE_STATUSES.canceled
+        ? existing.status
         : UPGRADE_STATUSES.awaiting_operator
     if (!existing)
       await insertWorkspaceUpgradeRow({

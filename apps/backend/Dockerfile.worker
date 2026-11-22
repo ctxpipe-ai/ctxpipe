@@ -2,7 +2,7 @@
 # Runs the OpenWorkflow durable-job worker process (not the HTTP server).
 # Install Forge CLI here so npm/layout matches official Node layout; copying/npm in the Bun
 # stage and then RUN npm caused "Cannot find module '../lib/cli.js'" when invoking /usr/local/bin/npm.
-FROM node:26.13.1-alpine AS nodeforge
+FROM node:26.13.1-alpine3.24@sha256:6bd9ab43c0ec0190ca7b2d193906cb8b7edf6e7f4afa43ddeccd6452710bffb5 AS nodeforge
 RUN npm install -g @forge/cli@13.4.0
 
 # The converter of the knowledge plane (apps/backend/converter, CTX-1433),
@@ -13,7 +13,7 @@ RUN npm install -g @forge/cli@13.4.0
 # source rebuilds only the converter crate. g++ gives the static C++ runtime
 # that vectorscan links; curl downloads the vectorscan prebuilt, which its
 # build script checks by SHA-256.
-FROM rust:1.99.1-alpine3.22 AS converter
+FROM rust:1.99.1-alpine3.22@sha256:9a744dc47d1ac2a7d17fc3cedfc8b4928b1696dfcba3274ab25bfb40988a9ff0 AS converter
 RUN apk add --no-cache musl-dev g++ curl
 WORKDIR /converter
 COPY apps/backend/converter/Cargo.toml apps/backend/converter/Cargo.lock apps/backend/converter/rust-toolchain.toml ./
@@ -24,12 +24,12 @@ COPY apps/backend/converter ./
 # the empty main: touch them, so that Cargo builds the real source.
 RUN touch build.rs src/*.rs && cargo build --release --locked
 
-FROM oven/bun:1.4.4-alpine AS deps
+FROM oven/bun:1.4.4-alpine@sha256:4cf82f5686b196504fe119db3fcd9185b191f82ece82c40680e597228ec6070a AS deps
 WORKDIR /app
 ENV CI=true
 # pnpm is a Node CLI. Running it through Bun can stall during lifecycle scripts.
 RUN apk add --no-cache nodejs
-RUN bun install -g pnpm@10.12.1
+RUN bun install -g pnpm@11.28.11
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* tsconfig.json ./
 COPY patches patches
 COPY apps/backend/package.json apps/backend/package.json
@@ -37,7 +37,7 @@ COPY apps/backend/package.json apps/backend/package.json
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm install --store-dir /pnpm/store --frozen-lockfile --prod --config.confirmModulesPurge=false
 
-FROM oven/bun:1.4.4-alpine
+FROM oven/bun:1.4.4-alpine@sha256:4cf82f5686b196504fe119db3fcd9185b191f82ece82c40680e597228ec6070a
 WORKDIR /app
 ENV CI=true
 ENV NODE_ENV=production

@@ -4,6 +4,57 @@ packages:
   - examples/*
   - ops/observability/cost-telemetry
 
+# Supply chain (CTX-1538). pnpm installs a version only when it is at least 7 days
+# old, and it checks each lockfile entry again on install. A compromised release
+# is usually found and removed in that time. A security fix that cannot wait
+# goes into minimumReleaseAgeExclude as `name@version`, with its reason.
+minimumReleaseAge: 10080
+# Stop when a package loses the trust evidence (trusted publisher, provenance)
+# that an earlier release had.
+trustPolicy: no-downgrade
+# Versions that were in the lockfile before the trust policy, and that have
+# less trust evidence than an earlier release of the same package. Each one was
+# published by the package's own maintainer (checked 2026-11-22). Remove an
+# entry when an update moves past that version.
+trustPolicyExclude:
+  - '@pierre/theme@2.0.0'
+  - '@vercel/detect-agent@1.2.5'
+  - 'chokidar@4.0.3'
+  - 'evlog@2.14.1'
+  - 'reselect@5.1.1'
+  - 'semver@6.3.1'
+  - 'undici-types@6.21.0'
+
+# pnpm runs no dependency build script. Each package with a build script is
+# listed as false, so that an install stops at a new one (strictDepBuilds).
+allowBuilds:
+  '@ast-grep/cli': false
+  '@forge/cli': false
+  '@parcel/watcher': false
+  cloudflared: false
+  core-js: false
+  cpu-features: false
+  esbuild: false
+  keytar: false
+  msw: false
+  opencode-ai: false
+  protobufjs: false
+  sharp: false
+  ssh2: false
+
+# pnpm 11 runs an install before `pnpm run` when node_modules is out of date.
+# CI and the Docker builds install with --filter and --prod, so keep the pnpm 10
+# behavior.
+verifyDepsBeforeRun: false
+
+overrides:
+  '@daveyplate/better-auth-ui>better-call': 1.4.5
+  '@luma.gl/core': 9.2.6
+  '@luma.gl/engine': 9.2.6
+  '@luma.gl/webgl': 9.2.6
+  '@luma.gl/shadertools': 9.2.6
+  '@luma.gl/constants': 9.2.6
+
 patchedDependencies:
   '@asteasolutions/zod-to-openapi@8.4.1': patches/@asteasolutions__zod-to-openapi@8.4.1.patch
   '@cosmograph/cosmograph@2.2.1': patches/@cosmograph__cosmograph@2.2.1.patch

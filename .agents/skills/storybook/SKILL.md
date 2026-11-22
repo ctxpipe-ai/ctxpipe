@@ -25,7 +25,7 @@ Storybook 11 has headless tools. They read the Storybook configuration and the s
 
 - Do not guess an id or a prop. Take the id from `docs list` or `find-by-component`, and use only the props that `docs show` gives.
 - `--json` gives the result as JSON. `--input '<json>'` gives the arguments. An array argument works only with `--input`.
-- The docgen of `docs list` builds a TypeScript program of the whole app and takes about 45 s. It needs a heap of 6 GB: `apps/ui/.npmrc` sets it for each `npx` and `pnpm` command that starts in `apps/ui`. With less, the docgen stops at its timeout and `docs list` drops most descriptions, with no error. `docs show` for one component takes about 7 s.
+- The docgen of `docs list` builds a TypeScript program of the whole app and takes about 45 s. It needs a heap of 6 GB: `apps/ui/.npmrc` sets it for each `npx` command that starts in `apps/ui`. pnpm 11 does not read that file, so run the tools with `npx`, not `pnpm exec`. With less, the docgen stops at its timeout and `docs list` drops most descriptions, with no error. `docs show` for one component takes about 7 s.
 - `docs list` has only the components that are the `component` of a story file meta. A component with no story file is not in it: read its source.
 - The descriptions come from the JSDoc comments. The JSDoc of a component (above its export) is its description: say what it is for and when to use it instead of a similar component. The JSDoc of a story is its purpose (see Review annotations).
 - Before you build or style a block, read the descriptions to find the shared component with the same meaning. `docs show` gives the description of a component that has a story; for a component with no story (most of `src/components/ui/`), read the JSDoc in its source.

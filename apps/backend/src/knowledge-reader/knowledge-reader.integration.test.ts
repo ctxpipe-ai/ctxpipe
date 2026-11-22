@@ -88,6 +88,15 @@ let slowEmbedding = false
 let embeddingFailure: number | null = null
 /** The embedding requests of the plane. */
 let planeEmbeddings = 0
+/**
+ * True: a Jev call waits until a second call is in flight (at most 2 s), so
+ * that two calls of a step that run in parallel overlap.
+ */
+let jevWaitsForTwo = false
+let releaseJevCall: (() => void) | null = null
+/** The Jev calls in flight now, and the most at one time. */
+let jevInFlight = 0
+let jevMostInFlight = 0
 
 const models = setupServer(
   http.post(`${MODEL_URL}/embeddings`, async ({ request }) => {
@@ -117,6 +126,20 @@ const models = setupServer(
       }
       jevCalls += 1
       const startedIn = jevTest
+      jevInFlight += 1
+      jevMostInFlight = Math.max(jevMostInFlight, jevInFlight)
+      if (jevWaitsForTwo && jevInFlight >= 2) {
+        // One overlap is the proof: the later calls do not wait.
+        jevWaitsForTwo = false
+        releaseJevCall?.()
+      } else if (jevWaitsForTwo)
+        await Promise.race([
+          new Promise<void>((resolve) => {
+            releaseJevCall = resolve
+          }),
+          delay(2_000),
+        ])
+      jevInFlight -= 1
       if (jevCalls === slowJevCall) await delay(5_000)
       if (startedIn !== jevTest)
         return HttpResponse.json({ error: "test ended" }, { status: 503 })
@@ -278,6 +301,59 @@ const wideUnits: (RelatedUnit & { text: string })[] = [
             ],
     })),
   ),
+]
+
+/**
+ * A Workspace for the steps of CTX-1534. Two paths of the same length go
+ * from the seed to the answer, each through a middle document that is only
+ * a hub. The dead end is a hub with no answer after it. The aside is
+ * neither a hub nor an answer.
+ */
+const diamondUnits: (RelatedUnit & { text: string })[] = [
+  {
+    path: "diamond/seed.md",
+    kind: "Note",
+    title: "Diamond seed",
+    text: "The start.",
+    claims: [
+      { to: "diamond/left.md", predicate: "MENTIONS", confidence: 0.8 },
+      { to: "diamond/right.md", predicate: "MENTIONS", confidence: 0.8 },
+      { to: "diamond/dead-end.md", predicate: "MENTIONS", confidence: 0.8 },
+      { to: "diamond/aside.md", predicate: "MENTIONS", confidence: 0.8 },
+    ],
+  },
+  {
+    path: "diamond/dead-end.md",
+    kind: "Note",
+    title: "Diamond dead end",
+    text: "A bridge to nothing. hub",
+  },
+  {
+    path: "diamond/aside.md",
+    kind: "Note",
+    title: "Diamond aside",
+    text: "A note about lunch.",
+  },
+  {
+    path: "diamond/left.md",
+    kind: "Note",
+    title: "Diamond left",
+    text: "A bridge. hub",
+    claims: [{ to: "diamond/far.md", predicate: "MENTIONS", confidence: 0.8 }],
+  },
+  {
+    path: "diamond/right.md",
+    kind: "Note",
+    title: "Diamond right",
+    text: "A second bridge. hub",
+    claims: [{ to: "diamond/far.md", predicate: "MENTIONS", confidence: 0.7 }],
+  },
+  {
+    path: "diamond/far.md",
+    kind: "Note",
+    title: "Diamond far",
+    text: "answer",
+  },
 ]
 
 /** The rows of `list` in the knowledge plane for one Workspace. */
@@ -561,27 +637,35 @@ describe("the knowledge reader seam", () => {
     } finally {
       await writer.close()
     }
-    // The wide Workspace is only on the plane.
-    const wideWorkspace = await seedRelatedWorkspace({
-      seed,
-      slug: "wide",
-      sha: legacySha,
-      units: [],
-    })
-    ids.wide = wideWorkspace.workspaceId
-    const wideWriter = createKnowledgeStore(url)
-    try {
-      await writePlaneDocuments(
-        wideWriter,
-        { orgId: seed.orgId, workspaceId: wideWorkspace.workspaceId },
-        planeRows(wideWorkspace.workspaceId, wideUnits),
-      )
-    } finally {
-      await wideWriter.close()
+    // The wide and the diamond Workspaces are only on the plane.
+    const planeOnly = async (
+      slug: string,
+      list: readonly (RelatedUnit & { text: string })[],
+    ) => {
+      const { workspaceId } = await seedRelatedWorkspace({
+        seed,
+        slug,
+        sha: legacySha,
+        units: [],
+      })
+      ids[slug] = workspaceId
+      const planeWriter = createKnowledgeStore(url)
+      try {
+        await writePlaneDocuments(
+          planeWriter,
+          { orgId: seed.orgId, workspaceId },
+          planeRows(workspaceId, list),
+        )
+      } finally {
+        await planeWriter.close()
+      }
     }
+    await planeOnly("wide", wideUnits)
+    await planeOnly("diamond", diamondUnits)
     await markReady(ids.ready as string)
     await markReady(ids.paging as string)
     await markReady(ids.wide as string)
+    await markReady(ids.diamond as string)
     // A first run that has not ended: not ready.
     await beginKnowledgeRun({
       orgId: seed.orgId,
@@ -600,6 +684,9 @@ describe("the knowledge reader seam", () => {
     slowEmbedding = false
     embeddingFailure = null
     planeEmbeddings = 0
+    jevWaitsForTwo = false
+    releaseJevCall = null
+    jevMostInFlight = 0
     jevCalls = 0
     jevRequests.length = 0
     jevParts.length = 0
@@ -947,20 +1034,30 @@ describe("the knowledge reader seam", () => {
     await setFlag("on")
     const refs: string[] = []
     let cursor: string | undefined
-    do {
-      const content = structured(
-        await relatedCall({
-          workspace: "wide",
-          seeds: ["wide/seed.md"],
-          maxDepth: 3,
-          limit: 50,
-          maxTokens: 8_000,
-          ...(cursor ? { cursor } : {}),
-        }),
-      )
-      refs.push(...(content.results as { ref: string }[]).map((r) => r.ref))
-      cursor = content.cursor as string | undefined
-    } while (cursor)
+    // The limit is the subject, not the time budget. The walk of three
+    // layers of 148 documents can take more than 3 s on a loaded host, and
+    // then the result is partial after layer 1 (CTX-1534).
+    const before = ORCHESTRATOR_DEFAULTS.timeBudgetMs
+    ORCHESTRATOR_DEFAULTS.timeBudgetMs = 0
+    try {
+      do {
+        const content = structured(
+          await relatedCall({
+            workspace: "wide",
+            seeds: ["wide/seed.md"],
+            maxDepth: 3,
+            limit: 50,
+            maxTokens: 8_000,
+            ...(cursor ? { cursor } : {}),
+          }),
+        )
+        expect(content.partial).toBe(false)
+        refs.push(...(content.results as { ref: string }[]).map((r) => r.ref))
+        cursor = content.cursor as string | undefined
+      } while (cursor)
+    } finally {
+      ORCHESTRATOR_DEFAULTS.timeBudgetMs = before
+    }
     // 148 documents answer. The 100 results are the best answers, each with
     // its steps: the 49 answers of layer 1, the far answer and its step (the
     // middle document), and the 49 other answers of layer 2. The answers of
@@ -969,6 +1066,35 @@ describe("the knowledge reader seam", () => {
     expect(refs.at(-1)).toBe("wide/middle.md")
     expect(refs).toContain("wide/b-00.md")
     expect(refs.filter((ref) => ref.startsWith("wide/c-"))).toEqual([])
+  })
+
+  it("on: get_related keeps each document that Jev marks to explore as a step, also with no answer after it", async () => {
+    await setFlag("on")
+    const content = structured(
+      await relatedCall({
+        workspace: "diamond",
+        seeds: ["diamond/seed.md"],
+        maxDepth: 3,
+      }),
+    )
+    const results = content.results as {
+      ref: string
+      path: { from: string; to: string }[]
+    }[]
+    // The why path of the answer goes through the left document, the
+    // relation with the higher confidence. The right document is the step
+    // of the other path, and the dead end is a step with no answer after
+    // it. The aside has a low p(explore), so it is no step.
+    expect(results.map((result) => result.ref)).toEqual([
+      "diamond/far.md",
+      "diamond/dead-end.md",
+      "diamond/left.md",
+      "diamond/right.md",
+    ])
+    expect(results[0]?.path.map((step) => step.to)).toEqual([
+      "diamond/left.md",
+      "diamond/far.md",
+    ])
   })
 
   it("get_related tells agents about the positions in its description and output schema", async () => {
@@ -1001,10 +1127,41 @@ describe("the knowledge reader seam", () => {
   it("on: get_related with maxDepth 1 does not explore past the first layer", async () => {
     await setFlag("on")
     const content = structured(await relatedCall({ maxDepth: 1 }))
+    // Jev marks the ledger to explore, so it is a step (CTX-1534), also
+    // when the depth stops the loop before the decision after it.
     expect(
       (content.results as { ref: string }[]).map((result) => result.ref),
-    ).toEqual(["knowledge/teams/payments.md"])
+    ).toEqual(["knowledge/teams/payments.md", "knowledge/databases/ledger.md"])
     expect(jevRequests).toEqual([{ candidates: 1 }, { candidates: 3 }])
+  })
+
+  it("on: get_related judges the seeds and layer 1 at the same time", async () => {
+    await setFlag("on")
+    // The seeds are the first frontier whatever Jev says, so layer 1 needs
+    // no judgment of the seeds: both calls are in flight together.
+    jevWaitsForTwo = true
+    const content = structured(await relatedCall({ maxDepth: 1 }))
+    // The same results as a walk with no overlap (the maxDepth 1 test).
+    expect(
+      (content.results as { ref: string }[]).map((result) => result.ref),
+    ).toEqual(["knowledge/teams/payments.md", "knowledge/databases/ledger.md"])
+    // The two calls end in any order.
+    expect(jevRequests.map((request) => request.candidates).sort()).toEqual([
+      1, 3,
+    ])
+    expect(jevMostInFlight).toBe(2)
+  })
+
+  it("on: get_related after a search of the same org and text makes no second embedding call", async () => {
+    await setFlag("on")
+    const query = "who owns checkout, asked two times"
+    await searchCall({ workspaces: ["ready"], query })
+    expect(planeEmbeddings).toBe(1)
+    const content = structured(await relatedCall({ maxDepth: 1, query }))
+    expect(
+      (content.results as { ref: string }[]).map((result) => result.ref),
+    ).toEqual(["knowledge/teams/payments.md", "knowledge/databases/ledger.md"])
+    expect(planeEmbeddings).toBe(1)
   })
 
   it("on: includeSeeds adds a seed that answers; layer 0 judges the seeds either way", async () => {
@@ -1016,15 +1173,19 @@ describe("the knowledge reader seam", () => {
         }[]
       ).map((result) => result.ref)
     // The checkout seed does not answer ("hub" only), so it is no result.
+    // The ledger is a step (a hub).
     expect(await refs({ includeSeeds: true })).toEqual([
       "knowledge/teams/payments.md",
+      "knowledge/databases/ledger.md",
     ])
+    // With the payments seed, its neighbor, the checkout service, is a step
+    // (a hub).
     expect(
       await refs({
         seeds: ["knowledge/teams/payments.md"],
         includeSeeds: true,
       }),
-    ).toEqual(["knowledge/teams/payments.md"])
+    ).toEqual(["knowledge/teams/payments.md", "knowledge/services/checkout.md"])
     // Layer 0 judges the payments seed, and layer 1 judges its neighbor.
     expect(jevRequests.slice(-2)).toEqual([
       { candidates: 1 },
@@ -1061,10 +1222,11 @@ describe("the knowledge reader seam", () => {
           ref: string
         }[]
       ).map((result) => result.ref)
-    // GOVERNED_BY is valid from 2026-01-01.
+    // GOVERNED_BY is valid from 2026-01-01. The ledger is a step (a hub)
+    // in both windows.
     expect(
       await refs({ from: "2025-01-01T00:00:00Z", to: "2025-06-01T00:00:00Z" }),
-    ).toEqual(["knowledge/teams/payments.md"])
+    ).toEqual(["knowledge/teams/payments.md", "knowledge/databases/ledger.md"])
     expect(
       await refs({ from: "2026-02-01T00:00:00Z", to: "2026-03-01T00:00:00Z" }),
     ).toEqual([
@@ -1152,7 +1314,11 @@ describe("the knowledge reader seam", () => {
   it("on: when the time budget ends before the search ends, search_knowledge has no hits and says total_timeout", async () => {
     await setFlag("on")
     slowEmbedding = true
-    const result = await searchCall({ workspaces: ["ready"] })
+    // A text of its own: the plane keeps the vector of a text it embedded.
+    const result = await searchCall({
+      workspaces: ["ready"],
+      query: "who owns checkout, with a slow embedding",
+    })
     expect(result.isError).toBeFalsy()
     expect(structured(result)).toMatchObject({
       hits: [],
@@ -1165,7 +1331,10 @@ describe("the knowledge reader seam", () => {
   it("on: when the query embedding gets a 429, search_knowledge has no hits and says total_timeout at once, with no retry", async () => {
     await setFlag("on")
     embeddingFailure = 429
-    const result = await searchCall({ workspaces: ["ready"] })
+    const result = await searchCall({
+      workspaces: ["ready"],
+      query: "who owns checkout, with a 429",
+    })
     expect(result.isError).toBeFalsy()
     expect(structured(result)).toMatchObject({
       hits: [],
@@ -1180,7 +1349,9 @@ describe("the knowledge reader seam", () => {
   it("on: when the query embedding gets a 503, get_related returns partial with no retry", async () => {
     await setFlag("on")
     embeddingFailure = 503
-    const content = structured(await relatedCall({ maxDepth: 3 }))
+    const content = structured(
+      await relatedCall({ maxDepth: 3, query: "what is near checkout, 503" }),
+    )
     expect(content).toMatchObject({
       results: [],
       partial: true,
@@ -1210,9 +1381,10 @@ describe("the knowledge reader seam", () => {
       partial: true,
       partialReason: "total_timeout",
     })
+    // The judged layers: the answer and the hub of layer 1, a step.
     expect(
       (content.results as { ref: string }[]).map((result) => result.ref),
-    ).toEqual(["knowledge/teams/payments.md"])
+    ).toEqual(["knowledge/teams/payments.md", "knowledge/databases/ledger.md"])
     expect(content.positions).toBeUndefined()
   }, 15_000)
 
@@ -1322,9 +1494,12 @@ describe("the knowledge reader seam", () => {
 
   it("shadow: the old stack answers, and one event compares the plane with ids, scores and counts only", async () => {
     await setFlag("off")
-    const off = structured(await searchCall({ workspaces: ["ready"] }))
+    const query = "who owns checkout in the shadow"
+    const off = structured(await searchCall({ workspaces: ["ready"], query }))
     await setFlag("shadow")
-    const answered = structured(await searchCall({ workspaces: ["ready"] }))
+    const answered = structured(
+      await searchCall({ workspaces: ["ready"], query }),
+    )
     expect(answered).toEqual(off)
     await vi.waitFor(
       () => {
@@ -1376,7 +1551,10 @@ describe("the knowledge reader seam", () => {
 
   it("shadow: get_related logs the comparison of the two rankings", async () => {
     await setFlag("shadow")
-    const result = await relatedCall({ maxDepth: 2 })
+    const result = await relatedCall({
+      maxDepth: 2,
+      query: "what is near checkout in the shadow",
+    })
     expect(result.isError).toBeFalsy()
     await vi.waitFor(
       () => {

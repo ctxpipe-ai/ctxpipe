@@ -1,4 +1,4 @@
-FROM oven/bun:1.4.4-alpine
+FROM oven/bun:1.4.4-alpine@sha256:4cf82f5686b196504fe119db3fcd9185b191f82ece82c40680e597228ec6070a
 
 # Blacksmith CLI v0.4.61: the binary of the build platform from the documented
 # clireleases channel (https://get.blacksmith.sh uses BLACKSMITH_CHANNEL;

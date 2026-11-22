@@ -30,7 +30,7 @@ import {
 const exec = promisify(execFile)
 const docker = async (...args: string[]) =>
   (await exec("docker", args, { timeout: 180_000 })).stdout.trim()
-const image = `${pins.falkordb.image}@${pins.falkordb.digest}`
+const image = `${pins.falkordb.image}:${pins.falkordb.tag}@${pins.falkordb.digest}`
 const password = "transfer-test-password"
 const containers: string[] = []
 let directory: string

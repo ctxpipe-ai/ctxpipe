@@ -155,11 +155,17 @@ describe("runSkillPages", () => {
     expect(changed).toHaveLength(1)
   })
 
-  it("stops datasources-infra, which has no cursor yet, after 20 pages", async () => {
-    const results = Array.from({ length: 25 }, (_, i) => page(i + 1, 30))
-    const state = await pages(null, results, { name: "datasources-infra" })
-    expect(results).toHaveLength(5)
-    expect(state).toMatchObject({ ops: 20, partial: 1 })
+  it("runs datasources-infra by its cursor, for more than 20 pages, to the end of its input (CTX-1487)", async () => {
+    const results = [
+      ...Array.from({ length: 25 }, (_, i) => page(i + 1, 30)),
+      page(30, 30, false),
+    ]
+    const state = await pages(null, results, {
+      name: "datasources-infra",
+      cursor: { finder: "find-stores.mjs" },
+    })
+    expect(results).toEqual([])
+    expect(state).toMatchObject({ ops: 26, partial: 0 })
   })
 
   it("stops a skill with no cursor as partial when its one page says more, and keeps the ops of the page (CTX-1487)", async () => {

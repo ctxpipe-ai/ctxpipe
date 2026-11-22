@@ -67,8 +67,6 @@ const SOURCE_PATH = "sources/github/example-org/shop.md"
 const WORKSPACE_ID = "ws_steps"
 const STUB_PORT = 47813
 const STUB_CALLS = "/tmp/stub-calls.json"
-const AGENT_WRITE = "/tmp/agent-write.mjs"
-const AGENT_CLAIM = "/tmp/agent-claim.mjs"
 const RUN_ID = "run_contract"
 const AUTHOR_TIME = "2026-10-01T00:00:00.000Z"
 const GIT_ENV = {
@@ -176,35 +174,9 @@ http.createServer((req, res) => {
 }).listen(${STUB_PORT}, "127.0.0.1")
 `
 
-/** The agent's write: stage a path, then write base64 text to the staged copy. */
-const AGENT_WRITE_SCRIPT = `
-import { execFileSync } from "node:child_process"
-import { writeFileSync } from "node:fs"
-const [path, text] = process.argv.slice(2)
-const out = execFileSync("ctxpipe-stage", [path]).toString().trim()
-writeFileSync(out.split(" ").pop(), Buffer.from(text, "base64").toString("utf8"))
-`
-
-/** The agent's additive edit: stage a path, then add one claim item (base64 YAML) to its claims. */
-const AGENT_CLAIM_SCRIPT = `
-import { execFileSync } from "node:child_process"
-import { readFileSync, writeFileSync } from "node:fs"
-const [path, claim] = process.argv.slice(2)
-const staged = execFileSync("ctxpipe-stage", [path]).toString().trim().split(" ").pop()
-const text = readFileSync(staged, "utf8")
-const item = Buffer.from(claim, "base64").toString("utf8")
-writeFileSync(staged, /^claims:\\n/m.test(text)
-  ? text.replace(/^claims:\\n/m, "claims:\\n" + item)
-  : text.replace(/\\n---\\n/, "\\nclaims:\\n" + item + "---\\n"))
-`
-
 function quote(value: string) {
   return `'${value.replaceAll("'", `'\\''`)}'`
 }
-
-/** A bash call that writes one context file as the agent. */
-const agentWrite = (path: string, text: string) =>
-  `node ${AGENT_WRITE} ${quote(path)} ${Buffer.from(text).toString("base64")}`
 
 let host: string
 let handle: SandboxHandle
@@ -385,12 +357,6 @@ async function hostSkill(input: {
   }
 }
 
-/** A bash call that adds one claim to the staged copy of a context file, as the agent. */
-const agentClaim = (path: string, claim: object) =>
-  `node ${AGENT_CLAIM} ${quote(path)} ${Buffer.from(
-    stringify([claim]).replace(/^/gm, "  ").replace(/ +$/, ""),
-  ).toString("base64")}`
-
 beforeAll(async () => {
   host = mkdtempSync(join(tmpdir(), "ingest-skill-steps-"))
   source = hostRepo(SOURCE)
@@ -521,11 +487,9 @@ beforeAll(async () => {
     now: new Date("2026-10-01T00:00:00Z"),
   })
   await handle.fs.write(STUB_CALLS, "[]")
-  await handle.fs.write(AGENT_WRITE, AGENT_WRITE_SCRIPT)
-  await handle.fs.write(AGENT_CLAIM, AGENT_CLAIM_SCRIPT)
   await handle.fs.write("/tmp/stub-model.mjs", STUB_MODEL)
   await handle.process.exec(
-    "chmod 644 /tmp/stub-calls.json /tmp/agent-write.mjs /tmp/agent-claim.mjs && nohup node /tmp/stub-model.mjs >/tmp/stub.out 2>&1 &",
+    "chmod 644 /tmp/stub-calls.json && nohup node /tmp/stub-model.mjs >/tmp/stub.out 2>&1 &",
   )
   const ready = await handle.process.exec(
     `for i in $(seq 1 50); do node -e "require('net').connect(${STUB_PORT},'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))" && exit 0; sleep 0.2; done; exit 1`,
@@ -694,27 +658,26 @@ describe("one ingestion run of each skill through the host path (Docker)", () =>
 
   it("datasources-infra: the repository-wide step writes the shared store file and READS_FROM from the App", async () => {
     const store = "knowledge/databases/postgresql-for-web.md"
-    // The agent never writes a host field (generated_by, sources, root).
-    const storeText = front(
-      {
-        kind: "Database",
-        name: "PostgreSQL for web",
-        summary: "Primary relational store of the web app.",
-      },
-      "# PostgreSQL for web\n\nRole: primary store. The web app reads it through the `pg` driver.\n",
-    )
+    // The model writes only the plan. The writer writes the files.
+    const plan = {
+      items: [
+        {
+          id: "Database:postgres",
+          name: "PostgreSQL for web",
+          role: "primary",
+          summary: "Primary relational store of the web app.",
+          roots: [{ root: "apps/web", predicate: "READS_FROM" }],
+        },
+      ],
+    }
     const step = await hostSkill({
       skill: "datasources-infra",
       scope: "repository",
       root: null,
       calls: (args) => [
         `node /ctxpipe/skills/datasources-infra/scripts/find-stores.mjs ${args}`,
-        agentWrite(store, storeText),
-        agentClaim(WEB_APP, {
-          to: "../databases/postgresql-for-web.md",
-          predicate: "READS_FROM",
-          evidence: { path: "apps/web/package.json", kind: "script" },
-        }),
+        `printf %s ${quote(JSON.stringify(plan))} > /ctxpipe/home/stores-plan.json`,
+        `node /ctxpipe/skills/datasources-infra/scripts/write-stores.mjs ${args} --plan /ctxpipe/home/stores-plan.json`,
       ],
       ref: ASSEMBLED,
       runBase: pinned,

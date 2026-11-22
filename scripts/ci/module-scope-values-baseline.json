@@ -1,14 +1,8 @@
 {
   "apps/backend/ingest-skills/apis/scripts/apis-lib.mjs": [
     "AST_GREP_TIMEOUT_MS",
-    "MAX_SPEC_LINES",
     "MAX_YAML_LINE",
     "UPPER_METHODS"
-  ],
-  "apps/backend/ingest-skills/datasources-infra/scripts/find-stores.mjs": [
-    "MAX_EVIDENCE",
-    "MAX_EXISTING",
-    "MAX_SKIPPED"
   ],
   "apps/backend/ingest-skills/decisions/scripts/decision-parse.mjs": [
     "MAX_STATUS_TEXT"
@@ -44,10 +38,7 @@
   ],
   "apps/backend/src/domain/ingestion/patch-validator.ts": ["MAX_DELETE_SHARE"],
   "apps/backend/src/domain/ingestion/secret-scan.ts": ["MAX_TOKEN"],
-  "apps/backend/src/domain/upgrades/reingest.ts": [
-    "REINGEST_WORKFLOW_NAME",
-    "RUN_KEY_PREFIX"
-  ],
+  "apps/backend/src/domain/upgrades/reingest.ts": ["RUN_KEY_PREFIX"],
   "apps/backend/src/domain/workspace-sources/source-file-text.ts": [
     "MAX_ALIAS_COUNT"
   ],

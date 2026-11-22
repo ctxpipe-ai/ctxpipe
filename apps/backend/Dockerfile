@@ -1,5 +1,5 @@
 # Build from monorepo root: docker build -f apps/backend/Dockerfile .
-FROM node:26.13.1-alpine AS opencode
+FROM node:26.13.1-alpine3.24@sha256:6bd9ab43c0ec0190ca7b2d193906cb8b7edf6e7f4afa43ddeccd6452710bffb5 AS opencode
 RUN npm install -g opencode-ai@1.19.5
 
 # The converter of the knowledge plane (apps/backend/converter, CTX-1433),
@@ -10,7 +10,7 @@ RUN npm install -g opencode-ai@1.19.5
 # source rebuilds only the converter crate. g++ gives the static C++ runtime
 # that vectorscan links; curl downloads the vectorscan prebuilt, which its
 # build script checks by SHA-256.
-FROM rust:1.99.1-alpine3.22 AS converter
+FROM rust:1.99.1-alpine3.22@sha256:9a744dc47d1ac2a7d17fc3cedfc8b4928b1696dfcba3274ab25bfb40988a9ff0 AS converter
 RUN apk add --no-cache musl-dev g++ curl
 WORKDIR /converter
 COPY apps/backend/converter/Cargo.toml apps/backend/converter/Cargo.lock apps/backend/converter/rust-toolchain.toml ./
@@ -21,12 +21,12 @@ COPY apps/backend/converter ./
 # the empty main: touch them, so that Cargo builds the real source.
 RUN touch build.rs src/*.rs && cargo build --release --locked
 
-FROM oven/bun:1.4.4-alpine AS deps
+FROM oven/bun:1.4.4-alpine@sha256:4cf82f5686b196504fe119db3fcd9185b191f82ece82c40680e597228ec6070a AS deps
 WORKDIR /app
 ENV CI=true
 # pnpm is a Node CLI. Running it through Bun can stall during lifecycle scripts.
 RUN apk add --no-cache nodejs
-RUN bun install -g pnpm@10.12.1
+RUN bun install -g pnpm@11.28.11
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* tsconfig.json ./
 COPY patches patches
 COPY apps/backend/package.json apps/backend/package.json
@@ -50,7 +50,7 @@ COPY apps/backend/src/retrieval/services/openRouterProvider.ts apps/backend/src/
 RUN bun build apps/backend/evals/mcp/run.ts --target=bun --outfile /out/run.bundle.js
 
 # Production stage — Bun runs TypeScript natively, no tsc compilation needed
-FROM oven/bun:1.4.4-alpine
+FROM oven/bun:1.4.4-alpine@sha256:4cf82f5686b196504fe119db3fcd9185b191f82ece82c40680e597228ec6070a
 WORKDIR /app
 ENV CI=true
 ENV NODE_ENV=production

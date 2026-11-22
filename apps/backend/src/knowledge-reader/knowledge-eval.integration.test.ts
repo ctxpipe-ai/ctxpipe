@@ -81,6 +81,8 @@ const unitText = (unit: Unit) => `${unit.title}\n\n${unit.body}`
 
 /** The model requests that reached msw, by kind. */
 const requests = { jev: 0, embedding: 0 }
+/** The embedding requests of the old stack (its own dimension). */
+let legacyEmbeddings = 0
 
 /**
  * The fixed Jev replies. The layer judge gives a high p(answers) and
@@ -143,6 +145,7 @@ const models = setupServer(
     }
     // Both stacks use one model; the plane asks for its own dimension.
     const plane = body.dimensions === textEmbeddingConfig.dimensions
+    if (!plane) legacyEmbeddings += 1
     return HttpResponse.json({
       data: body.input.map((input, index) => ({
         index,
@@ -440,8 +443,9 @@ describe("the knowledge eval harness", () => {
         },
       },
       // Jev: 1 call for a search; 4 or 5 for get_related (the layers, and
-      // one call for the disagreement facts). Embeddings: 1 for a search, 1
-      // for get_related.
+      // one call for the disagreement facts). Embeddings of the old stack:
+      // 1 for a search, 1 for get_related. The plane keeps the vector of the
+      // search, and get_related asks the same text: 1 for each question.
       calls: [
         {
           arm: "legacy",
@@ -466,7 +470,7 @@ describe("the knowledge eval harness", () => {
           split: "dev",
           jev: 2.25,
           jevQuestions: 34,
-          embedding: 1.375,
+          embedding: 1,
           errors: 0,
           partial: 0,
         },
@@ -475,14 +479,14 @@ describe("the knowledge eval harness", () => {
           split: "holdout",
           jev: 3,
           jevQuestions: 39.25,
-          embedding: 1.5,
+          embedding: 1,
           errors: 0,
           partial: 0,
         },
       ],
-      // 30 Jev calls at $0.001, and 34 embedding calls with no cost in the
+      // 30 Jev calls at $0.001, and 29 embedding calls with no cost in the
       // answer, at the upper estimate of $0.001.
-      costUsd: 0.064,
+      costUsd: 0.059,
     })
     const markdown = await readFile(join(folder, "live", "report.md"), "utf8")
     const firstTable = markdown.slice(markdown.indexOf("\n## "))
@@ -524,13 +528,124 @@ describe("the knowledge eval harness", () => {
     expect(jev).toHaveLength(30)
     expect(JSON.parse(jev[0]?.response ?? "{}")).toHaveProperty("answers")
     expect(kept.calls.filter((call) => call.kind === "embedding")).toHaveLength(
-      34,
+      29,
     )
     // Each client of both arms sent the provider block (ADR-070).
     for (const call of kept.calls)
       expect(call.request).toMatchObject({
         provider: { data_collection: "deny", zdr: true },
       })
+  })
+
+  it("--baseline-from: reuses the stored answers of the old stack, and runs only the plane", async () => {
+    const stored = await readRun(join(folder, "live"))
+    const before = legacyEmbeddings
+    const candidate = await run("candidate", {
+      // Another clock: the run takes the query time of the stored run.
+      now: new Date("2027-01-01T00:00:00.000Z"),
+      baseline: { folder: join(folder, "live"), run: stored },
+    })
+    // The old stack made no call.
+    expect(legacyEmbeddings).toBe(before)
+    expect(candidate.status).toBe("complete")
+    expect(candidate.run.now).toBe(stored.manifest.now)
+    expect(candidate.run.baselineFrom).toBe(join(folder, "live"))
+    const recorded = await readRun(join(folder, "candidate"))
+    const legacy = (answers: typeof stored.answers) =>
+      answers.filter((answer) => answer.arm === "legacy")
+    expect(legacy(recorded.answers)).toEqual(legacy(stored.answers))
+    // The folder keeps the calls of the reused answers for a replay.
+    expect(recorded.calls.filter((call) => call.arm === "legacy")).toEqual(
+      stored.calls.filter((call) => call.arm === "legacy"),
+    )
+    // The same answers of both arms give the same comparison.
+    expect(compact(candidate).comparison).toEqual(compact(live).comparison)
+    expect(
+      await readFile(join(folder, "candidate", "report.md"), "utf8"),
+    ).toContain(
+      `The baseline answers are the stored answers of ${join(folder, "live")}`,
+    )
+  })
+
+  it("--baseline-from: refuses another dataset version, other labels, another snapshot, or a missing answer", async () => {
+    const stored = await readRun(join(folder, "live"))
+    const before = { ...requests }
+    const from = (run: typeof stored) => ({
+      baseline: { folder: join(folder, "live"), run },
+    })
+    await expect(
+      run(
+        "refused",
+        from({
+          ...stored,
+          manifest: { ...stored.manifest, datasetVersion: "other" },
+        }),
+      ),
+    ).rejects.toThrow(/has dataset version other, and the run has version/)
+    const [first, ...rest] = stored.dataset.questions
+    if (!first) throw new Error("The dataset has no question")
+    await expect(
+      run(
+        "refused",
+        from({
+          ...stored,
+          dataset: {
+            ...stored.dataset,
+            questions: [
+              { ...first, gold: [...first.gold, "other.md"] },
+              ...rest,
+            ],
+          },
+        }),
+      ),
+    ).rejects.toThrow(`has other labels for the question ${first.id}`)
+    await expect(
+      run(
+        "refused",
+        from({
+          ...stored,
+          dataset: {
+            ...stored.dataset,
+            corpora: stored.dataset.corpora.map((corpus) => ({
+              ...corpus,
+              contextRepo: { ...corpus.contextRepo, sha: "e".repeat(40) },
+            })),
+          },
+        }),
+      ),
+    ).rejects.toThrow(/has another snapshot of the corpus/)
+    await expect(
+      run(
+        "refused",
+        from({
+          ...stored,
+          answers: stored.answers.filter(
+            (answer) =>
+              !(answer.arm === "legacy" && answer.question === first.id),
+          ),
+        }),
+      ),
+    ).rejects.toThrow(
+      `has no complete answer of the old stack to the question ${first.id}`,
+    )
+    // An answer with a failed call is no baseline either.
+    await expect(
+      run(
+        "refused",
+        from({
+          ...stored,
+          answers: stored.answers.map((answer) =>
+            answer.arm === "legacy" && answer.question === first.id
+              ? { ...answer, calls: { ...answer.calls, failed: 1 } }
+              : answer,
+          ),
+        }),
+      ),
+    ).rejects.toThrow(
+      `has no complete answer of the old stack to the question ${first.id}`,
+    )
+    // A refusal comes before any call.
+    expect(requests).toEqual(before)
   })
 
   it("scores a new threshold again from the kept calls, with no model call", async () => {
@@ -563,20 +678,19 @@ describe("the knowledge eval harness", () => {
       pageBytes,
     })
     expect(page(rescored.checks.plane)).toEqual(page(live.checks.plane))
-    // At 0.95, get_related on the plane keeps no document (Jev gave 0.9),
-    // so each question with seeds gets worse; a no-answer stays correct.
+    // At 0.95, no document of get_related on the plane answers (Jev gave
+    // 0.9). A gold document stays a step, because Jev gave it a p(explore)
+    // of 0.9 (CTX-1534), so traversal recall stays. The questions with
+    // positions get worse, because the disagreement step compares only the
+    // answers. A no-answer stays correct.
     expect(
       rescored.questions
         .filter((question) => question.change !== "same")
         .map(({ arm, question, change }) => ({ arm, question, change })),
     ).toEqual(
-      [
-        "local-dev-infra",
-        "agent-memory",
-        "hosted-region",
-        "ops-observability",
-        "knowledge-store",
-      ].map((question) => ({ arm: "plane", question, change: "worse" })),
+      ["local-dev-infra", "agent-memory", "ops-observability"].map(
+        (question) => ({ arm: "plane", question, change: "worse" }),
+      ),
     )
     expect(
       rescored.questions.find(
@@ -585,7 +699,8 @@ describe("the knowledge eval harness", () => {
       )?.metrics.noAnswer,
     ).toBe(1)
     // The keep-or-revert rule reads the plane against the kept run: the
-    // hold-out set gets worse, and a replay gives no latency guard.
+    // positions of the hold-out set get worse, and a replay gives no
+    // latency guard.
     const round = (values: Record<string, number | null>) =>
       Object.fromEntries(
         Object.entries(values).map(([key, value]) => [
@@ -606,7 +721,7 @@ describe("the knowledge eval harness", () => {
           "positions": -1,
           "recall5": 0,
           "searchRecall50": 0,
-          "traversalRecall": -1,
+          "traversalRecall": 0,
         },
         "kept": {
           "ndcg10": 1,
@@ -622,7 +737,7 @@ describe("the knowledge eval harness", () => {
           "positions": 0,
           "recall5": 1,
           "searchRecall50": 1,
-          "traversalRecall": 0,
+          "traversalRecall": 1,
         },
         "questions": 4,
         "split": "holdout",
@@ -648,7 +763,7 @@ describe("the knowledge eval harness", () => {
           ...latency,
           jevCallsPerQuestion: 2.25,
           jevQuestionsPerQuestion: 34,
-          costPerQuestionUsd: 0.004,
+          costPerQuestionUsd: 0.003,
           errors: 0,
         },
         now: {
@@ -656,7 +771,7 @@ describe("the knowledge eval harness", () => {
           relatedP95Ms: null,
           jevCallsPerQuestion: 1.875,
           jevQuestionsPerQuestion: 31.75,
-          costPerQuestionUsd: 0.003,
+          costPerQuestionUsd: 0.002,
           errors: 0,
         },
       },
@@ -667,7 +782,7 @@ describe("the knowledge eval harness", () => {
           ...latency,
           jevCallsPerQuestion: 3,
           jevQuestionsPerQuestion: 39.25,
-          costPerQuestionUsd: 0.005,
+          costPerQuestionUsd: 0.004,
           errors: 0,
         },
         now: {
@@ -675,7 +790,7 @@ describe("the knowledge eval harness", () => {
           relatedP95Ms: null,
           jevCallsPerQuestion: 2.5,
           jevQuestionsPerQuestion: 34,
-          costPerQuestionUsd: 0.004,
+          costPerQuestionUsd: 0.003,
           errors: 0,
         },
       },
@@ -686,7 +801,7 @@ describe("the knowledge eval harness", () => {
     )
     expect(markdown).toContain("## The plane against the kept run")
     expect(markdown).toContain(
-      "| holdout | all | 4 | traversal recall | 1.000 | 0.000 | -1.000 |",
+      "| holdout | all | 4 | positions correct | 1.000 | 0.000 | -1.000 |",
     )
     expect(markdown).toContain(
       "| holdout | 4 | Jev calls / question | 3.000 | 2.500 | -0.500 |",

@@ -18,8 +18,7 @@
 # cache mounts. A second build of the same revision takes some seconds.
 
 # ── Toolchain ───────────────────────────────────────────────────────────────
-# debian:bookworm-slim
-FROM debian@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3 AS toolchain
+FROM debian:bookworm-20261027-slim@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3 AS toolchain
 ARG TARGETARCH
 # Bazel downloads the LLVM toolchain of each project. The toolchain compiles
 # against the headers and the GLIBC of this image. The upstream release
@@ -100,8 +99,7 @@ RUN --mount=type=cache,id=bazel-scip-ruby-${TARGETARCH},target=/home/builder/.ca
   && echo "scip-ruby ${TARGETARCH} build: $(( $(date +%s) - start )) s"
 
 # ── Verify on the codesearch runtime OS ─────────────────────────────────────
-# debian:bookworm-slim
-FROM debian@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3 AS verify
+FROM debian:bookworm-20261027-slim@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3 AS verify
 RUN apt-get update && apt-get install -y --no-install-recommends \
     binutils \
     clang \

@@ -101,18 +101,21 @@ export type FileVersionKey = { docKey: string; version: string }
 
 /**
  * The fields of a document that the content of its file gives. The tree
- * gives the status of the path, `deletedAt` and `validFrom` (ADR-071
- * decision 3).
+ * gives the status of the path and `deletedAt` (ADR-071 decision 3).
+ * `validFrom` is the source's own time of the file (`sourceTime`), or null
+ * when it states none: the `validFrom` of the tree row is this time, else
+ * the time of the commit that introduced the file on the branch.
  */
 export type FileDocument = Omit<
   KnowledgeDocument,
-  "status" | "deletedAt" | "error" | "validFrom"
+  "status" | "deletedAt" | "error"
 >
 
 /**
  * A relation that a file version states. With `validFromIntroduced`, the
- * read takes `validFrom` from the tree row of the source: the time of the
- * commit that introduced the file on the branch.
+ * read takes `validFrom` from the tree row of the source: the source time
+ * of the file, else the time of the commit that introduced the file on the
+ * branch.
  */
 export type FileRelation = Omit<KnowledgeRelation, "srcDoc"> & {
   validFromIntroduced: boolean
@@ -141,6 +144,8 @@ export type StoredFileVersion = {
   status: "active" | "failed"
   kind: string
   observedAt: Date
+  /** The source time of the file (`FileDocument.validFrom`). */
+  validFrom: Date | null
   validTo: Date | null
 }
 
@@ -660,6 +665,7 @@ type StoredVersionRecord = FileVersionKey & {
   status: "active" | "failed"
   kind: string
   observedAt: string
+  validFrom: string | null
   validTo: string | null
 }
 
@@ -674,7 +680,8 @@ async function findFileVersions(
       client,
       scope,
       `SELECT doc_key AS docKey, version, status, kind,
-         observed_at AS observedAt, valid_to AS validTo
+         observed_at AS observedAt, valid_from AS validFrom,
+         valid_to AS validTo
        FROM documents
        WHERE ${scoped}
          AND (doc_key, version) IN {keys:Array(Tuple(String, String))}`,
@@ -684,6 +691,7 @@ async function findFileVersions(
         status: row.status,
         kind: row.kind,
         observedAt: new Date(row.observedAt),
+        validFrom: toDate(row.validFrom),
         validTo: toDate(row.validTo),
       })
   return found
@@ -756,6 +764,7 @@ type TableRows = {
     source: string
     summary: string
     mime: string
+    valid_from: string | null
     valid_to: string | null
     observed_at: string
   }
@@ -894,6 +903,7 @@ async function insertRows(
       source: document.source,
       summary: document.summary,
       mime: document.mime,
+      valid_from: isoOrNull(document.validFrom),
       valid_to: isoOrNull(document.validTo),
       observed_at: document.observedAt.toISOString(),
     })),
@@ -1658,7 +1668,7 @@ async function readFrontier(
     RelationRecord & {
       direction: "out" | "in"
       workspaceId: string
-      neighbor: DocumentRecord
+      neighborDoc: string
       viaKey: string
     }
   >(
@@ -1717,26 +1727,13 @@ async function readFrontier(
        INNER JOIN own_keys AS k
          ON k.workspace_id = i.workspace_id AND k.target = i.dst_doc
      )
-     SELECT DISTINCT edges.direction AS direction,
-       edges.via_key AS viaKey,
-       edges.workspace_id AS workspaceId,
-       edges.src_doc AS srcDoc, edges.src_chunk AS srcChunk,
-       edges.predicate AS predicate, edges.dst_doc AS dstDoc,
-       edges.confidence AS confidence, edges.valid_from AS validFrom,
-       edges.valid_to AS validTo, edges.source AS source,
-       edges.alt_text AS altText,
-       edges.observed_at AS observedAt, neighbors.document AS neighbor
+     SELECT DISTINCT direction, via_key AS viaKey,
+       workspace_id AS workspaceId, neighbor_doc AS neighborDoc,
+       src_doc AS srcDoc, src_chunk AS srcChunk, predicate,
+       dst_doc AS dstDoc, confidence, valid_from AS validFrom,
+       valid_to AS validTo, source, alt_text AS altText,
+       observed_at AS observedAt
      FROM edges
-     LEFT JOIN (
-       SELECT v.workspace_id AS workspace_id, v.doc_key AS doc_key,
-         v.valid_from AS valid_from, v.valid_to AS valid_to,
-         tuple(${viewDocumentColumns}) AS document
-       FROM ${viewDocumentsFrom(`(workspace_id, doc_key) IN (
-         SELECT workspace_id, neighbor_doc FROM edges)`)}
-     ) AS neighbors
-       ON neighbors.workspace_id = edges.workspace_id
-       AND neighbors.doc_key = edges.neighbor_doc
-     WHERE ${validDuring("neighbors.")}
      ORDER BY direction DESC, workspaceId, srcDoc, srcChunk, predicate, dstDoc`,
     {
       refs: refTuples(refs),
@@ -1744,13 +1741,43 @@ async function readFrontier(
       prefix: REFERENCE_TARGET_PREFIX,
     },
   )
+  // The neighbor documents and the mention counts are two more queries, in
+  // parallel. A join of the neighbors in the edge query evaluated the edges
+  // two more times (ClickHouse inlines each use of a CTE): 440 ms against
+  // 105 ms for the edges alone on the question set v0 (CTX-1535).
   const mentionKeys = new Map<string, [string, string]>()
-  for (const { workspaceId, viaKey } of rows)
+  const neighborRefs = new Map<string, DocumentRef>()
+  for (const { workspaceId, viaKey, neighborDoc } of rows) {
     if (viaKey)
       mentionKeys.set(keyId(workspaceId, viaKey), [workspaceId, viaKey])
-  const stats = await readMentionStats(client, scope, [...mentionKeys.values()])
+    const ref = { workspaceId, docKey: neighborDoc }
+    neighborRefs.set(documentId(ref), ref)
+  }
+  const [neighbors, stats] = await Promise.all([
+    readDocuments(client, scope, [...neighborRefs.values()]),
+    readMentionStats(client, scope, [...mentionKeys.values()]),
+  ])
+  const neighborOf = new Map(
+    neighbors.map(({ workspaceId, document }) => [
+      documentId({ workspaceId, docKey: document.docKey }),
+      document,
+    ]),
+  )
   const relations = new Map<string, FrontierRelation>()
-  for (const { direction, workspaceId, neighbor, viaKey, ...row } of rows) {
+  for (const { direction, workspaceId, neighborDoc, viaKey, ...row } of rows) {
+    const neighbor = neighborOf.get(
+      documentId({ workspaceId, docKey: neighborDoc }),
+    )
+    // A neighbor that is not valid at `validAt` leaves its relation out, as
+    // `validDuring` in SQL (open ends count). A target with no row in the
+    // view is `missing`, and it stays.
+    if (
+      neighbor &&
+      validAtTime &&
+      ((neighbor.validFrom && neighbor.validFrom > validAtTime) ||
+        (neighbor.validTo && neighbor.validTo <= validAtTime))
+    )
+      continue
     const relation = toRelation(row)
     const counts = viaKey && stats.get(keyId(workspaceId, viaKey))
     if (counts) relation.confidence = mentionConfidence(row.confidence, counts)
@@ -1771,11 +1798,9 @@ async function readFrontier(
       direction,
       workspaceId,
       relation,
-      // Without a match, the LEFT JOIN gives a tuple of default values: the
-      // view has no row for the target, so it is `missing`.
-      neighbor: neighbor.docKey
-        ? toDocument(neighbor)
-        : missingDocument(relation.dstDoc, relation.observedAt),
+      // The view has no row for the target, so it is `missing`.
+      neighbor:
+        neighbor ?? missingDocument(relation.dstDoc, relation.observedAt),
     })
   }
   return [...relations.values()]

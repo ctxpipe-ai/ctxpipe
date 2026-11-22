@@ -212,13 +212,6 @@ export type IngestionShardOutput = {
 
 /** At most 2 retries for each step (concept section 8). */
 const STEP_ATTEMPTS = 3
-/**
- * The page limit of `datasources-infra` only; then it is `partial` (ADR-052
- * section 6). It has no cursor yet: a later change of CTX-1487 gives it one
- * and removes this limit. A cursor skill has no page count, and each other
- * skill has one page (CTX-1487).
- */
-export const INGEST_MAX_PAGES = 20
 
 type StepResult = (
   | {
@@ -579,8 +572,8 @@ type SkillPages = {
  * loop sooner.
  *
  * A skill with no cursor has one page: when its page says `more`, the skill
- * stops as `partial` and keeps the ops of the page. Only `datasources-infra`
- * keeps the limit of `INGEST_MAX_PAGES` until it gets a cursor.
+ * stops as `partial` and keeps the ops of the page. No skill has a page
+ * count.
  */
 export async function runSkillPages(ctx: SkillPages): Promise<void> {
   const { state } = ctx
@@ -597,12 +590,7 @@ export async function runSkillPages(ctx: SkillPages): Promise<void> {
   )
   let cursorAt = 0
   let cursorOf: number | undefined
-  const maxPages = ctx.skill.cursor
-    ? Number.POSITIVE_INFINITY
-    : ctx.skill.name === "datasources-infra"
-      ? INGEST_MAX_PAGES
-      : 1
-  for (let page = 1; page <= maxPages; page++) {
+  for (let page = 1; ctx.skill.cursor || page === 1; page++) {
     const name = skillStepName(
       ctx.root,
       ctx.skill.name,
@@ -670,9 +658,7 @@ export async function runSkillPages(ctx: SkillPages): Promise<void> {
   logStepPartial(
     ctx,
     label,
-    maxPages === 1
-      ? "Page 1 said more, but the skill has one page"
-      : `The skill still had files after ${maxPages} pages`,
+    "Page 1 said more, but the skill has one page",
     seen.executionAttempt,
   )
 }

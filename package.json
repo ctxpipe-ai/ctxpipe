@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "license": "MIT",
-  "packageManager": "pnpm@10.12.1",
+  "packageManager": "pnpm@11.28.11",
   "engines": {
     "bun": "^1.4.4",
     "node": "^26"
@@ -57,15 +57,5 @@
     "turbo": "^2.10.9",
     "typescript": "^6.0.3",
     "yaml": "2.8.2"
-  },
-  "pnpm": {
-    "overrides": {
-      "@daveyplate/better-auth-ui>better-call": "1.4.6",
-      "@luma.gl/core": "9.2.6",
-      "@luma.gl/engine": "9.2.6",
-      "@luma.gl/webgl": "9.2.6",
-      "@luma.gl/shadertools": "9.2.6",
-      "@luma.gl/constants": "9.2.6"
-    }
   }
 }
