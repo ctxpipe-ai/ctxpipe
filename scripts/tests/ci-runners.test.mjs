@@ -122,10 +122,10 @@ test("the repository workflows pass", () => {
   assert.equal(result.status, 0, result.stderr)
 })
 
-// ADR-065: the light jobs, the test shards, the screenshots and the light
-// deploy jobs run on free GitHub-hosted arm runners. The other jobs that use
-// Docker stay on Blacksmith. The tests below check the Docker of the
-// GitHub-hosted jobs, not the choice of each label.
+// ADR-065: the light jobs, the test shards, the screenshots, the Storybook
+// plays and the light deploy jobs run on free GitHub-hosted arm runners. The
+// other jobs that use Docker stay on Blacksmith. The tests below check the
+// Docker of the GitHub-hosted jobs, not the choice of each label.
 const ci = parse(
   readFileSync(
     fileURLToPath(new URL("../../.github/workflows/ci.yaml", import.meta.url)),

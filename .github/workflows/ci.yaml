@@ -1089,7 +1089,8 @@ jobs:
       (github.event_name == 'workflow_dispatch' ||
       github.event_name == 'pull_request') &&
       needs.merge-gate-plan.outputs.mode != 'gate'
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    # github-hosted: Playwright runs on the runner, without Docker (ADR-065)
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -1134,7 +1135,8 @@ jobs:
       github.event_name == 'schedule' ||
       github.event_name == 'pull_request') &&
       (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.storybook-plays != '')
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    # github-hosted: Playwright runs on the runner, without Docker (ADR-065)
+    runs-on: ubuntu-24.04-arm
     # The id of the result artifact of each shard: the job Nightly tickets
     # downloads only these, not an artifact of another job with the same name.
     outputs:

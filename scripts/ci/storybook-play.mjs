@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from "node:fs"
+import { readFileSync, statfsSync, statSync } from "node:fs"
 import { createServer } from "node:http"
 import { createRequire } from "node:module"
 import { basename, dirname, extname, join } from "node:path"
@@ -72,6 +72,28 @@ export const waitFor = async (url) => {
     await new Promise((resolveWait) => setTimeout(resolveWait, 250))
   }
   throw new Error(`Storybook did not become ready at ${url}`)
+}
+
+// Chromium keeps the memory that its processes share (for example the body
+// of each response that the MSW service worker gives the page) in /dev/shm.
+// Playwright starts Chromium with --disable-dev-shm-usage, because a Docker
+// container has a /dev/shm of only 64 MB. Then Chromium keeps that memory in
+// files in /tmp. On a GitHub-hosted runner, /tmp is on the disk. About 30 s
+// after the installs of the job, the kernel writes their changed pages (about
+// 1 GB) to the disk. While it writes, a page waited up to 2 s on its shared
+// memory, and a play that waited 1 s for its first data failed (CTX-1505).
+// Thus Chromium uses /dev/shm when it is a memory file system (tmpfs) with
+// 1 GB or more free: on a Linux host and in the capture container, which
+// shares the memory of the host (`--ipc=host`, visual-capture.mjs). macOS has
+// no /dev/shm. A test gives its own `statfs` function.
+export const usesDevShm = (statfs = () => statfsSync("/dev/shm")) => {
+  let stats
+  try {
+    stats = statfs()
+  } catch {
+    return false
+  }
+  return stats.type === 0x01021994 && stats.bavail * stats.bsize >= 1024 ** 3
 }
 
 // The browser context of every play. The time zone, the locale and the pixel
@@ -314,6 +336,9 @@ export async function playStories(
     // that part can anti-alias a rounded corner one step lighter or darker
     // than a full draw, so the pixels depend on what changed before the shot.
     args: ["--lang=de-DE", "--disable-partial-raster"],
+    ...(usesDevShm() && {
+      ignoreDefaultArgs: ["--disable-dev-shm-usage"],
+    }),
   })
   try {
     for (const story of stories) {
