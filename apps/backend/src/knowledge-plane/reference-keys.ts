@@ -16,6 +16,7 @@ import {
 import { resolveHydrateLink } from "../domain/workspaces/hydrate.js"
 import {
   confluencePageIdOfPath,
+  githubBlobOf,
   mirrorUnitKeys,
   parseNotionPageUrl,
 } from "../domain/workspaces/mirror-units.js"
@@ -24,7 +25,6 @@ import {
   mergedPullRequest,
   sourceRepositoriesOf,
 } from "../domain/workspaces/pull-request-changes.js"
-import { normalizeWorkspaceRepositoryUrl } from "../domain/workspaces/slug.js"
 
 /**
  * The reference keys of one file (ADR-066 decision 5, CTX-1400). Some links
@@ -212,18 +212,17 @@ function mentionLinks(input: {
     if (name.trim().length > 2) mention(nameKey(name), confidence, text)
   }
   // A GitHub permalink of a file names the folders of the file in its own
-  // repository. The ref is one path segment.
+  // repository.
   for (const url of input.urls) {
-    const blob =
-      /^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/blob\/[^/]+\/([^?#]+)/i.exec(
-        url,
-      )
-    if (!blob?.[3]) continue
-    const repository = normalizeWorkspaceRepositoryUrl(
-      `https://github.com/${blob[1]}/${blob[2]}`,
-    )
-    for (const key of folderKeysOf(repository, safeDecode(blob[3])))
-      mention(key, 0.9, url)
+    let blob: ReturnType<typeof githubBlobOf> = null
+    try {
+      blob = githubBlobOf(url)
+    } catch {
+      // A malformed escape in the URL: it names no file.
+    }
+    if (blob)
+      for (const key of folderKeysOf(blob.repository, blob.path))
+        mention(key, 0.9, url)
   }
   // Each other URL is a link of its own, not a path or a name.
   const body = input.urls.reduce(
@@ -248,9 +247,10 @@ function mentionLinks(input: {
       for (const key of folderKeysOf(repository, file))
         mention(key, 0.9, match[0])
   }
-  // A method and a path, also with the path in a code span (GET `/orders`).
+  // A method and a path, also with the path in a code span (GET `/orders/`).
+  // The key of the operation drops an end slash.
   const operation = new RegExp(
-    `\\b(${HTTP_METHODS})\\s+(\`?)(\\/(?:[\\w./{}:-]*[\\w}])?)\\2`,
+    `\\b(${HTTP_METHODS})\\s+(\`?)(\\/(?:[\\w./{}:-]*[\\w}])?\\/?)\\2`,
     "g",
   )
   for (const match of body.matchAll(operation))
@@ -402,14 +402,4 @@ export function fileReferences(input: {
     }))
       add(link)
   return { keys: [...keys].sort(), links: [...links.values()] }
-}
-
-/** The text of a URL path with its escapes decoded, else as it is. */
-function safeDecode(path: string): string {
-  try {
-    return decodeURIComponent(path)
-  } catch {
-    // A malformed escape: the path stays as it is.
-    return path
-  }
 }

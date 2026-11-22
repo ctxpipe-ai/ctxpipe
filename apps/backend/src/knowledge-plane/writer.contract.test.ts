@@ -34,7 +34,6 @@ import {
   createKnowledgeStore,
   type KnowledgeReadScope,
   type KnowledgeStore,
-  mentionConfidence,
   ORG_SETTING,
   REFERENCE_TARGET_PREFIX,
 } from "../knowledge-store/knowledge-store.js"
@@ -1799,10 +1798,11 @@ describe("issue mentions (CTX-1502)", () => {
       }))
       .sort((a, b) => a.neighbor.localeCompare(b.neighbor))
   }
-  // The files of the view: the source, three units and four issues.
-  const files = 8
-  const weight = (confidence: number, sources: number) =>
-    mentionConfidence(confidence, { sources, documents: 1, files })
+  // The weights of a mention with 8 files in the view (the source, three
+  // units and four issues): confidence × ln((8 + 1) / (sources + 1)) /
+  // ln(8 + 1), calculated by hand.
+  const PATH_OF_ONE_FILE = 0.6161 // 0.9, 1 file mentions the key
+  const NAME_OF_THREE_FILES = 0.2953 // 0.8, 3 files mention the key
 
   it("an issue mentions the units that it names, the units link back to it, and a key with no unit is no relation", async () => {
     const remote = await Remote.create()
@@ -1828,13 +1828,13 @@ describe("issue mentions (CTX-1502)", () => {
           direction: "out",
           neighbor: REPOSITORY,
           status: "active",
-          confidence: expect.closeTo(weight(0.8, 3), 5),
+          confidence: expect.closeTo(NAME_OF_THREE_FILES, 3),
         },
         {
           direction: "out",
           neighbor: LIBRARY,
           status: "active",
-          confidence: expect.closeTo(weight(0.9, 1), 5),
+          confidence: expect.closeTo(PATH_OF_ONE_FILE, 3),
         },
       ])
       expect(await mentionsOf(workspaceId, total.path)).toEqual([
@@ -1842,23 +1842,22 @@ describe("issue mentions (CTX-1502)", () => {
           direction: "out",
           neighbor: REPOSITORY,
           status: "active",
-          confidence: expect.closeTo(weight(0.8, 3), 5),
+          confidence: expect.closeTo(NAME_OF_THREE_FILES, 3),
         },
         {
           direction: "out",
           neighbor: OPERATION,
           status: "active",
-          confidence: expect.closeTo(weight(0.9, 1), 5),
+          confidence: expect.closeTo(PATH_OF_ONE_FILE, 3),
         },
       ])
-      expect(weight(0.8, 3)).toBeLessThan(weight(0.8, 1))
       // The back-links of a unit, for `get_related` from the unit.
       expect(await mentionsOf(workspaceId, LIBRARY)).toEqual([
         {
           direction: "in",
           neighbor: stale.path,
           status: "active",
-          confidence: expect.closeTo(weight(0.9, 1), 5),
+          confidence: expect.closeTo(PATH_OF_ONE_FILE, 3),
         },
       ])
       expect(
@@ -1915,11 +1914,8 @@ describe("issue mentions (CTX-1502)", () => {
           direction: "out",
           neighbor: LIBRARY,
           status: "active",
-          // The source, three units and one issue.
-          confidence: expect.closeTo(
-            mentionConfidence(0.8, { sources: 1, documents: 1, files: 5 }),
-            5,
-          ),
+          // 0.8 × ln(6 / 2) / ln(6): the source, three units and one issue.
+          confidence: expect.closeTo(0.4905, 3),
         },
       ])
     } finally {

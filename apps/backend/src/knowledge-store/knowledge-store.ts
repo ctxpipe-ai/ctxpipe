@@ -1747,7 +1747,7 @@ type MentionStats = {
  * key that each file mentions. The counts come from the view of the read,
  * because a stored value cannot depend on other files (ADR-066 decision 5).
  */
-export function mentionConfidence(
+function mentionConfidence(
   confidence: number,
   { sources, documents, files }: MentionStats,
 ): number {
