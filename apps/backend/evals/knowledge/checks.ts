@@ -84,9 +84,6 @@ export const CHECK_INFO: Record<
   },
 }
 
-/** The slots of `get_related` that check 4 reads, as nDCG@10 reads 10 refs. */
-const RELATED_SLOTS = 10
-
 /**
  * The source item of a path (check 1). A connector mirror names an item with
  * a readable part, `--`, and the provider id (`connectorPathSegment`), and
@@ -229,7 +226,8 @@ export function regressionChecks(input: {
               question,
               related: answer.related.refs
                 .filter((ref) => !question.seeds?.includes(ref))
-                .slice(0, RELATED_SLOTS),
+                // The slots of check 4, as nDCG@10 reads 10 refs.
+                .slice(0, 10),
               hubs: answer.related.hubs,
             },
           ]
