@@ -6,6 +6,7 @@ import {
   collectRepositoryCheckouts,
   releaseRunCheckout,
 } from "../../domain/codesearchCheckoutGc.js"
+import { resolveDiscoveredRoots } from "../../domain/ingestion/discovered-roots.js"
 import {
   IngestRefRefusedError,
   type IngestRefusalRule,
@@ -26,8 +27,7 @@ import {
 import {
   INGEST_SHARD_MAX_ROOTS,
   ingestRunSkills,
-  packRoots,
-  planIngestRoots,
+  packRootsWithin,
   plannedIngestSkills,
   unpackRoots,
 } from "../../domain/ingestion/ingestion-plan.js"
@@ -398,26 +398,36 @@ export function defineRepositoryIngestionV2Workflow(
                   destinations,
                 })
                 .discoverRoots()
-              const plan = planIngestRoots(discovered)
+              // No model chooses among ambiguous candidates yet.
+              const plan = resolveDiscoveredRoots(discovered, null)
               for (const refused of plan.refused)
                 logIngestEvent("warn", "ingestion-v2.root-refused", {
                   ingestionRunId: run.id,
                   ...refused,
                 })
-              const packed =
-                plan.partial === undefined ? packRoots(plan.roots) : ""
-              const partial =
-                plan.partial ??
-                (packed.length > 12_000
-                  ? "The root list is too large for one step output"
-                  : undefined)
-              if (partial !== undefined) {
-                logIngestEvent("warn", "ingestion-v2.partial", {
+              // The script records what it did not give, also the roots
+              // that its size limit cut.
+              for (const skipped of plan.skipped)
+                logIngestEvent("warn", "ingestion-v2.discovery-skipped", {
                   ingestionRunId: run.id,
-                  reason: capIngestText(partial),
+                  ...skipped,
                 })
-                return { partial }
-              }
+              // No count limits the roots. The step output keeps the packed
+              // list, so its size is the limit: the whole output stays below
+              // 1 MiB, where the backend starts to warn about a large step
+              // output, with 64 KiB for the bundle name, version, and skill
+              // names. A root that does not fit is refused, with a record.
+              const { packed, left } = packRootsWithin(
+                plan.roots,
+                2 ** 20 - 64 * 1024,
+              )
+              for (const root of left)
+                logIngestEvent("warn", "ingestion-v2.root-refused", {
+                  ingestionRunId: run.id,
+                  path: root.path,
+                  reason:
+                    "The packed root list of the run must be at most 1 MiB",
+                })
               return {
                 bundle: bundle.name,
                 version: bundle.version,

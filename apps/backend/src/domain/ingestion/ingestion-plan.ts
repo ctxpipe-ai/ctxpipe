@@ -3,11 +3,7 @@ import { gunzipSync, gzipSync } from "node:zlib"
 
 import { isDependencyListPart } from "../workspaces/layout.js"
 import type { RootFile } from "./context-index.js"
-import {
-  type DiscoveredRoot,
-  type RefusedRoot,
-  resolveDiscoveredRoots,
-} from "./discovered-roots.js"
+import type { DiscoveredRoot } from "./discovered-roots.js"
 import type { IngestModelTier } from "./ingest-opencode.js"
 import type { IngestRootMap } from "./ingest-shard-runtime.js"
 
@@ -20,29 +16,6 @@ import type { IngestRootMap } from "./ingest-shard-runtime.js"
 
 /** One shard takes at most this many roots (concept section 8). */
 export const INGEST_SHARD_MAX_ROOTS = 20
-
-/** A run plans at most this many roots; above it, the run is `partial`. */
-export const INGEST_MAX_ROOTS = 400
-
-/**
- * The roots of the run: the `discover-roots` script result after the host
- * check (`resolveDiscoveredRoots`, the only check), sorted and with no
- * duplicate. Above `INGEST_MAX_ROOTS` the run plans no root and gives a
- * `partial` reason. No model chooses among ambiguous candidates yet.
- */
-export function planIngestRoots(
-  scriptResult: unknown,
-):
-  | { roots: DiscoveredRoot[]; refused: RefusedRoot[]; partial?: undefined }
-  | { partial: string; refused: RefusedRoot[] } {
-  const { roots, refused } = resolveDiscoveredRoots(scriptResult, null)
-  if (roots.length > INGEST_MAX_ROOTS)
-    return {
-      partial: `discover-roots found ${roots.length} roots; a run takes at most ${INGEST_MAX_ROOTS}`,
-      refused,
-    }
-  return { roots, refused }
-}
 
 export type IngestSkillPlan = {
   name: string
@@ -279,6 +252,28 @@ export function packRoots(roots: readonly PackedRoot[]): string {
       })),
     ),
   ).toString("base64")
+}
+
+/**
+ * The packed list of the first roots that fit in `maxChars`, and the roots
+ * that it leaves out. A step output keeps the packed list, so its size is
+ * the limit, not a count of roots.
+ */
+export function packRootsWithin(
+  roots: readonly PackedRoot[],
+  maxChars: number,
+): { packed: string; left: PackedRoot[] } {
+  const packed = packRoots(roots)
+  if (packed.length <= maxChars) return { packed, left: [] }
+  // The longest start of the list that fits, by binary search.
+  let fits = 0
+  let fails = roots.length
+  while (fails - fits > 1) {
+    const mid = Math.floor((fits + fails) / 2)
+    if (packRoots(roots.slice(0, mid)).length <= maxChars) fits = mid
+    else fails = mid
+  }
+  return { packed: packRoots(roots.slice(0, fits)), left: roots.slice(fits) }
 }
 
 /**

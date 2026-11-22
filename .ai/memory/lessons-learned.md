@@ -616,3 +616,9 @@ Read this when you set up or change a deployment: Railway production or previews
 - **Category:** database
 - **Date:** 2026-11-19
 - **Source:** CTX-1380: a cold knowledge search took 43 s in production after the full-text fix; team lead request
+
+### Ingest has no count limits; a byte or time limit keeps what fits and records the rest
+- **Rule:** Do not limit an ingest step by a count of items (files, roots, importers, pages of a skill). A count limit cuts the real content of a large repository, often with no record, or makes the run plan nothing. Protect against a hostile repository with a byte or a time limit. That limit keeps the items that fit, in a stable order, and records each item that it cut (a `skipped` entry, a refused root with a log, or the next page of a cursor). When you remove a count limit from a path, add a byte limit there if no other byte limit bounds it. Examples: `fitResult` in `apps/backend/ingest-skills/discover-roots/scripts/roots-lib.mjs` and `packRootsWithin` in `apps/backend/src/domain/ingestion/ingestion-plan.ts`.
+- **Category:** ingestion
+- **Date:** 2026-11-22
+- **Source:** CTO decision on the 300-file and 20-importer limits, which the lead applied to the root limits in CTX-1510 (PR #994)

@@ -285,6 +285,14 @@ describe("classify-kind rules", () => {
       "Service",
     ],
     [
+      "a Go module with a main package at its root",
+      {
+        "go.mod": "module github.com/example-org/tool\n\ngo 1.22\n",
+        "tool.go": "package main\n\nfunc main() {}\n",
+      },
+      "Service",
+    ],
+    [
       "a Go module with no main package",
       {
         "go.mod": "module github.com/example-org/retry/v2\n\ngo 1.22\n",
@@ -330,6 +338,34 @@ describe("classify-kind rules", () => {
     expect(out.kind).toBe(kind)
     expect(out.decidedBy).toBe("script")
     expect(out.ambiguous).toBeNull()
+  })
+
+  it("classifies a Go main package in a folder of a module as a Service named by its folder", async () => {
+    const s = await step(
+      {
+        "go.mod": "module k8s.io/kubernetes\n\ngo 1.24\n",
+        "cmd/kubelet/gen.go": "//go:build ignore\n\npackage main\n",
+        "cmd/kubelet/kubelet.go":
+          "/*\nCopyright The Kubernetes Authors.\n*/\n\npackage main\n\nfunc main() {}\n",
+        "cmd/kubelet/app/server.go": "package app\n",
+      },
+      {},
+    )
+    const out = s.run("cmd/kubelet")
+    expect(out.kind).toBe("Service")
+    expect(out.name).toBe("kubelet")
+    expect(out.decidedBy).toBe("script")
+    expect(out.signals).toEqual([
+      {
+        kind: "Service",
+        strength: "strong",
+        evidence: "cmd/kubelet/kubelet.go",
+        reason: "It is a Go main package",
+      },
+    ])
+
+    // A Go package that is not main gives no signal.
+    expect(s.run("cmd/kubelet/app").signals).toEqual([])
   })
 
   it("names a root package by its manifest name, and a Go module by its last path segment", async () => {

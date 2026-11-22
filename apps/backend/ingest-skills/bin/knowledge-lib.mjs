@@ -12,7 +12,7 @@
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs"
 import { posix } from "node:path"
 
-import { MAX_ROOTS, safePath } from "../discover-roots/scripts/roots-lib.mjs"
+import { safePath } from "../discover-roots/scripts/roots-lib.mjs"
 import {
   baseBlob,
   blobContent,
@@ -112,12 +112,7 @@ export function scriptStep(argv = process.argv.slice(2)) {
   if (!Array.isArray(listed)) fail(`${rootsFile} has no roots list`)
   const skipped = []
   const roots = []
-  if (listed.length > MAX_ROOTS)
-    skipped.push({
-      path: null,
-      reason: `The script read only the first ${MAX_ROOTS} roots of the roots file`,
-    })
-  for (const entry of listed.slice(0, MAX_ROOTS)) {
+  for (const entry of listed) {
     if (!safePath(entry?.path)) {
       skipped.push({
         path: null,

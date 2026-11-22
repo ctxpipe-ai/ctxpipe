@@ -50,6 +50,7 @@ describe("resolveDiscoveredRoots", () => {
         },
       ],
       refused: [],
+      skipped: [],
     })
   })
 
@@ -78,6 +79,7 @@ describe("resolveDiscoveredRoots", () => {
     expect(resolveDiscoveredRoots(SCRIPT, null)).toEqual({
       roots: SCRIPT.roots,
       refused: [],
+      skipped: [],
     })
     expect(resolveDiscoveredRoots(SCRIPT, { roots: "all" })).toEqual({
       roots: SCRIPT.roots,
@@ -87,7 +89,18 @@ describe("resolveDiscoveredRoots", () => {
           reason: "The model result does not match the discover-roots schema",
         },
       ],
+      skipped: [],
     })
+  })
+
+  it("gives the entries that the script skipped", () => {
+    const skipped = [
+      { manifest: "Cargo.toml", reason: "The manifest is not valid TOML" },
+      { manifest: null, reason: "The result was over its size limit" },
+    ]
+    expect(
+      resolveDiscoveredRoots({ ...SCRIPT, skipped }, null).skipped,
+    ).toEqual(skipped)
   })
 
   it("refuses an unsafe script root and fails on a script result with a bad shape", () => {
@@ -98,6 +111,7 @@ describe("resolveDiscoveredRoots", () => {
     expect(resolveDiscoveredRoots(script, null)).toEqual({
       roots: SCRIPT.roots,
       refused: [{ path: "a/../b", reason: "The path is not safe to write" }],
+      skipped: [],
     })
     expect(() => resolveDiscoveredRoots({ roots: [] }, null)).toThrow(
       "The discover-roots script result does not match its schema",
@@ -133,5 +147,55 @@ describe("resolveDiscoveredRoots", () => {
         null,
       ).refused,
     ).toEqual([])
+  })
+
+  it("plans the script roots, sorted and with no duplicate", () => {
+    const root = (path: string) => ({
+      path,
+      manifests: ["package.json"],
+      evidence: ["pnpm-workspace.yaml"],
+    })
+    const plan = resolveDiscoveredRoots(
+      {
+        roots: [
+          root("services/b"),
+          root("."),
+          root("services/b"),
+          root("../x"),
+        ],
+        ambiguous: [],
+      },
+      null,
+    )
+    expect(plan.roots.map((r) => r.path)).toEqual([".", "services/b"])
+    expect(plan.refused).toEqual([
+      { path: "../x", reason: "The path is not safe to write" },
+    ])
+  })
+
+  it("keeps each root of a large monorepo, with no count limit", () => {
+    const roots = Array.from({ length: 5000 }, (_, i) => ({
+      path: `pkg/${String(i).padStart(4, "0")}`,
+      manifests: ["package.json"],
+      evidence: ["pnpm-workspace.yaml"],
+    }))
+    const plan = resolveDiscoveredRoots(
+      {
+        roots,
+        ambiguous: [
+          {
+            manifest: null,
+            reason: "No workspace manifest names these folders",
+            candidates: Array.from({ length: 3000 }, (_, i) => ({
+              path: `other/${i}`,
+              manifests: ["package.json"],
+            })),
+          },
+        ],
+      },
+      null,
+    )
+    expect(plan.roots).toHaveLength(5000)
+    expect(plan.refused).toEqual([])
   })
 })

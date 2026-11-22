@@ -5,44 +5,44 @@ import { z } from "zod"
  * script result is the evidence; a model can only choose among the
  * `candidates` of an `ambiguous` entry. The host plans the root steps from
  * the roots that this function gives, so a model cannot add a root without
- * script evidence, and it cannot remove a script root.
+ * script evidence, and it cannot remove a script root. No count limits the
+ * result: its size does (`MAX_DISCOVERY_BYTES` in ingest-shard-ops.ts).
  */
-
-const MAX_ROOTS = 2000
 
 const RootSchema = z.object({
   path: z.string(),
-  manifests: z.array(z.string()).max(50),
-  evidence: z.array(z.string()).max(50),
+  manifests: z.array(z.string()),
+  evidence: z.array(z.string()),
 })
 
 const ScriptResultSchema = z.object({
-  roots: z.array(RootSchema).max(MAX_ROOTS),
-  ambiguous: z
-    .array(
-      z.object({
-        manifest: z.string().nullable(),
-        reason: z.string(),
-        candidates: z
-          .array(
-            z.object({
-              path: z.string(),
-              manifests: z.array(z.string()).max(50),
-            }),
-          )
-          .max(MAX_ROOTS),
-      }),
-    )
-    .max(MAX_ROOTS),
+  roots: z.array(RootSchema),
+  ambiguous: z.array(
+    z.object({
+      manifest: z.string().nullable(),
+      reason: z.string(),
+      candidates: z.array(
+        z.object({
+          path: z.string(),
+          manifests: z.array(z.string()),
+        }),
+      ),
+    }),
+  ),
+  skipped: z
+    .array(z.object({ manifest: z.string().nullable(), reason: z.string() }))
+    .default([]),
 })
 
 const ModelResultSchema = z.object({
-  roots: z.array(z.object({ path: z.string() })).max(MAX_ROOTS),
+  roots: z.array(z.object({ path: z.string() })),
 })
 
 export type DiscoveredRoot = z.infer<typeof RootSchema>
 
-export type RefusedRoot = { path: string | null; reason: string }
+type RefusedRoot = { path: string | null; reason: string }
+
+type SkippedEntry = { manifest: string | null; reason: string }
 
 /**
  * Same rule as `safePath` in
@@ -66,13 +66,18 @@ function safePath(path: string): boolean {
  * The roots to plan: each script root as it is, plus each root that the
  * model chose from the `candidates` of an ambiguous entry, with
  * `evidence: ["model"]` and the script's manifests. Everything else is in
- * `refused`. `modelResult` is null when no model ran (no ambiguous entry).
+ * `refused`. `skipped` is what the script did not give, as the script
+ * recorded it (for example, the entries that the size limit cut). `modelResult` is null when no model ran (no ambiguous entry).
  * Throws when the script result does not match its schema.
  */
 export function resolveDiscoveredRoots(
   scriptResult: unknown,
   modelResult: unknown,
-): { roots: DiscoveredRoot[]; refused: RefusedRoot[] } {
+): {
+  roots: DiscoveredRoot[]
+  refused: RefusedRoot[]
+  skipped: SkippedEntry[]
+} {
   const script = ScriptResultSchema.safeParse(scriptResult)
   if (!script.success)
     throw new Error(
@@ -117,5 +122,6 @@ export function resolveDiscoveredRoots(
       a.path < b.path ? -1 : a.path > b.path ? 1 : 0,
     ),
     refused,
+    skipped: script.data.skipped,
   }
 }

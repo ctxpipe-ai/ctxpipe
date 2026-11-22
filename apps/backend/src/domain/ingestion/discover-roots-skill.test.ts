@@ -10,7 +10,8 @@ import { INGEST_SKILLS_DIR } from "./skill-bundle.js"
 /*
  * The discover-roots script runs on real git checkouts. The layouts copy the
  * workspace manifests of public monorepos: vitejs/vite (pnpm), tokio-rs/tokio
- * (Cargo), golang/tools (go.work), and astral-sh/uv style uv workspaces.
+ * and rust-lang/rust (Cargo), golang/tools and kubernetes/kubernetes (Go),
+ * and astral-sh/uv style uv workspaces.
  */
 
 const made: string[] = []
@@ -183,6 +184,387 @@ describe("discover-roots script", () => {
       ".",
       "helper",
     ])
+  })
+
+  it("follows Cargo path dependencies of members, in the workspace folder (rust-lang/rust layout)", () => {
+    const dir = repo({
+      "Cargo.toml": [
+        "[workspace]",
+        'members = ["compiler/rustc"]',
+        'exclude = ["compiler/rustc_codegen_gcc"]',
+        "",
+        "[workspace.dependencies]",
+        'rustc_lexer = { path = "compiler/rustc_lexer" }',
+        "",
+        "[patch.crates-io]",
+        'patched = { path = "compiler/patched" }',
+      ].join("\n"),
+      "compiler/rustc/Cargo.toml": [
+        "[package]",
+        'name = "rustc-main"',
+        "",
+        "[[bin]]",
+        'name = "rustc"',
+        'path = "src/main.rs"',
+        "",
+        "[dependencies]",
+        'rustc_driver = { path = "../rustc_driver" }',
+        'rustc_codegen_gcc = { path = "../rustc_codegen_gcc" }',
+        'gcc_build = { path = "../rustc_codegen_gcc/build_system" }',
+        'outside = { path = "../../../outside" }',
+        'no_crate = { path = "../no_crate" }',
+        "",
+        "[target.'cfg(windows)'.build-dependencies]",
+        "rustc_windows_rc = { path = '../rustc_windows_rc' }",
+      ].join("\n"),
+      "compiler/rustc_driver/Cargo.toml": [
+        "[package]",
+        'name = "rustc_driver"',
+        "",
+        "[dependencies.rustc_span]",
+        'path = "../rustc_span"',
+        "",
+        "[dev-dependencies]",
+        "rustc_lexer.workspace = true",
+      ].join("\n"),
+      "compiler/rustc_span/Cargo.toml":
+        '[package]\nname = "rustc_span"\n\n[dependencies]\nrustc_driver = { path = "../rustc_driver" }\n',
+      "compiler/rustc_lexer/Cargo.toml": '[package]\nname = "rustc_lexer"\n',
+      "compiler/rustc_windows_rc/Cargo.toml":
+        '[package]\nname = "rustc_windows_rc"\n',
+      "compiler/rustc_codegen_gcc/Cargo.toml":
+        '[package]\nname = "rustc_codegen_gcc"\n',
+      // Cargo excludes each folder below an excluded folder too.
+      "compiler/rustc_codegen_gcc/build_system/Cargo.toml":
+        '[package]\nname = "gcc_build"\n',
+      "compiler/patched/Cargo.toml": '[package]\nname = "patched"\n',
+      "compiler/no_crate/README.md": "# Not a crate\n",
+      "compiler/unused/Cargo.toml": '[package]\nname = "unused"\n',
+    })
+    expect(discover(dir)).toEqual({
+      roots: [
+        {
+          path: "compiler/rustc",
+          manifests: ["Cargo.toml"],
+          evidence: ["Cargo.toml"],
+        },
+        {
+          path: "compiler/rustc_driver",
+          manifests: ["Cargo.toml"],
+          evidence: ["compiler/rustc/Cargo.toml"],
+        },
+        {
+          path: "compiler/rustc_lexer",
+          manifests: ["Cargo.toml"],
+          evidence: ["Cargo.toml"],
+        },
+        {
+          path: "compiler/rustc_span",
+          manifests: ["Cargo.toml"],
+          evidence: ["compiler/rustc_driver/Cargo.toml"],
+        },
+        {
+          path: "compiler/rustc_windows_rc",
+          manifests: ["Cargo.toml"],
+          evidence: ["compiler/rustc/Cargo.toml"],
+        },
+      ],
+      ambiguous: [],
+      skipped: [],
+    })
+  })
+
+  it("finds nested Cargo workspaces and their path dependencies, not in test folders", () => {
+    const dir = repo({
+      "Cargo.toml": '[workspace]\nmembers = ["src/tools/x"]\n',
+      "src/tools/x/Cargo.toml": '[package]\nname = "x"\n',
+      // A virtual workspace: its members and their path dependencies are roots.
+      "library/Cargo.toml": '[workspace]\nmembers = ["std"]\n',
+      "library/std/Cargo.toml":
+        '[package]\nname = "std"\n\n[dependencies]\ncore = { path = "../core" }\n',
+      "library/core/Cargo.toml": '[package]\nname = "core"\n',
+      // A workspace with a root package and a member glob.
+      "src/tools/rust-analyzer/Cargo.toml": [
+        "[package]",
+        'name = "rust-analyzer-root"',
+        "",
+        "[workspace]",
+        'members = ["crates/*", "./xtask/"]',
+        'exclude = ["crates/old"]',
+      ].join("\n"),
+      "src/tools/rust-analyzer/crates/ide/Cargo.toml":
+        '[package]\nname = "ide"\n',
+      "src/tools/rust-analyzer/crates/old/Cargo.toml":
+        '[package]\nname = "old"\n',
+      "src/tools/rust-analyzer/xtask/Cargo.toml": '[package]\nname = "xtask"\n',
+      // Workspaces in test folders are fixtures.
+      "tests/run-make/ws/Cargo.toml": '[workspace]\nmembers = ["a"]\n',
+      "tests/run-make/ws/a/Cargo.toml": '[package]\nname = "a"\n',
+      "src/tools/miri/test-cargo-miri/Cargo.toml":
+        '[package]\nname = "cargo-miri-test"\n\n[workspace]\nmembers = ["subcrate"]\n',
+      "src/tools/miri/test-cargo-miri/subcrate/Cargo.toml":
+        '[package]\nname = "subcrate"\n',
+    })
+    expect(discover(dir)).toEqual({
+      roots: [
+        {
+          path: "library/core",
+          manifests: ["Cargo.toml"],
+          evidence: ["library/std/Cargo.toml"],
+        },
+        {
+          path: "library/std",
+          manifests: ["Cargo.toml"],
+          evidence: ["library/Cargo.toml"],
+        },
+        {
+          path: "src/tools/rust-analyzer",
+          manifests: ["Cargo.toml"],
+          evidence: ["src/tools/rust-analyzer/Cargo.toml"],
+        },
+        {
+          path: "src/tools/rust-analyzer/crates/ide",
+          manifests: ["Cargo.toml"],
+          evidence: ["src/tools/rust-analyzer/Cargo.toml"],
+        },
+        {
+          path: "src/tools/rust-analyzer/xtask",
+          manifests: ["Cargo.toml"],
+          evidence: ["src/tools/rust-analyzer/Cargo.toml"],
+        },
+        {
+          path: "src/tools/x",
+          manifests: ["Cargo.toml"],
+          evidence: ["Cargo.toml"],
+        },
+      ],
+      ambiguous: [],
+      skipped: [],
+    })
+  })
+
+  it("keeps the single-root fallback when only a nested folder has a Cargo workspace", () => {
+    const dir = repo({
+      "package.json": pkg("site"),
+      "tools/Cargo.toml": '[workspace]\nmembers = ["gen"]\n',
+      "tools/gen/Cargo.toml": '[package]\nname = "gen"\n',
+      "web/package.json": pkg("web"),
+    })
+    expect(discover(dir)).toEqual({
+      roots: [
+        { path: ".", manifests: ["package.json"], evidence: ["."] },
+        {
+          path: "tools/gen",
+          manifests: ["Cargo.toml"],
+          evidence: ["tools/Cargo.toml"],
+        },
+      ],
+      ambiguous: [
+        {
+          manifest: null,
+          reason: "No workspace manifest names these folders",
+          // `tools` is a workspace with no package, and `tools/gen` is a root.
+          candidates: [{ path: "web", manifests: ["package.json"] }],
+        },
+      ],
+      skipped: [],
+    })
+  })
+
+  it("follows the path dependencies of a root Cargo package with no workspace", () => {
+    const dir = repo({
+      "Cargo.toml":
+        '[package]\nname = "cli"\n\n[dependencies]\nhelper = { path = "helper" }\n',
+      "helper/Cargo.toml": '[package]\nname = "helper"\n',
+      "docs/package.json": pkg("docs"),
+    })
+    expect(discover(dir)).toEqual({
+      roots: [
+        { path: ".", manifests: ["Cargo.toml"], evidence: ["."] },
+        {
+          path: "helper",
+          manifests: ["Cargo.toml"],
+          evidence: ["Cargo.toml"],
+        },
+      ],
+      ambiguous: [
+        {
+          manifest: null,
+          reason: "No workspace manifest names these folders",
+          candidates: [{ path: "docs", manifests: ["package.json"] }],
+        },
+      ],
+      skipped: [],
+    })
+  })
+
+  it("finds a Go main package in a module as a root (kubernetes/kubernetes layout)", () => {
+    const license =
+      "/*\nCopyright 2014 The Kubernetes Authors.\n\npackage notmain\n*/\n\n"
+    const dir = repo({
+      "go.work": "go 1.24\n\nuse (\n\t.\n\t./staging/src/k8s.io/api\n)\n",
+      "go.mod": "module k8s.io/kubernetes\n",
+      "staging/src/k8s.io/api/go.mod": "module k8s.io/api\n",
+      "cmd/kubelet/kubelet.go": `${license}// Package main is the kubelet.\npackage main\n\nfunc main() {}\n`,
+      "cmd/kubelet/app/server.go": `${license}package app\n`,
+      // The first file is a generator that a build constraint ignores.
+      "cmd/kubectl/a_gen.go": "//go:build ignore\n\npackage main\n",
+      "cmd/kubectl/kubectl.go": "package main // the CLI\n",
+      // An ignored file of another package does not hide the main package.
+      "cmd/kubeadm/a_gen.go": "//go:build ignore\n\npackage generator\n",
+      "cmd/kubeadm/kubeadm.go": "package main\n",
+      "hack/gen/gen.go":
+        "//go:build ignore\n// +build ignore\n\npackage main\n",
+      // A constraint that some build can satisfy keeps the file.
+      "cmd/kubectl-convert/main.go": "//go:build !(ignore)\n\npackage main\n",
+      "cmd/kube-proxy/main.go": "//go:build linux || ignore\n\npackage main\n",
+      "cmd/kube-scheduler/main.go": "// +build !ignore\n\npackage main\n",
+      // No build can satisfy these constraints.
+      "cmd/gen-a/main.go": "//go:build linux && ignore\n\npackage main\n",
+      "cmd/gen-b/main.go": "// +build ignore,linux\n\npackage main\n",
+      "pkg/util/util.go": "package util\n",
+      "pkg/tool/main_test.go": "package main\n",
+      "test/e2e/main.go": "package main\n",
+      "cmd/e2e-tests/main.go": "package main\n",
+      "pkg/generated/openapi/cmd/models-schema/main.go": "package main\n",
+      "staging/src/k8s.io/kms/internal/plugins/_mock/plugin.go":
+        "package main\n",
+      // The go tool does not build a file whose name starts with `_` or `.`.
+      "cmd/old/_main.go": "package main\n",
+      "cmd/old/.main.go": "package main\n",
+      "vendor/github.com/x/cmd/x/main.go": "package main\n",
+      "staging/src/k8s.io/api/cmd/apigen/main.go": "package main\n",
+    })
+    expect(discover(dir)).toEqual({
+      roots: [
+        { path: ".", manifests: ["go.mod"], evidence: ["go.work"] },
+        {
+          path: "cmd/kube-proxy",
+          manifests: [],
+          evidence: ["cmd/kube-proxy/main.go"],
+        },
+        {
+          path: "cmd/kube-scheduler",
+          manifests: [],
+          evidence: ["cmd/kube-scheduler/main.go"],
+        },
+        {
+          path: "cmd/kubeadm",
+          manifests: [],
+          evidence: ["cmd/kubeadm/kubeadm.go"],
+        },
+        {
+          path: "cmd/kubectl",
+          manifests: [],
+          evidence: ["cmd/kubectl/kubectl.go"],
+        },
+        {
+          path: "cmd/kubectl-convert",
+          manifests: [],
+          evidence: ["cmd/kubectl-convert/main.go"],
+        },
+        {
+          path: "cmd/kubelet",
+          manifests: [],
+          evidence: ["cmd/kubelet/kubelet.go"],
+        },
+        {
+          path: "staging/src/k8s.io/api",
+          manifests: ["go.mod"],
+          evidence: ["go.work"],
+        },
+        {
+          path: "staging/src/k8s.io/api/cmd/apigen",
+          manifests: [],
+          evidence: ["staging/src/k8s.io/api/cmd/apigen/main.go"],
+        },
+      ],
+      ambiguous: [],
+      skipped: [],
+    })
+
+    // With no go.mod, a Go file is not in a module, so it gives no root.
+    const noModule = repo({
+      "package.json": pkg("site"),
+      "scripts/tool/main.go": "package main\n",
+    })
+    expect(discover(noModule).roots.map((r) => r.path)).toEqual(["."])
+  })
+
+  it("gives more than 2000 roots, with no count limit", () => {
+    const files: Record<string, string> = {
+      "Cargo.toml": '[workspace]\nmembers = ["crates/*"]\n',
+    }
+    for (let i = 0; i < 2100; i++)
+      files[`crates/c${String(i).padStart(4, "0")}/Cargo.toml`] =
+        `[package]\nname = "c${i}"\n`
+    const result = discover(repo(files))
+    expect(result.roots).toHaveLength(2100)
+    expect(result.skipped).toEqual([])
+  })
+
+  it("keeps the result below its byte limit: candidates go first, then roots, with a skipped entry", async () => {
+    const lib = await import(
+      join(INGEST_SKILLS_DIR, "discover-roots/scripts/roots-lib.mjs")
+    )
+    const item = (path: string) => ({
+      path,
+      manifests: ["Cargo.toml"],
+      evidence: ["Cargo.toml"],
+    })
+    const result = {
+      roots: Array.from({ length: 20 }, (_, i) => item(`r/${i}`)),
+      ambiguous: [
+        {
+          manifest: null,
+          reason: "No workspace manifest names these folders",
+          candidates: Array.from({ length: 20 }, (_, i) => ({
+            path: `c/${i}`,
+            manifests: ["package.json"],
+          })),
+        },
+      ],
+      skipped: [],
+    }
+    expect(lib.fitResult(result, 100_000)).toBe(result)
+
+    const withRoots = lib.fitResult(result, 1000)
+    // The skipped entry is in the limit too.
+    expect(Buffer.byteLength(JSON.stringify(withRoots))).toBeLessThanOrEqual(
+      1000,
+    )
+    expect(withRoots.ambiguous).toEqual([])
+    expect(withRoots.roots.length).toBeGreaterThan(0)
+    expect(withRoots.roots.length).toBeLessThan(20)
+    expect(withRoots.roots).toEqual(
+      result.roots.slice(0, withRoots.roots.length),
+    )
+    expect(withRoots.skipped).toEqual([
+      {
+        manifest: null,
+        reason: `The result of the script must be at most 1000 bytes, so it gives only the first ${withRoots.roots.length} roots, 0 candidates, and 0 other skipped entries`,
+      },
+    ])
+
+    // Skipped entries go before roots, so a long skipped list cannot push
+    // the result over the limit.
+    const noisy = {
+      ...result,
+      skipped: Array.from({ length: 200 }, (_, i) => ({
+        manifest: "pnpm-workspace.yaml",
+        reason: `The script skipped an entry: ${i}`,
+      })),
+    }
+    const fitted = lib.fitResult(noisy, 2000)
+    expect(Buffer.byteLength(JSON.stringify(fitted))).toBeLessThanOrEqual(2000)
+    expect(fitted.roots.length).toBeGreaterThan(0)
+    expect(fitted.skipped.length).toBeLessThan(200)
+    expect(fitted.skipped.at(-1).reason).toContain("other skipped entries")
+
+    const someCandidates = lib.fitResult(result, 2000)
+    expect(someCandidates.roots).toHaveLength(20)
+    expect(someCandidates.ambiguous[0].candidates.length).toBeLessThan(20)
+    expect(someCandidates.skipped).toHaveLength(1)
   })
 
   it("finds go.work modules, also the repository root (golang/tools layout)", () => {

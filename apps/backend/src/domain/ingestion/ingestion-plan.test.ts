@@ -1,12 +1,14 @@
+import { createHash } from "node:crypto"
 import { existsSync } from "node:fs"
 import { join } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
 import {
-  INGEST_MAX_ROOTS,
   ingestRootMap,
-  planIngestRoots,
+  packRoots,
+  packRootsWithin,
+  unpackRoots,
   withExistingRootFiles,
   plannedIngestSkills,
   skillStepName,
@@ -20,36 +22,31 @@ const root = (path: string) => ({
 })
 
 describe("ingestion v2 plan", () => {
-  it("plans the script roots after the host check, sorted and with no duplicate", () => {
-    const plan = planIngestRoots({
-      roots: [root("services/b"), root("."), root("services/b"), root("../x")],
-      ambiguous: [],
-    })
-    expect(plan.partial).toBeUndefined()
-    if (plan.partial !== undefined) throw new Error("unexpected partial")
-    expect(plan.roots.map((r) => r.path)).toEqual([".", "services/b"])
-    expect(plan.refused).toEqual([
-      { path: "../x", reason: "The path is not safe to write" },
-    ])
-  })
-
-  it("refuses a script result that does not match the schema", () => {
-    expect(() => planIngestRoots({ roots: "everything" })).toThrow(
-      "does not match its schema",
+  it("packs and unpacks the roots of a large monorepo", () => {
+    const roots = Array.from({ length: 5000 }, (_, i) =>
+      root(`packages/group-${i % 50}/package-${String(i).padStart(4, "0")}`),
     )
+    const packed = packRoots(roots)
+    expect(unpackRoots(packed)).toEqual(roots)
+    // Far below the 1 MiB of a step output that the backend warns about.
+    expect(packed.length).toBeLessThan(200_000)
+    expect(packRootsWithin(roots, 2 ** 20)).toEqual({ packed, left: [] })
   })
 
-  it("plans no root and gives a partial reason above the root cap", () => {
-    const plan = planIngestRoots({
-      roots: Array.from({ length: INGEST_MAX_ROOTS + 1 }, (_, i) =>
-        root(`pkg/${i}`),
-      ),
-      ambiguous: [],
-    })
-    expect(plan).toMatchObject({
-      partial: expect.stringContaining(`at most ${INGEST_MAX_ROOTS}`),
-    })
-    expect("roots" in plan).toBe(false)
+  it("packs the first roots that fit in a size, and gives the roots that it leaves out", () => {
+    // Paths that do not compress well.
+    const roots = Array.from({ length: 300 }, (_, i) =>
+      root(`pkg/${createHash("sha256").update(String(i)).digest("hex")}`),
+    )
+    const { packed, left } = packRootsWithin(roots, 4000)
+    expect(packed.length).toBeLessThanOrEqual(4000)
+    const kept = unpackRoots(packed)
+    expect(kept.length).toBeGreaterThan(0)
+    expect([...kept, ...left]).toEqual(roots)
+    // One more root would not fit.
+    expect(packRoots(roots.slice(0, kept.length + 1)).length).toBeGreaterThan(
+      4000,
+    )
   })
 
   it("plans only bundle skills, in the committed order, by scope; libraries is repository-wide", () => {
