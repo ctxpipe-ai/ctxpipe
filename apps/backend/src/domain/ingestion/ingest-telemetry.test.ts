@@ -1,3 +1,8 @@
+import { execFile } from "node:child_process"
+import { once } from "node:events"
+import { createServer, type Server } from "node:http"
+import type { AddressInfo } from "node:net"
+
 import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
@@ -5,6 +10,7 @@ import {
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 
+import { type RootExec, runAsRoot } from "./ingest-root.js"
 import {
   capIngestText,
   INGEST_TELEMETRY_TEXT_MAX,
@@ -208,5 +214,115 @@ describe("the fields of a failed ingest step in a log", () => {
     expect(
       ingestErrorFields(new TypeError("terminated private sentinel")),
     ).toEqual({ errorClass: "TypeError" })
+  })
+})
+
+describe("the Git error head of a failed root command", () => {
+  /** A proxy that answers each CONNECT with this status. */
+  async function refusingProxy(status: number): Promise<Server> {
+    const proxy = createServer((_req, res) => res.writeHead(status).end())
+    proxy.on("connect", (_req, socket) =>
+      socket.end(
+        `HTTP/1.1 ${status} Refused\r\nProxy-Authenticate: Basic realm="x"\r\nContent-Length: 0\r\n\r\n`,
+      ),
+    )
+    proxy.listen(0, "127.0.0.1")
+    await once(proxy, "listening")
+    return proxy
+  }
+
+  /** Real Git on this host, through `runAsRoot`, as a step runs it. */
+  async function failedFetch(proxyUrl: string): Promise<unknown> {
+    const root: RootExec = (script) =>
+      new Promise((resolve) => {
+        execFile(
+          "sh",
+          ["-c", script],
+          {
+            env: {
+              PATH: process.env.PATH,
+              HOME: process.env.HOME,
+              GIT_TERMINAL_PROMPT: "0",
+              https_proxy: proxyUrl,
+            },
+          },
+          (error, stdout, stderr) =>
+            resolve({
+              stdout,
+              stderr,
+              exitCode: error ? Number(error.code ?? 1) : 0,
+            }),
+        )
+      })
+    return runAsRoot(
+      root,
+      "git ls-remote https://source.invalid/private-sentinel/repo.git",
+    ).catch((error: unknown) => error)
+  }
+
+  it.each([407, 429])(
+    "names the proxy status %i of a CONNECT and keeps the URL out",
+    async (status) => {
+      const proxy = await refusingProxy(status)
+      try {
+        const error = await failedFetch(
+          `http://127.0.0.1:${(proxy.address() as AddressInfo).port}`,
+        )
+        const fields = ingestErrorFields(error)
+        expect(fields.errorKind).toBe("Ingest root command failed (exit 128)")
+        // curl 8 writes the first form, an older curl the second.
+        expect([
+          `CONNECT tunnel failed, response ${status}`,
+          `Received HTTP code ${status} from proxy after CONNECT`,
+        ]).toContain(fields.errorHead)
+        expect(JSON.stringify(fields)).not.toMatch(
+          /private-sentinel|invalid|127\.0\.0\.1/,
+        )
+      } finally {
+        proxy.close()
+      }
+    },
+  )
+
+  it("names a proxy that does not resolve, without its host", async () => {
+    const fields = ingestErrorFields(
+      await failedFetch("http://private-sentinel.invalid:3128"),
+    )
+    expect(fields.errorHead).toBe("Could not resolve proxy")
+    expect(JSON.stringify(fields)).not.toContain("private-sentinel")
+  })
+
+  it("names a closed proxy port, without its address", async () => {
+    const proxy = await refusingProxy(407)
+    const { port } = proxy.address() as AddressInfo
+    proxy.close()
+    await once(proxy, "close")
+    const fields = ingestErrorFields(
+      await failedFetch(`http://127.0.0.1:${port}`),
+    )
+    expect(["Couldn't connect to server", "Connection refused"]).toContain(
+      fields.errorHead,
+    )
+  })
+
+  it("adds nothing for a stderr with source text", () => {
+    expect(
+      ingestErrorFields(
+        new Error(
+          "Ingest root command failed (exit 1): private sentinel\nconst token = 'x'",
+        ),
+      ),
+    ).toEqual({
+      errorClass: "Error",
+      errorKind: "Ingest root command failed (exit 1)",
+    })
+    // A known head inside a longer line of text still gives only the head.
+    expect(
+      ingestErrorFields(
+        new Error(
+          "Ingest root command failed (exit 128): private sentinel CONNECT tunnel failed, response 4071 private sentinel",
+        ),
+      ).errorHead,
+    ).toBeUndefined()
   })
 })

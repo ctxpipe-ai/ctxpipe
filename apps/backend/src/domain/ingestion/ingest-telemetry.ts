@@ -36,11 +36,17 @@ export function capIngestText(text: string): string {
  * holds only messages with no source text. The code can sit on the error,
  * or on its cause. A failed `fetch` keeps its code on the cause, for
  * example `UND_ERR_SOCKET`.
+ *
+ * `errorHead` is the cause of a failed Git transport, from the stderr in the
+ * message of `runAsRoot` (CTX-1517). Only a head from this closed list can
+ * go into it. Each head is fixed text plus at most a status code, so it
+ * holds no URL, host, path, or token.
  */
 export function ingestErrorFields(error: unknown): {
   errorClass: string
   errorCode?: string
   errorKind?: string
+  errorHead?: string
 } {
   if (!(error instanceof Error)) return { errorClass: typeof error }
   const ownCode = (error as { code?: unknown }).code
@@ -50,6 +56,10 @@ export function ingestErrorFields(error: unknown): {
     /^(?:Ingest root command failed \(exit -?\d+\)|Sandbox lock ownership (?:lost|expired)|The ingest step reached its time limit|\(HTTP code \d{3}\)|aborted$|socket hang up$|fetch failed$|terminated$|discover-roots failed)/.exec(
       error.message,
     )?.[0]
+  const head =
+    /(?:CONNECT tunnel failed, response \d{3}|Received HTTP code \d{3} from proxy after CONNECT|Proxy CONNECT aborted|Could not resolve proxy|Could not resolve host|Couldn't connect to server|Connection refused|Connection reset by peer|Connection timed out|Operation timed out|The requested URL returned error: \d{3}|RPC failed; HTTP \d{3}|SSL certificate problem|early EOF)(?![\w])/.exec(
+      error.message,
+    )?.[0]
   return {
     errorClass: error.constructor.name,
     ...(typeof code === "string" &&
@@ -57,6 +67,7 @@ export function ingestErrorFields(error: unknown): {
       ? { errorCode: code }
       : {}),
     ...(kind ? { errorKind: kind } : {}),
+    ...(head ? { errorHead: head } : {}),
   }
 }
 
