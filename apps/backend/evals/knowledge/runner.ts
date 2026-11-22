@@ -546,6 +546,9 @@ export async function writeRun(
 }
 
 /** Read and check a run folder that `writeRun` wrote. */
+/** A run folder, as `readRun` reads it. */
+export type StoredRun = Awaited<ReturnType<typeof readRun>>
+
 export async function readRun(folder: string) {
   return {
     manifest: manifestSchema.parse(

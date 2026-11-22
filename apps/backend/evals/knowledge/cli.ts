@@ -92,6 +92,7 @@ import {
   readRun,
   runEval,
   type Settings,
+  type StoredRun,
   type Targets,
   targetsSchema,
   writeJson,
@@ -130,12 +131,13 @@ export async function executeRun(input: {
    * An earlier run folder (`--baseline-from`): the run reuses its answers of
    * the old stack, and runs only the plane.
    */
-  baseline?: { folder: string; run: Awaited<ReturnType<typeof readRun>> }
+  baseline?: { folder: string; run: StoredRun }
 }): Promise<Report> {
   const questions = input.dataset.questions.filter((question) =>
     input.splits.includes(question.split),
   )
-  const baseline = input.baseline && storedBaseline(input, questions)
+  const baseline =
+    input.baseline && storedBaseline(input.dataset, input.baseline, questions)
   // Both arms answer at the same query time.
   const now = input.baseline
     ? new Date(input.baseline.run.manifest.now)
@@ -145,9 +147,11 @@ export async function executeRun(input: {
   const calls = modelCalls(input.capUsd, input.replay?.calls)
   // The folder keeps the calls of the reused answers, so that a replay of
   // this run has each call of both arms.
-  if (input.baseline)
+  if (baseline)
     calls.records.push(
-      ...input.baseline.run.calls.filter((call) => call.arm === "legacy"),
+      ...(input.baseline?.run.calls ?? []).filter(
+        (call) => call.arm === "legacy" && baseline.has(call.question),
+      ),
     )
   // An eval has no time budget, so that a slow step does not hide what the
   // loop finds (the CTO, 2026-11-22). `--set timeBudgetMs=…` sets one.
@@ -199,25 +203,23 @@ export async function executeRun(input: {
 }
 
 /**
- * The stored answers of the old stack in `baseline`, by question id. Refuses
- * a folder that the run cannot compare with: another dataset version,
- * another label or corpus snapshot, or no complete old-stack answer for a
- * question of the run. The labels are the fields of each question (its
- * gold, positions, seeds, split and text), so a new `label` run is a refusal
- * too.
+ * The stored answers of the old stack in `baseline`, by question id, for
+ * the `questions` of the run. The run cannot compare with a folder that has
+ * one of these differences:
+ * - another dataset version;
+ * - another snapshot of a corpus;
+ * - other labels of a question of the run: its gold, positions, seeds,
+ *   split or text, so a new `label` run is a refusal too;
+ * - no complete old-stack answer to a question of the run.
  */
 function storedBaseline(
-  input: {
-    dataset: Dataset
-    baseline?: { folder: string; run: Awaited<ReturnType<typeof readRun>> }
-  },
+  dataset: Dataset,
+  { folder, run }: { folder: string; run: StoredRun },
   questions: readonly Dataset["questions"][number][],
 ): Map<string, ArmAnswer> {
-  const { folder, run } = input.baseline ?? { folder: "", run: null }
-  if (!run) return new Map()
-  if (run.manifest.datasetVersion !== input.dataset.version)
+  if (run.manifest.datasetVersion !== dataset.version)
     throw new SetupError(
-      `--baseline-from ${folder} has dataset version ${run.manifest.datasetVersion}, and the run has version ${input.dataset.version}.`,
+      `--baseline-from ${folder} has dataset version ${run.manifest.datasetVersion}, and the run has version ${dataset.version}.`,
     )
   // The context repo URL can differ (a local copy of the same SHA).
   const snapshot = (corpus: Dataset["corpora"][number]) =>
@@ -229,7 +231,7 @@ function storedBaseline(
       corpus.workspace,
     ])
   const storedCorpora = new Set(run.dataset.corpora.map(snapshot))
-  const corpus = input.dataset.corpora.find(
+  const corpus = dataset.corpora.find(
     (item) => !storedCorpora.has(snapshot(item)),
   )
   if (corpus)
@@ -247,6 +249,7 @@ function storedBaseline(
       .filter((answer) => answer.arm === "legacy")
       .map((answer) => [answer.question, answer]),
   )
+  const kept = new Map<string, ArmAnswer>()
   for (const question of questions) {
     if (storedQuestions.get(question.id) !== JSON.stringify(question))
       throw new SetupError(
@@ -258,8 +261,9 @@ function storedBaseline(
       throw new SetupError(
         `--baseline-from ${folder} has no complete answer of the old stack to the question ${question.id}.`,
       )
+    kept.set(question.id, answer)
   }
-  return answers
+  return kept
 }
 
 /**
@@ -852,7 +856,12 @@ export async function main(argv: string[]): Promise<number> {
           ? {
               baseline: {
                 folder: baselineFrom,
-                run: await readRun(baselineFrom),
+                // A folder that is not a run folder is a setup error.
+                run: await readRun(baselineFrom).catch((error: unknown) => {
+                  throw new SetupError(
+                    `--baseline-from ${baselineFrom} is not a run folder: ${error instanceof Error ? error.message : String(error)}`,
+                  )
+                }),
               },
             }
           : {}),
