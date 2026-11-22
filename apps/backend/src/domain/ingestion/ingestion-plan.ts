@@ -97,6 +97,7 @@ const INGEST_SKILLS: readonly IngestSkillPlan[] = [
     scope: "repository",
     run: "model",
     tier: "medium",
+    cursor: { finder: "find-stores.mjs" },
   },
   {
     name: "decisions",

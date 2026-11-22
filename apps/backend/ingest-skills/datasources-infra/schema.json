@@ -1,6 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "datasources-infra find-stores result",
+  "description": "The repository-wide step prints `roots`: for each root, the stores and kinds that wait (no file and no claim yet). `done` and `waiting` count the pairs of an id and a root. When the list passes its size limit, `more` is true.",
   "$defs": {
     "evidence": {
       "type": "object",
@@ -50,216 +51,135 @@
       }
     }
   },
-  "description": "A root step (--path) prints one root; the repository-wide step prints `roots`, one entry for each root of the map.",
-  "anyOf": [
-    {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["root", "stores", "infrastructure", "skipped"],
-      "properties": {
-        "root": {
-          "type": "string"
-        },
-        "stores": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "type",
-              "name",
-              "category",
-              "evidence",
-              "evidenceTotal",
-              "existing"
-            ],
-            "properties": {
-              "type": {
-                "type": "string"
-              },
-              "name": {
-                "type": "string"
-              },
-              "category": {
-                "type": "string"
-              },
-              "evidence": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/$defs/evidence"
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["done", "more", "roots", "skipped", "waiting"],
+  "properties": {
+    "roots": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["root", "stores", "infrastructure", "skipped"],
+        "properties": {
+          "root": {
+            "type": "string"
+          },
+          "stores": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "type",
+                "name",
+                "category",
+                "evidence",
+                "evidenceTotal",
+                "existing"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "<kind>:<type>, for example Database:postgres. The plan of write-stores names this id."
+                },
+                "type": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "category": {
+                  "type": "string"
+                },
+                "evidence": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/evidence"
+                  }
+                },
+                "evidenceTotal": {
+                  "type": "integer"
+                },
+                "existing": {
+                  "$ref": "#/$defs/existing"
                 }
-              },
-              "evidenceTotal": {
-                "type": "integer"
-              },
-              "existing": {
-                "$ref": "#/$defs/existing"
               }
             }
-          }
-        },
-        "infrastructure": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "type",
-              "name",
-              "evidence",
-              "evidenceTotal",
-              "existing"
-            ],
-            "properties": {
-              "type": {
-                "type": "string"
-              },
-              "name": {
-                "type": "string"
-              },
-              "evidence": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/$defs/evidence"
+          },
+          "infrastructure": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "type",
+                "name",
+                "evidence",
+                "evidenceTotal",
+                "existing"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "<kind>:<type>, for example Database:postgres. The plan of write-stores names this id."
+                },
+                "type": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "evidence": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/evidence"
+                  }
+                },
+                "evidenceTotal": {
+                  "type": "integer"
+                },
+                "existing": {
+                  "$ref": "#/$defs/existing"
                 }
-              },
-              "evidenceTotal": {
-                "type": "integer"
-              },
-              "existing": {
-                "$ref": "#/$defs/existing"
               }
             }
-          }
-        },
-        "skipped": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["path", "reason"],
-            "properties": {
-              "path": {
-                "type": ["string", "null"]
-              },
-              "reason": {
-                "type": "string"
+          },
+          "skipped": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path", "reason"],
+              "properties": {
+                "path": {
+                  "type": ["string", "null"]
+                },
+                "reason": {
+                  "type": "string"
+                }
               }
             }
           }
         }
       }
     },
-    {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["roots", "skipped"],
-      "properties": {
-        "roots": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["root", "stores", "infrastructure", "skipped"],
-            "properties": {
-              "root": {
-                "type": "string"
-              },
-              "stores": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "name",
-                    "category",
-                    "evidence",
-                    "evidenceTotal",
-                    "existing"
-                  ],
-                  "properties": {
-                    "type": {
-                      "type": "string"
-                    },
-                    "name": {
-                      "type": "string"
-                    },
-                    "category": {
-                      "type": "string"
-                    },
-                    "evidence": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/$defs/evidence"
-                      }
-                    },
-                    "evidenceTotal": {
-                      "type": "integer"
-                    },
-                    "existing": {
-                      "$ref": "#/$defs/existing"
-                    }
-                  }
-                }
-              },
-              "infrastructure": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "name",
-                    "evidence",
-                    "evidenceTotal",
-                    "existing"
-                  ],
-                  "properties": {
-                    "type": {
-                      "type": "string"
-                    },
-                    "name": {
-                      "type": "string"
-                    },
-                    "evidence": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/$defs/evidence"
-                      }
-                    },
-                    "evidenceTotal": {
-                      "type": "integer"
-                    },
-                    "existing": {
-                      "$ref": "#/$defs/existing"
-                    }
-                  }
-                }
-              },
-              "skipped": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "required": ["path", "reason"],
-                  "properties": {
-                    "path": {
-                      "type": ["string", "null"]
-                    },
-                    "reason": {
-                      "type": "string"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        "skipped": {
-          "type": "array"
-        }
-      }
+    "skipped": {
+      "type": "array"
+    },
+    "done": {
+      "type": "integer",
+      "description": "Pairs of an id and a root that the tree has done."
+    },
+    "waiting": {
+      "type": "integer",
+      "description": "Pairs of an id and a root that wait."
+    },
+    "more": {
+      "type": "boolean",
+      "description": "True when the list ended at its size limit. Write the plan in parts, then run the script again."
     }
-  ]
+  }
 }

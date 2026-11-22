@@ -31,7 +31,7 @@ export const STORES = [
       "postgresql",
     ],
     schemes: ["postgres", "postgresql"],
-    images: ["postgres", "postgresql", "postgis", "timescaledb"],
+    images: ["postgres", "postgresql", "postgis", "timescaledb", "pgvector"],
     orm: ["postgres", "postgresql", "pg", "aurora-postgresql"],
   },
   {
@@ -168,6 +168,7 @@ export const STORES = [
     deps: [
       "redis",
       "ioredis",
+      "@keyv/redis",
       "@upstash/redis",
       "aioredis",
       "predis/predis",
@@ -177,17 +178,51 @@ export const STORES = [
       "github.com/redis/go-redis",
       "github.com/go-redis/redis",
     ],
-    schemes: ["redis", "rediss", "valkey"],
-    images: ["redis", "valkey", "redis-stack"],
+    schemes: ["redis", "rediss"],
+    images: ["redis", "redis-stack"],
+    orm: [],
+  },
+  // A fork of Redis. A repository that supports both has two cache backends.
+  {
+    id: "valkey",
+    name: "Valkey",
+    category: "key-value",
+    deps: [
+      "@keyv/valkey",
+      "iovalkey",
+      "@valkey/valkey-glide",
+      "valkey-glide",
+      "valkey",
+      "github.com/valkey-io/valkey-go",
+    ],
+    schemes: ["valkey", "valkeys"],
+    images: ["valkey", "valkey-bundle"],
     orm: [],
   },
   {
     id: "memcached",
     name: "Memcached",
     category: "key-value",
-    deps: ["memjs", "pymemcache", "dalli", "github.com/bradfitz/gomemcache"],
+    deps: [
+      "memjs",
+      "memcached",
+      "@keyv/memcache",
+      "pymemcache",
+      "pylibmc",
+      "dalli",
+      "github.com/bradfitz/gomemcache",
+    ],
     schemes: ["memcached", "memcache"],
     images: ["memcached"],
+    orm: [],
+  },
+  {
+    id: "infinispan",
+    name: "Infinispan",
+    category: "key-value",
+    deps: ["infinispan", "infinispan-client-hotrod", "infinispan-core"],
+    schemes: ["hotrod", "hotrods"],
+    images: ["infinispan-server"],
     orm: [],
   },
   {
@@ -234,6 +269,16 @@ export const STORES = [
     deps: ["neo4j-driver", "neo4j", "github.com/neo4j/neo4j-go-driver"],
     schemes: ["neo4j", "bolt"],
     images: ["neo4j"],
+    orm: [],
+  },
+  // A graph store on the Redis protocol: a `redis://` scheme alone shows Redis.
+  {
+    id: "falkordb",
+    name: "FalkorDB",
+    category: "graph",
+    deps: ["falkordb", "github.com/falkordb/falkordb-go"],
+    schemes: ["falkor", "falkors"],
+    images: ["falkordb", "falkordb-server"],
     orm: [],
   },
   {
@@ -355,7 +400,8 @@ export function engineToStore(text) {
   )
     return "sqlserver"
   if (t.includes("oracle")) return "oracle"
-  if (t.includes("redis") || t.includes("valkey")) return "redis"
+  if (t.includes("valkey")) return "valkey"
+  if (t.includes("redis")) return "redis"
   if (t.includes("memcached")) return "memcached"
   if (t.includes("docdb") || t.includes("mongo")) return "mongodb"
   return null

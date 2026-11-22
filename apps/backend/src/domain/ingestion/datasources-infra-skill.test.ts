@@ -77,6 +77,7 @@ type Existing = { path: string; title?: string; owned: boolean }
 type Result = {
   root: string
   stores: Array<{
+    id: string
     type: string
     name: string
     category: string
@@ -85,6 +86,7 @@ type Result = {
     existing: Existing[]
   }>
   infrastructure: Array<{
+    id: string
     type: string
     name: string
     evidence: Evidence[]
@@ -94,15 +96,17 @@ type Result = {
   skipped: Array<{ path: string | null; reason: string }>
 }
 
-/** The host inputs of each step (ADR-052 section 6); a root step at `.` unless the test gives others. */
+/**
+ * The host inputs of the repository-wide step (ADR-052 section 6). `--path
+ * <root>` here is not an argument of the script: it gives a map with only
+ * that root, when the test gives no `--roots`. The map has only `.` else.
+ */
 function run(dir: string, ...args: string[]) {
-  let roots = args.includes("--roots") ? [] : ["--roots", topRootsFile()]
-  const path =
-    args.includes("--path") || args.includes("--repository")
-      ? []
-      : ["--path", "."]
-  const rest = args.filter((a) => a !== "--repository")
-  if (args.includes("--repository") && args.includes("--roots")) roots = []
+  const at = args.indexOf("--path")
+  const path = at === -1 ? "." : (args[at + 1] ?? ".")
+  const rest = args.filter((_, i) => at === -1 || (i !== at && i !== at + 1))
+  const roots = rest.includes("--roots") ? [] : ["--roots", rootsFileOf(path)]
+  if (!rest.includes("--root")) rest.push("--root", stepRootOf())
   const result = spawnSync(
     process.execPath,
     [
@@ -114,7 +118,6 @@ function run(dir: string, ...args: string[]) {
       "--source-path",
       SOURCE_PATH,
       ...roots,
-      ...path,
       ...rest,
     ],
     { encoding: "utf8", env: GIT_ENV, timeout: 60_000 },
@@ -122,27 +125,54 @@ function run(dir: string, ...args: string[]) {
   return { ...result, raw: result.stdout }
 }
 
-let topRoots: string | undefined
-/** A root-to-file map with only the repository top as a root. */
-function topRootsFile(): string {
-  if (!topRoots) {
-    const dir = mkdtempSync(join(tmpdir(), "datasources-roots-"))
-    made.push(dir)
-    topRoots = join(dir, "roots.json")
-    writeFileSync(
-      topRoots,
-      JSON.stringify({
-        roots: [{ path: ".", manifests: [], evidence: [], files: [] }],
-      }),
-    )
-  }
-  return topRoots
+/**
+ * The step folder that the host prepares: a context checkout at its base
+ * with no knowledge file, step.json, and an empty index. So each store waits.
+ */
+function stepRootOf(): string {
+  const root = mkdtempSync(join(tmpdir(), "datasources-step-"))
+  made.push(root)
+  const contextDir = join(root, "context", WORKSPACE_ID)
+  mkdirSync(contextDir, { recursive: true })
+  git(contextDir, "init", "-q", "-b", "main")
+  const baseCommit = commit(contextDir, { "README.md": "# Context\n" })
+  writeFileSync(
+    join(root, "step.json"),
+    JSON.stringify({ workspaceId: WORKSPACE_ID, baseCommit }),
+  )
+  writeFileSync(
+    join(root, "context", `${WORKSPACE_ID}.index.json`),
+    JSON.stringify({ entries: [] }),
+  )
+  return root
 }
 
+/** A root-to-file map with only `path` as a root. */
+function rootsFileOf(path: string): string {
+  const dir = mkdtempSync(join(tmpdir(), "datasources-roots-"))
+  made.push(dir)
+  const file = join(dir, "roots.json")
+  writeFileSync(
+    file,
+    JSON.stringify({
+      roots: [{ path, manifests: [], evidence: [], files: [] }],
+    }),
+  )
+  return file
+}
+
+/** The result entry of one root: `--path <root>`, else `.`. */
 function find(dir: string, ...args: string[]): Result {
   const result = run(dir, ...args)
   expect(result.status, result.stderr).toBe(0)
-  return JSON.parse(result.stdout) as Result
+  const at = args.indexOf("--path")
+  const path = at === -1 ? "." : args[at + 1]
+  // A root with nothing that waits is not in the list.
+  return (
+    (JSON.parse(result.stdout) as { roots: Result[] }).roots.find(
+      (r) => r.root === path,
+    ) ?? { root: path ?? ".", stores: [], infrastructure: [], skipped: [] }
+  )
 }
 
 const store = (result: Result, type: string) =>
@@ -363,7 +393,7 @@ describe("find-stores script", () => {
     })
     const result = run(dir)
     expect(result.stdout).not.toMatch(/ignore/i)
-    const parsed = JSON.parse(result.stdout) as Result
+    const parsed = find(dir)
     // The unsafe service name gives the store with no detail; the safe one keeps its name.
     expect(
       store(parsed, "postgres")?.evidence.find(
@@ -405,7 +435,7 @@ describe("find-stores script", () => {
     ])
   })
 
-  it("lists each root of the map in the repository-wide step, as the root steps see them", () => {
+  it("lists each root of the map, as a map with only that root gives it", () => {
     const dir = repo(SHOP)
     const rootsFile = join(dir, "..", `roots-repository-${Date.now()}.json`)
     made.push(rootsFile)
@@ -418,15 +448,14 @@ describe("find-stores script", () => {
         ],
       }),
     )
-    const result = run(dir, "--repository", "--roots", rootsFile)
+    const result = run(dir, "--roots", rootsFile)
     expect(result.status, result.stderr).toBe(0)
     const parsed = JSON.parse(result.stdout) as {
       roots: Result[]
       skipped: unknown[]
     }
     expect(parsed.roots.map((r) => r.root)).toEqual([".", "apps/api"])
-    const api = find(dir, "--path", "apps/api", "--roots", rootsFile)
-    expect(parsed.roots[1]).toEqual(api)
+    expect(parsed.roots[1]).toEqual(find(dir, "--path", "apps/api"))
   })
 
   it("reads the source once in the repository-wide step, not once for each root", () => {
@@ -468,6 +497,8 @@ describe("find-stores script", () => {
         SOURCE_PATH,
         "--roots",
         rootsFile,
+        "--root",
+        stepRootOf(),
       ],
       {
         encoding: "utf8",
@@ -476,7 +507,10 @@ describe("find-stores script", () => {
       },
     )
     expect(result.status, result.stderr).toBe(0)
-    expect(JSON.parse(result.stdout).roots).toHaveLength(3)
+    // apps/web has no store, so it is not in the list.
+    expect(
+      JSON.parse(result.stdout).roots.map((r: { root: string }) => r.root),
+    ).toEqual([".", "apps/api"])
     const calls = readFileSync(log, "utf8").split("\n").filter(Boolean)
     expect(calls.filter((call) => call.includes("ls-files"))).toHaveLength(1)
   })
@@ -536,10 +570,43 @@ describe("find-stores script", () => {
     )
   })
 
-  it("refuses an unsafe root path", () => {
+  it("skips an unsafe root path of the map and says so", () => {
     const result = run(repo(SHOP), "--path", "apps/`api`")
+    expect(result.status, result.stderr).toBe(0)
+    expect(JSON.parse(result.stdout)).toEqual({
+      roots: [],
+      skipped: [
+        {
+          path: null,
+          reason: "A root path has characters that the script does not quote",
+        },
+      ],
+      done: 0,
+      waiting: 0,
+      more: false,
+    })
+  })
+
+  it("runs only in the repository-wide step: it refuses --path", () => {
+    const result = spawnSync(
+      process.execPath,
+      [
+        SCRIPT,
+        "--source",
+        repo(SHOP),
+        "--source-url",
+        SOURCE_URL,
+        "--source-path",
+        SOURCE_PATH,
+        "--roots",
+        rootsFileOf("."),
+        "--path",
+        ".",
+      ],
+      { encoding: "utf8", env: GIT_ENV },
+    )
     expect(result.status).toBe(1)
-    expect(result.stderr).toContain("is not a safe root path")
+    expect(result.stderr).toContain("runs only in the repository-wide step")
   })
 
   it("resolves the engine of a Terraform resource and of a CloudFormation resource", () => {
@@ -684,15 +751,41 @@ describe("find-stores script", () => {
     expect(Date.now() - started).toBeLessThan(10_000)
     expect(store(result, "postgres")).toBeUndefined()
     expect(store(result, "redis")).toBeDefined()
+    // Each byte limit says what it did not read.
     expect(result.skipped).toEqual([
       {
         path: "big/docker-compose.yml",
         reason: "The file is larger than 256 KiB",
       },
+      {
+        path: "long/docker-compose.yml",
+        reason: "The script read only the first 2000 characters of each line",
+      },
     ])
   })
 
-  it("caps the evidence of a store and counts the rest", () => {
+  it("reads each file, with no file count, also in a CDK project (CTX-1487)", () => {
+    const files: Record<string, string> = {
+      "package.json": pkg("infra", { dependencies: { "aws-cdk-lib": "2" } }),
+    }
+    // More files than the old limits: 1500 read files and 300 CDK files.
+    for (let i = 0; i < 1600; i++)
+      files[`config/a${String(i).padStart(4, "0")}.ini`] = "name = app\n"
+    files["config/z.ini"] = "url = postgres://db/app\n"
+    for (let i = 0; i < 320; i++)
+      files[`lib/c${String(i).padStart(3, "0")}.ts`] =
+        'import * as cdk from "aws-cdk-lib"\n'
+    files["lib/z.ts"] =
+      'import * as s3 from "aws-cdk-lib/aws-s3"\nnew s3.Bucket(this, "Files")\n'
+    const result = find(repo(files))
+    expect(result.stores.map((s) => s.id)).toEqual([
+      "Database:postgres",
+      "Database:s3",
+    ])
+    expect(result.skipped).toEqual([])
+  })
+
+  it("shows at most 8 evidence entries of a store, and counts all of them", () => {
     const files: Record<string, string> = {}
     for (let i = 0; i < 12; i++)
       files[`svc${i}/package.json`] = pkg(`s${i}`, {
@@ -703,6 +796,137 @@ describe("find-stores script", () => {
     expect(store(result, "postgres")?.evidenceTotal).toBe(12)
   })
 
+  it.each([
+    [
+      "Valkey from a Keyv store and a Valkey client",
+      {
+        "package.json": pkg("a", {
+          dependencies: { "@keyv/valkey": "1", iovalkey: "1" },
+        }),
+      },
+      "Database:valkey",
+    ],
+    [
+      "Valkey from a Compose image, not Redis",
+      {
+        "docker-compose.yml":
+          "services:\n  cache:\n    image: valkey/valkey:8\n",
+      },
+      "Database:valkey",
+    ],
+    [
+      "Infinispan from its client",
+      { "package.json": pkg("a", { dependencies: { infinispan: "0.16" } }) },
+      "Database:infinispan",
+    ],
+    [
+      "Memcached from a Keyv store and the memcached client",
+      {
+        "package.json": pkg("a", {
+          dependencies: { "@keyv/memcache": "2", memcached: "2" },
+        }),
+      },
+      "Database:memcached",
+    ],
+    [
+      "FalkorDB from its client",
+      { "package.json": pkg("a", { dependencies: { falkordb: "6" } }) },
+      "Database:falkordb",
+    ],
+    [
+      "FalkorDB from a Compose image",
+      {
+        "docker-compose.yml":
+          "services:\n  graph:\n    image: falkordb/falkordb:latest\n",
+      },
+      "Database:falkordb",
+    ],
+    [
+      "PostgreSQL from a pgvector Compose image",
+      {
+        "docker-compose.yml":
+          "services:\n  db:\n    image: pgvector/pgvector:pg17\n",
+      },
+      "Database:postgres",
+    ],
+    [
+      "Redis from a Keyv store",
+      { "package.json": pkg("a", { dependencies: { "@keyv/redis": "4" } }) },
+      "Database:redis",
+    ],
+    [
+      "Valkey from a valkey:// scheme, not Redis",
+      { ".env.example": "CACHE_URL=valkey://cache.example:6379\n" },
+      "Database:valkey",
+    ],
+    [
+      "Valkey from a valkey-bundle Compose image",
+      {
+        "docker-compose.yml":
+          "services:\n  cache:\n    image: valkey/valkey-bundle:8\n",
+      },
+      "Database:valkey",
+    ],
+    [
+      "Valkey from the engine of a Terraform ElastiCache group, not Redis",
+      {
+        "main.tf":
+          'resource "aws_elasticache_replication_group" "sessions" {\n  engine = "valkey"\n}\n',
+      },
+      "Database:valkey",
+    ],
+    [
+      "Infinispan from a hotrod:// scheme",
+      { ".env.example": "CACHE_URL=hotrod://cache.example:11222\n" },
+      "Database:infinispan",
+    ],
+    [
+      "Infinispan from an infinispan-server Compose image",
+      {
+        "docker-compose.yml":
+          "services:\n  cache:\n    image: jboss/infinispan-server:10\n",
+      },
+      "Database:infinispan",
+    ],
+    [
+      "FalkorDB from a falkor:// scheme",
+      { ".env.example": "GRAPH_URL=falkor://graph.example:6379\n" },
+      "Database:falkordb",
+    ],
+  ])("finds %s (CTX-1487)", (_name, files, id) => {
+    expect(find(repo(files)).stores.map((s) => s.id)).toEqual([id])
+  })
+
+  it("prints only the count of the pairs of an id and a root with --count, and writes nothing", () => {
+    const dir = repo({
+      "apps/api/package.json": pkg("api", {
+        dependencies: { pg: "8", ioredis: "5" },
+      }),
+      "apps/api/Dockerfile": "FROM node:22\n",
+      "apps/web/package.json": pkg("web", { dependencies: { pg: "8" } }),
+      "apps/web/Dockerfile": "FROM node:22\n",
+    })
+    const rootsDir = mkdtempSync(join(tmpdir(), "datasources-roots-"))
+    made.push(rootsDir)
+    const rootsFile = join(rootsDir, "roots.json")
+    writeFileSync(
+      rootsFile,
+      JSON.stringify({
+        roots: ["apps/api", "apps/web"].map((path) => ({
+          path,
+          manifests: [],
+          evidence: [],
+          files: [],
+        })),
+      }),
+    )
+    const result = run(dir, "--roots", rootsFile, "--count")
+    expect(result.status, result.stderr).toBe(0)
+    // Database:postgres and Infrastructure:docker in each root, and
+    // Database:redis in apps/api: five pairs of an id and a root.
+    expect(result.stdout).toBe('{"count":5}\n')
+  })
+
   it("lists the context files that may describe the same store", () => {
     const dir = repo({
       "package.json": pkg("a", { dependencies: { pg: "1", ioredis: "1" } }),
@@ -710,10 +934,15 @@ describe("find-stores script", () => {
     })
     const root = mkdtempSync(join(tmpdir(), "datasources-infra-ctx-"))
     made.push(root)
-    mkdirSync(join(root, "context"), { recursive: true })
+    // The context checkout of the step, at its base: it has no store file
+    // yet, so each store waits.
+    const contextDir = join(root, "context", WORKSPACE_ID)
+    mkdirSync(contextDir, { recursive: true })
+    git(contextDir, "init", "-q", "-b", "main")
+    const baseCommit = commit(contextDir, { "README.md": "# Context\n" })
     writeFileSync(
       join(root, "step.json"),
-      JSON.stringify({ workspaceId: WORKSPACE_ID, baseCommit: "a".repeat(40) }),
+      JSON.stringify({ workspaceId: WORKSPACE_ID, baseCommit }),
     )
     writeFileSync(
       join(root, "context", `${WORKSPACE_ID}.index.json`),
@@ -778,11 +1007,47 @@ describe("find-stores script", () => {
 describe("datasources-infra skill in a step", () => {
   const front = (attributes: object, body: string) =>
     `---\n${stringify(attributes)}---\n${body}`
+  const service = (name: string, body = `The ${name} service.\n`) =>
+    front(
+      {
+        kind: "Service",
+        name,
+        summary: `The ${name} service.`,
+        generated_by: "ctxpipe-extract",
+        sources: [SOURCE_PATH],
+      },
+      `# ${name}\n\n${body}`,
+    )
 
-  /** A source checkout, a context checkout at its base, the index (host path), and step.json. */
+  type WriteResult = {
+    ops: Array<{ op: string; path: string }>
+    skipped: Array<{ path: string | null; reason: string }>
+    more: boolean
+  }
+  /** The finder output in a step: only the entries that wait. */
+  type Found = {
+    done: number
+    waiting: number
+    more: boolean
+    roots: Result[]
+  }
+  /** The `<id> <root>` pairs that the finder lists. */
+  const pairs = (found: Found) =>
+    found.roots
+      .flatMap((r) =>
+        [...r.stores, ...r.infrastructure].map((e) => `${e.id} ${r.root}`),
+      )
+      .sort()
+
+  /**
+   * A source checkout, a context checkout at its base, the index (host
+   * path), step.json, and the root-to-file map (`roots`: a root path to its
+   * context files).
+   */
   async function step(
     source: Record<string, string>,
     context: Record<string, string>,
+    roots: Record<string, string[]> = { ".": [] },
   ) {
     const root = mkdtempSync(join(tmpdir(), "datasources-infra-step-"))
     made.push(root)
@@ -793,55 +1058,86 @@ describe("datasources-infra skill in a step", () => {
     const contextDir = join(root, "context", WORKSPACE_ID)
     mkdirSync(contextDir, { recursive: true })
     git(contextDir, "init", "-q", "-b", "main")
-    const baseCommit = commit(contextDir, {
-      "README.md": "# Context\n",
-      ...context,
-    })
-    await writeStepIndex({
-      root,
-      workspaceId: WORKSPACE_ID,
-      contextDir,
-      base: baseCommit,
-      sourcePath: SOURCE_PATH,
-    })
+    let base = commit(contextDir, { "README.md": "# Context\n", ...context })
+    const rootsFile = join(root, "roots.json")
     writeFileSync(
-      join(root, "step.json"),
-      JSON.stringify({ workspaceId: WORKSPACE_ID, baseCommit }),
+      rootsFile,
+      JSON.stringify({
+        roots: Object.entries(roots).map(([path, files]) => ({
+          path,
+          manifests: [],
+          evidence: [],
+          files,
+        })),
+      }),
     )
-    mkdirSync(join(root, "out", "files"), { recursive: true })
+    /** The step inputs at `base`: the index, step.json, and an empty output. */
+    const prepare = async () => {
+      await writeStepIndex({
+        root,
+        workspaceId: WORKSPACE_ID,
+        contextDir,
+        base,
+        sourcePath: SOURCE_PATH,
+      })
+      writeFileSync(
+        join(root, "step.json"),
+        JSON.stringify({ workspaceId: WORKSPACE_ID, baseCommit: base }),
+      )
+      rmSync(join(root, "out"), { recursive: true, force: true })
+      mkdirSync(join(root, "out", "files"), { recursive: true })
+    }
+    await prepare()
 
-    const helper = (name: string, ...args: string[]) => {
+    const script = (name: string, ...args: string[]) => {
       const result = spawnSync(
         process.execPath,
-        [join(INGEST_SKILLS_DIR, "bin", name), "--root", root, ...args],
-        { encoding: "utf8" },
+        [
+          join(INGEST_SKILLS_DIR, "datasources-infra/scripts", name),
+          "--root",
+          root,
+          "--source",
+          sourceDir,
+          "--source-url",
+          SOURCE_URL,
+          "--source-path",
+          SOURCE_PATH,
+          "--roots",
+          rootsFile,
+          ...args,
+        ],
+        { encoding: "utf8", env: GIT_ENV, timeout: 60_000 },
       )
       expect(result.status, `${result.stdout}${result.stderr}`).toBe(0)
+      return JSON.parse(result.stdout.trim().split("\n").at(-1) ?? "")
     }
-    const staged = (path: string) => join(root, "out", "files", path)
+    const planFile = join(root, "home", "stores-plan.json")
     return {
-      sourceDir,
-      contextDir,
-      found: () => find(sourceDir, "--path", ".", "--root", root),
-      /** The agent stages a path, then changes the staged text. */
-      edit(path: string, change: (text: string | null) => string) {
-        helper("ctxpipe-stage", path)
-        let before: string | null = null
-        try {
-          before = readFileSync(staged(path), "utf8")
-        } catch {}
-        mkdirSync(dirname(staged(path)), { recursive: true })
-        writeFileSync(staged(path), change(before))
+      found: () => script("find-stores.mjs") as Found,
+      count: () => script("find-stores.mjs", "--count") as { count: number },
+      /** The `cursor.at` that the last writer run wrote in patch.json. */
+      at: () =>
+        (
+          JSON.parse(readFileSync(join(root, "out", "patch.json"), "utf8")) as {
+            cursor?: { at: number }
+          }
+        ).cursor?.at,
+      /** The model writes the plan and runs the writer. */
+      write(plan: object): WriteResult {
+        mkdirSync(dirname(planFile), { recursive: true })
+        writeFileSync(planFile, JSON.stringify(plan))
+        return script("write-stores.mjs", "--plan", planFile) as WriteResult
       },
-      finish: () => helper("ctxpipe-finish"),
       patch: () =>
         JSON.parse(readFileSync(join(root, "out", "patch.json"), "utf8")) as {
           ops: Array<{ op: string; path: string }>
+          more?: boolean
+          cursor?: { at: number }
         },
       validate: () =>
         validatePatchStep({
           repoDir: contextDir,
-          baseCommit,
+          baseCommit: base,
           stagedDir: join(root, "out"),
           source: { url: SOURCE_URL, sha: sourceSha },
           sourcePath: SOURCE_PATH,
@@ -850,105 +1146,604 @@ describe("datasources-infra skill in a step", () => {
           ...gitSource(sourceDir, sourceSha),
           linkableRepositories: [SOURCE_URL],
         }),
+      /** Commit a validated tree as the base of the next page. */
+      async advance(tree: string) {
+        base = git(contextDir, "commit-tree", tree, "-p", base, "-m", "page")
+        await prepare()
+      },
       show: (tree: string, path: string) =>
         git(contextDir, "show", `${tree}:${path}`),
+      files: (tree: string, prefix: string) =>
+        git(contextDir, "ls-tree", "-r", "--name-only", tree)
+          .split("\n")
+          .filter((p) => p.startsWith(prefix)),
     }
   }
 
   const source = {
-    "package.json": pkg("api", { dependencies: { pg: "8", ioredis: "5" } }),
+    // `author` is not a credential field, so "cache" stays a word that a name
+    // can use.
+    "package.json": pkg("api", {
+      dependencies: { pg: "8", ioredis: "5" },
+      author: "cache team",
+    }),
+    "src/db.ts": "import pg from 'pg'\n",
+    "src/config.ts":
+      'export const dbPassword = "lilac"\nconnect("postgres://mirror:daisy@db/app")\n',
+    "config/db.json":
+      '{"driver":"postgres","password":"iris","schema":"billing"}\n',
+    ".env.example":
+      "DATABASE_URL=postgres://admin:s3cr3tpass@db.internal.example:5432/shop\nREAD_URL=postgres://reader:rosebud@db/app\nPGPASSWORD=tulip\nAPP_ENV=prod\n",
+    Dockerfile: "FROM node:22\n",
     "docker-compose.yml":
-      "services:\n  cache:\n    image: redis:7\n  db:\n    image: postgres:16\n    environment:\n      POSTGRES_PASSWORD: hunter2\n",
+      "services:\n  cache:\n    image: redis:7\n    environment:\n      REDIS_PASSWORD: abc\n      REDIS_USERNAME: alice\n      REDIS_PORT: 6379\n      REDIS_HOST: redis\n  db:\n    image: postgres:16\n    environment:\n      POSTGRES_PASSWORD: secretpassword\n      POSTGRES_USER: admin\n",
   }
+  const api = { "knowledge/services/api.md": service("api") }
+  const apiRoot = { ".": ["knowledge/services/api.md"] }
+
+  it("writes the store files and the claims of the root from the plan, and sets the cursor", async () => {
+    const s = await step(source, api, apiRoot)
+    const ids = s.found().roots[0]?.stores.map((store) => store.id)
+    expect(ids).toEqual(["Database:postgres", "Database:redis"])
+    expect(s.count()).toEqual({ count: 4 })
+
+    const out = s.write({
+      items: [
+        {
+          id: "Database:postgres",
+          name: "PostgreSQL for orders",
+          role: "primary",
+          summary: "Primary relational store for order data.",
+          roots: [
+            { root: ".", predicate: "READS_FROM", evidence: "src/db.ts" },
+          ],
+        },
+        {
+          id: "Infrastructure:docker",
+          name: "Docker",
+          role: "deploy",
+          roots: [{ root: ".", predicate: "RUNS_ON" }],
+        },
+      ],
+    })
+    expect(out.skipped).toEqual([])
+    expect(out.more).toBe(false)
+    expect(out.ops.map((o) => `${o.op} ${o.path}`)).toEqual([
+      "create knowledge/databases/postgresql-for-orders.md",
+      "create knowledge/infrastructure/docker.md",
+      "update knowledge/services/api.md",
+    ])
+    // Two of the four pairs of an id and a root are done; the model planned
+    // no other. The finder now lists only the two that wait.
+    expect(s.patch().cursor).toEqual({ at: 2 })
+    const next = s.found()
+    expect(next).toMatchObject({ done: 2, waiting: 2, more: false })
+    expect(pairs(next)).toEqual([
+      "Database:redis .",
+      "Infrastructure:docker-compose .",
+    ])
+
+    const result = await s.validate()
+    expect(result.rejections).toEqual([])
+    expect(result.cursorAt).toBe(2)
+    const db = s.show(
+      result.tree,
+      "knowledge/databases/postgresql-for-orders.md",
+    )
+    expect(db).toContain("kind: Database")
+    expect(db).toContain(
+      "Role: primary store for the domain data. Primary relational store for order data.",
+    )
+    expect(db).toContain(
+      "- `example-org/shop` declares `postgres` in `package.json`",
+    )
+    expect(db).toContain("- `example-org/shop` uses it in `.`")
+    const unit = s.show(result.tree, "knowledge/services/api.md")
+    expect(unit).toMatch(
+      /to: \.\.\/databases\/postgresql-for-orders\.md\n\s+predicate: READS_FROM\n\s+evidence:\n\s+path: src\/db\.ts\n\s+kind: model/,
+    )
+    expect(unit).toMatch(
+      /to: \.\.\/infrastructure\/docker\.md\n\s+predicate: RUNS_ON\n\s+evidence:\n\s+path: Dockerfile\n\s+kind: script/,
+    )
+    for (const path of s.files(result.tree, "knowledge/"))
+      expect(s.show(result.tree, path)).not.toMatch(/secretpassword|s3cr3tpass/)
+  })
+
+  it("refuses a plan item with no find-stores id, or with an id that the finder did not list", async () => {
+    const s = await step(source, api, apiRoot)
+    const out = s.write({
+      items: [
+        { name: "MongoDB", role: "primary", roots: [] },
+        { id: "Database:mongodb", name: "MongoDB", role: "primary", roots: [] },
+        {
+          id: "Database:postgres",
+          name: "PostgreSQL",
+          role: "primary",
+          roots: [{ root: ".", predicate: "DEPENDS_ON" }],
+        },
+      ],
+    })
+    expect(out.skipped.map((k) => k.reason)).toEqual([
+      "A plan item is not an id that find-stores listed: the script writes no file for it",
+      "Database:mongodb is not an id that find-stores listed: the script writes no file for it",
+    ])
+    expect(out.ops.map((o) => o.path)).toEqual([
+      "knowledge/databases/postgresql.md",
+      "knowledge/services/api.md",
+    ])
+    expect(s.at()).toBe(1)
+  })
+
+  it("writes no value: it refuses a name or a summary with a host, a port, or a value of an evidence file", async () => {
+    const s = await step(source, api, apiRoot)
+    const out = s.write({
+      items: [
+        {
+          id: "Database:postgres",
+          name: "db.internal.example",
+          role: "primary",
+          roots: [],
+        },
+        {
+          id: "Database:postgres",
+          name: "PostgreSQL",
+          role: "primary",
+          // A plain word, but the value of a credential field.
+          summary: "The password is secretpassword.",
+          roots: [],
+        },
+        {
+          id: "Database:postgres",
+          name: "PostgreSQL",
+          role: "primary",
+          summary: "The password is s3cr3tpass.",
+          roots: [],
+        },
+        {
+          id: "Database:postgres",
+          name: "PostgreSQL",
+          role: "primary",
+          // A short password of letters in a connection URL.
+          summary: "Store password is rosebud.",
+          roots: [],
+        },
+        {
+          id: "Database:postgres",
+          name: "PostgreSQL",
+          role: "primary",
+          // A credential field with a prefix: PGPASSWORD.
+          summary: "Store password is tulip.",
+          roots: [],
+        },
+        {
+          id: "Database:postgres",
+          name: "PostgreSQL",
+          role: "primary",
+          // A password in the source file that the plan gives as evidence.
+          summary: "Store password is lilac.",
+          roots: [
+            { root: ".", predicate: "READS_FROM", evidence: "src/config.ts" },
+          ],
+        },
+        {
+          id: "Database:postgres",
+          name: "PostgreSQL",
+          role: "primary",
+          // A URL with a password and no key before it on its line.
+          summary: "Store password is daisy.",
+          roots: [
+            { root: ".", predicate: "READS_FROM", evidence: "src/config.ts" },
+          ],
+        },
+        {
+          id: "Database:postgres",
+          name: "PostgreSQL",
+          role: "primary",
+          // A credential field after another field of compact JSON.
+          summary: "Store password is iris.",
+          roots: [
+            { root: ".", predicate: "READS_FROM", evidence: "config/db.json" },
+          ],
+        },
+        {
+          id: "Database:postgres",
+          name: "PostgreSQL",
+          role: "primary",
+          // A word of a value of a JSON config file.
+          summary: "Store of the billing schema.",
+          roots: [
+            { root: ".", predicate: "READS_FROM", evidence: "config/db.json" },
+          ],
+        },
+        {
+          id: "Database:postgres",
+          name: "PostgreSQL",
+          role: "primary",
+          // A short plain word of a value: a summary takes no word of a
+          // value, but a name can (the evidence holds the store names).
+          summary: "The prod database.",
+          roots: [],
+        },
+        {
+          id: "Database:redis",
+          name: "Redis cache",
+          role: "cache",
+          summary: "Cache on port :6379 of the cache service.",
+          roots: [],
+        },
+        {
+          id: "Database:redis",
+          name: "Redis cache",
+          role: "cache",
+          // A short password: a whole word of the text, of any length.
+          summary: "The password is abc.",
+          roots: [],
+        },
+        {
+          id: "Database:redis",
+          name: "Redis cache",
+          role: "cache",
+          // `abc` only inside a word: not the value.
+          summary: "Store for the abcd service.",
+          roots: [],
+        },
+        // A name takes no user, user name, or port of an evidence field: the
+        // script writes the name of the catalog, and the store keeps its file.
+        {
+          id: "Database:postgres",
+          name: "PostgreSQL for admin",
+          role: "primary",
+          roots: [],
+        },
+        { id: "Database:redis", name: "Redis alice", role: "cache", roots: [] },
+        { id: "Database:redis", name: "Redis 6379", role: "cache", roots: [] },
+        // A word of a config value (APP_ENV=prod) is not in a name.
+        {
+          id: "Database:postgres",
+          name: "PostgreSQL prod",
+          role: "primary",
+          roots: [],
+        },
+        // The name of the store itself is not a value of a config file.
+        {
+          id: "Database:redis",
+          name: "Redis cache",
+          role: "cache",
+          summary: "Redis cache for sessions.",
+          roots: [],
+        },
+        { id: "Database:redis", name: "Redis", role: "deploy", roots: [] },
+      ],
+    })
+    expect(out.skipped.map((k) => k.reason)).toEqual([
+      "Database:postgres: the script wrote the name PostgreSQL, because it has a host name",
+      "Database:postgres: the script wrote no summary, because it has a value from an evidence file",
+      "Database:postgres: the script wrote no summary, because it has a value from an evidence file",
+      "Database:postgres: the script wrote no summary, because it has a value from an evidence file",
+      "Database:postgres: the script wrote no summary, because it has a value from an evidence file",
+      "Database:postgres: the script wrote no summary, because it has a value from an evidence file",
+      "Database:postgres: the script wrote no summary, because it has a value from an evidence file",
+      "Database:postgres: the script wrote no summary, because it has a value from an evidence file",
+      "Database:postgres: the script wrote no summary, because it has a word of a value of an evidence file",
+      "Database:postgres: the script wrote no summary, because it has a word of a value of an evidence file",
+      "Database:redis: the script wrote no summary, because it has a port",
+      "Database:redis: the script wrote no summary, because it has a value from an evidence file",
+      "Database:postgres: the script wrote the name PostgreSQL, because it has a value from an evidence file",
+      "Database:redis: the script wrote the name Redis, because it has a value from an evidence file",
+      "Database:redis: the script wrote the name Redis, because it has a value from an evidence file",
+      "Database:postgres: the script wrote the name PostgreSQL, because it has a word of a value of an evidence file",
+      "Database:redis: the role is not one of primary, cache, session, search, analytics, object-storage, queue, local-development, test, example",
+    ])
+    const result = await s.validate()
+    expect(result.rejections).toEqual([])
+    for (const path of s.files(result.tree, "knowledge/"))
+      expect(s.show(result.tree, path)).not.toMatch(
+        /secretpassword|s3cr3tpass|6379|internal|is abc|rosebud|tulip|lilac|daisy|iris|prod database|alice|for admin|billing schema/,
+      )
+  })
 
   it("updates the existing file that describes the store and adds no duplicate", async () => {
     const human = front(
       { kind: "Database", name: "Orders PostgreSQL", summary: "Orders." },
       "# Orders PostgreSQL\n\nHuman text.\n",
     )
-    const service = front(
-      {
-        kind: "Service",
-        name: "api",
-        summary: "The API.",
-        generated_by: "ctxpipe-extract",
-        sources: [SOURCE_PATH],
-      },
-      "# api\n\nThe API.\n",
+    const s = await step(
+      source,
+      { "knowledge/databases/orders-postgresql.md": human, ...api },
+      apiRoot,
     )
-    const s = await step(source, {
-      "knowledge/databases/orders-postgresql.md": human,
-      "knowledge/services/api.md": service,
-    })
-    const found = s.found()
-    expect(store(found, "postgres")?.existing).toEqual([
+    expect(s.found().roots[0]?.stores[0]?.existing).toEqual([
       {
         path: "knowledge/databases/orders-postgresql.md",
         title: "Orders PostgreSQL",
         owned: false,
       },
     ])
-
-    // The agent follows `existing`: it stages that file and adds a line, and it adds a claim to the service file.
-    s.edit(
-      "knowledge/databases/orders-postgresql.md",
-      (text) =>
-        `${(text ?? "").trimEnd()}\n\n## Related\n\n- \`example-org/shop\` uses it in \`.\` (\`package.json\`: \`pg\`)\n`,
-    )
-    s.edit("knowledge/services/api.md", (text) =>
-      (text ?? "").replace(
-        "\n---\n",
-        "\nclaims:\n  - to: ../databases/orders-postgresql.md\n    predicate: DEPENDS_ON\n    evidence:\n      path: package.json\n      kind: script\n---\n",
-      ),
-    )
-    s.finish()
-    expect(s.patch().ops.map((o) => `${o.op} ${o.path}`)).toEqual([
+    const out = s.write({
+      items: [
+        {
+          id: "Database:postgres",
+          name: "PostgreSQL for orders",
+          role: "primary",
+          existing: "knowledge/databases/orders-postgresql.md",
+          roots: [{ root: ".", predicate: "DEPENDS_ON" }],
+        },
+      ],
+    })
+    expect(out.ops.map((o) => `${o.op} ${o.path}`)).toEqual([
       "update knowledge/databases/orders-postgresql.md",
       "update knowledge/services/api.md",
     ])
-
     const result = await s.validate()
     expect(result.rejections).toEqual([])
     expect(result.status).toBe("complete")
     const db = s.show(result.tree, "knowledge/databases/orders-postgresql.md")
     expect(db.startsWith(human.trimEnd())).toBe(true)
-    expect(db).toContain("Human text.")
-    expect(db).not.toContain("hunter2")
-    expect(s.show(result.tree, "knowledge/services/api.md")).toContain(
-      "DEPENDS_ON",
+    expect(db).toContain(
+      "## Related\n\n- `example-org/shop` declares `postgres` in `package.json`\n- `example-org/shop` uses it in `.`",
     )
-    // No second file for the same store.
-    expect(
-      git(s.contextDir, "ls-tree", "-r", "--name-only", result.tree)
-        .split("\n")
-        .filter((p) => p.startsWith("knowledge/databases/")),
-    ).toEqual(["knowledge/databases/orders-postgresql.md"])
+    expect(s.show(result.tree, "knowledge/services/api.md")).toContain(
+      "predicate: DEPENDS_ON",
+    )
+    expect(s.files(result.tree, "knowledge/databases/")).toEqual([
+      "knowledge/databases/orders-postgresql.md",
+    ])
   })
 
-  it("accepts a new store file for a store that has no existing file", async () => {
-    const s = await step(source, {})
-    const found = s.found()
-    expect(store(found, "redis")?.existing).toEqual([])
-    s.edit("knowledge/databases/redis-cache.md", () =>
-      front(
+  it("lists only the entries that wait, up to the size limit of a list, and the count stays the full list (CTX-1487)", async () => {
+    // 300 roots with three PostgreSQL drivers, and Docker in half of them:
+    // more than the 128 KiB of a list.
+    const files: Record<string, string> = {}
+    const roots: Record<string, string[]> = {}
+    for (let i = 0; i < 300; i++) {
+      files[`apps/a${i}/package.json`] = pkg(`a${i}`, {
+        dependencies: { pg: "8", postgres: "3", "pg-promise": "11" },
+      })
+      if (i % 2 === 0) files[`apps/a${i}/Dockerfile`] = "FROM node:22\n"
+      roots[`apps/a${i}`] = []
+    }
+    const s = await step(files, {}, roots)
+    const first = s.found()
+    expect(JSON.stringify(first).length).toBeLessThanOrEqual(130 * 1024)
+    expect(first).toMatchObject({ done: 0, waiting: 450, more: true })
+    expect(pairs(first).length).toBeLessThan(450)
+    expect(s.count()).toEqual({ count: 450 })
+
+    // The model writes the PostgreSQL store for each root. Then the next run
+    // lists only the Docker entries, which wait.
+    s.write({
+      items: [
         {
-          kind: "Database",
-          name: "Redis cache",
-          summary: "Cache for the API.",
+          id: "Database:postgres",
+          name: "PostgreSQL",
+          role: "primary",
+          roots: Object.keys(roots).map((root) => ({
+            root,
+            predicate: "DEPENDS_ON",
+          })),
         },
-        "# Redis cache\n\nRole: cache. The `cache` Compose service runs it; the variable name is `REDIS_URL`.\n\n## Related\n\n- `example-org/shop` uses it in `.` (`docker-compose.yml`: `cache`)\n",
-      ),
+      ],
+    })
+    expect(s.at()).toBe(300)
+    const next = s.found()
+    expect(next).toMatchObject({ done: 300, waiting: 150, more: false })
+    expect(new Set(pairs(next).map((p) => p.split(" ")[0]))).toEqual(
+      new Set(["Infrastructure:docker"]),
     )
-    s.finish()
+    expect(pairs(next)).toHaveLength(150)
+    expect(s.count()).toEqual({ count: 450 })
+  })
+
+  it("writes the line of each root of a store, with no line count (CTX-1487)", async () => {
+    const files: Record<string, string> = {}
+    const roots: Record<string, string[]> = {}
+    for (let i = 0; i < 210; i++) {
+      files[`apps/a${i}/package.json`] = pkg(`a${i}`, {
+        dependencies: { pg: "8" },
+      })
+      roots[`apps/a${i}`] = []
+    }
+    const s = await step(files, {}, roots)
+    const out = s.write({
+      items: [
+        {
+          id: "Database:postgres",
+          name: "PostgreSQL",
+          role: "primary",
+          roots: Object.keys(roots).map((root) => ({
+            root,
+            predicate: "DEPENDS_ON",
+          })),
+        },
+      ],
+    })
+    // Each root has no Service file, so each one has a skipped entry with no
+    // path; no line of the file is dropped.
+    expect(out.skipped.filter((k) => k.path !== null)).toEqual([])
+    expect(s.at()).toBe(210)
+    expect(s.found()).toMatchObject({ done: 210, waiting: 0, more: false })
     const result = await s.validate()
     expect(result.rejections).toEqual([])
-    expect(result.accepted.map((o) => o.path)).toEqual([
-      "knowledge/databases/redis-cache.md",
-    ])
-    const text = s.show(result.tree, "knowledge/databases/redis-cache.md")
-    expect(text).toContain("generated_by: ctxpipe-extract")
-    expect(text).not.toContain("hunter2")
+    const db = s.show(result.tree, "knowledge/databases/postgresql.md")
+    expect(db.split("\n").filter((l) => l.includes("uses it in"))).toHaveLength(
+      210,
+    )
   })
+
+  it("pages a second store of one engine: the claims of the first store do not make its pairs done (CTX-1487)", async () => {
+    // 40 roots claim a PostgreSQL primary store already. The plan adds a
+    // PostgreSQL analytics store, and its claims on the 40 Service files of
+    // about 60 KiB are more than one page.
+    const primary = "knowledge/databases/postgresql-primary.md"
+    const files: Record<string, string> = {}
+    const context: Record<string, string> = {
+      [primary]: front(
+        {
+          kind: "Database",
+          name: "PostgreSQL primary",
+          summary: "Primary store.",
+          generated_by: "ctxpipe-extract",
+          sources: [SOURCE_PATH],
+        },
+        "# PostgreSQL primary\n\nRole: primary store for the domain data.\n\n## Related\n\n- `example-org/shop` declares `postgres` in `apps/s0/package.json`\n",
+      ),
+    }
+    const roots: Record<string, string[]> = {}
+    const body = "The service handles orders.\n".repeat(2200)
+    for (let i = 0; i < 40; i++) {
+      files[`apps/s${i}/package.json`] = pkg(`s${i}`, {
+        dependencies: { pg: "8" },
+      })
+      context[`knowledge/services/s${i}.md`] = front(
+        {
+          kind: "Service",
+          name: `S${i}`,
+          summary: `The S${i} service.`,
+          generated_by: "ctxpipe-extract",
+          sources: [SOURCE_PATH],
+          claims: [
+            {
+              to: "../databases/postgresql-primary.md",
+              predicate: "DEPENDS_ON",
+              evidence: { path: `apps/s${i}/package.json`, kind: "script" },
+            },
+          ],
+        },
+        `# S${i}\n\n${body}`,
+      )
+      roots[`apps/s${i}`] = [`knowledge/services/s${i}.md`]
+    }
+    const uses = Object.keys(roots).map((root) => ({
+      root,
+      predicate: "READS_FROM",
+    }))
+    const plan = {
+      items: [
+        {
+          id: "Database:postgres",
+          name: "PostgreSQL primary",
+          role: "primary",
+          existing: primary,
+          roots: uses,
+        },
+        {
+          id: "Database:postgres",
+          name: "PostgreSQL analytics",
+          role: "analytics",
+          roots: uses,
+        },
+      ],
+    }
+    const s = await step(files, context, roots)
+    expect(s.count()).toEqual({ count: 40 })
+    const first = s.write(plan)
+    expect(first.more).toBe(true)
+    // The pairs whose analytics claim waits are not done.
+    const firstAt = s.at() ?? 0
+    expect(firstAt).toBeGreaterThan(0)
+    expect(firstAt).toBeLessThan(40)
+    const page = await s.validate()
+    expect(page.rejections).toEqual([])
+    await s.advance(page.tree)
+    // The next page starts as SKILL.md says: with the finder and no plan.
+    // The tree keeps what the analytics store waits for.
+    const listed = s.found()
+    expect(listed).toMatchObject({ done: firstAt, waiting: 40 - firstAt })
+    expect(pairs(listed)).toHaveLength(40 - firstAt)
+    const second = s.write(plan)
+    expect(second.more).toBe(false)
+    expect(s.at()).toBe(40)
+  })
+
+  // One store driver for each root.
+  const DRIVERS = [
+    ["pg", "postgres"],
+    ["mysql2", "mysql"],
+    ["mariadb", "mariadb"],
+    ["better-sqlite3", "sqlite"],
+    ["mssql", "sqlserver"],
+    ["oracledb", "oracle"],
+    ["mongodb", "mongodb"],
+    ["@aws-sdk/client-dynamodb", "dynamodb"],
+    ["cassandra-driver", "cassandra"],
+    ["ioredis", "redis"],
+    ["iovalkey", "valkey"],
+    ["memjs", "memcached"],
+    ["infinispan", "infinispan"],
+    ["@elastic/elasticsearch", "elasticsearch"],
+    ["@opensearch-project/opensearch", "opensearch"],
+    ["@clickhouse/client", "clickhouse"],
+    ["neo4j-driver", "neo4j"],
+    ["falkordb", "falkordb"],
+    ["@influxdata/influxdb-client", "influxdb"],
+    ["@aws-sdk/client-s3", "s3"],
+  ] as const
+
+  it.each([
+    ["20 stores of two roots each", (i: number) => i % DRIVERS.length],
+    ["one PostgreSQL store for 40 roots", () => 0],
+  ])(
+    "keeps the finder count on each page, and the cursor reaches the end of a large input over more than one page: %s (CTX-1487)",
+    async (_name, driverOf) => {
+      // Each Service file has about 60 KiB, so the claims of 40 roots are
+      // more than the 2 MiB of one page.
+      const files: Record<string, string> = {}
+      const context: Record<string, string> = {}
+      const roots: Record<string, string[]> = {}
+      const byType = new Map<string, string[]>()
+      const body = "The service handles orders.\n".repeat(2200)
+      for (let i = 0; i < 40; i++) {
+        const [driver, type] = DRIVERS[driverOf(i)] ?? DRIVERS[0]
+        files[`apps/s${i}/package.json`] = pkg(`s${i}`, {
+          dependencies: { [driver]: "1" },
+        })
+        context[`knowledge/services/s${i}.md`] = service(`S${i}`, body)
+        roots[`apps/s${i}`] = [`knowledge/services/s${i}.md`]
+        byType.set(type, [...(byType.get(type) ?? []), `apps/s${i}`])
+      }
+      const plan = {
+        items: [...byType].map(([type, paths]) => ({
+          id: `Database:${type}`,
+          name: `Store ${type}`,
+          role: "primary",
+          roots: paths.map((root) => ({ root, predicate: "DEPENDS_ON" })),
+        })),
+      }
+      const s = await step(files, context, roots)
+      // One input for each pair of an id and a root.
+      expect(s.count()).toEqual({ count: 40 })
+
+      const first = s.write(plan)
+      expect(first.skipped).toEqual([])
+      expect(first.more).toBe(true)
+      const firstAt = s.at() ?? 0
+      expect(firstAt).toBeGreaterThan(0)
+      expect(firstAt).toBeLessThan(40)
+      const page = await s.validate()
+      expect(page.rejections).toEqual([])
+      expect(page.more).toBe(true)
+      expect(page.cursorAt).toBe(firstAt)
+      await s.advance(page.tree)
+
+      // The next page: the same count, and the cursor moves to the end.
+      expect(s.count()).toEqual({ count: 40 })
+      const second = s.write(plan)
+      expect(second.more).toBe(false)
+      expect(s.at()).toBe(40)
+      expect(s.found()).toMatchObject({ done: 40, waiting: 0, more: false })
+      const last = await s.validate()
+      expect(last.rejections).toEqual([])
+      expect(last.cursorAt).toBe(40)
+      expect(
+        [...first.ops, ...second.ops].filter((o) =>
+          o.path.startsWith("knowledge/services/"),
+        ),
+      ).toHaveLength(40)
+      expect(s.files(last.tree, "knowledge/databases/")).toHaveLength(
+        byType.size,
+      )
+    },
+  )
 })
 
 describe("datasources-infra in the bundle", () => {
@@ -959,7 +1754,10 @@ describe("datasources-infra in the bundle", () => {
       expect.arrayContaining([
         "datasources-infra/SKILL.md",
         "datasources-infra/schema.json",
+        "datasources-infra/plan.schema.json",
         "datasources-infra/scripts/find-stores.mjs",
+        "datasources-infra/scripts/stores-lib.mjs",
+        "datasources-infra/scripts/write-stores.mjs",
         "datasources-infra/scripts/catalog.mjs",
       ]),
     )

@@ -5,11 +5,6 @@
     "MAX_YAML_LINE",
     "UPPER_METHODS"
   ],
-  "apps/backend/ingest-skills/datasources-infra/scripts/find-stores.mjs": [
-    "MAX_EVIDENCE",
-    "MAX_EXISTING",
-    "MAX_SKIPPED"
-  ],
   "apps/backend/ingest-skills/decisions/scripts/decision-parse.mjs": [
     "MAX_STATUS_TEXT"
   ],
