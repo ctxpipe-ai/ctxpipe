@@ -33,6 +33,7 @@ The content and its tables are in [ADR-066](ADR-066-knowledge-content-in-clickho
 2. **Jev judges each layer.** One Jev call for each layer asks two yes/no questions for each candidate:
    - **p(answers):** "does this help answer the question?" It gives the final order.
    - **p(explore):** "must the traversal explore from here?" It picks the next frontier.
+   - **The seeds of `get_related` are always the first frontier** (decided by the lead, 2026-11-22, [CTX-1455](https://linear.app/ctxpipe/issue/CTX-1455)). The caller named the seeds to traverse from them, so p(explore) picks only the frontier after layer 1. In the `.ai/memory` eval, Jev gave two seeds a p(explore) of 0.35 and 0.47. Thus the loop read no relation and did not find the superseded ADR that each seed links to.
 
    Each candidate goes to Jev with its text and its metadata: status, source type, dates, validity and confidence. The questions ask only for relevance and for exploration. They do not tell Jev to weigh the metadata ([CTX-1418](https://linear.app/ctxpipe/issue/CTX-1418)). Code applies the status and the validity: the store reads only `active` documents, the layers of `get_related` read only rows that are valid at `validAt` (now by default), a search hit that is not valid at `validAt` (or now) comes after the valid hits, and decision 4 gives the status of each position.
    - The "why" path is the parent chain that the traversal records.
