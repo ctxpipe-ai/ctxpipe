@@ -1347,10 +1347,10 @@ const refTuples = (refs: DocumentRef[]) =>
  *    chunks through the text index. The score of a chunk is the sum of the
  *    IDF weights of its matched terms, plus the weights of the terms in the
  *    title of its document. The IDF of a term is the BM25 IDF from the count
- *    of the searchable chunks that have it, so a common word such as "a"
- *    weighs almost nothing. The text index gives each count without a read
- *    of the text column. A function on `text` in the SELECT list would read
- *    the full text column.
+ *    of the chunks of the Workspaces that have it, so a common word such as
+ *    "a" weighs almost nothing. The text index gives each count without a
+ *    read of the text column. A function on `text` in the SELECT list would
+ *    read the full text column.
  * 3. RRF (k = 60) fuses the two orders. The fused chunks are grouped by
  *    document, a document in the order of its best chunk, and the top 50
  *    documents are the hits. Thus a long document takes one place, not one
@@ -1421,15 +1421,19 @@ async function search(
     )
     .join(" UNION ALL ")
   // The BM25 IDF of each term: ln(1 + (N - n + 0.5) / (n + 0.5)), with N the
-  // searchable chunks and n the searchable chunks that have the term.
+  // chunks of the Workspaces and n the chunks that have the term. The counts
+  // read only the text index and the sort key, not the tree view.
   const termWeights = `SELECT word,
       log(1 + (total - found + 0.5) / (found + 0.5)) AS idf
     FROM (${uniqueTerms
-      .map((_, i) => `SELECT {term${i}:String} AS word, count() AS found
-        ${withTerm(i)}`)
+      .map(
+        (_, i) => `SELECT {term${i}:String} AS word, count() AS found
+        FROM chunks
+        WHERE ${inWorkspaces} AND hasToken(text, {term${i}:String})`,
+      )
       .join(" UNION ALL ")}) AS counts
     CROSS JOIN (SELECT count() AS total FROM chunks
-      WHERE ${inWorkspaces} AND ${inSearchable}) AS searchable`
+      WHERE ${inWorkspaces}) AS searchable`
   const [vectorOrder, lexicalOrder] = await Promise.all([
     selectIn<ChunkKey>(
       client,
@@ -1458,16 +1462,17 @@ async function search(
           scope,
           // The score: the weights of the matched terms of the chunk, plus the
           // weights of the query terms in the title of its document (the title
-          // boost).
-          `WITH tree_view AS (${treeView}), weights AS (${termWeights})
+          // boost). The weights are one scalar map, so their counts run once.
+          `WITH tree_view AS (${treeView}),
+             (SELECT CAST((groupArray(word), groupArray(idf)),
+               'Map(String, Float64)') FROM (${termWeights})) AS weights
            SELECT matches.workspace_id AS workspaceId,
              matches.doc_key AS docKey, matches.version AS version,
              matches.ordinal AS ordinal
            FROM (
              SELECT workspace_id, doc_key, version, ordinal,
-               sum(weights.idf) AS weight
-             FROM (${termMatches}) AS hits
-             INNER JOIN weights ON weights.word = hits.word
+               sum(weights[word]) AS weight
+             FROM (${termMatches})
              GROUP BY workspace_id, doc_key, version, ordinal
            ) AS matches
            INNER JOIN (
@@ -1478,9 +1483,9 @@ async function search(
              AND documents.doc_key = matches.doc_key
              AND documents.version = matches.version
            ORDER BY matches.weight + arraySum(
-               term -> if(has(splitByNonAlpha(documents.title), term.1),
-                 term.2, 0),
-               (SELECT groupArray((word, idf)) FROM weights)) DESC,
+               word -> if(has(splitByNonAlpha(documents.title), word),
+                 weights[word], 0),
+               mapKeys(weights)) DESC,
              workspaceId, docKey, ordinal
            SETTINGS use_index_for_in_with_subqueries = 0`,
           params,
@@ -1548,29 +1553,30 @@ async function search(
     ]),
   )
   const textById = new Map(texts.map((row) => [chunkId(row), row]))
-  const hits = new Map<string, SearchHit>()
-  for (const chunk of top) {
-    const id = documentId(chunk)
-    const found = documentById.get(id)
+  return [...byDocument].flatMap(([id, found]): SearchHit[] => {
+    const current = documentById.get(id)
     // A chunk of a file version that the view does not show any more is
     // not a hit.
-    if (!found || found.version !== chunk.version) continue
-    const hit = hits.get(id) ?? {
-      workspaceId: chunk.workspaceId,
-      document: toDocument(found.record),
-      chunks: [],
-    }
-    const text = textById.get(chunkId(chunk))
-    hit.chunks.push({
-      ordinal: chunk.ordinal,
-      text: text?.text ?? "",
-      startLine: text?.startLine ?? 0,
-      endLine: text?.endLine ?? 0,
-      score: chunk.score,
-    })
-    hits.set(id, hit)
-  }
-  return [...hits.values()]
+    const chunks = found.filter((chunk) => chunk.version === current?.version)
+    const first = chunks[0]
+    if (!current || !first) return []
+    return [
+      {
+        workspaceId: first.workspaceId,
+        document: toDocument(current.record),
+        chunks: chunks.map((chunk) => {
+          const text = textById.get(chunkId(chunk))
+          return {
+            ordinal: chunk.ordinal,
+            text: text?.text ?? "",
+            startLine: text?.startLine ?? 0,
+            endLine: text?.endLine ?? 0,
+            score: chunk.score,
+          }
+        }),
+      },
+    ]
+  })
 }
 
 /**

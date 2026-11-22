@@ -367,6 +367,22 @@ const filler =
     })
   }
 
+/**
+ * One search of org A at tree version 1 of the database `url`, the database
+ * of a test that writes with `filler`.
+ */
+async function searchIn(url: string, query: Partial<SearchQuery>) {
+  const reader = createKnowledgeStore(url)
+  try {
+    return await reader.search(
+      { ...orgA, heads: [{ ...head, treeVersion: 1 }] },
+      { vector: queryVector, terms: [], chunksPerDocument: 2, ...query },
+    )
+  } finally {
+    await reader.close()
+  }
+}
+
 let store: ReturnType<typeof createKnowledgeStore>
 
 beforeAll(async () => {
@@ -453,30 +469,13 @@ describe("search", () => {
     await fill("note", "a-excluded-", 1200, "capword", opposite)
     await fill("guide", "m-near-", 600, "near", queryVector)
     await fill("guide", "z-target-", 1, "capword", opposite)
-    const reader = createKnowledgeStore(url)
-    const scope = { ...orgA, heads: [{ ...head, treeVersion: 1 }] }
-    try {
-      const hits = await reader.search(scope, {
-        vector: queryVector,
-        terms: ["capword"],
-        kinds: ["guide"],
-        chunksPerDocument: 2,
-      })
-      expect(hitKeys(hits)).toContain("z-target-00000.md")
-      // Without the term, the vector part alone does not find it.
-      expect(
-        hitKeys(
-          await reader.search(scope, {
-            vector: queryVector,
-            terms: [],
-            kinds: ["guide"],
-            chunksPerDocument: 2,
-          }),
-        ),
-      ).not.toContain("z-target-00000.md")
-    } finally {
-      await reader.close()
-    }
+    expect(
+      hitKeys(await searchIn(url, { terms: ["capword"], kinds: ["guide"] })),
+    ).toContain("z-target-00000.md")
+    // Without the term, the vector part alone does not find it.
+    expect(
+      hitKeys(await searchIn(url, { terms: [], kinds: ["guide"] })),
+    ).not.toContain("z-target-00000.md")
   })
 
   it("the top 50 is 50 documents: a document with many close chunks takes one place", async () => {
@@ -487,22 +486,12 @@ describe("search", () => {
     const fill = filler(url)
     await fill("guide", "a-long-", 1, "long text", queryVector, { chunks: 60 })
     await fill("guide", "m-short-", 60, "short text", nearQuery(1))
-    const reader = createKnowledgeStore(url)
-    const scope = { ...orgA, heads: [{ ...head, treeVersion: 1 }] }
-    try {
-      const hits = await reader.search(scope, {
-        vector: queryVector,
-        terms: [],
-        chunksPerDocument: 2,
-      })
-      expect(hits).toHaveLength(50)
-      expect(hits[0]?.document.docKey).toBe("a-long-00000.md")
-      // The hit keeps its best chunks, at most `chunksPerDocument`.
-      expect(hits[0]?.chunks).toHaveLength(2)
-      expect(new Set(hitKeys(hits)).size).toBe(50)
-    } finally {
-      await reader.close()
-    }
+    const hits = await searchIn(url, { terms: [] })
+    expect(hits).toHaveLength(50)
+    expect(hits[0]?.document.docKey).toBe("a-long-00000.md")
+    // The hit keeps its best chunks, at most `chunksPerDocument`.
+    expect(hits[0]?.chunks).toHaveLength(2)
+    expect(new Set(hitKeys(hits)).size).toBe(50)
   })
 
   it("lexical: a rare query term weighs more than common ones", async () => {
@@ -516,18 +505,8 @@ describe("search", () => {
     const fill = filler(url)
     await fill("guide", "m-common-", 60, "the plan of record", queryVector)
     await fill("guide", "a-rare-", 1, "zebracorn", queryVector)
-    const reader = createKnowledgeStore(url)
-    const scope = { ...orgA, heads: [{ ...head, treeVersion: 1 }] }
-    try {
-      const hits = await reader.search(scope, {
-        vector: queryVector,
-        terms: ["the", "of", "zebracorn"],
-        chunksPerDocument: 2,
-      })
-      expect(hits[0]?.document.docKey).toBe("a-rare-00000.md")
-    } finally {
-      await reader.close()
-    }
+    const hits = await searchIn(url, { terms: ["the", "of", "zebracorn"] })
+    expect(hits[0]?.document.docKey).toBe("a-rare-00000.md")
   })
 
   it("never finds a deleted document", async () => {
