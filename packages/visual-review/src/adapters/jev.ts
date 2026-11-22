@@ -512,6 +512,7 @@ export async function judgeNewWithJev(
         // broken new screenshots, with the same spread of probabilities
         // (CTX-1267). A flag under 0.8 is `unsure`, a nit with no images.
         floor: 0.8,
+        strongFrom: 0.8,
       }),
       qualities: qualityResults.map((result) => ({
         name: result.id,
@@ -551,7 +552,7 @@ function decision({
   strongest,
   note,
   floor = 0.5,
-  strongFrom = 0.8,
+  strongFrom,
 }: {
   word: "worse" | "broken"
   flaggedAreas: readonly { area: RubricEntry; probability: number }[]
@@ -569,9 +570,9 @@ function decision({
   floor?: number
   /**
    * The probability from which a placed area or a flagged quality makes the
-   * regression major. Default 0.8, the floor of a new screenshot.
+   * regression major.
    */
-  strongFrom?: number
+  strongFrom: number
 }) {
   const placed = region ? flaggedAreas : []
   const flagged = placed.length > 0 || flaggedQualities.length > 0
