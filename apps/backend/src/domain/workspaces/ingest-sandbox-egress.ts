@@ -241,7 +241,11 @@ function requireAccess(access: AgentVaultAccess | undefined): AgentVaultAccess {
   return resolved
 }
 
-/** The vault's session outlives the shard limit, with a margin. */
+/**
+ * The vault's session outlives the shard limit by more than one step limit.
+ * No step starts on a sandbox at the shard limit (`ingestSandbox`), so each
+ * step ends before the session of its sandbox does.
+ */
 const INGEST_VAULT_TTL_SECONDS = INGEST_SHARD_LIMIT_MS / 1000 + 15 * 60
 
 /**
