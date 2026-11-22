@@ -614,42 +614,31 @@ describe("the knowledge reader seam", () => {
     } finally {
       await writer.close()
     }
-    // The wide Workspace is only on the plane.
-    const wideWorkspace = await seedRelatedWorkspace({
-      seed,
-      slug: "wide",
-      sha: legacySha,
-      units: [],
-    })
-    ids.wide = wideWorkspace.workspaceId
-    const wideWriter = createKnowledgeStore(url)
-    try {
-      await writePlaneDocuments(
-        wideWriter,
-        { orgId: seed.orgId, workspaceId: wideWorkspace.workspaceId },
-        planeRows(wideWorkspace.workspaceId, wideUnits),
-      )
-    } finally {
-      await wideWriter.close()
+    // The wide and the diamond Workspaces are only on the plane.
+    const planeOnly = async (
+      slug: string,
+      list: readonly (RelatedUnit & { text: string })[],
+    ) => {
+      const { workspaceId } = await seedRelatedWorkspace({
+        seed,
+        slug,
+        sha: legacySha,
+        units: [],
+      })
+      ids[slug] = workspaceId
+      const planeWriter = createKnowledgeStore(url)
+      try {
+        await writePlaneDocuments(
+          planeWriter,
+          { orgId: seed.orgId, workspaceId },
+          planeRows(workspaceId, list),
+        )
+      } finally {
+        await planeWriter.close()
+      }
     }
-    // The diamond Workspace is only on the plane.
-    const diamondWorkspace = await seedRelatedWorkspace({
-      seed,
-      slug: "diamond",
-      sha: legacySha,
-      units: [],
-    })
-    ids.diamond = diamondWorkspace.workspaceId
-    const diamondWriter = createKnowledgeStore(url)
-    try {
-      await writePlaneDocuments(
-        diamondWriter,
-        { orgId: seed.orgId, workspaceId: diamondWorkspace.workspaceId },
-        planeRows(diamondWorkspace.workspaceId, diamondUnits),
-      )
-    } finally {
-      await diamondWriter.close()
-    }
+    await planeOnly("wide", wideUnits)
+    await planeOnly("diamond", diamondUnits)
     await markReady(ids.ready as string)
     await markReady(ids.paging as string)
     await markReady(ids.wide as string)

@@ -346,10 +346,10 @@ function claimsByDocument(
  * setting (a seed only with `includeSeeds`), or a step: a document on the
  * "why" path of such a result, or one with p(explore) of at least the
  * `exploreAt` setting (not a seed); p(answers) is its score. Then the
- * disagreement step gives
- * the positions of the top results that answer (ADR-068 decision 4). When
- * the time budget ends, the result is partial, with `total_timeout` and no
- * positions. When Jev fails, the call fails with `judge_unavailable`.
+ * disagreement step gives the positions of the top results that answer
+ * (ADR-068 decision 4). When the time budget ends, the result is partial,
+ * with `total_timeout` and no positions. When Jev fails, the call fails
+ * with `judge_unavailable`.
  */
 async function related(
   { workspace, input, now }: RelatedRequest,
@@ -508,7 +508,9 @@ function answerNodes(
  *
  * Then, while they fit, the other steps: each document that is not a seed,
  * passes the kind filters, and has a p(explore) of at least `exploreAt`
- * (CTX-1534). Jev judged that the search must explore from it to answer the
+ * (CTX-1534). Each step on a "why" path has such a p(explore), because only
+ * these documents are the frontier after layer 1. Thus the walk of the
+ * "why" paths above changes the results only at the `RANKED_LIMIT`. Jev judged that the search must explore from it to answer the
  * question, so it is a needed step, also when no answer comes after it: two
  * paths of the same length reach one answer, or the answer at the end of
  * the path is under `keepAt`, or the loop reached its depth. A step keeps
