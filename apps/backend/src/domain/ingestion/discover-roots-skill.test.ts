@@ -461,6 +461,66 @@ describe("discover-roots script", () => {
     expect(discover(noModule).roots.map((r) => r.path)).toEqual(["."])
   })
 
+  it("gives more than 2000 roots, with no count limit", () => {
+    const files: Record<string, string> = {
+      "Cargo.toml": '[workspace]\nmembers = ["crates/*"]\n',
+    }
+    for (let i = 0; i < 2100; i++)
+      files[`crates/c${String(i).padStart(4, "0")}/Cargo.toml`] =
+        `[package]\nname = "c${i}"\n`
+    const result = discover(repo(files))
+    expect(result.roots).toHaveLength(2100)
+    expect(result.skipped).toEqual([])
+  })
+
+  it("keeps the result below its byte limit: candidates go first, then roots, with a skipped entry", async () => {
+    const lib = await import(
+      join(INGEST_SKILLS_DIR, "discover-roots/scripts/roots-lib.mjs")
+    )
+    const item = (path: string) => ({
+      path,
+      manifests: ["Cargo.toml"],
+      evidence: ["Cargo.toml"],
+    })
+    const result = {
+      roots: Array.from({ length: 20 }, (_, i) => item(`r/${i}`)),
+      ambiguous: [
+        {
+          manifest: null,
+          reason: "No workspace manifest names these folders",
+          candidates: Array.from({ length: 20 }, (_, i) => ({
+            path: `c/${i}`,
+            manifests: ["package.json"],
+          })),
+        },
+      ],
+      skipped: [],
+    }
+    expect(lib.fitResult(result, 100_000)).toBe(result)
+
+    const withRoots = lib.fitResult(result, 1000)
+    expect(Buffer.byteLength(JSON.stringify(withRoots))).toBeLessThan(
+      1500 + 200,
+    )
+    expect(withRoots.ambiguous).toEqual([])
+    expect(withRoots.roots.length).toBeGreaterThan(0)
+    expect(withRoots.roots.length).toBeLessThan(20)
+    expect(withRoots.roots).toEqual(
+      result.roots.slice(0, withRoots.roots.length),
+    )
+    expect(withRoots.skipped).toEqual([
+      {
+        manifest: null,
+        reason: `The result of the script must be at most 1000 bytes, so it gives only the first ${withRoots.roots.length} roots and 0 candidates`,
+      },
+    ])
+
+    const someCandidates = lib.fitResult(result, 2000)
+    expect(someCandidates.roots).toHaveLength(20)
+    expect(someCandidates.ambiguous[0].candidates.length).toBeLessThan(20)
+    expect(someCandidates.skipped).toHaveLength(1)
+  })
+
   it("finds go.work modules, also the repository root (golang/tools layout)", () => {
     const dir = repo({
       "go.work": [

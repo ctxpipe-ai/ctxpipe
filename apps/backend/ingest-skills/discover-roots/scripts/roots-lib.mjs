@@ -42,7 +42,12 @@ const MAX_GLOB_SEGMENT = 128
 const MAX_NAME_SEGMENT = 255
 /** Folders deeper than this have no match, and the script skips them. */
 export const MAX_DEPTH = 64
-export const MAX_ROOTS = 2000
+/**
+ * The host refuses a result larger than 1 MiB (`MAX_DISCOVERY_BYTES` in
+ * apps/backend/src/domain/ingestion/ingest-shard-ops.ts). The script keeps
+ * its result below this size, with room for its own skipped entry.
+ */
+const MAX_RESULT_BYTES = 1024 * 1024 - 64 * 1024
 /**
  * Match steps for one script run, shared by each glob. A step is one cell of
  * the segment table or one character compare inside `matchSegment`.
@@ -821,17 +826,11 @@ export function discoverRoots(source) {
     markersOf.set(dir, [...(markersOf.get(dir) ?? []), name].sort())
   }
   const rootFiles = new Set(files.filter((f) => !f.includes("/")))
-  const allNested = [...markersOf.keys()].filter((d) => d !== ".").sort()
-  const nested = allNested.slice(0, MAX_ROOTS)
+  const nested = [...markersOf.keys()].filter((d) => d !== ".").sort()
   const candidate = (path) => ({ path, manifests: markersOf.get(path) ?? [] })
 
   const roots = new Map()
-  let rootsFull = false
   const addRoot = (path, evidence) => {
-    if (!roots.has(path) && roots.size >= MAX_ROOTS) {
-      rootsFull = true
-      return
-    }
     const root = roots.get(path) ?? {
       path,
       manifests: markersOf.get(path) ?? [],
@@ -852,11 +851,6 @@ export function discoverRoots(source) {
     skipped.push({
       manifest: null,
       reason: `The script did not read a folder that is more than ${MAX_DEPTH} levels deep`,
-    })
-  if (allNested.length > nested.length)
-    skipped.push({
-      manifest: null,
-      reason: `The script read only the first ${MAX_ROOTS} folders with a package manifest`,
     })
   const skipEntry = (manifest, reason) =>
     skipped.push({ manifest, reason: `The script skipped an entry: ${reason}` })
@@ -979,12 +973,6 @@ export function discoverRoots(source) {
   for (const [dir, file] of goMainPackages(source, files, markersOf))
     addRoot(dir, file)
 
-  if (rootsFull)
-    skipped.push({
-      manifest: null,
-      reason: `The script gives at most ${MAX_ROOTS} roots`,
-    })
-
   // An entry with no candidate gives the model no choice, so no model runs for it.
   for (const entry of ambiguous.filter((a) => a.candidates.length === 0))
     skipped.push({ manifest: entry.manifest, reason: entry.reason })
@@ -1002,11 +990,44 @@ export function discoverRoots(source) {
   const byText = (a, b) => (a < b ? -1 : a > b ? 1 : 0)
   const byManifest = (a, b) =>
     byText(a.manifest ?? "", b.manifest ?? "") || byText(a.reason, b.reason)
-  return {
+  return fitResult({
     roots: [...roots.values()]
       .map((r) => ({ ...r, evidence: r.evidence.sort() }))
       .sort((a, b) => byText(a.path, b.path)),
     ambiguous: ambiguous.filter((a) => a.candidates.length).sort(byManifest),
     skipped: skipped.sort(byManifest),
+  })
+}
+
+/**
+ * The result at most `MAX_RESULT_BYTES` large. Above it, the script removes
+ * candidates from the end first, then roots from the end, and adds a
+ * skipped entry that says so. The size of the result sets the limit, not a
+ * count of roots.
+ */
+export function fitResult(result, maxBytes = MAX_RESULT_BYTES) {
+  const size = (value) => Buffer.byteLength(JSON.stringify(value)) + 1
+  let total = size(result)
+  if (total <= maxBytes) return result
+  const all = result.ambiguous.map((a) => ({
+    ...a,
+    candidates: [...a.candidates],
+  }))
+  for (const entry of [...all].reverse())
+    while (entry.candidates.length > 0 && total > maxBytes)
+      total -= size(entry.candidates.pop())
+  const ambiguous = all.filter((a) => a.candidates.length > 0)
+  const roots = [...result.roots]
+  while (roots.length > 0 && total > maxBytes) total -= size(roots.pop())
+  return {
+    roots,
+    ambiguous,
+    skipped: [
+      ...result.skipped,
+      {
+        manifest: null,
+        reason: `The result of the script must be at most ${maxBytes} bytes, so it gives only the first ${roots.length} roots and ${ambiguous.reduce((n, a) => n + a.candidates.length, 0)} candidates`,
+      },
+    ],
   }
 }

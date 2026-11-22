@@ -404,13 +404,11 @@ export function defineRepositoryIngestionV2Workflow(
                   ingestionRunId: run.id,
                   ...refused,
                 })
-              const packed =
-                plan.partial === undefined ? packRoots(plan.roots) : ""
+              const packed = packRoots(plan.roots)
               const partial =
-                plan.partial ??
-                (packed.length > 12_000
+                packed.length > 12_000
                   ? "The root list is too large for one step output"
-                  : undefined)
+                  : undefined
               if (partial !== undefined) {
                 logIngestEvent("warn", "ingestion-v2.partial", {
                   ingestionRunId: run.id,

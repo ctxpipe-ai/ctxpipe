@@ -4,7 +4,6 @@ import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 
 import {
-  INGEST_MAX_ROOTS,
   ingestRootMap,
   planIngestRoots,
   withExistingRootFiles,
@@ -25,8 +24,6 @@ describe("ingestion v2 plan", () => {
       roots: [root("services/b"), root("."), root("services/b"), root("../x")],
       ambiguous: [],
     })
-    expect(plan.partial).toBeUndefined()
-    if (plan.partial !== undefined) throw new Error("unexpected partial")
     expect(plan.roots.map((r) => r.path)).toEqual([".", "services/b"])
     expect(plan.refused).toEqual([
       { path: "../x", reason: "The path is not safe to write" },
@@ -39,17 +36,25 @@ describe("ingestion v2 plan", () => {
     )
   })
 
-  it("plans no root and gives a partial reason above the root cap", () => {
+  it("plans each root of a large monorepo, with no count limit", () => {
+    const roots = Array.from({ length: 5000 }, (_, i) =>
+      root(`pkg/${String(i).padStart(4, "0")}`),
+    )
     const plan = planIngestRoots({
-      roots: Array.from({ length: INGEST_MAX_ROOTS + 1 }, (_, i) =>
-        root(`pkg/${i}`),
-      ),
-      ambiguous: [],
+      roots,
+      ambiguous: [
+        {
+          manifest: null,
+          reason: "No workspace manifest names these folders",
+          candidates: Array.from({ length: 3000 }, (_, i) => ({
+            path: `other/${i}`,
+            manifests: ["package.json"],
+          })),
+        },
+      ],
     })
-    expect(plan).toMatchObject({
-      partial: expect.stringContaining(`at most ${INGEST_MAX_ROOTS}`),
-    })
-    expect("roots" in plan).toBe(false)
+    expect(plan.roots).toHaveLength(5000)
+    expect(plan.refused).toEqual([])
   })
 
   it("plans only bundle skills, in the committed order, by scope; libraries is repository-wide", () => {

@@ -21,27 +21,17 @@ import type { IngestRootMap } from "./ingest-shard-runtime.js"
 /** One shard takes at most this many roots (concept section 8). */
 export const INGEST_SHARD_MAX_ROOTS = 20
 
-/** A run plans at most this many roots; above it, the run is `partial`. */
-export const INGEST_MAX_ROOTS = 400
-
 /**
  * The roots of the run: the `discover-roots` script result after the host
  * check (`resolveDiscoveredRoots`, the only check), sorted and with no
- * duplicate. Above `INGEST_MAX_ROOTS` the run plans no root and gives a
- * `partial` reason. No model chooses among ambiguous candidates yet.
+ * duplicate. The run plans each root; no count limits them. No model
+ * chooses among ambiguous candidates yet.
  */
-export function planIngestRoots(
-  scriptResult: unknown,
-):
-  | { roots: DiscoveredRoot[]; refused: RefusedRoot[]; partial?: undefined }
-  | { partial: string; refused: RefusedRoot[] } {
-  const { roots, refused } = resolveDiscoveredRoots(scriptResult, null)
-  if (roots.length > INGEST_MAX_ROOTS)
-    return {
-      partial: `discover-roots found ${roots.length} roots; a run takes at most ${INGEST_MAX_ROOTS}`,
-      refused,
-    }
-  return { roots, refused }
+export function planIngestRoots(scriptResult: unknown): {
+  roots: DiscoveredRoot[]
+  refused: RefusedRoot[]
+} {
+  return resolveDiscoveredRoots(scriptResult, null)
 }
 
 export type IngestSkillPlan = {

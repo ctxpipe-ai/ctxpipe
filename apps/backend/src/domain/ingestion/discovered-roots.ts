@@ -5,39 +5,34 @@ import { z } from "zod"
  * script result is the evidence; a model can only choose among the
  * `candidates` of an `ambiguous` entry. The host plans the root steps from
  * the roots that this function gives, so a model cannot add a root without
- * script evidence, and it cannot remove a script root.
+ * script evidence, and it cannot remove a script root. No count limits the
+ * result: its size does (`MAX_DISCOVERY_BYTES` in ingest-shard-ops.ts).
  */
-
-const MAX_ROOTS = 2000
 
 const RootSchema = z.object({
   path: z.string(),
-  manifests: z.array(z.string()).max(50),
-  evidence: z.array(z.string()).max(50),
+  manifests: z.array(z.string()),
+  evidence: z.array(z.string()),
 })
 
 const ScriptResultSchema = z.object({
-  roots: z.array(RootSchema).max(MAX_ROOTS),
-  ambiguous: z
-    .array(
-      z.object({
-        manifest: z.string().nullable(),
-        reason: z.string(),
-        candidates: z
-          .array(
-            z.object({
-              path: z.string(),
-              manifests: z.array(z.string()).max(50),
-            }),
-          )
-          .max(MAX_ROOTS),
-      }),
-    )
-    .max(MAX_ROOTS),
+  roots: z.array(RootSchema),
+  ambiguous: z.array(
+    z.object({
+      manifest: z.string().nullable(),
+      reason: z.string(),
+      candidates: z.array(
+        z.object({
+          path: z.string(),
+          manifests: z.array(z.string()),
+        }),
+      ),
+    }),
+  ),
 })
 
 const ModelResultSchema = z.object({
-  roots: z.array(z.object({ path: z.string() })).max(MAX_ROOTS),
+  roots: z.array(z.object({ path: z.string() })),
 })
 
 export type DiscoveredRoot = z.infer<typeof RootSchema>
