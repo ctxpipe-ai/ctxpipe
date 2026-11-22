@@ -1106,6 +1106,45 @@ describe("write-apis", () => {
     expect(accepted.cursorAt).toBe(200)
   })
 
+  it("writes an API file only when the validator can store it, also at the size limit (CTX-1487)", async () => {
+    // 200 operations, and a specification file with a long path: each
+    // HAS_OPERATION claim has that path as evidence. The validator adds its
+    // fields to the file that it stores, so the writer must leave room for
+    // them. The steps of the path length are smaller than those fields.
+    let skipped = 0
+    let written = 0
+    for (let length = 148; length <= 188; length += 8) {
+      const ops = Array.from({ length: 200 }, (_, i) => ({
+        method: "GET",
+        path: `/i${i}`,
+      }))
+      const paths: Record<string, object> = {}
+      for (const op of ops) paths[op.path] = { get: {} }
+      const s = await fixture({
+        [`apps/big/${"d".repeat(length)}/openapi.json`]: JSON.stringify({
+          openapi: "3.0.0",
+          paths,
+        }),
+      })
+      const out = s.write({
+        root: "apps/big",
+        apis: [{ name: "Items API", operations: ops }],
+      })
+      const result = await s.validate()
+      expect(result.rejections, `length ${length}`).toEqual([])
+      if (out.ops.length) {
+        written++
+        expect(result.cursorAt).toBe(200)
+      } else {
+        skipped++
+        expect(result.cursorAt).toBe(0)
+      }
+    }
+    // The lengths cross the limit: some plans fit, and some do not.
+    expect(written).toBeGreaterThan(0)
+    expect(skipped).toBeGreaterThan(0)
+  }, 300_000)
+
   it("is deterministic: the same inputs give the same staged tree", async () => {
     const plan: Plan = {
       root: "apps/billing",

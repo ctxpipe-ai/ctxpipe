@@ -311,6 +311,10 @@ const byTarget = (result: Pick<ScanResult, "candidates">) =>
       `${c.type} ${c.direction} ${c.target.kind}:${c.target.text} @${c.file}:${c.line}`,
   )
 
+/** The id that the scan gives an HTTP call to a literal URL. */
+const candidateId = (url: string) =>
+  `c${createHash("sha256").update(`http|call|literal|${url}`).digest("hex").slice(0, 10)}`
+
 /** The texts of the Service file OWN and of each part of its dependency list. */
 const listFiles = (
   s: { show: (tree: string, path: string) => string },
@@ -886,7 +890,7 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
   it("does not count the identity line of another repository on a shared Service file (CTX-1487)", async () => {
     // A Service file of two source repositories. The other repository has a
     // call with the same target text, so its candidate has the same id.
-    const id = `c${createHash("sha256").update("http|call|literal|http://billing.internal/x").digest("hex").slice(0, 10)}`
+    const id = candidateId("http://billing.internal/x")
     const own = front(
       {
         kind: "Service",
@@ -920,9 +924,7 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
   it("reads each part of a dependency list that exists, also after a gap in the part numbers (CTX-1487)", async () => {
     // writeStep writes the parts in path order (part 10 before part 2), so a
     // page can end with part 3 written and part 2 not.
-    const idOf = (url: string) =>
-      `c${createHash("sha256").update(`http|call|literal|${url}`).digest("hex").slice(0, 10)}`
-    const done = idOf("http://billing.internal/x")
+    const done = candidateId("http://billing.internal/x")
     const lineOf = (id: string) =>
       `- DEPENDS_ON \`billing.md\` from \`example-org/shop\` root \`.\` file \`src/client.ts\` (candidate \`${id}\`)`
     const own = front(
@@ -966,7 +968,7 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
     )
     // The line in part 3 resolves its candidate: the scan lists only the
     // other one.
-    const next = idOf("http://billing.internal/y")
+    const next = candidateId("http://billing.internal/y")
     expect(s.scan().candidates.map((c) => c.id)).toEqual([next])
     s.apply([
       { id: next, kind: "service", path: "knowledge/services/billing.md" },

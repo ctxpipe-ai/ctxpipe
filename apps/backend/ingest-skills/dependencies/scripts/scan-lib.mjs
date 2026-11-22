@@ -480,6 +480,17 @@ export function dependencyLine({
   return `- ${predicate} \`${link}\` from \`${repository}\` root \`${root}\` file \`${file}\` (candidate \`${id}\`)`
 }
 
+/** The fields of a `dependencyLine`, or null for another line. */
+export function parseDependencyLine(text) {
+  const line =
+    /^- ([A-Z_]+) `([^`\n]+)` from `([^`\n]+)` root `([^`\n]+)` file `([^`\n]+)` \(candidate `(c[0-9a-f]{10})`\)$/.exec(
+      text.trim(),
+    )
+  if (!line) return null
+  const [, predicate, link, repository, root, file, id] = line
+  return { predicate, link, repository, root, file, id }
+}
+
 /** The Related line of a Stream file for one root that produces to or consumes from it. */
 export function streamLine({ repository, predicate, root, file }) {
   const verb = predicate === "PRODUCES_TO" ? "produces to" : "consumes from"
@@ -562,17 +573,15 @@ export function resolvedIds(step, root, { repositoryStep, repository }) {
   const predicates = repositoryStep
     ? ["PRODUCES_TO", "CONSUMES_FROM"]
     : ["DEPENDS_ON", "CONSUMES_API"]
-  // The form of `dependencyLine`.
-  const identity =
-    /^- ([A-Z_]+) `([^`\n]+)` from `([^`\n]+)` root `([^`\n]+)` file `([^`\n]+)` \(candidate `(c[0-9a-f]{10})`\)$/
-  const read = (paths) => stepTexts(step, paths)
   const streams = new Map()
   const streamHas = (path, line) => {
     if (!streams.has(path))
       streams.set(
         path,
         new Set(
-          (read([path]).get(path) ?? "").split("\n").map((l) => l.trim()),
+          (stepTexts(step, [path]).get(path) ?? "")
+            .split("\n")
+            .map((l) => l.trim()),
         ),
       )
     return streams.get(path).has(line)
@@ -586,10 +595,10 @@ export function resolvedIds(step, root, { repositoryStep, repository }) {
     )
     for (const text of texts) {
       for (const raw of text.split("\n")) {
-        const line = identity.exec(raw.trim())
+        const line = parseDependencyLine(raw)
         if (!line) continue
-        const [, predicate, link, lineRepository, lineRoot, file, id] = line
-        if (lineRepository !== repository || lineRoot !== root.path) continue
+        const { predicate, link, file, id } = line
+        if (line.repository !== repository || line.root !== root.path) continue
         if (!predicates.includes(predicate)) continue
         if (!claims.has(`${link} ${predicate}`)) continue
         if (
