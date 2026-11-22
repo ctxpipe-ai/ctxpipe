@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "datasources-infra write-stores plan",
+  "description": "The plan of the model: one item for each store or infrastructure kind that gets a file. write-stores.mjs refuses an item whose id find-stores did not list.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["items"],
+  "properties": {
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "role", "roots"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The id of a find-stores entry, for example Database:postgres or Infrastructure:docker."
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 80,
+            "description": "The name of the store by its job, for example PostgreSQL for orders. Never a value."
+          },
+          "role": {
+            "enum": [
+              "primary",
+              "cache",
+              "session",
+              "search",
+              "analytics",
+              "object-storage",
+              "queue",
+              "deploy",
+              "build",
+              "local-development",
+              "test",
+              "example"
+            ],
+            "description": "A Database takes primary, cache, session, search, analytics, object-storage, queue, local-development, test, or example. An Infrastructure kind takes deploy, build, local-development, test, or example."
+          },
+          "summary": {
+            "type": "string",
+            "maxLength": 300,
+            "description": "One plain line. Never a value."
+          },
+          "existing": {
+            "type": ["string", "null"],
+            "description": "The path of a context file of the same kind that already describes this store."
+          },
+          "roots": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["root", "predicate"],
+              "properties": {
+                "root": {
+                  "type": "string",
+                  "description": "A root path of the root-to-file map."
+                },
+                "predicate": {
+                  "enum": ["READS_FROM", "WRITES_TO", "DEPENDS_ON", "RUNS_ON"],
+                  "description": "READS_FROM, WRITES_TO, or DEPENDS_ON for a Database; RUNS_ON for an Infrastructure kind."
+                },
+                "evidence": {
+                  "type": "string",
+                  "description": "A tracked source file that shows the use. When it is not given, the script uses the find-stores evidence of the id in that root."
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

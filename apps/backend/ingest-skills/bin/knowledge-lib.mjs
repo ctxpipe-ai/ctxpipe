@@ -139,6 +139,7 @@ export function scriptStep(argv = process.argv.slice(2)) {
     })
   }
   return {
+    rootsFile,
     step,
     source,
     sourceUrl,
