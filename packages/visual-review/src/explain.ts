@@ -400,12 +400,9 @@ export async function inContext(
   // the opposite side of a row is in it, CTX-1530), with 64 px more on each
   // side, at twice the size, or less when a side would pass the side limit
   // of the models.
-  const rows = [
-    shown,
-    ...changed.filter(
-      ({ y, height }) => y < shown.y + shown.height && y + height > shown.y,
-    ),
-  ]
+  const rows = changed.filter(
+    ({ y, height }) => y < shown.y + shown.height && y + height > shown.y,
+  )
   const margin = 64
   const left = Math.max(
     0,

@@ -280,12 +280,11 @@ describe("buildNewPrompt", () => {
     const order = [
       "write in `observations` the distance in pixels",
       "Then check three things.",
-      "Report a neighbor only for how it relates to a changed element.",
+      "Do not report the rest of the screenshot, except a neighbor for how it relates to a changed element.",
       "is `major`, also when the defect is a few pixels",
     ].map((sentence) => inContext.indexOf(sentence))
     expect(order.every((at) => at >= 0)).toBe(true)
     expect(order).toEqual([...order].sort((a, b) => a - b))
-    expect(inContext).not.toContain("Do not report the rest of the screenshot")
 
     expect(buildNewPrompt(newStory()).story).not.toContain("is `major`")
   })
