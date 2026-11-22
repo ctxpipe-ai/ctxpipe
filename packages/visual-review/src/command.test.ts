@@ -2168,6 +2168,98 @@ export const Primary = { render: () => null }
           )
         })
 
+        test("a block that only moved gets no design review: its head pixels are in the base image at an offset", async () => {
+          serveJev(jevSame)
+          // A striped block, like lines of text: a move of 1 px changes
+          // each of its pixels, so the changed region is the whole block.
+          const block = (y: number) =>
+            screenshot(
+              400,
+              300,
+              Array.from({ length: 15 }, (_, line) => ({
+                box: { x: 100, y: y + 4 * line, width: 200, height: 2 },
+                color: [20, 20, 20] as const,
+              })),
+            )
+          await put("base", card, block(60))
+          await put("head", card, block(61))
+
+          expect(
+            await run(
+              "--json",
+              "--judge",
+              "jev",
+              "--images",
+              images,
+              "--",
+              card,
+            ),
+          ).toBe(0)
+
+          expect(chats).toHaveLength(0)
+        })
+
+        test("a copy of a control that stays in place is an addition, not a move, and gets the review", async () => {
+          serveJev(jevSame)
+          content = designReply("intended", "none")
+          const lines = (ys: number[]) =>
+            screenshot(
+              400,
+              300,
+              ys.flatMap((y) =>
+                Array.from({ length: 15 }, (_, line) => ({
+                  box: { x: 100, y: y + 4 * line, width: 200, height: 2 },
+                  color: [20, 20, 20] as const,
+                })),
+              ),
+            )
+          // The block at y 40 stays, and a copy comes at y 140.
+          await put("base", card, lines([40]))
+          await put("head", card, lines([40, 140]))
+
+          await run("--json", "--judge", "jev", "--images", images, "--", card)
+
+          expect(chats.map(({ model }) => model)).toEqual([
+            "openai/gpt-6.1-sol",
+          ])
+        })
+
+        test("a candidate that only moved gives its place to the next one, which gets the review", async () => {
+          serveJev(jevSame)
+          content = designReply("intended", "none")
+          // The larger change: a striped block that moved 1 px.
+          const block = (y: number) =>
+            screenshot(
+              400,
+              300,
+              Array.from({ length: 20 }, (_, line) => ({
+                box: { x: 50, y: y + 4 * line, width: 300, height: 2 },
+                color: [20, 20, 20] as const,
+              })),
+            )
+          await put("base", button, block(60))
+          await put("head", button, block(61))
+          await put("base", card, before)
+          await put("head", card, redesigned)
+
+          await run(
+            "--json",
+            "--judge",
+            "jev",
+            "--images",
+            images,
+            "--",
+            button,
+            card,
+          )
+
+          expect(chats.map(({ model }) => model)).toEqual([
+            "openai/gpt-6.1-sol",
+          ])
+          expect(verdicts()[1]?.summary).toContain("Design review")
+          expect(verdicts()[0]?.summary).not.toContain("Design review")
+        })
+
         test("a color change gets no design review", async () => {
           serveJev(jevSame)
           await put("base", button, before)

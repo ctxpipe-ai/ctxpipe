@@ -41,6 +41,7 @@ import {
   explainerModel,
   explainRegression,
   inContext,
+  redesignOf,
   reviewDesign,
   type Explained,
   type Review,
@@ -50,7 +51,7 @@ import { buildNewPrompt, buildPrompt, type Prompt } from "./prompt.ts"
 import { redesigns, reviewStories } from "./review.ts"
 import { packagedRubric, readRubric, type Rubric } from "./rubric.ts"
 import { storiesOf } from "./story-tags.ts"
-import type { NewStoryInput, StoryInput } from "./story.ts"
+import type { Box, NewStoryInput, StoryInput } from "./story.ts"
 import {
   parseNewVerdict,
   parseVerdict,
@@ -325,11 +326,11 @@ export async function visualReview(
       summary: `${member.summary} Design review on ${storyId}, an alike diff: ${review.text}`,
     }
   }
-  // A design review of a redesign when `closeUpFolder` is given: the folder
-  // of its close-up.
+  // A design review of a redesign when `redesign` is given: its redesigned
+  // region and the folder of its close-up.
   const feedbackOf = (
     input: Explained,
-    closeUpFolder: string | undefined,
+    redesign: { shown: Box; changed: Box[]; folder: string } | undefined,
   ): {
     call: (verdict: Verdict) => Promise<{
       verdict: Verdict
@@ -350,10 +351,14 @@ export async function visualReview(
           share: (verdict: Verdict, member: Verdict) =>
             viewportCopy(verdict, member.storyId),
         }
-      : closeUpFolder
+      : redesign
         ? {
             call: async (verdict: Verdict) => {
-              const story = await inContext(input.story, closeUpFolder)
+              const story = await inContext(
+                input.story,
+                redesign,
+                redesign.folder,
+              )
               return story
                 ? reviewDesign(verdict, story, designModel, process.env)
                 : explainRegression(verdict, input, explainerModel, process.env)
@@ -374,12 +379,23 @@ export async function visualReview(
     // A redesigned area gets a design review in its context: at most 4 for
     // each run, the largest first, before the explainers of other changes,
     // so that a short budget goes to the reviews (ADR-063 rule 20).
-    const found = redesigns(
+    // A redesign whose large regions only moved is no redesign: the pixels
+    // tell it, so the candidates come largest first, until 4 have a region.
+    const found: {
+      story: StoryInput
+      alike: string[]
+      shown: Box
+      changed: Box[]
+    }[] = []
+    for (const candidate of redesigns(
       [...jevInputs.values()].flatMap((input) =>
         input.kind === "change" ? [input.story] : [],
       ),
-      4,
-    )
+    )) {
+      if (found.length === 4) break
+      const redesign = await redesignOf(candidate.story)
+      if (redesign) found.push({ ...candidate, ...redesign })
+    }
     const redesigned = found.map(({ story }) => story.storyId)
     const reviewOrder = (storyId: string) => {
       const at = redesigned.indexOf(storyId)
@@ -418,12 +434,17 @@ export async function visualReview(
           continue
         // A redesign keeps its explainer when the budget has no room for the
         // review.
+        const redesign = found.find(
+          ({ story }) => story.storyId === verdict.storyId,
+        )
         const reviewed =
-          redesigned.includes(verdict.storyId) &&
+          redesign !== undefined &&
           (fits(unknownDesignUsd) || !fits(unknownExplainerUsd))
         const { call, reserve, skipped, share } = feedbackOf(
           input,
-          reviewed ? closeUpFolder : undefined,
+          reviewed && closeUpFolder
+            ? { ...redesign, folder: closeUpFolder }
+            : undefined,
         )
         let updated: Verdict
         let review: Review | undefined
@@ -440,12 +461,7 @@ export async function visualReview(
         verdicts[index] = updated
         // A regression of the review stands for the alike diffs of the
         // redesign: they need no feedback call of their own.
-        const alike = new Set(
-          review
-            ? found.find(({ story }) => story.storyId === verdict.storyId)
-                ?.alike
-            : [],
-        )
+        const alike = new Set(review ? redesign?.alike : [])
         for (const id of alike) covered.add(id)
         for (const [other, member] of verdicts.entries())
           if (member.groupedWith === verdict.storyId)

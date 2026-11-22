@@ -12,15 +12,16 @@ import { createHash } from "node:crypto"
 import { readFile, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 
-import { decode, encode } from "@blazediff/codec-png-native"
+import { decode, encode, type Image } from "@blazediff/codec-png-native"
 import { z } from "zod"
 
 import { askOpenRouter, judgeNewWithOpenRouter } from "./adapters/openrouter.ts"
+import type { PixelBox } from "./compare/diff.ts"
 import { maxSide, pngSize, prepareImage } from "./prepare.ts"
 import { judgingRule, scopeLine, storyData, type Prompt } from "./prompt.ts"
 import { isRedesign } from "./review.ts"
 import type { RubricEntry } from "./rubric.ts"
-import type { NewStoryInput, StoryImage, StoryInput } from "./story.ts"
+import type { Box, NewStoryInput, StoryImage, StoryInput } from "./story.ts"
 import { parseJsonReply, type Verdict } from "./verdict.ts"
 
 /**
@@ -275,49 +276,137 @@ ${brief ? brief.replace(/<\/data/gi, "<\\/data") : "(none)"}
 }
 
 /**
+ * The redesign of a changed screenshot (CTX-1509, ADR-063 rule 20): `shown`,
+ * its largest changed region that is a redesign (`isRedesign`) and not a
+ * block that only moved, and `changed`, its changed regions with no noise
+ * and no moved block, in fractions of the image. Undefined when no such
+ * region is there. A scroll or a layout shift moves text by a few pixels and
+ * changes each pixel of its region, so the size of a region does not tell a
+ * move from a redesign. A region only moved when its head pixels are in the
+ * base image at an offset of up to 160 px on one axis, and the head image
+ * changed at that source too (see `moved`). An empty area that a removal
+ * leaves is not a move: its source did not change.
+ */
+export async function redesignOf(
+  story: StoryInput,
+): Promise<{ shown: Box; changed: Box[] } | undefined> {
+  const read = async (role: StoryImage["role"]) => {
+    const path = story.images.find((image) => image.role === role)?.path
+    return path ? decode(await readFile(path)) : undefined
+  }
+  const before = await read("before")
+  const after = await read("after")
+  if (
+    !before ||
+    !after ||
+    before.width !== after.width ||
+    before.height !== after.height
+  )
+    return undefined
+  const regions = story.regions
+    .filter(({ changeType }) => changeType !== "rendering-noise")
+    .map(({ box, changeType }) => {
+      const pixels = {
+        x: Math.round(box.x * after.width),
+        y: Math.round(box.y * after.height),
+        width: Math.round(box.width * after.width),
+        height: Math.round(box.height * after.height),
+      }
+      const large = isRedesign({ change: changeType ?? "unlabeled", ...pixels })
+      return { box, large, moved: large && moved(before, after, pixels) }
+    })
+  const shown = regions
+    .filter(({ large, moved }) => large && !moved)
+    .sort((a, b) => b.box.width * b.box.height - a.box.width * a.box.height)[0]
+  return shown
+    ? {
+        shown: shown.box,
+        changed: regions.filter(({ moved }) => !moved).map(({ box }) => box),
+      }
+    : undefined
+}
+
+/**
+ * True when the block `box` only moved: its `after` pixels are in `before` at
+ * an offset of up to 160 px on one axis, and the `after` image changed at
+ * that source. Without the second test, a copy of a control next to the
+ * original would be a move. Pixels match when their mean difference is at
+ * most 1 of 255 for each channel, on every second pixel of every second row.
+ * The nearest offsets come first.
+ */
+function moved(before: Image, after: Image, box: PixelBox): boolean {
+  const most = 3 * Math.ceil(box.width / 2) * Math.ceil(box.height / 2)
+  // The sum of the differences between `after` at `at` and `before` at `at`
+  // moved by (dx, dy), up to a little more than `most`.
+  const difference = (at: PixelBox, dx: number, dy: number) => {
+    let sum = 0
+    for (let y = 0; y < at.height && sum <= most; y += 2)
+      for (let x = 0; x < at.width; x += 2) {
+        const to = ((at.y + y) * after.width + at.x + x) * 4
+        const from = ((at.y + dy + y) * before.width + at.x + dx + x) * 4
+        for (let channel = 0; channel < 3; channel++)
+          sum += Math.abs(
+            (after.data[to + channel] ?? 0) -
+              (before.data[from + channel] ?? 0),
+          )
+      }
+    return sum
+  }
+  for (let distance = 1; distance <= 160; distance++)
+    for (const [dx, dy] of [
+      [0, distance],
+      [0, -distance],
+      [distance, 0],
+      [-distance, 0],
+    ] as const) {
+      const source = { ...box, x: box.x + dx, y: box.y + dy }
+      if (
+        source.x >= 0 &&
+        source.y >= 0 &&
+        source.x + box.width <= before.width &&
+        source.y + box.height <= before.height &&
+        difference(box, dx, dy) <= most &&
+        // The block left its source: the head image changed there.
+        difference(source, 0, 0) > most
+      )
+        return true
+    }
+  return false
+}
+
+/**
  * The input of the design review of a changed screenshot in its context
- * (CTX-1509, ADR-063 rule 20): the head image, and a close-up of the largest
- * redesigned region and the elements next to it, written into the private
- * folder `dir`. The review judges the redesigned area as new UI, not against
- * the base image. On the full head image, a small control is a few pixels, so
- * the close-up shows its alignment and spacing. The changed regions are in
- * fractions of the head image that the model gets: `prepareImage` pads a
- * short image at the bottom and the right. Undefined when the story has no
- * full head image that is a PNG, or no changed region.
+ * (CTX-1509, ADR-063 rule 20): the head image with the regions `changed`,
+ * and a close-up of the redesigned region `shown` (see `redesignOf`) and the
+ * elements next to it, written into the private folder `dir`. The review judges the
+ * redesigned area as new UI, not against the base image. On the full head
+ * image, a small control is a few pixels, so the close-up shows its alignment
+ * and spacing. The changed regions are in fractions of the head image that
+ * the model gets: `prepareImage` pads a short image at the bottom and the
+ * right. Undefined when the story has no full head image that is a PNG.
  */
 export async function inContext(
   story: StoryInput,
+  { shown, changed }: { shown: Box; changed: readonly Box[] },
   dir: string,
 ): Promise<NewStoryInput | undefined> {
   const path = story.images.find(({ role }) => role === "after")?.path
   const bytes = path ? await readFile(path) : undefined
   const size = bytes ? pngSize(bytes) : undefined
-  const regions = story.regions
-    .filter(({ changeType }) => changeType !== "rendering-noise")
-    .map(({ box }) => box)
-  if (!path || !bytes || !size || !regions.length) return undefined
+  if (!path || !bytes || !size) return undefined
   const { content } = prepareImage(bytes)
-  // The close-up: the largest redesigned region with 64 px more on each side,
-  // at twice the size, or less when a side would pass the side limit of the
-  // models. A small change far from it does not make the close-up larger.
-  const pixels = story.regions
-    .map(({ box, changeType }) => ({
-      change: changeType ?? "unlabeled",
-      x: box.x * size.width,
-      y: box.y * size.height,
-      width: box.width * size.width,
-      height: box.height * size.height,
-    }))
-    .sort((a, b) => b.width * b.height - a.width * a.height)
-  const shown = pixels.find(isRedesign) ?? pixels[0]
-  if (!shown) return undefined
+  // The close-up: the region with 64 px more on each side, at twice the
+  // size, or less when a side would pass the side limit of the models.
   const margin = 64
-  const left = Math.max(0, Math.floor(shown.x) - margin)
-  const top = Math.max(0, Math.floor(shown.y) - margin)
-  const right = Math.min(size.width, Math.ceil(shown.x + shown.width) + margin)
+  const left = Math.max(0, Math.floor(shown.x * size.width) - margin)
+  const top = Math.max(0, Math.floor(shown.y * size.height) - margin)
+  const right = Math.min(
+    size.width,
+    Math.ceil((shown.x + shown.width) * size.width) + margin,
+  )
   const bottom = Math.min(
     size.height,
-    Math.ceil(shown.y + shown.height) + margin,
+    Math.ceil((shown.y + shown.height) * size.height) + margin,
   )
   const zoom = Math.max(
     1,
@@ -357,7 +446,7 @@ export async function inContext(
       { path: closeUp, size: { width, height } },
     ],
     changed: {
-      regions: regions.map(({ x, y, width, height }) => ({
+      regions: changed.map(({ x, y, width, height }) => ({
         x: x * content.width,
         y: y * content.height,
         width: width * content.width,
