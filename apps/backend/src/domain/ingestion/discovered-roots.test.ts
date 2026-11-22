@@ -181,7 +181,7 @@ describe("resolveDiscoveredRoots", () => {
     )
     expect(plan.roots.map((r) => r.path)).toEqual([".", "services/b"])
     expect(plan.refused).toEqual([
-      { path: "../x", reason: "The path is not safe to write" },
+      { path: "../x", reason: "The path is not safe to write", from: "script" },
     ])
   })
 
