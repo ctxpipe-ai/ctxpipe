@@ -342,7 +342,19 @@ for (const input of plan.items) {
     }
     claims.push({ from: unit, predicate: use.predicate, evidence })
   }
-  resolved.push({ kind, name, path, isNew, roleText, summary, claims, related })
+  // The evidence of the PART_OF claim of a part of the store file.
+  const evidence = found.find((p) => safePath(p)) ?? claims[0]?.evidence.path
+  resolved.push({
+    kind,
+    name,
+    path,
+    isNew,
+    roleText,
+    summary,
+    claims,
+    related,
+    evidence,
+  })
 }
 
 // --- plans for the shared writer ------------------------------------------------
@@ -360,6 +372,8 @@ for (const item of resolved) {
     },
     claims: [],
     related: item.related,
+    // A store file that many roots use continues in parts (CTX-1528).
+    ...(item.evidence ? { list: { evidence: item.evidence } } : {}),
   })
   for (const claim of item.claims)
     plans.push({

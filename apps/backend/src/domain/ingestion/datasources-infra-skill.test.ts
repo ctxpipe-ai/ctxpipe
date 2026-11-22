@@ -1570,6 +1570,94 @@ describe("datasources-infra skill in a step", () => {
     )
   })
 
+  it("continues a store file in parts when the lines of its roots pass 64 KiB over more pages, and keeps each line (CTX-1528)", async () => {
+    // 280 roots with long paths use one PostgreSQL store. Each root adds one
+    // line to the store file, so the lines pass the 64 KiB of the validator.
+    const files: Record<string, string> = {}
+    const roots: Record<string, string[]> = {}
+    for (let i = 0; i < 280; i++) {
+      const root = `apps/${"inventory-".repeat(19)}${i}`
+      files[`${root}/package.json`] = pkg(`a${i}`, {
+        dependencies: { pg: "8" },
+      })
+      roots[root] = []
+    }
+    const s = await step(files, {}, roots)
+    expect(s.count()).toEqual({ count: 280 })
+    const all = Object.keys(roots)
+    const STORE = "knowledge/databases/postgresql.md"
+    const cursors: number[] = []
+    let tree = ""
+    // The model plans half of the roots on each page.
+    for (const half of [all.slice(0, 140), all.slice(140)]) {
+      const out = s.write({
+        items: [
+          {
+            id: "Database:postgres",
+            name: "PostgreSQL",
+            role: "primary",
+            roots: half.map((root) => ({ root, predicate: "DEPENDS_ON" })),
+          },
+        ],
+      })
+      expect(out.skipped.filter((k) => k.path !== null)).toEqual([])
+      const result = await s.validate()
+      expect(result.rejections).toEqual([])
+      cursors.push(result.cursorAt ?? -1)
+      tree = result.tree
+      await s.advance(result.tree)
+    }
+    // The cursor counts each root whose line is in a part.
+    expect(cursors).toEqual([140, 280])
+    expect(s.found()).toMatchObject({ done: 280, waiting: 0, more: false })
+    const list = s.files(tree, "knowledge/databases/")
+    expect(list).toEqual([STORE, "knowledge/databases/postgresql.related-2.md"])
+    const texts = list.map((path) => s.show(tree, path))
+    for (const text of texts)
+      expect(Buffer.byteLength(text)).toBeLessThanOrEqual(64 * 1024)
+    const part = texts[1] ?? ""
+    expect(part).toContain("kind: Database")
+    expect(part).toContain("name: postgresql related 2")
+    expect(part).toContain("to: postgresql.md\n    predicate: PART_OF")
+    // Each root has its line once in the list: no line is lost.
+    const lines = texts.flatMap((text) =>
+      text.split("\n").filter((l) => l.includes(" uses it in ")),
+    )
+    expect(lines).toHaveLength(280)
+    expect(new Set(lines).size).toBe(280)
+  }, 300_000)
+
+  it("keeps the lines of an earlier writer run of the page when a later run plans other roots (CTX-1528)", async () => {
+    const files: Record<string, string> = {}
+    const roots: Record<string, string[]> = {}
+    for (const name of ["a", "b"]) {
+      files[`apps/${name}/package.json`] = pkg(name, {
+        dependencies: { pg: "8" },
+      })
+      roots[`apps/${name}`] = []
+    }
+    const s = await step(files, {}, roots)
+    const plan = (root: string) => ({
+      items: [
+        {
+          id: "Database:postgres",
+          name: "PostgreSQL",
+          role: "primary",
+          roots: [{ root, predicate: "DEPENDS_ON" }],
+        },
+      ],
+    })
+    s.write(plan("apps/a"))
+    // The model writes the plan again with only the next root.
+    s.write(plan("apps/b"))
+    expect(s.at()).toBe(2)
+    const result = await s.validate()
+    expect(result.rejections).toEqual([])
+    const db = s.show(result.tree, "knowledge/databases/postgresql.md")
+    expect(db).toContain("- `example-org/shop` uses it in `apps/a`")
+    expect(db).toContain("- `example-org/shop` uses it in `apps/b`")
+  })
+
   it("pages a second store of one engine: the claims of the first store do not make its pairs done (CTX-1487)", async () => {
     // 40 roots claim a PostgreSQL primary store already. The plan adds a
     // PostgreSQL analytics store, and its claims on the 40 Service files of

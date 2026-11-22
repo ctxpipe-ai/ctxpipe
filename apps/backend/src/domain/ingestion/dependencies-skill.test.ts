@@ -222,6 +222,11 @@ async function step(
   }
   const show = (tree: string, path: string) =>
     git(contextDir, "show", `${tree}:${path}`)
+  /** The paths of a tree below a folder. */
+  const paths = (tree: string, prefix: string) =>
+    git(contextDir, "ls-tree", "-r", "--name-only", tree, "--", prefix)
+      .split("\n")
+      .filter(Boolean)
   /**
    * Every candidate of a root: the root step lists HTTP and config
    * candidates, the repository-wide step the stream and queue candidates.
@@ -278,6 +283,7 @@ async function step(
     validate,
     advance,
     show,
+    paths,
     patch,
     finish,
     gate,
@@ -1019,9 +1025,13 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
     expect(own).toContain("to: ledger.md")
   })
 
-  it("gives a part of the dependency list of a Service file with a long name a name that the validator takes (CTX-1487)", async () => {
-    const stem = `shop-${"x".repeat(185)}`
+  it("gives a part of a Service file with a 240-byte stem a short, fixed name, and continues its list on the next page (CTX-1528)", async () => {
+    // `<stem>.dependencies-2.md` would be longer than the 255 bytes of a
+    // file name, so the part gets the first 100 bytes of the stem and a hash.
+    const stem = `shop-${"x".repeat(235)}`
+    expect(Buffer.byteLength(stem)).toBe(240)
     const SERVICE = `knowledge/services/${stem}.md`
+    const short = `${stem.slice(0, 100)}-${createHash("sha256").update(stem).digest("hex").slice(0, 16)}`
     const calls = Array.from(
       { length: 400 },
       (_, i) => `await fetch("http://billing.internal/p${i}")`,
@@ -1042,25 +1052,51 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
       },
       [{ path: ".", files: [SERVICE] }],
     )
-    s.apply(
-      s.scan().candidates.map((c) => ({
-        id: c.id,
-        kind: "service",
-        path: "knowledge/services/billing.md",
-      })),
-    )
-    const result = await s.validate()
-    expect(result.rejections).toEqual([])
-    const part = s.show(
-      result.tree,
-      `knowledge/services/${stem}.dependencies-2.md`,
-    )
+    const resolve = (candidates: Candidate[]) =>
+      s.apply(
+        candidates.map((c) => ({
+          id: c.id,
+          kind: "service",
+          path: "knowledge/services/billing.md",
+        })),
+      )
+    // Two pages: the model resolves half of the candidates on each one.
+    resolve(s.scan().candidates.slice(0, 200))
+    const first = await s.validate()
+    expect(first.rejections).toEqual([])
+    expect(first.cursorAt).toBe(200)
+    const PART = `knowledge/services/${short}.dependencies-2.md`
+    expect(s.paths(first.tree, "knowledge/services/")).toContain(PART)
+    expect(Buffer.byteLength(PART.split("/").at(-1) ?? "")).toBeLessThan(255)
+    expect(isDependencyListPart(PART)).toBe(true)
+    await s.advance(first.tree)
+    // The next page reads the part: it lists only the other 200.
+    const next = s.scan()
+    expect(next.waiting).toBe(200)
+    resolve(next.candidates)
+    const second = await s.validate()
+    expect(second.rejections).toEqual([])
+    expect(second.cursorAt).toBe(400)
+    const parts = s
+      .paths(second.tree, "knowledge/services/")
+      .filter((p) => p.includes(".dependencies-"))
+    expect(parts).toEqual([PART])
+    const part = s.show(second.tree, PART)
     // The validator takes a name of at most 200 characters.
     const name = /^name: "?(.*?)"?$/m.exec(part)?.[1] ?? ""
     expect(name).toMatch(/ dependencies 2$/)
     expect(name.length).toBeLessThanOrEqual(200)
-    expect(result.cursorAt).toBeGreaterThan(0)
-  })
+    expect(part).toContain(`to: ${stem}.md\n    predicate: PART_OF`)
+    const ids = [SERVICE, PART].flatMap((path) =>
+      [
+        ...s
+          .show(second.tree, path)
+          .matchAll(/\(candidate `(c[0-9a-f]{10})`\)/g),
+      ].map((m) => m[1]),
+    )
+    expect(ids).toHaveLength(400)
+    expect(new Set(ids).size).toBe(400)
+  }, 300_000)
 
   it("counts a candidate that a later page resolves to another target once, and never an ignored candidate (CTX-1487)", async () => {
     const context = {
@@ -1239,6 +1275,16 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
     ])
       expect(isListPart(path), path).toBe(isDependencyListPart(path))
     expect(isListPart("knowledge/services/a.dependencies-3.md")).toBe(true)
+    // A part of a Stream file or a store file (CTX-1528) is a part in the
+    // skill. It is not a package file, so the host needs no rule for it.
+    for (const path of [
+      "knowledge/streams/orders.related-2.md",
+      "knowledge/databases/postgresql.related-2.md",
+      "knowledge/infrastructure/docker.related-3.md",
+    ])
+      expect(isListPart(path), path).toBe(true)
+    expect(isListPart("knowledge/streams/orders.md")).toBe(false)
+    expect(isListPart("knowledge/apis/orders.related-2.md")).toBe(false)
   })
 
   it("writes the Service file before the Stream files that exist, so that a page that ends in the Stream files moves the cursor (CTX-1487)", async () => {
@@ -1468,6 +1514,106 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
     expect(stream.split("produces to it").length - 1).toBe(1)
     expect(result.cursorAt).toBe(2)
   })
+
+  it("continues a shared Stream file in parts when its Related lines pass 64 KiB over more pages, and keeps each line (CTX-1528)", async () => {
+    // A Stream file of 60 KiB that 30 roots produce to: their Related lines
+    // make the file larger than the 64 KiB of the validator.
+    const STREAM = "knowledge/streams/orders.md"
+    const human = front(
+      { kind: "Stream", name: "orders", summary: "The orders stream." },
+      `# orders\n\n${"The order team runs this stream.\n".repeat(1860)}`,
+    )
+    const context: Record<string, string> = { [STREAM]: human }
+    const source: Record<string, string> = {}
+    const roots = Array.from({ length: 30 }, (_, i) => {
+      const path = `apps/order-worker-${"service-".repeat(6)}${i}`
+      const file = `knowledge/services/w${i}.md`
+      context[file] = front(
+        {
+          kind: "Service",
+          name: `Worker ${i}`,
+          generated_by: "ctxpipe-extract",
+          sources: [SOURCE_PATH],
+        },
+        `# Worker ${i}\n`,
+      )
+      source[`${path}/src/send.ts`] =
+        'producer.send({ topic: "orders", messages: [] })\n'
+      return { path, files: [file] }
+    })
+    const s = await step(source, context, roots)
+    expect(s.finder(null)).toEqual({ count: 30 })
+    const waiting = (listed: ScanResult) =>
+      (
+        listed as unknown as {
+          roots: Array<{ root: string; candidates: Candidate[] }>
+        }
+      ).roots.flatMap((r) =>
+        r.candidates.map((c) => ({ root: r.root, id: c.id })),
+      )
+    const first = waiting(s.scan(null))[0]
+    const resolve = (listed: ScanResult) =>
+      s.apply(
+        waiting(listed)
+          .slice(0, 15)
+          .map((c) => ({ ...c, kind: "stream", path: STREAM })),
+        null,
+      )
+    const cursors: number[] = []
+    let tree = ""
+    for (let page = 1; ; page++) {
+      const listed = s.scan(null)
+      if (listed.waiting === 0) break
+      expect(page).toBeLessThan(5)
+      // The model resolves 15 candidates on each page.
+      resolve(listed)
+      const result = await s.validate()
+      expect(result.rejections).toEqual([])
+      cursors.push(result.cursorAt ?? -1)
+      tree = result.tree
+      await s.advance(result.tree)
+    }
+    // Two pages, and the cursor counts each candidate whose line is in a part.
+    expect(cursors).toEqual([15, 30])
+    const list = s.paths(tree, "knowledge/streams/")
+    expect(list).toEqual([STREAM, "knowledge/streams/orders.related-2.md"])
+    const texts = list.map((path) => s.show(tree, path))
+    for (const text of texts)
+      expect(Buffer.byteLength(text)).toBeLessThanOrEqual(64 * 1024)
+    expect(
+      texts.reduce((sum, text) => sum + Buffer.byteLength(text), 0),
+    ).toBeGreaterThan(64 * 1024)
+    expect(texts[0]?.startsWith(human.trimEnd())).toBe(true)
+    const part = texts[1] ?? ""
+    expect(part).toContain("kind: Stream")
+    expect(part).toContain("name: orders related 2")
+    expect(part).toContain("to: orders.md\n    predicate: PART_OF")
+    expect(part).toContain("[orders](orders.md)")
+    // Each root has its Related line once in the list: no line is lost.
+    const lines = texts.flatMap((text) =>
+      text.split("\n").filter((l) => l.includes(" produces to it in ")),
+    )
+    expect(lines).toHaveLength(30)
+    for (const root of roots)
+      expect(lines).toContain(
+        `- \`example-org/shop\` produces to it in \`${root.path}\` (\`${root.path}/src/send.ts\`)`,
+      )
+    // A part is not a Stream that a candidate can resolve to.
+    const refused = s.apply(
+      [
+        {
+          ...first,
+          kind: "stream",
+          path: "knowledge/streams/orders.related-2.md",
+        },
+      ],
+      null,
+    )
+    expect(refused.ops).toEqual([])
+    expect(refused.skipped.map((k) => k.reason)).toContainEqual(
+      expect.stringContaining("is not a Stream file of the context"),
+    )
+  }, 300_000)
 
   it("leaves each stream to the repository-wide step", async () => {
     const human = front(
