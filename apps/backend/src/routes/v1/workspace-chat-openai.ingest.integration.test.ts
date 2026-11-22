@@ -25,11 +25,18 @@ import { organizations } from "../../db/schema/auth.js"
 import { conversations } from "../../db/schema/conversations.js"
 import { sandboxLocks } from "../../db/schema/sandbox-locks.js"
 import { workspaces } from "../../db/schema/workspaces.js"
+import { parseOpenCodeUsage } from "../../domain/ingestion/ingest-opencode-usage.js"
+import {
+  ingestModelCost,
+  ingestUsageUsd,
+  withRecordedModelCost,
+} from "../../domain/ingestion/ingest-spend.js"
 import {
   INGESTION_V2_WORKFLOW_NAME,
   type IngestionV2RunInput,
 } from "../../domain/ingestion/ingestion-run.js"
 import { ingestSandboxThreadId } from "../../domain/workspaces/chat-lifecycle.js"
+import { postgresSandboxLocks } from "../../domain/workspaces/sandbox-lock-store.js"
 import {
   mintWorkspaceChatRunCapability,
   mintWorkspaceIngestRunCapability,
@@ -98,7 +105,11 @@ function app(): OpenAPIHono<AppEnv> {
   return routes
 }
 
-async function complete(token: string, model?: string): Promise<number> {
+async function complete(
+  token: string,
+  model?: string,
+  extra?: Record<string, unknown>,
+): Promise<number> {
   const res = await app().request(
     "/acme/api/v1/workspace-chat/openai/v1/chat/completions",
     {
@@ -110,6 +121,7 @@ async function complete(token: string, model?: string): Promise<number> {
       body: JSON.stringify({
         ...(model ? { model } : {}),
         messages: [{ role: "user", content: "hi" }],
+        ...extra,
       }),
     },
   )
@@ -328,6 +340,15 @@ describe("workspace-ingest-model capability", () => {
       lockOwner,
     })
     expect(await listModels(capability)).toBe(200)
+    server.use(
+      http.post(`${MODEL_PROVIDER_URL}/chat/completions`, () =>
+        HttpResponse.json({
+          id: "chatcmpl_ingest",
+          choices: [{ message: { role: "assistant", content: "ok" } }],
+          usage: { prompt_tokens: 120, completion_tokens: 30, cost: 0.0042 },
+        }),
+      ),
+    )
     exporter.reset()
     expect(await complete(capability)).toBe(200)
     // Attributed to the run, the shard, and the step; never to a conversation.
@@ -350,7 +371,125 @@ describe("workspace-ingest-model capability", () => {
       "ctxpipe.ingest.run.id": runId,
       "ctxpipe.ingest.shard": "0",
       "ctxpipe.ingest.step": "skill:root:docs",
+      "gen_ai.usage.input_tokens": 120,
+      "gen_ai.usage.output_tokens": 30,
+      "gen_ai.usage.cost": 0.0042,
+      "ctxpipe.ingest.model_call.cost_estimated": false,
     })
+  })
+
+  it("gives the step a spend that equals the sum of the cost spans of its calls", async () => {
+    const runId = await startRun(orgId)
+    const lockOwner = await holdShard(runId, 0)
+    const lock = { orgId, runId, shard: 0, lockOwner }
+    const capability = await mintWorkspaceIngestRunCapability({
+      authSecret: AUTH_SECRET,
+      orgId,
+      orgSlug,
+      runId,
+      shard: 0,
+      step: "skill:root:apis",
+      lockOwner,
+    })
+    expect(await ingestModelCost(lock)).toBeNull()
+    // A streamed answer ends with a usage chunk; with a bring-your-own-key
+    // route, the gateway puts the provider charge in `cost_details`.
+    const usages = [
+      {
+        prompt_tokens: 1_000,
+        completion_tokens: 50,
+        prompt_tokens_details: { cached_tokens: 800 },
+        cost: 0.0003,
+        is_byok: true,
+        cost_details: { upstream_inference_cost: 0.006 },
+      },
+      { prompt_tokens: 2_000, completion_tokens: 100, cost: 0.0011 },
+      // No gateway cost: the fallback prices, and a log event.
+      { prompt_tokens: 10_000, completion_tokens: 1_000 },
+    ]
+    let next = 0
+    server.use(
+      http.post(`${MODEL_PROVIDER_URL}/chat/completions`, () => {
+        const usage = usages[next++]
+        if (next === 1)
+          return new HttpResponse(
+            [
+              `data: ${JSON.stringify({ choices: [{ delta: { content: "ok" } }] })}`,
+              `data: ${JSON.stringify({ choices: [], usage })}`,
+              "data: [DONE]",
+              "",
+            ].join("\n\n"),
+            { headers: { "content-type": "text/event-stream" } },
+          )
+        return HttpResponse.json({
+          choices: [{ message: { role: "assistant", content: "ok" } }],
+          usage,
+        })
+      }),
+    )
+    exporter.reset()
+    expect(await complete(capability, "medium", { stream: true })).toBe(200)
+    expect(await complete(capability)).toBe(200)
+    expect(await complete(capability)).toBe(200)
+    const calls = exporter
+      .getFinishedSpans()
+      .filter((span) => span.name === "ingestion.model_call")
+    expect(calls).toHaveLength(3)
+    const spanCosts = calls.map((span) => span.attributes["gen_ai.usage.cost"])
+    expect(spanCosts.slice(0, 2)).toEqual([0.0063, 0.0011])
+    expect(
+      calls.map(
+        (span) => span.attributes["ctxpipe.ingest.model_call.cost_estimated"],
+      ),
+    ).toEqual([false, false, true])
+    // 10,000 input tokens at $3 and 1,000 output tokens at $15 per million.
+    expect(spanCosts[2]).toBeCloseTo(0.045, 10)
+    const spanSum = spanCosts.reduce(
+      (sum: number, cost) => sum + Number(cost),
+      0,
+    )
+    // The proxy wrote the cost before the answer ended, so the step reads
+    // all of it when `opencode run` exits. OpenCode reports no cost for a
+    // model with no price in its config.
+    const recorded = await ingestModelCost(lock)
+    expect(recorded).toBeCloseTo(spanSum, 10)
+    const usage = withRecordedModelCost(
+      parseOpenCodeUsage(
+        `{"type":"step_finish","part":{"cost":0,"tokens":{"input":13000,"output":1150}}}`,
+      ),
+      recorded,
+    )
+    expect(usage).toMatchObject({ inputTokens: 13_000, outputTokens: 1_150 })
+    expect(ingestUsageUsd(usage!)).toBeCloseTo(spanSum, 10)
+  })
+
+  it("starts the model cost again for a new owner of an expired shard lock", async () => {
+    const runId = await startRun(orgId)
+    const staleOwner = await holdShard(
+      runId,
+      1,
+      randomUUID(),
+      new Date(Date.now() - 1_000),
+    )
+    await withOrgDbContext(orgId, (db) =>
+      db
+        .update(sandboxLocks)
+        .set({ modelCostUsd: 1.5 })
+        .where(eq(sandboxLocks.owner, staleOwner)),
+    )
+    let owner = ""
+    const cost = await postgresSandboxLocks(
+      orgId,
+      undefined,
+      undefined,
+      (receipt) => {
+        owner = receipt.owner
+      },
+    ).withLock(ingestSandboxThreadId(runId, 1), () =>
+      ingestModelCost({ orgId, runId, shard: 1, lockOwner: owner }),
+    )
+    expect(owner).not.toBe(staleOwner)
+    expect(cost).toBeNull()
   })
 
   it("sends an ingest step to the configured model of the tier that it asks for", async () => {

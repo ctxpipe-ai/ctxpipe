@@ -70,12 +70,14 @@ export function reingestPollSeconds(
 
 /**
  * The calibration of the estimate when a repository has no ingestion v2
- * history. The per-step cost is a range for one model step of the medium
- * tier. Change these values when the measured spend changes.
+ * history. The per-step cost is the p50 and p90 gateway cost of one model
+ * step (the sum of `gen_ai.usage.cost` of the step's model calls), measured
+ * on 2026-11-22 over 1,256 steps on the default models (CTX-1522). Change
+ * these values when the measured spend changes.
  */
 const ESTIMATE = {
   rootsWithoutHistory: { low: 1, high: 8 },
-  usdPerModelStep: { low: 0.04, high: 0.12 },
+  usdPerModelStep: { low: 0.002, high: 0.009 },
   minutesPerModelStep: { low: 1, high: 3 },
   /** Index, discovery, assemble and publish. */
   setupMinutes: { low: 3, high: 8 },

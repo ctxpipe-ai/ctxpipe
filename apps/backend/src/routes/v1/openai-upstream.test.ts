@@ -38,7 +38,9 @@ function app(statuses: number[]) {
       {
         origin,
         observe: () => {},
-        onObservedComplete: (status) => statuses.push(status),
+        onObservedComplete: (status) => {
+          statuses.push(status)
+        },
       },
     ),
   )

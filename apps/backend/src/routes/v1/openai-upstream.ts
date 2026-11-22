@@ -85,7 +85,7 @@ export async function forwardToUpstream(
     step?: string
     origin?: string
     observe?: (chunk: Uint8Array) => void
-    onObservedComplete?: (status: number) => void
+    onObservedComplete?: (status: number) => void | Promise<void>
   },
 ) {
   const env = c.var.env
@@ -97,7 +97,7 @@ export async function forwardToUpstream(
   })
   if (!fetched.ok) {
     if (fetched.reason === "no-upstream-key") {
-      options?.onObservedComplete?.(503)
+      void options?.onObservedComplete?.(503)
       return c.json(
         unavailableResponse(
           "no-upstream-key",
@@ -112,7 +112,7 @@ export async function forwardToUpstream(
       orgId: c.get("orgId"),
       conversationId: options?.conversationId,
     })
-    options?.onObservedComplete?.(502)
+    void options?.onObservedComplete?.(502)
     return c.json({ error: "upstream unreachable" }, 502)
   }
   const { upstream, target, startedAt } = fetched
@@ -138,7 +138,12 @@ export async function forwardToUpstream(
 
 type CompletionObserver = {
   observe?: (chunk: Uint8Array) => void
-  onObservedComplete?: (status: number) => void
+  /**
+   * A returned promise holds back the end of a complete body until it
+   * settles, so that a write of the call's cost ends before the caller sees
+   * the end of the answer.
+   */
+  onObservedComplete?: (status: number) => void | Promise<void>
 }
 
 /** Close the observation on EOF, upstream failure, or client cancellation. */
@@ -148,7 +153,7 @@ function observedBody(
   signal?: AbortSignal,
 ): ReadableStream<Uint8Array> {
   if (!observer?.observe || !response.body) {
-    observer?.onObservedComplete?.(response.status)
+    void observer?.onObservedComplete?.(response.status)
     // No upstream body sends an empty body.
     return (
       response.body ??
@@ -159,14 +164,14 @@ function observedBody(
   }
   const reader = response.body.getReader()
   let ended = false
-  const finish = (status: number) => {
+  const finish = async (status: number) => {
     if (ended) return
     ended = true
     signal?.removeEventListener("abort", abort)
-    observer.onObservedComplete?.(status)
+    await observer.onObservedComplete?.(status)
   }
   const abort = () => {
-    finish(499)
+    void finish(499)
     void reader.cancel().catch(() => {})
   }
   signal?.addEventListener("abort", abort, { once: true })
@@ -176,19 +181,19 @@ function observedBody(
       try {
         const { value, done } = await reader.read()
         if (done) {
-          finish(response.status)
+          await finish(response.status)
           controller.close()
         } else {
           observer.observe?.(value)
           controller.enqueue(value)
         }
       } catch (error) {
-        finish(502)
+        void finish(502)
         controller.error(error)
       }
     },
     async cancel(reason) {
-      finish(499)
+      void finish(499)
       await reader.cancel(reason)
     },
   })
@@ -220,7 +225,7 @@ export async function handleNativeBedrockResponse(
       const errorBody = await response.json().catch(() => ({
         error: "bedrock request failed",
       }))
-      observer?.onObservedComplete?.(response.status)
+      void observer?.onObservedComplete?.(response.status)
       return c.json(errorBody, response.status as 400 | 401 | 404 | 429 | 503)
     }
 
@@ -234,7 +239,7 @@ export async function handleNativeBedrockResponse(
 
     const json = await response.json()
     observer?.observe?.(new TextEncoder().encode(JSON.stringify(json)))
-    observer?.onObservedComplete?.(response.status)
+    await observer?.onObservedComplete?.(response.status)
     return c.json(json, 200)
   } catch (err) {
     getLogger().error(err instanceof Error ? err : new Error(String(err)), {
@@ -243,7 +248,7 @@ export async function handleNativeBedrockResponse(
       orgId: c.get("orgId"),
       userId: c.get("user")?.id,
     })
-    observer?.onObservedComplete?.(502)
+    void observer?.onObservedComplete?.(502)
     return c.json({ error: "bedrock request failed" }, 502)
   }
 }

@@ -5,7 +5,14 @@ import {
   type IngestModelTier,
   isIngestModelTier,
 } from "../../domain/ingestion/ingest-opencode.js"
-import { startIngestModelCall } from "../../domain/ingestion/ingest-telemetry.js"
+import {
+  addIngestModelCost,
+  ingestModelCallUsd,
+} from "../../domain/ingestion/ingest-spend.js"
+import {
+  logIngestEvent,
+  startIngestModelCall,
+} from "../../domain/ingestion/ingest-telemetry.js"
 import {
   observeWorkspaceChatCompletionStream,
   recordWorkspaceChatProxyCompletion,
@@ -127,7 +134,7 @@ type ModelCaller = {
   orgSlug?: string
   conversationId?: string
   runId?: string
-  ingest?: { runId: string; shard: number; step: string }
+  ingest?: { runId: string; shard: number; step: string; lockOwner: string }
 }
 
 async function chatTokenFromRequest(
@@ -150,7 +157,45 @@ async function chatTokenFromRequest(
   return {
     orgId: ingest.orgId,
     orgSlug: ingest.orgSlug,
-    ingest: { runId: ingest.runId, shard: ingest.shard, step: ingest.step },
+    ingest: {
+      runId: ingest.runId,
+      shard: ingest.shard,
+      step: ingest.step,
+      lockOwner: ingest.lockOwner,
+    },
+  }
+}
+
+/**
+ * Add the cost of one ingest model call to its step (CTX-1522), before the
+ * sandbox sees the end of the answer. A call with no gateway cost counts at
+ * the fallback prices and is a log event. A failed write is logged: the
+ * answer still goes to the sandbox.
+ */
+async function recordIngestCallCost(
+  orgId: string,
+  ingest: NonNullable<ModelCaller["ingest"]>,
+  cost: { usd: number; estimated: boolean },
+): Promise<void> {
+  if (cost.estimated)
+    logIngestEvent("warn", "ingestion-v2.model-cost-estimated", {
+      ingestionRunId: ingest.runId,
+      shard: ingest.shard,
+      ingestStep: ingest.step,
+      usd: cost.usd,
+    })
+  try {
+    await addIngestModelCost({ orgId, ...ingest }, cost.usd)
+  } catch (error) {
+    getLogger().error(
+      error instanceof Error ? error : new Error(String(error)),
+      {
+        step: "ingestion-v2.model-cost-write-failed",
+        ingestionRunId: ingest.runId,
+        shard: ingest.shard,
+        ingestStep: ingest.step,
+      },
+    )
   }
 }
 
@@ -256,16 +301,18 @@ export const workspaceChatOpenaiRoutes = new OpenAPIHono<AppEnv>()
         })
       : undefined
     let recorded = false
-    const record = (status: number) => {
+    const record = async (status: number) => {
       if (recorded) return
       recorded = true
       observer.end()
+      const cost = token.ingest ? ingestModelCallUsd(observer.usage) : undefined
       ingestCall?.finish({
         status,
         durationMs: Date.now() - startedAt,
         finishReason: observer.finishReason,
         responseModel: observer.responseModel,
         usage: observer.usage,
+        ...(cost ? { cost } : {}),
       })
       recordWorkspaceChatProxyCompletion(turnId, {
         ttfbMs: ttfbMs ?? Date.now() - startedAt,
@@ -278,6 +325,8 @@ export const workspaceChatOpenaiRoutes = new OpenAPIHono<AppEnv>()
         responseModel: observer.responseModel,
         usage: observer.usage,
       })
+      if (token.ingest && cost)
+        await recordIngestCallCost(token.orgId, token.ingest, cost)
     }
     getLogger().info("workspace-chat-model-proxy.request", {
       step: "workspace-chat-model-proxy.request",

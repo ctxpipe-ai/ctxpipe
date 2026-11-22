@@ -130,7 +130,7 @@ export function logIngestEvent(
 
 /**
  * The model call of one ingest step, at the model proxy. It is a generation
- * span with the usage. `ctxpipe.ingest.run.id` groups the model calls of
+ * span with the usage and the cost. `ctxpipe.ingest.run.id` groups the model calls of
  * every shard and step of a run. It holds no prompt or answer (the checkout
  * is customer source).
  */
@@ -144,6 +144,8 @@ export function startIngestModelCall(
     finishReason?: string | null
     responseModel?: string | null
     usage?: WorkspaceChatCompletionUsage | null
+    /** The USD that the run's spend counts for the call (`ingestModelCallUsd`). */
+    cost?: { usd: number; estimated: boolean }
   }) => void
 } {
   const span = tracer().startSpan("ingestion.model_call", {
@@ -180,8 +182,13 @@ export function startIngestModelCall(
         ...(usage?.cachedInputTokens !== undefined
           ? { "gen_ai.usage.cache_read.input_tokens": usage.cachedInputTokens }
           : {}),
-        ...(usage?.cost !== undefined
-          ? { "gen_ai.usage.cost": usage.cost }
+        // The same value that the spend of the step counts, so that the sum
+        // of the spans of a run is the run's `spendUsd` (CTX-1522).
+        ...(result.cost
+          ? {
+              "gen_ai.usage.cost": result.cost.usd,
+              "ctxpipe.ingest.model_call.cost_estimated": result.cost.estimated,
+            }
           : {}),
       })
       if (result.status >= 400) span.setStatus({ code: SpanStatusCode.ERROR })

@@ -8,8 +8,8 @@ import { plannedIngestSkills } from "../domain/ingestion/ingestion-plan.js"
 /**
  * USD that the proof holds back for each model step that is running. The
  * product has no hard limit on the cost of one step, so this is an
- * assumption: about 8 times the p90 estimate of one step (0.12 USD in
- * `estimateReingest`). The proof prints the highest cost that it saw for one
+ * assumption: about 3 times the highest gateway cost of one step on
+ * 2026-11-22 (0.34 USD, CTX-1522). The proof prints the highest cost that it saw for one
  * finished step, so a person can check the assumption after a run.
  */
 export const STEP_RESERVE_USD = 1
