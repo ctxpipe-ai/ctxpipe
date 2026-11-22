@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process"
+import { spawn, spawnSync } from "node:child_process"
 import { closeSync, mkdirSync, openSync, writeFileSync } from "node:fs"
 import { join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -43,4 +43,33 @@ export function logged(log, command, args, options = {}) {
   } finally {
     closeSync(fd)
   }
+}
+
+// As `logged`, but the command runs while the caller continues. The runner
+// starts the shards of a serial lane at the same time (lanes.mjs). Returns a
+// promise of { status, signal, error }, as spawnSync gives them.
+export function loggedAsync(log, command, args, options = {}) {
+  writeFileSync(log, `$ ${command} ${args.join(" ")}\n`, { flag: "a" })
+  const fd = openSync(log, "a")
+  const { timeout, ...rest } = options
+  return new Promise((resolve) => {
+    let error
+    const child = spawn(command, args, { stdio: ["ignore", fd, fd], ...rest })
+    const timer =
+      timeout &&
+      setTimeout(() => {
+        error = new Error(
+          `it did not end within its time limit of ${timeout / 1000} seconds`,
+        )
+        child.kill("SIGTERM")
+      }, timeout)
+    child.on("error", (cause) => {
+      error ??= cause
+    })
+    child.on("close", (status, signal) => {
+      clearTimeout(timer)
+      closeSync(fd)
+      resolve({ status, signal, error })
+    })
+  })
 }
