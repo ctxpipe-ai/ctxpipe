@@ -25,6 +25,9 @@ RUN node scripts/checks/ui-bundled-imports.mjs /out
 FROM node:26.13.1-alpine AS builder
 WORKDIR /app
 ENV CI=true
+# This stage has the node_modules of the deps stage but no workspace files. Do
+# not let pnpm 11 install again before the build (verifyDepsBeforeRun).
+ENV PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false
 RUN npm install -g pnpm@11.28.11
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps/ui/node_modules ./apps/ui/node_modules
