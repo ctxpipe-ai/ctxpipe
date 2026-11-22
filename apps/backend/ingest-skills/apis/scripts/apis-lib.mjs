@@ -766,8 +766,9 @@ export const apiLine = (repository, codeRoot) =>
 /**
  * The candidate operations that are done, at the step base or in the staged
  * tree: `{ done, apiFiles }`, with the keys of the done candidates and the
- * API files of the root (path and text) that link an Operation file. A candidate is done when an API file of the root (it
- * has the `apiLine` of the root) has a HAS_OPERATION claim to an Operation
+ * API files of the root (path and text) that link an Operation file. A
+ * candidate is done when an API file of the root (it has the `apiLine` of
+ * the root) has a HAS_OPERATION claim to an Operation
  * file that matches the candidate. An Operation file matches when it has
  * the same method (each method for a route with the method `ANY`), and its
  * path is the candidate path or ends with it: a router under a mount prefix

@@ -273,8 +273,7 @@ function claimYaml(claim, indent) {
 function newFile({ kind, name, summary, intro, claims, related }) {
   const yaml = [`kind: ${kind}`, `name: ${q(name)}`, `summary: ${q(summary)}`]
   if (claims.length) yaml.push("claims:", ...claims.map((c) => claimYaml(c, 2)))
-  const lines = related
-  return `---\n${yaml.join("\n")}\n---\n\n# ${name}\n\n${intro}\n\n## Related\n\n${lines.join("\n")}\n`
+  return `---\n${yaml.join("\n")}\n---\n\n# ${name}\n\n${intro}\n\n## Related\n\n${related.join("\n")}\n`
 }
 
 const YAML_ESCAPES = {
@@ -596,8 +595,7 @@ function mergeFile(text, { claims, related }) {
 
 /**
  * Write the planned files to the staged tree and write patch.json. A plan is
- * { path, create, claims, related, expectName?, exactName?, after? }.
- * `after` lists the paths of other plans that writeStep writes first. `create` is
+ * { path, create, claims, related, expectName?, exactName? }. `create` is
  * { kind, name, summary, intro } for a new file, or null when the script
  * only adds to an existing file. When `expectName` is set, an existing file
  * at the path must have that name; letters and digits only, unless
@@ -639,7 +637,6 @@ export function writeStep(step, plans, skipped = [], options = {}) {
         exactName: same.exactName ?? plan.exactName,
         claims: [...same.claims, ...plan.claims],
         related: [...same.related, ...plan.related],
-        after: [...(same.after ?? []), ...(plan.after ?? [])],
       })
   }
   // The size of an op in patch.json. patch.json has an indent of 2, so an
@@ -670,7 +667,7 @@ export function writeStep(step, plans, skipped = [], options = {}) {
   }
   let more = false
   // Path order, but each plan comes after the plans of this step that its
-  // claims link to, and after the paths of its `after` list. A page that
+  // claims link to. A page that
   // ends at a size limit then has no claim to a file that the page does not
   // write (an API file and its operations). With `options.claimOrder`
   // "created", a claim orders only before a plan that creates its file: a
@@ -685,19 +682,13 @@ export function writeStep(step, plans, skipped = [], options = {}) {
   const place = (plan) => {
     if (placed.has(plan.path)) return
     placed.add(plan.path)
-    for (const path of [
-      ...plan.claims.map((claim) =>
-        posix.normalize(posix.join(posix.dirname(plan.path), claim.to)),
-      ),
-      ...(plan.after ?? []),
-    ]) {
+    for (const claim of plan.claims) {
+      const path = posix.normalize(
+        posix.join(posix.dirname(plan.path), claim.to),
+      )
       const target = byPath.get(path)
-      if (!target) continue
-      const ordered =
-        options.claimOrder !== "created" ||
-        plan.after?.includes(path) ||
-        !existsAtBase(path)
-      if (ordered) place(target)
+      if (target && (options.claimOrder !== "created" || !existsAtBase(path)))
+        place(target)
     }
     sorted.push(plan)
   }
@@ -750,9 +741,9 @@ export function writeStep(step, plans, skipped = [], options = {}) {
 /**
  * The text that writeStep writes for one plan: `{ text, before }`, with the
  * text at the step base (null for a new file), or `{ skip }` with the reason
- * when the script cannot write the file. The validator refuses a file larger
- * than 64 KiB in any step, so a next page cannot take it either: that file
- * is a skip too.
+ * when the script cannot write the file. The validator refuses a file
+ * larger than 64 KiB in any step, so a next page cannot take it either:
+ * that file is a skip too, with `tooLarge`.
  */
 export function planText(step, plan) {
   const claims = [
@@ -780,6 +771,7 @@ export function planText(step, plan) {
   if (text !== before && Buffer.byteLength(text) > STEP_LIMITS.fileBytes)
     return {
       skip: `The file would be larger than ${STEP_LIMITS.fileBytes / 1024} KiB, so the script does not write it`,
+      tooLarge: true,
     }
   return { text, before }
 }

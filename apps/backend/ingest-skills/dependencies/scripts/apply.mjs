@@ -23,6 +23,7 @@ import { readFileSync, statSync } from "node:fs"
 import { posix } from "node:path"
 
 import {
+  fileClaims,
   findExisting,
   relativeTo,
   scriptStep,
@@ -116,8 +117,8 @@ const skip = (id, reason, code) => {
   skipped.push({ path: null, reason: `${id}: ${reason}` })
 }
 const noService = new Set()
-/** The identity lines of this page's resolutions, for each Service file. */
-const identities = new Map()
+/** The claims and identity lines of this page's resolutions, for each Service file. */
+const entries = new Map()
 
 for (const resolution of resolutions) {
   if (!resolution || typeof resolution !== "object") continue
@@ -274,88 +275,153 @@ for (const resolution of resolutions) {
     skip(id, "kind must be service, api, stream, or ignore", "bad_kind")
     continue
   }
+  // Each Service file of the root gets the claim and the identity line of
+  // the resolution, in its dependency list (`listPlans`).
   for (const user of users) {
     const link = relativeTo(user.path, target.path)
-    identities.set(user.path, [
-      ...(identities.get(user.path) ?? []),
-      dependencyLine({
-        predicate,
-        link,
-        file: candidate.file,
-        id: candidate.id,
-      }),
-    ])
-    plans.push({
-      path: user.path,
-      create: null,
-      related: [],
-      claims: [
-        {
+    entries.set(user.path, [
+      ...(entries.get(user.path) ?? []),
+      {
+        claim: {
           to: link,
           predicate,
           evidence: { path: candidate.file, kind: "model" },
         },
-      ],
-    })
+        line: dependencyLine({
+          predicate,
+          link,
+          file: candidate.file,
+          id: candidate.id,
+        }),
+      },
+    ])
   }
 }
 
+/** The bytes of a claim in a file, with the fields that the validator adds. */
+const claimBytes = (claim) =>
+  Buffer.byteLength(
+    [
+      `  - to: ${JSON.stringify(claim.to)}`,
+      `    predicate: ${claim.predicate}`,
+      "    evidence:",
+      `      path: ${JSON.stringify(claim.evidence.path)}`,
+      `      kind: ${claim.evidence.kind}`,
+      "    confidence: 0.5",
+      "    valid_from: 2026-01-01T00:00:00.000Z",
+      "",
+    ].join("\n"),
+  )
+
 /**
- * The identity lines of one Service file, as plans (CTX-1487). A line that
- * the Service file or a part of its dependency list has already stays where
- * it is. A new line goes to the Service file while the file stays at most
- * half of the file limit, so that the claims of the file always have room.
- * The next lines go to the last part of the list, and to a new part when
- * that one is full. writeStep writes a part after its Service file, so a
- * page that ends between them leaves the candidate not resolved, and the
- * next page writes the line again. The texts come from the step base,
- * because writeStep writes each file from the base and the plans of the page.
+ * The plans of the dependency list of one Service file (CTX-1487): the
+ * Service file and its parts (`listPart`). Each entry is a claim and its
+ * identity line. The claims go first: a claim goes to the Service file
+ * while the file stays at most 56 KiB with at most 150 claims, so that the
+ * other skills keep room in it, and else to the first part with room. Then
+ * the identity lines: a line goes to the Service file while the file stays
+ * at most 32 KiB, and else to the first part with room. A part takes up to
+ * the limits of the validator (64 KiB and 200 claims), less a margin for the
+ * host fields. A claim or a line that a file of the list has already does
+ * not move. A new part has a PART_OF claim to its Service file. The order
+ * of the files does not matter: a candidate is resolved only when its claim
+ * and its line both exist (`resolvedIds`). The texts come from the step
+ * base, because writeStep writes each file from the base and the plans of
+ * the page.
  */
-function identityPlans(servicePath, lines) {
-  const parts = listTexts(
+function listPlans(servicePath, list) {
+  const base = posix.basename(servicePath, ".md")
+  const fileOf = (path, text) => {
+    const claims = fileClaims(text) ?? new Set()
+    return {
+      path,
+      lines: new Set(text.split("\n").map((l) => l.trim())),
+      claims,
+      bytes: Buffer.byteLength(text),
+      count: claims.size,
+      added: new Map(),
+      related: [],
+    }
+  }
+  const files = listTexts(
     (paths) => stepTexts(step, paths, { staged: false }),
     servicePath,
-  )
-  const present = new Set(
-    parts.flatMap((part) => part.text.split("\n").map((l) => l.trim())),
-  )
-  const fresh = [...new Set(lines)].filter((l) => !present.has(l)).sort()
-  const room = (n) =>
-    n === 1 ? STEP_LIMITS.fileBytes / 2 : STEP_LIMITS.fileBytes - 2048
-  const placed = new Map()
-  let n = Math.max(1, parts.length)
-  let used = Buffer.byteLength(parts[n - 1]?.text ?? "")
-  for (const line of fresh) {
-    const bytes = Buffer.byteLength(line) + 1
-    while (used + bytes > room(n)) {
-      n++
-      used = Buffer.byteLength(parts[n - 1]?.text ?? "")
-    }
-    placed.set(n, [...(placed.get(n) ?? []), line])
-    used += bytes
+  ).map(({ path, text }) => fileOf(path, text))
+  if (!files.length) files.push(fileOf(servicePath, ""))
+  const limit = STEP_LIMITS.fileBytes
+  const room = (i, kind) =>
+    i > 0
+      ? { bytes: limit - 2048, claims: 200 }
+      : kind === "claim"
+        ? { bytes: limit - 8 * 1024, claims: 150 }
+        : { bytes: limit / 2, claims: Infinity }
+  /** The first file with room, else a new part. */
+  const fileFor = (kind, bytes) => {
+    const claims = kind === "claim" ? 1 : 0
+    const at = files.findIndex(
+      (file, i) =>
+        file.bytes + bytes <= room(i, kind).bytes &&
+        file.count + claims <= room(i, kind).claims,
+    )
+    if (at !== -1) return files[at]
+    const part = fileOf(listPart(servicePath, files.length + 1), "")
+    files.push({ ...part, bytes: 1024, count: 1, create: true })
+    return files.at(-1)
   }
-  const base = posix.basename(servicePath, ".md")
-  return [...placed].map(([part, related]) =>
-    part === 1
-      ? { path: servicePath, create: null, claims: [], related }
-      : {
-          path: listPart(servicePath, part),
-          claims: [],
-          related,
-          after: [servicePath],
-          expectName: `${base} dependencies ${part}`,
-          exactName: true,
-          create: {
-            kind: "Service",
-            name: `${base} dependencies ${part}`,
-            summary: `Part ${part} of the dependency list of ${base}.`,
-            intro: `This file continues the dependency list of [${base}](${base}.md). A script writes it when the list does not fit in one file.`,
-          },
-        },
+  const sorted = [...new Map(list.map((e) => [e.line, e])).values()].sort(
+    (a, b) => (a.line < b.line ? -1 : 1),
   )
+  for (const { claim } of sorted) {
+    const key = `${claim.to} ${claim.predicate}`
+    if (files.some((f) => f.claims.has(key) || f.added.has(key))) continue
+    const file = fileFor("claim", claimBytes(claim))
+    file.added.set(key, claim)
+    file.bytes += claimBytes(claim)
+    file.count++
+  }
+  for (const { line, claim } of sorted) {
+    if (files.some((f) => f.lines.has(line))) continue
+    const file = fileFor("line", Buffer.byteLength(line) + 1)
+    file.lines.add(line)
+    file.related.push(line)
+    file.bytes += Buffer.byteLength(line) + 1
+    file.evidence ??= claim.evidence.path
+  }
+  return files.flatMap((file, i) => {
+    if (!file.related.length && !file.added.size) return []
+    const claims = [...file.added.values()]
+    if (i === 0)
+      return [{ path: file.path, create: null, claims, related: file.related }]
+    const name = `${base} dependencies ${i + 1}`
+    const evidence = claims[0]?.evidence.path ?? file.evidence
+    return [
+      {
+        path: file.path,
+        claims: file.create
+          ? [
+              {
+                to: `${base}.md`,
+                predicate: "PART_OF",
+                evidence: { path: evidence, kind: "script" },
+              },
+              ...claims,
+            ]
+          : claims,
+        related: file.related,
+        expectName: name,
+        exactName: true,
+        create: {
+          kind: "Service",
+          name,
+          summary: `Part ${i + 1} of the dependency list of ${base}.`,
+          intro: `This file continues the dependency list of [${base}](${base}.md). A script writes it when the list does not fit in one file.`,
+        },
+      },
+    ]
+  })
 }
-for (const [servicePath, lines] of identities)
-  plans.push(...identityPlans(servicePath, lines))
+for (const [servicePath, list] of entries)
+  plans.push(...listPlans(servicePath, list))
 
 // The candidates of each root of the step, by type, also for a root that no
 // resolution reached.

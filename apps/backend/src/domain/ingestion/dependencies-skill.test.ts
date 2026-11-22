@@ -15,6 +15,7 @@ import { afterAll, describe, expect, it } from "vitest"
 import { stringify } from "yaml"
 
 import { writeStepIndex } from "../../test/ingest-step-index.js"
+import { isDependencyListPart } from "../workspaces/layout.js"
 import { withExistingRootFiles } from "./ingestion-plan.js"
 import { gitSource, validatePatchStep } from "./patch-validator.js"
 import { INGEST_SKILLS_DIR } from "./skill-bundle.js"
@@ -308,6 +309,23 @@ const byTarget = (result: Pick<ScanResult, "candidates">) =>
     (c) =>
       `${c.type} ${c.direction} ${c.target.kind}:${c.target.text} @${c.file}:${c.line}`,
   )
+
+/** The texts of the Service file OWN and of each part of its dependency list. */
+const listFiles = (
+  s: { show: (tree: string, path: string) => string },
+  tree: string,
+) => {
+  const texts: string[] = []
+  for (let n = 1; ; n++) {
+    const path =
+      n === 1 ? OWN : `knowledge/services/shop-api.dependencies-${n}.md`
+    try {
+      texts.push(s.show(tree, path))
+    } catch {
+      return texts
+    }
+  }
+}
 
 describe("dependencies scan", { timeout: 60_000 }, () => {
   it("finds HTTP and queue clients, streams, and config readers in TypeScript", async () => {
@@ -932,20 +950,9 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
     for (let i = 1; i < cursors.length; i++)
       expect(cursors[i]).toBeGreaterThan(cursors[i - 1] ?? 0)
     expect(cursors.at(-1)).toBe(1500)
-    // The Service file has each claim and stays at half of the file limit
-    // plus its claims. The parts hold the next identity lines.
-    const files = [OWN, 2, 3, 4].map((part) =>
-      typeof part === "string"
-        ? part
-        : `knowledge/services/shop-api.dependencies-${part}.md`,
-    )
-    const texts = files.flatMap((path) => {
-      try {
-        return [s.show(tree, path)]
-      } catch {
-        return []
-      }
-    })
+    // Each file stays below the file limit. The Service file has each claim,
+    // and the parts hold the next identity lines.
+    const texts = listFiles(s, tree)
     expect(texts.length).toBeGreaterThan(2)
     const sizes = texts.map((t) => Buffer.byteLength(t))
     for (const size of sizes) expect(size).toBeLessThanOrEqual(64 * 1024)
@@ -953,6 +960,7 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
     expect(texts[0]?.match(/predicate: DEPENDS_ON/g)).toHaveLength(4)
     expect(texts[1]).toContain("kind: Service")
     expect(texts[1]).toContain("[shop-api](shop-api.md)")
+    expect(texts[1]).toContain("to: shop-api.md\n    predicate: PART_OF")
     const ids = texts.flatMap((t) =>
       [...t.matchAll(/\(candidate `(c[0-9a-f]{10})`\)/g)].map((m) => m[1]),
     )
@@ -960,9 +968,80 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
     expect(new Set(ids).size).toBe(1500)
   }, 600_000)
 
+  it("continues the claims in the parts of the dependency list when the targets pass the claim limit, with long evidence paths (CTX-1487)", async () => {
+    // 450 calls to 450 Service files: more than the 200 claims of one file.
+    const context: Record<string, string> = {}
+    for (let i = 0; i < 450; i++)
+      context[`knowledge/services/svc-${i}.md`] = serviceFile(`Svc ${i}`)
+    const source: Record<string, string> = {}
+    const deep = `src/${"module/".repeat(30)}`
+    for (let f = 0; f < 15; f++)
+      source[`${deep}client-${f}.ts`] = Array.from(
+        { length: 30 },
+        (_, i) => `await fetch("http://svc-${f * 30 + i}.internal/x")`,
+      ).join("\n")
+    const s = await step(source, context)
+    expect(s.finder()).toEqual({ count: 450 })
+    let at = 0
+    let tree = ""
+    let pages = 0
+    for (let page = 1; ; page++) {
+      const listed = s.scan()
+      if (listed.waiting === 0) break
+      pages = page
+      expect(page).toBeLessThan(10)
+      s.apply(
+        listed.candidates.map((c) => ({
+          id: c.id,
+          kind: "service",
+          path: `knowledge/services/${/svc-\d+/.exec(c.target.text)?.[0]}.md`,
+        })),
+      )
+      const result = await s.validate()
+      expect(result.rejections).toEqual([])
+      expect(result.cursorAt ?? 0).toBeGreaterThan(at)
+      at = result.cursorAt ?? 0
+      tree = result.tree
+      await s.advance(result.tree)
+    }
+    expect(pages).toBeGreaterThan(1)
+    expect(at).toBe(450)
+    const texts = listFiles(s, tree)
+    expect(texts.length).toBeGreaterThan(3)
+    const claimsOf = (text: string) =>
+      text.match(/predicate: DEPENDS_ON/g)?.length ?? 0
+    // The Service file keeps room for the claims of the other skills.
+    expect(claimsOf(texts[0] ?? "")).toBeLessThanOrEqual(150)
+    for (const text of texts) {
+      expect(Buffer.byteLength(text)).toBeLessThanOrEqual(64 * 1024)
+      expect(claimsOf(text)).toBeLessThanOrEqual(199)
+    }
+    // Each target has its claim in one file of the list: no dependency is lost.
+    const all = texts.join("\n")
+    for (let i = 0; i < 450; i++)
+      expect(all).toContain(`to: svc-${i}.md\n    predicate: DEPENDS_ON`)
+    expect(all).toContain(`path: ${deep}client-14.ts`)
+  }, 600_000)
+
+  it("has the same rule for a part of a dependency list in the skill and in the host (CTX-1487)", async () => {
+    const { isListPart } = (await import(
+      join(INGEST_SKILLS_DIR, "dependencies/scripts/scan-lib.mjs")
+    )) as { isListPart: (path: string) => boolean }
+    for (const path of [
+      "knowledge/services/shop-api.dependencies-2.md",
+      "knowledge/services/shop-api.dependencies-12.md",
+      "knowledge/services/shop-api.md",
+      "knowledge/services/shop-api.dependencies.md",
+      "knowledge/services/shop-api-dependencies-2.md",
+      "knowledge/apis/orders.dependencies-2.md",
+    ])
+      expect(isListPart(path), path).toBe(isDependencyListPart(path))
+    expect(isListPart("knowledge/services/a.dependencies-3.md")).toBe(true)
+  })
+
   it("writes the Service file before the Stream files that exist, so that a page that ends in the Stream files moves the cursor (CTX-1487)", async () => {
-    // The Service file and 33 of the 34 Stream files fit in the 2 MiB of a
-    // step. The Service file is larger than half of the file limit, so its
+    // A Service file of 40 KiB, and 36 Stream files of about 59 KiB: more
+    // than the 2 MiB of one step. The claims fit in the Service file, and its
     // identity lines go to part 2 of its dependency list.
     const context: Record<string, string> = {
       [OWN]: front(
@@ -972,11 +1051,11 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
           generated_by: "ctxpipe-extract",
           sources: [SOURCE_PATH],
         },
-        `# Shop API\n\n${"The shop API.\n".repeat(4140)}`,
+        `# Shop API\n\n${"The shop API.\n".repeat(2900)}`,
       ),
     }
     const calls: string[] = []
-    for (let i = 0; i < 34; i++) {
+    for (let i = 0; i < 36; i++) {
       context[`knowledge/streams/s${i}.md`] = front(
         { kind: "Stream", name: `stream.s${i}`, summary: "A stream." },
         `# stream.s${i}\n\n${"The team runs this stream.\n".repeat(2222)}`,
@@ -996,25 +1075,28 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
       )
     const first = resolve()
     expect(first.more).toBe(true)
-    expect(first.ops.map((o) => o.path)).toEqual(
+    const paths = first.ops.map((o) => o.path)
+    expect(paths).toEqual(
       expect.arrayContaining([
         OWN,
         "knowledge/services/shop-api.dependencies-2.md",
       ]),
     )
+    const streams = paths.filter((p) => p.startsWith("knowledge/streams/"))
+    expect(streams.length).toBeGreaterThan(0)
+    expect(streams.length).toBeLessThan(36)
     const page = await s.validate()
     expect(page.rejections).toEqual([])
-    // The Service file has each claim, but one Stream file waits for its
-    // Related line: the cursor stays below the end of the input, so the
-    // host runs page 2.
-    expect(page.cursorAt).toBe(33)
+    // The candidates of the Stream files that the page wrote are resolved:
+    // the cursor moves forward and stays below the end of the input.
+    expect(page.cursorAt).toBe(streams.length)
+    expect(s.show(page.tree, OWN).match(/PRODUCES_TO/g)).toHaveLength(36)
     await s.advance(page.tree)
     const second = resolve()
     expect(second.more).toBe(false)
     const last = await s.validate()
     expect(last.rejections).toEqual([])
-    expect(last.cursorAt).toBe(34)
-    expect(s.show(last.tree, OWN).match(/PRODUCES_TO/g)).toHaveLength(34)
+    expect(last.cursorAt).toBe(36)
   }, 120_000)
 
   it("counts more than 300 candidates of two roots, and a candidate that an earlier page resolved (CTX-1487)", async () => {

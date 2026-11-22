@@ -319,7 +319,7 @@ const apiPlan = (api) => ({
 // and its operations get none: no API file would link them (CTX-1487).
 const selected = resolved.filter((api) => {
   if (!api.pending) return false
-  if (planText(step, apiPlan(api)).skip?.includes("larger than")) {
+  if (planText(step, apiPlan(api)).tooLarge) {
     skip(
       api.path,
       `${api.name}: the API file would be larger than ${STEP_LIMITS.fileBytes / 1024} KiB. Split the API into smaller APIs, for example by path prefix`,
