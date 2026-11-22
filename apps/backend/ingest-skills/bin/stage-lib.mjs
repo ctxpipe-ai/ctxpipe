@@ -142,14 +142,14 @@ export function blobContent(step, id) {
 /**
  * The text of each path in the step: the staged file, else the file at the
  * step base, with one `git cat-file --batch` for all of them. A path that is
- * in neither has no entry.
+ * in neither has no entry. With `{ staged: false }`, only the step base.
  */
-export function stepTexts(step, paths) {
+export function stepTexts(step, paths, { staged = true } = {}) {
   const texts = new Map()
   const base = []
   for (const path of new Set(paths)) {
     const file = stagedFile(step, path)
-    if (existsSync(file)) texts.set(path, readFileSync(file, "utf8"))
+    if (staged && existsSync(file)) texts.set(path, readFileSync(file, "utf8"))
     else if (!path.includes("\n")) base.push(path)
   }
   if (!base.length) return texts

@@ -171,6 +171,11 @@ describe("ingestRootMap", () => {
         paths: ["knowledge/services/api.md", "knowledge/apis/orders.md"],
       },
       {
+        // A part of a dependency list is not a file of the root (CTX-1487).
+        step: skillStepName("services/api", "dependencies", "ws_a"),
+        paths: ["knowledge/services/api.dependencies-2.md"],
+      },
+      {
         step: skillStepName("services/api", "classify-kind", "ws_a"),
         paths: ["knowledge/services/api.md"],
       },

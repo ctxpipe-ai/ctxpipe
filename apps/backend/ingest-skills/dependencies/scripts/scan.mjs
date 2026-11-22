@@ -19,14 +19,15 @@ import { join } from "node:path"
 import { scriptStep } from "../../bin/knowledge-lib.mjs"
 import { outputBudget, writePatch } from "../../bin/stage-lib.mjs"
 import {
-  claimGroups,
+  resolvedIds,
   scan,
   stepCandidates,
   stepRoots,
   stepStats,
 } from "./scan-lib.mjs"
 
-const { step, source, roots, rootPath, index, skipped } = scriptStep()
+const { step, source, repository, roots, rootPath, index, skipped } =
+  scriptStep()
 const scanRoot = (root) =>
   scan({
     source,
@@ -61,10 +62,11 @@ if (process.argv.includes("--count")) {
   writePatch(step, { stats })
   process.stdout.write(`${JSON.stringify({ needsModel: claimable })}\n`)
 } else {
-  // The list holds only the candidates that wait (CTX-1487): the claims do
-  // not resolve each candidate of their file (`claimGroups`), and
-  // resolutions.json of this page does not name them. It has no count limit. It ends at the size limit of
-  // `outputBudget`, so that the model can read it; then `more` is true.
+  // The list holds only the candidates that wait (CTX-1487): a candidate of
+  // the step with no identity line (`resolvedIds`), which resolutions.json
+  // of this page does not name. It has no count limit. It ends at the size
+  // limit of `outputBudget`, so that the model can read it; then `more` is
+  // true.
   const repositoryStep = rootPath === null
   let named = []
   try {
@@ -82,17 +84,12 @@ if (process.argv.includes("--count")) {
   let waiting = 0
   const list = (root) => {
     const result = scanRoot(root)
-    const all = stepCandidates(result.candidates, repositoryStep)
-    const open = new Set()
-    for (const group of claimGroups(step, root, all, repositoryStep))
-      if (group.resolved < group.members.length) {
-        const left = group.members.filter(
-          (c) => !listed.has(`${root.path} ${c.id}`),
-        )
-        waiting += Math.min(left.length, group.members.length - group.resolved)
-        for (const c of left) open.add(c)
-      }
-    const candidates = all.filter((c) => open.has(c) && budget.take(c))
+    const done = resolvedIds(step, root, { repositoryStep, repository })
+    const open = stepCandidates(result.candidates, repositoryStep).filter(
+      (c) => !done.has(c.id) && !listed.has(`${root.path} ${c.id}`),
+    )
+    waiting += open.length
+    const candidates = open.filter((c) => budget.take(c))
     return { root: root.path, candidates, skipped: result.skipped }
   }
   const out = stepRoots(roots, rootPath).map(list)

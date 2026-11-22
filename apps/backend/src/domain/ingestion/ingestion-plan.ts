@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto"
 import { gunzipSync, gzipSync } from "node:zlib"
 
+import { isDependencyListPart } from "../workspaces/layout.js"
 import type { RootFile } from "./context-index.js"
 import {
   type DiscoveredRoot,
@@ -191,8 +192,9 @@ export function skillStepName(
 /**
  * The `--roots` file of each step: each root of the run and the context
  * files that the root's steps wrote, read from the step commits between the
- * pinned revision and the step base. The runtime adds the existing files of
- * each root (`withExistingRootFiles`).
+ * pinned revision and the step base, without a part of a dependency list
+ * (`isDependencyListPart`). The runtime adds the existing files of each root
+ * (`withExistingRootFiles`).
  */
 export function ingestRootMap(
   roots: readonly DiscoveredRoot[],
@@ -203,7 +205,8 @@ export function ingestRootMap(
   )
   for (const { step, paths } of stepFiles) {
     const found = files.get(step.split(":")[1] ?? "")
-    for (const path of found ? paths : []) found?.add(path)
+    for (const path of found ? paths : [])
+      if (!isDependencyListPart(path)) found?.add(path)
   }
   return {
     roots: roots.map((r) => ({

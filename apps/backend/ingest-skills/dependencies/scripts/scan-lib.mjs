@@ -15,7 +15,7 @@ import { lstatSync, realpathSync } from "node:fs"
 import { dirname, join, posix, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { fileClaimRecords, nameKey } from "../../bin/knowledge-lib.mjs"
+import { fileClaims, nameKey } from "../../bin/knowledge-lib.mjs"
 import { stepTexts } from "../../bin/stage-lib.mjs"
 import {
   safePath,
@@ -296,7 +296,12 @@ function hints(target, type, index, own) {
   const want = new Set(nameGuesses(target, type).map(nameKey).filter(Boolean))
   if (!want.size) return []
   return index
-    .filter((entry) => kinds.includes(entry.kind) && !own.has(entry.path))
+    .filter(
+      (entry) =>
+        kinds.includes(entry.kind) &&
+        !own.has(entry.path) &&
+        !isListPart(entry.path),
+    )
     .filter((entry) => {
       const base = posix.basename(entry.path, ".md")
       return want.has(nameKey(entry.title)) || want.has(nameKey(base))
@@ -440,58 +445,111 @@ export function scan({
 
 // --- the cursor (CTX-1487) ---------------------------------------------------
 
-/** The claims that a candidate can give in its step. */
-function claimPredicates(candidate, repositoryStep) {
-  if (!repositoryStep) return ["DEPENDS_ON", "CONSUMES_API"]
-  if (candidate.direction === "produce") return ["PRODUCES_TO"]
-  if (candidate.direction === "consume") return ["CONSUMES_FROM"]
-  return ["PRODUCES_TO", "CONSUMES_FROM"]
+/** The claims that the candidates of a step give. */
+const stepPredicates = (repositoryStep) =>
+  repositoryStep
+    ? ["PRODUCES_TO", "CONSUMES_FROM"]
+    : ["DEPENDS_ON", "CONSUMES_API"]
+
+/**
+ * The identity of one resolved candidate: a Related line of the Service
+ * file that has the claim. It holds the claim (predicate and target link),
+ * the source file of the call, and the candidate id. The id is the hash
+ * that the scan gives the candidate (`c` and 10 hex digits), not a text of
+ * the code. The same resolution of a candidate gives the same line.
+ */
+export function dependencyLine({ predicate, link, file, id }) {
+  return `- ${predicate} [${link}](${link}) from \`${file}\` (candidate \`${id}\`)`
+}
+
+const DEPENDENCY_LINE =
+  /^- ([A-Z_]+) \[[^\]\n]*\]\(([^()\s]+)\) from `([^`\n]+)` \(candidate `(c[0-9a-f]{10})`\)$/
+
+/** The Related line of a Stream file for one root that produces to or consumes from it. */
+export function streamLine({ repository, predicate, root, file }) {
+  const verb = predicate === "PRODUCES_TO" ? "produces to" : "consumes from"
+  return `- \`${repository}\` ${verb} it in \`${root}\` (\`${file}\`)`
 }
 
 /**
- * The candidates of one root that the claims of its Service files resolve,
- * at the step base or in the staged tree, for each source file:
- * `[{ members, resolved }]`. One resolution writes one claim (target and
- * predicate) on each Service file, with the file of the candidate as
- * evidence. So the distinct claims of a file that each Service file has,
- * and that the candidates of the file can give (`claimPredicates`), are a
- * lower bound of the resolved candidates of the file: `resolved`. Only a
- * claim of this run counts: a claim with no `valid_from`. The hydrate job
- * sets `valid_from` on each published claim, and the validator copies it
- * only from a base claim with the same target and predicate, so the claim
- * of an earlier ingest (also an old target of a changed call) does not
- * count. Two candidates with one target leave one claim, so the bound can
- * be low but not high. No file holds the candidate id, so the bound does
- * not say which candidates of the file are resolved.
+ * Part `n` (2 or more) of the dependency list of a Service file. A Service
+ * file takes identity lines only up to half of the file limit, so that its
+ * claims always have room. The next lines go to part 2, then part 3, and so
+ * on. The host does not put a part into the root-to-file map
+ * (`isDependencyListPart`), so no skill writes a claim on it.
  */
-export function claimGroups(step, root, candidates, repositoryStep) {
-  const byFile = new Map()
-  for (const c of candidates)
-    byFile.set(c.file, [...(byFile.get(c.file) ?? []), c])
+export function listPart(servicePath, n) {
+  return `${servicePath.replace(/\.md$/, "")}.dependencies-${n}.md`
+}
+
+/** The path is a part of the dependency list of a Service file. */
+export const isListPart = (path) =>
+  /^knowledge\/services\/.+\.dependencies-\d+\.md$/.test(path)
+
+/**
+ * The texts of a Service file and of each part of its dependency list:
+ * `[{ path, text }]`, the Service file first. `read(paths)` gives a Map of
+ * the texts that exist.
+ */
+export function listTexts(read, servicePath) {
+  const texts = []
+  for (let n = 1; ; n++) {
+    const path = n === 1 ? servicePath : listPart(servicePath, n)
+    const text = read([path]).get(path)
+    if (text === undefined) return texts
+    texts.push({ path, text })
+  }
+}
+
+/**
+ * The ids of the candidates of one root that are resolved in this step, at
+ * the step base or in the staged tree. A candidate is resolved when each
+ * Service file of the root (in the file or in a part of its dependency
+ * list) has an identity line for it with a claim of the step, and the
+ * Service file has that claim. In the repository-wide step, the Stream file
+ * of the claim must also have the Related line of the root. An ignored
+ * candidate has no identity line, so it is never resolved. A candidate with
+ * two lines (resolved to one target and later to another) is one id.
+ */
+export function resolvedIds(step, root, { repositoryStep, repository }) {
   const services = root.files.filter((f) => f.kind === "Service")
-  const texts = stepTexts(
-    step,
-    services.map((f) => f.path),
-  )
-  const claims = services.map(
-    (f) => fileClaimRecords(texts.get(f.path) ?? "") ?? [],
-  )
-  return [...byFile].map(([file, members]) => {
-    const predicates = new Set(
-      members.flatMap((c) => claimPredicates(c, repositoryStep)),
-    )
-    const counts = claims.map(
-      (list) =>
+  if (!services.length) return new Set()
+  const predicates = stepPredicates(repositoryStep)
+  const read = (paths) => stepTexts(step, paths)
+  const streams = new Map()
+  const streamHas = (path, line) => {
+    if (!streams.has(path))
+      streams.set(
+        path,
         new Set(
-          list
-            .filter(
-              (c) =>
-                !c.dated && c.evidence === file && predicates.has(c.predicate),
-            )
-            .map((c) => `${c.to} ${c.predicate}`),
-        ).size,
-    )
-    const resolved = services.length ? Math.min(...counts) : 0
-    return { members, resolved: Math.min(resolved, members.length) }
-  })
+          (read([path]).get(path) ?? "").split("\n").map((l) => l.trim()),
+        ),
+      )
+    return streams.get(path).has(line)
+  }
+  let done = null
+  for (const service of services) {
+    const parts = listTexts(read, service.path)
+    const claims = fileClaims(parts[0]?.text ?? "") ?? new Set()
+    const ids = new Set()
+    for (const { text } of parts)
+      for (const raw of text.split("\n")) {
+        const line = DEPENDENCY_LINE.exec(raw.trim())
+        if (!line) continue
+        const [, predicate, link, file, id] = line
+        if (!predicates.includes(predicate)) continue
+        if (!claims.has(`${link} ${predicate}`)) continue
+        if (
+          repositoryStep &&
+          !streamHas(
+            posix.normalize(posix.join(posix.dirname(service.path), link)),
+            streamLine({ repository, predicate, root: root.path, file }),
+          )
+        )
+          continue
+        ids.add(id)
+      }
+    done = done === null ? ids : new Set([...done].filter((id) => ids.has(id)))
+  }
+  return done
 }

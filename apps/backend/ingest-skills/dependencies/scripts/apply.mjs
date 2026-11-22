@@ -6,8 +6,9 @@
 // choice and writes the claims of the root's Service files (DEPENDS_ON,
 // CONSUMES_API, PRODUCES_TO, CONSUMES_FROM) and the Stream files. A Stream
 // file that already describes the stream gets a new Related line, and no
-// second file is made. The model never types a path, a claim, or a text into
-// a file.
+// second file is made. Each Service file also gets an identity line for
+// each resolved candidate (`dependencyLine`), which the cursor counts. The
+// model never types a path, a claim, or a text into a file.
 //
 // node apply.mjs --root /ctxpipe --source /ctxpipe/source/<handle> \
 //   --source-url <url> --source-path <path> --roots <root-to-file map> [--path <root path>] \
@@ -22,19 +23,23 @@ import { readFileSync, statSync } from "node:fs"
 import { posix } from "node:path"
 
 import {
-  fileClaims,
   findExisting,
   relativeTo,
   scriptStep,
   writeStep,
 } from "../../bin/knowledge-lib.mjs"
-import { fail, stepTexts } from "../../bin/stage-lib.mjs"
+import { fail, STEP_LIMITS, stepTexts } from "../../bin/stage-lib.mjs"
 import {
-  claimGroups,
+  dependencyLine,
+  isListPart,
+  listPart,
+  listTexts,
+  resolvedIds,
   scan,
   stepCandidates,
   stepRoots,
   stepStats,
+  streamLine,
 } from "./scan-lib.mjs"
 
 const STREAM_NAME = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}$/
@@ -111,15 +116,8 @@ const skip = (id, reason, code) => {
   skipped.push({ path: null, reason: `${id}: ${reason}` })
 }
 const noService = new Set()
-/**
- * `<root> <candidate id>` to what this page's resolution of the candidate
- * writes: `{ path, claim }` for each Service file, or `{ path, line }` for
- * the Related line of its Stream file; null for an ignored candidate. The
- * cursor counts them.
- */
-const written = new Map()
-/** The Service claims of the stream resolutions of this page. */
-const streamClaims = []
+/** The identity lines of this page's resolutions, for each Service file. */
+const identities = new Map()
 
 for (const resolution of resolutions) {
   if (!resolution || typeof resolution !== "object") continue
@@ -162,14 +160,9 @@ for (const resolution of resolutions) {
     continue
   }
   const kind = resolution.kind
-  if (kind === "ignore") {
-    const key = `${current.path} ${candidate.id}`
-    if (!written.has(key)) written.set(key, null)
-    continue
-  }
+  if (kind === "ignore") continue
   let target = null
   let predicate = null
-  let line = null
   if (kind === "service" || kind === "api") {
     if (repositoryStep) {
       skip(id, "the root step resolves services and APIs", "wrong_step")
@@ -185,7 +178,7 @@ for (const resolution of resolutions) {
     }
     const entry = entryAt(resolution.path)
     const kinds = kind === "service" ? ["Service"] : ["API", "Operation"]
-    if (!entry || !kinds.includes(entry.kind)) {
+    if (!entry || !kinds.includes(entry.kind) || isListPart(entry.path)) {
       skip(
         id,
         `${String(resolution.path).slice(0, 100)} is not a ${kind} file of the context`,
@@ -257,12 +250,17 @@ for (const resolution of resolutions) {
       )
       continue
     }
-    const verb = direction === "produce" ? "produces to" : "consumes from"
-    line = `- \`${repository}\` ${verb} it in \`${current.path}\` (\`${candidate.file}\`)`
     plans.push({
       path: target.path,
       claims: [],
-      related: [line],
+      related: [
+        streamLine({
+          repository,
+          predicate,
+          root: current.path,
+          file: candidate.file,
+        }),
+      ],
       expectName: target.name,
       create: {
         kind: "Stream",
@@ -276,29 +274,88 @@ for (const resolution of resolutions) {
     skip(id, "kind must be service, api, stream, or ignore", "bad_kind")
     continue
   }
-  const claims = users.map((user) => ({
-    path: user.path,
-    claim: `${relativeTo(user.path, target.path)} ${predicate}`,
-  }))
-  written.set(
-    `${current.path} ${candidate.id}`,
-    line ? [{ path: target.path, line }] : claims,
-  )
-  if (line) streamClaims.push(...claims)
-  for (const user of users)
+  for (const user of users) {
+    const link = relativeTo(user.path, target.path)
+    identities.set(user.path, [
+      ...(identities.get(user.path) ?? []),
+      dependencyLine({
+        predicate,
+        link,
+        file: candidate.file,
+        id: candidate.id,
+      }),
+    ])
     plans.push({
       path: user.path,
       create: null,
       related: [],
       claims: [
         {
-          to: relativeTo(user.path, target.path),
+          to: link,
           predicate,
           evidence: { path: candidate.file, kind: "model" },
         },
       ],
     })
+  }
 }
+
+/**
+ * The identity lines of one Service file, as plans (CTX-1487). A line that
+ * the Service file or a part of its dependency list has already stays where
+ * it is. A new line goes to the Service file while the file stays at most
+ * half of the file limit, so that the claims of the file always have room.
+ * The next lines go to the last part of the list, and to a new part when
+ * that one is full. writeStep writes a part after its Service file, so a
+ * page that ends between them leaves the candidate not resolved, and the
+ * next page writes the line again. The texts come from the step base,
+ * because writeStep writes each file from the base and the plans of the page.
+ */
+function identityPlans(servicePath, lines) {
+  const parts = listTexts(
+    (paths) => stepTexts(step, paths, { staged: false }),
+    servicePath,
+  )
+  const present = new Set(
+    parts.flatMap((part) => part.text.split("\n").map((l) => l.trim())),
+  )
+  const fresh = [...new Set(lines)].filter((l) => !present.has(l)).sort()
+  const room = (n) =>
+    n === 1 ? STEP_LIMITS.fileBytes / 2 : STEP_LIMITS.fileBytes - 2048
+  const placed = new Map()
+  let n = Math.max(1, parts.length)
+  let used = Buffer.byteLength(parts[n - 1]?.text ?? "")
+  for (const line of fresh) {
+    const bytes = Buffer.byteLength(line) + 1
+    while (used + bytes > room(n)) {
+      n++
+      used = Buffer.byteLength(parts[n - 1]?.text ?? "")
+    }
+    placed.set(n, [...(placed.get(n) ?? []), line])
+    used += bytes
+  }
+  const base = posix.basename(servicePath, ".md")
+  return [...placed].map(([part, related]) =>
+    part === 1
+      ? { path: servicePath, create: null, claims: [], related }
+      : {
+          path: listPart(servicePath, part),
+          claims: [],
+          related,
+          after: [servicePath],
+          expectName: `${base} dependencies ${part}`,
+          exactName: true,
+          create: {
+            kind: "Service",
+            name: `${base} dependencies ${part}`,
+            summary: `Part ${part} of the dependency list of ${base}.`,
+            intro: `This file continues the dependency list of [${base}](${base}.md). A script writes it when the list does not fit in one file.`,
+          },
+        },
+  )
+}
+for (const [servicePath, lines] of identities)
+  plans.push(...identityPlans(servicePath, lines))
 
 // The candidates of each root of the step, by type, also for a root that no
 // resolution reached.
@@ -309,58 +366,20 @@ for (const [name, value] of Object.entries(
 
 /**
  * The cursor (CTX-1487): the candidates of `scan.mjs --count` that are
- * resolved, at the step base or in the staged tree. An ignored candidate is
- * never resolved.
- *
- * - A candidate that this page resolves: what the resolution writes exists.
- *   That is its claim on each Service file of its root (root step), or its
- *   Related line in its Stream file (repository-wide step). writeStep
- *   writes a Stream file before the Service files that claim it, so the
- *   Related line is the first thing that a stream resolution writes.
- * - For each source file, at least the candidates that the claims of the
- *   Service files resolve (`claimGroups`): an earlier page wrote them.
- *
- * The Service files come after the Stream files. While a Service file does
- * not have the claim of a stream resolution of this page, the last
- * candidate is not done: a page that ends before the Service files does not
- * reach the end of the input.
+ * resolved (`resolvedIds`) at the step base or in the staged tree. An
+ * ignored candidate is never resolved.
  */
-function candidatesResolved() {
-  const texts = stepTexts(step, [
-    ...[...written.values()].flatMap((parts) =>
-      (parts ?? []).map((p) => p.path),
-    ),
-    ...streamClaims.map((part) => part.path),
-  ])
-  const textOf = (path) => texts.get(path) ?? ""
-  /** What this page's resolution of a candidate writes exists. */
-  const writtenNow = (key) =>
-    written.get(key)?.every((part) =>
-      part.claim
-        ? fileClaims(textOf(part.path))?.has(part.claim)
-        : textOf(part.path)
-            .split("\n")
-            .some((line) => line.trim() === part.line),
-    ) === true
-  let at = 0
-  for (const root of rootsOfStep) {
-    for (const group of claimGroups(
-      step,
-      root,
-      candidatesOf(root),
-      repositoryStep,
-    )) {
-      const now = group.members.filter((candidate) =>
-        writtenNow(`${root.path} ${candidate.id}`),
-      ).length
-      at += Math.max(now, group.resolved)
-    }
-  }
-  if (
-    streamClaims.some((part) => !fileClaims(textOf(part.path))?.has(part.claim))
-  )
-    at = Math.min(at, Math.max(0, candidateCount - 1))
-  return at
-}
+const candidatesResolved = () =>
+  rootsOfStep.reduce((sum, root) => {
+    const done = resolvedIds(step, root, { repositoryStep, repository })
+    return sum + candidatesOf(root).filter((c) => done.has(c.id)).length
+  }, 0)
 
-writeStep(step, plans, skipped, { stats, cursorAt: candidatesResolved })
+// A Service file comes before the Stream files that exist at the step base
+// (`claimOrder`), so that a page that ends in the Stream files has resolved
+// the candidates of the Stream files that it wrote.
+writeStep(step, plans, skipped, {
+  stats,
+  cursorAt: candidatesResolved,
+  claimOrder: "created",
+})

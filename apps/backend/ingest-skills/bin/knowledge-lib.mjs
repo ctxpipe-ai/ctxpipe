@@ -441,12 +441,8 @@ function claimPredicate(raw) {
  * continues on the next line, a duplicate key, a tab as indent, an unusual
  * line end, or a `to` with a character that YAML and JS read as different
  * white space. It never infers a claim.
- *
- * `records`, when given, gets each claim as `{ to, predicate, evidence,
- * dated }`: the `path` of its `evidence` mapping (or null), and true when it
- * has the host field `valid_from` (CTX-1487).
  */
-export function existingClaims(yaml, records) {
+export function existingClaims(yaml) {
   if (/[\u0085\u2028\u2029]/.test(yaml)) return null
   const lines = yaml.split("\n").map((l) => l.replace(/\r$/, ""))
   if (lines.some((l) => l.includes("\r") || /^ *\t/.test(l))) return null
@@ -463,22 +459,13 @@ export function existingClaims(yaml, records) {
   let keyColumn = null
   let item = null
   const endItem = () => {
-    if (item?.to != null && item.predicate != null) {
+    if (item?.to != null && item.predicate != null)
       found.add(`${item.to} ${item.predicate}`)
-      records?.push({
-        to: item.to,
-        predicate: item.predicate,
-        evidence: item.evidence ?? null,
-        dated: item.dated === true,
-      })
-    }
     item = null
   }
   const read = (key, value, next) => {
-    item.inEvidence = key === "evidence"
     if (key !== "to" && key !== "predicate") {
       if (unreadableValue(value)) return false
-      if (key === "valid_from") item.dated = true
       return true
     }
     if (item[key] !== undefined) return false
@@ -531,12 +518,7 @@ export function existingClaims(yaml, records) {
       if (indent <= itemColumn) return null
       keyColumn = indent
     }
-    if (indent > keyColumn) {
-      // The `path` of the `evidence` mapping of the claim.
-      const path = item.inEvidence && /^ *path:(?:[ \t]+(.*))?$/.exec(text)
-      if (path) item.evidence = claimTarget(path[1] ?? "")
-      continue
-    }
+    if (indent > keyColumn) continue
     if (indent !== keyColumn) return null
     const key = /^ *([A-Za-z_][A-Za-z0-9_-]*):(?:[ \t]+(.*))?$/.exec(text)
     if (!key) return null
@@ -614,7 +596,8 @@ function mergeFile(text, { claims, related }) {
 
 /**
  * Write the planned files to the staged tree and write patch.json. A plan is
- * { path, create, claims, related, expectName?, exactName? }. `create` is
+ * { path, create, claims, related, expectName?, exactName?, after? }.
+ * `after` lists the paths of other plans that writeStep writes first. `create` is
  * { kind, name, summary, intro } for a new file, or null when the script
  * only adds to an existing file. When `expectName` is set, an existing file
  * at the path must have that name; letters and digits only, unless
@@ -639,8 +622,9 @@ function mergeFile(text, { claims, related }) {
  * the plans that the page handled before it ended. A skill whose input is
  * not its plans (a model writes the plan) gives `options.cursorAt`: a
  * function that counts the inputs that are done after the page wrote its
- * files. patch.json holds `more` and `stats` for the host. Prints and
- * returns { ops, skipped, more }.
+ * files. `options.claimOrder` is described at the order of the plans.
+ * patch.json holds `more` and `stats` for the host. Prints and returns
+ * { ops, skipped, more }.
  */
 export function writeStep(step, plans, skipped = [], options = {}) {
   const byPath = new Map()
@@ -655,6 +639,7 @@ export function writeStep(step, plans, skipped = [], options = {}) {
         exactName: same.exactName ?? plan.exactName,
         claims: [...same.claims, ...plan.claims],
         related: [...same.related, ...plan.related],
+        after: [...(same.after ?? []), ...(plan.after ?? [])],
       })
   }
   // The size of an op in patch.json. patch.json has an indent of 2, so an
@@ -685,18 +670,34 @@ export function writeStep(step, plans, skipped = [], options = {}) {
   }
   let more = false
   // Path order, but each plan comes after the plans of this step that its
-  // claims link to. A page that ends at a size limit then has no claim to a
-  // file that the page does not write (an API file and its operations).
+  // claims link to, and after the paths of its `after` list. A page that
+  // ends at a size limit then has no claim to a file that the page does not
+  // write (an API file and its operations). With `options.claimOrder`
+  // "created", a claim orders only before a plan that creates its file: a
+  // file at the step base needs no order.
   const sorted = []
   const placed = new Set()
+  const atBase = new Map()
+  const existsAtBase = (path) => {
+    if (!atBase.has(path)) atBase.set(path, baseBlob(step, path) !== null)
+    return atBase.get(path)
+  }
   const place = (plan) => {
     if (placed.has(plan.path)) return
     placed.add(plan.path)
-    for (const claim of plan.claims) {
-      const target = byPath.get(
+    for (const path of [
+      ...plan.claims.map((claim) =>
         posix.normalize(posix.join(posix.dirname(plan.path), claim.to)),
-      )
-      if (target) place(target)
+      ),
+      ...(plan.after ?? []),
+    ]) {
+      const target = byPath.get(path)
+      if (!target) continue
+      const ordered =
+        options.claimOrder !== "created" ||
+        plan.after?.includes(path) ||
+        !existsAtBase(path)
+      if (ordered) place(target)
     }
     sorted.push(plan)
   }
@@ -789,17 +790,6 @@ export function planText(step, plan) {
  */
 export function fileClaims(text) {
   return existingClaims(frontMatter(text) ?? "")
-}
-
-/**
- * Each claim of the text of a file, as `existingClaims` gives it in
- * `records`, or null when the front matter cannot be read.
- */
-export function fileClaimRecords(text) {
-  const records = []
-  return existingClaims(frontMatter(text) ?? "", records) === null
-    ? null
-    : records
 }
 
 /** Relative link from one context file to another. */

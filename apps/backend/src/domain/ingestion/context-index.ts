@@ -6,6 +6,7 @@ import {
   hydrateKnowledgeTree,
   resolveHydrateLink,
 } from "../workspaces/hydrate.js"
+import { isDependencyListPart } from "../workspaces/layout.js"
 import { parseYamlObject, splitFrontMatter } from "./front-matter.js"
 import { fileOwnership, fileSources, PACKAGE_KINDS } from "./patch-validator.js"
 import { runGit } from "./run-git.js"
@@ -215,6 +216,7 @@ function packageRoot(
   sourcePath: string,
 ): RootFile | null {
   if (!unit.kind || !PACKAGE_KINDS.has(unit.kind)) return null
+  if (isDependencyListPart(unit.path)) return null
   if (fileOwnership(raw, sourcePath) === "foreign") return null
   const front = splitFrontMatter(raw)
   const root = front ? parseYamlObject(front.yaml)?.root : undefined
