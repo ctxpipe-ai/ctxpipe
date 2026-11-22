@@ -44,7 +44,10 @@ export type QuestionScore = {
   jevQuestions: number
   embeddingCalls: number
   costUsd: number
-  /** The failure of the search or of `get_related`. */
+  /**
+   * The failure of the search or of `get_related`, a Jev failure of the
+   * search, or the failed model calls of the answer.
+   */
   error?: string
   /** The search or `get_related` gave a partial answer (for example a timeout). */
   partial: boolean
@@ -128,11 +131,20 @@ export function scoreAnswer(
   const targets = new Set(
     question.gold.filter((ref) => !question.seeds?.includes(ref)),
   )
+  // A failed model call can give a partial answer, not an error: the plane
+  // gives no hits for a failed query embedding (`total_timeout`), and the
+  // search order for a failed Jev call (`judge_unavailable`). The eval
+  // counts these answers as errors, so that a score of 0 never hides a
+  // broken call.
   const errors = [
     "error" in answer.search ? `search: ${answer.search.error}` : null,
     answer.related && "error" in answer.related
       ? `get_related: ${answer.related.error}`
       : null,
+    search?.partialReason === "judge_unavailable"
+      ? "search: judge_unavailable"
+      : null,
+    answer.calls.failed ? `${answer.calls.failed} failed model calls` : null,
   ].filter(Boolean)
   return {
     arm: answer.arm,

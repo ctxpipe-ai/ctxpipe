@@ -27,8 +27,7 @@ export const recordedCallSchema = z.object({
   arm: z.string(),
   question: z.string(),
   kind: z.enum(["jev", "embedding", "chat", "vision"]),
-  /** The SHA-256 of the kind and the request body: the replay key. */
-  key: z.string(),
+  /** The request body. A replay finds the call by it (`replayKeyOf`). */
   request: z.unknown(),
   status: z.number().int(),
   /** The raw answer: the Jev probabilities or the vectors. */
@@ -53,6 +52,12 @@ export const callCountsSchema = z.object({
   costUsd: z.number(),
   /** Replay only: calls that the recording does not hold. */
   missing: z.number(),
+  /**
+   * The calls with an HTTP error status, or with no answer. A call that the
+   * reader stopped at the end of its time budget is not a failed call. A
+   * run folder from before this count has none (0).
+   */
+  failed: z.number().default(0),
 })
 export type CallCounts = z.infer<typeof callCountsSchema>
 
@@ -104,6 +109,7 @@ const emptyCounts = (): CallCounts => ({
   embedding: 0,
   costUsd: 0,
   missing: 0,
+  failed: 0,
 })
 
 /**
@@ -117,6 +123,22 @@ function kindOf(path: string, body: string): CallKind | null {
   if (path.endsWith("/chat/completions"))
     return body.includes('"name":"image_reading"') ? "vision" : "chat"
   return null
+}
+
+/**
+ * The replay key of a request. The `provider` block only routes the call
+ * (ZDR, data collection, the provider allowlist, the sort): it does not
+ * change the answer of the model. Thus the key leaves it out, and a
+ * recording from before a change of the routing still replays (CTX-1450
+ * added `only`). `body` is the parsed JSON body, or the text of a body that
+ * is not JSON.
+ */
+function replayKeyOf(kind: CallKind, body: unknown): string {
+  const answerFields =
+    body && typeof body === "object" && !Array.isArray(body)
+      ? JSON.stringify({ ...body, provider: undefined })
+      : String(body)
+  return createHash("sha256").update(`${kind}\n${answerFields}`).digest("hex")
 }
 
 const unavailable = (reason: string) =>
@@ -169,7 +191,11 @@ export class ModelCalls {
     this.origin = new URL(baseUrl).origin
     this.replay = replay ? new Map() : null
     for (const call of replay ?? []) {
-      const key = this.replayKey(call.arm, call.question, call.key)
+      const key = this.replayKey(
+        call.arm,
+        call.question,
+        replayKeyOf(call.kind, call.request),
+      )
       this.replay?.set(key, [...(this.replay.get(key) ?? []), call])
     }
   }
@@ -234,7 +260,8 @@ export class ModelCalls {
     const body = await request.clone().text()
     const kind = kindOf(url.pathname, body)
     if (!kind) return next(request)
-    const key = createHash("sha256").update(`${kind}\n${body}`).digest("hex")
+    const parsed = parseOr(body, body)
+    const key = replayKeyOf(kind, parsed)
     if (this.replay) return this.replayed(kind, key, body, owner)
     // The hard spend cap: each call in flight holds its worst-case cost, and
     // a call that would take the spent and reserved total over the cap is
@@ -259,6 +286,7 @@ export class ModelCalls {
       // The provider can charge a call that failed on the way back.
       this.spentUsd += reserved
       owner.counts.costUsd += reserved
+      if (!request.signal.aborted) owner.counts.failed += 1
       throw error
     } finally {
       this.reservedUsd -= reserved
@@ -273,14 +301,14 @@ export class ModelCalls {
     // A chat reply is no retrieval answer, so the counts of a question leave
     // it out. The record keeps it as evidence (the probe reads it).
     if (kind === "jev" || kind === "embedding") owner.counts[kind] += 1
+    if (!response.ok) owner.counts.failed += 1
     if (kind === "jev") owner.counts.jevQuestions += questionsOf(body)
     if (this.options.keepRecords !== false)
       this.records.push({
         arm: owner.arm,
         question: owner.question,
         kind,
-        key,
-        request: parseOr(body, body),
+        request: parsed,
         status: response.status,
         response: text,
         costUsd,
@@ -320,6 +348,7 @@ export class ModelCalls {
     }
     owner.counts[kind] += 1
     if (kind === "jev") owner.counts.jevQuestions += questionsOf(body)
+    if (recorded.status >= 400) owner.counts.failed += 1
     owner.counts.costUsd += recorded.costUsd
     this.records.push(recorded)
     return new Response(recorded.response, {

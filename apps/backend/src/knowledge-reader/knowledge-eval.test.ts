@@ -1,5 +1,5 @@
 import { delay, HttpResponse, http } from "msw"
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
   type Dataset,
@@ -12,12 +12,16 @@ import {
   positionsCorrect,
   recallAt,
 } from "../../evals/knowledge/metrics.js"
-import { ModelCalls } from "../../evals/knowledge/model-calls.js"
+import {
+  ModelCalls,
+  recordedCallSchema,
+} from "../../evals/knowledge/model-calls.js"
 import { checkPanel, labelWithPanel } from "../../evals/knowledge/panel.js"
 import { buildReport, renderMarkdown } from "../../evals/knowledge/report.js"
 import { parseSettings } from "../../evals/knowledge/runner.js"
 import { madeUpPrivateKey } from "../../test/made-up-key.js"
 import { useMswServer } from "../../test/msw.js"
+import { decideNoul, JEV_MODEL } from "../retrieval/jev/client.js"
 import { ORCHESTRATOR_DEFAULTS } from "./orchestrator.js"
 
 /*
@@ -256,10 +260,212 @@ describe("the spend cap", () => {
         embedding: 1,
         costUsd: 0.001,
         missing: 0,
+        failed: 0,
       })
     } finally {
       restore()
     }
+  })
+})
+
+describe("the replay key", () => {
+  const BASE = "https://openrouter.ai/api/v1"
+  const JEV = "https://openrouter.ai/api/alpha/decisions"
+  useMswServer(
+    http.post(JEV, () => HttpResponse.json({ error: "live" }, { status: 500 })),
+    http.post(`${BASE}/embeddings`, () =>
+      HttpResponse.json({ error: "live" }, { status: 500 }),
+    ),
+  )
+  afterEach(() => vi.unstubAllEnvs())
+
+  /** A line of `calls.jsonl` of the harness of before CTX-1450. */
+  const keptCall = (
+    kind: "jev" | "embedding",
+    request: object,
+    response: object,
+  ) =>
+    recordedCallSchema.parse({
+      arm: "plane",
+      question: "question",
+      kind,
+      // The old replay key: the hash of the request body. A replay of now
+      // does not read it.
+      key: "0".repeat(64),
+      request,
+      status: 200,
+      response: JSON.stringify(response),
+      costUsd: 0.001,
+      estimated: false,
+      latencyMs: 10,
+    })
+
+  it("replays a call that was kept before CTX-1450 added provider.only", async () => {
+    vi.stubEnv("MODEL_PROVIDER", "openrouter")
+    vi.stubEnv("MODEL_PROVIDER_URL", BASE)
+    vi.stubEnv("MODEL_PROVIDER_API_KEY", "test-key")
+    vi.stubEnv("MODEL_PROVIDER_ALLOWLIST", "openai,azure")
+    const state = ["The sky is blue."]
+    const questions = {
+      sky: { type: "noul" as const, instructions: "Is the sky blue?" },
+    }
+    // The Jev client of before CTX-1450 sent the ZDR block with no `only`.
+    const jevBody = {
+      model: JEV_MODEL,
+      state,
+      questions,
+      provider: { data_collection: "deny", zdr: true },
+    }
+    // The old stack sent no provider block; the old recorder added the ZDR
+    // block to the request that it kept.
+    const embeddingBody = { model: "made-up/embedding", input: ["sky"] }
+    const replay = new ModelCalls(BASE, 0, [
+      keptCall("jev", jevBody, {
+        answers: { sky: { type: "noul", noul: 0.9 } },
+      }),
+      keptCall(
+        "embedding",
+        {
+          ...embeddingBody,
+          provider: { data_collection: "deny", zdr: true },
+        },
+        { data: [{ embedding: [1, 0] }] },
+      ),
+    ])
+    const restore = replay.install()
+    try {
+      replay.begin("plane", "question")
+      // The real client sends the block of now, with `only`.
+      const answers = await decideNoul(state, questions, {
+        timeoutMs: 5_000,
+        attributes: {},
+      })
+      expect(answers.get("sky")).toBe(0.9)
+      const embedding = await fetch(`${BASE}/embeddings`, {
+        method: "POST",
+        body: JSON.stringify({
+          ...embeddingBody,
+          provider: { data_collection: "deny", zdr: true, only: ["azure"] },
+        }),
+      })
+      expect(await embedding.json()).toEqual({ data: [{ embedding: [1, 0] }] })
+      expect(replay.end()).toMatchObject({ jev: 1, embedding: 1, missing: 0 })
+    } finally {
+      restore()
+    }
+  })
+
+  it("counts a failed call, but not a call that the reader stopped at its time budget", async () => {
+    const calls = new ModelCalls(BASE, 1)
+    const restore = calls.install()
+    try {
+      calls.begin("plane", "question")
+      const body = JSON.stringify({ input: ["sky"] })
+      expect(
+        (await fetch(`${BASE}/embeddings`, { method: "POST", body })).status,
+      ).toBe(500)
+      await expect(
+        fetch(`${BASE}/embeddings`, {
+          method: "POST",
+          body,
+          signal: AbortSignal.abort(),
+        }),
+      ).rejects.toThrow()
+      expect(calls.end()).toMatchObject({ embedding: 1, failed: 1 })
+    } finally {
+      restore()
+    }
+  })
+
+  it("still misses a call whose answer fields changed", async () => {
+    const body = { model: "made-up/embedding", input: ["sky"] }
+    const replay = new ModelCalls(BASE, 0, [
+      keptCall("embedding", body, { data: [] }),
+    ])
+    const restore = replay.install()
+    try {
+      replay.begin("plane", "question")
+      const response = await fetch(`${BASE}/embeddings`, {
+        method: "POST",
+        body: JSON.stringify({ ...body, input: ["sea"] }),
+      })
+      expect(response.status).toBe(503)
+      expect(replay.end()).toMatchObject({ embedding: 0, missing: 1 })
+    } finally {
+      restore()
+    }
+  })
+})
+
+describe("a run with a failed call", () => {
+  it("is not complete: the report counts the failed answers", async () => {
+    const dataset = await readDataset(datasetFile)
+    const [first, second, third] = dataset.questions
+    if (!first || !second || !third)
+      throw new Error("The example has few questions.")
+    const calls = { jev: 1, jevQuestions: 1, embedding: 1, costUsd: 0.001 }
+    const answer = (
+      arm: "legacy" | "plane",
+      question: string,
+      failed: boolean,
+      missing = 0,
+    ) => ({
+      arm,
+      question,
+      search: failed
+        ? { error: "Error", latencyMs: 10 }
+        : { refs: [], scores: [], latencyMs: 10 },
+      calls: { ...calls, missing, failed: 0 },
+    })
+    const report = buildReport({
+      manifest: {
+        datasetVersion: dataset.version,
+        splits: ["dev", "holdout"],
+        now: "2026-11-20T00:00:00.000Z",
+        settings: {},
+        loop: { ...ORCHESTRATOR_DEFAULTS },
+        mode: "replay",
+        capUsd: 0,
+        spentUsd: 0,
+        stopped: false,
+      },
+      dataset: { ...dataset, questions: [first, second, third] },
+      answers: [
+        answer("legacy", first.id, false),
+        answer("plane", first.id, true),
+        // A failed query embedding gives a partial answer with no hits, and
+        // a failed Jev call gives `judge_unavailable`: both are errors.
+        {
+          ...answer("legacy", third.id, false),
+          calls: { ...calls, missing: 0, failed: 1 },
+        },
+        {
+          ...answer("plane", third.id, false),
+          search: {
+            refs: [],
+            scores: [],
+            partialReason: "judge_unavailable",
+            latencyMs: 10,
+          },
+        },
+        // A replay that misses a call is incomplete, not an error.
+        answer("legacy", second.id, false),
+        answer("plane", second.id, true, 1),
+      ],
+      kept: null,
+    })
+    expect(report).toMatchObject({
+      status: "errors",
+      errors: 3,
+      incomplete: [second.id],
+    })
+    const markdown = renderMarkdown(report)
+    expect(markdown).toContain("Status: errors.")
+    expect(markdown).toContain("**3 answers have a failed call")
+    expect(markdown).toContain(`- ${third.id} (legacy): 1 failed model calls`)
+    expect(markdown).toContain(
+      `- ${third.id} (plane): search: judge_unavailable`,
+    )
   })
 })
 
@@ -289,13 +495,13 @@ describe("the comparison with the kept run", () => {
           arm: "legacy",
           question: id,
           search: { refs: [], scores: [], latencyMs: 10 },
-          calls: { ...calls, missing: 0 },
+          calls: { ...calls, missing: 0, failed: 0 },
         },
         {
           arm: "plane",
           question: id,
           search: { error: "internal", latencyMs: 10 },
-          calls: { ...calls, missing: 0 },
+          calls: { ...calls, missing: 0, failed: 0 },
         },
       ],
       kept: {
