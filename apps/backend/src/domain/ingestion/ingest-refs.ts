@@ -184,7 +184,13 @@ function assertJobRef(job: IngestJob, ref: string): IngestRefTarget {
  */
 export async function pushIngestStep(
   input: PushIngestStepInput,
-): Promise<{ sha: string; validation: PatchStepResult; more: boolean }> {
+): Promise<{
+  sha: string
+  validation: PatchStepResult
+  more: boolean
+  /** The cursor that the commit keeps (CTX-1487). */
+  cursor?: IngestPageCursor
+}> {
   assertJobRef(input.job, input.ref)
   const base = input.oldTip ?? input.pinnedRevision
   if (input.baseCommit !== base)
@@ -199,6 +205,10 @@ export async function pushIngestStep(
       baseCommit: base,
       bundle: input.commit.bundle,
     })
+    const cursor =
+      validation.cursorAt !== undefined && input.commit.cursorOf !== undefined
+        ? { at: validation.cursorAt, of: input.commit.cursorOf }
+        : undefined
     const sha = await commitStep(repoDir, {
       tree: validation.tree,
       parents: [base],
@@ -206,13 +216,15 @@ export async function pushIngestStep(
       ...input.commit,
       more: validation.more,
       rejects: validation.rejections.length,
-      ...(validation.cursorAt !== undefined &&
-      input.commit.cursorOf !== undefined
-        ? { cursor: { at: validation.cursorAt, of: input.commit.cursorOf } }
-        : {}),
+      ...(cursor ? { cursor } : {}),
     })
     await pushWithLease(repoDir, input.remote, input.ref, input.oldTip, sha)
-    return { sha, validation, more: validation.more }
+    return {
+      sha,
+      validation,
+      more: validation.more,
+      ...(cursor ? { cursor } : {}),
+    }
   })
 }
 

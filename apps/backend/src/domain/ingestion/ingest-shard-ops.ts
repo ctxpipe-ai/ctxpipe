@@ -1,4 +1,5 @@
 import type { SandboxHandle, SandboxProcess } from "@tanstack/ai-sandbox"
+import { z } from "zod"
 
 import {
   ingestModelRunCommand,
@@ -566,6 +567,10 @@ export async function runIngestShardStep(
   }
 }
 
+const FinderCountSchema = z.object({
+  count: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+})
+
 /** The `{"count": <n>}` of the last line of a finder; else undefined. */
 function finderCount(run: {
   exitCode: number
@@ -574,10 +579,7 @@ function finderCount(run: {
   if (run.exitCode !== 0) return undefined
   try {
     const last = run.stdout.trim().split("\n").at(-1) ?? ""
-    const count = (JSON.parse(last) as { count?: unknown }).count
-    return Number.isSafeInteger(count) && (count as number) >= 0
-      ? (count as number)
-      : undefined
+    return FinderCountSchema.safeParse(JSON.parse(last)).data?.count
   } catch {
     return undefined
   }

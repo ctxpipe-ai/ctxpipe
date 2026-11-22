@@ -247,6 +247,11 @@ const PatchJsonSchema = z.object({
   cursor: z.unknown().optional(),
 })
 
+/** The `cursor` of `patch.json` (CTX-1487); it can be absent. */
+const PageCursorSchema = z
+  .object({ at: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER) })
+  .optional()
+
 /** Ownership of a file at the base commit, from the host-only fields. */
 type FileOwnership = "sole" | "shared" | "foreign"
 
@@ -1948,16 +1953,17 @@ async function readPatchJson(
   }
   // A bad cursor keeps `more`: the host then stops a cursor skill whose
   // page says `more` and gives no cursor (CTX-1487).
-  const at = (parsed.cursor as { at?: unknown } | undefined)?.at
-  const cursorOk =
-    parsed.cursor === undefined ||
-    (typeof at === "number" && Number.isSafeInteger(at) && at >= 0)
-  if (!cursorOk)
-    reject("patch.json", "patch_json", "cursor.at must be a whole number")
+  const cursor = PageCursorSchema.safeParse(parsed.cursor)
+  if (!cursor.success)
+    reject(
+      "patch.json",
+      "patch_json",
+      "cursor must be an object with a whole number at",
+    )
   return {
     ops: entries,
     more: parsed.more === true,
-    ...(cursorOk && typeof at === "number" ? { cursorAt: at } : {}),
+    ...(cursor.data ? { cursorAt: cursor.data.at } : {}),
   }
 }
 

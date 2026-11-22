@@ -65,7 +65,7 @@ export type IngestRuntimeStep = {
    * runtime runs its finder (`<skill>.mjs <arguments> --count`) and returns
    * the count as `inputs`.
    */
-  cursor?: boolean
+  cursor?: true
   signal: AbortSignal
   /**
    * Before the step limit (`ingestStepCheckpoint`): a model step then stops

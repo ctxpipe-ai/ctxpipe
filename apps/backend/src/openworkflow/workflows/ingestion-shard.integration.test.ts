@@ -130,6 +130,13 @@ describe("runSkillPages", () => {
     }
   })
 
+  it("stops a cursor skill as partial when its last page changes the length of its input", async () => {
+    const results = [page(2, 10), page(11, 11, false)]
+    const state = await pages("services/h", results, ownership)
+    expect(results).toEqual([])
+    expect(state).toMatchObject({ ops: 2, partial: 1 })
+  })
+
   it("stops a skill with no cursor after 20 pages", async () => {
     const results = Array.from({ length: 25 }, (_, i) => page(i + 1, 30))
     const state = await pages("services/g", results)

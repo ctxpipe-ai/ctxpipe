@@ -449,7 +449,12 @@ export type SkillStepBroker = {
   ): Promise<Array<{ step: string; paths: string[] }>>
   push(
     input: Omit<PushIngestStepInput, "remote" | "job">,
-  ): Promise<{ sha: string; validation: PatchStepResult; more: boolean }>
+  ): Promise<{
+    sha: string
+    validation: PatchStepResult
+    more: boolean
+    cursor?: IngestPageCursor
+  }>
   /** True when `path` exists in the source at the run's SHA. */
   sourcePathExists(path: string): Promise<boolean>
   /** The text of `path` in the source at the run's SHA, or null. */
@@ -602,6 +607,20 @@ export async function runSkillPages(ctx: SkillPages): Promise<void> {
     state.tip = result.tip
     state.ops += result.ops
     state.rejects += result.rejects
+    // The trusted length stays the length of the first page, also on the
+    // last page (CTX-1487).
+    const cursor = ctx.skill.cursor ? result.cursor : undefined
+    const of = cursorOf ?? cursor?.of
+    if (cursor && cursor.of !== of) {
+      failed()
+      logStepPartial(
+        ctx,
+        label,
+        `The length of the input changed from ${of} to ${cursor.of} on page ${page}`,
+        seen.executionAttempt,
+      )
+      return
+    }
     if (!result.more) return
     if (result.ops === 0) {
       failed()
@@ -614,23 +633,14 @@ export async function runSkillPages(ctx: SkillPages): Promise<void> {
       return
     }
     if (ctx.skill.cursor) {
-      const cursor = result.cursor
-      const of = cursorOf ?? cursor?.of
-      if (
-        !cursor ||
-        cursor.of !== of ||
-        cursor.at <= cursorAt ||
-        cursor.at >= cursor.of
-      ) {
+      if (!cursor || cursor.at <= cursorAt || cursor.at >= cursor.of) {
         failed()
         logStepPartial(
           ctx,
           label,
-          !cursor
-            ? `Page ${page} said more, but it gave no cursor`
-            : cursor.of !== of
-              ? `Page ${page} said more, but the length of its input changed from ${of} to ${cursor.of}`
-              : `Page ${page} said more, but its cursor did not move forward inside the input: ${cursor.at} of ${cursor.of} after ${cursorAt}`,
+          cursor
+            ? `Page ${page} said more, but its cursor did not move forward inside the input: ${cursor.at} of ${cursor.of} after ${cursorAt}`
+            : `Page ${page} said more, but it gave no cursor`,
           seen.executionAttempt,
         )
         return
@@ -850,7 +860,7 @@ async function attemptSkillStep(
         root: ctx.root,
         workspaceId: destination.workspaceId,
         baseCommit,
-        ...(ctx.skill.cursor ? { cursor: true } : {}),
+        ...(ctx.skill.cursor ? { cursor: ctx.skill.cursor } : {}),
         ...(fetchRef ? { fetchRef } : {}),
         rootMap,
         signal,
@@ -937,10 +947,7 @@ async function attemptSkillStep(
         ops: adopted + pushed.validation.accepted.length,
         rejects: pushed.validation.rejections.length,
         more: pushed.more,
-        ...(pushed.validation.cursorAt !== undefined &&
-        stepRun.inputs !== undefined
-          ? { cursor: { at: pushed.validation.cursorAt, of: stepRun.inputs } }
-          : {}),
+        ...(pushed.cursor ? { cursor: pushed.cursor } : {}),
       })
     } catch (error) {
       if (isWorkflowControlSignal(error)) throw error

@@ -482,7 +482,7 @@ beforeAll(async () => {
     ensure: async () => undefined,
     discoverRoots: async () => null,
     runStep: async (step) => {
-      const { usage } = await runIngestShardStep(root, {
+      const { usage, inputs } = await runIngestShardStep(root, {
         step,
         agentEnv,
         remote: "/tmp/remotes/context.git",
@@ -491,7 +491,10 @@ beforeAll(async () => {
         index: (await index.at(step.baseCommit, step.fetchRef)).json,
       })
       if (step.run === "model") modelUsage.push(usage)
-      return { tar: await collectIngestStep(handle, root) }
+      return {
+        tar: await collectIngestStep(handle, root),
+        ...(inputs === undefined ? {} : { inputs }),
+      }
     },
   }
 
