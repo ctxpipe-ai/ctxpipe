@@ -192,7 +192,7 @@ async function runStaleExecution(
   let runId = ""
   const runtime: IngestShardRuntime = {
     ensure: async () => {},
-    discoverRoots: async () => ({}),
+    discoverRoots: async () => ({ script: {}, model: null }),
     runStep: async () => {
       calls.push(calls.length + 1)
       if (calls.length === 1) await anotherExecutionTakes(runId)
@@ -386,7 +386,7 @@ it(
     const calls: number[] = []
     const runtime: IngestShardRuntime = {
       ensure: async () => {},
-      discoverRoots: async () => ({}),
+      discoverRoots: async () => ({ script: {}, model: null }),
       runStep: async () => {
         calls.push(calls.length + 1)
         if (calls.length < 3) throw new Error("Sandbox lock ownership expired")
@@ -514,7 +514,7 @@ it(
     const calls: number[] = []
     const runtime: IngestShardRuntime = {
       ensure: async () => {},
-      discoverRoots: async () => ({}),
+      discoverRoots: async () => ({ script: {}, model: null }),
       // The lease goes while the model call is in progress. The call then
       // returns, and OpenWorkflow refuses the completion of the step.
       runStep: async () => {
@@ -550,7 +550,7 @@ it(
     let runId = ""
     const runtime: IngestShardRuntime = {
       ensure: async () => {},
-      discoverRoots: async () => ({}),
+      discoverRoots: async () => ({ script: {}, model: null }),
       runStep: async () => {
         await backend.cancelWorkflowRun({ workflowRunId: runId })
         throw new Error("Sandbox lock ownership expired")
@@ -579,7 +579,7 @@ it(
     // The page says `more`, but the validator rejects its only op.
     const runtime: IngestShardRuntime = {
       ensure: async () => {},
-      discoverRoots: async () => ({}),
+      discoverRoots: async () => ({ script: {}, model: null }),
       runStep: async () => {
         const out = mkdtempSync(join(folder, "out-"))
         mkdirSync(join(out, "files"))

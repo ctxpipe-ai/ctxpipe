@@ -86,6 +86,12 @@ const INGEST_SKILLS: readonly IngestSkillPlan[] = [
     cursor: { finder: "ownership.mjs" },
   },
   {
+    name: "feature-gates",
+    scope: "repository",
+    run: "script",
+    cursor: { finder: "feature-gates.mjs" },
+  },
+  {
     name: "dependencies",
     scope: "repository",
     run: "model",

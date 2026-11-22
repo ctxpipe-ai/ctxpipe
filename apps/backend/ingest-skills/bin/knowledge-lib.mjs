@@ -616,9 +616,11 @@ function withClaims(yaml, claims) {
 /**
  * Add claims and Related lines to an existing file, as the validator's
  * additive update allows. Returns the new text, the same text when nothing
- * is new, or { skip } with a reason.
+ * is new, or { skip } with a reason. `summary`, when given, replaces the
+ * one-line summary of the file. Only a file that the source owns alone can
+ * take that change (`ownSummary`).
  */
-function mergeFile(text, { claims, related }) {
+function mergeFile(text, { claims, related, summary }) {
   const front = /^---[ \t]*\r?\n((?:.*\n)*?)---[ \t]*(?:\r?\n|$)/.exec(text)
   if (!front) return { skip: "The file has no front matter" }
   const yaml = front[1]
@@ -628,8 +630,19 @@ function mergeFile(text, { claims, related }) {
     return { skip: "The file has claims that the script cannot read" }
   const newClaims = claims.filter((c) => !known?.has(`${c.to} ${c.predicate}`))
   let header = front[0]
+  let nextYaml = yaml
+  if (summary) {
+    const lines = yaml.split("\n")
+    const at = lines.findIndex((l) => /^summary:/.test(l))
+    // A summary on more than one line is not changed.
+    if (at !== -1 && !/^[ \t-]/.test(lines[at + 1] ?? "")) {
+      lines[at] = `summary: ${q(summary)}`
+      nextYaml = lines.join("\n")
+      header = `---\n${nextYaml}---\n`
+    }
+  }
   if (newClaims.length) {
-    const next = withClaims(yaml, newClaims)
+    const next = withClaims(nextYaml, newClaims)
     if (next === null)
       return {
         skip: "The claims of the file have a form that the script does not edit",
@@ -655,14 +668,41 @@ function mergeFile(text, { claims, related }) {
 }
 
 /**
+ * `next` when it says something that `before` does not: another summary,
+ * another body, or other claims. Else `before`, so a run with the same
+ * facts changes nothing. The host fields of `before` do not count.
+ */
+function rewritten(before, next) {
+  const parts = (text) => {
+    const front = /^---[ \t]*\r?\n((?:.*\n)*?)---[ \t]*(?:\r?\n|$)/.exec(text)
+    const yaml = front?.[1] ?? ""
+    const claims = existingClaims(yaml)
+    return {
+      summary: frontValue(yaml, "summary"),
+      body: text.slice(front?.[0].length ?? 0).trim(),
+      claims: claims ? [...claims].sort().join("\n") : null,
+    }
+  }
+  const a = parts(before)
+  const b = parts(next)
+  return a.summary === b.summary && a.body === b.body && a.claims === b.claims
+    ? before
+    : next
+}
+
+/**
  * Write the planned files to the staged tree and write patch.json. A plan is
- * { path, create, claims, related, expectName?, exactName?, list? }.
- * `create` is { kind, name, summary, intro } for a new file, or null when
- * the script only adds to an existing file. When `expectName` is set, an
- * existing file at the path must have that name; letters and digits only,
- * unless `exactName` is set (then the same text, in any letter case). Plans
- * for one path are joined. A plan with `list` continues in the parts of its
- * list when its file is full (`listPlans`).
+ * { path, create, claims, related, expectName?, exactName?, list?,
+ * summary?, rewrite? }. `create` is { kind, name, summary, intro } for a new
+ * file, or null when the script only adds to an existing file. When
+ * `expectName` is set, an existing file at the path must have that name;
+ * letters and digits only, unless `exactName` is set (then the same text, in
+ * any letter case). Plans for one path are joined. A plan with `list`
+ * continues in the parts of its list when its file is full (`listPlans`).
+ * `summary` replaces the summary of the file (see `mergeFile`). With
+ * `rewrite`, an existing file is written again from `create`, as a new file,
+ * when its summary, body, or claims differ; only a file that `ownsWholeFile`
+ * allows can take that.
  *
  * The writer adds to the file of the step (CTX-1528): the staged file when
  * an earlier run of the page staged it, else the file at the step base. So
@@ -992,7 +1032,9 @@ export function planText(step, plan) {
   const text =
     current === null
       ? newFile({ ...plan.create, claims, related })
-      : mergeFile(current, { claims, related })
+      : plan.rewrite && plan.create
+        ? rewritten(current, newFile({ ...plan.create, claims, related }))
+        : mergeFile(current, { claims, related, summary: plan.summary })
   if (typeof text !== "string") return { skip: text.skip }
   const legacy =
     frontMatter(text)?.match(/^ +kind: legacy[ \t]*$/gm)?.length ?? 0
@@ -1146,6 +1188,39 @@ export function listTexts(step, path) {
       n: file === path ? 1 : numberOf(file),
       text: texts.get(file),
     }))
+}
+
+/**
+ * The summary of the base file at `path` when this source owns the file
+ * alone (`generated_by: ctxpipe-extract`, and `sources` holds only
+ * `sourcePath`), else undefined. Only such a file can take a new summary
+ * (ADR-052 section 3).
+ */
+export function ownSummary(step, path, sourcePath) {
+  const text = baseText(step, path)
+  const yaml = text && frontMatter(text)
+  if (!yaml || frontValue(yaml, "generated_by") !== "ctxpipe-extract")
+    return undefined
+  const sources = frontList(yaml, "sources")
+  if (!sources.length || sources.some((s) => s !== sourcePath)) return undefined
+  return frontValue(yaml, "summary") ?? ""
+}
+
+/**
+ * True when this source owns the base file at `path` alone and the file has
+ * no human section, so a script can write the whole file again (a plan with
+ * `rewrite`).
+ */
+export function ownsWholeFile(step, path, sourcePath) {
+  return (
+    ownSummary(step, path, sourcePath) !== undefined &&
+    !(baseText(step, path) ?? "").includes("<!-- ctxpipe:human -->")
+  )
+}
+
+/** The text of the base file at `path`, or null. */
+export function baseFileText(step, path) {
+  return baseText(step, path)
 }
 
 /** Relative link from one context file to another. */

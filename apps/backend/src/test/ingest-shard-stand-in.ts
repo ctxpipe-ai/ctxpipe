@@ -84,9 +84,13 @@ export function standInIngestShardRuntime(options: {
       },
       async discoverRoots() {
         await runtime.ensure()
-        return JSON.parse(
-          await node("discover-roots/scripts/discover-roots.mjs", sourceDir),
-        )
+        // No model runs here: the stand-in has no model for ambiguous roots.
+        return {
+          script: JSON.parse(
+            await node("discover-roots/scripts/discover-roots.mjs", sourceDir),
+          ),
+          model: null,
+        }
       },
       async runStep(step) {
         await runtime.ensure()

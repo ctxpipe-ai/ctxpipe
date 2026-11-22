@@ -10,6 +10,8 @@
     "decidedBy",
     "signals",
     "ambiguous",
+    "purpose",
+    "needsSummary",
     "ops",
     "skipped",
     "more"
@@ -36,31 +38,90 @@
         "additionalProperties": false,
         "required": ["kind", "strength", "evidence", "reason"],
         "properties": {
-          "kind": { "enum": ["App", "Library", "Service"] },
-          "strength": { "enum": ["strong", "weak"] },
-          "evidence": { "type": "string" },
-          "reason": { "type": "string" }
+          "kind": {
+            "enum": ["App", "Library", "Service"]
+          },
+          "strength": {
+            "enum": ["strong", "weak"]
+          },
+          "evidence": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
         }
       }
     },
     "ambiguous": {
       "description": "Set when the rules cannot decide. The script wrote nothing.",
       "oneOf": [
-        { "type": "null" },
+        {
+          "type": "null"
+        },
         {
           "type": "object",
           "additionalProperties": false,
           "required": ["reason", "options", "files"],
           "properties": {
-            "reason": { "type": "string" },
+            "reason": {
+              "type": "string"
+            },
             "options": {
               "type": "array",
-              "items": { "enum": ["App", "Library", "Service"] }
+              "items": {
+                "enum": ["App", "Library", "Service"]
+              }
             },
             "files": {
               "type": "array",
-              "items": { "type": "string" },
+              "items": {
+                "type": "string"
+              },
               "description": "At most 20 files of the root that help to choose."
+            }
+          }
+        }
+      ]
+    },
+    "purpose": {
+      "description": "The purpose of the package, which is the summary of its file. `evidence` is the file that gives it, or null when the model wrote it.",
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["text", "evidence"],
+          "properties": {
+            "text": {
+              "type": "string"
+            },
+            "evidence": {
+              "type": ["string", "null"]
+            }
+          }
+        }
+      ]
+    },
+    "needsSummary": {
+      "description": "Set when no file of the root gives its purpose. The script wrote nothing.",
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["files"],
+          "properties": {
+            "files": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "At most 20 files of the root that help to write the purpose."
             }
           }
         }
@@ -73,8 +134,12 @@
         "additionalProperties": false,
         "required": ["op", "path"],
         "properties": {
-          "op": { "enum": ["create", "update", "delete"] },
-          "path": { "type": "string" }
+          "op": {
+            "enum": ["create", "update", "delete"]
+          },
+          "path": {
+            "type": "string"
+          }
         }
       }
     },
@@ -85,11 +150,17 @@
         "additionalProperties": false,
         "required": ["path", "reason"],
         "properties": {
-          "path": { "type": ["string", "null"] },
-          "reason": { "type": "string" }
+          "path": {
+            "type": ["string", "null"]
+          },
+          "reason": {
+            "type": "string"
+          }
         }
       }
     },
-    "more": { "type": "boolean" }
+    "more": {
+      "type": "boolean"
+    }
   }
 }

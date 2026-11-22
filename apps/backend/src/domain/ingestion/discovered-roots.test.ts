@@ -66,12 +66,17 @@ describe("resolveDiscoveredRoots", () => {
     const result = resolveDiscoveredRoots(SCRIPT, model)
     expect(result.roots).toEqual(SCRIPT.roots)
     expect(result.refused).toEqual([
-      { path: "../x", reason: "The path is not safe to write" },
+      { path: "../x", reason: "The path is not safe to write", from: "model" },
       {
         path: "docs/site",
         reason: "The path is not a candidate of an ambiguous entry",
+        from: "model",
       },
-      { path: "apps/bad\n`x", reason: "The path is not safe to write" },
+      {
+        path: "apps/bad\n`x",
+        reason: "The path is not safe to write",
+        from: "model",
+      },
     ])
   })
 
@@ -87,6 +92,7 @@ describe("resolveDiscoveredRoots", () => {
         {
           path: null,
           reason: "The model result does not match the discover-roots schema",
+          from: "model",
         },
       ],
       skipped: [],
@@ -110,7 +116,13 @@ describe("resolveDiscoveredRoots", () => {
     }
     expect(resolveDiscoveredRoots(script, null)).toEqual({
       roots: SCRIPT.roots,
-      refused: [{ path: "a/../b", reason: "The path is not safe to write" }],
+      refused: [
+        {
+          path: "a/../b",
+          reason: "The path is not safe to write",
+          from: "script",
+        },
+      ],
       skipped: [],
     })
     expect(() => resolveDiscoveredRoots({ roots: [] }, null)).toThrow(
@@ -137,7 +149,7 @@ describe("resolveDiscoveredRoots", () => {
         roots: [...SCRIPT.roots, { path, manifests: [], evidence: [] }],
       }
       expect(resolveDiscoveredRoots(script, null).refused).toEqual([
-        { path, reason: "The path is not safe to write" },
+        { path, reason: "The path is not safe to write", from: "script" },
       ])
     }
     const path = "apps/caf\u00e9"

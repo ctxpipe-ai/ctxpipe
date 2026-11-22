@@ -136,7 +136,8 @@ export function testFixtureSkips(files) {
 /** Folder names that never hold a code root. */
 const IGNORED_SEGMENTS = new Set(["node_modules", "vendor", "third_party"])
 
-function ignoredFolder(dir) {
+/** True for a folder that never holds a code root: vendored, test input, or a dot folder. */
+export function ignoredFolder(dir) {
   if (dir === ".") return false
   return dir
     .split("/")

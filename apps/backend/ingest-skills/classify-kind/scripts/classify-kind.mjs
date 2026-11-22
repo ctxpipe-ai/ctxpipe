@@ -5,11 +5,13 @@
 // already describes the same package gets a new Related line, so a run adds
 // no duplicate. When the rules cannot decide, the script writes nothing and
 // lists the options; the model reads the listed files and runs the script
-// again with --kind and --evidence.
+// again with --kind and --evidence. The summary of the file is the purpose
+// of the package (bin/purpose-lib.mjs). When no file gives it, the script writes
+// nothing and asks for it; the model runs the script again with --summary.
 //
 // node classify-kind.mjs --root /ctxpipe --source /ctxpipe/source/<handle> \
 //   --source-url <url> --source-path <path> --roots <root-to-file map> --path <root path> \
-//   [--kind <kind> --evidence <file>]
+//   [--kind <kind> --evidence <file>] [--summary <purpose>]
 //
 // The repository unit (knowledge/codebases/, kind Repository) is in the
 // index: the first step of the run wrote it (ADR-052 section 6). The file
@@ -20,10 +22,16 @@ import { posix } from "node:path"
 
 import {
   nameKey,
+  ownSummary,
   relativeTo,
   stepArgs,
   writeStep,
 } from "../../bin/knowledge-lib.mjs"
+import {
+  cleanPurpose,
+  MAX_PURPOSE_CHARS,
+  purposeOf,
+} from "../../bin/purpose-lib.mjs"
 import {
   baseBlob,
   blobContent,
@@ -45,6 +53,7 @@ const rootPath = args.rootPath ?? fail("Give --path <root path>")
 const chosen = value("--kind")
 const chosenEvidence = value("--evidence")
 if (chosenEvidence !== null && !chosen) fail("Give --kind with --evidence")
+const chosenSummary = value("--summary")
 
 const step = currentStep(root)
 const files = new Set(trackedFiles(source))
@@ -56,6 +65,8 @@ const result = {
   decidedBy: null,
   signals: [],
   ambiguous: null,
+  purpose: null,
+  needsSummary: null,
 }
 
 /** Write the step and print one JSON result. writeStep prints its own part; this script prints the whole result. */
@@ -195,6 +206,10 @@ if (!path) {
     )
 }
 
+/** The summary that the earlier classify-kind scripts wrote: "A service in the <repository> repository." */
+const PLACEHOLDER_SUMMARY =
+  /^An? (?:app|service|library) in the \S+ repository\.$/
+
 /** True when the base file at `candidate` has this package's name and this source. */
 function ownFile(candidate) {
   const blob = baseBlob(step, candidate)
@@ -213,6 +228,42 @@ function ownFile(candidate) {
   )
   return nameKey(fileName) === nameKey(name) && listed.some(ownSource)
 }
+
+// The purpose is the summary of a new file, and of an own file whose
+// summary is the old placeholder. It comes from a file of the root, else
+// from the model (--summary). The script asks the model only when the plan
+// uses the purpose.
+const current = baseBlob(step, path) ? ownSummary(step, path, sourcePath) : null
+const replaces =
+  typeof current === "string" && PLACEHOLDER_SUMMARY.test(current)
+let purpose = null
+if (current === null || replaces) {
+  const found = purposeOf(source, files, rootPath)
+  if (found && chosenSummary !== null)
+    fail(
+      `The scripts found the purpose in ${found.evidence}. Do not give --summary for this root.`,
+    )
+  purpose =
+    found ??
+    (chosenSummary === null
+      ? null
+      : {
+          text:
+            cleanPurpose(chosenSummary) ??
+            fail(
+              `Give --summary with one or two sentences of plain text, at most ${MAX_PURPOSE_CHARS} characters`,
+            ),
+          evidence: null,
+        })
+  if (!purpose) {
+    result.needsSummary = { files: modelFiles(files, rootPath) }
+    finish([])
+  }
+  result.purpose = purpose
+} else if (chosenSummary !== null)
+  fail(
+    "The file of this package keeps its summary. Do not give --summary for this root.",
+  )
 
 const codebase = index
   .filter(
@@ -239,16 +290,24 @@ finish([
         ]
       : [],
     related: [`- \`${repository}\` has it at ${where} (\`${evidence}\`)`],
-    create: existing
+    ...(replaces ? { summary: purpose.text } : {}),
+    create: !purpose
       ? null
       : {
           kind,
           name,
-          summary: `${label[0].toUpperCase()}${label.slice(1)} in the ${repository} repository.`,
-          intro:
+          summary: purpose.text,
+          intro: [
             result.decidedBy === "script"
-              ? `A script classified it as ${label}: ${reason} (\`${evidence}\`).`
-              : `The model classified it as ${label}, because ${reason}.`,
+              ? `A script classified it as ${label} of \`${repository}\`: ${reason} (\`${evidence}\`).`
+              : `The model classified it as ${label} of \`${repository}\`, because ${reason}.`,
+            // A purpose from a file is source text: a quote with its source.
+            purpose.evidence
+              ? `> ${purpose.text}\n\nSource: ${purpose.evidence}`
+              : null,
+          ]
+            .filter(Boolean)
+            .join("\n\n"),
         },
   },
 ])

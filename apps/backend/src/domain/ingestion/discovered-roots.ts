@@ -15,20 +15,21 @@ const RootSchema = z.object({
   evidence: z.array(z.string()),
 })
 
-const ScriptResultSchema = z.object({
-  roots: z.array(RootSchema),
-  ambiguous: z.array(
+/** One ambiguous entry of the script: the folders that the model can choose. */
+export const AmbiguousEntrySchema = z.object({
+  manifest: z.string().nullable(),
+  reason: z.string(),
+  candidates: z.array(
     z.object({
-      manifest: z.string().nullable(),
-      reason: z.string(),
-      candidates: z.array(
-        z.object({
-          path: z.string(),
-          manifests: z.array(z.string()),
-        }),
-      ),
+      path: z.string(),
+      manifests: z.array(z.string()),
     }),
   ),
+})
+
+const ScriptResultSchema = z.object({
+  roots: z.array(RootSchema),
+  ambiguous: z.array(AmbiguousEntrySchema),
   skipped: z
     .array(z.object({ manifest: z.string().nullable(), reason: z.string() }))
     .default([]),
@@ -40,7 +41,14 @@ const ModelResultSchema = z.object({
 
 export type DiscoveredRoot = z.infer<typeof RootSchema>
 
-type RefusedRoot = { path: string | null; reason: string }
+export type AmbiguousEntry = z.infer<typeof AmbiguousEntrySchema>
+
+/** A refused root; `from` says whether its path came from the script or the model. */
+type RefusedRoot = {
+  path: string | null
+  reason: string
+  from: "script" | "model"
+}
 
 type SkippedEntry = { manifest: string | null; reason: string }
 
@@ -87,7 +95,11 @@ export function resolveDiscoveredRoots(
   const refused: RefusedRoot[] = []
   for (const root of script.data.roots) {
     if (!safePath(root.path))
-      refused.push({ path: root.path, reason: "The path is not safe to write" })
+      refused.push({
+        path: root.path,
+        reason: "The path is not safe to write",
+        from: "script",
+      })
     else if (!roots.has(root.path)) roots.set(root.path, root)
   }
   const candidates = new Map(
@@ -102,16 +114,22 @@ export function resolveDiscoveredRoots(
       refused.push({
         path: null,
         reason: "The model result does not match the discover-roots schema",
+        from: "model",
       })
     for (const { path } of model.success ? model.data.roots : []) {
       if (roots.has(path)) continue
       const manifests = candidates.get(path)
       if (!safePath(path))
-        refused.push({ path, reason: "The path is not safe to write" })
+        refused.push({
+          path,
+          reason: "The path is not safe to write",
+          from: "model",
+        })
       else if (!manifests)
         refused.push({
           path,
           reason: "The path is not a candidate of an ambiguous entry",
+          from: "model",
         })
       else roots.set(path, { path, manifests, evidence: ["model"] })
     }
