@@ -136,8 +136,11 @@ function noticesRegion(canvasElement: HTMLElement) {
  * returns it. Each play that shows a notice starts with this wait. A problem
  * toast waits for the Workspace list and then the detail reads, so a capture
  * container with little CPU needs more than the default bound of 1 s. The
- * 10 s bound is a ceiling, not a delay. The measurements are in a comment of
- * CTX-1498.
+ * 10 s bound is a ceiling, not a delay. ProblemLegacyOverlayAndFile and
+ * ProblemLegacyOverlayOnly failed this wait at the default bound. The play
+ * stopped before the shot, so no diff image exists. The cause, the error and
+ * the measurements are in
+ * https://linear.app/ctxpipe/issue/CTX-1498#comment-30c1ed78.
  */
 async function findNotices(canvasElement: HTMLElement, count: number) {
   await waitFor(() => expect(toastItems(canvasElement)).toHaveLength(count), {
