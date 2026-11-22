@@ -7,6 +7,7 @@
  *   bun evals/knowledge/cli.ts hydrate --dataset FILE --out DIR [--cap-usd 5]
  *   bun evals/knowledge/cli.ts run --dataset FILE --targets FILE --out DIR \
  *     [--split dev|holdout] [--cap-usd 5] [--set NAME=VALUE] [--kept REPORT]
+ *     [--baseline-from RUN_DIR]
  *   bun evals/knowledge/cli.ts rescore --from DIR --out DIR \
  *     [--set NAME=VALUE] [--kept REPORT]
  *   bun evals/knowledge/cli.ts draft --dataset FILE --corpus ID --repo DIR \
@@ -83,6 +84,7 @@ import {
   type Report,
 } from "./report.js"
 import {
+  type ArmAnswer,
   applySettings,
   type Manifest,
   parseSettings,
@@ -124,10 +126,29 @@ export async function executeRun(input: {
   replay?: { calls: readonly RecordedCall[] }
   /** The quiet time before the first calls of each arm (check 7). */
   quietMs: number
+  /**
+   * An earlier run folder (`--baseline-from`): the run reuses its answers of
+   * the old stack, and runs only the plane.
+   */
+  baseline?: { folder: string; run: Awaited<ReturnType<typeof readRun>> }
 }): Promise<Report> {
+  const questions = input.dataset.questions.filter((question) =>
+    input.splits.includes(question.split),
+  )
+  const baseline = input.baseline && storedBaseline(input, questions)
+  // Both arms answer at the same query time.
+  const now = input.baseline
+    ? new Date(input.baseline.run.manifest.now)
+    : input.now
   // A replay sends no call. Each client of a live run sends the provider
   // block (ADR-070).
   const calls = modelCalls(input.capUsd, input.replay?.calls)
+  // The folder keeps the calls of the reused answers, so that a replay of
+  // this run has each call of both arms.
+  if (input.baseline)
+    calls.records.push(
+      ...input.baseline.run.calls.filter((call) => call.arm === "legacy"),
+    )
   // An eval has no time budget, so that a slow step does not hide what the
   // loop finds (the CTO, 2026-11-22). `--set timeBudgetMs=…` sets one.
   const productBudgetMs = ORCHESTRATOR_DEFAULTS.timeBudgetMs
@@ -136,23 +157,23 @@ export async function executeRun(input: {
   try {
     const answers = await runEval({
       dataset: input.dataset,
-      questions: input.dataset.questions.filter((question) =>
-        input.splits.includes(question.split),
-      ),
+      questions,
       targets: input.targets,
       calls,
-      now: input.now,
+      now,
       quietMs: input.quietMs,
+      ...(baseline ? { baseline } : {}),
     })
     const manifest: Manifest = {
       datasetVersion: input.dataset.version,
       splits: input.splits,
-      now: input.now.toISOString(),
+      now: now.toISOString(),
       settings: input.settings,
       loop: { ...ORCHESTRATOR_DEFAULTS },
       productBudgetMs,
       quietMs: input.quietMs,
       mode: input.replay ? "replay" : "live",
+      ...(input.baseline ? { baselineFrom: input.baseline.folder } : {}),
       ...calls.summary(),
     }
     await writeRun(input.out, {
@@ -175,6 +196,70 @@ export async function executeRun(input: {
     restoreFetch()
     restoreSettings()
   }
+}
+
+/**
+ * The stored answers of the old stack in `baseline`, by question id. Refuses
+ * a folder that the run cannot compare with: another dataset version,
+ * another label or corpus snapshot, or no complete old-stack answer for a
+ * question of the run. The labels are the fields of each question (its
+ * gold, positions, seeds, split and text), so a new `label` run is a refusal
+ * too.
+ */
+function storedBaseline(
+  input: {
+    dataset: Dataset
+    baseline?: { folder: string; run: Awaited<ReturnType<typeof readRun>> }
+  },
+  questions: readonly Dataset["questions"][number][],
+): Map<string, ArmAnswer> {
+  const { folder, run } = input.baseline ?? { folder: "", run: null }
+  if (!run) return new Map()
+  if (run.manifest.datasetVersion !== input.dataset.version)
+    throw new SetupError(
+      `--baseline-from ${folder} has dataset version ${run.manifest.datasetVersion}, and the run has version ${input.dataset.version}.`,
+    )
+  // The context repo URL can differ (a local copy of the same SHA).
+  const snapshot = (corpus: Dataset["corpora"][number]) =>
+    JSON.stringify([
+      corpus.id,
+      corpus.source,
+      corpus.contextRepo.sha,
+      corpus.contextRepo.root,
+      corpus.workspace,
+    ])
+  const storedCorpora = new Set(run.dataset.corpora.map(snapshot))
+  const corpus = input.dataset.corpora.find(
+    (item) => !storedCorpora.has(snapshot(item)),
+  )
+  if (corpus)
+    throw new SetupError(
+      `--baseline-from ${folder} has another snapshot of the corpus ${corpus.id}.`,
+    )
+  const storedQuestions = new Map(
+    run.dataset.questions.map((question) => [
+      question.id,
+      JSON.stringify(question),
+    ]),
+  )
+  const answers = new Map(
+    run.answers
+      .filter((answer) => answer.arm === "legacy")
+      .map((answer) => [answer.question, answer]),
+  )
+  for (const question of questions) {
+    if (storedQuestions.get(question.id) !== JSON.stringify(question))
+      throw new SetupError(
+        `--baseline-from ${folder} has other labels for the question ${question.id}.`,
+      )
+    // A replay that missed a call scores no answer, so it is no baseline.
+    const answer = answers.get(question.id)
+    if (!answer || answer.calls.missing > 0)
+      throw new SetupError(
+        `--baseline-from ${folder} has no complete answer of the old stack to the question ${question.id}.`,
+      )
+  }
+  return answers
 }
 
 /**
@@ -515,6 +600,7 @@ export async function main(argv: string[]): Promise<number> {
       "cap-usd": { type: "string" },
       set: { type: "string", multiple: true },
       kept: { type: "string" },
+      "baseline-from": { type: "string" },
       draft: { type: "string" },
       repo: { type: "string" },
       models: { type: "string" },
@@ -722,6 +808,10 @@ export async function main(argv: string[]): Promise<number> {
     let report: Report
     if (command === "rescore") {
       if (!values.from) throw new SetupError("rescore needs --from.")
+      if (values["baseline-from"])
+        throw new SetupError(
+          "rescore takes no --baseline-from: it replays both arms of --from.",
+        )
       const recorded = await readRun(values.from)
       // Each model call of the readers scrubs its text with it (CTX-1452).
       buildConverter()
@@ -746,6 +836,7 @@ export async function main(argv: string[]): Promise<number> {
           : ["dev", "holdout"]
       if (values.split && splits.length !== 1)
         throw new SetupError("--split is dev or holdout.")
+      const baselineFrom = values["baseline-from"]
       buildConverter()
       report = await executeRun({
         dataset: await readDataset(dataset),
@@ -757,6 +848,14 @@ export async function main(argv: string[]): Promise<number> {
         out,
         kept,
         quietMs: QUIET_MS,
+        ...(baselineFrom
+          ? {
+              baseline: {
+                folder: baselineFrom,
+                run: await readRun(baselineFrom),
+              },
+            }
+          : {}),
       })
     }
     process.stdout.write(`The report is in ${join(out, "report.md")}.\n`)

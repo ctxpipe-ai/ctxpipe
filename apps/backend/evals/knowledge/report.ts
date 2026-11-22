@@ -411,6 +411,12 @@ export function renderMarkdown(report: Report): string {
     "",
     "Both arms ran the same questions on the same Workspaces, at the same SHA, with the same requests and budgets. The change is the plane value minus the baseline value.",
     "",
+    ...(report.run.baselineFrom
+      ? [
+          `The baseline answers are the stored answers of ${report.run.baselineFrom} (\`--baseline-from\`): this run did not run the old stack. Their latency and cost are of that run.`,
+          "",
+        ]
+      : []),
     `| Split | Category | Questions | Metric | Baseline | ${report.arms.plane} | Change |`,
     "| --- | --- | ---: | --- | ---: | ---: | ---: |",
   ]

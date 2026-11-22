@@ -200,6 +200,11 @@ const manifestSchema = z.object({
    */
   quietMs: z.number().optional(),
   mode: z.enum(["live", "replay"]),
+  /**
+   * The run folder whose answers of the old stack the run reused
+   * (`--baseline-from`). Absent when the run ran the old stack.
+   */
+  baselineFrom: z.string().optional(),
   capUsd: z.number(),
   spentUsd: z.number(),
   stopped: z.boolean(),
@@ -319,7 +324,9 @@ export async function highDegreeUnits(
 /**
  * Run each question of `questions` through both arms, one after the other,
  * so that each latency is the latency of one request. Stops at the spend
- * cap of `calls`; the answer that the cap stopped is not kept.
+ * cap of `calls`; the answer that the cap stopped is not kept. With
+ * `baseline`, the old stack does not run: each question gets its stored
+ * answer of the old stack.
  */
 export async function runEval(input: {
   dataset: Dataset
@@ -329,6 +336,8 @@ export async function runEval(input: {
   now: Date
   /** The quiet time before the first call of each kind of each arm. */
   quietMs: number
+  /** The stored answers of the old stack, by question id. */
+  baseline?: ReadonlyMap<string, ArmAnswer>
 }): Promise<ArmAnswer[]> {
   const { calls, now } = input
   const workspaces = await resolveWorkspaces(input.dataset, input.targets)
@@ -338,6 +347,11 @@ export async function runEval(input: {
     const target = workspaces.get(question.corpus)
     if (!target) throw new Error(`No Workspace for ${question.corpus}.`)
     for (const arm of ARMS) {
+      const stored = arm === "legacy" && input.baseline?.get(question.id)
+      if (stored) {
+        answers.push(stored)
+        continue
+      }
       const reader: KnowledgeReader =
         arm === "legacy"
           ? legacyKnowledgeReader

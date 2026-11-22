@@ -127,7 +127,8 @@ It writes `targets.json` (the input of `run`) to `--out`, and `hydrate.json` (th
 ```sh
 bun --env-file=.env.local evals/knowledge/cli.ts run \
   --dataset DATASET.json --targets TARGETS.json --out "$TMPDIR/knowledge-eval/RUN" \
-  [--split dev|holdout] [--cap-usd 5] [--set keepAt=0.6] [--kept KEPT/report.json]
+  [--split dev|holdout] [--cap-usd 5] [--set keepAt=0.6] [--kept KEPT/report.json] \
+  [--baseline-from KEPT]
 ```
 
 `TARGETS.json` gives the Workspace of each fixture id in this database:
@@ -146,6 +147,7 @@ Write each run folder outside the checkout, as in these examples. The folder hol
 - A run and a replay wait 31 s four times, for the cold calls of check 7 (see "The regression checks").
 - A run and a replay have **no time budget** (`timeBudgetMs` 0), so that a slow step does not cut what the loop finds (the CTO, 2026-11-22). The product keeps its budget of 3 s. The report gives the latency of each call, counts the plane answers with a call that took longer than the budget of the product ("Over the product budget"), and lists them under "Answers over the product time budget". To measure with a budget, give `--set timeBudgetMs=3000`. With no budget, a Jev call keeps the time limit of its client (30 s), and a call that reaches it is a failed call, not the end of a budget. When the kept run had another time budget, the comparison with it says so: the latency, the partial answers and the positions then also show that change.
 - `--cap-usd` is the hard spend cap (default $5). Before each model call, the run reserves the worst-case cost of that kind of call: $0.002 for Jev, $0.001 for an embedding (or $0.5 for each million UTF-8 bytes of its input, when that is more: a batch of the hydrate holds up to 300,000 bytes), $0.25 for a judge. Each value is above the highest cost that the bake-offs measured. A call that would take the spent and reserved total over the cap does not go out, and the run stops with the spend-cap status in the report. After the call, its real `usage.cost` replaces the reservation. An answer with no cost, or a failed call, keeps the reserved value. Thus calls in parallel never take the run over the cap. The report compares only the questions that both arms answered before the stop, and it lists the others. The spend-capped model key is a second limit, outside the code.
+- `--baseline-from RUN_DIR` reuses the answers of the old stack in an earlier run folder, and the run runs only the plane. Do not measure the old generations again: it wastes money (the CTO, 2026-11-22). Give the folder of the kept run. The run uses the query time of that folder, so both arms answer at the same query time, and its folder keeps the reused calls, so a `rescore` of it replays both arms. The run refuses the folder (exit 2) before any call when its dataset version, the labels of a question of the run, or the snapshot of a corpus (source, SHA, root, Workspace) differ, or when it has no complete answer of the old stack to a question of the run. The report says that the baseline answers are stored; their latency and cost are of the earlier run.
 - `--kept` is the report of the last kept run. The report then compares the plane with it for each split and category, gives its guards against the kept guards, and gives the change of each question.
 - Each model call goes only to a ZDR endpoint of an allowed provider (ADR-068 decision 7, ADR-070). Each client sends the provider block itself; the recorder does not change a request. A model with no such endpoint refuses the call: it does not fall back.
 
