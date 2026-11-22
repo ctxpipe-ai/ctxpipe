@@ -10,12 +10,14 @@ describe("hydrate phases", () => {
     expect(
       effectiveValidFrom({
         recorded: "abc123",
+        sourceTime: null,
         introducingCommitTimestamp: "2026-08-16T12:00:00.000Z",
       }),
     ).toBe("2026-08-16T12:00:00.000Z")
     expect(
       effectiveValidFrom({
         recorded: "2026-01-01",
+        sourceTime: null,
         introducingCommitTimestamp: "2026-08-16T12:00:00.000Z",
       }),
     ).toBe("2026-01-01")
@@ -26,6 +28,7 @@ it("derives the effective date for SHA-256 valid_from placeholders", () => {
   expect(
     effectiveValidFrom({
       recorded: "a".repeat(64),
+      sourceTime: null,
       introducingCommitTimestamp: "2001-01-01T00:00:00.000Z",
     }),
   ).toBe("2001-01-01T00:00:00.000Z")

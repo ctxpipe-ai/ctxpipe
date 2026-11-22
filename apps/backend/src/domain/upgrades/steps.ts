@@ -81,7 +81,8 @@ export const sourcesConversionStep: GitUpgradeStep = {
  * - It removes the `import_key` of each knowledge file. Step 1 writes the
  *   key so that a second plan of step 1 finds its own export.
  * - It adds a claim for each link that has none, and a `valid_from` for each
- *   claim that has none: the time of the commit that added the file.
+ *   claim that has none: the source time of the file (`sourceTime`), else
+ *   the time of the commit that added the file.
  * - It writes the bootstrap files: AGENTS.md with its folder section and no
  *   old folder-map markers, and the knowledge skill.
  */
@@ -174,7 +175,7 @@ export const ownershipMigrationStep: GitUpgradeStep = {
     )
     if (dated)
       report.push(
-        `Set the valid_from of the claims of ${dated} file(s) to the time of the commit that added the file.`,
+        `Set the valid_from of the claims of ${dated} file(s) to the source time of the file, else to the time of the commit that added the file.`,
       )
     const agentsMd = content.get("AGENTS.md")
     if (agentsMd !== undefined) {

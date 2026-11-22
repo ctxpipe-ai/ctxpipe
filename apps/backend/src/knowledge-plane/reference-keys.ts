@@ -14,6 +14,7 @@ import {
   threadDedupKey,
 } from "../domain/codeIngestion/referenceResolver.js"
 import { resolveHydrateLink } from "../domain/workspaces/hydrate.js"
+import { closingPullRequests } from "../domain/workspaces/source-time.js"
 import {
   confluencePageIdOfPath,
   githubBlobOf,
@@ -345,17 +346,17 @@ export function fileReferences(input: {
   // also writes in the `## Closed by` section) is linked from the time of
   // the close (CTX-1516). It comes first, so the link of the body URL does
   // not replace it.
-  if (typeof attributes.closedAt === "string")
-    for (const url of asStringArray(attributes.closedBy))
-      if (URL.canParse(url))
-        for (const key of referenceKeysOfUrl(url))
-          add({
-            key,
-            predicate: "LINKS_TO",
-            confidence: 1,
-            validFrom: attributes.closedAt,
-            text: url,
-          })
+  const closing = closingPullRequests(attributes)
+  for (const url of closing?.urls ?? [])
+    if (closing && URL.canParse(url))
+      for (const key of referenceKeysOfUrl(url))
+        add({
+          key,
+          predicate: "LINKS_TO",
+          confidence: 1,
+          validFrom: closing.closedAt,
+          text: url,
+        })
 
   const urls = extractUrls(input.body)
   for (const url of urls) {

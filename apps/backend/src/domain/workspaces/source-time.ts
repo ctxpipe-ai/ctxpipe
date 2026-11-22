@@ -1,3 +1,4 @@
+import { asStringArray } from "../codeIngestion/connectorFrontmatter.js"
 import { connectorMirrorRoot } from "../codeIngestion/connectorMirrorPaths.js"
 import { normalizeValidityBound } from "./hydrate-phases.js"
 
@@ -44,6 +45,18 @@ export function sourceTime(file: {
       /(?:\*\*Date:\*\*|^Date:)[ \t]*(\d{4}-\d{2}-\d{2})/m.exec(file.body)?.[1],
     )
   )
+}
+
+/**
+ * The pull requests that closed a GitHub issue mirror file (`closedBy`),
+ * with the time of the close, or null. Both stacks link the issue to each
+ * of them from that time (CTX-1516).
+ */
+export function closingPullRequests(
+  attributes: Record<string, unknown>,
+): { urls: string[]; closedAt: string } | null {
+  const closedAt = timeOf(attributes.closedAt)
+  return closedAt ? { urls: asStringArray(attributes.closedBy), closedAt } : null
 }
 
 /**

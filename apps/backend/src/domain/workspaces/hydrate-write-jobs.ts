@@ -3,7 +3,7 @@ import { isAlias, isMap, isSeq } from "yaml"
 import { isConnectorMirrorPath } from "../codeIngestion/connectorMirrorPaths.js"
 import { GENERATED_BY as INGESTION_V2_GENERATED_BY } from "../ingestion/patch-validator.js"
 import { FROM_SOURCE_PREDICATE } from "./graph-relevance.js"
-import { effectiveValidFrom, looksLikeGitSha } from "./hydrate-phases.js"
+import { looksLikeGitSha } from "./hydrate-phases.js"
 import {
   claimHasEvidence,
   type HydrateUnit,
@@ -231,15 +231,10 @@ export function validFromPersistFiles(input: {
             !looksLikeGitSha(validFrom)
           )
             continue
-          // The time of the read: the source time of the file first
-          // (CTX-1516).
+          // The source time of the file comes first (CTX-1516).
           claim.set(
             "valid_from",
-            effectiveValidFrom({
-              recorded: null,
-              sourceTime: unit.sourceTime,
-              introducingCommitTimestamp: input.introducingCommitTimestamp,
-            }),
+            unit.sourceTime ?? input.introducingCommitTimestamp,
           )
         }
       }),

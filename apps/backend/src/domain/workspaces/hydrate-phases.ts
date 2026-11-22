@@ -46,7 +46,7 @@ export function takesIntroducingTime(recorded: string | null): boolean {
  */
 export function effectiveValidFrom(input: {
   recorded: string | null
-  sourceTime?: string | null
+  sourceTime: string | null
   introducingCommitTimestamp: string | null
 }): string | null {
   if (!takesIntroducingTime(input.recorded))

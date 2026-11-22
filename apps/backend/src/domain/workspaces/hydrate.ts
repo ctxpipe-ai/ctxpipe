@@ -2,7 +2,6 @@ import { createHash } from "node:crypto"
 
 import { base32nopad } from "@scure/base"
 
-import { asStringArray } from "../codeIngestion/connectorFrontmatter.js"
 import { connectorMirrorRoot } from "../codeIngestion/connectorMirrorPaths.js"
 import { githubSourceRepositories } from "../workspace-sources/github-sources.js"
 import type {
@@ -11,7 +10,7 @@ import type {
 } from "../workspace-sources/projection-plan.js"
 import { SOURCES_FOLDER_PREFIX } from "../workspace-sources/source-tree.js"
 import { FROM_SOURCE_PREDICATE } from "./graph-relevance.js"
-import { effectiveValidFrom, normalizeValidityBound } from "./hydrate-phases.js"
+import { effectiveValidFrom } from "./hydrate-phases.js"
 import { markdownLines } from "./knowledge-chunks.js"
 import {
   isLinkedRepositoryDeclaration,
@@ -24,7 +23,7 @@ import {
 } from "./mirror-units.js"
 import { pullRequestChangedClaims } from "./pull-request-changes.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
-import { sourceTime } from "./source-time.js"
+import { closingPullRequests, sourceTime } from "./source-time.js"
 
 export function servingIdForKnowledgePath(
   workspaceId: string,
@@ -300,15 +299,11 @@ export function hydrateKnowledgeTree(input: {
     }),
   )
   for (const unit of units) {
-    const own = attributes.get(unit.path) ?? {}
-    const closedAt =
-      typeof own.closedAt === "string"
-        ? normalizeValidityBound(own.closedAt)
-        : null
-    if (!closedAt) continue
-    for (const url of asStringArray(own.closedBy)) {
+    const closing = closingPullRequests(attributes.get(unit.path) ?? {})
+    for (const url of closing?.urls ?? []) {
       const path = pathOfUrl.get(url)
-      if (path) unit.linkValidFrom = { ...unit.linkValidFrom, [path]: closedAt }
+      if (closing && path)
+        unit.linkValidFrom = { ...unit.linkValidFrom, [path]: closing.closedAt }
     }
   }
   // Each GitHub repository of the Workspace, from every connection. The
@@ -426,7 +421,7 @@ export function applyEffectiveValidFromToUnits(
       ...claim,
       validFrom: effectiveValidFrom({
         recorded: claim.validFrom,
-        sourceTime: unit.sourceTime,
+        sourceTime: unit.sourceTime ?? null,
         introducingCommitTimestamp: introducingCommits.get(unit.path) ?? null,
       }),
     })),
@@ -475,7 +470,7 @@ export function hydrateUnitsToProjectionClaims(
       const validFrom = isClaim
         ? effectiveValidFrom({
             recorded: relation.validFrom,
-            sourceTime: unit.sourceTime,
+            sourceTime: unit.sourceTime ?? null,
             introducingCommitTimestamp: introducingCommitTimestamp ?? null,
           })
         : relation.validFrom
