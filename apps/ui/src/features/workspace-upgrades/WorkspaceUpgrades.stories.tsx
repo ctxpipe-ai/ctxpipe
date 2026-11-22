@@ -1444,13 +1444,17 @@ export const RoleNeverAnswers = meta.story({
     await expectGroup(canvas, "Needs you", 1)
     expect(canvas.queryByRole("button", { name: /^Start/ })).toBeNull()
     expect(canvas.queryByText("Ask an admin")).toBeNull()
-    const automatic = await canvas.findByRole("switch", {
-      name: "Automatic upgrades",
+    await waitFor(() => {
+      const automatic = canvas.getByRole("switch", {
+        name: "Automatic upgrades",
+      })
+      expect(automatic).toBeDisabled()
+      expect(automatic).not.toBeChecked()
     })
-    expect(automatic).toBeDisabled()
-    expect(automatic).not.toBeChecked()
     expect(canvas.queryByText(/^You start each upgrade/)).toBeNull()
-    expect(canvas.queryByText(/^An owner or admin starts each upgrade/)).toBeNull()
+    expect(
+      canvas.queryByText(/^An owner or admin starts each upgrade/),
+    ).toBeNull()
   },
   beforeEach: ({ msw }) => {
     msw.use(
