@@ -537,63 +537,6 @@
       ]
     },
     {
-      "id": "kubernetes-disagreement-01",
-      "corpus": "kubernetes",
-      "category": "disagreement",
-      "split": "dev",
-      "text": "Which Kubernetes release is expected to first ship, as an alpha, the ability to change the CPU of a running pod without a restart when the kubelet gives containers dedicated pinned cores? When is it expected to go to beta?",
-      "gold": [
-        "github/issues/kubernetes/enhancements/5554.md",
-        "github/issues/kubernetes/kubernetes/143218.md"
-      ],
-      "seeds": [
-        "github/issues/kubernetes/enhancements/5554.md",
-        "github/issues/kubernetes/kubernetes/143218.md"
-      ],
-      "positions": [
-        {
-          "refs": ["github/issues/kubernetes/enhancements/5554.md"],
-          "status": "current"
-        },
-        {
-          "refs": ["github/issues/kubernetes/kubernetes/143218.md"],
-          "status": "scoped"
-        }
-      ],
-      "keyFacts": [
-        "The feature first targeted alpha in v1.35 but was removed from that milestone after missing enhancements freeze.",
-        "The current plan targets AlphaV1 in v1.38, AlphaV2 in v1.39, beta in v1.40 and stable in v1.41.",
-        "A separate post-alpha tracking issue collects the remaining improvements needed before beta."
-      ]
-    },
-    {
-      "id": "kubernetes-disagreement-02",
-      "corpus": "kubernetes",
-      "category": "disagreement",
-      "split": "holdout",
-      "text": "After a controller restarts, it asks the cluster's central front end for every object of a kind in one go, say tens of thousands of running workloads. Does the server still hold that entire reply in RAM before it sends anything, or does it emit the reply incrementally now? And why would its footprint still balloon when dozens of these requests arrive at once?",
-      "gold": [
-        "github/issues/kubernetes/enhancements/5116.md",
-        "github/issues/kubernetes/kubernetes/139026.md"
-      ],
-      "seeds": ["github/issues/kubernetes/kubernetes/139026.md"],
-      "positions": [
-        {
-          "refs": ["github/issues/kubernetes/enhancements/5116.md"],
-          "status": "scoped"
-        },
-        {
-          "refs": ["github/issues/kubernetes/kubernetes/139026.md"],
-          "status": "current"
-        }
-      ],
-      "keyFacts": [
-        "Streaming encoding of LIST responses (JSON and Proto) was implemented and graduated to stable (target 1.34), so items are serialized and written incrementally.",
-        "For typed lists such as PodList, the apiserver still converts the whole list from the internal to the external version first, so the full external Items slice is in memory before streaming starts.",
-        "That full-list version conversion dominates peak memory for Pod-like resources under concurrent LISTs; per-item streamed conversion has been proposed but is not merged."
-      ]
-    },
-    {
       "id": "kubernetes-disagreement-05",
       "corpus": "kubernetes",
       "category": "disagreement",
@@ -678,7 +621,7 @@
       "id": "kubernetes-disagreement-12",
       "corpus": "kubernetes",
       "category": "disagreement",
-      "split": "dev",
+      "split": "holdout",
       "text": "We hand out accelerators to teams through the newer pluggable device-request API. We'd like each namespace capped on total GPU memory actually given out, not just on how many devices it asks for. Is the per-namespace limit checked when the request object is created, or when the scheduler picks the actual devices? Is a switch to the latter still planned for an upcoming release?",
       "gold": [
         "github/issues/kubernetes/enhancements/4840.md",
