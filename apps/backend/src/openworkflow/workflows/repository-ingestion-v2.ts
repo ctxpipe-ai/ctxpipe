@@ -6,6 +6,7 @@ import {
   collectRepositoryCheckouts,
   releaseRunCheckout,
 } from "../../domain/codesearchCheckoutGc.js"
+import { resolveDiscoveredRoots } from "../../domain/ingestion/discovered-roots.js"
 import {
   IngestRefRefusedError,
   type IngestRefusalRule,
@@ -27,7 +28,6 @@ import {
   INGEST_SHARD_MAX_ROOTS,
   ingestRunSkills,
   packRoots,
-  planIngestRoots,
   plannedIngestSkills,
   unpackRoots,
 } from "../../domain/ingestion/ingestion-plan.js"
@@ -398,24 +398,16 @@ export function defineRepositoryIngestionV2Workflow(
                   destinations,
                 })
                 .discoverRoots()
-              const plan = planIngestRoots(discovered)
+              // No model chooses among ambiguous candidates yet.
+              const plan = resolveDiscoveredRoots(discovered, null)
               for (const refused of plan.refused)
                 logIngestEvent("warn", "ingestion-v2.root-refused", {
                   ingestionRunId: run.id,
                   ...refused,
                 })
+              // No count limits the roots. The host refuses a discover-roots
+              // result over 1 MiB, so the packed list is smaller than that.
               const packed = packRoots(plan.roots)
-              const partial =
-                packed.length > 12_000
-                  ? "The root list is too large for one step output"
-                  : undefined
-              if (partial !== undefined) {
-                logIngestEvent("warn", "ingestion-v2.partial", {
-                  ingestionRunId: run.id,
-                  reason: capIngestText(partial),
-                })
-                return { partial }
-              }
               return {
                 bundle: bundle.name,
                 version: bundle.version,

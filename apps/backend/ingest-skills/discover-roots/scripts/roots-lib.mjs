@@ -584,16 +584,19 @@ function cargoWorkspaces(source, markersOf) {
       const path = joinFolder(dir, cleanEntry(raw))
       if (path) entries.push(path)
     }
-    // Cargo excludes the folder and each folder below it.
-    for (const raw of tomlStringArray(tables, "workspace", "exclude")) {
-      const path = joinFolder(dir, cleanEntry(raw))
-      if (path) entries.push(`!${path}`, `!${path}/**`)
-    }
+    // Cargo excludes the folder and each folder below it. An exclude is a
+    // path, not a glob.
+    const excludes = tomlStringArray(tables, "workspace", "exclude")
+      .map((raw) => joinFolder(dir, cleanEntry(raw)))
+      .filter(Boolean)
+    for (const path of excludes) entries.push(`!${path}`, `!${path}/**`)
     found.push({
       manifest: cargoManifest(dir),
       markers: ["Cargo.toml"],
       dir,
       entries,
+      excluded: (path) =>
+        excludes.some((e) => path === e || path.startsWith(`${e}/`)),
       // With no `[workspace]`, the single-root fallback gives the root.
       rootPackage: workspace && tables.has("package"),
       // As before, a root workspace with no `members` is not a workspace
@@ -630,17 +633,13 @@ function cargoPathDependencies(text) {
 
 /**
  * The path dependencies that are members of a Cargo workspace, from the
- * `members` that its manifest lists:
- * { members: [[folder, manifest that names it]], budgetOut }. Cargo makes
+ * `members` that its manifest lists, as [folder, manifest that names it].
+ * Cargo makes
  * each path dependency of a member a member too, when it is in the
  * workspace folder and not excluded, so the script follows them from member
  * to member.
  */
 function cargoPathMembers(source, markersOf, workspace, listed) {
-  const excludes = workspace.entries
-    .filter((e) => e.startsWith("!"))
-    .map((e) => globMatcher(e.slice(1)))
-    .filter((m) => m.matches)
   const out = []
   const seen = new Set(listed)
   let queue = [...new Set([workspace.dir, ...listed])]
@@ -661,11 +660,9 @@ function cargoPathMembers(source, markersOf, workspace, listed) {
           seen.has(dir) ||
           !inside(dir) ||
           !markersOf.get(dir)?.includes("Cargo.toml") ||
-          excludes.some((e) => e.matches(dir))
+          workspace.excluded(dir)
         )
           continue
-        // A run out of budget can miss an exclude: give no more members.
-        if (!matchBudgetLeft()) return { members: out, budgetOut: true }
         seen.add(dir)
         out.push([dir, cargoManifest(crate)])
         next.push(dir)
@@ -673,14 +670,17 @@ function cargoPathMembers(source, markersOf, workspace, listed) {
     }
     queue = next
   }
-  return { members: out, budgetOut: false }
+  return out
 }
 
 /**
- * True when the Go file is in `package main` and its build constraint does
- * not name `ignore` (a generator that `go run` starts is not a binary).
+ * The rule for one Go file of a folder, in name order: "main" when it makes
+ * the folder a `main` package, "next" when a build constraint names
+ * `ignore` (a generator that `go run` starts is no part of the package, so
+ * read the next file), and "none" otherwise. All files of a Go package that
+ * the go tool builds have one package clause.
  */
-function goFileIsMain(text) {
+function goMainStep(text) {
   let inComment = false
   for (const raw of text.split("\n")) {
     let line = raw.trim()
@@ -692,7 +692,7 @@ function goFileIsMain(text) {
     }
     if (/^\/\/\s*(go:build|\+build)\s/.test(line)) {
       if (/[\s(|&,]ignore($|[\s)|&,])/.test(line.replace(/^\/\/\s*/, " ")))
-        return false
+        return "next"
       continue
     }
     if (line.startsWith("/*")) {
@@ -704,20 +704,9 @@ function goFileIsMain(text) {
       line = line.slice(end + 2).trim()
     }
     if (line === "" || line.startsWith("//")) continue
-    return /^package\s+main(\s|;|\/\/|$)/.test(line)
+    return /^package\s+main(\s|;|\/\/|$)/.test(line) ? "main" : "none"
   }
-  return false
-}
-
-/**
- * The rule for one Go file of a folder, in name order: "main" when it makes
- * the folder a `main` package, "next" when it is a `main` file that a build
- * constraint ignores (read the next file), and "none" otherwise. All files
- * of a Go package have one package clause.
- */
-function goMainStep(text) {
-  if (goFileIsMain(text)) return "main"
-  return /^\s*package\s+main\b/m.test(text) ? "next" : "none"
+  return "none"
 }
 
 /** True for a Go file that the go tool builds: not a test, and no `_` or `.` at the start of its name. */
@@ -798,7 +787,7 @@ function goMainPackages(source, files, markersOf) {
     }
     round = next
   }
-  return out.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
+  return out
 }
 
 export function discoverRoots(source) {
@@ -956,20 +945,14 @@ export function discoverRoots(source) {
 
   for (const found of cargo.filter((w) => !w.rootLevel))
     listed.set(found, readManifest(found))
-  for (const found of cargo) {
-    const { members, budgetOut } = cargoPathMembers(
+  for (const found of cargo)
+    for (const [dir, manifest] of cargoPathMembers(
       source,
       markersOf,
       found,
       listed.get(found),
-    )
-    for (const [dir, manifest] of members) addRoot(dir, manifest)
-    if (budgetOut)
-      skipEntry(
-        found.manifest,
-        "the match budget of the script ran out, so it followed no more path dependencies",
-      )
-  }
+    ))
+      addRoot(dir, manifest)
   for (const [dir, file] of goMainPackages(source, files, markersOf))
     addRoot(dir, file)
 
@@ -1001,32 +984,35 @@ export function discoverRoots(source) {
 
 /**
  * The result at most `MAX_RESULT_BYTES` large. Above it, the script removes
- * candidates from the end first, then roots from the end, and adds a
- * skipped entry that says so. The size of the result sets the limit, not a
- * count of roots.
+ * items from the end: candidates first, then skipped entries, then roots.
+ * It adds one skipped entry that says so. The size of the result sets the
+ * limit, not a count of roots.
  */
 export function fitResult(result, maxBytes = MAX_RESULT_BYTES) {
   const size = (value) => Buffer.byteLength(JSON.stringify(value)) + 1
   let total = size(result)
   if (total <= maxBytes) return result
-  const all = result.ambiguous.map((a) => ({
+  const ambiguous = result.ambiguous.map((a) => ({
     ...a,
     candidates: [...a.candidates],
   }))
-  for (const entry of [...all].reverse())
+  for (const entry of [...ambiguous].reverse())
     while (entry.candidates.length > 0 && total > maxBytes)
       total -= size(entry.candidates.pop())
-  const ambiguous = all.filter((a) => a.candidates.length > 0)
+  const skipped = [...result.skipped]
+  while (skipped.length > 0 && total > maxBytes) total -= size(skipped.pop())
   const roots = [...result.roots]
   while (roots.length > 0 && total > maxBytes) total -= size(roots.pop())
+  const kept = ambiguous.filter((a) => a.candidates.length > 0)
+  const candidates = kept.reduce((n, a) => n + a.candidates.length, 0)
   return {
     roots,
-    ambiguous,
+    ambiguous: kept,
     skipped: [
-      ...result.skipped,
+      ...skipped,
       {
         manifest: null,
-        reason: `The result of the script must be at most ${maxBytes} bytes, so it gives only the first ${roots.length} roots and ${ambiguous.reduce((n, a) => n + a.candidates.length, 0)} candidates`,
+        reason: `The result of the script must be at most ${maxBytes} bytes, so it gives only the first ${roots.length} roots, ${candidates} candidates, and ${skipped.length} other skipped entries`,
       },
     ],
   }

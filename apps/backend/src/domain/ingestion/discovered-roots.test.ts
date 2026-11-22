@@ -134,4 +134,54 @@ describe("resolveDiscoveredRoots", () => {
       ).refused,
     ).toEqual([])
   })
+
+  it("plans the script roots, sorted and with no duplicate", () => {
+    const root = (path: string) => ({
+      path,
+      manifests: ["package.json"],
+      evidence: ["pnpm-workspace.yaml"],
+    })
+    const plan = resolveDiscoveredRoots(
+      {
+        roots: [
+          root("services/b"),
+          root("."),
+          root("services/b"),
+          root("../x"),
+        ],
+        ambiguous: [],
+      },
+      null,
+    )
+    expect(plan.roots.map((r) => r.path)).toEqual([".", "services/b"])
+    expect(plan.refused).toEqual([
+      { path: "../x", reason: "The path is not safe to write" },
+    ])
+  })
+
+  it("keeps each root of a large monorepo, with no count limit", () => {
+    const roots = Array.from({ length: 5000 }, (_, i) => ({
+      path: `pkg/${String(i).padStart(4, "0")}`,
+      manifests: ["package.json"],
+      evidence: ["pnpm-workspace.yaml"],
+    }))
+    const plan = resolveDiscoveredRoots(
+      {
+        roots,
+        ambiguous: [
+          {
+            manifest: null,
+            reason: "No workspace manifest names these folders",
+            candidates: Array.from({ length: 3000 }, (_, i) => ({
+              path: `other/${i}`,
+              manifests: ["package.json"],
+            })),
+          },
+        ],
+      },
+      null,
+    )
+    expect(plan.roots).toHaveLength(5000)
+    expect(plan.refused).toEqual([])
+  })
 })

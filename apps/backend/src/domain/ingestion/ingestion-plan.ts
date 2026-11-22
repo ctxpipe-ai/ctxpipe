@@ -3,11 +3,7 @@ import { gunzipSync, gzipSync } from "node:zlib"
 
 import { isDependencyListPart } from "../workspaces/layout.js"
 import type { RootFile } from "./context-index.js"
-import {
-  type DiscoveredRoot,
-  type RefusedRoot,
-  resolveDiscoveredRoots,
-} from "./discovered-roots.js"
+import type { DiscoveredRoot } from "./discovered-roots.js"
 import type { IngestModelTier } from "./ingest-opencode.js"
 import type { IngestRootMap } from "./ingest-shard-runtime.js"
 
@@ -20,19 +16,6 @@ import type { IngestRootMap } from "./ingest-shard-runtime.js"
 
 /** One shard takes at most this many roots (concept section 8). */
 export const INGEST_SHARD_MAX_ROOTS = 20
-
-/**
- * The roots of the run: the `discover-roots` script result after the host
- * check (`resolveDiscoveredRoots`, the only check), sorted and with no
- * duplicate. The run plans each root; no count limits them. No model
- * chooses among ambiguous candidates yet.
- */
-export function planIngestRoots(scriptResult: unknown): {
-  roots: DiscoveredRoot[]
-  refused: RefusedRoot[]
-} {
-  return resolveDiscoveredRoots(scriptResult, null)
-}
 
 export type IngestSkillPlan = {
   name: string

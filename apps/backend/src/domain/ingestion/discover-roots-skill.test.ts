@@ -410,6 +410,9 @@ describe("discover-roots script", () => {
       // The first file is a generator that a build constraint ignores.
       "cmd/kubectl/a_gen.go": "//go:build ignore\n\npackage main\n",
       "cmd/kubectl/kubectl.go": "package main // the CLI\n",
+      // An ignored file of another package does not hide the main package.
+      "cmd/kubeadm/a_gen.go": "//go:build ignore\n\npackage generator\n",
+      "cmd/kubeadm/kubeadm.go": "package main\n",
       "hack/gen/gen.go":
         "//go:build ignore\n// +build ignore\n\npackage main\n",
       "pkg/util/util.go": "package util\n",
@@ -428,6 +431,11 @@ describe("discover-roots script", () => {
     expect(discover(dir)).toEqual({
       roots: [
         { path: ".", manifests: ["go.mod"], evidence: ["go.work"] },
+        {
+          path: "cmd/kubeadm",
+          manifests: [],
+          evidence: ["cmd/kubeadm/kubeadm.go"],
+        },
         {
           path: "cmd/kubectl",
           manifests: [],
@@ -511,9 +519,26 @@ describe("discover-roots script", () => {
     expect(withRoots.skipped).toEqual([
       {
         manifest: null,
-        reason: `The result of the script must be at most 1000 bytes, so it gives only the first ${withRoots.roots.length} roots and 0 candidates`,
+        reason: `The result of the script must be at most 1000 bytes, so it gives only the first ${withRoots.roots.length} roots, 0 candidates, and 0 other skipped entries`,
       },
     ])
+
+    // Skipped entries go before roots, so a long skipped list cannot push
+    // the result over the limit.
+    const noisy = {
+      ...result,
+      skipped: Array.from({ length: 200 }, (_, i) => ({
+        manifest: "pnpm-workspace.yaml",
+        reason: `The script skipped an entry: ${i}`,
+      })),
+    }
+    const fitted = lib.fitResult(noisy, 2000)
+    expect(Buffer.byteLength(JSON.stringify(fitted))).toBeLessThanOrEqual(
+      2000 + 200,
+    )
+    expect(fitted.roots).toHaveLength(20)
+    expect(fitted.skipped.length).toBeLessThan(200)
+    expect(fitted.skipped.at(-1).reason).toContain("other skipped entries")
 
     const someCandidates = lib.fitResult(result, 2000)
     expect(someCandidates.roots).toHaveLength(20)

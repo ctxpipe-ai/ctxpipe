@@ -5,7 +5,8 @@ import { describe, expect, it } from "vitest"
 
 import {
   ingestRootMap,
-  planIngestRoots,
+  packRoots,
+  unpackRoots,
   withExistingRootFiles,
   plannedIngestSkills,
   skillStepName,
@@ -19,42 +20,14 @@ const root = (path: string) => ({
 })
 
 describe("ingestion v2 plan", () => {
-  it("plans the script roots after the host check, sorted and with no duplicate", () => {
-    const plan = planIngestRoots({
-      roots: [root("services/b"), root("."), root("services/b"), root("../x")],
-      ambiguous: [],
-    })
-    expect(plan.roots.map((r) => r.path)).toEqual([".", "services/b"])
-    expect(plan.refused).toEqual([
-      { path: "../x", reason: "The path is not safe to write" },
-    ])
-  })
-
-  it("refuses a script result that does not match the schema", () => {
-    expect(() => planIngestRoots({ roots: "everything" })).toThrow(
-      "does not match its schema",
-    )
-  })
-
-  it("plans each root of a large monorepo, with no count limit", () => {
+  it("packs and unpacks the roots of a large monorepo", () => {
     const roots = Array.from({ length: 5000 }, (_, i) =>
-      root(`pkg/${String(i).padStart(4, "0")}`),
+      root(`packages/group-${i % 50}/package-${String(i).padStart(4, "0")}`),
     )
-    const plan = planIngestRoots({
-      roots,
-      ambiguous: [
-        {
-          manifest: null,
-          reason: "No workspace manifest names these folders",
-          candidates: Array.from({ length: 3000 }, (_, i) => ({
-            path: `other/${i}`,
-            manifests: ["package.json"],
-          })),
-        },
-      ],
-    })
-    expect(plan.roots).toHaveLength(5000)
-    expect(plan.refused).toEqual([])
+    const packed = packRoots(roots)
+    expect(unpackRoots(packed)).toEqual(roots)
+    // Far below the 1 MiB of a step output that the backend warns about.
+    expect(packed.length).toBeLessThan(200_000)
   })
 
   it("plans only bundle skills, in the committed order, by scope; libraries is repository-wide", () => {
