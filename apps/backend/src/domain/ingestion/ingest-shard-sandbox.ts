@@ -488,7 +488,7 @@ function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
           if (!destination)
             throw new Error("The step's Workspace is not in the shard")
           const { json, rootFiles } = await indexOf(step)
-          const { usage } = await runIngestShardStep(root, {
+          const { usage, inputs } = await runIngestShardStep(root, {
             step: {
               ...step,
               rootMap: withExistingRootFiles(step.rootMap, rootFiles),
@@ -506,6 +506,7 @@ function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
           return {
             tar: await collectIngestStep(handle, root),
             ...(usage ? { usage } : {}),
+            ...(inputs === undefined ? {} : { inputs }),
           }
         },
         step.signal,

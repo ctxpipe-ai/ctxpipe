@@ -425,7 +425,7 @@ export async function runIngestShardStep(
     /** `ctxpipe/<model>` for a model step. */
     model?: string
   },
-): Promise<{ usage?: IngestStepUsage }> {
+): Promise<{ usage?: IngestStepUsage; inputs?: number }> {
   const { step } = input
   await startIngestStep(root, {
     workspaceId: step.workspaceId,
@@ -445,13 +445,39 @@ export async function runIngestShardStep(
   // In UTF-8 byte parts below the exec argument limit, as base64: a part
   // boundary inside a character cannot change the file.
   await writeAsRoot(root, ROOTS_FILE, JSON.stringify(step.rootMap))
+  const skillArguments = ingestSkillArguments({
+    root: step.root,
+    sourceUrl: input.sourceUrl,
+    sourcePath: input.sourcePath,
+  })
+  // The trusted length of the cursor (CTX-1487): the skill's own finder
+  // runs before the model, while root has stopped every process of the agent
+  // and emptied /ctxpipe/out and /ctxpipe/home. It reads only what root
+  // owns: the bundle, the source, the context checkout, and the step inputs.
+  let inputs: number | undefined
+  if (step.cursor) {
+    const count = await root(
+      ingestAgentCommand({
+        env,
+        command: `node ${INGEST_SKILLS_ROOT}/${step.skill}/scripts/${step.skill}.mjs ${skillArguments} --count`,
+      }),
+      { signal: step.signal },
+    )
+    inputs = finderCount(count)
+    if (inputs === undefined)
+      throw new IngestStepCommandError(
+        "count",
+        count.exitCode,
+        `Ingest step ${step.name}: the finder gave no count (${count.exitCode}): ${count.stderr.slice(-500)}`,
+      )
+  }
   const command =
     step.run === "model"
       ? ingestModelRunCommand({
           prompt: ingestStepPrompt(step, input),
           ...(input.model ? { model: input.model } : {}),
         })
-      : `node ${INGEST_SKILLS_ROOT}/${step.skill}/scripts/${step.skill}.mjs ${ingestSkillArguments({ root: step.root, sourceUrl: input.sourceUrl, sourcePath: input.sourcePath })}`
+      : `node ${INGEST_SKILLS_ROOT}/${step.skill}/scripts/${step.skill}.mjs ${skillArguments}`
   // The host runs the scan of `dependencies` first. When no claim is
   // possible, the script has written patch.json with the counts, and the
   // model does not run (CTX-1083). A scan that fails starts the model.
@@ -460,7 +486,7 @@ export async function runIngestShardStep(
     const scan = await root(
       ingestAgentCommand({
         env,
-        command: `node ${INGEST_SKILLS_ROOT}/dependencies/scripts/scan.mjs ${ingestSkillArguments({ root: step.root, sourceUrl: input.sourceUrl, sourcePath: input.sourcePath })} --gate`,
+        command: `node ${INGEST_SKILLS_ROOT}/dependencies/scripts/scan.mjs ${skillArguments} --gate`,
       }),
       { signal: step.signal },
     )
@@ -534,7 +560,27 @@ export async function runIngestShardStep(
     })
     if (!ops.length) throw new IngestStepTimeLimitError()
   }
-  return usage ? { usage } : {}
+  return {
+    ...(usage ? { usage } : {}),
+    ...(inputs === undefined ? {} : { inputs }),
+  }
+}
+
+/** The `{"count": <n>}` of the last line of a finder; else undefined. */
+function finderCount(run: {
+  exitCode: number
+  stdout: string
+}): number | undefined {
+  if (run.exitCode !== 0) return undefined
+  try {
+    const last = run.stdout.trim().split("\n").at(-1) ?? ""
+    const count = (JSON.parse(last) as { count?: unknown }).count
+    return Number.isSafeInteger(count) && (count as number) >= 0
+      ? (count as number)
+      : undefined
+  } catch {
+    return undefined
+  }
 }
 
 /**
@@ -547,7 +593,7 @@ export async function runIngestShardStep(
  */
 export class IngestStepCommandError extends Error {
   constructor(
-    readonly part: "skill" | "finish",
+    readonly part: "count" | "skill" | "finish",
     readonly exitCode: number,
     message: string,
     readonly model?: { calls: number; errors: OpenCodeError[] },

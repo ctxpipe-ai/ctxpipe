@@ -127,6 +127,25 @@ export function standInIngestShardRuntime(options: {
         )
         let more = false
         let usage: IngestStepUsage | undefined
+        // As the sandbox: the finder of a cursor skill runs first (CTX-1487).
+        const inputs = step.cursor
+          ? (
+              JSON.parse(
+                (
+                  await node(
+                    `${step.skill}/scripts/${step.skill}.mjs`,
+                    "--root",
+                    root,
+                    ...args,
+                    "--count",
+                  )
+                )
+                  .trim()
+                  .split("\n")
+                  .at(-1) ?? "",
+              ) as { count: number }
+            ).count
+          : undefined
         if (step.run === "script") {
           await node(
             `${step.skill}/scripts/${step.skill}.mjs`,
@@ -178,7 +197,11 @@ export function standInIngestShardRuntime(options: {
           root,
           ...(more ? ["--more"] : []),
         )
-        return { tar: await tarOf(out), ...(usage ? { usage } : {}) }
+        return {
+          tar: await tarOf(out),
+          ...(usage ? { usage } : {}),
+          ...(inputs === undefined ? {} : { inputs }),
+        }
       },
     }
     return runtime

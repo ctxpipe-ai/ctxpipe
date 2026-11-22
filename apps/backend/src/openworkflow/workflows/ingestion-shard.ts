@@ -6,6 +6,7 @@ import { z } from "zod"
 import { type Env, parseEnv } from "../../config/env.js"
 import {
   IngestRefMovedError,
+  type IngestPageCursor,
   IngestRefRefusedError,
   ingestRefName,
   type PushIngestStepInput,
@@ -205,7 +206,10 @@ export type IngestionShardOutput = {
 
 /** At most 2 retries for each step (concept section 8). */
 const STEP_ATTEMPTS = 3
-/** A skill runs at most this many pages; then it is `partial` (ADR-052 section 6). */
+/**
+ * A skill with no cursor runs at most this many pages; then it is `partial`
+ * (ADR-052 section 6). A cursor skill has no page count (CTX-1487).
+ */
 export const INGEST_MAX_PAGES = 20
 
 type StepResult = (
@@ -214,6 +218,8 @@ type StepResult = (
       ops: number
       rejects: number
       more: boolean
+      /** The cursor of a cursor skill's page (CTX-1487). */
+      cursor?: IngestPageCursor
       partial?: undefined
     }
   | { partial: true; failed?: IngestStepFailureKind }
@@ -426,7 +432,13 @@ export type SkillStepBroker = {
     step: string,
     since: string,
   ): Promise<
-    | { sha: string; ops: number; rejects: number; more: boolean }
+    | {
+        sha: string
+        ops: number
+        rejects: number
+        more: boolean
+        cursor?: IngestPageCursor
+      }
     | { tip: string; ops: number }
     | null
   >
@@ -540,9 +552,17 @@ type SkillPages = {
 
 /**
  * The pages of one skill for one Workspace (ADR-052 section 6): the host runs
- * the skill again on the new tip while its `patch.json` says `more`, for at
- * most 20 pages. A page that accepts no op stops the skill: the next page
- * would start from the same tip.
+ * the skill again on the new tip while its `patch.json` says `more`. A page
+ * that accepts no op stops the skill: the next page would start from the
+ * same tip.
+ *
+ * A cursor skill (CTX-1487) has no page count. Before each page, the
+ * skill's own finder gives the length of its input (`of`), and the page's
+ * `patch.json` says how many inputs are done (`at`). A page with `more`
+ * must move `at` strictly forward and keep it below `of`; else the skill
+ * stops as `partial`. So a skill has at most `of` pages. The finder runs
+ * before the model, so its count is trusted. A forged `at` can only end the
+ * loop sooner. Any other skill stops after 20 pages.
  */
 export async function runSkillPages(ctx: SkillPages): Promise<void> {
   const { state } = ctx
@@ -557,7 +577,8 @@ export async function runSkillPages(ctx: SkillPages): Promise<void> {
     ctx.skill.name,
     ctx.destination.workspaceId,
   )
-  for (let page = 1; page <= INGEST_MAX_PAGES; page++) {
+  let cursorAt = 0
+  for (let page = 1; ctx.skill.cursor || page <= INGEST_MAX_PAGES; page++) {
     const name = skillStepName(
       ctx.root,
       ctx.skill.name,
@@ -589,6 +610,22 @@ export async function runSkillPages(ctx: SkillPages): Promise<void> {
         seen.executionAttempt,
       )
       return
+    }
+    if (ctx.skill.cursor) {
+      const cursor = result.cursor
+      if (!cursor || cursor.at <= cursorAt || cursor.at >= cursor.of) {
+        failed()
+        logStepPartial(
+          ctx,
+          label,
+          cursor
+            ? `Page ${page} said more, but its cursor did not move forward inside the input: ${cursor.at} of ${cursor.of} after ${cursorAt}`
+            : `Page ${page} said more, but it gave no cursor`,
+          seen.executionAttempt,
+        )
+        return
+      }
+      cursorAt = cursor.at
     }
   }
   failed()
@@ -765,6 +802,7 @@ async function attemptSkillStep(
           ops: adopted + found.ops,
           rejects: found.rejects,
           more: found.more,
+          ...(found.cursor ? { cursor: found.cursor } : {}),
         })
       }
       if (found) {
@@ -801,6 +839,7 @@ async function attemptSkillStep(
         root: ctx.root,
         workspaceId: destination.workspaceId,
         baseCommit,
+        ...(ctx.skill.cursor ? { cursor: true } : {}),
         ...(fetchRef ? { fetchRef } : {}),
         rootMap,
         signal,
@@ -843,6 +882,9 @@ async function attemptSkillStep(
               step: ctx.name,
               bundle: run.bundle,
               authorTime: new Date(run.authorTime),
+              ...(stepRun.inputs === undefined
+                ? {}
+                : { cursorOf: stepRun.inputs }),
             },
             patch: {
               stagedDir,
@@ -884,6 +926,10 @@ async function attemptSkillStep(
         ops: adopted + pushed.validation.accepted.length,
         rejects: pushed.validation.rejections.length,
         more: pushed.more,
+        ...(pushed.validation.cursorAt !== undefined &&
+        stepRun.inputs !== undefined
+          ? { cursor: { at: pushed.validation.cursorAt, of: stepRun.inputs } }
+          : {}),
       })
     } catch (error) {
       if (isWorkflowControlSignal(error)) throw error

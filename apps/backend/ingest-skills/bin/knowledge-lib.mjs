@@ -612,7 +612,13 @@ function mergeFile(text, { claims, related }) {
  * runs the skill again on the new base until `more` is false. A file that
  * already has a claim or a line does not change again, so each page
  * continues where the last one stopped. `options.stats` are counts (a name
- * to a whole number) for the host. patch.json holds `more` and
+ * to a whole number) for the host.
+ *
+ * The cursor (CTX-1487): the plans, in the order of the writer, are the
+ * inputs of the page loop. With `--count`, the script writes nothing and
+ * prints `{"count": <plans>}`: the host runs it before the step and takes
+ * the count as the length of the input. Else patch.json gets `cursor.at`,
+ * the plans that the page handled before it ended. patch.json holds `more` and
  * `stats` for the host. Prints and returns { ops, skipped, more }.
  */
 export function writeStep(step, plans, skipped = [], options = {}) {
@@ -677,7 +683,12 @@ export function writeStep(step, plans, skipped = [], options = {}) {
     a.path < b.path ? -1 : 1,
   ))
     place(plan)
-  for (const plan of sorted) {
+  if (process.argv.includes("--count")) {
+    process.stdout.write(`${JSON.stringify({ count: sorted.length })}\n`)
+    return { ops: [], skipped, more: false }
+  }
+  let at = sorted.length
+  for (const [index, plan] of sorted.entries()) {
     const claims = [
       ...new Map(
         plan.claims.map((c) => [`${c.to} ${c.predicate}`, c]),
@@ -725,6 +736,7 @@ export function writeStep(step, plans, skipped = [], options = {}) {
       (earlier === undefined && room.ops < 1)
     ) {
       more = true
+      at = index
       break
     }
     room.staged -= grows
@@ -735,9 +747,11 @@ export function writeStep(step, plans, skipped = [], options = {}) {
     ensureParent(file)
     writeFileSync(file, text)
   }
-  const ops = writePatch(step, { more, stats: options.stats }).map(
-    ({ op, path }) => ({ op, path }),
-  )
+  const ops = writePatch(step, {
+    more,
+    stats: options.stats,
+    cursor: { at },
+  }).map(({ op, path }) => ({ op, path }))
   const result = { ops, skipped, more }
   process.stdout.write(`${JSON.stringify(result)}\n`)
   return result

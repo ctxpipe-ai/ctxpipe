@@ -159,8 +159,10 @@ export function stagedPaths(step) {
 /**
  * Write patch.json for the staged tree and the recorded deletes; returns the
  * ops. `more` tells the host that files wait for a next page (ADR-052
- * section 6): the host runs the skill again on the new tip. A later
- * writePatch keeps a `more` that an earlier one wrote in the same step.
+ * section 6): the host runs the skill again on the new tip. `cursor` is
+ * `{ at }`: the inputs of the skill that are done (CTX-1487). A later
+ * writePatch keeps the `more`, `stats`, and `cursor` that an earlier one
+ * wrote in the same step.
  */
 export function writePatch(step, options = {}) {
   const recorded = readStaged(step)
@@ -188,22 +190,28 @@ export function writePatch(step, options = {}) {
   // `ctxpipe-finish` keeps the counts of a script. The span has the number of
   // accepted ops as `ctxpipe.ingest.ops`, so `stats` does not count ops.
   const stats = options.stats ?? earlier.stats
+  const cursor = options.cursor ?? earlier.cursor
   writeJson(join(step.stepDir, "patch.json"), {
     ops,
     ...(more ? { more } : {}),
     ...(stats ? { stats } : {}),
+    ...(cursor ? { cursor } : {}),
   })
   return ops
 }
 
-/** The `more` and `stats` that patch.json of this step already has. */
+/** The `more`, `stats`, and `cursor` that patch.json of this step already has. */
 function earlierPatch(step) {
   try {
     const earlier = JSON.parse(
       readFileSync(join(step.stepDir, "patch.json"), "utf8"),
     )
-    return { more: earlier?.more === true, stats: earlier?.stats }
+    return {
+      more: earlier?.more === true,
+      stats: earlier?.stats,
+      cursor: earlier?.cursor,
+    }
   } catch {
-    return { more: false, stats: undefined }
+    return { more: false, stats: undefined, cursor: undefined }
   }
 }

@@ -36,8 +36,15 @@ function pages(
   root: string | null,
   results: Array<
     | { partial: true }
-    | { tip: string; ops: number; rejects: number; more: boolean }
+    | {
+        tip: string
+        ops: number
+        rejects: number
+        more: boolean
+        cursor?: { at: number; of: number }
+      }
   >,
+  skill: { name: string; cursor?: true } = { name: "apis" },
 ) {
   const state: IngestionShardWorkspace = {
     workspaceId: "ws_alpha",
@@ -55,7 +62,7 @@ function pages(
         return result
       },
       root,
-      skill: { name: "apis" },
+      skill,
       run: { runId: "run_fixture" },
       destination: { workspaceId: "ws_alpha" },
       state,
@@ -80,6 +87,53 @@ describe("runSkillPages", () => {
   it("records no root for a repository-wide step", async () => {
     const state = await pages(null, [{ partial: true }])
     expect(state).toMatchObject({ partial: 1, partialRoots: [] })
+  })
+
+  const page = (at: number, of: number, more = true) => ({
+    tip: "a".repeat(40),
+    ops: 1,
+    rejects: 0,
+    more,
+    cursor: { at, of },
+  })
+  const ownership = { name: "ownership", cursor: true as const }
+
+  it("runs a cursor skill for more than 20 pages while its cursor moves forward (CTX-1487)", async () => {
+    const results = [
+      ...Array.from({ length: 25 }, (_, i) => page(i + 1, 30)),
+      page(30, 30, false),
+    ]
+    const state = await pages("services/d", results, ownership)
+    expect(results).toEqual([])
+    expect(state).toMatchObject({ ops: 26, partial: 0, partialRoots: [] })
+  })
+
+  it("stops a cursor skill as partial at a page whose cursor does not move forward", async () => {
+    const results = [page(3, 10), page(3, 10), page(4, 10)]
+    const state = await pages("services/e", results, ownership)
+    // The third page does not run.
+    expect(results).toHaveLength(1)
+    expect(state).toMatchObject({ ops: 2, partial: 1 })
+  })
+
+  it("stops a cursor skill as partial when a page says more at the end of its input, or gives no cursor", async () => {
+    for (const second of [
+      page(10, 10),
+      page(11, 10),
+      { tip: "a".repeat(40), ops: 1, rejects: 0, more: true },
+    ]) {
+      const results = [page(2, 10), second, page(5, 10, false)]
+      const state = await pages("services/f", results, ownership)
+      expect(results).toHaveLength(1)
+      expect(state).toMatchObject({ partial: 1 })
+    }
+  })
+
+  it("stops a skill with no cursor after 20 pages", async () => {
+    const results = Array.from({ length: 25 }, (_, i) => page(i + 1, 30))
+    const state = await pages("services/g", results)
+    expect(results).toHaveLength(5)
+    expect(state).toMatchObject({ ops: 20, partial: 1 })
   })
 
   it("records no root for a root whose steps all pass", async () => {
@@ -237,6 +291,7 @@ describe("runSkillPages on a shard ref that another execution moved", () => {
     skill: string,
     state: IngestionShardWorkspace,
     runtime: IngestShardRuntime,
+    cursor?: true,
   ) {
     return withLogger(createLogger({ test: "skill-pages-twice" }), () =>
       runSkillPages({
@@ -256,7 +311,7 @@ describe("runSkillPages on a shard ref that another execution moved", () => {
         broker,
         runtime,
         root: ROOT,
-        skill: { name: skill, scope: "root", run: "script" },
+        skill: { name: skill, scope: "root", run: "script", cursor },
         destination: {
           workspaceId: WS,
           url: "https://github.com/example-org/context",
@@ -273,6 +328,38 @@ describe("runSkillPages on a shard ref that another execution moved", () => {
     )
   }
 
+  /**
+   * A cursor skill whose finder gives 5 inputs, and whose pages each write a
+   * new file, say `more`, and give `cursor.at` 1.
+   */
+  function stuckCursorSandbox() {
+    const calls: Array<{ name: string; cursor?: boolean }> = []
+    const runtime = {
+      runStep: async (step: { name: string; cursor?: boolean }) => {
+        calls.push({ name: step.name, cursor: step.cursor })
+        const out = join(dir, `step-${++count}`)
+        const path = `knowledge/services/page-${calls.length}.md`
+        mkdirSync(dirname(join(out, "files", path)), { recursive: true })
+        writeFileSync(join(out, "files", path), service(`Page ${calls.length}`))
+        writeFileSync(
+          join(out, "patch.json"),
+          JSON.stringify({
+            ops: [{ op: "create", path }],
+            more: true,
+            cursor: { at: 1 },
+          }),
+        )
+        return {
+          tar: new Uint8Array(
+            execFileSync("tar", ["-C", out, "-cf", "-", "."], { env: GIT_ENV }),
+          ),
+          inputs: 5,
+        }
+      },
+    } as unknown as IngestShardRuntime
+    return { runtime, calls }
+  }
+
   const workspace = (): IngestionShardWorkspace => ({
     workspaceId: WS,
     tip: null,
@@ -280,6 +367,26 @@ describe("runSkillPages on a shard ref that another execution moved", () => {
     rejects: 0,
     partial: 0,
     partialRoots: [],
+  })
+
+  it("stops a cursor skill at a page whose cursor does not move, and keeps the cursor in the step commit (CTX-1487)", async () => {
+    freshRemote()
+    const state = workspace()
+    const { runtime, calls } = stuckCursorSandbox()
+    await runSkill("ownership", state, runtime, true)
+    // The runtime runs the finder of each page; page 2 repeats the cursor.
+    expect(calls).toEqual([
+      { name: skillStepName(ROOT, "ownership", WS, 1), cursor: true },
+      { name: skillStepName(ROOT, "ownership", WS, 2), cursor: true },
+    ])
+    expect(state).toMatchObject({ ops: 2, partial: 1, partialRoots: [ROOT] })
+    expect(git(remote, ["log", "-1", "--format=%B", REF])).toContain(
+      "Ctxpipe-Cursor: 1 5",
+    )
+    // A resumed step reads the cursor from its commit.
+    await expect(
+      broker.find(REF, skillStepName(ROOT, "ownership", WS, 1), pinned),
+    ).resolves.toMatchObject({ cursor: { at: 1, of: 5 }, more: true })
   })
 
   it("continues from the other execution's commit, with no refusal and no partial step", async () => {
