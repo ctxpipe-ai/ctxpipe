@@ -104,6 +104,7 @@ const ROOTS = [
 
 type Entry = {
   path: string
+  metadata: string | null
   name: string
   title: string
   number: number | null
@@ -418,6 +419,324 @@ describe("decisions skill: finder and metadata", () => {
     const a = out.decisions.find((d) => d.number === 1)
     expect(a?.status).toBe("accepted")
     expect(out.decisions.flatMap((d) => d.supersedes)).toEqual([])
+  })
+})
+
+/** A KEP folder: `README.md` and the metadata file `kep.yaml`, as written by hand. */
+const kep = (
+  dir: string,
+  title: string,
+  meta: string[],
+  body = "## Summary\n\nThe proposal.\n",
+) => {
+  const number = /^\d+/.exec(dir.split("/").pop() ?? "")?.[0] ?? "NNNN"
+  return {
+    [`${dir}/kep.yaml`]: [
+      `title: ${title}`,
+      `kep-number: ${number}`,
+      ...meta,
+      "",
+    ].join("\n"),
+    [`${dir}/README.md`]: `# KEP-${number}: ${title}\n\n<!-- toc -->\n- [Summary](#summary)\n<!-- /toc -->\n\n${body}`,
+  }
+}
+
+/** Design records in the KEP, RFC, PEP, and design-folder forms. */
+const FORMS: Record<string, string> = {
+  ...kep("keps/sig-node/100-cpu-pinning", "CPU pinning", [
+    "status: replaced # replaced by keps/sig-node/250-cpu-manager",
+    "creation-date: 2019-04-02",
+    "milestone:",
+    '  alpha: "1.15"',
+    "superseded-by:",
+    '  - "/keps/sig-node/250-cpu-manager"',
+  ]),
+  ...kep("keps/sig-node/250-cpu-manager", "CPU manager", [
+    "status: implemented",
+    "creation-date: 2021-06-10",
+    "replaces:",
+    '  - "example-org/shop/keps/sig-node/100-cpu-pinning/README.md"',
+    "  - https://example.com/design-doc",
+    "  - n/a",
+  ]),
+  ...kep("keps/sig-apps/300-job-queue", "Job queue", [
+    "status: provisional # provisional|implementable|implemented",
+    "creation-date: 2024-01-20",
+    "replaces:",
+    '  - "250"',
+  ]),
+  ...kep(
+    "keps/sig-apps/310-batch-api",
+    "Batch API",
+    ["status: implementable", "creation-date: 2024-03-01"],
+    "## Summary\n\nThis KEP is superseded by [KEP-300](/keps/sig-apps/300-job-queue).\n",
+  ),
+  ...kep("keps/sig-apps/320-retry", "Retry", [
+    "status: withdrawn",
+    // A KEP of another repository, also with a path that ends like a KEP here.
+    "replaces:",
+    '  - "other-org/project/keps/sig-node/100-cpu-pinning"',
+  ]),
+  ...kep("keps/sig-apps/330-quota", "Quota", ["status: deferred"]),
+  // The KEP template folder and the index of the KEP folder.
+  ...kep("keps/NNNN-kep-template", "Template", ["status: provisional"]),
+  "keps/README.md": "# KEPs\n",
+  // The older KEP form: one Markdown file with front matter.
+  "keps/sig-release/20190121-artifact-management.md": [
+    "---",
+    "title: Artifact management",
+    "status: implemented",
+    "creation-date: 2019-01-21",
+    "---",
+    "# Artifact management",
+    "",
+    "## Summary",
+  ].join("\n"),
+  // The Rust RFC form: no status and no level-one heading.
+  "0000-template.md": "- Feature Name: (fill me in)\n",
+  "text/0010-old-allocator.md": [
+    "- Feature Name: `old_allocator`",
+    "- Start Date: 2015-06-27",
+    "- RFC PR: [example-org/rfcs#10](https://example.com/pull/10)",
+    "",
+    "*Note:* this RFC has been superseded by [RFC 1974][].",
+    "",
+    "## Summary",
+    "",
+    "Use the old allocator.",
+    "",
+    "[RFC 1974]: https://example.com/rfcs/1974",
+  ].join("\n"),
+  "text/1974-global-allocators.md": [
+    "- Feature Name: `global_allocator`",
+    "- Start Date: 2017-02-04",
+    "",
+    "## Summary",
+    "",
+    "This RFC supersedes #12.",
+  ].join("\n"),
+  "text/0012-alloc-trait.md":
+    "- Start Date: 2015-01-01\n\nThis RFC was partially superseded by RFC 1974.\n",
+  // A numbered file in a `text` folder with no RFC template is not an RFC.
+  "guide/text/01-intro.md": "# Intro\n",
+  // RFCs of a proposals folder declare their status.
+  "proposals/0001-swift-keywords.md":
+    "# Keywords\n\n* Status: **Active review (March 1...7)**\n",
+  "proposals/0002-modules.md": "# Modules\n\n* Status: **Implemented (5.0)**\n",
+  // PEPs: an RFC 822 header, and the bare numbers of Replaces and Superseded-By.
+  "peps/pep-0008.rst": [
+    "PEP: 8",
+    "Title: Style guide",
+    "Status: Active",
+    "Type: Process",
+    "Created: 05-Jul-2001",
+    "Replaces: 7",
+    "",
+    "",
+    "Introduction",
+    "============",
+  ].join("\n"),
+  "peps/pep-0007.rst": [
+    "PEP: 7",
+    "Title: Old style guide",
+    "Status: Superseded",
+    "Created: 05-Jul-2000",
+    "Superseded-By: 8",
+    "",
+    "Text",
+  ].join("\n"),
+  "peps/pep-0020.rst":
+    "PEP: 20\nTitle: Draft idea\nStatus: Deferred\nCreated: 19-Aug-2004\n\nText\n",
+  // A design folder: every Markdown file except its index.
+  "docs/design/sharding.md": "# Sharding of the order table\n\nStatus: Draft\n",
+  "docs/design/sharding-v2.md":
+    "# Sharding by tenant\n\nStatus: Accepted\n\nSupersedes [the first design](sharding.md)\n",
+  "docs/design/README.md": "# Design documents\n",
+}
+
+describe("decisions skill: design record forms", () => {
+  const formsRun = async () => {
+    const out = (await step(FORMS)).run()
+    const by = (path: string) => {
+      const entry = out.decisions.find((d) => d.path === path)
+      if (!entry) throw new Error(`no entry for ${path}`)
+      return entry
+    }
+    return { out, by }
+  }
+
+  it("finds the design records of each form and skips a template, an index, and a text folder with no RFC template", async () => {
+    const out = (await step(FORMS)).run()
+    expect(out).toMatchObject({ total: 17, more: false })
+    // The name has the label of the form; a design document has none.
+    expect(out.decisions.map((d) => [d.path, d.name]).sort()).toEqual(
+      [
+        ["docs/design/sharding-v2.md", "Sharding by tenant"],
+        ["docs/design/sharding.md", "Sharding of the order table"],
+        ["keps/sig-apps/300-job-queue/README.md", "KEP-300: Job queue"],
+        ["keps/sig-apps/310-batch-api/README.md", "KEP-310: Batch API"],
+        ["keps/sig-apps/320-retry/README.md", "KEP-320: Retry"],
+        ["keps/sig-apps/330-quota/README.md", "KEP-330: Quota"],
+        ["keps/sig-node/100-cpu-pinning/README.md", "KEP-100: CPU pinning"],
+        ["keps/sig-node/250-cpu-manager/README.md", "KEP-250: CPU manager"],
+        [
+          "keps/sig-release/20190121-artifact-management.md",
+          "Artifact management",
+        ],
+        ["peps/pep-0007.rst", "PEP-7: Old style guide"],
+        ["peps/pep-0008.rst", "PEP-8: Style guide"],
+        ["peps/pep-0020.rst", "PEP-20: Draft idea"],
+        ["proposals/0001-swift-keywords.md", "RFC-1: Keywords"],
+        ["proposals/0002-modules.md", "RFC-2: Modules"],
+        ["text/0010-old-allocator.md", "RFC-10: old allocator"],
+        ["text/0012-alloc-trait.md", "RFC-12: alloc trait"],
+        ["text/1974-global-allocators.md", "RFC-1974: global allocators"],
+      ].sort(),
+    )
+  })
+
+  it("reads a KEP from its kep.yaml: title, number, status, date, and the metadata path", async () => {
+    const { by } = await formsRun()
+    expect(by("keps/sig-node/250-cpu-manager/README.md")).toMatchObject({
+      name: "KEP-250: CPU manager",
+      number: 250,
+      // KEP-300 replaces it.
+      status: "superseded",
+      statusText: "implemented",
+      date: "2021-06-10",
+      metadata: "keps/sig-node/250-cpu-manager/kep.yaml",
+      target:
+        "knowledge/decisions/example-org-shop-sig-node-250-cpu-manager.md",
+    })
+    expect(by("keps/sig-apps/300-job-queue/README.md")).toMatchObject({
+      status: "provisional",
+      statusText: "provisional",
+    })
+    expect(by("keps/sig-apps/320-retry/README.md").status).toBe("withdrawn")
+    expect(by("keps/sig-apps/330-quota/README.md").status).toBe("postponed")
+    expect(
+      by("keps/sig-release/20190121-artifact-management.md"),
+    ).toMatchObject({
+      name: "Artifact management",
+      number: null,
+      status: "implemented",
+      date: "2019-01-21",
+      metadata: null,
+    })
+  })
+
+  it("links KEPs through superseded-by and replaces paths, a bare number, and a sentence about this KEP", async () => {
+    const { by } = await formsRun()
+    const pinning = by("keps/sig-node/100-cpu-pinning/README.md")
+    const manager = by("keps/sig-node/250-cpu-manager/README.md")
+    const queue = by("keps/sig-apps/300-job-queue/README.md")
+    const batch = by("keps/sig-apps/310-batch-api/README.md")
+    // KEP-100 says so in superseded-by (a path from the root), KEP-250 in
+    // replaces (a path with the repository name in front): one claim.
+    expect(manager.supersedes).toEqual([
+      {
+        to: posixRelative(manager.target, pinning.target),
+        evidence: expect.stringMatching(/100-cpu-pinning|250-cpu-manager/),
+      },
+    ])
+    expect(pinning.status).toBe("superseded")
+    expect(pinning.statusText).toBe("replaced")
+    // `replaces: ["250"]` and "This KEP is superseded by [KEP-300](…)".
+    expect(queue.supersedes.map((s) => s.to).sort()).toEqual(
+      [
+        posixRelative(queue.target, manager.target),
+        posixRelative(queue.target, batch.target),
+      ].sort(),
+    )
+    expect(batch.status).toBe("superseded")
+    expect(manager.status).toBe("superseded")
+    // A URL, "n/a", and a path of another repository link nothing.
+    expect(by("keps/sig-apps/320-retry/README.md").supersedes).toEqual([])
+  })
+
+  it("reads an RFC of a text folder as accepted, with its start date, and links a note and a pull request number", async () => {
+    const { by } = await formsRun()
+    const old = by("text/0010-old-allocator.md")
+    const global = by("text/1974-global-allocators.md")
+    const trait = by("text/0012-alloc-trait.md")
+    expect(global).toMatchObject({
+      name: "RFC-1974: global allocators",
+      number: 1974,
+      status: "accepted",
+      statusText: null,
+      date: "2017-02-04",
+      target: "knowledge/decisions/example-org-shop-1974-global-allocators.md",
+    })
+    expect(global.supersedes.map((s) => s.to).sort()).toEqual(
+      [
+        posixRelative(global.target, old.target),
+        posixRelative(global.target, trait.target),
+      ].sort(),
+    )
+    expect(old.status).toBe("superseded")
+    // "Partially superseded" is not a declared replacement of this RFC; only
+    // the "This RFC supersedes #12" sentence of RFC 1974 replaces it.
+    expect(trait.supersedes).toEqual([])
+    expect(trait.status).toBe("superseded")
+    expect(by("proposals/0001-swift-keywords.md").status).toBe("proposed")
+    expect(by("proposals/0002-modules.md").status).toBe("implemented")
+  })
+
+  it("reads a PEP header: title, status, the PEP date, and Replaces and Superseded-By numbers", async () => {
+    const { by } = await formsRun()
+    const eight = by("peps/pep-0008.rst")
+    const seven = by("peps/pep-0007.rst")
+    expect(eight).toMatchObject({
+      name: "PEP-8: Style guide",
+      number: 8,
+      status: "accepted",
+      statusText: "Active",
+      date: "2001-07-05",
+      target: "knowledge/decisions/example-org-shop-pep-0008.md",
+    })
+    expect(eight.supersedes).toEqual([
+      {
+        to: posixRelative(eight.target, seven.target),
+        evidence: expect.stringMatching(/pep-000[78]\.rst/),
+      },
+    ])
+    expect(seven).toMatchObject({ status: "superseded", supersedes: [] })
+    expect(by("peps/pep-0020.rst")).toMatchObject({
+      status: "postponed",
+      date: "2004-08-19",
+    })
+  })
+
+  it("reads a design document of a design folder with its status and a declared supersede link", async () => {
+    const { by } = await formsRun()
+    const first = by("docs/design/sharding.md")
+    const second = by("docs/design/sharding-v2.md")
+    expect(first).toMatchObject({
+      status: "superseded",
+      statusText: "Draft",
+      number: null,
+      metadata: null,
+    })
+    expect(second.supersedes).toEqual([
+      {
+        to: posixRelative(second.target, first.target),
+        evidence: "docs/design/sharding-v2.md",
+      },
+    ])
+  })
+
+  it("accepts the KEP, RFC, and PEP files that an agent writes from the entries, with their SUPERSEDES claims", async () => {
+    const s = await step(FORMS)
+    const out = s.run()
+    for (const entry of out.decisions) s.write(entry.target, agentFile(entry))
+    s.finish()
+    expect(s.check()).toMatchObject({ status: 0, problems: [] })
+    const result = await s.validate()
+    expect(result.rejections).toEqual([])
+    const manager = out.decisions.find((d) => d.number === 250)
+    const text = s.show(result.tree, manager?.target ?? "")
+    expect(text).toContain("predicate: SUPERSEDES")
+    expect(text).toContain("**Status:** Superseded")
   })
 })
 

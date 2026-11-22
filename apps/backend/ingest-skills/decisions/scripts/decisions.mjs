@@ -39,7 +39,11 @@ import {
   trackedFiles,
 } from "../../discover-roots/scripts/roots-lib.mjs"
 import {
+  decisionForm,
+  decisionKey,
   extractRefs,
+  FORM_LABEL,
+  GENERIC_FOLDERS,
   parseDecision,
   referencedPaths,
 } from "./decision-parse.mjs"
@@ -52,56 +56,6 @@ const MAX_CLAUSE_EDGES = 10
 const MAX_STALE = 10
 const MAX_SKIPPED = 30
 
-/** Folders whose Markdown files are decision files. */
-const DECISION_FOLDERS = new Set([
-  "adr",
-  "adrs",
-  "decisions",
-  "decision-records",
-  "architecture-decisions",
-  "architecture-decision-records",
-])
-/** Folders that never hold a decision file of the source. */
-const IGNORED_FOLDERS = new Set([
-  "node_modules",
-  "vendor",
-  "third_party",
-  "testdata",
-  "fixtures",
-  "__fixtures__",
-  ".ctxpipe",
-  ".agents",
-  ".claude",
-  ".cursor",
-  ".opencode",
-])
-/** Folder names that carry no meaning in the name of the context file. */
-const GENERIC_FOLDERS = new Set([
-  ...DECISION_FOLDERS,
-  "docs",
-  "doc",
-  "documentation",
-  "architecture",
-  "design",
-])
-
-/** True for a Markdown file in a decision folder, or with an `adr-<number>` name. */
-function isDecisionFile(path) {
-  if (!/\.(md|markdown)$/i.test(path)) return false
-  const segments = path.split("/")
-  const base = segments.pop()
-  if (segments.some((s) => IGNORED_FOLDERS.has(s.toLowerCase()))) return false
-  if (
-    /^(readme|index|_index|summary|toc)\b/i.test(base) ||
-    /template/i.test(base)
-  )
-    return false
-  return (
-    segments.some((s) => DECISION_FOLDERS.has(s.toLowerCase())) ||
-    /^adr[-_ ]?\d{1,6}\b/i.test(base)
-  )
-}
-
 const slug = (text) =>
   String(text)
     .toLowerCase()
@@ -111,10 +65,14 @@ const slug = (text) =>
 const hash = (text) =>
   createHash("sha256").update(text).digest("hex").slice(0, 8)
 
-/** `knowledge/decisions/<owner>-<repository>-<path>.md`, with no folder name that says nothing. */
+/**
+ * `knowledge/decisions/<owner>-<repository>-<path>.md`, with no folder name
+ * that says nothing. A KEP README takes the path of its folder.
+ */
 function targetPath(repository, path) {
   const segments = path
-    .replace(/\.(md|markdown)$/i, "")
+    .replace(/(?:^|\/)readme\.(md|markdown)$/i, "")
+    .replace(/\.(md|markdown|rst|txt)$/i, "")
     .split("/")
     .filter((s) => !GENERIC_FOLDERS.has(s.toLowerCase()))
   let name = slug(`${repository.replace("/", "-")}-${segments.join("-")}`)
@@ -123,15 +81,8 @@ function targetPath(repository, path) {
   return `knowledge/decisions/${name}.md`
 }
 
-const STATUS_LABEL = {
-  accepted: "Accepted",
-  proposed: "Proposed",
-  draft: "Draft",
-  deprecated: "Deprecated",
-  superseded: "Superseded",
-  rejected: "Rejected",
-  undeclared: "Undeclared",
-}
+/** The Status line of a status: its first letter in capitals (`implementable` is `Implementable`). */
+const statusLabel = (status) => status.charAt(0).toUpperCase() + status.slice(1)
 
 const { step, source, repository, roots, index, skipped } = scriptStep()
 const check = process.argv.slice(2).includes("--check")
@@ -150,8 +101,14 @@ for (const path of tracked) {
 }
 const exists = (path) => trackedSet.has(path) || folders.has(path)
 
-// 1. The decision files.
-let found = tracked.filter(isDecisionFile).sort()
+// 1. The decision files: design records in each form of `decisionForm`.
+const trackedFile = (path) => trackedSet.has(path)
+const forms = new Map()
+for (const path of tracked) {
+  const form = decisionForm(path, trackedFile)
+  if (form) forms.set(path, form)
+}
+let found = [...forms.keys()].sort()
 if (found.some((p) => !safePath(p)))
   skipped.push({
     path: null,
@@ -178,27 +135,45 @@ for (const path of found) {
     continue
   }
   const dir = posix.dirname(path) === "." ? "." : posix.dirname(path)
-  candidates.push({ path, dir, text, ...parseDecision(path, text) })
+  const form = forms.get(path)
+  const meta = form.meta === null ? null : readTracked(source, form.meta)
+  candidates.push({
+    path,
+    dir,
+    text,
+    merged: form.merged,
+    ...parseDecision(path, text, form, meta),
+  })
 }
 const byPath = new Map(candidates.map((c) => [c.path, c]))
 const byNumber = new Map()
 for (const c of candidates)
-  if (c.number !== null)
-    byNumber.set(c.number, [...(byNumber.get(c.number) ?? []), c])
+  if (c.number !== null) {
+    const key = decisionKey(c.form, c.number)
+    byNumber.set(key, [...(byNumber.get(key) ?? []), c])
+  }
+/** The decision file at a referenced path: the file, or the README of a KEP folder. */
+const decisionAt = (path) =>
+  byPath.get(path) ?? byPath.get(`${path.replace(/\/+$/, "")}/README.md`)
 
 // 2. Declared supersession, only between decision files of this source.
 const edges = new Map() // "from>to" -> { from, to, evidence }
 for (const c of candidates) {
   let count = 0
   for (const clause of c.clauses) {
-    const refs = extractRefs(clause.text, c.dir)
+    const refs = extractRefs(clause, {
+      dir: c.dir,
+      form: c.form,
+      merged: c.merged,
+      repository,
+    })
     const hits = new Set()
     for (const p of refs.paths) {
-      const target = byPath.get(p)
+      const target = decisionAt(p)
       if (target && target !== c) hits.add(target)
     }
-    for (const n of refs.numbers) {
-      const same = (byNumber.get(n) ?? []).filter((t) => t !== c)
+    for (const key of refs.keys) {
+      const same = (byNumber.get(key) ?? []).filter((t) => t !== c)
       const near = same.filter((t) => t.dir === c.dir)
       const pick =
         near.length === 1
@@ -316,7 +291,9 @@ const decisionEntries = index.filter(
 const entryAt = new Map(decisionEntries.map((e) => [e.path, e]))
 const taken = new Map()
 for (const c of order) {
-  c.name = c.number === null ? c.title : `ADR-${c.number}: ${c.title}`
+  const label = FORM_LABEL[c.form]
+  c.name =
+    c.number === null || !label ? c.title : `${label}-${c.number}: ${c.title}`
   const derived = targetPath(repository, c.path)
   const keys = new Set([nameKey(c.title), nameKey(c.name)])
   const sole = (e) =>
@@ -404,6 +381,7 @@ function entryOf(c) {
   const rel = (path) => relativeTo(c.target, path)
   return {
     path: c.path,
+    metadata: forms.get(c.path).meta,
     name: c.name,
     title: c.title,
     number: c.number,
@@ -513,11 +491,8 @@ for (const path of staged) {
     const status = /^\*\*Status:\*\*\s*(\S+)/m.exec(
       text.slice(front[0].length),
     )?.[1]
-    if (
-      status?.toLowerCase().replace(/[^a-z]/g, "") !==
-      STATUS_LABEL[entry.status].toLowerCase()
-    )
-      problem(path, `The Status line must say ${STATUS_LABEL[entry.status]}`)
+    if (status?.toLowerCase().replace(/[^a-z]/g, "") !== entry.status)
+      problem(path, `The Status line must say ${statusLabel(entry.status)}`)
   }
 }
 for (const [path, entry] of entries)

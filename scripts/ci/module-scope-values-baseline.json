@@ -14,7 +14,6 @@
     "MAX_SKIPPED"
   ],
   "apps/backend/ingest-skills/decisions/scripts/decision-parse.mjs": [
-    "MAX_LINES",
     "MAX_STATUS_TEXT"
   ],
   "apps/backend/ingest-skills/decisions/scripts/decisions.mjs": [
