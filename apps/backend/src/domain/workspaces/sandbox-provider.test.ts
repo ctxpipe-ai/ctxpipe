@@ -63,6 +63,17 @@ describe("destroyDetachedProviderSandbox", () => {
     ).rejects.toThrow(/provider unknown/)
   })
 
+  it("destroys a detached Docker sandbox by id without naming an image to pull", async () => {
+    const destroy = vi.fn(async () => undefined)
+    dockerSandbox.mockReturnValue({ destroy, resume: async () => null })
+    await destroyDetachedProviderSandbox({
+      provider: "docker",
+      providerSandboxId: "ctr_1",
+    })
+    expect(dockerSandbox).toHaveBeenCalledWith({ image: "" })
+    expect(destroy).toHaveBeenCalledWith({ id: "ctr_1" })
+  })
+
   it("does not treat a Docker outage as a successful destroy", async () => {
     dockerPing.mockRejectedValueOnce(new Error("ECONNREFUSED"))
     const destroy = vi.fn(async () => undefined)
