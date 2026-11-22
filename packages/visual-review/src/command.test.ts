@@ -1930,7 +1930,7 @@ export const Primary = { render: () => null }
 
           const text = parts.map(({ text }) => text ?? "").join("\n")
           expect(text).toContain(
-            "Image 2: a close-up of the changed regions and the elements next to them, at 2× size",
+            "Image 2: a close-up of the largest changed region and the elements next to it, at 2× size",
           )
           // The close-ups were in a private folder that the run removed.
           expect(
