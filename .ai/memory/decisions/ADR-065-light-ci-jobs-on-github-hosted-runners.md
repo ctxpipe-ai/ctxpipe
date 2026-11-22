@@ -38,12 +38,22 @@ The CTO decided this in the cost review of 2026-11-22 ([CTX-1505](https://linear
 - **The Storybook screenshots run on `ubuntu-24.04-arm`.** The capture runs in the pinned Playwright image (`scripts/ci/visual-container.json`, `linux/arm64`), not on the runner, so the move changes no screenshot. The first runs on GitHub matched each committed baseline.
 - **The light jobs of `deploy.yaml` run on `ubuntu-24.04-arm`.** These are the image plan, the publish matrix, the ECR digests, the ECR copy, the release, the Forge deploy and the prerelease. The image builds stay on Blacksmith (amd64 and arm64, with the Blacksmith builder). The two ECR push roles (factory `machines/hosted` `ctxpipe-ecr-push`, `machines/previews/base` `preview-mirror-push`) trust the audience, the subject `repo:ctxpipe-ai/ctxpipe:environment:ecr-push` and the `job_workflow_ref` of `deploy.yaml` on `main`. They have no condition on the runner (such as `runner_environment`), so the move needs no change of a trust policy. The Forge deploy used the Blacksmith sticky disk for its pnpm store. It now restores the pnpm store of `main` from the GitHub cache, as the release job does: a pull request run cannot write to the cache scope of `main` (`check-secret-jobs.mjs`).
 - **The publish matrix stays a matrix.** Each publish job takes about 10 s, and the 7 jobs run in parallel. On a free runner one job would save no money, and its serial copies would take longer. A later deploy run also reads the digest of each image from the notice of its own check run (`deploy-images.mjs`).
-- **Speed on GitHub.** The time of the tests is the same on both runners: the sum of the file times of the backend and contract shards was 4,417 s on GitHub against 4,613 s on Blacksmith (the same 696 files). The setup of a shard is longer on GitHub, because the runner has no image cache and no colocated cache: with a cached converter, 134 s to 154 s against 73 s. These changes keep the time of a run:
+- **Speed on GitHub.** The time of the tests is the same on both runners: the sum of the file times of the backend and contract shards was 4,417 s on GitHub against 4,613 s on Blacksmith (the same 696 files). The setup of a shard is longer on GitHub, because the runner has no image cache and no colocated cache: before the changes below, a shard spent 138 s to 157 s outside its tests (queue, setup and teardown, with a cached converter), against 80 s on Blacksmith. These changes keep the time of a run:
   - `scripts/ci/test-weights.json` holds the measured time of each backend and contract file of 5 s or more. It held only 18 backend files, so one backend shard got most of the long files (805 s of file time against 350 s in another shard).
   - A full run has 5 backend shards (it had 4), so the database profile of `shard.mjs` has at most 10 shards.
   - The image pulls of the contract tests and the build of the chat sandbox image run in the background while the toolchain installs.
   - The Postgres service checks its health every second while it starts.
   - `main-caches.yaml` builds the file converter in the GitHub cache on each push to `main` that changes it. Before, each pull request run after a converter change built it in each shard (about 200 s).
+- **Measured times.** Blacksmith: the pull request runs of 15 to 21 November (medians). GitHub: the full runs of PR #989 with these changes, with a cached converter (see the PR for each run).
+
+  | Time | Blacksmith | GitHub |
+  | --- | --- | --- |
+  | Full run, first job to Merge gate | 1,086 s (31 runs; 1,322 s in the 8 runs of 21 November) | 915 s, 826 s |
+  | Slowest test shard of a full run | 993 s (1,137 s on 21 November) | 837 s, 753 s |
+  | A shard outside its tests (queue, setup, teardown) | 80 s | 93 s (backend), 110 s (contracts) |
+  | Screenshots shard of a full run | 504 s | 472 s to 525 s |
+
+  A gated run has fewer shards, so the setup of a shard counts more. A gated run with tests took 431 s (median) on Blacksmith. With 13 s to 30 s more for each shard, it takes about 3% to 7% longer on GitHub.
 - **GitHub-hosted jobs with Docker.** The test shards, the screenshots (the Playwright container, which `scripts/ci/visual-capture.mjs` starts) and the publish job of the deploy (`docker buildx imagetools`, no container). The policy test reads only the steps of a job, so it lists the test shards and the publish job. Each other GitHub-hosted job has no Docker in its steps, and no GitHub-hosted job uses a Blacksmith action.
 
 ### Consequences of the revision
