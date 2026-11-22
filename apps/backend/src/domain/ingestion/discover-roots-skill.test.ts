@@ -415,6 +415,13 @@ describe("discover-roots script", () => {
       "cmd/kubeadm/kubeadm.go": "package main\n",
       "hack/gen/gen.go":
         "//go:build ignore\n// +build ignore\n\npackage main\n",
+      // A constraint that some build can satisfy keeps the file.
+      "cmd/kubectl-convert/main.go": "//go:build !(ignore)\n\npackage main\n",
+      "cmd/kube-proxy/main.go": "//go:build linux || ignore\n\npackage main\n",
+      "cmd/kube-scheduler/main.go": "// +build !ignore\n\npackage main\n",
+      // No build can satisfy these constraints.
+      "cmd/gen-a/main.go": "//go:build linux && ignore\n\npackage main\n",
+      "cmd/gen-b/main.go": "// +build ignore,linux\n\npackage main\n",
       "pkg/util/util.go": "package util\n",
       "pkg/tool/main_test.go": "package main\n",
       "test/e2e/main.go": "package main\n",
@@ -432,6 +439,16 @@ describe("discover-roots script", () => {
       roots: [
         { path: ".", manifests: ["go.mod"], evidence: ["go.work"] },
         {
+          path: "cmd/kube-proxy",
+          manifests: [],
+          evidence: ["cmd/kube-proxy/main.go"],
+        },
+        {
+          path: "cmd/kube-scheduler",
+          manifests: [],
+          evidence: ["cmd/kube-scheduler/main.go"],
+        },
+        {
           path: "cmd/kubeadm",
           manifests: [],
           evidence: ["cmd/kubeadm/kubeadm.go"],
@@ -440,6 +457,11 @@ describe("discover-roots script", () => {
           path: "cmd/kubectl",
           manifests: [],
           evidence: ["cmd/kubectl/kubectl.go"],
+        },
+        {
+          path: "cmd/kubectl-convert",
+          manifests: [],
+          evidence: ["cmd/kubectl-convert/main.go"],
         },
         {
           path: "cmd/kubelet",

@@ -507,12 +507,15 @@ const inTestFolder = (dir) =>
   })
 
 /**
- * Text of tracked files at HEAD, keyed by path, with two git calls for each
- * 500 paths. Like `readTracked`, a file that is missing or larger than 1 MiB
- * is "", so the script never holds more than 500 MiB of file text.
+ * `parse` of the text of each tracked file at HEAD, keyed by path, with two
+ * git calls for each 500 paths. Like `readTracked`, a file that is missing
+ * or larger than 1 MiB is "". The script parses each chunk before it reads
+ * the next chunk, so it holds the file text of one chunk (at most 500 MiB)
+ * and only the parsed values of the other chunks.
  */
-function readTrackedMany(source, paths) {
-  const out = new Map()
+function readTrackedMany(source, paths, parse) {
+  const empty = parse("")
+  const out = new Map(paths.map((p) => [p, empty]))
   const list = paths.filter((p) => !p.includes("\n") && !p.includes("\r"))
   const git = (args, input) =>
     execFileSync("git", ["-C", source, ...args], {
@@ -529,7 +532,6 @@ function readTrackedMany(source, paths) {
       .toString("utf8")
       .split("\n")
     chunk.forEach((path, i) => {
-      out.set(path, "")
       const [oid, type, size] = lines[i].split(" ")
       if (type === "blob" && Number(size) <= 1024 * 1024)
         small.push({ path, oid, size: Number(size) })
@@ -542,7 +544,7 @@ function readTrackedMany(source, paths) {
     let at = 0
     for (const { path, size } of small) {
       at = buffer.indexOf(10, at) + 1
-      out.set(path, buffer.toString("utf8", at, at + size))
+      out.set(path, parse(buffer.toString("utf8", at, at + size)))
       at += size + 1
     }
   }
@@ -572,13 +574,21 @@ function cargoWorkspaces(source, markersOf) {
     .filter((dir) => markersOf.get(dir).includes("Cargo.toml"))
     .filter((dir) => dir === "." || !inTestFolder(dir))
     .sort()
-  const texts = readTrackedMany(source, dirs.map(cargoManifest))
+  const parsed = readTrackedMany(source, dirs.map(cargoManifest), (text) => {
+    const tables = tomlTables(text)
+    return {
+      workspace: tables.has("workspace"),
+      package: tables.has("package"),
+      members: tomlStringArray(tables, "workspace", "members"),
+      exclude: tomlStringArray(tables, "workspace", "exclude"),
+    }
+  })
   const found = []
   for (const dir of dirs) {
-    const tables = tomlTables(texts.get(cargoManifest(dir)) ?? "")
-    const workspace = tables.has("workspace")
-    if (!workspace && !(dir === "." && tables.has("package"))) continue
-    const members = tomlStringArray(tables, "workspace", "members")
+    const tables = parsed.get(cargoManifest(dir))
+    const workspace = tables.workspace
+    if (!workspace && !(dir === "." && tables.package)) continue
+    const members = tables.members
     const entries = []
     for (const raw of members) {
       const path = joinFolder(dir, cleanEntry(raw))
@@ -586,7 +596,7 @@ function cargoWorkspaces(source, markersOf) {
     }
     // Cargo excludes the folder and each folder below it. An exclude is a
     // path, not a glob.
-    const excludes = tomlStringArray(tables, "workspace", "exclude")
+    const excludes = tables.exclude
       .map((raw) => joinFolder(dir, cleanEntry(raw)))
       .filter(Boolean)
     for (const path of excludes) entries.push(`!${path}`, `!${path}/**`)
@@ -598,7 +608,7 @@ function cargoWorkspaces(source, markersOf) {
       excluded: (path) =>
         excludes.some((e) => path === e || path.startsWith(`${e}/`)),
       // With no `[workspace]`, the single-root fallback gives the root.
-      rootPackage: workspace && tables.has("package"),
+      rootPackage: workspace && tables.package,
       // As before, a root workspace with no `members` is not a workspace
       // manifest for the single-root fallback.
       rootLevel: dir === "." && members.length > 0,
@@ -646,14 +656,16 @@ function cargoPathMembers(source, markersOf, workspace, listed) {
   const inside = (dir) =>
     workspace.dir === "." || dir.startsWith(`${workspace.dir}/`)
   while (queue.length) {
-    const texts = readTrackedMany(source, queue.map(cargoManifest))
+    const dependencies = readTrackedMany(
+      source,
+      queue.map(cargoManifest),
+      cargoPathDependencies,
+    )
     const next = []
     for (const crate of queue) {
       // The workspace manifest is read for `[workspace.dependencies]`; it is
       // a member only when it has a `[package]`.
-      for (const relative of cargoPathDependencies(
-        texts.get(cargoManifest(crate)) ?? "",
-      )) {
+      for (const relative of dependencies.get(cargoManifest(crate))) {
         const dir = joinFolder(crate, cleanEntry(relative))
         if (
           !dir ||
@@ -674,14 +686,108 @@ function cargoPathMembers(source, markersOf, workspace, listed) {
 }
 
 /**
+ * A Go build constraint as a function of the set tags, or null when the
+ * script cannot parse it. `//go:build` uses `||`, `&&`, `!` and
+ * parentheses. A `// +build` line is a list of options with spaces between
+ * them (or), each option a list of terms with commas between them (and).
+ */
+function goConstraint(line) {
+  const body = line.replace(/^\/\/\s*(go:build|\+build)/, "").trim()
+  if (/^\/\/\s*\+build/.test(line)) {
+    const options = body.split(/\s+/).map((option) =>
+      option.split(",").map((term) => {
+        const not = term.startsWith("!")
+        const tag = not ? term.slice(1) : term
+        return (set) => set.has(tag) !== not
+      }),
+    )
+    return (set) => options.some((terms) => terms.every((t) => t(set)))
+  }
+  const tokens = body.match(/\|\||&&|!|\(|\)|[\w.]+|\S/g) ?? []
+  let at = 0
+  const fail = () => {
+    throw new Error("constraint")
+  }
+  const unary = () => {
+    const token = tokens[at++]
+    if (token === "!") {
+      const inner = unary()
+      return (set) => !inner(set)
+    }
+    if (token === "(") {
+      const inner = or()
+      if (tokens[at++] !== ")") fail()
+      return inner
+    }
+    if (!token || !/^[\w.]+$/.test(token)) fail()
+    return (set) => set.has(token)
+  }
+  const and = () => {
+    let left = unary()
+    while (tokens[at] === "&&") {
+      at++
+      const [l, r] = [left, unary()]
+      left = (set) => l(set) && r(set)
+    }
+    return left
+  }
+  const or = () => {
+    let left = and()
+    while (tokens[at] === "||") {
+      at++
+      const [l, r] = [left, and()]
+      left = (set) => l(set) || r(set)
+    }
+    return left
+  }
+  try {
+    const expression = or()
+    return at === tokens.length ? expression : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * True when no build can include a file with these constraint lines: each
+ * set of tags without `ignore` makes the constraint false. The go tool reads
+ * the `//go:build` line, and the `// +build` lines (all of them must be
+ * true) only when there is no `//go:build` line. A constraint that the
+ * script cannot parse, or that names more than 12 other tags, is not
+ * ignored.
+ */
+function goIgnoredBuild(lines) {
+  const goBuild = lines.find((l) => /^\/\/\s*go:build/.test(l))
+  const constraints = (goBuild ? [goBuild] : lines).map(goConstraint)
+  if (constraints.some((c) => c === null)) return false
+  const tags = [
+    ...new Set(
+      (goBuild ? [goBuild] : lines)
+        .flatMap(
+          (l) =>
+            l.replace(/^\/\/\s*(go:build|\+build)/, "").match(/[\w.]+/g) ?? [],
+        )
+        .filter((tag) => tag !== "ignore"),
+    ),
+  ]
+  if (tags.length > 12) return false
+  for (let bits = 0; bits < 2 ** tags.length; bits++) {
+    const set = new Set(tags.filter((_, i) => bits & (1 << i)))
+    if (constraints.every((c) => c(set))) return false
+  }
+  return true
+}
+
+/**
  * The rule for one Go file of a folder, in name order: "main" when it makes
- * the folder a `main` package, "next" when a build constraint names
- * `ignore` (a generator that `go run` starts is no part of the package, so
- * read the next file), and "none" otherwise. All files of a Go package that
- * the go tool builds have one package clause.
+ * the folder a `main` package, "next" when its build constraint excludes it
+ * from every build (`//go:build ignore`: a generator that `go run` starts is
+ * no part of the package, so read the next file), and "none" otherwise. All
+ * files of a Go package that the go tool builds have one package clause.
  */
 function goMainStep(text) {
   let inComment = false
+  const constraints = []
   for (const raw of text.split("\n")) {
     let line = raw.trim()
     if (inComment) {
@@ -691,8 +797,7 @@ function goMainStep(text) {
       line = line.slice(end + 2).trim()
     }
     if (/^\/\/\s*(go:build|\+build)\s/.test(line)) {
-      if (/[\s(|&,]ignore($|[\s)|&,])/.test(line.replace(/^\/\/\s*/, " ")))
-        return "next"
+      constraints.push(line)
       continue
     }
     if (line.startsWith("/*")) {
@@ -704,6 +809,7 @@ function goMainStep(text) {
       line = line.slice(end + 2).trim()
     }
     if (line === "" || line.startsWith("//")) continue
+    if (goIgnoredBuild(constraints)) return "next"
     return /^package\s+main(\s|;|\/\/|$)/.test(line) ? "main" : "none"
   }
   return "none"
@@ -773,14 +879,15 @@ function goMainPackages(source, files, markersOf) {
   const out = []
   let round = [...byFolder.keys()].map((dir) => [dir, 0])
   while (round.length) {
-    const texts = readTrackedMany(
+    const steps = readTrackedMany(
       source,
       round.map(([dir, i]) => byFolder.get(dir)[i]),
+      goMainStep,
     )
     const next = []
     for (const [dir, i] of round) {
       const file = byFolder.get(dir)[i]
-      const step = goMainStep(texts.get(file) ?? "")
+      const step = steps.get(file)
       if (step === "main") out.push([dir, file])
       else if (step === "next" && i + 1 < byFolder.get(dir).length)
         next.push([dir, i + 1])
@@ -996,8 +1103,8 @@ export function fitResult(result, maxBytes = MAX_RESULT_BYTES) {
     manifest: null,
     reason: `The result of the script must be at most ${maxBytes} bytes, so it gives only the first ${roots} roots, ${candidates} candidates, and ${skipped} other skipped entries`,
   })
-  // The counts only go down, so the note at the start counts are the
-  // largest that the note can be.
+  // The counts can only decrease. Thus the note with the first counts is
+  // the largest note.
   const room =
     maxBytes -
     size(

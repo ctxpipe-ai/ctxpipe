@@ -405,6 +405,13 @@ export function defineRepositoryIngestionV2Workflow(
                   ingestionRunId: run.id,
                   ...refused,
                 })
+              // The script records what it did not give, also the roots
+              // that its size limit cut.
+              for (const skipped of plan.skipped)
+                logIngestEvent("warn", "ingestion-v2.discovery-skipped", {
+                  ingestionRunId: run.id,
+                  ...skipped,
+                })
               // No count limits the roots. The step output keeps the packed
               // list, so its size is the limit: the whole output stays below
               // 1 MiB, where the backend starts to warn about a large step

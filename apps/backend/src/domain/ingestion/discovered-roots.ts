@@ -29,6 +29,9 @@ const ScriptResultSchema = z.object({
       ),
     }),
   ),
+  skipped: z
+    .array(z.object({ manifest: z.string().nullable(), reason: z.string() }))
+    .default([]),
 })
 
 const ModelResultSchema = z.object({
@@ -38,6 +41,8 @@ const ModelResultSchema = z.object({
 export type DiscoveredRoot = z.infer<typeof RootSchema>
 
 type RefusedRoot = { path: string | null; reason: string }
+
+type SkippedEntry = { manifest: string | null; reason: string }
 
 /**
  * Same rule as `safePath` in
@@ -61,13 +66,18 @@ function safePath(path: string): boolean {
  * The roots to plan: each script root as it is, plus each root that the
  * model chose from the `candidates` of an ambiguous entry, with
  * `evidence: ["model"]` and the script's manifests. Everything else is in
- * `refused`. `modelResult` is null when no model ran (no ambiguous entry).
+ * `refused`. `skipped` is what the script did not give, as the script
+ * recorded it (for example, the entries that the size limit cut). `modelResult` is null when no model ran (no ambiguous entry).
  * Throws when the script result does not match its schema.
  */
 export function resolveDiscoveredRoots(
   scriptResult: unknown,
   modelResult: unknown,
-): { roots: DiscoveredRoot[]; refused: RefusedRoot[] } {
+): {
+  roots: DiscoveredRoot[]
+  refused: RefusedRoot[]
+  skipped: SkippedEntry[]
+} {
   const script = ScriptResultSchema.safeParse(scriptResult)
   if (!script.success)
     throw new Error(
@@ -112,5 +122,6 @@ export function resolveDiscoveredRoots(
       a.path < b.path ? -1 : a.path > b.path ? 1 : 0,
     ),
     refused,
+    skipped: script.data.skipped,
   }
 }

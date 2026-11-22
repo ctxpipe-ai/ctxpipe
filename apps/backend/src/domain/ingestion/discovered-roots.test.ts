@@ -50,6 +50,7 @@ describe("resolveDiscoveredRoots", () => {
         },
       ],
       refused: [],
+      skipped: [],
     })
   })
 
@@ -78,6 +79,7 @@ describe("resolveDiscoveredRoots", () => {
     expect(resolveDiscoveredRoots(SCRIPT, null)).toEqual({
       roots: SCRIPT.roots,
       refused: [],
+      skipped: [],
     })
     expect(resolveDiscoveredRoots(SCRIPT, { roots: "all" })).toEqual({
       roots: SCRIPT.roots,
@@ -87,7 +89,18 @@ describe("resolveDiscoveredRoots", () => {
           reason: "The model result does not match the discover-roots schema",
         },
       ],
+      skipped: [],
     })
+  })
+
+  it("gives the entries that the script skipped", () => {
+    const skipped = [
+      { manifest: "Cargo.toml", reason: "The manifest is not valid TOML" },
+      { manifest: null, reason: "The result was over its size limit" },
+    ]
+    expect(
+      resolveDiscoveredRoots({ ...SCRIPT, skipped }, null).skipped,
+    ).toEqual(skipped)
   })
 
   it("refuses an unsafe script root and fails on a script result with a bad shape", () => {
@@ -98,6 +111,7 @@ describe("resolveDiscoveredRoots", () => {
     expect(resolveDiscoveredRoots(script, null)).toEqual({
       roots: SCRIPT.roots,
       refused: [{ path: "a/../b", reason: "The path is not safe to write" }],
+      skipped: [],
     })
     expect(() => resolveDiscoveredRoots({ roots: [] }, null)).toThrow(
       "The discover-roots script result does not match its schema",
