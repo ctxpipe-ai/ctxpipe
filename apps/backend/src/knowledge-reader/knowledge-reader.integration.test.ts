@@ -47,6 +47,7 @@ import {
   selectFirstKnowledgeBranch,
   selectKnowledgeReader,
 } from "./knowledge-reader.js"
+import { ORCHESTRATOR_DEFAULTS } from "./orchestrator.js"
 
 /*
  * The knowledge reader seam behind the org flag (ADR-069 decision 9), through
@@ -1041,6 +1042,25 @@ describe("the knowledge reader seam", () => {
       (content.results as { ref: string }[]).map((result) => result.ref),
     ).toEqual(["knowledge/teams/payments.md"])
     expect(content.positions).toBeUndefined()
+  }, 15_000)
+
+  it("on: with no time budget (0, the evals), get_related waits for a slow Jev call and returns the full ranking", async () => {
+    await setFlag("on")
+    // Call 3 judges layer 2 and answers after 5 s, more than the 3 s budget
+    // of the product.
+    slowJevCall = 3
+    const before = ORCHESTRATOR_DEFAULTS.timeBudgetMs
+    ORCHESTRATOR_DEFAULTS.timeBudgetMs = 0
+    try {
+      const content = structured(await relatedCall({ maxDepth: 3 }))
+      expect(content.partial).toBe(false)
+      expect(
+        (content.results as { ref: string }[]).map((result) => result.ref),
+      ).toEqual(["knowledge/teams/payments.md", "knowledge/decisions/adr-7.md"])
+      expect(content.positions).toHaveLength(2)
+    } finally {
+      ORCHESTRATOR_DEFAULTS.timeBudgetMs = before
+    }
   }, 15_000)
 
   it("on: when the time budget ends in the disagreement step, get_related has the results and no positions", async () => {

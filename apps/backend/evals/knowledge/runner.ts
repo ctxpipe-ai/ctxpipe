@@ -145,6 +145,11 @@ const manifestSchema = z.object({
   settings: z.record(z.string(), z.number()),
   /** The effective settings of the loop. */
   loop: z.object({ keepAt: z.number() }).catchall(z.number()),
+  /**
+   * The time budget of the product (`timeBudgetMs`), in ms. The report shows
+   * each answer that is over it. Absent in a run from before 2026-11-22.
+   */
+  productBudgetMs: z.number().optional(),
   mode: z.enum(["live", "replay"]),
   capUsd: z.number(),
   spentUsd: z.number(),

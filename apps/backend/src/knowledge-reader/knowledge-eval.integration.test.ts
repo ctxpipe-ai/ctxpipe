@@ -392,6 +392,10 @@ describe("the knowledge eval harness", () => {
   it("runs each question through both arms and writes the run folder and the report", async () => {
     live = await run("live")
     expect(live.status).toBe("complete")
+    // An eval runs with no time budget, and it keeps the budget of the
+    // product to show the answers that would be over it.
+    expect(live.run.loop.timeBudgetMs).toBe(0)
+    expect(live.run.productBudgetMs).toBe(3_000)
     // Jev agrees with the gold labels, so the plane is right each time. The
     // old stack ranks some gold documents lower, and it has no "no answer".
     expect(compact(live)).toEqual({

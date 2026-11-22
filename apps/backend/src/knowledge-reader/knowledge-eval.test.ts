@@ -469,6 +469,63 @@ describe("a run with a failed call", () => {
   })
 })
 
+describe("the product time budget", () => {
+  it("counts and lists each answer of a live run that is over the budget of the product", async () => {
+    const dataset = await readDataset(datasetFile)
+    const [first, second] = dataset.questions.filter(
+      (question) => question.seeds,
+    )
+    if (!first || !second) throw new Error("The example has few seeds.")
+    const calls = { jev: 1, jevQuestions: 1, embedding: 1, costUsd: 0 }
+    const answer = (
+      arm: "legacy" | "plane",
+      question: string,
+      relatedMs: number,
+    ) => ({
+      arm,
+      question,
+      search: { refs: [], scores: [], latencyMs: 900 },
+      related: { refs: [], scores: [], latencyMs: relatedMs },
+      calls: { ...calls, missing: 0, failed: 0 },
+    })
+    const report = buildReport({
+      manifest: {
+        datasetVersion: dataset.version,
+        splits: ["dev"],
+        now: "2026-11-22T00:00:00.000Z",
+        settings: {},
+        loop: { ...ORCHESTRATOR_DEFAULTS, timeBudgetMs: 0 },
+        productBudgetMs: 3_000,
+        mode: "live",
+        capUsd: 1,
+        spentUsd: 0,
+        stopped: false,
+      },
+      dataset: { ...dataset, questions: [first, second] },
+      answers: [
+        answer("legacy", first.id, 800),
+        answer("plane", first.id, 4_250),
+        answer("legacy", second.id, 800),
+        answer("plane", second.id, 2_900),
+      ],
+      kept: null,
+    })
+    expect(
+      report.operations.map(({ arm, overProductBudget }) => ({
+        arm,
+        overProductBudget,
+      })),
+    ).toEqual([
+      { arm: "legacy", overProductBudget: 0 },
+      { arm: "plane", overProductBudget: 1 },
+    ])
+    const markdown = renderMarkdown(report)
+    expect(markdown).toContain("## Answers over the product time budget")
+    expect(markdown).toContain(`- ${first.id} (plane): get_related 4250 ms`)
+    expect(markdown).not.toContain(`- ${second.id} (plane)`)
+  })
+})
+
 describe("the comparison with the kept run", () => {
   it("counts an error of this run, not of the kept run, in the guards", async () => {
     const dataset = await readDataset(datasetFile)

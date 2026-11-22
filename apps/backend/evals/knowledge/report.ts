@@ -7,6 +7,7 @@ import {
   METRICS,
   type MetricValues,
   operations,
+  overBudget,
   type QuestionScore,
   scoreAnswer,
 } from "./metrics.js"
@@ -222,7 +223,17 @@ export function buildReport(input: {
           (score) => score.arm === arm && score.split === split,
         )
         return group.length
-          ? [{ arm, split, ...operations(group, manifest.mode === "live") }]
+          ? [
+              {
+                arm,
+                split,
+                ...operations(
+                  group,
+                  manifest.mode === "live",
+                  manifest.productBudgetMs ?? null,
+                ),
+              },
+            ]
           : []
       }),
     ),
@@ -386,11 +397,13 @@ export function renderMarkdown(report: Report): string {
           "",
         ]
       : []),
-    "| Arm | Split | Questions | Search p50 | Search p95 | get_related p50 | get_related p95 | Jev calls / question | Jev questions / question | Embedding calls / question | Cost | Errors | Partial |",
-    "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+    `Time budget of the run: ${report.run.loop.timeBudgetMs ? ms(report.run.loop.timeBudgetMs) : "none"}. Over the product budget: the answers with a call that took longer than ${ms(report.run.productBudgetMs ?? null)}.`,
+    "",
+    "| Arm | Split | Questions | Search p50 | Search p95 | get_related p50 | get_related p95 | Jev calls / question | Jev questions / question | Embedding calls / question | Cost | Errors | Partial | Over the product budget |",
+    "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ...report.operations.map(
       (row) =>
-        `| ${row.arm} | ${row.split} | ${row.questions} | ${ms(row.searchP50Ms)} | ${ms(row.searchP95Ms)} | ${ms(row.relatedP50Ms)} | ${ms(row.relatedP95Ms)} | ${row.jevCallsPerQuestion.toFixed(1)} | ${row.jevQuestionsPerQuestion.toFixed(1)} | ${row.embeddingCallsPerQuestion.toFixed(1)} | ${usd(row.costUsd)} | ${row.errors} | ${row.partial} |`,
+        `| ${row.arm} | ${row.split} | ${row.questions} | ${ms(row.searchP50Ms)} | ${ms(row.searchP95Ms)} | ${ms(row.relatedP50Ms)} | ${ms(row.relatedP95Ms)} | ${row.jevCallsPerQuestion.toFixed(1)} | ${row.jevQuestionsPerQuestion.toFixed(1)} | ${row.embeddingCallsPerQuestion.toFixed(1)} | ${usd(row.costUsd)} | ${row.errors} | ${row.partial} | ${row.overProductBudget ?? "n/a"} |`,
     ),
     "",
     `Model cost: ${usd(report.costUsd)}${report.run.mode === "replay" ? " (the cost of the recorded calls when they were made)" : ""}.`,
@@ -487,6 +500,30 @@ export function renderMarkdown(report: Report): string {
         `| ${question.question} | ${question.arm} | ${question.split} | ${question.change} | ${list(question.metrics)} | ${list(question.kept)} |`,
       )
   }
+  const budget = report.run.productBudgetMs
+  const slow =
+    budget && report.run.mode === "live"
+      ? report.questions.filter((question) => overBudget(question, budget))
+      : []
+  if (slow.length)
+    lines.push(
+      "",
+      "## Answers over the product time budget",
+      "",
+      `These answers took longer than the ${ms(budget ?? null)} budget of the product. With that budget, they would be partial.`,
+      "",
+      ...slow.map((question) => {
+        const parts = [
+          ...(budget && question.searchMs > budget
+            ? [`search ${ms(question.searchMs)}`]
+            : []),
+          ...(budget && (question.relatedMs ?? 0) > budget
+            ? [`get_related ${ms(question.relatedMs)}`]
+            : []),
+        ]
+        return `- ${question.question} (${question.arm}): ${parts.join(", ")}`
+      }),
+    )
   const failed = report.questions.filter((question) => question.error)
   if (failed.length)
     lines.push(

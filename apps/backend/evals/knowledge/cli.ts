@@ -101,7 +101,10 @@ export async function executeRun(input: {
   // A replay sends no call. Each client of a live run sends the provider
   // block (ADR-070).
   const calls = modelCalls(input.capUsd, input.replay?.calls)
-  const restoreSettings = applySettings(input.settings)
+  // An eval has no time budget, so that a slow step does not hide what the
+  // loop finds (the CTO, 2026-11-22). `--set timeBudgetMs=…` sets one.
+  const productBudgetMs = ORCHESTRATOR_DEFAULTS.timeBudgetMs
+  const restoreSettings = applySettings({ timeBudgetMs: 0, ...input.settings })
   const restoreFetch = calls.install()
   try {
     const answers = await runEval({
@@ -119,6 +122,7 @@ export async function executeRun(input: {
       now: input.now.toISOString(),
       settings: input.settings,
       loop: { ...ORCHESTRATOR_DEFAULTS },
+      productBudgetMs,
       mode: input.replay ? "replay" : "live",
       ...calls.summary(),
     }

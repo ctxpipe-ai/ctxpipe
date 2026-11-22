@@ -50,12 +50,14 @@ import type {
 import {
   BudgetSpentError,
   beforeDeadline,
+  callTimeLimitMs,
   evidenceText,
   isBudgetSpent,
   jevMeta,
   judge,
   type ModelMeter,
   ORCHESTRATOR_DEFAULTS,
+  retrievalDeadline,
   type TraversalNode,
   traverse,
 } from "./orchestrator.js"
@@ -220,7 +222,7 @@ async function search(
   const query = request.query.trim()
   if (!query || request.workspaceIds.length === 0) return { hits: [] }
   const queryTime = request.validAt ?? request.now ?? new Date()
-  const deadline = performance.now() + ORCHESTRATOR_DEFAULTS.timeBudgetMs
+  const deadline = retrievalDeadline()
   const store = knowledgeStore()
   // The store applies each filter before it cuts the candidates. With no
   // time left for the search itself, there is no hit to give.
@@ -355,7 +357,7 @@ async function related(
   embed: (text: string) => Promise<number[]>,
   meter: ModelMeter,
 ): Promise<Ranking> {
-  const deadline = performance.now() + ORCHESTRATOR_DEFAULTS.timeBudgetMs
+  const deadline = retrievalDeadline()
   const store = knowledgeStore()
   const paths = [...new Set(input.seeds.map((ref) => checkPath(ref, ref)))]
   const question =
@@ -527,7 +529,7 @@ async function disagreementPositions(
       question,
       queryTime,
       thresholds: { sameAt, disagreeAt, replacesAt, scopedAt },
-      timeoutMs: Math.max(1, Math.floor(deadline - performance.now())),
+      timeoutMs: callTimeLimitMs(deadline),
       items: top.map(({ document, text }, index) => ({
         id: String(index),
         passage: text,

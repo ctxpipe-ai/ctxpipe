@@ -197,11 +197,13 @@ export function meanMetrics(scores: readonly QuestionScore[]): MetricValues {
 /**
  * The operations guards of a group of answers. A replay answers each model
  * call at once, so its latency is no guard: `measured` is then false and
- * each latency is null.
+ * each latency is null. `productBudgetMs` is the time budget of the product,
+ * or null when the run does not give it.
  */
 export function operations(
   scores: readonly QuestionScore[],
   measured: boolean,
+  productBudgetMs: number | null = null,
 ) {
   const latency = (values: (number | null)[], p: number) =>
     measured
@@ -240,5 +242,15 @@ export function operations(
     costUsd: sum((score) => score.costUsd),
     errors: scores.filter((score) => score.error).length,
     partial: scores.filter((score) => score.partial).length,
+    /** The answers with a call that took longer than the product budget. */
+    overProductBudget:
+      measured && productBudgetMs
+        ? scores.filter((score) => overBudget(score, productBudgetMs)).length
+        : null,
   }
+}
+
+/** True when the search or `get_related` of `score` took longer than `budgetMs`. */
+export function overBudget(score: QuestionScore, budgetMs: number): boolean {
+  return score.searchMs > budgetMs || (score.relatedMs ?? 0) > budgetMs
 }
