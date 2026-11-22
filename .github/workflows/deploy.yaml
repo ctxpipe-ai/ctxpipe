@@ -473,6 +473,9 @@ jobs:
     runs-on: ubuntu-24.04-arm
     environment: production
     needs: ecr_digests
+    # It reads the repository only: dependency code runs next to the token.
+    permissions:
+      contents: read
 
     steps:
       # No token in .git/config: the job runs dependency code next to the
