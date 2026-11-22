@@ -38,6 +38,8 @@
         "additionalProperties": false,
         "required": [
           "path",
+          "form",
+          "metadata",
           "name",
           "title",
           "number",
@@ -57,6 +59,14 @@
             "type": "string",
             "description": "The decision file in the source repository."
           },
+          "form": {
+            "enum": ["adr", "kep", "rfc", "pep", "design"],
+            "description": "The form of the design record."
+          },
+          "metadata": {
+            "type": ["string", "null"],
+            "description": "The metadata file of a KEP (kep.yaml) in the source repository, or null."
+          },
           "name": {
             "type": "string",
             "description": "The name for the front matter."
@@ -72,6 +82,11 @@
               "accepted",
               "proposed",
               "draft",
+              "provisional",
+              "implementable",
+              "implemented",
+              "postponed",
+              "withdrawn",
               "deprecated",
               "superseded",
               "rejected",
