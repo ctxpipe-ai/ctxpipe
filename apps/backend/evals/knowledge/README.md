@@ -18,6 +18,22 @@ A dataset is one JSON file that `dataset.ts` checks (version 0):
 - **Corpora:** the public source, the frozen context repo (URL, SHA, and the root folder of the Workspace: `root`, with `""` as the default), and the id of its Workspace fixture. The gold paths, the seeds and the position refs are relative to the root, as the tools give the paths of a Workspace.
 - **Questions:** an id, a category of ADR-069 decision 5 (`lookup`, `multi-hop`, `cross-source`, `time`, `disagreement`, `image`, `no-answer`), the text, the gold document paths, the seeds of `get_related` (optional), the expected positions with their status (a `disagreement` question), the key facts, and the split (`dev` to tune, `holdout` for the keep-or-revert decision only).
 
+### The rules of the questions (the CTO, 2026-11-22)
+
+The baseline (the current stack) is weak. Thus a high baseline recall is a sign of easy questions, not of a good baseline. The questions are hard by construction:
+
+1. **No words of the gold.** A question does not reuse the distinctive terms of its gold documents: their titles, identifiers, numbers or rare phrases. It reads as an engineer asks it before they read the documents. A plain keyword search (BM25) over the question text must not find a gold document in its top 5. The drafter gets this rule. When code finds a gold document in the top 5, the drafter writes the question again one time, and a second leak drops the question. The panel only removes gold documents, so it cannot make a question leak.
+2. **Mostly more than one document.** For each Workspace: 4 one-document lookups, 12 multi-hop, 10 across sources, 8 time, 10 disagreement and 6 no-answer questions (`QUOTAS` in `draft.ts`). The gold of a traversal holds documents that are not neighbours of the seeds:
+   - **Multi-hop:** a chain of two hops, s → a → b. b is not a neighbour of the seed s. The neighbours hold each edge that the stacks can make (a claim, a relative Markdown link, a GitHub URL of a mirrored issue), and also each short issue reference (`#123`).
+   - **Across sources:** an issue that names a part of the code, and the knowledge document of that part. Issues have no edges to knowledge documents, so the knowledge document is never a neighbour of the seed (the issue).
+   - **Disagreement:** a document that replaces, withdraws or postpones a position, and its linked document that is most like it. The KEP and RFC tracking issues come first. This category does not follow the neighbour rule: it measures the positions and their status, and the two positions are linked documents. The keyword rule makes it hard.
+   - **Time:** a question whose answer depends on a date in the text. The snapshot repositories have one commit each, and each claim `valid_from` is the date of the ingest. Thus the dates come from the content: the issue times, the comment times, and the KEP, RFC and release dates in the text. Each time question has a `validAt`. Code checks that its month is in a source document, that the question names its year, and that a key fact states a date or a release that a source document holds.
+3. **A rule makes a category hard, not the result of the baseline.** When the baseline scores high on a category, the rule of that category changes. The drafter never keeps only the questions that the baseline misses, because that biases the set the other way.
+4. **A pilot first.** About 20 questions on one Workspace go through both arms before the full set is drafted.
+5. **No time budget.** An eval run has no time budget by default ([CTX-1455](https://linear.app/ctxpipe/issue/CTX-1455)): the budget of production hides too much. The latency is still recorded.
+
+**Known gaps of v0:** the context repos hold no image, so v0 has no image question. They hold no KEP text and no RFC text, only the tracking issues of `kubernetes/enhancements` and `rust-lang/rfcs`. The disagreement questions of v0 use those issues. After the ingest fix of [CTX-1501](https://linear.app/ctxpipe/issue/CTX-1501) and a new ingest, version 1 adds disagreement questions on the KEP and RFC documents.
+
 `fixtures/ctxpipe-memory.dataset.json` holds 12 example questions over `.ai/memory/` of this repository, written by hand. Its corpus is this repository at a fixed SHA with the root `.ai/memory`. The ADRs with superseded entries are the disagreement questions. `fixtures/ctxpipe-memory.workspace.json` is the small Workspace that the integration test writes to both stacks. The real question set comes from the frozen corpora ([CTX-1393](https://linear.app/ctxpipe/issue/CTX-1393)).
 
 ## The metrics
@@ -94,6 +110,17 @@ bun --env-file=.env.local evals/knowledge/cli.ts rescore \
 
 The disagreement step asks Jev only yes/no facts, and code decides the pair labels and the position status from them (ADR-068 decision 4). Thus a change of that code, or of a fact threshold (`sameAt`, `disagreeAt`, `replacesAt`, `scopedAt`), is scored again with no call.
 
+### Draft the questions
+
+```sh
+factory eval knowledge:draft --repo CTXPIPE-CHECKOUT --out "$TMPDIR/knowledge-eval/DRAFT.json" [--max-cost 10] -- \
+  --dataset "$PWD/FROZEN.json" --corpus kubernetes,rust --repo CONTEXT-REPOS-CLONE --model anthropic/claude-opus-5.5 [--seed v0] [--scale 0.4]
+```
+
+`FROZEN.json` is the output of `corpus freeze`: the corpora with their SHAs. The clone holds the frozen SHA of each corpus (for example one repository that fetched each context repo). For each corpus, code picks the source documents of each question with the seed and the rules above (`draft.ts`). The model writes only the question, its key facts, its gold (from the sources and their 5 nearest documents), the positions and `validAt`. Code then checks each draft: the gold is a given document, a multi-hop or across-sources gold holds each source, no person or handle of the corpus is in the text, and the keyword search does not find the gold. Code gives the seeds (the start of a chain, the issue of a pair, the current position). The drafter drafts 10% more than each quota, because the panel drops some. `--scale` drafts a part of each quota, for a pilot. Each call goes through the recorder, with the secret scrub and the provider block of ADR-070.
+
+The command writes the draft to `--out`, and each attempt (its sources, its calls, and the reason when it is out) to `OUT.attempts.json`. A model answer out of the schema drops that one draft. Each other failed call stops the command (exit 1). Exit codes: 0 done, 1 a failed call, 2 bad setup, 3 the spend cap stopped the command (the output holds the drafts before the stop).
+
 ### Label a draft with the judge panel
 
 ```sh
@@ -102,11 +129,19 @@ bun --env-file=.env.local evals/knowledge/cli.ts label \
   --out LABELED.json [--cap-usd 5]
 ```
 
-A model drafts the questions and the labels. The panel then labels each drafted gold document by majority, as in ADR-063: does it answer the question, and what is the status of its claim. Each document of a position gets the status that most models give it. The panel needs three models, each of a different family. Jev is never a judge. The calls go one at a time.
+A model drafts the questions and the labels (`draft`). The panel then labels each drafted gold document by majority, as in ADR-063: does it answer the question, and what is the status of its claim. Each document of a position gets the status that most models give it. A no-answer question has no gold: the panel judges its 3 nearest documents of the keyword search instead, and the question stays only when no document gets a majority that it answers. A multi-hop or across-sources question needs each of its drafted documents, so it is out when the panel removes one. A time question stays only when most models say that its answer depends on its time: at another time, or with another order of the events, the answer is different. Code cannot see that, so the panel decides it. These votes go to `timeVotes` of the votes file. The panel needs three models, each of a different family. Jev is never a judge. The calls go one at a time.
 
-The command reads each document with `git show SHA:PATH` from the clone. It writes the labeled dataset, and each vote to `LABELED.json.votes.json`. These questions are out of the labeled dataset, and the votes file gives the reason: a position document with no majority status (a person decides), or a question that the labels leave invalid (for example no gold document left). When the spend cap stops the command, the output holds the questions and the votes before the stop.
+The command reads each document with `git show SHA:PATH` from the clone. It writes the labeled dataset, and each vote to `LABELED.json.votes.json`. These questions are out of the labeled dataset, and the votes file gives the reason: a position document with no majority status (a person decides), or a question that the labels leave invalid (for example no gold document left), a multi-hop or across-sources question without one of its documents, or a no-answer question that the corpus answers. When the spend cap stops the command, the output holds the questions and the votes before the stop.
 
 Exit codes: 0 done, 2 bad setup, 3 the spend cap stopped the command.
+
+### Finish the question set
+
+```sh
+bun evals/knowledge/cli.ts finalize --draft LABELED-A.json,LABELED-B.json --out DATASET.json
+```
+
+`finalize` merges the labeled files (for example one for Kubernetes and Rust, and one for Backstage after its freeze), keeps the first questions of each corpus and category up to the quota, and gives the splits: in each corpus and category, 40% of the questions are `holdout`, spread evenly, so that each count is as near to 3:2 as it can be (4 give 2:2, 5 give 3:2, 8 give 5:3). It refuses files with different versions or two different corpora of one id, and it writes the dataset only when `dataset.ts` accepts it.
 
 ### Make the public corpora
 
@@ -223,4 +258,4 @@ Then come the change of each question against the kept run, the errors, and the 
 
 ## Proof
 
-`src/knowledge-reader/knowledge-eval-hydrate.integration.test.ts` hydrates a small context repo (real Git over HTTP) into real Postgres, FalkorDB and ClickHouse with `hydrate`, and `run` answers its question on both arms. It checks the ZDR block on each embedding call, a second hydrate with no model call, a new projection when the root changes, the exit code of the spend cap, and the stop at a failed step or a failed store of the old stack. `src/knowledge-reader/knowledge-eval.integration.test.ts` writes the example Workspace to real Postgres, FalkorDB and ClickHouse. It runs the 12 example questions through both arms with fixed model answers (msw), and it checks a small expected report. It then scores a new `keepAt` again from the recorded calls with no model request, it stops a run at the spend cap, and it refuses a Workspace that does not serve the frozen SHA or the root of the corpus on both stacks. `src/knowledge-reader/knowledge-eval.test.ts` checks the dataset rules, the metrics, the panel majority and the stop of the panel at the spend cap.
+`src/knowledge-reader/knowledge-eval-hydrate.integration.test.ts` hydrates a small context repo (real Git over HTTP) into real Postgres, FalkorDB and ClickHouse with `hydrate`, and `run` answers its question on both arms. It checks the ZDR block on each embedding call, a second hydrate with no model call, a new projection when the root changes, the exit code of the spend cap, and the stop at a failed step or a failed store of the old stack. `src/knowledge-reader/knowledge-eval.integration.test.ts` writes the example Workspace to real Postgres, FalkorDB and ClickHouse. It runs the 12 example questions through both arms with fixed model answers (msw), and it checks a small expected report. It then scores a new `keepAt` again from the recorded calls with no model request, it stops a run at the spend cap, and it refuses a Workspace that does not serve the frozen SHA or the root of the corpus on both stacks. `src/knowledge-reader/knowledge-eval.test.ts` checks the dataset rules, the metrics, the panel majority (also the no-answer check) and the stop of the panel at the spend cap. `src/knowledge-reader/knowledge-eval-draft.test.ts` checks the picks of each category, the checks of a draft (the gold, the handles, the keyword leak and its second call), the splits, the scrub, the provider block and the spend cap of the drafter.

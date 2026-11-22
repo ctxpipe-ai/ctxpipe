@@ -674,7 +674,7 @@ describe("the one scrub point", () => {
         "src/retrieval/embeddings/textEmbeddings.ts",
         "src/retrieval/jev/client.ts",
         "src/routes/v1/openai.ts",
-        "evals/knowledge/panel.ts",
+        "evals/knowledge/chat.ts",
       ]),
     )
     // A provider of HostTextAdapter sends only what HostTextAdapter.call

@@ -62,7 +62,7 @@ const positionSchema = z.strictObject({
   status: z.enum(POSITION_STATUSES),
 })
 
-const questionSchema = z.strictObject({
+export const questionSchema = z.strictObject({
   id,
   corpus: id,
   category: z.enum(CATEGORIES),
@@ -149,6 +149,12 @@ export const datasetSchema = z
   })
 
 export type Dataset = z.infer<typeof datasetSchema>
+
+/** A frozen dataset before its questions: the input of `draft`. */
+export const frozenCorporaSchema = z.object({
+  version: z.string().min(1),
+  corpora: z.array(corpusSchema).min(1),
+})
 
 /** Read and check a dataset file. */
 export async function readDataset(file: string): Promise<Dataset> {

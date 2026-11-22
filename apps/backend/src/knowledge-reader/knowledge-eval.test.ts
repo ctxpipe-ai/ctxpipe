@@ -654,6 +654,23 @@ describe("the judge panel", () => {
       }
       providers.push(body.provider)
       contents.push(body.messages[0]?.content ?? "")
+      const time =
+        /^You check a time question.*Question: <data>(.*?)<\/data>/s.exec(
+          body.messages[0]?.content ?? "",
+        )
+      if (time) {
+        asked.push(body.model)
+        // Two models of three say that "When did it change?" depends on
+        // its time; one says that "Which rule holds?" does.
+        const dependsOnTime =
+          time[1] === "When did it change?" ||
+          body.model === "anthropic/judge-a"
+        return HttpResponse.json({
+          choices: [
+            { message: { content: JSON.stringify({ dependsOnTime }) } },
+          ],
+        })
+      }
       const ref = /Document <data>(.*?)<\/data>/.exec(
         body.messages[0]?.content ?? "",
       )?.[1]
@@ -737,6 +754,7 @@ describe("the judge panel", () => {
       models: Object.keys(replies),
       // The cut (12,000 characters) falls inside the key.
       read: async () => `${"x".repeat(10_000)}\n${key}\n`,
+      nearest: async () => [],
       env,
       stopped: () => false,
     })
@@ -752,6 +770,7 @@ describe("the judge panel", () => {
       draft,
       models: Object.keys(replies),
       read: async (_corpus, ref) => `The text of ${ref}.`,
+      nearest: async () => [],
       env,
       stopped: () => false,
     })
@@ -788,6 +807,116 @@ describe("the judge panel", () => {
     ).toHaveLength(3)
   })
 
+  it("keeps a no-answer question only when no nearest document gets a majority that it answers", async () => {
+    asked.length = 0
+    const noAnswer = (id: string) => ({
+      id,
+      corpus: "corpus",
+      category: "no-answer" as const,
+      split: "dev" as const,
+      text: `Where is the ${id} feature?`,
+      gold: [],
+      keyFacts: [],
+    })
+    const labeled = await labelWithPanel({
+      draft: {
+        ...draft,
+        questions: [noAnswer("absent"), noAnswer("present")],
+      },
+      models: Object.keys(replies),
+      read: async (_corpus, ref) => `The text of ${ref}.`,
+      // One model of three says that lonely.md answers; two say that
+      // new.md answers.
+      nearest: async (_corpus, text) =>
+        text.includes("absent") ? ["lonely.md"] : ["lonely.md", "new.md"],
+      env,
+      stopped: () => false,
+    })
+    expect(asked).toHaveLength(9)
+    expect(labeled.dataset.questions.map((question) => question.id)).toEqual([
+      "absent",
+    ])
+    expect(labeled.dropped).toEqual([
+      { question: "present", reason: "the corpus answers it: new.md" },
+    ])
+  })
+
+  it("keeps a time question only when most models say that its answer depends on its time", async () => {
+    asked.length = 0
+    const time = (id: string, text: string) => ({
+      id,
+      corpus: "corpus",
+      category: "time" as const,
+      split: "dev" as const,
+      text,
+      gold: ["new.md"],
+      validAt: "2024-01-01T00:00:00Z",
+      keyFacts: ["It changed in 2024-01."],
+    })
+    const labeled = await labelWithPanel({
+      draft: {
+        ...draft,
+        questions: [
+          time("changed", "When did it change?"),
+          time("holds", "Which rule holds?"),
+        ],
+      },
+      models: Object.keys(replies),
+      read: async (_corpus, ref) => `The text of ${ref}.`,
+      nearest: async () => [],
+      env,
+      stopped: () => false,
+    })
+    // For each question: 3 votes on new.md, then 3 on the time.
+    expect(asked).toHaveLength(12)
+    expect(labeled.dataset.questions.map((question) => question.id)).toEqual([
+      "changed",
+    ])
+    expect(labeled.dropped).toEqual([
+      {
+        question: "holds",
+        reason: "the answer does not depend on the time of the question",
+      },
+    ])
+    expect(labeled.timeVotes.map((vote) => vote.dependsOnTime)).toEqual([
+      true,
+      false,
+    ])
+  })
+
+  it("drops a multi-hop question when the panel removes one of its documents", async () => {
+    const labeled = await labelWithPanel({
+      draft: {
+        ...draft,
+        questions: [
+          {
+            id: "chain",
+            corpus: "corpus",
+            category: "multi-hop",
+            split: "dev",
+            text: "Which rule follows from the chain?",
+            // One model of three says that noise.md answers.
+            gold: ["old.md", "noise.md"],
+            seeds: ["old.md"],
+            keyFacts: ["The chain gives the rule."],
+          },
+        ],
+      },
+      models: Object.keys(replies),
+      read: async (_corpus, ref) => `The text of ${ref}.`,
+      nearest: async () => [],
+      env,
+      stopped: () => false,
+    })
+    expect(labeled.dataset.questions).toEqual([])
+    expect(labeled.dropped).toEqual([
+      {
+        question: "chain",
+        reason: "the panel removed the needed document noise.md",
+      },
+    ])
+  })
+
   it("sends each judge call with the provider block of ADR-070", async () => {
     vi.stubEnv("MODEL_PROVIDER_ALLOWLIST", "openai,anthropic")
     providers.length = 0
@@ -796,6 +925,7 @@ describe("the judge panel", () => {
         draft: { ...draft, questions: draft.questions.slice(1, 2) },
         models: Object.keys(replies),
         read: async (_corpus, ref) => `The text of ${ref}.`,
+        nearest: async () => [],
         env,
         stopped: () => false,
       })
@@ -819,6 +949,7 @@ describe("the judge panel", () => {
         draft,
         models: Object.keys(replies),
         read: async (_corpus, ref) => `The text of ${ref}.`,
+        nearest: async () => [],
         env,
         stopped: () => asked.length >= capAt,
       })
@@ -838,6 +969,7 @@ describe("the judge panel", () => {
         draft,
         models: Object.keys(replies),
         read: async (_corpus, ref) => `The text of ${ref}.`,
+        nearest: async () => [],
         env: { ...env, MODEL_PROVIDER: "bedrock" },
         stopped: () => false,
       }),
