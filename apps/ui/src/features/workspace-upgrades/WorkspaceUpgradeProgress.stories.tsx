@@ -1,5 +1,5 @@
 import type { StoryContext } from "@storybook/react-vite"
-import { HttpResponse, delay, http } from "msw"
+import { HttpResponse, http } from "msw"
 import { Toaster } from "sonner"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
@@ -20,6 +20,9 @@ import { WorkspaceUpgrades } from "./WorkspaceUpgrades"
 
 const checkRequests: string[] = []
 const state = { checked: false }
+// The play of MergedReadingFormat opens this gate after it asserts the card
+// text. Then the role answers, and the play waits for the action.
+let answerRole = () => {}
 
 const minutesAgo = (minutes: number) =>
   new Date(Date.now() - minutes * 60_000).toISOString()
@@ -239,12 +242,16 @@ export const ReingestPlanning = meta.story({
  */
 export const MergedReadingFormat = meta.story({
   beforeEach: ({ msw }) => {
+    const roleGate = new Promise<void>((resolve) => {
+      answerRole = resolve
+    })
     msw.use(
-      // The first match wins: the role answers late, so the action shows after the card text.
+      // The first match wins: the role answers only when the play opens the
+      // gate, so the action shows after the card text.
       http.get(
         "*/.auth/api/v1/auth/organization/get-active-member-role",
         async () => {
-          await delay(1_000)
+          await roleGate
           return HttpResponse.json({ role: "owner" })
         },
       ),
@@ -286,6 +293,8 @@ export const MergedReadingFormat = meta.story({
     expect(canvas.queryByText("Merged. Reading the new format")).toBeNull()
     // The "waits for you to merge" line is gone.
     expect(canvas.queryByText(/waits for you to merge/)).toBeNull()
+    expect(canvas.queryByRole("button", { name: /^Check again/ })).toBeNull()
+    answerRole()
     await waitFor(() =>
       expect(
         canvas.getByRole("button", { name: /^Check again/ }),
