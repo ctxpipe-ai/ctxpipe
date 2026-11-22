@@ -437,7 +437,7 @@ async function related(
       meter,
     })
     const keepsKind = kindFilter(input)
-    const answers = answerNodes(traversal.nodes, input, keepsKind)
+    const answers = answerNodes(traversal.nodes, input.includeSeeds, keepsKind)
     results = withSteps(answers, keepsKind)
     const top = answers.slice(0, ORCHESTRATOR_DEFAULTS.disagreementItems)
     if (top.length > 0 && !traversal.partialReason)
@@ -482,13 +482,13 @@ async function related(
  */
 function answerNodes(
   nodes: readonly TraversalNode[],
-  input: RelatedRequest["input"],
+  includeSeeds: boolean,
   keepsKind: (node: TraversalNode) => boolean,
 ): TraversalNode[] {
   return nodes
     .filter(
       (node) =>
-        (node.depth > 0 || input.includeSeeds) &&
+        (node.depth > 0 || includeSeeds) &&
         node.pAnswers >= ORCHESTRATOR_DEFAULTS.keepAt &&
         keepsKind(node),
     )
@@ -501,7 +501,8 @@ function answerNodes(
  * does not answer the question, but the traversal went through it to reach
  * an answer, so the caller gets the chain. The `RANKED_LIMIT` applies to an
  * answer and its steps together: an answer whose new steps do not fit ends
- * the results, so that no kept answer loses a step. A step keeps its own
+ * the results, so that no kept answer loses a step. The cut is strictly by
+ * rank: no answer after it is a result, also when it would fit. A step keeps its own
  * p(answers) as its score, which is below `keepAt`, so the steps come after
  * the answers.
  */

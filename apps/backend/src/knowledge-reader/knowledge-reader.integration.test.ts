@@ -225,6 +225,11 @@ const units: (RelatedUnit & { text: string })[] = [
   },
 ]
 
+/** The path of document `index` (from 0) of a layer of the wide Workspace. */
+const wide = (prefix: string, index: number) =>
+  `wide/${prefix}-${String(index + 1).padStart(2, "0")}.md`
+const layer = (prefix: string) =>
+  Array.from({ length: 49 }, (_, index) => wide(prefix, index))
 /**
  * A Workspace with more answers than the 100 results of a ranking. The seed
  * reaches a middle document that is only a hub, and 49 answers that are
@@ -232,12 +237,6 @@ const units: (RelatedUnit & { text: string })[] = [
  * reaches one answer that is a hub, and each of these reaches one more
  * answer. Thus 148 documents answer, and the far answer has one step.
  */
-const pad = (index: number) => String(index).padStart(2, "0")
-const layer = (prefix: string) =>
-  Array.from(
-    { length: 49 },
-    (_, index) => `wide/${prefix}-${pad(index + 1)}.md`,
-  )
 const wideUnits: (RelatedUnit & { text: string })[] = [
   {
     path: "wide/seed.md",
@@ -272,7 +271,7 @@ const wideUnits: (RelatedUnit & { text: string })[] = [
           ? []
           : [
               {
-                to: layer(prefix === "a" ? "b" : "c")[index] as string,
+                to: wide(prefix === "a" ? "b" : "c", index),
                 predicate: "MENTIONS",
                 confidence: 0.8,
               },
