@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest"
 
 import { CtxPipe } from "./ctxpipe"
 import { AGENT_VAULT_RATE_LIMIT_ENV } from "./internal/agent-vault-limits"
+import { AGENT_VAULT_IMAGE } from "./internal/sandbox-host-construct"
 import type { CtxPipeProps } from "./types"
 
 function synth(overrides: Partial<CtxPipeProps> = {}): Template {
@@ -544,7 +545,8 @@ describe("sandbox host", () => {
   it("runs Agent Vault on the host and lets sandboxes reach only its proxy", () => {
     const t = template("small")
     const script = userData(t)
-    expect(script).toContain("infisical/agent-vault:latest")
+    expect(script).toContain(` ${AGENT_VAULT_IMAGE}`)
+    expect(script).not.toContain("agent-vault:latest")
     // The proxy tier is raised, the pre-auth gate is off, and an instance
     // setting cannot change them (agent-vault-limits.ts).
     expect(script).not.toContain("RATELIMIT_PROFILE")

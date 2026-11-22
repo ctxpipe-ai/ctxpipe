@@ -39,6 +39,15 @@ test("compose runs the ClickHouse image that the contract tests use", () => {
   assert.match(read("docker-compose.yml"), new RegExp(`image: ${image}\\n`))
 })
 
+test("compose and the AWS sandbox host run the pinned Agent Vault image", () => {
+  const pin = pins.contracts.agentVault
+  const image = `${pin.image}:${pin.tag}@${pin.digest}`
+  assert.match(read("docker-compose.yml"), new RegExp(`&agent-vault-image ${image}\\n`))
+  assert.ok(
+    read("packages/aws-cdk/src/internal/sandbox-host-construct.ts").includes(`"${image}"`),
+  )
+})
+
 test("ci.yaml reads the previous release ref from the pins file", () => {
   const ci = read(".github/workflows/ci.yaml")
   assert.ok(

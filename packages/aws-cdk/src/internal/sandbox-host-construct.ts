@@ -30,6 +30,13 @@ const DOCKER_TLS_PORT = 2376
 const EPHEMERAL_PORTS = ec2.Port.tcpRange(32768, 60999)
 /** One fixed Cloud Map instance: a replacement host overwrites the record. */
 const DISCOVERY_INSTANCE_ID = "sandbox-host"
+/**
+ * The Agent Vault image: the pin of Compose and `scripts/ci/service-pins.json`
+ * (a root test keeps them equal). The boot script runs it, so a new pin
+ * replaces the host.
+ */
+export const AGENT_VAULT_IMAGE =
+  "infisical/agent-vault:0.40.2@sha256:d09894c86c9b8df64ea37442ace9907dcdf82dabd2730b78b9e0c4c5e070e79a"
 
 /**
  * One EC2 Docker host for Workspace chat sandboxes (stock TanStack
@@ -507,7 +514,7 @@ function hostBootstrapScript(input: HostBootstrapInput): string[] {
     AGENT_VAULT_NETWORK_CREATE,
     `AGENT_VAULT_MASTER_PASSWORD="$(aws secretsmanager get-secret-value --region "$REGION" --secret-id '${input.agentVaultMasterSecretArn}' --query SecretString --output text)"`,
     "docker rm -f ctxpipe-agent-vault >/dev/null 2>&1 || true",
-    `docker run -d --name ctxpipe-agent-vault --restart unless-stopped --network ${AGENT_VAULT_NETWORK} -p ${AGENT_VAULT_API_PORT}:${AGENT_VAULT_API_PORT} -p ${AGENT_VAULT_PROXY_PORT}:${AGENT_VAULT_PROXY_PORT} -v ctxpipe-agent-vault:/data -e AGENT_VAULT_MASTER_PASSWORD="$AGENT_VAULT_MASTER_PASSWORD" ${agentVaultLimits} -e AGENT_VAULT_TELEMETRY=false -e AGENT_VAULT_NETWORK_ALLOWLIST='${[...input.backendSubnetCidrs, ...input.operatorAllowlist].join(",")}' infisical/agent-vault:latest`,
+    `docker run -d --name ctxpipe-agent-vault --restart unless-stopped --network ${AGENT_VAULT_NETWORK} -p ${AGENT_VAULT_API_PORT}:${AGENT_VAULT_API_PORT} -p ${AGENT_VAULT_PROXY_PORT}:${AGENT_VAULT_PROXY_PORT} -v ctxpipe-agent-vault:/data -e AGENT_VAULT_MASTER_PASSWORD="$AGENT_VAULT_MASTER_PASSWORD" ${agentVaultLimits} -e AGENT_VAULT_TELEMETRY=false -e AGENT_VAULT_NETWORK_ALLOWLIST='${[...input.backendSubnetCidrs, ...input.operatorAllowlist].join(",")}' ${AGENT_VAULT_IMAGE}`,
     "unset AGENT_VAULT_MASTER_PASSWORD",
     "# While Agent Vault starts, the connection is refused or reset, so retry every error.",
     `curl -sf --max-time 5 --retry 30 --retry-all-errors --retry-delay 2 http://127.0.0.1:${AGENT_VAULT_API_PORT}/health`,

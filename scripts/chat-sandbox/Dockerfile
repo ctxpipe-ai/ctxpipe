@@ -1,9 +1,14 @@
-FROM node:26.13.1-bookworm@sha256:b7087bc4d973034b30854b378ba107f9fab622b47514cb7e2592e41b8bab8d49 AS base
+# Debian 13 slim: the full image adds compilers and -dev libraries that no
+# chat or ingest step uses, and Debian 12 has unfixed critical CVEs (CTX-1545).
+FROM node:26.13.1-trixie-slim@sha256:e6bedef217677b276c591795e169840edd9096dbf13f29df8ef8d1856b8820bc AS base
 
 # Build-time tools only; a conversation never installs its harness as root.
 # The ingest skills run ast-grep and ripgrep in this image (ADR-052).
+# The backend runs curl in the sandbox (the ingest egress check, and the
+# AgentCore reads of staged scripts and blobs). The full Node image had curl
+# and procps (ps, pgrep), and agents and the contract tests use them.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates git gh findutils ripgrep \
+    && apt-get install -y --no-install-recommends ca-certificates curl git gh findutils procps ripgrep \
     && rm -rf /var/lib/apt/lists/* \
     && npm install --global opencode-ai@1.19.5 undici@8.12.4 @ast-grep/cli@0.45.0 \
     && npm cache clean --force \
