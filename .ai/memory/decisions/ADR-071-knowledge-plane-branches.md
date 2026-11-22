@@ -65,6 +65,7 @@ One fact makes branches cheap: the rows of a file depend only on that file (ADR-
    - Search finds only the active file versions of the view. A path that the view removes gives no chunk and no outgoing relation: the file version of the default branch at that path stays out of the view of B.
    - A tombstone of an overlay is the same as a tombstone of the default branch: a relation into its path gives a `deleted` neighbor.
    - **A `missing` target is calculated when it is read, and it is not stored** (this amends ADR-066 decision 7). A relation target with no row in the view is `missing`, as a reference key with no document is today (ADR-066 decision 5). Reason: a stored placeholder in an overlay would hide a file that the default branch adds later. A tombstone still keeps the difference between "deleted on a date" and "never existed", and the traversal still gives a `missing` neighbor to Jev.
+   - **Amended for issue mentions** (decided by the lead, 2026-11-22, [CTX-1502](https://linear.app/ctxpipe/issue/CTX-1502)): a `MENTIONS` key with no document is not a relation, and the traversal gives no `missing` neighbor for it. An issue states about 25 candidate keys, and most of them name no unit (ADR-066 decision 5).
 
 6. **Reads take one branch.**
    - `search_knowledge`, `get_related`, `read_file`, `list_files` and the UI read one branch.
