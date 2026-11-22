@@ -5,7 +5,7 @@
 //
 // A copy of `.github/ci/pins.mjs` in the factory repo (ctxpipe-ai/factory, #612). ctxpipe does not use the factory's
 // CI scripts, so a fix to one copy goes into the other too. The ctxpipe differences: the allowlist is
-// scripts/ci/pins.json, and <dir> is the repo root when it is not given.
+// scripts/ci/pins.json, and <dir> is the current directory when it is not given (run it from the repo root).
 //
 //   node scripts/ci/check-pins.mjs [<dir>]        (from the repo root)
 //

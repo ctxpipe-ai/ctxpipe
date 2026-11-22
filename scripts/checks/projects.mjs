@@ -34,16 +34,6 @@ const opsPackages = () =>
     readFileSync(join(root, "pnpm-workspace.yaml"), "utf8"),
   ).packages.filter((directory) => directory.startsWith("ops/"))
 
-// The package.json files of the repo, found as the pins check finds them
-// (scripts/ci/check-pins.mjs): not in node_modules, not in a dot folder.
-const packageFiles = (folder = "") =>
-  readdirSync(join(root, folder), { withFileTypes: true }).flatMap((entry) => {
-    if (entry.name === "node_modules" || entry.name.startsWith(".")) return []
-    const path = folder ? `${folder}/${entry.name}` : entry.name
-    if (entry.isDirectory()) return packageFiles(path)
-    return entry.name === "package.json" ? [path] : []
-  })
-
 // The Dockerfiles and the .dockerignore of the deploy and preview images:
 // the tests ci-deploy-images and ci-preview-images check them against their
 // inputs (scripts/ci/deploy-images.mjs).
@@ -240,7 +230,17 @@ const definitions = () => [
     ],
     [
       "pins",
-      [...packageFiles(), "scripts/ci/pins.json"],
+      // The folders that hold a package.json, and the allowlist. An ops
+      // package adds only its package.json, so its source changes do not
+      // select the check.
+      [
+        ...code,
+        "examples/**",
+        "shared/package.json",
+        "scripts/ci/claude-cli/package.json",
+        ...opsPackages().map((directory) => `${directory}/package.json`),
+        "scripts/ci/pins.json",
+      ],
       "Catches an exact version in a package.json dependency field that scripts/ci/pins.json does not name, and an allowlist entry whose file has no exact version of its package. Run it when a package.json or the allowlist changes; never for a change outside them.",
     ],
   ].map(([lane, reads, intent]) => {
