@@ -381,9 +381,10 @@ function moved(before: Image, after: Image, box: PixelBox): boolean {
  * other changed regions on its rows and the elements next to them, written
  * into the private folder `dir`. The review judges the redesigned area as
  * new UI, not against the base image. On the full head image, a small
- * control is a few pixels, so the close-up shows its alignment and spacing. The changed regions are in fractions of the head image that
- * the model gets: `prepareImage` pads a short image at the bottom and the
- * right. Undefined when the story has no full head image that is a PNG.
+ * control is a few pixels, so the close-up shows its alignment and spacing.
+ * The changed regions are in fractions of the head image that the model
+ * gets: `prepareImage` pads a short image at the bottom and the right.
+ * Undefined when the story has no full head image that is a PNG.
  */
 export async function inContext(
   story: StoryInput,
