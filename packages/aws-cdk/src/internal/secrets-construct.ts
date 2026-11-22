@@ -204,6 +204,9 @@ export class SecretsConstruct extends Construct {
 
     // CLICKHOUSE_URL of each ClickHouse user (ADR-066 decision 9). ECS gives
     // a task a key of a secret, not a URL built from one.
+    // The Postgres URL writer writes these too: `Scheme` and `UrlKey` select
+    // the URL, and its `Db*` property names stay, so that a deployed
+    // Postgres writer does not update.
     const knowledgeStore = props.knowledgeStore
     const clickhouseUrl = (id: string, user: ClickHouseUser) => {
       const { username, credentialsSecret: credentials } = user

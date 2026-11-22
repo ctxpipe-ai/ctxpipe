@@ -170,7 +170,7 @@ export interface SandboxHostResources {
 
 export interface KnowledgeStoreResources {
   readonly autoScalingGroup: autoscaling.AutoScalingGroup
-  /** EC2 status checks of the host; no actions. */
+  /** No host in service (a failed host included); no actions. */
   readonly alarms: cloudwatch.Alarm[]
   /** The backend, the worker and the migrate task join it to reach ClickHouse. */
   readonly clientSecurityGroup: ec2.SecurityGroup

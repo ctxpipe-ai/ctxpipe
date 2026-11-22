@@ -241,6 +241,12 @@ export class KnowledgeStoreConstruct extends Construct {
           maxBatchSize: 1,
           minInstancesInService: 0,
         }),
+        // The metric of the alarm below.
+        groupMetrics: [
+          new autoscaling.GroupMetrics(
+            autoscaling.GroupMetric.IN_SERVICE_INSTANCES,
+          ),
+        ],
       },
     )
     cdk.Tags.of(autoScalingGroup).add(nodeTag, this.node.addr)
@@ -268,12 +274,16 @@ export class KnowledgeStoreConstruct extends Construct {
       }),
     )
 
-    const statusCheckAlarm = new cloudwatch.Alarm(this, "StatusCheckAlarm", {
+    // A host that fails its EC2 status checks is unhealthy, and the group
+    // replaces it. EC2 publishes its status checks only by instance id, so
+    // the alarm reads the group: no host in service for 10 minutes. A planned
+    // replacement takes about 4 minutes.
+    const notInServiceAlarm = new cloudwatch.Alarm(this, "NotInServiceAlarm", {
       alarmDescription:
-        "ctxpipe knowledge store: the ClickHouse host failed its EC2 status checks. The Auto Scaling group replaces it; the new host attaches the same data volume.",
+        "ctxpipe knowledge store: no ClickHouse host was in service for 10 minutes. The Auto Scaling group replaces a failed host; the new host attaches the same data volume. Look at the group's activity history and the ClickHouse log group.",
       metric: new cloudwatch.Metric({
-        namespace: "AWS/EC2",
-        metricName: "StatusCheckFailed",
+        namespace: "AWS/AutoScaling",
+        metricName: "GroupInServiceInstances",
         dimensionsMap: {
           AutoScalingGroupName: autoScalingGroup.autoScalingGroupName,
         },
@@ -281,14 +291,13 @@ export class KnowledgeStoreConstruct extends Construct {
         period: cdk.Duration.minutes(1),
       }),
       threshold: 1,
-      evaluationPeriods: 2,
-      comparisonOperator:
-        cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      evaluationPeriods: 10,
+      comparisonOperator: cloudwatch.ComparisonOperator.LESS_THAN_THRESHOLD,
     })
 
     this.resources = {
       autoScalingGroup,
-      alarms: [statusCheckAlarm],
+      alarms: [notInServiceAlarm],
       clientSecurityGroup,
       host: discovery.hostname,
       port: CLICKHOUSE_PORT,

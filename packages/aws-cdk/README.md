@@ -201,7 +201,7 @@ The stack output `SandboxHostAutoScalingGroupName` names the group. Open a shell
 - Three generated passwords in Secrets Manager. Migrate gets the admin `CLICKHOUSE_URL`, `CLICKHOUSE_READER_PASSWORD`, and `CLICKHOUSE_WRITER_PASSWORD`, and makes the users. The backend gets the `ctxpipe_reader` URL, and the worker the `ctxpipe_writer` URL.
 - Logs go to CloudWatch Logs (14 days). The stack output `KnowledgeStoreAutoScalingGroupName` names the group for a Session Manager shell.
 - The VPC has an S3 gateway endpoint, so the cold parts do not go through the NAT gateway.
-- One CloudWatch alarm: the host failed its EC2 status checks. It has no actions; subscribe it with `ctxPipe.knowledgeStoreAlarms`.
+- One CloudWatch alarm: no ClickHouse host in service for 10 minutes (a failed host that did not come back). It has no actions; subscribe it with `ctxPipe.knowledgeStoreAlarms`.
 
 | `size` | Instance | Data volume (gp3) | Cold cache |
 | --- | --- | --- | --- |

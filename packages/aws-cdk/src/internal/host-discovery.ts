@@ -21,7 +21,7 @@ interface HostDiscovery {
  * A Cloud Map name in the cluster's private DNS namespace that one EC2 host
  * registers for itself when it boots (`aws servicediscovery
  * register-instance` with `instanceId`). The record has one fixed instance
- * id, so a replacement host overwrites it. Gives `role` the permissions for
+ * id, so a replacement host overwrites it. Gives `role` the permission for
  * the registration.
  */
 export function hostDiscovery(
@@ -43,22 +43,13 @@ export function hostDiscovery(
     dnsRecordType: servicediscovery.DnsRecordType.A,
     dnsTtl: cdk.Duration.seconds(10),
   })
+  // Cloud Map writes the DNS record with its own permissions, not with the
+  // caller's: the host needs no Route 53 or EC2 action. This grant on the
+  // host's own service is what keeps a host to its own name.
   role.addToPrincipalPolicy(
     new iam.PolicyStatement({
       actions: ["servicediscovery:RegisterInstance"],
       resources: [service.serviceArn],
-    }),
-  )
-  const hostname = `${name}.${namespace.namespaceName}`
-  for (const statement of cloudMapRoute53Statements(namespace, hostname, [
-    "route53:CreateHealthCheck",
-  ]))
-    role.addToPrincipalPolicy(statement)
-  role.addToPrincipalPolicy(
-    new iam.PolicyStatement({
-      // Cloud Map checks the registered instance; describe has no resource scope.
-      actions: ["ec2:DescribeInstances"],
-      resources: ["*"],
     }),
   )
 
@@ -79,46 +70,14 @@ export function hostDiscovery(
           actions: ["servicediscovery:DeregisterInstance"],
           resources: [service.serviceArn],
         }),
-        ...cloudMapRoute53Statements(namespace, hostname, [
-          "route53:DeleteHealthCheck",
-        ]),
       ]),
       installLatestAwsSdk: false,
     },
   )
 
-  return { service, hostname, deregistration }
-}
-
-/**
- * Cloud Map writes the instance's DNS record with the caller's permissions.
- * The caller may change only the record of `hostname` in the shared zone, so
- * one host cannot move another name (for example `ui.ctxpipe.local`).
- */
-function cloudMapRoute53Statements(
-  namespace: servicediscovery.PrivateDnsNamespace,
-  hostname: string,
-  healthCheckActions: string[],
-): iam.PolicyStatement[] {
-  return [
-    new iam.PolicyStatement({
-      actions: ["route53:ChangeResourceRecordSets"],
-      resources: [
-        `arn:${cdk.Aws.PARTITION}:route53:::hostedzone/${namespace.namespaceHostedZoneId}`,
-      ],
-      conditions: {
-        "ForAllValues:StringEquals": {
-          "route53:ChangeResourceRecordSetsNormalizedRecordNames": [hostname],
-        },
-      },
-    }),
-    new iam.PolicyStatement({
-      actions: [
-        "route53:GetHealthCheck",
-        "route53:UpdateHealthCheck",
-        ...healthCheckActions,
-      ],
-      resources: [`arn:${cdk.Aws.PARTITION}:route53:::healthcheck/*`],
-    }),
-  ]
+  return {
+    service,
+    hostname: `${name}.${namespace.namespaceName}`,
+    deregistration,
+  }
 }

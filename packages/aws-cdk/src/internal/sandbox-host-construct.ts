@@ -161,7 +161,6 @@ export class SandboxHostConstruct extends Construct {
       DISCOVERY_INSTANCE_ID,
       role,
     )
-    const dockerHostname = discovery.hostname
     role.addToPrincipalPolicy(
       new iam.PolicyStatement({
         actions: ["cloudformation:SignalResource"],
@@ -240,7 +239,7 @@ export class SandboxHostConstruct extends Construct {
         serverTlsSecretArn: serverTlsSecret.secretArn,
         clientTlsSecretArn: clientTlsSecret.secretArn,
         discoveryServiceId: discovery.service.serviceId,
-        dockerHostname,
+        dockerHostname: discovery.hostname,
         agentVaultMasterSecretArn: agentVaultMasterSecret.secretArn,
         // The backend tasks' subnets. They are the stack's only private
         // subnets, so they also hold RDS, Neptune, the ClickHouse host, EFS,
@@ -294,8 +293,8 @@ export class SandboxHostConstruct extends Construct {
       backendSecurityGroup,
       workerSecurityGroup,
       clientTlsSecret,
-      dockerHost: `tcp://${dockerHostname}:${DOCKER_TLS_PORT}`,
-      agentVaultAddress: `http://${dockerHostname}:${AGENT_VAULT_API_PORT}`,
+      dockerHost: `tcp://${discovery.hostname}:${DOCKER_TLS_PORT}`,
+      agentVaultAddress: `http://${discovery.hostname}:${AGENT_VAULT_API_PORT}`,
       agentVaultOwnerSecret,
       alarms: [diskAlarm, memoryAlarm],
     }

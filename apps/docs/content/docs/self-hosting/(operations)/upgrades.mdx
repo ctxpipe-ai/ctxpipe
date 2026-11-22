@@ -292,6 +292,17 @@ cdk deploy
 
 The migrate task of this release also creates the `ctxpipe_app` runtime role. The services then read a new runtime secret with the `ctxpipe_app` URL. The earlier `DATABASE_URL` secret keeps the owner URL, so a rollback to the earlier task definitions still works. You do not run `psql` or add `CtxPipe` props. Image-only retags without a package bump skip that role split.
 
+### AWS CDK knowledge store host
+
+The first upgrade to a version with the knowledge store adds one EC2 host for
+ClickHouse, an EBS data volume, and an S3 bucket. The host is always on: no
+prop turns it off. At `size: "small"` it is a `t4g.large` with a 50 GB volume,
+for about **$55 a month** in us-east-1. The deploy waits until ClickHouse
+answers. Then the migrate task makes its tables and its two users, before the
+services roll. The new knowledge store stays off for each organization. See
+[the knowledge store](/docs/self-hosting/deployment/aws#knowledge-store) for
+the larger sizes and for recovery.
+
 ## Docker Compose flow
 
 For source-based Compose deployments, keep your `docker-compose.override.yml`

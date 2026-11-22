@@ -275,12 +275,12 @@ describe("knowledge store", () => {
   })
 
   it.each([
-    ["CtxPipeKnowledgeStoreInstanceRole", "clickhouse.ctxpipe.local"],
-    ["CtxPipeSandboxHostInstanceRole", "sandbox-host.ctxpipe.local"],
+    ["CtxPipeKnowledgeStoreInstanceRole", "CtxPipeKnowledgeStoreDiscovery"],
+    ["CtxPipeSandboxHostInstanceRole", "CtxPipeSandboxHostDiscovery"],
   ])(
-    "lets %s change only its own record %s in the shared zone",
-    (role, hostname) => {
-      const dnsWrites = Object.entries(
+    "lets %s register only in its own Cloud Map service, with no Route 53 or EC2 action",
+    (role, service) => {
+      const statements = Object.entries(
         template().findResources("AWS::IAM::Policy"),
       )
         .filter(([id]) => id.startsWith(role))
@@ -292,20 +292,17 @@ describe("knowledge store", () => {
               }
             ).PolicyDocument.Statement,
         )
-        .filter((statement) =>
-          JSON.stringify(statement.Action).includes(
-            "route53:ChangeResourceRecordSets",
-          ),
-        )
-      expect(dnsWrites).toEqual([
+      const actions = JSON.stringify(statements.map((s) => s.Action))
+      // Cloud Map writes the record with its own permissions (proven on AWS).
+      expect(actions).not.toMatch(/route53:|ec2:DescribeInstances/)
+      const registrations = statements.filter((s) =>
+        JSON.stringify(s.Action).includes("servicediscovery:"),
+      )
+      expect(registrations).toEqual([
         expect.objectContaining({
-          Action: "route53:ChangeResourceRecordSets",
-          Condition: {
-            "ForAllValues:StringEquals": {
-              "route53:ChangeResourceRecordSetsNormalizedRecordNames": [
-                hostname,
-              ],
-            },
+          Action: "servicediscovery:RegisterInstance",
+          Resource: {
+            "Fn::GetAtt": [expect.stringMatching(new RegExp(`^${service}`)), "Arn"],
           },
         }),
       ])
@@ -388,15 +385,23 @@ describe("knowledge store", () => {
     for (const table of privateTables) expect(routeTables).toContain(table)
   })
 
-  it("alarms when the host fails its EC2 status checks", () => {
+  it("alarms when no ClickHouse host is in service for 10 minutes", () => {
     const t = template()
-    const [groupId] = node(t, "AWS::AutoScaling::AutoScalingGroup")
+    const [groupId, group] = node(t, "AWS::AutoScaling::AutoScalingGroup")
+    // EC2 publishes no instance metric by group, so the alarm reads the
+    // group's own metric, which the group must collect.
+    expect(group.Properties.MetricsCollection).toEqual([
+      { Granularity: "1Minute", Metrics: ["GroupInServiceInstances"] },
+    ])
     expect(node(t, "AWS::CloudWatch::Alarm")[1].Properties).toMatchObject({
-      Namespace: "AWS/EC2",
-      MetricName: "StatusCheckFailed",
+      Namespace: "AWS/AutoScaling",
+      MetricName: "GroupInServiceInstances",
       Dimensions: [{ Name: "AutoScalingGroupName", Value: { Ref: groupId } }],
+      Statistic: "Maximum",
+      Period: 60,
+      EvaluationPeriods: 10,
       Threshold: 1,
-      ComparisonOperator: "GreaterThanOrEqualToThreshold",
+      ComparisonOperator: "LessThanThreshold",
     })
   })
 

@@ -314,7 +314,7 @@ on its instance with Session Manager for checks.
 
 | Alarm | Fires when | What to do |
 |---|---|---|
-| Status check | The ClickHouse host fails its EC2 status checks for 2 minutes | The Auto Scaling group replaces the host, and the new host attaches the same data volume. If the alarm stays on, look at the group's activity history and the ClickHouse log group. |
+| Host not in service | No ClickHouse host is in service for 10 minutes. A host that fails its EC2 status checks is replaced, and a replacement takes about 4 minutes, so this alarm means that the new host did not come up. | Look at the group's activity history and the ClickHouse log group. The new host attaches the same data volume. |
 
 The alarm has no actions. Subscribe it to your own topic through
 `ctxPipe.knowledgeStoreAlarms`, as for the
