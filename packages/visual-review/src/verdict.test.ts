@@ -7,6 +7,7 @@ import {
   verdictSchema,
   type StoryInput,
 } from "./index.ts"
+import { newJudgementJsonSchema } from "./verdict.ts"
 
 const story: StoryInput = {
   storyId: "connectors-catalog--default",
@@ -195,6 +196,18 @@ describe("parseVerdict", () => {
       "summary",
       "qualities",
       "findings",
+    ])
+  })
+
+  test("the reply on a new screenshot asks for the findings before the verdict and the severity, so the model decides from its findings (CTX-1530)", () => {
+    expect(newJudgementJsonSchema(packagedRubric).required).toEqual([
+      "observations",
+      "findings",
+      "verdict",
+      "severity",
+      "confidence",
+      "summary",
+      "qualities",
     ])
   })
 

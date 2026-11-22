@@ -1930,7 +1930,7 @@ export const Primary = { render: () => null }
 
           const text = parts.map(({ text }) => text ?? "").join("\n")
           expect(text).toContain(
-            "Image 2: a close-up of the largest changed region and the elements next to it, at 2× size",
+            "Image 2: a close-up of the largest changed region, the other changed regions on its rows and the elements next to them, at 2× size",
           )
           // The close-ups were in a private folder that the run removed.
           expect(
@@ -2079,6 +2079,46 @@ export const Primary = { render: () => null }
           expect(closeUp?.width).toBeGreaterThan(2 * 300)
           expect(closeUp?.width).toBeLessThan(2 * 600)
           expect(closeUp?.height).toBeLessThan(2 * 300)
+        })
+
+        test("the close-up also holds each other changed region on the rows of the redesigned region, so the opposite side of a row is in it (CTX-1530)", async () => {
+          serveJev(jevSame)
+          content = designReply("intended", "none")
+          // The head has a new 300 × 60 px block on the left, and a small
+          // change on the same rows at the right, as a send button at the
+          // end of a composer.
+          const row = (head: boolean) =>
+            screenshot(1440, 900, [
+              ...(head
+                ? [
+                    {
+                      box: { x: 100, y: 60, width: 300, height: 60 },
+                      color: [20, 20, 20] as const,
+                    },
+                  ]
+                : []),
+              {
+                box: { x: 1300, y: 70, width: 40, height: head ? 20 : 10 },
+                color: [20, 20, 20] as const,
+              },
+            ])
+          await put("base", card, row(false))
+          await put("head", card, row(true))
+
+          await run("--json", "--judge", "jev", "--images", images, "--", card)
+
+          const [, closeUp] = sentImages(chats[0])
+          // From x 100 to x 1340, and 64 px around it: the zoom drops to 1×.
+          expect(closeUp?.width).toBeGreaterThanOrEqual(1340 - 100)
+          expect(closeUp?.height).toBeLessThan(2 * 300)
+          const text = chats
+            .flatMap(({ messages }) => messages)
+            .flatMap(({ content }) => content)
+            .map(({ text }) => text ?? "")
+            .join("\n")
+          expect(text).toContain(
+            "Image 2: a close-up of the largest changed region, the other changed regions on its rows and the elements next to them, at 1× size",
+          )
         })
 
         test("on a short screenshot that is padded before the call, the changed regions are in fractions of the sent image", async () => {

@@ -294,11 +294,14 @@ const newImages = (input: NewStoryInput): StoryImage[] =>
 
 // The scope of the review of a changed screenshot as new UI in its context
 // (CTX-1509): a large improvement must not hide the defects that remain, so
-// the review does not compare with the earlier version.
+// the review does not compare with the earlier version. A model judges a
+// vertical space by words and an offset of a few pixels as small, so it
+// measures each edge first, and a cited break of a principle is major
+// (CTX-1530).
 const changedText = ({ changed }: NewStoryInput) =>
   changed?.regions.length
     ? `
-This screenshot changed. An element in the changed regions below is new or redesigned. Review each changed region and the elements next to it as new UI in its context, not against an earlier version. Image 2 shows the largest one and the elements next to it close up. Check three things there. The visible content of each changed element, its text or its icon, starts on the edge of the content of its neighbors. Its inset from each edge of its container matches the inset on the opposite side and the inset of its siblings. The elements just above and below it, inside or outside its container, share its edge or the edge of the container, and do not crowd it. Do not report the rest of the screenshot.
+This screenshot changed. An element in the changed regions below is new or redesigned. Review each changed region and the elements next to it as new UI in its context, not against an earlier version. Image 2 shows the largest one, the other changed regions on its rows and the elements next to them close up. First, for each changed element, write in \`observations\` the distance in pixels of Image 1 from its visible content, its text or its icon, to each of the four edges of its container, and the distance from the content at the opposite edge to that edge. Then check three things. The visible content of each changed element starts exactly on the edge of the content of its neighbors. Its inset from each edge of its container matches the inset on the opposite side and the inset of its siblings. The elements just above and below it, inside or outside its container, start exactly on its edge or on the edge of the container, and do not crowd it. An edge that is a few pixels off, or that is on no edge, is a defect. Report a neighbor only for how it relates to a changed element. A finding that shows how a changed element breaks a rubric principle, with evidence that a user can see and a fix, is \`major\`, also when the defect is a few pixels. \`minor\` is for a matter of taste that no rubric entry states.
 Changed regions, in fractions (0 to 1) of Image 1:
 ${changed.regions
   .map(
@@ -318,7 +321,7 @@ New screenshots, in the order attached:
 ${input.images
   .map(({ size }, index) =>
     input.changed && index === 1
-      ? `Image 2: a close-up of the largest changed region and the elements next to it, at ${input.changed.zoom}× size`
+      ? `Image 2: a close-up of the largest changed region, the other changed regions on its rows and the elements next to them, at ${input.changed.zoom}× size`
       : `Image ${index + 1}: the full new screenshot, ${size.width} × ${size.height}`,
   )
   .join("\n")}
