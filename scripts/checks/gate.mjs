@@ -185,8 +185,8 @@ export function decideMode({ config, event, fork, changed, read, diff }) {
   // install`, `pnpm --reporter=silent checks:list`), so a file that changes
   // how the manifest is made is here too: .npmrc, the patches, and each file
   // that scripts/checks/list.mjs runs outside scripts/checks/ (a test keeps
-  // this list complete). Package files and the lockfile are lane inputs that the
-  // selector reads, not gate inputs. Other workflows, Markdown files and
+  // this list complete). Package files and the lockfile are lane inputs that
+  // the selector reads, not gate inputs. Other workflows, Markdown files and
   // .node-version are lane inputs too, and the toolchain is part of each key.
   // A data file in scripts/ci is a gate input, except a file that only its
   // own check reads and whose key holds it (a test keeps the list true).
