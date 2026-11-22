@@ -183,8 +183,8 @@ export class CtxPipe extends Construct {
    */
   public readonly sandboxHostAlarms: readonly cloudwatch.IAlarm[]
   /**
-   * The alarm of the ClickHouse knowledge store host: no host in service for
-   * 10 minutes. It has no actions; add your own with `addAlarmAction`.
+   * The status check alarm of the ClickHouse knowledge store host. It has no
+   * actions; add your own with `addAlarmAction`.
    */
   public readonly knowledgeStoreAlarms: readonly cloudwatch.IAlarm[]
 

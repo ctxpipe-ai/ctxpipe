@@ -209,6 +209,10 @@ export class KnowledgeStoreConstruct extends Construct {
       // instance role for the bucket.
       requireImdsv2: true,
       httpPutResponseHopLimit: 1,
+      // EC2 publishes its metrics by Auto Scaling group (the status check
+      // alarm below) only with detailed monitoring. With basic monitoring, it
+      // publishes them only by instance id, which changes with each host.
+      detailedMonitoring: true,
       blockDevices: [
         {
           deviceName: "/dev/xvda",
@@ -241,12 +245,6 @@ export class KnowledgeStoreConstruct extends Construct {
           maxBatchSize: 1,
           minInstancesInService: 0,
         }),
-        // The metric of the alarm below.
-        groupMetrics: [
-          new autoscaling.GroupMetrics(
-            autoscaling.GroupMetric.IN_SERVICE_INSTANCES,
-          ),
-        ],
       },
     )
     cdk.Tags.of(autoScalingGroup).add(nodeTag, this.node.addr)
@@ -274,16 +272,13 @@ export class KnowledgeStoreConstruct extends Construct {
       }),
     )
 
-    // A host that fails its EC2 status checks is unhealthy, and the group
-    // replaces it. EC2 publishes its status checks only by instance id, so
-    // the alarm reads the group: no host in service for 10 minutes. A planned
-    // replacement takes about 4 minutes.
-    const notInServiceAlarm = new cloudwatch.Alarm(this, "NotInServiceAlarm", {
+    const statusCheckAlarm = new cloudwatch.Alarm(this, "StatusCheckAlarm", {
       alarmDescription:
-        "ctxpipe knowledge store: no ClickHouse host was in service for 10 minutes. The Auto Scaling group replaces a failed host; the new host attaches the same data volume. Look at the group's activity history and the ClickHouse log group.",
+        "ctxpipe knowledge store: the ClickHouse host failed its EC2 status checks. The Auto Scaling group replaces it; the new host attaches the same data volume.",
+      // By group: needs the detailed monitoring of the launch template.
       metric: new cloudwatch.Metric({
-        namespace: "AWS/AutoScaling",
-        metricName: "GroupInServiceInstances",
+        namespace: "AWS/EC2",
+        metricName: "StatusCheckFailed",
         dimensionsMap: {
           AutoScalingGroupName: autoScalingGroup.autoScalingGroupName,
         },
@@ -291,13 +286,14 @@ export class KnowledgeStoreConstruct extends Construct {
         period: cdk.Duration.minutes(1),
       }),
       threshold: 1,
-      evaluationPeriods: 10,
-      comparisonOperator: cloudwatch.ComparisonOperator.LESS_THAN_THRESHOLD,
+      evaluationPeriods: 2,
+      comparisonOperator:
+        cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
     })
 
     this.resources = {
       autoScalingGroup,
-      alarms: [notInServiceAlarm],
+      alarms: [statusCheckAlarm],
       clientSecurityGroup,
       host: discovery.hostname,
       port: CLICKHOUSE_PORT,

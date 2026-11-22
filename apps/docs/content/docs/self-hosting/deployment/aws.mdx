@@ -314,11 +314,12 @@ on its instance with Session Manager for checks.
 
 | Alarm | Fires when | What to do |
 |---|---|---|
-| Host not in service | No ClickHouse host is in service for 10 minutes. A host that fails its EC2 status checks is replaced, and a replacement takes about 4 minutes, so this alarm means that the new host did not come up. | Look at the group's activity history and the ClickHouse log group. The new host attaches the same data volume. |
+| Status check | The ClickHouse host fails its EC2 status checks for 2 minutes | The Auto Scaling group replaces the host, and the new host attaches the same data volume. If the alarm stays on, look at the group's activity history and the ClickHouse log group. |
 
 The alarm has no actions. Subscribe it to your own topic through
 `ctxPipe.knowledgeStoreAlarms`, as for the
-[chat sandbox host alarms](#alarms).
+[chat sandbox host alarms](#alarms). The host has EC2 detailed monitoring,
+because EC2 publishes the status checks by Auto Scaling group only with it.
 
 ### Sizes and cost
 
@@ -329,7 +330,8 @@ The alarm has no actions. Subscribe it to your own topic through
 | `large` | `r7g.xlarge` | 4 / 32 GiB | 200 GB | ~$174 |
 
 Costs are us-east-1 on-demand prices for the instance, the data volume, and a
-16 GB root volume. The S3 storage of the old parts adds to this. A move to a
+16 GB root volume. The S3 storage of the old parts and the detailed monitoring
+of the host (a few dollars a month, for the status check alarm) add to this. A move to a
 larger `size` replaces the host and makes the volume larger. Do not move to a
 smaller `size`: EBS cannot make a volume smaller, and the deploy fails.
 

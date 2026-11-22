@@ -388,23 +388,22 @@ describe("knowledge store", () => {
     for (const table of privateTables) expect(routeTables).toContain(table)
   })
 
-  it("alarms when no ClickHouse host is in service for 10 minutes", () => {
+  it("alarms when the host fails its EC2 status checks, by group with detailed monitoring", () => {
     const t = template()
-    const [groupId, group] = node(t, "AWS::AutoScaling::AutoScalingGroup")
-    // EC2 publishes no instance metric by group, so the alarm reads the
-    // group's own metric, which the group must collect.
-    expect(group.Properties.MetricsCollection).toEqual([
-      { Granularity: "1Minute", Metrics: ["GroupInServiceInstances"] },
-    ])
+    const [groupId] = node(t, "AWS::AutoScaling::AutoScalingGroup")
+    // With basic monitoring, EC2 publishes no metric by group.
+    expect(
+      node(t, "AWS::EC2::LaunchTemplate")[1].Properties.LaunchTemplateData,
+    ).toMatchObject({ Monitoring: { Enabled: true } })
     expect(node(t, "AWS::CloudWatch::Alarm")[1].Properties).toMatchObject({
-      Namespace: "AWS/AutoScaling",
-      MetricName: "GroupInServiceInstances",
+      Namespace: "AWS/EC2",
+      MetricName: "StatusCheckFailed",
       Dimensions: [{ Name: "AutoScalingGroupName", Value: { Ref: groupId } }],
       Statistic: "Maximum",
       Period: 60,
-      EvaluationPeriods: 10,
+      EvaluationPeriods: 2,
       Threshold: 1,
-      ComparisonOperator: "LessThanThreshold",
+      ComparisonOperator: "GreaterThanOrEqualToThreshold",
     })
   })
 
