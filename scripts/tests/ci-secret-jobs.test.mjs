@@ -737,10 +737,10 @@ test("rejects a secret in a step that lists the checks", () => {
     /gives a secret or an OIDC token to a step that lists the checks/
   const empty = '          MANIFEST: ""\n'
   for (const [run, env] of [
-    ["pnpm -s checks:list > manifest.json", ""],
+    ["pnpm --reporter=silent checks:list > manifest.json", ""],
     ["node scripts/checks/list.mjs > manifest.json", ""],
     ["node scripts/checks/run.mjs ids.txt", ""],
-    ["pnpm -s checks:run < ids.txt", ""],
+    ["pnpm --reporter=silent checks:run < ids.txt", ""],
     ["node scripts/checks/rerun-failed.mjs .ci-results", ""],
     ["node scripts/checks/rerun-failed.mjs .ci-results", empty],
     ["node scripts/checks/selected.mjs .ci-results/backend", ""],

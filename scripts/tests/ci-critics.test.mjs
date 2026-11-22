@@ -73,7 +73,7 @@ test("Visual is a command critic that runs visual:review only on changed screens
   assert.ok(!matchesGlob("apps/ui/src/components/Button.tsx", triggers[0]))
   // The paths come after `--`, so that a path cannot act as an option.
   const { run } = command
-  assert.deepEqual(run.slice(0, 3), ["pnpm", "-s", "visual:review"])
+  assert.deepEqual(run.slice(0, 3), ["pnpm", "--reporter=silent", "visual:review"])
   assert.deepEqual(run.slice(-2), ["--", "{paths}"])
   assert.equal(run[run.indexOf("--images") + 1], "{folder}/binary")
   // Jev alone decides each screenshot (ADR-063).

@@ -100,7 +100,7 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p .ci-results/lint
-          pnpm -s checks:list |
+          pnpm --reporter=silent checks:list |
             jq -r '.checks[] | select(.family == "lint" or .family == "policy") | .id' > "$RUNNER_TEMP/lint.txt"
           # Three runners at the same time: each check runs in series in its
           # runner, and the CI script tests ran three at a time before.
@@ -172,7 +172,7 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p .ci-results/typecheck
-          pnpm -s checks:list |
+          pnpm --reporter=silent checks:list |
             jq -r '.checks[] | select(.family == "typecheck") | .id' > "$RUNNER_TEMP/typecheck.txt"
           node scripts/checks/run.mjs "$RUNNER_TEMP/typecheck.txt" |
             tee .ci-results/typecheck/records.ndjson
@@ -684,7 +684,7 @@ jobs:
           if [ "$MODE" != gate ]; then
             # A check with cacheable false reads outside state (Docker) that
             # this job lacks, and its time is not the job's purpose.
-            pnpm -s checks:list |
+            pnpm --reporter=silent checks:list |
               jq -r '.checks[] | select((.family == "typecheck" or .family == "lint" or .family == "policy") and .cacheable != false) | .id' \
               > "$RUNNER_TEMP/project-checks.txt"
           else
@@ -884,9 +884,9 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p .ci-results/build-packages
-          pnpm -s checks:list |
+          pnpm --reporter=silent checks:list |
             jq -r '.checks[] | select(.family == "build" and (.lane | startswith("package-"))) | .id' |
-            pnpm -s checks:run | tee .ci-results/build-packages/records.ndjson
+            pnpm --reporter=silent checks:run | tee .ci-results/build-packages/records.ndjson
       - name: Show the build log
         if: failure()
         run: cat .ci-results/checks/*.log
@@ -1770,7 +1770,7 @@ jobs:
       - name: Manifest and toolchain
         if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
         run: |
-          pnpm -s checks:list > "$RUNNER_TEMP/merge-gate/manifest.json"
+          pnpm --reporter=silent checks:list > "$RUNNER_TEMP/merge-gate/manifest.json"
           node scripts/checks/toolchain.mjs "$RUNNER_TEMP/merge-gate/manifest.json" \
             > "$RUNNER_TEMP/merge-gate/toolchain.json"
       - name: Preserve the merge gate inputs

@@ -182,11 +182,11 @@ export function decideMode({ config, event, fork, changed, read, diff }) {
   // A change to one of these can change how the gate decides: the workflow
   // that runs the gate, its actions, its pin, and the code that the gate and
   // the runner execute. The manifest job runs the code of the PR (`pnpm
-  // install`, `pnpm -s checks:list`), so a file that changes how the manifest
-  // is made is here too: .npmrc, the patches, and each file that
-  // scripts/checks/list.mjs runs outside scripts/checks/ (a test keeps this
-  // list complete). Package files and the lockfile are lane inputs that the
-  // selector reads, not gate inputs. Other workflows, Markdown files and
+  // install`, `pnpm --reporter=silent checks:list`), so a file that changes
+  // how the manifest is made is here too: .npmrc, the patches, and each file
+  // that scripts/checks/list.mjs runs outside scripts/checks/ (a test keeps
+  // this list complete). Package files and the lockfile are lane inputs that
+  // the selector reads, not gate inputs. Other workflows, Markdown files and
   // .node-version are lane inputs too, and the toolchain is part of each key.
   // A data file in scripts/ci is a gate input, except a file that only its
   // own check reads and whose key holds it (a test keeps the list true).
