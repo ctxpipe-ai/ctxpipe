@@ -122,14 +122,26 @@ export function changeTargetOf(
     return unit.attributes.root === undefined ? null : "invalid_root"
   return {
     root,
-    repositories: stringList(unit.attributes.sources).map((source) => {
-      const path = sourcePathOf(source)
-      return (
-        (path && sourceRepositories.get(path)) ??
-        normalizeWorkspaceRepositoryUrl(source)
-      )
-    }),
+    repositories: sourceRepositoriesOf(unit.attributes, sourceRepositories),
   }
+}
+
+/**
+ * The repository URL of each `sources` entry of a unit: the repository of
+ * its source file, else the entry as a URL (a unit written before ADR-050).
+ */
+export function sourceRepositoriesOf(
+  attributes: Record<string, unknown>,
+  /** Path of each GitHub source file → its repository URL. */
+  sourceRepositories: ReadonlyMap<string, string>,
+): string[] {
+  return stringList(attributes.sources).map((source) => {
+    const path = sourcePathOf(source)
+    return (
+      (path && sourceRepositories.get(path)) ??
+      normalizeWorkspaceRepositoryUrl(source)
+    )
+  })
 }
 
 /** `.` names the repository top; null when the value is not a root. */
