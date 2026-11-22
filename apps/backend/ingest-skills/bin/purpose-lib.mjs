@@ -97,26 +97,32 @@ function paragraph(lines) {
   return out.join(" ")
 }
 
-/** The `// Package x …` comment of a Go file, or null. */
+/**
+ * The doc comment of a Go file: the `//` lines directly above its `package`
+ * clause (`// Package x …`, or the comment of a command), or null.
+ */
 function goDoc(text) {
   const lines = text.split("\n")
-  const start = lines.findIndex((l) => /^\/\/ Package \w+/.test(l))
-  if (start === -1) return null
+  const at = lines.findIndex((l) => /^package \w+/.test(l))
   const doc = []
-  for (const line of lines.slice(start)) {
-    if (!line.startsWith("//")) break
-    doc.push(line.slice(2))
-  }
-  return paragraph(doc)
+  for (let i = at - 1; i >= 0 && lines[i].startsWith("//"); i--)
+    doc.unshift(lines[i].slice(2))
+  return doc.length ? paragraph(doc) : null
 }
 
-/** The leading `//!` lines of a Rust crate root, or null. */
+/** The crate doc of a Rust crate root: its leading `//!` lines or its leading `/*!` block, or null. */
 function rustDoc(text) {
   const doc = []
-  for (const line of text.split("\n")) {
-    const trimmed = line.trim()
+  const lines = text.split("\n")
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim()
     if (trimmed.startsWith("//!")) doc.push(trimmed.slice(3))
-    else if (doc.length) break
+    else if (!doc.length && trimmed.startsWith("/*!")) {
+      const block = [trimmed.slice(3)]
+      for (let j = i + 1; j < lines.length && !block.at(-1).includes("*/"); j++)
+        block.push(lines[j])
+      return paragraph(block.join("\n").split("*/")[0].split("\n"))
+    } else if (doc.length) break
     else if (trimmed && !trimmed.startsWith("//") && !trimmed.startsWith("#!["))
       break
   }

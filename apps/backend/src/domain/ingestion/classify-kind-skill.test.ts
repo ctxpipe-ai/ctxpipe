@@ -596,6 +596,26 @@ describe("classify-kind purpose (CTX-1514)", () => {
       "doc.go",
     ],
     [
+      "the comment above the package clause of a Go command",
+      {
+        "go.mod": "module example.org/syncer\n\ngo 1.22\n",
+        "main.go":
+          "/* License. */\n\n// The syncer binary keeps the containers of a host\n// in sync with the cluster.\npackage main\n\nfunc main() {}\n",
+      },
+      "The syncer binary keeps the containers of a host in sync with the cluster.",
+      "main.go",
+    ],
+    [
+      "the /*! block of a Rust crate",
+      {
+        "Cargo.toml": '[package]\nname = "abi"\n',
+        "src/lib.rs":
+          "// tidy-start\n#![allow(unused)]\n\n/*! ABI handling for the compiler.\n\n## More\n*/\npub fn f() {}\n",
+      },
+      "ABI handling for the compiler.",
+      "src/lib.rs",
+    ],
+    [
       "the first paragraph of the README",
       {
         "pyproject.toml":
