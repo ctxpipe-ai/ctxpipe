@@ -145,8 +145,7 @@ test("a GitHub-hosted job uses no Docker, except the listed jobs", () => {
     assert.equal(job.services, undefined, name)
     assert.equal(job.container, undefined, name)
     for (const step of job.steps ?? []) {
-      // An image reference on docker.io is no Docker command.
-      assert.doesNotMatch(step.run ?? "", /\bdocker\b(?!\.io\/)/, name)
+      assert.doesNotMatch(step.run ?? "", /\bdocker\b/, name)
       assert.doesNotMatch(step.uses ?? "", /docker/, name)
     }
   }
