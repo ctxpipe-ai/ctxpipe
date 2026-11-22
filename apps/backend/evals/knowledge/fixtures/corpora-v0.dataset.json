@@ -1283,33 +1283,6 @@
       ]
     },
     {
-      "id": "rust-disagreement-13",
-      "corpus": "rust",
-      "category": "disagreement",
-      "split": "dev",
-      "text": "In CI I moved from passing the compiler flag that promotes every diagnostic to an error over to the package manager's own config option for failing builds on diagnostics. Now some builds (e.g. macOS) break purely because the native link step printed some chatter on stderr, which the old approach just showed and moved on. Is this the intended behavior, and how should I deal with it?",
-      "gold": [
-        "github/issues/rust-lang/cargo/17142.md",
-        "github/issues/rust-lang/cargo/17550.md"
-      ],
-      "seeds": ["github/issues/rust-lang/cargo/17142.md"],
-      "positions": [
-        {
-          "refs": ["github/issues/rust-lang/cargo/17142.md"],
-          "status": "current"
-        },
-        {
-          "refs": ["github/issues/rust-lang/cargo/17550.md"],
-          "status": "scoped"
-        }
-      ],
-      "keyFacts": [
-        "rustc's linker_messages lint deliberately ignores -D warnings, so RUSTFLAGS=-Dwarnings leaves linker output as a warning.",
-        "CARGO_BUILD_WARNINGS=deny (build.warnings) does fail the build on linker_messages. Cargo maintainers call this working as intended, since build.warnings treats all adjustable lints as soft errors.",
-        "Workarounds: allow the lint (-Alinker_messages) or keep using -Dwarnings. Whether Cargo should special-case this lint is still open and needs design."
-      ]
-    },
-    {
       "id": "rust-no-answer-02",
       "corpus": "rust",
       "category": "no-answer",

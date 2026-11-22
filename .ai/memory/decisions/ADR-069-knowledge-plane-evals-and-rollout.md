@@ -120,7 +120,7 @@ The CTO, 2026-11-22: "We don't have hard targets, we want to hillclimb the retri
 - **The loop goes on** until the improvements plateau.
 - **Each kept generation can merge**, because the `knowledge_plane` flag holds the plane back from customers (decision 9).
 - **The labels:** one label version for each dataset (the knowledge evals README, "One label version for each dataset").
-- **The question set v0** (`apps/backend/evals/knowledge/fixtures/corpora-v0.dataset.json`): 86 questions over the frozen Kubernetes and Rust corpora. The Backstage questions come in a later change.
+- **The question set v0:** the knowledge evals README ("The dataset") gives its file, its corpora and its counts.
 
 ## Consequences
 
