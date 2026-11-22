@@ -27,6 +27,7 @@
  */
 import { type ClickHouseClient, createClient } from "@clickhouse/client"
 
+import { ORCHESTRATOR_DEFAULTS } from "../knowledge-reader/orchestrator.js"
 import {
   createKnowledgeStore,
   ORG_SETTING,
@@ -168,7 +169,11 @@ async function measure(
   let started = ""
   try {
     // One search first: it loads the caches for the warm runs.
-    await store.search(scope, { vector: randomVector(), terms: randomTerms() })
+    await store.search(scope, {
+      vector: randomVector(),
+      terms: randomTerms(),
+      chunksPerDocument: ORCHESTRATOR_DEFAULTS.evidenceChunks,
+    })
     started = new Date().toISOString()
     for (let run = 0; run < runs; run++) {
       if (cold) await dropCaches(admin)
@@ -176,6 +181,7 @@ async function measure(
       const hits = await store.search(scope, {
         vector: randomVector(),
         terms: randomTerms(),
+        chunksPerDocument: ORCHESTRATOR_DEFAULTS.evidenceChunks,
       })
       total.push(performance.now() - begin)
       if (hits.length === 0) throw new Error("The search found nothing")

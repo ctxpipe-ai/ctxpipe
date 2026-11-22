@@ -192,6 +192,8 @@ export type SearchQuery = {
   observedAfter?: Date | null
   /** Only documents that are valid at this time. */
   validAt?: Date | null
+  /** The best chunks of each found document that the hit holds, at most. */
+  chunksPerDocument: number
 }
 
 /** A chunk of a read, with its text and its file lines. */
@@ -1342,11 +1344,17 @@ const refTuples = (refs: DocumentRef[]) =>
  *    so ClickHouse reads `embedding` for the 500 rows only (lazy
  *    materialization; `chunks` has `index_granularity = 64`).
  * 2. Lexical: one `hasToken` filter for each term selects at most 1000
- *    chunks through the text index. The score counts the matched terms of a
- *    chunk, plus the terms in the title of its document. A function on `text`
- *    in the SELECT list would read the full text column.
- * 3. RRF (k = 60) fuses the two orders. The top 50 chunks are grouped by
- *    document.
+ *    chunks through the text index. The score of a chunk is the sum of the
+ *    IDF weights of its matched terms, plus the weights of the terms in the
+ *    title of its document. The IDF of a term is the BM25 IDF from the count
+ *    of the searchable chunks that have it, so a common word such as "a"
+ *    weighs almost nothing. The text index gives each count without a read
+ *    of the text column. A function on `text` in the SELECT list would read
+ *    the full text column.
+ * 3. RRF (k = 60) fuses the two orders. The fused chunks are grouped by
+ *    document, a document in the order of its best chunk, and the top 50
+ *    documents are the hits. Thus a long document takes one place, not one
+ *    place for each of its chunks (CTX-1455).
  * The filters use the copies on the tree rows, so the search does not join
  * the documents table before the cut.
  */
@@ -1361,6 +1369,7 @@ async function search(
     sources = [],
     observedAfter = null,
     validAt = null,
+    chunksPerDocument,
   }: SearchQuery,
 ): Promise<SearchHit[]> {
   // hasToken refuses a term with a separator in it. Split each term as the
@@ -1398,16 +1407,30 @@ async function search(
   const inSearchable = `(workspace_id, doc_key, version) IN (
     SELECT workspace_id, doc_key, version FROM tree_view WHERE ${searchable})`
   // One branch for each term, each with at most 1000 chunks of searchable
-  // documents: the cap before the score. Only the parameter names go into the
-  // SQL text.
+  // documents: the cap before the score. Only the parameter names and the
+  // index of each term go into the SQL text.
   const termMatches = uniqueTerms
     .map(
-      (_, i) => `SELECT workspace_id, doc_key, version, ordinal FROM chunks
+      (_, i) => `SELECT ${i} AS term, workspace_id, doc_key, version, ordinal
+        FROM chunks
         WHERE ${inWorkspaces} AND hasToken(text, {term${i}:String})
           AND ${inSearchable}
         LIMIT 1000`,
     )
     .join(" UNION ALL ")
+  // The BM25 IDF of each term: ln(1 + (N - n + 0.5) / (n + 0.5)), with N the
+  // searchable chunks and n the searchable chunks that have the term.
+  const termWeights = `SELECT term,
+      log(1 + (total - found + 0.5) / (found + 0.5)) AS idf
+    FROM (${uniqueTerms
+      .map(
+        (_, i) => `SELECT ${i} AS term, count() AS found FROM chunks
+          WHERE ${inWorkspaces} AND hasToken(text, {term${i}:String})
+            AND ${inSearchable}`,
+      )
+      .join(" UNION ALL ")}) AS counts
+    CROSS JOIN (SELECT count() AS total FROM chunks
+      WHERE ${inWorkspaces} AND ${inSearchable}) AS searchable`
   const [vectorOrder, lexicalOrder] = await Promise.all([
     selectIn<ChunkKey>(
       client,
@@ -1434,15 +1457,18 @@ async function search(
       : selectIn<ChunkKey>(
           client,
           scope,
-          // The score: the matched terms of the chunk, plus the query terms in
-          // the title of its document (the title boost).
-          `WITH tree_view AS (${treeView})
+          // The score: the weights of the matched terms of the chunk, plus the
+          // weights of the query terms in the title of its document (the title
+          // boost).
+          `WITH tree_view AS (${treeView}), weights AS (${termWeights})
            SELECT matches.workspace_id AS workspaceId,
              matches.doc_key AS docKey, matches.version AS version,
              matches.ordinal AS ordinal
            FROM (
-             SELECT workspace_id, doc_key, version, ordinal, count() AS matched
-             FROM (${termMatches})
+             SELECT workspace_id, doc_key, version, ordinal,
+               sum(weights.idf) AS matched
+             FROM (${termMatches}) AS hits
+             INNER JOIN weights ON weights.term = hits.term
              GROUP BY workspace_id, doc_key, version, ordinal
            ) AS matches
            INNER JOIN (
@@ -1452,8 +1478,12 @@ async function search(
              ON documents.workspace_id = matches.workspace_id
              AND documents.doc_key = matches.doc_key
              AND documents.version = matches.version
-           ORDER BY matches.matched + length(arrayIntersect(
-               splitByNonAlpha(documents.title), {terms:Array(String)})) DESC,
+           ORDER BY matches.matched + arraySum(arrayMap(
+               (term, idf) -> if(has(splitByNonAlpha(documents.title), term),
+                 idf, 0),
+               {terms:Array(String)},
+               (SELECT arrayMap(pair -> pair.2, arraySort(groupArray(
+                 (term, idf)))) FROM weights))) DESC,
              workspaceId, docKey, ordinal
            SETTINGS use_index_for_in_with_subqueries = 0`,
           params,
@@ -1468,7 +1498,19 @@ async function search(
       hit.score += 1 / (60 + index + 1)
       fused.set(id, hit)
     })
-  const top = [...fused.values()].sort((a, b) => b.score - a.score).slice(0, 50)
+  // The top 50 documents, each with its best chunks.
+  const byDocument = new Map<string, (ChunkKey & { score: number })[]>()
+  for (const hit of [...fused.values()].sort((a, b) => b.score - a.score)) {
+    const id = documentId(hit)
+    let chunks = byDocument.get(id)
+    if (!chunks) {
+      if (byDocument.size === 50) continue
+      chunks = []
+      byDocument.set(id, chunks)
+    }
+    if (chunks.length < chunksPerDocument) chunks.push(hit)
+  }
+  const top = [...byDocument.values()].flat()
   if (top.length === 0) return []
 
   const [documents, texts] = await Promise.all([

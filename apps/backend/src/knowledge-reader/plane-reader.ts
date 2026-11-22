@@ -236,6 +236,7 @@ async function search(
         sources: request.sources ? [...request.sources] : undefined,
         observedAfter: request.updatedAfter ?? null,
         validAt: request.validAt ?? null,
+        chunksPerDocument: ORCHESTRATOR_DEFAULTS.evidenceChunks,
       }),
     )
   } catch (error) {
@@ -246,10 +247,7 @@ async function search(
   const inputs = found.map((hit) => ({
     ref: { workspaceId: hit.workspaceId, docKey: hit.document.docKey },
     document: hit.document,
-    text: evidenceText(
-      hit.document,
-      hit.chunks.slice(0, ORCHESTRATOR_DEFAULTS.evidenceChunks),
-    ),
+    text: evidenceText(hit.document, hit.chunks),
   }))
   // A Jev failure or the end of the time budget keeps the search order.
   let unjudged: SearchResult["partialReason"]

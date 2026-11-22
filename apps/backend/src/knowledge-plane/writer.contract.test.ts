@@ -2048,6 +2048,7 @@ describe("branches (ADR-071)", () => {
       const searched = await store.search(view, {
         vector: vectorOf("x"),
         terms: ["B", "D"],
+        chunksPerDocument: 2,
       })
       expect(searched.map((hit) => hit.document.path)).not.toContain("d.md")
       expect(searched.map((hit) => hit.document.path)).toContain("n.md")
