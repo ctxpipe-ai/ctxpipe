@@ -8,11 +8,11 @@ The critics review the diff between `HEAD` and a fixed point along separate axes
 - **Standards** — does the code conform to this repo's documented coding standards?
 - **Spec** — does the code faithfully implement the originating issue / spec?
 - **Simplicity** — is the machinery essential for the job, or accidental leftover?
-- **Security** — only when the diff touches a trust surface (the `triggers` of `critics.json`).
+- **Security** — only when the diff touches a trust surface (the `triggers` of `critics.json`), or has a dependency hunk (see below).
 
 Each axis reviews alone, so that one axis cannot hide the findings of another. Do **not** run the review as spec-only.
 
-Spec, Standards and Simplicity skip each hunk that only moves a dependency to another version (`skipDependencyHunks`). Such a hunk is a lockfile, a version range in `package.json`, a `FROM` image tag, a `uses:` ref, or a toolchain version. Security always reviews those hunks. Thus a batch of dependency updates gets only the Security review. The factory decides which hunks are dependency hunks (factory `machines/cli/README.md`, "Review critics").
+Spec, Standards and Simplicity skip each dependency hunk (`skipDependencyHunks`): a hunk that only moves a dependency to another version, for example a lockfile or a version range in `package.json`. The factory decides which hunks are dependency hunks (factory `machines/cli/README.md`, "Review critics"). Each dependency hunk makes the Security critic run, also outside its triggers. Thus a batch of dependency updates gets only the Security review.
 
 The issue tracker should have been provided to you — run `/setup-matt-pocock-skills` if `.ai/agents/issue-tracker.md` is missing.
 
@@ -99,6 +99,7 @@ An artifact that a repo rule or a CI check requires is in scope of each spec, al
 - It trusts data that a less trusted writer can make (PR code, a fork, an artifact found by name, a model answer) for a decision that needs trust.
 - It sends a secret, a customer identifier, or private data to a public artifact, a log, a PR comment, or an outside provider (_Customer privacy_ in `AGENTS.md`).
 - It runs new code at install, at check listing, or at check discovery.
+- In a dependency hunk, it moves a dependency to a source or a ref that a less trusted writer controls: a git, tarball or other registry source, a tag or branch in place of a commit, an image tag with no digest where the old line had one, or a new exception to the release-age or build-script rules of `pnpm-workspace.yaml`. A lockfile entry that adds an install script or a bin entry runs new code at install.
 
 For each finding, give the writer who can do it, the effect, and the fix. A guardrail bypass inside a sandbox is not a finding: the sandbox is the security boundary. A change that keeps the same trust is not a finding.
 

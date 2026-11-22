@@ -95,7 +95,7 @@
     },
     {
       "name": "security",
-      "intent": "Trust surfaces. They are credentials and tokens, auth and organization isolation, and OIDC and IAM trust. They are CI workflow trust: permissions, secrets, environments, triggers and third-party actions. They are sandboxes and egress, and model routing to an outside provider. They are code that runs at install, at check listing or at check discovery: dependency scripts, bin entries and git dependencies. They are data that leaves to a public artifact or an outside provider. A change that touches none of these is not a reason to run it. A workflow or package edit that does not change its trust is not a reason either.",
+      "intent": "Trust surfaces. They are credentials and tokens, auth and organization isolation, and OIDC and IAM trust. They are CI workflow trust: permissions, secrets, environments, triggers and third-party actions. They are sandboxes and egress, and model routing to an outside provider. They are code that runs at install, at check listing or at check discovery: dependency scripts, bin entries and git dependencies. They are data that leaves to a public artifact or an outside provider. They are also each dependency hunk (a hunk that only moves a dependency to another version): the factory runs this critic on it, also outside its triggers. A change that touches none of these is not a reason to run it. A workflow or package edit that does not change its trust is not a reason either.",
       "inputs": [
         ".agents/skills/code-review/SKILL.md",
         "AGENTS.md"
