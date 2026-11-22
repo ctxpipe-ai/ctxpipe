@@ -22,6 +22,7 @@ import {
   changeTargetOf,
   mergedPullRequest,
   sourceRepositoriesOf,
+  stringList,
 } from "../domain/workspaces/pull-request-changes.js"
 import { normalizeWorkspaceRepositoryUrl } from "../domain/workspaces/slug.js"
 
@@ -101,20 +102,10 @@ function changedKey(repositoryUrl: string, root: string | null): string {
 }
 
 /**
- * The keys of a package root (`root`) of a repository that a file at `file`
- * names: the Repository, the repository top (`""`) and each folder that
- * holds the file. A file cannot see which roots exist, so it names all of
- * them (ADR-066 decision 5).
+ * The keys of each package root below the repository top that can hold
+ * `file`: each folder that holds it. A file cannot see which roots exist,
+ * so it names all of them (ADR-066 decision 5).
  */
-function packageKeysOf(repositoryUrl: string, file: string): string[] {
-  return [
-    changedKey(repositoryUrl, null),
-    changedKey(repositoryUrl, ""),
-    ...folderKeysOf(repositoryUrl, file),
-  ]
-}
-
-/** The keys of each folder that holds `file`, below the repository top. */
 function folderKeysOf(repositoryUrl: string, file: string): string[] {
   const folders = file.split("/").slice(0, -1)
   return folders.map((_, depth) =>
@@ -122,23 +113,8 @@ function folderKeysOf(repositoryUrl: string, file: string): string[] {
   )
 }
 
-/**
- * The kinds of code knowledge that an issue can mention by name (CTX-1502):
- * the APIs, operations, services, libraries and the other units that the
- * ingest skills write.
- */
-const MENTIONABLE_KINDS: ReadonlySet<string> = new Set([
-  "Service",
-  "App",
-  "Library",
-  "API",
-  "Operation",
-  "Database",
-  "Infrastructure",
-  "Repository",
-])
-
-const HTTP_OPERATION = /^(GET|PUT|POST|PATCH|DELETE|HEAD|OPTIONS) (\/\S*)$/
+/** The HTTP methods of an operation, as a regular expression group. */
+const HTTP_METHODS = "GET|PUT|POST|PATCH|DELETE|HEAD|OPTIONS"
 
 /** The key of a name of a knowledge unit: lowercase, with single spaces. */
 const nameKey = (name: string) =>
@@ -163,11 +139,25 @@ function mentionTargetKeys(
   kind: string | null,
   attributes: Record<string, unknown>,
 ): string[] {
-  if (connectorMirrorRoot(path) !== null || !MENTIONABLE_KINDS.has(kind ?? ""))
+  // The kinds of code knowledge that the ingest skills write (CTX-1502).
+  const kinds = [
+    "Service",
+    "App",
+    "Library",
+    "API",
+    "Operation",
+    "Database",
+    "Infrastructure",
+    "Repository",
+  ]
+  if (connectorMirrorRoot(path) !== null || !kinds.includes(kind ?? ""))
     return []
   const name = typeof attributes.name === "string" ? attributes.name : ""
   if (!name.trim()) return []
-  const operation = kind === "Operation" ? HTTP_OPERATION.exec(name) : null
+  const operation =
+    kind === "Operation"
+      ? new RegExp(`^(${HTTP_METHODS}) (\\/\\S*)$`).exec(name)
+      : null
   return operation?.[1] && operation[2]
     ? [
         nameKey(name),
@@ -195,10 +185,10 @@ const withoutFences = (text: string) =>
  * - 0.8: an HTTP path with no method, in a code span or under `/api`; a
  *   label `area/<name>` or `component/<name>`; a full code span with a
  *   lowercase letter.
- * - 0.7: a lowercase name with `-` or `_` in the text (`client-go`); the
- *   first word of the title before a colon (`kubelet: …`).
- * A plain word of the title or the text is not a rule: most such words
- * name nothing, and some name the wrong unit (`kind`). A name of one or two
+ * - 0.7: a name with `-` or `_` in the title or the text (`client-go`).
+ * A plain word of the title or the text is not a rule, also the first word
+ * of a title before a colon (`Bug: …`): most such words name nothing, and
+ * some name the wrong unit (`kind`). A name of one or two
  * characters is a variable more often than a unit (`x`), so it is not a
  * mention.
  */
@@ -243,12 +233,12 @@ function mentionLinks(input: {
         mention(key, 0.9, match[0])
   }
   for (const match of body.matchAll(
-    /\b(GET|PUT|POST|PATCH|DELETE|HEAD|OPTIONS)\s+(\/(?:[\w./{}:-]*[\w}])?)/g,
+    new RegExp(`\\b(${HTTP_METHODS})\\s+(\\/(?:[\\w./{}:-]*[\\w}])?)`, "g"),
   ))
     mention(operationKey(match[1] ?? "", match[2] ?? ""), 0.9, match[0])
 
   for (const span of spans)
-    if (/^\/[\w.{}:-]+(?:\/[\w.{}:-]+)+$/.test(span))
+    if (/^(?:\/[\w.{}:-]+)+\/?$/.test(span))
       mention(operationPathKey(span), 0.8, span)
   for (const match of prose.matchAll(
     /(?<![\w./-])\/apis?\/(?:[\w./{}:-]*[\w}])?/g,
@@ -259,8 +249,11 @@ function mentionLinks(input: {
     if (name) mentionName(name, 0.8, "")
   }
   // A code span with no lowercase letter is a constant or an environment
-  // variable (`HOME`), not the name of a unit.
-  for (const span of spans) if (/[a-z]/.test(span)) mentionName(span, 0.8, span)
+  // variable (`HOME`), and a span from `/` is a path: neither is the name
+  // of a unit.
+  for (const span of spans)
+    if (/[a-z]/.test(span) && !span.startsWith("/"))
+      mentionName(span, 0.8, span)
 
   // The name of a file names a page, not a unit
   // (`docs/concepts/dynamic-resource-allocation.md`), so the name rule does
@@ -269,12 +262,10 @@ function mentionLinks(input: {
     /[\w-]+\.[A-Za-z][A-Za-z0-9]{0,7}(?![\w/-])/g,
     " ",
   )
-  for (const match of withoutFileNames
-    .toLowerCase()
-    .matchAll(/(?<![\w.-])[a-z][a-z0-9]*(?:[-_][a-z0-9]+)+(?![\w-])/g))
+  for (const match of withoutFileNames.matchAll(
+    /(?<![\w.-])[a-z][a-z0-9]*(?:[-_][a-z0-9]+)+(?![\w-])/gi,
+  ))
     mentionName(match[0], 0.7, match[0])
-  const prefix = /^\s*([\w./-]+):\s/.exec(input.title)?.[1]
-  if (prefix) mentionName(prefix, 0.7, "")
   return links
 }
 
@@ -362,7 +353,11 @@ export function fileReferences(input: {
     input.kind === "PullRequest" ? mergedPullRequest(attributes) : null
   if (pull)
     for (const file of pull.paths)
-      for (const key of packageKeysOf(pull.repositoryUrl, file))
+      for (const key of [
+        changedKey(pull.repositoryUrl, null),
+        changedKey(pull.repositoryUrl, ""),
+        ...folderKeysOf(pull.repositoryUrl, file),
+      ])
         add({
           key,
           predicate: "CHANGED",
@@ -393,10 +388,4 @@ export function fileReferences(input: {
       add(link)
   }
   return { keys: [...keys].sort(), links: [...links.values()] }
-}
-
-function stringList(raw: unknown): string[] {
-  return Array.isArray(raw)
-    ? raw.filter((item): item is string => typeof item === "string")
-    : []
 }

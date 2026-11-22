@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { stringify } from "yaml"
 
-import { renderGithubIssue } from "../services/github/issue-mirror/converter.js"
+import { shopIssue as issue } from "../test/github-issue.js"
 import { parseKnowledgeFile, workspaceBlobPath } from "./parse-file.js"
 
 const SHOP = "https://github.com/acme/shop"
@@ -19,30 +19,7 @@ function referencesOf(
     sourceRepositories,
   })
   if (parsed.kind !== "unit") throw new Error(`No unit: ${parsed.kind}`)
-  return parsed.unit && parsed.references
-}
-
-/** A GitHub issue mirror file of acme/shop, as the issue sync writes it. */
-function issue(input: { title: string; body: string; labels?: string[] }) {
-  return renderGithubIssue({
-    id: "I_1",
-    number: 1,
-    repository: "acme/shop",
-    url: `${SHOP}/issues/1`,
-    title: input.title,
-    body: input.body,
-    state: "open",
-    stateReason: null,
-    author: { login: "dev", type: "human" },
-    labels: input.labels ?? [],
-    assignees: [],
-    createdAt: "2026-09-01T00:00:00Z",
-    updatedAt: "2026-09-01T00:00:00Z",
-    closedAt: null,
-    comments: [],
-    commentsTotal: 0,
-    closedBy: [],
-  })
+  return parsed.references
 }
 
 /** The `MENTIONS` links of a file as `[key, confidence]`, sorted. */
@@ -84,7 +61,7 @@ describe("issue mentions (CTX-1502)", () => {
       labels: ["area/billing", "bug"],
       body: [
         "The cache in packages/client-lib/src/cache.ts is stale after",
-        "GET /orders/{orderId} and a call to /api/v1/orders.",
+        "GET /orders/{orderId} and a call to /api/v1/orders or `/status/`.",
         "The `order-worker` also uses client-lib, not `x`, `db` or `HOME`.",
         "The page docs/guide/payment-service.md names no unit.",
         "See https://example.com/docs/guide.md for the guide.",
@@ -103,11 +80,11 @@ describe("issue mentions (CTX-1502)", () => {
       [`changed:${SHOP}#packages/client-lib`, 0.9],
       [`changed:${SHOP}#packages/client-lib/src`, 0.9],
       ["name:billing", 0.8],
-      ["name:checkout", 0.7],
       ["name:client-lib", 0.7],
       ["name:order-worker", 0.8],
       ["op:GET /orders/{}", 0.9],
       ["oppath:/api/v1/orders", 0.8],
+      ["oppath:/status", 0.8],
     ])
   })
 

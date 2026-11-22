@@ -47,10 +47,10 @@ import {
 } from "../models/knowledge-state.js"
 import { createLogger, withLogger } from "../observability/logger.js"
 import { textEmbeddingConfig } from "../retrieval/embeddings/textEmbeddings.js"
-import { renderGithubIssue } from "../services/github/issue-mirror/converter.js"
 import { renderGithubPullRequest } from "../services/github/pull-request-mirror/converter.js"
 import { renderLinearIssue } from "../services/linear/converter.js"
 import { startClickHouse, userUrl } from "../test/clickhouse.js"
+import { shopIssue } from "../test/github-issue.js"
 import { cleanUpKnowledgePlane } from "./cleanup.js"
 import { projectKnowledgePlane } from "./writer.js"
 
@@ -1764,27 +1764,8 @@ describe("issue mentions (CTX-1502)", () => {
       sources: [SHOP_SOURCE.path],
       ...(root === undefined ? {} : { root }),
     })}---\n# ${name}\n`
-  /** A GitHub issue mirror file of acme/shop, as the issue sync writes it. */
   const issue = (number: number, title: string, body: string) =>
-    renderGithubIssue({
-      id: `I_${number}`,
-      number,
-      repository: "acme/shop",
-      url: `https://github.com/acme/shop/issues/${number}`,
-      title,
-      body,
-      state: "open",
-      stateReason: null,
-      author: { login: "dev", type: "human" },
-      labels: [],
-      assignees: [],
-      createdAt: "2026-09-01T00:00:00Z",
-      updatedAt: "2026-09-01T00:00:00Z",
-      closedAt: null,
-      comments: [],
-      commentsTotal: 0,
-      closedBy: [],
-    })
+    shopIssue({ number, title, body })
   const LIBRARY = "knowledge/libraries/client-lib.md"
   const REPOSITORY = "knowledge/codebases/shop.md"
   const OPERATION = "knowledge/operations/get-order.md"

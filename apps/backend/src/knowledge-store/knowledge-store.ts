@@ -1575,7 +1575,8 @@ const resolvedTarget = (alias: string) =>
  * has no document. Such a relation is not returned: it is not a broken
  * link. Each other one gets the confidence of {@link mentionConfidence}, so
  * a key that many files mention (the name of the whole project) is weak.
- * Two keys of one target give the relation with the higher confidence.
+ * The mentions of one target by one file give one relation, with the
+ * chunk and the confidence of the strongest.
  */
 async function readFrontier(
   client: ClickHouseClient,
@@ -1680,25 +1681,26 @@ async function readFrontier(
       prefix: REFERENCE_TARGET_PREFIX,
     },
   )
-  const mentionKeys = [
-    ...new Set(
-      rows.flatMap(({ workspaceId, viaKey }) =>
-        viaKey ? [JSON.stringify([workspaceId, viaKey])] : [],
-      ),
-    ),
-  ].map((id) => JSON.parse(id) as [string, string])
-  const stats = await readMentionStats(client, scope, mentionKeys)
+  const mentionKeys = new Map<string, [string, string]>()
+  for (const { workspaceId, viaKey } of rows)
+    if (viaKey)
+      mentionKeys.set(keyId(workspaceId, viaKey), [workspaceId, viaKey])
+  const stats = await readMentionStats(client, scope, [...mentionKeys.values()])
   const relations = new Map<string, FrontierRelation>()
   for (const { direction, workspaceId, neighbor, viaKey, ...row } of rows) {
     const relation = toRelation(row)
-    const counts = viaKey && stats.get(JSON.stringify([workspaceId, viaKey]))
+    const counts = viaKey && stats.get(keyId(workspaceId, viaKey))
     if (counts) relation.confidence = mentionConfidence(row.confidence, counts)
     // One relation for each of its fields but the confidence, with the
-    // highest confidence of its keys.
+    // highest confidence of its keys. A mention also ignores its chunk.
     const id = JSON.stringify([
       direction,
       workspaceId,
-      { ...relation, confidence: 0 },
+      {
+        ...relation,
+        confidence: 0,
+        srcChunk: relation.predicate === "MENTIONS" ? 0 : relation.srcChunk,
+      },
     ])
     const seen = relations.get(id)
     if (seen && seen.relation.confidence >= relation.confidence) continue
@@ -1715,6 +1717,10 @@ async function readFrontier(
   }
   return [...relations.values()]
 }
+
+/** The id of a (Workspace, key target) pair of a mention. */
+const keyId = (workspaceId: string, target: string) =>
+  JSON.stringify([workspaceId, target])
 
 /**
  * The key target of the `MENTIONS` relation `alias`, else `''`. Only a
@@ -1813,7 +1819,7 @@ async function readMentionStats(
   )
   return new Map(
     rows.map((row) => [
-      JSON.stringify([row.workspaceId, row.target]),
+      keyId(row.workspaceId, row.target),
       {
         sources: Number(row.sources),
         documents: Number(row.documents),
@@ -1948,7 +1954,9 @@ async function readGraph(
     ),
     // A relation to a reference key gets the documents of the key
     // (ADR-066 decision 5). Two keys of one target give one relation when
-    // all its fields are the same.
+    // all its fields are the same. A `MENTIONS` key with no document is no
+    // relation. The view shows the confidence of the rule of a mention, not
+    // the weight of `readFrontier`: the graph view does not rank.
     selectIn<RelationRecord>(
       client,
       scope,
@@ -1961,7 +1969,8 @@ async function readGraph(
        FROM (${relationsOf("relations", viewFiles)}) AS rel
        LEFT JOIN (${keyTargets("1")}) AS keys
          ON keys.workspace_id = rel.workspace_id AND keys.target = rel.dst_doc
-       WHERE NOT (rel.predicate = 'MENTIONS' AND empty(keys.doc_key))
+       WHERE NOT (rel.predicate = 'MENTIONS'
+         AND startsWith(rel.dst_doc, {prefix:String}) AND empty(keys.doc_key))
        ORDER BY srcDoc, srcChunk, predicate, dstDoc
        LIMIT {limit:UInt32}`,
       params,

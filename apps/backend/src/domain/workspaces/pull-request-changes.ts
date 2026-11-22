@@ -165,7 +165,8 @@ function holds(root: string, file: string): boolean {
   return root === "" || file === root || file.startsWith(`${root}/`)
 }
 
-function stringList(raw: unknown): string[] {
+/** The text items of a front matter list; an empty list for another value. */
+export function stringList(raw: unknown): string[] {
   return Array.isArray(raw)
     ? raw.filter((item): item is string => typeof item === "string")
     : []
