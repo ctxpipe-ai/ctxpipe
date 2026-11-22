@@ -411,10 +411,15 @@ beforeAll(async () => {
   pinned = await containerRepo("/tmp/remotes/context.git", CONTEXT)
   remote = {
     url: `ext::docker exec -i ${handle.id} %S /tmp/remotes/context.git`,
+    // This count replaces the one of setup-git.ts, so keep its two keys.
     env: {
-      GIT_CONFIG_COUNT: "1",
+      GIT_CONFIG_COUNT: "3",
       GIT_CONFIG_KEY_0: "protocol.ext.allow",
       GIT_CONFIG_VALUE_0: "always",
+      GIT_CONFIG_KEY_1: "maintenance.auto",
+      GIT_CONFIG_VALUE_1: "false",
+      GIT_CONFIG_KEY_2: "gc.auto",
+      GIT_CONFIG_VALUE_2: "0",
     },
   }
   view = mkdtempSync(join(host, "view-"))

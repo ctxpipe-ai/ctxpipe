@@ -21,6 +21,7 @@ export default defineConfig({
       "src/test/global-setup-converter.ts",
     ],
     setupFiles: [
+      "src/test/setup-git.ts",
       "src/test/setup-test-containers.ts",
       "src/test/setup-evlog.ts",
       "src/test/setup-openworkflow-runs.ts",
