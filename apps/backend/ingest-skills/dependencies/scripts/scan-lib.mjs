@@ -15,7 +15,7 @@ import { lstatSync, realpathSync } from "node:fs"
 import { dirname, join, posix, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { fileClaims, nameKey } from "../../bin/knowledge-lib.mjs"
+import { fileClaims, isListPart, nameKey } from "../../bin/knowledge-lib.mjs"
 import { stepTexts } from "../../bin/stage-lib.mjs"
 import {
   safePath,
@@ -448,14 +448,23 @@ export function scan({
 /**
  * The identity of one resolved candidate: a Related line of the
  * dependency list of a Service file. It holds the claim (predicate and
- * target), the source file of the call, and the candidate id. The id is the
- * hash that the scan gives the candidate (`c` and 10 hex digits), not a
- * text of the code. The same resolution of a candidate gives the same line.
- * The target and the file are code spans, so each path that `safePath`
- * takes (also one with a space or a parenthesis) reads back the same.
+ * target), the source repository, the root, the source file of the call,
+ * and the candidate id. The id is the hash that the scan gives the
+ * candidate (`c` and 10 hex digits), not a text of the code. Two
+ * repositories or two roots can give the same id, so the line names them.
+ * The same resolution of a candidate gives the same line. The values are
+ * code spans, so each path that `safePath` takes (also one with a space or
+ * a parenthesis) reads back the same.
  */
-export function dependencyLine({ predicate, link, file, id }) {
-  return `- ${predicate} \`${link}\` from \`${file}\` (candidate \`${id}\`)`
+export function dependencyLine({
+  predicate,
+  link,
+  repository,
+  root,
+  file,
+  id,
+}) {
+  return `- ${predicate} \`${link}\` from \`${repository}\` root \`${root}\` file \`${file}\` (candidate \`${id}\`)`
 }
 
 /** The Related line of a Stream file for one root that produces to or consumes from it. */
@@ -477,13 +486,6 @@ export function listPart(servicePath, n) {
 }
 
 /**
- * The path is a part of the dependency list of a Service file. The host has
- * the same rule (`isDependencyListPart`); a test checks both.
- */
-export const isListPart = (path) =>
-  /^knowledge\/services\/.+\.dependencies-\d+\.md$/.test(path)
-
-/**
  * The texts of a Service file and of each part of its dependency list:
  * `[{ path, text }]`, the Service file first. `read(paths)` gives a Map of
  * the texts that exist.
@@ -502,8 +504,8 @@ export function listTexts(read, servicePath) {
  * The ids of the candidates of one root that are resolved in this step, at
  * the step base or in the staged tree. A candidate is resolved when, for
  * each Service file of the root, its dependency list (the Service file and
- * its parts) has an identity line for the candidate with a claim of the
- * step, and has that claim. In the repository-wide step, the Stream file
+ * its parts) has an identity line of this repository and root for the
+ * candidate with a claim of the step, and has that claim. In the repository-wide step, the Stream file
  * of the claim must also have the Related line of the root. An ignored
  * candidate has no identity line, so it is never resolved. A candidate with
  * two lines (resolved to one target and later to another) is one id.
@@ -516,7 +518,7 @@ export function resolvedIds(step, root, { repositoryStep, repository }) {
     : ["DEPENDS_ON", "CONSUMES_API"]
   // The form of `dependencyLine`.
   const identity =
-    /^- ([A-Z_]+) `([^`\n]+)` from `([^`\n]+)` \(candidate `(c[0-9a-f]{10})`\)$/
+    /^- ([A-Z_]+) `([^`\n]+)` from `([^`\n]+)` root `([^`\n]+)` file `([^`\n]+)` \(candidate `(c[0-9a-f]{10})`\)$/
   const read = (paths) => stepTexts(step, paths)
   const streams = new Map()
   const streamHas = (path, line) => {
@@ -540,7 +542,8 @@ export function resolvedIds(step, root, { repositoryStep, repository }) {
       for (const raw of text.split("\n")) {
         const line = identity.exec(raw.trim())
         if (!line) continue
-        const [, predicate, link, file, id] = line
+        const [, predicate, link, from, at, file, id] = line
+        if (from !== repository || at !== root.path) continue
         if (!predicates.includes(predicate)) continue
         if (!claims.has(`${link} ${predicate}`)) continue
         if (

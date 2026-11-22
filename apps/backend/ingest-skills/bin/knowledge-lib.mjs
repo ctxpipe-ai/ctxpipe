@@ -800,6 +800,16 @@ export function fileClaims(text) {
   return existingClaims(frontMatter(text) ?? "")
 }
 
+/**
+ * The path is a part of the dependency list of a Service file. The
+ * `dependencies` skill writes the parts (CTX-1487). A part has the kind
+ * Service, but it is not a Service, so a skill that takes a Service file
+ * from the context index refuses one. The host has the same rule
+ * (`isDependencyListPart`); a test checks both.
+ */
+export const isListPart = (path) =>
+  /^knowledge\/services\/.+\.dependencies-\d+\.md$/.test(path)
+
 /** Relative link from one context file to another. */
 export function relativeTo(from, to) {
   return posix.relative(posix.dirname(from), to)

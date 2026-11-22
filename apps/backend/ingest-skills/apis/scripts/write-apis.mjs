@@ -22,6 +22,7 @@ import { existsSync, readFileSync, statSync } from "node:fs"
 import {
   fileClaims,
   findExisting,
+  isListPart,
   planText,
   relativeTo,
   stepArgs,
@@ -110,7 +111,9 @@ const slug = (text) =>
 let service = null
 if (plan.service !== undefined && plan.service !== null) {
   const entry = entryByPath.get(plan.service)
-  if (!entry || entry.kind !== "Service")
+  // A part of the dependency list of a Service file has the kind Service,
+  // but it is not a Service (CTX-1487).
+  if (!entry || entry.kind !== "Service" || isListPart(entry.path))
     skip(
       safePath(plan.service) ? plan.service : null,
       "The service is not a file of kind Service in the context index",

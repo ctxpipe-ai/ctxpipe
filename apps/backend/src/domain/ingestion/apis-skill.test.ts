@@ -869,6 +869,36 @@ describe("write-apis", () => {
     )
   })
 
+  it("does not take a part of a dependency list as the service (CTX-1487)", async () => {
+    const PART = "knowledge/services/billing.dependencies-2.md"
+    const s = await fixture(BILLING_SOURCE, {
+      [PART]: front(
+        {
+          kind: "Service",
+          name: "billing dependencies 2",
+          generated_by: "ctxpipe-extract",
+          sources: [SOURCE_PATH],
+        },
+        "# billing dependencies 2\n",
+      ),
+    })
+    const out = s.write({
+      root: "apps/billing",
+      service: PART,
+      apis: [
+        {
+          name: "Billing API",
+          operations: [{ method: "GET", path: "/invoices" }],
+        },
+      ],
+    })
+    expect(out.ops.map((op) => op.path)).not.toContain(PART)
+    expect(out.skipped).toContainEqual({
+      path: PART,
+      reason: "The service is not a file of kind Service in the context index",
+    })
+  })
+
   it("writes a plan of 45 operations on one page, with no file count (CTX-1482)", async () => {
     const paths: Record<string, object> = {}
     for (let i = 0; i < 45; i++) paths[`/items/${i}`] = { get: {} }

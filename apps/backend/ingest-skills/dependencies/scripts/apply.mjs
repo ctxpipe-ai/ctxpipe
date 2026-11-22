@@ -26,6 +26,7 @@ import {
   claimBytes,
   fileClaims,
   findExisting,
+  isListPart,
   relativeTo,
   scriptStep,
   writeStep,
@@ -34,7 +35,6 @@ import { fail, STEP_LIMITS, stepTexts } from "../../bin/stage-lib.mjs"
 import { safePath } from "../../discover-roots/scripts/roots-lib.mjs"
 import {
   dependencyLine,
-  isListPart,
   listPart,
   listTexts,
   resolvedIds,
@@ -301,6 +301,8 @@ for (const resolution of resolutions) {
         line: dependencyLine({
           predicate,
           link,
+          repository,
+          root: current.path,
           file: candidate.file,
           id: candidate.id,
         }),

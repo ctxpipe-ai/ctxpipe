@@ -1,4 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process"
+import { createHash } from "node:crypto"
 import {
   existsSync,
   mkdirSync,
@@ -743,7 +744,7 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
     // of the call, and the candidate id. It holds no URL or host of the code.
     const svc = all[0]?.target.text.match(/svc-\d+/)?.[0]
     expect(s.show(first.tree, OWN)).toContain(
-      `- DEPENDS_ON \`${svc}.md\` from \`src/client.ts\` (candidate \`${all[0]?.id}\`)`,
+      `- DEPENDS_ON \`${svc}.md\` from \`example-org/shop\` root \`.\` file \`src/client.ts\` (candidate \`${all[0]?.id}\`)`,
     )
     expect(s.show(first.tree, OWN)).not.toContain("internal")
     await s.advance(first.tree)
@@ -872,7 +873,7 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
     expect(first.rejections).toEqual([])
     expect(first.cursorAt).toBe(1)
     expect(s.show(first.tree, OWN)).toContain(
-      `- DEPENDS_ON \`billing api (v2).md\` from \`src/client.ts\` (candidate \`${call?.id}\`)`,
+      `- DEPENDS_ON \`billing api (v2).md\` from \`example-org/shop\` root \`.\` file \`src/client.ts\` (candidate \`${call?.id}\`)`,
     )
     await s.advance(first.tree)
     // The next page finds the line: nothing waits, and the cursor stays at
@@ -880,6 +881,40 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
     expect(s.scan()).toMatchObject({ waiting: 0, candidates: [] })
     s.apply([])
     expect((await s.validate()).cursorAt).toBe(1)
+  })
+
+  it("does not count the identity line of another repository on a shared Service file (CTX-1487)", async () => {
+    // A Service file of two source repositories. The other repository has a
+    // call with the same target text, so its candidate has the same id.
+    const id = `c${createHash("sha256").update("http|call|literal|http://billing.internal/x").digest("hex").slice(0, 10)}`
+    const own = front(
+      {
+        kind: "Service",
+        name: "Shop API",
+        generated_by: "ctxpipe-extract",
+        sources: [SOURCE_PATH, "sources/github/example-org/other.md"],
+        claims: [
+          {
+            to: "billing.md",
+            predicate: "DEPENDS_ON",
+            evidence: { path: "src/client.ts", kind: "model" },
+          },
+        ],
+      },
+      `# Shop API\n\n## Related\n\n- DEPENDS_ON \`billing.md\` from \`example-org/other\` root \`.\` file \`src/client.ts\` (candidate \`${id}\`)\n`,
+    )
+    const s = await step(
+      { "src/client.ts": 'await fetch("http://billing.internal/x")\n' },
+      { [OWN]: own, "knowledge/services/billing.md": serviceFile("Billing") },
+    )
+    const listed = s.scan()
+    expect(listed.candidates.map((c) => c.id)).toEqual([id])
+    s.apply([])
+    expect((await s.validate()).cursorAt).toBe(0)
+    s.apply([{ id, kind: "service", path: "knowledge/services/billing.md" }])
+    const result = await s.validate()
+    expect(result.rejections).toEqual([])
+    expect(result.cursorAt).toBe(1)
   })
 
   it("counts a candidate that a later page resolves to another target once, and never an ignored candidate (CTX-1487)", async () => {
@@ -1047,7 +1082,7 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
 
   it("has the same rule for a part of a dependency list in the skill and in the host (CTX-1487)", async () => {
     const { isListPart } = (await import(
-      join(INGEST_SKILLS_DIR, "dependencies/scripts/scan-lib.mjs")
+      join(INGEST_SKILLS_DIR, "bin/knowledge-lib.mjs")
     )) as { isListPart: (path: string) => boolean }
     for (const path of [
       "knowledge/services/shop-api.dependencies-2.md",
