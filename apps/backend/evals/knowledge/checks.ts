@@ -228,8 +228,8 @@ export function regressionChecks(input: {
             {
               question,
               related: answer.related.refs
-                .slice(0, RELATED_SLOTS)
-                .filter((ref) => !question.seeds?.includes(ref)),
+                .filter((ref) => !question.seeds?.includes(ref))
+                .slice(0, RELATED_SLOTS),
               hubs: answer.related.hubs,
             },
           ]

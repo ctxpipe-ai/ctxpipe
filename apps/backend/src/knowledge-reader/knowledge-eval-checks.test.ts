@@ -256,6 +256,28 @@ describe("the regression checks", () => {
         questions.map((one) => related(one, [])),
       ).hubSlots,
     ).toBe(0)
+    // The seeds take no slot of the 10: the 11th result counts.
+    const many = question("many", { seeds: ["seeds/many.md"] })
+    expect(
+      checksOf(
+        [many],
+        [
+          {
+            ...answer("legacy", many.id, { refs: [] }),
+            related: {
+              refs: [
+                "seeds/many.md",
+                ...Array.from({ length: 9 }, (_, index) => `docs/r${index}.md`),
+                hub,
+              ],
+              scores: Array.from({ length: 11 }, () => 0.5),
+              latencyMs: 50,
+              hubs: [hub],
+            },
+          },
+        ],
+      ).hubSlots,
+    ).toBe(1 / 10)
     // A run from before the hubs were marked has no value.
     expect(
       checksOf(questions, [
