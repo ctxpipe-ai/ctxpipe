@@ -121,24 +121,25 @@ test("CI runs every story with a play function in shards", () => {
 test("Chromium keeps its shared memory in /dev/shm only when it is a large memory file system", () => {
   const tmpfs = 0x01021994
   const gib = 1024 ** 3
+  const shm = (type, bytes) => () => ({
+    type,
+    bsize: 4096,
+    bavail: bytes / 4096,
+  })
   // A GitHub-hosted arm runner: a tmpfs of 7.8 GB.
-  assert.equal(
-    usesDevShm({ type: tmpfs, bsize: 4096, bavail: (7.8 * gib) / 4096 }),
-    true,
-  )
+  assert.equal(usesDevShm(shm(tmpfs, 7.8 * gib)), true)
   // The Docker default of 64 MB is too small, so Playwright's
   // --disable-dev-shm-usage stays.
-  assert.equal(
-    usesDevShm({ type: tmpfs, bsize: 4096, bavail: (64 * 1024 ** 2) / 4096 }),
-    false,
-  )
+  assert.equal(usesDevShm(shm(tmpfs, 64 * 1024 ** 2)), false)
   // A /dev/shm directory on a disk file system (ext4) is no memory.
+  assert.equal(usesDevShm(shm(0xef53, 100 * gib)), false)
+  // No /dev/shm (macOS).
   assert.equal(
-    usesDevShm({ type: 0xef53, bsize: 4096, bavail: (100 * gib) / 4096 }),
+    usesDevShm(() => {
+      throw Object.assign(new Error("ENOENT"), { code: "ENOENT" })
+    }),
     false,
   )
-  // No /dev/shm (macOS).
-  assert.equal(usesDevShm(undefined), false)
 })
 
 test("a failed run exits at once instead of waiting on the open server", () => {

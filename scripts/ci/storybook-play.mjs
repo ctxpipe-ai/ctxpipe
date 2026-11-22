@@ -84,18 +84,16 @@ export const waitFor = async (url) => {
 // memory, and a play that waited 1 s for its first data failed (CTX-1505).
 // Thus Chromium uses /dev/shm when it is a memory file system (tmpfs) with
 // 1 GB or more free: on a Linux host and in the capture container, which
-// shares the memory of the host (`--ipc=host`, visual-capture.mjs). The
-// argument is the `statfs` result of /dev/shm, or undefined when there is
-// none (macOS).
-export const usesDevShm = (stats) =>
-  stats?.type === 0x01021994 && stats.bavail * stats.bsize >= 1024 ** 3
-
-const devShm = () => {
+// shares the memory of the host (`--ipc=host`, visual-capture.mjs). macOS has
+// no /dev/shm. A test gives its own `statfs` function.
+export const usesDevShm = (statfs = () => statfsSync("/dev/shm")) => {
+  let stats
   try {
-    return statfsSync("/dev/shm")
+    stats = statfs()
   } catch {
-    return undefined
+    return false
   }
+  return stats.type === 0x01021994 && stats.bavail * stats.bsize >= 1024 ** 3
 }
 
 // The browser context of every play. The time zone, the locale and the pixel
@@ -338,7 +336,7 @@ export async function playStories(
     // that part can anti-alias a rounded corner one step lighter or darker
     // than a full draw, so the pixels depend on what changed before the shot.
     args: ["--lang=de-DE", "--disable-partial-raster"],
-    ...(usesDevShm(devShm()) && {
+    ...(usesDevShm() && {
       ignoreDefaultArgs: ["--disable-dev-shm-usage"],
     }),
   })
