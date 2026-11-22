@@ -122,9 +122,12 @@ function WorkspaceComposeChat(props: {
   })
   // The base branch picker shows only when the org's knowledge_plane flag is
   // not off. Without it, the conversation starts from the default branch,
-  // also when the member picked a branch before the flag went off.
+  // also when the member picked a branch before the flag went off. A list
+  // older than a minute (the app default) is fetched again when the composer
+  // opens; a list that the page just loaded is not fetched a second time.
   const showBaseBranchPicker = useQuery({
     ...workspaceListOptions(orgSlug),
+    staleTime: 60_000,
     select: (list) => list.knowledgePlane !== "off",
   }).data
   const { conversationId } = target
