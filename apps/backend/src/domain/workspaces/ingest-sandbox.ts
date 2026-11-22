@@ -7,6 +7,7 @@ import {
   type WorkspaceDefinition,
 } from "@tanstack/ai-sandbox"
 
+import type { SandboxInstanceRecord } from "../../models/workspace-sandboxes.js"
 import { getSandboxInstance } from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
 import { scheduleConversationSandboxSweep } from "../../openworkflow/workflows/conversation-sandbox-sweep.js"
@@ -32,8 +33,9 @@ import type { SandboxProvider as SandboxProviderName } from "./sandbox-provider.
  * 60-minute shard limit bounds each wait.
  *
  * The sandbox is a cache: git holds each finished step. It has no idle stop.
- * It goes at `destroy()` after the run's last sandbox step, or at the org
- * sweep when its run has finished or the shard limit has passed.
+ * It goes at `destroy()` after the run's last sandbox step, at the org
+ * sweep when its run has finished or the shard limit has passed, or at the
+ * first step after the shard limit (`ensureExisting`).
  *
  * `workspaceId` is a Workspace of the run; the row is deleted with it.
  */
@@ -133,11 +135,33 @@ export function ingestSandbox(input: {
         }
       }
     },
-    /** Attach to the shard's sandbox if it exists; never create one. */
-    ensureExisting: () => definition.ensureExisting(ctx),
+    /**
+     * Attach to the shard's sandbox if it exists and is younger than the
+     * shard limit; never create one. The caller holds the shard lock, so
+     * the sweep cannot delete a sandbox while steps run one after the other.
+     * Thus this deletes a sandbox at the shard limit: its proxy session ends
+     * 15 minutes after the limit, and a step on it could outlive the session.
+     * Each Git fetch then fails with exit code 128 (CTX-1515). The next
+     * `ensure()` makes a new sandbox with a new session.
+     */
+    async ensureExisting(): Promise<SandboxHandle | null> {
+      const row = await getSandboxInstance(key, input.orgId)
+      if (row && Date.now() - shardStartedAt(row) >= INGEST_SHARD_LIMIT_MS) {
+        await definition.destroy(ctx)
+        return null
+      }
+      return definition.ensureExisting(ctx)
+    },
     /** Delete the shard's sandbox and its row. */
     destroy: () => definition.destroy(ctx),
   }
+}
+
+/** When the shard's sandbox started, in milliseconds. */
+function shardStartedAt(
+  row: Pick<SandboxInstanceRecord, "createdAt" | "lastHeartbeatAt">,
+): number {
+  return (row.createdAt ?? row.lastHeartbeatAt).getTime()
 }
 
 /**
@@ -148,10 +172,9 @@ async function scheduleShardSweep(orgId: string, key: string): Promise<void> {
   try {
     const row = await getSandboxInstance(key, orgId)
     if (!row) return
-    const startedAt = (row.createdAt ?? row.lastHeartbeatAt).getTime()
     await scheduleConversationSandboxSweep(
       orgId,
-      new Date(startedAt + INGEST_SHARD_LIMIT_MS),
+      new Date(shardStartedAt(row) + INGEST_SHARD_LIMIT_MS),
     )
   } catch (error) {
     log.error({

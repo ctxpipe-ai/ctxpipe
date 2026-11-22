@@ -382,6 +382,33 @@ describe("ingest sandbox sweep (Postgres, unsandboxed)", () => {
     })
   })
 
+  it("gives a step no sandbox at the shard limit: it deletes it, and the next start makes a new one (CTX-1515)", async () => {
+    await withOrg(async (org) => {
+      await withUnfinishedRun(org.orgId, async (runId) => {
+        const sandbox = localIngest(org, runId)
+        const first = await sandbox.ensure()
+        // A younger sandbox is the step's sandbox.
+        expect((await sandbox.ensureExisting())?.id).toBe(first.id)
+
+        // The sandbox's proxy session ends 15 minutes after the shard limit,
+        // so a step that starts on it from now could outlive the session.
+        const row = await getSandboxInstance(sandbox.key, org.orgId)
+        if (!row) throw new Error("ingest row missing")
+        await withOrgDbContext(org.orgId, (db) =>
+          db
+            .update(workspaceSandboxInstances)
+            .set({ createdAt: new Date(Date.now() - INGEST_SHARD_LIMIT_MS) })
+            .where(eq(workspaceSandboxInstances.id, row.id)),
+        )
+
+        expect(await sandbox.ensureExisting()).toBeNull()
+        expect(await getSandboxInstance(sandbox.key, org.orgId)).toBeNull()
+        const next = await sandbox.ensure()
+        expect(next.id).not.toBe(first.id)
+      })
+    })
+  })
+
   it("deletes the sandbox once its run has finished", async () => {
     await withOrg(async (org) => {
       let sandbox: ReturnType<typeof localIngest> | undefined
