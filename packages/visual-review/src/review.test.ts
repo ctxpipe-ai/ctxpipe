@@ -551,7 +551,7 @@ describe("redesigns", () => {
       story("no-signature", undefined),
     ]
 
-    expect(ids(redesigns(stories, 10))).toEqual([
+    expect(ids(redesigns(stories))).toEqual([
       "removed",
       "added",
       "unlabeled",
@@ -566,7 +566,7 @@ describe("redesigns", () => {
       story("composer-c", "deletion@left:248x52,content-change@right:60x60"),
     ]
 
-    expect(redesigns(stories, 10)).toMatchObject([
+    expect(redesigns(stories)).toMatchObject([
       {
         story: { storyId: "composer-a" },
         alike: ["composer-b", "composer-c"],
@@ -583,16 +583,16 @@ describe("redesigns", () => {
       story("page", "deletion@left:248x52", { scope: "page" }),
     ]
 
-    expect(ids(redesigns(stories, 10))).toEqual(["desktop", "mobile", "page"])
+    expect(ids(redesigns(stories))).toEqual(["desktop", "mobile", "page"])
   })
 
-  test("the largest change comes first, and at most `limit` stories come back", () => {
+  test("the largest change comes first", () => {
     const stories = [
       story("small", "addition@left:100x32"),
       story("large", "addition@left:600x400"),
       story("medium", "deletion@left:248x52"),
     ]
 
-    expect(ids(redesigns(stories, 2))).toEqual(["large", "medium"])
+    expect(ids(redesigns(stories))).toEqual(["large", "medium", "small"])
   })
 })

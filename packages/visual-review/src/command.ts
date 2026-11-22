@@ -41,7 +41,7 @@ import {
   explainerModel,
   explainRegression,
   inContext,
-  redesignedRegion,
+  redesignOf,
   reviewDesign,
   type Explained,
   type Review,
@@ -330,7 +330,7 @@ export async function visualReview(
   // region and the folder of its close-up.
   const feedbackOf = (
     input: Explained,
-    redesign: { shown: Box; folder: string } | undefined,
+    redesign: { shown: Box; changed: Box[]; folder: string } | undefined,
   ): {
     call: (verdict: Verdict) => Promise<{
       verdict: Verdict
@@ -356,7 +356,7 @@ export async function visualReview(
             call: async (verdict: Verdict) => {
               const story = await inContext(
                 input.story,
-                redesign.shown,
+                redesign,
                 redesign.folder,
               )
               return story
@@ -385,16 +385,16 @@ export async function visualReview(
       story: StoryInput
       alike: string[]
       shown: Box
+      changed: Box[]
     }[] = []
     for (const candidate of redesigns(
       [...jevInputs.values()].flatMap((input) =>
         input.kind === "change" ? [input.story] : [],
       ),
-      Infinity,
     )) {
       if (found.length === 4) break
-      const shown = await redesignedRegion(candidate.story)
-      if (shown) found.push({ ...candidate, shown })
+      const redesign = await redesignOf(candidate.story)
+      if (redesign) found.push({ ...candidate, ...redesign })
     }
     const redesigned = found.map(({ story }) => story.storyId)
     const reviewOrder = (storyId: string) => {
@@ -443,7 +443,7 @@ export async function visualReview(
         const { call, reserve, skipped, share } = feedbackOf(
           input,
           reviewed && closeUpFolder
-            ? { shown: redesign.shown, folder: closeUpFolder }
+            ? { ...redesign, folder: closeUpFolder }
             : undefined,
         )
         let updated: Verdict

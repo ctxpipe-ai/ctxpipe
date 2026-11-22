@@ -189,13 +189,12 @@ export const isRedesign = ({
  * critic cannot tell a redesign from a small change, group it, or scope the
  * review. Stories with alike diffs (the same scope and viewport, alike
  * regions at any position) are one redesign, and the first one stands for
- * them: `alike` names the others. The largest change comes first, and at
- * most `limit` redesigns come back: each review is a paid call of a large
- * model.
+ * them: `alike` names the others. The largest change comes first. The
+ * caller checks the pixels (a block that only moved is no redesign) and
+ * caps the paid reviews.
  */
 export function redesigns(
   stories: readonly StoryInput[],
-  limit: number,
 ): { story: StoryInput; alike: string[] }[] {
   const kept: {
     story: StoryInput
@@ -218,7 +217,6 @@ export function redesigns(
   }
   return kept
     .sort((a, b) => b.largest - a.largest)
-    .slice(0, limit)
     .map(({ story, alike }) => ({ story, alike }))
 }
 

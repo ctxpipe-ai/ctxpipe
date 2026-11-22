@@ -276,18 +276,20 @@ ${brief ? brief.replace(/<\/data/gi, "<\\/data") : "(none)"}
 }
 
 /**
- * The largest changed region of a changed screenshot that is a redesign
- * (`isRedesign`) and not a block that only moved, in fractions of the image,
- * or undefined when it has none (CTX-1509, ADR-063 rule 20). A scroll or a
- * layout shift moves text by a few pixels and changes each pixel of its
- * region, so the size of a region does not tell a move from a redesign. A
- * region only moved when its head pixels are in the base image at an offset
- * of up to 160 px on one axis, with a mean difference of at most 1 of 255
- * for each channel. An empty area that a removal leaves is such a region too.
+ * The redesign of a changed screenshot (CTX-1509, ADR-063 rule 20): `shown`,
+ * its largest changed region that is a redesign (`isRedesign`) and not a
+ * block that only moved, and `changed`, its changed regions with no noise
+ * and no moved block, in fractions of the image. Undefined when no such
+ * region is there. A scroll or a layout shift moves text by a few pixels and
+ * changes each pixel of its region, so the size of a region does not tell a
+ * move from a redesign. A region only moved when its head pixels are in the
+ * base image at an offset of up to 160 px on one axis, and the head image
+ * changed at that source too (see `moved`). An empty area that a removal
+ * leaves is not a move: its source did not change.
  */
-export async function redesignedRegion(
+export async function redesignOf(
   story: StoryInput,
-): Promise<Box | undefined> {
+): Promise<{ shown: Box; changed: Box[] } | undefined> {
   const read = async (role: StoryImage["role"]) => {
     const path = story.images.find((image) => image.role === role)?.path
     return path ? decode(await readFile(path)) : undefined
@@ -301,31 +303,55 @@ export async function redesignedRegion(
     before.height !== after.height
   )
     return undefined
-  return story.regions
-    .map(({ box, changeType }) => ({
-      box,
-      change: changeType ?? "unlabeled",
-      pixels: {
+  const regions = story.regions
+    .filter(({ changeType }) => changeType !== "rendering-noise")
+    .map(({ box, changeType }) => {
+      const pixels = {
         x: Math.round(box.x * after.width),
         y: Math.round(box.y * after.height),
         width: Math.round(box.width * after.width),
         height: Math.round(box.height * after.height),
-      },
-    }))
-    .filter(({ change, pixels }) => isRedesign({ change, ...pixels }))
-    .sort((a, b) => b.box.width * b.box.height - a.box.width * a.box.height)
-    .find(({ pixels }) => !moved(before, after, pixels))?.box
+      }
+      const large = isRedesign({ change: changeType ?? "unlabeled", ...pixels })
+      return { box, large, moved: large && moved(before, after, pixels) }
+    })
+  const shown = regions
+    .filter(({ large, moved }) => large && !moved)
+    .sort((a, b) => b.box.width * b.box.height - a.box.width * a.box.height)[0]
+  return shown
+    ? {
+        shown: shown.box,
+        changed: regions.filter(({ moved }) => !moved).map(({ box }) => box),
+      }
+    : undefined
 }
 
 /**
- * True when the `after` pixels of `box` are in `before` at an offset of up to
- * 160 px on one axis, with a mean difference of at most 1 of 255 for each
- * channel. It compares every second pixel of every second row, and the
- * nearest offsets first.
+ * True when the block `box` only moved: its `after` pixels are in `before` at
+ * an offset of up to 160 px on one axis, and the `after` image changed at
+ * that source. Without the second test, a copy of a control next to the
+ * original would be a move. Pixels match when their mean difference is at
+ * most 1 of 255 for each channel, on every second pixel of every second row.
+ * The nearest offsets come first.
  */
 function moved(before: Image, after: Image, box: PixelBox): boolean {
-  const samples = Math.ceil(box.width / 2) * Math.ceil(box.height / 2)
-  const most = 1 * 3 * samples
+  const most = 3 * Math.ceil(box.width / 2) * Math.ceil(box.height / 2)
+  // The sum of the differences between `after` at `at` and `before` at `at`
+  // moved by (dx, dy), up to a little more than `most`.
+  const difference = (at: PixelBox, dx: number, dy: number) => {
+    let sum = 0
+    for (let y = 0; y < at.height && sum <= most; y += 2)
+      for (let x = 0; x < at.width; x += 2) {
+        const to = ((at.y + y) * after.width + at.x + x) * 4
+        const from = ((at.y + dy + y) * before.width + at.x + dx + x) * 4
+        for (let channel = 0; channel < 3; channel++)
+          sum += Math.abs(
+            (after.data[to + channel] ?? 0) -
+              (before.data[from + channel] ?? 0),
+          )
+      }
+    return sum
+  }
   for (let distance = 1; distance <= 160; distance++)
     for (const [dx, dy] of [
       [0, distance],
@@ -333,34 +359,26 @@ function moved(before: Image, after: Image, box: PixelBox): boolean {
       [distance, 0],
       [-distance, 0],
     ] as const) {
+      const source = { ...box, x: box.x + dx, y: box.y + dy }
       if (
-        box.x + dx < 0 ||
-        box.y + dy < 0 ||
-        box.x + dx + box.width > before.width ||
-        box.y + dy + box.height > before.height
+        source.x >= 0 &&
+        source.y >= 0 &&
+        source.x + box.width <= before.width &&
+        source.y + box.height <= before.height &&
+        difference(box, dx, dy) <= most &&
+        // The block left its source: the head image changed there.
+        difference(source, 0, 0) > most
       )
-        continue
-      let sum = 0
-      for (let y = 0; y < box.height && sum <= most; y += 2)
-        for (let x = 0; x < box.width; x += 2) {
-          const to = ((box.y + y) * after.width + box.x + x) * 4
-          const from = ((box.y + dy + y) * before.width + box.x + dx + x) * 4
-          for (let channel = 0; channel < 3; channel++)
-            sum += Math.abs(
-              (after.data[to + channel] ?? 0) -
-                (before.data[from + channel] ?? 0),
-            )
-        }
-      if (sum <= most) return true
+        return true
     }
   return false
 }
 
 /**
  * The input of the design review of a changed screenshot in its context
- * (CTX-1509, ADR-063 rule 20): the head image, and a close-up of the
- * redesigned region `shown` (see `redesignedRegion`) and the elements next to
- * it, written into the private folder `dir`. The review judges the
+ * (CTX-1509, ADR-063 rule 20): the head image with the regions `changed`,
+ * and a close-up of the redesigned region `shown` (see `redesignOf`) and the
+ * elements next to it, written into the private folder `dir`. The review judges the
  * redesigned area as new UI, not against the base image. On the full head
  * image, a small control is a few pixels, so the close-up shows its alignment
  * and spacing. The changed regions are in fractions of the head image that
@@ -369,15 +387,12 @@ function moved(before: Image, after: Image, box: PixelBox): boolean {
  */
 export async function inContext(
   story: StoryInput,
-  shown: Box,
+  { shown, changed }: { shown: Box; changed: readonly Box[] },
   dir: string,
 ): Promise<NewStoryInput | undefined> {
   const path = story.images.find(({ role }) => role === "after")?.path
   const bytes = path ? await readFile(path) : undefined
   const size = bytes ? pngSize(bytes) : undefined
-  const regions = story.regions
-    .filter(({ changeType }) => changeType !== "rendering-noise")
-    .map(({ box }) => box)
   if (!path || !bytes || !size) return undefined
   const { content } = prepareImage(bytes)
   // The close-up: the region with 64 px more on each side, at twice the
@@ -431,7 +446,7 @@ export async function inContext(
       { path: closeUp, size: { width, height } },
     ],
     changed: {
-      regions: regions.map(({ x, y, width, height }) => ({
+      regions: changed.map(({ x, y, width, height }) => ({
         x: x * content.width,
         y: y * content.height,
         width: width * content.width,
