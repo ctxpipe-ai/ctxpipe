@@ -88,8 +88,12 @@ let slowEmbedding = false
 let embeddingFailure: number | null = null
 /** The embedding requests of the plane. */
 let planeEmbeddings = 0
-/** Each Jev call waits this long, so that the calls of a step overlap. */
-let jevWaitMs = 0
+/**
+ * True: a Jev call waits until a second call is in flight (at most 2 s), so
+ * that two calls of a step that run in parallel overlap.
+ */
+let jevWaitsForTwo = false
+let releaseJevCall: (() => void) | null = null
 /** The Jev calls in flight now, and the most at one time. */
 let jevInFlight = 0
 let jevMostInFlight = 0
@@ -124,7 +128,14 @@ const models = setupServer(
       const startedIn = jevTest
       jevInFlight += 1
       jevMostInFlight = Math.max(jevMostInFlight, jevInFlight)
-      await delay(jevWaitMs)
+      if (jevWaitsForTwo && jevInFlight >= 2) releaseJevCall?.()
+      else if (jevWaitsForTwo)
+        await Promise.race([
+          new Promise<void>((resolve) => {
+            releaseJevCall = resolve
+          }),
+          delay(2_000),
+        ])
       jevInFlight -= 1
       if (jevCalls === slowJevCall) await delay(5_000)
       if (startedIn !== jevTest)
@@ -670,7 +681,8 @@ describe("the knowledge reader seam", () => {
     slowEmbedding = false
     embeddingFailure = null
     planeEmbeddings = 0
-    jevWaitMs = 0
+    jevWaitsForTwo = false
+    releaseJevCall = null
     jevMostInFlight = 0
     jevCalls = 0
     jevRequests.length = 0
@@ -1124,7 +1136,7 @@ describe("the knowledge reader seam", () => {
     await setFlag("on")
     // The seeds are the first frontier whatever Jev says, so layer 1 needs
     // no judgment of the seeds: both calls are in flight together.
-    jevWaitMs = 300
+    jevWaitsForTwo = true
     const content = structured(await relatedCall({ maxDepth: 1 }))
     expect(
       (content.results as { ref: string }[]).map((result) => result.ref),

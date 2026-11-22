@@ -10,9 +10,6 @@
  * nothing.
  */
 
-/** About 8 KiB for each vector of 1024 numbers. */
-const KEPT = 256
-
 /** Newest last: the first key is the next one to go. */
 const vectors = new Map<string, number[]>()
 
@@ -34,8 +31,9 @@ export async function queryVector(
   }
   const vector = await embed()
   vectors.set(key, vector)
+  // The 256 newest: about 8 KiB for each vector of 1024 numbers.
   for (const oldest of vectors.keys()) {
-    if (vectors.size <= KEPT) break
+    if (vectors.size <= 256) break
     vectors.delete(oldest)
   }
   return vector

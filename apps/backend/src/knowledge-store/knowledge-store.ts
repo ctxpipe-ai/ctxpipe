@@ -1432,6 +1432,7 @@ async function search(
     uniqueTerms.map((term, i) => [`term${i}`, term]),
   )
   // The tree rows that the search can find: active, and in the filters.
+  // A new filter also goes into `filtered` of the lexical part.
   const searchable = `kind = 'file' AND status = 'active'
     AND (empty({kinds:Array(String)}) OR has({kinds:Array(String)}, doc_kind))
     AND startsWith(path, {pathPrefix:String})
@@ -1478,11 +1479,13 @@ async function search(
     const counts = await selectIn<{
       word: string
       found: string | number
+      total: string | number
       idf: number
     }>(
       client,
       scope,
-      `SELECT word, found, log(1 + (total - found + 0.5) / (found + 0.5)) AS idf
+      `SELECT word, found, total,
+         log(1 + (total - found + 0.5) / (found + 0.5)) AS idf
        FROM (${uniqueTerms
          .map(
            (_, i) => `SELECT {term${i}:String} AS word, count() AS found
@@ -1494,15 +1497,20 @@ async function search(
          WHERE ${inWorkspaces}) AS totals`,
       termParams,
     )
-    // The cap before the score: a term in more than 1000 chunks selects no
-    // chunk. It has the lowest weights of the query, and only its title
-    // boost stays. On the question set v0, this gave a better search
-    // recall@50 than a cap of 1000 chunks for each term with no order, and
-    // that cap gave a different order on each run (CTX-1535). The count of
-    // the weight has no filter. With a filter, a term that is in more than
-    // 1000 chunks of the Workspaces can be in fewer chunks of the filter, so
-    // its branch applies the filter and stops after 1001 chunks: the term
-    // selects its chunks only when there are at most 1000.
+    // The cap before the score: a term in more chunks than the cap selects
+    // no chunk. It has the lowest weights of the query, and only its title
+    // boost stays. The cap is 1.5% of the chunks of the Workspaces, so that
+    // it cuts at the same IDF (about 4.2) at each size, and at least 1000,
+    // so that a small Workspace keeps each term in up to 1000 chunks. On the
+    // question set v0 (CTX-1535), this gave a better search recall@50 than a
+    // cap of 1000 chunks for each term with no order, and that cap gave a
+    // different order on each run. The count of the weight has no filter.
+    // With a filter, a term above the cap can be in fewer chunks of the
+    // filter, so its branch applies the filter and stops after cap + 1
+    // chunks: the term selects its chunks only when there are at most cap.
+    const total = Number(counts[0]?.total ?? 0)
+    const cap = Math.max(1000, Math.ceil(total * 0.015))
+    // The filters of `searchable`.
     const filtered =
       kinds.length > 0 ||
       pathPrefix !== "" ||
@@ -1518,8 +1526,10 @@ async function search(
             workspace_id, doc_key, version, ordinal
           FROM chunks
           WHERE ${inWorkspaces} AND hasToken(text, {term${i}:String})`
-        if ((found.get(term) ?? 0) <= 1000) return [select]
-        return filtered ? [`${select} AND ${inSearchable} LIMIT 1001`] : []
+        if ((found.get(term) ?? 0) <= cap) return [select]
+        return filtered
+          ? [`${select} AND ${inSearchable} LIMIT {capAndOne:UInt64}`]
+          : []
       })
       .join(" UNION ALL ")
     if (!termMatches) return []
@@ -1544,7 +1554,7 @@ async function search(
            FROM (${termMatches})
            WHERE ${inSearchable}
          )
-         WHERE found <= 1000
+         WHERE found <= {cap:UInt64}
          GROUP BY workspace_id, doc_key, version, ordinal
        ) AS matches
        INNER JOIN (
@@ -1564,6 +1574,8 @@ async function search(
         ...filters,
         ...termParams,
         weights: new Map(counts.map((row) => [row.word, Number(row.idf)])),
+        cap,
+        capAndOne: cap + 1,
       },
     )
   }
@@ -1820,9 +1832,16 @@ async function readFrontier(
     const neighbor = neighborOf.get(
       documentId({ workspaceId, docKey: neighborDoc }),
     )
-    // A neighbor that is not valid at `validAt` leaves its relation out. A
-    // target with no row in the view is `missing`, and it stays.
-    if (neighbor && validAtTime && !validAtRow(neighbor, validAtTime)) continue
+    // A neighbor that is not valid at `validAt` leaves its relation out, as
+    // `validDuring` in SQL (open ends count). A target with no row in the
+    // view is `missing`, and it stays.
+    if (
+      neighbor &&
+      validAtTime &&
+      ((neighbor.validFrom && neighbor.validFrom > validAtTime) ||
+        (neighbor.validTo && neighbor.validTo <= validAtTime))
+    )
+      continue
     const relation = toRelation(row)
     const counts = viaKey && stats.get(keyId(workspaceId, viaKey))
     if (counts) relation.confidence = mentionConfidence(row.confidence, counts)
@@ -1850,14 +1869,6 @@ async function readFrontier(
   }
   return [...relations.values()]
 }
-
-/** True for a row that is valid at `time` (open ends count), as `validDuring`. */
-const validAtRow = (
-  row: { validFrom: Date | null; validTo: Date | null },
-  time: Date,
-) =>
-  (!row.validFrom || row.validFrom <= time) &&
-  (!row.validTo || row.validTo > time)
 
 /** The id of a (Workspace, key target) pair of a mention. */
 const keyId = (workspaceId: string, target: string) =>

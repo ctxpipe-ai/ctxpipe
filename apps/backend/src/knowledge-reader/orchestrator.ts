@@ -290,7 +290,7 @@ export async function traverse(input: {
   const cappedHubs: KnowledgeDocument[] = []
   const read: KnowledgeRelation[] = []
   let partialReason: Traversal["partialReason"]
-  let seedsDone = false
+  let seedsJudged = false
   // The judgments of the seeds come with layer 1. Until then, a seed node
   // has 0 for both, and only the walk of layer 1 reads it (as a parent).
   const seeds = input.seeds.map((seed): TraversalNode => ({
@@ -311,16 +311,14 @@ export async function traverse(input: {
       seed.pAnswers = judged[index]?.pAnswers ?? 0
       seed.pExplore = judged[index]?.pExplore ?? 0
     })
-    seedsDone = true
+    seedsJudged = true
   })
   // The loop awaits `seedJudge` later; until then, a failure must not be an
   // unhandled rejection.
   seedJudge.catch(() => {})
-  let seedsJudged = false
   try {
     let frontier: readonly TraversalNode[] = seeds
-    let relations: Promise<FrontierRelation[]> =
-      maxDepth > 0 ? input.seedRelations : Promise.resolve([])
+    let relations = input.seedRelations
     for (let depth = 1; depth <= maxDepth && frontier.length; depth++) {
       const byKey = new Map(
         frontier.map((node) => [documentId(node.ref), node]),
@@ -328,16 +326,7 @@ export async function traverse(input: {
       // Only the relations of the frontier: a read of more documents gives
       // the same relations for these documents.
       const own = (await beforeDeadline(deadline, () => relations)).filter(
-        (item) =>
-          byKey.has(
-            documentId({
-              workspaceId: item.workspaceId,
-              docKey:
-                item.direction === "out"
-                  ? item.relation.srcDoc
-                  : item.relation.dstDoc,
-            }),
-          ),
+        (item) => byKey.has(frontierKey(item)),
       )
       read.push(...own.map((item) => item.relation))
       const candidates = layerCandidates(own, byKey, visited, input.walk)
@@ -380,14 +369,11 @@ export async function traverse(input: {
           chunksOf.get(documentId(candidate.ref)) ?? [],
         ),
       }))
+      // A settled `seedJudge` costs nothing to await again.
       const [scores] = await Promise.all([
         judge(inputs, input.question, input.intent, deadline, input.meter),
-        seedsJudged ? undefined : seedJudge,
+        seedJudge,
       ])
-      if (!seedsJudged) {
-        nodes.push(...seeds)
-        seedsJudged = true
-      }
       const layerNodes = inputs.map((candidate, index): TraversalNode => ({
         ref: candidate.ref,
         document: candidate.document,
@@ -402,17 +388,14 @@ export async function traverse(input: {
         (node) => node.pExplore >= settings.exploreAt,
       )
     }
-    if (!seedsJudged) {
-      await seedJudge
-      nodes.unshift(...seeds)
-      seedsJudged = true
-    }
+    await seedJudge
   } catch (error) {
     if (!isBudgetSpent(error, deadline)) throw error
     partialReason = "total_timeout"
-    // The seeds that Jev judged before the end of the budget are results.
-    if (!seedsJudged && seedsDone) nodes.unshift(...seeds)
   }
+  // The seeds come first, when Jev judged them (also before the end of the
+  // budget).
+  if (seedsJudged) nodes.unshift(...seeds)
   return {
     nodes,
     relations: read,
@@ -420,6 +403,15 @@ export async function traverse(input: {
     ...(partialReason ? { partialReason } : {}),
     cappedHubs,
   }
+}
+
+/** The key of the frontier document of a relation that the store read. */
+function frontierKey(item: FrontierRelation): string {
+  return documentId({
+    workspaceId: item.workspaceId,
+    docKey:
+      item.direction === "out" ? item.relation.srcDoc : item.relation.dstDoc,
+  })
 }
 
 /** A document that a layer reaches, with the relation that reaches it. */
@@ -453,12 +445,7 @@ function layerCandidates(
   for (const item of relations) {
     const { relation, direction, neighbor } = item
     const predicate = relation.predicate.toUpperCase()
-    const from = frontier.get(
-      documentId({
-        workspaceId: item.workspaceId,
-        docKey: direction === "out" ? relation.srcDoc : relation.dstDoc,
-      }),
-    )
+    const from = frontier.get(frontierKey(item))
     if (
       !from ||
       !neighbor ||
