@@ -315,12 +315,15 @@ export class ModelCalls {
         estimated: known === undefined,
         latencyMs: Math.round(latencyMs),
       })
-    // The text is decoded, so only the content type still applies.
+    // The text is decoded, so only the content type still applies, and the
+    // wait of a rate limit (`askJson` reads it).
+    const retryAfter = response.headers.get("retry-after")
     return new Response(text, {
       status: response.status,
       headers: {
         "content-type":
           response.headers.get("content-type") ?? "application/json",
+        ...(retryAfter ? { "retry-after": retryAfter } : {}),
       },
     })
   }

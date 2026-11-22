@@ -373,7 +373,7 @@ async function draft(values: {
     await writeJson(`${values.out}.attempts.json`, {
       attempts: drafted.attempts,
       stopped: drafted.stopped,
-      ...(drafted.failed ? { failed: drafted.failed } : {}),
+      failed: drafted.failed,
       spentUsd: calls.spentUsd,
     })
     process.stderr.write(

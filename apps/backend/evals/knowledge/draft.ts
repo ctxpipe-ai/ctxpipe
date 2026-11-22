@@ -621,8 +621,10 @@ export async function draftQuestions(input: {
           // A setup or transport error stops the command, with the drafts
           // before it.
           if (!(error instanceof OutOfSchemaError)) {
-            attempt.reason = (error as Error).message
-            return { ...done(false), failed: (error as Error).message }
+            const failed =
+              error instanceof Error ? error.message : String(error)
+            attempt.reason = failed
+            return { ...done(false), failed }
           }
           problems = [error.message]
           break

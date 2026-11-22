@@ -21,17 +21,14 @@ const replySchema = z.object({
 export class OutOfSchemaError extends Error {}
 
 /**
- * The seconds of a `Retry-After` header (a number of seconds or an HTTP
- * date), or null when it has none.
+ * The seconds of a `Retry-After` header, or null when it gives no number of
+ * seconds.
  */
 function retryAfterSeconds(value: string | null): number | null {
-  if (!value) return null
-  const seconds = Number(value)
-  if (Number.isFinite(seconds) && seconds >= 0) return Math.ceil(seconds)
-  const date = Date.parse(value)
-  return Number.isNaN(date)
-    ? null
-    : Math.max(0, Math.ceil((date - Date.now()) / 1_000))
+  const seconds = Number(value ?? "")
+  return value && Number.isFinite(seconds) && seconds >= 0
+    ? Math.ceil(seconds)
+    : null
 }
 
 /**

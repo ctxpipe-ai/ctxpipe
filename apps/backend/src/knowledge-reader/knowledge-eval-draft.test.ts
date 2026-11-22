@@ -144,6 +144,33 @@ const corpus: Corpus = {
   workspace: "demo-v0",
 }
 
+/** A Git repository in `dir` with `fixture` committed. Gives its path and SHA. */
+function commitFixture(
+  dir: string,
+  fixture: Record<string, string>,
+): { repo: string; sha: string } {
+  const repo = join(dir, "context")
+  const git = (...args: string[]) =>
+    execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim()
+  for (const [path, text] of Object.entries(fixture)) {
+    mkdirSync(join(repo, path, ".."), { recursive: true })
+    writeFileSync(join(repo, path), text)
+  }
+  git("init", "-q")
+  git("add", ".")
+  git(
+    "-c",
+    "user.name=eval",
+    "-c",
+    "user.email=eval@example.test",
+    "commit",
+    "-q",
+    "-m",
+    "fixture",
+  )
+  return { repo, sha: git("rev-parse", "HEAD") }
+}
+
 describe("the documents of a corpus", () => {
   it("reads the claim links, the issue references and the handles", () => {
     const scheduler = documents.find(
@@ -185,27 +212,14 @@ describe("the documents of a corpus", () => {
 
 describe("the documents of a clone", () => {
   it("reads each document below the root of the Workspace, with paths relative to it", () => {
-    const repo = mkdtempSync(join(tmpdir(), "eval-documents-"))
+    const dir = mkdtempSync(join(tmpdir(), "eval-documents-"))
     try {
-      const git = (...args: string[]) =>
-        execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim()
-      git("init", "-q")
-      mkdirSync(join(repo, "context/knowledge/apis"), { recursive: true })
-      writeFileSync(join(repo, "context/knowledge/apis/a.md"), "# A\n\nOne.\n")
-      writeFileSync(join(repo, "context/b.md"), "# B\n\nTwo.\n")
-      writeFileSync(join(repo, "outside.md"), "# Outside\n")
-      git("add", ".")
-      git(
-        "-c",
-        "user.name=eval",
-        "-c",
-        "user.email=eval@example.test",
-        "commit",
-        "-q",
-        "-m",
-        "fixture",
-      )
-      const loaded = loadDocuments(repo, git("rev-parse", "HEAD"), "context")
+      const { repo, sha } = commitFixture(dir, {
+        "context/knowledge/apis/a.md": "# A\n\nOne.\n",
+        "context/b.md": "# B\n\nTwo.\n",
+        "outside.md": "# Outside\n",
+      })
+      const loaded = loadDocuments(repo, sha, "context")
       expect(
         loaded.map((document) => [document.path, document.title]).sort(),
       ).toEqual([
@@ -213,7 +227,7 @@ describe("the documents of a clone", () => {
         ["knowledge/apis/a.md", "A"],
       ])
     } finally {
-      rmSync(repo, { recursive: true, force: true })
+      rmSync(dir, { recursive: true, force: true })
     }
   })
 })
@@ -638,28 +652,10 @@ describe("the drafter", () => {
     }
   })
 
-  it("writes the draft of the command also when a call fails", async () => {
+  it("waits at a rate limit through the recorder, and writes the draft also when a call fails", async () => {
     const dir = mkdtempSync(join(tmpdir(), "eval-draft-cli-"))
     try {
-      const repo = join(dir, "context")
-      const git = (...args: string[]) =>
-        execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim()
-      for (const [path, text] of Object.entries(files)) {
-        mkdirSync(join(repo, path, ".."), { recursive: true })
-        writeFileSync(join(repo, path), text)
-      }
-      git("init", "-q")
-      git("add", ".")
-      git(
-        "-c",
-        "user.name=eval",
-        "-c",
-        "user.email=eval@example.test",
-        "commit",
-        "-q",
-        "-m",
-        "fixture",
-      )
+      const { repo, sha } = commitFixture(dir, files)
       const frozen = join(dir, "frozen.json")
       writeFileSync(
         frozen,
@@ -670,7 +666,7 @@ describe("the drafter", () => {
               ...corpus,
               contextRepo: {
                 ...corpus.contextRepo,
-                sha: git("rev-parse", "HEAD"),
+                sha,
               },
             },
           ],
@@ -679,6 +675,8 @@ describe("the drafter", () => {
       const out = join(dir, "draft.json")
       bodies.length = 0
       capAt = 2
+      // A rate limit first: its wait passes through the recorder.
+      limited = ["0"]
       answer = (_category, sources) => ({ gold: sources })
       vi.stubEnv("MODEL_PROVIDER", "openrouter")
       vi.stubEnv("MODEL_PROVIDER_URL", BASE)
@@ -706,6 +704,7 @@ describe("the drafter", () => {
       ).toBe("OpenRouter answered 503 for anthropic/drafter.")
     } finally {
       capAt = Number.POSITIVE_INFINITY
+      limited = []
       vi.unstubAllEnvs()
       rmSync(dir, { recursive: true, force: true })
     }
