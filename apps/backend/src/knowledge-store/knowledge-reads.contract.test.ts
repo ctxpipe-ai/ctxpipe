@@ -526,6 +526,58 @@ describe("search", () => {
     expect(hits[0]?.document.docKey).toBe("a-rare-00000.md")
   })
 
+  it("fusion: a lexical chunk with a small share of the query terms counts less than a vector chunk at the same place", async () => {
+    // 500 chunks near the query vector fill the vector order, so the other
+    // chunks are only in the lexical order. 60 chunks have one common query
+    // term, and one chunk has all five terms (CTX-1564).
+    const url = await clickHouse.freshDatabase()
+    const fill = filler(url)
+    await fill("guide", "v-near-", 500, "plain words", nearQuery(1))
+    await fill("guide", "n-common-", 60, "alpha words", opposite)
+    await fill("guide", "z-all-", 1, "alpha bravo charlie delta echo", opposite)
+    const terms = ["alpha", "bravo", "charlie", "delta", "echo"]
+    const hits = await searchIn(url, { terms })
+    const keys = hitKeys(hits)
+    expect(keys).toHaveLength(50)
+    // The terms have different weights, and the shares come from parallel
+    // sums: each run gives the same hits with the same scores.
+    for (let run = 0; run < 4; run++)
+      expect(await searchIn(url, { terms })).toEqual(hits)
+    // The chunk with all terms keeps the full weight of its lexical place:
+    // it ties with the first vector chunk.
+    expect(keys.slice(0, 2)).toContain("z-all-00000.md")
+    // With the full weight, the chunks with one common term would take
+    // about half of the top 50.
+    expect(keys.filter((key) => key.startsWith("n-common-"))).toEqual([])
+    // A query term that no chunk has does not lower the share of the chunk
+    // with all the other terms.
+    const withUnknown = hitKeys(
+      await searchIn(url, {
+        terms: ["alpha", "bravo", "charlie", "delta", "echo", "nowhereword"],
+      }),
+    )
+    expect(withUnknown.slice(0, 2)).toContain("z-all-00000.md")
+  })
+
+  it("fusion: a chunk with all terms keeps the full weight when the cap of a common term does not take it", async () => {
+    // 1100 chunks and the target have both common terms. The cap of 1000
+    // chunks for each term takes the chunks in the order of a hash of their
+    // key, and the key of the target sorts after 1069 of the 1100 others,
+    // so neither common branch takes it. Only the target has the rare
+    // term. 500 chunks near the query vector fill the vector order, and
+    // 1500 more chunks make the common terms weigh more (CTX-1564).
+    const url = await clickHouse.freshDatabase()
+    const fill = filler(url)
+    await fill("guide", "v-near-", 500, "plain words", nearQuery(1))
+    await fill("guide", "p-pad-", 1500, "plain words", opposite)
+    await fill("guide", "c-common-", 1100, "commonone commontwo", opposite)
+    await fill("guide", "z-doc-", 1, "commonone commontwo rareword", opposite)
+    const keys = hitKeys(
+      await searchIn(url, { terms: ["commonone", "commontwo", "rareword"] }),
+    )
+    expect(keys.slice(0, 2)).toContain("z-doc-00000.md")
+  })
+
   it("never finds a deleted document", async () => {
     const keys = hitKeys(await search({ terms: ["zebracorn", "deleted"] }))
     expect(keys).not.toContain("deleted.md")
