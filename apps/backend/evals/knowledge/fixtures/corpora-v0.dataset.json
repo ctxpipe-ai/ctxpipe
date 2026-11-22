@@ -594,40 +594,10 @@
       ]
     },
     {
-      "id": "kubernetes-disagreement-03",
-      "corpus": "kubernetes",
-      "category": "disagreement",
-      "split": "dev",
-      "text": "Our build machines still boot the old, non-unified Linux kernel resource-control hierarchy. Can we keep spinning up throwaway Kubernetes clusters in containers on them, and does upstream Kubernetes itself still support nodes like that?",
-      "gold": [
-        "github/issues/kubernetes-sigs/kind/3915.md",
-        "github/issues/kubernetes/enhancements/5573.md"
-      ],
-      "seeds": [
-        "github/issues/kubernetes/enhancements/5573.md",
-        "github/issues/kubernetes-sigs/kind/3915.md"
-      ],
-      "positions": [
-        {
-          "refs": ["github/issues/kubernetes-sigs/kind/3915.md"],
-          "status": "current"
-        },
-        {
-          "refs": ["github/issues/kubernetes/enhancements/5573.md"],
-          "status": "scoped"
-        }
-      ],
-      "keyFacts": [
-        "Kubernetes v1.35 moves cgroup v1 toward unsupported: by default the kubelet fails to start on a cgroup v1 node, and the code is to be removed in later releases.",
-        "kind v0.31 defaults to Kubernetes 1.35, which does not work on cgroup v1 by default. Older node versions may still work.",
-        "kind plans to drop cgroup v1 support entirely in v0.32."
-      ]
-    },
-    {
       "id": "kubernetes-disagreement-05",
       "corpus": "kubernetes",
       "category": "disagreement",
-      "split": "holdout",
+      "split": "dev",
       "text": "We'd like each node to have its own upper limit on how long it waits before restarting a container that keeps crashing. Is that setting still an experimental opt-in, or has it moved to the next maturity level, and in which release? Is the work tied to lowering the built-in default wait?",
       "gold": [
         "github/issues/kubernetes/enhancements/5593.md",
@@ -654,7 +624,7 @@
       "id": "kubernetes-disagreement-07",
       "corpus": "kubernetes",
       "category": "disagreement",
-      "split": "dev",
+      "split": "holdout",
       "text": "We run databases as the controller kind that gives each replica a stable name and ordered startup. We want those replicas placed together as one unit by the newer group-aware scheduling objects. When is the first experimental version of that hookup expected to ship? Did it slip from an earlier release?",
       "gold": [
         "github/issues/kubernetes/enhancements/6277.md",
@@ -708,7 +678,7 @@
       "id": "kubernetes-disagreement-12",
       "corpus": "kubernetes",
       "category": "disagreement",
-      "split": "holdout",
+      "split": "dev",
       "text": "We hand out accelerators to teams through the newer pluggable device-request API. We'd like each namespace capped on total GPU memory actually given out, not just on how many devices it asks for. Is the per-namespace limit checked when the request object is created, or when the scheduler picks the actual devices? Is a switch to the latter still planned for an upcoming release?",
       "gold": [
         "github/issues/kubernetes/enhancements/4840.md",
