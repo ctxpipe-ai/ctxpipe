@@ -78,12 +78,13 @@ export const ComposeWithoutBaseBranchPicker = meta.story({
   },
 })
 
-const stalePickPreparedBases: (string | undefined)[] = []
+const stalePickPrepares: { conversationId: string; baseBranch?: string }[] = []
 
 /**
  * The member picked a base branch in this composer, and then the
  * knowledge_plane flag of the org went off. The kept pick does not reach the
- * server: the conversation is prepared on the default branch.
+ * server: the composer starts a new conversation, which the server prepares
+ * on the default branch.
  */
 export const ComposeIgnoresPickWhenFlagIsOff = meta.story({
   render: function Render(args) {
@@ -103,16 +104,20 @@ export const ComposeIgnoresPickWhenFlagIsOff = meta.story({
     },
   },
   beforeEach: ({ msw }) => {
-    stalePickPreparedBases.length = 0
+    stalePickPrepares.length = 0
     msw.use(
       http.post(
         ({ request }) =>
-          /\/api\/v1\/conversations\/conv_kept_pick\/prepare$/.test(
+          /\/api\/v1\/conversations\/[^/]+\/prepare$/.test(
             new URL(request.url).pathname,
           ),
         async ({ request }) => {
           const body = (await request.json()) as { baseBranch?: string }
-          stalePickPreparedBases.push(body.baseBranch)
+          stalePickPrepares.push({
+            conversationId:
+              new URL(request.url).pathname.split("/").at(-2) ?? "",
+            baseBranch: body.baseBranch,
+          })
           return new HttpResponse(null, { status: 204 })
         },
       ),
@@ -122,8 +127,12 @@ export const ComposeIgnoresPickWhenFlagIsOff = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByRole("button", { name: "Find unused files" })
-    await waitFor(() => expect(stalePickPreparedBases).toContain(undefined))
-    expect(stalePickPreparedBases).not.toContain("release/2026-11")
+    await waitFor(() => expect(stalePickPrepares.length).toBeGreaterThan(0))
+    // No prepare goes to the conversation of the kept pick, or names its branch.
+    for (const prepare of stalePickPrepares) {
+      expect(prepare.conversationId).not.toBe("conv_kept_pick")
+      expect(prepare.baseBranch).toBeUndefined()
+    }
     expect(canvas.queryByRole("button", { name: /release/ })).toBeNull()
   },
 })

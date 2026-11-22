@@ -121,18 +121,29 @@ function WorkspaceComposeChat(props: {
     return created
   })
   // The base branch picker shows only when the org's knowledge_plane flag is
-  // not off. Without it, the conversation starts from the default branch,
-  // also when the member picked a branch before the flag went off. A list
-  // older than a minute (the app default) is fetched again when the composer
-  // opens; a list that the page just loaded is not fetched a second time.
-  const showBaseBranchPicker = useQuery({
+  // not off. Without it, the conversation starts from the default branch. A
+  // list older than a minute (the app default) is fetched again when the
+  // composer opens; a list that the page just loaded is not fetched again.
+  const flag = useQuery({
     ...workspaceListOptions(orgSlug),
     staleTime: 60_000,
     select: (list) => list.knowledgePlane !== "off",
-  }).data
+  })
+  const showBaseBranchPicker = flag.data
+  // A pick from before the flag went off was prepared on its branch, and the
+  // server keeps that base when a prepare names none. Start a new
+  // conversation, which the server prepares on the default branch.
+  if (showBaseBranchPicker === false && target.baseBranch !== undefined) {
+    const created: ComposeTarget = { conversationId: newUiConversationId() }
+    queryClient.setQueryData(composeKey, created)
+    setTarget(created)
+  }
   const { conversationId } = target
   const baseBranch = showBaseBranchPicker ? target.baseBranch : undefined
+  // Prepare after the flag is known, so that a kept pick is not prepared.
+  const flagPending = flag.isPending
   useEffect(() => {
+    if (flagPending) return
     void queryClient.prefetchQuery(
       workspaceChatPrepareOptions(
         orgSlug,
@@ -141,7 +152,14 @@ function WorkspaceComposeChat(props: {
         baseBranch,
       ),
     )
-  }, [queryClient, orgSlug, conversationId, workspaceId, baseBranch])
+  }, [
+    queryClient,
+    orgSlug,
+    conversationId,
+    workspaceId,
+    baseBranch,
+    flagPending,
+  ])
   return (
     <WorkspaceChatChrome
       workspace={props.workspace}

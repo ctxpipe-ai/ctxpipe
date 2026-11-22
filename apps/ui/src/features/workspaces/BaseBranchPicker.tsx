@@ -134,6 +134,10 @@ export function BaseBranchPicker(props: {
               ) : null
             }
           >
+            {/* Not the shared DropdownItem: it puts the check at the end and
+                makes the selected name semibold. Here the check column leads,
+                so that the names start under the search text, and the end of
+                the row holds the "default" tag. */}
             {(item) => (
               <ListBoxItem
                 id={item.id}
