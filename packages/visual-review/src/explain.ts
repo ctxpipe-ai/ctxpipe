@@ -1,6 +1,6 @@
 // The explainer of a Jev regression (CTX-1256, ADR-063), and the design
-// review of new UI (CTX-1469, see `reviewDesign`: it can make a verdict
-// regression minor, never more). Jev gives no text:
+// review of new UI (CTX-1469, CTX-1493, see `reviewDesign`: it can make a
+// verdict regression major, never a blocker). Jev gives no text:
 // a suspected regression has an area, a region and a probability, but no
 // evidence. After a Jev `regression`, one call to a cheap vision model writes
 // the evidence and a suggestion for each flagged entry. The explainer never
@@ -23,12 +23,13 @@ import { parseJsonReply, type Verdict } from "./verdict.ts"
 export const explainerModel = "openai/gpt-6-luna"
 
 /**
- * The model of the design review of new UI: a cheap vision model through
- * OpenRouter, which gives `usage.cost` in its reply ($0.10 for each million
- * input tokens, $0.50 for each million output tokens on 2026-11-21). In the
- * measurement of CTX-1469 it cost about $0.0013 for each new story.
+ * The model of the design review of new UI, through OpenRouter, which gives
+ * `usage.cost` in its reply. In the measurement of CTX-1469, it was one of
+ * the two models that called the form-field look of the #946 picker major,
+ * and Claude Haiku 5.5 called it minor. It cost $0.011 to $0.023 for each new
+ * story (ADR-063 rule 19).
  */
-export const designModel = "anthropic/claude-haiku-5.5"
+export const designModel = "openai/gpt-6.1-sol"
 
 /**
  * The story of a Jev verdict: a change, or the new screenshots of a story.
@@ -267,22 +268,24 @@ ${brief ? brief.replace(/<\/data/gi, "<\\/data") : "(none)"}
 
 /**
  * The design review of the new screenshots of one story, after the Jev
- * `verdict` (CTX-1469, ADR-063 rule 18). Jev does not tell a clean new
- * screenshot from a broken one (rule 13), and it answers one rubric entry at
- * a time. The design review asks `model` the prompt of a new screenshot
+ * `verdict` (CTX-1469, ADR-063 rules 18 and 19). Jev does not tell a clean
+ * new screenshot from a broken one (rule 13), and it answers one rubric entry
+ * at a time. The design review asks `model` the prompt of a new screenshot
  * (`buildNewPrompt`), which compares each element with the elements around it.
  * Its text gives the agent a direction for each new story, also when Jev is
  * not sure. It replaces the explainer for a new story.
  *
- * The review can raise the verdict of Jev to `regression` with severity
- * `minor` (a nit). It never sets another severity and never lowers the Jev
- * verdict: only Jev gives `major` (a should-fix), and the review of a model
- * never stops a merge. Its findings come after the findings of Jev, and its
- * summary, findings and fixes come at the end of the summary (the factory
- * shows only the summary). `costUsd` and `latencyMs` add the call to the Jev
- * call; the cost is null when either one is unknown, also after a failed
- * call. `explainer` has the cost of the call alone, for the budget of the
- * run, as for `explainRegression`.
+ * The review can raise the verdict of Jev to `regression`. The severity is
+ * `major` (a should-fix) when the review says `major` or `blocker` and one of
+ * its findings names a principle of the rubric (the id, the name or a source
+ * section of an entry, in `rubricRef`) with evidence and a fix (CTX-1493).
+ * Else it is `minor` (a nit). The review never gives `blocker` and never
+ * lowers the Jev verdict or severity. Its findings come after the findings of
+ * Jev, and its summary, findings and fixes come at the end of the summary
+ * (the factory shows only the summary). `costUsd` and `latencyMs` add the call
+ * to the Jev call; the cost is null when either one is unknown, also after a
+ * failed call. `explainer` has the cost of the call alone, for the budget of
+ * the run, as for `explainRegression`.
  *
  * A failed call or a reply that is not usable keeps the Jev verdict, with a
  * sentence in the summary and no `error`: the review never fails a run. A
@@ -324,13 +327,37 @@ export async function reviewDesign(
       },
       explainer,
     }
-  const raises =
-    review.verdict === "regression" && verdict.verdict !== "regression"
   const findings = review.findings.map((finding) => ({
     ...finding,
     evidence: oneLine(finding.evidence, 400),
     suggestion: finding.suggestion ? oneLine(finding.suggestion, 200) : null,
   }))
+  const { rubric } = story
+  const principles = [...rubric.areas, ...rubric.qualities].flatMap(
+    ({ id, name, sources }) => [
+      id,
+      name,
+      ...sources.map(({ section }) => section),
+    ],
+  )
+  const named = findings.some(
+    ({ rubricRef, evidence, suggestion }) =>
+      evidence &&
+      suggestion &&
+      principles.some((principle) =>
+        rubricRef.toLowerCase().includes(principle.toLowerCase()),
+      ),
+  )
+  const severity =
+    review.verdict !== "regression"
+      ? undefined
+      : (review.severity === "major" || review.severity === "blocker") && named
+        ? "major"
+        : "minor"
+  const raises =
+    severity !== undefined &&
+    (verdict.verdict !== "regression" ||
+      (severity === "major" && verdict.severity === "minor"))
   const sentences = findings.map(
     ({ kind, evidence, suggestion }) =>
       `${kind}: ${evidence}${suggestion ? ` Fix: ${suggestion}` : ""}`,
@@ -341,7 +368,7 @@ export async function reviewDesign(
       ...(raises
         ? {
             verdict: "regression",
-            severity: "minor",
+            severity,
             confidence: review.confidence,
           }
         : {}),
@@ -349,7 +376,7 @@ export async function reviewDesign(
       latencyMs,
       observations: review.observations,
       findings: [...verdict.findings, ...findings],
-      summary: `${verdict.summary} Design review (${model}, ${raises ? "it makes the verdict regression minor" : `it says ${review.verdict}`}): ${[oneLine(review.summary, 400), ...sentences].join(" ")}`,
+      summary: `${verdict.summary} Design review (${model}, ${raises ? `it makes the verdict regression ${severity}` : `it says ${review.verdict}`}): ${[oneLine(review.summary, 400), ...sentences].join(" ")}`,
     },
     explainer,
   }

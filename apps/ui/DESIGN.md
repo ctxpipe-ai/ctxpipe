@@ -225,6 +225,10 @@ Labels, copy and field values show no rendering artifact: no undefined, null, Na
 
 ### Consistency
 
+<!-- rubric: familiar-pattern -->
+Each control and screen follows the convention that people know from comparable tools and from the rest of the product, so that a user knows at once what it is and how to use it.
+<!-- /rubric -->
+
 <!-- rubric: consistency -->
 Similarity holds across screens, so the change reuses the house primitives and patterns: one corner radius (rounded-md), the button variants, the status pill, the alert. No new font, hex color, corner treatment, shadow or card style.
 <!-- /rubric -->
