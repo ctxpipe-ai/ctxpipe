@@ -185,11 +185,18 @@ try {
       cwd: launch.cwd,
       env: launch.env,
       stdio: "inherit",
-      // A backend or contract shard runs about 10 minutes of tests (the
-      // shards of ci.yaml, ADR-065), so 20 minutes stops a hung shard before
-      // the job limit of 30 minutes. The contract files include real lease
-      // expiry and resource cleanup deadlines.
-      timeout: name === "backend" || name === "contracts" ? 1_200_000 : 600_000,
+      // A CI shard runs about 10 minutes of tests (the shards of ci.yaml,
+      // ADR-065), so 20 minutes stops a hung shard before the job limit of 30
+      // minutes. A whole lane runs much longer: native contracts include real
+      // lease expiry and resource cleanup deadlines, and 30 minutes once
+      // killed the whole contract suite before Failed Tests.
+      timeout: shard
+        ? 1_200_000
+        : name === "backend"
+          ? 1_800_000
+          : name === "contracts"
+            ? 2_700_000
+            : 600_000,
     })
     if (result.error || result.signal)
       throw new Error(

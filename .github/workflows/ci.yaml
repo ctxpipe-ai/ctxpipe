@@ -730,8 +730,10 @@ jobs:
       github.event_name == 'pull_request') &&
       (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.production-builds != '')
     # The images build for linux/arm64, the platform of the AWS hosts
-    # (Graviton). deploy.yaml publishes each image for amd64 and arm64.
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    # (Graviton). deploy.yaml publishes each image for amd64 and arm64. The
+    # short builds (about 20 s to 35 s on 4 vCPU) use 2 vCPU; the backend,
+    # worker, UI and docs builds take 50 s to 190 s and keep 4 vCPU.
+    runs-on: ${{ contains(fromJSON('["chat-sandbox", "codesearch", "cost-telemetry"]'), matrix.name) && 'blacksmith-2vcpu-ubuntu-2404-arm' || 'blacksmith-4vcpu-ubuntu-2404-arm' }}
     strategy:
       fail-fast: false
       matrix:
