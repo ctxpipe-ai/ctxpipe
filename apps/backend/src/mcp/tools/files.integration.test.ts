@@ -19,6 +19,7 @@ import {
 
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../../test/db.js"
 import { useMswServer } from "../../../test/msw.js"
+import { recordSpans } from "../../../test/spans.js"
 import type { AppEnv } from "../../app/env.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
@@ -47,6 +48,7 @@ const CODESEARCH = "http://codesearch.test"
 const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
 const sha1 = "a".repeat(40)
 const sha2 = "b".repeat(40)
+const spans = recordSpans()
 const owner = `ex${suffix}`
 const handle = (short: string) => `${owner}/${short}`
 
@@ -346,6 +348,35 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
           workspaceId: paymentsId,
         })),
       )
+      // CTX-1133: a unit that hydrate has not projected again keeps the
+      // chunks of the old rule, with a chunk for the heading-only section.
+      const staleId = generateObjectId("wku")
+      await db.insert(workspaceKnowledgeUnits).values({
+        servingId: staleId,
+        orgId: seed.orgId,
+        workspaceId: paymentsId,
+        path: "knowledge/stale-chunks.md",
+        body: "# Plan\n\n## Phase 4\n\nRun the evals.\n",
+        projectionSha: sha1,
+      })
+      await db.insert(workspaceKnowledgeChunks).values(
+        [
+          { startLine: 4, endLine: 4, text: "Plan\n\n# Plan" },
+          {
+            startLine: 6,
+            endLine: 8,
+            text: "Plan > Phase 4\n\n## Phase 4\n\nRun the evals.",
+          },
+        ].map((chunk, ordinal) => ({
+          ...chunk,
+          unitId: staleId,
+          chunkHash: `stale-${ordinal}`,
+          occurrence: 0,
+          ordinal,
+          orgId: seed.orgId,
+          workspaceId: paymentsId,
+        })),
+      )
       await insertLinkedRepositoryRows(db, [
         ...["payments-api", "ledger", "unindexed", "huge-api"].map((short) => ({
           id: generateObjectId("wlr"),
@@ -446,6 +477,9 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
         truncated: false,
       })
       expect(captured).toEqual([])
+      const attributes = spans.spanNamed("mcp.tool read_file")?.attributes
+      expect(attributes?.["ctxpipe.mcp.result.count"]).toBe(1)
+      expect(attributes?.["ctxpipe.mcp.args"]).toMatch(/(^|,)ref(,|$)/)
     })
 
     it("reads a path with a colon as a unit when the part before the colon is not a handle", async () => {
@@ -611,6 +645,19 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
         expect(captured).toEqual([])
       },
     )
+
+    it("counts the front matter of a unit whose chunks follow an older chunk rule", async () => {
+      const result = await call("read_file", {
+        ref: "knowledge/stale-chunks.md",
+        startLine: 6,
+        endLine: 6,
+      })
+      expect(result.structuredContent).toMatchObject({
+        content: "## Phase 4",
+        startLine: 6,
+        endLine: 6,
+      })
+    })
 
     it("counts the front matter in the lines of a unit, as search_knowledge does", async () => {
       const [chunk] = knowledgeChunkRows(
@@ -891,12 +938,18 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
     it("lists two folder levels of the Workspace repository with sizes and unit counts", async () => {
       const size = (path: string) => Buffer.byteLength(UNITS[path] ?? "")
       const root = await call("list_files", {})
+      // Retrieval facts (CTX-1137): the count of entries.
+      expect(spans.spanNamed("mcp.tool list_files")?.attributes).toMatchObject({
+        "ctxpipe.mcp.result.count": (
+          root.structuredContent as { entries: unknown[] }
+        ).entries.length,
+      })
       expect(root.structuredContent).toEqual({
         repository: null,
         path: "",
         served: { branch: "main", sha: sha1 },
         entries: [
-          { path: "knowledge", type: "dir", units: 6 },
+          { path: "knowledge", type: "dir", units: 7 },
           {
             path: "knowledge/big.md",
             type: "file",
@@ -923,6 +976,12 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
           },
           { path: "knowledge/runbooks", type: "dir", units: 1 },
           { path: "knowledge/services", type: "dir", units: 1 },
+          {
+            path: "knowledge/stale-chunks.md",
+            type: "file",
+            ref: "knowledge/stale-chunks.md",
+            size: Buffer.byteLength("# Plan\n\n## Phase 4\n\nRun the evals.\n"),
+          },
           { path: "slack", type: "dir", units: 1 },
           { path: "slack/threads", type: "dir", units: 1 },
         ],
@@ -940,6 +999,7 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
           { path: "knowledge/quotes.md", type: "file" },
           { path: "knowledge/runbooks", type: "dir", units: 1 },
           { path: "knowledge/services", type: "dir", units: 1 },
+          { path: "knowledge/stale-chunks.md", type: "file" },
         ],
       })
       const runbooks = await call("list_files", {

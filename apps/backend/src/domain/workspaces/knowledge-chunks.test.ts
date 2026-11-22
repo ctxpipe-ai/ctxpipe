@@ -34,7 +34,7 @@ describe("chunkKnowledgeBody", () => {
   it("starts a chunk at each heading outside a code fence, with its heading path and lines", () => {
     expect(
       chunkKnowledgeBody(
-        "Intro.\n\n# One\nFirst.\n\n```md\n# not a heading\n```\n## Two\nSecond.\n# Three\n",
+        "Intro.\n\n# One\nFirst.\n\n```md\n# not a heading\n```\n## Two\nSecond.\n# Three\nThird.\n",
       ),
     ).toEqual([
       { headingPath: [], text: "Intro.", startLine: 1, endLine: 1 },
@@ -50,8 +50,79 @@ describe("chunkKnowledgeBody", () => {
         startLine: 9,
         endLine: 10,
       },
-      { headingPath: ["Three"], text: "# Three", startLine: 11, endLine: 11 },
+      {
+        headingPath: ["Three"],
+        text: "# Three\nThird.",
+        startLine: 11,
+        endLine: 12,
+      },
     ])
+  })
+
+  it("joins a heading-only section to the next section, with both headings in the path", () => {
+    expect(
+      chunkKnowledgeBody(
+        "# Plan\n\n## Phase 4: tests\n\nRun the evals.\n## Phase 5\n### Step 1\nShip.\n",
+      ),
+    ).toEqual([
+      {
+        headingPath: ["Plan", "Phase 4: tests"],
+        text: "# Plan\n\n## Phase 4: tests\n\nRun the evals.",
+        startLine: 1,
+        endLine: 5,
+      },
+      {
+        headingPath: ["Plan", "Phase 5", "Step 1"],
+        text: "## Phase 5\n### Step 1\nShip.",
+        startLine: 6,
+        endLine: 8,
+      },
+    ])
+  })
+
+  it("drops a heading-only section at the end, unless the body has no other text", () => {
+    expect(texts("# A\nAlpha.\n## B\n\n## C\n")).toEqual(["# A\nAlpha."])
+    expect(texts("# Only\n\n## Sub\n")).toEqual(["# Only\n\n## Sub"])
+  })
+
+  it("keeps the headings of a section over the cap with its first paragraph", () => {
+    const long = "x".repeat(3000)
+    const chunks = chunkKnowledgeBody(`# Parent\n\n## Child\n\n${long}\n`)
+    expect(
+      chunks.map(({ headingPath, text, startLine, endLine }) => ({
+        headingPath,
+        start: text.slice(0, 22),
+        length: text.length,
+        startLine,
+        endLine,
+      })),
+    ).toEqual([
+      {
+        headingPath: ["Parent", "Child"],
+        start: "# Parent\n\n## Child\n\nxx",
+        length: 2048,
+        startLine: 1,
+        endLine: 5,
+      },
+      {
+        headingPath: ["Parent", "Child"],
+        start: "x".repeat(22),
+        length: "# Parent\n\n## Child\n\n".length + 3000 - 2048,
+        startLine: 5,
+        endLine: 5,
+      },
+    ])
+  })
+
+  it("starts the first chunk at the first line with text, as the older rule did", () => {
+    for (const body of [
+      "\n# Title\n\n## Sub\nText.\n",
+      "\nIntro.\n# Title\nText.\n",
+      "\n\n# Title\n## Sub\n",
+    ])
+      expect(chunkKnowledgeBody(body)[0]?.startLine).toBe(
+        body.split("\n").findIndex((line) => line.trim()) + 1,
+      )
   })
 
   it("drops empty sections and returns nothing for a blank body", () => {

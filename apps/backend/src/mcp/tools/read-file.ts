@@ -443,5 +443,7 @@ export const readFileTool = defineMcpReadTool({
   org: "required",
   inputShape: readFileInputShape,
   outputSchema: readFileOutputSchema,
+  // One file for each call; `ctxpipe.mcp.result.bytes` gives its size.
+  describeResult: () => ({ count: 1 }),
   run: (input, { org }) => readFileByRef(org, input),
 })

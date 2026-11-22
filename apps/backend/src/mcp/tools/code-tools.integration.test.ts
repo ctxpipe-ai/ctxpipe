@@ -10,6 +10,7 @@ import { afterAll, beforeAll, expect, it, vi } from "vitest"
 
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../../test/db.js"
 import { useMswServer } from "../../../test/msw.js"
+import { recordSpans } from "../../../test/spans.js"
 import type { AppEnv } from "../../app/env.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
@@ -34,6 +35,9 @@ const workspaceId = generateObjectId("ws")
 const repositoryId = generateObjectId("repo")
 let zoektRepoId: number
 let requests: Record<string, unknown>[] = []
+const spans = recordSpans()
+const toolSpan = (name: string) =>
+  spans.spanNamed(`mcp.tool ${name}`)?.attributes ?? {}
 
 function createApp() {
   const app = new Hono<AppEnv>()
@@ -207,6 +211,15 @@ it("searches literal text and returns a file ref, served revision, and skipped r
     Q: '"charge(1)"',
     RepoIDs: [zoektRepoId],
   })
+  // Retrieval facts (CTX-1137): names, lengths and counts, no query text.
+  const attributes = toolSpan("search_code")
+  expect(attributes).toMatchObject({
+    "ctxpipe.mcp.args": "excludeRepositories,limit,mode,query",
+    "ctxpipe.mcp.query.length": "charge(1)".length,
+    "ctxpipe.mcp.result.count": 1,
+  })
+  expect(attributes["ctxpipe.mcp.result.top_score"]).toBeUndefined()
+  expect(JSON.stringify(attributes)).not.toContain("charge")
 })
 
 it("sends regex syntax unchanged and reports rejected syntax without a literal retry", async () => {
@@ -429,6 +442,10 @@ it("returns SCIP definitions and references as one-based file locations", async 
       excluded: [],
     })
     expect(JSON.stringify(result)).not.toContain(repositoryId)
+    expect(toolSpan("find_symbol")).toMatchObject({
+      "ctxpipe.mcp.args": "excludeRepositories,filePath,limit,relation,symbol",
+      "ctxpipe.mcp.result.count": 1,
+    })
   }
   expect(requests).toEqual([
     {

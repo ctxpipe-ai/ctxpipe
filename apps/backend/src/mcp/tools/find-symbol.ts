@@ -109,6 +109,7 @@ export const findSymbolTool = defineMcpReadTool({
     cursor: z.string().optional(),
     hint: z.string().optional(),
   }),
+  describeResult: ({ results }) => ({ count: results.length }),
   async run(input, { org }) {
     const language =
       input.language === undefined ? undefined : languageKey(input.language)
