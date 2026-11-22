@@ -2,10 +2,9 @@
 //
 // The default `runs-on` in .github/workflows is
 // `blacksmith-<n>vcpu-ubuntu-2404-arm`, also in a matrix expression. A laptop
-// runs linux/arm64 containers, so CI runs the same platform. A light job
-// without Docker, a test shard and a screenshots shard can run on a free
-// GitHub-hosted runner, usually `ubuntu-24.04-arm` (ADR-065). A job may use
-// another label only when
+// runs linux/arm64 containers, so CI runs the same platform. A light job, a
+// test shard and a screenshots shard can run on a free GitHub-hosted runner,
+// usually `ubuntu-24.04-arm` (ADR-065). A job may use another label only when
 // `runs-on` carries a reason comment on its own line or on the line before:
 //   `amd64: <reason>`        for `blacksmith-<n>vcpu-ubuntu-2404` (x64)
 //   `github-hosted: <reason>` for any other label

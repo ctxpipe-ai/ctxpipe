@@ -13,7 +13,7 @@ name: Main caches
 # also save the store when they miss it. When the key is already in the
 # cache, setup-node saves nothing.
 #
-# Each job also restores or builds the file converter
+# The GitHub-hosted job also restores or builds the file converter
 # (.github/actions/converter), keyed by the files of the converter. Without
 # it, each pull request run after a converter change builds the converter in
 # each test shard (about 4 minutes) before its tests start.
@@ -55,8 +55,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - uses: ./.github/actions/converter
 
-  # The Blacksmith cache, for the jobs that stay on Blacksmith: the pnpm store
-  # and the file converter (Migrations, the upgrade job).
+  # The Blacksmith cache, for the jobs that stay on Blacksmith: the pnpm store.
   blacksmith-cache:
     timeout-minutes: 15
     name: Blacksmith cache
@@ -71,4 +70,3 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - uses: ./.github/actions/converter

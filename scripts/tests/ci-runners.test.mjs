@@ -101,9 +101,9 @@ test("the repository workflows pass", () => {
   assert.equal(result.status, 0, result.stderr)
 })
 
-// ADR-065: the light jobs, the test shards and the screenshots run on free
-// GitHub-hosted arm runners. The other jobs that use Docker stay on
-// Blacksmith.
+// ADR-065: the light jobs, the test shards, the screenshots and each deploy
+// job other than the image builds run on free GitHub-hosted arm runners. The
+// other jobs that use Docker stay on Blacksmith.
 const ci = parse(
   readFileSync(
     fileURLToPath(new URL("../../.github/workflows/ci.yaml", import.meta.url)),
@@ -126,34 +126,31 @@ const allJobs = readdirSync(directory)
     ])
   })
 
-// The GitHub-hosted jobs that use Docker: the test shards (service
+// The GitHub-hosted jobs with Docker in their steps: the test shards (service
 // containers, FalkorDB, the chat sandbox image from the registry cache) and
-// the screenshots (the pinned Playwright image).
-const githubHostedDocker = new Set([
-  "ci.yaml#test-shards",
-  "ci.yaml#storybook-visual",
-])
+// the publish job of the deploy (manifest lists through `docker buildx
+// imagetools`, no container).
+const githubHostedDocker = ["ci.yaml#test-shards", "deploy.yaml#publish_images"]
 
 test("a GitHub-hosted job uses no Docker, except the listed jobs", () => {
-  for (const [name, job] of allJobs) {
+  const jobs = new Map(allJobs.map(([name, job]) => [name, job]))
+  for (const name of githubHostedDocker) {
+    assert.ok(jobs.has(name), name)
+    assert.doesNotMatch(String(jobs.get(name)["runs-on"]), /^blacksmith-/, name)
+  }
+  for (const [name, job] of jobs) {
     if (String(job["runs-on"]).startsWith("blacksmith-")) continue
     for (const step of job.steps ?? [])
       assert.doesNotMatch(step.uses ?? "", /useblacksmith/, name)
-    if (githubHostedDocker.has(name)) continue
+    if (githubHostedDocker.includes(name)) continue
     assert.equal(job.services, undefined, name)
     assert.equal(job.container, undefined, name)
     for (const step of job.steps ?? []) {
-      assert.doesNotMatch(step.run ?? "", /\bdocker\b/, name)
+      // An image reference on docker.io is no Docker command.
+      assert.doesNotMatch(step.run ?? "", /\bdocker\b(?!\.io\/)/, name)
       assert.doesNotMatch(step.uses ?? "", /docker/, name)
     }
   }
-  for (const name of githubHostedDocker)
-    assert.ok(
-      !String(allJobs.find(([key]) => key === name)?.[1]["runs-on"]).startsWith(
-        "blacksmith-",
-      ),
-      name,
-    )
 })
 
 test("the toolchain record and the git lanes use the pinned git", () => {
