@@ -1,6 +1,7 @@
 import { openRouterModelId } from "@ctxpipe/visual-review"
 import { z } from "zod"
 
+import { gatewayRoutingError } from "../../src/observability/gatewayError.js"
 import {
   DEFAULT_OPENROUTER_BASE,
   openRouterProvider,
@@ -19,6 +20,70 @@ const replySchema = z.object({
  * draft; each other error of a call stops the command.
  */
 export class OutOfSchemaError extends Error {}
+
+/**
+ * What OpenRouter said about a refused call (HTTP 403, for example a
+ * moderation flag). Only what cannot echo the input: the error code, the
+ * category names of a moderation flag and the provider (short identifiers
+ * only), and the message only when it is a fixed routing text of
+ * OpenRouter.
+ */
+export type Refusal = {
+  code: number | string | null
+  reasons: string[]
+  provider?: string
+  message?: string
+}
+
+/** OpenRouter refused the call (HTTP 403). */
+export class RefusedError extends Error {
+  constructor(
+    model: string,
+    readonly refusal: Refusal,
+  ) {
+    super(
+      `OpenRouter refused the call for ${model} (403${refusal.reasons.length > 0 ? `: ${refusal.reasons.join(", ")}` : ""}).`,
+    )
+  }
+}
+
+const refusalSchema = z.object({
+  error: z.object({
+    code: z.union([z.number(), z.string()]).nullish(),
+    metadata: z
+      .object({
+        reasons: z.array(z.string()).optional(),
+        provider_name: z.string().optional(),
+      })
+      .partial()
+      .nullish(),
+  }),
+})
+
+/** A short identifier (a category or a provider name), never free text. */
+const identifier = (value: string | undefined) =>
+  value && /^[\w ./-]{1,40}$/.test(value) ? value : undefined
+
+/** The refusal of a 403 answer body of a call for `model`. */
+function refusalOf(body: string, model: string): Refusal {
+  let json: unknown
+  try {
+    json = JSON.parse(body)
+  } catch {
+    json = undefined
+  }
+  const error = refusalSchema.safeParse(json).data?.error
+  const provider = identifier(error?.metadata?.provider_name)
+  const message = gatewayRoutingError(body, openRouterModelId(model))
+  return {
+    code: error?.code ?? null,
+    reasons: (error?.metadata?.reasons ?? []).flatMap(
+      (reason) => identifier(reason) ?? [],
+    ),
+    ...(provider ? { provider } : {}),
+    ...(message ? { message } : {}),
+  }
+}
 
 /**
  * The seconds of a `Retry-After` header, or null when it gives no number of
@@ -103,6 +168,11 @@ export async function askJson<T>(input: {
     await new Promise((resolve) => setTimeout(resolve, seconds * 1_000))
     response = await send()
   }
+  if (response.status === 403)
+    throw new RefusedError(
+      input.model,
+      refusalOf(await response.text(), input.model),
+    )
   if (!response.ok)
     throw new Error(
       `OpenRouter answered ${response.status} for ${input.model}.`,

@@ -322,6 +322,8 @@ describe("the drafter", () => {
   let capAt = Number.POSITIVE_INFINITY
   /** The 429 answers before the next answers, each with its Retry-After. */
   let limited: (string | null)[] = []
+  /** The next answers that refuse the call (HTTP 403, a moderation flag). */
+  let refusals = 0
   let requests = 0
   const draftOf = (fields: Record<string, unknown>) => ({
     usable: true,
@@ -337,6 +339,24 @@ describe("the drafter", () => {
   useMswServer(
     http.post(`${BASE}/chat/completions`, async ({ request }) => {
       requests++
+      if (refusals > 0) {
+        refusals--
+        return HttpResponse.json(
+          {
+            error: {
+              code: 403,
+              message:
+                "anthropic/drafter requires moderation. Your input was flagged: the secret words of the input.",
+              metadata: {
+                reasons: ["violence"],
+                flagged_input: "the secret words of the input",
+                provider_name: "Amazon Bedrock",
+              },
+            },
+          },
+          { status: 403 },
+        )
+      }
       if (limited.length > 0) {
         const retryAfter = limited.shift()
         return HttpResponse.json(
@@ -562,10 +582,63 @@ describe("the drafter", () => {
       )
       expect(drafted.stopped).toBe(false)
       expect(drafted.questions).toHaveLength(2)
-      expect(drafted.attempts.at(-1)?.reason).toBe(drafted.failed)
+      // The pick with no answer is not an attempt: a resume tries it.
+      expect(drafted.attempts).toHaveLength(2)
+      expect(drafted.attempts.every((attempt) => attempt.kept)).toBe(true)
     } finally {
       capAt = Number.POSITIVE_INFINITY
     }
+  })
+
+  it("resumes a draft after its attempts, and refuses a draft of other picks", async () => {
+    answer = (_category, sources) => ({ gold: sources })
+    bodies.length = 0
+    const whole = await run()
+    bodies.length = 0
+    capAt = 3
+    let first: Awaited<ReturnType<typeof run>>
+    try {
+      first = await run()
+    } finally {
+      capAt = Number.POSITIVE_INFINITY
+    }
+    expect(first.failed).toBeDefined()
+    bodies.length = 0
+    const resumed = await run({ resume: first })
+    // The same drafts as a draft with no failure, and no pick drafted twice.
+    expect(resumed.failed).toBeUndefined()
+    expect(resumed.questions.map((question) => question.id)).toEqual(
+      whole.questions.map((question) => question.id),
+    )
+    expect(bodies).toHaveLength(whole.attempts.length - first.attempts.length)
+    await expect(run({ seed: "another", resume: first })).rejects.toThrow(
+      /has another pick/,
+    )
+  })
+
+  it("skips a pick that OpenRouter refuses, keeps no text of the input, and stops at a second refusal in a row", async () => {
+    answer = (category, sources) =>
+      category === "lookup"
+        ? { gold: sources }
+        : { usable: false, reason: "skip" }
+    refusals = 1
+    const drafted = await run()
+    const refused = drafted.attempts.filter((attempt) => attempt.refused)
+    expect(refused).toHaveLength(1)
+    expect(refused[0]?.refused).toEqual({
+      code: 403,
+      reasons: ["violence"],
+      provider: "Amazon Bedrock",
+    })
+    expect(JSON.stringify(drafted.attempts)).not.toContain("secret words")
+    expect(drafted.failed).toBeUndefined()
+    expect(drafted.questions.length).toBeGreaterThan(0)
+    // Two refusals in a row, on two picks: the corpus stops.
+    refusals = 2
+    expect((await run()).failed).toBe(
+      "OpenRouter refused the call for anthropic/drafter (403: violence).",
+    )
+    refusals = 0
   })
 
   it("waits as a rate limit says, at most 3 times, and fails at a rate limit with no wait", async () => {
@@ -682,26 +755,39 @@ describe("the drafter", () => {
       vi.stubEnv("MODEL_PROVIDER_URL", BASE)
       vi.stubEnv("MODEL_PROVIDER_API_KEY", "fixture-only")
       vi.stubEnv("MODEL_PROVIDER_ALLOWLIST", "azure")
-      await expect(
-        main([
-          "draft",
-          "--out",
-          out,
-          "--dataset",
-          frozen,
-          "--corpus",
-          "demo",
-          "--repo",
-          repo,
-          "--model",
-          "anthropic/drafter",
-        ]),
-      ).rejects.toThrow(/OpenRouter answered 503/)
+      const args = [
+        "--dataset",
+        frozen,
+        "--corpus",
+        "demo",
+        "--repo",
+        repo,
+        "--model",
+        "anthropic/drafter",
+      ]
+      await expect(main(["draft", "--out", out, ...args])).rejects.toThrow(
+        /OpenRouter answered 503/,
+      )
       const written = JSON.parse(readFileSync(out, "utf8"))
       expect(written.questions).toHaveLength(2)
-      expect(
-        JSON.parse(readFileSync(`${out}.attempts.json`, "utf8")).failed,
-      ).toBe("OpenRouter answered 503 for anthropic/drafter.")
+      const audit = JSON.parse(readFileSync(`${out}.attempts.json`, "utf8"))
+      expect(audit.failed).toBe(
+        "OpenRouter answered 503 for anthropic/drafter.",
+      )
+      // The resume drafts the rest of the corpus, and adds up the spend.
+      capAt = Number.POSITIVE_INFINITY
+      const next = join(dir, "draft-2.json")
+      await expect(
+        main(["draft", "--out", next, "--resume", out, ...args]),
+      ).resolves.toBe(0)
+      const resumed = JSON.parse(readFileSync(next, "utf8"))
+      expect(resumed.questions.length).toBeGreaterThan(2)
+      expect(resumed.questions.slice(0, 2)).toEqual(written.questions)
+      const resumedAudit = JSON.parse(
+        readFileSync(`${next}.attempts.json`, "utf8"),
+      )
+      expect(resumedAudit.failed).toBeUndefined()
+      expect(resumedAudit.spentUsd).toBeGreaterThan(audit.spentUsd)
     } finally {
       capAt = Number.POSITIVE_INFINITY
       limited = []

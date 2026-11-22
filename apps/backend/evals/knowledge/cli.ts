@@ -10,7 +10,8 @@
  *   bun evals/knowledge/cli.ts rescore --from DIR --out DIR \
  *     [--set NAME=VALUE] [--kept REPORT]
  *   bun evals/knowledge/cli.ts draft --dataset FILE --corpus ID --repo DIR \
- *     --model MODEL --out FILE [--seed TEXT] [--scale 0.4] [--cap-usd 10]
+ *     --model MODEL --out FILE [--seed TEXT] [--scale 0.4] [--resume DRAFT]
+ *     [--cap-usd 10]
  *   bun evals/knowledge/cli.ts finalize --draft LABELED,... --out FILE
  *   bun evals/knowledge/cli.ts label --draft FILE --repo DIR \
  *     --models A,B,C --out FILE [--cap-usd 5]
@@ -35,6 +36,7 @@ import { fileURLToPath } from "node:url"
 import { parseArgs, promisify } from "node:util"
 
 import { Octokit } from "octokit"
+import { z } from "zod"
 
 import { closeDb, initDb } from "../../src/db/client.js"
 import { ORCHESTRATOR_DEFAULTS } from "../../src/knowledge-reader/orchestrator.js"
@@ -56,10 +58,15 @@ import {
   type Dataset,
   datasetSchema,
   frozenCorporaSchema,
+  questionSchema,
   readDataset,
 } from "./dataset.js"
 import { loadDocuments, termIndex } from "./documents.js"
-import { draftQuestions, finalizeQuestions } from "./draft.js"
+import {
+  attemptsFileSchema,
+  draftQuestions,
+  finalizeQuestions,
+} from "./draft.js"
 import type { EvalOrg } from "./hydrate.js"
 import { measureLatency } from "./latency.js"
 import { ModelCalls, type RecordedCall } from "./model-calls.js"
@@ -336,6 +343,7 @@ async function draft(values: {
   model?: string
   seed?: string
   scale?: string
+  resume?: string
   out: string
   capUsd: number
 }): Promise<number> {
@@ -356,12 +364,40 @@ async function draft(values: {
     throw new SetupError(
       `--corpus names one corpus of the dataset: ${frozen.corpora.map((item) => item.id).join(", ")}.`,
     )
+  // A resume goes on after an earlier draft of the same corpus. A draft from
+  // before the attempts left out the pick with no answer still holds it:
+  // the attempt whose reason is the failure.
+  const resume = values.resume
+    ? await (async (file: string) => {
+        const earlier = z
+          .object({
+            corpora: z.array(z.object({ id: z.string() })),
+            questions: z.array(questionSchema),
+          })
+          .parse(JSON.parse(await readFile(file, "utf8")))
+        const audit = attemptsFileSchema.parse(
+          JSON.parse(await readFile(`${file}.attempts.json`, "utf8")),
+        )
+        if (earlier.corpora.some((item) => item.id !== corpus.id))
+          throw new SetupError(
+            `--resume ${file} is not a draft of ${corpus.id}.`,
+          )
+        return {
+          questions: earlier.questions,
+          attempts: audit.attempts.filter(
+            (attempt) => !audit.failed || attempt.reason !== audit.failed,
+          ),
+          spentUsd: audit.spentUsd ?? 0,
+        }
+      })(values.resume)
+    : undefined
   // The drafter scrubs each document with the converter.
   buildConverter()
   const calls = modelCalls(values.capUsd)
   const restore = calls.install()
   try {
     const drafted = await draftQuestions({
+      ...(resume ? { resume } : {}),
       corpus,
       documents: loadDocuments(
         repo,
@@ -384,10 +420,13 @@ async function draft(values: {
       attempts: drafted.attempts,
       stopped: drafted.stopped,
       failed: drafted.failed,
-      spentUsd: calls.spentUsd,
+      // The picks that OpenRouter refused (HTTP 403).
+      refused: drafted.attempts.filter((attempt) => attempt.refused).length,
+      // The spend of the corpus: of this command and of the draft it resumed.
+      spentUsd: calls.spentUsd + (resume?.spentUsd ?? 0),
     })
     process.stderr.write(
-      `${corpus.id}: ${drafted.questions.length} questions, $${calls.spentUsd.toFixed(2)} spent.\n`,
+      `${corpus.id}: ${drafted.questions.length} questions, $${calls.spentUsd.toFixed(2)} spent by this command.\n`,
     )
     if (drafted.failed) throw new Error(drafted.failed)
     return drafted.stopped ? 3 : 0
@@ -453,6 +492,7 @@ export async function main(argv: string[]): Promise<number> {
       model: { type: "string" },
       seed: { type: "string" },
       scale: { type: "string" },
+      resume: { type: "string" },
       runs: { type: "string" },
       setting: { type: "string", multiple: true },
     },
