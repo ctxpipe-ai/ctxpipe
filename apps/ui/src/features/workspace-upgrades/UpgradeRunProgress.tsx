@@ -53,9 +53,7 @@ export function UpgradeRunProgress(props: {
         {progress.since ? (
           <>
             Time so far:{" "}
-            {/* A clock: the screenshot capture hides it, so two runs give
-                the same pixels. */}
-            <span data-visual-mask className="tabular-nums">
+            <span className="tabular-nums">
               {formatElapsed(progress.since, now)}
             </span>
             .{" "}
