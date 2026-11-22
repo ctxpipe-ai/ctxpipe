@@ -152,6 +152,12 @@ export async function projectKnowledgePlane(input: {
   /** A store with the writer user. */
   store: KnowledgeStore
   observedAt: Date
+  /**
+   * Rebuild the tree of the default branch in full, also when the head is
+   * the tip (`rebuildKnowledgePlane`, ADR-067 decision 8). Not for another
+   * branch.
+   */
+  rebuild?: boolean
 }): Promise<KnowledgeRunSummary> {
   const key = { orgId: input.orgId, workspaceId: input.workspaceId }
   const branchKey = { ...key, branch: input.branch }
@@ -176,7 +182,20 @@ export async function projectKnowledgePlane(input: {
     return { mode: "waiting" }
   }
   const state = await getBranchHead(branchKey)
+  // The default branch always has a tree row when its tip has a document
+  // file. A head with no row lost its rows, for example to a fault of
+  // ClickHouse: a delta or `current` cannot repair that, so the run
+  // rebuilds in full from Git (ADR-067 decision 8). One read on each run.
+  const known = isDefault ? treeHeadOf(state) : null
+  const rebuild = !isDefault
+    ? null
+    : input.rebuild
+      ? ("rebuild" as const)
+      : known && !(await input.store.hasTree(key, known))
+        ? ("empty_tree" as const)
+        : null
   if (
+    !rebuild &&
     state?.lastSha === input.tip &&
     state.runStatus === "completed" &&
     state.projectionVersion === projectionVersion &&
@@ -262,6 +281,7 @@ export async function projectKnowledgePlane(input: {
                   state,
                   tip: input.tip,
                   projectionVersion,
+                  rebuild,
                 })
             const applied = await applyChangeSet({
               ...input,

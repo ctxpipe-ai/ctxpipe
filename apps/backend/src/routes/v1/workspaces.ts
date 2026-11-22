@@ -25,6 +25,7 @@ import {
   githubRepoFullNameFromWorkspaceUrl,
   WORKSPACE_WRITE_STATUSES,
 } from "../../domain/workspaces/write-status.js"
+import { selectKnowledgeReader } from "../../knowledge-reader/knowledge-reader.js"
 import { isRepositoryLostAccess } from "../../models/repositories.js"
 import { listWorkspaceUpgradeRows } from "../../models/workspace-upgrades.js"
 import {
@@ -37,6 +38,7 @@ import {
   persistWriteCheckRetry,
   projectionFromWorkspace,
   touchLastUsedWorkspace,
+  type WorkspaceRecord,
 } from "../../models/workspaces.js"
 import { detachedErrorLog, getLogger } from "../../observability/logger.js"
 import { startLostAccessRebuilds } from "../../openworkflow/enqueue-codesearch-rebuild.js"
@@ -174,6 +176,23 @@ function hydratePhasesView(state: ProjectionState): {
   if (published?.kind === "active")
     return { graph: { kind: published.stores.graph.kind } }
   return { graph: { kind: state.kind === "failed" ? "failed" : "pending" } }
+}
+
+/**
+ * The phases that the Workspace pane shows. With the `knowledge_plane` flag
+ * `on` and a ready head of the plane, the graph route reads the plane
+ * (`selectKnowledgeReader`), so the graph is ready whatever the phase of the
+ * FalkorDB graph. Else the pane shows the FalkorDB phase.
+ */
+async function workspaceHydratePhases(
+  workspace: WorkspaceRecord,
+): Promise<ReturnType<typeof hydratePhasesView>> {
+  const phases = hydratePhasesView(projectionFromWorkspace(workspace))
+  if (phases.graph.kind === "ready") return phases
+  const { planeHeads } = await selectKnowledgeReader(workspace.orgId, [
+    workspace.id,
+  ])
+  return planeHeads.has(workspace.id) ? { graph: { kind: "ready" } } : phases
 }
 
 function serializeWorkspace(row: {
@@ -537,7 +556,7 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
           createdAt: row.createdAt.toISOString(),
         })),
         skippedFiles: workspace.hydratePhases?.skipped ?? [],
-        hydratePhases: hydratePhasesView(projectionFromWorkspace(workspace)),
+        hydratePhases: await workspaceHydratePhases(workspace),
       },
       200,
     )
