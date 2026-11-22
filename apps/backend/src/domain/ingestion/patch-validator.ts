@@ -115,7 +115,7 @@ export type PatchStepInput = {
   rootPath?: string
 }
 
-/** The 12 allowlist folders and their kinds. Patterns are not extracted (ADR-052). */
+/** The 13 allowlist folders and their kinds. Patterns are not extracted (ADR-052). */
 const FOLDER_KINDS: ReadonlyMap<string, string> = new Map(
   Object.entries(KNOWLEDGE_KIND_FOLDERS)
     .filter(([kind]) => kind !== "Pattern")

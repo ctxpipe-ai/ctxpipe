@@ -2,6 +2,10 @@ import type { SandboxHandle, SandboxProcess } from "@tanstack/ai-sandbox"
 import { z } from "zod"
 
 import {
+  type AmbiguousEntry,
+  AmbiguousEntrySchema,
+} from "./discovered-roots.js"
+import {
   ingestModelRunCommand,
   type OpenCodeError,
   openCodeModelCalls,
@@ -16,12 +20,15 @@ import {
 } from "./ingest-opencode.js"
 import {
   prepareIngestSandbox,
+  resetIngestAgentFolders,
   sealIngestCheckout,
   startIngestStep,
+  stopIngestAgentProcesses,
   writeAsRoot,
 } from "./ingest-prepare.js"
 import { type RootExec, runAsRoot } from "./ingest-root.js"
 import type {
+  IngestDiscovery,
   IngestRuntimeStep,
   IngestStepUsage,
 } from "./ingest-shard-runtime.js"
@@ -362,15 +369,30 @@ export async function probeIngestModelProxy(
   return /^\d{3}$/.test(status) ? status : "none"
 }
 
+/** The ambiguous entries that the model step reads; root writes it. */
+const AMBIGUOUS_FILE = `${INGEST_ROOT}/ambiguous.json`
+/** The model step writes its choice here. */
+const MODEL_ROOTS_FILE = `${INGEST_OUT_ROOT}/roots.json`
 /**
- * Run the bundle's `discover-roots` script as the agent; return its parsed
- * JSON. The host checks it (`resolveDiscoveredRoots`) before it plans roots.
+ * The ambiguous entries that the model reads stay below this size. The
+ * entries after the limit are not read, and `problems` says how many.
+ */
+const MAX_AMBIGUOUS_BYTES = 256 * 1024
+
+/**
+ * Run the bundle's `discover-roots` script as the agent. When its result has
+ * ambiguous entries, run the model step of the skill
+ * (one `opencode run` on the fast tier, through the model proxy of the
+ * sandbox, so the ZDR and provider rules and the scrub apply): it chooses
+ * the candidates that are code roots. A model step that fails gives no
+ * choice, so only the script roots are planned.
  */
 export async function discoverIngestRoots(
   root: RootExec,
   agentEnv: Record<string, string>,
-  signal?: AbortSignal,
-): Promise<unknown> {
+  options: { signal?: AbortSignal; model: string },
+): Promise<IngestDiscovery> {
+  const { signal, model } = options
   const result = await root(
     ingestAgentCommand({
       env: agentEnv,
@@ -382,7 +404,82 @@ export async function discoverIngestRoots(
     throw new Error(`discover-roots failed: ${result.stderr.slice(-500)}`)
   if (result.stdout.length > MAX_DISCOVERY_BYTES)
     throw new Error("discover-roots wrote too much output")
-  return JSON.parse(result.stdout)
+  const script: unknown = JSON.parse(result.stdout)
+  // The host check (`resolveDiscoveredRoots`) refuses a result that does not
+  // match the schema; here such a result has no ambiguous entry.
+  const entries = (
+    z.object({ ambiguous: z.array(AmbiguousEntrySchema) }).safeParse(script)
+      .data?.ambiguous ?? []
+  ).filter((entry) => entry.candidates.length > 0)
+  if (!entries.length) return { script, model: null }
+
+  const problems: string[] = []
+  const kept: AmbiguousEntry[] = []
+  let bytes = 0
+  for (const entry of entries) {
+    bytes += Buffer.byteLength(JSON.stringify(entry)) + 1
+    if (bytes > MAX_AMBIGUOUS_BYTES) break
+    kept.push(entry)
+  }
+  if (kept.length < entries.length)
+    problems.push(
+      `The model read ${kept.length} of ${entries.length} ambiguous entries: the others did not fit in ${MAX_AMBIGUOUS_BYTES / 1024} KiB`,
+    )
+  await resetIngestAgentFolders(root)
+  await writeAsRoot(root, AMBIGUOUS_FILE, JSON.stringify({ ambiguous: kept }))
+  // At the step limit the exec ends; root then stops each agent process, so
+  // no model call goes on after the step.
+  const run = await root(
+    ingestAgentCommand({
+      env: agentEnv,
+      command: ingestModelRunCommand({
+        // Paths are data: they are in the file, not in the prompt.
+        prompt: [
+          "Run the skill discover-roots for its ambiguous entries only.",
+          `The host ran the script. The ambiguous entries are in ${AMBIGUOUS_FILE}, and the source checkout is ${SOURCE_DIR}.`,
+          `Write your choice to ${MODEL_ROOTS_FILE} as the skill says.`,
+        ].join(" "),
+        model,
+      }),
+    }),
+    signal ? { signal } : undefined,
+  ).finally(() => stopIngestAgentProcesses(root))
+  signal?.throwIfAborted()
+  // A step that reports no usage makes the spend of the run unknown.
+  const usage: IngestStepUsage = {
+    ...(parseOpenCodeUsage(run.stdout) ?? {
+      inputTokens: 0,
+      outputTokens: 0,
+      unknownSteps: 1,
+    }),
+    ...(run.stdoutTruncated ? { unknownSteps: 1 } : {}),
+  }
+  if (run.exitCode !== 0) {
+    problems.push(
+      `The model step failed (${run.exitCode}), so no ambiguous root is planned`,
+    )
+    return { script, model: null, usage, problems }
+  }
+  // Root reads the choice after it stopped each agent process.
+  const out = await root(
+    `test -f ${MODEL_ROOTS_FILE} && ! test -L ${MODEL_ROOTS_FILE} && head -c ${MAX_DISCOVERY_BYTES + 1} ${MODEL_ROOTS_FILE}`,
+  )
+  let chosen: unknown = null
+  if (out.exitCode !== 0) problems.push("The model step wrote no roots file")
+  else if (out.stdout.length > MAX_DISCOVERY_BYTES)
+    problems.push("The roots file of the model step is too large")
+  else
+    try {
+      chosen = JSON.parse(out.stdout)
+    } catch {
+      problems.push("The roots file of the model step is not JSON")
+    }
+  return {
+    script,
+    model: chosen,
+    usage,
+    ...(problems.length ? { problems } : {}),
+  }
 }
 
 /** The `--roots` file of each step; root writes it. */

@@ -256,6 +256,29 @@ export async function sealIngestCheckout(
 const INGEST_REF =
   /^refs\/ctxpipe\/ingest\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+){0,3}$/
 
+/** Shell lines that empty /ctxpipe/out and /ctxpipe/home and give them to the agent user. */
+function emptyAgentFolders(): string[] {
+  const agent = INGEST_AGENT_USER
+  return [
+    `rm -rf ${INGEST_OUT_ROOT} ${INGEST_HOME} ${INGEST_STEP_OUTPUT} || { echo "Cannot empty ${INGEST_OUT_ROOT} and ${INGEST_HOME}" >&2; exit 1; }`,
+    `mkdir -p ${INGEST_OUT_ROOT}/files ${INGEST_HOME}`,
+    `chown -R ${agent}:${agent} ${INGEST_OUT_ROOT} ${INGEST_HOME}`,
+    `chmod 755 ${INGEST_OUT_ROOT} ${INGEST_HOME}`,
+  ]
+}
+
+/**
+ * Stop each agent process and empty the agent folders, as before a step,
+ * for an agent run that is not a skill step (the model step of
+ * `discover-roots`).
+ */
+export async function resetIngestAgentFolders(root: RootExec): Promise<void> {
+  await runAsRoot(
+    root,
+    ["set -e", STOP_AGENT_PROCESSES, ...emptyAgentFolders()].join("\n"),
+  )
+}
+
 /**
  * Start a step, as root: stop every agent process, fetch the shard ref, put
  * the context checkout at the step's base commit, place the context index,
@@ -280,7 +303,6 @@ export async function startIngestStep(
   if (input.fetch && !INGEST_REF.test(input.fetch.ref))
     throw new Error("Ingest step: the ref is not an ingest ref")
   const context = `${INGEST_CONTEXT_ROOT}/${input.workspaceId}`
-  const agent = INGEST_AGENT_USER
   await runAsRoot(
     root,
     [
@@ -293,10 +315,7 @@ export async function startIngestStep(
         : []),
       `git -C ${context} checkout -q --detach ${input.baseCommit}`,
       `test "$(git -C ${context} rev-parse HEAD)" = ${input.baseCommit}`,
-      `rm -rf ${INGEST_OUT_ROOT} ${INGEST_HOME} ${INGEST_STEP_OUTPUT} || { echo "Cannot empty ${INGEST_OUT_ROOT} and ${INGEST_HOME}" >&2; exit 1; }`,
-      `mkdir -p ${INGEST_OUT_ROOT}/files ${INGEST_HOME}`,
-      `chown -R ${agent}:${agent} ${INGEST_OUT_ROOT} ${INGEST_HOME}`,
-      `chmod 755 ${INGEST_OUT_ROOT} ${INGEST_HOME}`,
+      ...emptyAgentFolders(),
     ].join("\n"),
   )
   if (input.index !== undefined)

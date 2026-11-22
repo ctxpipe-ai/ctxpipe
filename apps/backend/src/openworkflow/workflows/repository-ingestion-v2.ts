@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto"
+
 import type { Attributes } from "@opentelemetry/api"
 import type { Workflow } from "openworkflow"
 
@@ -13,6 +15,7 @@ import {
   ingestRefName,
   type WithheldFile,
 } from "../../domain/ingestion/ingest-refs.js"
+import type { IngestStepUsage } from "../../domain/ingestion/ingest-shard-runtime.js"
 import { releaseIngestStepIndexes } from "../../domain/ingestion/ingest-shard-sandbox.js"
 import {
   ingestSourceTree,
@@ -380,6 +383,7 @@ export function defineRepositoryIngestionV2Workflow(
               | { partial: string }
               | {
                   partial?: undefined
+                  usage?: IngestStepUsage
                   bundle: string
                   version?: string
                   skills?: string[]
@@ -398,12 +402,31 @@ export function defineRepositoryIngestionV2Workflow(
                   destinations,
                 })
                 .discoverRoots()
-              // No model chooses among ambiguous candidates yet.
-              const plan = resolveDiscoveredRoots(discovered, null)
+              // The usage of the model step for the ambiguous roots goes
+              // into the step output, where the recorded spend reads it.
+              const usage = discovered.usage ? { usage: discovered.usage } : {}
+              // No count limits the roots (the CTO); the size of the packed
+              // list does, below.
+              const plan = resolveDiscoveredRoots(
+                discovered.script,
+                discovered.model,
+              )
+              // A path that the model wrote can hold source text, so the
+              // log holds only its hash (ADR-052, CTX-1514).
               for (const refused of plan.refused)
                 logIngestEvent("warn", "ingestion-v2.root-refused", {
                   ingestionRunId: run.id,
-                  ...refused,
+                  reason: capIngestText(refused.reason),
+                  from: refused.from,
+                  ...(refused.path === null
+                    ? { path: null }
+                    : refused.from === "model"
+                      ? {
+                          pathSha256: createHash("sha256")
+                            .update(refused.path)
+                            .digest("hex"),
+                        }
+                      : { path: capIngestText(refused.path) }),
                 })
               // The script records what it did not give, also the roots
               // that its size limit cut.
@@ -412,11 +435,16 @@ export function defineRepositoryIngestionV2Workflow(
                   ingestionRunId: run.id,
                   ...skipped,
                 })
-              // No count limits the roots. The step output keeps the packed
-              // list, so its size is the limit: the whole output stays below
-              // 1 MiB, where the backend starts to warn about a large step
-              // output, with 64 KiB for the bundle name, version, and skill
-              // names. A root that does not fit is refused, with a record.
+              for (const problem of discovered.problems ?? [])
+                logIngestEvent("warn", "ingestion-v2.root-model-problem", {
+                  ingestionRunId: run.id,
+                  reason: capIngestText(problem),
+                })
+              // The step output keeps the packed list, so its size is the
+              // limit: the whole output stays below 1 MiB, where the backend
+              // starts to warn about a large step output, with 64 KiB for the
+              // bundle name, version, and skill names. A root that does not
+              // fit is refused, with a record.
               const { packed, left } = packRootsWithin(
                 plan.roots,
                 2 ** 20 - 64 * 1024,
@@ -424,11 +452,12 @@ export function defineRepositoryIngestionV2Workflow(
               for (const root of left)
                 logIngestEvent("warn", "ingestion-v2.root-refused", {
                   ingestionRunId: run.id,
-                  path: root.path,
+                  path: capIngestText(root.path),
                   reason:
                     "The packed root list of the run must be at most 1 MiB",
                 })
               return {
+                ...usage,
                 bundle: bundle.name,
                 version: bundle.version,
                 skills: bundle.skills,

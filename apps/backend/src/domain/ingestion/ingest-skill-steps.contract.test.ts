@@ -91,6 +91,7 @@ const SOURCE: Record<string, string> = {
   "pnpm-workspace.yaml": "packages:\n  - apps/*\n",
   "apps/api/package.json": pkg("api", {
     private: true,
+    description: "The billing API of the shop.",
     dependencies: { hono: "^4.0.0", zod: "^3.23.0" },
   }),
   "apps/api/src/index.ts": [
@@ -105,6 +106,7 @@ const SOURCE: Record<string, string> = {
   ].join("\n"),
   "apps/web/package.json": pkg("web", {
     private: true,
+    description: "The web storefront of the shop.",
     dependencies: { next: "15.0.0", pg: "^8.0.0" },
   }),
   "apps/web/src/db.ts":
@@ -485,7 +487,7 @@ beforeAll(async () => {
   })
   runtime = {
     ensure: async () => undefined,
-    discoverRoots: async () => null,
+    discoverRoots: async () => ({ script: null, model: null }),
     runStep: async (step) => {
       const { usage, inputs } = await runIngestShardStep(root, {
         step,

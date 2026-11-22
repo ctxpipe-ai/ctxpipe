@@ -91,7 +91,8 @@ const IGNORED_SEGMENTS = new Set([
   "__fixtures__",
 ])
 
-function ignoredFolder(dir) {
+/** True for a folder that never holds a code root: vendored, test data, fixtures, or a dot folder. */
+export function ignoredFolder(dir) {
   if (dir === ".") return false
   return dir
     .split("/")

@@ -149,7 +149,7 @@ async function runStep(
   }
   const runtime: IngestShardRuntime = options.runtime ?? {
     ensure: async () => {},
-    discoverRoots: async () => ({}),
+    discoverRoots: async () => ({ script: {}, model: null }),
     runStep: async () => ({ tar: archive(files) }),
   }
   const state: IngestionShardWorkspace = {
@@ -234,7 +234,7 @@ describe("ingestion step telemetry with the local git broker", () => {
       {
         runtime: {
           ensure: async () => {},
-          discoverRoots: async () => ({}),
+          discoverRoots: async () => ({ script: {}, model: null }),
           runStep: async () => ({
             tar: archive(
               {},
@@ -293,7 +293,7 @@ describe("ingestion step telemetry with the local git broker", () => {
       error.name = "private sentinel"
       const runtime = {
         ensure: async () => {},
-        discoverRoots: async () => ({}),
+        discoverRoots: async () => ({ script: {}, model: null }),
         runStep: async () => {
           throw error
         },
@@ -326,7 +326,7 @@ describe("ingestion step telemetry with the local git broker", () => {
     async () => {
       const runtime = {
         ensure: async () => {},
-        discoverRoots: async () => ({}),
+        discoverRoots: async () => ({ script: {}, model: null }),
         runStep: async () => {
           throw Object.assign(
             new Error("Ingest root command failed (exit -1): private sentinel"),
@@ -357,7 +357,7 @@ describe("ingestion step telemetry with the local git broker", () => {
     async () => {
       const runtime = {
         ensure: async () => {},
-        discoverRoots: async () => ({}),
+        discoverRoots: async () => ({ script: {}, model: null }),
         runStep: async () => {
           throw new IngestStepCommandError("finish", 3, "private sentinel")
         },
@@ -383,7 +383,7 @@ describe("ingestion step telemetry with the local git broker", () => {
     async () => {
       const runtime = {
         ensure: async () => {},
-        discoverRoots: async () => ({}),
+        discoverRoots: async () => ({ script: {}, model: null }),
         runStep: async () => {
           throw new IngestStepCommandError("skill", 1, "private sentinel", {
             calls: 0,
@@ -415,7 +415,7 @@ describe("ingestion step telemetry with the local git broker", () => {
       })
       const runtime = {
         ensure: async () => {},
-        discoverRoots: async () => ({}),
+        discoverRoots: async () => ({ script: {}, model: null }),
         runStep: async () => ({ tar }),
       }
       expect((await runStep({}, { runtime })).partial).toBe(1)
@@ -462,7 +462,7 @@ describe("ingestion step telemetry with the local git broker", () => {
       let other = ""
       const runtime = {
         ensure: async () => {},
-        discoverRoots: async () => ({}),
+        discoverRoots: async () => ({ script: {}, model: null }),
         runStep: async () => {
           // The other execution pushes this step while this one runs it:
           // the push of this attempt fails, and the next attempt adopts.

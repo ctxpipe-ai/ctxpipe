@@ -72,6 +72,7 @@ describe("ingestion v2 plan", () => {
       "datasources-infra",
       "libraries",
       "ownership",
+      "feature-gates",
       "decisions",
       "instruction-areas",
     ]
@@ -93,6 +94,7 @@ describe("ingestion v2 plan", () => {
     ).toEqual([
       "libraries",
       "ownership",
+      "feature-gates",
       "dependencies",
       "datasources-infra",
       "decisions",
