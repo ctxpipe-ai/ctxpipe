@@ -8,6 +8,7 @@ import { repositoryRevisionCheckoutKey } from "../../../../../shared/workspace-c
 import { type Env, parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { listWorkspaceUnitsAtRevision } from "../../models/workspaces.js"
+import { getLogger } from "../../observability/logger.js"
 import { gitRemoteEnvironment } from "../../services/git/clone-tree.js"
 import { resolvePlainGitRemote } from "../../services/git/plain-git-remote.js"
 import { agentCoreRuntime } from "../workspaces/agentcore-sandbox-provider.js"
@@ -549,7 +550,21 @@ function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
             }
           } catch (error) {
             // A failed attempt made billed calls too: the step counts them.
-            const usd = await recordedCost().catch(() => null)
+            // A failed take loses the cost of the attempt: log it.
+            const usd = await recordedCost().catch((takeError: unknown) => {
+              getLogger().error(
+                takeError instanceof Error
+                  ? takeError
+                  : new Error(String(takeError)),
+                {
+                  step: "ingestion-v2.model-cost-take-failed",
+                  ingestionRunId: spec.runId,
+                  shard: spec.shard,
+                  ingestStep: step.name,
+                },
+              )
+              return null
+            })
             throw withIngestAttemptUsage(
               error,
               withRecordedModelCost(undefined, usd),

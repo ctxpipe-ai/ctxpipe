@@ -131,9 +131,9 @@ export function logIngestEvent(
 
 /**
  * The model call of one ingest step, at the model proxy. It is a generation
- * span with the usage and the cost. `ctxpipe.ingest.run.id` groups the model calls of
- * every shard and step of a run. It holds no prompt or answer (the checkout
- * is customer source).
+ * span with the usage and the cost. `ctxpipe.ingest.run.id` groups the
+ * model calls of every shard and step of a run. It holds no prompt or answer
+ * (the checkout is customer source).
  */
 export function startIngestModelCall(
   ingest: { runId: string; shard: number; step: string },
