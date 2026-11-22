@@ -174,7 +174,7 @@ function project(
       tip,
       store,
       observedAt: new Date(),
-      ...(options.rebuild ? { rebuild: true } : {}),
+      rebuild: options.rebuild,
     }),
   )
 }
@@ -186,19 +186,23 @@ function cleanUp(workspaceId: string, now: Date) {
   )
 }
 
-/** The document keys that a read of the default branch shows, with their status. */
-async function view(workspaceId: string): Promise<Record<string, string>> {
+/** The read scope of the default branch, or null with no ready head. */
+async function scopeOf(workspaceId: string) {
   const head = (await readyKnowledgeHeads(orgId, [workspaceId])).get(
     workspaceId,
   )
-  if (!head) return {}
+  return head ? { orgId, heads: [{ workspaceId, ...head }] } : null
+}
+
+/** The document keys that a read of the default branch shows, with their status. */
+async function view(workspaceId: string): Promise<Record<string, string>> {
+  const scope = await scopeOf(workspaceId)
+  if (!scope) return {}
   return Object.fromEntries(
-    (
-      await store.listDocumentStatuses({
-        orgId,
-        heads: [{ workspaceId, ...head }],
-      })
-    ).map((row) => [row.docKey, row.status]),
+    (await store.listDocumentStatuses(scope)).map((row) => [
+      row.docKey,
+      row.status,
+    ]),
   )
 }
 
@@ -534,13 +538,11 @@ it(
     // read joins the document row (a lost row gives no title) and the
     // chunks of the file version.
     const readable = async () => {
-      const head = (await readyKnowledgeHeads(orgId, [workspaceId])).get(
-        workspaceId,
-      )
-      if (!head) return 0
+      const scope = await scopeOf(workspaceId)
+      if (!scope) return 0
       return (
         await store.readEvidence(
-          { orgId, heads: [{ workspaceId, ...head }] },
+          scope,
           Object.keys(await view(workspaceId)).map((docKey) => ({
             workspaceId,
             docKey,

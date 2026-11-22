@@ -83,7 +83,7 @@ export async function startClickHouse(): Promise<{
   }
   try {
     const serverUrl = `http://knowledge:knowledge-test@127.0.0.1:${port}`
-    const started = async () => {
+    const waitUntilStarted = async () => {
       // Quiet: the first attempts fail while the server starts.
       const client = createClient({
         url: serverUrl,
@@ -98,7 +98,7 @@ export async function startClickHouse(): Promise<{
         await client.close()
       }
     }
-    await started()
+    await waitUntilStarted()
     return {
       serverUrl,
       async freshDatabase() {
@@ -123,7 +123,7 @@ export async function startClickHouse(): Promise<{
       },
       async restart() {
         await docker("restart", "--time", "0", container)
-        await started()
+        await waitUntilStarted()
       },
       stop,
     }
