@@ -159,7 +159,6 @@ ENV CARGO_HOME=/usr/local/cargo \
     COMPOSER_HOME=/opt/composer \
     DOTNET_ROOT=/usr/share/dotnet \
     JAVA_HOME=/opt/java/openjdk \
-    MAVEN_HOME=/usr/share/maven \
     PUB_CACHE=/opt/pub-cache \
     RUSTUP_HOME=/usr/local/rustup \
     GOPATH=/tmp/ctxpipe-go \
