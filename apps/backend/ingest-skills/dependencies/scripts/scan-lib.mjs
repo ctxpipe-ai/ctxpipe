@@ -481,7 +481,7 @@ export function dependencyLine({
 }
 
 /** The fields of a `dependencyLine`, or null for another line. */
-function parseDependencyLine(text) {
+export function parseDependencyLine(text) {
   const line =
     /^- ([A-Z_]+) `([^`\n]+)` from `([^`\n]+)` root `([^`\n]+)` file `([^`\n]+)` \(candidate `(c[0-9a-f]{10})`\)$/.exec(
       text.trim(),

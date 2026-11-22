@@ -36,6 +36,7 @@ import { safePath } from "../../discover-roots/scripts/roots-lib.mjs"
 import {
   dependencyLine,
   listPart,
+  parseDependencyLine,
   listTexts,
   resolvedIds,
   scan,
@@ -388,7 +389,8 @@ function listPlans(servicePath, list) {
     const claims = [...file.added.values()]
     if (i === 0)
       return [{ path: file.path, create: null, claims, related: file.related }]
-    const name = `${base} dependencies ${file.n}`
+    // The validator takes a name of at most 200 characters.
+    const name = `${base.slice(0, 150)} dependencies ${file.n}`
     const evidence = claims[0]?.evidence.path ?? file.evidence
     return [
       {
@@ -416,6 +418,43 @@ function listPlans(servicePath, list) {
     ]
   })
 }
+/**
+ * The entries that an earlier run of this page staged and that are not at
+ * the step base. writeStep writes each file from the base, so a later run
+ * plans them again, also when resolutions.json no longer names them: each
+ * run of a page writes at least what the runs before it wrote.
+ */
+function stagedEntries(servicePath) {
+  const atBase = new Set(
+    listTexts(step, servicePath, { staged: false }).flatMap((part) =>
+      part.text.split("\n").map((l) => l.trim()),
+    ),
+  )
+  return listTexts(step, servicePath)
+    .flatMap((part) => part.text.split("\n").map((l) => l.trim()))
+    .filter((line) => !atBase.has(line))
+    .flatMap((line) => {
+      const found = parseDependencyLine(line)
+      return found?.repository === repository
+        ? [
+            {
+              line,
+              claim: {
+                to: found.link,
+                predicate: found.predicate,
+                evidence: { path: found.file, kind: "model" },
+              },
+            },
+          ]
+        : []
+    })
+}
+for (const root of rootsOfStep)
+  for (const file of root.files.filter((f) => f.kind === "Service")) {
+    const earlier = stagedEntries(file.path)
+    if (earlier.length)
+      entries.set(file.path, [...earlier, ...(entries.get(file.path) ?? [])])
+  }
 for (const [servicePath, list] of entries)
   plans.push(...listPlans(servicePath, list))
 

@@ -986,6 +986,82 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
     ).toThrow()
   })
 
+  it("keeps what an earlier run of the page staged when a later run no longer names it (CTX-1487)", async () => {
+    const s = await step(
+      {
+        "src/client.ts":
+          'await fetch("http://billing.internal/x")\nawait fetch("http://ledger.internal/x")\n',
+      },
+      {
+        "knowledge/services/billing.md": serviceFile("Billing"),
+        "knowledge/services/ledger.md": serviceFile("Ledger"),
+      },
+    )
+    const [billing, ledger] = ["billing", "ledger"].map((name) =>
+      s.candidates().find((c) => c.target.text.includes(name)),
+    )
+    s.apply([
+      {
+        id: billing?.id,
+        kind: "service",
+        path: "knowledge/services/billing.md",
+      },
+    ])
+    // The model writes resolutions.json again with only the next call.
+    s.apply([
+      { id: ledger?.id, kind: "service", path: "knowledge/services/ledger.md" },
+    ])
+    const result = await s.validate()
+    expect(result.rejections).toEqual([])
+    expect(result.cursorAt).toBe(2)
+    const own = s.show(result.tree, OWN)
+    expect(own).toContain("to: billing.md")
+    expect(own).toContain("to: ledger.md")
+  })
+
+  it("gives a part of the dependency list of a Service file with a long name a name that the validator takes (CTX-1487)", async () => {
+    const stem = `shop-${"x".repeat(185)}`
+    const SERVICE = `knowledge/services/${stem}.md`
+    const calls = Array.from(
+      { length: 400 },
+      (_, i) => `await fetch("http://billing.internal/p${i}")`,
+    )
+    const s = await step(
+      { "src/client.ts": calls.join("\n") },
+      {
+        [SERVICE]: front(
+          {
+            kind: "Service",
+            name: "Shop API",
+            generated_by: "ctxpipe-extract",
+            sources: [SOURCE_PATH],
+          },
+          `# Shop API\n\n${"The shop API.\n".repeat(2400)}`,
+        ),
+        "knowledge/services/billing.md": serviceFile("Billing"),
+      },
+      [{ path: ".", files: [SERVICE] }],
+    )
+    s.apply(
+      s.scan().candidates.map((c) => ({
+        id: c.id,
+        kind: "service",
+        path: "knowledge/services/billing.md",
+      })),
+    )
+    const result = await s.validate()
+    expect(result.rejections).toEqual([])
+    const part = s.show(
+      result.tree,
+      `knowledge/services/${stem}.dependencies-2.md`,
+    )
+    // The validator takes a name of at most 200 characters.
+    const name = /^name: "?(.*?)"?$/m.exec(part)?.[1] ?? ""
+    expect(name).toMatch(/ dependencies 2$/)
+    expect(name.length).toBeLessThanOrEqual(200)
+    expect(result.cursorAt).toBeGreaterThan(0)
+  })
+
   it("counts a candidate that a later page resolves to another target once, and never an ignored candidate (CTX-1487)", async () => {
     const context = {
       "knowledge/services/billing.md": serviceFile("Billing"),
