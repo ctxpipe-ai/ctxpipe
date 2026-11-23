@@ -27,6 +27,8 @@ import {
   fileClaims,
   frontMatter,
   frontValue,
+  isListPart,
+  listLines,
   nameKey,
   relativeTo,
 } from "../../bin/knowledge-lib.mjs"
@@ -652,6 +654,8 @@ function textOf(step, path) {
  * - when the root has one Service or App file, that file has a claim to the
  *   store file;
  * - else, the store file has the line of the root (`rootLine`).
+ * The lines of a store file are the lines of its list: the file and its
+ * parts (CTX-1528).
  * A pair expects each store file of its id (with the line of the id,
  * `declares`) that has the line of its root. The writer writes the store
  * file before the claim, so the tree keeps what a pair expects across
@@ -686,11 +690,13 @@ export function storeCursor({
     ...stagedPaths(step),
     ...planned.map((p) => p.path),
   ])) {
-    if (!safePath(path) || !path.startsWith("knowledge/")) continue
+    if (!safePath(path) || !path.startsWith("knowledge/") || isListPart(path))
+      continue
     const text = textOf(step, path)
     const kind = text && frontValue(frontMatter(text) ?? "", "kind")
     if (kind !== "Database" && kind !== "Infrastructure") continue
-    const lines = new Set(text.split("\n").map((l) => l.trimEnd()))
+    // The lines of the store file and of the parts of its list (CTX-1528).
+    const lines = listLines(step, path)
     const types = new Set()
     for (const line of lines)
       if (line.startsWith(head)) {
