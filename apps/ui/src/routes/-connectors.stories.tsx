@@ -1,4 +1,5 @@
 import { delay, HttpResponse, http } from "msw"
+import type { SetupWorker } from "msw/browser"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
 import { connectionAnchorId } from "@/features/connectors/connectionAnchor"
@@ -740,13 +741,57 @@ export const ReopensConfluenceWizardAfterAccountLink = meta.story({
 })
 
 /**
+ * Resolves when MSW has sent a mocked response to a request for each of
+ * `paths` (the end of the pathname). Under CI load, MSW can take more than the
+ * 1 s of a `waitFor` to answer the first requests of a page. Call it in
+ * `beforeEach`, which runs before the story renders and sends its requests.
+ */
+function mockedResponses(worker: SetupWorker, paths: string[]) {
+  return Promise.all(
+    paths.map(
+      (path) =>
+        new Promise<void>((resolve) => {
+          const listener = ({ request }: { request: Request }) => {
+            if (!new URL(request.url).pathname.endsWith(path)) return
+            worker.events.removeListener("response:mocked", listener)
+            resolve()
+          }
+          worker.events.on("response:mocked", listener)
+        }),
+    ),
+  )
+}
+
+/**
+ * Resolves when each animation of the page that has an end has ended, for
+ * example the fade-in of a modal. Under CI load, a fade-in of 100 ms can take
+ * more than the 1 s of a `waitFor`. A canceled animation also counts as ended.
+ */
+async function animationsEnded(doc: Document) {
+  await Promise.all(
+    doc
+      .getAnimations()
+      .filter(
+        (animation) =>
+          animation.effect?.getComputedTiming().endTime !== Infinity,
+      )
+      .map((animation) => animation.finished.catch(() => undefined)),
+  )
+}
+
+/**
  * Connectors page, where an admin adds and manages the sources of the org: one
  * Buildkite connection has its own card, and the catalog opens the setup of a
  * second one with empty fields.
  */
 export const BuildkiteFromCatalog = meta.story({
   render: pageRender,
-  beforeEach: ({ msw }) => {
+  beforeEach: ({ msw, loaded }) => {
+    // The play reads it from the same story context.
+    loaded.firstCard = mockedResponses(msw, [
+      `/${orgSlug}/api/v1/connectors`,
+      "/api/v1/connectors/buildkite/status",
+    ])
     msw.use(
       http.get(
         ({ request }) =>
@@ -773,8 +818,10 @@ export const BuildkiteFromCatalog = meta.story({
   parameters: {
     storyRoute: connectorsRoute,
   },
-  play: async ({ canvasElement }) => {
+  play: async ({ canvasElement, loaded }) => {
     const body = within(canvasElement.ownerDocument.body)
+    // The card comes after MSW answers the list and the status.
+    await loaded.firstCard
     await waitFor(() =>
       expect(
         body.getByRole("button", { name: "Buildkite connector actions" }),
@@ -787,11 +834,14 @@ export const BuildkiteFromCatalog = meta.story({
         name: "Add another Buildkite connection",
       }),
     )
-    const setup = await body.findByRole("heading", {
-      name: "Set up Buildkite connector",
-    })
-    // The modal fades in; wait until the setup is visible.
-    await waitFor(() => expect(setup).toBeVisible())
+    await body.findByRole("heading", { name: "Set up Buildkite connector" })
+    // The modal fades in; wait until the fade-in ends.
+    await animationsEnded(canvasElement.ownerDocument)
+    await waitFor(() =>
+      expect(
+        body.getByRole("heading", { name: "Set up Buildkite connector" }),
+      ).toBeVisible(),
+    )
     await expect(body.getByLabelText("Organization slug")).toHaveValue("")
   },
 })
@@ -803,7 +853,12 @@ export const BuildkiteFromCatalog = meta.story({
  */
 export const PlainFromCatalog = meta.story({
   render: pageRender,
-  beforeEach: ({ msw }) => {
+  beforeEach: ({ msw, loaded }) => {
+    // The play reads it from the same story context.
+    loaded.firstCard = mockedResponses(msw, [
+      `/${orgSlug}/api/v1/connectors`,
+      "/api/v1/connectors/plain/status",
+    ])
     msw.use(
       http.get(
         ({ request }) =>
@@ -830,8 +885,10 @@ export const PlainFromCatalog = meta.story({
   parameters: {
     storyRoute: connectorsRoute,
   },
-  play: async ({ canvasElement }) => {
+  play: async ({ canvasElement, loaded }) => {
     const body = within(canvasElement.ownerDocument.body)
+    // The card comes after MSW answers the list and the status.
+    await loaded.firstCard
     await waitFor(() =>
       expect(
         body.getByRole("button", { name: "Plain connector actions" }),
@@ -842,11 +899,14 @@ export const PlainFromCatalog = meta.story({
     await userEvent.click(
       await body.findByRole("button", { name: "Add another Plain connection" }),
     )
-    const setup = await body.findByRole("heading", {
-      name: "Set up Plain connector",
-    })
-    // The modal fades in; wait until the setup is visible.
-    await waitFor(() => expect(setup).toBeVisible())
+    await body.findByRole("heading", { name: "Set up Plain connector" })
+    // The modal fades in; wait until the fade-in ends.
+    await animationsEnded(canvasElement.ownerDocument)
+    await waitFor(() =>
+      expect(
+        body.getByRole("heading", { name: "Set up Plain connector" }),
+      ).toBeVisible(),
+    )
     await expect(body.getByLabelText("API key")).toHaveValue("")
   },
 })

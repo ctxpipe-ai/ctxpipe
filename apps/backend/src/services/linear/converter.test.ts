@@ -31,6 +31,8 @@ describe("renderLinearIssue", () => {
       labels: [{ id: "label-1", name: "bug" }],
       createdAt: new Date("2026-08-01T00:00:00.000Z"),
       updatedAt: new Date("2026-08-02T00:00:00.000Z"),
+      completedAt: null,
+      canceledAt: null,
       comments: [],
       attachments: [
         {
@@ -84,6 +86,8 @@ describe("renderLinearIssue", () => {
       labels: [],
       createdAt: new Date("2026-08-01T00:00:00.000Z"),
       updatedAt: new Date("2026-08-02T00:00:00.000Z"),
+      completedAt: null,
+      canceledAt: null,
       comments: [
         {
           id: "comment-1",
@@ -121,6 +125,8 @@ describe("renderLinearIssue", () => {
       labels: [],
       createdAt: new Date("2026-08-01T00:00:00.000Z"),
       updatedAt: new Date("2026-08-02T00:00:00.000Z"),
+      completedAt: null,
+      canceledAt: null,
       comments: [],
       attachments: [],
     }
@@ -163,6 +169,8 @@ describe("renderLinearIssue", () => {
         labels: [],
         createdAt: new Date("2026-08-01T00:00:00.000Z"),
         updatedAt: new Date("2026-08-02T00:00:00.000Z"),
+        completedAt: null,
+        canceledAt: null,
         comments: [],
         attachments: [
           {
@@ -220,6 +228,8 @@ describe("renderLinearIssue", () => {
       labels: [],
       createdAt: new Date("2026-08-01T00:00:00.000Z"),
       updatedAt: new Date("2026-08-02T00:00:00.000Z"),
+      completedAt: null,
+      canceledAt: null,
       comments: [
         {
           id: "comment-2",
@@ -260,6 +270,8 @@ describe("renderLinearIssue", () => {
         labels: [],
         createdAt: new Date("2026-08-01T00:00:00.000Z"),
         updatedAt: new Date("2026-08-02T00:00:00.000Z"),
+        completedAt: null,
+        canceledAt: null,
         comments: [],
         attachments: [
           {
@@ -302,6 +314,8 @@ describe("renderLinearIssue", () => {
       labels: [],
       createdAt: new Date("2026-08-01T00:00:00.000Z"),
       updatedAt: new Date("2026-08-02T00:00:00.000Z"),
+      completedAt: null,
+      canceledAt: null,
       comments: [],
       attachments: [
         {

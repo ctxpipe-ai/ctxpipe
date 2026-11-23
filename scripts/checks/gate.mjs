@@ -40,7 +40,8 @@ import {
 //     run, else `full` and why. <file> lists the changed paths of the PR.
 //     With `select`, "jobs" names the jobs of a ci.yaml change whose checks
 //     all run, "gateInputs" the changed gate inputs that the base revision
-//     decides, and "definitions" the changed definitions of checks. It runs
+//     decides, "runner" the changed runner files, and "definitions" the
+//     changed definitions of checks. It runs
 //     git on the checkout (HEAD^1 and HEAD). The
 //     gate jobs of ci.yaml run each command of this file from the base
 //     revision of a PR.
@@ -190,9 +191,10 @@ export function decideMode({ config, event, fork, changed, read, diff }) {
   // .node-version are lane inputs too, and the toolchain is part of each key.
   // A data file in scripts/ci is a gate input, except a file that only its
   // own check reads and whose key holds it (a test keeps the list true).
-  // The run is full, except for the inputs that the base revision decides
-  // and a ci.yaml change only in the steps of check jobs, of
-  // `offPullRequestJobs` and of `sameInEachRunJobs`.
+  // The run is full, except for the inputs that the base revision decides,
+  // the runner files, the definitions of checks, and a ci.yaml change only
+  // in the steps of check jobs, of `offPullRequestJobs` and of
+  // `sameInEachRunJobs`.
   let inputs = changed.filter((path) =>
     [
       /^\.github\/workflows\/ci\.yaml$/,
@@ -216,7 +218,7 @@ export function decideMode({ config, event, fork, changed, read, diff }) {
   // jobs of ci.yaml run the gate code and read the pin of the base revision
   // (the step "The gate of the base revision"). Only the tests of the CI
   // scripts read the PR version, and the plan runs each of them
-  // (withGateTests in plan.mjs). A test keeps each other importer out.
+  // (withScriptTests in plan.mjs). A test keeps each other importer out.
   const decided = inputs.filter((path) =>
     [
       /^\.github\/merge-gate\.json$/,
@@ -225,6 +227,20 @@ export function decideMode({ config, event, fork, changed, read, diff }) {
     ].some((input) => input.test(path)),
   )
   inputs = inputs.filter((path) => !decided.includes(path))
+  // The runner files: they run the checks of every family, but no code that
+  // lists checks imports them (a test keeps this true). Thus they cannot
+  // change which checks exist, or the key of an entry. The selector selects
+  // each check whose key holds the changed file, and the LLM stage keeps the
+  // checks that the change can break. The plan adds a floor that the LLM
+  // stage cannot drop: every test of the CI scripts, and a check with no
+  // stored pass in each job that runs checks through the runner
+  // (withRunnerFloor in plan.mjs).
+  const runner = inputs.filter((path) =>
+    /^scripts\/checks\/(?:run|selected|rerun-failed)\.mjs$|^scripts\/ci\/prerequisites\.mjs$/.test(
+      path,
+    ),
+  )
+  inputs = inputs.filter((path) => !runner.includes(path))
   // The files that define how the checks of a family are listed and run.
   // The key of each check that one can change holds it: a Vitest or
   // Storybook key holds run.mjs and so its import closure, a project key
@@ -233,14 +249,14 @@ export function decideMode({ config, event, fork, changed, read, diff }) {
   // The job Merge gate base listing lists the same tree with the code and
   // the dependencies of the base revision, and runs no PR code. The plan
   // compares the two listings (definitionChanges in plan.mjs). The files
-  // that run the checks of every family stay full-run inputs: the runner and
-  // its host pins, the prerequisites, the CI runner steps, and
-  // toolchain.mjs, whose record is part of each key. A project key does not
-  // hold them.
+  // that the listing imports and that run the checks of every family stay
+  // full-run inputs: families.mjs, the prerequisites and the host pins of
+  // the runner, and toolchain.mjs, whose record is part of each key. A
+  // project key does not hold them.
   const definitions = inputs.filter(
     (path) =>
       !/(?:^|\/)node_modules(?:\/|$)/.test(path) &&
-      !/^scripts\/checks\/(?:run|families|prerequisites|selected|rerun-failed|toolchain)\.mjs$|^scripts\/ci\/(?:prerequisites|graph-ready|vitest-launch)\.mjs$/.test(
+      !/^scripts\/checks\/(?:families|prerequisites|toolchain)\.mjs$|^scripts\/ci\/(?:graph-ready|vitest-launch)\.mjs$/.test(
         path,
       ) &&
       [/^scripts\/checks\//, /^scripts\/ci\//, /^apps\//].some((input) =>
@@ -277,6 +293,7 @@ export function decideMode({ config, event, fork, changed, read, diff }) {
     reason: config.mode,
     ...(jobs.length && { jobs }),
     ...(decided.length && { gateInputs: decided }),
+    ...(runner.length && { runner }),
     ...(definitions.length && { definitions }),
   }
 }
@@ -759,6 +776,10 @@ export function describe(reason) {
       return `ci.yaml changed in job ${reason.jobs?.join(", ")}`
     case "gate":
       return `gate input ${reason.inputs?.join(", ")} changed`
+    case "runner":
+      return reason.job
+        ? `runner ${reason.inputs?.join(", ")} changed: the canary of job ${reason.job}`
+        : `runner ${reason.inputs?.join(", ")} changed: a test of the CI scripts`
     case "definition":
       return `its definition changed with ${reason.inputs?.join(", ")}`
     case "added":
@@ -1021,6 +1042,9 @@ export function gateDecision({
       reason: "gate: the gated run gates",
       // The changed gate inputs that the base revision decided (decideMode).
       gateInputs: planned.gateInputs ?? [],
+      // The changed runner files, and the canary of each runner job
+      // (withRunnerFloor in plan.mjs).
+      ...(planned.runner && { runner: planned.runner }),
       // The changed definitions of checks, and the checks whose definition
       // changed (definitionChanges in plan.mjs).
       ...(planned.definitions && { definitions: planned.definitions }),
@@ -1168,6 +1192,15 @@ export function gateText(decision, runUrl) {
     lines.push(
       "",
       `**Gate inputs changed:** ${decision.gateInputs.map((path) => code(path)).join(", ")}. The gate code and the pin of the base revision decided this run, not the code of this PR, and every test of the CI scripts was selected.`,
+    )
+  if (decision.runner)
+    lines.push(
+      "",
+      `**Runner changed:** ${decision.runner.inputs.map((path) => code(path)).join(", ")}. Every test of the CI scripts was selected, and each job that runs checks through the runner ran at least one check with no stored pass. Canaries that the plan added: ${
+        decision.runner.canaries.length
+          ? decision.runner.canaries.map((id) => code(id)).join(", ")
+          : "none"
+      }.`,
     )
   if (decision.definitions)
     lines.push(

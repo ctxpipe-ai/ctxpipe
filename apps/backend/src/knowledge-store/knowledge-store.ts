@@ -1436,8 +1436,10 @@ async function search(
   const inSearchable = `(workspace_id, doc_key, version) IN (
     SELECT workspace_id, doc_key, version FROM tree_view WHERE ${searchable})`
   // One branch for each term, each with at most 1000 chunks of searchable
-  // documents: the cap before the score. Only the parameter names go into the
-  // SQL text.
+  // documents: the cap before the score. The cap takes the chunks in the
+  // order of a hash of their key: a fixed sample, so the same query always
+  // takes the same chunks (ADR-068, CTX-1547). Only the parameter names go
+  // into the SQL text.
   const termMatches = uniqueTerms
     .map(
       (_, i) => `SELECT {term${i}:String} AS word,
@@ -1445,6 +1447,7 @@ async function search(
         FROM chunks
         WHERE ${inWorkspaces} AND hasToken(text, {term${i}:String})
           AND ${inSearchable}
+        ORDER BY cityHash64(workspace_id, doc_key, version, ordinal)
         LIMIT 1000`,
     )
     .join(" UNION ALL ")
@@ -1469,13 +1472,16 @@ async function search(
       // The filter on the documents applies before the top 500 (and before the
       // cap of each term), so that a narrow filter still finds chunks. Index
       // analysis of the large set cost more than it saved: 60 ms against
-      // 34 ms on 1 million chunks.
+      // 34 ms on 1 million chunks. Many chunks can have the same Hamming
+      // distance, so the key decides between them at the cut: the same query
+      // always takes the same 500 (CTX-1547).
       `WITH tree_view AS (${treeView})
        SELECT workspace_id AS workspaceId, doc_key AS docKey, version, ordinal
        FROM (
          SELECT workspace_id, doc_key, version, ordinal, embedding FROM chunks
          WHERE ${inWorkspaces} AND ${inSearchable}
-         ORDER BY bitHammingDistance(embedding_bits, unhex({queryBits:String}))
+         ORDER BY bitHammingDistance(embedding_bits, unhex({queryBits:String})),
+           workspace_id, doc_key, version, ordinal
          LIMIT 500
        )
        ORDER BY cosineDistance(embedding, {queryVector:Array(Float32)}),
@@ -1491,6 +1497,8 @@ async function search(
           // The score: the weights of the matched terms of the chunk, plus the
           // weights of the query terms in the title of its document (the title
           // boost). The weights are one scalar map, so their counts run once.
+          // A parallel sum adds the weights in another order on each run, so
+          // the score is rounded: equal scores then sort by the key.
           `WITH tree_view AS (${treeView}),
              (SELECT CAST((groupArray(word), groupArray(idf)),
                'Map(String, Float64)') FROM (${termWeights})) AS weights
@@ -1510,10 +1518,10 @@ async function search(
              ON documents.workspace_id = matches.workspace_id
              AND documents.doc_key = matches.doc_key
              AND documents.version = matches.version
-           ORDER BY matches.weight + arraySum(
+           ORDER BY round(matches.weight + arraySum(
                word -> if(has(splitByNonAlpha(documents.title), word),
                  weights[word], 0),
-               mapKeys(weights)) DESC,
+               mapKeys(weights)), 9) DESC,
              workspaceId, docKey, ordinal
            SETTINGS use_index_for_in_with_subqueries = 0`,
           params,

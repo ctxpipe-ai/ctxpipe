@@ -469,7 +469,7 @@ describe("the knowledge eval harness", () => {
           arm: "plane",
           split: "dev",
           jev: 2.25,
-          jevQuestions: 34,
+          jevQuestions: 36.75,
           embedding: 1,
           errors: 0,
           partial: 0,
@@ -478,7 +478,7 @@ describe("the knowledge eval harness", () => {
           arm: "plane",
           split: "holdout",
           jev: 3,
-          jevQuestions: 39.25,
+          jevQuestions: 49,
           embedding: 1,
           errors: 0,
           partial: 0,
@@ -648,6 +648,141 @@ describe("the knowledge eval harness", () => {
     expect(requests).toEqual(before)
   })
 
+  it("--reuse-from: an unchanged code path gives the same scores, with no model call", async () => {
+    const stored = await readRun(join(folder, "live"))
+    const before = { ...requests }
+    const reused = await run("reuse-same", {
+      // Another clock: the run takes the query time of the reused run.
+      now: new Date("2027-01-01T00:00:00.000Z"),
+      reuse: { folder: join(folder, "live"), run: stored },
+    })
+    // Each request was the same as a recorded one, so none went out.
+    expect(requests).toEqual(before)
+    expect(reused.status).toBe("complete")
+    expect(reused.run.mode).toBe("reuse")
+    expect(reused.run.now).toBe(stored.manifest.now)
+    expect(reused.run.reuse?.live).toBe(0)
+    expect(reused.run.reuse?.reused).toBeGreaterThan(0)
+    expect(reused.run.spentUsd).toBe(0)
+    // The same answers give the same score for each question and arm.
+    const scores = (report: Report) =>
+      report.questions.map(({ arm, question, metrics }) => ({
+        arm,
+        question,
+        metrics,
+      }))
+    expect(scores(reused)).toEqual(scores(live))
+    expect(compact(reused).comparison).toEqual(compact(live).comparison)
+    // A reused call answers at once, so the run gives no latency.
+    const markdown = await readFile(
+      join(folder, "reuse-same", "report.md"),
+      "utf8",
+    )
+    expect(markdown).toContain("so it gives no latency")
+    expect(markdown).toContain(
+      `The run reused ${reused.run.reuse?.reused} recorded model calls of ${join(folder, "live")}, and sent 0 new calls`,
+    )
+  })
+
+  it("--reuse-from: a changed request goes out live, and the other calls are reused", async () => {
+    const stored = await readRun(join(folder, "live"))
+    const before = { ...requests }
+    // Less evidence text changes the state of each layer-judge request, and
+    // no query text: the Jev calls go out, the embeddings are reused.
+    const changed = await run("reuse-changed", {
+      settings: { evidenceChars: 200 },
+      reuse: { folder: join(folder, "live"), run: stored },
+    })
+    expect(changed.status).toBe("complete")
+    expect(requests.embedding).toBe(before.embedding)
+    expect(requests.jev).toBeGreaterThan(before.jev)
+    expect(changed.run.reuse?.live).toBe(requests.jev - before.jev)
+    expect(changed.run.reuse?.reused).toBeGreaterThan(0)
+    expect(changed.run.spentUsd).toBeGreaterThan(0)
+    // The folder holds each call of the run, so a rescore of it replays.
+    const recorded = await readRun(join(folder, "reuse-changed"))
+    const rescored = await run("reuse-changed-rescore", {
+      settings: { evidenceChars: 200 },
+      capUsd: 0,
+      replay: { calls: recorded.calls },
+      now: new Date(recorded.manifest.now),
+    })
+    expect(rescored.incomplete).toEqual([])
+    expect(requests.jev).toBe(before.jev + (changed.run.reuse?.live ?? 0))
+  })
+
+  it("--reuse-from: a recorded failure goes out again, and a call that the spend cap stops is not counted as sent", async () => {
+    const stored = await readRun(join(folder, "live"))
+    const failedAt = stored.calls.findIndex(
+      (call) => call.arm === "plane" && call.kind === "jev",
+    )
+    expect(failedAt).toBeGreaterThanOrEqual(0)
+    // The kept run got an HTTP 503 for one Jev request.
+    const withFailure = {
+      ...stored,
+      calls: stored.calls.map((call, index) =>
+        index === failedAt ? { ...call, status: 503 } : call,
+      ),
+    }
+    const before = { ...requests }
+    const again = await run("reuse-failure", {
+      reuse: { folder: join(folder, "live"), run: withFailure },
+    })
+    // Only that request went out, and its new answer is used.
+    expect(requests.jev).toBe(before.jev + 1)
+    expect(requests.embedding).toBe(before.embedding)
+    expect(again.run.reuse?.live).toBe(1)
+    expect(again.errors).toBe(0)
+    // With no money left, the same request does not go out, and it is not
+    // counted as a sent call.
+    const capped = await run("reuse-capped", {
+      capUsd: 0,
+      reuse: { folder: join(folder, "live"), run: withFailure },
+    })
+    expect(requests.jev).toBe(before.jev + 1)
+    expect(capped.run.reuse?.live).toBe(0)
+    expect(capped.run.stopped).toBe(true)
+  })
+
+  it("--reuse-from: refuses other labels, and another query time than --baseline-from", async () => {
+    const stored = await readRun(join(folder, "live"))
+    const before = { ...requests }
+    const [first, ...rest] = stored.dataset.questions
+    if (!first) throw new Error("The dataset has no question")
+    await expect(
+      run("refused", {
+        reuse: {
+          folder: join(folder, "live"),
+          run: {
+            ...stored,
+            dataset: {
+              ...stored.dataset,
+              questions: [
+                { ...first, gold: [...first.gold, "other.md"] },
+                ...rest,
+              ],
+            },
+          },
+        },
+      }),
+    ).rejects.toThrow(
+      `--reuse-from ${join(folder, "live")} has other labels for the question ${first.id}`,
+    )
+    await expect(
+      run("refused", {
+        baseline: { folder: join(folder, "live"), run: stored },
+        reuse: {
+          folder: join(folder, "live"),
+          run: {
+            ...stored,
+            manifest: { ...stored.manifest, now: "2027-01-01T00:00:00.000Z" },
+          },
+        },
+      }),
+    ).rejects.toThrow("--baseline-from and --reuse-from have other query times")
+    expect(requests).toEqual(before)
+  })
+
   it("scores a new threshold again from the kept calls, with no model call", async () => {
     const before = { ...requests }
     const recorded = await readRun(join(folder, "live"))
@@ -762,15 +897,15 @@ describe("the knowledge eval harness", () => {
         kept: {
           ...latency,
           jevCallsPerQuestion: 2.25,
-          jevQuestionsPerQuestion: 34,
+          jevQuestionsPerQuestion: 36.75,
           costPerQuestionUsd: 0.003,
           errors: 0,
         },
         now: {
           searchP95Ms: null,
           relatedP95Ms: null,
-          jevCallsPerQuestion: 1.875,
-          jevQuestionsPerQuestion: 31.75,
+          jevCallsPerQuestion: 2,
+          jevQuestionsPerQuestion: 32.5,
           costPerQuestionUsd: 0.002,
           errors: 0,
         },
@@ -781,15 +916,15 @@ describe("the knowledge eval harness", () => {
         kept: {
           ...latency,
           jevCallsPerQuestion: 3,
-          jevQuestionsPerQuestion: 39.25,
+          jevQuestionsPerQuestion: 49,
           costPerQuestionUsd: 0.004,
           errors: 0,
         },
         now: {
           searchP95Ms: null,
           relatedP95Ms: null,
-          jevCallsPerQuestion: 2.5,
-          jevQuestionsPerQuestion: 34,
+          jevCallsPerQuestion: 3,
+          jevQuestionsPerQuestion: 35.75,
           costPerQuestionUsd: 0.003,
           errors: 0,
         },
@@ -804,7 +939,7 @@ describe("the knowledge eval harness", () => {
       "| holdout | all | 4 | positions correct | 1.000 | 0.000 | -1.000 |",
     )
     expect(markdown).toContain(
-      "| holdout | 4 | Jev calls / question | 3.000 | 2.500 | -0.500 |",
+      "| holdout | 4 | Jev questions / question | 49.000 | 35.750 | -13.250 |",
     )
   })
 

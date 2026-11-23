@@ -22,6 +22,9 @@ The critics are in [`critics.json`](critics.json). Each one has its intent, its 
 
 1. Commit the change. The critics review the committed diff of the branch against `origin/main`. The merge gate looks up their verdicts for that diff.
 2. Run `factory check --repo . --input <ticket or brief file>`. It uses the agent host profile (see the [factory-check skill](../factory-check/SKILL.md)). It plans each critic (`run-full`, `run-delta`, `carried` or `not-applicable`, with a reason). It runs one headless reviewer for each planned reviewer, records each verdict, and prints each finding with its file and line.
+
+   The critics read the description of the open pull request. When the ticket asks for a result in the pull request text (for example a measurement, or proof after a deploy), write the description to a file before the first push. Give that file with `--description <file>` in each run before the push. Create the pull request from the same file (`gh pr create --body-file <file>`). After the push, edit the description in the pull request: `factory check` reads that description, not the file. When the description changes, `factory check` reviews again only the hunks with a finding. `factory check` refuses a file with a `## Decisions` section, because decisions come only from the pull request.
+
 3. Fix each blocker and should-fix finding, commit, and run `factory check` again. It reviews only the hunks that changed or that had a finding; it carries the other hunks.
 4. Give the user the findings under one heading for each critic. Do not merge or rerank them (see _Why separate axes_).
 

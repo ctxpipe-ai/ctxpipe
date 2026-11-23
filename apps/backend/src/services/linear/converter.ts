@@ -68,6 +68,9 @@ export type LinearIssueForMirror = {
   labels: Array<{ id: string; name: string }>
   createdAt: Date
   updatedAt: Date
+  /** When the issue was completed or canceled, or null (CTX-1526). */
+  completedAt: Date | null
+  canceledAt: Date | null
   comments: Array<{
     id: string
     body: string
@@ -364,6 +367,8 @@ export function renderLinearIssue(
       relations: issue.relations ?? [],
       createdAt: issue.createdAt.toISOString(),
       updatedAt: issue.updatedAt.toISOString(),
+      completedAt: issue.completedAt?.toISOString() ?? null,
+      canceledAt: issue.canceledAt?.toISOString() ?? null,
       githubReferences,
       attachments: attachmentMetadata,
     }),

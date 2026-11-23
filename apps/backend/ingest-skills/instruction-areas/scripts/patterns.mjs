@@ -27,6 +27,8 @@ import { tmpdir } from "node:os"
 import { join, posix } from "node:path"
 import { pathToFileURL } from "node:url"
 
+import { inTestFixture } from "../../discover-roots/scripts/roots-lib.mjs"
+
 const DAY_MS = 24 * 60 * 60 * 1000
 const MIN_FILES = 3
 const MIN_DIRECTORIES = 2
@@ -50,9 +52,6 @@ const EXCLUDED_SEGMENTS = new Set([
   "generated",
   "__generated__",
   "__snapshots__",
-  "fixtures",
-  "__fixtures__",
-  "testdata",
   "legacy",
   "deprecated",
 ])
@@ -70,7 +69,9 @@ export function excludedPath(path) {
   return (
     segments.some(
       (s) => s.startsWith(".") || EXCLUDED_SEGMENTS.has(s.toLowerCase()),
-    ) || EXCLUDED_NAME.test(name)
+    ) ||
+    inTestFixture(path) ||
+    EXCLUDED_NAME.test(name)
   )
 }
 

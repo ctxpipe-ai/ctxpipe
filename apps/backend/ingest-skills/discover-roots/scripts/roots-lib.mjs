@@ -81,21 +81,71 @@ export function safePath(text) {
   )
 }
 
-/** Folder names that never hold a code root. */
-const IGNORED_SEGMENTS = new Set([
-  "node_modules",
-  "vendor",
-  "third_party",
+/** Folder names of test input; `testFixtureFolder` compares them in lower case. */
+export const TEST_FIXTURE_FOLDERS = new Set([
   "testdata",
+  "test-data",
+  "test_data",
   "fixtures",
+  "fixture",
   "__fixtures__",
+  "test-fixtures",
+  "test_fixtures",
+  "artifacts",
 ])
+
+/**
+ * True when a folder name says that the folder holds test input: files that
+ * a test reads, for example a test copy of an API specification. A file below
+ * such a folder is not content of the source, so no skill reads it. Each skill
+ * uses this one rule (CTX-1531).
+ */
+function testFixtureFolder(segment) {
+  return TEST_FIXTURE_FOLDERS.has(segment.toLowerCase())
+}
+
+/** True when a folder of the file path (not the file name) holds test input. */
+export function inTestFixture(path) {
+  return path.split("/").slice(0, -1).some(testFixtureFolder)
+}
+
+/**
+ * The `skipped` entries ({ path, count, reason }) of the files that the test
+ * fixture rule leaves out: one entry for each outermost test fixture folder,
+ * with the count of its files. Thus a skill leaves out no file in silence.
+ */
+export function testFixtureSkips(files) {
+  const counts = new Map()
+  for (const file of files) {
+    const parts = file.split("/")
+    const at = parts.slice(0, -1).findIndex(testFixtureFolder)
+    if (at === -1) continue
+    const folder = parts.slice(0, at + 1).join("/")
+    counts.set(folder, (counts.get(folder) ?? 0) + 1)
+  }
+  return [...counts]
+    .sort(([a], [b]) => (a < b ? -1 : 1))
+    .map(([path, count]) => ({
+      // A folder name that the script does not quote stays out of the entry.
+      path: safePath(path) ? path : null,
+      count,
+      reason: `A test fixture folder: the script did not read its ${count} ${count === 1 ? "file" : "files"}, because they are test input`,
+    }))
+}
+
+/** Folder names that never hold a code root. */
+const IGNORED_SEGMENTS = new Set(["node_modules", "vendor", "third_party"])
 
 function ignoredFolder(dir) {
   if (dir === ".") return false
   return dir
     .split("/")
-    .some((segment) => segment.startsWith(".") || IGNORED_SEGMENTS.has(segment))
+    .some(
+      (segment) =>
+        segment.startsWith(".") ||
+        IGNORED_SEGMENTS.has(segment) ||
+        testFixtureFolder(segment),
+    )
 }
 
 /** Tracked files of a checkout at HEAD. */
@@ -903,14 +953,22 @@ export function discoverRoots(source) {
   const markersOf = new Map()
   let unsafeFolder = false
   let tooDeep = false
+  const fixtureManifests = []
   for (const file of files) {
     const parts = file.split("/")
-    for (let i = 1; i < parts.length && i <= MAX_DEPTH; i++)
+    // A test fixture folder and the folders below it are no folders of the
+    // repository, so a workspace entry that names one finds no root.
+    for (let i = 1; i < parts.length && i <= MAX_DEPTH; i++) {
+      if (testFixtureFolder(parts[i - 1])) break
       folders.add(parts.slice(0, i).join("/"))
+    }
     const name = parts.at(-1)
     if (!PACKAGE_MARKERS.includes(name)) continue
     const dir = parts.length === 1 ? "." : parts.slice(0, -1).join("/")
-    if (ignoredFolder(dir)) continue
+    if (ignoredFolder(dir)) {
+      if (inTestFixture(file)) fixtureManifests.push(file)
+      continue
+    }
     if (parts.length - 1 > MAX_DEPTH) {
       tooDeep = true
       continue
@@ -936,7 +994,10 @@ export function discoverRoots(source) {
     roots.set(path, root)
   }
   const ambiguous = []
-  const skipped = []
+  const skipped = testFixtureSkips(fixtureManifests).map(({ path, count }) => ({
+    manifest: null,
+    reason: `The test fixture folder ${path ?? "(a name that the script does not quote)"} has ${count} package ${count === 1 ? "manifest" : "manifests"}. They are test input, so the script takes no root from them`,
+  }))
   if (unsafeFolder)
     skipped.push({
       manifest: null,

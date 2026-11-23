@@ -135,23 +135,39 @@ test("a change to a file that lists, defines or runs checks gives a full run, or
       changed: [file],
     })
     assert.ok(
-      decided.mode === "full" || decided.definitions?.includes(file),
+      decided.mode === "full" ||
+        decided.definitions?.includes(file) ||
+        decided.runner?.includes(file),
       file,
     )
   }
-  // The files that run the checks of every family stay full-run inputs: a
-  // project key does not hold them, a check that runs in CI runs through
-  // the CI runner steps, and the toolchain record is part of each key.
+  // The runner files run the selector: the plan adds the floor of a runner
+  // change (withRunnerFloor in plan.mjs).
   for (const file of [
     "scripts/checks/run.mjs",
-    "scripts/checks/families.mjs",
-    "scripts/checks/prerequisites.mjs",
     "scripts/checks/selected.mjs",
     "scripts/checks/rerun-failed.mjs",
+    "scripts/ci/prerequisites.mjs",
+  ])
+    assert.deepEqual(
+      decideMode({
+        config: pinned,
+        event: "pull_request",
+        fork: false,
+        changed: [file],
+      }),
+      { mode: "select", reason: "shadow", runner: [file] },
+      file,
+    )
+  // The files that the listing imports and that run the checks of every
+  // family stay full-run inputs: a project key does not hold them, and the
+  // toolchain record is part of each key.
+  for (const file of [
+    "scripts/checks/families.mjs",
+    "scripts/checks/prerequisites.mjs",
     "scripts/checks/toolchain.mjs",
     "scripts/ci/vitest-launch.mjs",
     "scripts/ci/graph-ready.mjs",
-    "scripts/ci/prerequisites.mjs",
   ])
     assert.equal(
       decideMode({
@@ -180,6 +196,31 @@ test("a change to a file that lists, defines or runs checks gives a full run, or
   assert.equal(full.mode, "full")
   assert.equal(full.hits, undefined)
   assert.deepEqual(full.jobs, {})
+})
+
+test("no code that lists checks imports or reads a runner file", () => {
+  // A runner file runs the selector because it cannot change which checks
+  // exist or the entry of a check (gate.mjs mode). The base listing does not
+  // compare it.
+  const listing = closureOf(["scripts/checks/list.mjs"])
+  // The walk finds the known files, so a broken walk cannot pass.
+  for (const known of [
+    "scripts/checks/families.mjs",
+    "scripts/checks/prerequisites.mjs",
+    "scripts/ci/vitest-launch.mjs",
+  ])
+    assert.ok(listing.includes(known), `walk reaches ${known}`)
+  for (const file of listing)
+    assert.equal(
+      decideMode({
+        config: pinned,
+        event: "pull_request",
+        fork: false,
+        changed: [file],
+      }).runner,
+      undefined,
+      `the listing reaches the runner file ${file}`,
+    )
 })
 
 test("the base listing job runs no code of the PR, and the plan reads its listing by its id", () => {
@@ -383,7 +424,7 @@ test("only a same-repo pull_request without gate input changes runs the selector
     })
   for (const path of [
     ".github/actions/setup/action.yml",
-    "scripts/checks/run.mjs",
+    "scripts/checks/families.mjs",
     "scripts/checks/toolchain.mjs",
     "scripts/ci/vitest-launch.mjs",
     ".npmrc",
@@ -458,12 +499,23 @@ test("a change to the gate code or its pin runs the selector, and only the other
       ".github/merge-gate.json",
       "scripts/checks/projects.mjs",
       "scripts/checks/selected.mjs",
+      "scripts/checks/families.mjs",
       "scripts/checks/toolchain.mjs",
     ]),
     {
       mode: "full",
       reason:
-        "gate inputs changed: scripts/checks/selected.mjs, scripts/checks/toolchain.mjs",
+        "gate inputs changed: scripts/checks/families.mjs, scripts/checks/toolchain.mjs",
+    },
+  )
+  // A runner file beside the gate code runs the selector with both.
+  assert.deepEqual(
+    mode(["scripts/checks/gate.mjs", "scripts/checks/run.mjs"]),
+    {
+      mode: "select",
+      reason: "shadow",
+      gateInputs: ["scripts/checks/gate.mjs"],
+      runner: ["scripts/checks/run.mjs"],
     },
   )
 })

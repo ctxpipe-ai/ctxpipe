@@ -110,6 +110,8 @@ describe("parseKnowledgeFile", () => {
       labels: [],
       createdAt: new Date("2026-01-01T00:00:00Z"),
       updatedAt: new Date("2026-01-02T00:00:00Z"),
+      completedAt: null,
+      canceledAt: null,
       comments: [],
       attachments: [],
       description: "Blocked by ENG-2. Built for ENG-1 itself.",

@@ -85,6 +85,9 @@ function toTypeSlug(model: string): string {
   return slug.length > 0 ? slug : "id"
 }
 
+/** The `client_id` of the ctxpipe CLI's device login (packages/cli, `AUTH_CLIENT_ID`). */
+export const DEVICE_LOGIN_CLIENT_ID = "ctxpipe-cli"
+
 const API_KEY_ACTIONS = ["create", "read", "update", "delete"] as const
 
 const apiKeyExpiration = {
@@ -390,6 +393,10 @@ export function createBetterAuth() {
       passkey(),
       deviceAuthorization({
         verificationUri: "/.auth/device",
+        // Only the ctxpipe CLI (packages/cli, AUTH_CLIENT_ID) starts a device
+        // login. The approval page names the CLI as the client that asks
+        // (GHSA-q84f-53jg-9ppm), so no other client may start one.
+        validateClient: (clientId) => clientId === DEVICE_LOGIN_CLIENT_ID,
       }),
       oauthProvider({
         loginPage: "/.auth/sign-in",
