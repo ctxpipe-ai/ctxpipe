@@ -164,6 +164,11 @@ export function jevMeta(document: KnowledgeDocument): CandidateMeta {
  * Judge `inputs` for `question` in one layer, before `deadline`. Throws the
  * `JevError` of a failed call. Jev reads only text: an image goes to Jev as
  * its text, never as its bytes (ADR-068 decision 6).
+ *
+ * The id of a candidate is its document key (a hash of its path), then its
+ * Workspace id. Thus the batches do not change when the order of the inputs
+ * (the search rank) changes, and each batch gets a mix of strong and weak
+ * documents.
  */
 export async function judge(
   inputs: readonly JudgeInput[],
@@ -175,21 +180,24 @@ export async function judge(
   if (inputs.length === 0) return []
   meter.jevCalls += Math.ceil(inputs.length / JEV_BATCH)
   meter.jevCandidates += inputs.length
+  // The key first, so that the order mixes the Workspaces. The Workspace
+  // keeps the id unique.
+  const idOf = ({ ref }: JudgeInput) => `${ref.docKey} ${ref.workspaceId}`
   const judged = await beforeDeadline(deadline, () =>
     judgeLayer({
       question,
       intent,
       timeoutMs: callTimeLimitMs(deadline),
       batchSize: JEV_BATCH,
-      candidates: inputs.map(({ document, text }, index) => ({
-        id: String(index),
-        text,
-        meta: jevMeta(document),
+      candidates: inputs.map((input) => ({
+        id: idOf(input),
+        text: input.text,
+        meta: jevMeta(input.document),
       })),
     }),
   )
   return inputs.map(
-    (_, index) => judged.get(String(index)) ?? { pAnswers: 0, pExplore: 0 },
+    (input) => judged.get(idOf(input)) ?? { pAnswers: 0, pExplore: 0 },
   )
 }
 

@@ -35,6 +35,12 @@ const QUESTIONS = {
  * run in parallel. Each batch is one Jev call with one span. A failure of
  * any batch throws its `JevError`: this function has no fallback. The ids
  * of the candidates must be different.
+ *
+ * Jev reads the other candidates of a call, so a candidate can get another
+ * judgment in another batch. Thus the batches are cut in the order of the
+ * ids, not in the order of the candidates: the same candidates give the
+ * same calls in each order. Give ids that do not follow the rank (for
+ * example a hash), so that each batch gets strong and weak candidates.
  */
 export async function judgeLayer({
   question,
@@ -54,9 +60,12 @@ export async function judgeLayer({
     throw new RangeError("batchSize must be a positive integer.")
   if (new Set(candidates.map(({ id }) => id)).size !== candidates.length)
     throw new RangeError("Each candidate must have a different id.")
+  const ordered = [...candidates].sort((a, b) =>
+    a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
+  )
   const batches: LayerCandidate[][] = []
-  for (let start = 0; start < candidates.length; start += batchSize)
-    batches.push(candidates.slice(start, start + batchSize))
+  for (let start = 0; start < ordered.length; start += batchSize)
+    batches.push(ordered.slice(start, start + batchSize))
 
   const judged = await Promise.all(
     batches.map(async (batch, batchIndex) => {
