@@ -80,25 +80,27 @@ export function ActivitySparkline({ buckets }: { buckets: ActivityBuckets }) {
           },
         ),
       ],
-      x: {
-        scale: () => scaleBand<string>().padding(0.2),
-        axis: {
-          line: false,
-          ticks: {
-            values: endKeys,
-            size: 0,
-            padding: 4,
-            format: (key) => {
-              const row = byKey.get(key)
-              return row ? DATE_FORMATTER.format(new Date(row.start)) : ""
+      scales: {
+        x: {
+          scale: () => scaleBand<string>().padding(0.2),
+          axis: {
+            line: false,
+            ticks: {
+              values: endKeys,
+              size: 0,
+              padding: 4,
+              format: (key) => {
+                const row = byKey.get(key)
+                return row ? DATE_FORMATTER.format(new Date(row.start)) : ""
+              },
             },
           },
         },
-      },
-      y: {
-        scale: scaleLinear,
-        grid: false,
-        axis: false,
+        y: {
+          scale: scaleLinear,
+          grid: false,
+          axis: false,
+        },
       },
       theme: {
         foreground: "rgb(161, 161, 170)",

@@ -72,33 +72,35 @@ export function WorkspaceActivityHeatmap(props: {
                 COMMIT_LEVELS.map((level) => COMMIT_LEVEL_COLORS[level]),
               ),
           },
-          x: {
-            scale: () => scaleBand<number>().domain(weekDomain).padding(0.12),
-            axis: {
-              line: false,
-              ticks: {
-                values: monthTicks.values,
-                size: 0,
-                padding: 4,
-                format: (week: number) => monthTicks.labels.get(week) ?? "",
+          scales: {
+            x: {
+              scale: () => scaleBand<number>().domain(weekDomain).padding(0.12),
+              axis: {
+                line: false,
+                ticks: {
+                  values: monthTicks.values,
+                  size: 0,
+                  padding: 4,
+                  format: (week: number) => monthTicks.labels.get(week) ?? "",
+                },
+                // The house minimum (text-xs). The chart default is 11 px.
+                tickLabels: { fontSize: 12 },
               },
-              // The house minimum (text-xs). The chart default is 11 px.
-              tickLabels: { fontSize: 12 },
             },
-          },
-          y: {
-            scale: () =>
-              scaleBand<string>()
-                .domain([...CALENDAR_WEEKDAYS])
-                .padding(0.12),
-            axis: {
-              line: false,
-              ticks: {
-                values: [...CALENDAR_WEEKDAYS],
-                size: 0,
-                padding: 4,
+            y: {
+              scale: () =>
+                scaleBand<string>()
+                  .domain([...CALENDAR_WEEKDAYS])
+                  .padding(0.12),
+              axis: {
+                line: false,
+                ticks: {
+                  values: [...CALENDAR_WEEKDAYS],
+                  size: 0,
+                  padding: 4,
+                },
+                tickLabels: { fontSize: 12 },
               },
-              tickLabels: { fontSize: 12 },
             },
           },
           theme: {
