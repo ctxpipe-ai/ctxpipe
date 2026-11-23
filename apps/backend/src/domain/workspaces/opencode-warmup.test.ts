@@ -58,18 +58,18 @@ describe("the OpenCode warm-up of a new AgentCore session", () => {
     expect(session.commands).toEqual([OPENCODE_WARMUP_COMMAND])
 
     let waited = false
-    const turn = waitForOpencodeWarmup(handle.id).then(() => {
+    const fill = waitForOpencodeWarmup(handle.id).then(() => {
       waited = true
     })
-    // Let every pending step run: the turn still waits.
+    // Let every pending step run: the pool fill still waits.
     for (let step = 0; step < 10; step++) await Promise.resolve()
     expect(waited).toBe(false)
     session.finish(0)
-    await turn
+    await fill
     expect(marks).toContainEqual(
       expect.objectContaining({ phase: "opencode-warmup", exitCode: 0 }),
     )
-    // Done: the next turn does not wait.
+    // Done: a later wait does not wait.
     await waitForOpencodeWarmup(handle.id)
   })
 
