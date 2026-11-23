@@ -176,8 +176,11 @@ export type KnowledgeReadScope = { orgId: string; heads: WorkspaceHead[] }
 export type DocumentRef = { workspaceId: string; docKey: string }
 
 export type SearchQuery = {
-  /** The query vector, in the vector space of the chunks. */
-  vector: number[]
+  /**
+   * The query vector, in the vector space of the chunks. A promise lets the
+   * lexical query start while the embedding call is on its way (CTX-1576).
+   */
+  vector: number[] | PromiseLike<number[]>
   /**
    * The query terms for the text index. A term with separators counts as its
    * tokens. The match is case-sensitive.
@@ -1381,7 +1384,9 @@ const refTuples = (refs: DocumentRef[]) =>
  *    a common word such as
  *    "a" weighs almost nothing. The text index gives each count without a
  *    read of the text column. A function on `text` in the SELECT list would
- *    read the full text column.
+ *    read the full text column. The lexical query does not need the query
+ *    vector, so it starts before the vector is ready (`vector` can be a
+ *    promise).
  * 3. RRF (k = 60) fuses the two orders, with a lower weight for a lexical
  *    chunk that has only a small share of the query terms. The fused
  *    chunks are grouped by document, a document in the order of its best
@@ -1415,8 +1420,6 @@ async function search(
     ),
   ]
   const params = {
-    queryVector: vector,
-    queryBits: vectorBits(vector),
     kinds,
     pathPrefix,
     sources,
@@ -1471,8 +1474,9 @@ async function search(
       .join(" UNION ALL ")}) AS counts
     CROSS JOIN (SELECT count() AS total FROM chunks
       WHERE ${inWorkspaces}) AS totals`
-  const [vectorOrder, lexicalOrder] = await Promise.all([
-    selectIn<ChunkKey>(
+  const vectorOrder = async () => {
+    const queryVector = await vector
+    return selectIn<ChunkKey>(
       client,
       scope,
       // The filter on the documents applies before the top 500 (and before the
@@ -1493,8 +1497,11 @@ async function search(
        ORDER BY cosineDistance(embedding, {queryVector:Array(Float32)}),
          workspaceId, docKey, ordinal
        SETTINGS use_index_for_in_with_subqueries = 0`,
-      params,
-    ),
+      { ...params, queryVector, queryBits: vectorBits(queryVector) },
+    )
+  }
+  const [vectorRows, lexicalRows] = await Promise.all([
+    vectorOrder(),
     uniqueTerms.length === 0
       ? []
       : selectIn<ChunkKey & { share: number }>(
@@ -1562,8 +1569,8 @@ async function search(
     hit.score += weight / (60 + index + 1)
     fused.set(id, hit)
   }
-  vectorOrder.forEach((key, index) => fuse(key, index, 1))
-  lexicalOrder.forEach(({ share, ...key }, index) =>
+  vectorRows.forEach((key, index) => fuse(key, index, 1))
+  lexicalRows.forEach(({ share, ...key }, index) =>
     fuse(key, index, 0.4 + 0.6 * share ** 2),
   )
   // The top 50 documents, each with its best chunks.

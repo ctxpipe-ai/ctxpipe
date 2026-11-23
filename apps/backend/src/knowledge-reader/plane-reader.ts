@@ -231,15 +231,14 @@ async function search(
   const deadline = retrievalDeadline()
   const store = knowledgeStore()
   // The store applies each filter before it cuts the candidates. With no
-  // time left for the search itself, there is no hit to give.
+  // time left for the search itself, there is no hit to give. The store
+  // gets the query vector as a promise, so that its lexical query runs
+  // while the embedding call is on its way (CTX-1576).
   let found: Awaited<ReturnType<KnowledgeStore["search"]>>
   try {
-    const vector = await beforeDeadline(deadline, () =>
-      embed(scope.orgId, query),
-    )
     found = await beforeDeadline(deadline, () =>
       store.search(scope, {
-        vector,
+        vector: beforeDeadline(deadline, () => embed(scope.orgId, query)),
         terms: queryTerms(query),
         kinds: request.kinds ? [...request.kinds] : undefined,
         pathPrefix: request.pathPrefix,

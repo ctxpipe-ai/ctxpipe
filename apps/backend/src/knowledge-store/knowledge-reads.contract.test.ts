@@ -385,12 +385,15 @@ async function searchIn(url: string, query: Partial<SearchQuery>) {
 }
 
 let store: ReturnType<typeof createKnowledgeStore>
+/** The admin URL of the database of `store`. */
+let storeUrl: string
 
 beforeAll(async () => {
   clickHouse = await startClickHouse()
   // The backend reads as the reader user, with SELECT only. Only this
   // database gets the users: their grants name the tables of one database.
   const url = await seededDatabase()
+  storeUrl = url
   await migrateKnowledgeStore(url, {
     reader: readerPassword,
     writer: "writer-test",
@@ -459,6 +462,38 @@ describe("search", () => {
       await search({ terms: ["zebracorn-term", "two words", "a_b", "-"] }),
     )
     expect(keys).toContain("lexical.md")
+  })
+
+  it("lexical: the query runs before the query vector is ready, and the hits do not change", async () => {
+    // The finished lexical queries of the reader (the only query with
+    // hasToken), from the query log of the server.
+    const admin = rawClient(storeUrl)
+    const lexicalQueries = async () => {
+      await admin.command({ query: "SYSTEM FLUSH LOGS" })
+      const result = await admin.query({
+        query: `SELECT count() AS count FROM system.query_log
+          WHERE type = 'QueryFinish' AND user = 'ctxpipe_reader'
+            AND has(databases, currentDatabase())
+            AND position(query, 'hasToken') > 0`,
+        format: "JSONEachRow",
+      })
+      const [row] = await result.json<{ count: string }>()
+      return Number(row?.count)
+    }
+    const before = await lexicalQueries()
+    let give: (vector: number[]) => void = () => {}
+    const pending = search({
+      vector: new Promise<number[]>((resolve) => {
+        give = resolve
+      }),
+      terms: ["zebracorn"],
+    })
+    // The vector is not ready, so only the lexical query can finish.
+    await expect.poll(lexicalQueries, { timeout: 30_000 }).toBe(before + 1)
+    give(queryVector)
+    expect(hitKeys(await pending)).toEqual(
+      hitKeys(await search({ terms: ["zebracorn"] })),
+    )
   })
 
   it("lexical: the cap of each term applies after the filters", async () => {
