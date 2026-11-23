@@ -5,17 +5,12 @@ import type { Context } from "hono"
 
 import type { AppEnv } from "../../../app/env.js"
 import { enqueueConnectionSourcesSync } from "../../../domain/workspace-sources/enqueue.js"
+import { SOURCE_SYNC_WINDOW_MS } from "../../../domain/workspace-sources/sync-events.js"
 import { getPlainWebhookTarget } from "../../../models/plain-connector.js"
 import { getLogger } from "../../../observability/logger.js"
 import { PLAIN_WEBHOOK_TOKEN_HEADER } from "../../../services/plain/client.js"
 import type { PlainThreadEvent } from "../../../services/plain/workspace-source-adapter.js"
 import { noteResolvedWebhookConnections } from "../attribution.js"
-
-/**
- * Thread events sync the connection at most once in this window: many
- * messages give one commit for each Workspace in each window.
- */
-const SYNC_WINDOW_MS = 10 * 60 * 1000
 
 /** Compare two tokens in constant time, also when their lengths differ. */
 function sameToken(given: string, expected: string): boolean {
@@ -41,7 +36,8 @@ async function handlePlainWebhook(c: Context<AppEnv>) {
   // ADR-050: one sources sync of the connection at the end of the window. A
   // later event in the same window has the same key and queues nothing. A
   // failed enqueue returns 5xx, so Plain sends the event again.
-  const windowStart = Math.floor(Date.now() / SYNC_WINDOW_MS) * SYNC_WINDOW_MS
+  const windowStart =
+    Math.floor(Date.now() / SOURCE_SYNC_WINDOW_MS) * SOURCE_SYNC_WINDOW_MS
   try {
     await enqueueConnectionSourcesSync({
       orgId: target.orgId,
@@ -49,7 +45,7 @@ async function handlePlainWebhook(c: Context<AppEnv>) {
       provider: "plain",
       event: { kind: "threads" } satisfies PlainThreadEvent,
       dedupeKey: `threads:${windowStart}`,
-      availableAt: new Date(windowStart + SYNC_WINDOW_MS),
+      availableAt: new Date(windowStart + SOURCE_SYNC_WINDOW_MS),
     })
   } catch (error) {
     getLogger().error(

@@ -3,17 +3,11 @@ import type { Context } from "hono"
 
 import type { AppEnv } from "../../../app/env.js"
 import { enqueueConnectionSourcesSync } from "../../../domain/workspace-sources/enqueue.js"
+import { SOURCE_SYNC_WINDOW_MS } from "../../../domain/workspace-sources/sync-events.js"
 import { getBuildkiteWebhookTarget } from "../../../models/buildkite-connector.js"
 import { getLogger } from "../../../observability/logger.js"
 import { verifyBuildkiteWebhookSignature } from "../../../services/buildkite/signature.js"
 import { noteResolvedWebhookConnections } from "../attribution.js"
-
-/**
- * Finished builds sync at most once in this window for each connection: a
- * busy pipeline gives one commit for each Workspace in each window, not one
- * for each build.
- */
-const SYNC_WINDOW_MS = 10 * 60 * 1000
 
 /**
  * The admin adds this webhook in Buildkite with its own token, so the URL
@@ -51,14 +45,15 @@ async function handleBuildkiteWebhook(c: Context<AppEnv>) {
   // ADR-050: one sources sync of the connection at the end of the window. A
   // later event in the same window has the same key and queues nothing. A
   // failed enqueue returns 5xx; a later event or the daily sync gets the build.
-  const windowStart = Math.floor(Date.now() / SYNC_WINDOW_MS) * SYNC_WINDOW_MS
+  const windowStart =
+    Math.floor(Date.now() / SOURCE_SYNC_WINDOW_MS) * SOURCE_SYNC_WINDOW_MS
   try {
     await enqueueConnectionSourcesSync({
       orgId: target.orgId,
       connectionId,
       provider: "buildkite",
       dedupeKey: `builds:${windowStart}`,
-      availableAt: new Date(windowStart + SYNC_WINDOW_MS),
+      availableAt: new Date(windowStart + SOURCE_SYNC_WINDOW_MS),
     })
   } catch (error) {
     getLogger().error(

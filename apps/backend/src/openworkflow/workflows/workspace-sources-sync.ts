@@ -5,6 +5,8 @@ import { SOURCE_ADAPTERS } from "../../domain/workspace-sources/adapter.js"
 import { sourceProviderSchema } from "../../domain/workspace-sources/sources-file.js"
 import {
   addSourceSyncEvent,
+  OPEN_RUN_STATUSES,
+  SOURCE_SYNC_WINDOW_MS,
   syncQueuedSourceEvents,
 } from "../../domain/workspace-sources/sync-events.js"
 import {
@@ -55,13 +57,6 @@ export const workspaceSourcesSyncInputSchema = z.discriminatedUnion("kind", [
 ])
 
 /**
- * The wait of a coalesced sync after the oldest event that it syncs. The
- * webhooks of one connection in this window give one sync, and so one
- * connector mirror write and one merge for each Workspace (CTX-1595).
- */
-const COALESCE_WINDOW_MS = 10 * 60 * 1000
-
-/**
  * Queue one webhook event of a provider that coalesces its events
  * (`mergeEvents`). The event joins the coalesced sync that has not taken its
  * events yet, or starts one. Thus at most one sync of the connection waits,
@@ -74,7 +69,6 @@ export async function queueSourceSyncEvent(input: {
   event: unknown
 }): Promise<void> {
   const oldest = await addSourceSyncEvent(input)
-  if (!oldest) return
   let key = `workspace-sources:${input.connectionId}:events:${oldest.id}`
   for (;;) {
     const { workflowRun } = await enqueueWorkflow(
@@ -88,10 +82,13 @@ export async function queueSourceSyncEvent(input: {
       },
       {
         idempotencyKey: key,
-        availableAt: new Date(oldest.createdAt.getTime() + COALESCE_WINDOW_MS),
+        availableAt: new Date(
+          oldest.createdAt.getTime() + SOURCE_SYNC_WINDOW_MS,
+        ),
       },
     )
-    if (["pending", "running", "sleeping"].includes(workflowRun.status)) return
+    if ((OPEN_RUN_STATUSES as readonly string[]).includes(workflowRun.status))
+      return
     // The run of the key ended before it took the oldest event (it failed or
     // was canceled). The next key starts a new run, and each webhook that
     // finds the same ended run gets the same next key.
@@ -140,6 +137,8 @@ export const workspaceSourcesSync = defineWorkflow(
     if (adapter.mergeEvents && input.event !== undefined) {
       // A sync of one event, queued before the provider coalesced its
       // webhooks: the event joins the coalesced sync, and this run ends.
+      // Only the code before CTX-1595 queued such runs. Remove this branch
+      // when none is left (CTX-1596).
       await step.run({ name: "queue-event" }, () =>
         queueSourceSyncEvent({
           orgId: input.orgId,
@@ -152,15 +151,24 @@ export const workspaceSourcesSync = defineWorkflow(
       return { fetchedScopes: 0, workspaces: [] }
     }
     if (input.queuedEvents) {
-      const synced = await step.run({ name: "sync-queued-events" }, () =>
-        syncQueuedSourceEvents({
-          orgId: input.orgId,
-          connectionId: input.connectionId,
-          runId: run.id,
-          adapter,
-          sync,
-        }),
-      )
+      // A run that finds another sync of the connection running sleeps and
+      // tries again. A sleeping run holds no worker slot, and the webhooks
+      // that come meanwhile join this run.
+      const syncIfFree = (wait: number) =>
+        step.run({ name: `sync-queued-events-${wait}` }, () =>
+          syncQueuedSourceEvents({
+            orgId: input.orgId,
+            connectionId: input.connectionId,
+            runId: run.id,
+            adapter,
+            sync,
+          }),
+        )
+      let synced = await syncIfFree(0)
+      for (let wait = 1; synced.busy; wait++) {
+        await step.sleep(`await-running-sync-${wait}`, "1 minute")
+        synced = await syncIfFree(wait)
+      }
       getLogger().set({ sourcesSync: { coalescedEvents: synced.events } })
       return synced.result ?? { fetchedScopes: 0, workspaces: [] }
     }

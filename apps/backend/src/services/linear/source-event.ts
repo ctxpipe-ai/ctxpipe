@@ -135,6 +135,13 @@ export function linearEventMatches(
   )
 }
 
+/** The changed entities of an event: one, or the list of a joined event. */
+export function linearEventEntities(
+  event: LinearSourceEvent | undefined,
+): NonNullable<LinearSourceEvent["entities"]> {
+  return event?.entities ?? (event?.entity ? [event.entity] : [])
+}
+
 function joinKnown(lists: ReadonlyArray<"any" | string[]>): "any" | string[] {
   return lists.some((list) => list === "any")
     ? "any"
@@ -159,7 +166,7 @@ export function mergeLinearSourceEvents(
   }
   const entities = new Map<string, NonNullable<LinearSourceEvent["entity"]>>()
   for (const event of parsed) {
-    const changes = event.entities ?? (event.entity ? [event.entity] : [])
+    const changes = linearEventEntities(event)
     if (!changes.length) return undefined
     for (const entity of changes) {
       const key = `${entity.entityType}:${entity.externalId}`

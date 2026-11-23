@@ -104,6 +104,7 @@ async function runCoalescedSync(
   connectionId: string,
   runId: string,
   during?: () => Promise<void>,
+  existing: string[] = [],
 ) {
   const writes: WorkspaceSliceWrite[] = []
   const synced = await syncQueuedSourceEvents({
@@ -122,12 +123,15 @@ async function runCoalescedSync(
         write: async (write) => {
           writes.push(write)
         },
-        readExisting: async () => [],
+        readExisting: async () =>
+          existing.map((path) => ({ path, sha: "0".repeat(40) })),
       })
     },
   })
+  if (synced.busy) throw new Error("Another sync of the connection runs")
   const paths = writes.flatMap((write) => write.files.map((file) => file.path))
-  return { events: synced.events, writes, paths: paths.sort() }
+  const deletePaths = writes.flatMap((write) => write.deletePaths ?? [])
+  return { events: synced.events, writes, paths: paths.sort(), deletePaths }
 }
 
 const issuePath = (n: number) =>
@@ -163,6 +167,7 @@ describe("coalesced sources syncs of Linear webhooks (Postgres, msw)", () => {
         }
       if (call.name.startsWith("IssueRecord") || call.name === "Issue") {
         const id = String(call.variables.id)
+        if (id === "issue-broken") throw new Error("Linear cannot read it")
         return {
           issue: linearIssueData({
             id,
@@ -231,9 +236,26 @@ describe("coalesced sources syncs of Linear webhooks (Postgres, msw)", () => {
     await queue(2)
     const [running] = await syncRuns(connectionId)
 
-    const first = await runCoalescedSync(connectionId, running?.id ?? "", () =>
-      Promise.all([queue(3), queue(4)]).then(() => undefined),
+    let whileRunning: unknown
+    const first = await runCoalescedSync(
+      connectionId,
+      running?.id ?? "",
+      async () => {
+        await Promise.all([queue(3), queue(4)])
+        // The next sync cannot start while this one runs: it takes nothing.
+        const [, next] = await syncRuns(connectionId)
+        whileRunning = await syncQueuedSourceEvents({
+          orgId: seed.orgId,
+          connectionId,
+          runId: next?.id ?? "",
+          adapter: linearSourceAdapter,
+          sync: async () => {
+            throw new Error("Two syncs of one connection ran at the same time")
+          },
+        })
+      },
     )
+    expect(whileRunning).toEqual({ busy: true })
     expect(first.paths).toEqual([issuePath(1), issuePath(2)])
 
     // One next sync waits behind the running one.
@@ -244,6 +266,124 @@ describe("coalesced sources syncs of Linear webhooks (Postgres, msw)", () => {
     // Nothing waits after that.
     expect((await runCoalescedSync(connectionId, "a-later-run")).events).toBe(0)
   })
+
+  it("deletes a removed issue also when another issue of the same sync fails", async () => {
+    const { queueSourceSyncEvent } = await workflow()
+    const connectionId = await linearConnection()
+    await addSource(connectionId)
+    const queue = (event: unknown) =>
+      queueSourceSyncEvent({
+        orgId: seed.orgId,
+        connectionId,
+        provider: "linear",
+        event,
+      })
+    await queue(
+      linearSourceEventFromPayload(
+        {
+          type: "Issue",
+          action: "remove",
+          data: { id: "issue-8", identifier: "OPS-8", projectId: null },
+        },
+        { entityType: "issue", externalId: "issue-8", action: "delete" },
+      ),
+    )
+    await queue(
+      linearSourceEventFromPayload(
+        {
+          type: "Issue",
+          action: "update",
+          data: { id: "issue-broken", identifier: "OPS-9", projectId: null },
+        },
+        { entityType: "issue", externalId: "issue-broken", action: "upsert" },
+      ),
+    )
+    const [run] = await syncRuns(connectionId)
+    const synced = await runCoalescedSync(
+      connectionId,
+      run?.id ?? "",
+      undefined,
+      [issuePath(8)],
+    )
+    expect(synced.events).toBe(2)
+    expect(synced.deletePaths).toEqual([issuePath(8)])
+  })
+
+  it("lets a coalesced sync sleep, with no slot and no events, while another sync of the connection runs", async () => {
+    const { queueSourceSyncEvent, workspaceSourcesSync } = await workflow()
+    const { enqueueWorkflow } = await import("../../openworkflow/client.js")
+    const connectionId = await linearConnection()
+    await addSource(connectionId)
+    await queueSourceSyncEvent({
+      orgId: seed.orgId,
+      connectionId,
+      provider: "linear",
+      event: issueEvent(1),
+    })
+    const [first] = await syncRuns(connectionId)
+    let release = () => {}
+    const released = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let inside = () => {}
+    const entered = new Promise<void>((resolve) => {
+      inside = resolve
+    })
+    const running = runCoalescedSync(connectionId, first?.id ?? "", () => {
+      inside()
+      return released
+    })
+    // The first sync took its events and runs.
+    await entered
+    // A next sync that is due now, while the first one runs.
+    await queueSourceSyncEvent({
+      orgId: seed.orgId,
+      connectionId,
+      provider: "linear",
+      event: issueEvent(2),
+    })
+    const { workflowRun: next } = await enqueueWorkflow(
+      workspaceSourcesSync.spec,
+      {
+        kind: "connection",
+        orgId: seed.orgId,
+        connectionId,
+        provider: "linear",
+        queuedEvents: true,
+      },
+    )
+    const runner = new OpenWorkflow({ backend })
+    runner.implementWorkflow(workspaceSourcesSync.spec, workspaceSourcesSync.fn)
+    const worker = runner.newWorker({ concurrency: 1 })
+    await worker.start()
+    try {
+      const deadline = Date.now() + 30_000
+      for (;;) {
+        // A sleep keeps the run "running", with a start time later than now
+        // and no worker that holds it.
+        const sleeping = await getSystemDb().execute(sql`
+          select 1 from openworkflow.workflow_runs run
+          join openworkflow.step_attempts step on step.workflow_run_id = run.id
+          where run.id = ${next.id}
+            and step.step_name = 'await-running-sync-1'
+            and run.worker_id is null
+            and run.available_at > now()
+        `)
+        if (sleeping.rows.length) break
+        if (Date.now() > deadline)
+          throw new Error("The next sync did not sleep")
+        await new Promise((resolve) => setTimeout(resolve, 200))
+      }
+    } finally {
+      await worker.stop()
+      release()
+    }
+    expect((await running).paths).toEqual([issuePath(1)])
+    // The sleeping sync took no event: event 2 still waits for it.
+    expect((await runCoalescedSync(connectionId, next.id)).paths).toEqual([
+      issuePath(2),
+    ])
+  }, 60_000)
 
   it("hands the event of each sync queued before coalescing to one coalesced sync", async () => {
     const { workspaceSourcesSync } = await workflow()

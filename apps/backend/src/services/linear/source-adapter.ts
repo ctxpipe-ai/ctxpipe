@@ -44,6 +44,7 @@ import {
 import { buildLinearIncrementalChanges } from "./incremental.js"
 import { loadProject } from "./read.js"
 import {
+  linearEventEntities,
   linearEventMatches,
   linearSourceEventSchema,
   mergeLinearSourceEvents,
@@ -350,8 +351,7 @@ async function readRoot(input: {
   const existingShaByPath = new Map(
     input.existing.blobs.map((blob) => [blob.path, blob.sha]),
   )
-  const entities =
-    input.event?.entities ?? (input.event?.entity ? [input.event.entity] : [])
+  const entities = linearEventEntities(input.event)
   if (input.incremental && entities.length) {
     const changes = await buildLinearIncrementalChanges({
       env: input.env,
@@ -362,10 +362,22 @@ async function readRoot(input: {
       existingShaByPath,
       onTokenRefresh: input.onTokenRefresh,
     })
+    if (changes.failures.length)
+      log.warn({
+        step: "linear.source_incremental_failures",
+        root: input.root.paths.join(","),
+        failures: changes.failures.length,
+        message: changes.failures
+          .map((failure) => `${failure.type} ${failure.id}: ${failure.message}`)
+          .join("; "),
+      })
+    // Each delete path belongs to an entity that the mirror read, so an
+    // entity that failed does not stop the deletes of the other entities of
+    // a joined event (CTX-1595). The daily full sync reads the failed one.
     return {
       files: omitUnchangedLinearFiles(changes.files, input.existing.blobs),
       deletePaths: changes.deletePaths,
-      partial: changes.failures.length > 0,
+      partial: false,
     }
   }
   const pages = await walkLinearMirrorPages({
