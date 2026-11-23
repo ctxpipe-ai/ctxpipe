@@ -2082,25 +2082,33 @@ async function hashBlobs(
 /**
  * The content of each blob id. `git cat-file --batch-check` gives the sizes,
  * and each `git cat-file --batch` call reads blobs of at most 64 MiB in
- * total, so that the output limit of runGit applies as it does to one file
- * (a larger blob gets a call of its own). An id that is missing or that is
- * not a blob has no entry.
+ * total (a larger blob gets a call of its own). Blobs larger than
+ * `maxTotalBytes` together fail with GitOutputTooLargeError, as one runGit
+ * call fails above its output limit. An id that is missing or that is not a
+ * blob has no entry.
  */
 export async function readBlobs(
   repoDir: string,
   shas: string[],
+  maxTotalBytes = 256 * 1024 * 1024,
 ): Promise<Map<string, Buffer>> {
   const unique = [...new Set(shas)]
   const blobs = new Map<string, Buffer>()
   if (unique.length === 0) return blobs
   const batches: string[][] = []
   let size = Infinity
+  let total = 0
   const checked = await git(repoDir, ["cat-file", "--batch-check"], {
     input: `${unique.join("\n")}\n`,
   })
   for (const line of checked.toString().split("\n")) {
     const [sha = "", type, bytes] = line.split(" ")
     if (type !== "blob") continue
+    total += Number(bytes)
+    if (total > maxTotalBytes)
+      throw new GitOutputTooLargeError(
+        `The blobs are larger than ${maxTotalBytes} bytes`,
+      )
     if (size + Number(bytes) > 64 * 1024 * 1024) {
       batches.push([])
       size = 0

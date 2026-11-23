@@ -550,9 +550,11 @@ export async function mergeIngestPublish(input: {
       []
     const deletePaths: string[] = []
     const changes = await diffTree(repoDir, input.current, tree)
+    // The publish holds each changed file, as before: no total limit.
     const blobs = await readBlobs(
       repoDir,
       changes.flatMap((change) => (change.blob === null ? [] : [change.blob])),
+      Infinity,
     )
     for (const change of changes) {
       if (change.blob === null) {
