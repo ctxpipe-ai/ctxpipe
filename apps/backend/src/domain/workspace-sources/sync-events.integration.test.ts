@@ -99,6 +99,15 @@ async function syncRuns(connectionId: string): Promise<Run[]> {
   return result.rows
 }
 
+/** Check until `done` is true, for at most 30 seconds. */
+async function waitFor(done: () => Promise<boolean>, message: string) {
+  const deadline = Date.now() + 30_000
+  while (!(await done())) {
+    if (Date.now() > deadline) throw new Error(message)
+    await new Promise((resolve) => setTimeout(resolve, 200))
+  }
+}
+
 /** Run one coalesced sync as the workflow does, and keep its writes. */
 async function runCoalescedSync(
   connectionId: string,
@@ -357,10 +366,9 @@ describe("coalesced sources syncs of Linear webhooks (Postgres, msw)", () => {
     const worker = runner.newWorker({ concurrency: 1 })
     await worker.start()
     try {
-      const deadline = Date.now() + 30_000
-      for (;;) {
-        // A sleep keeps the run "running", with a start time later than now
-        // and no worker that holds it.
+      // A sleep keeps the run "running", with a start time later than now
+      // and no worker that holds it.
+      await waitFor(async () => {
         const sleeping = await getSystemDb().execute(sql`
           select 1 from openworkflow.workflow_runs run
           join openworkflow.step_attempts step on step.workflow_run_id = run.id
@@ -369,11 +377,8 @@ describe("coalesced sources syncs of Linear webhooks (Postgres, msw)", () => {
             and run.worker_id is null
             and run.available_at > now()
         `)
-        if (sleeping.rows.length) break
-        if (Date.now() > deadline)
-          throw new Error("The next sync did not sleep")
-        await new Promise((resolve) => setTimeout(resolve, 200))
-      }
+        return sleeping.rows.length > 0
+      }, "The next sync did not sleep")
     } finally {
       await worker.stop()
       release()
@@ -405,15 +410,13 @@ describe("coalesced sources syncs of Linear webhooks (Postgres, msw)", () => {
     const worker = runner.newWorker({ concurrency: 2 })
     await worker.start()
     try {
-      const deadline = Date.now() + 30_000
-      for (;;) {
-        const old = (await syncRuns(connectionId)).filter(
-          (run) => run.input.event !== undefined,
-        )
-        if (old.every((run) => run.status === "completed")) break
-        if (Date.now() > deadline) throw new Error("The old syncs did not end")
-        await new Promise((resolve) => setTimeout(resolve, 200))
-      }
+      await waitFor(
+        async () =>
+          (await syncRuns(connectionId))
+            .filter((run) => run.input.event !== undefined)
+            .every((run) => run.status === "completed"),
+        "The old syncs did not end",
+      )
     } finally {
       await worker.stop()
     }

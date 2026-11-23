@@ -1,3 +1,10 @@
+/**
+ * The webhook events of one connection wait in `source_sync_events` for one
+ * coalesced sources sync (CTX-1595). These functions are the only access to
+ * the table. The add and the take lock the connection, so that an added event
+ * is either in the take of a run, or names the next run.
+ */
+
 import { and, asc, eq, isNull, sql } from "drizzle-orm"
 
 import { type Db, withOrgDbContext } from "../../db/client.js"
@@ -16,13 +23,6 @@ export const SOURCE_SYNC_WINDOW_MS = 10 * 60 * 1000
 
 /** The OpenWorkflow statuses of a run that can still run its steps. */
 export const OPEN_RUN_STATUSES = ["pending", "running", "sleeping"] as const
-
-/**
- * The webhook events of one connection wait in `source_sync_events` for one
- * coalesced sources sync (CTX-1595). These functions are the only access to
- * the table. The add and the take lock the connection, so that an added event
- * is either in the take of a run, or names the next run.
- */
 
 function lockConnection(db: Db, connectionId: string) {
   return db.execute(
