@@ -3,7 +3,10 @@ import { createHash } from "node:crypto"
 import { z } from "zod"
 
 import { gatewayCost } from "../../src/observability/gatewayCost.js"
-import { SYMMETRIC_FACTS } from "../../src/retrieval/jev/disagreement.js"
+import {
+  DISAGREEMENT_FACTS,
+  SYMMETRIC_FACTS,
+} from "../../src/retrieval/jev/disagreement.js"
 
 /*
  * The model calls of an eval run: Jev, the embedding endpoints of both
@@ -273,6 +276,8 @@ export class ModelCalls {
     string,
     { answer: unknown; call: RecordedCall }
   >()
+  /** The recorded Jev calls with an answer. */
+  private readonly jevCalls: RecordedCall[] = []
   /** The recorded calls that a composed answer used, kept in `records`. */
   private readonly composedFrom = new Set<RecordedCall>()
 
@@ -310,6 +315,7 @@ export class ModelCalls {
       )
       this.replay?.set(key, [...(this.replay.get(key) ?? []), call])
       if (call.kind !== "jev" || call.status >= 400) continue
+      this.jevCalls.push(call)
       const answers = z
         .object({ answers: z.record(z.string(), z.unknown()) })
         .safeParse(parseOr(call.response, {})).data?.answers
@@ -515,14 +521,19 @@ export class ModelCalls {
    * change.
    *
    * A question that no recorded call asked makes the call miss (null), as
-   * a new request does. With `unrecordedYes`, it gets that p(yes) instead
-   * and counts as `unrecorded`: then a change that asks more questions than
-   * it reads (for example facts that it asks before it knows which items it
-   * needs) replays. Two rescores, with 0 and with 1, show that the change
-   * does not read these answers when they give the same scores.
+   * a new request does. With `unrecordedYes`, a disagreement fact
+   * (`DISAGREEMENT_FACTS`) gets that p(yes) instead and counts as
+   * `unrecorded`: then a change that asks facts before it knows which items
+   * it needs replays. Two rescores, with 0 and with 1, show that the change
+   * does not read these answers when they give the same scores. Another
+   * question (for example the judgment of a new candidate of a deeper walk)
+   * still makes the call miss.
    *
-   * The composed answer has no cost. The recorded calls that it used go to
-   * `records`, so that a replay of this run composes the same answer.
+   * The cost of a composed answer is an estimate: the length of its request
+   * at the cost for each character of the recorded Jev calls that it used,
+   * or of all recorded Jev calls when it used none. The cost of a Jev call
+   * grows with its text. The recorded calls that it used go to `records`,
+   * so that a replay of this run composes the same answer.
    */
   private composed(body: unknown, owner: Owner): Response | null {
     const keys = contentKeysOf(body)
@@ -539,8 +550,11 @@ export class ModelCalls {
           ),
         )
         .find((entry) => entry !== undefined)
+      const fact = (DISAGREEMENT_FACTS as readonly string[]).includes(
+        question.split(".")[0] ?? "",
+      )
       if (found) used.push(found.call)
-      else if (fill === undefined) return null
+      else if (fill === undefined || !fact) return null
       else unrecorded += 1
       answers[question] = found?.answer ?? { type: "noul", noul: fill }
     }
@@ -549,6 +563,17 @@ export class ModelCalls {
         this.composedFrom.add(call)
         this.records.push(call)
       }
+    const sources = used.length > 0 ? [...new Set(used)] : this.jevCalls
+    const rate =
+      sources.reduce((sum, call) => sum + call.costUsd, 0) /
+      Math.max(
+        1,
+        sources.reduce(
+          (sum, call) => sum + JSON.stringify(call.request).length,
+          0,
+        ),
+      )
+    owner.counts.costUsd += rate * JSON.stringify(body).length
     owner.counts.jev += 1
     owner.counts.jevQuestions += keys.size
     owner.counts.unrecorded += unrecorded

@@ -52,6 +52,17 @@ const QUESTIONS = {
  */
 export const SYMMETRIC_FACTS = ["same", "disagree"] as const
 
+/**
+ * The names of all facts, the first part of each question key. An eval
+ * replay can fill an unrecorded fact (`--unrecorded-yes`), and no other
+ * question.
+ */
+export const DISAGREEMENT_FACTS = [
+  ...SYMMETRIC_FACTS,
+  "replaces",
+  "scoped",
+] as const
+
 /** The question keys of the facts. Jev answers each key with p(yes). */
 const KEYS = {
   same: (a: number, b: number) => `same.${a}.${b}`,

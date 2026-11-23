@@ -605,34 +605,43 @@ describe("the replay of a Jev question in another call", () => {
     })
   })
 
-  it("misses a call with an unrecorded question, unless --unrecorded-yes gives its p(yes)", async () => {
-    const calls = await recorded({ "answers.1": 0.9, "explore.1": 0.2 }, () =>
-      judgeWhy(["a"]),
+  it("misses a call with an unrecorded question; --unrecorded-yes fills only a disagreement fact", async () => {
+    const calls = await recorded(
+      { "answers.1": 0.9, "explore.1": 0.2, "scoped.1": 0.4 },
+      async () => {
+        await judgeWhy(["a"])
+        await askDisagreementFacts({ question: "q", items: [item("a")] })
+      },
     )
-    // c is new: a deeper walk, for example, stays incomplete.
-    const missed = await replayed(calls, () => judgeWhy(["c", "a"]))
-    expect(missed.result).toBeInstanceOf(Error)
-    expect(missed.counts).toMatchObject({ jev: 0, missing: 1, unrecorded: 0 })
-    const filled = await replayed(calls, () => judgeWhy(["c", "a"]), {
-      unrecordedYes: 1,
-    })
-    const judged = filled.result as Map<string, unknown>
-    expect(judged.get("c")).toEqual({ pAnswers: 1, pExplore: 1 })
-    expect(judged.get("a")).toEqual({ pAnswers: 0.9, pExplore: 0.2 })
-    expect(filled.counts).toMatchObject({ jev: 1, missing: 0, unrecorded: 2 })
-    // The answers of one question of the eval do not answer another.
-    const replay = new ModelCalls(BASE, 0, calls, { unrecordedYes: 0 })
-    const restore = replay.install()
-    try {
-      replay.begin("plane", "other question")
-      expect((await judgeWhy(["a"])).get("a")).toEqual({
-        pAnswers: 0,
-        pExplore: 0,
-      })
-      expect(replay.end()).toMatchObject({ jev: 1, unrecorded: 2 })
-    } finally {
-      restore()
+    // c is new: a deeper walk, for example, stays incomplete, also with
+    // the fill.
+    for (const options of [undefined, { unrecordedYes: 1 }]) {
+      const missed = await replayed(calls, () => judgeWhy(["c", "a"]), options)
+      expect(missed.result).toBeInstanceOf(Error)
+      expect(missed.counts).toMatchObject({ jev: 0, missing: 1 })
     }
+    // The facts of the pair (a, c) and of c are new: they miss, unless the
+    // fill gives them its p(yes).
+    const facts = () =>
+      askDisagreementFacts({ question: "q", items: [item("a"), item("c")] })
+    expect((await replayed(calls, facts)).result).toBeInstanceOf(Error)
+    const filled = await replayed(calls, facts, { unrecordedYes: 1 })
+    expect(
+      Object.fromEntries(
+        (filled.result as { answers: Map<string, number> }).answers,
+      ),
+    ).toEqual({
+      "same.1.2": 1,
+      "disagree.1.2": 1,
+      "replaces.1.2": 1,
+      "replaces.2.1": 1,
+      "scoped.1": 0.4,
+      "scoped.2": 1,
+    })
+    expect(filled.counts).toMatchObject({ jev: 1, missing: 0, unrecorded: 5 })
+    // The estimated cost: the text of the call at the cost for each
+    // character of the recorded call that it used.
+    expect(filled.counts.costUsd).toBeGreaterThan(0)
   })
 
   it("reads a symmetric pair fact in either order of the items, and a directed one only in its own direction", async () => {
