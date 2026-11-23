@@ -39,6 +39,11 @@
       "tag": "8.23.0",
       "digest": "sha256:3fb7e13e5d179a845c97d78204f3f1064d1907037f26a3ebf91710571151fd93"
     },
+    "dind": {
+      "image": "docker",
+      "tag": "29.9.3-dind",
+      "digest": "sha256:7bf70dcb85c822e3fa6f2d332143e474b99147b9d7b39102b0cfe8b04a7dd61b"
+    },
     "clickhouse": {
       "image": "clickhouse/clickhouse-server",
       "tag": "26.10.6.18",

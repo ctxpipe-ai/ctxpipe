@@ -39,6 +39,12 @@ test("compose runs the ClickHouse image that the contract tests use", () => {
   assert.match(read("docker-compose.yml"), new RegExp(`image: ${image}\\n`))
 })
 
+test("compose runs the DinD image that the contract tests use", () => {
+  const pin = pins.contracts.dind
+  const image = `${pin.image}:${pin.tag}@${pin.digest}`
+  assert.match(read("docker-compose.yml"), new RegExp(`&dind-image ${image}\\n`))
+})
+
 test("compose and the AWS sandbox host run the pinned Agent Vault image", () => {
   const pin = pins.contracts.agentVault
   const image = `${pin.image}:${pin.tag}@${pin.digest}`
