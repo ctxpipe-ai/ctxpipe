@@ -4,14 +4,15 @@ import { fileURLToPath } from "node:url"
 import { SpanStatusCode, trace } from "@opentelemetry/api"
 import {
   InMemorySpanExporter,
-  type ReadableSpan,
   SimpleSpanProcessor,
-} from "@opentelemetry/sdk-trace-base"
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
+  TracerProvider,
+} from "@opentelemetry/sdk-trace"
+import type { ReadableSpan } from "@opentelemetry/sdk-trace"
 import { config } from "dotenv"
 import { Pool } from "pg"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 
+import { registerTracerProvider } from "../../test/tracer.js"
 import { instrumentPgPool } from "./dbTrace.js"
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url))
@@ -19,8 +20,8 @@ config({ path: resolve(__dirname, "../../.env.local") })
 
 const connectionString = process.env.DATABASE_URL
 const exporter = new InMemorySpanExporter()
-const provider = new NodeTracerProvider({
-  spanProcessors: [new SimpleSpanProcessor(exporter)],
+const provider = new TracerProvider({
+  spanProcessors: [new SimpleSpanProcessor({ exporter: exporter })],
 })
 
 function spanDump(spans: ReadableSpan[]): string {
@@ -38,7 +39,7 @@ describe.skipIf(!connectionString)("postgres client spans", () => {
   let pool: Pool
 
   beforeAll(async () => {
-    provider.register()
+    registerTracerProvider(provider)
     pool = new Pool({ connectionString, max: 2 })
     instrumentPgPool(pool)
     instrumentPgPool(pool)

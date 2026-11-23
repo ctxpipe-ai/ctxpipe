@@ -2,8 +2,8 @@ import { context, SpanKind, SpanStatusCode, trace } from "@opentelemetry/api"
 import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
-} from "@opentelemetry/sdk-trace-base"
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
+  TracerProvider,
+} from "@opentelemetry/sdk-trace"
 import { chat } from "@tanstack/ai"
 import { BaseTextAdapter } from "@tanstack/ai/adapters"
 import {
@@ -17,6 +17,7 @@ import {
   vi,
 } from "vitest"
 
+import { registerTracerProvider } from "../../../test/tracer.js"
 import { AttributionUrlSpanProcessor } from "../../observability/otel.js"
 import {
   beginWorkspaceChatProxyGeneration,
@@ -29,15 +30,15 @@ import {
 } from "./workspace-chat-otel.js"
 
 const exporter = new InMemorySpanExporter()
-const provider = new NodeTracerProvider({
+const provider = new TracerProvider({
   spanProcessors: [
     new AttributionUrlSpanProcessor(),
-    new SimpleSpanProcessor(exporter),
+    new SimpleSpanProcessor({ exporter: exporter }),
   ],
 })
 
 beforeAll(() => {
-  provider.register()
+  registerTracerProvider(provider)
 })
 
 beforeEach(() => {

@@ -3,13 +3,14 @@ import { resourceFromAttributes } from "@opentelemetry/resources"
 import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
-} from "@opentelemetry/sdk-trace-base"
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
+  TracerProvider,
+} from "@opentelemetry/sdk-trace"
 import { chat } from "@tanstack/ai"
 import { delay, HttpResponse, http } from "msw"
 import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest"
 
 import { useMswServer } from "../../../test/msw.js"
+import { registerTracerProvider } from "../../../test/tracer.js"
 import { abortAfter } from "../../lib/abortAfter.js"
 import { getModel } from "./modelProvider.js"
 
@@ -223,11 +224,11 @@ it.each(["openrouter", "azure", "bedrock"] as const)(
 )
 
 const exporter = new InMemorySpanExporter()
-const tracerProvider = new NodeTracerProvider({
+const tracerProvider = new TracerProvider({
   resource: resourceFromAttributes({}),
-  spanProcessors: [new SimpleSpanProcessor(exporter)],
+  spanProcessors: [new SimpleSpanProcessor({ exporter: exporter })],
 })
-beforeAll(() => tracerProvider.register())
+beforeAll(() => registerTracerProvider(tracerProvider))
 afterAll(() => tracerProvider.shutdown())
 
 function stubOpenAiLike() {

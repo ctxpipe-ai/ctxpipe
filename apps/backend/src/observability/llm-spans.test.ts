@@ -7,24 +7,25 @@ import {
 import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
-} from "@opentelemetry/sdk-trace-base"
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
+  TracerProvider,
+} from "@opentelemetry/sdk-trace"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 
+import { registerTracerProvider } from "../../test/tracer.js"
 import { contextWithAttributionBag } from "./attribution.js"
 import { withLlmGeneration } from "./llm-spans.js"
 import { AttributionUrlSpanProcessor } from "./otel.js"
 
 const exporter = new InMemorySpanExporter()
-const provider = new NodeTracerProvider({
+const provider = new TracerProvider({
   spanProcessors: [
     new AttributionUrlSpanProcessor(),
-    new SimpleSpanProcessor(exporter),
+    new SimpleSpanProcessor({ exporter: exporter }),
   ],
 })
 
 beforeAll(() => {
-  provider.register()
+  registerTracerProvider(provider)
 })
 
 beforeEach(() => {

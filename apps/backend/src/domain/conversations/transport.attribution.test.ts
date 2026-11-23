@@ -2,28 +2,29 @@ import { resourceFromAttributes } from "@opentelemetry/resources"
 import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
-} from "@opentelemetry/sdk-trace-base"
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
+  TracerProvider,
+} from "@opentelemetry/sdk-trace"
 import { initLogger } from "evlog"
 import { Hono } from "hono"
 import { contextStorage } from "hono/context-storage"
 import { afterAll, beforeAll, beforeEach, expect, it, vi } from "vitest"
 
+import { registerTracerProvider } from "../../../test/tracer.js"
 import type { AppEnv } from "../../app/env.js"
 import { applyAttribution } from "../../observability/attribution.js"
 import { backendOtelMiddleware } from "../../observability/http.js"
 import { withTestRequestLogger } from "../../test/hono-test-logger.js"
 
 const exporter = new InMemorySpanExporter()
-const provider = new NodeTracerProvider({
+const provider = new TracerProvider({
   resource: resourceFromAttributes({ "service.name": "ctxpipe-test" }),
-  spanProcessors: [new SimpleSpanProcessor(exporter)],
+  spanProcessors: [new SimpleSpanProcessor({ exporter: exporter })],
 })
 
 let workspaceChatStreamResponse: typeof import("./transport.js").workspaceChatStreamResponse
 
 beforeAll(async () => {
-  provider.register()
+  registerTracerProvider(provider)
   initLogger({
     env: { service: "ctxpipe-backend", environment: "test" },
     pretty: false,

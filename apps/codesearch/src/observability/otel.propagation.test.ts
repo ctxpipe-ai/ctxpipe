@@ -2,23 +2,24 @@ import { httpInstrumentationMiddleware } from "@hono/otel"
 import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
-} from "@opentelemetry/sdk-trace-base"
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
+  TracerProvider,
+} from "@opentelemetry/sdk-trace"
 import { Hono } from "hono"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 
 import { codesearchSpanProcessors } from "./otel.js"
+import { registerTracerProvider } from "./register-tracer.js"
 
 const exporter = new InMemorySpanExporter()
-const provider = new NodeTracerProvider({
+const provider = new TracerProvider({
   spanProcessors: [
     ...codesearchSpanProcessors(),
-    new SimpleSpanProcessor(exporter),
+    new SimpleSpanProcessor({ exporter: exporter }),
   ],
 })
 
 beforeAll(() => {
-  provider.register()
+  registerTracerProvider(provider)
 })
 
 beforeEach(() => {

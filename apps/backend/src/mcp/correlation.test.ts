@@ -4,7 +4,7 @@ import {
 } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js"
 import { SpanStatusCode, trace } from "@opentelemetry/api"
-import type { ReadableSpan } from "@opentelemetry/sdk-trace-base"
+import type { ReadableSpan } from "@opentelemetry/sdk-trace"
 import { initLogger } from "evlog"
 import { evlog } from "evlog/hono"
 import { Hono } from "hono"

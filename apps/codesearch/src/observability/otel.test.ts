@@ -1,6 +1,6 @@
 import { metrics, ProxyTracerProvider, trace } from "@opentelemetry/api"
 import { MeterProvider } from "@opentelemetry/sdk-metrics"
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
+import { TracerProvider } from "@opentelemetry/sdk-trace"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
@@ -14,7 +14,7 @@ function tracerIsRegistered(): boolean {
   const provider = trace.getTracerProvider()
   const delegate =
     provider instanceof ProxyTracerProvider ? provider.getDelegate() : provider
-  return delegate instanceof NodeTracerProvider
+  return delegate instanceof TracerProvider
 }
 
 describe("codesearch resource", () => {

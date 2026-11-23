@@ -3,8 +3,8 @@ import { resourceFromAttributes } from "@opentelemetry/resources"
 import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
-} from "@opentelemetry/sdk-trace-base"
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
+  TracerProvider,
+} from "@opentelemetry/sdk-trace"
 import { HttpResponse, http } from "msw"
 import {
   afterAll,
@@ -18,14 +18,15 @@ import {
 } from "vitest"
 
 import { useMswServer } from "../../../test/msw.js"
+import { registerTracerProvider } from "../../../test/tracer.js"
 import { generateEmbeddings } from "./modelProvider.js"
 
 const exporter = new InMemorySpanExporter()
-const provider = new NodeTracerProvider({
+const provider = new TracerProvider({
   resource: resourceFromAttributes({
     "deployment.environment": "test",
   }),
-  spanProcessors: [new SimpleSpanProcessor(exporter)],
+  spanProcessors: [new SimpleSpanProcessor({ exporter: exporter })],
 })
 
 const server = useMswServer()
@@ -44,7 +45,7 @@ function generationInputTokens(): unknown {
 describe("generateEmbeddings span usage", () => {
   beforeAll(() => {
     trace.disable()
-    provider.register()
+    registerTracerProvider(provider)
   })
 
   beforeEach(() => {

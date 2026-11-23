@@ -25,11 +25,13 @@ import {
 import { NodeSDK } from "@opentelemetry/sdk-node"
 import {
   BatchSpanProcessor,
-  type ReadableSpan,
   SimpleSpanProcessor,
-  type Span,
-  type SpanProcessor,
-} from "@opentelemetry/sdk-trace-base"
+} from "@opentelemetry/sdk-trace"
+import type {
+  ReadableSpan,
+  Span,
+  SpanProcessor,
+} from "@opentelemetry/sdk-trace"
 import { log } from "evlog"
 
 import {
@@ -160,7 +162,9 @@ export class AttributionUrlSpanProcessor implements SpanProcessor {
 export function initOtel(env: Env): void {
   if (started) return
   const tracesEndpoint = env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
-  const evlogProcessor = new SimpleSpanProcessor(new EvlogSpanExporter())
+  const evlogProcessor = new SimpleSpanProcessor({
+    exporter: new EvlogSpanExporter(),
+  })
 
   if (!tracesEndpoint) {
     sdk = new NodeSDK({
@@ -177,7 +181,8 @@ export function initOtel(env: Env): void {
     url: tracesEndpoint,
     timeoutMillis: 2_000,
   })
-  const batch = new BatchSpanProcessor(traceExporter, {
+  const batch = new BatchSpanProcessor({
+    exporter: traceExporter,
     exportTimeoutMillis: 2_000,
   })
   spanProcessor = new BetterAuthSpanFilter(batch)

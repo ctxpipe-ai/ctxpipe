@@ -13,8 +13,8 @@ import { setTimeout as delay } from "node:timers/promises"
 import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
-} from "@opentelemetry/sdk-trace-base"
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
+  TracerProvider,
+} from "@opentelemetry/sdk-trace"
 import { eq, sql } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
@@ -22,6 +22,7 @@ import { OpenWorkflow } from "openworkflow"
 import { BackendPostgres } from "openworkflow/postgres"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
+import { registerTracerProvider } from "../../../test/tracer.js"
 import {
   closeDb,
   getSystemDb,
@@ -210,14 +211,14 @@ function refsOf(name: string): Record<string, string> {
 }
 
 const spanExporter = new InMemorySpanExporter()
-const tracerProvider = new NodeTracerProvider({
-  spanProcessors: [new SimpleSpanProcessor(spanExporter)],
+const tracerProvider = new TracerProvider({
+  spanProcessors: [new SimpleSpanProcessor({ exporter: spanExporter })],
 })
 
 beforeAll(async () => {
   const databaseUrl = process.env.DATABASE_URL
   if (!databaseUrl) throw new Error("DATABASE_URL is required for ingestion v2")
-  tracerProvider.register()
+  registerTracerProvider(tracerProvider)
   initDb(databaseUrl)
   stubGithubApp()
   server.listen({ onUnhandledRequest: "error" })

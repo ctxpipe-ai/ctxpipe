@@ -1,9 +1,8 @@
 import { syncBuiltinESMExports } from "node:module"
 
-import { type ProxyTracerProvider, trace } from "@opentelemetry/api"
-import { logs } from "@opentelemetry/api-logs"
+import { logs, type ProxyTracerProvider, trace } from "@opentelemetry/api"
 import type { LoggerProvider } from "@opentelemetry/sdk-logs"
-import type { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
+import type { TracerProvider } from "@opentelemetry/sdk-trace"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 import {
@@ -83,7 +82,7 @@ function attributes(list: KeyValue[]): Record<string, unknown> {
 
 async function flush(): Promise<void> {
   const tracer = trace.getTracerProvider() as ProxyTracerProvider
-  await (tracer.getDelegate() as NodeTracerProvider).forceFlush()
+  await (tracer.getDelegate() as TracerProvider).forceFlush()
   await (logs.getLoggerProvider() as LoggerProvider).forceFlush()
 }
 

@@ -1,12 +1,20 @@
 // Relative imports only: the Nitro plugin bundles this file without the `@/` alias.
 import {
   context,
+  logs,
+  propagation,
+  SeverityNumber,
   type Span,
   SpanKind,
   SpanStatusCode,
   trace,
 } from "@opentelemetry/api"
-import { logs, SeverityNumber } from "@opentelemetry/api-logs"
+import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks"
+import {
+  CompositePropagator,
+  W3CBaggagePropagator,
+  W3CTraceContextPropagator,
+} from "@opentelemetry/core"
 import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-http"
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http"
 import {
@@ -19,10 +27,7 @@ import {
   BatchLogRecordProcessor,
   LoggerProvider,
 } from "@opentelemetry/sdk-logs"
-import {
-  BatchSpanProcessor,
-  NodeTracerProvider,
-} from "@opentelemetry/sdk-trace-node"
+import { BatchSpanProcessor, TracerProvider } from "@opentelemetry/sdk-trace"
 
 import { deploymentName } from "./otelEnv"
 import { scrubTelemetryString } from "./otelScrub"
@@ -83,13 +88,25 @@ export function startServerTelemetry(): boolean {
       url: endpoints.traces,
       timeoutMillis: 2_000,
     })
-    const tracerProvider = new NodeTracerProvider({
+    const tracerProvider = new TracerProvider({
       resource,
       spanProcessors: [
-        new BatchSpanProcessor(exporter, { exportTimeoutMillis: 2_000 }),
+        new BatchSpanProcessor({ exporter, exportTimeoutMillis: 2_000 }),
       ],
     })
-    tracerProvider.register()
+    // What `NodeTracerProvider#register()` did before OpenTelemetry JS SDK 3.
+    trace.setGlobalTracerProvider(tracerProvider)
+    context.setGlobalContextManager(
+      new AsyncLocalStorageContextManager().enable(),
+    )
+    propagation.setGlobalPropagator(
+      new CompositePropagator({
+        propagators: [
+          new W3CTraceContextPropagator(),
+          new W3CBaggagePropagator(),
+        ],
+      }),
+    )
     providers.push(tracerProvider)
   }
   if (endpoints.logs) {
@@ -100,7 +117,7 @@ export function startServerTelemetry(): boolean {
     const loggerProvider = new LoggerProvider({
       resource,
       processors: [
-        new BatchLogRecordProcessor(exporter, { exportTimeoutMillis: 2_000 }),
+        new BatchLogRecordProcessor({ exporter, exportTimeoutMillis: 2_000 }),
       ],
     })
     logs.setGlobalLoggerProvider(loggerProvider)

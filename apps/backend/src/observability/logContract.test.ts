@@ -1,11 +1,12 @@
 import { context, trace } from "@opentelemetry/api"
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
+import { TracerProvider } from "@opentelemetry/sdk-trace"
 import { evlog } from "evlog/hono"
 import { Hono } from "hono"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { registerTracerProvider } from "../../test/tracer.js"
 import type { AppEnv } from "../app/env.js"
 import { contextWithAttributionBag } from "./attribution.js"
 import { applyLogContract } from "./logContract.js"
@@ -367,8 +368,8 @@ describe("evlog redact and OTLP drain", () => {
       return writeOut(chunk as never, ...(rest as []))
     }) as typeof process.stdout.write
     await flushEvlog()
-    const provider = new NodeTracerProvider()
-    provider.register({ propagator: null })
+    const provider = new TracerProvider()
+    registerTracerProvider(provider, { propagator: false })
     const tracer = trace.getTracer("ctxpipe-test")
     try {
       initEvlog()
@@ -416,8 +417,8 @@ describe("evlog redact and OTLP drain", () => {
     )
     server.listen({ onUnhandledRequest: "bypass" })
     await flushEvlog()
-    const provider = new NodeTracerProvider()
-    provider.register({ propagator: null })
+    const provider = new TracerProvider()
+    registerTracerProvider(provider, { propagator: false })
     const tracer = trace.getTracer("ctxpipe-test")
     try {
       initEvlog()

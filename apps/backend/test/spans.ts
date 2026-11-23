@@ -1,15 +1,16 @@
 import type { Attributes } from "@opentelemetry/api"
 import { SpanKind, trace } from "@opentelemetry/api"
 import { resourceFromAttributes } from "@opentelemetry/resources"
-import type { ReadableSpan } from "@opentelemetry/sdk-trace-base"
 import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
-} from "@opentelemetry/sdk-trace-base"
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
+  TracerProvider,
+} from "@opentelemetry/sdk-trace"
+import type { ReadableSpan } from "@opentelemetry/sdk-trace"
 import { afterAll, beforeEach } from "vitest"
 
 import { AttributionUrlSpanProcessor } from "../src/observability/otel.js"
+import { registerTracerProvider } from "./tracer.js"
 
 export type RecordedSpans = {
   reset: () => void
@@ -45,14 +46,14 @@ export function recordSpans(): RecordedSpans {
     trace.disable()
     const created = new InMemorySpanExporter()
     exporter = created
-    const provider = new NodeTracerProvider({
+    const provider = new TracerProvider({
       resource: resourceFromAttributes({ "service.name": "ctxpipe-test" }),
       spanProcessors: [
         new AttributionUrlSpanProcessor(),
-        new SimpleSpanProcessor(created),
+        new SimpleSpanProcessor({ exporter: created }),
       ],
     })
-    provider.register()
+    registerTracerProvider(provider)
     beforeEach(() => {
       created.reset()
     })

@@ -2,23 +2,24 @@ import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api"
 import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
-} from "@opentelemetry/sdk-trace-base"
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
+  TracerProvider,
+} from "@opentelemetry/sdk-trace"
 import { initLogger } from "evlog"
 import { type EvlogVariables, evlog } from "evlog/hono"
 import { Hono } from "hono"
 import { contextStorage } from "hono/context-storage"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 
+import { registerTracerProvider } from "../../test/tracer.js"
 import { applyAttribution } from "./attribution.js"
 import { backendOtelMiddleware } from "./http.js"
 import { AttributionUrlSpanProcessor } from "./otel.js"
 
 const exporter = new InMemorySpanExporter()
-const provider = new NodeTracerProvider({
+const provider = new TracerProvider({
   spanProcessors: [
     new AttributionUrlSpanProcessor(),
-    new SimpleSpanProcessor(exporter),
+    new SimpleSpanProcessor({ exporter: exporter }),
   ],
 })
 
@@ -31,7 +32,7 @@ beforeAll(() => {
     env: { service: "ctxpipe-backend-test" },
     drain: async () => {},
   })
-  provider.register()
+  registerTracerProvider(provider)
 })
 
 beforeEach(() => {

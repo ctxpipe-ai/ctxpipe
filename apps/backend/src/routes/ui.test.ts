@@ -1,10 +1,11 @@
 import { createServer } from "node:http"
 
 import { context, propagation, trace } from "@opentelemetry/api"
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
+import { TracerProvider } from "@opentelemetry/sdk-trace"
 import { initLogger } from "evlog"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
+import { registerTracerProvider } from "../../test/tracer.js"
 import { createLogger, withLogger } from "../observability/logger.js"
 import {
   isViteHmrWebSocketRequest,
@@ -287,8 +288,8 @@ describe("uiProxyUpstreamHeaders", () => {
   })
 
   it("passes the document span to the UI server as traceparent", async () => {
-    const provider = new NodeTracerProvider()
-    provider.register()
+    const provider = new TracerProvider()
+    registerTracerProvider(provider)
     try {
       const span = provider.getTracer("test").startSpan("GET /*")
       const headers = context.with(trace.setSpan(context.active(), span), () =>

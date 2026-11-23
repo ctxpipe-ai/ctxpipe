@@ -2,21 +2,22 @@ import { trace } from "@opentelemetry/api"
 import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
-} from "@opentelemetry/sdk-trace-base"
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
+  TracerProvider,
+} from "@opentelemetry/sdk-trace"
 import { initLogger } from "evlog"
 import { afterAll, beforeAll, expect, it } from "vitest"
 
+import { registerTracerProvider } from "../../test/tracer.js"
 import { EvlogSpanExporter } from "./evlog-span-exporter.js"
 
 const memory = new InMemorySpanExporter()
-const provider = new NodeTracerProvider({
-  spanProcessors: [new SimpleSpanProcessor(memory)],
+const provider = new TracerProvider({
+  spanProcessors: [new SimpleSpanProcessor({ exporter: memory })],
 })
 const events: Record<string, unknown>[] = []
 
 beforeAll(() => {
-  provider.register()
+  registerTracerProvider(provider)
   initLogger({
     enabled: true,
     pretty: false,

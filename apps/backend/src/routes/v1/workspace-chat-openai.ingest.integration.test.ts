@@ -5,8 +5,8 @@ import { SpanKind } from "@opentelemetry/api"
 import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
-} from "@opentelemetry/sdk-trace-base"
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
+  TracerProvider,
+} from "@opentelemetry/sdk-trace"
 import { eq } from "drizzle-orm"
 import { initLogger } from "evlog"
 import { HttpResponse, http } from "msw"
@@ -14,6 +14,7 @@ import { BackendPostgres } from "openworkflow/postgres"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 import { useMswServer } from "../../../test/msw.js"
+import { registerTracerProvider } from "../../../test/tracer.js"
 import type { AppEnv } from "../../app/env.js"
 import { parseEnv } from "../../config/env.js"
 import {
@@ -56,8 +57,8 @@ import { workspaceChatOpenaiRoutes } from "./workspace-chat-openai.js"
 
 const AUTH_SECRET = "abcdefghijklmnopqrstuvwxyz123456"
 const exporter = new InMemorySpanExporter()
-const tracer = new NodeTracerProvider({
-  spanProcessors: [new SimpleSpanProcessor(exporter)],
+const tracer = new TracerProvider({
+  spanProcessors: [new SimpleSpanProcessor({ exporter: exporter })],
 })
 const MODEL_PROVIDER_URL = "http://model-provider.test/v1"
 
@@ -214,7 +215,7 @@ describe("workspace-ingest-model capability", () => {
   }
 
   beforeAll(async () => {
-    tracer.register()
+    registerTracerProvider(tracer)
     initDb(databaseUrl())
     backend = await BackendPostgres.connect(databaseUrl(), {
       runMigrations: false,

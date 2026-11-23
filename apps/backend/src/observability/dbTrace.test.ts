@@ -1,21 +1,22 @@
 import { SpanStatusCode, trace } from "@opentelemetry/api"
 import {
   InMemorySpanExporter,
-  type ReadableSpan,
   SimpleSpanProcessor,
-} from "@opentelemetry/sdk-trace-base"
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
+  TracerProvider,
+} from "@opentelemetry/sdk-trace"
+import type { ReadableSpan } from "@opentelemetry/sdk-trace"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 
+import { registerTracerProvider } from "../../test/tracer.js"
 import { serverAddressFromUrl, traceGraphQuery } from "./dbTrace.js"
 
 const exporter = new InMemorySpanExporter()
-const provider = new NodeTracerProvider({
-  spanProcessors: [new SimpleSpanProcessor(exporter)],
+const provider = new TracerProvider({
+  spanProcessors: [new SimpleSpanProcessor({ exporter: exporter })],
 })
 
 beforeAll(() => {
-  provider.register()
+  registerTracerProvider(provider)
 })
 
 beforeEach(() => {

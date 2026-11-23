@@ -7,8 +7,8 @@ import { trace } from "@opentelemetry/api"
 import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
-} from "@opentelemetry/sdk-trace-base"
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
+  TracerProvider,
+} from "@opentelemetry/sdk-trace"
 import { initLogger } from "evlog"
 import {
   afterAll,
@@ -20,6 +20,7 @@ import {
   it,
 } from "vitest"
 
+import { registerTracerProvider } from "../../../test/tracer.js"
 import { closeDb, initDb } from "../../db/client.js"
 import {
   findStepCommit,
@@ -42,8 +43,8 @@ import {
 } from "./ingestion-shard.js"
 
 const exporter = new InMemorySpanExporter()
-const provider = new NodeTracerProvider({
-  spanProcessors: [new SimpleSpanProcessor(exporter)],
+const provider = new TracerProvider({
+  spanProcessors: [new SimpleSpanProcessor({ exporter: exporter })],
 })
 const events: Array<Record<string, unknown>> = []
 let folder: string
@@ -97,7 +98,7 @@ const service =
 
 beforeAll(() => {
   if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required")
-  provider.register()
+  registerTracerProvider(provider)
 })
 beforeEach(() => {
   exporter.reset()

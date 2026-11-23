@@ -7,18 +7,19 @@ import { SpanStatusCode } from "@opentelemetry/api"
 import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
-} from "@opentelemetry/sdk-trace-base"
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
+  TracerProvider,
+} from "@opentelemetry/sdk-trace"
 import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest"
 
+import { registerTracerProvider } from "../../observability/register-tracer.js"
 import { runScipIndexer } from "./scipIndexers.js"
 
 const exporter = new InMemorySpanExporter()
-const provider = new NodeTracerProvider({
-  spanProcessors: [new SimpleSpanProcessor(exporter)],
+const provider = new TracerProvider({
+  spanProcessors: [new SimpleSpanProcessor({ exporter: exporter })],
 })
 
-beforeAll(() => provider.register())
+beforeAll(() => registerTracerProvider(provider))
 afterEach(() => exporter.reset())
 afterAll(async () => {
   vi.unstubAllGlobals()

@@ -1,11 +1,12 @@
 import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
-} from "@opentelemetry/sdk-trace-base"
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
+  TracerProvider,
+} from "@opentelemetry/sdk-trace"
 import { modelMessagesToUIMessages, type StreamChunk } from "@tanstack/ai"
 import { afterAll, beforeAll, expect, it, vi } from "vitest"
 
+import { registerTracerProvider } from "../../../test/tracer.js"
 import { workspaceChatPersistence } from "../../domain/workspaces/workspace-chat-persistence.js"
 import { AttributionUrlSpanProcessor } from "../../observability/otel.js"
 import { withNativeChatFixture } from "../../test/native-chat-fixture.js"
@@ -15,15 +16,15 @@ import {
 } from "./conversation-websocket.js"
 
 const exporter = new InMemorySpanExporter()
-const provider = new NodeTracerProvider({
+const provider = new TracerProvider({
   spanProcessors: [
     new AttributionUrlSpanProcessor(),
-    new SimpleSpanProcessor(exporter),
+    new SimpleSpanProcessor({ exporter: exporter }),
   ],
 })
 
 beforeAll(() => {
-  provider.register()
+  registerTracerProvider(provider)
 })
 
 afterAll(async () => {

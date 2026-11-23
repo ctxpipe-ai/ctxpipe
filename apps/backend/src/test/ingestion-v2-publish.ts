@@ -14,8 +14,8 @@ import { SpanStatusCode } from "@opentelemetry/api"
 import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
-} from "@opentelemetry/sdk-trace-base"
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
+  TracerProvider,
+} from "@opentelemetry/sdk-trace"
 import { eq } from "drizzle-orm"
 import { initLogger } from "evlog"
 import { HttpResponse, http } from "msw"
@@ -24,6 +24,7 @@ import { OpenWorkflow } from "openworkflow"
 import { BackendPostgres } from "openworkflow/postgres"
 import { afterAll, beforeAll, expect, vi } from "vitest"
 
+import { registerTracerProvider } from "../../test/tracer.js"
 import { closeDb, getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
 import { connections } from "../db/schema/connections.js"
@@ -454,9 +455,11 @@ export const loggedEvents: Record<string, unknown>[] = []
 export const spanExporter = new InMemorySpanExporter()
 
 beforeAll(async () => {
-  new NodeTracerProvider({
-    spanProcessors: [new SimpleSpanProcessor(spanExporter)],
-  }).register()
+  registerTracerProvider(
+    new TracerProvider({
+      spanProcessors: [new SimpleSpanProcessor({ exporter: spanExporter })],
+    }),
+  )
   initLogger({
     pretty: false,
     silent: true,

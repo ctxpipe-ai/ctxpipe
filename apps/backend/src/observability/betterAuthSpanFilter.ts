@@ -3,7 +3,7 @@ import type {
   ReadableSpan,
   Span,
   SpanProcessor,
-} from "@opentelemetry/sdk-trace-base"
+} from "@opentelemetry/sdk-trace"
 
 /**
  * better-auth 1.6.23 starts spans on scope `better-auth` and has no off switch.

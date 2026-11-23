@@ -6,14 +6,15 @@ import { resourceFromAttributes } from "@opentelemetry/resources"
 import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
-} from "@opentelemetry/sdk-trace-base"
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
+  TracerProvider,
+} from "@opentelemetry/sdk-trace"
 import { eq } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it } from "vitest"
 
 import { describeWithDatabase } from "../../../test/db.js"
 import { useMswServer } from "../../../test/msw.js"
+import { registerTracerProvider } from "../../../test/tracer.js"
 import type { AppEnv } from "../../app/env.js"
 import { parseEnv } from "../../config/env.js"
 import {
@@ -43,11 +44,11 @@ import { workspaceChatOpenaiRoutes } from "./workspace-chat-openai.js"
 const AUTH_SECRET = "abcdefghijklmnopqrstuvwxyz123456"
 const MODEL_PROVIDER_URL = "http://model-provider.test/v1"
 const exporter = new InMemorySpanExporter()
-const provider = new NodeTracerProvider({
+const provider = new TracerProvider({
   resource: resourceFromAttributes({ "service.name": "ctxpipe-test" }),
   spanProcessors: [
     new AttributionUrlSpanProcessor(),
-    new SimpleSpanProcessor(exporter),
+    new SimpleSpanProcessor({ exporter: exporter }),
   ],
 })
 
@@ -61,7 +62,7 @@ const server = useMswServer(
 )
 
 beforeAll(() => {
-  provider.register()
+  registerTracerProvider(provider)
 })
 
 beforeEach(() => {

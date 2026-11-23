@@ -12,20 +12,17 @@ import {
   MeterProvider,
   PeriodicExportingMetricReader,
 } from "@opentelemetry/sdk-metrics"
-import {
-  BatchSpanProcessor,
-  type Span,
-  type SpanProcessor,
-} from "@opentelemetry/sdk-trace-base"
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
+import { BatchSpanProcessor, TracerProvider } from "@opentelemetry/sdk-trace"
+import type { Span, SpanProcessor } from "@opentelemetry/sdk-trace"
 
 import {
   deploymentEnvironment,
   isPreviewDeployment,
 } from "../../../../shared/deployment-environment.js"
 import { ATTRIBUTION_KEYS } from "./contract.js"
+import { registerTracerProvider } from "./register-tracer.js"
 
-let tracerProvider: NodeTracerProvider | undefined
+let tracerProvider: TracerProvider | undefined
 let meterProvider: MeterProvider | undefined
 let runtimeInstrumentation: RuntimeNodeInstrumentation | undefined
 let started = false
@@ -125,14 +122,14 @@ export function initOtel(): void {
   if (!tracesEndpoint || started) return
 
   const resource = codesearchResource()
-  tracerProvider = new NodeTracerProvider({
+  tracerProvider = new TracerProvider({
     resource,
     spanProcessors: [
       ...codesearchSpanProcessors(),
-      new BatchSpanProcessor(new OTLPTraceExporter()),
+      new BatchSpanProcessor({ exporter: new OTLPTraceExporter() }),
     ],
   })
-  tracerProvider.register()
+  registerTracerProvider(tracerProvider)
 
   const metricsEndpoint =
     process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT?.trim()

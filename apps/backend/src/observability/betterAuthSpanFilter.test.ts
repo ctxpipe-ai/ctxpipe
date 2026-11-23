@@ -1,21 +1,24 @@
 import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api"
 import {
   InMemorySpanExporter,
-  type ReadableSpan,
   SimpleSpanProcessor,
-} from "@opentelemetry/sdk-trace-base"
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
+  TracerProvider,
+} from "@opentelemetry/sdk-trace"
+import type { ReadableSpan } from "@opentelemetry/sdk-trace"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 
+import { registerTracerProvider } from "../../test/tracer.js"
 import { BetterAuthSpanFilter } from "./betterAuthSpanFilter.js"
 
 const exporter = new InMemorySpanExporter()
-const provider = new NodeTracerProvider({
-  spanProcessors: [new BetterAuthSpanFilter(new SimpleSpanProcessor(exporter))],
+const provider = new TracerProvider({
+  spanProcessors: [
+    new BetterAuthSpanFilter(new SimpleSpanProcessor({ exporter: exporter })),
+  ],
 })
 
 beforeAll(() => {
-  provider.register()
+  registerTracerProvider(provider)
 })
 
 beforeEach(() => {

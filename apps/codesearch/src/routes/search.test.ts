@@ -6,8 +6,8 @@ import { OpenAPIHono } from "@hono/zod-openapi"
 import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
-} from "@opentelemetry/sdk-trace-base"
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
+  TracerProvider,
+} from "@opentelemetry/sdk-trace"
 import { initLogger } from "evlog"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
@@ -30,6 +30,7 @@ import {
 } from "../domain/zoekt/shardPrefix.js"
 import { flushEvlog } from "../observability/logger.js"
 import { codesearchSpanProcessors } from "../observability/otel.js"
+import { registerTracerProvider } from "../observability/register-tracer.js"
 
 const zoektBase = "http://zoekt.test"
 const zoektSearch = `${zoektBase}/api/search`
@@ -48,10 +49,10 @@ let resetPinManagerForTests: (typeof import("../domain/zoekt/pinManager.js"))["r
 
 const server = setupServer()
 const exporter = new InMemorySpanExporter()
-const provider = new NodeTracerProvider({
+const provider = new TracerProvider({
   spanProcessors: [
     ...codesearchSpanProcessors(),
-    new SimpleSpanProcessor(exporter),
+    new SimpleSpanProcessor({ exporter: exporter }),
   ],
 })
 
@@ -161,7 +162,7 @@ describe("POST /search", () => {
     expect(paths.ZOEKT_INDEX_DIR).toBe(indexDir)
     expect(paths.ZOEKT_WEBSERVER_URL).toBe(zoektBase)
 
-    provider.register()
+    registerTracerProvider(provider)
     initLogger({
       env: { service: "codesearch", environment: "test" },
       pretty: false,
