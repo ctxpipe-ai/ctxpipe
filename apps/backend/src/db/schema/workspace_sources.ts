@@ -7,6 +7,7 @@ import {
   unique,
 } from "drizzle-orm/pg-core"
 
+import { connections } from "./connections.js"
 import { orgIsolationPolicy } from "./org-rls.js"
 import { workspaces } from "./workspaces.js"
 
@@ -62,6 +63,38 @@ export const workspaceSources = pgTable.withRLS(
     ),
     index("workspace_sources_connection_id_idx").on(t.connectionId),
     index("workspace_sources_org_id_idx").on(t.orgId),
+    orgIsolationPolicy(t.orgId),
+  ],
+)
+
+/**
+ * Provider webhook events that wait for one coalesced sources sync of their
+ * connection (CTX-1595). A webhook adds a row. The sync run that takes the
+ * rows writes its run id in `run_id`, syncs all of them in one pass, and then
+ * deletes them. A row of a run that ended without the delete goes to the
+ * next run of the connection.
+ */
+export const sourceSyncEvents = pgTable.withRLS(
+  "source_sync_events",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    connectionId: text("connection_id")
+      .notNull()
+      .references(() => connections.id, { onDelete: "cascade" }),
+    /** The provider event, as the source adapter reads it. */
+    event: jsonb("event").$type<unknown>().notNull(),
+    /** The OpenWorkflow run that took the event; null while it waits. */
+    runId: text("run_id"),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("source_sync_events_connection_id_idx").on(
+      t.connectionId,
+      t.createdAt,
+    ),
     orgIsolationPolicy(t.orgId),
   ],
 )

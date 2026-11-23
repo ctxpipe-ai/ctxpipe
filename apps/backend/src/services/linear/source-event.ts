@@ -13,26 +13,28 @@ const knownOrAny = z.union([z.literal("any"), z.array(z.string())])
  * project ids of the changed entity, or "any" when the payload does not tell
  * them. `entity` is the change that the incremental mirror applies.
  */
+const linearEntitySchema = z.object({
+  entityType: z.enum([
+    "cycle",
+    "customerNeed",
+    "document",
+    "initiative",
+    "issue",
+    "issueLabel",
+    "project",
+    "team",
+    "user",
+  ]),
+  externalId: z.string().min(1),
+  action: z.enum(["upsert", "delete"]),
+})
+
 export const linearSourceEventSchema = z.object({
   teamKeys: knownOrAny,
   projectIds: knownOrAny,
-  entity: z
-    .object({
-      entityType: z.enum([
-        "cycle",
-        "customerNeed",
-        "document",
-        "initiative",
-        "issue",
-        "issueLabel",
-        "project",
-        "team",
-        "user",
-      ]),
-      externalId: z.string().min(1),
-      action: z.enum(["upsert", "delete"]),
-    })
-    .optional(),
+  entity: linearEntitySchema.optional(),
+  /** The changes of coalesced webhooks (CTX-1595), in the order they came. */
+  entities: z.array(linearEntitySchema).optional(),
 })
 type LinearSourceEvent = z.infer<typeof linearSourceEventSchema>
 
@@ -131,4 +133,52 @@ export function linearEventMatches(
     (projects.length > 0 &&
       (projectIds === "any" || projects.some((id) => projectIds.includes(id))))
   )
+}
+
+/** The changed entities of an event: one, or the list of a joined event. */
+export function linearEventEntities(
+  event: LinearSourceEvent | undefined,
+): NonNullable<LinearSourceEvent["entities"]> {
+  return event?.entities ?? (event?.entity ? [event.entity] : [])
+}
+
+function joinKnown(lists: ReadonlyArray<"any" | string[]>): "any" | string[] {
+  return lists.some((list) => list === "any")
+    ? "any"
+    : [...new Set(lists.flatMap((list) => (list === "any" ? [] : list)))]
+}
+
+/**
+ * Join the events of coalesced webhooks into one event (CTX-1595). The event
+ * touches each source that one of the events touches. Each entity occurs one
+ * time, with the action of its last event: the incremental mirror reads the
+ * entity as it is now. An event that cannot be read, or that has no entity,
+ * gives `undefined`: a full sync of the connection, as one such event gives.
+ */
+export function mergeLinearSourceEvents(
+  events: readonly unknown[],
+): LinearSourceEvent | undefined {
+  const parsed: LinearSourceEvent[] = []
+  for (const event of events) {
+    const result = linearSourceEventSchema.safeParse(event)
+    if (!result.success) return undefined
+    parsed.push(result.data)
+  }
+  const entities = new Map<string, NonNullable<LinearSourceEvent["entity"]>>()
+  for (const event of parsed) {
+    const changes = linearEventEntities(event)
+    if (!changes.length) return undefined
+    for (const entity of changes) {
+      const key = `${entity.entityType}:${entity.externalId}`
+      // A later change of the same entity goes to the end of the order.
+      entities.delete(key)
+      entities.set(key, entity)
+    }
+  }
+  if (!entities.size) return undefined
+  return {
+    teamKeys: joinKnown(parsed.map((event) => event.teamKeys)),
+    projectIds: joinKnown(parsed.map((event) => event.projectIds)),
+    entities: [...entities.values()],
+  }
 }
