@@ -2080,9 +2080,11 @@ async function hashBlobs(
 }
 
 /**
- * The content of each blob id, with one `git cat-file --batch` for each 500
- * ids, so that the output limit of runGit applies to 500 files, not to all
- * of them. An id that is missing or that is not a blob has no entry.
+ * The content of each blob id. `git cat-file --batch-check` gives the sizes,
+ * and each `git cat-file --batch` call reads blobs of at most 64 MiB in
+ * total, so that the output limit of runGit applies as it does to one file
+ * (a larger blob gets a call of its own). An id that is missing or that is
+ * not a blob has no entry.
  */
 export async function readBlobs(
   repoDir: string,
@@ -2090,25 +2092,33 @@ export async function readBlobs(
 ): Promise<Map<string, Buffer>> {
   const unique = [...new Set(shas)]
   const blobs = new Map<string, Buffer>()
-  for (let from = 0; from < unique.length; from += 500) {
+  if (unique.length === 0) return blobs
+  const batches: string[][] = []
+  let size = Infinity
+  const checked = await git(repoDir, ["cat-file", "--batch-check"], {
+    input: `${unique.join("\n")}\n`,
+  })
+  for (const line of checked.toString().split("\n")) {
+    const [sha = "", type, bytes] = line.split(" ")
+    if (type !== "blob") continue
+    if (size + Number(bytes) > 64 * 1024 * 1024) {
+      batches.push([])
+      size = 0
+    }
+    batches.at(-1)?.push(sha)
+    size += Number(bytes)
+  }
+  for (const batch of batches) {
     const out = await git(repoDir, ["cat-file", "--batch"], {
-      input: `${unique.slice(from, from + 500).join("\n")}\n`,
+      input: `${batch.join("\n")}\n`,
     })
     let offset = 0
-    while (offset < out.length) {
+    for (const sha of batch) {
       const newline = out.indexOf(0x0a, offset)
-      const [sha = "", type, size] = out
-        .subarray(offset, newline)
-        .toString()
-        .split(" ")
-      // "<id> missing" has no content.
-      if (type === "missing") {
-        offset = newline + 1
-        continue
-      }
-      const length = Number(size)
-      if (type === "blob")
-        blobs.set(sha, out.subarray(newline + 1, newline + 1 + length))
+      const length = Number(
+        out.subarray(offset, newline).toString().split(" ")[2],
+      )
+      blobs.set(sha, out.subarray(newline + 1, newline + 1 + length))
       offset = newline + 1 + length + 1
     }
   }
