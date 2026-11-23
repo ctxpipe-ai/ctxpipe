@@ -19,7 +19,7 @@ type Scope = Record<string, unknown>
  */
 export function splitLegacyScope(schema: z.ZodType, scope: Scope): Scope[] {
   const parsed = schema.safeParse(scope)
-  const issue = parsed.success ? undefined : arrayCap(parsed.error.issues)
+  const issue = parsed.success ? undefined : listAboveCap(parsed.error.issues)
   if (!issue) return [scope]
   const max = issue.maximum
   const [key, index, inner] = issue.path
@@ -67,7 +67,7 @@ export function splitLegacyScope(schema: z.ZodType, scope: Scope): Scope[] {
  * be in a branch of an `invalid_union` issue (Confluence `pages`). The path
  * of a branch issue starts at the union.
  */
-function arrayCap(
+function listAboveCap(
   issues: readonly z.core.$ZodIssue[],
   prefix: readonly PropertyKey[] = [],
 ): { maximum: number; path: PropertyKey[] } | undefined {
@@ -77,7 +77,7 @@ function arrayCap(
       return { maximum: Number(issue.maximum), path }
     if (issue.code === "invalid_union")
       for (const branch of issue.errors) {
-        const found = arrayCap(branch, path)
+        const found = listAboveCap(branch, path)
         if (found) return found
       }
   }
