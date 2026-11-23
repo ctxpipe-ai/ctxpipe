@@ -68,6 +68,13 @@ export type SourceAdapter<
   /** Optional. Whether a provider webhook event touches this scope. Default: yes. */
   matchesEvent?(input: { event: unknown; scope: S }): boolean
   /**
+   * Optional. Join the webhook events of one connection into one event
+   * (CTX-1595). A provider with this function coalesces its webhooks: they
+   * wait together, and one sync applies all of them. `undefined` means a sync
+   * without an event, that is a full sync of the connection.
+   */
+  mergeEvents?(events: readonly unknown[]): unknown
+  /**
    * Optional. A sync problem of an `ok` source, for example a page that
    * failed too many times. The source list shows it at read time.
    */

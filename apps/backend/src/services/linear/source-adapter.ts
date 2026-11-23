@@ -43,7 +43,11 @@ import {
 } from "./content.js"
 import { buildLinearIncrementalChanges } from "./incremental.js"
 import { loadProject } from "./read.js"
-import { linearEventMatches, linearSourceEventSchema } from "./source-event.js"
+import {
+  linearEventMatches,
+  linearSourceEventSchema,
+  mergeLinearSourceEvents,
+} from "./source-event.js"
 import { captureLinearContent } from "./sync.js"
 
 /**
@@ -346,12 +350,14 @@ async function readRoot(input: {
   const existingShaByPath = new Map(
     input.existing.blobs.map((blob) => [blob.path, blob.sha]),
   )
-  if (input.incremental && input.event?.entity) {
+  const entities =
+    input.event?.entities ?? (input.event?.entity ? [input.event.entity] : [])
+  if (input.incremental && entities.length) {
     const changes = await buildLinearIncrementalChanges({
       env: input.env,
       connection: await input.connection(),
       config,
-      entities: [input.event.entity],
+      entities,
       existingPaths: input.existing.paths,
       existingShaByPath,
       onTokenRefresh: input.onTokenRefresh,
@@ -535,4 +541,5 @@ export const linearSourceAdapter: SourceAdapter = {
     }),
   matchesEvent: ({ event, scope }) =>
     linearEventMatches(event, linearScopeSchema.parse(scope)),
+  mergeEvents: mergeLinearSourceEvents,
 }
