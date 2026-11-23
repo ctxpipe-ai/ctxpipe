@@ -95,4 +95,16 @@ describe("withProxyCa", () => {
 
     expect(caWrites(created.id)).toBe(3)
   })
+  it("lets only one of two concurrent attaches skip the CA write", async () => {
+    const { provider, caWrites } = recordingProvider()
+    const withCa = withProxyCa(provider, CA)
+
+    const created = await withCa.create({})
+    await Promise.all([
+      withCa.resume({ id: created.id }),
+      withCa.resume({ id: created.id }),
+    ])
+
+    expect(caWrites(created.id)).toBe(2)
+  })
 })
