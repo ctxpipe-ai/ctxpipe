@@ -251,9 +251,14 @@ async function runOnWorker(
       const execution = openWorkflowExecution(step, run.id)
       const body = async () => {
         await runSkillPages({
-          step: guardedSkillStep(step, run.id, orgId),
+          step: guardedSkillStep(step, run.id, {
+            orgId,
+            runId: ingestionRunId,
+            shard: 0,
+          }),
           execution,
           run: {
+            orgId,
             runId: ingestionRunId,
             shard: 0,
             bundle: "bundle-1",

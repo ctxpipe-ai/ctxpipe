@@ -11,6 +11,7 @@ import type {
   IngestShardRuntimeFactory,
   IngestStepUsage,
 } from "../domain/ingestion/ingest-shard-runtime.js"
+import { addIngestModelCost } from "../domain/ingestion/ingest-spend.js"
 import { withExistingRootFiles } from "../domain/ingestion/ingestion-plan.js"
 
 const exec = promisify(execFile)
@@ -25,7 +26,8 @@ const exec = promisify(execFile)
  * the paths of the index entries) and stages the files of the reply
  * (`{ files: [{ path, content }], more?, usage? }`); `more` runs
  * `ctxpipe-finish --more`, and `usage` is the model usage that the step
- * reports.
+ * reports. The `costUsd` of `usage` goes to Postgres, as the model proxy
+ * records it.
  *
  * The folder is named by run and shard, so a replacement worker process finds
  * it, and `ensure` makes it again when it is gone (a lost sandbox). A folder
@@ -202,6 +204,23 @@ export function standInIngestShardRuntime(options: {
             usage?: IngestStepUsage
           }
           usage = reply.usage
+          // As the model proxy: the gateway cost of the call goes to
+          // Postgres, and OpenCode reports only the tokens (CTX-1522).
+          if (reply.usage?.costUsd !== undefined) {
+            await addIngestModelCost(
+              {
+                orgId: spec.orgId,
+                runId: spec.runId,
+                shard: spec.shard,
+                step: step.name,
+              },
+              reply.usage.costUsd,
+            )
+            usage = {
+              inputTokens: reply.usage.inputTokens,
+              outputTokens: reply.usage.outputTokens,
+            }
+          }
           // One ctxpipe-stage call stages each file of the reply.
           if (reply.files.length)
             await node(

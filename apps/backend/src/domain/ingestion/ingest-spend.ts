@@ -1,8 +1,12 @@
-import { sql } from "drizzle-orm"
+import { and, eq, sql } from "drizzle-orm"
 
-import { getSystemDb } from "../../db/client.js"
+import { getSystemDb, withOrgDbContext } from "../../db/client.js"
+import { ingestModelCosts } from "../../db/schema/ingest-model-costs.js"
+import { log } from "../../observability/logger.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
+import type { WorkspaceChatCompletionUsage } from "../workspaces/workspace-chat-model-proxy.js"
 import type { IngestStepUsage } from "./ingest-shard-runtime.js"
+import { ingestErrorFields, logIngestEvent } from "./ingest-telemetry.js"
 
 /*
  * The model spend of an ingestion v2 run. ctxpipe records the spend in the
@@ -12,7 +16,9 @@ import type { IngestStepUsage } from "./ingest-shard-runtime.js"
 
 /**
  * USD for one million tokens of the medium tier. The spend converts the
- * reported tokens of a step with it, when the gateway reports no cost. A
+ * reported tokens of a call or a step with it only when the gateway reports
+ * no cost. These prices can be much higher than the prices of the model in
+ * use (CTX-1522), so each such conversion at the model proxy is a log event. A
  * cache read costs a tenth of an input token (CTX-900): a step that reads
  * its prompt from the cache again on each model call would otherwise look
  * many times too expensive.
@@ -29,6 +35,129 @@ export function ingestUsageUsd(usage: IngestStepUsage): number {
       usage.outputTokens * USD_PER_MILLION_TOKENS.output) /
     1_000_000
   )
+}
+
+/** The USD that the spend of a run counts for one model call. */
+export type IngestModelCallCost = { usd: number; estimated: boolean }
+
+/**
+ * The USD of one model call of an ingest step at the model proxy: the
+ * gateway cost, else the tokens of the call at the fallback prices
+ * (`estimated`). Undefined when the call reports no usage (a failed call).
+ */
+export function ingestModelCallUsd(
+  usage: WorkspaceChatCompletionUsage | null | undefined,
+): IngestModelCallCost | undefined {
+  if (usage?.cost !== undefined) return { usd: usage.cost, estimated: false }
+  if (usage?.inputTokens === undefined && usage?.outputTokens === undefined)
+    return undefined
+  return {
+    usd: ingestUsageUsd({
+      inputTokens: usage.inputTokens ?? 0,
+      outputTokens: usage.outputTokens ?? 0,
+      cacheReadTokens: usage.cachedInputTokens ?? 0,
+    }),
+    estimated: true,
+  }
+}
+
+/** One ingestion v2 step: the model proxy adds the cost of its calls. */
+type IngestModelStep = {
+  orgId: string
+  runId: string
+  shard: number
+  /** The step name of the ingest capability (`ingest.step`). */
+  step: string
+}
+
+/**
+ * Add the USD of one model call to its step. The row is in Postgres, so the
+ * model proxy (on the API) and the step (on the worker) share it.
+ */
+export async function addIngestModelCost(
+  step: IngestModelStep,
+  usd: number,
+): Promise<void> {
+  await withOrgDbContext(step.orgId, (db) =>
+    db
+      .insert(ingestModelCosts)
+      .values({ ...step, costUsd: usd })
+      .onConflictDoUpdate({
+        target: [
+          ingestModelCosts.orgId,
+          ingestModelCosts.runId,
+          ingestModelCosts.shard,
+          ingestModelCosts.step,
+        ],
+        set: { costUsd: sql`${ingestModelCosts.costUsd} + ${usd}` },
+      }),
+  )
+}
+
+/**
+ * The USD that the model proxy recorded for all calls of the step, of all
+ * its attempts. Null when no call was recorded. The read clears nothing, so
+ * a step that runs again after a worker stop reads the same sum again.
+ */
+export async function readIngestModelCost(
+  step: IngestModelStep,
+): Promise<number | null> {
+  const [row] = await withOrgDbContext(step.orgId, (db) =>
+    db
+      .select({ usd: ingestModelCosts.costUsd })
+      .from(ingestModelCosts)
+      .where(
+        and(
+          eq(ingestModelCosts.orgId, step.orgId),
+          eq(ingestModelCosts.runId, step.runId),
+          eq(ingestModelCosts.shard, step.shard),
+          eq(ingestModelCosts.step, step.step),
+        ),
+      ),
+  )
+  return row?.usd ?? null
+}
+
+/**
+ * The usage of a model step with the cost that the model proxy recorded for
+ * it (CTX-1522). The proxy is the only source of the cost of a model step:
+ * the fixed prices of OpenCode can be many times too high. With no recorded
+ * cost, the cost is 0 and a log event tells it. When the read fails, the
+ * cost is 0, the step counts as unknown, and the error is a log event. No
+ * usage and no recorded cost gives no usage: no model ran.
+ */
+export async function withRecordedModelCost(
+  step: IngestModelStep,
+  reported: IngestStepUsage | undefined,
+): Promise<IngestStepUsage | undefined> {
+  const fields = {
+    ingestionRunId: step.runId,
+    shard: step.shard,
+    ingestStep: step.step,
+  }
+  const recorded = await readIngestModelCost(step).catch((error: unknown) => {
+    log.error({
+      step: "ingestion-v2.model-cost-read-failed",
+      ...fields,
+      ...ingestErrorFields(error),
+    })
+    return "failed" as const
+  })
+  if (recorded === null && !reported) return undefined
+  const usage = reported ?? { inputTokens: 0, outputTokens: 0 }
+  if (recorded === "failed")
+    return {
+      ...usage,
+      costUsd: 0,
+      unknownSteps: Math.max(usage.unknownSteps ?? 0, 1),
+    }
+  if (recorded === null && usage.inputTokens + usage.outputTokens > 0)
+    logIngestEvent("warn", "ingestion-v2.model-cost-missing", {
+      ...fields,
+      reason:
+        "The model step reported tokens, but the model proxy recorded no cost for it: the spend counts 0 for the step",
+    })
+  return { ...usage, costUsd: recorded ?? 0 }
 }
 
 /** The ingestion v2 run `runId` and its child runs (the shards), as a `tree(id)` CTE. */

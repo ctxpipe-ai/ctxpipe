@@ -8,6 +8,7 @@ import {
 } from "@opentelemetry/sdk-trace-base"
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 import { eq } from "drizzle-orm"
+import { initLogger } from "evlog"
 import { HttpResponse, http } from "msw"
 import { BackendPostgres } from "openworkflow/postgres"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
@@ -25,6 +26,12 @@ import { organizations } from "../../db/schema/auth.js"
 import { conversations } from "../../db/schema/conversations.js"
 import { sandboxLocks } from "../../db/schema/sandbox-locks.js"
 import { workspaces } from "../../db/schema/workspaces.js"
+import { parseOpenCodeUsage } from "../../domain/ingestion/ingest-opencode-usage.js"
+import {
+  readIngestModelCost,
+  ingestUsageUsd,
+  withRecordedModelCost,
+} from "../../domain/ingestion/ingest-spend.js"
 import {
   INGESTION_V2_WORKFLOW_NAME,
   type IngestionV2RunInput,
@@ -98,7 +105,11 @@ function app(): OpenAPIHono<AppEnv> {
   return routes
 }
 
-async function complete(token: string, model?: string): Promise<number> {
+async function complete(
+  token: string,
+  model?: string,
+  extra?: Record<string, unknown>,
+): Promise<number> {
   const res = await app().request(
     "/acme/api/v1/workspace-chat/openai/v1/chat/completions",
     {
@@ -110,6 +121,7 @@ async function complete(token: string, model?: string): Promise<number> {
       body: JSON.stringify({
         ...(model ? { model } : {}),
         messages: [{ role: "user", content: "hi" }],
+        ...extra,
       }),
     },
   )
@@ -328,6 +340,15 @@ describe("workspace-ingest-model capability", () => {
       lockOwner,
     })
     expect(await listModels(capability)).toBe(200)
+    server.use(
+      http.post(`${MODEL_PROVIDER_URL}/chat/completions`, () =>
+        HttpResponse.json({
+          id: "chatcmpl_ingest",
+          choices: [{ message: { role: "assistant", content: "ok" } }],
+          usage: { prompt_tokens: 120, completion_tokens: 30, cost: 0.0042 },
+        }),
+      ),
+    )
     exporter.reset()
     expect(await complete(capability)).toBe(200)
     // Attributed to the run, the shard, and the step; never to a conversation.
@@ -350,7 +371,259 @@ describe("workspace-ingest-model capability", () => {
       "ctxpipe.ingest.run.id": runId,
       "ctxpipe.ingest.shard": "0",
       "ctxpipe.ingest.step": "skill:root:docs",
+      "gen_ai.usage.input_tokens": 120,
+      "gen_ai.usage.output_tokens": 30,
+      "gen_ai.usage.cost": 0.0042,
+      "ctxpipe.ingest.model_call.cost_estimated": false,
     })
+  })
+
+  it("gives the step a spend that equals the sum of the cost spans of its calls", async () => {
+    const runId = await startRun(orgId)
+    const lockOwner = await holdShard(runId, 0)
+    const step = { orgId, runId, shard: 0, step: "skill:root:apis" }
+    const capability = await mintWorkspaceIngestRunCapability({
+      authSecret: AUTH_SECRET,
+      orgId,
+      orgSlug,
+      runId,
+      shard: 0,
+      step: "skill:root:apis",
+      lockOwner,
+    })
+    expect(await readIngestModelCost(step)).toBeNull()
+    // A streamed answer ends with a usage chunk; with a bring-your-own-key
+    // route, the gateway puts the provider charge in `cost_details`.
+    const usages = [
+      {
+        prompt_tokens: 1_000,
+        completion_tokens: 50,
+        prompt_tokens_details: { cached_tokens: 800 },
+        cost: 0.0003,
+        is_byok: true,
+        cost_details: { upstream_inference_cost: 0.006 },
+      },
+      { prompt_tokens: 2_000, completion_tokens: 100, cost: 0.0011 },
+      // No gateway cost: the fallback prices, and a log event.
+      { prompt_tokens: 10_000, completion_tokens: 1_000 },
+    ]
+    let next = 0
+    server.use(
+      http.post(`${MODEL_PROVIDER_URL}/chat/completions`, () => {
+        const usage = usages[next++]
+        if (next === 1)
+          return new HttpResponse(
+            [
+              `data: ${JSON.stringify({ choices: [{ delta: { content: "ok" } }] })}`,
+              `data: ${JSON.stringify({ choices: [], usage })}`,
+              "data: [DONE]",
+              "",
+            ].join("\n\n"),
+            { headers: { "content-type": "text/event-stream" } },
+          )
+        return HttpResponse.json({
+          choices: [{ message: { role: "assistant", content: "ok" } }],
+          usage,
+        })
+      }),
+    )
+    exporter.reset()
+    expect(await complete(capability, "medium", { stream: true })).toBe(200)
+    expect(await complete(capability)).toBe(200)
+    expect(await complete(capability)).toBe(200)
+    const calls = exporter
+      .getFinishedSpans()
+      .filter((span) => span.name === "ingestion.model_call")
+    expect(calls).toHaveLength(3)
+    const spanCosts = calls.map((span) => span.attributes["gen_ai.usage.cost"])
+    expect(spanCosts.slice(0, 2)).toEqual([0.0063, 0.0011])
+    expect(
+      calls.map(
+        (span) => span.attributes["ctxpipe.ingest.model_call.cost_estimated"],
+      ),
+    ).toEqual([false, false, true])
+    // Each call has one span with its tokens.
+    expect(
+      calls.map((span) => [
+        span.attributes["gen_ai.usage.input_tokens"],
+        span.attributes["gen_ai.usage.output_tokens"],
+      ]),
+    ).toEqual([
+      [1_000, 50],
+      [2_000, 100],
+      [10_000, 1_000],
+    ])
+    expect(calls[0]?.attributes["gen_ai.usage.cache_read.input_tokens"]).toBe(
+      800,
+    )
+    // 10,000 input tokens at $3 and 1,000 output tokens at $15 per million.
+    expect(spanCosts[2]).toBeCloseTo(0.045, 10)
+    const spanSum = spanCosts.reduce(
+      (sum: number, cost) => sum + Number(cost),
+      0,
+    )
+    // The proxy wrote the cost before the answer ended, so the step reads
+    // all of it when `opencode run` exits. OpenCode reports no cost for a
+    // model with no price in its config.
+    const recorded = await readIngestModelCost(step)
+    expect(recorded).toBeCloseTo(spanSum, 10)
+    const usage = await withRecordedModelCost(
+      step,
+      parseOpenCodeUsage(
+        `{"type":"step_finish","part":{"cost":0,"tokens":{"input":13000,"output":1150}}}`,
+      ),
+    )
+    expect(usage).toMatchObject({ inputTokens: 13_000, outputTokens: 1_150 })
+    if (!usage) throw new Error("The step has no usage")
+    expect(ingestUsageUsd(usage)).toBeCloseTo(spanSum, 10)
+  })
+
+  /** Stream one answer; `atEnd` runs when the client sees the end marker. */
+  async function streamUntilEnd(
+    token: string,
+    atEnd: () => Promise<void>,
+  ): Promise<{ status: number; text: string }> {
+    const res = await app().request(
+      "/acme/api/v1/workspace-chat/openai/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          messages: [{ role: "user", content: "hi" }],
+          stream: true,
+        }),
+      },
+    )
+    if (!res.body) throw new Error("The answer has no body")
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    let text = ""
+    let ended = false
+    for (;;) {
+      const { value, done } = await reader.read()
+      if (done) break
+      text += decoder.decode(value, { stream: true })
+      if (!ended && text.includes("data: [DONE]")) {
+        ended = true
+        await atEnd()
+      }
+    }
+    return { status: res.status, text }
+  }
+
+  /**
+   * An upstream stream with a usage chunk and a split end marker. With
+   * `closeAfterMs`, it closes its body that time after the marker: the
+   * proxy writes the cost only at the body end.
+   */
+  function sseStream(usage: Record<string, unknown>, closeAfterMs = 0) {
+    const encoder = new TextEncoder()
+    return new HttpResponse(
+      new ReadableStream<Uint8Array>({
+        async start(controller) {
+          controller.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({ choices: [{ delta: { content: "ok" } }] })}\n\ndata: ${JSON.stringify({ choices: [], usage })}\n\n`,
+            ),
+          )
+          // The marker comes in two chunks: the proxy must hold both.
+          controller.enqueue(encoder.encode("data: [DO"))
+          controller.enqueue(encoder.encode("NE]\n\n"))
+          if (closeAfterMs)
+            await new Promise((resolve) => setTimeout(resolve, closeAfterMs))
+          controller.close()
+        },
+      }),
+      { headers: { "content-type": "text/event-stream" } },
+    )
+  }
+
+  it("holds back the end marker of a streamed answer until the cost of the call is in Postgres", async () => {
+    const runId = await startRun(orgId)
+    const lockOwner = await holdShard(runId, 0)
+    const step = { orgId, runId, shard: 0, step: "skill:root:docs" }
+    const capability = await mintWorkspaceIngestRunCapability({
+      authSecret: AUTH_SECRET,
+      orgId,
+      orgSlug,
+      runId,
+      shard: 0,
+      step: step.step,
+      lockOwner,
+    })
+    server.use(
+      http.post(`${MODEL_PROVIDER_URL}/chat/completions`, () =>
+        sseStream(
+          {
+            prompt_tokens: 10,
+            completion_tokens: 2,
+            cost: 0.002,
+          },
+          300,
+        ),
+      ),
+    )
+    let costAtEnd: number | null = null
+    const { status, text } = await streamUntilEnd(capability, async () => {
+      costAtEnd = await readIngestModelCost(step)
+    })
+    expect(status).toBe(200)
+    expect(text).toContain('"content":"ok"')
+    expect(text.endsWith("data: [DONE]\n\n")).toBe(true)
+    // A client that stops at the marker does not stop before the write.
+    expect(costAtEnd).toBe(0.002)
+  })
+
+  it("logs a failed cost write as an error, and the answer still ends", async () => {
+    const events: Array<Record<string, unknown>> = []
+    initLogger({
+      pretty: false,
+      silent: true,
+      env: { service: "ctxpipe-backend-test" },
+      drain: (ctx) => {
+        events.push(ctx.event as Record<string, unknown>)
+      },
+    })
+    try {
+      const runId = await startRun(orgId)
+      const lockOwner = await holdShard(runId, 0)
+      // Postgres refuses a NUL character in text, so the write fails.
+      const capability = await mintWorkspaceIngestRunCapability({
+        authSecret: AUTH_SECRET,
+        orgId,
+        orgSlug,
+        runId,
+        shard: 0,
+        step: "skill:root:\u0000",
+        lockOwner,
+      })
+      server.use(
+        http.post(`${MODEL_PROVIDER_URL}/chat/completions`, () =>
+          sseStream({
+            prompt_tokens: 10,
+            completion_tokens: 2,
+            cost: 0.002,
+          }),
+        ),
+      )
+      const { status, text } = await streamUntilEnd(capability, async () => {})
+      expect(status).toBe(200)
+      expect(text.endsWith("data: [DONE]\n\n")).toBe(true)
+      expect(
+        events.filter((e) => e.step === "ingestion-v2.model-cost-write-failed"),
+      ).toEqual([
+        expect.objectContaining({
+          level: "error",
+          ingestionRunId: runId,
+          usd: 0.002,
+        }),
+      ])
+    } finally {
+      initLogger({ enabled: false, env: { service: "ctxpipe-backend-test" } })
+    }
   })
 
   it("sends an ingest step to the configured model of the tier that it asks for", async () => {

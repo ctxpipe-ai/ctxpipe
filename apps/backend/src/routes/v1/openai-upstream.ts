@@ -85,7 +85,7 @@ export async function forwardToUpstream(
     step?: string
     origin?: string
     observe?: (chunk: Uint8Array) => void
-    onObservedComplete?: (status: number) => void
+    onObservedComplete?: (status: number) => void | Promise<void>
   },
 ) {
   const env = c.var.env
@@ -97,7 +97,7 @@ export async function forwardToUpstream(
   })
   if (!fetched.ok) {
     if (fetched.reason === "no-upstream-key") {
-      options?.onObservedComplete?.(503)
+      void options?.onObservedComplete?.(503)
       return c.json(
         unavailableResponse(
           "no-upstream-key",
@@ -112,7 +112,7 @@ export async function forwardToUpstream(
       orgId: c.get("orgId"),
       conversationId: options?.conversationId,
     })
-    options?.onObservedComplete?.(502)
+    void options?.onObservedComplete?.(502)
     return c.json({ error: "upstream unreachable" }, 502)
   }
   const { upstream, target, startedAt } = fetched
@@ -138,7 +138,12 @@ export async function forwardToUpstream(
 
 type CompletionObserver = {
   observe?: (chunk: Uint8Array) => void
-  onObservedComplete?: (status: number) => void
+  /**
+   * A returned promise holds back the end of a complete body until it
+   * settles, so that a write of the call's cost ends before the caller sees
+   * the end of the answer.
+   */
+  onObservedComplete?: (status: number) => void | Promise<void>
 }
 
 /** Close the observation on EOF, upstream failure, or client cancellation. */
@@ -148,7 +153,7 @@ function observedBody(
   signal?: AbortSignal,
 ): ReadableStream<Uint8Array> {
   if (!observer?.observe || !response.body) {
-    observer?.onObservedComplete?.(response.status)
+    void observer?.onObservedComplete?.(response.status)
     // No upstream body sends an empty body.
     return (
       response.body ??
@@ -159,39 +164,92 @@ function observedBody(
   }
   const reader = response.body.getReader()
   let ended = false
-  const finish = (status: number) => {
+  const finish = async (status: number) => {
     if (ended) return
     ended = true
     signal?.removeEventListener("abort", abort)
-    observer.onObservedComplete?.(status)
+    await observer.onObservedComplete?.(status)
   }
   const abort = () => {
-    finish(499)
-    void reader.cancel().catch(() => {})
+    void finish(499).finally(() => reader.cancel().catch(() => {}))
   }
   signal?.addEventListener("abort", abort, { once: true })
   if (signal?.aborted) abort()
+  const endMarker = sseEndMarker()
   return new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
-        const { value, done } = await reader.read()
-        if (done) {
-          finish(response.status)
-          controller.close()
-        } else {
+        // A pull that enqueues nothing can stall the stream: read on until
+        // there are bytes to give or the body ends.
+        for (;;) {
+          const { value, done } = await reader.read()
+          if (done) {
+            await finish(response.status)
+            const end = endMarker.rest()
+            if (end.length) controller.enqueue(end)
+            controller.close()
+            return
+          }
           observer.observe?.(value)
-          controller.enqueue(value)
+          const ready = endMarker.take(value)
+          if (ready.length) {
+            controller.enqueue(ready)
+            return
+          }
         }
       } catch (error) {
-        finish(502)
+        await finish(502)
         controller.error(error)
       }
     },
     async cancel(reason) {
-      finish(499)
+      await finish(499)
       await reader.cancel(reason)
     },
   })
+}
+
+/**
+ * Hold back the SSE end marker (`data: [DONE]` at the start of a line) and
+ * all bytes after it until the body ends. A client can stop at the marker, so
+ * it must not get it before `onObservedComplete` settles (CTX-1522). `take`
+ * gives the bytes of a chunk that can go now; it also holds a chunk end that
+ * can be the start of a marker that the next chunk completes. `rest` gives
+ * what it held.
+ */
+function sseEndMarker() {
+  const marker = new TextEncoder().encode("data: [DONE]")
+  const newline = 10
+  let held = new Uint8Array(0)
+  // The last byte that went to the client; the body start is a line start.
+  let sent = newline
+  let seen = false
+  const startsMarkerAt = (bytes: Uint8Array, at: number) => {
+    if ((at === 0 ? sent : bytes[at - 1]) !== newline) return false
+    for (let i = 0; i < marker.length && at + i < bytes.length; i++)
+      if (bytes[at + i] !== marker[i]) return false
+    return true
+  }
+  return {
+    take(chunk: Uint8Array): Uint8Array {
+      const bytes = new Uint8Array(held.length + chunk.length)
+      bytes.set(held)
+      bytes.set(chunk, held.length)
+      if (seen) {
+        held = bytes
+        return new Uint8Array(0)
+      }
+      // The first line start where the marker starts, completely or as a
+      // part that runs to the chunk end.
+      let at = 0
+      while (at < bytes.length && !startsMarkerAt(bytes, at)) at++
+      if (at + marker.length <= bytes.length) seen = true
+      held = bytes.subarray(at)
+      if (at > 0) sent = bytes[at - 1] ?? sent
+      return bytes.subarray(0, at)
+    },
+    rest: () => held,
+  }
 }
 
 export async function handleNativeBedrockResponse(
@@ -220,7 +278,7 @@ export async function handleNativeBedrockResponse(
       const errorBody = await response.json().catch(() => ({
         error: "bedrock request failed",
       }))
-      observer?.onObservedComplete?.(response.status)
+      void observer?.onObservedComplete?.(response.status)
       return c.json(errorBody, response.status as 400 | 401 | 404 | 429 | 503)
     }
 
@@ -234,7 +292,7 @@ export async function handleNativeBedrockResponse(
 
     const json = await response.json()
     observer?.observe?.(new TextEncoder().encode(JSON.stringify(json)))
-    observer?.onObservedComplete?.(response.status)
+    await observer?.onObservedComplete?.(response.status)
     return c.json(json, 200)
   } catch (err) {
     getLogger().error(err instanceof Error ? err : new Error(String(err)), {
@@ -243,7 +301,7 @@ export async function handleNativeBedrockResponse(
       orgId: c.get("orgId"),
       userId: c.get("user")?.id,
     })
-    observer?.onObservedComplete?.(502)
+    void observer?.onObservedComplete?.(502)
     return c.json({ error: "bedrock request failed" }, 502)
   }
 }

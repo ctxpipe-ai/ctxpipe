@@ -31,6 +31,7 @@ import {
   ingestSourceTree,
   releaseIngestSourceTree,
 } from "../../domain/ingestion/ingest-source-tree.js"
+import { withRecordedModelCost } from "../../domain/ingestion/ingest-spend.js"
 import {
   readStepStats,
   withIngestStepOutput,
@@ -329,7 +330,7 @@ export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
               const current = state.get(destination.workspaceId)
               if (!current) continue
               await runSkillPages({
-                step: guardedSkillStep(step, run.id, input.orgId),
+                step: guardedSkillStep(step, run.id, input),
                 execution,
                 // Each step commit names the bundle that wrote it.
                 run: { ...input, bundle: bundle.name },
@@ -414,7 +415,7 @@ export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
 /** The run fields that a skill step reads. */
 type SkillRun = Pick<
   IngestionShardInput,
-  "runId" | "bundle" | "source" | "authorTime" | "roots"
+  "orgId" | "runId" | "bundle" | "source" | "authorTime" | "roots"
 > & {
   /** The shard number, for telemetry; the parent's steps run in shard 0. */
   shard?: number
@@ -507,7 +508,8 @@ export function workspaceSkillBroker(input: {
  * The `step` of `runSkillPages`: one `step.run` with no OpenWorkflow retry,
  * in the org of the run. A step that stopped the worker again and again
  * (CTX-971) ends `partial` with the `crashLoop` cause and does not run
- * again; the run goes on with the next step.
+ * again; the run goes on with the next step. Its output keeps the model
+ * cost that the proxy recorded for the stopped attempts (CTX-1522).
  */
 export function guardedSkillStep(
   step: {
@@ -517,15 +519,25 @@ export function guardedSkillStep(
     ) => Promise<O>
   },
   workflowRunId: string,
-  orgId: string,
+  ingest: { orgId: string; runId: string; shard: number },
 ): SkillPages["step"] {
   return (name, fn) =>
     step.run({ name, retryPolicy: { maximumAttempts: 1 } }, () =>
       withCrashLoopGuard(
         workflowRunId,
         name,
-        () => withIngestionOrg(orgId, fn),
-        (): StepResult => ({ partial: true, failed: "crashLoop" }),
+        () => withIngestionOrg(ingest.orgId, fn),
+        async (): Promise<StepResult> => {
+          const usage = await withRecordedModelCost(
+            { ...ingest, step: name },
+            undefined,
+          )
+          return {
+            partial: true,
+            failed: "crashLoop",
+            ...(usage ? { usage } : {}),
+          }
+        },
       ),
     )
 }
@@ -722,7 +734,22 @@ function runSkillStep(ctx: SkillStep): Promise<StepResult> {
       "ctxpipe.ingest.ref.base": ctx.oldTip ?? ctx.runBase,
     },
     async (span) => {
-      const result = await attemptSkillStep(ctx, span)
+      const attempted = await attemptSkillStep(ctx, span)
+      // The cost of a model step is the cost that the model proxy recorded
+      // for the calls of all its attempts (CTX-1522).
+      const usage =
+        ctx.skill.run === "model"
+          ? await withRecordedModelCost(
+              {
+                orgId: ctx.run.orgId,
+                runId: ctx.run.runId,
+                shard: ctx.run.shard ?? 0,
+                step: ctx.name,
+              },
+              attempted.usage,
+            )
+          : attempted.usage
+      const result = usage ? { ...attempted, usage } : attempted
       if (result.partial) {
         span.setAttribute("ctxpipe.ingest.partial", true)
         span.setStatus({ code: SpanStatusCode.ERROR, message: "partial" })

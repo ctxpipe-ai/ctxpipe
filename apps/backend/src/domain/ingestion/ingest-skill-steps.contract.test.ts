@@ -324,6 +324,7 @@ async function hostSkill(input: {
       return fn()
     },
     run: {
+      orgId: "org_contract",
       runId: RUN_ID,
       bundle: "ingest-contract",
       source: {
@@ -820,6 +821,7 @@ describe("one ingestion run of each skill through the host path (Docker)", () =>
         return fn()
       },
       run: {
+        orgId: "org_contract",
         runId: RUN_ID,
         bundle: "ingest-contract",
         source: {

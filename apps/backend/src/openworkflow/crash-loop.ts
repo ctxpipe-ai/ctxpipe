@@ -156,7 +156,7 @@ export async function withCrashLoopGuard<T>(
   workflowRunId: string,
   stepName: string,
   fn: () => Promise<T>,
-  onCrashLoop?: (error: StepCrashLoopError) => T,
+  onCrashLoop?: (error: StepCrashLoopError) => T | Promise<T>,
 ): Promise<T> {
   const [attemptId, ...crashed] = await runningStepAttempts(
     workflowRunId,
