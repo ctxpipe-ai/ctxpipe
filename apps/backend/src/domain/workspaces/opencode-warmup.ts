@@ -20,12 +20,18 @@ import { WORKSPACE_CHAT_OPENCODE_START_ENV } from "./workspace-chat-opencode-con
  *   fills. It removes them at the end.
  * - Its OpenCode and its stand-in model listen only on loopback.
  *
+ * It runs at the lowest CPU and I/O priority (`nice`, `ionice` idle class),
+ * and so does its OpenCode. On a new session it runs beside the clone, and
+ * production showed both slow when they compete (a clone of 30 to 37 s
+ * beside a warm-up of 26 to 32 s, and 8 s beside 3 to 5 s). The clone is
+ * on the path of the turn, so it goes first.
+ *
  * It stops itself after the prompt, or after 25 s. Its exit code tells how
  * it ended: 0 after a model call, 2 at the 25 s limit, 3 when OpenCode
  * stopped first, 4 when no model call came, 5 when a request to OpenCode
  * failed, and 6 when `opencode` did not start.
  */
-export const OPENCODE_WARMUP_COMMAND = `node -e '
+export const OPENCODE_WARMUP_COMMAND = `ionice -c 3 nice -n 19 node -e '
 const { spawn } = require("node:child_process")
 const { mkdirSync, rmSync, writeFileSync } = require("node:fs")
 const http = require("node:http")
