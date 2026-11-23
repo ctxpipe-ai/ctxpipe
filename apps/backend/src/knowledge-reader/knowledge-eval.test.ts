@@ -586,6 +586,17 @@ describe("the replay of a Jev question in another call", () => {
     expect(b?.get("b")).toEqual({ pAnswers: 0.3, pExplore: 0.8 })
     expect(a?.get("a")).toEqual({ pAnswers: 0.9, pExplore: 0.2 })
     expect(first.counts).toMatchObject({ jev: 2, missing: 0, unrecorded: 0 })
+    // A run with a live fallback (`--reuse-from`) sends the changed
+    // request, so that the run measures it. The mock refuses each live call.
+    const reuse = new ModelCalls(BASE, 1, calls, { liveFallback: true })
+    const restoreReuse = reuse.install()
+    try {
+      reuse.begin("plane", "question")
+      await expect(judgeWhy(["b"])).rejects.toThrow()
+      expect(reuse.reuseSummary()).toEqual({ reused: 0, live: 1 })
+    } finally {
+      restoreReuse()
+    }
     // The replay keeps the recorded call, so a replay of it answers again.
     const second = await replayed(first.records, () => judgeWhy(["b"]))
     expect((second.result as Map<string, unknown>).get("b")).toEqual({

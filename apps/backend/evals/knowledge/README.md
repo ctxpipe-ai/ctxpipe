@@ -184,6 +184,7 @@ A Jev call that the recording does not hold can still replay, question by questi
 - Each question gets the recorded answer of the same question about the same items, from another call of the same arm and question. The other lines of the state (the question and the intent) must also be the same. The numbers of the items and the other items of the call can be different.
 - The pair facts `same` and `disagree` of the disagreement step do not depend on the order of the two items. The replay reads them in either order.
 - Thus a change of the Jev batches, or a step that asks its questions in another round, replays.
+- `run --reuse-from` does not compose answers: a changed Jev request goes out, so that the run measures it.
 - A question that no recorded call asked makes the call missing, as above. Thus a deeper walk still gives an incomplete answer.
 - `--unrecorded-yes P` gives each such question p(yes) P (0 to 1) instead. Use it for a change that asks questions that it does not read, for example facts that it asks before it knows which items it needs. The report lists the answers with such questions ("Jev questions with no recorded answer"). Run the rescore two times, with 0 and with 1. When the scores are the same, the change does not read these answers.
 - A composed answer has no cost. The run folder keeps the recorded calls that it used, so that a rescore of the new folder composes the same answers.
