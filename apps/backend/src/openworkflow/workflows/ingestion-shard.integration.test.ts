@@ -3,21 +3,29 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { inArray } from "drizzle-orm"
+import { initLogger } from "evlog"
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { stringify } from "yaml"
 
+import { closeDb, getSystemDb, initDb } from "../../db/client.js"
+import { organizations } from "../../db/schema/auth.js"
 import {
   findStepCommit,
   ingestRefName,
   listStepFiles,
   pushIngestStep,
 } from "../../domain/ingestion/ingest-refs.js"
-import {
-  type IngestRuntimeStep,
-  type IngestShardRuntime,
-  withIngestAttemptUsage,
+import type {
+  IngestRuntimeStep,
+  IngestShardRuntime,
 } from "../../domain/ingestion/ingest-shard-runtime.js"
+import {
+  addIngestModelCost,
+  ingestUsageUsd,
+} from "../../domain/ingestion/ingest-spend.js"
 import { skillStepName } from "../../domain/ingestion/ingestion-plan.js"
+import { generateObjectId } from "../../lib/id.js"
 import { createLogger, withLogger } from "../../observability/logger.js"
 import {
   type IngestionShardWorkspace,
@@ -341,16 +349,24 @@ describe("runSkillPages on a shard ref that another execution moved", () => {
     state: IngestionShardWorkspace,
     runtime: IngestShardRuntime,
     cursor?: { finder: string },
-    outputs?: unknown[],
+    model?: {
+      orgId: string
+      /** The step outputs that OpenWorkflow saves. */
+      outputs: unknown[]
+      /** The worker stops after the step body, before the output is saved. */
+      stopBeforeSave?: boolean
+    },
   ) {
     return withLogger(createLogger({ test: "skill-pages-twice" }), () =>
       runSkillPages({
         step: async (_name, fn) => {
           const output = await fn()
-          outputs?.push(output)
+          if (model?.stopBeforeSave) throw new Error("The worker stopped")
+          model?.outputs.push(output)
           return output
         },
         run: {
+          orgId: model?.orgId ?? "org_fixture",
           runId: RUN,
           bundle: "bundle-1",
           source: {
@@ -365,7 +381,12 @@ describe("runSkillPages on a shard ref that another execution moved", () => {
         broker,
         runtime,
         root: ROOT,
-        skill: { name: skill, scope: "root", run: "script", cursor },
+        skill: {
+          name: skill,
+          scope: "root",
+          run: model ? "model" : "script",
+          cursor,
+        },
         destination: {
           workspaceId: WS,
           url: "https://github.com/example-org/context",
@@ -444,36 +465,156 @@ describe("runSkillPages on a shard ref that another execution moved", () => {
     ).resolves.toMatchObject({ cursor: { at: 1, of: 5 }, more: true })
   })
 
-  it("counts the billed calls of a failed attempt in the spend of the step (CTX-1522)", async () => {
-    freshRemote()
-    const state = workspace()
-    const { runtime: staging } = sandbox({
-      "knowledge/services/a.md": service("A"),
+  describe("the cost of a model step (CTX-1522)", () => {
+    const orgIds: string[] = []
+    const events: Array<Record<string, unknown>> = []
+
+    beforeAll(() => {
+      initDb(process.env.DATABASE_URL ?? "")
     })
-    let attempts = 0
-    const runtime = {
-      runStep: async (step: { name: string }) => {
-        attempts++
-        if (attempts === 1)
-          throw withIngestAttemptUsage(
-            new Error("The ingest step reached its time limit"),
-            { inputTokens: 0, outputTokens: 0, costUsd: 0.25 },
-          )
-        return {
-          ...(await staging.runStep(step as IngestRuntimeStep)),
-          usage: { inputTokens: 100, outputTokens: 10, costUsd: 0.5 },
-        }
-      },
-    } as unknown as IngestShardRuntime
-    const outputs: unknown[] = []
-    await runSkill("classify-kind", state, runtime, undefined, outputs)
-    expect(attempts).toBe(2)
-    expect(outputs).toEqual([
-      expect.objectContaining({
-        usage: expect.objectContaining({ costUsd: 0.75 }),
-      }),
-    ])
-  }, 30_000)
+
+    /** Each test has its own org, so that no recorded cost of another test counts. */
+    async function newOrg(): Promise<string> {
+      const orgId = generateObjectId("org")
+      orgIds.push(orgId)
+      await getSystemDb()
+        .insert(organizations)
+        .values({
+          id: orgId,
+          name: "Model cost",
+          slug: `cost-${orgId.slice(-8)}`,
+          createdAt: new Date(),
+        })
+      return orgId
+    }
+
+    afterEach(() => {
+      events.length = 0
+      initLogger({ enabled: false, env: { service: "ctxpipe-backend-test" } })
+    })
+
+    afterAll(async () => {
+      await getSystemDb()
+        .delete(organizations)
+        .where(inArray(organizations.id, orgIds))
+      await closeDb()
+    })
+
+    /**
+     * A model step: the model proxy records `usd` for each attempt, and
+     * OpenCode reports its tokens at its own fixed prices.
+     */
+    function modelSandbox(
+      orgId: string,
+      usd: number,
+      options: { failFirst?: boolean } = {},
+    ) {
+      const { runtime: staging } = sandbox({
+        "knowledge/services/a.md": service("A"),
+      })
+      let attempts = 0
+      const runtime = {
+        runStep: async (step: IngestRuntimeStep) => {
+          attempts++
+          if (usd > 0)
+            await addIngestModelCost(
+              { orgId, runId: RUN, shard: 0, step: step.name },
+              usd,
+            )
+          if (options.failFirst && attempts === 1)
+            throw new Error("The ingest step reached its time limit")
+          return {
+            ...(await staging.runStep(step)),
+            usage: { inputTokens: 100_000, outputTokens: 10_000 },
+          }
+        },
+      } as unknown as IngestShardRuntime
+      return { runtime, attempts: () => attempts }
+    }
+
+    function logEvents() {
+      initLogger({
+        pretty: false,
+        silent: true,
+        env: { service: "ctxpipe-backend-test" },
+        drain: (ctx) => {
+          events.push(ctx.event as Record<string, unknown>)
+        },
+      })
+    }
+
+    it("is the recorded cost of the calls of all attempts, also of a failed attempt", async () => {
+      freshRemote()
+      const orgId = await newOrg()
+      const { runtime, attempts } = modelSandbox(orgId, 0.25, {
+        failFirst: true,
+      })
+      const outputs: unknown[] = []
+      await runSkill("classify-kind", workspace(), runtime, undefined, {
+        orgId,
+        outputs,
+      })
+      expect(attempts()).toBe(2)
+      expect(outputs).toEqual([
+        expect.objectContaining({
+          usage: expect.objectContaining({ costUsd: 0.5 }),
+        }),
+      ])
+    }, 30_000)
+
+    it("is 0 with a log event when the model proxy recorded no cost, not the fixed prices of the tokens", async () => {
+      freshRemote()
+      logEvents()
+      const orgId = await newOrg()
+      const { runtime } = modelSandbox(orgId, 0)
+      const outputs: Array<{ usage?: { costUsd?: number } }> = []
+      await runSkill("classify-kind", workspace(), runtime, undefined, {
+        orgId,
+        outputs,
+      })
+      const usage = outputs[0]?.usage
+      expect(usage).toMatchObject({
+        inputTokens: 100_000,
+        outputTokens: 10_000,
+        costUsd: 0,
+      })
+      if (!usage) throw new Error("The step output has no usage")
+      expect(
+        ingestUsageUsd({ inputTokens: 0, outputTokens: 0, ...usage }),
+      ).toBe(0)
+      expect(
+        events.filter((e) => e.step === "ingestion-v2.model-cost-missing"),
+      ).toHaveLength(1)
+    }, 30_000)
+
+    it("keeps the cost of a step whose worker stopped before the step output was saved", async () => {
+      freshRemote()
+      const state = workspace()
+      const orgId = await newOrg()
+      const stopped = modelSandbox(orgId, 0.25)
+      await expect(
+        runSkill("classify-kind", state, stopped.runtime, undefined, {
+          orgId,
+          outputs: [],
+          stopBeforeSave: true,
+        }),
+      ).rejects.toThrow("The worker stopped")
+      // The next worker runs the step again. It finds the pushed commit, so
+      // it makes no call, and it counts the calls of the stopped worker.
+      const next = modelSandbox(orgId, 0.25)
+      const outputs: unknown[] = []
+      await runSkill("classify-kind", state, next.runtime, undefined, {
+        orgId,
+        outputs,
+      })
+      expect(next.attempts()).toBe(0)
+      expect(outputs).toEqual([
+        expect.objectContaining({
+          usage: expect.objectContaining({ costUsd: 0.25 }),
+        }),
+      ])
+    }, 30_000)
+  })
 
   it("continues from the other execution's commit, with no refusal and no partial step", async () => {
     freshRemote()

@@ -17,12 +17,11 @@ import {
   ingestStepCheckpoint,
   ingestStepSignal,
 } from "../../domain/ingestion/ingest-shard-ops.js"
-import {
-  type IngestDestination,
-  type IngestShardRuntime,
-  type IngestShardRuntimeFactory,
-  type IngestStepUsage,
-  ingestAttemptUsage,
+import type {
+  IngestDestination,
+  IngestShardRuntime,
+  IngestShardRuntimeFactory,
+  IngestStepUsage,
 } from "../../domain/ingestion/ingest-shard-runtime.js"
 import {
   releaseIngestStepIndexes,
@@ -32,6 +31,7 @@ import {
   ingestSourceTree,
   releaseIngestSourceTree,
 } from "../../domain/ingestion/ingest-source-tree.js"
+import { withRecordedModelCost } from "../../domain/ingestion/ingest-spend.js"
 import {
   readStepStats,
   withIngestStepOutput,
@@ -415,7 +415,7 @@ export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
 /** The run fields that a skill step reads. */
 type SkillRun = Pick<
   IngestionShardInput,
-  "runId" | "bundle" | "source" | "authorTime" | "roots"
+  "orgId" | "runId" | "bundle" | "source" | "authorTime" | "roots"
 > & {
   /** The shard number, for telemetry; the parent's steps run in shard 0. */
   shard?: number
@@ -723,7 +723,22 @@ function runSkillStep(ctx: SkillStep): Promise<StepResult> {
       "ctxpipe.ingest.ref.base": ctx.oldTip ?? ctx.runBase,
     },
     async (span) => {
-      const result = await attemptSkillStep(ctx, span)
+      const attempted = await attemptSkillStep(ctx, span)
+      // The cost of a model step is the cost that the model proxy recorded
+      // for the calls of all its attempts (CTX-1522).
+      const usage =
+        ctx.skill.run === "model"
+          ? await withRecordedModelCost(
+              {
+                orgId: ctx.run.orgId,
+                runId: ctx.run.runId,
+                shard: ctx.run.shard ?? 0,
+                step: ctx.name,
+              },
+              attempted.usage,
+            )
+          : attempted.usage
+      const result = usage ? { ...attempted, usage } : attempted
       if (result.partial) {
         span.setAttribute("ctxpipe.ingest.partial", true)
         span.setStatus({ code: SpanStatusCode.ERROR, message: "partial" })
@@ -956,8 +971,6 @@ async function attemptSkillStep(
         ...(pushed.cursor ? { cursor: pushed.cursor } : {}),
       })
     } catch (error) {
-      // The billed calls of a failed attempt count in the spend (CTX-1522).
-      usage = addIngestUsage(usage, ingestAttemptUsage(error))
       if (isWorkflowControlSignal(error)) throw error
       const refused = error instanceof IngestRefRefusedError
       reason = refused ? "broker_refused" : "step_failed"

@@ -254,6 +254,7 @@ async function runOnWorker(
           step: guardedSkillStep(step, run.id, orgId),
           execution,
           run: {
+            orgId,
             runId: ingestionRunId,
             shard: 0,
             bundle: "bundle-1",

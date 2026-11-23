@@ -21,6 +21,7 @@ import {
   ingestSourceTree,
   releaseIngestSourceTree,
 } from "../../domain/ingestion/ingest-source-tree.js"
+import { withRecordedModelCost } from "../../domain/ingestion/ingest-spend.js"
 import {
   capIngestText,
   ingestBundleAttributes,
@@ -403,8 +404,18 @@ export function defineRepositoryIngestionV2Workflow(
                 })
                 .discoverRoots()
               // The usage of the model step for the ambiguous roots goes
-              // into the step output, where the recorded spend reads it.
-              const usage = discovered.usage ? { usage: discovered.usage } : {}
+              // into the step output, where the recorded spend reads it. Its
+              // cost is the cost that the model proxy recorded (CTX-1522).
+              const recorded = await withRecordedModelCost(
+                {
+                  orgId: input.orgId,
+                  runId: run.id,
+                  shard: 0,
+                  step: "discover-roots",
+                },
+                discovered.usage,
+              )
+              const usage = recorded ? { usage: recorded } : {}
               // No count limits the roots (the CTO); the size of the packed
               // list does, below.
               const plan = resolveDiscoveredRoots(
@@ -553,6 +564,7 @@ export function defineRepositoryIngestionV2Workflow(
               step: guardedSkillStep(step, run.id, input.orgId),
               execution,
               run: {
+                orgId: input.orgId,
                 runId: run.id,
                 shard: 0,
                 bundle: bundle.name,

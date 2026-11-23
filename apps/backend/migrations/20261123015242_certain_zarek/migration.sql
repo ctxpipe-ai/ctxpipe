@@ -1,1 +1,0 @@
-ALTER TABLE "sandbox_locks" ADD COLUMN "model_cost_usd" double precision;

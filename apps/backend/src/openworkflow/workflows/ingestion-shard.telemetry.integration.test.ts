@@ -165,6 +165,7 @@ async function runStep(
       step: (_name, fn) => fn(),
       ...(options.execution ? { execution: options.execution } : {}),
       run: {
+        orgId: "org_telemetry",
         runId,
         shard: 2,
         bundle: "bundle-1",

@@ -11,6 +11,7 @@ import {
   ingestModelCallUsd,
 } from "../../domain/ingestion/ingest-spend.js"
 import {
+  ingestErrorFields,
   logIngestEvent,
   startIngestModelCall,
 } from "../../domain/ingestion/ingest-telemetry.js"
@@ -29,7 +30,7 @@ import {
 } from "../../domain/workspaces/workspace-chat-run-capability.js"
 import { workspaceChatBearerToken } from "../../domain/workspaces/workspace-chat-token.js"
 import { applyAttribution } from "../../observability/attribution.js"
-import { getLogger } from "../../observability/logger.js"
+import { getLogger, log } from "../../observability/logger.js"
 import { convertFileParts } from "../../retrieval/services/convertFileParts.js"
 import { lowerOpenAiChatCompletionsParams } from "../../retrieval/services/providers/openAILikeModelProvider.js"
 import {
@@ -135,7 +136,7 @@ type ModelCaller = {
   orgSlug?: string
   conversationId?: string
   runId?: string
-  ingest?: { runId: string; shard: number; step: string; lockOwner: string }
+  ingest?: { runId: string; shard: number; step: string }
 }
 
 async function chatTokenFromRequest(
@@ -158,20 +159,17 @@ async function chatTokenFromRequest(
   return {
     orgId: ingest.orgId,
     orgSlug: ingest.orgSlug,
-    ingest: {
-      runId: ingest.runId,
-      shard: ingest.shard,
-      step: ingest.step,
-      lockOwner: ingest.lockOwner,
-    },
+    ingest: { runId: ingest.runId, shard: ingest.shard, step: ingest.step },
   }
 }
 
 /**
  * Add the cost of one ingest model call to its step (CTX-1522), before the
  * sandbox sees the end of the answer. A call with no gateway cost counts at
- * the fallback prices and is a log event. A failed write is logged: the
- * answer still goes to the sandbox.
+ * the fallback prices and is a log event. A failed write is an error event,
+ * and the answer still goes to the sandbox. The step then counts less than
+ * the sum of its cost spans. The write ends after evlog emitted the request
+ * event of a streamed answer, so the events use `log`.
  */
 async function recordIngestCallCost(
   orgId: string,
@@ -186,17 +184,19 @@ async function recordIngestCallCost(
       usd: cost.usd,
     })
   try {
-    await addIngestModelCost({ orgId, ...ingest }, cost.usd)
-  } catch (error) {
-    getLogger().error(
-      error instanceof Error ? error : new Error(String(error)),
-      {
-        step: "ingestion-v2.model-cost-write-failed",
-        ingestionRunId: ingest.runId,
-        shard: ingest.shard,
-        ingestStep: ingest.step,
-      },
+    await addIngestModelCost(
+      { orgId, runId: ingest.runId, shard: ingest.shard, step: ingest.step },
+      cost.usd,
     )
+  } catch (error) {
+    log.error({
+      step: "ingestion-v2.model-cost-write-failed",
+      ingestionRunId: ingest.runId,
+      shard: ingest.shard,
+      ingestStep: ingest.step,
+      usd: cost.usd,
+      ...ingestErrorFields(error),
+    })
   }
 }
 

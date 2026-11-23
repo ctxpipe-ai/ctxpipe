@@ -121,29 +121,6 @@ export type IngestDiscovery = {
   problems?: string[]
 }
 
-/**
- * Add the usage of a failed step attempt to its error, so that the spend of
- * the step counts the billed calls of the attempt (CTX-1522). The error
- * keeps its class: the shard decides on a retry from it.
- */
-export function withIngestAttemptUsage(
-  error: unknown,
-  usage: IngestStepUsage | undefined,
-): unknown {
-  if (usage && error && typeof error === "object")
-    Object.assign(error, { ingestAttemptUsage: usage })
-  return error
-}
-
-/** The usage of a failed step attempt (`withIngestAttemptUsage`). */
-export function ingestAttemptUsage(
-  error: unknown,
-): IngestStepUsage | undefined {
-  return error && typeof error === "object" && "ingestAttemptUsage" in error
-    ? (error.ingestAttemptUsage as IngestStepUsage)
-    : undefined
-}
-
 export type IngestShardRuntime = {
   /** Make or attach to the sandbox, and prepare it. Idempotent. */
   ensure(): Promise<void>

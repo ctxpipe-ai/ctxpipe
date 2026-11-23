@@ -8,7 +8,6 @@ import { repositoryRevisionCheckoutKey } from "../../../../../shared/workspace-c
 import { type Env, parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { listWorkspaceUnitsAtRevision } from "../../models/workspaces.js"
-import { getLogger } from "../../observability/logger.js"
 import { gitRemoteEnvironment } from "../../services/git/clone-tree.js"
 import { resolvePlainGitRemote } from "../../services/git/plain-git-remote.js"
 import { agentCoreRuntime } from "../workspaces/agentcore-sandbox-provider.js"
@@ -68,10 +67,8 @@ import {
   type IngestShardRuntimeFactory,
   type IngestShardSpec,
   ingestCallbackOrigin,
-  withIngestAttemptUsage,
 } from "./ingest-shard-runtime.js"
 import { withShardStep } from "./ingest-shard-step.js"
-import { takeIngestModelCost, withRecordedModelCost } from "./ingest-spend.js"
 import { logIngestEvent } from "./ingest-telemetry.js"
 import {
   INGEST_TOOL_BRIDGE_PATH,
@@ -406,8 +403,6 @@ function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
       agentEnv: Record<string, string>
       /** Aborts at the step limit or when the shard lock is lost. */
       signal: AbortSignal
-      /** The owner of the shard lock that this step holds. */
-      lockOwner: string
     }) => Promise<T>,
     signal?: AbortSignal,
   ): Promise<T> {
@@ -479,7 +474,7 @@ function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
               bundle: spec.bundle,
               opencodeConfig,
             }),
-          run: (box) => fn({ ...box, signal: lockSignal, lockOwner }),
+          run: (box) => fn({ ...box, signal: lockSignal }),
           stopAgents: stopIngestAgentProcesses,
           logContext: { orgId: spec.orgId, runId: spec.runId },
         })
@@ -506,69 +501,32 @@ function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
     runStep: (step) =>
       withShard(
         step.name,
-        async ({ handle, root, agentEnv, signal, lockOwner }) => {
+        async ({ handle, root, agentEnv, signal }) => {
           const destination = spec.destinations.find(
             (d) => d.workspaceId === step.workspaceId,
           )
           if (!destination)
             throw new Error("The step's Workspace is not in the shard")
-          // The cost is the gateway cost that the model proxy recorded for
-          // this lock owner, not the estimate of OpenCode (CTX-1522).
-          const recordedCost = () =>
-            step.run === "model"
-              ? takeIngestModelCost({
-                  orgId: spec.orgId,
-                  runId: spec.runId,
-                  shard: spec.shard,
-                  lockOwner,
-                })
-              : Promise.resolve(null)
-          try {
-            const { json, rootFiles } = await indexOf(step)
-            const { usage: reported, inputs } = await runIngestShardStep(root, {
-              step: {
-                ...step,
-                rootMap: withExistingRootFiles(step.rootMap, rootFiles),
-                signal,
-              },
-              agentEnv,
-              remote: sandboxFetchUrl(destination),
-              sourceUrl: spec.source.url,
-              sourcePath: destination.sourcePath,
-              index: json,
-              ...(step.run === "model"
-                ? { model: `ctxpipe/${step.tier ?? defaultTier}` }
-                : {}),
-            })
-            const tar = await collectIngestStep(handle, root)
-            // The last call of the attempt: after the take, nothing fails.
-            const usage = withRecordedModelCost(reported, await recordedCost())
-            return {
-              tar,
-              ...(usage ? { usage } : {}),
-              ...(inputs === undefined ? {} : { inputs }),
-            }
-          } catch (error) {
-            // A failed attempt made billed calls too: the step counts them.
-            // A failed take loses the cost of the attempt: log it.
-            const usd = await recordedCost().catch((takeError: unknown) => {
-              getLogger().error(
-                takeError instanceof Error
-                  ? takeError
-                  : new Error(String(takeError)),
-                {
-                  step: "ingestion-v2.model-cost-take-failed",
-                  ingestionRunId: spec.runId,
-                  shard: spec.shard,
-                  ingestStep: step.name,
-                },
-              )
-              return null
-            })
-            throw withIngestAttemptUsage(
-              error,
-              withRecordedModelCost(undefined, usd),
-            )
+          const { json, rootFiles } = await indexOf(step)
+          const { usage, inputs } = await runIngestShardStep(root, {
+            step: {
+              ...step,
+              rootMap: withExistingRootFiles(step.rootMap, rootFiles),
+              signal,
+            },
+            agentEnv,
+            remote: sandboxFetchUrl(destination),
+            sourceUrl: spec.source.url,
+            sourcePath: destination.sourcePath,
+            index: json,
+            ...(step.run === "model"
+              ? { model: `ctxpipe/${step.tier ?? defaultTier}` }
+              : {}),
+          })
+          return {
+            tar: await collectIngestStep(handle, root),
+            ...(usage ? { usage } : {}),
+            ...(inputs === undefined ? {} : { inputs }),
           }
         },
         step.signal,

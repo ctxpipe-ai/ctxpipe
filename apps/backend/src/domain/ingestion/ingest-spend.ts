@@ -1,11 +1,12 @@
 import { and, eq, sql } from "drizzle-orm"
 
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
-import { sandboxLocks } from "../../db/schema/sandbox-locks.js"
+import { ingestModelCosts } from "../../db/schema/ingest-model-costs.js"
+import { log } from "../../observability/logger.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
-import { ingestSandboxThreadId } from "../workspaces/chat-lifecycle.js"
 import type { WorkspaceChatCompletionUsage } from "../workspaces/workspace-chat-model-proxy.js"
 import type { IngestStepUsage } from "./ingest-shard-runtime.js"
+import { ingestErrorFields, logIngestEvent } from "./ingest-telemetry.js"
 
 /*
  * The model spend of an ingestion v2 run. ctxpipe records the spend in the
@@ -60,77 +61,105 @@ export function ingestModelCallUsd(
   }
 }
 
-/** The ingest step that holds the shard lock as `lockOwner`. */
-type IngestStepLock = {
+/** One ingestion v2 step: the model proxy adds the cost of its calls. */
+type IngestModelStep = {
   orgId: string
   runId: string
   shard: number
-  lockOwner: string
+  /** The step name of the ingest capability (`ingest.step`). */
+  step: string
 }
 
-function heldBy(lock: IngestStepLock) {
+function stepRow(step: IngestModelStep) {
   return and(
-    eq(sandboxLocks.orgId, lock.orgId),
-    eq(sandboxLocks.key, ingestSandboxThreadId(lock.runId, lock.shard)),
-    eq(sandboxLocks.owner, lock.lockOwner),
+    eq(ingestModelCosts.orgId, step.orgId),
+    eq(ingestModelCosts.runId, step.runId),
+    eq(ingestModelCosts.shard, step.shard),
+    eq(ingestModelCosts.step, step.step),
   )
 }
 
 /**
- * Add the USD of one model call to the step that holds the shard lock. The
- * lock row keeps it in Postgres, so the model proxy (on the API) and the
- * step (on the worker) share it. Nothing changes when `lockOwner` does not
- * hold the lock now.
+ * Add the USD of one model call to its step. The row is in Postgres, so the
+ * model proxy (on the API) and the step (on the worker) share it.
  */
 export async function addIngestModelCost(
-  lock: IngestStepLock,
+  step: IngestModelStep,
   usd: number,
 ): Promise<void> {
-  await withOrgDbContext(lock.orgId, (db) =>
+  await withOrgDbContext(step.orgId, (db) =>
     db
-      .update(sandboxLocks)
-      .set({
-        modelCostUsd: sql`coalesce(${sandboxLocks.modelCostUsd}, 0) + ${usd}`,
-      })
-      .where(heldBy(lock)),
+      .insert(ingestModelCosts)
+      .values({ ...step, costUsd: usd })
+      .onConflictDoUpdate({
+        target: [
+          ingestModelCosts.orgId,
+          ingestModelCosts.runId,
+          ingestModelCosts.shard,
+          ingestModelCosts.step,
+        ],
+        set: { costUsd: sql`${ingestModelCosts.costUsd} + ${usd}` },
+      }),
   )
 }
 
 /**
- * Take the USD that the model proxy recorded for the step that holds the
- * shard lock as `lockOwner`: return it and clear it, in one transaction, so
- * that no later read counts it again. Null when no call was recorded. Take
- * it before the step releases the lock: the release deletes the row.
+ * The USD that the model proxy recorded for all calls of the step, of all
+ * its attempts. Null when no call was recorded. The read clears nothing, so
+ * a step that runs again after a worker stop reads the same sum again.
  */
-export async function takeIngestModelCost(
-  lock: IngestStepLock,
+export async function ingestModelCost(
+  step: IngestModelStep,
 ): Promise<number | null> {
-  return withOrgDbContext(lock.orgId, async (db) => {
-    const [row] = await db
-      .select({ usd: sandboxLocks.modelCostUsd })
-      .from(sandboxLocks)
-      .where(heldBy(lock))
-      .for("update")
-    if (row?.usd == null) return null
-    await db
-      .update(sandboxLocks)
-      .set({ modelCostUsd: null })
-      .where(heldBy(lock))
-    return row.usd
-  })
+  const [row] = await withOrgDbContext(step.orgId, (db) =>
+    db
+      .select({ usd: ingestModelCosts.costUsd })
+      .from(ingestModelCosts)
+      .where(stepRow(step)),
+  )
+  return row?.usd ?? null
 }
 
 /**
- * The usage of a step with the cost that the model proxy recorded for it.
- * With no recorded call (`usd` null), the usage stays as the step reported
- * it.
+ * The usage of a model step with the cost that the model proxy recorded for
+ * it (CTX-1522). The proxy is the only source of the cost of a model step:
+ * the fixed prices of OpenCode can be many times too high. With no recorded
+ * cost, the cost is 0 and a log event tells it. When the read fails, the
+ * cost is 0, the step counts as unknown, and the error is a log event. No
+ * usage and no recorded cost gives no usage: no model ran.
  */
-export function withRecordedModelCost(
-  usage: IngestStepUsage | undefined,
-  usd: number | null,
-): IngestStepUsage | undefined {
-  if (usd === null) return usage
-  return { ...(usage ?? { inputTokens: 0, outputTokens: 0 }), costUsd: usd }
+export async function withRecordedModelCost(
+  step: IngestModelStep,
+  reported: IngestStepUsage | undefined,
+): Promise<IngestStepUsage | undefined> {
+  const fields = {
+    ingestionRunId: step.runId,
+    shard: step.shard,
+    ingestStep: step.step,
+  }
+  const recorded = await ingestModelCost(step).catch((error: unknown) => {
+    log.error({
+      step: "ingestion-v2.model-cost-read-failed",
+      ...fields,
+      ...ingestErrorFields(error),
+    })
+    return "failed" as const
+  })
+  if (recorded === null && !reported) return undefined
+  const usage = reported ?? { inputTokens: 0, outputTokens: 0 }
+  if (recorded === "failed")
+    return {
+      ...usage,
+      costUsd: 0,
+      unknownSteps: Math.max(usage.unknownSteps ?? 0, 1),
+    }
+  if (recorded === null && usage.inputTokens + usage.outputTokens > 0)
+    logIngestEvent("warn", "ingestion-v2.model-cost-missing", {
+      ...fields,
+      reason:
+        "The model step reported tokens, but the model proxy recorded no cost for it: the spend counts 0 for the step",
+    })
+  return { ...usage, costUsd: recorded ?? 0 }
 }
 
 /** The ingestion v2 run `runId` and its child runs (the shards), as a `tree(id)` CTE. */

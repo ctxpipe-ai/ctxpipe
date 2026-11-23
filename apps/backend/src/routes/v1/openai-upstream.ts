@@ -175,16 +175,27 @@ function observedBody(
   }
   signal?.addEventListener("abort", abort, { once: true })
   if (signal?.aborted) abort()
+  const endMarker = sseEndMarker()
   return new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
-        const { value, done } = await reader.read()
-        if (done) {
-          await finish(response.status)
-          controller.close()
-        } else {
+        // A pull that enqueues nothing can stall the stream: read on until
+        // there are bytes to give or the body ends.
+        for (;;) {
+          const { value, done } = await reader.read()
+          if (done) {
+            await finish(response.status)
+            const end = endMarker.rest()
+            if (end.length) controller.enqueue(end)
+            controller.close()
+            return
+          }
           observer.observe?.(value)
-          controller.enqueue(value)
+          const ready = endMarker.take(value)
+          if (ready.length) {
+            controller.enqueue(ready)
+            return
+          }
         }
       } catch (error) {
         await finish(502)
@@ -196,6 +207,43 @@ function observedBody(
       await reader.cancel(reason)
     },
   })
+}
+
+/**
+ * Hold back the SSE end marker (`data: [DONE]`) and all bytes after it until
+ * the body ends. A client can stop at the marker, so it must not get it
+ * before `onObservedComplete` settles (CTX-1522). `take` gives the bytes of
+ * a chunk that can go now; it also holds a chunk end that can be the start
+ * of a marker that the next chunk completes. `rest` gives what it held.
+ */
+function sseEndMarker() {
+  const marker = new TextEncoder().encode("data: [DONE]")
+  let held = new Uint8Array(0)
+  let seen = false
+  const startsMarkerAt = (bytes: Uint8Array, at: number) => {
+    for (let i = 0; i < marker.length && at + i < bytes.length; i++)
+      if (bytes[at + i] !== marker[i]) return false
+    return true
+  }
+  return {
+    take(chunk: Uint8Array): Uint8Array {
+      const bytes = new Uint8Array(held.length + chunk.length)
+      bytes.set(held)
+      bytes.set(chunk, held.length)
+      if (seen) {
+        held = bytes
+        return new Uint8Array(0)
+      }
+      // The first position where the marker starts, completely or as a
+      // part that runs to the chunk end.
+      let at = 0
+      while (at < bytes.length && !startsMarkerAt(bytes, at)) at++
+      if (at + marker.length <= bytes.length) seen = true
+      held = bytes.subarray(at)
+      return bytes.subarray(0, at)
+    },
+    rest: () => held,
+  }
 }
 
 export async function handleNativeBedrockResponse(

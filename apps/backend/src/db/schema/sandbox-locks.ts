@@ -1,10 +1,4 @@
-import {
-  doublePrecision,
-  pgTable,
-  primaryKey,
-  text,
-  timestamp,
-} from "drizzle-orm/pg-core"
+import { pgTable, primaryKey, text, timestamp } from "drizzle-orm/pg-core"
 
 import { organizations } from "./auth.js"
 import { orgIsolationPolicy } from "./org-rls.js"
@@ -22,14 +16,6 @@ export const sandboxLocks = pgTable.withRLS(
       withTimezone: true,
       mode: "date",
     }).notNull(),
-    /**
-     * The model cost in USD of the ingest step that holds the lock (CTX-1522).
-     * The model proxy adds the gateway cost of each call of the lock owner.
-     * The step reads it before it releases the lock, and the release deletes
-     * the row. Null when no call was recorded. A new owner of an expired
-     * lock keeps the value: it is the cost of a step whose worker stopped.
-     */
-    modelCostUsd: doublePrecision("model_cost_usd"),
   },
   (t) => [
     primaryKey({ columns: [t.orgId, t.key] }),
