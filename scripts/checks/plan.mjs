@@ -24,9 +24,10 @@ const readText = (path) =>
   existsSync(path) ? readFileSync(path, "utf8").trim().slice(0, 200) : ""
 
 // True when the gated run accepts a stored pass of this class. A `pr` pass
-// comes from a CI job of this PR.
+// comes from a CI job of this PR. A `carry` hit is a pass of the PR head
+// whose own class (`headSource`) this function accepts (withCarry).
 export function accepted(source, config) {
-  if (source === "ci") return true
+  if (source === "ci" || source === "carry") return true
   if (source === "agent") return config.acceptAgentResults === true
   if (source === "pr") return config.acceptPrResults === true
   return false
@@ -42,6 +43,11 @@ function withChecks(selection, runs, reason, { keepHits = false } = {}) {
   const added = selection.omitted
     .filter(runs)
     .map((check) => ({ ...check, reason }))
+  // A `carry` hit is a pass of another key (the PR head), so `keepHits`
+  // does not keep it.
+  const taken = (selection.cache?.hits ?? []).filter(
+    (hit) => runs(hit) && (!keepHits || hit.source === "carry"),
+  )
   return {
     ...selection,
     selected: [...selection.selected, ...added],
@@ -50,22 +56,23 @@ function withChecks(selection, runs, reason, { keepHits = false } = {}) {
       ...selection.counts,
       selected: selection.counts.selected + added.length,
     },
-    cache: keepHits
-      ? selection.cache
-      : selection.cache && {
-          ...selection.cache,
-          hits: (selection.cache.hits ?? []).filter((hit) => !runs(hit)),
-          // A stored pass for the key of a check that runs: a failure
-          // contradicts it (`rerun`).
-          misses: [
-            ...(selection.cache.misses ?? []),
-            ...(selection.cache.hits ?? []).filter(runs).map((hit) => ({
-              id: hit.id,
-              key: hit.key,
-              mode: reason.kind,
-            })),
-          ],
-        },
+    cache: selection.cache && {
+      ...selection.cache,
+      hits: (selection.cache.hits ?? []).filter((hit) => !taken.includes(hit)),
+      // A stored pass for the key of a check that runs: a failure
+      // contradicts it (`rerun`). A taken `carry` hit gives a plain miss
+      // with its head key (`headKey`).
+      misses: [
+        ...(selection.cache.misses ?? []),
+        ...taken.map((hit) => ({
+          id: hit.id,
+          key: hit.key,
+          ...(hit.source === "carry"
+            ? { headKey: hit.headKey }
+            : { mode: reason.kind }),
+        })),
+      ],
+    },
   }
 }
 
@@ -374,6 +381,97 @@ export function withStoreHits(selection, store) {
   }
 }
 
+// Main-delta carry (scripts/checks/README.md, Main-delta carry): a pass of
+// the PR head counts at the merge revision when the changes that main
+// brought since the merge base do not select its check. `lookup` is the
+// cache lookup of the select job on the tree of the PR head (the second
+// parent of the merge revision), with the same rules and toolchain record;
+// `lookupCause` says why it is missing. `delta` is the selection of the LLM
+// job on main's delta: the merge revision against the PR head, with the LLM
+// stage. A miss of the merge revision becomes a `carry` hit when:
+// - the head key of its check has a pass of a class that the gate accepts,
+//   also in the PR store, and neither key is quarantined;
+// - main's delta omits the check.
+// Without a valid delta whose model steps answered, no pass carries, and the
+// checks run. Returns the selection and the carry record of the plan (the
+// head, or why no pass carries), or no record when the select job made no
+// lookup (main did not move, or the merge revision has no miss).
+export function withCarry(
+  selection,
+  { lookup, lookupCause, delta, deltaCause, store, config },
+) {
+  if (!lookup && !lookupCause) return { selection }
+  if (!lookup) return { selection, carry: { cause: lookupCause } }
+  if (schemaErrors(lookup, "selection.v1", 1).length || !lookup.cache)
+    return { selection, carry: { cause: "no valid lookup of the PR head" } }
+  // Each pass of the PR head, of any class. A check with one that runs
+  // keeps its head key (`headKey`): its failure quarantines that pass in
+  // the PR store (nextStore in gate.mjs), also when no pass carried here.
+  const passes = new Map(
+    withStoreHits(lookup, store).cache.hits.map((hit) => [hit.id, hit]),
+  )
+  const cause = carryCause(selection, lookup, delta, deltaCause)
+  const blocked = new Set([
+    ...store.quarantined,
+    ...(selection.cache.quarantined ?? []),
+    ...(lookup.cache.quarantined ?? []),
+  ])
+  // The checks that a valid selection of main's delta omits.
+  const reached = new Set(cause ? [] : delta.selected.map((check) => check.id))
+  const omitted = new Set(
+    (cause ? [] : delta.omitted)
+      .map((check) => check.id)
+      .filter((id) => !reached.has(id)),
+  )
+  const hits = [...(selection.cache.hits ?? [])]
+  const misses = []
+  for (const miss of selection.cache.misses ?? []) {
+    const pass = passes.get(miss.id)
+    if (
+      !cause &&
+      pass &&
+      accepted(pass.source, config) &&
+      omitted.has(miss.id) &&
+      !blocked.has(miss.key) &&
+      !blocked.has(pass.key)
+    )
+      hits.push({
+        id: miss.id,
+        key: miss.key,
+        source: "carry",
+        headSource: pass.source,
+        headKey: pass.key,
+        provenance: pass.provenance,
+      })
+    else misses.push(pass ? { ...miss, headKey: pass.key } : miss)
+  }
+  return {
+    selection: { ...selection, cache: { ...selection.cache, hits, misses } },
+    carry: cause ? { cause } : { head: delta.base },
+  }
+}
+
+// Why no pass of the PR head carries, or undefined: each cache lookup must
+// name its quarantined keys, and main's delta needs a valid selection whose
+// model steps answered.
+function carryCause(selection, lookup, delta, deltaCause) {
+  if (
+    [selection, lookup].some(
+      (record) => !Array.isArray(record.cache?.quarantined),
+    )
+  )
+    return "a cache lookup names no quarantined key"
+  if (!delta) return deltaCause || "no selection of main's delta"
+  if (schemaErrors(delta, "selection.v1", 1).length)
+    return "no valid selection of main's delta"
+  if (!delta.llm) return "the LLM stage did not run on main's delta"
+  if (delta.llm.fallback)
+    return `LLM fallback on main's delta (${delta.llm.fallback})`
+  if (delta.packageIntent?.fallback && delta.packageIntent.groups > 0)
+    return `package intent fallback on main's delta (${delta.packageIntent.fallback})`
+  return undefined
+}
+
 // Where a check runs in a gated run. Every Storybook play runs in the
 // Storybook plays shards, and each screenshot in the screenshots shards
 // (runsIn). A check that ci.yaml does not run is `external`:
@@ -620,8 +718,18 @@ export function plan({ config, inputs, needs, store }) {
       : readText(join(inputs, "llm-cause.txt")),
   )
   // The PR store first: a check of a job-scoped ci.yaml change then loses
-  // its `pr` hit too.
+  // its `pr` hit too. Then the carry: a later rule that runs a check takes
+  // its carry hit back too.
   selection = withStoreHits(selection, store)
+  let carry
+  ;({ selection, carry } = withCarry(selection, {
+    lookup: readJson(join(inputs, "head-lookup.json")),
+    lookupCause: readText(join(inputs, "head-lookup-cause.txt")),
+    delta: readJson(join(inputs, "main-delta.json")),
+    deltaCause: readText(join(inputs, "main-delta-cause.txt")),
+    store,
+    config,
+  }))
   if (mode.jobs?.length) selection = withJobChecks(selection, mode.jobs)
   if (changes) {
     selection = withDefinitionChecks(selection, changes.changed, definitions)
@@ -680,6 +788,15 @@ export function plan({ config, inputs, needs, store }) {
         : ""
     }`,
     gateInputs,
+    // The carried hits that the later rules kept.
+    ...(carry && {
+      carry: {
+        ...carry,
+        ids: [...hits.values()]
+          .filter((hit) => hit.source === "carry")
+          .map((hit) => hit.id),
+      },
+    }),
     ...(runner.length && { runner: { inputs: runner, canaries } }),
     ...(changes && {
       definitions: { inputs: definitions, changed: changes.changed },
