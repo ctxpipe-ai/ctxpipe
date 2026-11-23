@@ -39,6 +39,16 @@ Mail to `agent+<tag>@agents.ctxpipe.dev` goes to the agents' inbox (factory [CTX
 - A target without an email transport only logs the mail. Then read the link the way the flow says (for example [AUTH-5](auth/SKILL.md)), and record `SKIP(needs-inbox)` only when the flow has no other way.
 - A PR preview requires no verified address. Every other target with an email transport requires one at each sign-up.
 
+### Shared eval account (production measures)
+
+A preview-env run makes its own accounts. A production measure outside a run (for example the chat latency of [CTX-1322](https://linear.app/ctxpipe/issue/CTX-1322)) uses the shared eval account. That account is linked to GitHub and has an eval Workspace. Its password is in the login keychain of the agent host, as a generic password with the service `ctxpipe-eval-account`. The account attribute is the login address.
+
+- Find the address: `security find-generic-password -s ctxpipe-eval-account | grep '"acct"'`.
+- Read the password into a variable only: `pass="$(security find-generic-password -s ctxpipe-eval-account -w)"`. Do not print it, and do not write it to a file.
+- Send the password only to production: `https://app.ctxpipe.ai/.auth/api/v1/auth/sign-in/email`. Never send it to a PR preview, local or cutover host. A preview runs PR code on a copy of the production database, so the account exists there too.
+- Sign in through the API, so that the value stays in the shell. Give the JSON body on stdin (`curl --data-binary @-`), not in an argument, because `ps` shows arguments. Keep only the session cookie in a jar from `mktemp` outside the checkout. Do not print the jar, and delete it after the measure. Never type the value through computer use, a browser tool, or an MCP tool argument.
+- Do not reset the password. A reset breaks every other agent that uses the account. When the sign-in fails with the keychain value, stop and report the failure to the lead.
+
 ### GitHub test org and repositories
 
 `GH_TEST_ORG` is `ctxpipe-ai`, with the ctxpipe GitHub App installed on **all repositories**, so repositories created during the run are readable without another install step. It is the team's own organization, so the run creates and deletes only throwaway repositories whose names start with `pe-{run-id}-`, and touches nothing else there. It holds two persistent private **template** repositories:
