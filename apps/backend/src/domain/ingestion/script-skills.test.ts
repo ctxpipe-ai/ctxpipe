@@ -932,6 +932,34 @@ describe("ownership skill", () => {
       expect(web).not.toContain("predicate: OWNS")
     })
 
+    it("skips and records the second of two aliases that get one path", () => {
+      const s = step(
+        {
+          ...OWNED_SHOP,
+          OWNERS_ALIASES: "aliases:\n  api-team: [alice]\n  api_team: [bob]\n",
+          "apps/OWNERS": "approvers:\n  - api-team\n  - api_team\n",
+        },
+        {},
+      )
+      const out = s.run("ownership")
+      expect(out.ops).toEqual([
+        { op: "create", path: "knowledge/teams/example-org-shop-api-team.md" },
+      ])
+      expect(out.skipped).toEqual([
+        {
+          path: "OWNERS_ALIASES",
+          reason:
+            "The alias api_team gets the path of another alias, knowledge/teams/example-org-shop-api-team.md",
+        },
+      ])
+      const team = readFileSync(
+        join(s.root, "out/files/knowledge/teams/example-org-shop-api-team.md"),
+        "utf8",
+      )
+      expect(team).toContain("Members: `@alice`.")
+      expect(team).not.toContain("@bob")
+    })
+
     it("leaves out an OWNERS file in a test fixture folder and records the folder (CTX-1531)", () => {
       const s = step(
         {

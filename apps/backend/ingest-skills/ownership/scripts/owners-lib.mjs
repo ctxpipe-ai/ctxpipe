@@ -310,6 +310,9 @@ export function ownersPlans({ source, files, repository, roots, index }) {
   }
 
   const plans = []
+  // Two aliases can get one path (`api-team` and `api_team`). The first in
+  // order keeps it; the next is skipped and recorded, as for CODEOWNERS.
+  const taken = new Set()
   for (const alias of [...teams.keys()].sort()) {
     const { lines, claims } = teams.get(alias)
     const name = `${repository}/${alias}`
@@ -325,6 +328,14 @@ export function ownersPlans({ source, files, repository, roots, index }) {
         .sort()[0] ?? null
     const path =
       existing ?? `knowledge/teams/${slug(repository)}-${slug(alias)}.md`
+    if (taken.has(path)) {
+      skipped.push({
+        path: ALIASES_FILE,
+        reason: `The alias ${alias} gets the path of another alias, ${path}`,
+      })
+      continue
+    }
+    taken.add(path)
     // Keep the lines that fit, in order, and record the rest.
     const kept = []
     let bytes = 0
