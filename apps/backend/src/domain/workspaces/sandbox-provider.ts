@@ -143,18 +143,43 @@ export function withSessionOnlyEnv(
 }
 
 /**
- * Docker sandboxes trust the run's Agent Vault CA. The file is written on
- * every create and attach, before the stock clone runs; the CA is public.
+ * The sandboxes that a create in this process gave a CA, by `<id>\n<CA>`,
+ * with the time of the write. A turn resumes the sandbox that its prepare (a
+ * pool claim or a new session) gave the same CA a second earlier, and each
+ * write is one more command on the path to the answer (CTX-1322).
+ */
+const createdWithProxyCa = new Map<string, number>()
+
+/**
+ * Docker and AgentCore sandboxes trust the run's Agent Vault CA. The file is
+ * written on every create and attach, before the stock clone runs; the CA is
+ * public. An attach skips the write once when a create in this process wrote
+ * the same CA to the sandbox less than 60 s ago. No agent ran in the sandbox
+ * before that create, and the agent starts only after the turn's attach. A
+ * record is used once, and an attach records nothing, so each later attach
+ * writes the file again, also after an agent removed it.
  */
 export function withProxyCa(
   provider: TanstackSandboxProvider,
   caPem: string | undefined,
 ): TanstackSandboxProvider {
   if (!caPem) return provider
-  return wrapSandboxHandles(provider, async (handle) => {
+  const wrap = (created: boolean) => async (handle: SandboxHandle) => {
+    const key = `${handle.id}\n${caPem}`
+    const now = Date.now()
+    const written = createdWithProxyCa.get(key)
+    for (const [entry, at] of createdWithProxyCa)
+      if (entry === key || now - at >= 60_000) createdWithProxyCa.delete(entry)
+    if (!created && written !== undefined && now - written < 60_000)
+      return handle
     await writeProxyCa(handle, caPem)
+    if (created) createdWithProxyCa.set(key, Date.now())
     return handle
-  })
+  }
+  return {
+    ...wrapSandboxHandles(provider, wrap(false)),
+    create: wrapSandboxHandles(provider, wrap(true)).create,
+  }
 }
 
 /**
