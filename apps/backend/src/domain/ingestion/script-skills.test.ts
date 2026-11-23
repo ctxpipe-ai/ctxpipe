@@ -1,4 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process"
+import { createHash } from "node:crypto"
 import {
   existsSync,
   mkdirSync,
@@ -932,7 +933,7 @@ describe("ownership skill", () => {
       expect(web).not.toContain("predicate: OWNS")
     })
 
-    it("skips and records the second of two aliases that get one path", () => {
+    it("gives each of two aliases with one slug its own team file, the same on the next run", async () => {
       const s = step(
         {
           ...OWNED_SHOP,
@@ -942,22 +943,31 @@ describe("ownership skill", () => {
         {},
       )
       const out = s.run("ownership")
-      expect(out.ops).toEqual([
-        { op: "create", path: "knowledge/teams/example-org-shop-api-team.md" },
-      ])
-      expect(out.skipped).toEqual([
-        {
-          path: "OWNERS_ALIASES",
-          reason:
-            "The alias api_team gets the path of another alias, knowledge/teams/example-org-shop-api-team.md",
-        },
-      ])
-      const team = readFileSync(
-        join(s.root, "out/files/knowledge/teams/example-org-shop-api-team.md"),
-        "utf8",
+      const hashed = `knowledge/teams/example-org-shop-api-team-${createHash("sha256").update("api_team").digest("hex").slice(0, 8)}.md`
+      expect(out.ops).toHaveLength(2)
+      expect(out.ops).toEqual(
+        expect.arrayContaining([
+          {
+            op: "create",
+            path: "knowledge/teams/example-org-shop-api-team.md",
+          },
+          { op: "create", path: hashed },
+        ]),
       )
-      expect(team).toContain("Members: `@alice`.")
-      expect(team).not.toContain("@bob")
+      expect(out.skipped).toEqual([])
+      const result = await s.validate("ownership")
+      expect(result.rejections).toEqual([])
+      const first = s.show(
+        result.tree,
+        "knowledge/teams/example-org-shop-api-team.md",
+      )
+      expect(first).toContain("Members: `@alice`.")
+      expect(first).not.toContain("@bob")
+      const second = s.show(result.tree, hashed)
+      expect(second).toContain("name: example-org/shop/api_team")
+      expect(second).toContain("Members: `@bob`.")
+      s.advance(result.tree)
+      expect(s.run("ownership").ops).toEqual([])
     })
 
     it("leaves out an OWNERS file in a test fixture folder and records the folder (CTX-1531)", () => {

@@ -9,6 +9,7 @@
 // gets an OWNS claim to each file of the root. When its approvers are only
 // people, no team owns the root. `options.no_parent_owners` stops the walk.
 
+import { createHash } from "node:crypto"
 import { posix } from "node:path"
 
 import { relativeTo } from "../../bin/knowledge-lib.mjs"
@@ -310,8 +311,9 @@ export function ownersPlans({ source, files, repository, roots, index }) {
   }
 
   const plans = []
-  // Two aliases can get one path (`api-team` and `api_team`). The first in
-  // order keeps it; the next is skipped and recorded, as for CODEOWNERS.
+  // Two aliases can get one slug (`api-team` and `api_team`). The first in
+  // order keeps it; the next gets a path with a hash of its name, the same
+  // on each run, so each alias has its own file.
   const taken = new Set()
   for (const alias of [...teams.keys()].sort()) {
     const { lines, claims } = teams.get(alias)
@@ -326,8 +328,12 @@ export function ownersPlans({ source, files, repository, roots, index }) {
         )
         .map((e) => e.path)
         .sort()[0] ?? null
+    const base = `knowledge/teams/${slug(repository)}-${slug(alias)}`
     const path =
-      existing ?? `knowledge/teams/${slug(repository)}-${slug(alias)}.md`
+      existing ??
+      (taken.has(`${base}.md`)
+        ? `${base}-${createHash("sha256").update(alias).digest("hex").slice(0, 8)}.md`
+        : `${base}.md`)
     if (taken.has(path)) {
       skipped.push({
         path: ALIASES_FILE,
