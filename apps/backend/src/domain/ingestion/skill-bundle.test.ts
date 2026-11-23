@@ -168,7 +168,8 @@ describe("readIngestSkillBundle", () => {
 
   it("fails when the versions folder has no marker", async () => {
     const dir = copyBundle()
-    rmSync(join(dir, "versions/ingest-ca237393fef135a9.md"))
+    for (const marker of readdirSync(join(dir, "versions")))
+      if (marker !== "README.md") rmSync(join(dir, "versions", marker))
     await expect(readIngestSkillBundle(dir)).rejects.toThrow(/no marker/)
   })
 
