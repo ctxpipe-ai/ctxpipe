@@ -53,13 +53,6 @@ export function wrapSandboxHandles(
   }
 }
 
-function withSpawn(
-  handle: SandboxHandle,
-  spawnProcess: SandboxHandle["process"]["spawn"],
-): SandboxHandle {
-  return { ...handle, process: { ...handle.process, spawn: spawnProcess } }
-}
-
 /**
  * Local-process sandboxes start each process in its own process group, so no
  * signal reaches the group when this process dies. One watchdog per owner
@@ -68,13 +61,17 @@ function withSpawn(
  * A process that leaves its group is not stopped.
  */
 export function withOwnerWatchdog(provider: SandboxProvider): SandboxProvider {
-  return wrapSandboxHandles(provider, (handle) =>
-    withSpawn(handle, async (command, options) => {
-      const proc = await handle.process.spawn(command, options)
-      watchProcessGroup(proc)
-      return proc
-    }),
-  )
+  return wrapSandboxHandles(provider, (handle) => ({
+    ...handle,
+    process: {
+      ...handle.process,
+      spawn: async (command, options) => {
+        const proc = await handle.process.spawn(command, options)
+        watchProcessGroup(proc)
+        return proc
+      },
+    },
+  }))
 }
 
 const watchedGroups = new Set<number>()
@@ -135,9 +132,9 @@ for p in $live; do kill -KILL -"$p" 2>/dev/null; done`,
  * - It is not in the session of PID 1. The sandbox's own processes (PID 1
  *   and the keep-alive it starts) are in that session. Another process
  *   cannot join it: `setsid` only makes a new session. An `opencode serve`
- *   of an earlier turn is the exception: it is stopped in every session,
- *   because a sandbox runtime can start its commands in the session of
- *   PID 1 (AgentCore does not say), and that server holds the agent port.
+ *   of an earlier turn is the exception: it is stopped in every session.
+ *   A sandbox runtime can start its commands in the session of PID 1
+ *   (AgentCore does not say). That server holds the agent port.
  * - It is not in this command's process group (this script and its pipes),
  *   and it is not an ancestor of this command (the command runner).
  *

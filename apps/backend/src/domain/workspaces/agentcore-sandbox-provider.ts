@@ -695,10 +695,10 @@ export async function agentCoreImageUserCommand(
  * idle session only after 15 minutes, so a session that was checked less
  * than 60 s ago still runs. A create records nothing: the first resume of a
  * session, such as a pool claim, always checks it. A stop in this process
- * forgets the session. A stop by another backend process or a crash of the
- * microVM in that window is an accepted risk: the next command then fails
- * or finds an empty microVM, and the turn fails as it does without the skip
- * when the session ends during the turn.
+ * forgets the session. A stop by another backend process, or a crash of the
+ * microVM, in that window is an accepted risk. Then the next command fails
+ * or finds an empty microVM. The turn fails, as it does when the session
+ * ends during a turn.
  */
 const checkedSessions = new Map<string, number>()
 
