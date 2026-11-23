@@ -21,7 +21,10 @@ import { log } from "../../observability/logger.js"
 import { enqueueWorkflow } from "../../openworkflow/client.js"
 import { enqueueWriteJob } from "../../openworkflow/enqueue-workspace-write-commit.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
-import { workspaceSourcesSync } from "../../openworkflow/workflows/workspace-sources-sync.js"
+import {
+  queueSourceSyncEvent,
+  workspaceSourcesSync,
+} from "../../openworkflow/workflows/workspace-sources-sync.js"
 import { workspacePublishPipeline } from "../ingestion/ingestion-v2-config.js"
 import { SOURCE_ADAPTERS } from "./adapter.js"
 import { handOverLegacyBindings } from "./legacy-handover.js"
@@ -51,6 +54,15 @@ export async function enqueueConnectionSourcesSync(input: {
 }): Promise<void> {
   assertNotInOrgDbContext()
   const { dedupeKey, availableAt, ...workflowInput } = input
+  // A provider that joins its events coalesces its webhooks (CTX-1595). A
+  // repeated delivery joins the same sync, so it needs no key.
+  if (input.event !== undefined && SOURCE_ADAPTERS[input.provider]?.mergeEvents)
+    return queueSourceSyncEvent({
+      orgId: input.orgId,
+      connectionId: input.connectionId,
+      provider: input.provider,
+      event: input.event,
+    })
   await enqueueWorkflow(
     workspaceSourcesSync.spec,
     { kind: "connection", ...workflowInput },

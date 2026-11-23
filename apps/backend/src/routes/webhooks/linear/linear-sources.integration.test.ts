@@ -63,6 +63,16 @@ async function runs(workflow: string) {
   return result.rows as Array<{ connectionId: string; event: unknown }>
 }
 
+/** The events that wait for the coalesced sync of each connection. */
+async function waitingEvents() {
+  const result = await withOrgDbContext(seed.orgId, (db) =>
+    db.execute(
+      sql`select connection_id as "connectionId", event from source_sync_events order by created_at, id`,
+    ),
+  )
+  return result.rows as Array<{ connectionId: string; event: unknown }>
+}
+
 /** A Linear connection with a live legacy binding to a new sync repository. */
 async function legacyConnection(name: string) {
   const id = `repo_${name}_${seed.suffix}`
@@ -165,7 +175,10 @@ describe("Linear webhook routes to Workspace sources (Postgres)", () => {
     },
   }
 
-  it("enqueues one sources sync for each connection with sources, and the legacy sync only where it does not share the repository", async () => {
+  const byConnection = <T extends { connectionId: string }>(rows: T[]) =>
+    rows.sort((a, b) => a.connectionId.localeCompare(b.connectionId))
+
+  it("queues the event for one coalesced sources sync of each connection with sources, and the legacy sync only where it does not share the repository", async () => {
     const response = await post(issueEvent)
     expect(response.status).toBe(200)
     const event = {
@@ -173,30 +186,47 @@ describe("Linear webhook routes to Workspace sources (Postgres)", () => {
       projectIds: ["project-1"],
       entity: { entityType: "issue", externalId: "issue-1", action: "upsert" },
     }
-    expect(
-      (await runs("workspace-sources-sync")).sort((a, b) =>
-        a.connectionId.localeCompare(b.connectionId),
-      ),
-    ).toEqual(
-      [
+    expect(byConnection(await waitingEvents())).toEqual(
+      byConnection([
         { connectionId: retired, event },
         { connectionId: parallel, event },
-      ].sort((a, b) => a.connectionId.localeCompare(b.connectionId)),
+      ]),
+    )
+    // The sync reads the events from the table, not from its input.
+    expect(byConnection(await runs("workspace-sources-sync"))).toEqual(
+      byConnection([
+        { connectionId: retired, event: null },
+        { connectionId: parallel, event: null },
+      ]),
     )
     expect(
       (await runs("linear-sync-entity")).map((run) => run.connectionId),
     ).toEqual([parallel])
   })
 
-  it("starts no second sources sync for a repeated delivery of the same change", async () => {
+  it("joins a burst of webhooks, also a repeated delivery, to the waiting sync of each connection (CTX-1595)", async () => {
     const before = (await runs("workspace-sources-sync")).length
     expect((await post(issueEvent)).status).toBe(200)
+    const burst = await Promise.all(
+      [2, 3, 4, 5, 6, 7, 8, 9].map((n) =>
+        post({
+          ...issueEvent,
+          data: {
+            ...issueEvent.data,
+            id: `issue-${n}`,
+            identifier: `OPS-${n}`,
+            updatedAt: `2026-10-11T10:0${n}:00.000Z`,
+          },
+        }),
+      ),
+    )
+    expect(burst.map((response) => response.status)).toEqual(
+      burst.map(() => 200),
+    )
     expect(await runs("workspace-sources-sync")).toHaveLength(before)
-    await post({
-      ...issueEvent,
-      data: { ...issueEvent.data, updatedAt: "2026-10-11T10:05:00.000Z" },
-    })
-    expect(await runs("workspace-sources-sync")).toHaveLength(before + 2)
+    expect(
+      (await waitingEvents()).filter((row) => row.connectionId === parallel),
+    ).toHaveLength(10)
   })
 
   it("does not enqueue a sources sync for an event that has no entity", async () => {

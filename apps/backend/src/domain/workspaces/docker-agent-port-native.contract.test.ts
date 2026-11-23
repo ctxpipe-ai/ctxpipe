@@ -9,6 +9,7 @@ import {
   WORKSPACE_CHAT_OPENCODE_PORT,
   workspaceChatDockerImage,
 } from "./chat-runtime.js"
+import { stopEarlierTurnProcesses } from "./sandbox-process-guards.js"
 import { turnAgentPassword, withDockerAgentPort } from "./sandbox-provider.js"
 import { conversationSandboxProvider } from "./tanstack-workspace-chat.js"
 
@@ -127,6 +128,8 @@ it(
       // The next turn resumes the same sandbox from its id.
       const reused = await nextTurn.resume({ id: handle.id })
       if (!reused) throw new Error("The Docker sandbox did not resume")
+      // As each turn does before it starts OpenCode.
+      await stopEarlierTurnProcesses(reused)
       server = await startOpencodeServerInSandbox(reused, options)
       const config = await fetch(`${server.baseUrl}/config`, {
         headers: server.headers,

@@ -250,6 +250,32 @@ describe("agentCoreSandboxProvider", () => {
     await provider.destroy({ id: handle.id })
   })
 
+  it("checks a session at its first resume, skips the check for 60 s after it, and then checks it again", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    try {
+      const handle = await provider.create({})
+      const commands = () =>
+        fake.calls.filter(
+          (call) =>
+            call.sessionId === handle.id &&
+            !["invocations", "stopruntimesession"].includes(call.api),
+        ).length
+      const before = commands()
+      expect(await provider.resume({ id: handle.id })).not.toBeNull()
+      expect(commands()).toBe(before + 1)
+      expect(await provider.resume({ id: handle.id })).not.toBeNull()
+      expect(commands()).toBe(before + 1)
+
+      // AgentCore stopped the session; after 60 s the check finds that.
+      fake.running.delete(handle.id)
+      vi.advanceTimersByTime(60_000)
+      expect(await provider.resume({ id: handle.id })).toBeNull()
+      expect(commands()).toBe(before + 2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("fails a command that AgentCore cannot run", async () => {
     const handle = await provider.create({})
     fake.failNextCommand("platform")
