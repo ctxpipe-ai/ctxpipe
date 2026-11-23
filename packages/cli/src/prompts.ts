@@ -2,7 +2,6 @@ import { resolve } from "node:path"
 
 import {
   confirm as confirmPrompt,
-  isCancel,
   log,
   multiselect,
   select,
@@ -525,8 +524,9 @@ export async function promptConfirm(
   return promptValue(answer) as boolean
 }
 
+// A prompt returns a symbol only when the user cancels it.
 function promptValue<T>(value: T | symbol): T {
-  if (isCancel(value)) {
+  if (typeof value === "symbol") {
     throw new Error("Setup cancelled")
   }
   return value

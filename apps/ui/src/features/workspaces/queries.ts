@@ -604,7 +604,7 @@ function conversationBusy(error: unknown): ConversationBusy | undefined {
 }
 
 async function readConversationFilesBlocked(
-  res: Response,
+  res: Pick<Response, "json">,
 ): Promise<ConversationFilesBlocked> {
   const body = (await res.json().catch(() => ({}))) as { error?: string }
   return { blocked: true, busy: conversationBusy(body.error) !== undefined }
@@ -637,7 +637,7 @@ async function fetchConversationGitBlob(
     query: { path },
   })
   if (res.status === 409) {
-    const body = (await (res as Response)
+    const body = (await res
       .clone()
       .json()
       .catch(() => ({}))) as { error?: string }
