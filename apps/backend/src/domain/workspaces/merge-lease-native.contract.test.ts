@@ -280,8 +280,9 @@ it(
             name: "take-merge-lease",
             status: "completed",
           })
-          expect(steps.filter((s) => s.name.startsWith("await-merge-lease")))
-            .toEqual([])
+          expect(
+            steps.filter((s) => s.name.startsWith("await-merge-lease")),
+          ).toEqual([])
           // The lease of a running merge stays with it.
           expect(
             await takeWorkspaceMergeLease({
