@@ -53,13 +53,6 @@ export function wrapSandboxHandles(
   }
 }
 
-function withSpawn(
-  handle: SandboxHandle,
-  spawnProcess: SandboxHandle["process"]["spawn"],
-): SandboxHandle {
-  return { ...handle, process: { ...handle.process, spawn: spawnProcess } }
-}
-
 /**
  * Local-process sandboxes start each process in its own process group, so no
  * signal reaches the group when this process dies. One watchdog per owner
@@ -68,13 +61,17 @@ function withSpawn(
  * A process that leaves its group is not stopped.
  */
 export function withOwnerWatchdog(provider: SandboxProvider): SandboxProvider {
-  return wrapSandboxHandles(provider, (handle) =>
-    withSpawn(handle, async (command, options) => {
-      const proc = await handle.process.spawn(command, options)
-      watchProcessGroup(proc)
-      return proc
-    }),
-  )
+  return wrapSandboxHandles(provider, (handle) => ({
+    ...handle,
+    process: {
+      ...handle.process,
+      spawn: async (command, options) => {
+        const proc = await handle.process.spawn(command, options)
+        watchProcessGroup(proc)
+        return proc
+      },
+    },
+  }))
 }
 
 const watchedGroups = new Set<number>()
@@ -124,38 +121,6 @@ for p in $live; do kill -KILL -"$p" 2>/dev/null; done`,
 }
 
 /**
- * A reused sandbox can still run the `opencode serve` of a turn whose backend
- * died, and that server holds the agent port. Stop it before a new server
- * starts. Use this only where one conversation owns the sandbox.
- */
-export function withSingleOpencodeServer(
-  provider: SandboxProvider,
-): SandboxProvider {
-  return wrapSandboxHandles(provider, (handle) =>
-    withSpawn(handle, async (command, options) => {
-      if (command.startsWith("opencode serve "))
-        await handle.process.exec(STOP_EARLIER_OPENCODE_SERVERS)
-      return handle.process.spawn(command, options)
-    }),
-  )
-}
-
-// The match text is split, so this script does not match its own command.
-const STOP_EARLIER_OPENCODE_SERVERS = `s=serve
-found() {
-  for d in /proc/[0-9]*; do
-    [ "\${d#/proc/}" = "$$" ] && continue
-    case "$(tr '\\0' ' ' < "$d/cmdline" 2>/dev/null)" in
-      *opencode*" $s --hostname="*) echo "\${d#/proc/}" ;;
-    esac
-  done
-}
-for p in $(found); do kill -KILL "$p" 2>/dev/null; done
-i=0
-while [ -n "$(found)" ] && [ "$i" -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
-true`
-
-/**
  * Stop every process that the agent user started in an earlier turn: a
  * process can leave its server's process group and session (`setsid`,
  * `nohup`), and it would then send requests during the next turn, when
@@ -166,7 +131,10 @@ true`
  *   and kernel threads are kept.
  * - It is not in the session of PID 1. The sandbox's own processes (PID 1
  *   and the keep-alive it starts) are in that session. Another process
- *   cannot join it: `setsid` only makes a new session.
+ *   cannot join it: `setsid` only makes a new session. An `opencode serve`
+ *   of an earlier turn is the exception: it is stopped in every session.
+ *   A sandbox runtime can start its commands in the session of PID 1
+ *   (AgentCore does not say). That server holds the agent port.
  * - It is not in this command's process group (this script and its pipes),
  *   and it is not an ancestor of this command (the command runner).
  *
@@ -186,7 +154,9 @@ export async function stopEarlierTurnProcesses(
 
 // After the command name in parentheses, /proc/<pid>/stat has the state,
 // the parent, the process group and the session, in that order.
+// The match text "serve" is split, so this script does not match itself.
 const STOP_EARLIER_TURN_PROCESSES = `field() { sed 's/.*) //' "/proc/$1/stat" 2>/dev/null | cut -d' ' -f"$2"; }
+s=serve
 me=$(id -u)
 init_session=$(field 1 4)
 own_group=$(field $$ 3)
@@ -201,6 +171,9 @@ found() {
     p=\${d#/proc/}
     case "$keep" in *" $p "*) continue ;; esac
     [ "$(stat -c %u "$d" 2>/dev/null)" = "$me" ] || continue
+    case "$(tr '\\0' ' ' < "$d/cmdline" 2>/dev/null)" in
+      *opencode*" $s --hostname="*) echo "$p"; continue ;;
+    esac
     [ "$(field "$p" 4)" = "$init_session" ] && continue
     [ "$(field "$p" 3)" = "$own_group" ] && continue
     echo "$p"
