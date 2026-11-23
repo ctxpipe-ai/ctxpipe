@@ -103,6 +103,8 @@ let jevMostInFlight = 0
  * calls were in flight at one time.
  */
 let factsWaitForLayer = false
+/** The state parts of the calls of the disagreement facts. */
+const factsParts: string[] = []
 let factsWithLayer = false
 let releaseFacts: (() => void) | null = null
 
@@ -171,6 +173,7 @@ const models = setupServer(
         return HttpResponse.json({ error: "down" }, { status: 503 })
       if (disagreement) {
         disagreementRequests.push(keys)
+        factsParts.push(...body.state.map(String))
         const fact = (key: string) => {
           const [name, from] = key.split(".")
           if (name === "same" || name === "disagree") return 0.9
@@ -744,6 +747,7 @@ describe("the knowledge reader seam", () => {
     jevRequests.length = 0
     jevParts.length = 0
     disagreementRequests.length = 0
+    factsParts.length = 0
     events.length = 0
   })
 
@@ -1204,6 +1208,30 @@ describe("the knowledge reader seam", () => {
       "refs",
       "status",
     ])
+  })
+
+  it("on: Jev reads the relation that reached each candidate of get_related before its text", async () => {
+    await setFlag("on")
+    await relatedCall({ maxDepth: 1 })
+    const partOf = (title: string) =>
+      jevParts.find((part) => String(part).includes(`\n\n${title}`))
+    // The seed depends on the ledger, and the payments team owns the seed.
+    expect(partOf("Ledger database")).toMatch(
+      /^<data>"Checkout service" DEPENDS_ON this document\.\n\nLedger database/,
+    )
+    expect(partOf("Payments team")).toMatch(
+      /^<data>This document OWNS "Checkout service"\.\n\nPayments team/,
+    )
+    // The disagreement step reads the evidence of the answer, with no
+    // relation line.
+    expect(factsParts.some((part) => part.includes("Payments team"))).toBe(true)
+    expect(factsParts.some((part) => part.includes("OWNS"))).toBe(false)
+    // A seed has no relation that reached it.
+    expect(
+      jevParts.some((part) =>
+        String(part).startsWith("<data>Checkout service"),
+      ),
+    ).toBe(true)
   })
 
   it("on: get_related with maxDepth 1 does not explore past the first layer", async () => {
@@ -1843,6 +1871,8 @@ describe("the knowledge reader seam", () => {
     })
     expect(result.isError).toBeFalsy()
     expect(jevParts.every((part) => typeof part === "string")).toBe(true)
-    expect(jevParts).toContain(`<data>flow.png\n\n[image] ${flow}</data>`)
+    expect(jevParts).toContain(
+      `<data>"Flows" EMBEDS_IMAGE this document.\n\nflow.png\n\n[image] ${flow}</data>`,
+    )
   })
 })

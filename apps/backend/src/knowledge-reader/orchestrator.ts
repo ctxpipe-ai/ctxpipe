@@ -234,6 +234,8 @@ export type TraversalNode = JudgeInput &
     parent: {
       node: TraversalNode
       predicate: string
+      /** `out`: the parent is the source of the relation. */
+      direction: "out" | "in"
       confidence: number
     } | null
   }
@@ -430,7 +432,18 @@ export async function traverse(input: {
         )
       // A settled `seedJudge` costs nothing to await again.
       const [scores] = await Promise.all([
-        judge(inputs, input.question, input.intent, deadline, input.meter),
+        // Only the layer judge reads the relation line: the node keeps the
+        // evidence text, which the disagreement step reads.
+        judge(
+          inputs.map((candidate) => ({
+            ...candidate,
+            text: relationLine(candidate.parent) + candidate.text,
+          })),
+          input.question,
+          input.intent,
+          deadline,
+          input.meter,
+        ),
         seedJudge,
       ])
       layerNodes.forEach((node, index) => {
@@ -457,6 +470,20 @@ export async function traverse(input: {
     ...(partialReason ? { partialReason } : {}),
     cappedHubs,
   }
+}
+
+/**
+ * The relation that reached a candidate, as Jev reads it before the text of
+ * the candidate: the title of the parent and the predicate, in the
+ * direction of the relation. Empty when no relation reached it.
+ */
+function relationLine(parent: TraversalNode["parent"]): string {
+  if (!parent) return ""
+  const { title, path } = parent.node.document
+  const other = `"${title || path}"`
+  return parent.direction === "out"
+    ? `${other} ${parent.predicate} this document.\n\n`
+    : `This document ${parent.predicate} ${other}.\n\n`
 }
 
 /** The key of the frontier document of a relation that the store read. */
@@ -533,7 +560,7 @@ function layerCandidates(
   for (const [node, list] of perNode) {
     list.sort((a, b) => b.relation.confidence - a.relation.confidence)
     if (list.length > walk.maxFanOut) capped.push(node)
-    for (const { workspaceId, relation, neighbor } of list.slice(
+    for (const { workspaceId, relation, neighbor, direction } of list.slice(
       0,
       walk.maxFanOut,
     )) {
@@ -548,6 +575,7 @@ function layerCandidates(
         parent: {
           node,
           predicate: relation.predicate,
+          direction,
           confidence: relation.confidence,
         },
       })
