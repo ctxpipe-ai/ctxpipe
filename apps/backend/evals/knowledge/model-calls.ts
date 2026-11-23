@@ -172,14 +172,6 @@ const questionsOf = (body: string): number =>
       .safeParse(parseOr(body, {})).data?.questions ?? {},
   ).length
 
-const jevRequestSchema = z.object({
-  state: z.array(z.string()),
-  questions: z.record(z.string(), z.unknown()),
-})
-
-/** An item of a Jev state: its label line, then its `<data>` block. */
-const ITEM_LINE = /^(Candidate|Item) (\d+)\b(.*)$/
-
 /**
  * The content keys of each question of a Jev request: the lines of the
  * state that are not an item (for example the question and the intent), and
@@ -191,13 +183,19 @@ const ITEM_LINE = /^(Candidate|Item) (\d+)\b(.*)$/
  * is not a Jev request.
  */
 function contentKeysOf(body: unknown): Map<string, string[]> | null {
-  const request = jevRequestSchema.safeParse(body).data
+  const request = z
+    .object({
+      state: z.array(z.string()),
+      questions: z.record(z.string(), z.unknown()),
+    })
+    .safeParse(body).data
   if (!request) return null
   const items = new Map<string, string>()
   const others: string[] = []
   for (let index = 0; index < request.state.length; index++) {
     const line = request.state[index] ?? ""
-    const item = ITEM_LINE.exec(line)
+    // An item of a Jev state: its label line, then its `<data>` block.
+    const item = /^(Candidate|Item) (\d+)\b(.*)$/.exec(line)
     if (!item) {
       others.push(line)
       continue
@@ -322,12 +320,14 @@ export class ModelCalls {
       for (const [question, contents] of contentKeysOf(call.request) ?? [])
         for (const content of contents) {
           const answerKey = this.replayKey(call.arm, call.question, content)
-          if (answers?.[question] !== undefined)
-            if (!this.recordedAnswers.has(answerKey))
-              this.recordedAnswers.set(answerKey, {
-                answer: answers[question],
-                call,
-              })
+          if (
+            answers?.[question] !== undefined &&
+            !this.recordedAnswers.has(answerKey)
+          )
+            this.recordedAnswers.set(answerKey, {
+              answer: answers[question],
+              call,
+            })
         }
     }
   }
