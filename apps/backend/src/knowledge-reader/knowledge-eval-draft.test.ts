@@ -318,7 +318,7 @@ claims:
 
 # FairQueue
 
-${filler("gate")}`,
+**Stage:** beta, on by default.`,
       "knowledge/teams/kubernetes-sig-scheduling-approvers.md": `---
 kind: Team
 name: kubernetes/sig-scheduling-approvers
@@ -330,7 +330,7 @@ claims:
 
 # kubernetes/sig-scheduling-approvers
 
-${filler("approvers")}`,
+- Approves \`pkg/scheduler\` in kubernetes/kubernetes.`,
       "github/issues/kubernetes/kubernetes/11.md": `---
 type: issue
 repository: kubernetes/kubernetes

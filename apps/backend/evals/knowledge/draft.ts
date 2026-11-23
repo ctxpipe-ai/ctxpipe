@@ -116,11 +116,16 @@ const isCodeKnowledge = (document: CorpusDocument) =>
   /^knowledge\/(?:apis|operations|services|libraries|databases|apps|features)$/.test(
     document.group,
   )
-/** A document with enough own text for a question. */
+/**
+ * A document with enough own text for a question. A team or a feature gate
+ * is short by design (a list of owned folders, or a gate with its stage), so
+ * it needs no length.
+ */
 const usable = (document: CorpusDocument) =>
   (isIssue(document) || document.group.startsWith("knowledge/")) &&
   document.group !== "knowledge/codebases" &&
-  document.body.replace(/<!--[\s\S]*?-->/g, "").trim().length >= 400
+  (/^knowledge\/(?:teams|features)$/.test(document.group) ||
+    document.body.replace(/<!--[\s\S]*?-->/g, "").trim().length >= 400)
 /** A bot handle: its comments are not a person's. */
 const isBot = (handle: string) => /(?:bot|robot|\[bot\])$/i.test(handle)
 /**
@@ -185,9 +190,9 @@ export function pickSources(
   add(
     "lookup",
     inTurns(
-      spread(candidates, (document) => document.group, next).map(
-        (document) => [document],
-      ),
+      spread(candidates, (document) => document.group, next).map((document) => [
+        document,
+      ]),
     ),
   )
 
@@ -316,15 +321,16 @@ export function pickSources(
     pairs.add(key)
     return [[anchor, document]]
   })
-  const proposal = (pair: CorpusDocument[]) => pair.some(isDesignRecord)
+  const holdsDesignRecord = (pair: CorpusDocument[]) =>
+    pair.some(isDesignRecord)
   add("disagreement", [
     ...spread(
-      disagreement.filter(proposal),
+      disagreement.filter(holdsDesignRecord),
       ([anchor]) => anchor?.group ?? "",
       next,
     ),
     ...spread(
-      disagreement.filter((pair) => !proposal(pair)),
+      disagreement.filter((pair) => !holdsDesignRecord(pair)),
       ([anchor]) => anchor?.group ?? "",
       next,
     ),
