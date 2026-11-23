@@ -54,9 +54,10 @@ function count(value: unknown): number {
  * line is a `step_finish` event. Input tokens include the cache reads and
  * writes, and output tokens include the reasoning tokens, so that the
  * estimate at the committed prices is not low. `cacheReadTokens` keeps the
- * cache reads apart, so that the estimate prices them at the cache rate. `costUsd` is set only when
- * each call reports a cost above 0: OpenCode reports 0 for a model that has
- * no price in its config.
+ * cache reads apart, so that the estimate prices them at the cache rate. It
+ * gives no cost: the cost of a model step is the cost that the model proxy
+ * records (CTX-1522). OpenCode reports 0 for a model that has no price in
+ * its config.
  */
 export function parseOpenCodeUsage(
   stdout: string,
@@ -65,11 +66,9 @@ export function parseOpenCodeUsage(
   let inputTokens = 0
   let outputTokens = 0
   let cacheReadTokens = 0
-  let costUsd = 0
-  let costKnown = true
   for (const line of stdout.split("\n")) {
     if (!line.startsWith(OPENCODE_STEP_FINISH)) continue
-    let event: { part?: { cost?: unknown; tokens?: Record<string, unknown> } }
+    let event: { part?: { tokens?: Record<string, unknown> } }
     try {
       event = JSON.parse(line)
     } catch {
@@ -82,16 +81,12 @@ export function parseOpenCodeUsage(
     inputTokens += count(tokens.input) + count(cache.read) + count(cache.write)
     cacheReadTokens += count(cache.read)
     outputTokens += count(tokens.output) + count(tokens.reasoning)
-    const cost = count(event.part?.cost)
-    if (cost > 0) costUsd += cost
-    else costKnown = false
   }
   if (!found) return undefined
   return {
     inputTokens,
     outputTokens,
     ...(cacheReadTokens ? { cacheReadTokens } : {}),
-    ...(costKnown ? { costUsd } : {}),
   }
 }
 

@@ -2,14 +2,17 @@ import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { config } from "dotenv"
-import { sql } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import { OpenWorkflow, type Workflow } from "openworkflow"
 import type { BackendPostgres } from "openworkflow/postgres"
 import { afterAll, beforeAll, expect, it, vi } from "vitest"
 import { z } from "zod"
 
 import { closeDb, getSystemDb, initDb } from "../db/client.js"
+import { organizations } from "../db/schema/auth.js"
+import { addIngestModelCost } from "../domain/ingestion/ingest-spend.js"
 import { skillStepName } from "../domain/ingestion/ingestion-plan.js"
+import { generateObjectId } from "../lib/id.js"
 import {
   failInFlightStepAttempts,
   MAX_CRASHED_STEP_ATTEMPTS,
@@ -249,7 +252,11 @@ it("ends a crash-looping skill step partial, so the run goes on", async () => {
       // The step body does not run, so the run, broker, and runtime are
       // not used.
       await runSkillPages({
-        step: guardedSkillStep(step, run.id, "org_crash_loop"),
+        step: guardedSkillStep(step, run.id, {
+          orgId: "org_crash_loop",
+          runId: "run_crash_loop",
+          shard: 0,
+        }),
         run: {} as never,
         broker: {} as never,
         runtime: {} as never,
@@ -276,6 +283,73 @@ it("ends a crash-looping skill step partial, so the run goes on", async () => {
       .filter((attempt) => attempt.status === "completed")
       .map((attempt) => [attempt.stepName, attempt.output]),
   ).toEqual([[name, { partial: true, failed: "crashLoop" }]])
+})
+
+it("keeps the recorded model cost of a crash-looping model step in its partial output (CTX-1522)", async () => {
+  const orgId = generateObjectId("org")
+  await getSystemDb()
+    .insert(organizations)
+    .values({
+      id: orgId,
+      name: "Crash loop cost",
+      slug: orgId,
+      createdAt: new Date(),
+    })
+  const workspaceId = "ws_crash_loop_cost"
+  const name = skillStepName(null, "apis", workspaceId)
+  const ingest = { orgId, runId: "run_crash_loop_cost", shard: 0 }
+  // The stopped attempts made billed calls; the model proxy recorded them.
+  await addIngestModelCost({ ...ingest, step: name }, 0.4)
+  workflows++
+  const workflow = defineWorkflow(
+    {
+      name: `crash-loop-${pr}-${workflows}`,
+      schema: z.object({}),
+      retryPolicy: once,
+    },
+    async ({ step, run }) => {
+      const state: IngestionShardWorkspace = {
+        workspaceId,
+        tip: null,
+        ops: 0,
+        rejects: 0,
+        partial: 0,
+        partialRoots: [],
+      }
+      await runSkillPages({
+        step: guardedSkillStep(step, run.id, ingest),
+        run: {} as never,
+        broker: {} as never,
+        runtime: {} as never,
+        root: null,
+        skill: { name: "apis" } as never,
+        destination: { workspaceId } as never,
+        ref: "refs/ctxpipe/ingest/test",
+        runBase: "0".repeat(40),
+        state,
+      })
+      return state
+    },
+  )
+  try {
+    const { steps } = await runAfterCrashes(workflow, async (runId) => {
+      for (let i = 0; i < MAX_CRASHED_STEP_ATTEMPTS; i++)
+        await startAttempt(runId, name)
+    })
+    expect(
+      steps
+        .filter((attempt) => attempt.status === "completed")
+        .map((attempt) => attempt.output),
+    ).toEqual([
+      {
+        partial: true,
+        failed: "crashLoop",
+        usage: { inputTokens: 0, outputTokens: 0, costUsd: 0.4 },
+      },
+    ])
+  } finally {
+    await getSystemDb().delete(organizations).where(eq(organizations.id, orgId))
+  }
 })
 
 it("marks the attempt of a stopped worker failed, so three deploys in a step do not trip the guard", async () => {

@@ -210,17 +210,22 @@ function observedBody(
 }
 
 /**
- * Hold back the SSE end marker (`data: [DONE]`) and all bytes after it until
- * the body ends. A client can stop at the marker, so it must not get it
- * before `onObservedComplete` settles (CTX-1522). `take` gives the bytes of
- * a chunk that can go now; it also holds a chunk end that can be the start
- * of a marker that the next chunk completes. `rest` gives what it held.
+ * Hold back the SSE end marker (`data: [DONE]` at the start of a line) and
+ * all bytes after it until the body ends. A client can stop at the marker, so
+ * it must not get it before `onObservedComplete` settles (CTX-1522). `take`
+ * gives the bytes of a chunk that can go now; it also holds a chunk end that
+ * can be the start of a marker that the next chunk completes. `rest` gives
+ * what it held.
  */
 function sseEndMarker() {
   const marker = new TextEncoder().encode("data: [DONE]")
+  const newline = 10
   let held = new Uint8Array(0)
+  // The last byte that went to the client; the body start is a line start.
+  let sent = newline
   let seen = false
   const startsMarkerAt = (bytes: Uint8Array, at: number) => {
+    if ((at === 0 ? sent : bytes[at - 1]) !== newline) return false
     for (let i = 0; i < marker.length && at + i < bytes.length; i++)
       if (bytes[at + i] !== marker[i]) return false
     return true
@@ -234,12 +239,13 @@ function sseEndMarker() {
         held = bytes
         return new Uint8Array(0)
       }
-      // The first position where the marker starts, completely or as a
+      // The first line start where the marker starts, completely or as a
       // part that runs to the chunk end.
       let at = 0
       while (at < bytes.length && !startsMarkerAt(bytes, at)) at++
       if (at + marker.length <= bytes.length) seen = true
       held = bytes.subarray(at)
+      if (at > 0) sent = bytes[at - 1] ?? sent
       return bytes.subarray(0, at)
     },
     rest: () => held,

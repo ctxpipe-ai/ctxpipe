@@ -70,15 +70,6 @@ type IngestModelStep = {
   step: string
 }
 
-function stepRow(step: IngestModelStep) {
-  return and(
-    eq(ingestModelCosts.orgId, step.orgId),
-    eq(ingestModelCosts.runId, step.runId),
-    eq(ingestModelCosts.shard, step.shard),
-    eq(ingestModelCosts.step, step.step),
-  )
-}
-
 /**
  * Add the USD of one model call to its step. The row is in Postgres, so the
  * model proxy (on the API) and the step (on the worker) share it.
@@ -108,14 +99,21 @@ export async function addIngestModelCost(
  * its attempts. Null when no call was recorded. The read clears nothing, so
  * a step that runs again after a worker stop reads the same sum again.
  */
-export async function ingestModelCost(
+export async function readIngestModelCost(
   step: IngestModelStep,
 ): Promise<number | null> {
   const [row] = await withOrgDbContext(step.orgId, (db) =>
     db
       .select({ usd: ingestModelCosts.costUsd })
       .from(ingestModelCosts)
-      .where(stepRow(step)),
+      .where(
+        and(
+          eq(ingestModelCosts.orgId, step.orgId),
+          eq(ingestModelCosts.runId, step.runId),
+          eq(ingestModelCosts.shard, step.shard),
+          eq(ingestModelCosts.step, step.step),
+        ),
+      ),
   )
   return row?.usd ?? null
 }
@@ -137,7 +135,7 @@ export async function withRecordedModelCost(
     shard: step.shard,
     ingestStep: step.step,
   }
-  const recorded = await ingestModelCost(step).catch((error: unknown) => {
+  const recorded = await readIngestModelCost(step).catch((error: unknown) => {
     log.error({
       step: "ingestion-v2.model-cost-read-failed",
       ...fields,

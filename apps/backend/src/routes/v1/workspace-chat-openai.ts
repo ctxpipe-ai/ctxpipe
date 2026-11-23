@@ -176,25 +176,20 @@ async function recordIngestCallCost(
   ingest: NonNullable<ModelCaller["ingest"]>,
   cost: IngestModelCallCost,
 ): Promise<void> {
+  const fields = {
+    ingestionRunId: ingest.runId,
+    shard: ingest.shard,
+    ingestStep: ingest.step,
+    usd: cost.usd,
+  }
   if (cost.estimated)
-    logIngestEvent("warn", "ingestion-v2.model-cost-estimated", {
-      ingestionRunId: ingest.runId,
-      shard: ingest.shard,
-      ingestStep: ingest.step,
-      usd: cost.usd,
-    })
+    logIngestEvent("warn", "ingestion-v2.model-cost-estimated", fields)
   try {
-    await addIngestModelCost(
-      { orgId, runId: ingest.runId, shard: ingest.shard, step: ingest.step },
-      cost.usd,
-    )
+    await addIngestModelCost({ orgId, ...ingest }, cost.usd)
   } catch (error) {
     log.error({
       step: "ingestion-v2.model-cost-write-failed",
-      ingestionRunId: ingest.runId,
-      shard: ingest.shard,
-      ingestStep: ingest.step,
-      usd: cost.usd,
+      ...fields,
       ...ingestErrorFields(error),
     })
   }

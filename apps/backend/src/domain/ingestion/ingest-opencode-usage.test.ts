@@ -73,24 +73,17 @@ const recorded = (costs: [number, number]) =>
   ].join("\n")
 
 describe("parseOpenCodeUsage", () => {
-  it("adds the tokens and the cost of each model call when OpenCode reports a cost", () => {
-    expect(parseOpenCodeUsage(recorded([0.0123, 0.0021]))).toEqual({
-      inputTokens: 1200 + 4000 + 800 + 200 + 5000,
-      outputTokens: 300 + 50 + 40,
-      cacheReadTokens: 4000 + 5000,
-      costUsd: expect.closeTo(0.0144, 10),
-    })
-  })
-
-  it("gives only the tokens when a model call reports no cost", () => {
-    expect(parseOpenCodeUsage(recorded([0, 0]))).toEqual({
-      inputTokens: 11_200,
-      outputTokens: 390,
-      cacheReadTokens: 9000,
-    })
-    expect(parseOpenCodeUsage(recorded([0.01, 0]))).not.toHaveProperty(
-      "costUsd",
-    )
+  it("adds the tokens of each model call and gives no cost, also when OpenCode reports one", () => {
+    const reported: Array<[number, number]> = [
+      [0.0123, 0.0021],
+      [0, 0],
+    ]
+    for (const costs of reported)
+      expect(parseOpenCodeUsage(recorded(costs))).toEqual({
+        inputTokens: 1200 + 4000 + 800 + 200 + 5000,
+        outputTokens: 300 + 50 + 40,
+        cacheReadTokens: 4000 + 5000,
+      })
   })
 
   it("gives no usage when no line is a step_finish event", () => {
@@ -201,7 +194,7 @@ describe("ingestModelRunCommand", () => {
     expect(parseOpenCodeErrors(result.stdout)).toEqual([
       { name: "APIError", status: 429 },
     ])
-    expect(parseOpenCodeUsage(result.stdout)?.costUsd).toBeCloseTo(0.03, 10)
+    expect(parseOpenCodeUsage(result.stdout)).not.toHaveProperty("costUsd")
     expect((await readFile(join(bin, "args"), "utf8")).trim()).toBe(
       "run --format json --model ctxpipe/m Run the skill.",
     )

@@ -28,7 +28,7 @@ import { sandboxLocks } from "../../db/schema/sandbox-locks.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import { parseOpenCodeUsage } from "../../domain/ingestion/ingest-opencode-usage.js"
 import {
-  ingestModelCost,
+  readIngestModelCost,
   ingestUsageUsd,
   withRecordedModelCost,
 } from "../../domain/ingestion/ingest-spend.js"
@@ -391,7 +391,7 @@ describe("workspace-ingest-model capability", () => {
       step: "skill:root:apis",
       lockOwner,
     })
-    expect(await ingestModelCost(step)).toBeNull()
+    expect(await readIngestModelCost(step)).toBeNull()
     // A streamed answer ends with a usage chunk; with a bring-your-own-key
     // route, the gateway puts the provider charge in `cost_details`.
     const usages = [
@@ -442,6 +442,20 @@ describe("workspace-ingest-model capability", () => {
         (span) => span.attributes["ctxpipe.ingest.model_call.cost_estimated"],
       ),
     ).toEqual([false, false, true])
+    // Each call has one span with its tokens.
+    expect(
+      calls.map((span) => [
+        span.attributes["gen_ai.usage.input_tokens"],
+        span.attributes["gen_ai.usage.output_tokens"],
+      ]),
+    ).toEqual([
+      [1_000, 50],
+      [2_000, 100],
+      [10_000, 1_000],
+    ])
+    expect(calls[0]?.attributes["gen_ai.usage.cache_read.input_tokens"]).toBe(
+      800,
+    )
     // 10,000 input tokens at $3 and 1,000 output tokens at $15 per million.
     expect(spanCosts[2]).toBeCloseTo(0.045, 10)
     const spanSum = spanCosts.reduce(
@@ -451,7 +465,7 @@ describe("workspace-ingest-model capability", () => {
     // The proxy wrote the cost before the answer ended, so the step reads
     // all of it when `opencode run` exits. OpenCode reports no cost for a
     // model with no price in its config.
-    const recorded = await ingestModelCost(step)
+    const recorded = await readIngestModelCost(step)
     expect(recorded).toBeCloseTo(spanSum, 10)
     const usage = await withRecordedModelCost(
       step,
@@ -500,8 +514,12 @@ describe("workspace-ingest-model capability", () => {
     return { status: res.status, text }
   }
 
-  /** An upstream stream that closes its body some time after the end marker. */
-  function slowlyClosedStream(usage: Record<string, unknown>) {
+  /**
+   * An upstream stream with a usage chunk and a split end marker. With
+   * `closeAfterMs`, it closes its body that time after the marker: the
+   * proxy writes the cost only at the body end.
+   */
+  function sseStream(usage: Record<string, unknown>, closeAfterMs = 0) {
     const encoder = new TextEncoder()
     return new HttpResponse(
       new ReadableStream<Uint8Array>({
@@ -514,7 +532,8 @@ describe("workspace-ingest-model capability", () => {
           // The marker comes in two chunks: the proxy must hold both.
           controller.enqueue(encoder.encode("data: [DO"))
           controller.enqueue(encoder.encode("NE]\n\n"))
-          await new Promise((resolve) => setTimeout(resolve, 300))
+          if (closeAfterMs)
+            await new Promise((resolve) => setTimeout(resolve, closeAfterMs))
           controller.close()
         },
       }),
@@ -537,16 +556,19 @@ describe("workspace-ingest-model capability", () => {
     })
     server.use(
       http.post(`${MODEL_PROVIDER_URL}/chat/completions`, () =>
-        slowlyClosedStream({
-          prompt_tokens: 10,
-          completion_tokens: 2,
-          cost: 0.002,
-        }),
+        sseStream(
+          {
+            prompt_tokens: 10,
+            completion_tokens: 2,
+            cost: 0.002,
+          },
+          300,
+        ),
       ),
     )
     let costAtEnd: number | null = null
     const { status, text } = await streamUntilEnd(capability, async () => {
-      costAtEnd = await ingestModelCost(step)
+      costAtEnd = await readIngestModelCost(step)
     })
     expect(status).toBe(200)
     expect(text).toContain('"content":"ok"')
@@ -580,7 +602,7 @@ describe("workspace-ingest-model capability", () => {
       })
       server.use(
         http.post(`${MODEL_PROVIDER_URL}/chat/completions`, () =>
-          slowlyClosedStream({
+          sseStream({
             prompt_tokens: 10,
             completion_tokens: 2,
             cost: 0.002,

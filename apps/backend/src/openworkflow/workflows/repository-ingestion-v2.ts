@@ -374,6 +374,13 @@ export function defineRepositoryIngestionV2Workflow(
             return { released: true }
           })
 
+        // The model proxy records the cost of discovery for this step.
+        const discovery = {
+          orgId: input.orgId,
+          runId: run.id,
+          shard: 0,
+          step: "discover-roots",
+        }
         // A crash loop ends the run `partial` with the cause and the fix. A
         // throw would make OpenWorkflow retry the step 10 times (CTX-971).
         const scope = await step.run({ name: "discover-roots" }, () =>
@@ -381,7 +388,7 @@ export function defineRepositoryIngestionV2Workflow(
             run.id,
             "discover-roots",
             async (): Promise<
-              | { partial: string }
+              | { partial: string; usage?: IngestStepUsage }
               | {
                   partial?: undefined
                   usage?: IngestStepUsage
@@ -407,12 +414,7 @@ export function defineRepositoryIngestionV2Workflow(
               // into the step output, where the recorded spend reads it. Its
               // cost is the cost that the model proxy recorded (CTX-1522).
               const recorded = await withRecordedModelCost(
-                {
-                  orgId: input.orgId,
-                  runId: run.id,
-                  shard: 0,
-                  step: "discover-roots",
-                },
+                discovery,
                 discovered.usage,
               )
               const usage = recorded ? { usage: recorded } : {}
@@ -479,7 +481,11 @@ export function defineRepositoryIngestionV2Workflow(
                 ).length,
               }
             },
-            (error) => ({ partial: error.message }),
+            // The recorded model cost of the stopped attempts (CTX-1522).
+            async (error) => {
+              const usage = await withRecordedModelCost(discovery, undefined)
+              return { partial: error.message, ...(usage ? { usage } : {}) }
+            },
           ),
         )
         if (scope.partial !== undefined) {
@@ -561,7 +567,11 @@ export function defineRepositoryIngestionV2Workflow(
             const state = first[i]
             if (!state) continue
             await runSkillPages({
-              step: guardedSkillStep(step, run.id, input.orgId),
+              step: guardedSkillStep(step, run.id, {
+                orgId: input.orgId,
+                runId: run.id,
+                shard: 0,
+              }),
               execution,
               run: {
                 orgId: input.orgId,

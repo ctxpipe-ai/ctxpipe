@@ -330,7 +330,7 @@ export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
               const current = state.get(destination.workspaceId)
               if (!current) continue
               await runSkillPages({
-                step: guardedSkillStep(step, run.id, input.orgId),
+                step: guardedSkillStep(step, run.id, input),
                 execution,
                 // Each step commit names the bundle that wrote it.
                 run: { ...input, bundle: bundle.name },
@@ -508,7 +508,8 @@ export function workspaceSkillBroker(input: {
  * The `step` of `runSkillPages`: one `step.run` with no OpenWorkflow retry,
  * in the org of the run. A step that stopped the worker again and again
  * (CTX-971) ends `partial` with the `crashLoop` cause and does not run
- * again; the run goes on with the next step.
+ * again; the run goes on with the next step. Its output keeps the model
+ * cost that the proxy recorded for the stopped attempts (CTX-1522).
  */
 export function guardedSkillStep(
   step: {
@@ -518,15 +519,25 @@ export function guardedSkillStep(
     ) => Promise<O>
   },
   workflowRunId: string,
-  orgId: string,
+  ingest: { orgId: string; runId: string; shard: number },
 ): SkillPages["step"] {
   return (name, fn) =>
     step.run({ name, retryPolicy: { maximumAttempts: 1 } }, () =>
       withCrashLoopGuard(
         workflowRunId,
         name,
-        () => withIngestionOrg(orgId, fn),
-        (): StepResult => ({ partial: true, failed: "crashLoop" }),
+        () => withIngestionOrg(ingest.orgId, fn),
+        async (): Promise<StepResult> => {
+          const usage = await withRecordedModelCost(
+            { ...ingest, step: name },
+            undefined,
+          )
+          return {
+            partial: true,
+            failed: "crashLoop",
+            ...(usage ? { usage } : {}),
+          }
+        },
       ),
     )
 }
