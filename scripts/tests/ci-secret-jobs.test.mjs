@@ -357,19 +357,22 @@ test("rejects an outside-service secret in a job with untrusted code outside wor
           `gives ${secret} to a job that runs untrusted code, and the job does not use .environment: workbench`,
         ),
       )
-    const result = check(secretJob(secret, "    environment: workbench\n"))
-    assert.doesNotMatch(result.stderr, /environment: workbench/)
+    for (const environment of ["workbench", "workbench-main"]) {
+      const result = check(secretJob(secret, `    environment: ${environment}\n`))
+      assert.doesNotMatch(result.stderr, /environment: workbench/)
+    }
   }
 })
 
 test("rejects the Railway and Neon keys in the workbench environment", () => {
   for (const secret of ["RAILWAY_WORKSPACE_TOKEN", "NEON_API_KEY"])
-    rejects(
-      {
-        ".github/workflows/w.yaml": `on: pull_request\njobs:\n  check:\n    environment: workbench\n    steps:\n      - env:\n          ${secret}: \${{ secrets.${secret} }}\n        run: echo ok\n`,
-      },
-      new RegExp(`gives ${secret} to a job in the workbench environment`),
-    )
+    for (const environment of ["workbench", "workbench-main"])
+      rejects(
+        {
+          ".github/workflows/w.yaml": `on: pull_request\njobs:\n  check:\n    environment: ${environment}\n    steps:\n      - env:\n          ${secret}: \${{ secrets.${secret} }}\n        run: echo ok\n`,
+        },
+        new RegExp(`gives ${secret} to a job in the workbench environment`),
+      )
 })
 
 const cacheStep = (action, key, extra = "") =>

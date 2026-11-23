@@ -12,37 +12,27 @@ name: Ingestion v2 proof (Docker)
 # it checks that the shard sandbox holds no GitHub token, model key or vault
 # token, and it fails the proof when one is there.
 #
-# Secrets of the workbench environment (names only):
+# Secrets of the workbench-main environment (names only). Only protected
+# branches reach that environment, so the proof runs only from main:
+# a branch cannot get the GitHub App key.
 #   MODEL_PROVIDER_API_KEY  a spend-capped model key for CI, never the
 #                           production key
 #   GH_APP_ID               the GitHub App id of the test org
 #   GH_PRIVATE_KEY          the GitHub App private key, PEM
-#   INGEST_PROOF_REPOS      workflow_dispatch only: the fork URLs of the
+#   INGEST_PROOF_REPOS      the fork URLs of the
 #                           repositories to ingest, separated by spaces,
 #                           commas or new lines, the largest last
-#   INGEST_PROOF_WORKSPACE_REPO  workflow_dispatch only: the URL of the
+#   INGEST_PROOF_WORKSPACE_REPO  the URL of the
 #                           Workspace repository, in the same owner
 # Repository variables (optional): MODEL_PROVIDER, MODEL_PROVIDER_URL,
 #   MODEL_FAST_NAME, MODEL_MEDIUM_NAME, MODEL_HIGH_NAME.
-# How to start a run (GitHub runs workflow_dispatch only for a workflow file on
-# the default branch, so use the push trigger until this file is on main):
-#   1. Create a branch named proof/ingestion-v2-<anything> from the branch
-#      that holds this workflow.
-#   2. Fill in .github/ingestion-v2-proof.json: repos (a list of fork URLs,
-#      the largest last), workspace_repo, spend_cap_usd.
-#   3. Push the branch. The push starts one run. Push again to start another.
-# Anyone who can push such a branch can spend the model key, so keep branch
-# protection on proof/*. The Actions log is public, and the committed file
-# shows the repository names. To keep them private, use workflow_dispatch:
-# it reads the repositories from the two INGEST_PROOF_* secrets, and the
-# log masks them.
+# How to start a run: dispatch the workflow on main (Actions > Ingestion v2
+# proof > Run workflow). It reads the repositories from the two INGEST_PROOF_*
+# secrets, and the log masks them. A run from another branch gets no secret.
 # The GitHub App must be installed on the owner of every repository and of
 # the Workspace repository, with access to all of them.
 
 on:
-  push:
-    branches:
-      - "proof/ingestion-v2-*"
   workflow_dispatch:
     # The repositories come from the INGEST_PROOF_* secrets, not from inputs:
     # the log shows the value of each input.
@@ -72,20 +62,21 @@ jobs:
     runs-on: blacksmith-8vcpu-ubuntu-2404-arm
     timeout-minutes: 360
     # GH_APP_ID, GH_PRIVATE_KEY and MODEL_PROVIDER_API_KEY are secrets
-    # of the workbench environment. The job builds images and runs dependency
-    # code, so it never gets the production model key.
-    environment: workbench
+    # of the workbench-main environment, which only protected branches reach.
+    # The job builds images and runs dependency code, so it never gets the
+    # production model key.
+    environment: workbench-main
     permissions:
       contents: read
     env:
       COMPOSE_PROFILES: deploy
     steps:
-      - name: Check the workbench model key
+      - name: Check the workbench-main model key
         env:
           MODEL_PROVIDER_API_KEY: ${{ secrets.MODEL_PROVIDER_API_KEY }}
         run: |
           [[ -n "$MODEL_PROVIDER_API_KEY" ]] || {
-            echo "::error::MODEL_PROVIDER_API_KEY is missing. Add the spend-capped model key to the workbench environment (Settings > Environments)."
+            echo "::error::MODEL_PROVIDER_API_KEY is missing. Add the spend-capped model key to the workbench-main environment (Settings > Environments)."
             exit 1
           }
       - uses: actions/checkout@v6
@@ -154,20 +145,11 @@ jobs:
           INPUT_WORKSPACE_REPO: ${{ secrets.INGEST_PROOF_WORKSPACE_REPO }}
           INPUT_SPEND_CAP_USD: ${{ inputs.spend_cap_usd }}
           INPUT_MODE: ${{ inputs.mode }}
-          EVENT_NAME: ${{ github.event_name }}
         run: |
-          if [ "$EVENT_NAME" = push ]; then
-            file=.github/ingestion-v2-proof.json
-            repos=$(jq -r '.repos | join(",")' "$file")
-            workspace_repo=$(jq -r '.workspace_repo' "$file")
-            cap=$(jq -r '.spend_cap_usd // 30' "$file")
-            mode=shadow
-          else
-            repos=$INPUT_REPOS
-            workspace_repo=$INPUT_WORKSPACE_REPO
-            cap=$INPUT_SPEND_CAP_USD
-            mode=$INPUT_MODE
-          fi
+          repos=$INPUT_REPOS
+          workspace_repo=$INPUT_WORKSPACE_REPO
+          cap=$INPUT_SPEND_CAP_USD
+          mode=$INPUT_MODE
           [ -n "$repos" ] && [ -n "$workspace_repo" ] || {
             echo "::error::Fill in repos and workspace_repo"
             exit 1

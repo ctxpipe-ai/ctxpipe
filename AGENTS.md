@@ -94,9 +94,9 @@ Customer-facing documentation lives in [`apps/docs/content/docs/`](apps/docs/con
 
 ### GitHub environments
 
-- `Preview`: retired with the Railway project ([CTX-1220](https://linear.app/ctxpipe/issue/CTX-1220)). No job uses it.
+- `Preview`: retired ([CTX-1220](https://linear.app/ctxpipe/issue/CTX-1220)); no job uses it.
 - `pr-preview`: only the Deployments of the AWS PR preview. No secret, and no job runs in it.
-- `workbench`: the environment for checks, evals, proofs and live contracts that call outside services, with spend-capped or test-scoped keys.
+- `workbench`: checks, evals, proofs and live contracts that call outside services; spend-capped or test-scoped keys. `workbench-main`: the same, only from protected branches.
 - `Production`: the production deploy.
 - Each environment holds its own value of each credential. `Production` and `Preview` never share a token, key, or secret. When you add or rotate a secret, make one value for each environment that needs it. `OBSERVABILITY_OTLP_HEADERS` too: `Production` holds the `telemetry` Access token, and it is never a repository secret.
 - A new check that needs a paid or outside service uses `workbench`. Do not add another environment without a stated need. `scripts/ci/check-secret-jobs.mjs` enforces this.

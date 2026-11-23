@@ -16,7 +16,11 @@
 //   untrusted code. No exception covers them.
 // - GitHub environments: `workbench` is for checks, evals, proofs and live
 //   contracts that call outside services, with spend-capped or test-scoped
-//   keys. `Production` is the production deploy.
+//   keys. Any branch reaches it. `workbench-main` holds the same kind of keys
+//   for jobs that run only from main (the Linear key, the GitHub App of the
+//   ingestion proof): only protected branches reach it, so a branch workflow
+//   cannot read them. The rules for `workbench` apply to it too.
+//   `Production` is the production deploy.
 //   A job that runs untrusted code and reads MODEL_PROVIDER_API_KEY uses
 //   `environment: workbench`. To add a paid or outside check, put the job in
 //   `workbench`: this guard enforces it.
@@ -91,6 +95,9 @@ const productionJobs = new Map(
     "deploy.yaml:forge_deploy": "the Forge CLI is a package",
   }),
 )
+
+// The environments of checks: `workbench` and `workbench-main`.
+const workbench = /^workbench(?:-main)?$/i
 
 // Secrets that need `environment: workbench` in a job with untrusted code.
 const checkSecrets = /(?<![\w./-])secrets\s*\.\s*(MODEL_PROVIDER_API_KEY)\b/
@@ -506,12 +513,12 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
         )
       const accountSecret =
         /secrets\s*\.\s*(NEON_API_KEY|RAILWAY_WORKSPACE_TOKEN)\b/.exec(text)
-      if (accountSecret && /^workbench$/i.test(environment ?? ""))
+      if (accountSecret && workbench.test(environment ?? ""))
         failures.push(
           `${where(number)} gives ${accountSecret[1]} to a job in the workbench environment. Only production jobs may read it.`,
         )
       const check = checkSecrets.exec(text)
-      if (runsUntrusted && check && !/^workbench$/i.test(environment ?? ""))
+      if (runsUntrusted && check && !workbench.test(environment ?? ""))
         failures.push(
           `${where(number)} gives ${check[1]} to a job that runs untrusted code, and the job does not use \`environment: workbench\` (spend-capped or test-scoped values). Use it, or move the secret to a job without such code.`,
         )
