@@ -3,7 +3,7 @@ import {
   chmodSync,
   cpSync,
   mkdtempSync,
-  readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs"
@@ -107,27 +107,72 @@ describe("readIngestSkillBundle", () => {
     )
   })
 
-  it("gives a new re-ingestion key when the version changes", async () => {
+  it("keeps the version and the name when only a marker text changes", async () => {
     const dir = copyBundle()
     const before = await readIngestSkillBundle(dir)
-    writeFileSync(
-      join(dir, "version.json"),
-      JSON.stringify({ version: "ingest-1111111111111111", hash: before.name }),
-    )
+    writeFileSync(join(dir, "versions/ingest-ca237393fef135a9.md"), "Other\n")
+    writeFileSync(join(dir, "versions/README.md"), "Other\n")
     const after = await readIngestSkillBundle(dir)
-    expect(reingestUpgradeKey(after.version)).toBe(
-      "reingest-ingest-1111111111111111",
+    expect(after.version).toBe(before.version)
+    expect(after.name).toBe(before.name)
+  })
+
+  it("gives a new re-ingestion key when a change adds a marker", async () => {
+    const dir = copyBundle()
+    const before = await readIngestSkillBundle(dir)
+    writeFileSync(join(dir, "versions/ctx-1.md"), "New knowledge.\n")
+    const after = await readIngestSkillBundle(dir)
+    expect(after.version).toMatch(/^ingest-[0-9a-f]{16}$/)
+    expect(reingestUpgradeKey(after.version)).not.toBe(
+      reingestUpgradeKey(before.version),
+    )
+    expect(after.name).toBe(before.name)
+  })
+
+  it("gives one version for two added markers, in each merge order", async () => {
+    const a = copyBundle()
+    writeFileSync(join(a, "versions/ctx-1.md"), "One.\n")
+    writeFileSync(join(a, "versions/ctx-2.md"), "Two.\n")
+    const b = copyBundle()
+    writeFileSync(join(b, "versions/ctx-2.md"), "Two.\n")
+    writeFileSync(join(b, "versions/ctx-1.md"), "One.\n")
+    const one = copyBundle()
+    writeFileSync(join(one, "versions/ctx-1.md"), "One.\n")
+    const [ab, ba, onlyOne] = await Promise.all(
+      [a, b, one].map((dir) => readIngestSkillBundle(dir)),
+    )
+    expect(ab?.version).toBe(ba?.version)
+    expect(ab?.version).not.toBe(onlyOne?.version)
+  })
+
+  it("keeps the stored version of the time before markers", async () => {
+    // The last version.json on main had this version. The seed marker keeps
+    // it, so the release of the markers offers no new re-ingestion.
+    const seed = "ingest-ca237393fef135a9.md"
+    expect(readdirSync(join(INGEST_SKILLS_DIR, "versions"))).toContain(seed)
+    const dir = copyBundle()
+    for (const marker of readdirSync(join(dir, "versions")))
+      if (marker !== seed && marker !== "README.md")
+        rmSync(join(dir, "versions", marker))
+    expect((await readIngestSkillBundle(dir)).version).toBe(
+      "ingest-ca237393fef135a9",
     )
   })
 
-  it("has a version file that covers the content of the folder", async () => {
-    const { hash } = JSON.parse(
-      readFileSync(join(INGEST_SKILLS_DIR, "version.json"), "utf8"),
-    ) as { hash: string }
-    const { name } = await readIngestSkillBundle()
-    expect(
-      hash,
-      `The content of apps/backend/ingest-skills changed. In apps/backend/ingest-skills/version.json, set "hash" to "${name}". Also set "version" to "${name}" when the edit can change the knowledge that ingestion writes. A new version offers each Workspace a paid re-ingestion. A format, lint, or comment edit keeps the version. A new or removed skill folder needs a new version.`,
-    ).toBe(name)
+  it("fails when a marker has another name form", async () => {
+    const dir = copyBundle()
+    writeFileSync(join(dir, "versions/CTX-1.txt"), "One.\n")
+    await expect(readIngestSkillBundle(dir)).rejects.toThrow(/CTX-1\.txt/)
+  })
+
+  it("fails when the versions folder has no marker", async () => {
+    const dir = copyBundle()
+    rmSync(join(dir, "versions/ingest-ca237393fef135a9.md"))
+    await expect(readIngestSkillBundle(dir)).rejects.toThrow(/no marker/)
+  })
+
+  it("does not put the markers in the bundle", async () => {
+    const bundle = await readIngestSkillBundle()
+    expect(bundle.files.some((f) => f.path.startsWith("versions/"))).toBe(false)
   })
 })

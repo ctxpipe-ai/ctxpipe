@@ -58,6 +58,7 @@ All deploy paths run the same migrate command before the new code serves traffic
 - Each Workspace with a GitHub source repository needs it once for each skill bundle. It needs format 3 or higher, so that the ingestion v2 publish is allowed.
 - Re-ingestion is throttled for each org (see [ADR-052](ADR-052-ingestion-sandbox-skills-patches.md), revision 2026-10-16).
 - Revision 2026-11-01 (CTX-1028): the key `reingest-<version>` names a re-ingestion version that a person sets in `apps/backend/ingest-skills/version.json`, not a content hash. Each Workspace needs a re-ingestion once for each re-ingestion version (see [ADR-052](ADR-052-ingestion-sandbox-skills-patches.md), revision 2026-11-01).
+- Revision 2026-11-23 (CTX-1559): the version markers in `apps/backend/ingest-skills/versions/` set the re-ingestion version, not `version.json`. A change that can change the knowledge adds a marker; other changes add none, so they start no re-ingestion, also in a Workspace with automatic upgrades (see [ADR-052](ADR-052-ingestion-sandbox-skills-patches.md), revision 2026-11-23).
 
 ### 6. Git holds the upgrade state
 
