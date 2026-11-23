@@ -113,32 +113,97 @@ export function contextPath(step, input) {
   return clean
 }
 
-function git(contextDir, args, input) {
-  return execFileSync("git", ["-C", contextDir, ...args], {
-    input,
-    maxBuffer: 64 * 1024 * 1024,
-  })
+function git(contextDir, args, input, maxBuffer = 64 * 1024 * 1024) {
+  return execFileSync("git", ["-C", contextDir, ...args], { input, maxBuffer })
+}
+
+/** Path to blob id of each file blob in `ls-tree -z` output. */
+function fileBlobs(out) {
+  const blobs = new Map()
+  for (const line of out.toString("utf8").split("\0")) {
+    const tab = line.indexOf("\t")
+    if (tab === -1) continue
+    const [mode, type, id] = line.slice(0, tab).split(" ")
+    // A symbolic link or a submodule is not a file blob.
+    if (type === "blob" && mode !== "120000") blobs.set(line.slice(tab + 1), id)
+  }
+  return blobs
+}
+
+// The file blobs of each base tree that listBaseTree read: path to blob id.
+const baseTrees = new Map()
+const treeKey = (step) => `${step.contextDir}\0${step.baseCommit}`
+
+/**
+ * Lists the base tree once with one `git ls-tree`, so that each later
+ * baseBlob call of the step starts no git process. A script that checks
+ * many paths calls it first. A commit does not change, so the list stays
+ * correct.
+ */
+export function listBaseTree(step) {
+  if (!baseTrees.has(treeKey(step)))
+    baseTrees.set(
+      treeKey(step),
+      fileBlobs(
+        git(
+          step.contextDir,
+          ["ls-tree", "-r", "-z", "--full-tree", step.baseCommit],
+          undefined,
+          256 * 1024 * 1024,
+        ),
+      ),
+    )
 }
 
 /** The blob id of `path` at the step's base commit, or null. */
 export function baseBlob(step, path) {
-  const out = git(step.contextDir, [
-    "ls-tree",
-    "-z",
-    step.baseCommit,
-    "--",
-    path,
-  ])
-    .toString("utf8")
-    .split("\0")
-    .find((line) => line.endsWith(`\t${path}`))
-  if (!out) return null
-  const [mode, type, id] = out.split("\t")[0].split(" ")
-  return type === "blob" && mode !== "120000" ? id : null
+  const tree = baseTrees.get(treeKey(step))
+  if (tree) return tree.get(path) ?? null
+  return (
+    fileBlobs(
+      git(step.contextDir, ["ls-tree", "-z", step.baseCommit, "--", path]),
+    ).get(path) ?? null
+  )
+}
+
+// Blob contents that readBaseBlobs read: blob id to Buffer. An id names
+// its content, so a cached blob is always correct.
+const blobContents = new Map()
+
+/**
+ * Reads the blobs of `paths` at the step base with one git call for each
+ * 500 blobs, so that blobContent of each one starts no git process. A loop
+ * that reads the base text of many files calls it first.
+ */
+export function readBaseBlobs(step, paths) {
+  listBaseTree(step)
+  const ids = [
+    ...new Set(
+      paths
+        .map((path) => baseBlob(step, path))
+        .filter((id) => id !== null && !blobContents.has(id)),
+    ),
+  ]
+  for (let from = 0; from < ids.length; from += 500) {
+    const chunk = ids.slice(from, from + 500)
+    const out = git(
+      step.contextDir,
+      ["cat-file", "--batch"],
+      chunk.map((id) => `${id}\n`).join(""),
+      512 * 1024 * 1024,
+    )
+    let at = 0
+    for (const id of chunk) {
+      const end = out.indexOf(0x0a, at)
+      const size = Number(out.toString("utf8", at, end).split(" ")[2])
+      blobContents.set(id, out.subarray(end + 1, end + 1 + size))
+      at = end + 1 + size + 1
+    }
+  }
 }
 
 export function blobContent(step, id) {
-  return git(step.contextDir, ["cat-file", "blob", id])
+  return blobContents.get(id) ?? git(step.contextDir, ["cat-file", "blob", id])
 }
 
 /**

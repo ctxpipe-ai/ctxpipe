@@ -28,7 +28,7 @@ import {
 } from "../../bin/knowledge-lib.mjs"
 import { fail } from "../../bin/stage-lib.mjs"
 import {
-  readTracked,
+  readTrackedMany,
   safePath,
   trackedFiles,
 } from "../../discover-roots/scripts/roots-lib.mjs"
@@ -149,11 +149,15 @@ function evidenceValues(candidate, extra) {
     ...[...candidate.roots.values()].flat().map((e) => e.path),
     ...extra,
   ])
-  for (const path of paths) {
-    if (!safePath(path)) continue
+  const texts = readTrackedMany(
+    source,
+    [...paths].filter(safePath),
+    (text) => text,
+  )
+  for (const [path, text] of texts) {
     const name = path.split("/").pop() ?? ""
     const config = CONFIG_FILE.test(name) && !MANIFEST.test(name)
-    for (const line of readTracked(source, path).split(/\r?\n/)) {
+    for (const line of text.split(/\r?\n/)) {
       // The user and the password of a URL (`scheme://user:password@host`).
       for (const userInfo of line.matchAll(/:\/\/([^\s/@"']+)@/g))
         for (const part of userInfo[1].split(":"))

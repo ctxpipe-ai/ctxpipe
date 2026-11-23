@@ -1,6 +1,24 @@
 import { defineConfig } from "vitest/config"
 
 export default defineConfig({
+  // The worker and the server run with no "development" condition, so a
+  // package such as micromark loads its production build. Vite adds that
+  // condition by default, and its debug build makes a Markdown parse about
+  // ten times slower. The tests load the build that production runs.
+  plugins: [
+    {
+      name: "production-conditions",
+      // Vite joins a configured list to its default list, so a hook removes
+      // the default condition from the merged list.
+      configEnvironment(_name, config) {
+        const resolve = config.resolve
+        if (resolve?.conditions)
+          resolve.conditions = resolve.conditions.filter(
+            (c) => c !== "development|production",
+          )
+      },
+    },
+  ],
   test: {
     environment: "node",
     // A hang fails within minutes and names the test, not at the job timeout.

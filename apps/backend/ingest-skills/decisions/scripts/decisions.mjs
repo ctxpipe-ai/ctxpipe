@@ -38,6 +38,8 @@ import { nameKey, relativeTo, scriptStep } from "../../bin/knowledge-lib.mjs"
 import {
   baseBlob,
   blobContent,
+  listBaseTree,
+  readBaseBlobs,
   readDeletes,
   stagedFile,
   outputBudget,
@@ -47,7 +49,7 @@ import {
 } from "../../bin/stage-lib.mjs"
 import {
   inTestFixture,
-  readTracked,
+  readTrackedMany,
   safePath,
   testFixtureSkips,
   trackedFiles,
@@ -99,6 +101,8 @@ function targetPath(repository, path) {
 const statusLabel = (status) => status.charAt(0).toUpperCase() + status.slice(1)
 
 const { step, source, repository, roots, index, skipped } = scriptStep()
+// The script checks the base path of each decision file: one git call.
+listBaseTree(step)
 const check = process.argv.slice(2).includes("--check")
 
 const tracked = trackedFiles(source)
@@ -139,9 +143,19 @@ if (found.some((p) => !safePath(p)))
   })
 found = found.filter(safePath)
 
+// One batch of git calls reads each decision file and each metadata file.
+const texts = readTrackedMany(
+  source,
+  [
+    ...new Set(
+      found.flatMap((path) => [path, forms.get(path).meta ?? []]).flat(),
+    ),
+  ],
+  (text) => text,
+)
 const candidates = []
 for (const path of found) {
-  const text = readTracked(source, path)
+  const text = texts.get(path)
   if (!text.trim()) {
     skipped.push({
       path,
@@ -151,7 +165,7 @@ for (const path of found) {
   }
   const dir = posix.dirname(path) === "." ? "." : posix.dirname(path)
   const form = forms.get(path)
-  const meta = form.meta === null ? null : readTracked(source, form.meta)
+  const meta = form.meta === null ? null : texts.get(form.meta)
   candidates.push({
     path,
     dir,
@@ -392,6 +406,10 @@ function done(c) {
   return new RegExp(`^source_sha: ["']?${runSha}["']?$`, "m").test(text)
 }
 
+readBaseBlobs(
+  step,
+  order.map((c) => c.target),
+)
 const waiting = order.filter((c) => !done(c))
 
 function entryOf(c) {

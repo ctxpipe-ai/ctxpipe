@@ -499,15 +499,16 @@ async function runScan() {
 /** The row of the Workspace when its run ended. */
 async function settled(workspaceId: string) {
   let current = await row(workspaceId)
+  // A read each 100 ms, for at most 6 minutes as before.
   for (
     let i = 0;
-    i < 360 &&
+    i < 3600 &&
     current?.status !== "completed" &&
     current?.status !== "failed" &&
     current?.status !== "blocked";
     i++
   ) {
-    await new Promise((resolve) => setTimeout(resolve, 1_000))
+    await new Promise((resolve) => setTimeout(resolve, 100))
     current = await row(workspaceId)
   }
   return current

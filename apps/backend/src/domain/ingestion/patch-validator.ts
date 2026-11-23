@@ -2079,23 +2079,56 @@ async function hashBlobs(
   }
 }
 
-async function readBlobs(
+/**
+ * The content of each blob id. `git cat-file --batch-check` gives the sizes,
+ * and each `git cat-file --batch` call reads blobs of at most 64 MiB in
+ * total (a larger blob gets a call of its own). Blobs larger than
+ * `maxTotalBytes` together fail with GitOutputTooLargeError, as one runGit
+ * call fails above its output limit. An id that is missing or that is not a
+ * blob has no entry.
+ */
+export async function readBlobs(
   repoDir: string,
   shas: string[],
+  maxTotalBytes = 256 * 1024 * 1024,
 ): Promise<Map<string, Buffer>> {
   const unique = [...new Set(shas)]
   const blobs = new Map<string, Buffer>()
   if (unique.length === 0) return blobs
-  const out = await git(repoDir, ["cat-file", "--batch"], {
+  const batches: string[][] = []
+  let size = Infinity
+  let total = 0
+  const checked = await git(repoDir, ["cat-file", "--batch-check"], {
     input: `${unique.join("\n")}\n`,
   })
-  let offset = 0
-  while (offset < out.length) {
-    const newline = out.indexOf(0x0a, offset)
-    const [sha, , size] = out.subarray(offset, newline).toString().split(" ")
-    const length = Number(size)
-    blobs.set(sha ?? "", out.subarray(newline + 1, newline + 1 + length))
-    offset = newline + 1 + length + 1
+  for (const line of checked.toString().split("\n")) {
+    const [sha = "", type, bytes] = line.split(" ")
+    if (type !== "blob") continue
+    total += Number(bytes)
+    if (total > maxTotalBytes)
+      throw new GitOutputTooLargeError(
+        `The blobs are larger than ${maxTotalBytes} bytes`,
+      )
+    if (size + Number(bytes) > 64 * 1024 * 1024) {
+      batches.push([])
+      size = 0
+    }
+    batches.at(-1)?.push(sha)
+    size += Number(bytes)
+  }
+  for (const batch of batches) {
+    const out = await git(repoDir, ["cat-file", "--batch"], {
+      input: `${batch.join("\n")}\n`,
+    })
+    let offset = 0
+    for (const sha of batch) {
+      const newline = out.indexOf(0x0a, offset)
+      const length = Number(
+        out.subarray(offset, newline).toString().split(" ")[2],
+      )
+      blobs.set(sha, out.subarray(newline + 1, newline + 1 + length))
+      offset = newline + 1 + length + 1
+    }
   }
   return blobs
 }

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// ctxpipe-stage <path>: copy a context file into the staged tree so that the
-// agent can edit it, and record its blob at the base commit. For a new path,
-// make the parent folders and print where to write the file.
+// ctxpipe-stage <path>...: copy each context file into the staged tree so
+// that the agent can edit it, and record its blob at the base commit. For a
+// new path, make the parent folders and print where to write the file.
 import { existsSync, writeFileSync } from "node:fs"
 import {
   baseBlob,
@@ -10,6 +10,7 @@ import {
   currentStep,
   ensureParent,
   parseArgs,
+  readBaseBlobs,
   readDeletes,
   readStaged,
   stagedFile,
@@ -19,23 +20,29 @@ import {
 
 const { root, args } = parseArgs()
 const step = currentStep(root)
-const path = contextPath(step, args[0])
-const deletes = readDeletes(step)
-if (path in deletes) {
-  delete deletes[path]
-  writeDeletes(step, deletes)
-}
-const file = stagedFile(step, path)
-if (existsSync(file)) {
-  process.stdout.write(`Already staged: edit ${file}\n`)
-} else {
-  ensureParent(file)
-  const blob = baseBlob(step, path)
-  writeStaged(step, { ...readStaged(step), [path]: blob })
-  if (blob) {
-    writeFileSync(file, blobContent(step, blob))
-    process.stdout.write(`Staged: edit ${file}\n`)
+const paths = (args.length ? args : [undefined]).map((arg) =>
+  contextPath(step, arg),
+)
+// More than one path: read the base blobs of all of them with one call.
+if (paths.length > 1) readBaseBlobs(step, paths)
+for (const path of paths) {
+  const deletes = readDeletes(step)
+  if (path in deletes) {
+    delete deletes[path]
+    writeDeletes(step, deletes)
+  }
+  const file = stagedFile(step, path)
+  if (existsSync(file)) {
+    process.stdout.write(`Already staged: edit ${file}\n`)
   } else {
-    process.stdout.write(`New file: write it at ${file}\n`)
+    ensureParent(file)
+    const blob = baseBlob(step, path)
+    writeStaged(step, { ...readStaged(step), [path]: blob })
+    if (blob) {
+      writeFileSync(file, blobContent(step, blob))
+      process.stdout.write(`Staged: edit ${file}\n`)
+    } else {
+      process.stdout.write(`New file: write it at ${file}\n`)
+    }
   }
 }
