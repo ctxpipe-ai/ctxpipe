@@ -29,6 +29,12 @@ export const ORCHESTRATOR_DEFAULTS = {
   /** The candidates of one layer, at most. */
   fanOut: 50,
   /**
+   * The bridge to other sources: layer 1 also gets the documents of the
+   * sources of no seed that are closest to the question by vector, at most
+   * this many, in addition to `fanOut`. 0: no bridge.
+   */
+  bridgeItems: 10,
+  /**
    * The time of one retrieval, from the first read to the last judge. 0: no
    * time budget. Only the evals use 0, so that a slow step does not hide
    * what the loop finds (the CTO, 2026-11-22).
@@ -221,7 +227,10 @@ export type TraversalNode = JudgeInput &
   Judgment & {
     /** 0 for a seed, else the layer that found the document. */
     depth: number
-    /** The relation that found it, from its parent. Null for a seed. */
+    /**
+     * The relation that found it, from its parent. Null for a seed, and for
+     * a document of the bridge: no relation found it.
+     */
     parent: {
       node: TraversalNode
       predicate: string
@@ -230,7 +239,7 @@ export type TraversalNode = JudgeInput &
   }
 
 /** Which relations the loop follows. */
-type WalkFilter = {
+export type WalkFilter = {
   direction: "out" | "in" | "both"
   /** Upper case. Undefined: each predicate except `skipUnlessNamed`. */
   predicates?: ReadonlySet<string>
@@ -261,8 +270,9 @@ type Traversal = {
 /**
  * Layer 0 judges the seeds, and all seeds are the first frontier: p(explore)
  * picks the frontier of layer 2 and later. Then up to `maxDepth` layers (at
- * most D). When the time budget ends, the loop stops and returns what it
- * judged, with `total_timeout`.
+ * most D). Layer 1 also judges the documents of the bridge. When the time
+ * budget ends, the loop stops and returns what it judged, with
+ * `total_timeout`.
  * Another Jev failure throws its `JevError`.
  *
  * The steps that do not wait for each other run in parallel (CTX-1535):
@@ -292,6 +302,11 @@ export async function traverse(input: {
   seeds: readonly JudgeInput[]
   /** The relations of the seeds (`readFrontier` at `walk.validAt`). */
   seedRelations: Promise<FrontierRelation[]>
+  /**
+   * The documents that layer 1 adds with no relation, after the documents
+   * that the relations of the seeds reach (`bridgeItems`).
+   */
+  bridge: Promise<Omit<JudgeInput, "text">[]>
   maxDepth: number
   walk: WalkFilter
   meter: ModelMeter
@@ -349,7 +364,18 @@ export async function traverse(input: {
       read.push(...own.map((item) => item.relation))
       const candidates = layerCandidates(own, byKey, visited, input.walk)
       cappedHubs.push(...candidates.capped.map((node) => node.document))
-      const layer = candidates.picked.slice(0, settings.fanOut)
+      const layer: Candidate[] = candidates.picked.slice(0, settings.fanOut)
+      if (depth === 1) {
+        const reached = new Set(
+          layer.map((candidate) => documentId(candidate.ref)),
+        )
+        for (const item of await beforeDeadline(deadline, () => input.bridge))
+          if (
+            !visited.has(documentId(item.ref)) &&
+            !reached.has(documentId(item.ref))
+          )
+            layer.push({ ...item, parent: null })
+      }
       if (layer.length === 0) break
       for (const candidate of layer) visited.add(documentId(candidate.ref))
       const refs = layer.map((candidate) => candidate.ref)
@@ -442,10 +468,16 @@ function frontierKey(item: FrontierRelation): string {
   })
 }
 
-/** A document that a layer reaches, with the relation that reaches it. */
+/**
+ * A document that a layer reaches, with the relation that reaches it (none
+ * for a document of the bridge).
+ */
 type Candidate = Omit<JudgeInput, "text"> & {
-  parent: NonNullable<TraversalNode["parent"]>
+  parent: TraversalNode["parent"]
 }
+
+/** A document that a relation of the frontier reaches. */
+type Reached = Candidate & { parent: NonNullable<TraversalNode["parent"]> }
 
 /** True when the validity of a row overlaps the window (open ends count). */
 function overlaps(
@@ -468,7 +500,7 @@ function layerCandidates(
   frontier: ReadonlyMap<string, TraversalNode>,
   visited: ReadonlySet<string>,
   walk: WalkFilter,
-): { picked: Candidate[]; capped: TraversalNode[] } {
+): { picked: Reached[]; capped: TraversalNode[] } {
   const perNode = new Map<TraversalNode, FrontierRelation[]>()
   for (const item of relations) {
     const { relation, direction, neighbor } = item
@@ -496,7 +528,7 @@ function layerCandidates(
     list.push(item)
     perNode.set(from, list)
   }
-  const best = new Map<string, Candidate>()
+  const best = new Map<string, Reached>()
   const capped: TraversalNode[] = []
   for (const [node, list] of perNode) {
     list.sort((a, b) => b.relation.confidence - a.relation.confidence)
