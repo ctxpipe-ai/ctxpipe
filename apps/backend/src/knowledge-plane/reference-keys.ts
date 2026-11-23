@@ -187,7 +187,14 @@ const withoutFences = (text: string) =>
  * - 0.8: an HTTP path with no method, in a code span or under `/api`; a
  *   label `area/<name>` or `component/<name>`; a full code span with a
  *   lowercase letter.
- * - 0.7: a name with `-` or `_` in the title or the text (`client-go`).
+ * - 0.7: a name with `-` or `_` in the title or the text (`client-go`);
+ *   the first part of a path with `::`, also in fenced code
+ *   (`build_helper::git::…`, `use run_make_support::{…}`), which names a
+ *   crate or a namespace (CTX-1579).
+ * - 0.6: the last two to four words of a run of words that each start
+ *   with a capital letter (`Amazon S3`, `The Catalog API`), and a word before `API` in any case
+ *   (`the notifications API`), in the title or the text (CTX-1579). These
+ *   are the names of products, which have no `-` or `_`.
  * A plain word of the title or the text is not a rule, also the first word
  * of a title before a colon (`Bug: …`): most such words name nothing, and
  * some name the wrong unit (`kind`). A name of one or two characters is a
@@ -248,11 +255,12 @@ function mentionLinks(input: {
       for (const key of folderKeysOf(repository, file))
         mention(key, 0.9, match[0])
   }
-  // A method and a path, also with the path in a code span (GET `/orders/`).
-  // The key of the operation drops an end slash.
+  // A method and a path, also with the path in a code span (GET `/orders/`),
+  // in any case (`get /entities`). The key of the operation drops an end
+  // slash.
   const operation = new RegExp(
-    `\\b(${HTTP_METHODS})\\s+(\`?)(\\/(?:[\\w./{}:-]*[\\w}])?\\/?)\\2`,
-    "g",
+    `\\b(${HTTP_METHODS})[ \\t]+(\`?)(\\/(?:[\\w./{}:-]*[\\w}])?\\/?)\\2`,
+    "gi",
   )
   for (const match of body.matchAll(operation))
     mention(operationKey(match[1] ?? "", match[3] ?? ""), 0.9, match[0])
@@ -291,6 +299,29 @@ function mentionLinks(input: {
     /(?<![\w.-])[a-z][a-z0-9]*(?:[-_][a-z0-9]+)+(?![\w-])/gi,
   ))
     mentionName(match[0], 0.7, match[0])
+  // The first part of a path names its crate or namespace in code too: a
+  // stack trace or an import names real code.
+  for (const [, root = ""] of body.matchAll(/(?<![\w:])([A-Za-z_]\w*)::[\w{*<]/g))
+    mentionName(root, 0.7, root)
+
+  // A product name: the last two to four words of a capitalized run. The
+  // run can start with a word of the sentence (`The Catalog API`), and the
+  // head of a product name is its last word (`API`, `S3`). One capitalized
+  // word is the start of a sentence more often than a name, and a word of
+  // one letter is a pronoun or an article (`But I`). A heading of the body
+  // is the label of an issue template (`Expected Behavior`) more often than
+  // a name; the title is not in a heading.
+  for (const [run] of nameText
+    .replace(/^#{1,6} .*$/gm, " ")
+    .matchAll(
+      /(?<![\w.-])[A-Z][A-Za-z0-9]+(?: [A-Z][A-Za-z0-9]+)+(?![\w-])/g,
+    )) {
+    const words = run.split(" ")
+    for (let size = 2; size <= Math.min(words.length, 4); size++)
+      mentionName(words.slice(-size).join(" "), 0.6, run)
+  }
+  for (const [name] of nameText.matchAll(/(?<![\w.-])[a-z][\w]* api\b/gi))
+    mentionName(name, 0.6, name)
   return links
 }
 

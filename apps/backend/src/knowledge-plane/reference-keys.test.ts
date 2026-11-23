@@ -116,3 +116,142 @@ describe("issue mentions (CTX-1502)", () => {
     ).toEqual([])
   })
 })
+
+/** A knowledge unit file of a kind and a name. */
+const unitFile = (kind: string, name: string) =>
+  `---\n${stringify({ kind, name })}---\n# ${name}\n`
+
+/**
+ * The names of the knowledge units that an issue mentions: the `MENTIONS`
+ * links of the issue whose key is a key of a unit, as the read joins them.
+ */
+function mentionedUnits(
+  text: { title: string; body: string },
+  units: [kind: string, name: string][],
+) {
+  const { path, content } = issue(text)
+  const linked = new Set(
+    referencesOf(path, content)
+      .links.filter((link) => link.predicate === "MENTIONS")
+      .map((link) => link.key),
+  )
+  return units
+    .filter(([kind, name], index) =>
+      referencesOf(`knowledge/units/${index}.md`, unitFile(kind, name)).keys.some(
+        (key) => linked.has(key),
+      ),
+    )
+    .map(([, name]) => name)
+}
+
+describe("issue mentions in code and plain product names (CTX-1579)", () => {
+  // Text from public issues of rust-lang/rust, backstage/backstage and
+  // kubernetes/kubernetes.
+  it("the root of a path in fenced code or a code span names a crate", () => {
+    const units: [string, string][] = [
+      ["Library", "build_helper"],
+      ["Library", "run_make_support"],
+      ["Library", "rustfix"],
+      ["Service", "x"],
+      ["Service", "git"],
+    ]
+    expect(
+      mentionedUnits(
+        {
+          title: "`./x check` being killed may leave `.git/index.lock` file",
+          body: [
+            "Stack trace:",
+            "```",
+            "   7: build_helper::git::run_git_diff_index::<build_helper::git::changes_since::{closure#0}>",
+            "   9: std::collections::hash::map::Entry::or_insert_with<enum2$<build_helper::git::PathFreshness>>",
+            "```",
+            "The test uses `x::run` and `rustfix::apply_suggestions` too.",
+          ].join("\n"),
+        },
+        units,
+      ),
+    ).toEqual(["build_helper", "rustfix"])
+    expect(
+      mentionedUnits(
+        {
+          title: "Fingerprints of the full IR and the summary index differ",
+          body: "```rust\nuse run_make_support::{llvm_bcanalyzer, rustc};\n```\n",
+        },
+        units,
+      ),
+    ).toEqual(["run_make_support"])
+  })
+
+  it("a method and a path name an operation in any case", () => {
+    const units: [string, string][] = [
+      ["Operation", "GET /entities"],
+      ["Operation", "POST /entities"],
+    ]
+    expect(
+      mentionedUnits(
+        {
+          title: "There is no ordering in the OwnerPicker",
+          body: "Option B: add a default `orderFields` filter to the `catalog-backend.createRouter() get /entities`.",
+        },
+        units,
+      ),
+    ).toEqual(["GET /entities"])
+  })
+
+  it("a capitalized name of two or more words, and a word before API, name a unit", () => {
+    const units: [string, string][] = [
+      ["API", "Catalog API"],
+      ["API", "Kubernetes API"],
+      ["API", "Notifications API"],
+      ["Database", "Amazon S3"],
+      ["Database", "Google Cloud Storage"],
+      ["API", "Scaffolder API"],
+    ]
+    expect(
+      mentionedUnits(
+        {
+          title: "Improve the Software Template API Documentation",
+          body: [
+            "It would be great if it was more like what we have for the Catalog API.",
+            "The notifications API accepts a payload.metadata field.",
+            "Docs may go to cloud storage services such as Amazon S3 or Azure Blob Storage.",
+            "The module sets impersonation headers when calling the kubernetes api to fetch.",
+          ].join("\n"),
+        },
+        units,
+      ),
+    ).toEqual(["Catalog API", "Kubernetes API", "Notifications API", "Amazon S3"])
+  })
+
+  it("a common word, a short name or a generic phrase makes no edge", () => {
+    const units: [string, string][] = [
+      ["Infrastructure", "Kubernetes"],
+      ["Infrastructure", "Docker"],
+      ["Library", "api"],
+      ["Library", "kind"],
+      ["Service", "x"],
+      ["Library", "metrics"],
+      ["API", "Health API"],
+    ]
+    expect(
+      mentionedUnits(
+        {
+          title: "Kubernetes: kubelet restarts the pod",
+          body: [
+            "Docker runs the node. The API returns 500, and this API is slow.",
+            "Expected Behavior: the health of the pod is fine.",
+            "```yaml",
+            "kind: Pod",
+            "metadata:",
+            "  name: metrics",
+            "```",
+            "```",
+            "x::main at std::panicking::panic",
+            "```",
+          ].join("\n"),
+        },
+        units,
+      ),
+    ).toEqual([])
+  })
+})
