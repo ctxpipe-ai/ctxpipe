@@ -1021,8 +1021,9 @@ export function gateDecision({
   // The selected checks with a key and no stored pass in any store, by
   // family (the first part of the id).
   const noStoredPass = {}
+  // A check with a pass of the PR head (`headKey`) has a stored pass too.
   for (const miss of selection.cache?.misses ?? [])
-    if (!storedMiss(miss)) {
+    if (!storedMiss(miss) && !miss.headKey) {
       const family = miss.id.split(":")[0]
       noStoredPass[family] = (noStoredPass[family] ?? 0) + 1
     }
@@ -1048,6 +1049,9 @@ export function gateDecision({
       // The changed definitions of checks, and the checks whose definition
       // changed (definitionChanges in plan.mjs).
       ...(planned.definitions && { definitions: planned.definitions }),
+      // The passes of the PR head that count here, or why none does
+      // (withCarry in plan.mjs).
+      ...(planned.carry && { carry: planned.carry }),
       factory: config.factory?.version ?? null,
       acceptAgentResults: config.acceptAgentResults === true,
       acceptPrResults: config.acceptPrResults === true,
@@ -1073,6 +1077,8 @@ export function gateDecision({
       hits: planned.hits.map((hit) => ({
         id: hit.id,
         class: hit.source,
+        // The class of the pass of the PR head that a `carry` hit counts.
+        ...(hit.source === "carry" && { headSource: hit.headSource }),
         hostKind: hit.provenance.hostKind,
         createdAt: hit.provenance.createdAt,
         ...(hit.provenance.run && { run: hit.provenance.run }),
@@ -1124,6 +1130,16 @@ export function nextStore({ store, selection, ran, contradictions, run, now }) {
   const quarantined = new Set(store.quarantined)
   for (const item of contradictions)
     if (item.confirmed && keys.has(item.id)) quarantined.add(keys.get(item.id))
+  // A check with a pass of the PR head that failed here: no later run of this
+  // PR carries that pass (withCarry in plan.mjs).
+  const headKeys = new Map(
+    (selection.cache?.misses ?? [])
+      .filter((miss) => miss.headKey)
+      .map((miss) => [miss.id, miss.headKey]),
+  )
+  for (const item of ran)
+    if (["failed", "error"].includes(item.result) && headKeys.has(item.id))
+      quarantined.add(headKeys.get(item.id))
   const entries = new Map(
     store.entries.map((entry) => [`${entry.id}\0${entry.key}`, entry]),
   )
@@ -1168,9 +1184,23 @@ export function gateText(decision, runUrl) {
     }), ${decision.external.length} in other workflows, ${s.counts.total - s.counts.selected} omitted.`,
     "",
     // The cache hits of each class: the store of the nightly CI run, the PR
-    // store, and the passes that an agent stored (factory check).
-    `**Cache hits:** ${["ci", "pr", "agent"].map((k) => `${k} ${classes[k] ?? 0}`).join(", ")} of ${s.counts.selected} selected checks.`,
+    // store, the passes that an agent stored (factory check), and the passes
+    // of the PR head that main's delta does not reach.
+    `**Cache hits:** ${["ci", "pr", "agent", "carry"].map((k) => `${k} ${classes[k] ?? 0}`).join(", ")} of ${s.counts.selected} selected checks.`,
   )
+  const carry = decision.carry
+  if (carry) {
+    const count = carry.ids.length
+    const head = carry.head && code(carry.head.slice(0, 12))
+    lines.push(
+      "",
+      carry.cause
+        ? `**Carry:** none (${code(carry.cause)}). Each check without a stored pass for its key here ran.`
+        : count
+          ? `**Carry:** ${count} ${count === 1 ? "pass" : "passes"} of the PR head ${head}: ${carry.ids.slice(0, 20).map(code).join(", ")}${count > 20 ? " and more" : ""}. The selection of the change of main since the merge base does not select these checks. The nightly run on main finds a fault of the two changes together.`
+          : `**Carry:** no pass of the PR head ${head} counts here.`,
+    )
+  }
   // A CI miss must be visible: a selected check with a key and no stored pass.
   const noPass = Object.entries(decision.noStoredPass).sort(([a], [b]) =>
     a.localeCompare(b),
@@ -1258,7 +1288,7 @@ export function gateText(decision, runUrl) {
     "| Check | Class | Host | Time |",
     decision.hits.map(
       (item) =>
-        `| ${code(item.id)} | ${item.class}${item.run ? ` (run ${item.run})` : ""} | ${item.hostKind} | ${code(item.createdAt)} |`,
+        `| ${code(item.id)} | ${item.class}${item.headSource ? ` (${item.headSource} pass of the head)` : ""}${item.run ? ` (run ${item.run})` : ""} | ${item.hostKind} | ${code(item.createdAt)} |`,
     ),
   )
   if (llm && !llm.fallback)
