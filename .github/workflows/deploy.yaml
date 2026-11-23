@@ -268,9 +268,9 @@ jobs:
             exit 0
           fi
           cd "$RUNNER_TEMP/index"
-          # The ECR repositories of the images (factory #99, ctxpipe/*;
-          # cost-telemetry: the observability stack; docs: the docs stack,
-          # factory machines/docs). An image
+          # The ECR repositories of the images (factory #99, ctxpipe/*, which
+          # the factory's hosted stack makes; the observability stack runs
+          # cost-telemetry, and the docs stack docs). An image
           # without one is skipped with a notice: release and forge_deploy
           # wait for this job, so a failure here would stop them.
           for image in *; do

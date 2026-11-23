@@ -140,7 +140,7 @@ export const images = [
       "ops/observability/cost-telemetry/src",
     ],
   },
-  // The docs site, docs.ctxpipe.ai (factory machines/docs runs it).
+  // The docs site (factory machines/docs runs it).
   {
     image: "docs",
     dockerfile: "apps/docs/Dockerfile",
