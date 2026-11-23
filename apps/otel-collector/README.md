@@ -4,7 +4,7 @@ Contributor collector for the Compose **`infra`** profile (`pnpm dev:infra`). It
 
 The process receives OTLP on port 4318 and prints it with the collector `debug` exporter. It starts with no tokens and no env file. **Hosted ingest** is the ClickStack collector of the observability stack in the factory repo (`machines/observability`, ADR-061).
 
-Compose mounts this `config.yaml` into `otel/opentelemetry-collector-contrib:0.149.0`. Product deploy does not publish or run a collector image.
+Compose mounts this `config.yaml` into `otel/opentelemetry-collector-contrib:0.165.0`. Product deploy does not publish or run a collector image.
 
 To watch local spans, follow the container logs. App endpoints: [USING.md](../../ops/observability/USING.md#localhost-telemetry).
 

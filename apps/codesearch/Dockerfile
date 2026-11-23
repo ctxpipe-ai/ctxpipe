@@ -12,7 +12,7 @@
 # Debian 12 images: a binary that links GLIBC 2.36 also runs on 2.41.
 
 # ── Stage 1: Go toolchain and Zoekt binaries ─────────────────────────────────
-FROM golang:1.27.3-bookworm@sha256:dc0963f32053e4bc451d24d87e3892d42d01021b61f093e98eb95c0352bb84b0 AS go-tools
+FROM golang:1.27.4-bookworm@sha256:4fa7c968ba93f1635670522dbb01a2c78150443e1385746924566079f36570ea AS go-tools
 # proxy.golang.org sometimes resets a connection in the middle of a module
 # download. The "|" in GOPROXY falls back to the origin on any error, and the
 # retry keeps the modules that the module cache already holds.
@@ -34,7 +34,7 @@ RUN npm install --global \
   && npm cache clean --force
 
 # ── Stage 3: Rust toolchain and debian-lsp ───────────────────────────────────
-FROM rust:1.99.1-bookworm@sha256:c9155318d07341301a78b45ecdd81af2e43b8b297d64e8fd4c5e80d7735607c3 AS rust-tools
+FROM rust:1.99.1-bookworm@sha256:e6f2cff35d0f309acf8433b4f05878ed77092602c5065cc81801177da0bb3a9c AS rust-tools
 ARG DEBIAN_LSP_REV=daee711aba7282a6e79344c71dcaf85593c54040
 # The crates.io release predates debian-lsp's SCIP feature, so build that
 # feature from a pinned upstream revision.
@@ -49,7 +49,7 @@ RUN cargo install \
   && rm -rf /usr/local/cargo/git /usr/local/cargo/registry
 
 # ── Stage 4: .NET SDK and scip-dotnet ────────────────────────────────────────
-FROM mcr.microsoft.com/dotnet/sdk:8.0.427-bookworm-slim@sha256:6ba9644da07bb5b560a402acec9ca38711a0762969f1b61da261df5c9f6f85da AS dotnet-tools
+FROM mcr.microsoft.com/dotnet/sdk:8.0.428-bookworm-slim@sha256:1b955f179b02df4f0eb5fadedaa898cbe44d620a64aab52eec72c8e91d1355b5 AS dotnet-tools
 ARG SCIP_DOTNET_VERSION=0.2.14
 RUN dotnet tool install \
     --tool-path /opt/dotnet-tools \
@@ -57,7 +57,7 @@ RUN dotnet tool install \
     scip-dotnet
 
 # ── Stage 5: Dart SDK and scip_dart ─────────────────────────────────────────
-FROM dart:3.13.7@sha256:517cbeb4612c4dff11c983edea521d5aef3f47a674c23684fad5e89803ca5b1c AS dart-tools
+FROM dart:3.13.7@sha256:854f3c50b1cbd4a5a54c9fa67d4f5b6702ac49b4a26d21a80e7712a72528b215 AS dart-tools
 ARG SCIP_DART_VERSION=1.6.2
 ENV PUB_CACHE=/opt/pub-cache
 RUN dart pub global activate scip_dart "${SCIP_DART_VERSION}"

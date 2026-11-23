@@ -51,10 +51,10 @@ jobs:
     outputs:
       run: ${{ steps.changed.outputs.run }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
       - name: Compare main with the last successful nightly run
@@ -80,11 +80,11 @@ jobs:
     # github-hosted: no Docker and no host program in a key (ADR-065)
     runs-on: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - run: corepack enable
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
           cache: pnpm
@@ -114,7 +114,7 @@ jobs:
           exit "$code"
       # The plan job gives the check ids of this job in plan.json, by the
       # artifact id of its upload (scripts/checks/README.md, Merge gate).
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: needs.merge-gate-plan.outputs.mode == 'gate' && needs.merge-gate-plan.outputs.artifact-id != ''
         with:
           artifact-ids: ${{ needs.merge-gate-plan.outputs.artifact-id }}
@@ -128,7 +128,7 @@ jobs:
         run: cat .ci-results/checks/*.log || true
       - name: Preserve the lint and policy results
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: test-results-lint
           path: .ci-results/
@@ -150,11 +150,11 @@ jobs:
     # github-hosted: no Docker; Bun is pinned (ADR-065)
     runs-on: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - run: corepack enable
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
           cache: pnpm
@@ -178,7 +178,7 @@ jobs:
             tee .ci-results/typecheck/records.ndjson
       # The plan job gives the check ids of this job in plan.json, by the
       # artifact id of its upload (scripts/checks/README.md, Merge gate).
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: needs.merge-gate-plan.outputs.mode == 'gate' && needs.merge-gate-plan.outputs.artifact-id != ''
         with:
           artifact-ids: ${{ needs.merge-gate-plan.outputs.artifact-id }}
@@ -192,7 +192,7 @@ jobs:
         run: cat .ci-results/checks/*.log || true
       - name: Preserve the typecheck results
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: test-results-typecheck
           path: .ci-results/
@@ -263,7 +263,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       # The image pulls and the chat sandbox build run in the background, at
@@ -322,7 +322,7 @@ jobs:
       # The record and the git lanes use one git version (ADR-065).
       - uses: ./.github/actions/git
       - run: corepack enable
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
           cache: pnpm
@@ -336,11 +336,11 @@ jobs:
         run: echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
       - name: Restore native revision index tools
         id: zoekt
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .tools/bin
           key: zoekt-${{ runner.os }}-${{ runner.arch }}-go1.25.12-${{ hashFiles('scripts/zoekt/go.mod', 'scripts/zoekt/go.sum', 'scripts/zoekt/build.sh') }}
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         if: steps.zoekt.outputs.cache-hit != 'true'
         with:
           go-version: 1.25.12
@@ -388,7 +388,7 @@ jobs:
             $([ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ] && echo --trace)
       # The plan job gives the check ids of this job in plan.json, by the
       # artifact id of its upload (scripts/checks/README.md, Merge gate).
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: matrix.lane == 'selected' && needs.merge-gate-plan.outputs.artifact-id != ''
         with:
           artifact-ids: ${{ needs.merge-gate-plan.outputs.artifact-id }}
@@ -428,7 +428,7 @@ jobs:
         run: node scripts/checks/rerun-failed.mjs .ci-results
       - name: Preserve shard results
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: test-results-${{ matrix.lane }}-${{ matrix.shard }}
           path: .ci-results/
@@ -454,13 +454,13 @@ jobs:
     env:
       EVENT: ${{ github.event_name }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       # The record and the git lanes use one git version (ADR-065).
       - uses: ./.github/actions/git
       - run: corepack enable
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
           cache: pnpm
@@ -482,7 +482,7 @@ jobs:
         run: node scripts/ci/test-suite.mjs visual-review $([ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ] && echo --trace)
       # The plan job gives the check ids of this job in plan.json, by the
       # artifact id of its upload (scripts/checks/README.md, Merge gate).
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: needs.merge-gate-plan.outputs.mode == 'gate' && needs.merge-gate-plan.outputs.artifact-id != ''
         with:
           artifact-ids: ${{ needs.merge-gate-plan.outputs.artifact-id }}
@@ -503,7 +503,7 @@ jobs:
         run: node scripts/checks/rerun-failed.mjs .ci-results
       - name: Preserve package test results
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: test-results-packages
           path: .ci-results/
@@ -536,11 +536,11 @@ jobs:
             echo "Test shards: $SHARDS; package tests: $PACKAGES"
             exit 1
           }
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: test-results-*
           path: .ci-results/
@@ -551,7 +551,7 @@ jobs:
         run: node scripts/ci/test-suite.mjs contracts --merge
       - name: Preserve executed test inventories and results
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: required-test-results
           path: .ci-results/
@@ -581,17 +581,17 @@ jobs:
       (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
       # One folder for each artifact: the shards of a planned run each write
       # .ci-results/selected/trace.json.gz.
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: test-results-*
           path: .ci-results/
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: lane-trace-*
           path: .ci-results/trace-parts/
@@ -604,7 +604,7 @@ jobs:
       # Without a nightly plan (a run by hand off main), it is this run's
       # trace. The selector release comes from the nightly plan, checked
       # against the pin again.
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: needs.nightly-plan.outputs.artifact-id != ''
         with:
           artifact-ids: ${{ needs.nightly-plan.outputs.artifact-id }}
@@ -637,7 +637,7 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Preserve the trace
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: trace-${{ github.sha }}
           path: ${{ runner.temp }}/trace.json.gz
@@ -657,11 +657,11 @@ jobs:
       (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.project-checks != '')
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - run: corepack enable
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
           cache: pnpm
@@ -670,7 +670,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.4
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: needs.merge-gate-plan.outputs.mode == 'gate' && needs.merge-gate-plan.outputs.artifact-id != ''
         with:
           artifact-ids: ${{ needs.merge-gate-plan.outputs.artifact-id }}
@@ -703,7 +703,7 @@ jobs:
         run: node scripts/checks/rerun-failed.mjs "$RUNNER_TEMP/project-trace"
       - name: Preserve the project check trace and results
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: lane-trace-projects
           path: |
@@ -755,14 +755,14 @@ jobs:
           "context": "ops/observability/cost-telemetry"}
           ]') }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup-buildx
       # Each image reads the layer cache of main. This job reads it without a
       # login. The layer-cache job writes it (see the comment there). The
       # chat sandbox shares the cache of test-shards. A BuildKit cache mount
       # (the pnpm store) is not in a registry cache: when a layer misses, its
       # install downloads each package again.
-      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: ${{ matrix.context || '.' }}
           file: ${{ matrix.dockerfile }}
@@ -834,16 +834,16 @@ jobs:
             dockerfile: ops/observability/cost-telemetry/Dockerfile
             cache: ghcr.io/ctxpipe-ai/ci-cache:production-cost-telemetry
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
-      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
@@ -867,9 +867,9 @@ jobs:
     # github-hosted: package builds without Docker (ADR-065)
     runs-on: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: corepack enable
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
           cache: pnpm
@@ -894,7 +894,7 @@ jobs:
         if: needs.merge-gate-plan.outputs.mode != 'gate'
       # The plan job gives the check ids of this job in plan.json, by the
       # artifact id of its upload (scripts/checks/README.md, Merge gate).
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: needs.merge-gate-plan.outputs.mode == 'gate' && needs.merge-gate-plan.outputs.artifact-id != ''
         with:
           artifact-ids: ${{ needs.merge-gate-plan.outputs.artifact-id }}
@@ -905,7 +905,7 @@ jobs:
         run: node scripts/checks/selected.mjs .ci-results/build-packages "$RUNNER_TEMP/plan/plan.json" packages
       - name: Preserve the build results
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: test-results-build-packages
           path: .ci-results/
@@ -934,11 +934,11 @@ jobs:
     outputs:
       storybook-static-id: ${{ steps.preserve.outputs.artifact-id }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - run: corepack enable
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
           cache: pnpm
@@ -946,7 +946,7 @@ jobs:
       - run: pnpm --filter @ctxpipe/ui build-storybook
       - name: Preserve the Storybook build
         id: preserve
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: storybook-static
           path: apps/ui/storybook-static
@@ -985,7 +985,7 @@ jobs:
       # The GitHub Deployment of the preview (environment `storybook`).
       deployments: write
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         continue-on-error: true
         with:
           fetch-depth: 2
@@ -998,7 +998,7 @@ jobs:
       # The critics job runs on each same-repo PR, also in a full run, when
       # the select job does not run. Download by id: a job that runs PR code
       # can upload an artifact with the same name.
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         continue-on-error: true
         with:
           artifact-ids: ${{ needs.merge-gate-critics.outputs.release-artifact-id }}
@@ -1014,7 +1014,7 @@ jobs:
       - name: Download the cached Storybook build
         if: env.PREVIEW == 'cache'
         continue-on-error: true
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ needs.merge-gate-select.outputs.storybook-artifact-id }}
           merge-multiple: true
@@ -1022,7 +1022,7 @@ jobs:
       - name: Download the Storybook build of this run
         if: env.PREVIEW == 'build' && needs.storybook-build.outputs.storybook-static-id != ''
         continue-on-error: true
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ needs.storybook-build.outputs.storybook-static-id }}
           merge-multiple: true
@@ -1092,11 +1092,11 @@ jobs:
     # github-hosted: Playwright runs on the runner, without Docker (ADR-065)
     runs-on: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - run: corepack enable
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
           cache: pnpm
@@ -1105,7 +1105,7 @@ jobs:
         working-directory: apps/ui
         run: pnpm exec playwright install --with-deps chromium
       - name: Download the Storybook build
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: storybook-static
           path: apps/ui/storybook-static
@@ -1115,7 +1115,7 @@ jobs:
         run: node scripts/ci/storybook-plays.mjs
       - name: Preserve required play results
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: storybook-required-results
           path: .ci-results/storybook-required/
@@ -1154,11 +1154,11 @@ jobs:
           {"shard": 3, "count": 4}, {"shard": 4, "count": 4}
           ]') }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - run: corepack enable
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
           cache: pnpm
@@ -1167,7 +1167,7 @@ jobs:
         working-directory: apps/ui
         run: pnpm exec playwright install --with-deps chromium
       - name: Download the Storybook build
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: storybook-static
           path: apps/ui/storybook-static
@@ -1184,7 +1184,7 @@ jobs:
             $([ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ] && echo --trace)
       # The plan job gives the check ids of this job in plan.json, by the
       # artifact id of its upload (scripts/checks/README.md, Merge gate).
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: matrix.lane == 'selected' && needs.merge-gate-plan.outputs.artifact-id != ''
         with:
           artifact-ids: ${{ needs.merge-gate-plan.outputs.artifact-id }}
@@ -1221,7 +1221,7 @@ jobs:
       - name: Preserve play results
         id: preserve
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: storybook-plays-results-${{ matrix.shard }}
           path: .ci-results/storybook-plays/
@@ -1236,7 +1236,7 @@ jobs:
         run: echo "artifact-${SHARD}=${ID}" >> "$GITHUB_OUTPUT"
       - name: Preserve the Storybook trace
         if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: lane-trace-storybook-${{ matrix.shard }}
           path: .ci-results/storybook-plays/trace.json.gz
@@ -1279,15 +1279,15 @@ jobs:
           {"shard": 3, "count": 4}, {"shard": 4, "count": 4}
           ]') }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: corepack enable
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Download the Storybook build
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: storybook-static
           path: apps/ui/storybook-static
@@ -1298,7 +1298,7 @@ jobs:
         run: node scripts/ci/visual.mjs check --shard "$SHARD" --records .ci-results/storybook-visual
       # The plan job gives the check ids of this job in plan.json, by the
       # artifact id of its upload (scripts/checks/README.md, Merge gate).
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: matrix.lane == 'selected' && needs.merge-gate-plan.outputs.artifact-id != ''
         with:
           artifact-ids: ${{ needs.merge-gate-plan.outputs.artifact-id }}
@@ -1331,7 +1331,7 @@ jobs:
       - name: Preserve screenshot results
         id: preserve
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: test-results-storybook-visual-${{ matrix.shard }}
           path: |
@@ -1369,16 +1369,16 @@ jobs:
     # keys of the container lanes name the platform the tests ran on.
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: corepack enable
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
       # The download script must fail fast when its source stalls.
       - name: Download script timeout proof
         run: node --test apps/codesearch/scripts/fetch-releases.test.mjs
       - name: Restore pinned release files
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .release-cache
           key: codesearch-releases-${{ runner.arch }}-${{ hashFiles('apps/codesearch/release-assets.txt') }}
@@ -1391,7 +1391,7 @@ jobs:
         run: bash apps/codesearch/scripts/fetch-releases.sh apps/codesearch/release-assets.txt "$RUNNER_TEMP/releases" .release-cache
       # The plan job gives the check ids of this job in plan.json, by the
       # artifact id of its upload (scripts/checks/README.md, Merge gate).
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: github.event_name != 'pull_request' && needs.merge-gate-plan.outputs.mode == 'gate' && needs.merge-gate-plan.outputs.artifact-id != ''
         with:
           artifact-ids: ${{ needs.merge-gate-plan.outputs.artifact-id }}
@@ -1430,7 +1430,7 @@ jobs:
         run: node scripts/checks/rerun-failed.mjs .ci-results
       - name: Preserve the codesearch results
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: test-results-codesearch
           path: .ci-results/
@@ -1439,7 +1439,7 @@ jobs:
       - name: Preserve the codesearch trace
         if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         continue-on-error: true
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: lane-trace-codesearch
           path: ${{ runner.temp }}/codesearch-trace/trace.json.gz
@@ -1469,11 +1469,11 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - run: corepack enable
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
           cache: pnpm
@@ -1528,14 +1528,14 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - uses: ./.github/actions/falkordb
       # The record and the git lanes use one git version (ADR-065).
       - uses: ./.github/actions/git
       - run: corepack enable
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
           cache: pnpm
@@ -1557,11 +1557,11 @@ jobs:
           pnpm install --frozen-lockfile --filter "@ctxpipe/backend..."
       - name: Restore native revision index tools
         id: zoekt
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .tools/bin
           key: zoekt-${{ runner.os }}-${{ runner.arch }}-go1.25.12-${{ hashFiles('scripts/zoekt/go.mod', 'scripts/zoekt/go.sum', 'scripts/zoekt/build.sh') }}
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         if: steps.zoekt.outputs.cache-hit != 'true'
         with:
           go-version: 1.25.12
@@ -1601,7 +1601,7 @@ jobs:
             tee .ci-results/upgrade/records.ndjson
       # The plan job gives the check ids of this job in plan.json, by the
       # artifact id of its upload (scripts/checks/README.md, Merge gate).
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: needs.merge-gate-plan.outputs.mode == 'gate' && github.event_name == 'pull_request' && needs.merge-gate-plan.outputs.artifact-id != ''
         with:
           artifact-ids: ${{ needs.merge-gate-plan.outputs.artifact-id }}
@@ -1638,7 +1638,7 @@ jobs:
         run: node scripts/checks/rerun-failed.mjs .ci-results
       - name: Preserve the upgrade results
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: test-results-upgrade
           path: .ci-results/
@@ -1646,7 +1646,7 @@ jobs:
           if-no-files-found: ignore
       - name: Preserve the upgrade trace
         if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: lane-trace-upgrade
           path: ${{ runner.temp }}/upgrade-trace/trace.json.gz
@@ -1694,7 +1694,7 @@ jobs:
       record: ${{ steps.mode.outputs.record }}
       definitions: ${{ steps.mode.outputs.definitions }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 2
           persist-credentials: false
@@ -1740,7 +1740,7 @@ jobs:
         if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
       - run: corepack enable
         if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
         with:
           node-version-file: .node-version
@@ -1767,7 +1767,7 @@ jobs:
       - name: Restore native revision index tools
         id: zoekt
         if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .tools/bin
           key: zoekt-${{ runner.os }}-${{ runner.arch }}-go1.25.12-${{ hashFiles('scripts/zoekt/go.mod', 'scripts/zoekt/go.sum', 'scripts/zoekt/build.sh') }}
@@ -1797,7 +1797,7 @@ jobs:
             > "$RUNNER_TEMP/merge-gate/toolchain.json"
       - name: Preserve the merge gate inputs
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: merge-gate-inputs
           path: ${{ runner.temp }}/merge-gate/
@@ -1831,7 +1831,7 @@ jobs:
       # The files that decide the tools and the dependencies of the install.
       INSTALL_FILES: (^|/)(package\.json|\.npmrc|\.pnpmfile\.cjs|\.corepack\.env)$|(^|/)node_modules(/|$)|^(pnpm-lock\.yaml|pnpm-workspace\.yaml|\.node-version)$|^patches/
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 2
           persist-credentials: false
@@ -1843,7 +1843,7 @@ jobs:
           git ls-tree -r -z --name-only HEAD^1 | { grep -zE "$INSTALL_FILES" || true; } > "$RUNNER_TEMP/install-files"
           git archive HEAD^1 $LIST_TIME_PATHS | tar -x
           xargs -0 -r git archive HEAD^1 -- < "$RUNNER_TEMP/install-files" | tar -x
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
       - name: The listing of the base revision
@@ -1859,7 +1859,7 @@ jobs:
           node scripts/checks/list.mjs > "$RUNNER_TEMP/out/base-manifest.json"
       - name: Preserve the listing of the base revision
         id: preserve
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: merge-gate-base-listing
           path: ${{ runner.temp }}/out/base-manifest.json
@@ -1900,7 +1900,7 @@ jobs:
       storybook-preview: ${{ steps.storybook.outputs.preview }}
       storybook-artifact-id: ${{ steps.storybook-upload.outputs.artifact-id }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -1921,7 +1921,7 @@ jobs:
           git show HEAD^1:.github/merge-gate.json > "$RUNNER_TEMP/gate/.github/merge-gate.json"
       - name: Next cause
         run: echo "the inputs of the manifest job did not download" > "$RUNNER_TEMP/out/select-cause.txt"
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: merge-gate-inputs
           path: ${{ runner.temp }}/inputs
@@ -1949,7 +1949,7 @@ jobs:
       # The LLM job runs the same release with the model key; it gets the
       # release from this job, because only this job holds the role.
       - name: Keep the selector release for the LLM job
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: factory-release
           path: ${{ runner.temp }}/factory.tar.gz
@@ -2048,7 +2048,7 @@ jobs:
       - name: Keep the cached Storybook build for the preview job
         id: storybook-upload
         if: steps.storybook.outputs.preview == 'cache'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: storybook-preview-cache
           path: ${{ runner.temp }}/storybook/storybook.tar.gz
@@ -2057,7 +2057,7 @@ jobs:
       - name: Preserve the selection
         id: preserve
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: merge-gate-selection
           path: ${{ runner.temp }}/out/
@@ -2101,7 +2101,7 @@ jobs:
       # The Storybook preview job takes the factory release from here.
       release-artifact-id: ${{ steps.release.outputs.artifact-id }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -2141,7 +2141,7 @@ jobs:
       - name: Keep the factory release for the Storybook preview job
         id: release
         continue-on-error: true
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: factory-release-critics
           path: ${{ runner.temp }}/factory.tar.gz
@@ -2201,7 +2201,7 @@ jobs:
       - name: Preserve the critics
         id: preserve
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: merge-gate-critics
           path: ${{ runner.temp }}/out/
@@ -2250,7 +2250,7 @@ jobs:
     outputs:
       artifact-id: ${{ steps.preserve.outputs.artifact-id }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -2268,17 +2268,17 @@ jobs:
           git show HEAD^1:.github/merge-gate.json > "$RUNNER_TEMP/gate/.github/merge-gate.json"
       - name: Next cause
         run: echo "the inputs of the select job did not download" > "$RUNNER_TEMP/out/llm-cause.txt"
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: merge-gate-inputs
           path: ${{ runner.temp }}/inputs
       - if: needs.merge-gate-select.outputs.artifact-id != ''
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ needs.merge-gate-select.outputs.artifact-id }}
           merge-multiple: true
           path: ${{ runner.temp }}/selection
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: factory-release
           path: ${{ runner.temp }}/release
@@ -2324,7 +2324,7 @@ jobs:
       - name: Preserve the LLM selection
         id: preserve
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: merge-gate-llm
           path: ${{ runner.temp }}/out/
@@ -2356,11 +2356,11 @@ jobs:
     outputs:
       artifact-id: ${{ steps.preserve.outputs.artifact-id }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: merge-gate-inputs
           path: ${{ runner.temp }}/inputs
@@ -2421,7 +2421,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Preserve the plan
         id: preserve
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: nightly-plan
           path: ${{ runner.temp }}/nightly/
@@ -2437,7 +2437,7 @@ jobs:
           kind="$(jq -r 'if .full then "full" else "incremental" end' "$RUNNER_TEMP/nightly/plan.json")"
           echo "$kind" > "$RUNNER_TEMP/kind.txt"
           echo "kind=${kind}" >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: nightly-${{ steps.kind.outputs.kind }}
           path: ${{ runner.temp }}/kind.txt
@@ -2492,11 +2492,11 @@ jobs:
       # job builds it, scripts/checks/README.md, Storybook preview).
       storybook-preview: ${{ needs.merge-gate-select.outputs.storybook-preview }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 2
           persist-credentials: false
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
       # The gate code and the pin of the base revision decide this run
@@ -2517,14 +2517,14 @@ jobs:
       # selection download by the artifact id that the job that wrote them
       # gives: a job that runs PR code can upload an artifact with the same
       # name. Without an id, the record is missing and the plan is full.
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: github.event_name == 'pull_request' && needs.merge-gate-select.outputs.artifact-id != ''
         continue-on-error: true
         with:
           artifact-ids: ${{ needs.merge-gate-select.outputs.artifact-id }}
           merge-multiple: true
           path: ${{ runner.temp }}/inputs
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: github.event_name == 'pull_request' && needs.merge-gate-llm.outputs.artifact-id != ''
         continue-on-error: true
         with:
@@ -2532,7 +2532,7 @@ jobs:
           merge-multiple: true
           path: ${{ runner.temp }}/inputs
       # The listing of the base revision, by the artifact id of its job.
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: github.event_name == 'pull_request' && needs.merge-gate-base-listing.outputs.artifact-id != ''
         continue-on-error: true
         with:
@@ -2548,13 +2548,13 @@ jobs:
           [ -z "$MODE" ] || printf '%s\n' "$MODE" > "$RUNNER_TEMP/inputs/mode.json"
       - name: Restore the PR store
         if: github.event_name == 'pull_request'
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .merge-gate-store
           key: merge-gate-pr-${{ github.event.pull_request.number }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             merge-gate-pr-${{ github.event.pull_request.number }}-
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: github.event_name != 'pull_request' && needs.nightly-plan.outputs.artifact-id != ''
         with:
           artifact-ids: ${{ needs.nightly-plan.outputs.artifact-id }}
@@ -2582,7 +2582,7 @@ jobs:
       - name: Preserve the plan
         id: preserve
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: merge-gate-plan
           path: ${{ runner.temp }}/plan/plan.json
@@ -2640,11 +2640,11 @@ jobs:
       actions: read
       pull-requests: read
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 2
           persist-credentials: false
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
       # The gate code and the pin of the base revision decide this run
@@ -2666,28 +2666,28 @@ jobs:
       # the job that wrote them gives: a job that runs PR code can upload an
       # artifact with the same name. Without an id, the record is missing: the
       # run is full, and a same-repo PR fails on its critics (gate.mjs decide).
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: needs.merge-gate-select.outputs.artifact-id != ''
         continue-on-error: true
         with:
           artifact-ids: ${{ needs.merge-gate-select.outputs.artifact-id }}
           merge-multiple: true
           path: ${{ runner.temp }}/inputs
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: needs.merge-gate-llm.outputs.artifact-id != ''
         continue-on-error: true
         with:
           artifact-ids: ${{ needs.merge-gate-llm.outputs.artifact-id }}
           merge-multiple: true
           path: ${{ runner.temp }}/inputs
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: needs.merge-gate-plan.outputs.artifact-id != ''
         continue-on-error: true
         with:
           artifact-ids: ${{ needs.merge-gate-plan.outputs.artifact-id }}
           merge-multiple: true
           path: ${{ runner.temp }}/inputs
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: needs.merge-gate-critics.outputs.artifact-id != ''
         continue-on-error: true
         with:
@@ -2700,12 +2700,12 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/inputs"
           [ -z "$MODE" ] || printf '%s\n' "$MODE" > "$RUNNER_TEMP/inputs/mode.json"
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         continue-on-error: true
         with:
           pattern: test-results-*
           path: ${{ runner.temp }}/results
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         continue-on-error: true
         with:
           pattern: storybook-*-results*
@@ -2752,7 +2752,7 @@ jobs:
               --jq '.jobs[]'
           done | jq -s '{jobs: .}' > "$RUNNER_TEMP/earlier.json"
       - name: Restore the PR store
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .merge-gate-store
           key: merge-gate-pr-${{ github.event.pull_request.number }}-${{ github.run_id }}-${{ github.run_attempt }}
@@ -2789,7 +2789,7 @@ jobs:
           echo "kept=true" >> "$GITHUB_OUTPUT"
       - name: Save the PR store
         if: always() && steps.store.outputs.kept == 'true'
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .merge-gate-store
           key: merge-gate-pr-${{ github.event.pull_request.number }}-${{ github.run_id }}-${{ github.run_attempt }}
@@ -2827,7 +2827,7 @@ jobs:
       # gate).
       - name: Preserve the decision
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: merge-gate-decision
           path: |
@@ -2871,7 +2871,7 @@ jobs:
     outputs:
       non_portable: ${{ steps.store.outputs.non_portable }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Pinned selector release
@@ -2882,36 +2882,36 @@ jobs:
           else
             echo "::notice::.github/merge-gate.json pins no factory release, so the Results writer stores nothing."
           fi
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: steps.pin.outputs.pinned == 'true'
         with:
           name: merge-gate-inputs
           path: ${{ runner.temp }}/inputs
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: steps.pin.outputs.pinned == 'true'
         with:
           name: trace-${{ github.sha }}
           path: ${{ runner.temp }}/trace
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: steps.pin.outputs.pinned == 'true'
         with:
           pattern: test-results-*
           path: ${{ runner.temp }}/results
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: steps.pin.outputs.pinned == 'true'
         with:
           pattern: storybook-plays-results-*
           path: ${{ runner.temp }}/results
       # A pattern: an incremental run without a project check has no such
       # artifact, and the writer still audits the other checks.
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: steps.pin.outputs.pinned == 'true'
         with:
           pattern: lane-trace-projects
           path: ${{ runner.temp }}/results/projects
       # The audit sample of the nightly plan. Without the plan, the writer
       # cannot check the sample, so it fails (never a silent skip).
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: steps.pin.outputs.pinned == 'true' && needs.nightly-plan.outputs.artifact-id != ''
         with:
           artifact-ids: ${{ needs.nightly-plan.outputs.artifact-id }}
@@ -3015,7 +3015,7 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Open or update the pull request that marks the checks not portable
         env:
           GH_TOKEN: ${{ github.token }}
@@ -3095,10 +3095,10 @@ jobs:
     outputs:
       unstable: ${{ steps.tickets.outputs.unstable }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
       # Only the artifacts that the Storybook shards name by id: another job
@@ -3111,7 +3111,7 @@ jobs:
         run: |
           ids="$(printf '%s,%s' "$VISUAL" "$PLAYS" | tr ',' '\n' | grep -E '^[0-9]+$' | paste -sd, - || true)"
           echo "ids=${ids}" >> "$GITHUB_OUTPUT"
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: steps.ids.outputs.ids != ''
         with:
           artifact-ids: ${{ steps.ids.outputs.ids }}
@@ -3146,7 +3146,7 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Open or update the pull request that puts the stories on the unstable list
         env:
           GH_TOKEN: ${{ github.token }}
