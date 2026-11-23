@@ -51,9 +51,7 @@ function remove(ids) {
 
 /** Removes the test containers of `owner`, with their anonymous volumes. */
 function removeTestContainers(owner) {
-  remove(
-    dockerLines(["ps", "-aq", "--filter", `label=${TEST_LABEL}=${owner}`]),
-  )
+  remove(dockerLines(["ps", "-aq", "--filter", `label=${TEST_LABEL}=${owner}`]))
 }
 
 function alive(pid) {
@@ -70,7 +68,9 @@ function alive(pid) {
 function gone(owner) {
   const slash = owner.lastIndexOf("/")
   const pid = Number(owner.slice(slash + 1))
-  return owner.slice(0, slash) === hostname() && Number.isInteger(pid) && pid > 0
+  return owner.slice(0, slash) === hostname() &&
+    Number.isInteger(pid) &&
+    pid > 0
     ? !alive(pid)
     : false
 }
