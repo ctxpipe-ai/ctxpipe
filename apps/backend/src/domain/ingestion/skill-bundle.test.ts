@@ -112,6 +112,7 @@ describe("readIngestSkillBundle", () => {
     const before = await readIngestSkillBundle(dir)
     writeFileSync(join(dir, "versions/ingest-ca237393fef135a9.md"), "Other\n")
     writeFileSync(join(dir, "versions/README.md"), "Other\n")
+    writeFileSync(join(dir, "versions/.DS_Store"), "Finder\n")
     const after = await readIngestSkillBundle(dir)
     expect(after.version).toBe(before.version)
     expect(after.name).toBe(before.name)

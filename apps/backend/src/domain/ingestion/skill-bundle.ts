@@ -111,7 +111,8 @@ export async function readIngestSkillBundle(
 async function readIngestVersion(dir: string): Promise<string> {
   const names: string[] = []
   for (const entry of await readdir(dir, { withFileTypes: true })) {
-    if (entry.name === "README.md") continue
+    // A dot file (an editor or Finder file) is not a marker.
+    if (entry.name === "README.md" || entry.name.startsWith(".")) continue
     const match = /^([a-z0-9][a-z0-9-]*)\.md$/.exec(entry.name)
     if (!entry.isFile() || !match?.[1])
       throw new Error(

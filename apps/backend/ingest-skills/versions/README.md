@@ -13,7 +13,7 @@ Each file `<name>.md` in this folder is a version marker. The re-ingestion versi
 
 - One marker gives its name. The seed marker `ingest-ca237393fef135a9.md` keeps the version of the time before markers.
 - More markers give `ingest-<16 hex>`: the first 64 bits of the SHA-256 of the sorted names, one name for each line. Thus two PRs that each add a marker do not conflict, and their merge gives the same version in each order.
-- The text in a marker file does not change the version.
+- The text in a marker file does not change the version. The read skips `README.md` and dot files, and fails on each other file that is not `<name>.md`.
 - This folder is not part of the bundle content hash, and the sandbox does not get it.
 
 See ADR-052, revision 2026-11-23 (CTX-1559).
