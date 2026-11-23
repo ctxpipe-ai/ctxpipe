@@ -191,8 +191,8 @@ const withoutFences = (text: string) =>
  *   the first part of a path with `::`, also in fenced code
  *   (`build_helper::git::…`, `use run_make_support::{…}`), which names a
  *   crate or a namespace (CTX-1579).
- * - 0.6: the last two to four words of a run of words that each start
- *   with a capital letter (`Amazon S3`, `The Catalog API`), and a word before `API` in any case
+ * - 0.6: two to four words of a run of words that each start with a
+ *   capital letter, not in a heading (`Amazon S3`, `The Catalog API`), and a word before `API` in any case
  *   (`the notifications API`), in the title or the text (CTX-1579). These
  *   are the names of products, which have no `-` or `_`.
  * A plain word of the title or the text is not a rule, also the first word
@@ -244,7 +244,8 @@ function mentionLinks(input: {
 
   // The path and the operation rules also read fenced code, because a stack
   // trace or a request log names real files and operations. The name rules
-  // read only the prose. A path from `./` or `../` is a local file of the
+  // read only the prose, except the rule of the first part of a `::` path
+  // (below). A path from `./` or `../` is a local file of the
   // reporter, and a path whose first folder holds a dot is a Go import path
   // or a host (`k8s.io/…`). Neither names a file of the repository.
   for (const match of body.matchAll(
@@ -255,14 +256,18 @@ function mentionLinks(input: {
       for (const key of folderKeysOf(repository, file))
         mention(key, 0.9, match[0])
   }
-  // A method and a path, also with the path in a code span (GET `/orders/`),
-  // in any case (`get /entities`). The key of the operation drops an end
-  // slash.
-  const operation = new RegExp(
-    `\\b(${HTTP_METHODS})[ \\t]+(\`?)(\\/(?:[\\w./{}:-]*[\\w}])?\\/?)\\2`,
-    "gi",
-  )
-  for (const match of body.matchAll(operation))
+  // A method and a path on one line, also with the path in a code span
+  // (GET `/orders/`). The key of the operation drops an end slash. In a code
+  // span, the method can be in lowercase (`createRouter() get /entities`);
+  // in the prose, a lowercase method is a verb more often (`you get /api`).
+  const operationRule = `\\b(${HTTP_METHODS})[ \\t]+(\`?)(\\/(?:[\\w./{}:-]*[\\w}])?\\/?)\\2`
+  const operation = new RegExp(operationRule, "g")
+  for (const match of [
+    ...body.matchAll(operation),
+    ...spans.flatMap((span) => [
+      ...span.matchAll(new RegExp(operationRule, "gi")),
+    ]),
+  ])
     mention(operationKey(match[1] ?? "", match[3] ?? ""), 0.9, match[0])
 
   // A path with its method names only the operation of that method, so the
@@ -301,14 +306,16 @@ function mentionLinks(input: {
     mentionName(match[0], 0.7, match[0])
   // The first part of a path names its crate or namespace in code too: a
   // stack trace or an import names real code.
-  for (const [, root = ""] of body.matchAll(/(?<![\w:])([A-Za-z_]\w*)::[\w{*<]/g))
+  for (const [, root = ""] of body.matchAll(
+    /(?<![\w:])([A-Za-z_]\w*)::[\w{*<]/g,
+  ))
     mentionName(root, 0.7, root)
 
-  // A product name: the last two to four words of a capitalized run. The
-  // run can start with a word of the sentence (`The Catalog API`), and the
-  // head of a product name is its last word (`API`, `S3`). One capitalized
-  // word is the start of a sentence more often than a name, and a word of
-  // one letter is a pronoun or an article (`But I`). A heading of the body
+  // A product name: each part of two to four words of a capitalized run,
+  // because the run can hold words of the sentence before or after the
+  // name (`The Catalog API`, `Amazon S3 SDK`). One capitalized word is the
+  // start of a sentence more often than a name, and a word of one letter is
+  // a pronoun or an article (`But I`). A heading of the body
   // is the label of an issue template (`Expected Behavior`) more often than
   // a name; the title is not in a heading.
   for (const [run] of nameText
@@ -317,8 +324,9 @@ function mentionLinks(input: {
       /(?<![\w.-])[A-Z][A-Za-z0-9]+(?: [A-Z][A-Za-z0-9]+)+(?![\w-])/g,
     )) {
     const words = run.split(" ")
-    for (let size = 2; size <= Math.min(words.length, 4); size++)
-      mentionName(words.slice(-size).join(" "), 0.6, run)
+    for (let start = 0; start < words.length - 1; start++)
+      for (let end = start + 2; end <= Math.min(words.length, start + 4); end++)
+        mentionName(words.slice(start, end).join(" "), 0.6, run)
   }
   for (const [name] of nameText.matchAll(/(?<![\w.-])[a-z][\w]* api\b/gi))
     mentionName(name, 0.6, name)
