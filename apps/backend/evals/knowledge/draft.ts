@@ -108,12 +108,12 @@ function spread<T>(
 
 const isIssue = (document: CorpusDocument) => document.issue !== undefined
 /**
- * The knowledge of the code: an API, an operation, a service, a library or
- * a database. Instructions and infrastructure notes are too general for a
- * cross-source question.
+ * The knowledge of the code: an API, an operation, a service, a library, a
+ * database or a feature gate. Instructions and infrastructure notes are too
+ * general for a cross-source question.
  */
 const isCodeKnowledge = (document: CorpusDocument) =>
-  /^knowledge\/(?:apis|operations|services|libraries|databases|apps)$/.test(
+  /^knowledge\/(?:apis|operations|services|libraries|databases|apps|features)$/.test(
     document.group,
   )
 /** A document with enough own text for a question. */
@@ -123,10 +123,39 @@ const usable = (document: CorpusDocument) =>
   document.body.replace(/<!--[\s\S]*?-->/g, "").trim().length >= 400
 /** A bot handle: its comments are not a person's. */
 const isBot = (handle: string) => /(?:bot|robot|\[bot\])$/i.test(handle)
-/** The KEP and RFC tracking issues: the disagreement sources of the CTO. */
-const isProposal = (document: CorpusDocument) =>
+/**
+ * The design records: the KEP and RFC tracking issues, and the decision
+ * documents of the ingest (an ADR, a KEP or an RFC). They are the
+ * disagreement sources of the CTO.
+ */
+const isDesignRecord = (document: CorpusDocument) =>
   document.group === "issues/kubernetes/enhancements" ||
-  document.group === "issues/rust-lang/rfcs"
+  document.group === "issues/rust-lang/rfcs" ||
+  document.group === "knowledge/decisions"
+/**
+ * The kinds of document that the ingest of the corpora v1 adds (CTX-1589):
+ * design records, owner teams and feature gates. The question set v1 asks
+ * about them more often.
+ */
+const isNewKind = (document: CorpusDocument) =>
+  /^knowledge\/(?:decisions|teams|features)$/.test(document.group)
+
+/**
+ * `items` in their order, with the items that hold a document of a new kind
+ * and the other items in turns, the new kind first. Thus about half of a
+ * quota asks about the new kinds when the corpus has enough of them.
+ */
+function inTurns(items: readonly CorpusDocument[][]): CorpusDocument[][] {
+  const holds = (item: CorpusDocument[]) => item.some(isNewKind)
+  const first = items.filter(holds)
+  const other = items.filter((item) => !holds(item))
+  return Array.from(
+    { length: Math.max(first.length, other.length) },
+    (_, index) => [first[index], other[index]],
+  )
+    .flat()
+    .filter((item) => item !== undefined)
+}
 /** A pattern that finds `term` as a whole term in a lowercase text. */
 const wholeTerm = (term: string) =>
   new RegExp(
@@ -155,9 +184,11 @@ export function pickSources(
 
   add(
     "lookup",
-    spread(candidates, (document) => document.group, next).map((document) => [
-      document,
-    ]),
+    inTurns(
+      spread(candidates, (document) => document.group, next).map(
+        (document) => [document],
+      ),
+    ),
   )
 
   // The links in both directions, between usable documents: all of them,
@@ -196,10 +227,12 @@ export function pickSources(
   })
   add(
     "multi-hop",
-    spread(
-      chains,
-      (chain) => chain.map((document) => document.group).join(" "),
-      next,
+    inTurns(
+      spread(
+        chains,
+        (chain) => chain.map((document) => document.group).join(" "),
+        next,
+      ),
     ),
   )
 
@@ -228,26 +261,32 @@ export function pickSources(
   })
   add(
     "cross-source",
-    spread(crossSource, ([, knowledge]) => knowledge?.group ?? "", next),
+    inTurns(
+      spread(crossSource, ([, knowledge]) => knowledge?.group ?? "", next),
+    ),
   )
 
-  // A document whose answer depends on a date in its text: a KEP or RFC
-  // issue, an issue with dated comments of people or a close date, or a
-  // dated decision. The KEP and RFC issues come first.
+  // A document whose answer depends on a date in its text: a design record,
+  // an issue with dated comments of people or a close date, or a dated
+  // decision. The design records come first.
   const dated = candidates.filter(
     (document) =>
       (document.issue &&
         (document.issue.closedAt ||
-          isProposal(document) ||
+          isDesignRecord(document) ||
           document.comments.filter((handle) => !isBot(handle)).length >= 2)) ||
       /\*\*Date:\*\*/.test(document.body),
   )
   add(
     "time",
     [
-      ...spread(dated.filter(isProposal), (document) => document.group, next),
       ...spread(
-        dated.filter((document) => !isProposal(document)),
+        dated.filter(isDesignRecord),
+        (document) => document.group,
+        next,
+      ),
+      ...spread(
+        dated.filter((document) => !isDesignRecord(document)),
         (document) => document.group,
         next,
       ),
@@ -255,8 +294,8 @@ export function pickSources(
   )
 
   // A document that replaces, withdraws or postpones a position, and the
-  // linked document that is most like it: the other position. The KEP and
-  // RFC tracking issues come first.
+  // linked document that is most like it: the other position. The design
+  // records come first.
   const pairs = new Set<string>()
   const disagreement = candidates.flatMap((anchor) => {
     if (
@@ -277,7 +316,7 @@ export function pickSources(
     pairs.add(key)
     return [[anchor, document]]
   })
-  const proposal = (pair: CorpusDocument[]) => pair.some(isProposal)
+  const proposal = (pair: CorpusDocument[]) => pair.some(isDesignRecord)
   add("disagreement", [
     ...spread(
       disagreement.filter(proposal),
