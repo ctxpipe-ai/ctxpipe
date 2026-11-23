@@ -33,9 +33,10 @@ export function knowledgeProjectionVersion(input: {
   // too: a new parser, model or prompt gives other text for the same bytes.
   // 9: the `MENTIONS` links of an issue and the keys of a knowledge unit
   // (CTX-1502). 10: `valid_from` from the source's own time of a file
-  // (CTX-1516).
+  // (CTX-1516). 11: the `MENTIONS` links of names in code and of product
+  // names (CTX-1579).
   return JSON.stringify([
-    10,
+    11,
     input.embeddingModel,
     input.dimensions,
     input.root,

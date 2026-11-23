@@ -131,8 +131,9 @@ const operationKey = (method: string, path: string) =>
 const operationPathKey = (path: string) => `oppath:${operationPath(path)}`
 
 /**
- * The keys by which an issue can mention a knowledge unit: its name and,
- * for an operation, its method and path. The keys of its package root are
+ * The keys by which an issue can mention a knowledge unit: its name; for
+ * an operation, its method and path; for a backend or a frontend package,
+ * its last parts in words. The keys of its package root are
  * the `CHANGED` keys. A connector mirror file is not a knowledge unit.
  */
 function mentionTargetKeys(
@@ -159,13 +160,23 @@ function mentionTargetKeys(
     kind === "Operation"
       ? new RegExp(`^(${HTTP_METHODS}) (\\/\\S*)$`).exec(name)
       : null
-  return operation?.[1] && operation[2]
-    ? [
-        nameKey(name),
-        operationKey(operation[1], operation[2]),
-        operationPathKey(operation[2]),
-      ]
-    : [nameKey(name)]
+  if (operation?.[1] && operation[2])
+    return [
+      nameKey(name),
+      operationKey(operation[1], operation[2]),
+      operationPathKey(operation[2]),
+    ]
+  // An issue names a backend or a frontend package in words: "the
+  // notifications backend" is `@backstage/plugin-notifications-backend`
+  // (CTX-1579). Thus such a package also has the key of its last two and
+  // three parts.
+  const parts = name.replace(/^@[^/]+\//, "").split("-")
+  const aliases = /^(?:backend|frontend)$/i.test(parts.at(-1) ?? "")
+    ? [2, 3]
+        .filter((size) => parts.length >= size)
+        .map((size) => nameKey(parts.slice(-size).join(" ")))
+    : []
+  return [nameKey(name), ...aliases]
 }
 
 /** The text with each fenced code block made empty. */
@@ -187,7 +198,15 @@ const withoutFences = (text: string) =>
  * - 0.8: an HTTP path with no method, in a code span or under `/api`; a
  *   label `area/<name>` or `component/<name>`; a full code span with a
  *   lowercase letter.
- * - 0.7: a name with `-` or `_` in the title or the text (`client-go`).
+ * - 0.7: a name with `-` or `_` in the title or the text (`client-go`);
+ *   the first part of a path with `::`, also in fenced code
+ *   (`build_helper::git::…`, `use run_make_support::{…}`), which names a
+ *   crate or a namespace (CTX-1579).
+ * - 0.6: two to four words of a run of words that each start with a
+ *   capital letter, not in a heading (`Amazon S3`, `The Catalog API`), and a
+ *   word before `API`, `backend` or `frontend` in any case (`the
+ *   notifications API`, `Notifications backend`), in the title or the text
+ *   (CTX-1579). These are the names of products, which have no `-` or `_`.
  * A plain word of the title or the text is not a rule, also the first word
  * of a title before a colon (`Bug: …`): most such words name nothing, and
  * some name the wrong unit (`kind`). A name of one or two characters is a
@@ -237,7 +256,8 @@ function mentionLinks(input: {
 
   // The path and the operation rules also read fenced code, because a stack
   // trace or a request log names real files and operations. The name rules
-  // read only the prose. A path from `./` or `../` is a local file of the
+  // read only the prose, except the rule of the first part of a `::` path
+  // (below). A path from `./` or `../` is a local file of the
   // reporter, and a path whose first folder holds a dot is a Go import path
   // or a host (`k8s.io/…`). Neither names a file of the repository.
   for (const match of body.matchAll(
@@ -248,13 +268,18 @@ function mentionLinks(input: {
       for (const key of folderKeysOf(repository, file))
         mention(key, 0.9, match[0])
   }
-  // A method and a path, also with the path in a code span (GET `/orders/`).
-  // The key of the operation drops an end slash.
-  const operation = new RegExp(
-    `\\b(${HTTP_METHODS})\\s+(\`?)(\\/(?:[\\w./{}:-]*[\\w}])?\\/?)\\2`,
-    "g",
-  )
-  for (const match of body.matchAll(operation))
+  // A method and a path on one line, also with the path in a code span
+  // (GET `/orders/`). The key of the operation drops an end slash. In a code
+  // span, the method can be in lowercase (`createRouter() get /entities`);
+  // in the prose, a lowercase method is a verb more often (`you get /api`).
+  const operationRule = `\\b(${HTTP_METHODS})[ \\t]+(\`?)(\\/(?:[\\w./{}:-]*[\\w}])?\\/?)\\2`
+  const operation = new RegExp(operationRule, "g")
+  for (const match of [
+    ...body.matchAll(operation),
+    ...spans.flatMap((span) => [
+      ...span.matchAll(new RegExp(operationRule, "gi")),
+    ]),
+  ])
     mention(operationKey(match[1] ?? "", match[3] ?? ""), 0.9, match[0])
 
   // A path with its method names only the operation of that method, so the
@@ -291,6 +316,34 @@ function mentionLinks(input: {
     /(?<![\w.-])[a-z][a-z0-9]*(?:[-_][a-z0-9]+)+(?![\w-])/gi,
   ))
     mentionName(match[0], 0.7, match[0])
+  // The first part of a path names its crate or namespace in code too: a
+  // stack trace or an import names real code.
+  for (const [, root = ""] of body.matchAll(
+    /(?<![\w:])([A-Za-z_]\w*)::[\w{*<]/g,
+  ))
+    mentionName(root, 0.7, root)
+
+  // A product name: each part of two to four words of a capitalized run,
+  // because the run can hold words of the sentence before or after the
+  // name (`The Catalog API`, `Amazon S3 SDK`). One capitalized word is the
+  // start of a sentence more often than a name, and a word of one letter is
+  // a pronoun or an article (`But I`). A heading of the body
+  // is the label of an issue template (`Expected Behavior`) more often than
+  // a name; the title is not in a heading.
+  for (const [run] of nameText
+    .replace(/^#{1,6} .*$/gm, " ")
+    .matchAll(
+      /(?<![\w.-])[A-Z][A-Za-z0-9]+(?: [A-Z][A-Za-z0-9]+)+(?![\w-])/g,
+    )) {
+    const words = run.split(" ")
+    for (let start = 0; start < words.length - 1; start++)
+      for (let end = start + 2; end <= Math.min(words.length, start + 4); end++)
+        mentionName(words.slice(start, end).join(" "), 0.6, run)
+  }
+  for (const [name] of nameText.matchAll(
+    /(?<![\w.-])[a-z]\w* (?:api|backend|frontend)\b/gi,
+  ))
+    mentionName(name, 0.6, name)
   return links
 }
 

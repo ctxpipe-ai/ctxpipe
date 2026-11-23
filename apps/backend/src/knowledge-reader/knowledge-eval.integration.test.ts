@@ -86,8 +86,9 @@ let legacyEmbeddings = 0
 
 /**
  * The fixed Jev replies. The layer judge gives a high p(answers) and
- * p(explore) to a candidate that holds the title of a gold document of the
- * question, else a low one. In the disagreement step, each pair makes
+ * p(explore) to a candidate whose text holds the title of a gold document
+ * of the question, else a low one. The relation line before the text names
+ * the parent, so it does not count (CTX-1578). In the disagreement step, each pair makes
  * claims about the same part of the question and disagrees, and an item
  * changes or replaces the claim of an item whose text says "Superseded by"
  * when its own text does not. No claim is scoped. Each reply costs $0.001.
@@ -126,7 +127,10 @@ function jevReply(
   body.state.forEach((part, index) => {
     const n = typeof part === "string" && /^Candidate (\d+) \(/.exec(part)?.[1]
     if (!n) return
-    const candidate = String(body.state[index + 1])
+    const candidate = String(body.state[index + 1]).replace(
+      /(?:".*" \S+ this document\.|This document \S+ ".*"\.)\n\n/,
+      "",
+    )
     const relevant = titles.some((title) => candidate.includes(title))
     answers[`answers.${n}`] = { type: "noul", noul: relevant ? 0.9 : 0.1 }
     answers[`explore.${n}`] = { type: "noul", noul: relevant ? 0.9 : 0.1 }
