@@ -18,10 +18,11 @@ import { gunzipSync } from "node:zlib"
 import { parse as parseYaml } from "yaml"
 
 import { markPortable } from "../checks/families.mjs"
-import { fullRunResults, stepResults } from "../checks/gate.mjs"
+import { decideMode, fullRunResults, stepResults } from "../checks/gate.mjs"
 import { jobPlans, placeOf } from "../checks/plan.mjs"
 import { prerequisites, withNeeds } from "../checks/prerequisites.mjs"
 import { listProjects, projectCommands } from "../checks/projects.mjs"
+import { runnerFiles } from "../checks/runner-inputs.mjs"
 import { runsInOf } from "../checks/shard.mjs"
 import { uiBundledImports } from "../checks/ui-bundled-imports.mjs"
 import { vitestCommand } from "../ci/vitest-launch.mjs"
@@ -1075,6 +1076,55 @@ test("the key of each cached check holds the module that lists and runs it", () 
       ),
       id,
     )
+})
+
+test("the runner inputs of a check of a selectAll lane are its runner files, the same in each check of a lane, and no other input matches one", () => {
+  // A selector keeps a screenshot check (`selectAll`) only when an input
+  // other than a runner input reached it. The factory reads the lane inputs
+  // from one check of each lane name, and it treats a runner file that
+  // another input also matches as a normal lane input.
+  const isRunnerFile = (path) =>
+    decideMode({
+      config: {
+        mode: "gate",
+        factory: { version: "1".repeat(40), sha256: "2".repeat(64) },
+      },
+      event: "pull_request",
+      fork: false,
+      changed: [path],
+    }).runner?.includes(path) === true
+  // gate.mjs names the same files: each tracked script of scripts/checks
+  // and scripts/ci is a runner file there only when runnerFiles holds it.
+  const scripts = spawnSync("git", ["ls-files", "scripts/checks", "scripts/ci"], {
+    cwd: root,
+    encoding: "utf8",
+  })
+    .stdout.split("\n")
+    .filter((file) => file.endsWith(".mjs"))
+  assert.ok(scripts.length > 20)
+  assert.deepEqual(scripts.filter(isRunnerFile).sort(), [...runnerFiles].sort())
+  const result = node([script("list.mjs")])
+  assert.equal(result.status, 0, result.stderr)
+  const { checks } = JSON.parse(result.stdout)
+  const byLane = new Map()
+  for (const check of checks) {
+    const expected = check.selectAll ? check.inputs.filter(isRunnerFile) : []
+    assert.deepEqual(check.runnerInputs ?? [], expected, check.id)
+    for (const file of expected)
+      for (const input of check.inputs)
+        if (input !== file)
+          assert.ok(!matchesInput(input, file), `${check.id}: ${input} matches ${file}`)
+    const lane = check.lane
+    const runnerList = JSON.stringify(check.runnerInputs ?? [])
+    assert.equal(
+      byLane.get(lane) ?? runnerList,
+      runnerList,
+      `${lane}: one list for each lane`,
+    )
+    byLane.set(lane, runnerList)
+  }
+  // The screenshot lane has the runner as a runner input.
+  assert.equal(byLane.get("visual"), JSON.stringify(["scripts/checks/run.mjs"]))
 })
 
 test("the manifest lists a check for each job of the other pull request workflows", () => {
