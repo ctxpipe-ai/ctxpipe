@@ -1437,23 +1437,26 @@ async function search(
     AND ${validDuring()}`
   const inSearchable = `(workspace_id, doc_key, version) IN (
     SELECT workspace_id, doc_key, version FROM tree_view WHERE ${searchable})`
-  // One branch for each term, each with at most 1000 chunks of searchable
-  // documents: the cap before the score. The cap takes the chunks in the
-  // order of a hash of their key: a fixed sample, so the same query always
-  // takes the same chunks (ADR-068, CTX-1547). Only the parameter names go
-  // into the SQL text.
+  // For each term, at most 1000 chunks of searchable documents: the cap
+  // before the score. The cap takes the chunks in the order of a hash of
+  // their key: a fixed sample, so the same query always takes the same
+  // chunks (ADR-068, CTX-1547). The branches of the terms read only the text
+  // index and the sort key. The filter and the cap then apply one time to
+  // all of them: a filter in each branch evaluated the tree view again for
+  // each term (CTX-1576). Only the parameter names go into the SQL text.
   const termCap = 1000
-  const termMatches = uniqueTerms
-    .map(
-      (_, i) => `SELECT {term${i}:String} AS word,
+  const termMatches = `SELECT word, workspace_id, doc_key, version, ordinal
+    FROM (${uniqueTerms
+      .map(
+        (_, i) => `SELECT {term${i}:String} AS word,
           workspace_id, doc_key, version, ordinal
         FROM chunks
-        WHERE ${inWorkspaces} AND hasToken(text, {term${i}:String})
-          AND ${inSearchable}
-        ORDER BY cityHash64(workspace_id, doc_key, version, ordinal)
-        LIMIT ${termCap}`,
-    )
-    .join(" UNION ALL ")
+        WHERE ${inWorkspaces} AND hasToken(text, {term${i}:String})`,
+      )
+      .join(" UNION ALL ")})
+    WHERE ${inSearchable}
+    ORDER BY word, cityHash64(workspace_id, doc_key, version, ordinal)
+    LIMIT ${termCap} BY word`
   // The BM25 IDF of each term: ln(1 + (N - n + 0.5) / (n + 0.5)), with N the
   // chunks of the Workspaces and n the chunks that have the term. The counts
   // read only the text index and the sort key, not the tree view.
