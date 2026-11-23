@@ -112,7 +112,7 @@ The content and its tables are in [ADR-066](ADR-066-knowledge-content-in-clickho
 ## Consequences
 
 - **Better ranking signal:** the ranking comes from the question, not from the graph shape. We no longer tune the intent presets and the predicate weights.
-- **Latency:** about 500 ms of Jev time for `get_related` at D = 3, plus the ClickHouse queries. Each query makes one embedding call and one vector scan. The v0 run measured about 450 ms for each Jev call, also with 2 questions: the count of Jev calls in series sets most of the time of `get_related`. The scan grows with the size of the Workspace: 1 million chunks is about 128 MB of binary vectors for each query.
+- **Latency:** about 500 ms of Jev time for `get_related` at D = 3, plus the ClickHouse queries. Each query makes one embedding call and one vector scan. The v0 run measured about 450 ms for each Jev call, also with 2 questions: the count of Jev calls in series sets most of the time of `get_related`. About 2% of the Jev calls take 1.1 to 2.1 s, also small ones, and these slow calls set the p95. Thus a Jev call with no answer after 700 ms sends a second copy of the same request, and the first copy that ends gives the result (a hedged request, [CTX-1590](https://linear.app/ctxpipe/issue/CTX-1590)). The requests and the answers do not change, and the copies add about 2% more calls. The scan grows with the size of the Workspace: 1 million chunks is about 128 MB of binary vectors for each query.
 - **Cost:** each retrieval has a model cost (Jev and the query embedding). Ingest has a model cost for each new or changed image.
 - **Open: what happens when Jev fails or is slow** (return the search order, or fail the call). The PoC decides it.
 - **Facts to verify:**

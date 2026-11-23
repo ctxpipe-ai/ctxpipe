@@ -108,6 +108,29 @@ const factsParts: string[] = []
 let factsWithLayer = false
 let releaseFacts: (() => void) | null = null
 
+/**
+ * A slow Jev call gets a second copy of its request (`decideNoul`), with the
+ * same body. Such a copy never answers, so the first copy gives each result,
+ * and the counters of `handler` see one call. The key also holds the test:
+ * a slow call of an earlier test can still be in flight with the same body,
+ * and it must not stop the same call of the next test.
+ */
+function copiesNeverAnswer(
+  handler: (info: { request: Request }) => Promise<Response>,
+) {
+  const inFlight = new Set<string>()
+  return async ({ request }: { request: Request }) => {
+    const key = `${jevTest}\n${await request.clone().text()}`
+    if (inFlight.has(key)) return delay("infinite")
+    inFlight.add(key)
+    try {
+      return await handler({ request })
+    } finally {
+      inFlight.delete(key)
+    }
+  }
+}
+
 const models = setupServer(
   http.post(`${MODEL_URL}/embeddings`, async ({ request }) => {
     const body = (await request.json()) as {
@@ -129,7 +152,7 @@ const models = setupServer(
   }),
   http.post(
     "https://search-model.test/alpha/decisions",
-    async ({ request }) => {
+    copiesNeverAnswer(async ({ request }) => {
       const body = (await request.json()) as {
         state: unknown[]
         questions: Record<string, unknown>
@@ -203,7 +226,7 @@ const models = setupServer(
       })
       jevRequests.push({ candidates: Object.keys(answers).length / 2 })
       return HttpResponse.json({ answers })
-    },
+    }),
   ),
 )
 

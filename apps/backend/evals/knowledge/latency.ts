@@ -29,7 +29,9 @@ import { readZdrList, withChangedBody } from "./probe.js"
  *   for the measurement only;
  * - the query embedding of the other text embedding models with a ZDR
  *   endpoint, with no pin, and pinned to each of its ZDR endpoints;
- * - Jev with the request of the layer judge (10 candidates);
+ * - Jev with the request of the layer judge (10 candidates), through the
+ *   real client: a call with no answer after 700 ms sends a second copy of
+ *   its request, as in production;
  * - a request to OpenRouter that reaches no model, for the network time of
  *   this host.
  */

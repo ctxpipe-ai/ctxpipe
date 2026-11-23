@@ -67,11 +67,15 @@ type DecideOptions = { timeoutMs: number; attributes: Record<string, number> }
  * probability of yes for each question key. The key and the base URL come
  * from the backend model settings (see `openRouterSettings`). A failure
  * throws a `JevError`. The call must not run inside an org database
- * transaction.
+ * transaction. A call with no answer after 700 ms sends a second
+ * copy of its request (a hedged request), and the first copy that ends gives
+ * the result. The time limit applies to both copies.
  *
  * The call has one span (`jev.decide`) with the model, the cost
- * (`gen_ai.usage.cost`), the latency and the `attributes` of the caller. The
- * span holds no prompt text: the state is customer content.
+ * (`gen_ai.usage.cost`), the latency, `jev.hedged` (the second copy went
+ * out), `jev.hedge_won` (the second copy ended first) and the `attributes`
+ * of the caller. The span holds no prompt text: the state is customer
+ * content.
  */
 export async function decideNoul(
   state: JevState,
@@ -87,6 +91,7 @@ export async function decideNoul(
         "gen_ai.operation.name": "decide",
         "gen_ai.request.model": JEV_MODEL,
         "gen_ai.provider.name": "openrouter",
+        "jev.hedged": false,
         ...options.attributes,
       },
     },
@@ -107,31 +112,61 @@ export async function decideNoul(
           questions,
           provider: openRouterProvider(),
         })
-        const signal = AbortSignal.timeout(options.timeoutMs)
-        let status: number
-        let body: string
-        try {
-          const response = await fetch(
-            new URL("../alpha/decisions", `${base.replace(/\/+$/, "")}/`),
-            {
-              method: "POST",
-              headers: {
-                authorization: `Bearer ${apiKey}`,
-                "content-type": "application/json",
-              },
-              body: JSON.stringify(request),
-              signal,
+        const timeLimit = AbortSignal.timeout(options.timeoutMs)
+        const url = new URL(
+          "../alpha/decisions",
+          `${base.replace(/\/+$/, "")}/`,
+        )
+        const payload = JSON.stringify(request)
+        // Each copy of the request stops at the time limit, or when the
+        // first copy ends.
+        const done = new AbortController()
+        const signal = AbortSignal.any([timeLimit, done.signal])
+        const send = async () => {
+          const response = await fetch(url, {
+            method: "POST",
+            headers: {
+              authorization: `Bearer ${apiKey}`,
+              "content-type": "application/json",
             },
-          )
-          status = response.status
+            body: payload,
+            signal,
+          })
           // The time limit also covers the body.
           signal.throwIfAborted()
-          body = await new Promise<string>((resolve, reject) => {
+          const text = await new Promise<string>((resolve, reject) => {
             signal.addEventListener("abort", () => reject(signal.reason), {
               once: true,
             })
             response.text().then(resolve, reject)
           })
+          return { status: response.status, body: text }
+        }
+        type Answer = { status: number; body: string }
+        let answer: Answer
+        let hedge: ReturnType<typeof setTimeout> | undefined
+        // True when the second copy ended first, also with a failure.
+        let hedgeWon: boolean | undefined
+        const ended = (copy: boolean) => () => {
+          hedgeWon ??= copy
+        }
+        try {
+          // The first copy that ends gives the result, also a failure: the
+          // second copy is no retry.
+          answer = await Promise.race([
+            send().finally(ended(false)),
+            new Promise<Answer>((resolve, reject) => {
+              // Most Jev calls end in about 450 ms, but about 2% take 1.1 to
+              // 2.1 s, also small ones: the provider is slow, not the
+              // request. Almost all other calls end before 700 ms, so the
+              // copy adds about 2% more calls, and a slow call ends in about
+              // 1.2 s (CTX-1590).
+              hedge = setTimeout(() => {
+                span.setAttribute("jev.hedged", true)
+                send().finally(ended(true)).then(resolve, reject)
+              }, 700)
+            }),
+          ])
         } catch (error) {
           throw error instanceof Error && error.name === "TimeoutError"
             ? new JevError(
@@ -139,7 +174,13 @@ export async function decideNoul(
                 `Jev gave no answer in ${options.timeoutMs} ms.`,
               )
             : new JevError("network", "The Jev request got no answer.")
+        } finally {
+          clearTimeout(hedge)
+          // The race has its result: stop the copy that is still in flight.
+          done.abort()
+          span.setAttribute("jev.hedge_won", hedgeWon ?? false)
         }
+        const { status, body } = answer
         if (status < 200 || status > 299) {
           // Only a fixed routing message of the gateway: other error text
           // can echo the state.
