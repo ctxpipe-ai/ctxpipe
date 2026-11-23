@@ -131,8 +131,9 @@ const operationKey = (method: string, path: string) =>
 const operationPathKey = (path: string) => `oppath:${operationPath(path)}`
 
 /**
- * The keys by which an issue can mention a knowledge unit: its name and,
- * for an operation, its method and path. The keys of its package root are
+ * The keys by which an issue can mention a knowledge unit: its name; for
+ * an operation, its method and path; for a backend or a frontend package,
+ * its last parts in words. The keys of its package root are
  * the `CHANGED` keys. A connector mirror file is not a knowledge unit.
  */
 function mentionTargetKeys(
@@ -159,13 +160,23 @@ function mentionTargetKeys(
     kind === "Operation"
       ? new RegExp(`^(${HTTP_METHODS}) (\\/\\S*)$`).exec(name)
       : null
-  return operation?.[1] && operation[2]
-    ? [
-        nameKey(name),
-        operationKey(operation[1], operation[2]),
-        operationPathKey(operation[2]),
-      ]
-    : [nameKey(name)]
+  if (operation?.[1] && operation[2])
+    return [
+      nameKey(name),
+      operationKey(operation[1], operation[2]),
+      operationPathKey(operation[2]),
+    ]
+  // An issue names a backend or a frontend package in words: "the
+  // notifications backend" is `@backstage/plugin-notifications-backend`
+  // (CTX-1579). Thus such a package also has the key of its last two and
+  // three parts.
+  const parts = name.replace(/^@[^/]+\//, "").split("-")
+  const aliases = /^(?:backend|frontend)$/i.test(parts.at(-1) ?? "")
+    ? [2, 3]
+        .filter((size) => parts.length >= size)
+        .map((size) => nameKey(parts.slice(-size).join(" ")))
+    : []
+  return [nameKey(name), ...aliases]
 }
 
 /** The text with each fenced code block made empty. */
@@ -192,9 +203,10 @@ const withoutFences = (text: string) =>
  *   (`build_helper::git::…`, `use run_make_support::{…}`), which names a
  *   crate or a namespace (CTX-1579).
  * - 0.6: two to four words of a run of words that each start with a
- *   capital letter, not in a heading (`Amazon S3`, `The Catalog API`), and a word before `API` in any case
- *   (`the notifications API`), in the title or the text (CTX-1579). These
- *   are the names of products, which have no `-` or `_`.
+ *   capital letter, not in a heading (`Amazon S3`, `The Catalog API`), and a
+ *   word before `API`, `backend` or `frontend` in any case (`the
+ *   notifications API`, `Notifications backend`), in the title or the text
+ *   (CTX-1579). These are the names of products, which have no `-` or `_`.
  * A plain word of the title or the text is not a rule, also the first word
  * of a title before a colon (`Bug: …`): most such words name nothing, and
  * some name the wrong unit (`kind`). A name of one or two characters is a
@@ -328,7 +340,9 @@ function mentionLinks(input: {
       for (let end = start + 2; end <= Math.min(words.length, start + 4); end++)
         mentionName(words.slice(start, end).join(" "), 0.6, run)
   }
-  for (const [name] of nameText.matchAll(/(?<![\w.-])[a-z][\w]* api\b/gi))
+  for (const [name] of nameText.matchAll(
+    /(?<![\w.-])[a-z]\w* (?:api|backend|frontend)\b/gi,
+  ))
     mentionName(name, 0.6, name)
   return links
 }

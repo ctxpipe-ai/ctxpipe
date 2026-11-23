@@ -232,6 +232,27 @@ describe("issue mentions in code and plain product names (CTX-1579)", () => {
     ])
   })
 
+  it("a word before backend or frontend names a backend or a frontend package", () => {
+    const units: [string, string][] = [
+      ["Service", "@backstage/plugin-notifications-backend"],
+      ["Service", "@backstage/plugin-mcp-actions-backend"],
+      ["Library", "@backstage/plugin-notifications-node"],
+      ["Library", "@backstage/plugin-kubernetes-backend"],
+    ]
+    expect(
+      mentionedUnits(
+        {
+          title: "Notifications backend does not persist payload.metadata",
+          body: "The MCP Actions Backend returns 401. The notifications node package is fine.",
+        },
+        units,
+      ),
+    ).toEqual([
+      "@backstage/plugin-notifications-backend",
+      "@backstage/plugin-mcp-actions-backend",
+    ])
+  })
+
   it("a common word, a short name or a generic phrase makes no edge", () => {
     const units: [string, string][] = [
       ["Infrastructure", "Kubernetes"],
@@ -242,6 +263,8 @@ describe("issue mentions in code and plain product names (CTX-1579)", () => {
       ["Library", "metrics"],
       ["API", "Health API"],
       ["Service", "Expected Behavior"],
+      ["Service", "example-backend"],
+      ["Service", "app-frontend"],
     ]
     expect(
       mentionedUnits(
@@ -249,6 +272,7 @@ describe("issue mentions in code and plain product names (CTX-1579)", () => {
           title: "Kubernetes: kubelet restarts the pod",
           body: [
             "Docker runs the node. The API returns 500, and this API is slow.",
+            "The backend and a new frontend are fine.",
             "### Expected Behavior",
             "The health of the pod is fine.",
             "```yaml",
