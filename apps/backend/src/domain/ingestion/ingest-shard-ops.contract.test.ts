@@ -286,7 +286,7 @@ describe("ingest shard commands in a Docker sandbox", () => {
 
         // No workspace manifest names `services/orders`, so the script keeps
         // the repository root and gives the folder to the model to choose.
-        expect(await discoverIngestRoots(root, agentEnv)).toEqual({
+        const script = {
           roots: [{ path: ".", manifests: ["package.json"], evidence: ["."] }],
           ambiguous: [
             {
@@ -298,6 +298,67 @@ describe("ingest shard commands in a Docker sandbox", () => {
             },
           ],
           skipped: [],
+        }
+        // The model step (CTX-1514): an `opencode run` on the given model
+        // reads the ambiguous entries that root wrote, and writes its choice.
+        await handle.process.exec("mkdir -p /tmp/fake-roots-bin")
+        await handle.fs.write(
+          "/tmp/fake-roots-bin/opencode",
+          [
+            "#!/bin/sh",
+            'echo "$@" > /ctxpipe/home/args',
+            `node -e 'const a = require("/ctxpipe/ambiguous.json").ambiguous; require("fs").writeFileSync("/ctxpipe/out/roots.json", JSON.stringify({ roots: a.flatMap((e) => e.candidates.map((c) => ({ path: c.path }))) }))'`,
+            `echo '{"type":"step_finish","part":{"tokens":{"input":40,"output":4}}}'`,
+          ].join("\n"),
+        )
+        await handle.process.exec("chmod 755 /tmp/fake-roots-bin/opencode")
+        const fakeEnv = {
+          ...agentEnv,
+          PATH: `/tmp/fake-roots-bin:${agentEnv.PATH}`,
+        }
+        expect(
+          await discoverIngestRoots(root, fakeEnv, { model: "ctxpipe/fast" }),
+        ).toEqual({
+          script,
+          model: { roots: [{ path: "services/orders" }] },
+          usage: { inputTokens: 40, outputTokens: 4 },
+        })
+        expect((await root("cat /ctxpipe/home/args")).stdout).toContain(
+          "--model ctxpipe/fast",
+        )
+        // A model step that fails gives no choice and says why.
+        await handle.fs.write(
+          "/tmp/fake-roots-bin/opencode",
+          "#!/bin/sh\nexit 3\n",
+        )
+        expect(
+          await discoverIngestRoots(root, fakeEnv, { model: "ctxpipe/fast" }),
+        ).toEqual({
+          script,
+          model: null,
+          usage: { inputTokens: 0, outputTokens: 0, unknownSteps: 1 },
+          problems: [
+            "The model step failed (3), so no ambiguous root is planned",
+          ],
+        })
+        // At the checkpoint the model stops, and the step keeps the script
+        // roots with no model choice.
+        await handle.fs.write(
+          "/tmp/fake-roots-bin/opencode",
+          `#!/bin/sh\necho '{"type":"step_finish","part":{"tokens":{"input":7,"output":1}}}'\nexec sleep 300\n`,
+        )
+        expect(
+          await discoverIngestRoots(root, fakeEnv, {
+            model: "ctxpipe/fast",
+            checkpoint: AbortSignal.timeout(3000),
+          }),
+        ).toEqual({
+          script,
+          model: null,
+          usage: { inputTokens: 7, outputTokens: 1 },
+          problems: [
+            "The model step reached its time limit, so no ambiguous root is planned",
+          ],
         })
 
         const step = {

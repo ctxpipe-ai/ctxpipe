@@ -1,4 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process"
+import { createHash } from "node:crypto"
 import {
   existsSync,
   mkdirSync,
@@ -723,6 +724,393 @@ describe("ownership skill", () => {
     )
   })
 
+  describe("OWNERS and OWNERS_ALIASES files (CTX-1513)", () => {
+    const OWNED_SHOP = {
+      ...PNPM_SHOP,
+      OWNERS_ALIASES: [
+        "aliases:",
+        "  # The API team.",
+        "  api-approvers:",
+        "    - alice",
+        "    - bob",
+        "  api-reviewers:",
+        "  - carol",
+        "  web-approvers: [dave]",
+        "  unused-alias:",
+        "    - erin",
+        "",
+      ].join("\n"),
+      OWNERS: [
+        "# See the OWNERS docs at https://go.k8s.io/owners",
+        "filters:",
+        '  ".*":',
+        "    approvers:",
+        "      - root-person",
+        '  "go\\\\.mod$":',
+        "    approvers:",
+        "      - web-approvers",
+        "",
+      ].join("\n"),
+      "apps/OWNERS": "approvers:\n  - web-approvers # the web team\n",
+      "apps/api/OWNERS": [
+        "approvers:",
+        "  - api-approvers",
+        "  - alice",
+        "reviewers:",
+        "  - api-reviewers",
+        "labels:",
+        "  - sig/api",
+        "",
+      ].join("\n"),
+      "apps/api/internal/OWNERS": "reviewers:\n  - api-reviewers\n",
+      "vendor/example.com/lib/OWNERS": "approvers:\n  - unused-alias\n",
+    }
+
+    it("writes a team file for each alias that an OWNERS file names, with OWNS claims from the nearest OWNERS file with approvers", async () => {
+      const service = (name: string) =>
+        front(
+          {
+            kind: "Service",
+            name,
+            generated_by: "ctxpipe-extract",
+            sources: [SOURCE_PATH],
+          },
+          `# ${name}\n`,
+        )
+      const s = step(OWNED_SHOP, {
+        "knowledge/services/api.md": service("api"),
+        "knowledge/services/web.md": service("web"),
+      })
+      s.mapFiles({
+        "apps/api": ["knowledge/services/api.md"],
+        "apps/web": ["knowledge/services/web.md"],
+      })
+      const out = s.run("ownership")
+      expect(out.ops).toEqual([
+        {
+          op: "create",
+          path: "knowledge/teams/example-org-shop-api-approvers.md",
+        },
+        {
+          op: "create",
+          path: "knowledge/teams/example-org-shop-api-reviewers.md",
+        },
+        {
+          op: "create",
+          path: "knowledge/teams/example-org-shop-web-approvers.md",
+        },
+      ])
+      expect(out.skipped).toEqual([])
+
+      const result = await s.validate("ownership")
+      expect(result.rejections).toEqual([])
+      const api = s.show(
+        result.tree,
+        "knowledge/teams/example-org-shop-api-approvers.md",
+      )
+      expect(api).toContain("kind: Team")
+      expect(api).toContain("name: example-org/shop/api-approvers")
+      expect(api).toContain("Members: `@alice`, `@bob`.")
+      expect(api).toMatch(
+        /- to: \.\.\/services\/api\.md\n\s+predicate: OWNS\n\s+evidence:\n\s+path: apps\/api\/OWNERS\n\s+kind: script/,
+      )
+      expect(api).toContain(
+        "- Owns `apps/api` in `example-org/shop` (`apps/api/OWNERS`)",
+      )
+      expect(api).toContain(
+        "- Approves `apps/api` in `example-org/shop` (`apps/api/OWNERS`)",
+      )
+      // A reviewer alias reviews folders, but it does not own a root.
+      const reviewers = s.show(
+        result.tree,
+        "knowledge/teams/example-org-shop-api-reviewers.md",
+      )
+      expect(reviewers).toContain(
+        "- Reviews `apps/api/internal` in `example-org/shop` (`apps/api/internal/OWNERS`)",
+      )
+      expect(reviewers).not.toContain("predicate: OWNS")
+      // apps/web has no OWNERS file: the parent apps/OWNERS gives its owner.
+      const web = s.show(
+        result.tree,
+        "knowledge/teams/example-org-shop-web-approvers.md",
+      )
+      expect(web).toContain(
+        "- Owns `apps/web` in `example-org/shop` (`apps/OWNERS`)",
+      )
+      expect(web).toMatch(/- to: \.\.\/services\/web\.md\n\s+predicate: OWNS/)
+      // The approvers of a parent OWNERS file also own the folders below it.
+      expect(web).toContain(
+        "- Owns `apps/api` in `example-org/shop` (`apps/OWNERS`)",
+      )
+      expect(web).toMatch(
+        /- to: \.\.\/services\/api\.md\n\s+predicate: OWNS\n\s+evidence:\n\s+path: apps\/OWNERS/,
+      )
+      // A filter for some files only (go\.mod$) gives a line with its
+      // pattern but owns no folder, and a vendored OWNERS file is another
+      // project's file.
+      expect(web).toContain(
+        "- Approves the files that match `go\\.mod$` in the repository top in `example-org/shop` (`OWNERS`)",
+      )
+      expect(web).not.toContain("Owns the repository top")
+      expect(out.ops.map((o) => o.path).join()).not.toContain("unused-alias")
+    })
+
+    it("writes a team file for an alias that only a file-name filter names, with the pattern and no OWNS claim", async () => {
+      const s = step(
+        {
+          ...OWNED_SHOP,
+          "docs/OWNERS":
+            'filters:\n  "\\\\.md$":\n    reviewers:\n      - unused-alias\n',
+        },
+        {},
+      )
+      const out = s.run("ownership")
+      expect(out.ops).toContainEqual({
+        op: "create",
+        path: "knowledge/teams/example-org-shop-unused-alias.md",
+      })
+      const result = await s.validate("ownership")
+      expect(result.rejections).toEqual([])
+      const docs = s.show(
+        result.tree,
+        "knowledge/teams/example-org-shop-unused-alias.md",
+      )
+      expect(docs).toContain(
+        "- Reviews the files that match `\\.md$` in `docs` in `example-org/shop` (`docs/OWNERS`)",
+      )
+      expect(docs).not.toContain("predicate: OWNS")
+    })
+
+    const webService = {
+      "knowledge/services/web.md": front(
+        {
+          kind: "Service",
+          name: "web",
+          generated_by: "ctxpipe-extract",
+          sources: [SOURCE_PATH],
+        },
+        "# web\n",
+      ),
+    }
+    const webTeam = (root: string) =>
+      readFileSync(
+        join(
+          root,
+          "out/files/knowledge/teams/example-org-shop-web-approvers.md",
+        ),
+        "utf8",
+      )
+
+    it("keeps the parent team of a root whose OWNERS file has only people as approvers", () => {
+      const s = step(
+        { ...OWNED_SHOP, "apps/web/OWNERS": "approvers:\n  - frank\n" },
+        webService,
+      )
+      s.mapFiles({ "apps/web": ["knowledge/services/web.md"] })
+      s.run("ownership")
+      const web = webTeam(s.root)
+      expect(web).toContain(
+        "- Owns `apps/web` in `example-org/shop` (`apps/OWNERS`)",
+      )
+      expect(web).toMatch(
+        /- to: "\.\.\/services\/web\.md"\n\s+predicate: "?OWNS/,
+      )
+    })
+
+    it("gives no parent team to a root whose OWNERS file sets no_parent_owners", () => {
+      const s = step(
+        {
+          ...OWNED_SHOP,
+          "apps/web/OWNERS":
+            "options:\n  no_parent_owners: true\napprovers:\n  - frank\n",
+        },
+        webService,
+      )
+      s.mapFiles({ "apps/web": ["knowledge/services/web.md"] })
+      s.run("ownership")
+      const web = webTeam(s.root)
+      expect(web).not.toContain("Owns `apps/web`")
+      expect(web).not.toContain("predicate: OWNS")
+    })
+
+    it("gives each of two aliases with one slug its own team file, the same on the next run", async () => {
+      const s = step(
+        {
+          ...OWNED_SHOP,
+          OWNERS_ALIASES: "aliases:\n  api-team: [alice]\n  api_team: [bob]\n",
+          "apps/OWNERS": "approvers:\n  - api-team\n  - api_team\n",
+        },
+        {},
+      )
+      const out = s.run("ownership")
+      const hashed = `knowledge/teams/example-org-shop-api-team-${createHash("sha256").update("api_team").digest("hex").slice(0, 8)}.md`
+      expect(out.ops).toHaveLength(2)
+      expect(out.ops).toEqual(
+        expect.arrayContaining([
+          {
+            op: "create",
+            path: "knowledge/teams/example-org-shop-api-team.md",
+          },
+          { op: "create", path: hashed },
+        ]),
+      )
+      expect(out.skipped).toEqual([])
+      const result = await s.validate("ownership")
+      expect(result.rejections).toEqual([])
+      const first = s.show(
+        result.tree,
+        "knowledge/teams/example-org-shop-api-team.md",
+      )
+      expect(first).toContain("Members: `@alice`.")
+      expect(first).not.toContain("@bob")
+      const second = s.show(result.tree, hashed)
+      expect(second).toContain("name: example-org/shop/api_team")
+      expect(second).toContain("Members: `@bob`.")
+      s.advance(result.tree)
+      expect(s.run("ownership").ops).toEqual([])
+    })
+
+    it("gives a numbered path when each hash path of an alias is the slug path of another alias", () => {
+      const hash = createHash("sha256").update("api_team").digest("hex")
+      const takers = [8, 16, 64].map((n) => `api-team-${hash.slice(0, n)}`)
+      const s = step(
+        {
+          ...OWNED_SHOP,
+          OWNERS_ALIASES: `aliases:\n  api-team: [alice]\n  api_team: [bob]\n${takers.map((t) => `  ${t}: [carol]\n`).join("")}`,
+          "apps/OWNERS": `approvers:\n  - api-team\n  - api_team\n${takers.map((t) => `  - ${t}\n`).join("")}`,
+        },
+        {},
+      )
+      const out = s.run("ownership")
+      expect(out.skipped).toEqual([])
+      expect(out.ops).toHaveLength(5)
+      expect(out.ops.map((o) => o.path)).toContain(
+        `knowledge/teams/example-org-shop-api-team-${hash}-2.md`,
+      )
+    })
+
+    it("gives a longer hash when the hash path of an alias is the slug path of another alias", () => {
+      const hash = createHash("sha256").update("api_team").digest("hex")
+      const taker = `api-team-${hash.slice(0, 8)}`
+      const s = step(
+        {
+          ...OWNED_SHOP,
+          OWNERS_ALIASES: `aliases:\n  api-team: [alice]\n  api_team: [bob]\n  ${taker}: [carol]\n`,
+          "apps/OWNERS": `approvers:\n  - api-team\n  - api_team\n  - ${taker}\n`,
+        },
+        {},
+      )
+      const out = s.run("ownership")
+      expect(out.skipped).toEqual([])
+      expect(out.ops.map((o) => o.path).sort()).toEqual(
+        [
+          "knowledge/teams/example-org-shop-api-team.md",
+          `knowledge/teams/example-org-shop-${taker}.md`,
+          `knowledge/teams/example-org-shop-api-team-${hash.slice(0, 16)}.md`,
+        ].sort(),
+      )
+    })
+
+    it("leaves out an OWNERS file in a test fixture folder and records the folder (CTX-1531)", () => {
+      const s = step(
+        {
+          ...OWNED_SHOP,
+          "pkg/owners/testdata/OWNERS": "approvers:\n  - unused-alias\n",
+        },
+        {},
+      )
+      const out = s.run("ownership")
+      expect(out.skipped).toEqual([
+        {
+          path: "pkg/owners/testdata",
+          reason:
+            "A test fixture folder: the script did not read its 1 file, because they are test input",
+        },
+      ])
+      expect(out.ops.map((o) => o.path).join()).not.toContain("unused-alias")
+    })
+
+    it("lists an OWNERS file larger than 1 MiB in skipped, not as an empty file", () => {
+      const s = step(
+        {
+          ...OWNED_SHOP,
+          "apps/web/OWNERS": `approvers:\n  - web-approvers\n${"# x\n".repeat(300_000)}`,
+        },
+        {},
+      )
+      const out = s.run("ownership")
+      expect(out.skipped).toEqual([
+        {
+          path: "apps/web/OWNERS",
+          reason: "The script cannot read the file: it is larger than 1 MiB",
+        },
+      ])
+    })
+
+    it("lists an OWNERS_ALIASES file larger than 1 MiB in skipped", () => {
+      const s = step(
+        {
+          ...OWNED_SHOP,
+          OWNERS_ALIASES: `aliases:\n  web-approvers: [dave]\n${"# x\n".repeat(300_000)}`,
+        },
+        {},
+      )
+      const out = s.run("ownership")
+      expect(out.skipped).toContainEqual({
+        path: "OWNERS_ALIASES",
+        reason: "The script cannot read the file: it is larger than 1 MiB",
+      })
+      expect(out.ops.map((o) => o.path).join()).not.toContain("approvers")
+    })
+
+    it("lists an OWNERS file that it cannot read in skipped and reads the others", () => {
+      const s = step(
+        {
+          ...OWNED_SHOP,
+          "apps/web/OWNERS": "approvers: &anchor\n  - web-approvers\n",
+        },
+        {},
+      )
+      const out = s.run("ownership")
+      expect(out.skipped).toEqual([
+        {
+          path: "apps/web/OWNERS",
+          reason: "The script cannot read the YAML of the file",
+        },
+      ])
+      expect(out.ops.length).toBe(3)
+    })
+
+    it("keeps the Related lines of a team that fit in 48 KiB and records the cut", () => {
+      const folders = Object.fromEntries(
+        // About 400 bytes for each line, so 160 lines do not fit.
+        Array.from({ length: 160 }, (_, i) => [
+          `apps/web/area-${String(i).padStart(4, "0")}-${"x".repeat(150)}/OWNERS`,
+          "approvers:\n  - web-approvers\n",
+        ]),
+      )
+      const s = step({ ...OWNED_SHOP, ...folders }, {})
+      const out = s.run("ownership")
+      expect(out.skipped).toEqual([
+        {
+          path: "knowledge/teams/example-org-shop-web-approvers.md",
+          reason: expect.stringMatching(
+            /^\d+ Related lines of the team did not fit in 48 KiB$/,
+          ),
+        },
+      ])
+      const web = readFileSync(
+        join(
+          s.root,
+          "out/files/knowledge/teams/example-org-shop-web-approvers.md",
+        ),
+        "utf8",
+      )
+      expect(Buffer.byteLength(web)).toBeLessThan(64 * 1024)
+      expect(web).toContain("area-0000-")
+    })
+  })
+
   it("makes no op without a CODEOWNERS file", () => {
     const s = step(PNPM_SHOP, {})
     expect(s.run("ownership")).toEqual({ ops: [], skipped: [], more: false })
@@ -1393,5 +1781,364 @@ describe("the repository name of a source URL", () => {
       "git.example.org/tools",
     )
     expect(lib.repositoryName("https://git.example.org/")).toBeNull()
+  })
+})
+
+describe("feature-gates skill (CTX-1513)", () => {
+  const GO_GATES = {
+    "go.mod": "module example.org/shop\n\ngo 1.24\n",
+    "main.go": "package main\n\nfunc main() {}\n",
+    "pkg/features/features.go": [
+      "package features",
+      "",
+      'import "k8s.io/component-base/featuregate"',
+      "",
+      "const (",
+      "\t// owner: @alice, @bob",
+      "\t// kep: https://kep.k8s.io/1234",
+      "\t//",
+      "\t// Lets the shop sell gift cards. Use <card> ids.",
+      "\t// See https://kep.k8s.io/1234 and `https://example.org/x`.",
+      '\tGiftCards featuregate.Feature = "GiftCards"',
+      "",
+      "\t// owner: @carol",
+      '\tLegacyCheckout featuregate.Feature = "LegacyCheckout"',
+      "",
+      '\tOldCarts featuregate.Feature = "OldCarts"',
+      ")",
+      "",
+      "var defaultGates = map[featuregate.Feature]featuregate.VersionedSpecs{",
+      "\tGiftCards: {",
+      '\t\t{Version: version.MustParse("1.30"), Default: false, PreRelease: featuregate.Alpha},',
+      '\t\t{Version: version.MustParse("1.32"), Default: true, PreRelease: featuregate.Beta},',
+      "\t},",
+      "\tOldCarts: {Default: false, PreRelease: featuregate.Alpha},",
+      "\tLegacyCheckout: {",
+      '\t\t{Version: version.MustParse("1.0"), Default: true, PreRelease: featuregate.GA, LockToDefault: true},',
+      "\t},",
+      "}",
+      "",
+      "var dependencies = map[featuregate.Feature][]featuregate.Feature{",
+      "\tGiftCards: {LegacyCheckout},",
+      "}",
+      "",
+    ].join("\n"),
+    "pkg/features/features_test.go":
+      'package features\n\nconst TestOnly Feature = "TestOnly"\n',
+    "vendor/example.com/x/features/f.go":
+      'package f\n\nconst Vendored Feature = "Vendored"\n',
+    "compiler/shop_feature/src/unstable.rs": [
+      "declare_features! (",
+      "    // A group comment.",
+      "    /// Allows `async` gift cards.",
+      '    (unstable, async_gift_cards, "1.80.0", Some(4321)),',
+      '    (internal, shop_internals, "1.0.0", None),',
+      ")",
+      "",
+    ].join("\n"),
+  }
+  const CONTEXT = {
+    "knowledge/codebases/shop.md": front(
+      {
+        kind: "Repository",
+        name: "shop",
+        generated_by: "ctxpipe-extract",
+        sources: [SOURCE_PATH],
+      },
+      "# shop\n",
+    ),
+    "knowledge/services/shop.md": front(
+      {
+        kind: "Service",
+        name: "shop",
+        generated_by: "ctxpipe-extract",
+        sources: [SOURCE_PATH],
+      },
+      "# shop\n",
+    ),
+    "knowledge/decisions/kep-1234.md": front(
+      { kind: "Decision", name: "KEP-1234: Gift cards" },
+      "# KEP-1234: Gift cards\n",
+    ),
+    "github/issues/kubernetes/enhancements/1234.md": "# Gift cards\n",
+    "github/issues/example-org/shop/4321.md": "# Tracking issue\n",
+  }
+
+  it("writes one FeatureGate file for each gate, with stage, default, owners, KEP links, and a PART_OF claim", async () => {
+    const s = step(GO_GATES, CONTEXT)
+    s.mapFiles({ ".": ["knowledge/services/shop.md"] })
+    const out = s.run("feature-gates")
+    expect(out.ops).toEqual([
+      { op: "create", path: "knowledge/features/async-gift-cards.md" },
+      { op: "create", path: "knowledge/features/gift-cards.md" },
+      { op: "create", path: "knowledge/features/legacy-checkout.md" },
+      { op: "create", path: "knowledge/features/old-carts.md" },
+      { op: "create", path: "knowledge/features/shop-internals.md" },
+    ])
+    expect(out.skipped).toEqual([])
+
+    const result = await s.validate("feature-gates")
+    expect(result.rejections).toEqual([])
+    const gift = s.show(result.tree, "knowledge/features/gift-cards.md")
+    expect(gift).toContain("kind: FeatureGate")
+    expect(gift).toContain("name: GiftCards")
+    expect(gift).toContain(
+      'summary: "Feature gate GiftCards of example-org/shop: beta since 1.32, on by default."',
+    )
+    expect(gift).toMatch(
+      /- to: \.\.\/services\/shop\.md\n\s+predicate: PART_OF\n\s+evidence:\n\s+path: pkg\/features\/features\.go\n\s+kind: script/,
+    )
+    expect(gift).toContain("- Owners: `@alice`, `@bob`")
+    expect(gift).toContain(
+      "- KEP: KEP-1234 (`https://kep.k8s.io/1234`), [decision](../decisions/kep-1234.md), [issue](../../github/issues/kubernetes/enhancements/1234.md)",
+    )
+    expect(gift).toContain(
+      "> Lets the shop sell gift cards.\n> Use \\<card\\> ids.\n> See `https://kep.k8s.io/1234` and `https://example.org/x`.",
+    )
+    expect(gift).toContain("Source: pkg/features/features.go")
+    expect(gift).toContain("- 1.30: alpha, off by default")
+    expect(gift).toContain(
+      "- Declared in `pkg/features/features.go` of `example-org/shop` (line 11)",
+    )
+    const legacy = s.show(result.tree, "knowledge/features/legacy-checkout.md")
+    expect(legacy).toContain("- Default: on, locked to the default")
+    expect(legacy).toContain("- Stage: GA since 1.0")
+    // The older form: one spec with no version.
+    const old = s.show(result.tree, "knowledge/features/old-carts.md")
+    expect(old).toContain("- Stage: alpha")
+    expect(old).toContain("- Default: off")
+
+    const rust = s.show(result.tree, "knowledge/features/async-gift-cards.md")
+    expect(rust).toContain("a `#![feature(async_gift_cards)]` gate")
+    expect(rust).toContain("- Stage: unstable since 1.80.0")
+    expect(rust).toContain(
+      "- Tracking issue: [#4321](../../github/issues/example-org/shop/4321.md)",
+    )
+    expect(rust).toContain("> Allows `async` gift cards.")
+    expect(
+      s.show(result.tree, "knowledge/features/shop-internals.md"),
+    ).toContain("- Stage: internal since 1.0.0")
+  })
+
+  it("links a gate to the repository unit when its root has no package file, and a second run adds nothing", async () => {
+    const {
+      "github/issues/kubernetes/enhancements/1234.md": _issue,
+      ...context
+    } = CONTEXT
+    const s = step(GO_GATES, context)
+    const out = s.run("feature-gates")
+    expect(out.ops.length).toBe(5)
+    const result = await s.validate("feature-gates")
+    expect(result.rejections).toEqual([])
+    const gift = s.show(result.tree, "knowledge/features/gift-cards.md")
+    expect(gift).toMatch(
+      /- to: \.\.\/codebases\/shop\.md\n\s+predicate: PART_OF/,
+    )
+    expect(gift).not.toContain("enhancements/1234.md")
+    s.advance(result.tree)
+    expect(s.run("feature-gates").ops).toEqual([])
+  })
+
+  it("gives two gates of the same name in two packages a file each, and a second run changes nothing", async () => {
+    const gate = (pkg: string) =>
+      `package ${pkg}\n\nconst (\n\t// Lets the shop sell gift cards.\n\tGiftCards featuregate.Feature = "GiftCards"\n)\n`
+    const s = step(
+      {
+        "go.mod": "module example.org/shop\n\ngo 1.24\n",
+        "pkg/features/features.go": gate("features"),
+        "staging/cards/features/features.go": gate("features"),
+      },
+      CONTEXT,
+    )
+    const out = s.run("feature-gates")
+    expect(out.ops).toEqual([
+      {
+        op: "create",
+        path: "knowledge/features/gift-cards-pkg-features.md",
+      },
+      {
+        op: "create",
+        path: "knowledge/features/gift-cards-staging-cards-features.md",
+      },
+    ])
+    const result = await s.validate("feature-gates")
+    expect(result.rejections).toEqual([])
+    expect(
+      s.show(
+        result.tree,
+        "knowledge/features/gift-cards-staging-cards-features.md",
+      ),
+    ).toContain("- Declared in `staging/cards/features/features.go`")
+    s.advance(result.tree)
+    expect(s.run("feature-gates")).toEqual({
+      ops: [],
+      skipped: [],
+      more: false,
+    })
+  })
+
+  const ownGate = (file: string, stage: string) =>
+    front(
+      {
+        kind: "FeatureGate",
+        name: "GiftCards",
+        summary: `Feature gate GiftCards of example-org/shop: ${stage}.`,
+        generated_by: "ctxpipe-extract",
+        sources: [SOURCE_PATH],
+      },
+      `\n# GiftCards\n\n- Stage: ${stage}\n\n## Related\n\n- Declared in \`${file}\` of \`example-org/shop\` (line 3)\n`,
+    )
+
+  it("writes the current stage and default into a gate file that this source owns alone", async () => {
+    const s = step(GO_GATES, {
+      ...CONTEXT,
+      "knowledge/features/gift-cards.md": ownGate(
+        "pkg/features/features.go",
+        "alpha",
+      ),
+    })
+    s.mapFiles({ ".": ["knowledge/services/shop.md"] })
+    const out = s.run("feature-gates")
+    expect(out.ops).toContainEqual({
+      op: "update",
+      path: "knowledge/features/gift-cards.md",
+    })
+    const result = await s.validate("feature-gates")
+    expect(result.rejections).toEqual([])
+    const gift = s.show(result.tree, "knowledge/features/gift-cards.md")
+    expect(gift).toContain("- Stage: beta since 1.32")
+    expect(gift).not.toContain("- Stage: alpha\n")
+    s.advance(result.tree)
+    expect(s.run("feature-gates").ops).toEqual([])
+  })
+
+  it("leaves out a gate file in a test fixture folder and records the folder (CTX-1531)", () => {
+    const s = step(
+      {
+        "go.mod": "module example.org/shop\n\ngo 1.24\n",
+        "pkg/features/testdata/features.go":
+          'package features\n\nconst (\n\tGiftCards featuregate.Feature = "GiftCards"\n)\n',
+      },
+      CONTEXT,
+    )
+    expect(s.run("feature-gates")).toEqual({
+      ops: [],
+      skipped: [
+        {
+          path: "pkg/features/testdata",
+          reason:
+            "A test fixture folder: the script did not read its 1 file, because they are test input",
+        },
+      ],
+      more: false,
+    })
+  })
+
+  it("lists a gate file larger than 1 MiB in skipped", () => {
+    const s = step(
+      {
+        "go.mod": "module example.org/shop\n\ngo 1.24\n",
+        "pkg/features/features.go": `package features\n\nconst (\n\tGiftCards featuregate.Feature = "GiftCards"\n)\n${"// x\n".repeat(300_000)}`,
+      },
+      CONTEXT,
+    )
+    expect(s.run("feature-gates")).toEqual({
+      ops: [],
+      skipped: [
+        {
+          path: "pkg/features/features.go",
+          reason: "The script cannot read the file: it is larger than 1 MiB",
+        },
+      ],
+      more: false,
+    })
+  })
+
+  it("cuts a description at 2 KiB and records the cut in skipped", async () => {
+    const long = "Lets the shop sell gift cards. ".repeat(100).trim()
+    const s = step(
+      {
+        "go.mod": "module example.org/shop\n\ngo 1.24\n",
+        "pkg/features/features.go": `package features\n\nconst (\n\t// ${long}\n\tGiftCards featuregate.Feature = "GiftCards"\n)\n`,
+      },
+      CONTEXT,
+    )
+    const out = s.run("feature-gates")
+    expect(out.skipped).toEqual([
+      {
+        path: "pkg/features/features.go",
+        reason: expect.stringMatching(
+          /^The description of the feature gate on line 5 lost its last \d+ bytes at the 2 KiB limit$/,
+        ),
+      },
+    ])
+    const result = await s.validate("feature-gates")
+    expect(result.rejections).toEqual([])
+    const gift = s.show(result.tree, "knowledge/features/gift-cards.md")
+    expect(gift).toContain("…")
+    expect(gift).not.toContain(long)
+  })
+
+  it("keeps the file of a gate whose declaring file changed, as a Rust gate moves from unstable.rs to accepted.rs", async () => {
+    const s = step(GO_GATES, {
+      ...CONTEXT,
+      "knowledge/features/gift-cards.md": ownGate(
+        "pkg/features/old_features.go",
+        "alpha",
+      ),
+    })
+    s.mapFiles({ ".": ["knowledge/services/shop.md"] })
+    const out = s.run("feature-gates")
+    expect(out.ops).toContainEqual({
+      op: "update",
+      path: "knowledge/features/gift-cards.md",
+    })
+    expect(out.ops.map((o) => o.path)).not.toContain(
+      "knowledge/features/shop-gift-cards.md",
+    )
+    const result = await s.validate("feature-gates")
+    expect(result.rejections).toEqual([])
+    const gift = s.show(result.tree, "knowledge/features/gift-cards.md")
+    expect(gift).toContain("- Stage: beta since 1.32")
+    expect(gift).toContain(
+      "- Declared in `pkg/features/features.go` of `example-org/shop` (line 11)",
+    )
+    s.advance(result.tree)
+    expect(s.run("feature-gates").ops).toEqual([])
+  })
+
+  it("keeps the file of each gate when a name that two packages declared is left in one", async () => {
+    const s = step(
+      {
+        "go.mod": "module example.org/shop\n\ngo 1.24\n",
+        "pkg/b/features/features.go":
+          'package features\n\nconst (\n\tGiftCards featuregate.Feature = "GiftCards"\n)\n',
+      },
+      {
+        ...CONTEXT,
+        "knowledge/features/gift-cards-pkg-a-features.md": ownGate(
+          "pkg/a/features/features.go",
+          "alpha",
+        ),
+        "knowledge/features/gift-cards-pkg-b-features.md": ownGate(
+          "pkg/b/features/features.go",
+          "alpha",
+        ),
+      },
+    )
+    const out = s.run("feature-gates")
+    expect(out.ops).toEqual([
+      { op: "update", path: "knowledge/features/gift-cards-pkg-b-features.md" },
+    ])
+    expect((await s.validate("feature-gates")).rejections).toEqual([])
+  })
+
+  it("makes no op when the source has no feature gate", () => {
+    const s = step(PNPM_SHOP, {})
+    expect(s.run("feature-gates")).toEqual({
+      ops: [],
+      skipped: [],
+      more: false,
+    })
   })
 })

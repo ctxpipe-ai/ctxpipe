@@ -105,6 +105,12 @@ export const EXTENSION_ALLOWED_CONNECTIONS: Array<{
     predicate: "PART_OF",
     objectKind,
   })),
+  // a feature gate in the package or repository that declares it
+  ...[...PACKAGE_KINDS, "Repository"].map((objectKind) => ({
+    subjectKind: "FeatureGate",
+    predicate: "PART_OF",
+    objectKind,
+  })),
   // a Linear sub-issue under its parent issue
   { subjectKind: "Issue", predicate: "PART_OF", objectKind: "Issue" },
   // a monorepo package nested in an outer package or the workspace root
@@ -179,7 +185,7 @@ export const PREDICATE_DESCRIPTIONS: Record<string, string> = {
   DECLARED_IN:
     "provenance: the InstructionUnit or Decision is stated in this File",
   PART_OF:
-    "containment: the File is inside this Repository, Service, App or Library; a monorepo Service, App or Library is nested in this outer one or the workspace root; an Issue is a sub-issue of this parent Issue",
+    "containment: the File is inside this Repository, Service, App or Library; a monorepo Service, App or Library is nested in this outer one or the workspace root; a FeatureGate is declared in this Service, App, Library or Repository; an Issue is a sub-issue of this parent Issue",
   TARGETS: "the PullRequest's base Repository",
   ADDED:
     "change event: the PullRequest added this File (valid_from = merge date)",

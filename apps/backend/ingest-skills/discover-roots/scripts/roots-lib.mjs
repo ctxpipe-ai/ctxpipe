@@ -136,7 +136,8 @@ export function testFixtureSkips(files) {
 /** Folder names that never hold a code root. */
 const IGNORED_SEGMENTS = new Set(["node_modules", "vendor", "third_party"])
 
-function ignoredFolder(dir) {
+/** True for a folder that never holds a code root: vendored, test input, or a dot folder. */
+export function ignoredFolder(dir) {
   if (dir === ".") return false
   return dir
     .split("/")
@@ -158,14 +159,17 @@ export function trackedFiles(source) {
     .filter(Boolean)
 }
 
-/** Text of a tracked file at HEAD; "" when it is missing or larger than 1 MiB (a manifest is small). */
-export function readTracked(source, path) {
+/**
+ * Text of a tracked file at HEAD; `missing` ("" when not given) when it is
+ * missing or larger than 1 MiB (a manifest is small).
+ */
+export function readTracked(source, path, missing = "") {
   try {
     return execFileSync("git", ["-C", source, "show", `HEAD:${path}`], {
       maxBuffer: 1024 * 1024,
     }).toString("utf8")
   } catch {
-    return ""
+    return missing
   }
 }
 

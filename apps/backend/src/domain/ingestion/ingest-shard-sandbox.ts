@@ -53,6 +53,8 @@ import {
 } from "./ingest-root.js"
 import {
   discoverIngestRoots,
+  ingestStepCheckpoint,
+  ingestStepSignal,
   ingestAgentEnv,
   prepareIngestShard,
   probeIngestModelProxy,
@@ -483,9 +485,18 @@ function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
 
   return {
     ensure: () => withShard("ensure-sandbox", async () => undefined),
+    // The step limit applies to discovery and its model step, as to each
+    // skill step (CTX-1514).
     discoverRoots: () =>
-      withShard("discover-roots", ({ root, agentEnv, signal }) =>
-        discoverIngestRoots(root, agentEnv, signal),
+      withShard(
+        "discover-roots",
+        ({ root, agentEnv, signal }) =>
+          discoverIngestRoots(root, agentEnv, {
+            signal,
+            model: `ctxpipe/${"fast" satisfies IngestModelTier}`,
+            checkpoint: ingestStepCheckpoint(),
+          }),
+        ingestStepSignal(),
       ),
     runStep: (step) =>
       withShard(

@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // ownership: a repository-wide step on the assembled ref, after the root
 // steps. It reads CODEOWNERS and writes one knowledge/teams/<org>-<team>.md
-// file for each GitHub team that owns a root. A team file has an OWNS claim
+// file for each GitHub team that owns a root. It also reads the OWNERS and
+// OWNERS_ALIASES files of the Kubernetes owners model (owners-lib.mjs): each
+// alias that an OWNERS file names gets a team file. A team file has an OWNS claim
 // to each file of the root in the host's root-to-file map. A file that
 // already describes the team gets new claims and Related lines. No model
 // runs. A step ends at the step limits of the host validator; the host runs
@@ -18,6 +20,7 @@ import {
   readTracked,
   trackedFiles,
 } from "../../discover-roots/scripts/roots-lib.mjs"
+import { ownersPlans, slug } from "./owners-lib.mjs"
 
 /** GitHub reads CODEOWNERS from these places, in this order. */
 const CODEOWNERS_PATHS = [".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS"]
@@ -31,12 +34,6 @@ const EMAIL = /^[^@\s]+@[^@\s]+$/
 const { step, source, repository, roots, index, skipped } = scriptStep()
 const files = new Set(trackedFiles(source))
 const codeowners = CODEOWNERS_PATHS.find((p) => files.has(p))
-
-const slug = (text) =>
-  String(text)
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
 
 /** Patterns that cover the repository root itself (each file of the repository). */
 const WHOLE_REPOSITORY = new Set(["*", "/*", "/", "**", "/**"])
@@ -191,5 +188,9 @@ if (codeowners) {
     })
   }
 }
+
+const owners = ownersPlans({ source, files, repository, roots, index })
+plans.push(...owners.plans)
+skipped.push(...owners.skipped)
 
 writeStep(step, plans, skipped)

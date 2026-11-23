@@ -107,11 +107,28 @@ export type IngestStepUsage = {
   unknownSteps?: number
 }
 
+/**
+ * The result of `discover-roots`: the script result, and the result of the
+ * model step for the ambiguous entries (null when no model ran). The host
+ * checks both (`resolveDiscoveredRoots`) before it plans roots.
+ */
+export type IngestDiscovery = {
+  script: unknown
+  model: unknown
+  /** The usage of the model step, when it ran. */
+  usage?: IngestStepUsage
+  /** Why the model step gave no result, or what it could not read. */
+  problems?: string[]
+}
+
 export type IngestShardRuntime = {
   /** Make or attach to the sandbox, and prepare it. Idempotent. */
   ensure(): Promise<void>
-  /** Run the `discover-roots` script; return its parsed JSON result. */
-  discoverRoots(): Promise<unknown>
+  /**
+   * Run the `discover-roots` script, and its model step when the script
+   * result has ambiguous entries.
+   */
+  discoverRoots(): Promise<IngestDiscovery>
   /**
    * Run one skill step; return the tar of `/ctxpipe/out`. Its `patch.json`
    * holds `more` when files wait for a next page; the host reads it.
