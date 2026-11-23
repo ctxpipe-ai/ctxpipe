@@ -47,9 +47,6 @@ ctxpipe reads nothing that you did not connect.
 | OpenRouter | Model routing, only to zero data retention endpoints |
 | Anthropic | AI assistants used by the ctxpipe team for engineering operations; may process production logs and traces, outside OpenRouter, so zero data retention does not apply |
 | OpenAI | AI assistants used by the ctxpipe team for engineering operations; may process production logs and traces, outside OpenRouter, so zero data retention does not apply |
-| Railway | Being retired. Compute and hosting, and our own observability (logs, traces, and model traces), until 2026-11-15 |
-| Neon | Being retired. Postgres database until 2026-11-15 |
-| Vercel | Being retired for sandboxes. Isolated sandboxes for Workspace chat and for ingestion until 2026-11-15 |
 
 ## How ctxpipe uses models
 
@@ -59,8 +56,10 @@ ctxpipe reads nothing that you did not connect.
 - **Ingestion.** ctxpipe uses models to extract knowledge from parts of the
   linked repositories, in a sandbox with a closed network. See
   [Where extraction runs](/docs/workspaces/indexing#where-extraction-runs).
-- **MCP tools.** The tools call no model. They search and read your data. Your
-  coding agent uses its own model.
+- **MCP tools.** The tools search and read your data. They do not write an
+  answer. A search sends the query text to an embedding model. When the
+  knowledge plane is on, a model also judges which results answer the query.
+  Your coding agent uses its own model.
 
 ctxpipe does not send a whole repository to a model in one request. Retrieval
 and tools select the context.

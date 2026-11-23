@@ -52,7 +52,6 @@ OpenAPI, MCP, contract tests, and package scripts, see
 | `shared` | Git helpers that the backend and codesearch both use. |
 | `ops/observability` | Internal ClickStack and Langfuse project. It is not part of a product deploy. |
 | `examples/aws-cdk-self-host` | Runnable AWS CDK self-hosting example. |
-| `infra` | Terraform for the managed Railway and Neon deployment path. |
 | `.ai/memory` | Architecture decisions and project memory used by coding agents. |
 
 ## Common commands

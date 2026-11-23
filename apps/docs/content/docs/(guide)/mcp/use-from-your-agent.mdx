@@ -4,8 +4,10 @@ description: The seven read-only ctxpipe MCP tools, how an agent calls them, and
 ---
 
 The ctxpipe MCP gives a coding agent seven read-only tools. The agent does the
-reasoning and drives the search. ctxpipe returns facts with stable refs, and
-runs no model for a tool call. To connect a client, see
+reasoning and drives the search. ctxpipe returns facts with stable refs. It
+does not write an answer. A search uses an embedding model to find matches.
+When the knowledge plane is on, a model also judges which results answer the
+question. To connect a client, see
 [Connect your agent](/docs/mcp/mcp-docs).
 
 ## The tools
