@@ -287,14 +287,12 @@ it("ends a crash-looping skill step partial, so the run goes on", async () => {
 
 it("keeps the recorded model cost of a crash-looping model step in its partial output (CTX-1522)", async () => {
   const orgId = generateObjectId("org")
-  await getSystemDb()
-    .insert(organizations)
-    .values({
-      id: orgId,
-      name: "Crash loop cost",
-      slug: orgId,
-      createdAt: new Date(),
-    })
+  await getSystemDb().insert(organizations).values({
+    id: orgId,
+    name: "Crash loop cost",
+    slug: orgId,
+    createdAt: new Date(),
+  })
   const workspaceId = "ws_crash_loop_cost"
   const name = skillStepName(null, "apis", workspaceId)
   const ingest = { orgId, runId: "run_crash_loop_cost", shard: 0 }
