@@ -1375,16 +1375,18 @@ const refTuples = (refs: DocumentRef[]) =>
  *    materialization; `chunks` has `index_granularity = 64`).
  * 2. Lexical: one `hasToken` filter for each term selects at most 1000
  *    chunks through the text index. The score of a chunk is the sum of the
- *    IDF weights of its matched terms, plus the weights of the terms in the
- *    title of its document. The IDF of a term is the BM25 IDF from the count
- *    of the chunks of the Workspaces that have it, so a common word such as
+ *    IDF weights of its matched terms, plus 4 times the weights of the
+ *    terms in the title of its document. The IDF of a term is the BM25
+ *    IDF from the count of the chunks of the Workspaces that have it, so
+ *    a common word such as
  *    "a" weighs almost nothing. The text index gives each count without a
  *    read of the text column. A function on `text` in the SELECT list would
  *    read the full text column.
- * 3. RRF (k = 60) fuses the two orders. The fused chunks are grouped by
- *    document, a document in the order of its best chunk, and the top 50
- *    documents are the hits. Thus a long document takes one place, not one
- *    place for each of its chunks (CTX-1455).
+ * 3. RRF (k = 60) fuses the two orders, with a lower weight for a lexical
+ *    chunk that has only a small share of the query terms. The fused
+ *    chunks are grouped by document, a document in the order of its best
+ *    chunk, and the top 50 documents are the hits. Thus a long document
+ *    takes one place, not one place for each of its chunks (CTX-1455).
  * The filters use the copies on the tree rows, so the search does not join
  * the documents table before the cut.
  */
@@ -1440,6 +1442,7 @@ async function search(
   // order of a hash of their key: a fixed sample, so the same query always
   // takes the same chunks (ADR-068, CTX-1547). Only the parameter names go
   // into the SQL text.
+  const termCap = 1000
   const termMatches = uniqueTerms
     .map(
       (_, i) => `SELECT {term${i}:String} AS word,
@@ -1448,13 +1451,13 @@ async function search(
         WHERE ${inWorkspaces} AND hasToken(text, {term${i}:String})
           AND ${inSearchable}
         ORDER BY cityHash64(workspace_id, doc_key, version, ordinal)
-        LIMIT 1000`,
+        LIMIT ${termCap}`,
     )
     .join(" UNION ALL ")
   // The BM25 IDF of each term: ln(1 + (N - n + 0.5) / (n + 0.5)), with N the
   // chunks of the Workspaces and n the chunks that have the term. The counts
   // read only the text index and the sort key, not the tree view.
-  const termWeights = `SELECT word,
+  const termWeights = `SELECT word, found,
       log(1 + (total - found + 0.5) / (found + 0.5)) AS idf
     FROM (${uniqueTerms
       .map(
@@ -1491,23 +1494,31 @@ async function search(
     ),
     uniqueTerms.length === 0
       ? []
-      : selectIn<ChunkKey>(
+      : selectIn<ChunkKey & { share: number }>(
           client,
           scope,
-          // The score: the weights of the matched terms of the chunk, plus the
-          // weights of the query terms in the title of its document (the title
-          // boost). The weights are one scalar map, so their counts run once.
+          // The score: the weights of the matched terms of the chunk, plus 4
+          // times the weights of the query terms in the title of its document
+          // (the title boost, CTX-1564). The weights are one scalar map, so
+          // their counts run once.
           // A parallel sum adds the weights in another order on each run, so
           // the score is rounded: equal scores then sort by the key.
           `WITH tree_view AS (${treeView}),
-             (SELECT CAST((groupArray(word), groupArray(idf)),
-               'Map(String, Float64)') FROM (${termWeights})) AS weights
+             (SELECT (CAST((groupArray(word), groupArray(idf)),
+                 'Map(String, Float64)'),
+                 groupArrayIf(word, found BETWEEN 1 AND ${termCap}),
+                 sumIf(idf, found BETWEEN 1 AND ${termCap}))
+               FROM (${termWeights})) AS terms,
+             terms.1 AS weights, terms.2 AS uncapped, terms.3 AS uncappedWeight
            SELECT matches.workspace_id AS workspaceId,
              matches.doc_key AS docKey, matches.version AS version,
-             matches.ordinal AS ordinal
+             matches.ordinal AS ordinal,
+             round(if(uncappedWeight = 0, 1,
+               matches.uncappedMatch / uncappedWeight), 9) AS share
            FROM (
              SELECT workspace_id, doc_key, version, ordinal,
-               sum(weights[word]) AS weight
+               sum(weights[word]) AS weight,
+               sumIf(weights[word], has(uncapped, word)) AS uncappedMatch
              FROM (${termMatches})
              GROUP BY workspace_id, doc_key, version, ordinal
            ) AS matches
@@ -1518,7 +1529,7 @@ async function search(
              ON documents.workspace_id = matches.workspace_id
              AND documents.doc_key = matches.doc_key
              AND documents.version = matches.version
-           ORDER BY round(matches.weight + arraySum(
+           ORDER BY round(matches.weight + 4 * arraySum(
                word -> if(has(splitByNonAlpha(documents.title), word),
                  weights[word], 0),
                mapKeys(weights)), 9) DESC,
@@ -1528,14 +1539,30 @@ async function search(
         ),
   ])
 
+  // RRF with a weight for each lexical place (CTX-1564). The share of a
+  // lexical chunk is the part of the summed weight of the uncapped query
+  // terms that it has. An uncapped term is in 1 to 1000 chunks of the
+  // Workspaces (before the filters, as the term counts), so the cap of its
+  // branch never cuts a chunk, and the share is exact. A common term and a
+  // term that no chunk has do not count. A query with no uncapped term
+  // gives each lexical chunk the share 1. For a question in sentences, most
+  // top lexical chunks have only common words of it, so a lexical chunk
+  // with a small share counts 0.4 of a vector chunk at the same place. The
+  // weight goes to 1 with the square of the share: a chunk with all terms
+  // of a short query keeps the full weight. The share is rounded, as the
+  // lexical score is, so that a parallel sum gives the same share on each
+  // run.
   const fused = new Map<string, ChunkKey & { score: number }>()
-  for (const order of [vectorOrder, lexicalOrder])
-    order.forEach((key, index) => {
-      const id = chunkId(key)
-      const hit = fused.get(id) ?? { ...key, score: 0 }
-      hit.score += 1 / (60 + index + 1)
-      fused.set(id, hit)
-    })
+  const fuse = (key: ChunkKey, index: number, weight: number) => {
+    const id = chunkId(key)
+    const hit = fused.get(id) ?? { ...key, score: 0 }
+    hit.score += weight / (60 + index + 1)
+    fused.set(id, hit)
+  }
+  vectorOrder.forEach((key, index) => fuse(key, index, 1))
+  lexicalOrder.forEach(({ share, ...key }, index) =>
+    fuse(key, index, 0.4 + 0.6 * share ** 2),
+  )
   // The top 50 documents, each with its best chunks.
   const byDocument = new Map<string, (ChunkKey & { score: number })[]>()
   for (const hit of [...fused.values()].sort((a, b) => b.score - a.score)) {
