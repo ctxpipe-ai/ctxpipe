@@ -278,6 +278,116 @@ describe("the picks", () => {
     )
   })
 
+  it("asks about design records, owner teams and feature gates in turns with the other documents (CTX-1589)", () => {
+    const newKinds: Record<string, string> = {
+      "knowledge/decisions/kep-3-queue-order.md": `---
+kind: Decision
+name: "KEP-3: Queue order"
+summary: The queue takes the oldest job first.
+claims:
+  - to: ./kep-4-fair-queue.md
+    predicate: SUPERSEDED_BY
+---
+
+# KEP-3: Queue order
+
+**Status:** Superseded
+**Date:** 2023-01-01
+
+${filler("oldest first")} This KEP is superseded by KEP-4.`,
+      "knowledge/decisions/kep-4-fair-queue.md": `---
+kind: Decision
+name: "KEP-4: Fair queue"
+summary: The queue takes the jobs of each tenant in turns.
+---
+
+# KEP-4: Fair queue
+
+**Status:** Implementable
+**Date:** 2024-01-01
+
+${filler("tenant turns")}`,
+      "knowledge/features/fairqueue.md": `---
+kind: FeatureGate
+name: FairQueue
+summary: The feature gate of the fair queue.
+claims:
+  - to: ../services/scheduler.md
+    predicate: PART_OF
+---
+
+# FairQueue
+
+**Stage:** beta, on by default.`,
+      "knowledge/teams/kubernetes-sig-scheduling-approvers.md": `---
+kind: Team
+name: kubernetes/sig-scheduling-approvers
+summary: The approvers of the scheduler.
+claims:
+  - to: ../services/scheduler.md
+    predicate: OWNS
+---
+
+# kubernetes/sig-scheduling-approvers
+
+- Approves \`pkg/scheduler\` in kubernetes/kubernetes.`,
+      "github/issues/kubernetes/kubernetes/11.md": `---
+type: issue
+repository: kubernetes/kubernetes
+title: Jobs of one tenant wait forever
+state: open
+stateReason: null
+author: fourth-author
+createdAt: 2024-07-01T00:00:00Z
+labels: []
+---
+
+# Jobs of one tenant wait forever
+
+${filler("tenant wait")} With FairQueue on, the jobs of one tenant wait.`,
+    }
+    const all = { ...files, ...newKinds }
+    const allPaths = new Set(Object.keys(all))
+    const picks = pickSources(
+      Object.entries(all).map(([path, text]) =>
+        parseDocument(path, text, allPaths),
+      ),
+      "seed",
+    )
+    const of = (category: string) =>
+      picks
+        .filter((pick) => pick.category === category)
+        .map((pick) => pick.sources.map((source) => source.path))
+    const isNew = (path: string) =>
+      /^knowledge\/(?:decisions|teams|features)\//.test(path)
+    const holdsNew = (paths: string[]) => paths.some(isNew)
+    // A lookup of a new kind, then another, in turns while both last.
+    const lookups = of("lookup")
+    expect(lookups.slice(0, 6).map(holdsNew)).toEqual([
+      true,
+      false,
+      true,
+      false,
+      true,
+      false,
+    ])
+    // A feature gate is a part of the code: an issue that names it pairs
+    // with it, and that pair comes first.
+    expect(of("cross-source")[0]).toEqual([
+      "github/issues/kubernetes/kubernetes/11.md",
+      "knowledge/features/fairqueue.md",
+    ])
+    // A decision document is a design record: a dated one is a time
+    // source, and a superseded one is a disagreement anchor.
+    expect(of("time").flat()).toContain(
+      "knowledge/decisions/kep-3-queue-order.md",
+    )
+    expect(of("disagreement")).toContainEqual([
+      "knowledge/decisions/kep-3-queue-order.md",
+      "knowledge/decisions/kep-4-fair-queue.md",
+    ])
+  })
+
   it("keeps the questions of each category up to its quota, and puts 40% of them into holdout, spread evenly", () => {
     const question = (id: string, category: "lookup" | "time") => ({
       id,
