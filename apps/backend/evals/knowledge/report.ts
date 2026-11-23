@@ -121,12 +121,42 @@ export type Report = {
    * answer: the spend cap stopped the run, or a replay missed a call.
    */
   incomplete: string[]
+  /**
+   * Replay only: the answers with Jev questions that no recorded call asked
+   * about the same items. Each got the p(yes) of `--unrecorded-yes`.
+   */
+  unrecorded: { question: string; arm: Arm; count: number }[]
+}
+
+/**
+ * The notes of the report for each mode of a run: check 7, the latency, and
+ * the cost. A replay and a reuse run answer a recorded call at once.
+ */
+const MODE_NOTES: Record<
+  "live" | "replay" | "reuse",
+  { check7: string; latency: string; cost: string }
+> = {
+  live: { check7: "", latency: "", cost: "" },
+  replay: {
+    check7:
+      "A replay answers each model call at once, so check 7 holds only the time of the stores.",
+    latency:
+      "A replay answers each model call at once, so it gives no latency.",
+    cost: " (the cost of the recorded calls when they were made)",
+  },
+  reuse: {
+    check7:
+      "A run with `--reuse-from` answers a recorded model call at once, so check 7 does not give the time of a live run.",
+    latency:
+      "A run with `--reuse-from` answers a recorded model call at once, so it gives no latency. Take the latency from a live run.",
+    cost: " (the reused calls at their cost when they were made, and the new calls)",
+  },
 }
 
 /** The part of a kept report that a new report compares with. */
 export const keptRunSchema = z.object({
   run: z.object({
-    mode: z.enum(["live", "replay"]),
+    mode: z.enum(["live", "replay", "reuse"]),
     loop: z.record(z.string(), z.number()).optional(),
   }),
   questions: z.array(
@@ -273,6 +303,13 @@ export function buildReport(input: {
     incomplete: asked
       .filter((question) => !complete(question.id))
       .map((question) => question.id),
+    unrecorded: input.answers
+      .filter((answer) => answer.calls.unrecorded > 0)
+      .map(({ question, arm, calls }) => ({
+        question,
+        arm,
+        count: calls.unrecorded,
+      })),
     kept: input.kept
       ? compareWithKept({
           now: scores,
@@ -449,11 +486,8 @@ export function renderMarkdown(report: Report): string {
           "",
           `Check 7: the run waited ${ms(report.run.quietMs)} with no call before the first search and the first get_related of each arm.`,
         ]),
-    ...(report.run.mode === "replay"
-      ? [
-          "",
-          "A replay answers each model call at once, so check 7 holds only the time of the stores.",
-        ]
+    ...(MODE_NOTES[report.run.mode].check7
+      ? ["", MODE_NOTES[report.run.mode].check7]
       : []),
     "",
     `| Check | Better | Baseline | ${report.arms.plane} |`,
@@ -467,9 +501,12 @@ export function renderMarkdown(report: Report): string {
     "",
     "## Operations",
     "",
-    ...(report.run.mode === "replay"
+    ...(MODE_NOTES[report.run.mode].latency
+      ? [MODE_NOTES[report.run.mode].latency, ""]
+      : []),
+    ...(report.run.reuse
       ? [
-          "A replay answers each model call at once, so it gives no latency.",
+          `The run reused ${report.run.reuse.reused} recorded model calls of ${report.run.reuse.from}, and sent ${report.run.reuse.live} new calls (${usd(report.run.spentUsd)}).`,
           "",
         ]
       : []),
@@ -482,7 +519,7 @@ export function renderMarkdown(report: Report): string {
         `| ${row.arm} | ${row.split} | ${row.questions} | ${ms(row.searchP50Ms)} | ${ms(row.searchP95Ms)} | ${ms(row.relatedP50Ms)} | ${ms(row.relatedP95Ms)} | ${row.jevCallsPerQuestion.toFixed(1)} | ${row.jevQuestionsPerQuestion.toFixed(1)} | ${row.embeddingCallsPerQuestion.toFixed(1)} | ${usd(row.costUsd)} | ${row.errors} | ${row.partial} | ${row.overProductBudget ?? "n/a"} |`,
     ),
     "",
-    `Model cost: ${usd(report.costUsd)}${report.run.mode === "replay" ? " (the cost of the recorded calls when they were made)" : ""}.`,
+    `Model cost: ${usd(report.costUsd)}${MODE_NOTES[report.run.mode].cost}.`,
     "",
   )
   if (report.kept?.comparison.length === 0)
@@ -622,6 +659,17 @@ export function renderMarkdown(report: Report): string {
       "An arm has no complete answer to these questions: the spend cap stopped the run, or the recording of a replay does not hold each model call. Run them live to score them.",
       "",
       ...report.incomplete.map((question) => `- ${question}`),
+    )
+  if (report.unrecorded.length)
+    lines.push(
+      "",
+      "## Jev questions with no recorded answer",
+      "",
+      `The replay gave each of these Jev questions p(yes) ${report.run.unrecordedYes} (\`--unrecorded-yes\`), because no recorded call asked it about the same items. The scores are correct only when the change does not read these answers. A second rescore with another value shows it: the scores must not change.`,
+      "",
+      ...report.unrecorded.map(
+        ({ question, arm, count }) => `- ${question} (${arm}): ${count}`,
+      ),
     )
   return `${lines.join("\n")}\n`
 }

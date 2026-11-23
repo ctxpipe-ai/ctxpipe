@@ -9,13 +9,20 @@
 // validator accepts that for each file, also for a file that a human or
 // another source owns.
 
-import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs"
+import { spawnSync } from "node:child_process"
+import { createHash } from "node:crypto"
+import {
+  existsSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs"
 import { posix } from "node:path"
 
 import { safePath } from "../discover-roots/scripts/roots-lib.mjs"
 import {
   baseBlob,
-  blobContent,
   currentStep,
   ensureParent,
   fail,
@@ -24,6 +31,7 @@ import {
   stagedFile,
   stagedPaths,
   STEP_LIMITS,
+  stepTexts,
   writePatch,
 } from "./stage-lib.mjs"
 
@@ -222,10 +230,17 @@ export function repositoryName(url) {
 
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$/
 
+/**
+ * The entries of the context index, without the parts of a list
+ * (`isListPart`): a part is not a Service, a Stream, or a store, so no skill
+ * takes one as a target or as an existing file of a name.
+ */
 function readIndex(step) {
   if (!existsSync(step.indexFile)) return []
   const entries = JSON.parse(readFileSync(step.indexFile, "utf8")).entries
-  return Array.isArray(entries) ? entries : []
+  return Array.isArray(entries)
+    ? entries.filter((e) => !isListPart(String(e?.path)))
+    : []
 }
 
 /** Lower case, letters and digits only: "@Org/Drizzle-ORM" and "org drizzle orm" are equal. */
@@ -247,8 +262,7 @@ export function findExisting(index, kind, names) {
 
 /** Text of `path` at the step's base commit, or null. */
 function baseText(step, path) {
-  const blob = baseBlob(step, path)
-  return blob ? blobContent(step, blob).toString("utf8") : null
+  return stepTexts(step, [path], { staged: false }).get(path) ?? null
 }
 
 /** YAML double-quoted scalar; JSON strings are valid YAML. */
@@ -277,9 +291,50 @@ export function claimBytes(claim) {
 
 /** Text of a new file. */
 function newFile({ kind, name, summary, intro, claims, related }) {
-  const yaml = [`kind: ${kind}`, `name: ${q(name)}`, `summary: ${q(summary)}`]
-  if (claims.length) yaml.push("claims:", ...claims.map((c) => claimYaml(c, 2)))
-  return `---\n${yaml.join("\n")}\n---\n\n# ${name}\n\n${intro}\n\n## Related\n\n${related.join("\n")}\n`
+  const yaml = claims.length
+    ? `claims:\n${claims.map((c) => `${claimYaml(c, 2)}\n`).join("")}`
+    : ""
+  return newText(
+    { kind, name, summary, intro },
+    yaml,
+    `${related.join("\n")}\n`,
+  )
+}
+
+/** Text of a new file with its claims block (YAML) and its Related lines (text). */
+function newText({ kind, name, summary, intro }, claims, related) {
+  const yaml = `kind: ${kind}\nname: ${q(name)}\nsummary: ${q(summary)}\n${claims}`
+  return `---\n${yaml}---\n\n# ${name}\n\n${intro}\n\n## Related\n\n${related}`
+}
+
+/**
+ * A file that `newFile` wrote in this step, with the fields of `create`
+ * (CTX-1528): a later run of the page can correct the name, the summary, or
+ * the intro of a new file. Its claims and its Related lines stay. Null for
+ * a text of another form, for example a file that the model staged.
+ */
+function withCreate(text, create) {
+  const found =
+    /^---\nkind: [^\n]*\nname: [^\n]*\nsummary: [^\n]*\n((?:claims:\n(?: [^\n]*\n)*)?)---\n\n# [^\n]*\n\n[\s\S]*?\n\n## Related\n\n([\s\S]*)$/.exec(
+      text,
+    )
+  return found ? newText(create, found[1], found[2]) : null
+}
+
+/**
+ * The bytes of a file after the validator stores it: the host fields of a
+ * new file (at most 1 KiB), or of a file at the base (`skill` gets the name
+ * of this skill, which can be longer: 64 bytes), and `confidence` for each
+ * claim that the base does not have.
+ */
+function storedBytes(text, base) {
+  const newClaims =
+    (fileClaims(text)?.size ?? 0) - (fileClaims(base ?? "")?.size ?? 0)
+  return (
+    Buffer.byteLength(text) +
+    (base === null ? 1024 : 64) +
+    "    confidence: 0.5\n".length * newClaims
+  )
 }
 
 const YAML_ESCAPES = {
@@ -601,12 +656,18 @@ function mergeFile(text, { claims, related }) {
 
 /**
  * Write the planned files to the staged tree and write patch.json. A plan is
- * { path, create, claims, related, expectName?, exactName? }. `create` is
- * { kind, name, summary, intro } for a new file, or null when the script
- * only adds to an existing file. When `expectName` is set, an existing file
- * at the path must have that name; letters and digits only, unless
- * `exactName` is set (then the same text, in any letter case). Plans for one
- * path are joined.
+ * { path, create, claims, related, expectName?, exactName?, list? }.
+ * `create` is { kind, name, summary, intro } for a new file, or null when
+ * the script only adds to an existing file. When `expectName` is set, an
+ * existing file at the path must have that name; letters and digits only,
+ * unless `exactName` is set (then the same text, in any letter case). Plans
+ * for one path are joined. A plan with `list` continues in the parts of its
+ * list when its file is full (`listPlans`).
+ *
+ * The writer adds to the file of the step (CTX-1528): the staged file when
+ * an earlier run of the page staged it, else the file at the step base. So
+ * each run of a page keeps what the runs before it wrote, and a script does
+ * not plan that again.
  *
  * A page has no file count (CTX-1482). It ends only before a file that the
  * validator could not take in this step: it takes at most 2 MiB of staged
@@ -627,9 +688,10 @@ function mergeFile(text, { claims, related }) {
  * the plans that the page handled before it ended. A skill whose input is
  * not its plans (a model writes the plan) gives `options.cursorAt`: a
  * function that counts the inputs that are done after the page wrote its
- * files. `options.claimOrder` is described at the order of the plans.
- * patch.json holds `more` and `stats` for the host. Prints and returns
- * { ops, skipped, more }.
+ * files. A skill that writes lists gives `options.cursorAt`, because the
+ * parts of a list change the count of the plans. `options.claimOrder` is
+ * described at the order of the plans. patch.json holds `more` and `stats`
+ * for the host. Prints and returns { ops, skipped, more }.
  */
 export function writeStep(step, plans, skipped = [], options = {}) {
   const byPath = new Map()
@@ -642,9 +704,15 @@ export function writeStep(step, plans, skipped = [], options = {}) {
         create: same.create ?? plan.create,
         expectName: same.expectName ?? plan.expectName,
         exactName: same.exactName ?? plan.exactName,
+        list: same.list ?? plan.list,
         claims: [...same.claims, ...plan.claims],
         related: [...same.related, ...plan.related],
       })
+  }
+  // A plan of a list becomes the plans of the file and of its parts.
+  for (const plan of [...byPath.values()].filter((p) => p.list)) {
+    byPath.delete(plan.path)
+    for (const next of listPlans(step, plan)) byPath.set(next.path, next)
   }
   // The size of an op in patch.json. patch.json has an indent of 2, so an
   // op is 4 spaces deeper than in the JSON of the op alone: 4 bytes for each
@@ -745,52 +813,195 @@ export function writeStep(step, plans, skipped = [], options = {}) {
 }
 
 /**
+ * The plans of a list (CTX-1487, CTX-1528): a file and its parts
+ * (`partPath`). A Service file holds the dependency list of `dependencies`.
+ * A Stream file and a store file hold the Related lines of the roots that
+ * use them. No claim and no line of a list is dropped: when the file is
+ * full, the next ones go to a part.
+ *
+ * The claims go first: a claim goes to the file while the file stays inside
+ * `list.claims` (bytes and a claim count), and else to the first part with
+ * room. Then the Related lines: a line goes to the file while the file
+ * stays inside `list.lines`, and else to the first part with room. A budget
+ * that the plan does not give is the budget of a part: the limits of the
+ * validator (64 KiB and 200 claims), less a margin. The size of a file
+ * counts the host fields that the validator adds (`storedBytes`). A claim
+ * or a line that a file of the list has already does not move.
+ *
+ * A new part has the kind of the file, its name, and a PART_OF claim to
+ * the file, with `list.evidence` (a source file) as the evidence. The order
+ * of the files does not matter to a reader of the list (`listTexts`). When
+ * the file fails the checks of `planText` (another name, or no file and no
+ * `create`), the plan stays one plan and gets its `skipped` entry. A file
+ * of a folder with no label (`listLabel`) has no parts.
+ */
+function listPlans(step, plan) {
+  const label = listLabel(plan.path)
+  const files = label ? listTexts(step, plan.path) : []
+  const main = files[0]?.path === plan.path ? files[0] : null
+  const kind = main
+    ? frontValue(frontMatter(main.text) ?? "", "kind")
+    : plan.create?.kind
+  if (!label || identityProblem(plan, main?.text ?? null) || !kind)
+    return [{ ...plan, list: undefined }]
+  const stem = posix.basename(plan.path, ".md")
+  const what = label === "dependencies" ? "dependency list" : "Related list"
+  const partCreate = (n) => ({
+    kind,
+    // The validator takes a name of at most 200 characters.
+    name: `${stem.slice(0, 150)} ${label} ${n}`,
+    summary: `Part ${n} of the ${what} of ${stem}.`,
+    intro: `This file continues the ${what} of [${stem}](${stem}.md). A script writes it when the list does not fit in one file.`,
+  })
+  const partOf = {
+    to: `${stem}.md`,
+    predicate: "PART_OF",
+    evidence: { path: plan.list.evidence, kind: "script" },
+  }
+  // The size of a file counts the host fields that the validator adds,
+  // also for the claims that an earlier run of the page staged.
+  const bases = stepTexts(
+    step,
+    files.map((file) => file.path),
+    { staged: false },
+  )
+  const stateOf = (path, n, text) => {
+    const claims = fileClaims(text) ?? new Set()
+    return {
+      path,
+      n,
+      lines: new Set(text.split("\n").map((l) => l.trim())),
+      claims,
+      bytes: storedBytes(text, bases.get(path) ?? null),
+      count: claims.size,
+      added: new Map(),
+      related: [],
+    }
+  }
+  const list = files.map(({ path, n, text }) => stateOf(path, n, text))
+  if (!main)
+    list.unshift({
+      ...stateOf(
+        plan.path,
+        1,
+        newFile({ ...plan.create, claims: [], related: [] }),
+      ),
+      create: true,
+    })
+  const limit = STEP_LIMITS.fileBytes
+  const part = { bytes: limit - 2048, claims: STEP_LIMITS.claims }
+  const room = (i, key) => (i > 0 ? part : { ...part, ...plan.list[key] })
+  /** The first file of the list with room, else a new part. */
+  const fileFor = (key, bytes) => {
+    const at = list.findIndex(
+      (file, i) =>
+        file.bytes + bytes <= room(i, key).bytes &&
+        (key !== "claims" || file.count < room(i, key).claims),
+    )
+    if (at !== -1) return list[at]
+    const n = Math.max(...list.map((file) => file.n)) + 1
+    const path = partPath(plan.path, n)
+    const text = newFile({ ...partCreate(n), claims: [partOf], related: [] })
+    list.push({ ...stateOf(path, n, text), create: true })
+    return list.at(-1)
+  }
+  for (const claim of plan.claims) {
+    const key = `${claim.to} ${claim.predicate}`
+    if (list.some((f) => f.claims.has(key) || f.added.has(key))) continue
+    const file = fileFor("claims", claimBytes(claim))
+    file.added.set(key, claim)
+    file.bytes += claimBytes(claim)
+    file.count++
+  }
+  for (const line of [...new Set(plan.related)].sort()) {
+    if (list.some((f) => f.lines.has(line.trim()))) continue
+    const file = fileFor("lines", Buffer.byteLength(line) + 1)
+    file.lines.add(line.trim())
+    file.related.push(line)
+    file.bytes += Buffer.byteLength(line) + 1
+  }
+  return list.flatMap((file, i) => {
+    const claims = [...file.added.values()]
+    // The file keeps its plan also with nothing new: a new file of the step
+    // can take a corrected `create` (`planText`).
+    if (i === 0)
+      return [{ ...plan, list: undefined, claims, related: file.related }]
+    if (!claims.length && !file.related.length) return []
+    const create = partCreate(file.n)
+    return [
+      {
+        path: file.path,
+        create,
+        claims: file.create ? [partOf, ...claims] : claims,
+        related: file.related,
+        expectName: create.name,
+        exactName: true,
+      },
+    ]
+  })
+}
+
+/**
+ * The reason why a plan cannot write its file, or null: an existing file
+ * with another name, or no file and no `create`. `current` is the text of
+ * the file in the step (the staged file, else the file at the step base), or
+ * null.
+ */
+function identityProblem(plan, current) {
+  const name =
+    current === null ? null : frontValue(frontMatter(current) ?? "", "name")
+  if (
+    plan.expectName &&
+    current !== null &&
+    (plan.exactName
+      ? name?.toLowerCase() !== plan.expectName.toLowerCase()
+      : nameKey(name) !== nameKey(plan.expectName))
+  )
+    return "A file with another name has this path"
+  if (current === null && !plan.create) return "The file is not in the context"
+  return null
+}
+
+/**
  * The text that writeStep writes for one plan: `{ text, before }`, with the
- * text at the step base (null for a new file), or `{ skip }` with the reason
- * when the script cannot write the file. The validator refuses a file
- * larger than 64 KiB (also after it adds its fields) in any step. It also
- * refuses a file with more than 200 claims; legacy claims do not count. A
- * next page cannot take such a file either, so it is a skip too, with
- * `tooLarge`.
+ * text of the file in the step before the plan (the staged file, else the
+ * file at the step base; null for a new file), or `{ skip }` with the
+ * reason when the script cannot write the file. A file that is new in this
+ * step gets the `create` fields of the plan (`withCreate`). The host fields
+ * come from the file at the step base, because the validator compares with
+ * that file. The validator refuses a file larger than 64 KiB
+ * (also after it adds its fields) in any step. It also refuses a file with
+ * more than 200 claims; legacy claims do not count. A next page cannot take
+ * such a file either, so it is a skip too, with `tooLarge`.
  */
 export function planText(step, plan) {
   const claims = [
     ...new Map(plan.claims.map((c) => [`${c.to} ${c.predicate}`, c])).values(),
   ]
   const related = [...new Set(plan.related)].sort()
-  const before = baseText(step, plan.path)
-  const name =
-    before === null ? null : frontValue(frontMatter(before) ?? "", "name")
-  if (
-    plan.expectName &&
-    before !== null &&
-    (plan.exactName
-      ? name?.toLowerCase() !== plan.expectName.toLowerCase()
-      : nameKey(name) !== nameKey(plan.expectName))
-  )
-    return { skip: "A file with another name has this path" }
-  if (before === null && !plan.create)
-    return { skip: "The file is not in the context" }
+  const base = baseText(step, plan.path)
+  const file = stagedFile(step, plan.path)
+  const before = existsSync(file) ? readFileSync(file, "utf8") : base
+  const problem = identityProblem(plan, before)
+  if (problem) return { skip: problem }
+  // A file that is new in this step takes the `create` of the last plan.
+  const current =
+    base === null && before !== null && plan.create
+      ? (withCreate(before, plan.create) ?? before)
+      : before
   const text =
-    before === null
+    current === null
       ? newFile({ ...plan.create, claims, related })
-      : mergeFile(before, { claims, related })
+      : mergeFile(current, { claims, related })
   if (typeof text !== "string") return { skip: text.skip }
   const legacy =
     frontMatter(text)?.match(/^ +kind: legacy[ \t]*$/gm)?.length ?? 0
   const claimCount = fileClaims(text)?.size ?? 0
-  // The validator checks the file that it stores, too. It adds the host
-  // fields to a new file (at most 1 KiB). A file at the base has them, but
-  // `skill` gets the name of this skill, which can be longer (64 bytes).
-  // Each new claim gets `confidence`.
-  const newClaims = claimCount - (fileClaims(before ?? "")?.size ?? 0)
-  const stored =
-    Buffer.byteLength(text) +
-    (before === null ? 1024 : 64) +
-    "    confidence: 0.5\n".length * newClaims
+  // The validator checks the file that it stores, too (`storedBytes`).
   if (
     text !== before &&
-    (stored > STEP_LIMITS.fileBytes || claimCount - legacy > STEP_LIMITS.claims)
+    (storedBytes(text, base) > STEP_LIMITS.fileBytes ||
+      claimCount - legacy > STEP_LIMITS.claims)
   )
     return {
       skip: `The file would be larger than ${STEP_LIMITS.fileBytes / 1024} KiB or have more than ${STEP_LIMITS.claims} claims, so the script does not write it`,
@@ -808,16 +1019,145 @@ export function fileClaims(text) {
 }
 
 /**
- * The path is a part of the dependency list of a Service file. The
- * `dependencies` skill writes the parts (CTX-1487). A part has the kind
- * Service, but it is not a Service, so a skill that takes a Service file
- * from the context index refuses one. The host has the same rule
- * (`isDependencyListPart`); a test checks both.
+ * The label of the parts of a list file, from its folder: `dependencies`
+ * for the dependency list of a Service file, `related` for the Related lines
+ * of a Stream file or a store file, and null for a file of another folder,
+ * which has no parts.
  */
-export const isListPart = (path) =>
-  /^knowledge\/services\/.+\.dependencies-\d+\.md$/.test(path)
+function listLabel(path) {
+  const folder = /^knowledge\/([a-z]+)\/./.exec(path)?.[1]
+  if (folder === "services") return "dependencies"
+  return ["streams", "databases", "infrastructure"].includes(folder)
+    ? "related"
+    : null
+}
+
+/**
+ * The path is a part of a list (`listPlans`). A part has the kind of its
+ * file, but it is not a Service, a Stream, or a store, so no skill takes one
+ * from the context index (`readIndex`). The host keeps a part of a Service
+ * file out of the root-to-file map (`isDependencyListPart`, the same rule
+ * for `knowledge/services/`); a test checks both. A Stream file and a store
+ * file are not package files, so the host needs no rule for their parts.
+ */
+export function isListPart(path) {
+  const label = listLabel(path)
+  return (
+    label !== null &&
+    /^[^/]+\.([a-z]+)-\d+\.md$/.exec(posix.basename(path))?.[1] === label
+  )
+}
+
+/**
+ * The first 100 bytes of a long file stem and a hash of the whole stem: the
+ * stem of a part whose full name would be longer than the 255 bytes of a
+ * file name (CTX-1528).
+ */
+function shortStem(stem) {
+  let cut = ""
+  for (const char of stem) {
+    if (Buffer.byteLength(cut + char) > 100) break
+    cut += char
+  }
+  return `${cut}-${createHash("sha256").update(stem).digest("hex").slice(0, 16)}`
+}
+
+/**
+ * Part `n` (2 or more) of the list of a file:
+ * `<stem>.<label>-<n>.md` (`listLabel`). When that file name would be longer
+ * than 255 bytes, the stem is the short stem (`shortStem`). So each file of
+ * any name can have parts, and a part of a shorter name keeps the name that
+ * it had before.
+ */
+function partPath(path, n) {
+  const stem = posix.basename(path, ".md")
+  const tail = `.${listLabel(path)}-${n}.md`
+  const name =
+    Buffer.byteLength(`${stem}${tail}`) <= 255 ? stem : shortStem(stem)
+  return `${posix.dirname(path)}/${name}${tail}`
+}
+
+/** The paths of a folder of the context at the step base, once for each step. */
+const listings = new Map()
+function baseListing(step, dir) {
+  const key = `${step.baseCommit} ${dir}`
+  if (!listings.has(key)) {
+    const listing = spawnSync(
+      "git",
+      [
+        "-C",
+        step.contextDir,
+        "ls-tree",
+        "-z",
+        "--name-only",
+        step.baseCommit,
+        "--",
+        `${dir}/`,
+      ],
+      { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
+    )
+    if (listing.error || listing.status !== 0)
+      throw new Error(`git ls-tree failed: ${listing.stderr}`)
+    listings.set(key, listing.stdout.split("\0").filter(Boolean))
+  }
+  return listings.get(key)
+}
+
+/** The names of the regular files of a folder of the staged tree. */
+function stagedNames(step, dir) {
+  try {
+    return readdirSync(stagedFile(step, dir), { withFileTypes: true })
+      .filter((entry) => entry.isFile())
+      .map((entry) => entry.name)
+  } catch {
+    return []
+  }
+}
+
+/**
+ * The texts of a file and of each part of its list that exists at the step
+ * base or in the staged tree: `[{ path, n, text }]`, with the part number `n` (1 for the file), in
+ * number order. The staged text comes before the text at the base. A part
+ * has the full stem or the short stem (`partPath`). writeStep writes the
+ * parts in path order (part 10 before part 2), so a page can end with a gap
+ * in the numbers: the list reads each part that exists.
+ */
+export function listTexts(step, path) {
+  const stem = posix.basename(path, ".md")
+  const dir = posix.dirname(path)
+  const prefixes = [stem, shortStem(stem)].map(
+    (s) => `${dir}/${s}.${listLabel(path)}-`,
+  )
+  const numberOf = (file) => {
+    const prefix = prefixes.find((p) => file.startsWith(p))
+    return prefix
+      ? Number(/^([1-9]\d*)\.md$/.exec(file.slice(prefix.length))?.[1] ?? 0)
+      : 0
+  }
+  const parts = new Set(baseListing(step, dir).filter(numberOf))
+  for (const name of stagedNames(step, dir))
+    if (numberOf(`${dir}/${name}`)) parts.add(`${dir}/${name}`)
+  const paths = [path, ...[...parts].sort((a, b) => numberOf(a) - numberOf(b))]
+  const texts = stepTexts(step, paths)
+  return paths
+    .filter((file) => texts.has(file))
+    .map((file) => ({
+      path: file,
+      n: file === path ? 1 : numberOf(file),
+      text: texts.get(file),
+    }))
+}
 
 /** Relative link from one context file to another. */
 export function relativeTo(from, to) {
   return posix.relative(posix.dirname(from), to)
+}
+
+/** The lines of a file and of the parts of its list (`listTexts`), trimmed. */
+export function listLines(step, path) {
+  return new Set(
+    listTexts(step, path).flatMap((part) =>
+      part.text.split("\n").map((line) => line.trim()),
+    ),
+  )
 }

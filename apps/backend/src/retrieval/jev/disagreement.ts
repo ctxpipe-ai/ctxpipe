@@ -45,6 +45,24 @@ const QUESTIONS = {
     `Does the claim of Item ${n} apply only to a part of the question, for example one team, one product or one time range?`,
 }
 
+/**
+ * The pair facts whose meaning does not depend on the order of the two
+ * items. Each pair gets them once, with the lower number first, and an eval
+ * replay reads them in either order of the items.
+ */
+export const SYMMETRIC_FACTS = ["same", "disagree"] as const
+
+/**
+ * The names of all facts, the first part of each question key. An eval
+ * replay can fill an unrecorded fact (`--unrecorded-yes`), and no other
+ * question.
+ */
+export const DISAGREEMENT_FACTS = [
+  ...SYMMETRIC_FACTS,
+  "replaces",
+  "scoped",
+] as const
+
 /** The question keys of the facts. Jev answers each key with p(yes). */
 const KEYS = {
   same: (a: number, b: number) => `same.${a}.${b}`,
@@ -143,45 +161,44 @@ export function disagreementCalls(items: number): number {
 }
 
 /**
- * Resolve the disagreements between the evidence `items` for the
- * `question`. One Jev call for each batch of at most `batchSize` pairs asks
- * four yes/no facts for each pair of the batch (same part of the question,
- * disagree, and "changes or replaces" in each direction), and the `scoped`
- * fact for each item that no earlier batch asked about. The batches run in
- * parallel. A single item gets one call with its `scoped` fact only. Then
- * `decideDisagreements` decides the labels, the positions and the statuses.
- *
- * The `items` are in rank order, and only the first `maxItems` are used.
- * Their ids must be different. A Jev failure throws its `JevError`: this
- * function has no fallback.
+ * The yes/no facts that Jev gave about some items: p(yes) for each question
+ * key, with the items numbered from 1 in the order of `itemIds`.
  */
-export async function resolveDisagreements({
+export type DisagreementFacts = {
+  itemIds: readonly string[]
+  answers: ReadonlyMap<string, number>
+}
+
+/**
+ * Ask Jev the facts about the evidence `items` for the `question`. One Jev
+ * call for each batch of at most `batchSize` pairs asks four yes/no facts
+ * for each pair of the batch (same part of the question, disagree, and
+ * "changes or replaces" in each direction), and the `scoped` fact for each
+ * item that no earlier batch asked about. The batches run in parallel. A
+ * single item gets one call with its `scoped` fact only. No item: no call.
+ *
+ * The ids of the items must be different. A Jev failure throws its
+ * `JevError`: this function has no fallback.
+ */
+export async function askDisagreementFacts({
   question,
   items,
-  relations = [],
-  queryTime = new Date(),
-  thresholds,
-  maxItems = 10,
   batchSize = BATCH_SIZE,
   timeoutMs = 30_000,
 }: {
   question: string
   items: readonly EvidenceItem[]
-  relations?: readonly StoredRelation[]
-  queryTime?: Date
-  thresholds: FactThresholds
-  maxItems?: number
   batchSize?: number
   timeoutMs?: number
-}): Promise<Resolution> {
+}): Promise<DisagreementFacts> {
   if (!Number.isInteger(batchSize) || batchSize < 1)
     throw new RangeError("batchSize must be a positive integer.")
-  const used = items.slice(0, maxItems)
-  if (new Set(used.map(({ id }) => id)).size !== used.length)
+  if (new Set(items.map(({ id }) => id)).size !== items.length)
     throw new RangeError("Each item must have a different id.")
-  if (used.length === 0) return { positions: [], pairs: [] }
+  const itemIds = items.map(({ id }) => id)
+  if (items.length === 0) return { itemIds, answers: new Map() }
 
-  const numbers = used.map((_, index) => index + 1)
+  const numbers = items.map((_, index) => index + 1)
   const pairs = numbers.flatMap((a) =>
     numbers.filter((b) => b > a).map((b): [number, number] => [a, b]),
   )
@@ -207,7 +224,7 @@ export async function resolveDisagreements({
         `Question: ${dataBlock(question)}`,
         ...among.flatMap((n) => [
           `Item ${n}:`,
-          dataBlock(used[n - 1]?.passage ?? ""),
+          dataBlock(items[n - 1]?.passage ?? ""),
         ]),
       ]
       const questions: Record<string, JevQuestion> = {}
@@ -231,9 +248,94 @@ export async function resolveDisagreements({
       })
     }),
   )
+  return {
+    itemIds,
+    answers: new Map(answers.flatMap((answer) => [...answer])),
+  }
+}
+
+/**
+ * The facts of `items` from `facts`, with the items numbered from 1 in
+ * their own order, as `decideDisagreements` reads them. Each item must be
+ * one that the facts are about.
+ */
+function factsOf(
+  facts: DisagreementFacts,
+  items: readonly EvidenceItem[],
+): Map<string, number> {
+  const asked = items.map(({ id }) => {
+    const index = facts.itemIds.indexOf(id)
+    if (index < 0)
+      throw new RangeError(`The facts are not about the item ${id}.`)
+    return index + 1
+  })
+  const out = new Map<string, number>()
+  const copy = (to: string, from: string) => {
+    const value = facts.answers.get(from)
+    if (value !== undefined) out.set(to, value)
+  }
+  asked.forEach((n, index) => {
+    const a = index + 1
+    copy(KEYS.scoped(a), KEYS.scoped(n))
+    asked.slice(index + 1).forEach((m, offset) => {
+      const b = a + offset + 1
+      // A symmetric fact is asked once for each pair, with the lower number
+      // first.
+      const [low, high] = n < m ? [n, m] : [m, n]
+      for (const fact of SYMMETRIC_FACTS)
+        copy(KEYS[fact](a, b), KEYS[fact](low, high))
+      copy(KEYS.replaces(a, b), KEYS.replaces(n, m))
+      copy(KEYS.replaces(b, a), KEYS.replaces(m, n))
+    })
+  })
+  return out
+}
+
+/**
+ * Resolve the disagreements between the evidence `items` for the
+ * `question`: ask Jev the facts (`askDisagreementFacts`), then
+ * `decideDisagreements` decides the labels, the positions and the statuses.
+ * With `facts` (an earlier ask about a set of items that holds each of
+ * `items`), no call goes out.
+ *
+ * The `items` are in rank order, and only the first `maxItems` are used.
+ * Their ids must be different. A Jev failure throws its `JevError`: this
+ * function has no fallback.
+ */
+export async function resolveDisagreements({
+  question,
+  items,
+  facts,
+  relations = [],
+  queryTime = new Date(),
+  thresholds,
+  maxItems = 10,
+  batchSize = BATCH_SIZE,
+  timeoutMs = 30_000,
+}: {
+  question: string
+  items: readonly EvidenceItem[]
+  facts?: DisagreementFacts
+  relations?: readonly StoredRelation[]
+  queryTime?: Date
+  thresholds: FactThresholds
+  maxItems?: number
+  batchSize?: number
+  timeoutMs?: number
+}): Promise<Resolution> {
+  const used = items.slice(0, maxItems)
+  const asked =
+    facts ??
+    (await askDisagreementFacts({
+      question,
+      items: used,
+      batchSize,
+      timeoutMs,
+    }))
+  if (used.length === 0) return { positions: [], pairs: [] }
   return decideDisagreements({
     items: used,
-    facts: new Map(answers.flatMap((answer) => [...answer])),
+    facts: factsOf(asked, used),
     relations,
     queryTime,
     thresholds,

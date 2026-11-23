@@ -1,3 +1,5 @@
+import { z } from "zod"
+
 import { asStringArray } from "../codeIngestion/connectorFrontmatter.js"
 import { connectorMirrorRoot } from "../codeIngestion/connectorMirrorPaths.js"
 import { normalizeValidityBound } from "./hydrate-phases.js"
@@ -48,17 +50,38 @@ export function sourceTime(file: {
 }
 
 /**
- * The pull requests that closed a GitHub issue mirror file (`closedBy`),
- * with the time of the close, or null. Both stacks link the issue to each
- * of them from that time (CTX-1516).
+ * The pull requests that closed an issue mirror file, with the time of the
+ * close, or null. Both stacks link the issue to each of them from that time
+ * (CTX-1516).
+ *
+ * - A GitHub issue: its `closedBy`, from its `closedAt`.
+ * - A Linear issue: the merged GitHub pull requests of its
+ *   `githubReferences`, from its `completedAt`, else its `canceledAt`
+ *   (CTX-1526). GitHub also gives `closedAt` for an issue that closed as not
+ *   planned.
  */
 export function closingPullRequests(
   attributes: Record<string, unknown>,
 ): { urls: string[]; closedAt: string } | null {
   const closedAt = timeOf(attributes.closedAt)
-  return closedAt
-    ? { urls: asStringArray(attributes.closedBy), closedAt }
-    : null
+  if (closedAt) return { urls: asStringArray(attributes.closedBy), closedAt }
+  if (attributes.source !== "linear" || attributes.type !== "issue") return null
+  const endedAt =
+    timeOf(attributes.completedAt) ?? timeOf(attributes.canceledAt)
+  if (!endedAt) return null
+  const mergedPull = z.object({
+    kind: z.literal("pull_request"),
+    state: z.literal("merged"),
+    url: z.string(),
+  })
+  const references: unknown[] = Array.isArray(attributes.githubReferences)
+    ? attributes.githubReferences
+    : []
+  const urls = references.flatMap((reference) => {
+    const parsed = mergedPull.safeParse(reference)
+    return parsed.success ? [parsed.data.url] : []
+  })
+  return { urls, closedAt: endedAt }
 }
 
 /**

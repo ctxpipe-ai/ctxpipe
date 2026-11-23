@@ -27,6 +27,8 @@ import {
   fileClaims,
   frontMatter,
   frontValue,
+  isListPart,
+  listLines,
   nameKey,
   relativeTo,
 } from "../../bin/knowledge-lib.mjs"
@@ -38,7 +40,9 @@ import {
   stagedPaths,
 } from "../../bin/stage-lib.mjs"
 import {
+  inTestFixture,
   safePath,
+  testFixtureSkips,
   trackedFiles,
 } from "../../discover-roots/scripts/roots-lib.mjs"
 import {
@@ -61,14 +65,7 @@ const MAX_LINE = 2000
 /** A variable name, a resource label, a service name: letters, digits, and a few separators. */
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$/
 const ENV_NAME = /^[A-Z][A-Z0-9_]{2,59}$/
-const IGNORED_SEGMENTS = new Set([
-  "node_modules",
-  "vendor",
-  "third_party",
-  "testdata",
-  "fixtures",
-  "__fixtures__",
-])
+const IGNORED_SEGMENTS = new Set(["node_modules", "vendor", "third_party"])
 
 const storeById = new Map(STORES.map((s) => [s.id, s]))
 const depToStore = new Map()
@@ -196,7 +193,7 @@ function storesOfRoot({ path: rootPath, source, tracked, index, deeperRoots }) {
   }
 
   const deeper = deeperRoots(rootPath)
-  const inRoot = tracked.filter((file) => {
+  const listed = tracked.filter((file) => {
     if (rootPath !== "." && !file.startsWith(`${rootPath}/`)) return false
     if (deeper.some((d) => file.startsWith(`${d}/`))) return false
     // A dot folder (.github, .circleci, .devcontainer) is tooling, not the product.
@@ -205,6 +202,8 @@ function storesOfRoot({ path: rootPath, source, tracked, index, deeperRoots }) {
       .slice(0, -1)
       .some((s) => s.startsWith(".") || IGNORED_SEGMENTS.has(s))
   })
+  for (const { path, reason } of testFixtureSkips(listed)) skip(path, reason)
+  const inRoot = listed.filter((file) => !inTestFixture(file))
 
   /** Text of a tracked file at HEAD, or null (and a `skipped` entry when the cause is a limit). */
   function read(path) {
@@ -655,6 +654,8 @@ function textOf(step, path) {
  * - when the root has one Service or App file, that file has a claim to the
  *   store file;
  * - else, the store file has the line of the root (`rootLine`).
+ * The lines of a store file are the lines of its list: the file and its
+ * parts (CTX-1528).
  * A pair expects each store file of its id (with the line of the id,
  * `declares`) that has the line of its root. The writer writes the store
  * file before the claim, so the tree keeps what a pair expects across
@@ -689,11 +690,13 @@ export function storeCursor({
     ...stagedPaths(step),
     ...planned.map((p) => p.path),
   ])) {
-    if (!safePath(path) || !path.startsWith("knowledge/")) continue
+    if (!safePath(path) || !path.startsWith("knowledge/") || isListPart(path))
+      continue
     const text = textOf(step, path)
     const kind = text && frontValue(frontMatter(text) ?? "", "kind")
     if (kind !== "Database" && kind !== "Infrastructure") continue
-    const lines = new Set(text.split("\n").map((l) => l.trimEnd()))
+    // The lines of the store file and of the parts of its list (CTX-1528).
+    const lines = listLines(step, path)
     const types = new Set()
     for (const line of lines)
       if (line.startsWith(head)) {

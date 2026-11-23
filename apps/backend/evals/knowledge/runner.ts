@@ -199,12 +199,25 @@ const manifestSchema = z.object({
    * CTX-1518.
    */
   quietMs: z.number().optional(),
-  mode: z.enum(["live", "replay"]),
+  /**
+   * `reuse`: a run with `--reuse-from`. It reuses the recorded answer of each
+   * model request of that folder, and sends only the other requests.
+   */
+  mode: z.enum(["live", "replay", "reuse"]),
   /**
    * The run folder whose answers of the old stack the run reused
    * (`--baseline-from`). Absent when the run ran the old stack.
    */
   baselineFrom: z.string().optional(),
+  /** With `reuse`: the folder, the calls that it answered, and the calls sent. */
+  reuse: z
+    .object({ from: z.string(), reused: z.number(), live: z.number() })
+    .optional(),
+  /**
+   * Replay only (`--unrecorded-yes`): the p(yes) of each Jev question that no
+   * recorded call asked. Absent: such a call misses.
+   */
+  unrecordedYes: z.number().optional(),
   capUsd: z.number(),
   spentUsd: z.number(),
   stopped: z.boolean(),
@@ -547,6 +560,9 @@ export async function writeRun(
 
 /** A run folder, as `readRun` reads it. */
 export type StoredRun = Awaited<ReturnType<typeof readRun>>
+
+/** A run folder that an option of a run names, with its content. */
+export type RunFolder = { folder: string; run: StoredRun }
 
 /** Read and check a run folder that `writeRun` wrote. */
 export async function readRun(folder: string) {

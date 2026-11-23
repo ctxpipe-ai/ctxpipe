@@ -342,10 +342,11 @@ export function fileReferences(input: {
   const linkTo = (key: string, text: string) =>
     add({ key, predicate: "LINKS_TO", confidence: 1, validFrom: null, text })
 
-  // A pull request that closed a GitHub issue (`closedBy`, which the mirror
-  // also writes in the `## Closed by` section) is linked from the time of
-  // the close (CTX-1516). It comes first, so the link of the body URL does
-  // not replace it.
+  // A pull request that closed an issue is linked from the time of the
+  // close (CTX-1516): the `closedBy` of a GitHub issue (the mirror also
+  // writes it in the `## Closed by` section), or a merged pull request of a
+  // done or canceled Linear issue (CTX-1526). It comes first, so the link of
+  // the body URL does not replace it.
   const closing = closingPullRequests(attributes)
   for (const url of closing?.urls ?? [])
     if (closing && URL.canParse(url))
