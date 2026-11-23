@@ -41,7 +41,10 @@ import {
   persistBoundWriteJob,
   validateSemanticHandoff,
 } from "../../models/workspace-write-jobs.js"
-import { persistWriteJobStatus } from "../../models/workspaces.js"
+import {
+  getWorkspaceWriteAdmission,
+  persistWriteJobStatus,
+} from "../../models/workspaces.js"
 import {
   gitFileChangeSchema,
   repositoryFilePathSchema,
@@ -239,9 +242,10 @@ export const workspaceSemanticMerge = defineWorkflow(
           refreshAttempt < MERGE_ATTEMPTS;
           refreshAttempt++
         ) {
-          let acquired: NonNullable<
+          type Acquired = NonNullable<
             Awaited<ReturnType<typeof acquireWorkspaceWriteRevision>>
           >
+          let acquired: Acquired
           for (;;) {
             const candidate = await step.run(
               {
@@ -249,10 +253,7 @@ export const workspaceSemanticMerge = defineWorkflow(
                 retryPolicy: { maximumAttempts: 3 },
               },
               async (): Promise<
-                | (NonNullable<
-                    Awaited<ReturnType<typeof acquireWorkspaceWriteRevision>>
-                  > & { revision?: WorkspaceRevision })
-                | null
+                (Acquired & { revision?: WorkspaceRevision }) | null
               > => {
                 // The queued revision can be hours old, and other merges of
                 // the Workspace can push while this merge waits for the
@@ -261,8 +262,12 @@ export const workspaceSemanticMerge = defineWorkflow(
                 // so a replay gives the revision of the pack again. An output
                 // from before CTX-1598 has no revision. The refresh reads only
                 // the tip: the acquire checks the connector mirror on it.
+                // Without write access, the acquire pauses the merge, and
+                // the acquire after the pause reads the tip.
                 const current =
-                  refreshAttempt === 0
+                  refreshAttempt === 0 &&
+                  (await getWorkspaceWriteAdmission(input.workspaceId))
+                    ?.writeStatus === "writable"
                     ? await refreshWorkspaceWriteRevision(
                         { orgId: input.orgId, workspaceId: input.workspaceId },
                         revision,

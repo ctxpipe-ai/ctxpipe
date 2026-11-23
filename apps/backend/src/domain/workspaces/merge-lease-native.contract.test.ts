@@ -5,6 +5,11 @@ import { expect, it } from "vitest"
 
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
+import { reconcileWorkspaceWriteJob } from "../../models/workspace-write-jobs.js"
+import {
+  getWorkspaceById,
+  persistWriteStatus,
+} from "../../models/workspaces.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { workspaceSemanticMerge } from "../../openworkflow/workflows/workspace-semantic-merge.js"
 import {
@@ -291,6 +296,62 @@ it(
               runId: merge.workflowRun.id,
             }),
           ).toBe(false)
+        } finally {
+          await worker.stop()
+        }
+      },
+    )
+  },
+)
+
+it(
+  "pauses a merge without write access before it reads the tip, and merges it when access comes back",
+  { timeout: 120_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      {
+        namespaceId,
+        github: true,
+        githubWriteView: "missing",
+        writeStatus: "read_only",
+      },
+      async (f) => {
+        await f.publish()
+        await f.worker.stop()
+        // The repository is not accessible: a read of its tip fails.
+        f.failTokens(422)
+        f.runner.implementWorkflow(mergeSpec, workspaceSemanticMerge.fn)
+        const worker = f.runner.newWorker({ concurrency: 1 })
+        try {
+          await worker.start()
+          const merge = await addFile(f, "knowledge/deferred.md")
+          const jobId = `wjob_${f.id}_knowledge_deferred_md`
+          await expect
+            .poll(
+              () =>
+                withOrgIdContext(f.org, () =>
+                  reconcileWorkspaceWriteJob(jobId),
+                ),
+              { timeout: 30_000 },
+            )
+            .toMatchObject({ status: "paused" })
+          f.failTokens(0)
+          f.repairWriteAccess()
+          await withOrgIdContext(f.org, async () => {
+            const binding = await getWorkspaceById(f.workspaceId)
+            if (!binding) throw new Error("Fixture workspace missing")
+            await persistWriteStatus(
+              binding,
+              { writeStatus: "writable", readOnlyReason: null },
+              f.org.id,
+            )
+          })
+          expect(await merge.result({ timeoutMs: 90_000 })).toMatchObject({
+            committed: true,
+          })
+          expect(
+            f.git("--git-dir", f.remote, "show", "main:knowledge/deferred.md"),
+          ).toBe("# knowledge/deferred.md")
         } finally {
           await worker.stop()
         }

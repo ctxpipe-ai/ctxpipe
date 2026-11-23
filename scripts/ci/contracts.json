@@ -13,6 +13,7 @@
     "src/domain/workspaces/write-mirror-native.contract.test.ts",
     "src/domain/workspaces/github-pr-mirror-native.contract.test.ts",
     "src/domain/workspaces/write-merge-native.contract.test.ts",
+    "src/domain/workspaces/merge-lease-native.contract.test.ts",
     "src/openworkflow/workspace-admission-ack-native.contract.test.ts",
     "src/domain/workspaces/workspace-unborn-bootstrap-native.contract.test.ts",
     "src/domain/workspaces/write-worker-loss-native.contract.test.ts"
