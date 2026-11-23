@@ -569,6 +569,33 @@ test("accepts an OIDC job that runs only pinned actions and a downloaded binary"
   assert.equal(result.status, 0)
 })
 
+test("accepts only the worktree of the PR head in the merge gate selection job", () => {
+  const worktree =
+    '      - run: GIT_LFS_SKIP_SMUDGE=1 git worktree add --detach "$RUNNER_TEMP/head" HEAD^2\n'
+  const job = (name, steps) =>
+    oidcJob(`${awsStep}${steps}`).replace("  select:", `  ${name}:`)
+  const ci = (jobs) => ({
+    ".github/workflows/ci.yaml": `on: pull_request\njobs:\n${jobs}`,
+  })
+  const result = check(ci(job("merge-gate-select", worktree)))
+  assert.equal(result.stderr, "")
+  assert.equal(result.status, 0)
+  // Another job, another commit, or another command gets other commits.
+  for (const files of [
+    ci(job("merge-gate-llm", worktree)),
+    workflow(job("merge-gate-select", worktree)),
+    ci(job("merge-gate-select", worktree.replace("HEAD^2", "origin/main"))),
+    ci(
+      job(
+        "merge-gate-select",
+        worktree.replace("worktree add --detach", "worktree add -f --detach"),
+      ),
+    ),
+    ci(job("merge-gate-select", "      - run: git fetch origin main\n")),
+  ])
+    rejects(files, /holds a secret or an OIDC token and gets other git commits/)
+})
+
 test("accepts only the npm publish jobs of deploy.yaml as OIDC jobs with a package manager", () => {
   const publish = `on: push\njobs:\n  release:\n    permissions:\n      id-token: write\n    steps:\n${install}`
   const result = check({ ".github/workflows/deploy.yaml": publish })

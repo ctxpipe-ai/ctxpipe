@@ -491,6 +491,260 @@ test("a pass of an earlier run of the PR is a hit, and a quarantined key is not"
   )
 })
 
+// Main-delta carry: the lookup of the select job on the tree of the PR head
+// (sha(9)), and the selection of the LLM job on main's delta.
+const head = sha(9)
+const headLookup = (hits, misses = []) => ({
+  ...selectRecord(),
+  base: sha(8),
+  cache: {
+    shared: true,
+    hits,
+    misses,
+    quarantined: [],
+    unkeyed: [],
+    notes: [],
+  },
+})
+// main's delta (a dependency bump) selects the contract test and omits the
+// UI test.
+const mainDelta = (llm = {}) => ({
+  ...llmRecord(),
+  base: head,
+  selected: [check(contract, { kind: "package" })],
+  omitted: [{ id: ui, lane: "ui", reason: "dropped by the LLM: no zod" }],
+  llm: { ...llmRecord().llm, ...llm },
+})
+const carryOf = ({
+  select = selectRecord(),
+  lookup,
+  delta,
+  store: stored,
+  accept = config(),
+  mode,
+} = {}) =>
+  plan({
+    config: accept,
+    inputs: inputs({
+      "mode.json": mode ?? { mode: "select", reason: "gate" },
+      "selection.json": {
+        ...select,
+        cache: { quarantined: [], ...select.cache },
+      },
+      "llm-selection.json": llmRecord(),
+      "head-lookup.json":
+        lookup ?? headLookup([hit(ui, "agent", 11), hit(contract, "ci", 12)]),
+      ...(delta !== null && { "main-delta.json": delta ?? mainDelta() }),
+    }),
+    needs,
+    store: stored ?? store(),
+  })
+
+test("a pass of the PR head carries when main's delta omits its check, and its check runs when main's delta selects it", () => {
+  const planned = carryOf()
+  assert.deepEqual(planned.carry, { head, ids: [ui] })
+  assert.deepEqual(
+    planned.hits.find((item) => item.id === ui),
+    {
+      id: ui,
+      key: key(5),
+      source: "carry",
+      headSource: "agent",
+      headKey: key(11),
+      provenance: {
+        hostKind: "laptop",
+        createdAt: "2026-10-28T10:00:00Z",
+      },
+    },
+  )
+  // main's delta selects the contract test: its head pass does not count,
+  // and a failure contradicts no pass of its key.
+  assert.ok(planned.ran.includes(contract))
+  assert.ok(!planned.ran.includes(ui))
+  assert.deepEqual(planned.rerun, [])
+  // A pass of an earlier run of this PR at the head key carries too.
+  const fromPr = carryOf({
+    lookup: headLookup([], [{ id: ui, key: key(11), mode: "traced" }]),
+    store: store([
+      { id: ui, key: key(11), run: "40", createdAt: "2026-10-28T09:00:00Z" },
+    ]),
+  })
+  assert.equal(fromPr.hits.find((item) => item.id === ui)?.headSource, "pr")
+})
+
+test("a pass of the PR head keeps the trust of its class and carries to no quarantined key", () => {
+  const ran = (planned) => planned.ran.includes(ui)
+  // An agent pass carries only with acceptAgentResults.
+  assert.ok(
+    ran(carryOf({ accept: { ...config(), acceptAgentResults: false } })),
+  )
+  // A key that this PR quarantined, at the merge revision or at the head.
+  assert.ok(ran(carryOf({ store: store([], [key(5)]) })))
+  assert.ok(ran(carryOf({ store: store([], [key(11)]) })))
+  // A key that the Results writer quarantined (cache.quarantined of the
+  // select job).
+  const quarantined = selectRecord()
+  quarantined.cache.quarantined = [key(5)]
+  assert.ok(ran(carryOf({ select: quarantined })))
+  // A head key that the Results writer quarantined, also with a pass of an
+  // earlier run of this PR at that key.
+  const atHead = headLookup([], [{ id: ui, key: key(11), mode: "traced" }])
+  atHead.cache.quarantined = [key(11)]
+  assert.ok(
+    ran(
+      carryOf({
+        lookup: atHead,
+        store: store([
+          {
+            id: ui,
+            key: key(11),
+            run: "40",
+            createdAt: "2026-10-28T09:00:00Z",
+          },
+        ]),
+      }),
+    ),
+  )
+  // A check that main's delta neither selects nor omits.
+  assert.ok(ran(carryOf({ delta: { ...mainDelta(), omitted: [] } })))
+  // The carried check runs, with no rerun, when a later rule runs it: here a
+  // job-scoped ci.yaml change.
+  const jobs = carryOf({
+    mode: { mode: "select", reason: "gate", jobs: [placeOf(ui).job] },
+  })
+  assert.ok(ran(jobs))
+  assert.ok(!jobs.rerun.includes(ui))
+  assert.deepEqual(jobs.carry.ids, [])
+})
+
+test("without a valid selection of main's delta whose model steps answered, no pass carries", () => {
+  const noQuarantine = selectRecord()
+  for (const [options, cause] of [
+    [{ delta: null }, "no selection of main's delta"],
+    [
+      { delta: { ...mainDelta(), selected: "all" } },
+      "no valid selection of main's delta",
+    ],
+    [
+      { delta: { ...mainDelta(), llm: undefined } },
+      "the LLM stage did not run on main's delta",
+    ],
+    [
+      { delta: mainDelta({ fallback: "provider error 503" }) },
+      "LLM fallback on main's delta (provider error 503)",
+    ],
+    [
+      {
+        delta: {
+          ...mainDelta(),
+          packageIntent: { fallback: "timeout", groups: 2 },
+        },
+      },
+      "package intent fallback on main's delta (timeout)",
+    ],
+    [
+      { lookup: { ...headLookup([]), cache: undefined } },
+      "no valid lookup of the PR head",
+    ],
+    // A release of the selector that names no quarantined key.
+    [
+      {
+        select: {
+          ...noQuarantine,
+          cache: { ...noQuarantine.cache, quarantined: undefined },
+        },
+      },
+      "a cache lookup names no quarantined key",
+    ],
+    [
+      {
+        lookup: {
+          ...headLookup([hit(ui, "agent", 11)]),
+          cache: {
+            ...headLookup([hit(ui, "agent", 11)]).cache,
+            quarantined: undefined,
+          },
+        },
+      },
+      "a cache lookup names no quarantined key",
+    ],
+  ]) {
+    const planned = carryOf(options)
+    assert.deepEqual(planned.carry, { cause, ids: [] }, cause)
+    assert.ok(planned.ran.includes(ui), cause)
+  }
+  // The causes that the jobs write.
+  const failed = plan({
+    config: config(),
+    inputs: inputs({
+      "mode.json": { mode: "select", reason: "gate" },
+      "selection.json": {
+        ...selectRecord(),
+        cache: { ...selectRecord().cache, quarantined: [] },
+      },
+      "llm-selection.json": llmRecord(),
+      "head-lookup-cause.txt":
+        "the lookup of the PR head failed with exit code 2",
+    }),
+    needs,
+    store: store(),
+  })
+  assert.equal(
+    failed.carry.cause,
+    "the lookup of the PR head failed with exit code 2",
+  )
+  // No lookup (main did not move, or no miss): no carry record.
+  assert.equal(planOf().carry, undefined)
+})
+
+test("the gate report counts and names the carried hits, or says why none carried", () => {
+  const records = [{ id: contract, status: "passed" }]
+  const decisionOf = (planned) =>
+    gateDecision({
+      config: config(),
+      planned,
+      records,
+      needs: {
+        ...needs,
+        lint: { result: "success" },
+        migrate: { result: "success" },
+      },
+      jobs: jobs({}),
+      run: { id: "42", attempt: 1, pr: 7, sha: sha(3) },
+      store: store(),
+    }).decision
+  const decision = decisionOf(carryOf())
+  assert.equal(decision.gatedRun.verdict, "pass")
+  assert.deepEqual(decision.carry, { head, ids: [ui] })
+  const text = gateText(decision)
+  for (const part of [
+    "**Cache hits:** ci 1, pr 0, agent 1, carry 1 of ",
+    `**Carry:** 1 pass of the PR head \`${head.slice(0, 12)}\`: \`${ui}\`.`,
+    `\`${ui}\``,
+    "| carry (agent pass of the head) | laptop |",
+  ])
+    assert.ok(text.includes(part), part)
+  const none = gateText(
+    decisionOf(carryOf({ delta: mainDelta({ fallback: "timeout" }) })),
+  )
+  assert.ok(
+    none.includes(
+      "**Carry:** none (`LLM fallback on main's delta (timeout)`).",
+    ),
+    none,
+  )
+  // main's delta selects every check with a pass of the head.
+  const selected = gateText(
+    decisionOf(carryOf({ delta: { ...mainDelta(), omitted: [] } })),
+  )
+  assert.ok(
+    selected.includes(
+      `**Carry:** no pass of the PR head \`${head.slice(0, 12)}\` counts here.`,
+    ),
+    selected,
+  )
+})
+
 test("a change to the gate code or its pin runs every test of the CI scripts, and a hit of one stays", () => {
   // The LLM stage dropped one test of the CI scripts; the select job hit
   // another one.
@@ -1270,7 +1524,7 @@ test("the summary shows the selection, the hits, the LLM decisions and the minut
   for (const part of [
     "**Verdict:** pass",
     "3 ran, 2 hits (ci 1, agent 1), 2 in other workflows",
-    "**Cache hits:** ci 1, pr 0, agent 1 of ",
+    "**Cache hits:** ci 1, pr 0, agent 1, carry 0 of ",
     "renames a UI prop",
     "dropped 1, added 1",
     "### LLM decisions",

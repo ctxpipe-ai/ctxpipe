@@ -1873,7 +1873,7 @@ jobs:
   # It downloads the release that .github/merge-gate.json of the base revision
   # pins, and stops when the SHA-256 differs.
   merge-gate-select:
-    timeout-minutes: 5
+    timeout-minutes: 7
     name: Merge gate selection
     needs: merge-gate-manifest
     # The Nightly change job before the manifest job is skipped on a PR. A job
@@ -1987,6 +1987,40 @@ jobs:
           cp "$RUNNER_TEMP/inputs/manifest.json" "$out/manifest.json"
           rm "$out/select-cause.txt"
           find "$XDG_CACHE_HOME/factory/traces" -name '*.json.gz' -exec cp {} "$out/trace.json.gz" \; -quit || true
+      # Main-delta carry (scripts/checks/README.md, Main-delta carry). When
+      # main moved since the merge base and a selected check has no stored
+      # pass, the same release keys the checks on the tree of the PR head
+      # (the second parent), with the same rules, manifest, trace and
+      # toolchain record, and looks up their passes. The LLM job selects on
+      # main's delta, and the plan joins the two. When this step fails, no
+      # pass carries, and the checks run.
+      - name: Look up the passes of the PR head
+        timeout-minutes: 2
+        continue-on-error: true
+        env:
+          XDG_CACHE_HOME: ${{ runner.temp }}/cache
+        run: |
+          out="$RUNNER_TEMP/out"
+          jq -e '(.cache.misses // []) | length > 0' "$out/selection.json" > /dev/null || exit 0
+          ! git merge-base --is-ancestor HEAD^1 HEAD^2 || exit 0
+          echo "the worktree of the PR head was not made" > "$out/head-lookup-cause.txt"
+          GIT_LFS_SKIP_SMUDGE=1 git worktree add --detach "$RUNNER_TEMP/head" HEAD^2
+          echo "the lookup of the PR head did not finish in 2 minutes" > "$out/head-lookup-cause.txt"
+          trace=()
+          [ ! -f "$out/trace.json.gz" ] || trace=(--trace "$out/trace.json.gz")
+          code=0
+          "$RUNNER_TEMP/bin/factory" check --repo "$RUNNER_TEMP/head" --base "$(git merge-base HEAD^1 HEAD^2)" --k 3 \
+            --manifest "$RUNNER_TEMP/inputs/manifest.json" \
+            --toolchain "$RUNNER_TEMP/inputs/toolchain.json" "${trace[@]}" \
+            --include-stochastic --cache-only --llm-provider none --json > "$RUNNER_TEMP/head-raw.json" || code=$?
+          if [ "$code" -gt 1 ]; then
+            echo "the lookup of the PR head failed with exit code $code" > "$out/head-lookup-cause.txt"
+            exit 1
+          fi
+          echo "the lookup of the PR head did not parse" > "$out/head-lookup-cause.txt"
+          head -n 1 "$RUNNER_TEMP/head-raw.json" | jq -c 'del(.cache.hits[]?.provenance.who)' > "$RUNNER_TEMP/head-lookup.json"
+          mv "$RUNNER_TEMP/head-lookup.json" "$out/head-lookup.json"
+          rm "$out/head-lookup-cause.txt"
       # When a Storybook check is selected, the selection names the key of the
       # Storybook build and whether an agent's `factory check` stored it. This
       # job holds the reader role, so it gets a stored build for the Storybook
@@ -2292,6 +2326,11 @@ jobs:
       # A slow model call delays every check job, so the selector has 170
       # seconds (150 for the model). The plan keeps the deterministic selection when this step
       # fails or times out.
+      # When the select job looked up the passes of the PR head (main-delta
+      # carry, scripts/checks/README.md), the same release selects on main's
+      # delta beside it: the merge revision against the PR head, with the LLM
+      # stage. The plan carries a pass of the head only to a check that this
+      # selection omits. When it fails, no pass carries.
       - name: Select with the LLM stage
         timeout-minutes: 3
         env:
@@ -2302,6 +2341,27 @@ jobs:
           echo "the selector did not finish in 3 minutes" > "$out/llm-cause.txt"
           trace=()
           [ ! -f "$RUNNER_TEMP/selection/trace.json.gz" ] || trace=(--trace "$RUNNER_TEMP/selection/trace.json.gz")
+          if [ -f "$RUNNER_TEMP/selection/head-lookup.json" ]; then
+            (
+              echo "the selection of main's delta did not finish in 170 seconds" > "$out/main-delta-cause.txt"
+              code=0
+              timeout 170 "$RUNNER_TEMP/bin/factory" check --repo . --base HEAD^2 --k 3 \
+                --manifest "$RUNNER_TEMP/inputs/manifest.json" "${trace[@]}" \
+                --include-stochastic --llm-provider openrouter \
+                --dry-run --json > "$RUNNER_TEMP/main-delta-raw.json" || code=$?
+              [ "$code" != 124 ] || exit 1
+              if [ "$code" -gt 1 ]; then
+                echo "the selection of main's delta failed with exit code $code" > "$out/main-delta-cause.txt"
+                exit 1
+              fi
+              echo "the selection of main's delta did not parse" > "$out/main-delta-cause.txt"
+              head -n 1 "$RUNNER_TEMP/main-delta-raw.json" | jq -c 'del(.llm.audit)' > "$RUNNER_TEMP/main-delta.json"
+              mv "$RUNNER_TEMP/main-delta.json" "$out/main-delta.json"
+              rm "$out/main-delta-cause.txt"
+            ) &
+            # The step ends only after the selection of main's delta.
+            trap 'wait || true' EXIT
+          fi
           code=0
           timeout 170 "$RUNNER_TEMP/bin/factory" check --repo . --base HEAD^1 --k 3 \
             --manifest "$RUNNER_TEMP/inputs/manifest.json" "${trace[@]}" \

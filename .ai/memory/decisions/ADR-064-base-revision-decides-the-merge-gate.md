@@ -76,3 +76,19 @@ The CTO decided this on 2026-11-23 ([CTX-1556](https://linear.app/ctxpipe/issue/
 - A screenshot check has `selectAll`, so a model step cannot drop it. The listing names the runner files of a check (`runnerInputs`), and the factory release that ctxpipe pins since CTX-1556 lets the LLM stage drop a screenshot check that only a runner input reached.
 - `selected.mjs` is no longer a full-run input. A PR that changes how it reads `plan.json` meets the plan of the base revision in its own run. A mismatch fails the run, because the merge gate needs a record for each planned check.
 - A canary is a real check of the job, so a flaky canary can fail the run. Its job runs a failed canary with a stored pass once more (Contradiction rule). In a gated run the upgrade job also runs its checks through `selected.mjs`, so this holds for an upgrade canary too ([CTX-1557](https://linear.app/ctxpipe/issue/CTX-1557)).
+
+## Revision 2026-11-23: a pass of the PR head carries over the change of main
+
+The CTO decided this on 2026-11-23 ([CTX-1574](https://linear.app/ctxpipe/issue/CTX-1574)). CI keys the merge revision of a PR. A PR changed only `scripts/checks`, and `factory check` stored 47 portable passes on its head. Then `main` merged a lockfile change. Each key holds the whole lockfile, so the CI run of the PR got no hit and ran all 49 selected checks again.
+
+- **Main-delta carry.** For a selected check with no hit at the merge revision, the select job looks up its key on the tree of the PR head, with the same rules and the toolchain record of CI. The LLM job selects on main's delta: the merge revision against the PR head, with the deterministic layers and the LLM stage. When the head key has an accepted pass and main's delta omits the check, the pass counts as a hit of the class `carry`, with its own class and its head key.
+- **The base revision decides the carry.** `plan.mjs` of the base revision joins the two records, and the selector release is the pin of the base revision. The select and LLM jobs run no PR code, and the plan reads their records only by the artifact ids that they give. A change to the steps of a gate job gives the full run. Thus a PR cannot change how its own carry is decided.
+- **The trust of the stored pass stays.** An `agent` pass carries only with `acceptAgentResults`, and a `pr` pass of an earlier run of the PR at the head key only with `acceptPrResults`. A quarantined key at the head or at the merge revision carries nothing.
+- **A fallback carries nothing.** A failed lookup of the head, a failed or invalid selection of main's delta, or a fallback of its LLM stage or package intent step gives no carry, and the checks run.
+
+### Consequences of the carry revision
+
+- A fault that only the change of the PR and the change of `main` together give, in a check that the change of `main` alone does not reach, can pass the gate. The nightly run on `main` finds it (ADR-062). The selection of main's delta uses the import graph of the merge revision, so a change of the PR that makes a check import a file that `main` changed still selects that check.
+- Main's delta decides no mode. A change of `main` to a full-run input gives no full run of the PR. The deterministic layers of main's delta select each check whose key holds such a file, and the LLM stage can drop such a check (with the dependency rule of the hard cases). A check whose key does not hold the file reuses a pass, as a hit does.
+- A PR run whose `main` moved makes one more model call, and its select job takes about 10 to 25 seconds more.
+- A definition change gets no carry, because its plan does not use the LLM job.

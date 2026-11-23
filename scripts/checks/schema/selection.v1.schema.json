@@ -140,6 +140,11 @@
             }
           }
         },
+        "quarantined": {
+          "description": "The keys of the misses that the quarantine holds: a full CI run failed the check at that key after a stored pass. The merge gate carries no pass of the PR head to such a check. Absent when the lookup did not read the quarantine: then the merge gate carries no pass.",
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        },
         "unkeyed": {
           "description": "Selected checks without a key. They always run.",
           "type": "array",
