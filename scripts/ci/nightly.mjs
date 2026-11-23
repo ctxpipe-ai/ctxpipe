@@ -404,7 +404,7 @@ if (
     } else if (command === "tickets" && results) {
       if (!env.LINEAR_API_KEY) {
         console.log(
-          "::error::LINEAR_API_KEY is not set. Add it to the workbench environment: the nightly run makes a Linear ticket of each flake and failure.",
+          "::error::LINEAR_API_KEY is not set. Add it to the workbench-main environment: the nightly run makes a Linear ticket of each flake and failure.",
         )
         process.exit(1)
       }
