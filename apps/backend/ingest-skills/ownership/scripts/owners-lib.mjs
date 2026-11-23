@@ -313,7 +313,8 @@ export function ownersPlans({ source, files, repository, roots, index }) {
   // The path of each alias, the same on each run. Two aliases can get one
   // slug (`api-team` and `api_team`), so the paths come in three passes: the
   // existing Team file of the alias, then the slug path that no alias holds
-  // yet, then a path with a hash of the name, longer until no alias holds it.
+  // yet, then a path with a hash of the name, longer (and then with a number)
+  // until no alias holds it.
   // Each alias thus gets its own file.
   const sorted = [...teams.keys()].sort()
   const baseOf = (alias) => `knowledge/teams/${slug(repository)}-${slug(alias)}`
@@ -342,6 +343,9 @@ export function ownersPlans({ source, files, repository, roots, index }) {
     const hash = createHash("sha256").update(alias).digest("hex")
     for (const length of [8, 16, 64])
       claim(alias, `${baseOf(alias)}-${hash.slice(0, length)}.md`)
+    // A number after the full hash: the aliases are finite, so one is free.
+    for (let n = 2; !paths.has(alias); n++)
+      claim(alias, `${baseOf(alias)}-${hash}-${n}.md`)
   }
 
   const plans = []
@@ -349,13 +353,6 @@ export function ownersPlans({ source, files, repository, roots, index }) {
     const { lines, claims } = teams.get(alias)
     const name = `${repository}/${alias}`
     const path = paths.get(alias)
-    if (!path) {
-      skipped.push({
-        path: ALIASES_FILE,
-        reason: `The alias ${alias} gets no path that another alias does not have`,
-      })
-      continue
-    }
     // Keep the lines that fit, in order, and record the rest.
     const kept = []
     let bytes = 0

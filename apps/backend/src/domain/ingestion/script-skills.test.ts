@@ -970,6 +970,25 @@ describe("ownership skill", () => {
       expect(s.run("ownership").ops).toEqual([])
     })
 
+    it("gives a numbered path when each hash path of an alias is the slug path of another alias", () => {
+      const hash = createHash("sha256").update("api_team").digest("hex")
+      const takers = [8, 16, 64].map((n) => `api-team-${hash.slice(0, n)}`)
+      const s = step(
+        {
+          ...OWNED_SHOP,
+          OWNERS_ALIASES: `aliases:\n  api-team: [alice]\n  api_team: [bob]\n${takers.map((t) => `  ${t}: [carol]\n`).join("")}`,
+          "apps/OWNERS": `approvers:\n  - api-team\n  - api_team\n${takers.map((t) => `  - ${t}\n`).join("")}`,
+        },
+        {},
+      )
+      const out = s.run("ownership")
+      expect(out.skipped).toEqual([])
+      expect(out.ops).toHaveLength(5)
+      expect(out.ops.map((o) => o.path)).toContain(
+        `knowledge/teams/example-org-shop-api-team-${hash}-2.md`,
+      )
+    })
+
     it("gives a longer hash when the hash path of an alias is the slug path of another alias", () => {
       const hash = createHash("sha256").update("api_team").digest("hex")
       const taker = `api-team-${hash.slice(0, 8)}`
