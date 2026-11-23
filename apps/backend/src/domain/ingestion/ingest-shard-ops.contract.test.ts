@@ -159,10 +159,8 @@ beforeAll(async () => {
       mode: file.executable ? 0o755 : 0o644,
     })
   }
-  writeFileSync(
-    join(bundleDir, "version.json"),
-    JSON.stringify({ version: real.version }),
-  )
+  mkdirSync(join(bundleDir, "versions"))
+  writeFileSync(join(bundleDir, `versions/${real.version}.md`), "Fixture.\n")
   mkdirSync(join(bundleDir, "libraries/scripts"), { recursive: true })
   writeFileSync(
     join(bundleDir, "libraries/SKILL.md"),

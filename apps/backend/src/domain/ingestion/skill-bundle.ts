@@ -12,13 +12,15 @@ import { parse as parseYaml } from "yaml"
  * `/ctxpipe/skills` in the ingest sandbox. The content hash names the bundle,
  * so a step commit can say which bundle wrote it.
  *
- * `version.json` in the folder holds the re-ingestion version and the content
- * hash that it covers. It is not part of the bundle. The re-ingestion key uses
- * the version, so a format, lint, or comment change offers no new paid
- * re-ingestion. A unit test makes sure that the hash in the file is correct.
+ * `versions/` in the folder holds the version markers. It is not part of the
+ * bundle. A change that can change the knowledge that ingestion writes adds
+ * one marker, `versions/<name>.md`. The re-ingestion version comes from the
+ * marker names (see `versions/README.md`), so a speed, format, lint, or
+ * comment change starts no paid re-ingestion. A new marker is a new file, so
+ * two skill changes do not edit the same line.
  */
 
-const VERSION_FILE = "version.json"
+const VERSIONS_DIR = "versions"
 
 export const INGEST_SKILLS_DIR = fileURLToPath(
   new URL("../../../ingest-skills/", import.meta.url),
@@ -41,8 +43,9 @@ export type IngestSkillBundle = {
   /** `ingest-<16 hex>`: the first 64 bits of the content hash. */
   name: string
   /**
-   * The re-ingestion version (`version` in `version.json`). A person changes
-   * it only when a change can change the knowledge that ingestion writes.
+   * The re-ingestion version, from the marker names in `versions/`. A person
+   * adds a marker only when a change can change the knowledge that ingestion
+   * writes.
    */
   version: string
   /** Skill folder names: each folder with a `SKILL.md`. */
@@ -58,7 +61,7 @@ export async function readIngestSkillBundle(
     for (const entry of await readdir(folder, { withFileTypes: true })) {
       const path = prefix ? `${prefix}/${entry.name}` : entry.name
       const full = join(folder, entry.name)
-      if (path === VERSION_FILE) continue
+      if (path === VERSIONS_DIR) continue
       if (entry.isDirectory()) await walk(full, path)
       else if (entry.isFile())
         files.push({
@@ -91,15 +94,36 @@ export async function readIngestSkillBundle(
       )
     skills.push(name)
   }
-  const { version } = JSON.parse(
-    await readFile(join(dir, VERSION_FILE), "utf8"),
-  ) as { version?: unknown }
-  if (typeof version !== "string" || !version)
-    throw new Error(`Ingest skill bundle: ${VERSION_FILE} has no version`)
   return {
     name: `ingest-${hash.digest("hex").slice(0, 16)}`,
-    version,
+    version: await readIngestVersion(join(dir, VERSIONS_DIR)),
     skills,
     files,
   }
+}
+
+/**
+ * The re-ingestion version from the markers `<name>.md` in `versions/`. One
+ * marker gives its name: the seed marker keeps the version of the time before
+ * markers. More markers give `ingest-<16 hex>` from the sorted names, so the
+ * merge of two changes gives the same version in each order.
+ */
+async function readIngestVersion(dir: string): Promise<string> {
+  const names: string[] = []
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    // A dot file (an editor or Finder file) is not a marker.
+    if (entry.name === "README.md" || entry.name.startsWith(".")) continue
+    const match = /^([a-z0-9][a-z0-9-]*)\.md$/.exec(entry.name)
+    if (!entry.isFile() || !match?.[1])
+      throw new Error(
+        `Ingest skill bundle: ${VERSIONS_DIR}/${entry.name} is not a version marker <name>.md`,
+      )
+    names.push(match[1])
+  }
+  names.sort()
+  if (names.length === 1 && names[0]) return names[0]
+  if (!names.length)
+    throw new Error(`Ingest skill bundle: ${VERSIONS_DIR}/ has no marker`)
+  const hash = createHash("sha256").update(names.join("\n")).digest("hex")
+  return `ingest-${hash.slice(0, 16)}`
 }

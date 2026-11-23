@@ -1,3 +1,13 @@
+import {
+  appendFileSync,
+  cpSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
 import { eq } from "drizzle-orm"
 import pg from "pg"
 import { afterAll, beforeAll, expect, it } from "vitest"
@@ -10,6 +20,7 @@ import { workspaces } from "../../db/schema/workspaces.js"
 import {
   getWorkspaceUpgradeRow,
   insertWorkspaceUpgradeRow,
+  listWorkspaceUpgradeRows,
 } from "../../models/workspace-upgrades.js"
 import {
   listOrgWorkspaces,
@@ -17,7 +28,10 @@ import {
 } from "../../models/workspaces.js"
 import { usePlainGitNetwork } from "../../services/git/plain-git-remote.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
-import { readIngestSkillBundle } from "../ingestion/skill-bundle.js"
+import {
+  INGEST_SKILLS_DIR,
+  readIngestSkillBundle,
+} from "../ingestion/skill-bundle.js"
 import { ensureOrgRepositoryForGitUrl } from "../workspaces/ensure-org-repository.js"
 import { WRITE_STATUS_REASONS } from "../workspaces/write-status.js"
 import { formatUpgradeKey, GIT_UPGRADE_STEPS } from "./registry.js"
@@ -259,7 +273,7 @@ it(
 )
 
 it(
-  "offers one waiting re-ingestion when the version is new and keeps the completed row of the old version",
+  "offers no re-ingestion for a skill change with no marker, and one waiting re-ingestion for a new marker (CTX-1559)",
   { timeout: 60_000 },
   async () => {
     await withNativeHydrationFixture(
@@ -280,36 +294,73 @@ it(
         await f.handle.result({ timeoutMs: 60_000 })
         const real = await readIngestSkillBundle()
         const oldKey = reingestUpgradeKey(real.version)
-        const bundle = { ...real, version: "ingest-9a9a9a9a9a9a9a9a" }
-        const newKey = reingestUpgradeKey(bundle.version)
+        /** A copy of the real bundle with one change. */
+        const changed = async (change: (dir: string) => void) => {
+          const dir = mkdtempSync(join(tmpdir(), "ingest-skills-"))
+          try {
+            cpSync(INGEST_SKILLS_DIR, dir, { recursive: true })
+            change(dir)
+            return await readIngestSkillBundle(dir)
+          } finally {
+            rmSync(dir, { recursive: true })
+          }
+        }
+        // A speed change: a script changes, and the change adds no marker.
+        const speed = await changed((dir) =>
+          appendFileSync(
+            join(dir, "discover-roots/scripts/discover-roots.mjs"),
+            "\n// Faster.\n",
+          ),
+        )
+        expect(speed.name).not.toBe(real.name)
+        expect(reingestUpgradeKey(speed.version)).toBe(oldKey)
+        // A knowledge change adds a marker.
+        const next = await changed((dir) =>
+          writeFileSync(join(dir, "versions/ctx-1.md"), "New knowledge.\n"),
+        )
+        const newKey = reingestUpgradeKey(next.version)
         expect(newKey).not.toBe(oldKey)
         const [workspace] = (
           await withOrgDbContext(f.org.id, () => listOrgWorkspaces(f.org.id))
         ).filter((row) => row.id === f.workspaceId)
         if (!workspace) throw new Error("The fixture Workspace is missing")
-        const scan = () =>
-          withOrgIdContext(f.org, async () => {
-            await insertWorkspaceUpgradeRow({
-              workspaceId: f.workspaceId,
-              generation: 1,
-              status: "completed",
-              upgrade: {
-                key: oldKey,
-                fromFormat: 3,
-                targetFormat: 3,
-                repositories: [],
-              },
-            })
-            return scanWorkspaceReingest({
+        const scan = (bundle: { version: string; skills: string[] }) =>
+          withOrgIdContext(f.org, () =>
+            scanWorkspaceReingest({
               orgId: f.org.id,
               workspace,
               bundle,
               format: 3,
               env: parseEnv(process.env),
-            })
-          })
-        const result = await scan()
-        expect(result).toMatchObject({
+            }),
+          )
+        await withOrgIdContext(f.org, () =>
+          insertWorkspaceUpgradeRow({
+            workspaceId: f.workspaceId,
+            generation: 1,
+            status: "completed",
+            upgrade: {
+              key: oldKey,
+              fromFormat: 3,
+              targetFormat: 3,
+              repositories: [],
+            },
+          }),
+        )
+        // Automatic upgrades start only a waiting row: there is none.
+        expect(await scan(speed)).toMatchObject({
+          kind: "pending",
+          key: oldKey,
+          status: "completed",
+        })
+        await withOrgIdContext(f.org, async () => {
+          expect(
+            (await listWorkspaceUpgradeRows(f.workspaceId)).filter(
+              (row) => row.status === "awaiting_operator",
+            ),
+          ).toEqual([])
+        })
+        expect(await scan(next)).toMatchObject({
           kind: "pending",
           status: "awaiting_operator",
         })

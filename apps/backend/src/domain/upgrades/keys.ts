@@ -8,7 +8,7 @@ export const UPGRADE_JOB_KIND = "upgrade"
 
 const REINGEST_KEY_PREFIX = "reingest-"
 
-/** The key of the re-ingestion for a re-ingestion version (`version.json`). */
+/** The key of the re-ingestion for a re-ingestion version (the markers in `ingest-skills/versions/`). */
 export function reingestUpgradeKey(version: string): string {
   return `${REINGEST_KEY_PREFIX}${version}`
 }

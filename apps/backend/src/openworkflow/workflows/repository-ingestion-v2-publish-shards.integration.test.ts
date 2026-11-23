@@ -126,9 +126,11 @@ describe("ingestion v2 publish", () => {
       const before = await readIngestSkillBundle(bundleDir)
       const nextDir = join(folder, `bundle-${edition}`)
       cpSync(bundleDir, nextDir, { recursive: true })
+      rmSync(join(nextDir, "versions"), { recursive: true })
+      mkdirSync(join(nextDir, "versions"))
       writeFileSync(
-        join(nextDir, "version.json"),
-        JSON.stringify({ version: "ingest-bbbbbbbbbbbbbbbb" }),
+        join(nextDir, "versions/ingest-bbbbbbbbbbbbbbbb.md"),
+        "Version B.\n",
       )
       appendFileSync(join(nextDir, "classify-kind/SKILL.md"), "\nVersion B.\n")
       rmSync(join(nextDir, "repository"), { recursive: true })
