@@ -1,5 +1,8 @@
 import { parseEnv } from "../config/env.js"
-import { connectorMirrorRoot } from "../domain/codeIngestion/connectorMirrorPaths.js"
+import {
+  CONNECTOR_MIRROR_ROOTS,
+  connectorMirrorRoot,
+} from "../domain/codeIngestion/connectorMirrorPaths.js"
 import type {
   ExpandedEdge,
   ExpandedNode,
@@ -22,6 +25,7 @@ import {
 import { workspaceGraphFromSignals } from "../domain/workspaces/workspace-graph.js"
 import {
   createKnowledgeStore,
+  type DocumentRef,
   documentId,
   type FrontierRelation,
   type KnowledgeDocument,
@@ -63,6 +67,7 @@ import {
   retrievalDeadline,
   type TraversalNode,
   traverse,
+  type WalkFilter,
 } from "./orchestrator.js"
 import { queryVector } from "./query-vectors.js"
 
@@ -186,13 +191,16 @@ export function planeKnowledgeReader(input: {
   }
 }
 
+/** The source of a path outside the connector mirror roots. */
+const AUTHORED = "authored"
+
 /**
  * The `source` of a result, as the old stack gives it: the connector mirror
  * root of the path, else `authored`. The `source_type` of the plane is the
  * authority kind of the source (CTX-1410), which only Jev reads.
  */
-function sourceOf(document: KnowledgeDocument): string {
-  return connectorMirrorRoot(document.path) ?? "authored"
+function sourceOf({ path }: { path: string }): string {
+  return connectorMirrorRoot(path) ?? AUTHORED
 }
 
 /** The file name of a path without `.md`, as the old graph names a node. */
@@ -407,8 +415,13 @@ async function related(
   seedRelations.catch(() => {})
   let vector: number[]
   let evidence: Awaited<ReturnType<KnowledgeStore["readEvidence"]>>
+  let bridge: ReturnType<typeof bridgeDocuments>
   try {
     vector = await beforeDeadline(deadline, () => embed(scope.orgId, question))
+    bridge = bridgeDocuments(store, scope, vector, paths, walk, deadline)
+    // The traversal awaits it; a call that ends before must not leave an
+    // unhandled rejection.
+    bridge.catch(() => {})
     evidence = await beforeDeadline(deadline, () =>
       store.readEvidence(
         scope,
@@ -458,6 +471,7 @@ async function related(
         text: evidenceText(seed.document, seed.chunks),
       })),
       seedRelations,
+      bridge,
       maxDepth: input.maxDepth,
       walk,
       meter,
@@ -513,6 +527,56 @@ async function related(
       ...new Set(traversal.cappedHubs.map((document) => document.path)),
     ].slice(0, 20),
   }
+}
+
+/**
+ * The bridge to other sources (`bridgeItems`): the documents of the sources
+ * of no seed that are closest to `vector`, best first. An issue often has
+ * no relation to the code or the design that it is about, and a code
+ * document has no relation to the issues about it. The search of the store
+ * with no query terms orders only by vector, and it needs no model call.
+ * The bridge follows no relation, so a walk of named predicates, of one
+ * direction or of a time window has no bridge.
+ */
+function bridgeDocuments(
+  store: KnowledgeStore,
+  scope: KnowledgeReadScope,
+  vector: number[],
+  seeds: readonly string[],
+  walk: Pick<
+    WalkFilter,
+    "direction" | "predicates" | "validAt" | "validBetween"
+  >,
+  deadline: number,
+): Promise<{ ref: DocumentRef; document: KnowledgeDocument }[]> {
+  const items = ORCHESTRATOR_DEFAULTS.bridgeItems
+  if (
+    items <= 0 ||
+    walk.direction !== "both" ||
+    walk.predicates ||
+    walk.validBetween
+  )
+    return Promise.resolve([])
+  const seedSources = new Set(seeds.map((path) => sourceOf({ path })))
+  const sources = [...CONNECTOR_MIRROR_ROOTS, AUTHORED].filter(
+    (source) => !seedSources.has(source),
+  )
+  // No sources is no filter for the store, so it gives no bridge.
+  if (sources.length === 0) return Promise.resolve([])
+  return beforeDeadline(deadline, () =>
+    store.search(scope, {
+      vector,
+      terms: [],
+      sources,
+      validAt: walk.validAt,
+      chunksPerDocument: 1,
+    }),
+  ).then((hits) =>
+    hits.slice(0, items).map((hit) => ({
+      ref: { workspaceId: hit.workspaceId, docKey: hit.document.docKey },
+      document: hit.document,
+    })),
+  )
 }
 
 /**

@@ -103,6 +103,8 @@ let jevMostInFlight = 0
  * calls were in flight at one time.
  */
 let factsWaitForLayer = false
+/** The state parts of the calls of the disagreement facts. */
+const factsParts: string[] = []
 let factsWithLayer = false
 let releaseFacts: (() => void) | null = null
 
@@ -171,6 +173,7 @@ const models = setupServer(
         return HttpResponse.json({ error: "down" }, { status: 503 })
       if (disagreement) {
         disagreementRequests.push(keys)
+        factsParts.push(...body.state.map(String))
         const fact = (key: string) => {
           const [name, from] = key.split(".")
           if (name === "same" || name === "disagree") return 0.9
@@ -375,6 +378,32 @@ const diamondUnits: (RelatedUnit & { text: string })[] = [
     kind: "Note",
     title: "Diamond far",
     text: "answer",
+  },
+]
+
+/**
+ * A Workspace for the bridge to other sources. The seed is an issue with no
+ * relation to the code document that answers. The other issue also answers,
+ * but it is of the source of the seed, so the bridge does not add it.
+ */
+const bridgeUnits: (RelatedUnit & { text: string })[] = [
+  {
+    path: "github/issues/acme/shop/12.md",
+    kind: "Issue",
+    title: "Cart total is wrong",
+    text: "The total of the cart is wrong after a coupon.",
+  },
+  {
+    path: "github/issues/acme/shop/13.md",
+    kind: "Issue",
+    title: "Coupon rounding",
+    text: "The coupon rounds the cart total down. answer",
+  },
+  {
+    path: "knowledge/services/cart.md",
+    kind: "Service",
+    title: "Cart service",
+    text: "The cart service adds the coupons to the cart total. answer",
   },
 ]
 
@@ -684,10 +713,12 @@ describe("the knowledge reader seam", () => {
     }
     await planeOnly("wide", wideUnits)
     await planeOnly("diamond", diamondUnits)
+    await planeOnly("bridge", bridgeUnits)
     await markReady(ids.ready as string)
     await markReady(ids.paging as string)
     await markReady(ids.wide as string)
     await markReady(ids.diamond as string)
+    await markReady(ids.bridge as string)
     // A first run that has not ended: not ready.
     await beginKnowledgeRun({
       orgId: seed.orgId,
@@ -716,6 +747,7 @@ describe("the knowledge reader seam", () => {
     jevRequests.length = 0
     jevParts.length = 0
     disagreementRequests.length = 0
+    factsParts.length = 0
     events.length = 0
   })
 
@@ -1122,6 +1154,35 @@ describe("the knowledge reader seam", () => {
     ])
   })
 
+  it("on: get_related adds the documents of other sources that are closest to the question to layer 1, with no relation", async () => {
+    await setFlag("on")
+    const call = (args: Record<string, unknown>) =>
+      relatedCall({
+        workspace: "bridge",
+        seeds: ["github/issues/acme/shop/12.md"],
+        query: "Why is the cart total wrong after a coupon?",
+        ...args,
+      })
+    const results = structured(await call({})).results as {
+      ref: string
+      depth: number
+      path: unknown[]
+    }[]
+    // The code document has no relation to the issue: the bridge finds it.
+    // The other issue is of the source of the seed, so only a relation can
+    // reach it.
+    expect(results).toEqual([
+      expect.objectContaining({
+        ref: "knowledge/services/cart.md",
+        depth: 1,
+        path: [],
+      }),
+    ])
+    // A walk of named predicates follows only those relations.
+    const named = structured(await call({ predicates: ["MENTIONS"] }))
+    expect(named.results).toEqual([])
+  })
+
   it("get_related tells agents about the positions in its description and output schema", async () => {
     const { tools } = await related.listTools()
     const tool = tools.find((item) => item.name === "get_related")
@@ -1147,6 +1208,30 @@ describe("the knowledge reader seam", () => {
       "refs",
       "status",
     ])
+  })
+
+  it("on: Jev reads the relation that reached each candidate of get_related before its text", async () => {
+    await setFlag("on")
+    await relatedCall({ maxDepth: 1 })
+    const partOf = (title: string) =>
+      jevParts.find((part) => String(part).includes(`\n\n${title}`))
+    // The seed depends on the ledger, and the payments team owns the seed.
+    expect(partOf("Ledger database")).toMatch(
+      /^<data>"Checkout service" DEPENDS_ON this document\.\n\nLedger database/,
+    )
+    expect(partOf("Payments team")).toMatch(
+      /^<data>This document OWNS "Checkout service"\.\n\nPayments team/,
+    )
+    // The disagreement step reads the evidence of the answer, with no
+    // relation line.
+    expect(factsParts.some((part) => part.includes("Payments team"))).toBe(true)
+    expect(factsParts.some((part) => part.includes("OWNS"))).toBe(false)
+    // A seed has no relation that reached it.
+    expect(
+      jevParts.some((part) =>
+        String(part).startsWith("<data>Checkout service"),
+      ),
+    ).toBe(true)
   })
 
   it("on: get_related with maxDepth 1 does not explore past the first layer", async () => {
@@ -1786,6 +1871,8 @@ describe("the knowledge reader seam", () => {
     })
     expect(result.isError).toBeFalsy()
     expect(jevParts.every((part) => typeof part === "string")).toBe(true)
-    expect(jevParts).toContain(`<data>flow.png\n\n[image] ${flow}</data>`)
+    expect(jevParts).toContain(
+      `<data>"Flows" EMBEDS_IMAGE this document.\n\nflow.png\n\n[image] ${flow}</data>`,
+    )
   })
 })
