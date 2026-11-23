@@ -38,12 +38,20 @@ export const confluenceSourceScopeSchema = z
              */
             pages: z
               .union([z.literal("all"), z.array(confluencePageIdSchema).min(1)])
-              .check(
-                z.maxLength(CONFLUENCE_SOURCE_MAX_PAGES_PER_SPACE, {
-                  message: `Select at most ${CONFLUENCE_SOURCE_MAX_PAGES_PER_SPACE} pages in one Confluence space`,
-                  when: (payload) => Array.isArray(payload.value),
-                }),
-              ),
+              .check((ctx) => {
+                if (
+                  Array.isArray(ctx.value) &&
+                  ctx.value.length > CONFLUENCE_SOURCE_MAX_PAGES_PER_SPACE
+                )
+                  ctx.issues.push({
+                    code: "too_big",
+                    origin: "array",
+                    maximum: CONFLUENCE_SOURCE_MAX_PAGES_PER_SPACE,
+                    inclusive: true,
+                    input: ctx.value,
+                    message: `Select at most ${CONFLUENCE_SOURCE_MAX_PAGES_PER_SPACE} pages in one Confluence space`,
+                  })
+              }),
           })
           .strict(),
       )
