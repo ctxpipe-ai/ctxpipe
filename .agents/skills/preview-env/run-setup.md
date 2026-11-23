@@ -39,6 +39,14 @@ Mail to `agent+<tag>@agents.ctxpipe.dev` goes to the agents' inbox (factory [CTX
 - A target without an email transport only logs the mail. Then read the link the way the flow says (for example [AUTH-5](auth/SKILL.md)), and record `SKIP(needs-inbox)` only when the flow has no other way.
 - A PR preview requires no verified address. Every other target with an email transport requires one at each sign-up.
 
+### Shared eval account (production measures)
+
+A preview-env run makes its own accounts. A production measure outside a run (for example the chat latency of [CTX-1322](https://linear.app/ctxpipe/issue/CTX-1322)) uses the shared eval account. That account is linked to GitHub and has an eval Workspace. Its password is in the login keychain of the agent host, as a generic password with the service `ctxpipe-eval-account`. The account attribute is the login address.
+
+- Find the address: `security find-generic-password -s ctxpipe-eval-account | grep '"acct"'`.
+- Read the password into a variable only: `pass="$(security find-generic-password -s ctxpipe-eval-account -w)"`. Do not print it, and do not write it to a file.
+- Do not reset the password. A reset breaks every other agent that uses the account. If the sign-in fails, reset it once through the [test inbox](#test-inbox), and write the new value into the keychain before you use it: `security add-generic-password -U -s ctxpipe-eval-account -a <address> -w` reads the value from its prompt (or two lines on stdin), never from the command line.
+
 ### GitHub test org and repositories
 
 `GH_TEST_ORG` is `ctxpipe-ai`, with the ctxpipe GitHub App installed on **all repositories**, so repositories created during the run are readable without another install step. It is the team's own organization, so the run creates and deletes only throwaway repositories whose names start with `pe-{run-id}-`, and touches nothing else there. It holds two persistent private **template** repositories:
