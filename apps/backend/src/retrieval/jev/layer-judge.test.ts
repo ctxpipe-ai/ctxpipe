@@ -161,6 +161,40 @@ describe("judgeLayer", () => {
     }
   })
 
+  it("cuts the batches in the order of the candidate ids, so that the order of the candidates does not change a call", async () => {
+    server.use(answering)
+    const candidates = ["k3", "k0", "k4", "k1", "k2"].map((id) => ({
+      id,
+      text: `Text of ${id}`,
+      meta,
+    }))
+    const judge = (order: LayerCandidate[]) =>
+      judgeLayer({
+        question: "q",
+        intent: "i",
+        candidates: order,
+        batchSize: 2,
+      })
+
+    const first = await judge(candidates)
+    const firstCalls = requests.splice(0).map(({ body }) => body.state)
+    const second = await judge([...candidates].reverse())
+    const secondCalls = requests.splice(0).map(({ body }) => body.state)
+
+    const sorted = (calls: string[][]) =>
+      calls.map((state) => state.join("\n")).sort()
+    expect(sorted(secondCalls)).toEqual(sorted(firstCalls))
+    expect(second).toEqual(first)
+    // Each batch holds the next ids: k0 and k1, k2 and k3, then k4.
+    expect(
+      sorted(firstCalls).map((call) => call.match(/Text of k\d/g)),
+    ).toEqual([
+      ["Text of k0", "Text of k1"],
+      ["Text of k2", "Text of k3"],
+      ["Text of k4"],
+    ])
+  })
+
   it("throws an http JevError on an error status", async () => {
     server.use(
       http.post(DECISIONS, () =>
