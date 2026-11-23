@@ -38,6 +38,8 @@ import { nameKey, relativeTo, scriptStep } from "../../bin/knowledge-lib.mjs"
 import {
   baseBlob,
   blobContent,
+  listBaseTree,
+  readBaseBlobs,
   readDeletes,
   stagedFile,
   outputBudget,
@@ -99,6 +101,8 @@ function targetPath(repository, path) {
 const statusLabel = (status) => status.charAt(0).toUpperCase() + status.slice(1)
 
 const { step, source, repository, roots, index, skipped } = scriptStep()
+// The script checks the base path of each decision file: one git call.
+listBaseTree(step)
 const check = process.argv.slice(2).includes("--check")
 
 const tracked = trackedFiles(source)
@@ -402,6 +406,10 @@ function done(c) {
   return new RegExp(`^source_sha: ["']?${runSha}["']?$`, "m").test(text)
 }
 
+readBaseBlobs(
+  step,
+  order.map((c) => c.target),
+)
 const waiting = order.filter((c) => !done(c))
 
 function entryOf(c) {

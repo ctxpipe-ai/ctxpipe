@@ -33,6 +33,7 @@ import {
   blobContent,
   currentStep,
   fail,
+  listBaseTree,
   STEP_LIMITS,
   stepTexts,
 } from "../../bin/stage-lib.mjs"
@@ -61,6 +62,8 @@ const planFile = args.value("--plan") ?? fail("Give --plan <plan file>")
 const rootPath = args.rootPath ?? fail("Give --path <root path>")
 
 const step = currentStep(root)
+// The script checks the base path of each API and operation file.
+listBaseTree(step)
 const skipped = []
 const skip = (path, reason) => skipped.push({ path, reason })
 

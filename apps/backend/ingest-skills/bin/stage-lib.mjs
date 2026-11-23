@@ -117,37 +117,53 @@ function git(contextDir, args, input, maxBuffer = 64 * 1024 * 1024) {
   return execFileSync("git", ["-C", contextDir, ...args], { input, maxBuffer })
 }
 
-// The file blobs of each base commit that the script asked for more than
-// once: path to blob id. A commit does not change, so one `git ls-tree` of
-// the tree gives each later baseBlob call its answer, and a script that
-// checks 600 paths starts two git processes, not 600. A helper that asks
-// for one path (ctxpipe-stage) lists only that path, not a large tree.
-const baseBlobsOf = new Map()
-
-/** The blob id of `path` at the step's base commit, or null. */
-export function baseBlob(step, path) {
-  const key = `${step.contextDir}\0${step.baseCommit}`
-  const listed = baseBlobsOf.get(key)
-  if (listed) return listed.get(path) ?? null
+/** Path to blob id of each file blob in `ls-tree -z` output. */
+function fileBlobs(out) {
   const blobs = new Map()
-  const out = git(
-    step.contextDir,
-    listed === undefined
-      ? ["ls-tree", "-z", step.baseCommit, "--", path]
-      : ["ls-tree", "-r", "-z", "--full-tree", step.baseCommit],
-    undefined,
-    256 * 1024 * 1024,
-  ).toString("utf8")
-  for (const line of out.split("\0")) {
+  for (const line of out.toString("utf8").split("\0")) {
     const tab = line.indexOf("\t")
     if (tab === -1) continue
     const [mode, type, id] = line.slice(0, tab).split(" ")
     // A symbolic link or a submodule is not a file blob.
     if (type === "blob" && mode !== "120000") blobs.set(line.slice(tab + 1), id)
   }
-  // The first call lists one path; the next call lists the tree.
-  baseBlobsOf.set(key, listed === undefined ? null : blobs)
-  return blobs.get(path) ?? null
+  return blobs
+}
+
+// The file blobs of each base tree that listBaseTree read: path to blob id.
+const baseTrees = new Map()
+const treeKey = (step) => `${step.contextDir}\0${step.baseCommit}`
+
+/**
+ * Lists the base tree once with one `git ls-tree`, so that each later
+ * baseBlob call of the step starts no git process. A script that checks
+ * many paths calls it first. A commit does not change, so the list stays
+ * correct.
+ */
+export function listBaseTree(step) {
+  if (!baseTrees.has(treeKey(step)))
+    baseTrees.set(
+      treeKey(step),
+      fileBlobs(
+        git(
+          step.contextDir,
+          ["ls-tree", "-r", "-z", "--full-tree", step.baseCommit],
+          undefined,
+          256 * 1024 * 1024,
+        ),
+      ),
+    )
+}
+
+/** The blob id of `path` at the step's base commit, or null. */
+export function baseBlob(step, path) {
+  const tree = baseTrees.get(treeKey(step))
+  if (tree) return tree.get(path) ?? null
+  return (
+    fileBlobs(
+      git(step.contextDir, ["ls-tree", "-z", step.baseCommit, "--", path]),
+    ).get(path) ?? null
+  )
 }
 
 // Blob contents that readBaseBlobs read: blob id to Buffer. An id names
@@ -160,6 +176,7 @@ const blobContents = new Map()
  * that reads the base text of many files calls it first.
  */
 export function readBaseBlobs(step, paths) {
+  listBaseTree(step)
   const ids = [
     ...new Set(
       paths
@@ -169,13 +186,11 @@ export function readBaseBlobs(step, paths) {
   ]
   for (let from = 0; from < ids.length; from += 500) {
     const chunk = ids.slice(from, from + 500)
-    const out = execFileSync(
-      "git",
-      ["-C", step.contextDir, "cat-file", "--batch"],
-      {
-        input: chunk.map((id) => `${id}\n`).join(""),
-        maxBuffer: 512 * 1024 * 1024,
-      },
+    const out = git(
+      step.contextDir,
+      ["cat-file", "--batch"],
+      chunk.map((id) => `${id}\n`).join(""),
+      512 * 1024 * 1024,
     )
     let at = 0
     for (const id of chunk) {

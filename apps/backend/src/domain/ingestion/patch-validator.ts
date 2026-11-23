@@ -2080,8 +2080,9 @@ async function hashBlobs(
 }
 
 /**
- * The content of each blob id, with one `git cat-file --batch`. An id that is
- * missing or that is not a blob has no entry.
+ * The content of each blob id, with one `git cat-file --batch` for each 500
+ * ids, so that the output limit of runGit applies to 500 files, not to all
+ * of them. An id that is missing or that is not a blob has no entry.
  */
 export async function readBlobs(
   repoDir: string,
@@ -2089,26 +2090,27 @@ export async function readBlobs(
 ): Promise<Map<string, Buffer>> {
   const unique = [...new Set(shas)]
   const blobs = new Map<string, Buffer>()
-  if (unique.length === 0) return blobs
-  const out = await git(repoDir, ["cat-file", "--batch"], {
-    input: `${unique.join("\n")}\n`,
-  })
-  let offset = 0
-  while (offset < out.length) {
-    const newline = out.indexOf(0x0a, offset)
-    const [sha = "", type, size] = out
-      .subarray(offset, newline)
-      .toString()
-      .split(" ")
-    // "<id> missing" has no content.
-    if (type === "missing") {
-      offset = newline + 1
-      continue
+  for (let from = 0; from < unique.length; from += 500) {
+    const out = await git(repoDir, ["cat-file", "--batch"], {
+      input: `${unique.slice(from, from + 500).join("\n")}\n`,
+    })
+    let offset = 0
+    while (offset < out.length) {
+      const newline = out.indexOf(0x0a, offset)
+      const [sha = "", type, size] = out
+        .subarray(offset, newline)
+        .toString()
+        .split(" ")
+      // "<id> missing" has no content.
+      if (type === "missing") {
+        offset = newline + 1
+        continue
+      }
+      const length = Number(size)
+      if (type === "blob")
+        blobs.set(sha, out.subarray(newline + 1, newline + 1 + length))
+      offset = newline + 1 + length + 1
     }
-    const length = Number(size)
-    if (type === "blob")
-      blobs.set(sha, out.subarray(newline + 1, newline + 1 + length))
-    offset = newline + 1 + length + 1
   }
   return blobs
 }

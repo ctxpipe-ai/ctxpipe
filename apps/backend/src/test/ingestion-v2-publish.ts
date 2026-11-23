@@ -85,19 +85,19 @@ const githubLog: GithubTokenLog = { minted: [], revoked: [] }
 export const human = { pushed: true, sha: "" }
 /** Each run writes another text, so each run has a delta to publish. */
 export let edition = 1
+/** When armed, a person unlinks the source from context A during the run. */
+export const unlink = { armed: false, sha: "" }
 /**
  * When set, a person adds `addition` to the run's file on context A while the
  * run is in its steps. The semantic merge model answers with `reply`:
- * `append` gives the run's text plus `resolution`, `delete` deletes the file,
- * and `none` resolves no path (a schema mismatch of the resolver).
+ * `append` gives the run's text plus `resolution`, and `none` resolves no
+ * path (a schema mismatch of the resolver).
  */
-/** When armed, a person unlinks the source from context A during the run. */
-export const unlink = { armed: false, sha: "" }
 export const sameFile = {
   armed: false,
   sha: "",
   addition: "",
-  reply: "append" as "append" | "delete" | "none",
+  reply: "append" as "append" | "none",
   resolution: "",
   /** The run also writes a new file to context A, which no person changed. */
   newFile: false,
@@ -219,10 +219,7 @@ const server = setupServer(
                         ? []
                         : conflicts.map((c) => ({
                             path: c.path,
-                            content:
-                              sameFile.reply === "delete"
-                                ? null
-                                : `${c.incoming ?? ""}${sameFile.resolution}`,
+                            content: `${c.incoming ?? ""}${sameFile.resolution}`,
                           })),
                   }),
                 },
