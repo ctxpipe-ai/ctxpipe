@@ -310,38 +310,52 @@ export function ownersPlans({ source, files, repository, roots, index }) {
     }
   }
 
-  const plans = []
-  // Two aliases can get one slug (`api-team` and `api_team`). The first in
-  // order keeps it; the next gets a path with a hash of its name, the same
-  // on each run, so each alias has its own file.
-  const taken = new Set()
-  for (const alias of [...teams.keys()].sort()) {
-    const { lines, claims } = teams.get(alias)
-    const name = `${repository}/${alias}`
-    const existing =
+  // The path of each alias, the same on each run. Two aliases can get one
+  // slug (`api-team` and `api_team`), so the paths come in three passes: the
+  // existing Team file of the alias, then the slug path that no alias holds
+  // yet, then a path with a hash of the name, longer until no alias holds it.
+  // Each alias thus gets its own file.
+  const sorted = [...teams.keys()].sort()
+  const baseOf = (alias) => `knowledge/teams/${slug(repository)}-${slug(alias)}`
+  const paths = new Map()
+  const claim = (alias, path) => {
+    if (!path || paths.has(alias) || [...paths.values()].includes(path)) return
+    paths.set(alias, path)
+  }
+  for (const alias of sorted) {
+    const name = `${repository}/${alias}`.toLowerCase()
+    claim(
+      alias,
       index
         .filter(
           (e) =>
             e.kind === "Team" &&
             typeof e.title === "string" &&
-            e.title.toLowerCase() === name.toLowerCase(),
+            e.title.toLowerCase() === name,
         )
         .map((e) => e.path)
-        .sort()[0] ?? null
-    const base = `knowledge/teams/${slug(repository)}-${slug(alias)}`
-    const path =
-      existing ??
-      (taken.has(`${base}.md`)
-        ? `${base}-${createHash("sha256").update(alias).digest("hex").slice(0, 8)}.md`
-        : `${base}.md`)
-    if (taken.has(path)) {
+        .sort()[0],
+    )
+  }
+  for (const alias of sorted) claim(alias, `${baseOf(alias)}.md`)
+  for (const alias of sorted) {
+    const hash = createHash("sha256").update(alias).digest("hex")
+    for (const length of [8, 16, 64])
+      claim(alias, `${baseOf(alias)}-${hash.slice(0, length)}.md`)
+  }
+
+  const plans = []
+  for (const alias of sorted) {
+    const { lines, claims } = teams.get(alias)
+    const name = `${repository}/${alias}`
+    const path = paths.get(alias)
+    if (!path) {
       skipped.push({
         path: ALIASES_FILE,
-        reason: `The alias ${alias} gets the path of another alias, ${path}`,
+        reason: `The alias ${alias} gets no path that another alias does not have`,
       })
       continue
     }
-    taken.add(path)
     // Keep the lines that fit, in order, and record the rest.
     const kept = []
     let bytes = 0

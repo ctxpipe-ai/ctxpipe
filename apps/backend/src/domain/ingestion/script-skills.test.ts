@@ -970,6 +970,28 @@ describe("ownership skill", () => {
       expect(s.run("ownership").ops).toEqual([])
     })
 
+    it("gives a longer hash when the hash path of an alias is the slug path of another alias", () => {
+      const hash = createHash("sha256").update("api_team").digest("hex")
+      const taker = `api-team-${hash.slice(0, 8)}`
+      const s = step(
+        {
+          ...OWNED_SHOP,
+          OWNERS_ALIASES: `aliases:\n  api-team: [alice]\n  api_team: [bob]\n  ${taker}: [carol]\n`,
+          "apps/OWNERS": `approvers:\n  - api-team\n  - api_team\n  - ${taker}\n`,
+        },
+        {},
+      )
+      const out = s.run("ownership")
+      expect(out.skipped).toEqual([])
+      expect(out.ops.map((o) => o.path).sort()).toEqual(
+        [
+          "knowledge/teams/example-org-shop-api-team.md",
+          `knowledge/teams/example-org-shop-${taker}.md`,
+          `knowledge/teams/example-org-shop-api-team-${hash.slice(0, 16)}.md`,
+        ].sort(),
+      )
+    })
+
     it("leaves out an OWNERS file in a test fixture folder and records the folder (CTX-1531)", () => {
       const s = step(
         {
