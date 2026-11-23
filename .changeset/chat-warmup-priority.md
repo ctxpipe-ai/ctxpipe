@@ -2,4 +2,4 @@
 "@ctxpipe/aws-cdk": patch
 ---
 
-Chat: the OpenCode warm-up of a new AgentCore session runs at the lowest CPU and I/O priority, so the clone beside it goes first.
+Chat: a cold turn on AgentCore no longer waits for the OpenCode warm-up, which now runs at the lowest CPU priority beside the clone.
