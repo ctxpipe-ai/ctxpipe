@@ -694,14 +694,23 @@ export async function agentCoreImageUserCommand(
  * check is one more command on the path to the answer. AgentCore stops an
  * idle session only after 15 minutes, so a session that was checked less
  * than 60 s ago still runs. A create records nothing: the first resume of a
- * session, such as a pool claim, always checks it.
+ * session, such as a pool claim, always checks it. A stop in this process
+ * forgets the session. A stop by another backend process or a crash of the
+ * microVM in that window is an accepted risk: the next command then fails
+ * or finds an empty microVM, and the turn fails as it does without the skip
+ * when the session ends during the turn.
  */
 const checkedSessions = new Map<string, number>()
 
+function recentlyChecked(sessionId: string, now = Date.now()): boolean {
+  const at = checkedSessions.get(sessionId)
+  return at !== undefined && now - at < 60_000
+}
+
 function markSessionChecked(sessionId: string): void {
   const now = Date.now()
-  for (const [id, at] of checkedSessions)
-    if (now - at >= 60_000) checkedSessions.delete(id)
+  for (const id of checkedSessions.keys())
+    if (!recentlyChecked(id, now)) checkedSessions.delete(id)
   checkedSessions.set(sessionId, now)
 }
 
@@ -796,9 +805,7 @@ export function agentCoreSandboxProvider(input: {
     },
     async resume({ id }) {
       const { handle, run } = agentCoreHandle(runtime, id, paths, input.user)
-      const checkedAt = checkedSessions.get(id)
-      if (checkedAt !== undefined && Date.now() - checkedAt < 60_000)
-        return handle
+      if (recentlyChecked(id)) return handle
       // A call to a session that is gone starts a new, empty microVM.
       const marker = await run(
         `cat ${shellQuote(`${paths.state}/session`)} 2>/dev/null; true`,

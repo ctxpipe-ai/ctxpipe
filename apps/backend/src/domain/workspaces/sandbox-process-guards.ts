@@ -134,7 +134,10 @@ for p in $live; do kill -KILL -"$p" 2>/dev/null; done`,
  *   and kernel threads are kept.
  * - It is not in the session of PID 1. The sandbox's own processes (PID 1
  *   and the keep-alive it starts) are in that session. Another process
- *   cannot join it: `setsid` only makes a new session.
+ *   cannot join it: `setsid` only makes a new session. An `opencode serve`
+ *   of an earlier turn is the exception: it is stopped in every session,
+ *   because a sandbox runtime can start its commands in the session of
+ *   PID 1 (AgentCore does not say), and that server holds the agent port.
  * - It is not in this command's process group (this script and its pipes),
  *   and it is not an ancestor of this command (the command runner).
  *
@@ -154,7 +157,9 @@ export async function stopEarlierTurnProcesses(
 
 // After the command name in parentheses, /proc/<pid>/stat has the state,
 // the parent, the process group and the session, in that order.
+// The match text "serve" is split, so this script does not match itself.
 const STOP_EARLIER_TURN_PROCESSES = `field() { sed 's/.*) //' "/proc/$1/stat" 2>/dev/null | cut -d' ' -f"$2"; }
+s=serve
 me=$(id -u)
 init_session=$(field 1 4)
 own_group=$(field $$ 3)
@@ -169,6 +174,9 @@ found() {
     p=\${d#/proc/}
     case "$keep" in *" $p "*) continue ;; esac
     [ "$(stat -c %u "$d" 2>/dev/null)" = "$me" ] || continue
+    case "$(tr '\\0' ' ' < "$d/cmdline" 2>/dev/null)" in
+      *opencode*" $s --hostname="*) echo "$p"; continue ;;
+    esac
     [ "$(field "$p" 4)" = "$init_session" ] && continue
     [ "$(field "$p" 3)" = "$own_group" ] && continue
     echo "$p"
