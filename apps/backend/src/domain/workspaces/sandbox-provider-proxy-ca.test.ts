@@ -82,4 +82,17 @@ describe("withProxyCa", () => {
 
     expect(caWrites(created.id)).toBe(2)
   })
+
+  it("writes the CA again after an attach with another CA", async () => {
+    const { provider, caWrites } = recordingProvider()
+    const withCa = withProxyCa(provider, CA)
+
+    const created = await withCa.create({})
+    await withProxyCa(provider, CA.replace("AAAA", "BBBB")).resume({
+      id: created.id,
+    })
+    await withCa.resume({ id: created.id })
+
+    expect(caWrites(created.id)).toBe(3)
+  })
 })
