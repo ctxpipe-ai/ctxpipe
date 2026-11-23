@@ -746,17 +746,17 @@ export const ReopensConfluenceWizardAfterAccountLink = meta.story({
  * 1 s of a `waitFor` to answer the first requests of a page. Call it in
  * `beforeEach`, which runs before the story renders and sends its requests.
  */
-function mockedResponses(msw: SetupWorker, paths: string[]) {
+function mockedResponses(worker: SetupWorker, paths: string[]) {
   return Promise.all(
     paths.map(
       (path) =>
         new Promise<void>((resolve) => {
           const listener = ({ request }: { request: Request }) => {
             if (!new URL(request.url).pathname.endsWith(path)) return
-            msw.events.removeListener("response:mocked", listener)
+            worker.events.removeListener("response:mocked", listener)
             resolve()
           }
-          msw.events.on("response:mocked", listener)
+          worker.events.on("response:mocked", listener)
         }),
     ),
   )
