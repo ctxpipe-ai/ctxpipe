@@ -45,6 +45,7 @@ A preview-env run makes its own accounts. A production measure outside a run (fo
 
 - Find the address: `security find-generic-password -s ctxpipe-eval-account | grep '"acct"'`.
 - Read the password into a variable only: `pass="$(security find-generic-password -s ctxpipe-eval-account -w)"`. Do not print it, and do not write it to a file.
+- Sign in through the API, so that the value stays in the shell: send `$pass` in the body of `POST {BASE_URL}/.auth/api/v1/auth/sign-in/email` and keep only the session cookie (`curl -c <jar>`). Never type the value through computer use, a browser tool, or an MCP tool argument.
 - Do not reset the password. A reset breaks every other agent that uses the account. When the sign-in fails with the keychain value, stop and report the failure to the lead.
 
 ### GitHub test org and repositories
