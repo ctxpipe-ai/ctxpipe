@@ -666,6 +666,26 @@ test("a change to a runner file runs every test of the CI scripts and a canary w
   )
 })
 
+test("in a gated run the upgrade job runs its planned checks through selected.mjs, so a failed check with a stored pass runs once more", () => {
+  const { jobs } = parseYaml(
+    readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8"),
+  )
+  const steps = jobs["upgrade-from-previous-release"].steps
+  const gated = steps.filter((step) => /selected\.mjs/.test(step.run ?? ""))
+  assert.equal(gated.length, 1)
+  const [step] = gated
+  assert.equal(step.if, "needs.merge-gate-plan.outputs.mode == 'gate'")
+  assert.match(
+    step.run,
+    /selected\.mjs \S+ "\$RUNNER_TEMP\/plan\/plan\.json" upgrade-from-previous-release$/,
+  )
+  assert.equal(step.env.RELEASE_TREE, "${{ runner.temp }}/previous-release")
+  // The step that runs every upgrade check through run.mjs is the full-run
+  // path only.
+  for (const other of steps.filter((item) => /scripts\/checks\/run\.mjs/.test(item.run ?? "")))
+    assert.equal(other.if, "needs.merge-gate-plan.outputs.mode != 'gate'")
+})
+
 test("the runner jobs are the jobs of a pull_request run whose steps call the runner", () => {
   const { jobs } = parseYaml(
     readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8"),
