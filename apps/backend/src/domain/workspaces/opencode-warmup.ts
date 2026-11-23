@@ -20,16 +20,21 @@ import { WORKSPACE_CHAT_OPENCODE_START_ENV } from "./workspace-chat-opencode-con
  *   fills. It removes them at the end.
  * - Its OpenCode and its stand-in model listen only on loopback.
  *
- * It runs at the lowest CPU and I/O priority (`nice`, `ionice` idle class),
- * and so does its OpenCode. On a new session it runs beside the clone, and
- * production showed both slow when they compete (a clone of 30 to 37 s
- * beside a warm-up of 26 to 32 s, and 8 s beside 3 to 5 s). The clone is
- * on the path of the turn, so it goes first.
+ * On a new session of a cold turn, it runs beside the clone. In the slow
+ * cases on production, a clone of 30 to 37 s ran beside a warm-up of 26 to
+ * 32 s. In the fast case, a clone of 8 s ran beside a warm-up of 3 to 5 s.
+ * The clone is on the path of the turn, so the warm-up runs at the lowest
+ * CPU priority (`nice`), and so does its OpenCode. The `ionice` idle class
+ * has an effect only with the BFQ I/O scheduler. The turn does not wait for
+ * the warm-up: its stop of earlier processes ends a warm-up that still runs.
+ * A pool fill waits for its warm-up, because a pool session is ready only
+ * after it.
  *
  * It stops itself after the prompt, or after 25 s. Its exit code tells how
  * it ended: 0 after a model call, 2 at the 25 s limit, 3 when OpenCode
  * stopped first, 4 when no model call came, 5 when a request to OpenCode
- * failed, and 6 when `opencode` did not start.
+ * failed, and 6 when `opencode` did not start. `nice` or `ionice` gives 127
+ * when it is missing; the real-image contract test runs the command.
  */
 export const OPENCODE_WARMUP_COMMAND = `ionice -c 3 nice -n 19 node -e '
 const { spawn } = require("node:child_process")
@@ -124,9 +129,8 @@ export function warmOpencode(handle: SandboxHandle): Promise<void> {
 }
 
 /**
- * Wait for the warm-up of the sandbox, if one still runs. The turn calls
- * this before it stops the agent user's processes, which would stop the
- * warm-up too. The pool fill calls it before its session becomes ready.
+ * Wait for the warm-up of the sandbox, if one still runs. The pool fill
+ * calls it before its session becomes ready.
  */
 export async function waitForOpencodeWarmup(sandboxId: string): Promise<void> {
   const warmup = running.get(sandboxId)
