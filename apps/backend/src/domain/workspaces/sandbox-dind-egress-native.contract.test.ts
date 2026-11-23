@@ -48,7 +48,7 @@ it(
           `${dindDir}daemon.json:/etc/docker/daemon.json:ro`,
           "--entrypoint",
           "dind",
-          "docker:29.8.2-dind",
+          contractImage("dind"),
           "sh",
           "/sandbox-dind/entrypoint.sh",
         )

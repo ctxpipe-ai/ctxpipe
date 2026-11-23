@@ -31,13 +31,18 @@
     },
     "alpine": {
       "image": "alpine",
-      "tag": "3.22",
-      "digest": "sha256:2e0b81d60597f449baa56dc25d355367869d2dca4cd57e866f1e2b52af3eb55f"
+      "tag": "3.24",
+      "digest": "sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf"
     },
     "curl": {
       "image": "curlimages/curl",
-      "tag": "8.17.0",
-      "digest": "sha256:935d9100e9ba842cdb060de42472c7ca90cfe9a7c96e4dacb55e79e560b3ff40"
+      "tag": "8.23.0",
+      "digest": "sha256:3fb7e13e5d179a845c97d78204f3f1064d1907037f26a3ebf91710571151fd93"
+    },
+    "dind": {
+      "image": "docker",
+      "tag": "29.9.3-dind",
+      "digest": "sha256:7bf70dcb85c822e3fa6f2d332143e474b99147b9d7b39102b0cfe8b04a7dd61b"
     },
     "clickhouse": {
       "image": "clickhouse/clickhouse-server",
