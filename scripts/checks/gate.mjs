@@ -1129,6 +1129,16 @@ export function nextStore({ store, selection, ran, contradictions, run, now }) {
   const quarantined = new Set(store.quarantined)
   for (const item of contradictions)
     if (item.confirmed && keys.has(item.id)) quarantined.add(keys.get(item.id))
+  // A check with a pass of the PR head that failed here: no later run of this
+  // PR carries that pass (withCarry in plan.mjs).
+  const headKeys = new Map(
+    (selection.cache?.misses ?? [])
+      .filter((miss) => miss.headKey)
+      .map((miss) => [miss.id, miss.headKey]),
+  )
+  for (const item of ran)
+    if (["failed", "error"].includes(item.result) && headKeys.has(item.id))
+      quarantined.add(headKeys.get(item.id))
   const entries = new Map(
     store.entries.map((entry) => [`${entry.id}\0${entry.key}`, entry]),
   )

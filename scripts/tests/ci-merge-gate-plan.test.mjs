@@ -617,6 +617,37 @@ test("a pass of the PR head keeps the trust of its class and carries to no quara
   assert.deepEqual(jobs.carry.ids, [])
 })
 
+test("a check that main's delta selects and that fails here carries its head pass in no later run of the PR", () => {
+  // main's delta selects the contract test, which has a ci pass at its head
+  // key (12), and it fails at the merge revision.
+  const planned = carryOf()
+  const { store: next } = gateDecision({
+    config: config(),
+    planned,
+    records: [{ id: contract, status: "failed" }],
+    needs: { ...needs, lint: { result: "success" }, migrate: { result: "success" } },
+    jobs: jobs({}),
+    run: { id: "42", attempt: 1, pr: 7, sha: sha(3) },
+    store: store(),
+    now: new Date("2026-10-28T12:00:00Z"),
+  })
+  assert.deepEqual(next.quarantined, [key(12)])
+  // A rerun of the same revision whose main delta omits the check runs it.
+  const again = carryOf({
+    delta: {
+      ...mainDelta(),
+      selected: [],
+      omitted: [
+        { id: ui, lane: "ui", reason: "not reached" },
+        { id: contract, lane: "contracts", reason: "not reached" },
+      ],
+    },
+    store: readStore(next),
+  })
+  assert.ok(again.ran.includes(contract))
+  assert.deepEqual(again.carry.ids, [ui])
+})
+
 test("without a valid selection of main's delta whose model steps answered, no pass carries", () => {
   const noQuarantine = selectRecord()
   for (const [options, cause] of [

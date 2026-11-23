@@ -58,13 +58,15 @@ function withChecks(selection, runs, reason, { keepHits = false } = {}) {
           hits: (selection.cache.hits ?? []).filter((hit) => !runs(hit)),
           // A stored pass for the key of a check that runs: a failure
           // contradicts it (`rerun`). A `carry` hit is a pass of another
-          // key, so its check gets a plain miss.
+          // key, so its check gets a plain miss with that key (`headKey`).
           misses: [
             ...(selection.cache.misses ?? []),
             ...(selection.cache.hits ?? []).filter(runs).map((hit) => ({
               id: hit.id,
               key: hit.key,
-              ...(hit.source !== "carry" && { mode: reason.kind }),
+              ...(hit.source === "carry"
+                ? { headKey: hit.headKey }
+                : { mode: reason.kind }),
             })),
           ],
         },
@@ -449,7 +451,9 @@ export function withCarry(
         headKey: pass.key,
         provenance: pass.provenance,
       })
-    else misses.push(miss)
+    // A failure of a check whose head pass did not carry quarantines that
+    // pass in the PR store (nextStore in gate.mjs).
+    else misses.push(pass ? { ...miss, headKey: pass.key } : miss)
   }
   return {
     selection: { ...selection, cache: { ...selection.cache, hits, misses } },

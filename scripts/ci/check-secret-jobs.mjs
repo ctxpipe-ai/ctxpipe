@@ -180,7 +180,11 @@ const headWorktree = (job, text) =>
   /^\s*(?:-\s+run:\s+)?GIT_LFS_SKIP_SMUDGE=1 git worktree add --detach "\$RUNNER_TEMP\/head" HEAD\^2\s*$/.test(
     text,
   )
-
+// The untrusted commands of a line of `job` (`<workflow file>:<job name>`).
+const untrustedOf = (job, text) =>
+  headWorktree(job, text)
+    ? []
+    : untrusted.filter(([pattern]) => pattern.test(text))
 
 // A third-party action pinned by a full commit SHA.
 const pinnedAction = /@[0-9a-f]{40}$/
@@ -362,9 +366,7 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
       .map(({ text }) => /^ {4}environment:\s*['"]?([\w-]+)/.exec(text)?.[1])
       .find(Boolean)
     const runsUntrusted = job.lines.some(
-      ({ text }) =>
-        !headWorktree(`${name}:${job.name}`, text) &&
-        untrusted.some(([pattern]) => pattern.test(text)),
+      ({ text }) => untrustedOf(`${name}:${job.name}`, text).length > 0,
     )
 
     for (const step of job.steps) {
@@ -567,8 +569,7 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
           failures.push(
             `${where(number)} runs ${script}, which is not a reviewed script. Add it to reviewedScripts in scripts/ci/check-secret-jobs.mjs only if it runs no package manager.`,
           )
-      for (const [pattern, what] of untrusted)
-        if (pattern.test(text) && !headWorktree(`${name}:${job.name}`, text))
+      for (const [, what] of untrustedOf(`${name}:${job.name}`, text))
           failures.push(
             `${where(number)} ${what}. Untrusted code can read and change every later step of its job: move it to a job without the secret.`,
           )
