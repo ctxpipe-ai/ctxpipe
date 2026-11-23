@@ -121,6 +121,11 @@ export type Report = {
    * answer: the spend cap stopped the run, or a replay missed a call.
    */
   incomplete: string[]
+  /**
+   * Replay only: the answers with Jev questions that no recorded call asked
+   * about the same items. Each got the p(yes) of `--unrecorded-yes`.
+   */
+  unrecorded: { question: string; arm: Arm; count: number }[]
 }
 
 /**
@@ -298,6 +303,13 @@ export function buildReport(input: {
     incomplete: asked
       .filter((question) => !complete(question.id))
       .map((question) => question.id),
+    unrecorded: input.answers
+      .filter((answer) => answer.calls.unrecorded > 0)
+      .map(({ question, arm, calls }) => ({
+        question,
+        arm,
+        count: calls.unrecorded,
+      })),
     kept: input.kept
       ? compareWithKept({
           now: scores,
@@ -647,6 +659,17 @@ export function renderMarkdown(report: Report): string {
       "An arm has no complete answer to these questions: the spend cap stopped the run, or the recording of a replay does not hold each model call. Run them live to score them.",
       "",
       ...report.incomplete.map((question) => `- ${question}`),
+    )
+  if (report.unrecorded.length)
+    lines.push(
+      "",
+      "## Jev questions with no recorded answer",
+      "",
+      `The replay gave each of these Jev questions p(yes) ${report.run.unrecordedYes} (\`--unrecorded-yes\`), because no recorded call asked it about the same items. The scores are correct only when the change does not read these answers. A second rescore with another value shows it: the scores must not change.`,
+      "",
+      ...report.unrecorded.map(
+        ({ question, arm, count }) => `- ${question} (${arm}): ${count}`,
+      ),
     )
   return `${lines.join("\n")}\n`
 }

@@ -469,7 +469,7 @@ describe("the knowledge eval harness", () => {
           arm: "plane",
           split: "dev",
           jev: 2.25,
-          jevQuestions: 34,
+          jevQuestions: 36.75,
           embedding: 1,
           errors: 0,
           partial: 0,
@@ -478,7 +478,7 @@ describe("the knowledge eval harness", () => {
           arm: "plane",
           split: "holdout",
           jev: 3,
-          jevQuestions: 39.25,
+          jevQuestions: 49,
           embedding: 1,
           errors: 0,
           partial: 0,
@@ -897,15 +897,15 @@ describe("the knowledge eval harness", () => {
         kept: {
           ...latency,
           jevCallsPerQuestion: 2.25,
-          jevQuestionsPerQuestion: 34,
+          jevQuestionsPerQuestion: 36.75,
           costPerQuestionUsd: 0.003,
           errors: 0,
         },
         now: {
           searchP95Ms: null,
           relatedP95Ms: null,
-          jevCallsPerQuestion: 1.875,
-          jevQuestionsPerQuestion: 31.75,
+          jevCallsPerQuestion: 2,
+          jevQuestionsPerQuestion: 32.5,
           costPerQuestionUsd: 0.002,
           errors: 0,
         },
@@ -916,15 +916,15 @@ describe("the knowledge eval harness", () => {
         kept: {
           ...latency,
           jevCallsPerQuestion: 3,
-          jevQuestionsPerQuestion: 39.25,
+          jevQuestionsPerQuestion: 49,
           costPerQuestionUsd: 0.004,
           errors: 0,
         },
         now: {
           searchP95Ms: null,
           relatedP95Ms: null,
-          jevCallsPerQuestion: 2.5,
-          jevQuestionsPerQuestion: 34,
+          jevCallsPerQuestion: 3,
+          jevQuestionsPerQuestion: 35.75,
           costPerQuestionUsd: 0.003,
           errors: 0,
         },
@@ -939,7 +939,7 @@ describe("the knowledge eval harness", () => {
       "| holdout | all | 4 | positions correct | 1.000 | 0.000 | -1.000 |",
     )
     expect(markdown).toContain(
-      "| holdout | 4 | Jev calls / question | 3.000 | 2.500 | -0.500 |",
+      "| holdout | 4 | Jev questions / question | 49.000 | 35.750 | -13.250 |",
     )
   })
 

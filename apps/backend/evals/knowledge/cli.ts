@@ -9,7 +9,7 @@
  *     [--split dev|holdout] [--cap-usd 5] [--set NAME=VALUE] [--kept REPORT]
  *     [--baseline-from RUN_DIR] [--reuse-from RUN_DIR]
  *   bun evals/knowledge/cli.ts rescore --from DIR --out DIR \
- *     [--set NAME=VALUE] [--kept REPORT]
+ *     [--set NAME=VALUE] [--kept REPORT] [--unrecorded-yes P]
  *   bun evals/knowledge/cli.ts draft --dataset FILE --corpus ID --repo DIR \
  *     --model MODEL --out FILE [--seed TEXT] [--scale 0.4] [--resume DRAFT]
  *     [--cap-usd 10]
@@ -124,7 +124,7 @@ export async function executeRun(input: {
   now: Date
   out: string
   kept: KeptRun | null
-  replay?: { calls: readonly RecordedCall[] }
+  replay?: { calls: readonly RecordedCall[]; unrecordedYes?: number }
   /** The quiet time before the first calls of each arm (check 7). */
   quietMs: number
   /**
@@ -161,10 +161,15 @@ export async function executeRun(input: {
   // A replay sends no call. Each client of a live run sends the provider
   // block (ADR-070). A run with `--reuse-from` sends only the calls that
   // the recording does not hold.
+  const unrecordedYes = input.replay?.unrecordedYes
   const calls = modelCalls(
     input.capUsd,
     input.replay?.calls ?? input.reuse?.run.calls,
-    input.reuse ? { liveFallback: true } : undefined,
+    input.reuse
+      ? { liveFallback: true }
+      : unrecordedYes === undefined
+        ? undefined
+        : { unrecordedYes },
   )
   // The folder keeps the calls of the reused answers, so that a replay of
   // this run has each call of both arms.
@@ -202,6 +207,7 @@ export async function executeRun(input: {
       ...(input.reuse
         ? { reuse: { from: input.reuse.folder, ...calls.reuseSummary() } }
         : {}),
+      ...(unrecordedYes === undefined ? {} : { unrecordedYes }),
       ...calls.summary(),
     }
     await writeRun(input.out, {
@@ -652,6 +658,7 @@ export async function main(argv: string[]): Promise<number> {
       kept: { type: "string" },
       "baseline-from": { type: "string" },
       "reuse-from": { type: "string" },
+      "unrecorded-yes": { type: "string" },
       draft: { type: "string" },
       repo: { type: "string" },
       models: { type: "string" },
@@ -863,6 +870,13 @@ export async function main(argv: string[]): Promise<number> {
         throw new SetupError(
           "rescore takes no --baseline-from and no --reuse-from: it replays both arms of --from.",
         )
+      const fill = values["unrecorded-yes"]
+      const unrecordedYes = fill === undefined ? undefined : Number(fill)
+      if (
+        unrecordedYes !== undefined &&
+        !(fill !== "" && unrecordedYes >= 0 && unrecordedYes <= 1)
+      )
+        throw new SetupError("--unrecorded-yes is a number from 0 to 1.")
       const recorded = await readRun(values.from)
       // Each model call of the readers scrubs its text with it (CTX-1452).
       buildConverter()
@@ -875,7 +889,10 @@ export async function main(argv: string[]): Promise<number> {
         now: new Date(recorded.manifest.now),
         out,
         kept,
-        replay: { calls: recorded.calls },
+        replay: {
+          calls: recorded.calls,
+          ...(unrecordedYes === undefined ? {} : { unrecordedYes }),
+        },
         quietMs: QUIET_MS,
       })
     } else {
@@ -887,6 +904,9 @@ export async function main(argv: string[]): Promise<number> {
           : ["dev", "holdout"]
       if (values.split && splits.length !== 1)
         throw new SetupError("--split is dev or holdout.")
+      // A changed request of a run goes out, so a run has no fill.
+      if (values["unrecorded-yes"] !== undefined)
+        throw new SetupError("--unrecorded-yes is for rescore only.")
       const baselineFrom = values["baseline-from"]
       const reuseFrom = values["reuse-from"]
       // A folder that is not a run folder is a setup error.

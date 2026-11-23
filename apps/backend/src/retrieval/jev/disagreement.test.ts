@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { useMswServer } from "../../../test/msw.js"
 import {
+  askDisagreementFacts,
   decideDisagreements,
   type EvidenceItem,
   resolveDisagreements,
@@ -238,6 +239,76 @@ describe("resolveDisagreements", () => {
       "a",
       "b",
     ])
+  })
+
+  it("decides from the facts of an earlier ask about more items, with no call", async () => {
+    // a and c make a claim about the same part, and c replaces a. b is
+    // about another part.
+    server.use(
+      http.post(
+        DECISIONS,
+        fixedAnswers({ "same.1.3": 0.9, "replaces.3.1": 0.9 }),
+      ),
+    )
+    const facts = await askDisagreementFacts({
+      question: "q",
+      items: [item("a"), item("b"), item("c")],
+    })
+    expect(requests).toHaveLength(1)
+
+    // Two of the items, in another order: c is Item 1 and a is Item 2 for
+    // the decision.
+    const result = await resolveDisagreements({
+      question: "q",
+      items: [item("c"), item("a")],
+      facts,
+      queryTime,
+      thresholds,
+    })
+    expect(requests).toHaveLength(1)
+    expect(result.positions).toEqual([
+      {
+        itemIds: ["c"],
+        status: "current",
+        reason: { by: "tie-break", rule: "updates" },
+      },
+      {
+        itemIds: ["a"],
+        status: "superseded",
+        reason: { by: "tie-break", rule: "updates" },
+      },
+    ])
+    // The same decision as an ask about these two items only.
+    server.use(
+      http.post(
+        DECISIONS,
+        fixedAnswers({ "same.1.2": 0.9, "replaces.1.2": 0.9 }),
+      ),
+    )
+    expect(
+      await resolveDisagreements({
+        question: "q",
+        items: [item("c"), item("a")],
+        queryTime,
+        thresholds,
+      }),
+    ).toEqual(result)
+  })
+
+  it("refuses earlier facts that are not about each item", async () => {
+    server.use(http.post(DECISIONS, fixedAnswers()))
+    const facts = await askDisagreementFacts({
+      question: "q",
+      items: [item("a"), item("b")],
+    })
+    await expect(
+      resolveDisagreements({
+        question: "q",
+        items: [item("a"), item("c")],
+        facts,
+        thresholds,
+      }),
+    ).rejects.toThrow(RangeError)
   })
 
   it("returns no positions and calls nothing for no items", async () => {

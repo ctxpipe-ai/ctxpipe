@@ -213,6 +213,11 @@ const manifestSchema = z.object({
   reuse: z
     .object({ from: z.string(), reused: z.number(), live: z.number() })
     .optional(),
+  /**
+   * Replay only (`--unrecorded-yes`): the p(yes) of each Jev question that no
+   * recorded call asked. Absent: such a call misses.
+   */
+  unrecordedYes: z.number().optional(),
   capUsd: z.number(),
   spentUsd: z.number(),
   stopped: z.boolean(),

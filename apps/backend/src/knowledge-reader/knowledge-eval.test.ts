@@ -19,6 +19,7 @@ import {
 } from "../../evals/knowledge/metrics.js"
 import {
   ModelCalls,
+  type RecordedCall,
   recordedCallSchema,
 } from "../../evals/knowledge/model-calls.js"
 import { checkPanel, labelWithPanel } from "../../evals/knowledge/panel.js"
@@ -31,6 +32,8 @@ import { parseSettings } from "../../evals/knowledge/runner.js"
 import { madeUpPrivateKey } from "../../test/made-up-key.js"
 import { useMswServer } from "../../test/msw.js"
 import { decideNoul, JEV_MODEL } from "../retrieval/jev/client.js"
+import { askDisagreementFacts } from "../retrieval/jev/disagreement.js"
+import { judgeLayer } from "../retrieval/jev/layer-judge.js"
 import { ORCHESTRATOR_DEFAULTS } from "./orchestrator.js"
 
 /*
@@ -345,6 +348,7 @@ describe("the spend cap", () => {
         costUsd: 0.001,
         missing: 0,
         failed: 0,
+        unrecorded: 0,
       })
     } finally {
       restore()
@@ -481,6 +485,197 @@ describe("the replay key", () => {
   })
 })
 
+describe("the replay of a Jev question in another call", () => {
+  const BASE = "https://openrouter.ai/api/v1"
+  const JEV = "https://openrouter.ai/api/alpha/decisions"
+  const server = useMswServer()
+  afterEach(() => vi.unstubAllEnvs())
+
+  const meta = {
+    status: "active",
+    sourceType: "docs",
+    observedAt: "2026-11-01T00:00:00.000Z",
+    validFrom: null,
+    validTo: null,
+    confidence: null,
+  }
+  const judgeWhy = (ids: string[]) =>
+    judgeLayer({
+      question: "q",
+      intent: "why",
+      candidates: ids.map((id) => ({ id, text: `The text of ${id}.`, meta })),
+    })
+  const item = (id: string) => ({
+    id,
+    passage: `The passage of ${id}.`,
+    meta: { ...meta, documentKey: id },
+  })
+
+  /** Record the calls of `ask` with a Jev that answers from `record`. */
+  async function recorded(
+    record: Record<string, number>,
+    ask: () => Promise<unknown>,
+  ) {
+    vi.stubEnv("MODEL_PROVIDER", "openrouter")
+    vi.stubEnv("MODEL_PROVIDER_URL", BASE)
+    vi.stubEnv("MODEL_PROVIDER_API_KEY", "test-key")
+    server.use(
+      http.post(JEV, async ({ request }) => {
+        const { questions } = (await request.json()) as {
+          questions: Record<string, unknown>
+        }
+        return HttpResponse.json({
+          answers: Object.fromEntries(
+            Object.keys(questions).map((key) => [
+              key,
+              { type: "noul", noul: record[key] },
+            ]),
+          ),
+        })
+      }),
+    )
+    const live = new ModelCalls(BASE, 1)
+    const restore = live.install()
+    try {
+      live.begin("plane", "question")
+      await ask()
+    } finally {
+      restore()
+    }
+    // A replay sends nothing.
+    server.use(
+      http.post(JEV, () =>
+        HttpResponse.json({ error: "live" }, { status: 500 }),
+      ),
+    )
+    return live.records
+  }
+
+  /** Run `step` on a replay of `records`, then give its counts. */
+  async function replayed(
+    records: readonly RecordedCall[],
+    step: () => Promise<unknown>,
+    options?: { unrecordedYes?: number },
+  ) {
+    const replay = new ModelCalls(BASE, 0, records, options)
+    const restore = replay.install()
+    try {
+      replay.begin("plane", "question")
+      const result = await step().catch((error: unknown) => error)
+      return { result, counts: replay.end(), records: replay.records }
+    } finally {
+      restore()
+    }
+  }
+
+  it("answers a question from a recorded call that asked it about the same item, and keeps that call", async () => {
+    const calls = await recorded(
+      {
+        "answers.1": 0.9,
+        "explore.1": 0.2,
+        "answers.2": 0.3,
+        "explore.2": 0.8,
+      },
+      () => judgeWhy(["a", "b"]),
+    )
+    // b and a in their own calls, under other numbers.
+    const first = await replayed(calls, () =>
+      Promise.all([judgeWhy(["b"]), judgeWhy(["a"])]),
+    )
+    const [b, a] = first.result as Map<string, unknown>[]
+    expect(b?.get("b")).toEqual({ pAnswers: 0.3, pExplore: 0.8 })
+    expect(a?.get("a")).toEqual({ pAnswers: 0.9, pExplore: 0.2 })
+    expect(first.counts).toMatchObject({ jev: 2, missing: 0, unrecorded: 0 })
+    // A run with a live fallback (`--reuse-from`) sends the changed
+    // request, so that the run measures it. The mock refuses each live call.
+    const reuse = new ModelCalls(BASE, 1, calls, { liveFallback: true })
+    const restoreReuse = reuse.install()
+    try {
+      reuse.begin("plane", "question")
+      await expect(judgeWhy(["b"])).rejects.toThrow()
+      expect(reuse.reuseSummary()).toEqual({ reused: 0, live: 1 })
+    } finally {
+      restoreReuse()
+    }
+    // The replay keeps the recorded call, so a replay of it answers again.
+    const second = await replayed(first.records, () => judgeWhy(["b"]))
+    expect((second.result as Map<string, unknown>).get("b")).toEqual({
+      pAnswers: 0.3,
+      pExplore: 0.8,
+    })
+  })
+
+  it("misses a call with an unrecorded question; --unrecorded-yes fills only a disagreement fact", async () => {
+    const calls = await recorded(
+      { "answers.1": 0.9, "explore.1": 0.2, "scoped.1": 0.4 },
+      async () => {
+        await judgeWhy(["a"])
+        await askDisagreementFacts({ question: "q", items: [item("a")] })
+      },
+    )
+    // c is new: a deeper walk, for example, stays incomplete, also with
+    // the fill.
+    for (const options of [undefined, { unrecordedYes: 1 }]) {
+      const missed = await replayed(calls, () => judgeWhy(["c", "a"]), options)
+      expect(missed.result).toBeInstanceOf(Error)
+      expect(missed.counts).toMatchObject({ jev: 0, missing: 1 })
+    }
+    // The facts of the pair (a, c) and of c are new: they miss, unless the
+    // fill gives them its p(yes).
+    const facts = () =>
+      askDisagreementFacts({ question: "q", items: [item("a"), item("c")] })
+    expect((await replayed(calls, facts)).result).toBeInstanceOf(Error)
+    const filled = await replayed(calls, facts, { unrecordedYes: 1 })
+    expect(
+      Object.fromEntries(
+        (filled.result as { answers: Map<string, number> }).answers,
+      ),
+    ).toEqual({
+      "same.1.2": 1,
+      "disagree.1.2": 1,
+      "replaces.1.2": 1,
+      "replaces.2.1": 1,
+      "scoped.1": 0.4,
+      "scoped.2": 1,
+    })
+    expect(filled.counts).toMatchObject({ jev: 1, missing: 0, unrecorded: 5 })
+    // The estimated cost: the text of the call at the cost for each
+    // character of the recorded call that it used.
+    expect(filled.counts.costUsd).toBeGreaterThan(0)
+  })
+
+  it("reads a symmetric pair fact in either order of the items, and a directed one only in its own direction", async () => {
+    // a is Item 1 and b is Item 2. b replaces a.
+    const calls = await recorded(
+      {
+        "same.1.2": 0.9,
+        "disagree.1.2": 0.8,
+        "replaces.1.2": 0.1,
+        "replaces.2.1": 0.7,
+        "scoped.1": 0.2,
+        "scoped.2": 0.3,
+      },
+      () =>
+        askDisagreementFacts({ question: "q", items: [item("a"), item("b")] }),
+    )
+    // b is Item 1 and a is Item 2 now.
+    const { result, counts } = await replayed(calls, () =>
+      askDisagreementFacts({ question: "q", items: [item("b"), item("a")] }),
+    )
+    expect(
+      Object.fromEntries((result as { answers: Map<string, number> }).answers),
+    ).toEqual({
+      "same.1.2": 0.9,
+      "disagree.1.2": 0.8,
+      "replaces.1.2": 0.7,
+      "replaces.2.1": 0.1,
+      "scoped.1": 0.3,
+      "scoped.2": 0.2,
+    })
+    expect(counts).toMatchObject({ jev: 1, unrecorded: 0 })
+  })
+})
+
 describe("a run with a failed call", () => {
   it("is not complete: the report counts the failed answers", async () => {
     const dataset = await readDataset(datasetFile)
@@ -499,7 +694,7 @@ describe("a run with a failed call", () => {
       search: failed
         ? { error: "Error", latencyMs: 10 }
         : { refs: [], scores: [], latencyMs: 10 },
-      calls: { ...calls, missing, failed: 0 },
+      calls: { ...calls, missing, failed: 0, unrecorded: 0 },
     })
     const report = buildReport({
       manifest: {
@@ -521,7 +716,7 @@ describe("a run with a failed call", () => {
         // a failed Jev call gives `judge_unavailable`: both are errors.
         {
           ...answer("legacy", third.id, false),
-          calls: { ...calls, missing: 0, failed: 1 },
+          calls: { ...calls, missing: 0, failed: 1, unrecorded: 0 },
         },
         {
           ...answer("plane", third.id, false),
@@ -570,7 +765,7 @@ describe("the product time budget", () => {
       question,
       search: { refs: [], scores: [], latencyMs: 900 },
       related: { refs: [], scores: [], latencyMs: relatedMs },
-      calls: { ...calls, missing: 0, failed: 0 },
+      calls: { ...calls, missing: 0, failed: 0, unrecorded: 0 },
     })
     const input = {
       manifest: {
@@ -645,13 +840,13 @@ describe("the comparison with the kept run", () => {
           arm: "legacy",
           question: id,
           search: { refs: [], scores: [], latencyMs: 10 },
-          calls: { ...calls, missing: 0, failed: 0 },
+          calls: { ...calls, missing: 0, failed: 0, unrecorded: 0 },
         },
         {
           arm: "plane",
           question: id,
           search: { error: "internal", latencyMs: 10 },
-          calls: { ...calls, missing: 0, failed: 0 },
+          calls: { ...calls, missing: 0, failed: 0, unrecorded: 0 },
         },
       ],
       kept: {
