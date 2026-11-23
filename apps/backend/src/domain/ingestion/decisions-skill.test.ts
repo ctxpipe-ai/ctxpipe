@@ -368,6 +368,23 @@ describe("decisions skill: finder and metadata", () => {
     expect(out.total).toBe(4)
   })
 
+  it("leaves out a decision file in a test fixture folder, and records the folder (CTX-1531)", async () => {
+    const out = (
+      await step({
+        ...ADRS,
+        "pkg/testdata/docs/adr/0001-copy.md": "# 1. Copy\n",
+        "cli/artifacts/docs/adr/0002-copy.md": "# 2. Copy\n",
+      })
+    ).run()
+    expect(out.total).toBe(4)
+    expect(
+      out.skipped.filter((entry) => /test fixture folder/.test(entry.reason)),
+    ).toEqual([
+      { path: "cli/artifacts", reason: expect.stringMatching(/its 1 file\b/) },
+      { path: "pkg/testdata", reason: expect.stringMatching(/its 1 file\b/) },
+    ])
+  })
+
   it("reads the title, number, declared status, and date of each style", async () => {
     const out = (await step(ADRS)).run()
     const by = (path: string) => out.decisions.find((d) => d.path === path)
@@ -1113,6 +1130,26 @@ describe("decisions skill: existing files", () => {
         "knowledge/decisions/legacy.md": legacy,
       })
     ).run()
+    expect(out.stale).toEqual(["knowledge/decisions/gone.md"])
+  })
+
+  it("still lists a stale file when a decision file is in a test fixture folder (CTX-1531)", async () => {
+    const gone = front(
+      {
+        kind: "Decision",
+        name: "Gone",
+        generated_by: "ctxpipe-extract",
+        sources: [SOURCE_PATH],
+      },
+      "# Gone\n\n**Source:** `docs/adr/0099-gone.md`\n",
+    )
+    const out = (
+      await step(
+        { ...ADRS, "pkg/testdata/docs/adr/0001-copy.md": "# 1. Copy\n" },
+        { ...CONTEXT, "knowledge/decisions/gone.md": gone },
+      )
+    ).run()
+    expect(out.skipped.map((entry) => entry.path)).toEqual(["pkg/testdata"])
     expect(out.stale).toEqual(["knowledge/decisions/gone.md"])
   })
 })

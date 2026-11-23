@@ -23,26 +23,15 @@ import { readFileSync, statSync } from "node:fs"
 import { posix } from "node:path"
 
 import {
-  claimBytes,
-  fileClaims,
   findExisting,
-  isListPart,
   relativeTo,
   scriptStep,
   writeStep,
 } from "../../bin/knowledge-lib.mjs"
-import {
-  fail,
-  STEP_LIMITS,
-  stagedPaths,
-  stepTexts,
-} from "../../bin/stage-lib.mjs"
+import { fail, STEP_LIMITS } from "../../bin/stage-lib.mjs"
 import { safePath } from "../../discover-roots/scripts/roots-lib.mjs"
 import {
   dependencyLine,
-  listPart,
-  parseDependencyLine,
-  listTexts,
   resolvedIds,
   scan,
   stepCandidateCount,
@@ -123,8 +112,20 @@ const skip = (id, reason, code) => {
   skipped.push({ path: null, reason: `${id}: ${reason}` })
 }
 const noService = new Set()
-/** The claims and identity lines of this page's resolutions, for each Service file. */
-const entries = new Map()
+/**
+ * The budgets of the dependency list of a Service file in the shared writer
+ * (`listPlans` of knowledge-lib.mjs, CTX-1487). The claims go to the
+ * Service file while that file stays at most 56 KiB with at most 150
+ * claims, so that the other skills keep room in it. The identity lines go
+ * to the Service file while that file stays at most 32 KiB. The next ones
+ * go to the parts of the list. A candidate is resolved only when its claim
+ * and its line both exist (`resolvedIds`), so the order of the files does
+ * not matter.
+ */
+const SERVICE_LIST = {
+  claims: { bytes: STEP_LIMITS.fileBytes - 8 * 1024, claims: 150 },
+  lines: { bytes: STEP_LIMITS.fileBytes / 2 },
+}
 
 for (const resolution of resolutions) {
   if (!resolution || typeof resolution !== "object") continue
@@ -185,7 +186,7 @@ for (const resolution of resolutions) {
     }
     const entry = entryAt(resolution.path)
     const kinds = kind === "service" ? ["Service"] : ["API", "Operation"]
-    if (!entry || !kinds.includes(entry.kind) || isListPart(entry.path)) {
+    if (!entry || !kinds.includes(entry.kind)) {
       skip(
         id,
         `${String(resolution.path).slice(0, 100)} is not a ${kind} file of the context`,
@@ -270,6 +271,8 @@ for (const resolution of resolutions) {
       ],
       expectName: target.name,
       create: streamCreate(target.name ?? posix.basename(target.path, ".md")),
+      // A Stream file that many roots share continues in parts (CTX-1528).
+      list: { evidence: candidate.file },
     })
   } else {
     skip(id, "kind must be service, api, stream, or ignore", "bad_kind")
@@ -285,138 +288,34 @@ for (const resolution of resolutions) {
     continue
   }
   // Each Service file of the root gets the claim and the identity line of
-  // the resolution, in its dependency list (`listPlans`).
+  // the resolution, in its dependency list (`SERVICE_LIST`).
   for (const user of users) {
     const link = relativeTo(user.path, target.path)
-    if (!entries.has(user.path)) entries.set(user.path, [])
-    entries.get(user.path).push({
-      claim: {
-        to: link,
-        predicate,
-        evidence: { path: candidate.file, kind: "model" },
-      },
-      line: dependencyLine({
-        predicate,
-        link,
-        repository,
-        root: current.path,
-        file: candidate.file,
-        id: candidate.id,
-      }),
+    plans.push({
+      path: user.path,
+      create: null,
+      claims: [
+        {
+          to: link,
+          predicate,
+          evidence: { path: candidate.file, kind: "model" },
+        },
+      ],
+      related: [
+        dependencyLine({
+          predicate,
+          link,
+          repository,
+          root: current.path,
+          file: candidate.file,
+          id: candidate.id,
+        }),
+      ],
+      list: { ...SERVICE_LIST, evidence: candidate.file },
     })
   }
 }
 
-/**
- * The plans of the dependency list of one Service file (CTX-1487): the
- * Service file and its parts (`listPart`). Each entry is a claim and its
- * identity line. The claims go first: a claim goes to the Service file
- * while the file stays at most 56 KiB with at most 150 claims, so that the
- * other skills keep room in it, and else to the first part with room. Then
- * the identity lines: a line goes to the Service file while the file stays
- * at most 32 KiB, and else to the first part with room. A part takes up to
- * the limits of the validator (64 KiB and 200 claims), less a margin for the
- * host fields. A claim or a line that a file of the list has already does
- * not move. A new part has a PART_OF claim to its Service file. The order
- * of the files does not matter: a candidate is resolved only when its claim
- * and its line both exist (`resolvedIds`). The texts come from the step
- * base, because writeStep writes each file from the base and the plans of
- * the page.
- */
-function listPlans(servicePath, list) {
-  const base = posix.basename(servicePath, ".md")
-  const fileOf = (path, text) => {
-    const claims = fileClaims(text) ?? new Set()
-    return {
-      path,
-      lines: new Set(text.split("\n").map((l) => l.trim())),
-      claims,
-      bytes: Buffer.byteLength(text),
-      count: claims.size,
-      added: new Map(),
-      related: [],
-    }
-  }
-  const files = listTexts(step, servicePath, { staged: false }).map(
-    ({ path, n, text }) => ({ ...fileOf(path, text), n }),
-  )
-  if (!files.length) files.push({ ...fileOf(servicePath, ""), n: 1 })
-  // The budgets of the list. The Service file keeps room for the claims of
-  // the other skills; a part keeps a margin for the host fields.
-  const limit = STEP_LIMITS.fileBytes
-  const serviceForClaims = { bytes: limit - 8 * 1024, claims: 150 }
-  const serviceForLines = { bytes: limit / 2, claims: Infinity }
-  const part = { bytes: limit - 2048, claims: STEP_LIMITS.claims }
-  const newPartBytes = 1024
-  const room = (i, kind) =>
-    i > 0 ? part : kind === "claim" ? serviceForClaims : serviceForLines
-  /** The first file with room, else a new part. */
-  const fileFor = (kind, bytes) => {
-    const claims = kind === "claim" ? 1 : 0
-    const at = files.findIndex(
-      (file, i) =>
-        file.bytes + bytes <= room(i, kind).bytes &&
-        file.count + claims <= room(i, kind).claims,
-    )
-    if (at !== -1) return files[at]
-    const n = Math.max(...files.map((file) => file.n)) + 1
-    const next = fileOf(listPart(servicePath, n), "")
-    files.push({ ...next, n, bytes: newPartBytes, count: 1, create: true })
-    return files.at(-1)
-  }
-  const sorted = [...new Map(list.map((e) => [e.line, e])).values()].sort(
-    (a, b) => (a.line < b.line ? -1 : 1),
-  )
-  for (const { claim } of sorted) {
-    const key = `${claim.to} ${claim.predicate}`
-    if (files.some((f) => f.claims.has(key) || f.added.has(key))) continue
-    const file = fileFor("claim", claimBytes(claim))
-    file.added.set(key, claim)
-    file.bytes += claimBytes(claim)
-    file.count++
-  }
-  for (const { line, claim } of sorted) {
-    if (files.some((f) => f.lines.has(line))) continue
-    const file = fileFor("line", Buffer.byteLength(line) + 1)
-    file.lines.add(line)
-    file.related.push(line)
-    file.bytes += Buffer.byteLength(line) + 1
-    file.evidence ??= claim.evidence.path
-  }
-  return files.flatMap((file, i) => {
-    if (!file.related.length && !file.added.size) return []
-    const claims = [...file.added.values()]
-    if (i === 0)
-      return [{ path: file.path, create: null, claims, related: file.related }]
-    // The validator takes a name of at most 200 characters.
-    const name = `${base.slice(0, 150)} dependencies ${file.n}`
-    const evidence = claims[0]?.evidence.path ?? file.evidence
-    return [
-      {
-        path: file.path,
-        claims: file.create
-          ? [
-              {
-                to: `${base}.md`,
-                predicate: "PART_OF",
-                evidence: { path: evidence, kind: "script" },
-              },
-              ...claims,
-            ]
-          : claims,
-        related: file.related,
-        expectName: name,
-        exactName: true,
-        create: {
-          kind: "Service",
-          name,
-          summary: `Part ${file.n} of the dependency list of ${base}.`,
-          intro: `This file continues the dependency list of [${base}](${base}.md). A script writes it when the list does not fit in one file.`,
-        },
-      },
-    ]
-  })
-}
 /** How a new Stream file starts. */
 function streamCreate(name) {
   return {
@@ -425,74 +324,6 @@ function streamCreate(name) {
     summary: "A message stream that a source repository uses.",
     intro:
       "A script and a model found this stream in the code of a source repository.",
-  }
-}
-
-/**
- * The entries that an earlier run of this page staged and that are not at
- * the step base. writeStep writes each file from the base, so a later run
- * plans them again, also when resolutions.json no longer names them: each
- * run of a page writes at least what the runs before it wrote.
- */
-function stagedEntries(servicePath) {
-  const atBase = new Set(
-    listTexts(step, servicePath, { staged: false }).flatMap((part) =>
-      part.text.split("\n").map((l) => l.trim()),
-    ),
-  )
-  return listTexts(step, servicePath)
-    .flatMap((part) => part.text.split("\n").map((l) => l.trim()))
-    .filter((line) => !atBase.has(line))
-    .flatMap((line) => {
-      const found = parseDependencyLine(line)
-      return found?.repository === repository
-        ? [
-            {
-              line,
-              claim: {
-                to: found.link,
-                predicate: found.predicate,
-                evidence: { path: found.file, kind: "model" },
-              },
-            },
-          ]
-        : []
-    })
-}
-for (const root of rootsOfStep)
-  for (const file of root.files.filter((f) => f.kind === "Service")) {
-    const earlier = stagedEntries(file.path)
-    if (earlier.length)
-      entries.set(file.path, [...earlier, ...(entries.get(file.path) ?? [])])
-  }
-for (const [servicePath, list] of entries)
-  plans.push(...listPlans(servicePath, list))
-// The same for the Stream files of the repository-wide step: a later run
-// plans again each Related line of this repository that an earlier run of
-// the page staged, so that writeStep does not lose it.
-if (repositoryStep) {
-  const streams = stagedPaths(step).filter((path) =>
-    path.startsWith("knowledge/streams/"),
-  )
-  const atBase = stepTexts(step, streams, { staged: false })
-  const staged = stepTexts(step, streams)
-  const own = `- \`${repository}\` `
-  for (const path of streams) {
-    const base = new Set((atBase.get(path) ?? "").split("\n"))
-    const text = staged.get(path) ?? ""
-    const related = text
-      .split("\n")
-      .filter((line) => line.startsWith(own) && !base.has(line))
-    if (!related.length) continue
-    const name = /^name: "?(.*?)"?$/m.exec(text)?.[1]
-    plans.push({
-      path,
-      claims: [],
-      related,
-      ...(atBase.has(path) || !name
-        ? {}
-        : { expectName: name, create: streamCreate(name) }),
-    })
   }
 }
 

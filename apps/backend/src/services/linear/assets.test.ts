@@ -514,6 +514,8 @@ describe("captureLinearEntityAssets", () => {
         labels: [],
         createdAt: new Date("2026-08-01T00:00:00.000Z"),
         updatedAt: new Date("2026-08-02T00:00:00.000Z"),
+        completedAt: null,
+        canceledAt: null,
         comments: [],
         attachments: [
           {
@@ -646,6 +648,8 @@ describe("linearIssueMirrorFiles", () => {
         labels: [],
         createdAt: new Date("2026-08-01T00:00:00.000Z"),
         updatedAt: new Date("2026-08-02T00:00:00.000Z"),
+        completedAt: null,
+        canceledAt: null,
         comments: [],
         attachments: [
           {
@@ -691,6 +695,8 @@ describe("linearIssueMirrorFiles", () => {
         labels: [],
         createdAt: new Date("2026-08-01T00:00:00.000Z"),
         updatedAt: new Date("2026-08-02T00:00:00.000Z"),
+        completedAt: null,
+        canceledAt: null,
         comments: [
           {
             id: "comment-9",

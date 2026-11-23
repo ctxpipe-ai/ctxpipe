@@ -479,6 +479,22 @@ describe("search", () => {
     ).not.toContain("z-target-00000.md")
   })
 
+  it("the same query gives the same hits on each run, also when many chunks tie at a cut", async () => {
+    // 1800 chunks in three parts have the same vector and the same term, so
+    // they tie at the Hamming cut of 500 and at the cap of 1000 chunks of the
+    // term. A cut with no order takes the chunks that the parallel read
+    // gives first, and that changes from run to run (CTX-1547).
+    const url = await clickHouse.freshDatabase()
+    const fill = filler(url)
+    for (const part of ["a", "m", "z"])
+      await fill("guide", `${part}-tie-`, 600, "tieword", nearQuery(3))
+    const runs = []
+    for (let run = 0; run < 5; run++)
+      runs.push(hitKeys(await searchIn(url, { terms: ["tieword"] })))
+    expect(runs[0]).toHaveLength(50)
+    for (const keys of runs) expect(keys).toEqual(runs[0])
+  })
+
   it("the top 50 is 50 documents: a document with many close chunks takes one place", async () => {
     // One document has 60 chunks at the query vector. 60 documents have one
     // chunk each, farther away. A cut at 50 chunks would give only the long

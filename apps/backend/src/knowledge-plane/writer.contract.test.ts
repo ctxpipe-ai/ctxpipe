@@ -49,6 +49,7 @@ import { renderLinearIssue } from "../services/linear/converter.js"
 import { startClickHouse, userUrl } from "../test/clickhouse.js"
 import { shopIssue } from "../test/github-issue.js"
 import { Remote } from "../test/knowledge-remote.js"
+import { linearIssueFile } from "../test/linear-issue.js"
 import { cleanUpKnowledgePlane } from "./cleanup.js"
 import { projectKnowledgePlane } from "./writer.js"
 
@@ -543,6 +544,8 @@ function linearIssue(identifier: string, description = "") {
     labels: [],
     createdAt: new Date("2026-01-01T00:00:00Z"),
     updatedAt: new Date("2026-01-02T00:00:00Z"),
+    completedAt: null,
+    canceledAt: null,
     comments: [],
     attachments: [],
     description,
@@ -2539,6 +2542,49 @@ describe("the source time of a file (CTX-1516)", () => {
           ["out", "LINKS_TO", pull.path],
         ].sort(),
       )
+    } finally {
+      await remote.remove()
+    }
+  })
+
+  it("links a done or canceled Linear issue to its merged pull request from its status date (CTX-1526)", async () => {
+    const pulls = [
+      { url: "https://github.com/acme/shop/pull/9", state: "merged" },
+    ]
+    const done = linearIssueFile({
+      identifier: "ENG-4",
+      completedAt: "2026-03-10T12:00:00Z",
+      pulls,
+    })
+    const canceled = linearIssueFile({
+      identifier: "ENG-5",
+      canceledAt: "2026-04-10T12:00:00Z",
+      pulls,
+    })
+    const remote = await Remote.create()
+    try {
+      const workspaceId = await newWorkspace()
+      await run(
+        remote,
+        workspaceId,
+        await remote.commit({
+          [pull.path]: pull.content,
+          [done.path]: done.content,
+          [canceled.path]: canceled.content,
+        }),
+      )
+      const linksAt = async (path: string, at: string) =>
+        (await frontierAt(workspaceId, path, at)).filter(
+          ([direction]) => direction === "out",
+        )
+      expect(await linksAt(done.path, "2026-03-01T00:00:00Z")).toEqual([])
+      expect(await linksAt(done.path, "2026-03-11T00:00:00Z")).toEqual([
+        ["out", "LINKS_TO", pull.path],
+      ])
+      expect(await linksAt(canceled.path, "2026-04-01T00:00:00Z")).toEqual([])
+      expect(await linksAt(canceled.path, "2026-04-11T00:00:00Z")).toEqual([
+        ["out", "LINKS_TO", pull.path],
+      ])
     } finally {
       await remote.remove()
     }

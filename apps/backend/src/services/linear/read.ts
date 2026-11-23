@@ -649,6 +649,8 @@ function loadIssueNode(issue: IssueNode, includeNeeds: boolean): IssueRead {
     labels: labels.map((label) => ({ id: label.id, name: label.name })),
     createdAt: new Date(issue.createdAt),
     updatedAt: new Date(issue.updatedAt),
+    completedAt: issue.completedAt ? new Date(issue.completedAt) : null,
+    canceledAt: issue.canceledAt ? new Date(issue.canceledAt) : null,
     comments: comments.map((comment) => mapComment(comment)),
     attachments: attachments.map((attachment) => mapAttachment(attachment)),
   }

@@ -266,6 +266,12 @@ type Traversal = {
  *   explores, so the result is the same as a read after the judge.
  * Thus a walk of D layers waits for D Jev calls, not D + 1, and for no
  * frontier read after layer 1.
+ *
+ * When the judge of the last layer (depth `maxDepth`) starts, `onLastLayer`
+ * gets the documents that Jev judged before it and the documents of this
+ * judge (at depth 1 also the seeds, when their judge is still in flight).
+ * The caller can start a step that needs only these documents, so that the
+ * step runs with the judge.
  */
 export async function traverse(input: {
   store: KnowledgeStore
@@ -281,6 +287,10 @@ export async function traverse(input: {
   maxDepth: number
   walk: WalkFilter
   meter: ModelMeter
+  onLastLayer?: (
+    judged: readonly TraversalNode[],
+    pending: readonly TraversalNode[],
+  ) => void
 }): Promise<Traversal> {
   const { deadline } = input
   const settings = ORCHESTRATOR_DEFAULTS
@@ -369,20 +379,30 @@ export async function traverse(input: {
           chunksOf.get(documentId(candidate.ref)) ?? [],
         ),
       }))
+      // The judgments come with the judge, as for the seeds.
+      const layerNodes = inputs.map((candidate): TraversalNode => ({
+        ref: candidate.ref,
+        document: candidate.document,
+        text: candidate.text,
+        pAnswers: 0,
+        pExplore: 0,
+        depth,
+        parent: candidate.parent,
+      }))
+      if (depth === maxDepth)
+        input.onLastLayer?.(
+          seedsJudged ? [...seeds, ...nodes] : [...nodes],
+          seedsJudged ? layerNodes : [...seeds, ...layerNodes],
+        )
       // A settled `seedJudge` costs nothing to await again.
       const [scores] = await Promise.all([
         judge(inputs, input.question, input.intent, deadline, input.meter),
         seedJudge,
       ])
-      const layerNodes = inputs.map((candidate, index): TraversalNode => ({
-        ref: candidate.ref,
-        document: candidate.document,
-        text: candidate.text,
-        pAnswers: scores[index]?.pAnswers ?? 0,
-        pExplore: scores[index]?.pExplore ?? 0,
-        depth,
-        parent: candidate.parent,
-      }))
+      layerNodes.forEach((node, index) => {
+        node.pAnswers = scores[index]?.pAnswers ?? 0
+        node.pExplore = scores[index]?.pExplore ?? 0
+      })
       nodes.push(...layerNodes)
       frontier = layerNodes.filter(
         (node) => node.pExplore >= settings.exploreAt,

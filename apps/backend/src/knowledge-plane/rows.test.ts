@@ -7,6 +7,7 @@ import {
 } from "../domain/workspaces/hydrate.js"
 import { imageContentType } from "../domain/workspaces/raw-file.js"
 import { shopIssue, SHOP_SOURCE_PATH } from "../test/github-issue.js"
+import { linearIssueFile } from "../test/linear-issue.js"
 import { parseKnowledgeFile, workspaceBlobPath } from "./parse-file.js"
 import { fileRows, knowledgeRows } from "./rows.js"
 
@@ -676,6 +677,60 @@ describe("the source time of a file (CTX-1516)", () => {
         validFromIntroduced: false,
       }),
     ])
+  })
+
+  it("links a done Linear issue to each merged pull request of its attachments from the time it was completed (CTX-1526)", () => {
+    const file = linearIssueFile({
+      identifier: "ENG-4",
+      completedAt: "2026-03-10T12:00:00Z",
+      pulls: [
+        { url: "https://github.com/acme/shop/pull/9", state: "merged" },
+        { url: "https://github.com/acme/shop/pull/10", state: "open" },
+      ],
+    })
+    const rows = parsedRows(file.path, file.content)
+    expect(rows.document.validFrom).toEqual(
+      new Date("2026-01-01T00:00:00.000Z"),
+    )
+    expect(
+      rows.relations
+        .filter(({ dstDoc }) => dstDoc.startsWith("ref:ghn:"))
+        .map(({ dstDoc, predicate, validFrom }) => ({
+          dstDoc,
+          predicate,
+          validFrom,
+        })),
+    ).toEqual([
+      {
+        dstDoc: "ref:ghn:acme/shop#9",
+        predicate: "LINKS_TO",
+        validFrom: new Date("2026-03-10T12:00:00.000Z"),
+      },
+    ])
+  })
+
+  it("takes the time a Linear issue was canceled when it was not completed (CTX-1526)", () => {
+    const file = linearIssueFile({
+      identifier: "ENG-5",
+      canceledAt: "2026-04-01T08:00:00Z",
+      pulls: [{ url: "https://github.com/acme/shop/pull/11", state: "merged" }],
+    })
+    const rows = parsedRows(file.path, file.content)
+    expect(
+      rows.relations.find(({ dstDoc }) => dstDoc === "ref:ghn:acme/shop#11")
+        ?.validFrom,
+    ).toEqual(new Date("2026-04-01T08:00:00.000Z"))
+  })
+
+  it("does not link an open Linear issue to its pull requests (CTX-1526)", () => {
+    const file = linearIssueFile({
+      identifier: "ENG-6",
+      pulls: [{ url: "https://github.com/acme/shop/pull/12", state: "merged" }],
+    })
+    const rows = parsedRows(file.path, file.content)
+    expect(
+      rows.relations.filter(({ dstDoc }) => dstDoc.startsWith("ref:ghn:")),
+    ).toEqual([])
   })
 
   it("gives a design record its Date, and a claim with no time of its own takes the time of the tree row", () => {

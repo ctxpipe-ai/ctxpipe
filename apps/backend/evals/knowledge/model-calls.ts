@@ -3,6 +3,10 @@ import { createHash } from "node:crypto"
 import { z } from "zod"
 
 import { gatewayCost } from "../../src/observability/gatewayCost.js"
+import {
+  DISAGREEMENT_FACTS,
+  SYMMETRIC_FACTS,
+} from "../../src/retrieval/jev/disagreement.js"
 
 /*
  * The model calls of an eval run: Jev, the embedding endpoints of both
@@ -58,6 +62,13 @@ export const callCountsSchema = z.object({
    * run folder from before this count has none (0).
    */
   failed: z.number().default(0),
+  /**
+   * Replay only: the Jev questions that no recorded call asked about the
+   * same items, which got the p(yes) of `unrecordedYes` (see
+   * `ModelCalls.composed`). A run folder from before this count has none
+   * (0).
+   */
+  unrecorded: z.number().default(0),
 })
 export type CallCounts = z.infer<typeof callCountsSchema>
 
@@ -110,6 +121,7 @@ const emptyCounts = (): CallCounts => ({
   costUsd: 0,
   missing: 0,
   failed: 0,
+  unrecorded: 0,
 })
 
 /**
@@ -160,6 +172,80 @@ const questionsOf = (body: string): number =>
       .safeParse(parseOr(body, {})).data?.questions ?? {},
   ).length
 
+/**
+ * The content keys of each question of a Jev request: the lines of the
+ * state that are not an item (for example the question and the intent), and
+ * the question with each "Candidate n" or "Item n" in it replaced by the
+ * label and the data of that item. Thus the same question about the same
+ * items has the same key in another batch and under other numbers. A
+ * symmetric pair fact of the disagreement step (`SYMMETRIC_FACTS`) has a
+ * second key, with the two items in the other order. Null for a body that
+ * is not a Jev request.
+ */
+function contentKeysOf(body: unknown): Map<string, string[]> | null {
+  const request = z
+    .object({
+      state: z.array(z.string()),
+      questions: z.record(z.string(), z.unknown()),
+    })
+    .safeParse(body).data
+  if (!request) return null
+  const items = new Map<string, string>()
+  const others: string[] = []
+  for (let index = 0; index < request.state.length; index++) {
+    const line = request.state[index] ?? ""
+    // An item of a Jev state: its label line, then its `<data>` block.
+    const item = /^(Candidate|Item) (\d+)\b(.*)$/.exec(line)
+    if (!item) {
+      others.push(line)
+      continue
+    }
+    items.set(
+      `${item[1]} ${item[2]}`,
+      `${item[1]}${item[3]}\n${request.state[index + 1] ?? ""}`,
+    )
+    index += 1
+  }
+  const keyOf = (question: unknown, swap?: [string, string]) =>
+    createHash("sha256")
+      .update(
+        [
+          ...others,
+          JSON.stringify(question).replace(
+            /\b(Candidate|Item) \d+\b/g,
+            (name) => {
+              const named =
+                name === swap?.[0]
+                  ? swap[1]
+                  : name === swap?.[1]
+                    ? swap[0]
+                    : name
+              return `[${items.get(named) ?? named}]`
+            },
+          ),
+        ].join("\n"),
+      )
+      .digest("hex")
+  return new Map(
+    Object.entries(request.questions).map(([key, question]) => {
+      const names = [
+        ...new Set(
+          JSON.stringify(question).match(/\b(Candidate|Item) \d+\b/g) ?? [],
+        ),
+      ]
+      const symmetric =
+        names.length === 2 &&
+        (SYMMETRIC_FACTS as readonly string[]).includes(key.split(".")[0] ?? "")
+      return [
+        key,
+        symmetric
+          ? [keyOf(question), keyOf(question, names as [string, string])]
+          : [keyOf(question)],
+      ]
+    }),
+  )
+}
+
 export class ModelCalls {
   readonly records: RecordedCall[] = []
   /** The cost of the calls that went out. A replay sends none. */
@@ -174,10 +260,35 @@ export class ModelCalls {
   private readonly origin: string
   /** The recorded answers of each arm, question and request, in order. */
   private readonly replay: Map<string, RecordedCall[]> | null
+  /**
+   * The calls that the recording answered, and (with `liveFallback`) the
+   * calls that went out because the recording had no answer.
+   */
+  private readonly reuse = { reused: 0, live: 0 }
+  /**
+   * The recorded Jev answer of each arm, question and content key of a Jev
+   * question (`contentKeysOf`), with its call: the first one that the
+   * recording holds.
+   */
+  private readonly recordedAnswers = new Map<
+    string,
+    { answer: unknown; call: RecordedCall }
+  >()
+  /** The recorded Jev calls with an answer. */
+  private readonly jevCalls: RecordedCall[] = []
+  /** The recorded calls that a composed answer used, kept in `records`. */
+  private readonly composedFrom = new Set<RecordedCall>()
 
   /**
    * `baseUrl` is `MODEL_PROVIDER_URL`. `capUsd` is the spend cap of the run.
    * With `replay`, the recorder answers each call from it and sends nothing.
+   * With `replay` and `liveFallback`, a call that the recording does not hold
+   * goes out (under the spend cap), and the recorder keeps it. A recorded
+   * call that failed (HTTP 400 or more) is then no answer: the request goes
+   * out again, so a failure of the earlier run does not come back on each
+   * later run.
+   * With `unrecordedYes`, a replay with no live fallback gives a Jev question that no recorded
+   * call asked this p(yes), and the call does not miss (`composed`).
    */
   constructor(
     baseUrl: string,
@@ -186,17 +297,38 @@ export class ModelCalls {
     private readonly options: {
       /** False: count and cap the calls, but keep no record of them. */
       keepRecords?: boolean
+      /** Send a call that `replay` does not hold, instead of a 503. */
+      liveFallback?: boolean
+      unrecordedYes?: number
     } = {},
   ) {
     this.origin = new URL(baseUrl).origin
     this.replay = replay ? new Map() : null
     for (const call of replay ?? []) {
+      if (options.liveFallback && call.status >= 400) continue
       const key = this.replayKey(
         call.arm,
         call.question,
         replayKeyOf(call.kind, call.request),
       )
       this.replay?.set(key, [...(this.replay.get(key) ?? []), call])
+      if (call.kind !== "jev" || call.status >= 400) continue
+      this.jevCalls.push(call)
+      const answers = z
+        .object({ answers: z.record(z.string(), z.unknown()) })
+        .safeParse(parseOr(call.response, {})).data?.answers
+      for (const [question, contents] of contentKeysOf(call.request) ?? [])
+        for (const content of contents) {
+          const answerKey = this.replayKey(call.arm, call.question, content)
+          if (
+            answers?.[question] !== undefined &&
+            !this.recordedAnswers.has(answerKey)
+          )
+            this.recordedAnswers.set(answerKey, {
+              answer: answers[question],
+              call,
+            })
+        }
     }
   }
 
@@ -207,6 +339,11 @@ export class ModelCalls {
       spentUsd: this.spentUsd,
       stopped: this.stopped,
     }
+  }
+
+  /** The calls that the recording answered, and those that went out. */
+  reuseSummary(): { reused: number; live: number } {
+    return { ...this.reuse }
   }
 
   /** Start counting the calls of `arm` on `question`. */
@@ -262,7 +399,17 @@ export class ModelCalls {
     if (!kind) return next(request)
     const parsed = parseOr(body, body)
     const key = replayKeyOf(kind, parsed)
-    if (this.replay) return this.replayed(kind, key, body, owner)
+    if (this.replay) {
+      const replayed = this.replayed(kind, key, body, owner)
+      if (replayed) {
+        this.reuse.reused += 1
+        return replayed
+      }
+      if (!this.options.liveFallback) {
+        owner.counts.missing += 1
+        return unavailable("The recording holds no answer for this call.")
+      }
+    }
     // The hard spend cap: each call in flight holds its worst-case cost, and
     // a call that would take the spent and reserved total over the cap is
     // not sent. The check and the reservation have no `await` between them,
@@ -275,6 +422,8 @@ export class ModelCalls {
       this.stopped = true
       return unavailable("The spend cap of the eval run is spent.")
     }
+    // Only a call that goes out counts as live.
+    if (this.replay) this.reuse.live += 1
     this.reservedUsd += reserved
     const started = performance.now()
     let response: Response
@@ -332,23 +481,26 @@ export class ModelCalls {
    * The recorded answer of a call: the answers of the same request of the
    * same arm and question come in the recorded order, so a retry gets the
    * answer that it got live. After the last one, the same request gets the
-   * last answer again.
+   * last answer again. Null when the recording holds no answer.
    */
   private replayed(
     kind: CallKind,
     key: string,
     body: string,
     owner: Owner,
-  ): Response {
+  ): Response | null {
     const queue = this.replay?.get(
       this.replayKey(owner.arm, owner.question, key),
     )
     const recorded = queue && queue.length > 1 ? queue.shift() : queue?.[0]
-    // A replay is only of `run` and `rescore`, which make no chat call.
-    if (kind === "chat" || kind === "vision" || !recorded) {
-      owner.counts.missing += 1
-      return unavailable("The recording holds no answer for this call.")
+    // With a live fallback, a changed request goes out, so that the run
+    // measures it.
+    if (!recorded && kind === "jev" && !this.options.liveFallback) {
+      const composed = this.composed(parseOr(body, body), owner)
+      if (composed) return composed
     }
+    // A replay is only of `run` and `rescore`, which make no chat call.
+    if (kind === "chat" || kind === "vision" || !recorded) return null
     owner.counts[kind] += 1
     if (kind === "jev") owner.counts.jevQuestions += questionsOf(body)
     if (recorded.status >= 400) owner.counts.failed += 1
@@ -358,5 +510,73 @@ export class ModelCalls {
       status: recorded.status,
       headers: { "content-type": "application/json" },
     })
+  }
+
+  /**
+   * The answer of a Jev request that the recording does not hold, from the
+   * recorded answers of its questions in other calls of the same arm and
+   * question (`contentKeysOf`). Thus a change of the batches of Jev, or a
+   * step that asks its questions in another round, replays. The batch can
+   * change the answers of a live call, so a live run still judges such a
+   * change.
+   *
+   * A question that no recorded call asked makes the call miss (null), as
+   * a new request does. With `unrecordedYes`, a disagreement fact
+   * (`DISAGREEMENT_FACTS`) gets that p(yes) instead and counts as
+   * `unrecorded`: then a change that asks facts before it knows which items
+   * it needs replays. Two rescores, with 0 and with 1, show that the change
+   * does not read these answers when they give the same scores. Another
+   * question (for example the judgment of a new candidate of a deeper walk)
+   * still makes the call miss.
+   *
+   * The cost of a composed answer is an estimate: the length of its request
+   * at the cost for each character of the recorded Jev calls that it used,
+   * or of all recorded Jev calls when it used none. The cost of a Jev call
+   * grows with its text. The recorded calls that it used go to `records`,
+   * so that a replay of this run composes the same answer.
+   */
+  private composed(body: unknown, owner: Owner): Response | null {
+    const keys = contentKeysOf(body)
+    if (!keys) return null
+    const fill = this.options.unrecordedYes
+    const answers: Record<string, unknown> = {}
+    const used: RecordedCall[] = []
+    let unrecorded = 0
+    for (const [question, contents] of keys) {
+      const found = contents
+        .map((content) =>
+          this.recordedAnswers.get(
+            this.replayKey(owner.arm, owner.question, content),
+          ),
+        )
+        .find((entry) => entry !== undefined)
+      const fact = (DISAGREEMENT_FACTS as readonly string[]).includes(
+        question.split(".")[0] ?? "",
+      )
+      if (found) used.push(found.call)
+      else if (fill === undefined || !fact) return null
+      else unrecorded += 1
+      answers[question] = found?.answer ?? { type: "noul", noul: fill }
+    }
+    for (const call of used)
+      if (!this.composedFrom.has(call)) {
+        this.composedFrom.add(call)
+        this.records.push(call)
+      }
+    const sources = used.length > 0 ? [...new Set(used)] : this.jevCalls
+    const rate =
+      sources.reduce((sum, call) => sum + call.costUsd, 0) /
+      Math.max(
+        1,
+        sources.reduce(
+          (sum, call) => sum + JSON.stringify(call.request).length,
+          0,
+        ),
+      )
+    owner.counts.costUsd += rate * JSON.stringify(body).length
+    owner.counts.jev += 1
+    owner.counts.jevQuestions += keys.size
+    owner.counts.unrecorded += unrecorded
+    return Response.json({ answers })
   }
 }

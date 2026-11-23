@@ -290,8 +290,10 @@ export function hydrateKnowledgeTree(input: {
     const extra = references.get(unit.path)
     if (extra) unit.links.push(...extra)
   }
-  // A GitHub issue links to each mirrored pull request that closed it
-  // (`closedBy`) from the time of the close (CTX-1516), as on the plane.
+  // An issue links to each mirrored pull request that closed it from the
+  // time of the close (CTX-1516), as on the plane. A Linear issue names its
+  // pull requests only in the front matter, so the link starts here
+  // (CTX-1526).
   const pathOfUrl = new Map(
     units.flatMap((unit) => {
       const url = attributes.get(unit.path)?.url
@@ -302,8 +304,10 @@ export function hydrateKnowledgeTree(input: {
     const closing = closingPullRequests(attributes.get(unit.path) ?? {})
     for (const url of closing?.urls ?? []) {
       const path = pathOfUrl.get(url)
-      if (closing && path)
-        unit.linkValidFrom = { ...unit.linkValidFrom, [path]: closing.closedAt }
+      if (!closing || !path) continue
+      unit.linkValidFrom = { ...unit.linkValidFrom, [path]: closing.closedAt }
+      const link = `${WORKSPACE_LINK_SCHEME}${path}`
+      if (!unit.links.includes(link)) unit.links.push(link)
     }
   }
   // Each GitHub repository of the Workspace, from every connection. The

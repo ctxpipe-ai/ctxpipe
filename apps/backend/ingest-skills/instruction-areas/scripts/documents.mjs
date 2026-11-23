@@ -19,7 +19,11 @@ import { readFileSync } from "node:fs"
 import { posix } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { safePath } from "../../discover-roots/scripts/roots-lib.mjs"
+import {
+  inTestFixture,
+  safePath,
+  testFixtureSkips,
+} from "../../discover-roots/scripts/roots-lib.mjs"
 
 const MAX_DOCUMENTS = 150
 const READ_LIMIT = 64 * 1024
@@ -29,9 +33,6 @@ const IGNORED = new Set([
   "third_party",
   "dist",
   "build",
-  "fixtures",
-  "__fixtures__",
-  "testdata",
 ])
 const CLASSES = [
   "instructions",
@@ -123,9 +124,14 @@ export function selectDocuments(source, rootPaths = null) {
       if (path.split("/").length === 3) readmeFolders.add(posix.dirname(path))
   const documents = []
   const skipped = []
+  const fixtures = []
   for (const { path, bytes } of files) {
     const kind = documentClass(path, readmeFolders)
     if (!kind) continue
+    if (inTestFixture(path)) {
+      fixtures.push(path)
+      continue
+    }
     if (!safePath(path)) {
       skipped.push({
         path: null,
@@ -135,6 +141,8 @@ export function selectDocuments(source, rootPaths = null) {
     }
     documents.push({ path, class: kind, bytes, truncated: bytes > READ_LIMIT })
   }
+  for (const { path, reason } of testFixtureSkips(fixtures))
+    skipped.push({ path, reason })
   documents.sort(
     (a, b) =>
       CLASSES.indexOf(a.class) - CLASSES.indexOf(b.class) ||
