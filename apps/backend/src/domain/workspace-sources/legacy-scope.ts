@@ -19,13 +19,9 @@ type Scope = Record<string, unknown>
  */
 export function splitLegacyScope(schema: z.ZodType, scope: Scope): Scope[] {
   const parsed = schema.safeParse(scope)
-  const issue = parsed.success
-    ? undefined
-    : parsed.error.issues.find(
-        (item) => item.code === "too_big" && item.origin === "array",
-      )
-  if (!issue || issue.code !== "too_big") return [scope]
-  const max = Number(issue.maximum)
+  const issue = parsed.success ? undefined : listAboveCap(parsed.error.issues)
+  if (!issue) return [scope]
+  const max = issue.maximum
   const [key, index, inner] = issue.path
   if (typeof key !== "string" || !Array.isArray(scope[key])) return [scope]
   const list = scope[key] as unknown[]
@@ -63,6 +59,29 @@ export function splitLegacyScope(schema: z.ZodType, scope: Scope): Scope[] {
   if (scopes.length === 1) return scopes
   // The first scope can still have another long list.
   return scopes.flatMap((part) => splitLegacyScope(schema, part))
+}
+
+/**
+ * The first issue of a list above its cap, with its full path. Since zod
+ * 4.6.7, a list above its cap stops its branch of a union, so the issue can
+ * be in a branch of an `invalid_union` issue (Confluence `pages`). The path
+ * of a branch issue starts at the union.
+ */
+function listAboveCap(
+  issues: readonly z.core.$ZodIssue[],
+  prefix: readonly PropertyKey[] = [],
+): { maximum: number; path: PropertyKey[] } | undefined {
+  for (const issue of issues) {
+    const path = [...prefix, ...issue.path]
+    if (issue.code === "too_big" && issue.origin === "array")
+      return { maximum: Number(issue.maximum), path }
+    if (issue.code === "invalid_union")
+      for (const branch of issue.errors) {
+        const found = listAboveCap(branch, path)
+        if (found) return found
+      }
+  }
+  return undefined
 }
 
 /**
