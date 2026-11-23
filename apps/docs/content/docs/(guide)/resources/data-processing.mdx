@@ -58,12 +58,12 @@ ctxpipe reads nothing that you did not connect.
   [Where extraction runs](/docs/workspaces/indexing#where-extraction-runs).
 - **MCP tools.** The tools search and read your data. They do not write an
   answer. `search_knowledge` and `get_related` send the query text to an
-  embedding model. If that call fails, the default retrieval path searches
-  full text only. ctxpipe can turn on the knowledge plane, a newer retrieval path, for an
-  organization. When it is on, both tools also send the query, and the title,
-  passages, dates, and status of each document that they rank, to a ranking
-  model. `get_related` also embeds a question built from the seed paths. Your
-  coding agent uses its own model.
+  embedding model. If that call fails, the default retrieval path searches full
+  text only. ctxpipe can turn on the knowledge plane, a newer retrieval path,
+  for an organization. When it is on, both tools also send the query, and the
+  title, passages, dates, status, and source type of each document that they
+  rank, to a ranking model. `get_related` also embeds a question built from the
+  seed paths. Your coding agent uses its own model.
 
 ctxpipe does not send a whole repository to a model in one request. Retrieval
 and tools select the context.
