@@ -1,14 +1,17 @@
 import { spawnSync } from "node:child_process"
 import { hostname } from "node:os"
+import { pathToFileURL } from "node:url"
 
-// The containers that tests and CI scripts start (CTX-1442). Each one has the
-// label `ai.ctxpipe.test=<host>/<pid>`: the process that owns the run. The
-// owner removes them, with their anonymous volumes, when it ends, also after
-// an error, SIGINT, SIGTERM or SIGHUP. A run that was killed with SIGKILL
-// cannot do this: the next run on the same host removes the containers of an
-// owner process that is gone (`removeOrphanTestContainers`). `factory check`
-// also reads the label: when the Docker disk is almost full, it removes the
-// stopped test containers that are older than one day.
+// The containers that tests and CI scripts start (CTX-1442), and the images
+// that they build (CTX-1551). Each one has the label
+// `ai.ctxpipe.test=<host>/<pid>`: the process that owns the run. The owner
+// removes them, containers with their anonymous volumes, when it ends, also
+// after an error, SIGINT, SIGTERM or SIGHUP. A run that was killed with SIGKILL
+// cannot do this: the next run on the same host removes the containers and
+// images of an owner process that is gone (`removeOrphanTestContainers`,
+// `removeOrphanTestImages`; `node test-containers.mjs remove-orphans` runs
+// both). `factory check` also reads the label: when the Docker disk is almost
+// full, it removes the stopped test containers that are older than one day.
 //
 // The functions are synchronous, so that they also work in an exit handler.
 
@@ -48,9 +51,7 @@ function remove(ids) {
 
 /** Removes the test containers of `owner`, with their anonymous volumes. */
 function removeTestContainers(owner) {
-  remove(
-    dockerLines(["ps", "-aq", "--filter", `label=${TEST_LABEL}=${owner}`]),
-  )
+  remove(dockerLines(["ps", "-aq", "--filter", `label=${TEST_LABEL}=${owner}`]))
 }
 
 function alive(pid) {
@@ -63,12 +64,22 @@ function alive(pid) {
   }
 }
 
+/** Whether `owner` was a process on this host that is gone. */
+function gone(owner) {
+  const slash = owner.lastIndexOf("/")
+  const pid = Number(owner.slice(slash + 1))
+  return owner.slice(0, slash) === hostname() &&
+    Number.isInteger(pid) &&
+    pid > 0
+    ? !alive(pid)
+    : false
+}
+
 /**
  * Removes the test containers whose owner was a process on this host that is
  * gone. A container of another host, or of a process that runs, stays.
  */
 export function removeOrphanTestContainers() {
-  const host = hostname()
   const orphans = dockerLines([
     "ps",
     "-a",
@@ -78,15 +89,44 @@ export function removeOrphanTestContainers() {
     `{{.ID}}\t{{.Label "${TEST_LABEL}"}}`,
   ]).flatMap((line) => {
     const [id, owner = ""] = line.split("\t")
-    const slash = owner.lastIndexOf("/")
-    const pid = Number(owner.slice(slash + 1))
-    const orphan =
-      owner.slice(0, slash) === host && Number.isInteger(pid) && pid > 0
-        ? !alive(pid)
-        : false
-    return orphan && id ? [id] : []
+    return id && gone(owner) ? [id] : []
   })
   remove(orphans)
+}
+
+/**
+ * Removes the test images (built with `--label ai.ctxpipe.test=<owner>`) whose
+ * owner was a process on this host that is gone: each of its tags, or its id
+ * when it has none. Docker refuses to remove an image that a container uses
+ * (no `--force`), so an image that a container runs stays, as does an image
+ * of another host or of a process that runs. It reads Docker's JSON, so a
+ * label value cannot add a record.
+ */
+export function removeOrphanTestImages() {
+  const ids = dockerLines([
+    "image",
+    "ls",
+    "-q",
+    "--no-trunc",
+    "--filter",
+    `label=${TEST_LABEL}`,
+  ])
+  if (ids.length === 0) return
+  let records = []
+  try {
+    records = JSON.parse(
+      dockerLines(["image", "inspect", ...new Set(ids)]).join("\n"),
+    )
+  } catch {
+    return
+  }
+  for (const image of records) {
+    const owner = image?.Config?.Labels?.[TEST_LABEL]
+    if (typeof owner !== "string" || !gone(owner)) continue
+    const tags = image.RepoTags ?? []
+    for (const name of tags.length > 0 ? tags : [image.Id])
+      dockerLines(["image", "rm", "--", name])
+  }
 }
 
 const SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP"]
@@ -110,4 +150,14 @@ export function ownTestContainers() {
       // without this handler.
       if (process.listenerCount(signal) === 0) process.kill(process.pid, signal)
     })
+}
+
+// `node test-containers.mjs remove-orphans`: for a shell script, such as
+// apps/codesearch/scripts/run-vitest-docker.sh.
+if (
+  import.meta.url === pathToFileURL(process.argv[1] ?? "").href &&
+  process.argv[2] === "remove-orphans"
+) {
+  removeOrphanTestContainers()
+  removeOrphanTestImages()
 }

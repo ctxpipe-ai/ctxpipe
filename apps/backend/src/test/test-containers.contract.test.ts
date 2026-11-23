@@ -9,14 +9,16 @@ import { describe, expect, it } from "vitest"
 
 import {
   removeOrphanTestContainers,
+  removeOrphanTestImages,
   TEST_LABEL,
+  testLabelArgs,
 } from "../../../../scripts/ci/test-containers.mjs"
 import { contractImage } from "./contract-images.js"
 
 /*
- * A run that stops half-way leaves no test container behind (CTX-1442). Each
- * case starts a real owner process that starts a real container, then ends
- * that process in one way.
+ * A run that stops half-way leaves no test container behind (CTX-1442), and
+ * no test image (CTX-1551). Each container case starts a real owner process
+ * that starts a real container, then ends that process in one way.
  */
 
 const MODULE = new URL(
@@ -58,6 +60,78 @@ setInterval(() => {}, 1000)
   )) as [string]
   return { child, id, exited }
 }
+
+const imageExists = (name: string) =>
+  docker("image", "ls", "-q", "--no-trunc", name) !== ""
+
+/** The pid of a process on this host that has ended. */
+async function endedPid() {
+  const child = spawn(process.execPath, ["-e", ""], { stdio: "ignore" })
+  await once(child, "exit")
+  return child.pid as number
+}
+
+/** Builds a test image `tag` with the owner label `owner`. */
+const buildImage = (tag: string, owner: string) =>
+  execFileSync(
+    "docker",
+    ["build", "-q", "--label", `${TEST_LABEL}=${owner}`, "-t", tag, "-"],
+    {
+      input: `FROM ${contractImage("alpine")}\n`,
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "inherit"],
+    },
+  )
+
+describe("test images", () => {
+  it(
+    "of an owner that ended are removed, unless a container uses them, and those of a live owner or another host stay",
+    { timeout: 240_000 },
+    async () => {
+      const suffix = `${process.pid}-${Date.now()}`
+      const tags = {
+        ended: `ctxpipe-test-images-proof:ended-${suffix}`,
+        used: `ctxpipe-test-images-proof:used-${suffix}`,
+        live: `ctxpipe-test-images-proof:live-${suffix}`,
+        otherHost: `ctxpipe-test-images-proof:other-host-${suffix}`,
+      }
+      const ended = `${hostname()}/${await endedPid()}`
+      let container = ""
+      try {
+        buildImage(tags.ended, ended)
+        buildImage(tags.used, ended)
+        buildImage(tags.live, `${hostname()}/${process.pid}`)
+        buildImage(tags.otherHost, `another-host/${await endedPid()}`)
+        // A run of another agent still runs this image.
+        container = docker(
+          "run",
+          "-d",
+          ...testLabelArgs(),
+          tags.used,
+          "sleep",
+          "300",
+        )
+
+        removeOrphanTestImages()
+
+        expect(imageExists(tags.ended)).toBe(false)
+        expect(imageExists(tags.used)).toBe(true)
+        expect(imageExists(tags.live)).toBe(true)
+        expect(imageExists(tags.otherHost)).toBe(true)
+
+        // When the container is gone, the next run removes the image.
+        docker("rm", "--force", "--volumes", container)
+        container = ""
+        removeOrphanTestImages()
+        expect(imageExists(tags.used)).toBe(false)
+      } finally {
+        if (container) docker("rm", "--force", "--volumes", container)
+        for (const tag of Object.values(tags))
+          if (imageExists(tag)) docker("image", "rm", "--force", tag)
+      }
+    },
+  )
+})
 
 describe("test containers", () => {
   it("are owned by the test run", () => {
