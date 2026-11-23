@@ -569,10 +569,10 @@ Read this when you set up or change a deployment: Railway production or previews
 
 
 ### CI secrets use plain names in GitHub environments
-- **Rule:** A CI secret keeps its plain name (for example `MODEL_PROVIDER_API_KEY`). Never add a prefix such as `PREVIEW_`. The GitHub environment decides which value a job reads. `workbench` is for checks, evals, proofs and live contracts that call outside services; it holds only spend-capped or test-scoped keys. `workbench-main` holds such keys for jobs that run only from main, and only protected branches reach it. `Production` is the production deploy. Do not add a new environment without a stated need. `scripts/ci/check-secret-jobs.mjs` enforces the rules.
+- **Rule:** A CI secret keeps its plain name (for example `MODEL_PROVIDER_API_KEY`). Never add a prefix such as `PREVIEW_`. The GitHub environment decides which value a job reads. `workbench` is for checks, evals, proofs and live contracts that call outside services; it holds only spend-capped or test-scoped keys. `workbench-main` holds such keys for jobs that run only from main, and only `main` reaches it. `Production` is the production deploy. Do not add a new environment without a stated need. `scripts/ci/check-secret-jobs.mjs` enforces the rules.
 - **Category:** tooling
 - **Date:** 2026-10-18
-- **Source:** CTO decision for the PR preview secrets work
+- **Source:** CTO decision for the PR preview secrets work; `workbench-main`: CTO decision of 2026-11-23 for CTX-1540
 
 ### Linear has five statuses; "Waiting for human" needs a named action
 - **Rule:** Team CTX uses five statuses. `Backlog` holds ideas that are not ready and need more exploration by humans and agents. `Todo` is ready for an agent. `In Progress` means an agent works on it now, review agents included. `Waiting for human` means blocked until a human answers a question or does an action. `Done` is complete. This replaces the old `In Review` status. An agent moves a ticket to `Waiting for human` only with a comment that names the human action and who does it (the CTO, or the teammate who retests). A ticket that no agent works on and that waits for an event goes to `Todo`, with a comment that says when to pick it up.

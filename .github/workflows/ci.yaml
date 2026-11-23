@@ -3037,9 +3037,10 @@ jobs:
   # the entry of the unstable list to the Unstable screenshots job. A failed
   # or timed-out job of the run opens one ticket in Triage. It also runs when
   # Nightly change failed, so that failure gets its ticket. The Linear key is
-  # a secret of the workbench-main environment, which only protected branches
-  # reach: a branch must not create issues that start agents. Without it the
-  # job fails with an error annotation. The job reads the downloaded records only as data.
+  # a secret of the workbench-main environment, which only main reaches: a
+  # branch must not create issues that start agents. Without the key the job
+  # fails with an error annotation. The job reads the downloaded records only
+  # as data.
   nightly-tickets:
     timeout-minutes: 10
     name: Nightly tickets

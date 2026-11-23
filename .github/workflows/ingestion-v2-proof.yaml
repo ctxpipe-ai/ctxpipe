@@ -12,9 +12,9 @@ name: Ingestion v2 proof (Docker)
 # it checks that the shard sandbox holds no GitHub token, model key or vault
 # token, and it fails the proof when one is there.
 #
-# Secrets of the workbench-main environment (names only). Only protected
-# branches reach that environment, so the proof runs only from main:
-# a branch cannot get the GitHub App key.
+# Secrets of the workbench-main environment (names only). Only main reaches
+# that environment (ops/github/environments/), so the proof runs only from
+# main: a branch cannot get the GitHub App key.
 #   MODEL_PROVIDER_API_KEY  a spend-capped model key for CI, never the
 #                           production key
 #   GH_APP_ID               the GitHub App id of the test org
@@ -62,7 +62,7 @@ jobs:
     runs-on: blacksmith-8vcpu-ubuntu-2404-arm
     timeout-minutes: 360
     # GH_APP_ID, GH_PRIVATE_KEY and MODEL_PROVIDER_API_KEY are secrets
-    # of the workbench-main environment, which only protected branches reach.
+    # of the workbench-main environment, which only main reaches.
     # The job builds images and runs dependency code, so it never gets the
     # production model key.
     environment: workbench-main
@@ -141,17 +141,13 @@ jobs:
           exit 1
       - name: Read the inputs
         env:
-          INPUT_REPOS: ${{ secrets.INGEST_PROOF_REPOS }}
-          INPUT_WORKSPACE_REPO: ${{ secrets.INGEST_PROOF_WORKSPACE_REPO }}
-          INPUT_SPEND_CAP_USD: ${{ inputs.spend_cap_usd }}
-          INPUT_MODE: ${{ inputs.mode }}
+          repos: ${{ secrets.INGEST_PROOF_REPOS }}
+          workspace_repo: ${{ secrets.INGEST_PROOF_WORKSPACE_REPO }}
+          cap: ${{ inputs.spend_cap_usd }}
+          mode: ${{ inputs.mode }}
         run: |
-          repos=$INPUT_REPOS
-          workspace_repo=$INPUT_WORKSPACE_REPO
-          cap=$INPUT_SPEND_CAP_USD
-          mode=$INPUT_MODE
           [ -n "$repos" ] && [ -n "$workspace_repo" ] || {
-            echo "::error::Fill in repos and workspace_repo"
+            echo "::error::INGEST_PROOF_REPOS or INGEST_PROOF_WORKSPACE_REPO is empty. Set both in the workbench-main environment, and start the run from main: a run from another branch gets no secret."
             exit 1
           }
           # Mask each repository in each form that a log line can show: the
