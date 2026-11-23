@@ -105,7 +105,7 @@ test("two runs build under two tags", () => {
   assert.notEqual(tags[0], tags[1])
 })
 
-test("an image that the caller names stays", () => {
+test("an image that the caller names has no owner label and stays", () => {
   const { result, calls } = run({
     CTXPIPE_CODESEARCH_TEST_IMAGE: "ctxpipe-codesearch:mine",
   })
@@ -118,4 +118,10 @@ test("an image that the caller names stays", () => {
     "ctxpipe-codesearch:mine",
   )
   assert.ok(!calls.some((args) => args[0] === "image" && args[1] === "rm"))
+  // No owner label: the sweep of a later run never selects it.
+  assert.ok(
+    !calls
+      .find((args) => args[0] === "build")
+      .some((arg) => arg.startsWith("ai.ctxpipe.test=")),
+  )
 })

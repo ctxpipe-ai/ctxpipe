@@ -123,7 +123,7 @@ export function removeOrphanTestImages() {
   for (const image of records) {
     const owner = image?.Config?.Labels?.[TEST_LABEL]
     if (typeof owner !== "string" || !gone(owner)) continue
-    const tags = (image.RepoTags ?? []).filter((tag) => !tag.includes("@"))
+    const tags = image.RepoTags ?? []
     for (const name of tags.length > 0 ? tags : [image.Id])
       dockerLines(["image", "rm", "--", name])
   }
