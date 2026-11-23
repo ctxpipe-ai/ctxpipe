@@ -5,10 +5,10 @@ description: The seven read-only ctxpipe MCP tools, how an agent calls them, and
 
 The ctxpipe MCP gives a coding agent seven read-only tools. The agent does the
 reasoning and drives the search. ctxpipe returns facts with stable refs. It
-does not write an answer. A knowledge search uses an embedding model to find
-matches.
-When the knowledge plane is on, a model also judges which results answer the
-question. To connect a client, see
+does not write an answer. `search_knowledge` and `get_related` use an embedding
+model to find matches, and on the knowledge plane a model also ranks the
+results. See [How ctxpipe uses models](/docs/resources/data-processing#how-ctxpipe-uses-models).
+To connect a client, see
 [Connect your agent](/docs/mcp/mcp-docs).
 
 ## The tools
