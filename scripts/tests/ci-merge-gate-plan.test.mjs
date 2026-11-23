@@ -666,6 +666,22 @@ test("a change to a runner file runs every test of the CI scripts and a canary w
   )
 })
 
+test("on a pull request the upgrade job runs its planned checks with the previous release, and the nightly run keeps the run of every upgrade check", () => {
+  // The list test of the plan job checks the plan download and the
+  // selected.mjs call of each check job. An incremental nightly run is in
+  // gate mode too (nightlyPlan), so only a pull_request takes the gated path.
+  const { jobs } = parseYaml(
+    readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8"),
+  )
+  const steps = jobs["upgrade-from-previous-release"].steps
+  const gated = "needs.merge-gate-plan.outputs.mode == 'gate' && github.event_name == 'pull_request'"
+  const [step] = steps.filter((item) => /selected\.mjs/.test(item.run ?? ""))
+  assert.equal(step.if, gated)
+  assert.equal(step.env.RELEASE_TREE, "${{ runner.temp }}/previous-release")
+  for (const other of steps.filter((item) => /scripts\/checks\/run\.mjs/.test(item.run ?? "")))
+    assert.equal(other.if, `!(${gated})`)
+})
+
 test("the runner jobs are the jobs of a pull_request run whose steps call the runner", () => {
   const { jobs } = parseYaml(
     readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8"),
@@ -1532,6 +1548,7 @@ test("each job of the plan needs the plan job, starts only with its output, and 
     "packages",
     "storybook-plays",
     "storybook-visual",
+    "upgrade-from-previous-release",
   ]) {
     const text = job(name)
     assert.ok(
