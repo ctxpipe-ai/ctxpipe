@@ -210,6 +210,11 @@ export const MonthLabelsStayInTheChart = meta.story({
  * commits again.
  */
 export const DayFiltersRecent = meta.story({
+  parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the same state as MonthLabelsStayInTheChart.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() =>
