@@ -59,7 +59,7 @@ x-agent-vault-limits: &agent-vault-limits
   AGENT_VAULT_RATELIMIT_LOCK: "true"
   AGENT_VAULT_TELEMETRY: "false"
 
-x-dind-image: &dind-image docker:29.8.2-dind@sha256:7dcdfc4a20246236f558175182ccace1eb15a41bd3eb119dd2284f393498b7c1
+x-dind-image: &dind-image docker:29.9.3-dind@sha256:7bf70dcb85c822e3fa6f2d332143e474b99147b9d7b39102b0cfe8b04a7dd61b
 
 services:
   postgres:
@@ -145,7 +145,7 @@ services:
 
   otel-collector:
     profiles: [infra]
-    image: otel/opentelemetry-collector-contrib:0.149.0@sha256:0fba96233274f6d665ac8831ad99dfe6479a9a20459f6e2719c0d20945773b46
+    image: otel/opentelemetry-collector-contrib:0.165.0@sha256:e40d61f10c9a617cca1ffd1be4d7e2b3a4b0f0001798ff07e58cabe82e618cea
     restart: unless-stopped
     volumes:
       - ./apps/otel-collector/config.yaml:/etc/otelcol/config.yaml:ro
