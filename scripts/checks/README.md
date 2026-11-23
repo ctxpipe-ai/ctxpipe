@@ -304,7 +304,7 @@ The jobs in `.github/workflows/ci.yaml`:
 | Storybook screenshots | the build, then the shards of every planned `visual` check |
 | Production build | one matrix entry for each planned image |
 | Codesearch | the whole job, when the plan selects one of its checks |
-| Upgrade from the previous release | the job, when the plan selects one of its checks; it runs the planned checks with [`selected.mjs`](selected.mjs), so a failed check with a stored pass runs once more ([CTX-1557](https://linear.app/ctxpipe/issue/CTX-1557)) |
+| Upgrade from the previous release | the job, when the plan selects one of its checks; on a pull request it runs the planned checks with [`selected.mjs`](selected.mjs), so a failed check with a stored pass runs once more (the nightly run keeps the run of every upgrade check) ([CTX-1557](https://linear.app/ctxpipe/issue/CTX-1557)) |
 | Tests (the union of the shards) | does not run: a gated run has no full inventory |
 | MCP evals | their own workflows (see Other pull request workflows) |
 
