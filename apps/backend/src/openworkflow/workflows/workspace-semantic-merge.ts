@@ -7,9 +7,15 @@ import {
   connectorMirrorContentSchema,
   connectorMirrorSourceSchema,
 } from "../../domain/workspaces/connector-mirror-input.js"
+import {
+  releaseWorkspaceMergeLease,
+  takeWorkspaceMergeLease,
+  workspaceMergeLeaseKey,
+} from "../../domain/workspaces/merge-lease.js"
 import { workspaceGitRead } from "../../domain/workspaces/resolve-revision.js"
 import {
   sameWorkspaceRevision,
+  type WorkspaceRevision,
   workspaceRevisionSchema,
 } from "../../domain/workspaces/revision.js"
 import {
@@ -41,7 +47,7 @@ import {
   repositoryFilePathSchema,
 } from "../../services/git/file-change.js"
 import { readGitFiles } from "../../services/git/pack.js"
-import { enqueueWorkflow } from "../client.js"
+import { enqueueWorkflow, ow } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { runJobRefStep } from "../write-steps.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
@@ -202,6 +208,32 @@ export const workspaceSemanticMerge = defineWorkflow(
               deletePaths: input.deletePaths,
             }),
           )
+        // One semantic merge of a Workspace runs at a time (CTX-1598), so
+        // that the merges do not race on the default branch. A merge that
+        // finds the lease busy waits for the release signal without a worker
+        // slot. The timeout covers a holder that ended without a release.
+        const lease = {
+          orgId: input.orgId,
+          workspaceId: input.workspaceId,
+          runId: run.id,
+        }
+        while (
+          !(await step.run({ name: "take-merge-lease" }, () =>
+            takeWorkspaceMergeLease(lease),
+          ))
+        )
+          await step.waitForSignal({
+            name: "await-merge-lease",
+            signal: workspaceMergeLeaseKey(input.workspaceId),
+            timeout: "10 minutes",
+          })
+        const releaseLease = () =>
+          step.run({ name: "release-merge-lease" }, async () => {
+            await releaseWorkspaceMergeLease(lease)
+            await ow.sendSignal({
+              signal: workspaceMergeLeaseKey(input.workspaceId),
+            })
+          })
         for (
           let refreshAttempt = 0;
           refreshAttempt < MERGE_ATTEMPTS;
@@ -216,16 +248,39 @@ export const workspaceSemanticMerge = defineWorkflow(
                 name: "acquire-revision-v2",
                 retryPolicy: { maximumAttempts: 3 },
               },
-              () =>
-                acquireWorkspaceWriteRevision(
+              async (): Promise<
+                | (NonNullable<
+                    Awaited<ReturnType<typeof acquireWorkspaceWriteRevision>>
+                  > & { revision?: WorkspaceRevision })
+                | null
+              > => {
+                // The queued revision can be hours old, and other merges of
+                // the Workspace can push while this merge waits for the
+                // lease: merge onto the tip of now, not onto an old tip
+                // that the push then loses to. The refresh is in this step,
+                // so a replay gives the revision of the pack again. An output
+                // from before CTX-1598 has no revision. The refresh reads only
+                // the tip: the acquire checks the connector mirror on it.
+                const current =
+                  refreshAttempt === 0
+                    ? await refreshWorkspaceWriteRevision(
+                        { orgId: input.orgId, workspaceId: input.workspaceId },
+                        revision,
+                        env,
+                      )
+                    : revision
+                const acquired = await acquireWorkspaceWriteRevision(
                   input,
-                  revision,
+                  current,
                   env,
                   input.previousSha,
-                ),
+                )
+                return acquired && { ...acquired, revision: current }
+              },
             )
             if (candidate) {
               acquired = candidate
+              revision = candidate.revision ?? revision
               break
             }
             await step.run({ name: "pause-command" }, () =>
@@ -296,6 +351,7 @@ export const workspaceSemanticMerge = defineWorkflow(
               revision = refreshed
               continue
             }
+            await releaseLease()
             await step.run({ name: "enqueue-no-op-hydrate" }, () =>
               enqueueWorkflow(
                 workspaceHydrate.spec,
@@ -351,6 +407,7 @@ export const workspaceSemanticMerge = defineWorkflow(
             )
             continue
           }
+          await releaseLease()
           const published = await step.run({ name: "publish-result" }, () =>
             publishWorkspaceWriteRevision(input, revision, committed, env),
           )
@@ -375,6 +432,7 @@ export const workspaceSemanticMerge = defineWorkflow(
             )
           return { committed: true as const, commitSha: committed.sha }
         }
+        await releaseLease()
         throw new Error("Default branch kept changing during semantic merge")
       },
     )
