@@ -100,7 +100,7 @@ export function startServerTelemetry(): boolean {
     const loggerProvider = new LoggerProvider({
       resource,
       processors: [
-        new BatchLogRecordProcessor(exporter, { exportTimeoutMillis: 2_000 }),
+        new BatchLogRecordProcessor({ exporter, exportTimeoutMillis: 2_000 }),
       ],
     })
     logs.setGlobalLoggerProvider(loggerProvider)
