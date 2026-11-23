@@ -522,6 +522,7 @@ const carryOf = ({
   store: stored,
   accept = config(),
   mode,
+  llm = llmRecord(),
 } = {}) =>
   plan({
     config: accept,
@@ -531,7 +532,7 @@ const carryOf = ({
         ...select,
         cache: { quarantined: [], ...select.cache },
       },
-      "llm-selection.json": llmRecord(),
+      "llm-selection.json": llm,
       "head-lookup.json":
         lookup ?? headLookup([hit(ui, "agent", 11), hit(contract, "ci", 12)]),
       ...(delta !== null && { "main-delta.json": delta ?? mainDelta() }),
@@ -625,7 +626,11 @@ test("a check that main's delta selects and that fails here carries its head pas
     config: config(),
     planned,
     records: [{ id: contract, status: "failed" }],
-    needs: { ...needs, lint: { result: "success" }, migrate: { result: "success" } },
+    needs: {
+      ...needs,
+      lint: { result: "success" },
+      migrate: { result: "success" },
+    },
     jobs: jobs({}),
     run: { id: "42", attempt: 1, pr: 7, sha: sha(3) },
     store: store(),
@@ -646,6 +651,65 @@ test("a check that main's delta selects and that fails here carries its head pas
   })
   assert.ok(again.ran.includes(contract))
   assert.deepEqual(again.carry.ids, [ui])
+})
+
+test("a check with a pass of the PR head that did not carry quarantines that pass when it fails", () => {
+  const failedHere = (planned) =>
+    gateDecision({
+      config: config(),
+      planned,
+      records: [
+        { id: ui, status: "failed" },
+        { id: contract, status: "passed" },
+      ],
+      needs: {
+        ...needs,
+        lint: { result: "success" },
+        migrate: { result: "success" },
+      },
+      jobs: jobs({}),
+      run: { id: "42", attempt: 1, pr: 7, sha: sha(3) },
+      store: store(),
+      now: new Date("2026-10-28T12:00:00Z"),
+    }).store.quarantined
+  // main's delta fell back, or the class of the pass is not accepted: the
+  // UI test runs with its head key, and its failure quarantines it.
+  for (const planned of [
+    carryOf({ delta: mainDelta({ fallback: "timeout" }) }),
+    carryOf({ accept: { ...config(), acceptAgentResults: false } }),
+  ]) {
+    assert.ok(planned.ran.includes(ui))
+    assert.ok(failedHere(planned).includes(key(11)))
+  }
+})
+
+test("a change to the gate code runs every test of the CI scripts, also one whose head pass would carry", () => {
+  const tests = "policy:tests-ci-x:scripts/tests/ci-x.test.mjs"
+  const select = selectRecord()
+  select.selected.push(check(tests))
+  select.cache.misses.push({ id: tests, key: key(7), mode: "static" })
+  const llm = llmRecord()
+  llm.selected.push(check(tests))
+  const planned = carryOf({
+    select,
+    llm,
+    mode: {
+      mode: "select",
+      reason: "gate",
+      gateInputs: ["scripts/checks/plan.mjs"],
+    },
+    lookup: headLookup([hit(ui, "agent", 11), hit(tests, "agent", 13)]),
+    delta: {
+      ...mainDelta(),
+      omitted: [
+        { id: ui, lane: "ui", reason: "not reached" },
+        { id: tests, lane: "tests-ci-x", reason: "not reached" },
+      ],
+    },
+  })
+  assert.ok(planned.ran.includes(tests))
+  assert.ok(!planned.rerun.includes(tests))
+  assert.deepEqual(planned.carry.ids, [ui])
 })
 
 test("without a valid selection of main's delta whose model steps answered, no pass carries", () => {

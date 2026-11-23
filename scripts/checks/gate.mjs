@@ -1021,8 +1021,9 @@ export function gateDecision({
   // The selected checks with a key and no stored pass in any store, by
   // family (the first part of the id).
   const noStoredPass = {}
+  // A check with a pass of the PR head (`headKey`) has a stored pass too.
   for (const miss of selection.cache?.misses ?? [])
-    if (!storedMiss(miss)) {
+    if (!storedMiss(miss) && !miss.headKey) {
       const family = miss.id.split(":")[0]
       noStoredPass[family] = (noStoredPass[family] ?? 0) + 1
     }

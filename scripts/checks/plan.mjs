@@ -43,6 +43,11 @@ function withChecks(selection, runs, reason, { keepHits = false } = {}) {
   const added = selection.omitted
     .filter(runs)
     .map((check) => ({ ...check, reason }))
+  // A `carry` hit is a pass of another key (the PR head), so `keepHits`
+  // does not keep it.
+  const taken = (selection.cache?.hits ?? []).filter(
+    (hit) => runs(hit) && (!keepHits || hit.source === "carry"),
+  )
   return {
     ...selection,
     selected: [...selection.selected, ...added],
@@ -51,25 +56,23 @@ function withChecks(selection, runs, reason, { keepHits = false } = {}) {
       ...selection.counts,
       selected: selection.counts.selected + added.length,
     },
-    cache: keepHits
-      ? selection.cache
-      : selection.cache && {
-          ...selection.cache,
-          hits: (selection.cache.hits ?? []).filter((hit) => !runs(hit)),
-          // A stored pass for the key of a check that runs: a failure
-          // contradicts it (`rerun`). A `carry` hit is a pass of another
-          // key, so its check gets a plain miss with that key (`headKey`).
-          misses: [
-            ...(selection.cache.misses ?? []),
-            ...(selection.cache.hits ?? []).filter(runs).map((hit) => ({
-              id: hit.id,
-              key: hit.key,
-              ...(hit.source === "carry"
-                ? { headKey: hit.headKey }
-                : { mode: reason.kind }),
-            })),
-          ],
-        },
+    cache: selection.cache && {
+      ...selection.cache,
+      hits: (selection.cache.hits ?? []).filter((hit) => !taken.includes(hit)),
+      // A stored pass for the key of a check that runs: a failure
+      // contradicts it (`rerun`). A taken `carry` hit gives a plain miss
+      // with its head key (`headKey`).
+      misses: [
+        ...(selection.cache.misses ?? []),
+        ...taken.map((hit) => ({
+          id: hit.id,
+          key: hit.key,
+          ...(hit.source === "carry"
+            ? { headKey: hit.headKey }
+            : { mode: reason.kind }),
+        })),
+      ],
+    },
   }
 }
 
@@ -398,47 +401,36 @@ export function withCarry(
   { lookup, lookupCause, delta, deltaCause, store, config },
 ) {
   if (!lookup && !lookupCause) return { selection }
-  const cause = !lookup
-    ? lookupCause
-    : schemaErrors(lookup, "selection.v1", 1).length || !lookup.cache
-      ? "no valid lookup of the PR head"
-      : [selection, lookup].some(
-            (record) => !Array.isArray(record.cache?.quarantined),
-          )
-        ? "a cache lookup names no quarantined key"
-        : !delta
-          ? deltaCause || "no selection of main's delta"
-          : schemaErrors(delta, "selection.v1", 1).length
-            ? "no valid selection of main's delta"
-            : !delta.llm
-              ? "the LLM stage did not run on main's delta"
-              : delta.llm.fallback
-                ? `LLM fallback on main's delta (${delta.llm.fallback})`
-                : delta.packageIntent?.fallback &&
-                    delta.packageIntent.groups > 0
-                  ? `package intent fallback on main's delta (${delta.packageIntent.fallback})`
-                  : undefined
-  if (cause) return { selection, carry: { cause } }
+  if (!lookup) return { selection, carry: { cause: lookupCause } }
+  if (schemaErrors(lookup, "selection.v1", 1).length || !lookup.cache)
+    return { selection, carry: { cause: "no valid lookup of the PR head" } }
+  // Each pass of the PR head, of any class. A check with one that runs
+  // keeps its head key (`headKey`): its failure quarantines that pass in
+  // the PR store (nextStore in gate.mjs), also when no pass carried here.
+  const passes = new Map(
+    withStoreHits(lookup, store).cache.hits.map((hit) => [hit.id, hit]),
+  )
+  const cause = carryCause(selection, lookup, delta, deltaCause)
   const blocked = new Set([
     ...store.quarantined,
-    ...selection.cache.quarantined,
-    ...lookup.cache.quarantined,
+    ...(selection.cache.quarantined ?? []),
+    ...(lookup.cache.quarantined ?? []),
   ])
-  const passes = new Map(
-    withStoreHits(lookup, store)
-      .cache.hits.filter((hit) => accepted(hit.source, config))
-      .map((hit) => [hit.id, hit]),
-  )
-  const reached = new Set(delta.selected.map((check) => check.id))
+  // The checks that a valid selection of main's delta omits.
+  const reached = new Set(cause ? [] : delta.selected.map((check) => check.id))
   const omitted = new Set(
-    delta.omitted.map((check) => check.id).filter((id) => !reached.has(id)),
+    (cause ? [] : delta.omitted)
+      .map((check) => check.id)
+      .filter((id) => !reached.has(id)),
   )
   const hits = [...(selection.cache.hits ?? [])]
   const misses = []
   for (const miss of selection.cache.misses ?? []) {
     const pass = passes.get(miss.id)
     if (
+      !cause &&
       pass &&
+      accepted(pass.source, config) &&
       omitted.has(miss.id) &&
       !blocked.has(miss.key) &&
       !blocked.has(pass.key)
@@ -451,14 +443,33 @@ export function withCarry(
         headKey: pass.key,
         provenance: pass.provenance,
       })
-    // A failure of a check whose head pass did not carry quarantines that
-    // pass in the PR store (nextStore in gate.mjs).
     else misses.push(pass ? { ...miss, headKey: pass.key } : miss)
   }
   return {
     selection: { ...selection, cache: { ...selection.cache, hits, misses } },
-    carry: { head: delta.base },
+    carry: cause ? { cause } : { head: delta.base },
   }
+}
+
+// Why no pass of the PR head carries, or undefined: each cache lookup must
+// name its quarantined keys, and main's delta needs a valid selection whose
+// model steps answered.
+function carryCause(selection, lookup, delta, deltaCause) {
+  if (
+    [selection, lookup].some(
+      (record) => !Array.isArray(record.cache?.quarantined),
+    )
+  )
+    return "a cache lookup names no quarantined key"
+  if (!delta) return deltaCause || "no selection of main's delta"
+  if (schemaErrors(delta, "selection.v1", 1).length)
+    return "no valid selection of main's delta"
+  if (!delta.llm) return "the LLM stage did not run on main's delta"
+  if (delta.llm.fallback)
+    return `LLM fallback on main's delta (${delta.llm.fallback})`
+  if (delta.packageIntent?.fallback && delta.packageIntent.groups > 0)
+    return `package intent fallback on main's delta (${delta.packageIntent.fallback})`
+  return undefined
 }
 
 // Where a check runs in a gated run. Every Storybook play runs in the

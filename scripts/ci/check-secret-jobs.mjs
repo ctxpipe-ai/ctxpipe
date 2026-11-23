@@ -62,7 +62,7 @@
 //   through a read-only OIDC role of the factory account. It needs no secret
 //   and spends no money, so the rule for paid or outside checks does not
 //   apply.
-//   It may add a worktree of HEAD^2, the PR head (headWorktree below).
+//   It may add a worktree of HEAD^2, the PR head (untrustedOf below).
 // - The merge gate LLM job (ci.yaml merge-gate-llm) holds the model key of
 //   `workbench` and no cloud role. It runs only the selector release that
 //   the select job downloaded, after it checks the pinned SHA-256 again.
@@ -169,20 +169,17 @@ const untrusted = [
   [/(^|[;&|(]|\brun:)\s*make\b/, "runs make"],
   [/\bsh\s+-c\b/, "runs `sh -c`"],
 ]
-// The one git command that gets a commit in a job with a secret: the merge
-// gate selection job adds a worktree of HEAD^2, the PR head (main-delta
-// carry, scripts/checks/README.md). HEAD^2 is a parent of the merge revision
-// that the job checked out, so it brings no code that the job does not
-// already hold. The selector release only reads its files: no step runs code
-// of it.
-const headWorktree = (job, text) =>
+// The untrusted commands of a line of `job` (`<workflow file>:<job name>`).
+// One git command that gets a commit is not untrusted: the merge gate
+// selection job adds a worktree of HEAD^2, the PR head (main-delta carry,
+// scripts/checks/README.md). HEAD^2 is a parent of the merge revision that
+// the job checked out, so it brings no code that the job does not already
+// hold. The selector release only reads its files: no step runs code of it.
+const untrustedOf = (job, text) =>
   job === "ci.yaml:merge-gate-select" &&
   /^\s*(?:-\s+run:\s+)?GIT_LFS_SKIP_SMUDGE=1 git worktree add --detach "\$RUNNER_TEMP\/head" HEAD\^2\s*$/.test(
     text,
   )
-// The untrusted commands of a line of `job` (`<workflow file>:<job name>`).
-const untrustedOf = (job, text) =>
-  headWorktree(job, text)
     ? []
     : untrusted.filter(([pattern]) => pattern.test(text))
 
@@ -570,9 +567,9 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
             `${where(number)} runs ${script}, which is not a reviewed script. Add it to reviewedScripts in scripts/ci/check-secret-jobs.mjs only if it runs no package manager.`,
           )
       for (const [, what] of untrustedOf(`${name}:${job.name}`, text))
-          failures.push(
-            `${where(number)} ${what}. Untrusted code can read and change every later step of its job: move it to a job without the secret.`,
-          )
+        failures.push(
+          `${where(number)} ${what}. Untrusted code can read and change every later step of its job: move it to a job without the secret.`,
+        )
     }
   }
 }

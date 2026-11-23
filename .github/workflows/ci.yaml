@@ -1995,6 +1995,9 @@ jobs:
       # main's delta, and the plan joins the two. When this step fails, no
       # pass carries, and the checks run.
       - name: Look up the passes of the PR head
+        # A change to a definition of checks gets no carry: its plan does not
+        # use the LLM job.
+        if: needs.merge-gate-manifest.outputs.definitions != 'true'
         timeout-minutes: 2
         continue-on-error: true
         env:
