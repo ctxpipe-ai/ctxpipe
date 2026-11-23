@@ -304,6 +304,7 @@ const definitions = () => [
             "ci-deploy-images": [
               ...imageBuildFiles,
               "ops/observability/cost-telemetry/Dockerfile",
+              "apps/docs/Dockerfile",
             ],
             "ci-preview-images": imageBuildFiles,
             "ci-test-shards": ["apps/backend/**"],
