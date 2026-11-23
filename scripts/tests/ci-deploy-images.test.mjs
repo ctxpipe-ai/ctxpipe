@@ -186,12 +186,22 @@ const built = (result) => result.build.map(({ image }) => image)
 test("a merge that changes no image input builds no image and reuses each digest", async () => {
   const { dir, base } = repository({
     "README.md": "docs only\n",
-    "apps/docs/content/page.mdx": "text\n",
+    "proposals/note.md": "text\n",
   })
   server.use(...github({ base }))
   const result = await plan(dir)
   assert.deepEqual(built(result), [])
   assert.deepEqual(result.reuse, allDigests)
+})
+
+test("a merge that changes only the docs content builds only docs", async () => {
+  const { dir, base } = repository({ "apps/docs/content/page.mdx": "text\n" })
+  server.use(...github({ base }))
+  const result = await plan(dir)
+  assert.deepEqual(built(result), ["docs"])
+  const { docs, ...others } = allDigests
+  assert.equal(docs, digestOf("docs"))
+  assert.deepEqual(result.reuse, others)
 })
 
 test("a merge that changes only apps/ui builds only ui", async () => {
@@ -222,6 +232,7 @@ test("a change to the lockfile or the chat sandbox files builds the images that 
     "worker",
     "ui",
     "codesearch",
+    "docs",
   ])
   const proxy = repository({
     "scripts/chat-sandbox/node-http-proxy.cjs": "x\n",
@@ -254,7 +265,7 @@ test("a change to the cost job's source builds only its image", async () => {
 // A pnpm workspace with the image packages, each with one dependency, and its
 // lockfile with the given integrity of codesearch's dependency.
 function workspace(codesearchIntegrity) {
-  const apps = ["backend", "codesearch", "ui"]
+  const apps = ["backend", "codesearch", "docs", "ui"]
   const lockfile = [
     "lockfileVersion: '9.0'",
     "",
@@ -322,6 +333,7 @@ test("a lockfile change builds only the images whose pruned lockfile changed", a
   )
   assert.equal(result.reuse.backend, digestOf("backend"))
   assert.equal(result.reuse.ui, digestOf("ui"))
+  assert.equal(result.reuse.docs, digestOf("docs"))
 })
 
 test("without a working turbo, a lockfile change builds every image that installs packages", async () => {
@@ -338,6 +350,7 @@ test("without a working turbo, a lockfile change builds every image that install
       "worker",
       "ui",
       "codesearch",
+      "docs",
     ])
   } finally {
     process.env.TURBO_BIN = turbo
@@ -451,6 +464,7 @@ test("an image without exactly one valid digest notice in the base run builds", 
     "chat-sandbox",
     "chat-sandbox-agentcore",
     "cost-telemetry",
+    "docs",
   ])
 })
 

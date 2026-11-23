@@ -140,6 +140,13 @@ export const images = [
       "ops/observability/cost-telemetry/src",
     ],
   },
+  // The docs site (factory machines/docs runs it).
+  {
+    image: "docs",
+    dockerfile: "apps/docs/Dockerfile",
+    packages: ["@ctxpipe/docs"],
+    inputs: [...workspace, "apps/docs"],
+  },
 ]
 
 // The lockfile is an input of each image that installs packages, but most of a
