@@ -19,11 +19,11 @@ name: Ingestion v2 proof (Docker)
 #                           production key
 #   GH_APP_ID               the GitHub App id of the test org
 #   GH_PRIVATE_KEY          the GitHub App private key, PEM
-#   INGEST_PROOF_REPOS      the fork URLs of the
-#                           repositories to ingest, separated by spaces,
-#                           commas or new lines, the largest last
-#   INGEST_PROOF_WORKSPACE_REPO  the URL of the
-#                           Workspace repository, in the same owner
+#   INGEST_PROOF_REPOS      the fork URLs of the repositories to ingest,
+#                           separated by spaces, commas or new lines, the
+#                           largest last
+#   INGEST_PROOF_WORKSPACE_REPO  the URL of the Workspace repository, in the
+#                           same owner
 # Repository variables (optional): MODEL_PROVIDER, MODEL_PROVIDER_URL,
 #   MODEL_FAST_NAME, MODEL_MEDIUM_NAME, MODEL_HIGH_NAME.
 # How to start a run: dispatch the workflow on main (Actions > Ingestion v2

@@ -28,14 +28,19 @@ for file in "$root"/environments/*.json; do
   path="repos/$repo/environments/$name/deployment-branch-policies"
   current="$(gh api "$path" --paginate --jq '.branch_policies[] | "\(.type) \(.name) \(.id)"')"
   wanted="$(jq -r '.branch_policies[] | "\(.type) \(.name)"' "$file")"
+  # Names compare as fixed strings: a pattern such as `main*` is a stray
+  # policy, not a match of `main`.
   while read -r type pattern; do
     [ -n "$type" ] || continue
-    grep -q "^$type $pattern " <<<"$current" ||
+    if ! cut -d' ' -f1,2 <<<"$current" | grep -Fqx -- "$type $pattern"; then
       gh api --method POST "$path" -f name="$pattern" -f type="$type" --jq '"added \(.type) \(.name)"'
+    fi
   done <<<"$wanted"
   while read -r type pattern id; do
     [ -n "$type" ] || continue
-    grep -qx "$type $pattern" <<<"$wanted" ||
-      gh api --method DELETE "$path/$id" --silent && echo "removed $type $pattern"
+    if ! grep -Fqx -- "$type $pattern" <<<"$wanted"; then
+      gh api --method DELETE "$path/$id" --silent
+      echo "removed $type $pattern"
+    fi
   done <<<"$current"
 done
