@@ -20,6 +20,11 @@ const dropdownItemStyles = tv({
     isFocused: {
       true: "bg-blue-600 dark:bg-blue-600 text-white forced-colors:bg-[Highlight] forced-colors:text-[HighlightText]",
     },
+    // React Aria's `isOpen` render prop: a menu item whose submenu is open. No classes of its own; the compound
+    // variant below reads it, and tailwind-variants 4 only accepts keys that a variant declares.
+    isOpen: {
+      true: "",
+    },
   },
   compoundVariants: [
     {
