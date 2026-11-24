@@ -5,10 +5,15 @@ import { useMswServer } from "../../test/msw.js"
 import type { KnowledgeDocument } from "../knowledge-store/knowledge-store.js"
 import { JevError } from "../retrieval/jev/client.js"
 import {
+  decideDisagreements,
+  type EvidenceItem,
+} from "../retrieval/jev/disagreement.js"
+import {
   BudgetSpentError,
   isBudgetSpent,
   type JudgeInput,
   judge,
+  ORCHESTRATOR_DEFAULTS,
 } from "./orchestrator.js"
 
 describe("the end of the time budget", () => {
@@ -24,6 +29,57 @@ describe("the end of the time budget", () => {
       isBudgetSpent(new JevError("http", "busy", 503), performance.now()),
     ).toBe(false)
   })
+})
+
+describe("the default fact thresholds of the disagreement step", () => {
+  const { sameAt, disagreeAt, replacesAt, scopedAt } = ORCHESTRATOR_DEFAULTS
+  const item = (id: string): EvidenceItem => ({
+    id,
+    passage: `The passage of ${id}.`,
+    meta: {
+      status: "active",
+      sourceType: "docs",
+      observedAt: "2026-10-01T00:00:00Z",
+      validFrom: null,
+      validTo: null,
+      confidence: 0.8,
+      documentKey: `doc/${id}.md`,
+    },
+  })
+  const decide = (facts: Record<string, number>) =>
+    decideDisagreements({
+      items: [item("a"), item("b")],
+      facts: new Map(Object.entries(facts)),
+      relations: [],
+      queryTime: new Date("2026-11-01T00:00:00Z"),
+      thresholds: { sameAt, disagreeAt, replacesAt, scopedAt },
+    })
+
+  // Jev gives the scoped fact a p(yes) near 0.5 to most items, so a p(yes)
+  // just over 0.5 is not "yes".
+  it.each([
+    [0.56, "current"],
+    [0.6, "scoped"],
+  ] as const)(
+    "gives a position with no rival and scoped p(yes) %s the status %s",
+    (p, status) => {
+      expect(
+        decide({ "same.1.2": 0.9, "scoped.1": p, "scoped.2": p }).positions,
+      ).toEqual([expect.objectContaining({ itemIds: ["a", "b"], status })])
+    },
+  )
+
+  it.each([
+    [0.56, "contradicts"],
+    [0.6, "partial"],
+  ] as const)(
+    "labels a disagreeing pair with one scoped p(yes) %s as %s",
+    (p, label) => {
+      expect(
+        decide({ "same.1.2": 0.9, "disagree.1.2": 0.9, "scoped.2": p }).pairs,
+      ).toEqual([expect.objectContaining({ label })])
+    },
+  )
 })
 
 describe("judge", () => {
