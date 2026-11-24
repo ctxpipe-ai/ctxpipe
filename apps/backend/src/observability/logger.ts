@@ -210,6 +210,12 @@ export function flushWorkflowLog(): void {
   holder.logger = createLogger({ ...holder.base })
 }
 
+/** The workflow name that `defineWorkflow` put on the workflow logger. */
+export function currentWorkflowName(): string | undefined {
+  const workflow = loggerStorage.getStore()?.base.workflow
+  return typeof workflow === "string" ? workflow : undefined
+}
+
 /**
  * Get the current logger from AsyncLocalStorage (worker) or Hono context (HTTP).
  * @throws if neither context has a logger
