@@ -1,8 +1,41 @@
+diff --git a/dist/esm/adapters/text.d.ts b/dist/esm/adapters/text.d.ts
+index 9e86b45ef4263dd0c26c1755314ee1effb257e34..5b8a27bbb0747e9c3ab6ec4fdfc7693fef59a673 100644
+--- a/dist/esm/adapters/text.d.ts
++++ b/dist/esm/adapters/text.d.ts
+@@ -23,6 +23,12 @@ export interface OpencodeTextConfig {
+     permissionMode?: OpencodePermissionMode;
+     /** Custom permission handler; replaces the adapter's default policy. */
+     onPermissionRequest?: PermissionHandler;
++    /**
++     * ctxpipe patch: runs after the OpenCode server and session start and
++     * before the prompt, so the caller's own setup can run during the server
++     * start. Its system prompts are added after `options.systemPrompts`.
++     */
++    beforePrompt?: () => Promise<{ systemPrompts?: ReadonlyArray<string> } | void>;
+ }
+ export declare class OpencodeTextAdapter<TModel extends OpencodeModel> extends BaseTextAdapter<TModel, OpencodeTextProviderOptions, ReadonlyArray<Modality> & readonly ['text'], DefaultMessageMetadataByModality, ReadonlyArray<string>, unknown, never> {
+     readonly name: "opencode";
 diff --git a/dist/esm/adapters/text.js b/dist/esm/adapters/text.js
-index d11df14ae2159d0558a0f928b72c3d24867b164a..18095baa3b8dd18fd811f7b8f692d12940394a44 100644
+index d11df14ae2159d0558a0f928b72c3d24867b164a..b517a89c3dce5b03b3cd7b90fb2de7ea646b3b3c 100644
 --- a/dist/esm/adapters/text.js
 +++ b/dist/esm/adapters/text.js
-@@ -223,9 +223,12 @@ var OpencodeTextAdapter = class extends BaseTextAdapter {
+@@ -143,7 +143,14 @@ var OpencodeTextAdapter = class extends BaseTextAdapter {
+ 				kind: "session",
+ 				sessionId: session.sessionId
+ 			});
+-			let promptText = this.applySystemPrompts(options, session.resumed || sessionId === void 0 ? resumePrompt : buildPrompt(options.messages, void 0).prompt);
++			// ctxpipe patch: the caller's setup that runs during the server start
++			// ends here, before the prompt, and can add system prompts.
++			const late = await this.adapterConfig.beforePrompt?.();
++			const promptOptions = late?.systemPrompts?.length ? {
++				...options,
++				systemPrompts: [...normalizeSystemPrompts(options.systemPrompts), ...late.systemPrompts]
++			} : options;
++			let promptText = this.applySystemPrompts(promptOptions, session.resumed || sessionId === void 0 ? resumePrompt : buildPrompt(options.messages, void 0).prompt);
+ 			if (options.outputSchema) promptText = appendOutputSchemaInstruction(promptText, options.outputSchema);
+ 			let lastAssistantText = "";
+ 			session.prompt(promptText).then(({ message, text }) => {
+@@ -223,9 +230,12 @@ var OpencodeTextAdapter = class extends BaseTextAdapter {
  		} finally {
  			if (externalSignal !== void 0 && onAbort !== void 0) externalSignal.removeEventListener("abort", onAbort);
  			channel.close();
@@ -19,7 +52,7 @@ index d11df14ae2159d0558a0f928b72c3d24867b164a..18095baa3b8dd18fd811f7b8f692d129
  	}
  	structuredOutput(_options) {
 diff --git a/dist/esm/process/server.js b/dist/esm/process/server.js
-index c3f62754a7a2e2dbf6cc4482e188b4bf5d10b37d..ab391533644188a48a47dea71a89ac9df81537ca 100644
+index c3f62754a7a2e2dbf6cc4482e188b4bf5d10b37d..b208f69b3c045b3c6cdb39f217885b481763acff 100644
 --- a/dist/esm/process/server.js
 +++ b/dist/esm/process/server.js
 @@ -54,6 +54,35 @@ async function startOpencodeSession(options) {
