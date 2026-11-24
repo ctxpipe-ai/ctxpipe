@@ -831,7 +831,7 @@ describe('the plane "no answer"', () => {
   it("reads answerAt of the run, and keepAt for a run from before it", async () => {
     const dataset = await readDataset(datasetFile)
     const id = "billing-provider"
-    const noAnswerAt = async (
+    const planeNoAnswer = (
       loop: { keepAt: number; [setting: string]: number },
       scores: number[],
     ) =>
@@ -876,9 +876,9 @@ describe('the plane "no answer"', () => {
     const loop = { ...ORCHESTRATOR_DEFAULTS }
     expect(loop.answerAt).toBe(0.6)
     expect(loop.keepAt).toBe(0.5)
-    expect(await noAnswerAt(loop, [0.58, 0.58, 0.33])).toBe(1)
-    expect(await noAnswerAt(loop, [0.6, 0.2])).toBe(0)
-    expect(await noAnswerAt({ keepAt: 0.5 }, [0.58, 0.58, 0.33])).toBe(0)
+    expect(planeNoAnswer(loop, [0.58, 0.58, 0.33])).toBe(1)
+    expect(planeNoAnswer(loop, [0.6, 0.2])).toBe(0)
+    expect(planeNoAnswer({ keepAt: 0.5 }, [0.58, 0.58, 0.33])).toBe(0)
   })
 })
 

@@ -48,11 +48,11 @@ export const ORCHESTRATOR_DEFAULTS = {
    */
   keepAt: 0.5,
   /**
-   * The search finds an answer when its top hit has p(answers) of at least
-   * this value; else it says "no answer". The eval scores the search with it
-   * (CTX-1561), and `search_knowledge` can give it as a field (CTX-1164). It
-   * is above `keepAt`: on the dev questions, a no-answer question can get a
-   * top hit of 0.5 to 0.6, and an answered question with a gold document in
+   * The eval's rule for a "no answer" of the search: no hit has p(answers) of
+   * at least this value (CTX-1561). Only the eval reads it. It is here so
+   * that the run manifest records it and `--set answerAt=…` can change it.
+   * It is above `keepAt`: on the dev questions, a no-answer question can get
+   * a top hit of 0.5 to 0.6, and an answered question with a gold document in
    * the top 5 always got more than 0.6.
    */
   answerAt: 0.6,
