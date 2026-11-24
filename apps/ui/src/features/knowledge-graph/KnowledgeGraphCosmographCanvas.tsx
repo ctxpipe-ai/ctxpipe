@@ -1011,7 +1011,7 @@ function FallbackGraphSearch({
 function LegendDock() {
   return (
     <div
-      className="pointer-events-none flex items-end justify-between gap-6 font-sans text-xs font-normal text-muted-foreground [&_*]:font-normal [&_.name]:!text-xs [&_.name]:tracking-normal [&_.name]:text-muted-foreground [&_.label]:tracking-normal [&_.sublabel]:opacity-70"
+      className="pointer-events-none flex items-end justify-between gap-6 font-sans text-xs font-normal text-muted-foreground [&_*]:font-normal [&_.name]:!text-xs [&_.name]:tracking-normal [&_.name]:text-muted-foreground [&_.label]:tracking-normal [&_.sublabel]:!text-zinc-400 [&_.sublabel]:!opacity-100"
       style={
         {
           "--cosmograph-ui-background": "transparent",
