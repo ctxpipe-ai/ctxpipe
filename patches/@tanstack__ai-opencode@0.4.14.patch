@@ -16,17 +16,20 @@ index 9e86b45ef4263dd0c26c1755314ee1effb257e34..5b8a27bbb0747e9c3ab6ec4fdfc7693f
  export declare class OpencodeTextAdapter<TModel extends OpencodeModel> extends BaseTextAdapter<TModel, OpencodeTextProviderOptions, ReadonlyArray<Modality> & readonly ['text'], DefaultMessageMetadataByModality, ReadonlyArray<string>, unknown, never> {
      readonly name: "opencode";
 diff --git a/dist/esm/adapters/text.js b/dist/esm/adapters/text.js
-index d11df14ae2159d0558a0f928b72c3d24867b164a..b517a89c3dce5b03b3cd7b90fb2de7ea646b3b3c 100644
+index d11df14ae2159d0558a0f928b72c3d24867b164a..0d37ad0aeb0e13a43a2219e375b5ffa19dfcd55d 100644
 --- a/dist/esm/adapters/text.js
 +++ b/dist/esm/adapters/text.js
-@@ -143,7 +143,14 @@ var OpencodeTextAdapter = class extends BaseTextAdapter {
+@@ -143,7 +143,17 @@ var OpencodeTextAdapter = class extends BaseTextAdapter {
  				kind: "session",
  				sessionId: session.sessionId
  			});
 -			let promptText = this.applySystemPrompts(options, session.resumed || sessionId === void 0 ? resumePrompt : buildPrompt(options.messages, void 0).prompt);
-+			// ctxpipe patch: the caller's setup that runs during the server start
-+			// ends here, before the prompt, and can add system prompts.
++			// ctxpipe patch (CTX-1322, upstream issue: to be opened): the caller's
++			// setup that runs during the server start ends here, before the
++			// prompt, and can add system prompts. A stop during the wait sends no
++			// prompt.
 +			const late = await this.adapterConfig.beforePrompt?.();
++			externalSignal?.throwIfAborted();
 +			const promptOptions = late?.systemPrompts?.length ? {
 +				...options,
 +				systemPrompts: [...normalizeSystemPrompts(options.systemPrompts), ...late.systemPrompts]
@@ -35,7 +38,7 @@ index d11df14ae2159d0558a0f928b72c3d24867b164a..b517a89c3dce5b03b3cd7b90fb2de7ea
  			if (options.outputSchema) promptText = appendOutputSchemaInstruction(promptText, options.outputSchema);
  			let lastAssistantText = "";
  			session.prompt(promptText).then(({ message, text }) => {
-@@ -223,9 +230,12 @@ var OpencodeTextAdapter = class extends BaseTextAdapter {
+@@ -223,9 +233,12 @@ var OpencodeTextAdapter = class extends BaseTextAdapter {
  		} finally {
  			if (externalSignal !== void 0 && onAbort !== void 0) externalSignal.removeEventListener("abort", onAbort);
  			channel.close();
