@@ -366,8 +366,7 @@ export async function projectKnowledgePlane(input: {
  * each chunk) stay in memory until its insert, so their size follows the
  * text of the files, not their count. A write of 1000 mirrored issues
  * (14 MiB of text, 20,000 chunks) took more than 1 GiB of heap, and the
- * worker of a 2 GiB task stopped (CTX-1615). A full projection of that
- * Workspace with this limit has a peak heap of about 460 MiB.
+ * worker of a 2 GiB task stopped (CTX-1615).
  */
 const WRITE_BYTES = 2 * 1024 * 1024
 
