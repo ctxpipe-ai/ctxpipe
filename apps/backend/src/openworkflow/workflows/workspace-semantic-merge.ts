@@ -217,8 +217,8 @@ export const workspaceSemanticMerge = defineWorkflow(
         // the merge before it wakes it. Only the first waiter checks the
         // lease again on a short timeout: a holder that ended without a
         // release, or a wake before the wait starts, costs that timeout.
-        // A runtime that runs one key in series would replace this: see the top of
-        // merge-lease.ts and ADR-047.
+        // A runtime that runs one key in series would replace this: see the
+        // top of merge-lease.ts and ADR-047.
         const lease = {
           orgId: input.orgId,
           workspaceId: input.workspaceId,
