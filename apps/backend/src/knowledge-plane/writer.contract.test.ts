@@ -1967,23 +1967,24 @@ describe("vector reuse (CTX-1428)", () => {
     try {
       // The `.doc` file has no converter, so it costs no model call. Its
       // blob is above 2 MiB, so it is a write alone, between the writes of
-      // the Markdown files before it and after it.
-      const markdown = (prefix: string) =>
-        Array.from({ length: 5 }, (_, index) => [
-          `${prefix}${index}.md`,
+      // the Markdown files before it and after it. The 1001 small files
+      // before it are one write: the limit is on bytes, not on files.
+      const markdown = (prefix: string, length: number) =>
+        Array.from({ length }, (_, index) => [
+          `${prefix}${String(index).padStart(4, "0")}.md`,
           `# File ${prefix}${index}\n\nThe text of file ${prefix}${index}.\n`,
         ])
       const tip = await remote.commit(
         Object.fromEntries([
-          ...markdown("a"),
+          ...markdown("a", 1001),
           ["b.doc", Buffer.alloc(2 * 1024 * 1024 + 1, 1)],
-          ...markdown("c"),
+          ...markdown("c", 5),
         ]),
       )
       const workspaceId = await newWorkspace()
-      // The first write sends its 5 chunks in one request, and the second
-      // write sends none. The request of the third write fails the run,
-      // after the first two writes are in ClickHouse.
+      // The first write sends its 1001 short chunks in one request, and the
+      // second write sends none. The request of the third write fails the
+      // run, after the first two writes are in ClickHouse.
       embeddings.failAt = 2
       fault.writes = []
       await expect(run(remote, workspaceId, tip)).rejects.toThrow("HTTP 401")
@@ -2018,11 +2019,11 @@ describe("vector reuse (CTX-1428)", () => {
         "ctxpipe.knowledge.embedding_requests": 1,
       })
       expect(await statusOf(workspaceId)).toMatchObject({
-        [servingIdForKnowledgePath(workspaceId, "a0.md")]: "active",
+        [servingIdForKnowledgePath(workspaceId, "a1000.md")]: "active",
         [servingIdForKnowledgePath(workspaceId, "b.doc")]: "failed",
-        [servingIdForKnowledgePath(workspaceId, "c4.md")]: "active",
+        [servingIdForKnowledgePath(workspaceId, "c0004.md")]: "active",
       })
-      expect(Object.keys(await statusOf(workspaceId))).toHaveLength(11)
+      expect(Object.keys(await statusOf(workspaceId))).toHaveLength(1007)
     } finally {
       await remote.remove()
     }

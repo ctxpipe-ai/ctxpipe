@@ -359,8 +359,10 @@ export async function projectKnowledgePlane(input: {
 }
 
 /**
- * The blob bytes of the files of one store write, at most. A file above it
- * is a write alone. The rows of a write (with a vector of 1024 numbers for
+ * The blob bytes of the files of one store write, at most: the size of the
+ * files in Git, not of their text. A converted file (a compressed Office
+ * file) can give more text than its blob. A file above the limit is a write
+ * alone. The rows of a write (with a vector of 1024 numbers for
  * each chunk) stay in memory until its insert, so their size follows the
  * text of the files, not their count. A write of 1000 mirrored issues
  * (14 MiB of text, 20,000 chunks) took more than 1 GiB of heap, and the
