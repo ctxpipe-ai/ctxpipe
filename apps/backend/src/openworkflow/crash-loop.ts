@@ -193,6 +193,7 @@ export async function withCrashLoopGuard<T>(
     log.error({
       step: "openworkflow.step-crash-loop",
       message: error.message,
+      workflow: currentWorkflowName(),
       workflowRunId,
       stepName,
       crashes,
