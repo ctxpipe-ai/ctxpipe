@@ -1,0 +1,3 @@
+---
+"@ctxpipe/aws-cdk": patch
+---
