@@ -100,8 +100,11 @@ jobs:
       - name: Checkout repository
         uses: useblacksmith/checkout@75c49b6ed30ce59336e9252425796cfcfac155f8 # v1.8.3
 
+      # v2 keeps one layer cache per cache-key: one per Dockerfile, target and architecture.
       - name: Setup Blacksmith Builder
-        uses: useblacksmith/setup-docker-builder@8fbda8108100092be0ef3320da0a93fbb8f47d7f # v1.14.0
+        uses: useblacksmith/setup-docker-builder@06dd9c83a5d541274d2e3ac67625560979275267 # v2.3.0
+        with:
+          cache-key: ${{ matrix.dockerfile }}-${{ matrix.target || 'default' }}-${{ env.ARCH }}
 
       - name: Login to GHCR
         uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
@@ -453,15 +456,17 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # changesets/action v2 pushes the version commit through the GitHub API
+      # and takes the token only from `github-token`, not from GITHUB_TOKEN.
       - name: Create Release Pull Request or Publish
-        uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
+        uses: changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
         with:
-          version: pnpm ci:version
-          publish: pnpm release
-          commit: "chore(release): version packages"
-          title: "chore(release): version packages"
+          version-script: pnpm ci:version
+          publish-script: pnpm release
+          commit-message: "chore(release): version packages"
+          pr-title: "chore(release): version packages"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           IMAGE_TAG: ${{ github.sha }}
 
   # A reviewed exception in scripts/ci/check-secret-jobs.mjs (productionJobs):
