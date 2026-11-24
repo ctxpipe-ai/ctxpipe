@@ -7,9 +7,9 @@ const withMDX = createMDX()
 const config = withMDX({
   reactStrictMode: true,
   output: "standalone",
-  // The monorepo root: the standalone output then holds the pnpm store that its node_modules links point into, and
+  // Trace from the monorepo root. Then the standalone output holds the pnpm store of its node_modules links, and
   // server.js is at apps/docs/server.js, where the Dockerfile runs it. Without it, tracing stops at apps/docs, and
-  // the image has only links that point outside it.
+  // the links in the image go to files that it does not hold.
   outputFileTracingRoot: path.join(__dirname, "../.."),
   async rewrites() {
     return [{ source: "/docs/:path*.mdx", destination: "/llms.mdx/:path*" }]
