@@ -20,12 +20,24 @@ import { WORKSPACE_CHAT_OPENCODE_START_ENV } from "./workspace-chat-opencode-con
  *   fills. It removes them at the end.
  * - Its OpenCode and its stand-in model listen only on loopback.
  *
+ * On a new session of a cold turn, it runs beside the clone. The clone is
+ * on the path of the turn, so the warm-up runs at the lowest CPU priority
+ * (`nice`), and so does its OpenCode. The turn does not wait for the
+ * warm-up: its stop of earlier processes ends a warm-up that still runs.
+ * Then the warm-up's folder can stay in `/tmp`. It holds no credential, and
+ * the turn does not read it.
+ * A pool fill waits for its warm-up, because a pool session is ready only
+ * after it.
+ *
  * It stops itself after the prompt, or after 25 s. Its exit code tells how
  * it ended: 0 after a model call, 2 at the 25 s limit, 3 when OpenCode
  * stopped first, 4 when no model call came, 5 when a request to OpenCode
- * failed, and 6 when `opencode` did not start.
+ * failed, and 6 when `opencode` did not start. When the stop of earlier
+ * processes of a turn ends it, the code is the code of the signal. When
+ * `nice` is missing, the shell gives 127. The real-image contract test runs
+ * the command.
  */
-export const OPENCODE_WARMUP_COMMAND = `node -e '
+export const OPENCODE_WARMUP_COMMAND = `nice -n 19 node -e '
 const { spawn } = require("node:child_process")
 const { mkdirSync, rmSync, writeFileSync } = require("node:fs")
 const http = require("node:http")
@@ -118,9 +130,8 @@ export function warmOpencode(handle: SandboxHandle): Promise<void> {
 }
 
 /**
- * Wait for the warm-up of the sandbox, if one still runs. The turn calls
- * this before it stops the agent user's processes, which would stop the
- * warm-up too. The pool fill calls it before its session becomes ready.
+ * Wait for the warm-up of the sandbox, if one still runs. The pool fill
+ * calls it before its session becomes ready.
  */
 export async function waitForOpencodeWarmup(sandboxId: string): Promise<void> {
   const warmup = running.get(sandboxId)

@@ -77,7 +77,7 @@ import { openDockerRunVault } from "./docker-run-vault.js"
 import { adaptTanstackHandle, SANDBOX_GIT_GUARD } from "./job-sandbox.js"
 import type { JobSandboxHandle } from "./job-worktree.js"
 import { createChunkMasker, maskCredentials } from "./mask-credentials.js"
-import { waitForOpencodeWarmup, withOpencodeWarmup } from "./opencode-warmup.js"
+import { withOpencodeWarmup } from "./opencode-warmup.js"
 import { type WorkspaceRevision, workspaceRevisionSchema } from "./revision.js"
 import { workspaceRootPath } from "./root-path.js"
 import { recordedRunGitToken, revokeRunGitTokens } from "./run-git-tokens.js"
@@ -1083,10 +1083,11 @@ async function startWorkspaceChat(
                 })
               // A turn starts with no agent process of an earlier turn: such a
               // process would get this turn's capability, rules or session.
-              if (built.isolation !== "unsandboxed") {
-                await waitForOpencodeWarmup(activeSandbox.id)
+              // On a new session this also ends an OpenCode warm-up that still
+              // runs: the turn's OpenCode starts with the files that the
+              // warm-up already read, and does not wait for the rest.
+              if (built.isolation !== "unsandboxed")
                 await stopEarlierTurnProcesses(activeSandbox)
-              }
               // The conversation lock is held and OpenCode has not started.
               // Its subprocesses inherit these values (none on Docker or
               // AgentCore).
