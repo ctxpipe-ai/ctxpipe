@@ -105,7 +105,7 @@ The production reviews of the Falkor retrieval (CTX-1131, CTX-1114) found failur
 
 A stale document is never gold, and a `no-answer` question has no `stale` list (`dataset.ts` refuses both). Check 5 has no value until the dataset has such questions.
 
-A plane search says "no answer" when no Jev-judged hit reaches the `keepAt` setting. The old stack has no such threshold, so it says "no answer" only when it finds no hit. A search that failed, or that the time budget cut, gets no credit for "no answer".
+A plane search says "no answer" when no Jev-judged hit reaches the `answerAt` setting (0.6, CTX-1561). It is above `keepAt` (0.5), the threshold of `get_related`. A run from before CTX-1561 has no `answerAt`, so its report uses `keepAt`. The old stack has no such threshold, so it says "no answer" only when it finds no hit. A search that failed, or that the time budget cut, gets no credit for "no answer".
 
 ## Commands
 

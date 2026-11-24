@@ -106,8 +106,9 @@ export function percentile(
 }
 
 /**
- * Score one answer. `keepAt` is the p(answers) from which the plane keeps a
- * hit: a plane search says "no answer" when no Jev-judged hit reaches it.
+ * Score one answer. `answerAt` is the p(answers) from which the plane
+ * search finds an answer: a plane search says "no answer" when no
+ * Jev-judged hit reaches it.
  * The old stack has no such threshold, so it says "no answer" only with no
  * hit. A search that failed or gave a partial answer (the time budget or a
  * Jev failure) gets no credit for "no answer". Only the plane gives
@@ -116,7 +117,7 @@ export function percentile(
 export function scoreAnswer(
   question: Question,
   answer: ArmAnswer,
-  keepAt: number,
+  answerAt: number,
 ): QuestionScore {
   const gold = new Set(question.gold)
   const noAnswer = question.category === "no-answer"
@@ -124,7 +125,7 @@ export function scoreAnswer(
   const refs = search?.refs ?? []
   const judged = answer.arm === "plane" && !search?.partialReason
   const kept = judged
-    ? (search?.scores ?? []).filter((score) => score >= keepAt).length
+    ? (search?.scores ?? []).filter((score) => score >= answerAt).length
     : refs.length
   const related =
     answer.related && !("error" in answer.related) ? answer.related : null
