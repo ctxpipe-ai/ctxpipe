@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process"
+import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import { createReadStream, rmSync } from "node:fs"
 import {
@@ -12,8 +12,8 @@ import {
 } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import type { Writable } from "node:stream"
 import { pipeline } from "node:stream/promises"
-import { promisify } from "node:util"
 
 import { trace } from "@opentelemetry/api"
 
@@ -21,8 +21,6 @@ import { log } from "../../observability/logger.js"
 import { gitRemoteEnvironment, isRegularFile } from "./clone-tree.js"
 import { measuredGitFetch } from "./fetch-bytes.js"
 import { withGitProcessSlot } from "./process-slot.js"
-
-const execute = promisify(execFile)
 
 /**
  * Native Git processes that have not exited, by repository directory. The
@@ -558,6 +556,75 @@ function describeGitFailure(
   return error
 }
 
+/**
+ * Start Git like `execFile`: the promise gives the standard output, and a
+ * failure has `cmd`, `code`, `signal`, `killed`, `stdout`, and `stderr`.
+ * A fetch starts helper processes (`git-remote-https`, `fetch-pack`). On
+ * Linux, a helper stays alive when Git stops, keeps the output pipes open,
+ * and waits for a stalled Git host forever (CTX-1601). Thus Git runs in its
+ * own process group, and `stop` (also at `timeoutMs`) stops the whole group.
+ */
+function startGitProcess(
+  args: string[],
+  env: NodeJS.ProcessEnv,
+  timeoutMs: number,
+): Promise<Buffer> & { stop: () => void; stdin: Writable | null } {
+  const child = spawn("git", args, { env, detached: true })
+  let killed = false
+  const stop = () => {
+    killed = true
+    try {
+      if (child.pid) process.kill(-child.pid, "SIGTERM")
+    } catch {
+      // The group has exited.
+    }
+  }
+  const done = new Promise<Buffer>((resolve, reject) => {
+    const stdout: Buffer[] = []
+    const stderr: Buffer[] = []
+    let size = 0
+    let failure: Error | undefined
+    const collect = (into: Buffer[]) => (chunk: Buffer) => {
+      size += chunk.length
+      if (size <= 64 * 1024 * 1024) into.push(chunk)
+      else if (!failure) {
+        failure = Object.assign(new Error("stdout maxBuffer length exceeded"), {
+          code: "ERR_CHILD_PROCESS_STDIO_MAXBUFFER",
+        })
+        stop()
+      }
+    }
+    child.stdout.on("data", collect(stdout))
+    child.stderr.on("data", collect(stderr))
+    const timer = timeoutMs ? setTimeout(stop, timeoutMs) : undefined
+    const settle = (code: number | null, signal: NodeJS.Signals | null) => {
+      clearTimeout(timer)
+      const out = Buffer.concat(stdout)
+      if (!failure && code === 0) {
+        resolve(out)
+        return
+      }
+      const err = Buffer.concat(stderr)
+      const cmd = `git ${args.join(" ")}`
+      reject(
+        Object.assign(
+          failure ?? new Error(`Command failed: ${cmd}\n${err.toString()}`),
+          { cmd, killed, signal, stdout: out, stderr: err },
+          failure ? {} : { code },
+        ),
+      )
+    }
+    // A process that did not start emits only `error`; the spawn retry
+    // (CTX-952) reads its `code` and `syscall`.
+    child.on("error", (error) => {
+      failure ??= error
+      if (child.pid === undefined) settle(null, null)
+    })
+    child.on("close", settle)
+  })
+  return Object.assign(done, { stop, stdin: child.stdin })
+}
+
 async function runNativeGit(
   directory: string,
   args: string[],
@@ -565,8 +632,7 @@ async function runNativeGit(
   env?: NodeJS.ProcessEnv,
   progressFile?: string,
 ): Promise<Buffer> {
-  const result = execute(
-    "git",
+  const result = startGitProcess(
     [
       "-c",
       "core.hooksPath=/dev/null",
@@ -579,15 +645,11 @@ async function runNativeGit(
       directory,
       ...args,
     ],
-    {
-      encoding: "buffer",
-      timeout: progressFile ? 0 : GIT_TIME_LIMIT_MS,
-      maxBuffer: 64 * 1024 * 1024,
-      env: env ?? { ...process.env, GIT_TERMINAL_PROMPT: "0" },
-    },
+    env ?? { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    progressFile ? 0 : GIT_TIME_LIMIT_MS,
   )
   const entry = {
-    kill: () => result.child.kill(),
+    kill: result.stop,
     done: result.then(
       () => undefined,
       () => undefined,
@@ -602,7 +664,7 @@ async function runNativeGit(
       running.delete(directory)
   })
   if (typeof input === "object" && "file" in input) {
-    const stdin = result.child.stdin
+    const stdin = result.stdin
     if (!stdin) throw new Error("Native Git did not expose standard input")
     const streamed = pipeline(createReadStream(input.file), stdin).catch(
       (error: NodeJS.ErrnoException) => {
@@ -614,12 +676,12 @@ async function runNativeGit(
           error.code === "ERR_STREAM_PREMATURE_CLOSE"
         )
           return
-        result.child.kill()
+        result.stop()
         throw error
       },
     )
     try {
-      return (await Promise.all([result, streamed]))[0].stdout
+      return (await Promise.all([result, streamed]))[0]
     } finally {
       // A failed input stream kills Git; its slot stays taken until it exits.
       await entry.done
@@ -627,9 +689,9 @@ async function runNativeGit(
   }
   // Git can exit before it reads all of its input, and a process that did not
   // start has no reader; the exit status gives the result, not the pipe.
-  result.child.stdin?.on("error", () => {})
-  if (input !== undefined) result.child.stdin?.end(input)
-  if (!progressFile) return (await result).stdout
+  result.stdin?.on("error", () => {})
+  if (input !== undefined) result.stdin?.end(input)
+  if (!progressFile) return await result
   // The time limit of a fetch follows its progress, not the clock alone
   // (CTX-1601): a throttled Git host can need minutes for a large pack, but
   // a fetch that gets no data for this long stops.
@@ -656,10 +718,10 @@ async function runNativeGit(
       stopped = `The Git host sent no data for ${stallMs / 1000} s, so ctxpipe stopped the fetch (${got}).`
     else if (now - startedAt >= 10 * 60_000)
       stopped = `The fetch from the Git host did not finish in 10 min, so ctxpipe stopped it (${got}).`
-    if (stopped) result.child.kill()
+    if (stopped) result.stop()
   }
   try {
-    return (await result).stdout
+    return await result
   } catch (error) {
     throw stopped ? new GitFetchTimeLimitError(stopped) : error
   } finally {
