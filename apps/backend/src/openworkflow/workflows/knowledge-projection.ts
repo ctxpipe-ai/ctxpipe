@@ -80,20 +80,22 @@ export const knowledgeProjection = defineWorkflow(
     // MAX_CRASHED_STEP_ATTEMPTS such stops, the guard ends the step with the
     // count, and the run fails below, with no step retry. The next hydrate or
     // push queues a new run, which has its own count.
-    const name = "project-knowledge-plane"
-    const guarded =
+    const stepName = "project-knowledge-plane"
+    // Generic, so that the step output type is the type of the body or the
+    // crash-loop count, with no written type for the body.
+    const withProjectionGuard =
       <T>(fn: () => Promise<T>) =>
       () =>
         withCrashLoopGuard<T | { crashLoop: number }>(
           run.id,
-          name,
+          stepName,
           fn,
           (error) => ({ crashLoop: error.crashes }),
         )
     const project = (lockSignal: AbortSignal) =>
       step.run(
         {
-          name,
+          name: stepName,
           retryPolicy: {
             initialInterval: "10s",
             backoffCoefficient: 2,
@@ -101,7 +103,7 @@ export const knowledgeProjection = defineWorkflow(
             maximumAttempts: 6,
           },
         },
-        guarded(async () => {
+        withProjectionGuard(async () => {
           lockSignal.throwIfAborted()
           // The flag is the gate before Workspace content goes to the
           // embedding provider and to ClickHouse. A run can wait for a long
@@ -207,7 +209,7 @@ export const knowledgeProjection = defineWorkflow(
     const applied = locked.value
     if (!applied) return null
     if ("crashLoop" in applied)
-      throw new StepCrashLoopError(name, applied.crashLoop)
+      throw new StepCrashLoopError(stepName, applied.crashLoop)
     const { tip, isDefault, others } = applied
     if (others.length > 0)
       await step.run({ name: "enqueue-branch-projections" }, async () => {
