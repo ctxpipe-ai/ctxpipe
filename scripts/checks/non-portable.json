@@ -1,3 +1,4 @@
 {
-  "vitest:contracts:apps/backend/src/domain/workspaces/workspace-chat-unsandboxed-env.test.ts": "it runs `env` in a process of the host, so its output holds the environment of the host OS"
+  "vitest:contracts:apps/backend/src/domain/workspaces/workspace-chat-unsandboxed-env.test.ts": "it runs `env` in a process of the host, so its output holds the environment of the host OS",
+  "vitest:backend:apps/backend/src/services/git/fetch-commits.test.ts": "it stops real Git fetches, and the helper processes of Git act differently on macOS and Linux (CTX-1601), so a pass on macOS proves nothing about the stop on Linux"
 }
