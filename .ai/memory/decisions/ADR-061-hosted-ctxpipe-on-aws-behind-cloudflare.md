@@ -193,6 +193,7 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
 ## Consequences
 
 - Sub-processors become AWS, Cloudflare and OpenRouter, plus Vercel for the marketing site and docs only. The model provider of the team's agents also receives log and span content (decision 25).
+    - Amendment (the CTO, 2026-11-24): Vercel is a sub-processor for the marketing site only. The docs site runs on AWS behind Cloudflare (factory `machines/docs`).
 - Production costs about $300 a month, plus AgentCore usage. Previews cost about $40 to $45 a month fixed, plus about $8 for each 3-day preview. The aws-core budgets change to match, with a new preview budget.
 - The stateful host and the NAT instance are single instances. A loss means up to 4 hours of degraded search and graph, or a short outbound outage. Both have runbooks.
 - Unreviewed preview code runs in the preview account. Its customer data is in its clone in the production account. For AWS resources, the account boundary is the security boundary. It does not cover the copied session and OAuth tokens: decision 22 records that accepted risk. The production account gives the preview account three things, each narrow:
