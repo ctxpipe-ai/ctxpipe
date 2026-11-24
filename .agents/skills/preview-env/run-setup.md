@@ -2,6 +2,8 @@
 
 Shared by every [preview-env](SKILL.md) run and every area. Complete it before the [harness](harness.md). Leading word: **run state**, the accounts, org, Workspaces, and ids this run creates and later flows read.
 
+> **Shared eval account:** read its password from the keychain (`ctxpipe-eval-account`). Never reset it. When the sign-in fails, report it to the lead. Details: [Shared eval account](#shared-eval-account-production-measures).
+
 ## Target guard
 
 `BASE_URL` must be one of:
@@ -47,7 +49,7 @@ A preview-env run makes its own accounts. A production measure outside a run (fo
 - Read the password into a variable only: `pass="$(security find-generic-password -s ctxpipe-eval-account -w)"`. Do not print it, and do not write it to a file.
 - Send the password only to production: `https://app.ctxpipe.ai/.auth/api/v1/auth/sign-in/email`. Never send it to a PR preview, local or cutover host. A preview runs PR code on a copy of the production database, so the account exists there too.
 - Sign in through the API, so that the value stays in the shell. Give the JSON body on stdin (`curl --data-binary @-`), not in an argument, because `ps` shows arguments. Keep only the session cookie in a jar from `mktemp` outside the checkout. Do not print the jar, and delete it after the measure. Never type the value through computer use, a browser tool, or an MCP tool argument.
-- Do not reset the password. A reset breaks every other agent that uses the account. When the sign-in fails with the keychain value, stop and report the failure to the lead.
+- Do not reset the password, also not through the [test inbox](#test-inbox). A reset breaks every other agent that uses the account, and a password kept outside the keychain is lost. When the sign-in fails with the keychain value, stop and report the failure to the lead.
 
 ### GitHub test org and repositories
 
