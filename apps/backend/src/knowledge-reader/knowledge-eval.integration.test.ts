@@ -817,18 +817,40 @@ describe("the knowledge eval harness", () => {
       pageBytes,
     })
     expect(page(rescored.checks.plane)).toEqual(page(live.checks.plane))
-    // At 0.95, no document of get_related on the plane answers (Jev gave
-    // 0.9). A gold document stays a step, because Jev gave it a p(explore)
-    // of 0.9 (CTX-1534), so traversal recall stays. The questions with
-    // positions get worse, because the disagreement step compares only the
-    // answers. A no-answer stays correct.
+    // At 0.95, no hit of the plane answers (Jev gave 0.9). Thus each plane
+    // search says "no answer", and the retrieval metrics score it as an
+    // empty result (CTX-1562): each answerable question gets worse, with
+    // recall@5 0. A gold document of get_related stays a step, because Jev
+    // gave it a p(explore) of 0.9 (CTX-1534), so traversal recall stays. A
+    // no-answer stays correct.
+    const answerable = rescored.questions.filter(
+      (question) =>
+        question.arm === "plane" && question.category !== "no-answer",
+    )
+    expect(answerable.length).toBeGreaterThan(0)
     expect(
       rescored.questions
         .filter((question) => question.change !== "same")
         .map(({ arm, question, change }) => ({ arm, question, change })),
     ).toEqual(
-      ["local-dev-infra", "agent-memory", "ops-observability"].map(
-        (question) => ({ arm: "plane", question, change: "worse" }),
+      answerable.map(({ question }) => ({
+        arm: "plane",
+        question,
+        change: "worse",
+      })),
+    )
+    expect(answerable.map((question) => question.metrics.recall5)).toEqual(
+      answerable.map(() => 0),
+    )
+    expect(
+      answerable.map((question) => question.metrics.traversalRecall),
+    ).toEqual(
+      answerable.map(
+        (question) =>
+          live.questions.find(
+            (kept) =>
+              kept.arm === "plane" && kept.question === question.question,
+          )?.metrics.traversalRecall,
       ),
     )
     expect(
@@ -838,8 +860,8 @@ describe("the knowledge eval harness", () => {
       )?.metrics.noAnswer,
     ).toBe(1)
     // The keep-or-revert rule reads the plane against the kept run: the
-    // positions of the hold-out set get worse, and a replay gives no
-    // latency guard.
+    // retrieval metrics and the positions of the hold-out set get worse, and
+    // a replay gives no latency guard.
     const round = (values: Record<string, number | null>) =>
       Object.fromEntries(
         Object.entries(values).map(([key, value]) => [
@@ -852,36 +874,36 @@ describe("the knowledge eval harness", () => {
     )
     expect(holdout && { ...holdout, change: round(holdout.change) })
       .toMatchInlineSnapshot(`
-      {
-        "category": "all",
-        "change": {
-          "ndcg10": 0,
-          "noAnswer": 0,
-          "positions": -1,
-          "recall5": 0,
-          "searchRecall50": 0,
-          "traversalRecall": 0,
-        },
-        "kept": {
-          "ndcg10": 1,
-          "noAnswer": 1,
-          "positions": 1,
-          "recall5": 1,
-          "searchRecall50": 1,
-          "traversalRecall": 1,
-        },
-        "now": {
-          "ndcg10": 1,
-          "noAnswer": 1,
-          "positions": 0,
-          "recall5": 1,
-          "searchRecall50": 1,
-          "traversalRecall": 1,
-        },
-        "questions": 4,
-        "split": "holdout",
-      }
-    `)
+        {
+          "category": "all",
+          "change": {
+            "ndcg10": -1,
+            "noAnswer": 0,
+            "positions": -1,
+            "recall5": -1,
+            "searchRecall50": -1,
+            "traversalRecall": 0,
+          },
+          "kept": {
+            "ndcg10": 1,
+            "noAnswer": 1,
+            "positions": 1,
+            "recall5": 1,
+            "searchRecall50": 1,
+            "traversalRecall": 1,
+          },
+          "now": {
+            "ndcg10": 0,
+            "noAnswer": 1,
+            "positions": 0,
+            "recall5": 0,
+            "searchRecall50": 0,
+            "traversalRecall": 1,
+          },
+          "questions": 4,
+          "split": "holdout",
+        }
+      `)
     // The live latency of the kept run varies; the replay has none.
     const latency = {
       searchP95Ms: expect.any(Number),
