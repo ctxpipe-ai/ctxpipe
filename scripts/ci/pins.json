@@ -18,7 +18,7 @@
     {
       "package": "knip",
       "files": ["package.json"],
-      "reason": "The knip check runs the installed binary (CTX-1121), and knip.json names this version in its $schema URL. Kept exact by the CTX-1539 brief; review whether a range is enough."
+      "reason": "knip.json names this version in its $schema URL, so the version lives in two files: a range would let a lockfile update move knip without its schema. Knip 6 is held back (CTX-1610): it reports about 60 new issues on this repo."
     },
     {
       "package": "@anthropic-ai/claude-code",
