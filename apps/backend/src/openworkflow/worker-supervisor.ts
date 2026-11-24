@@ -10,12 +10,15 @@
 
 import { type ChildProcess, spawn } from "node:child_process"
 import { mkdirSync } from "node:fs"
-import { totalmem } from "node:os"
 import { resolve } from "node:path"
 import process from "node:process"
 
 import { openworkflowWorkerStartArgs } from "./codesearchCapacity.js"
-import { HEAP_SNAPSHOT_DIR, workerNodeOptions } from "./worker-heap.js"
+import {
+  HEAP_SNAPSHOT_DIR,
+  workerMemoryBytes,
+  workerNodeOptions,
+} from "./worker-heap.js"
 
 /**
  * The OpenWorkflow CLI from the backend's own dependencies. Its bin runs
@@ -23,12 +26,8 @@ import { HEAP_SNAPSHOT_DIR, workerNodeOptions } from "./worker-heap.js"
  */
 function startOpenworkflowWorker(backendRoot: string): ChildProcess {
   const [, ...args] = openworkflowWorkerStartArgs()
-  // The container limit (cgroup), or the host memory when there is none.
-  const limit = process.constrainedMemory()
-  const nodeOptions = workerNodeOptions(
-    process.env.NODE_OPTIONS,
-    limit > 0 ? Math.min(limit, totalmem()) : totalmem(),
-  )
+  const memoryBytes = workerMemoryBytes()
+  const nodeOptions = workerNodeOptions(process.env.NODE_OPTIONS, memoryBytes)
   // Node writes a heap snapshot here before an out-of-memory exit.
   mkdirSync(HEAP_SNAPSHOT_DIR, { recursive: true })
   process.stderr.write(
@@ -37,6 +36,7 @@ function startOpenworkflowWorker(backendRoot: string): ChildProcess {
       step: "openworkflow.worker-node-options",
       message: `worker Node options: ${nodeOptions}`,
       nodeOptions,
+      memoryMib: Math.round(memoryBytes / 1024 / 1024),
       heapSnapshotDir: HEAP_SNAPSHOT_DIR,
       timestamp: new Date().toISOString(),
     })}\n`,

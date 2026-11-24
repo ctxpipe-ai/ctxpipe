@@ -9,9 +9,11 @@ import { createLogger, flushEvlog, log } from "./src/observability/logger.js"
 import { shutdownOtel } from "./src/observability/otel.js"
 import { parseOpenWorkflowConcurrency } from "./src/openworkflow/codesearchCapacity.js"
 import { stopGuardedStepAttempts } from "./src/openworkflow/crash-loop.js"
+import { memoryPressureCheck } from "./src/openworkflow/memory-pressure.js"
 import { startQueueDepthReports } from "./src/openworkflow/queue-depth.js"
 import { connectOpenWorkflowBackend } from "./src/openworkflow/storable-backend.js"
 import { wakeParkedParents } from "./src/openworkflow/wake-parked-parents.js"
+import { workerMemoryBytes } from "./src/openworkflow/worker-heap.js"
 import { scheduleCodesearchCheckoutGc } from "./src/openworkflow/workflows/codesearch-checkout-gc.js"
 import { scheduleSweepsForOrgsNeedingIt } from "./src/openworkflow/workflows/conversation-sandbox-sweep.js"
 import { scheduleDailySourcesSync } from "./src/openworkflow/workflows/workspace-sources-daily-sync.js"
@@ -99,6 +101,9 @@ const armTipChecks = () =>
   )
 wakeParents()
 armTipChecks()
+// Name the running step in the logs when memory nears its limit (CTX-1615).
+// A step can fill the memory in seconds, so check each second.
+setInterval(memoryPressureCheck(workerMemoryBytes()), 1000).unref()
 setInterval(() => {
   wakeParents()
   armTipChecks()
