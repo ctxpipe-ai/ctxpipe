@@ -1,3 +1,4 @@
+import type { SandboxProvider } from "@tanstack/ai-sandbox"
 import { and, eq } from "drizzle-orm"
 
 import { parseEnv } from "../../config/env.js"
@@ -12,9 +13,11 @@ import {
   openRunVault,
   type RunVault,
 } from "./agent-vault.js"
+import { GITHUB_PENDING_GUARD } from "./chat-runtime.js"
 import type { WorkspaceRevision } from "./revision.js"
 import { recordedRunGitToken, revokeRunGitTokens } from "./run-git-tokens.js"
 import { githubCredentialRules } from "./sandbox-credential-rules.js"
+import { wrapSandboxHandles } from "./sandbox-process-guards.js"
 
 /** The `owner/name` of an exact HTTPS GitHub repository URL. */
 function workspaceChatGithubRepository(url: string): string | undefined {
@@ -90,6 +93,15 @@ export async function workspaceGithubReadScope(
 /** A turn's session lasts at most this long; the sweep waits for it. */
 export const RUN_VAULT_TTL_SECONDS = 2 * 60 * 60
 
+/** A run vault whose GitHub read rules can come on first use. */
+export type DockerRunVault = RunVault & {
+  /**
+   * Resolves when the vault holds the GitHub read rules. Call it before a
+   * command that reaches GitHub. It mints at most once.
+   */
+  github: () => Promise<void>
+}
+
 /**
  * Open the vault of one Docker run (a turn, a prepare, or a Workspace base
  * build). It holds a GitHub read token for the Workspace's read scope,
@@ -113,7 +125,13 @@ export async function openDockerRunVault(input: {
   unmatchedHosts?: "passthrough" | "deny"
   /** Read only the Workspace repository, not the linked ones (a pool fill). */
   workspaceRepositoryOnly?: boolean
-}): Promise<RunVault> {
+  /**
+   * `lazy`: the vault opens with no GitHub rule, and `github` mints the
+   * token and adds its rules on first use (CTX-1322). A prepare that runs no
+   * Git network command then mints and revokes nothing.
+   */
+  github?: "now" | "lazy"
+}): Promise<DockerRunVault> {
   const access = input.access ?? agentVaultAccess()
   if (!access)
     throw new AgentVaultUnavailableError(
@@ -125,7 +143,7 @@ export async function openDockerRunVault(input: {
       conversationId: input.conversationId,
       prefixes: [`${input.label}:`],
     })
-  try {
+  const mintRules = async () => {
     const connectionId = input.revision.remote.connectionId
     const names = input.workspaceRepositoryOnly
       ? [workspaceChatGithubRepository(input.revision.remote.url) ?? []].flat()
@@ -144,17 +162,33 @@ export async function openDockerRunVault(input: {
               ),
           })
         : undefined
+    return token ? githubCredentialRules(token) : []
+  }
+  try {
+    const lazy = input.github === "lazy"
     const vault = await openRunVault({
       access,
       runKey: `${input.conversationId}:${input.label}`,
       ttlSeconds: RUN_VAULT_TTL_SECONDS,
-      rules: token ? githubCredentialRules(token) : [],
+      rules: lazy ? [] : await mintRules(),
       ...(input.unmatchedHosts ? { unmatchedHosts: input.unmatchedHosts } : {}),
     })
+    let github: Promise<void> | undefined
     return {
       ...vault,
+      github: () => {
+        github ??= lazy
+          ? mintRules().then((rules) =>
+              rules.length > 0 ? vault.addRules(rules) : undefined,
+            )
+          : Promise.resolve()
+        return github
+      },
       close: async () => {
         await vault.close()
+        // A mint that a turn started can still run: its token is recorded
+        // first, so the revoke finds it.
+        await github?.catch(() => undefined)
         await revokeToken()
       },
     }
@@ -162,4 +196,66 @@ export async function openDockerRunVault(input: {
     await revokeToken()
     throw error
   }
+}
+
+/** A command that runs Git and can reach a remote. */
+const NETWORK_GIT = /\bgit\b[\s\S]*\b(?:clone|fetch|pull|push|ls-remote)\b/
+
+/**
+ * Wait for the vault's GitHub read rules before each sandbox command that
+ * can reach GitHub: `git.clone`, `push` and `pull`, and each command that
+ * runs Git with `clone`, `fetch`, `pull`, `push` or `ls-remote`. A command
+ * with {@link GITHUB_PENDING_GUARD} runs first without the rules, and waits
+ * for them only when it exits at a guard. A lazy vault (`github: "lazy"`)
+ * then mints its token only when a command needs it. The agent's own
+ * commands do not pass through the handle: a turn waits for the rules
+ * before the agent starts.
+ */
+export function withGithubBeforeNetworkGit(
+  provider: SandboxProvider,
+  github: () => Promise<void>,
+): SandboxProvider {
+  let ready = false
+  const rules = async () => {
+    await github()
+    ready = true
+  }
+  return wrapSandboxHandles(provider, (handle) => ({
+    ...handle,
+    process: {
+      ...handle.process,
+      exec: async (command, options) => {
+        if (!ready && NETWORK_GIT.test(command)) {
+          if (command.includes(GITHUB_PENDING_GUARD)) {
+            const first = await handle.process.exec(command, {
+              ...options,
+              env: { ...options?.env, CTXPIPE_GITHUB_PENDING: "1" },
+            })
+            if (first.exitCode !== 75) return first
+          }
+          await rules()
+        }
+        return handle.process.exec(command, options)
+      },
+      spawn: async (command, options) => {
+        if (!ready && NETWORK_GIT.test(command)) await rules()
+        return handle.process.spawn(command, options)
+      },
+    },
+    git: {
+      ...handle.git,
+      clone: async (input) => {
+        await rules()
+        return handle.git.clone(input)
+      },
+      push: async (dir) => {
+        await rules()
+        return handle.git.push(dir)
+      },
+      pull: async (dir) => {
+        await rules()
+        return handle.git.pull(dir)
+      },
+    },
+  }))
 }
