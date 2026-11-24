@@ -1,0 +1,44 @@
+diff --git a/dist/index.d.cts b/dist/index.d.cts
+index 9803b6b6cae755807530cf53304cb34fa1079359..3a0f3b4942024e2bf330a57e7b167e1f49dab7b7 100644
+--- a/dist/index.d.cts
++++ b/dist/index.d.cts
+@@ -209,7 +209,7 @@ declare class OpenAPIHono<E extends Env = Env, S extends Schema = {}, BasePath e
+    *  }
+    *)
+    */
+-  openapi: <R extends RouteConfig, I extends Input = ComputeInput<R>, P extends string = ConvertPathType<R["path"]>>({ middleware: routeMiddleware, hide, ...route }: R, handler: Handler<R["middleware"] extends MiddlewareHandler[] | MiddlewareHandler ? RouteMiddlewareParams<R>["env"] & E : E, P, I, BoundRouteResponseTypes<R>["handler"]>, hook?: Hook<I, E, P, BoundRouteResponseTypes<R>["handler"] | undefined> | undefined) => OpenAPIHono<E, S & ToSchema<R["method"], MergePath<BasePath, P>, I, BoundRouteResponseTypes<R>["output"]>, BasePath>;
++  openapi: <const R extends RouteConfig, I extends Input = ComputeInput<R>, P extends string = ConvertPathType<R["path"]>>({ middleware: routeMiddleware, hide, ...route }: R, handler: Handler<R["middleware"] extends MiddlewareHandler[] | MiddlewareHandler ? RouteMiddlewareParams<R>["env"] & E : E, P, I, BoundRouteResponseTypes<R>["handler"]>, hook?: Hook<I, E, P, BoundRouteResponseTypes<R>["handler"] | undefined> | undefined) => OpenAPIHono<E, S & ToSchema<R["method"], MergePath<BasePath, P>, I, BoundRouteResponseTypes<R>["output"]>, BasePath>;
+   /**
+    * Register a list of routes with full Type Safety and RPC support.
+    * * @param inputs - An array of objects containing { route, handler, hook }.
+@@ -231,7 +231,7 @@ declare class OpenAPIHono<E extends Env = Env, S extends Schema = {}, BasePath e
+   onError: (handler: ErrorHandler<E>) => OpenAPIHono<E, S, BasePath>;
+   notFound: (handler: NotFoundHandler<E>) => OpenAPIHono<E, S, BasePath>;
+ }
+-declare const createRoute: <P extends string, R extends Omit<RouteConfig, "path"> & {
++declare const createRoute: <P extends string, const R extends Omit<RouteConfig, "path"> & {
+   path: P;
+ }>(routeConfig: R) => R & {
+   getRoutingPath(): ConvertPathType<R["path"]>;
+diff --git a/dist/index.d.mts b/dist/index.d.mts
+index df6d0b4f0d68c4a4926df4ce914afa5e547dfbef..f51488d972792311614744e2be8ad12ced1fab42 100644
+--- a/dist/index.d.mts
++++ b/dist/index.d.mts
+@@ -209,7 +209,7 @@ declare class OpenAPIHono<E extends Env = Env, S extends Schema = {}, BasePath e
+    *  }
+    *)
+    */
+-  openapi: <R extends RouteConfig, I extends Input = ComputeInput<R>, P extends string = ConvertPathType<R["path"]>>({ middleware: routeMiddleware, hide, ...route }: R, handler: Handler<R["middleware"] extends MiddlewareHandler[] | MiddlewareHandler ? RouteMiddlewareParams<R>["env"] & E : E, P, I, BoundRouteResponseTypes<R>["handler"]>, hook?: Hook<I, E, P, BoundRouteResponseTypes<R>["handler"] | undefined> | undefined) => OpenAPIHono<E, S & ToSchema<R["method"], MergePath<BasePath, P>, I, BoundRouteResponseTypes<R>["output"]>, BasePath>;
++  openapi: <const R extends RouteConfig, I extends Input = ComputeInput<R>, P extends string = ConvertPathType<R["path"]>>({ middleware: routeMiddleware, hide, ...route }: R, handler: Handler<R["middleware"] extends MiddlewareHandler[] | MiddlewareHandler ? RouteMiddlewareParams<R>["env"] & E : E, P, I, BoundRouteResponseTypes<R>["handler"]>, hook?: Hook<I, E, P, BoundRouteResponseTypes<R>["handler"] | undefined> | undefined) => OpenAPIHono<E, S & ToSchema<R["method"], MergePath<BasePath, P>, I, BoundRouteResponseTypes<R>["output"]>, BasePath>;
+   /**
+    * Register a list of routes with full Type Safety and RPC support.
+    * * @param inputs - An array of objects containing { route, handler, hook }.
+@@ -231,7 +231,7 @@ declare class OpenAPIHono<E extends Env = Env, S extends Schema = {}, BasePath e
+   onError: (handler: ErrorHandler<E>) => OpenAPIHono<E, S, BasePath>;
+   notFound: (handler: NotFoundHandler<E>) => OpenAPIHono<E, S, BasePath>;
+ }
+-declare const createRoute: <P extends string, R extends Omit<RouteConfig, "path"> & {
++declare const createRoute: <P extends string, const R extends Omit<RouteConfig, "path"> & {
+   path: P;
+ }>(routeConfig: R) => R & {
+   getRoutingPath(): ConvertPathType<R["path"]>;

@@ -13,9 +13,8 @@ overrides:
   '@luma.gl/constants': 9.2.6
 
 patchedDependencies:
-  '@asteasolutions/zod-to-openapi@8.4.1': 76ff87d9c77322ebc46f65cb440751ee0c5eccc30c727c431d49db86a7d00850
   '@cosmograph/cosmograph@2.2.1': d64016c0891928c6f2a484566b608bec97ba8443d29c0686014f7784fadc3adb
-  '@hono/zod-openapi@1.2.2': e9d1cc8a2cdc198215919e404891152978de735b3505fe90947a13311aac6b73
+  '@hono/zod-openapi@1.6.3': 90d1056918522f459c2439b685cf2cc211c0c3f42a1c673eb8f37c72b9534fa9
   '@tanstack/ai-opencode@0.4.14': 597b8afdb9d93bdcbd8a9dfc29b7bf98dc77673dc23e6061722741dd2dea7dd2
   opencode-ai@1.19.5: fbd7620d4152b3a7a000c2155af5372fb864fca5340d609c0ed34f9bce14c2d1
   openworkflow@0.10.1: 4e4023d954b9327b90429203875954434759ed4e73642efe3fc9380b8f8499a2
@@ -94,14 +93,14 @@ importers:
         specifier: ^3.2.0
         version: 3.2.0(graphql@16.15.0)
       '@hono/mcp':
-        specifier: ^0.2.3
-        version: 0.2.3(@modelcontextprotocol/sdk@1.32.2(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.6.7))(hono-rate-limiter@0.4.2(hono@4.12.27))(hono@4.12.27)(zod@4.6.7)
+        specifier: ^0.3.5
+        version: 0.3.5(@modelcontextprotocol/sdk@1.32.2(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.6.7))(hono-rate-limiter@0.5.4(hono@4.13.19)(unstorage@1.17.6(@azure/identity@4.13.3(supports-color@10.2.2))(aws4fetch@1.0.20)(db0@0.3.4(drizzle-orm@1.0.0-beta.22(@opentelemetry/api@1.9.1)(@sinclair/typebox@0.34.52)(@types/mssql@9.1.9(supports-color@10.2.2))(@types/pg@8.23.1)(bun-types@1.4.4)(gel@2.2.0(supports-color@10.2.2))(mssql@11.0.1(supports-color@10.2.2))(pg@8.23.1)(postgres@3.4.9)(valibot@1.2.0(typescript@6.0.3))(zod@4.6.7)))(ioredis@5.11.1(supports-color@10.2.2))))(hono@4.13.19)(zod@4.6.7)
       '@hono/otel':
-        specifier: ^1.1.2
-        version: 1.2.0(hono@4.12.27)
+        specifier: ^1.3.0
+        version: 1.3.0(hono@4.13.19)
       '@hono/zod-openapi':
-        specifier: ^1.2.2
-        version: 1.2.2(patch_hash=e9d1cc8a2cdc198215919e404891152978de735b3505fe90947a13311aac6b73)(hono@4.12.27)(zod@4.6.7)
+        specifier: ^1.6.3
+        version: 1.6.3(patch_hash=90d1056918522f459c2439b685cf2cc211c0c3f42a1c673eb8f37c72b9534fa9)(hono@4.13.19)(zod@4.6.7)
       '@infisical/agent-vault-sdk':
         specifier: ^0.7.0
         version: 0.7.0
@@ -152,7 +151,7 @@ importers:
         version: 1.4.0(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       '@scalar/hono-api-reference':
         specifier: ^0.9.44
-        version: 0.9.48(hono@4.12.27)
+        version: 0.9.48(hono@4.13.19)
       '@scure/base':
         specifier: ^2.0.0
         version: 2.4.0
@@ -197,7 +196,7 @@ importers:
         version: 1.0.0-beta.22(@opentelemetry/api@1.9.1)(@sinclair/typebox@0.34.52)(@types/mssql@9.1.9(supports-color@10.2.2))(@types/pg@8.23.1)(bun-types@1.4.4)(gel@2.2.0(supports-color@10.2.2))(mssql@11.0.1(supports-color@10.2.2))(pg@8.23.1)(postgres@3.4.9)(valibot@1.2.0(typescript@6.0.3))(zod@4.6.7)
       evlog:
         specifier: ^2.13.0
-        version: 2.14.1(@tanstack/start-client-core@1.170.39)(ai@7.0.137(zod@4.6.7))(express@5.2.1(supports-color@10.2.2))(h3@1.15.11)(hono@4.12.27)(nitropack@2.13.6(@azure/identity@4.13.3(supports-color@10.2.2))(@parcel/watcher@2.5.6)(aws4fetch@1.0.20)(drizzle-orm@1.0.0-beta.22(@opentelemetry/api@1.9.1)(@sinclair/typebox@0.34.52)(@types/mssql@9.1.9(supports-color@10.2.2))(@types/pg@8.23.1)(bun-types@1.4.4)(gel@2.2.0(supports-color@10.2.2))(mssql@11.0.1(supports-color@10.2.2))(pg@8.23.1)(postgres@3.4.9)(valibot@1.2.0(typescript@6.0.3))(zod@4.6.7))(oxc-parser@0.155.0)(rolldown@1.2.19)(srvx@1.0.8)(supports-color@10.2.2)(vite@8.3.8(@types/node@25.9.9)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1))(webpack@5.105.4(esbuild@0.28.1)))(ofetch@1.5.1)(react@19.3.1)(vite@8.3.8(@types/node@25.9.9)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1))
+        version: 2.14.1(@tanstack/start-client-core@1.170.39)(ai@7.0.137(zod@4.6.7))(express@5.2.1(supports-color@10.2.2))(h3@1.15.11)(hono@4.13.19)(nitropack@2.13.6(@azure/identity@4.13.3(supports-color@10.2.2))(@parcel/watcher@2.5.6)(aws4fetch@1.0.20)(drizzle-orm@1.0.0-beta.22(@opentelemetry/api@1.9.1)(@sinclair/typebox@0.34.52)(@types/mssql@9.1.9(supports-color@10.2.2))(@types/pg@8.23.1)(bun-types@1.4.4)(gel@2.2.0(supports-color@10.2.2))(mssql@11.0.1(supports-color@10.2.2))(pg@8.23.1)(postgres@3.4.9)(valibot@1.2.0(typescript@6.0.3))(zod@4.6.7))(oxc-parser@0.155.0)(rolldown@1.2.19)(srvx@1.0.8)(supports-color@10.2.2)(vite@8.3.8(@types/node@25.9.9)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1))(webpack@5.105.4(esbuild@0.28.1)))(ofetch@1.5.1)(react@19.3.1)(vite@8.3.8(@types/node@25.9.9)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1))
       falkordb:
         specifier: ^6.6.2
         version: 6.6.2
@@ -205,8 +204,8 @@ importers:
         specifier: ^16.13.2
         version: 16.15.0
       hono:
-        specifier: ^4.12.1
-        version: 4.12.27
+        specifier: ^4.13.19
+        version: 4.13.19
       jose:
         specifier: ^6.2.17
         version: 6.2.17
@@ -332,11 +331,11 @@ importers:
         specifier: ^3.1157.0
         version: 3.1169.0
       '@hono/otel':
-        specifier: ^1.2.0
-        version: 1.2.0(hono@4.12.27)
+        specifier: ^1.3.0
+        version: 1.3.0(hono@4.13.19)
       '@hono/zod-openapi':
-        specifier: ^1.2.2
-        version: 1.2.2(patch_hash=e9d1cc8a2cdc198215919e404891152978de735b3505fe90947a13311aac6b73)(hono@4.12.27)(zod@4.6.7)
+        specifier: ^1.6.3
+        version: 1.6.3(patch_hash=90d1056918522f459c2439b685cf2cc211c0c3f42a1c673eb8f37c72b9534fa9)(hono@4.13.19)(zod@4.6.7)
       '@opentelemetry/api':
         specifier: ~1.9.1
         version: 1.9.1
@@ -366,16 +365,16 @@ importers:
         version: 2.12.1(@opentelemetry/api@1.9.1)
       '@scalar/hono-api-reference':
         specifier: ^0.9.44
-        version: 0.9.48(hono@4.12.27)
+        version: 0.9.48(hono@4.13.19)
       drizzle-orm:
         specifier: beta
         version: 1.0.0-beta.22(@opentelemetry/api@1.9.1)(@sinclair/typebox@0.34.52)(@types/mssql@9.1.9(supports-color@10.2.2))(@types/pg@8.23.1)(bun-types@1.4.4)(gel@2.2.0(supports-color@10.2.2))(mssql@11.0.1(supports-color@10.2.2))(pg@8.23.1)(postgres@3.4.9)(valibot@1.2.0(typescript@6.0.3))(zod@4.6.7)
       evlog:
         specifier: ^2.13.0
-        version: 2.14.1(@tanstack/start-client-core@1.170.39)(ai@7.0.137(zod@4.6.7))(express@5.2.1(supports-color@10.2.2))(h3@1.15.11)(hono@4.12.27)(nitropack@2.13.6(@azure/identity@4.13.3(supports-color@10.2.2))(@parcel/watcher@2.5.6)(aws4fetch@1.0.20)(drizzle-orm@1.0.0-beta.22(@opentelemetry/api@1.9.1)(@sinclair/typebox@0.34.52)(@types/mssql@9.1.9(supports-color@10.2.2))(@types/pg@8.23.1)(bun-types@1.4.4)(gel@2.2.0(supports-color@10.2.2))(mssql@11.0.1(supports-color@10.2.2))(pg@8.23.1)(postgres@3.4.9)(valibot@1.2.0(typescript@6.0.3))(zod@4.6.7))(oxc-parser@0.155.0)(rolldown@1.2.19)(srvx@1.0.8)(supports-color@10.2.2)(vite@8.3.8(@types/node@25.9.9)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1)))(ofetch@1.5.1)(react@19.3.1)(vite@8.3.8(@types/node@25.9.9)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1))
+        version: 2.14.1(@tanstack/start-client-core@1.170.39)(ai@7.0.137(zod@4.6.7))(express@5.2.1(supports-color@10.2.2))(h3@1.15.11)(hono@4.13.19)(nitropack@2.13.6(@azure/identity@4.13.3(supports-color@10.2.2))(@parcel/watcher@2.5.6)(aws4fetch@1.0.20)(drizzle-orm@1.0.0-beta.22(@opentelemetry/api@1.9.1)(@sinclair/typebox@0.34.52)(@types/mssql@9.1.9(supports-color@10.2.2))(@types/pg@8.23.1)(bun-types@1.4.4)(gel@2.2.0(supports-color@10.2.2))(mssql@11.0.1(supports-color@10.2.2))(pg@8.23.1)(postgres@3.4.9)(valibot@1.2.0(typescript@6.0.3))(zod@4.6.7))(oxc-parser@0.155.0)(rolldown@1.2.19)(srvx@1.0.8)(supports-color@10.2.2)(vite@8.3.8(@types/node@25.9.9)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1)))(ofetch@1.5.1)(react@19.3.1)(vite@8.3.8(@types/node@25.9.9)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1))
       hono:
-        specifier: ^4.12.1
-        version: 4.12.27
+        specifier: ^4.13.19
+        version: 4.13.19
       jose:
         specifier: ^6.2.17
         version: 6.2.17
@@ -501,10 +500,10 @@ importers:
         specifier: ^2.12.1
         version: 2.12.1(@opentelemetry/api@1.9.1)
       '@pierre/diffs':
-        specifier: ^1.3.5
-        version: 1.3.5(@shikijs/themes@3.23.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+        specifier: ^1.6.4
+        version: 1.6.4(@shikijs/themes@3.23.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       '@pierre/trees':
-        specifier: ^1.0.0-beta.6
+        specifier: '>=1.0.0-beta.6 <1.0.0'
         version: 1.0.0-beta.6(@pierre/theme@2.0.0)(@shikijs/themes@3.23.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(shiki@3.23.0)
       '@streamdown/cjk':
         specifier: ^1.0.2
@@ -568,10 +567,10 @@ importers:
         version: 2.1.1
       evlog:
         specifier: ^2.13.0
-        version: 2.14.1(@tanstack/start-client-core@1.170.39)(ai@7.0.137(zod@4.6.7))(express@5.2.1(supports-color@10.2.2))(h3@1.15.11)(hono@4.12.27)(nitropack@2.13.6(@azure/identity@4.13.3(supports-color@10.2.2))(@parcel/watcher@2.5.6)(aws4fetch@1.0.20)(oxc-parser@0.155.0)(rolldown@1.2.19)(srvx@1.0.8)(supports-color@10.2.2)(vite@8.3.8(@types/node@25.9.9)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1))(webpack@5.105.4(esbuild@0.28.2)))(ofetch@1.5.1)(react@19.3.1)(vite@8.3.8(@types/node@25.9.9)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1))
+        version: 2.14.1(@tanstack/start-client-core@1.170.39)(ai@7.0.137(zod@4.6.7))(express@5.2.1(supports-color@10.2.2))(h3@1.15.11)(hono@4.13.19)(nitropack@2.13.6(@azure/identity@4.13.3(supports-color@10.2.2))(@parcel/watcher@2.5.6)(aws4fetch@1.0.20)(oxc-parser@0.155.0)(rolldown@1.2.19)(srvx@1.0.8)(supports-color@10.2.2)(vite@8.3.8(@types/node@25.9.9)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1))(webpack@5.105.4(esbuild@0.28.2)))(ofetch@1.5.1)(react@19.3.1)(vite@8.3.8(@types/node@25.9.9)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1))
       hono:
-        specifier: ^4.0.0
-        version: 4.12.27
+        specifier: ^4.13.19
+        version: 4.13.19
       lucide-react:
         specifier: ^0.575.0
         version: 0.575.0(react@19.3.1)
@@ -997,8 +996,8 @@ packages:
     engines: {node: '>= 12.0.0'}
     hasBin: true
 
-  '@asteasolutions/zod-to-openapi@8.4.1':
-    resolution: {integrity: sha512-WmJUsFINbnWxGvHSd16aOjgKf+5GsfdxruO2YDLcgplsidakCauik1lhlk83YDH06265Yd1XtUyF24o09uygpw==}
+  '@asteasolutions/zod-to-openapi@9.1.0':
+    resolution: {integrity: sha512-pLMeRgRYS7/vZIgAAkOe2P6+XGTifR1MT9pqDoxZ11EmcJJ+DPmdPqLN8ZZF4U8R9KHCCQCS9c2wtuE8wSrfkw==}
     peerDependencies:
       zod: ^4.0.0
 
@@ -3054,12 +3053,12 @@ packages:
   '@hexagon/base64@1.1.28':
     resolution: {integrity: sha512-lhqDEAvWixy3bZ+UOYbPwUbBkwBq5C1LAJ/xPC8Oi+lL54oyakv/npbA0aU2hgCsx/1NUd4IBvV03+aUBWxerw==}
 
-  '@hono/mcp@0.2.3':
-    resolution: {integrity: sha512-wrYKVQSjnBg4/ZinnnP/1t3jlvP3Z9fqZv8OzuhLXV4gVTLOHOHDhnXsIwD0nFVKk2pMOvA+sDfrKyRzw4yUPg==}
+  '@hono/mcp@0.3.5':
+    resolution: {integrity: sha512-CquYSjbl9BuprbMMjvgO2owK7kdEA9wh2CJqAjn1Zk2QAM24y2OBSv5gz5O8jHCp39ae4dgIxOSonEVR+2PpJQ==}
     peerDependencies:
-      '@modelcontextprotocol/sdk': ^1.25.1
+      '@modelcontextprotocol/sdk': ^1.29.0
       hono: '*'
-      hono-rate-limiter: ^0.4.2
+      hono-rate-limiter: ^0.5.4
       zod: ^3.25.0 || ^4.0.0
 
   '@hono/node-server@1.19.14':
@@ -3068,22 +3067,22 @@ packages:
     peerDependencies:
       hono: ^4
 
-  '@hono/otel@1.2.0':
-    resolution: {integrity: sha512-xFUY1iZg/CNodLi7bwvZvYmEx1x/DjiIxSARcBqvt3ks42RW7mBKMtzVEn+gRAomgcoRCVlbvmIrhxRyBNU29A==}
+  '@hono/otel@1.3.0':
+    resolution: {integrity: sha512-x4L9U2O+Z9lD+EAKQfEWSX8iDIR/122IDM6sImGWoWF6KO1s+0icGncpDgwQjm1Iry+Kq94TdoYTpiMfOB5gzw==}
     peerDependencies:
       hono: '>=4.0.0'
 
-  '@hono/zod-openapi@1.2.2':
-    resolution: {integrity: sha512-va6vsL23wCJ1d0Vd+vGL1XOt+wPwItxirYafuhlW9iC2MstYr2FvsI7mctb45eBTjZfkqB/3LYDJEppPjOEiHw==}
+  '@hono/zod-openapi@1.6.3':
+    resolution: {integrity: sha512-VYR82Y60plu8g3pN60OUXMVKpmxh3R04Qs++3DY9vtwZ9/sA/BRY0PcRIR+Z37/3itWtM7pYwT9bKiH9JhqV6Q==}
     engines: {node: '>=16.0.0'}
     peerDependencies:
-      hono: '>=4.3.6'
+      hono: '>=4.10.0'
       zod: ^4.0.0
 
-  '@hono/zod-validator@0.7.6':
-    resolution: {integrity: sha512-Io1B6d011Gj1KknV4rXYz4le5+5EubcWEU/speUjuw9XMMIaP3n78yXLhjd2A3PXaXaUwEAluOiAyLqhBEJgsw==}
+  '@hono/zod-validator@0.9.1':
+    resolution: {integrity: sha512-iiv6w0qrIc0arfvCtUqBWsvl4fXjzaTcQcCJTTtCnkawF9HHGE+KjEl0ox3gQJ6rKZEgE3mLExlQCF72M+mNuw==}
     peerDependencies:
-      hono: '>=3.9.0'
+      hono: '>=4.11.2'
       zod: ^3.25.0 || ^4.0.0
 
   '@hookform/resolvers@5.2.2':
@@ -5333,11 +5332,19 @@ packages:
   '@petamoriken/float16@3.9.3':
     resolution: {integrity: sha512-8awtpHXCx/bNpFt4mt2xdkgtgVvKqty8VbjHI/WWWQuEw+KLzFot3f4+LkQY9YmOtq7A5GdOnqoIC8Pdygjk2g==}
 
-  '@pierre/diffs@1.3.5':
-    resolution: {integrity: sha512-BhaLEiUvR+BdIyOYdogA4JLQjluWPubuwySmmIqEkcE0FwIWRbgJgHNC/r884dlxEr89fO4hTk/sBln0a7NSOw==}
+  '@pierre/diffs@1.6.4':
+    resolution: {integrity: sha512-RsKoruCOp50qaDM3a7BQan5K77xMkGWT1NF01fiYP1PfT3v4CvIjwytNk5WjZG0BesBkMOP2UbrBIDigB1k0ug==}
     peerDependencies:
       react: ^18.3.1 || ^19.0.0
       react-dom: ^18.3.1 || ^19.0.0
+    peerDependenciesMeta:
+      react:
+        optional: true
+      react-dom:
+        optional: true
+
+  '@pierre/highlights@0.4.0':
+    resolution: {integrity: sha512-2a38H7ep3KweGi1fGQpJk+Krod2OMpDIXagKPlqBd1Y9P460T7zQmc66Wm2JAH1SpIG93wCyyhZVrkc5dnAJVQ==}
 
   '@pierre/theme@2.0.0':
     resolution: {integrity: sha512-yNDd9GYLQl1mEUJR8AneJ5e4ohLIHQd/wZLWr4fagt78vS2RwwZNW530vVgHqXFAyFVcFlRmGUD5ramXH46OXw==}
@@ -5363,8 +5370,8 @@ packages:
       shiki:
         optional: true
 
-  '@pierre/theming@1.0.1':
-    resolution: {integrity: sha512-WCI5Qd7iprDpISL9fBYOLe8RV53+b7mFNA3bPzl60/2CKCSrsKN8zEcep6Y3BAzvARlmca50zGjDodqPGiTUKA==}
+  '@pierre/theming@1.0.2':
+    resolution: {integrity: sha512-RmXLLqtx31UGcR8kZyO5hGAQ1EXz6loT1Cu0BFAGsbnBboIxp2BlomkLfWyvdT4WZXnBGyu25onL1gKpFQuSUw==}
     peerDependencies:
       '@pierre/theme': ^1.1.0 || ^2.0.0
       '@shikijs/themes': ^3.0.0 || ^4.0.0
@@ -10688,13 +10695,17 @@ packages:
   hoist-non-react-statics@3.3.2:
     resolution: {integrity: sha512-/gGivxi8JPKWNm/W0jSmzcMPpfpPLc3dY/6GxhX2hQ9iGj3aDfklV4ET7NjKpSinLpJ5vafa9iiGIEZg10SfBw==}
 
-  hono-rate-limiter@0.4.2:
-    resolution: {integrity: sha512-AAtFqgADyrmbDijcRTT/HJfwqfvhalya2Zo+MgfdrMPas3zSMD8SU03cv+ZsYwRU1swv7zgVt0shwN059yzhjw==}
+  hono-rate-limiter@0.5.4:
+    resolution: {integrity: sha512-P3/cscAmz1hA+MuM+Hn9gP/EyO2zWv2aXIFkVYuLZkPzrPa4oaWdVCS94vyDlsNBgeMnE/Hr2+LznIKQxrF0ng==}
     peerDependencies:
-      hono: ^4.1.1
+      hono: ^4.10.8
+      unstorage: ^1.17.3
+    peerDependenciesMeta:
+      unstorage:
+        optional: true
 
-  hono@4.12.27:
-    resolution: {integrity: sha512-1yrb/+w6HWQJrUCLkJ2IF5jNIPvvFkblV5RNOYl6bV+OA6p9GLcMpHFFGTosSvHvcAUibuUukRqhlYI4z32C7Q==}
+  hono@4.13.19:
+    resolution: {integrity: sha512-KmXvQAXwcAHV+muzbIwoJ23niEB5nMoDVr9WcRkU8mvjUECm/1+7v4Jgp7P7a+H6MLFrh+vXrGonGrGS+RQfkA==}
     engines: {node: '>=16.9.0'}
 
   hookable@5.5.3:
@@ -12291,6 +12302,9 @@ packages:
 
   openapi3-ts@4.5.0:
     resolution: {integrity: sha512-jaL+HgTq2Gj5jRcfdutgRGLosCy/hT8sQf6VOy+P+g36cZOjI1iukdPnijC+4CmeRzg/jEllJUboEic2FhxhtQ==}
+
+  openapi3-ts@4.6.2:
+    resolution: {integrity: sha512-gyyil3DweqhXiEhTqtAs9wwRLfWHmetwhI4kmM5Rn0d6gtmK863Ki7qqbQnp9+Wwlqoe3B1LFWj7kMp5ctE4rQ==}
 
   opencode-ai@1.19.5:
     resolution: {integrity: sha512-tEqMvQahfhdDj8vceYpXtoIrvjPXm5XRfetWnPN5YISueU7adNx9JcUA3zZ+2GKuDVgDpGdQe1ZLtCZDjqodvA==}
@@ -15182,9 +15196,9 @@ snapshots:
       '@ast-grep/cli-win32-ia32-msvc': 0.45.0
       '@ast-grep/cli-win32-x64-msvc': 0.45.0
 
-  '@asteasolutions/zod-to-openapi@8.4.1(patch_hash=76ff87d9c77322ebc46f65cb440751ee0c5eccc30c727c431d49db86a7d00850)(zod@4.6.7)':
+  '@asteasolutions/zod-to-openapi@9.1.0(zod@4.6.7)':
     dependencies:
-      openapi3-ts: 4.5.0
+      openapi3-ts: 4.6.2
       zod: 4.6.7
 
   '@atlassian/atlassian-openapi@1.0.6':
@@ -17815,35 +17829,35 @@ snapshots:
 
   '@hexagon/base64@1.1.28': {}
 
-  '@hono/mcp@0.2.3(@modelcontextprotocol/sdk@1.32.2(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.6.7))(hono-rate-limiter@0.4.2(hono@4.12.27))(hono@4.12.27)(zod@4.6.7)':
+  '@hono/mcp@0.3.5(@modelcontextprotocol/sdk@1.32.2(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.6.7))(hono-rate-limiter@0.5.4(hono@4.13.19)(unstorage@1.17.6(@azure/identity@4.13.3(supports-color@10.2.2))(aws4fetch@1.0.20)(db0@0.3.4(drizzle-orm@1.0.0-beta.22(@opentelemetry/api@1.9.1)(@sinclair/typebox@0.34.52)(@types/mssql@9.1.9(supports-color@10.2.2))(@types/pg@8.23.1)(bun-types@1.4.4)(gel@2.2.0(supports-color@10.2.2))(mssql@11.0.1(supports-color@10.2.2))(pg@8.23.1)(postgres@3.4.9)(valibot@1.2.0(typescript@6.0.3))(zod@4.6.7)))(ioredis@5.11.1(supports-color@10.2.2))))(hono@4.13.19)(zod@4.6.7)':
     dependencies:
       '@modelcontextprotocol/sdk': 1.32.2(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.6.7)
-      hono: 4.12.27
-      hono-rate-limiter: 0.4.2(hono@4.12.27)
+      hono: 4.13.19
+      hono-rate-limiter: 0.5.4(hono@4.13.19)(unstorage@1.17.6(@azure/identity@4.13.3(supports-color@10.2.2))(aws4fetch@1.0.20)(db0@0.3.4(drizzle-orm@1.0.0-beta.22(@opentelemetry/api@1.9.1)(@sinclair/typebox@0.34.52)(@types/mssql@9.1.9(supports-color@10.2.2))(@types/pg@8.23.1)(bun-types@1.4.4)(gel@2.2.0(supports-color@10.2.2))(mssql@11.0.1(supports-color@10.2.2))(pg@8.23.1)(postgres@3.4.9)(valibot@1.2.0(typescript@6.0.3))(zod@4.6.7)))(ioredis@5.11.1(supports-color@10.2.2)))
       pkce-challenge: 5.0.1
       zod: 4.6.7
 
-  '@hono/node-server@1.19.14(hono@4.12.27)':
+  '@hono/node-server@1.19.14(hono@4.13.19)':
     dependencies:
-      hono: 4.12.27
+      hono: 4.13.19
 
-  '@hono/otel@1.2.0(hono@4.12.27)':
+  '@hono/otel@1.3.0(hono@4.13.19)':
     dependencies:
       '@opentelemetry/api': 1.9.1
       '@opentelemetry/semantic-conventions': 1.43.0
-      hono: 4.12.27
+      hono: 4.13.19
 
-  '@hono/zod-openapi@1.2.2(patch_hash=e9d1cc8a2cdc198215919e404891152978de735b3505fe90947a13311aac6b73)(hono@4.12.27)(zod@4.6.7)':
+  '@hono/zod-openapi@1.6.3(patch_hash=90d1056918522f459c2439b685cf2cc211c0c3f42a1c673eb8f37c72b9534fa9)(hono@4.13.19)(zod@4.6.7)':
     dependencies:
-      '@asteasolutions/zod-to-openapi': 8.4.1(patch_hash=76ff87d9c77322ebc46f65cb440751ee0c5eccc30c727c431d49db86a7d00850)(zod@4.6.7)
-      '@hono/zod-validator': 0.7.6(hono@4.12.27)(zod@4.6.7)
-      hono: 4.12.27
+      '@asteasolutions/zod-to-openapi': 9.1.0(zod@4.6.7)
+      '@hono/zod-validator': 0.9.1(hono@4.13.19)(zod@4.6.7)
+      hono: 4.13.19
       openapi3-ts: 4.5.0
       zod: 4.6.7
 
-  '@hono/zod-validator@0.7.6(hono@4.12.27)(zod@4.6.7)':
+  '@hono/zod-validator@0.9.1(hono@4.13.19)(zod@4.6.7)':
     dependencies:
-      hono: 4.12.27
+      hono: 4.13.19
       zod: 4.6.7
 
   '@hookform/resolvers@5.2.2(react-hook-form@7.71.2(react@19.3.1))':
@@ -18603,7 +18617,7 @@ snapshots:
 
   '@modelcontextprotocol/sdk@1.32.2(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@3.25.76)':
     dependencies:
-      '@hono/node-server': 1.19.14(hono@4.12.27)
+      '@hono/node-server': 1.19.14(hono@4.13.19)
       ajv: 8.18.0
       ajv-formats: 3.0.1
       content-type: 1.0.5
@@ -18613,7 +18627,7 @@ snapshots:
       eventsource-parser: 3.1.0
       express: 5.2.1(supports-color@10.2.2)
       express-rate-limit: 8.2.1(express@5.2.1(supports-color@10.2.2))
-      hono: 4.12.27
+      hono: 4.13.19
       jose: 6.2.17
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
@@ -18627,7 +18641,7 @@ snapshots:
 
   '@modelcontextprotocol/sdk@1.32.2(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.6.7)':
     dependencies:
-      '@hono/node-server': 1.19.14(hono@4.12.27)
+      '@hono/node-server': 1.19.14(hono@4.13.19)
       ajv: 8.18.0
       ajv-formats: 3.0.1
       content-type: 1.0.5
@@ -18637,7 +18651,7 @@ snapshots:
       eventsource-parser: 3.1.0
       express: 5.2.1(supports-color@10.2.2)
       express-rate-limit: 8.2.1(express@5.2.1(supports-color@10.2.2))
-      hono: 4.12.27
+      hono: 4.13.19
       jose: 6.2.17
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
@@ -20005,19 +20019,22 @@ snapshots:
   '@petamoriken/float16@3.9.3':
     optional: true
 
-  '@pierre/diffs@1.3.5(@shikijs/themes@3.23.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)':
+  '@pierre/diffs@1.6.4(@shikijs/themes@3.23.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)':
     dependencies:
+      '@pierre/highlights': 0.4.0
       '@pierre/theme': 2.0.0
-      '@pierre/theming': 1.0.1(@pierre/theme@2.0.0)(@shikijs/themes@3.23.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(shiki@3.23.0)
-      '@shikijs/transformers': 3.23.0
+      '@pierre/theming': 1.0.2(@pierre/theme@2.0.0)(@shikijs/themes@3.23.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(shiki@3.23.0)
       diff: 9.0.0
       hast-util-to-html: 9.0.5
       lru_map: 0.4.1
+      shiki: 3.23.0
+    optionalDependencies:
       react: 19.3.1
       react-dom: 19.3.1(react@19.3.1)
-      shiki: 3.23.0
     transitivePeerDependencies:
       - '@shikijs/themes'
+
+  '@pierre/highlights@0.4.0': {}
 
   '@pierre/theme@2.0.0': {}
 
@@ -20029,7 +20046,7 @@ snapshots:
       react-dom: 19.3.1(react@19.3.1)
       shiki: 3.23.0
 
-  '@pierre/theming@1.0.1(@pierre/theme@2.0.0)(@shikijs/themes@3.23.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(shiki@3.23.0)':
+  '@pierre/theming@1.0.2(@pierre/theme@2.0.0)(@shikijs/themes@3.23.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(shiki@3.23.0)':
     optionalDependencies:
       '@pierre/theme': 2.0.0
       '@shikijs/themes': 3.23.0
@@ -21191,10 +21208,10 @@ snapshots:
 
   '@scalar/helpers@0.2.18': {}
 
-  '@scalar/hono-api-reference@0.9.48(hono@4.12.27)':
+  '@scalar/hono-api-reference@0.9.48(hono@4.13.19)':
     dependencies:
       '@scalar/core': 0.3.45
-      hono: 4.12.27
+      hono: 4.13.19
 
   '@scalar/types@0.6.10':
     dependencies:
@@ -24844,37 +24861,37 @@ snapshots:
     dependencies:
       eventsource-parser: 3.1.1
 
-  evlog@2.14.1(@tanstack/start-client-core@1.170.39)(ai@7.0.137(zod@4.6.7))(express@5.2.1(supports-color@10.2.2))(h3@1.15.11)(hono@4.12.27)(nitropack@2.13.6(@azure/identity@4.13.3(supports-color@10.2.2))(@parcel/watcher@2.5.6)(aws4fetch@1.0.20)(drizzle-orm@1.0.0-beta.22(@opentelemetry/api@1.9.1)(@sinclair/typebox@0.34.52)(@types/mssql@9.1.9(supports-color@10.2.2))(@types/pg@8.23.1)(bun-types@1.4.4)(gel@2.2.0(supports-color@10.2.2))(mssql@11.0.1(supports-color@10.2.2))(pg@8.23.1)(postgres@3.4.9)(valibot@1.2.0(typescript@6.0.3))(zod@4.6.7))(oxc-parser@0.155.0)(rolldown@1.2.19)(srvx@1.0.8)(supports-color@10.2.2)(vite@8.3.8(@types/node@25.9.9)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1))(webpack@5.105.4(esbuild@0.28.1)))(ofetch@1.5.1)(react@19.3.1)(vite@8.3.8(@types/node@25.9.9)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1)):
+  evlog@2.14.1(@tanstack/start-client-core@1.170.39)(ai@7.0.137(zod@4.6.7))(express@5.2.1(supports-color@10.2.2))(h3@1.15.11)(hono@4.13.19)(nitropack@2.13.6(@azure/identity@4.13.3(supports-color@10.2.2))(@parcel/watcher@2.5.6)(aws4fetch@1.0.20)(drizzle-orm@1.0.0-beta.22(@opentelemetry/api@1.9.1)(@sinclair/typebox@0.34.52)(@types/mssql@9.1.9(supports-color@10.2.2))(@types/pg@8.23.1)(bun-types@1.4.4)(gel@2.2.0(supports-color@10.2.2))(mssql@11.0.1(supports-color@10.2.2))(pg@8.23.1)(postgres@3.4.9)(valibot@1.2.0(typescript@6.0.3))(zod@4.6.7))(oxc-parser@0.155.0)(rolldown@1.2.19)(srvx@1.0.8)(supports-color@10.2.2)(vite@8.3.8(@types/node@25.9.9)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1))(webpack@5.105.4(esbuild@0.28.1)))(ofetch@1.5.1)(react@19.3.1)(vite@8.3.8(@types/node@25.9.9)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1)):
     optionalDependencies:
       '@tanstack/start-client-core': 1.170.39
       ai: 7.0.137(zod@4.6.7)
       express: 5.2.1(supports-color@10.2.2)
       h3: 1.15.11
-      hono: 4.12.27
+      hono: 4.13.19
       nitropack: 2.13.6(@azure/identity@4.13.3(supports-color@10.2.2))(@parcel/watcher@2.5.6)(aws4fetch@1.0.20)(drizzle-orm@1.0.0-beta.22(@opentelemetry/api@1.9.1)(@sinclair/typebox@0.34.52)(@types/mssql@9.1.9(supports-color@10.2.2))(@types/pg@8.23.1)(bun-types@1.4.4)(gel@2.2.0(supports-color@10.2.2))(mssql@11.0.1(supports-color@10.2.2))(pg@8.23.1)(postgres@3.4.9)(valibot@1.2.0(typescript@6.0.3))(zod@4.6.7))(oxc-parser@0.155.0)(rolldown@1.2.19)(srvx@1.0.8)(supports-color@10.2.2)(vite@8.3.8(@types/node@25.9.9)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1))(webpack@5.105.4(esbuild@0.28.1))
       ofetch: 1.5.1
       react: 19.3.1
       vite: 8.3.8(@types/node@25.9.9)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1)
 
-  evlog@2.14.1(@tanstack/start-client-core@1.170.39)(ai@7.0.137(zod@4.6.7))(express@5.2.1(supports-color@10.2.2))(h3@1.15.11)(hono@4.12.27)(nitropack@2.13.6(@azure/identity@4.13.3(supports-color@10.2.2))(@parcel/watcher@2.5.6)(aws4fetch@1.0.20)(drizzle-orm@1.0.0-beta.22(@opentelemetry/api@1.9.1)(@sinclair/typebox@0.34.52)(@types/mssql@9.1.9(supports-color@10.2.2))(@types/pg@8.23.1)(bun-types@1.4.4)(gel@2.2.0(supports-color@10.2.2))(mssql@11.0.1(supports-color@10.2.2))(pg@8.23.1)(postgres@3.4.9)(valibot@1.2.0(typescript@6.0.3))(zod@4.6.7))(oxc-parser@0.155.0)(rolldown@1.2.19)(srvx@1.0.8)(supports-color@10.2.2)(vite@8.3.8(@types/node@25.9.9)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1)))(ofetch@1.5.1)(react@19.3.1)(vite@8.3.8(@types/node@25.9.9)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1)):
+  evlog@2.14.1(@tanstack/start-client-core@1.170.39)(ai@7.0.137(zod@4.6.7))(express@5.2.1(supports-color@10.2.2))(h3@1.15.11)(hono@4.13.19)(nitropack@2.13.6(@azure/identity@4.13.3(supports-color@10.2.2))(@parcel/watcher@2.5.6)(aws4fetch@1.0.20)(drizzle-orm@1.0.0-beta.22(@opentelemetry/api@1.9.1)(@sinclair/typebox@0.34.52)(@types/mssql@9.1.9(supports-color@10.2.2))(@types/pg@8.23.1)(bun-types@1.4.4)(gel@2.2.0(supports-color@10.2.2))(mssql@11.0.1(supports-color@10.2.2))(pg@8.23.1)(postgres@3.4.9)(valibot@1.2.0(typescript@6.0.3))(zod@4.6.7))(oxc-parser@0.155.0)(rolldown@1.2.19)(srvx@1.0.8)(supports-color@10.2.2)(vite@8.3.8(@types/node@25.9.9)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1)))(ofetch@1.5.1)(react@19.3.1)(vite@8.3.8(@types/node@25.9.9)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1)):
     optionalDependencies:
       '@tanstack/start-client-core': 1.170.39
       ai: 7.0.137(zod@4.6.7)
       express: 5.2.1(supports-color@10.2.2)
       h3: 1.15.11
-      hono: 4.12.27
+      hono: 4.13.19
       nitropack: 2.13.6(@azure/identity@4.13.3(supports-color@10.2.2))(@parcel/watcher@2.5.6)(aws4fetch@1.0.20)(drizzle-orm@1.0.0-beta.22(@opentelemetry/api@1.9.1)(@sinclair/typebox@0.34.52)(@types/mssql@9.1.9(supports-color@10.2.2))(@types/pg@8.23.1)(bun-types@1.4.4)(gel@2.2.0(supports-color@10.2.2))(mssql@11.0.1(supports-color@10.2.2))(pg@8.23.1)(postgres@3.4.9)(valibot@1.2.0(typescript@6.0.3))(zod@4.6.7))(oxc-parser@0.155.0)(rolldown@1.2.19)(srvx@1.0.8)(supports-color@10.2.2)(vite@8.3.8(@types/node@25.9.9)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1))
       ofetch: 1.5.1
       react: 19.3.1
       vite: 8.3.8(@types/node@25.9.9)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1)
 
-  evlog@2.14.1(@tanstack/start-client-core@1.170.39)(ai@7.0.137(zod@4.6.7))(express@5.2.1(supports-color@10.2.2))(h3@1.15.11)(hono@4.12.27)(nitropack@2.13.6(@azure/identity@4.13.3(supports-color@10.2.2))(@parcel/watcher@2.5.6)(aws4fetch@1.0.20)(oxc-parser@0.155.0)(rolldown@1.2.19)(srvx@1.0.8)(supports-color@10.2.2)(vite@8.3.8(@types/node@25.9.9)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1))(webpack@5.105.4(esbuild@0.28.2)))(ofetch@1.5.1)(react@19.3.1)(vite@8.3.8(@types/node@25.9.9)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1)):
+  evlog@2.14.1(@tanstack/start-client-core@1.170.39)(ai@7.0.137(zod@4.6.7))(express@5.2.1(supports-color@10.2.2))(h3@1.15.11)(hono@4.13.19)(nitropack@2.13.6(@azure/identity@4.13.3(supports-color@10.2.2))(@parcel/watcher@2.5.6)(aws4fetch@1.0.20)(oxc-parser@0.155.0)(rolldown@1.2.19)(srvx@1.0.8)(supports-color@10.2.2)(vite@8.3.8(@types/node@25.9.9)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1))(webpack@5.105.4(esbuild@0.28.2)))(ofetch@1.5.1)(react@19.3.1)(vite@8.3.8(@types/node@25.9.9)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1)):
     optionalDependencies:
       '@tanstack/start-client-core': 1.170.39
       ai: 7.0.137(zod@4.6.7)
       express: 5.2.1(supports-color@10.2.2)
       h3: 1.15.11
-      hono: 4.12.27
+      hono: 4.13.19
       nitropack: 2.13.6(@azure/identity@4.13.3(supports-color@10.2.2))(@parcel/watcher@2.5.6)(aws4fetch@1.0.20)(oxc-parser@0.155.0)(rolldown@1.2.19)(srvx@1.0.8)(supports-color@10.2.2)(vite@8.3.8(@types/node@25.9.9)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1))(webpack@5.105.4(esbuild@0.28.2))
       ofetch: 1.5.1
       react: 19.3.1
@@ -25704,11 +25721,13 @@ snapshots:
     dependencies:
       react-is: 16.13.1
 
-  hono-rate-limiter@0.4.2(hono@4.12.27):
+  hono-rate-limiter@0.5.4(hono@4.13.19)(unstorage@1.17.6(@azure/identity@4.13.3(supports-color@10.2.2))(aws4fetch@1.0.20)(db0@0.3.4(drizzle-orm@1.0.0-beta.22(@opentelemetry/api@1.9.1)(@sinclair/typebox@0.34.52)(@types/mssql@9.1.9(supports-color@10.2.2))(@types/pg@8.23.1)(bun-types@1.4.4)(gel@2.2.0(supports-color@10.2.2))(mssql@11.0.1(supports-color@10.2.2))(pg@8.23.1)(postgres@3.4.9)(valibot@1.2.0(typescript@6.0.3))(zod@4.6.7)))(ioredis@5.11.1(supports-color@10.2.2))):
     dependencies:
-      hono: 4.12.27
+      hono: 4.13.19
+    optionalDependencies:
+      unstorage: 1.17.6(@azure/identity@4.13.3(supports-color@10.2.2))(aws4fetch@1.0.20)(db0@0.3.4)(ioredis@5.11.1(supports-color@10.2.2))
 
-  hono@4.12.27: {}
+  hono@4.13.19: {}
 
   hookable@5.5.3: {}
 
@@ -27958,6 +27977,10 @@ snapshots:
       wsl-utils: 0.3.1
 
   openapi3-ts@4.5.0:
+    dependencies:
+      yaml: 2.9.1
+
+  openapi3-ts@4.6.2:
     dependencies:
       yaml: 2.9.1
 

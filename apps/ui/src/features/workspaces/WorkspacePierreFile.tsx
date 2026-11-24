@@ -1,6 +1,6 @@
 import type { FileContents } from "@pierre/diffs"
 import { parseDiffFromFile } from "@pierre/diffs"
-import { Editor } from "@pierre/diffs/edit"
+import { Editor, type EditorFactory } from "@pierre/diffs/edit"
 import { EditProvider, File, FileDiff } from "@pierre/diffs/react"
 import { useMemo, useRef, useState } from "react"
 
@@ -48,9 +48,11 @@ const DIFF_OPTIONS = {
   diffStyle: "unified" as const,
 }
 
-function createPierreEditor(options: ConstructorParameters<typeof Editor>[0]) {
-  return new Editor<unknown>(options)
-}
+const createPierreEditor: EditorFactory<undefined, undefined> = (
+  editorType,
+  options,
+  editStateKey,
+) => new Editor(editorType, options, editStateKey)
 
 export type FileEditorHistory = {
   canUndo: boolean
@@ -86,7 +88,7 @@ export function WorkspacePierreFile(props: {
   onBlurRef.current = props.onBlur
   const onHistoryChangeRef = useRef(props.onHistoryChange)
   onHistoryChangeRef.current = props.onHistoryChange
-  const editorRef = useRef<Editor<unknown> | null>(null)
+  const editorRef = useRef<Editor | null>(null)
   const editorHandleOutRef = useRef(props.editorHandleRef)
   editorHandleOutRef.current = props.editorHandleRef
   const editorOptions = useMemo(() => {
@@ -100,7 +102,7 @@ export function WorkspacePierreFile(props: {
     }
     return {
       persistState: true,
-      onAttach: (editor: Editor<unknown>) => {
+      onAttach: (editor: Editor) => {
         editorRef.current = editor
         const handleOut = editorHandleOutRef.current
         if (handleOut) {
@@ -135,8 +137,8 @@ export function WorkspacePierreFile(props: {
         }
         reportHistory()
       },
-      onChange: (file: FileContents) => {
-        onChangeRef.current?.(file.contents)
+      onChange: (event: { file: FileContents }) => {
+        onChangeRef.current?.(event.file.contents)
         reportHistory()
       },
       onBlur: () => {

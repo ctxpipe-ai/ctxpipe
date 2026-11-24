@@ -9,7 +9,10 @@ import {
   publishedWorkspaceCheckout,
   readWorkspaceCheckoutFile,
 } from "../../domain/workspaces/checkout-read.js"
-import { fileTreeFromPaths } from "../../domain/workspaces/file-tree.js"
+import {
+  type FileTreeNode,
+  fileTreeFromPaths,
+} from "../../domain/workspaces/file-tree.js"
 import {
   EXPLORER_GIT_STATUSES,
   explorerBlobFromGitFile,
@@ -52,11 +55,7 @@ const WorkspaceFileSchema = z
   })
   .openapi("WorkspaceFile")
 
-const WorkspaceFileTreeNodeSchema: z.ZodType<{
-  name: string
-  path: string
-  children?: Array<{ name: string; path: string; children?: unknown[] }>
-}> = z
+const WorkspaceFileTreeNodeSchema: z.ZodType<FileTreeNode> = z
   .object({
     name: z.string(),
     path: z.string(),

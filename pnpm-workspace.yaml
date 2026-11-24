@@ -55,9 +55,11 @@ overrides:
   '@luma.gl/constants': 9.2.6
 
 patchedDependencies:
-  '@asteasolutions/zod-to-openapi@8.4.1': patches/@asteasolutions__zod-to-openapi@8.4.1.patch
   '@cosmograph/cosmograph@2.2.1': patches/@cosmograph__cosmograph@2.2.1.patch
-  '@hono/zod-openapi@1.2.2': patches/@hono__zod-openapi@1.2.2.patch
+  # Route typing: `const` on the route type of `createRoute` and `openapi`, so a handler that returns
+  # a union of statuses (publishWhenNoTurnRuns) checks against each response. Upstream 1.6 infers the
+  # request and response schemas itself, so the older inference hunks and the zod-to-openapi patch are gone.
+  '@hono/zod-openapi@1.6.3': patches/@hono__zod-openapi@1.6.3.patch
   # Temporary (ADR-044). Ticket 01, upstream PR pending: assistant-only parts, SSE readiness and completion, abort on dispose.
   # Ticket 15: a 1 s limit on each adapter teardown step; accepted 2026-10-06; upstream issue: https://github.com/TanStack/ai/issues/1638.
   # CTX-576: open a tool call when its input is known, not at the empty "pending" state.
