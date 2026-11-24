@@ -258,11 +258,11 @@ async function fetchThroughClone(
 ): Promise<void> {
   failWhenPaused(input.url)
   const depth = String(input.depth ?? 1)
-  const opened = await stat(join(clone, "HEAD")).then(
+  const cloneExists = await stat(join(clone, "HEAD")).then(
     () => true,
     () => false,
   )
-  if (!opened) {
+  if (!cloneExists) {
     await mkdir(clone, { recursive: true })
     await nativeGit(clone, [
       "init",
@@ -346,6 +346,8 @@ async function fetchThroughClone(
           .map((ref) => `delete ${ref}\n`)
           .join(""),
       )
+    // `nativeGit` turns automatic gc off for each command; this command
+    // turns it on again at the default threshold of Git.
     await nativeGit(clone, [
       "-c",
       "gc.auto=6700",
