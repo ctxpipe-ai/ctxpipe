@@ -176,6 +176,7 @@ export async function fillChatSandboxPool(input: {
         if (reservation !== "reserved") return reservation
         let row: SandboxInstanceRecord = reserved
         let handle: SandboxHandle | undefined
+        let cloneMs = 0
         try {
           const vault = await input.openVault(id)
           try {
@@ -186,6 +187,7 @@ export async function fillChatSandboxPool(input: {
             await persistSandboxInstance(row, ownershipOf(reserved))
             await handle.env.set(vault.env)
             // As the stock bootstrap clones a conversation's source.
+            const cloneStarted = Date.now()
             await handle.git.clone({
               url: originUrlWithoutCredentials(revision.remote.url),
               ref: revision.defaultBranch,
@@ -193,6 +195,7 @@ export async function fillChatSandboxPool(input: {
             })
             if (!(await handle.fs.exists("/workspace/.git")))
               throw new Error("The pool clone made no repository")
+            cloneMs = Date.now() - cloneStarted
           } finally {
             // The session waits with no proxy session: no egress, no
             // credential.
@@ -200,6 +203,7 @@ export async function fillChatSandboxPool(input: {
           }
           // A claim finds OpenCode's files in memory (`opencode-warmup.ts`).
           await waitForOpencodeWarmup(handle.id)
+          await markCloneSplit(handle, cloneMs)
           await persistSandboxInstance(
             { ...row, state: "live", lastHeartbeatAt: new Date() },
             ownershipOf(row),
@@ -247,4 +251,46 @@ export function requestChatSandboxPoolFill(
       workspaceId: input.workspaceId,
     }),
   )
+}
+
+/**
+ * A measure of CTX-1322, removed after its decision: a shallow clone takes
+ * 5 to 30 s on AgentCore, against 3 s on a laptop. This splits the work in
+ * the session from the transfer. It times a `git index-pack` of the clone's
+ * pack outside any repository (the CPU part of the receive) and a copy of
+ * the work tree without `.git` (the disk part of the checkout). The proxy logs the transfer of the pack.
+ * It runs after the vault closed and the warm-up ended, off the path of a
+ * turn, and a failure only leaves the mark out.
+ */
+async function markCloneSplit(handle: SandboxHandle, cloneMs: number) {
+  try {
+    const result = await handle.process.exec(`set -e
+P=$(ls /workspace/.git/objects/pack/*.pack | head -n 1)
+D=$(mktemp -d)
+cp "$P" "$D/p.pack"
+cd "$D"
+t0=$(date +%s%N)
+git index-pack p.pack >/dev/null 2>&1
+t1=$(date +%s%N)
+mkdir w
+tar -C /workspace --exclude=.git -cf - . | tar -C w -xf -
+t2=$(date +%s%N)
+cd /
+rm -rf "$D"
+echo "$(stat -c %s "$P") $(( (t1 - t0) / 1000000 )) $(( (t2 - t1) / 1000000 )) $(nproc)"`)
+    const [packBytes, indexPackMs, copyMs, cpus] = result.stdout
+      .trim()
+      .split(" ")
+      .map(Number)
+    if (result.exitCode !== 0 || !Number.isFinite(cpus)) return
+    markSandboxLifecycle("pool-clone-split", {
+      ms: cloneMs,
+      packBytes,
+      indexPackMs,
+      copyMs,
+      cpus,
+    })
+  } catch {
+    // Only the measure is lost.
+  }
 }
