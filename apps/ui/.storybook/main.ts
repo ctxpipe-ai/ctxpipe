@@ -86,9 +86,6 @@ export default defineMain({
         // lines with these maps (scripts/checks/README.md). "hidden" writes
         // the files but no sourceMappingURL comment.
         sourcemap: "hidden",
-        commonjsOptions: {
-          include: [/use-sync-external-store/, /node_modules/],
-        },
       },
       resolve: {
         dedupe: [
@@ -108,12 +105,14 @@ export default defineMain({
         /** Pre-bundled `@tanstack/react-router` ignores `resolve.alias` and loads a second copy → broken RouterProvider context. */
         exclude: ["@tanstack/react-router"],
         include: ["better-auth/react", "better-auth/client"],
-        esbuildOptions: {
-          alias: {
-            "@/cosmograph/style.module.css": cosmographStyleAlias,
-            "@tanstack/react-router": tanstackReactRouterEsm,
-            "use-sync-external-store/shim/with-selector":
-              useSyncExternalStoreWithSelectorShim,
+        rolldownOptions: {
+          resolve: {
+            alias: {
+              "@/cosmograph/style.module.css": cosmographStyleAlias,
+              "@tanstack/react-router": tanstackReactRouterEsm,
+              "use-sync-external-store/shim/with-selector":
+                useSyncExternalStoreWithSelectorShim,
+            },
           },
         },
       },

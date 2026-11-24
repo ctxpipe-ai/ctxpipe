@@ -13,8 +13,8 @@ import tsconfigPaths from "vite-tsconfig-paths"
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 /** `@cosmograph/cosmograph` source imports `@/cosmograph/style.module.css` with its own
- * `@/` alias; point that at our local stub so both vite bundling and esbuild
- * optimizeDeps (pre-bundle) resolve it. */
+ * `@/` alias; point that at our local stub so both vite bundling and the
+ * Rolldown dependency optimizer (pre-bundle) resolve it. */
 const cosmographStyleAlias = resolve(
   __dirname,
   "src/cosmograph/style.module.css",
@@ -22,9 +22,20 @@ const cosmographStyleAlias = resolve(
 
 const config = defineConfig({
   resolve: {
-    alias: {
-      "@/cosmograph/style.module.css": cosmographStyleAlias,
-    },
+    alias: [
+      {
+        find: "@/cosmograph/style.module.css",
+        replacement: cosmographStyleAlias,
+      },
+      // `gl-bench` (a dependency of `@cosmos.gl/graph`) names a script that sets
+      // a global as its `browser` entry, which has no default export. Rolldown
+      // (Vite 8) refuses the default import of it, so the bare import resolves
+      // to the package's ES module, from the importer as before.
+      {
+        find: /^gl-bench$/,
+        replacement: "gl-bench/dist/gl-bench.module.js",
+      },
+    ],
   },
   server: {
     allowedHosts: true,
@@ -34,9 +45,11 @@ const config = defineConfig({
   },
   optimizeDeps: {
     include: ["shiki", "@streamdown/code", "streamdown"],
-    esbuildOptions: {
-      alias: {
-        "@/cosmograph/style.module.css": cosmographStyleAlias,
+    rolldownOptions: {
+      resolve: {
+        alias: {
+          "@/cosmograph/style.module.css": cosmographStyleAlias,
+        },
       },
     },
   },

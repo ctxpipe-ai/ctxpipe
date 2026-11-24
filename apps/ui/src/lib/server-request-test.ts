@@ -1,4 +1,4 @@
-import { requestHandler } from "@tanstack/react-start/server"
+import { createServerEntry } from "@tanstack/react-start/server"
 
 /** Headers of a signed-in browser: a Better Auth session cookie. */
 export const signedInHeaders = {
@@ -20,14 +20,16 @@ export async function duringServerRequest<T>(
   work: () => Promise<T>,
 ): Promise<T> {
   let outcome: { value: T } | { error: unknown } | undefined
-  const handle = requestHandler(async () => {
-    outcome = await work().then(
-      (value) => ({ value }),
-      (error: unknown) => ({ error }),
-    )
-    return new Response(null, { status: 204 })
+  const entry = createServerEntry({
+    fetch: async () => {
+      outcome = await work().then(
+        (value) => ({ value }),
+        (error: unknown) => ({ error }),
+      )
+      return new Response(null, { status: 204 })
+    },
   })
-  await handle(new Request("http://ui.test/acme", { headers }), {})
+  await entry.fetch(new Request("http://ui.test/acme", { headers }), {})
   if (!outcome) throw new Error("The request handler did not run")
   if ("error" in outcome) throw outcome.error
   return outcome.value
