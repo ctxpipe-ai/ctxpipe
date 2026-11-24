@@ -19,6 +19,7 @@ import {
 import { getOrgFeature } from "../../models/org-features.js"
 import { getWorkspaceById } from "../../models/workspaces.js"
 import { enqueueWorkflow } from "../client.js"
+import { StepCrashLoopError, withCrashLoopGuard } from "../crash-loop.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { knowledgeMaintenance } from "./knowledge-maintenance.js"
 
@@ -72,11 +73,27 @@ export const knowledgeProjection = defineWorkflow(
       ...(input.rebuild ? { rebuild: true } : {}),
     }),
   },
-  async ({ input, step }) => {
+  async ({ input, step, run }) => {
+    // A projection that stops its worker (out of memory) leaves its step
+    // attempt `running`, and the next worker claims the run again: one run
+    // stopped a production worker about 80 times (CTX-1616). After
+    // MAX_CRASHED_STEP_ATTEMPTS such stops, the guard ends the step with the
+    // count, and the run fails below, with no step retry. The next hydrate or
+    // push queues a new run, which has its own count.
+    const name = "project-knowledge-plane"
+    const guarded =
+      <T>(fn: () => Promise<T>) =>
+      () =>
+        withCrashLoopGuard<T | { crashLoop: number }>(
+          run.id,
+          name,
+          fn,
+          (error) => ({ crashLoop: error.crashes }),
+        )
     const project = (lockSignal: AbortSignal) =>
       step.run(
         {
-          name: "project-knowledge-plane",
+          name,
           retryPolicy: {
             initialInterval: "10s",
             backoffCoefficient: 2,
@@ -84,7 +101,7 @@ export const knowledgeProjection = defineWorkflow(
             maximumAttempts: 6,
           },
         },
-        async () => {
+        guarded(async () => {
           lockSignal.throwIfAborted()
           // The flag is the gate before Workspace content goes to the
           // embedding provider and to ClickHouse. A run can wait for a long
@@ -170,7 +187,7 @@ export const knowledgeProjection = defineWorkflow(
           } finally {
             await store.close()
           }
-        },
+        }),
       )
     // A run that finds the lease busy sleeps and tries again. A sleeping run
     // holds no worker slot, so the runs that queue during a ClickHouse outage
@@ -189,6 +206,8 @@ export const knowledgeProjection = defineWorkflow(
     }
     const applied = locked.value
     if (!applied) return null
+    if ("crashLoop" in applied)
+      throw new StepCrashLoopError(name, applied.crashLoop)
     const { tip, isDefault, others } = applied
     if (others.length > 0)
       await step.run({ name: "enqueue-branch-projections" }, async () => {

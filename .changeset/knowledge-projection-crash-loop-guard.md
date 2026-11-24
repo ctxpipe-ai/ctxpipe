@@ -1,0 +1,5 @@
+---
+"@ctxpipe/aws-cdk": patch
+---
+
+A knowledge projection run whose step stopped the worker three times (for example, out of memory) now fails with the crash-loop error, and it does not claim the worker again. The error event `openworkflow.step-crash-loop` names the workflow. The next hydrate or push of the Workspace starts a new projection run.
