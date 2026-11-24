@@ -257,7 +257,7 @@ it("logs an error that names the workflow and the guarded step when the worker n
   try {
     const { output } = await runAfterCrashes(workflow, async () => {})
     expect(output).toBe("ran")
-    // After the step, no guarded step runs, and a second error waits a minute.
+    // After the step, no ingestion step runs, and a second error waits a minute.
     vi.useFakeTimers({ toFake: ["Date"] })
     vi.advanceTimersByTime(61_000)
     check()
@@ -278,7 +278,7 @@ it("logs an error that names the workflow and the guarded step when the worker n
   expect(near[0]?.message).toContain(`memory-${pr}-${workflows}`)
   expect(near[0]?.message).toContain(`step ${step}`)
   expect(near).toHaveLength(2)
-  expect(near[1]?.message).toContain("no guarded step")
+  expect(near[1]?.message).toContain("no ingestion step")
 })
 
 it("does not count worker stops older than 2 hours, such as old deploys", async () => {

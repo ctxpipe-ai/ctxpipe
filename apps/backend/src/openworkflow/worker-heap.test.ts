@@ -91,11 +91,10 @@ describe("container memory limit", () => {
     expect(workerHeapLimitMib(workerMemoryBytes(root))).toBe(1126)
   })
 
-  it("reads the limit of the container cgroup on cgroup v1", () => {
+  it("reads the limit of the container cgroup on cgroup v1 without memory.stat", () => {
     const root = fakeRoot({
       "proc/self/cgroup": "4:memory:/docker/abc\n",
       "sys/fs/cgroup/memory/docker/abc/memory.limit_in_bytes": `${GiB}\n`,
-      "sys/fs/cgroup/memory/docker/abc/memory.stat": `hierarchical_memory_limit ${4 * GiB}\n`,
     })
     expect(containerMemoryLimit(root)).toBe(GiB)
   })

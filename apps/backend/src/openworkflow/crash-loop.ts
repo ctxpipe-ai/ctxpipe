@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto"
 import { sql } from "drizzle-orm"
 
 import { getSystemDb } from "../db/client.js"
-import { log, loggerStorage } from "../observability/logger.js"
+import { currentWorkflowName, log } from "../observability/logger.js"
 import { openWorkflowNamespaceId } from "./namespace.js"
 
 /**
@@ -201,15 +201,12 @@ export async function withCrashLoopGuard<T>(
     if (onCrashLoop) return onCrashLoop(error)
     throw error
   }
-  if (attemptId) {
-    // `defineWorkflow` puts the workflow name on the workflow logger.
-    const workflow = loggerStorage.getStore()?.base.workflow
+  if (attemptId)
     workerState.inFlight.set(attemptId, {
-      workflow: typeof workflow === "string" ? workflow : undefined,
+      workflow: currentWorkflowName(),
       workflowRunId,
       stepName,
     })
-  }
   try {
     return await fn()
   } finally {

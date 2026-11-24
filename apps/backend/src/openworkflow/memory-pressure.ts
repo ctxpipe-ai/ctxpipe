@@ -2,9 +2,10 @@ import { getHeapStatistics } from "node:v8"
 
 import { log } from "../observability/logger.js"
 import { guardedStepsInFlight, WORKER_BOOT_ID } from "./crash-loop.js"
+import { mib } from "./worker-heap.js"
 
 /** Bytes that the worker uses now. */
-export type MemorySample = { heapUsed: number; heapLimit: number; rss: number }
+type MemorySample = { heapUsed: number; heapLimit: number; rss: number }
 
 function sampleMemory(): MemorySample {
   const heap = getHeapStatistics()
@@ -15,14 +16,13 @@ function sampleMemory(): MemorySample {
   }
 }
 
-const mib = (bytes: number) => Math.round(bytes / 1024 / 1024)
-
 /**
  * Returns a check that logs an error when the worker uses 85% of its heap
  * limit or 85% of the memory of its container (`memoryBytes`), at most once
- * a minute. The error names the guarded steps that run now (an ingestion
- * step loads its input in the worker), so a log search finds the step that
- * used the memory before Node or the platform stops the worker. evlog writes
+ * a minute. The error names the ingestion steps that run now (the steps in
+ * `withCrashLoopGuard`), so a log search finds the step that used the memory
+ * before Node or the platform stops the worker. It does not name other
+ * steps. evlog writes
  * the line to stdout at once, so the line is in the platform logs also when
  * the process stops before the OTLP export.
  */
@@ -44,7 +44,7 @@ export function memoryPressureCheck(
     const steps = guardedStepsInFlight()
     log.error({
       step: "openworkflow.memory-near-limit",
-      message: `The worker is near its ${near} memory limit during ${steps.length ? steps.map((s) => `${s.workflow ?? "workflow"} ${s.workflowRunId} step ${s.stepName}`).join(", ") : "no guarded step"}`,
+      message: `The worker is near its ${near} memory limit during ${steps.length ? steps.map((s) => `${s.workflow ?? "workflow"} ${s.workflowRunId} step ${s.stepName}`).join(", ") : "no ingestion step"}`,
       limit: near,
       heapUsedMib: mib(now.heapUsed),
       heapLimitMib: mib(now.heapLimit),

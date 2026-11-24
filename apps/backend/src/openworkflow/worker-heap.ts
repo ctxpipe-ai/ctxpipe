@@ -118,15 +118,20 @@ export function containerMemoryLimit(root = "/"): number | undefined {
     join(cgroup, "memory"),
     memory.split(":").slice(2).join(":"),
   )
-  const hierarchical = readText(join(dir, "memory.stat"))
-    ?.split("\n")
-    .find((line) => line.startsWith("hierarchical_memory_limit "))
-    ?.split(" ")[1]
-  return lowest([
-    limitBytes(readText(join(dir, "memory.limit_in_bytes"))),
-    limitBytes(hierarchical),
-  ])
+  const stat = readText(join(dir, "memory.stat"))
+  // The lowest limit of the cgroup and its parents; without memory.stat,
+  // the limit of the cgroup only.
+  return limitBytes(
+    stat === undefined
+      ? readText(join(dir, "memory.limit_in_bytes"))
+      : stat
+          .split("\n")
+          .find((line) => line.startsWith("hierarchical_memory_limit "))
+          ?.split(" ")[1],
+  )
 }
+
+export const mib = (bytes: number) => Math.round(bytes / 1024 / 1024)
 
 /** The memory the worker may use: the container limit, else the host memory. */
 export function workerMemoryBytes(root = "/"): number {

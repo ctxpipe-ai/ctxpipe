@@ -16,6 +16,7 @@ import process from "node:process"
 import { openworkflowWorkerStartArgs } from "./codesearchCapacity.js"
 import {
   HEAP_SNAPSHOT_DIR,
+  mib,
   workerMemoryBytes,
   workerNodeOptions,
 } from "./worker-heap.js"
@@ -36,7 +37,7 @@ function startOpenworkflowWorker(backendRoot: string): ChildProcess {
       step: "openworkflow.worker-node-options",
       message: `worker Node options: ${nodeOptions}`,
       nodeOptions,
-      memoryMib: Math.round(memoryBytes / 1024 / 1024),
+      memoryMib: mib(memoryBytes),
       heapSnapshotDir: HEAP_SNAPSHOT_DIR,
       timestamp: new Date().toISOString(),
     })}\n`,

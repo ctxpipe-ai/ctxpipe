@@ -125,7 +125,7 @@ The worker logs its memory at start (`memoryMib` in the
 in the `openworkflow.config-loaded` line). When the worker uses 85% of its
 heap limit or of its container memory, it logs the error
 `openworkflow.memory-near-limit`, at most once a minute. The error names the
-ingestion steps that run at that time.
+ingestion steps that run at that time. It does not name other workflow steps.
 
 ## Secret handling
 
