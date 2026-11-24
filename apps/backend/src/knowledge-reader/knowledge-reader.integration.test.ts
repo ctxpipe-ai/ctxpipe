@@ -430,6 +430,40 @@ const bridgeUnits: (RelatedUnit & { text: string })[] = [
   },
 ]
 
+/**
+ * A Workspace for the neighbors of the best search hits (CTX-1605). The
+ * issue answers the question in its words and mentions the mailer. The
+ * mailer answers it too, but it has no word of the question, so 60 notes
+ * with words of the question come before it in the search order.
+ */
+const namedUnits: (RelatedUnit & { text: string })[] = [
+  {
+    path: "github/issues/acme/shop/40.md",
+    kind: "Issue",
+    title: "Refund email is late",
+    text: "The refund email comes one day late.",
+    claims: [
+      {
+        to: "knowledge/services/mailer.md",
+        predicate: "MENTIONS",
+        confidence: 0.8,
+      },
+    ],
+  },
+  {
+    path: "knowledge/services/mailer.md",
+    kind: "Service",
+    title: "Mailer",
+    text: "Sends messages from a queue. answer",
+  },
+  ...Array.from({ length: 60 }, (_, index) => ({
+    path: `notes/refund-${String(index + 1).padStart(2, "0")}.md`,
+    kind: "Note",
+    title: `Refund note ${index + 1}`,
+    text: "A note about a refund.",
+  })),
+]
+
 /** The rows of `list` in the knowledge plane for one Workspace. */
 function planeRows(
   workspaceId: string,
@@ -737,11 +771,13 @@ describe("the knowledge reader seam", () => {
     await planeOnly("wide", wideUnits)
     await planeOnly("diamond", diamondUnits)
     await planeOnly("bridge", bridgeUnits)
+    await planeOnly("named", namedUnits)
     await markReady(ids.ready as string)
     await markReady(ids.paging as string)
     await markReady(ids.wide as string)
     await markReady(ids.diamond as string)
     await markReady(ids.bridge as string)
+    await markReady(ids.named as string)
     // A first run that has not ended: not ready.
     await beginKnowledgeRun({
       orgId: seed.orgId,
@@ -1447,6 +1483,48 @@ describe("the knowledge reader seam", () => {
       await searchCall({ workspaces: ["ready"], sources: ["authored"] }),
     )
     expect((authored.hits as unknown[]).length).toBe(units.length)
+  })
+
+  it("on: search_knowledge adds the documents that its best hits name, in the last places of the hits", async () => {
+    await setFlag("on")
+    const mailer = "knowledge/services/mailer.md"
+    /** The first page, and the texts of the hits that Jev judged. */
+    const call = async (args: Record<string, unknown> = {}) => {
+      jevRequests.length = 0
+      jevParts.length = 0
+      const hits = structured(
+        await searchCall({
+          workspaces: ["named"],
+          query: "Why is the refund email late?",
+          ...args,
+        }),
+      ).hits as { ref: string }[]
+      return {
+        refs: hits.map((hit) => hit.ref),
+        judged: jevRequests.reduce((sum, item) => sum + item.candidates, 0),
+        judgedMailer: jevParts.some((part) =>
+          String(part).includes("Sends messages"),
+        ),
+      }
+    }
+    const before = ORCHESTRATOR_DEFAULTS.searchNeighbors
+    ORCHESTRATOR_DEFAULTS.searchNeighbors = 0
+    try {
+      // With no neighbors, the 50 hits are the issue and 49 notes.
+      expect(await call()).toMatchObject({ judged: 50, judgedMailer: false })
+    } finally {
+      ORCHESTRATOR_DEFAULTS.searchNeighbors = before
+    }
+    // The issue is a best hit, and it mentions the mailer. The mailer takes
+    // the last place of the 50 hits, and Jev judges it with the others: it
+    // answers, so it comes first.
+    const named = await call()
+    expect(named).toMatchObject({ judged: 50, judgedMailer: true })
+    expect(named.refs[0]).toBe(mailer)
+    // A neighbor must pass the filters of the search.
+    const filtered = await call({ kinds: ["Issue", "Note"] })
+    expect(filtered).toMatchObject({ judgedMailer: false })
+    expect(filtered.refs).not.toContain(mailer)
   })
 
   it("on: search_knowledge puts a hit that is not valid now after the valid hits, through code", async () => {
