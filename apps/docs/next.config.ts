@@ -1,3 +1,5 @@
+import path from "node:path"
+
 import { createMDX } from "fumadocs-mdx/next"
 
 const withMDX = createMDX()
@@ -5,6 +7,10 @@ const withMDX = createMDX()
 const config = withMDX({
   reactStrictMode: true,
   output: "standalone",
+  // The monorepo root: the standalone output then holds the pnpm store that its node_modules links point into, and
+  // server.js is at apps/docs/server.js, where the Dockerfile runs it. Without it, tracing stops at apps/docs, and
+  // the image has only links that point outside it.
+  outputFileTracingRoot: path.join(__dirname, "../.."),
   async rewrites() {
     return [{ source: "/docs/:path*.mdx", destination: "/llms.mdx/:path*" }]
   },
