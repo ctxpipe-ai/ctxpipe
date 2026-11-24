@@ -10,7 +10,7 @@ import {
 import {
   releaseWorkspaceMergeLease,
   takeWorkspaceMergeLease,
-  workspaceMergeLeaseKey,
+  workspaceMergeWakeSignal,
 } from "../../domain/workspaces/merge-lease.js"
 import { workspaceGitRead } from "../../domain/workspaces/resolve-revision.js"
 import {
@@ -213,29 +213,41 @@ export const workspaceSemanticMerge = defineWorkflow(
           )
         // One semantic merge of a Workspace runs at a time (CTX-1598), so
         // that the merges do not race on the default branch. A merge that
-        // finds the lease busy waits for the release signal without a worker
-        // slot. The timeout covers a holder that ended without a release.
+        // finds the lease busy waits in order, without a worker slot, until
+        // the merge before it wakes it. Only the first waiter checks the
+        // lease again on a short timeout: a holder that ended without a
+        // release, or a wake before the wait starts, costs that timeout.
+        // A runtime that runs one key in series would replace this: see the top of
+        // merge-lease.ts and ADR-047.
         const lease = {
           orgId: input.orgId,
           workspaceId: input.workspaceId,
           runId: run.id,
         }
-        while (
-          !(await step.run({ name: "take-merge-lease" }, () =>
-            takeWorkspaceMergeLease(lease),
-          ))
-        )
+        const wake = (runId: string | undefined) =>
+          runId
+            ? ow.sendSignal({ signal: workspaceMergeWakeSignal(runId) })
+            : undefined
+        for (;;) {
+          const taken = await step.run(
+            { name: "take-merge-lease" },
+            async () => {
+              const result = await takeWorkspaceMergeLease(lease)
+              // The next waiter is first now: it waits on the short timeout.
+              if (result.taken) await wake(result.wake)
+              return result
+            },
+          )
+          if (taken.taken) break
           await step.waitForSignal({
             name: "await-merge-lease",
-            signal: workspaceMergeLeaseKey(input.workspaceId),
-            timeout: "10 minutes",
+            signal: workspaceMergeWakeSignal(run.id),
+            timeout: taken.first ? "30 seconds" : "10 minutes",
           })
+        }
         const releaseLease = () =>
           step.run({ name: "release-merge-lease" }, async () => {
-            await releaseWorkspaceMergeLease(lease)
-            await ow.sendSignal({
-              signal: workspaceMergeLeaseKey(input.workspaceId),
-            })
+            await wake(await releaseWorkspaceMergeLease(lease))
           })
         for (
           let refreshAttempt = 0;

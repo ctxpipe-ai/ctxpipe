@@ -16,7 +16,10 @@ import {
   type NativeHydrationFixture,
   withNativeHydrationFixture,
 } from "../../test/native-hydration-fixture.js"
-import { takeWorkspaceMergeLease } from "./merge-lease.js"
+import {
+  releaseWorkspaceMergeLease,
+  takeWorkspaceMergeLease,
+} from "./merge-lease.js"
 import { resolveWorkspaceReadRevision } from "./resolve-revision.js"
 
 // The release signal goes through the client of the production namespace,
@@ -267,7 +270,7 @@ it(
               workspaceId: `${f.workspaceId}_other`,
               runId: running.workflowRun.id,
             }),
-          ).toBe(true)
+          ).toMatchObject({ taken: true })
           // A merge of this Workspace that ended without its release.
           const done = await f.runner.runWorkflow(ended, {})
           await done.result({ timeoutMs: 15_000 })
@@ -295,7 +298,7 @@ it(
               workspaceId: `${f.workspaceId}_other`,
               runId: merge.workflowRun.id,
             }),
-          ).toBe(false)
+          ).toMatchObject({ taken: false })
         } finally {
           await worker.stop()
         }
@@ -352,6 +355,119 @@ it(
           expect(
             f.git("--git-dir", f.remote, "show", "main:knowledge/deferred.md"),
           ).toBe("# knowledge/deferred.md")
+        } finally {
+          await worker.stop()
+        }
+      },
+    )
+  },
+)
+
+/**
+ * A holder of the lease of the fixture Workspace: a run that is open (it
+ * waits to start) and that runs no merge step.
+ */
+async function holdLease(f: NativeHydrationFixture) {
+  const holder = await f.runner.runWorkflow(
+    { name: `merge-lease-holder-${f.id}` },
+    {},
+    { availableAt: new Date(Date.now() + 60 * 60 * 1000) },
+  )
+  await takeWorkspaceMergeLease({
+    orgId: f.org.id,
+    workspaceId: f.workspaceId,
+    runId: holder.workflowRun.id,
+  })
+  return holder.workflowRun.id
+}
+
+async function waiting(f: NativeHydrationFixture, workflowRunId: string) {
+  await expect
+    .poll(() => stepNames(f, workflowRunId), { timeout: 30_000 })
+    .toContainEqual({ name: "await-merge-lease", status: "running" })
+}
+
+it.each(["fails for good", "releases before the wait starts"] as const)(
+  "starts the first waiting merge within its short re-check when the holder %s",
+  { timeout: 120_000 },
+  async (holderEnd) => {
+    await withNativeHydrationFixture(
+      {
+        namespaceId,
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+      },
+      async (f) => {
+        await f.publish()
+        await f.worker.stop()
+        f.runner.implementWorkflow(mergeSpec, workspaceSemanticMerge.fn)
+        const worker = f.runner.newWorker({ concurrency: 2 })
+        try {
+          await worker.start()
+          const holder = await holdLease(f)
+          const merge = await addFile(f, "knowledge/after-holder.md")
+          await waiting(f, merge.workflowRun.id)
+          // No wake reaches the waiting merge: a run that fails sends no
+          // signal, and a signal that comes before a wait starts is lost.
+          if (holderEnd === "fails for good")
+            await f.runner.cancelWorkflowRun(holder)
+          else
+            await releaseWorkspaceMergeLease({
+              orgId: f.org.id,
+              workspaceId: f.workspaceId,
+              runId: holder,
+            })
+          expect(await merge.result({ timeoutMs: 50_000 })).toMatchObject({
+            committed: true,
+          })
+        } finally {
+          await worker.stop()
+        }
+      },
+    )
+  },
+)
+
+it(
+  "gives the lease to the waiting merges in the order in which they came",
+  { timeout: 120_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      {
+        namespaceId,
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+      },
+      async (f) => {
+        await f.publish()
+        await f.worker.stop()
+        f.runner.implementWorkflow(mergeSpec, workspaceSemanticMerge.fn)
+        const worker = f.runner.newWorker({ concurrency: 2 })
+        try {
+          await worker.start()
+          const holder = await holdLease(f)
+          const first = await addFile(f, "knowledge/first.md")
+          await waiting(f, first.workflowRun.id)
+          const second = await addFile(f, "knowledge/second.md")
+          await waiting(f, second.workflowRun.id)
+          await f.runner.cancelWorkflowRun(holder)
+          for (const handle of [first, second])
+            expect(await handle.result({ timeoutMs: 50_000 })).toMatchObject({
+              committed: true,
+            })
+          const changed = (rev: string) =>
+            f.git(
+              "--git-dir",
+              f.remote,
+              "show",
+              "--name-only",
+              "--format=",
+              rev,
+            )
+          expect(changed("main~1")).toBe("knowledge/first.md")
+          expect(changed("main")).toBe("knowledge/second.md")
         } finally {
           await worker.stop()
         }
