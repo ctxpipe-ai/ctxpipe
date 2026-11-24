@@ -1,4 +1,4 @@
-# Schema snapshot is packages/sdk/src/schema.graphql from @linear/sdk@89.0.0.
+# Schema snapshot is packages/sdk/src/schema.graphql from @linear/sdk@102.0.0.
 schema: src/services/linear/schema.graphql
 documents: src/services/linear/documents/*.graphql
 generates:
