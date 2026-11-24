@@ -437,7 +437,9 @@ test("the manifest marks exactly the platform-independent checks portable", () =
     notPortable,
     [
       "build:image",
-      // Only the contracts file of the denylist.
+      // The files of the denylist: one contracts file, and the backend
+      // fetch test that stops real Git (CTX-1601).
+      "vitest:backend",
       "vitest:contracts",
       "vitest:latency",
     ].sort(),
