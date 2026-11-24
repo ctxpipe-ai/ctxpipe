@@ -88,8 +88,7 @@ export const COMMIT_IDENTITY = {
  * `withGithubBeforeNetworkGit` adds the rules and runs it again. The script
  * must be safe to run again from its start.
  */
-export const GITHUB_PENDING_GUARD =
-  '[ -z "${CTXPIPE_GITHUB_PENDING:-}" ] || exit 75'
+export const GITHUB_PENDING_GUARD = `[ -z "\${CTXPIPE_GITHUB_PENDING:-}" ] || exit 75`
 
 /**
  * Checks out the conversation: the desired commit, then its session branch if
