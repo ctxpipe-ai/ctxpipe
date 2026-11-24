@@ -73,7 +73,7 @@ export function sideNavAccountTriggerClassName(expanded: boolean): string {
 export const sideNavAccountAvatarClassNames = {
   base: "size-8 !my-0 rounded-md bg-zinc-900/60 text-zinc-500",
   image: "rounded-md",
-  fallback: "rounded-md bg-zinc-900/60 text-xs font-normal text-zinc-500",
+  fallback: "rounded-md bg-zinc-900/60 text-xs font-normal text-zinc-400",
   fallbackIcon: "size-4 stroke-[1.4] text-zinc-500",
   skeleton: "size-8 rounded-md bg-zinc-900/60",
 }
@@ -84,7 +84,7 @@ export const sideNavAccountOrgViewClassNames = {
   content: "min-w-0 gap-0 leading-none",
   title: "truncate text-sm !font-normal !leading-none text-zinc-300",
   subtitle:
-    "mt-0.5 truncate text-xs !font-normal !leading-none text-muted-foreground",
+    "mt-0.5 truncate text-xs !font-normal !leading-none text-zinc-400 opacity-100",
 }
 
 export const sideNavAccountUserViewClassNames = {
@@ -93,5 +93,5 @@ export const sideNavAccountUserViewClassNames = {
   content: "min-w-0 gap-0 leading-none",
   title: "truncate text-sm !font-normal !leading-none text-zinc-300",
   subtitle:
-    "mt-0.5 truncate text-xs !font-normal !leading-none text-muted-foreground",
+    "mt-0.5 truncate text-xs !font-normal !leading-none text-zinc-400 opacity-100",
 }

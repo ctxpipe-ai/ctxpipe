@@ -202,7 +202,7 @@ export function SideNav() {
                 <kbd
                   className={[
                     sideNavTrailingSlotClassName,
-                    "font-mono text-xs leading-none text-zinc-500",
+                    "font-mono text-xs leading-none text-zinc-400",
                     expanded
                       ? "opacity-100"
                       : "w-0 overflow-hidden opacity-0 max-md:w-auto max-md:opacity-100",

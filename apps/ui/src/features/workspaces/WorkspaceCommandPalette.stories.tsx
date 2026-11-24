@@ -315,14 +315,16 @@ export const PaletteLoadingKeepsPages = meta.story({
     ).toBeInTheDocument()
     await userEvent.type(await searchField(), "conn")
     await waitFor(() => expect(focusedItem()?.textContent).toBe("Connectors"))
-    // Arrow keys move through the pages and wrap while the list loads.
+    // Arrow keys move through the pages and wrap while the list loads. Since
+    // React Aria Components 1.22, the first Arrow Down after the search is
+    // cleared goes to Connectors, not to Home.
     await userEvent.clear(await searchField())
-    await userEvent.keyboard("{ArrowDown}")
-    await waitFor(() => expect(focusedItem()?.textContent).toBe("Home"))
     await userEvent.keyboard("{ArrowDown}")
     await waitFor(() => expect(focusedItem()?.textContent).toBe("Connectors"))
     await userEvent.keyboard("{ArrowDown}")
     await waitFor(() => expect(focusedItem()?.textContent).toBe("Home"))
+    await userEvent.keyboard("{ArrowDown}")
+    await waitFor(() => expect(focusedItem()?.textContent).toBe("Connectors"))
     // The empty state waits for the workspace list.
     await userEvent.clear(await searchField())
     await userEvent.type(await searchField(), "zzzz")
