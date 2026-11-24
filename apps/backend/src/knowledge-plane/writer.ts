@@ -359,12 +359,36 @@ export async function projectKnowledgePlane(input: {
 }
 
 /**
- * The files of one store write. The store slices each IN list itself, so
- * this is only a memory bound: the rows of a group (with a vector of 1024
- * numbers for each chunk) stay in memory until its write, about 40 MB for
- * 1000 documents of 5 chunks.
+ * The blob bytes of the files of one store write, at most. A file above it
+ * is a write alone. The rows of a write (with a vector of 1024 numbers for
+ * each chunk) stay in memory until its insert, so their size follows the
+ * text of the files, not their count. A write of 1000 mirrored issues
+ * (14 MiB of text, 20,000 chunks) took more than 1 GiB of heap, and the
+ * worker of a 2 GiB task stopped (CTX-1615). A full projection of that
+ * Workspace with this limit has a peak heap of about 460 MiB.
  */
-const FILES_PER_WRITE = 1000
+const WRITE_BYTES = 2 * 1024 * 1024
+
+/**
+ * The files of each store write, in order: the blobs of a write have at most
+ * WRITE_BYTES, or the write has one file.
+ */
+function writeGroups(files: readonly string[], sizes: readonly number[]) {
+  const groups: string[][] = []
+  let bytes = 0
+  for (const [index, path] of files.entries()) {
+    const size = sizes[index] ?? 0
+    const last = groups.at(-1)
+    if (last && bytes + size <= WRITE_BYTES) {
+      last.push(path)
+      bytes += size
+    } else {
+      groups.push([path])
+      bytes = size
+    }
+  }
+  return groups
+}
 
 /**
  * The version of a file (ADR-071 decision 2): the SHA-256 (32 hex
@@ -502,39 +526,37 @@ async function applyChangeSet(input: {
     .filter((path) => tree.has(path) && isDocumentPath(path))
     .sort()
 
-  /** The document keys that have a file version at the tip. */
-  const present = new Set<string>()
-  /** The tree rows of the run. */
-  const next = new Map<string, TreeEntry>()
-  for (let at = 0; at < files.length; at += FILES_PER_WRITE) {
-    const group = files.slice(at, at + FILES_PER_WRITE)
-    const stored = await store.findFileVersions(scope, group.map(keyAt))
-    // Only the files with no stored file version become rows. The blobs are
-    // read 50 files at a time. The chunks of the whole group then go to the
-    // embedding client in one call, so that its requests fill to the batch
-    // limits.
+  // Only the files with no stored file version become rows, in writes of
+  // at most WRITE_BYTES of blobs. The blobs of a write are read 50 files at
+  // a time. The chunks of the whole write then go to the embedding client
+  // in one call, so that its requests fill to the batch limits.
+  const stored = await store.findFileVersions(scope, files.map(keyAt))
+  const unstored = files.filter(
+    (path) => !stored.has(fileVersionId(keyAt(path))),
+  )
+  const sizes = await readGitBlobSizes(
+    directory,
+    unstored.map((path) => tree.get(path) ?? ""),
+  )
+  for (const group of writeGroups(unstored, sizes)) {
     const unembedded: UnembeddedDocumentRows[] = []
     const failed: { path: string; error: string }[] = []
-    await inBatches(
-      group.filter((path) => !stored.has(fileVersionId(keyAt(path)))),
-      50,
-      async (batch) => {
-        const rows = await projectFiles({
-          directory,
-          workspaceId,
-          blobPath,
-          sourceRepositories,
-          observedAt,
-          paths: batch,
-          blobs: batch.map((path) => tree.get(path) ?? ""),
-          store,
-          scope,
-          files: input.files,
-        })
-        unembedded.push(...rows.documents)
-        failed.push(...rows.failed)
-      },
-    )
+    await inBatches(group, 50, async (batch) => {
+      const rows = await projectFiles({
+        directory,
+        workspaceId,
+        blobPath,
+        sourceRepositories,
+        observedAt,
+        paths: batch,
+        blobs: batch.map((path) => tree.get(path) ?? ""),
+        store,
+        scope,
+        files: input.files,
+      })
+      unembedded.push(...rows.documents)
+      failed.push(...rows.failed)
+    })
     const documents = await embedDocuments(
       unembedded,
       store,
@@ -563,28 +585,33 @@ async function applyChangeSet(input: {
         validFrom: document.validFrom,
         validTo: document.validTo,
       })
+  }
+
+  /** The document keys that have a file version at the tip. */
+  const present = new Set<string>()
+  /** The tree rows of the run. */
+  const next = new Map<string, TreeEntry>()
+  for (const path of files) {
+    const key = keyAt(path)
     // A knowledge file that gives no unit has no file version.
-    const entries = group.flatMap((path): TreeEntry[] => {
-      const key = keyAt(path)
-      const version = stored.get(fileVersionId(key))
-      if (!version) return []
-      present.add(key.docKey)
-      const entry: TreeEntry = {
-        ...key,
-        ...version,
-        path,
-        // The source time of the file version first (CTX-1516), else the
-        // time of the commit that introduced the knowledge file.
-        validFrom:
-          version.validFrom ??
-          (isKnowledgePath(path)
-            ? dateOrNull(input.introductions.introducedAtByPath.get(path))
-            : null),
-        deletedAt: null,
-      }
-      return sameEntry(current.get(key.docKey), entry) ? [] : [entry]
-    })
-    for (const entry of entries) next.set(entry.docKey, entry)
+    const version = stored.get(fileVersionId(key))
+    if (!version) continue
+    present.add(key.docKey)
+    const entry: TreeEntry = {
+      ...key,
+      ...version,
+      path,
+      // The source time of the file version first (CTX-1516), else the
+      // time of the commit that introduced the knowledge file.
+      validFrom:
+        version.validFrom ??
+        (isKnowledgePath(path)
+          ? dateOrNull(input.introductions.introducedAtByPath.get(path))
+          : null),
+      deletedAt: null,
+    }
+    if (!sameEntry(current.get(key.docKey), entry))
+      next.set(entry.docKey, entry)
   }
 
   const ends =

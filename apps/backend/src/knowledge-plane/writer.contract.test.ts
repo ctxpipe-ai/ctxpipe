@@ -1962,27 +1962,35 @@ describe("vector reuse (CTX-1428)", () => {
     }
   })
 
-  it("a retry after a run that failed after its first write of 1000 files uses the file versions of that write and embeds only the files of the later writes", async () => {
+  it("writes at most 2 MiB of files at a time, and a retry after a run that failed after its first writes uses their file versions and embeds only the files of the later write (CTX-1615)", async () => {
     const remote = await Remote.create()
     try {
-      // 1005 files: the first write has 1000 files, the second 5.
-      const count = 1005
-      const name = (index: number) => `f${String(index).padStart(4, "0")}.md`
+      // The `.doc` file has no converter, so it costs no model call. Its
+      // blob is above 2 MiB, so it is a write alone, between the writes of
+      // the Markdown files before it and after it.
+      const markdown = (prefix: string) =>
+        Array.from({ length: 5 }, (_, index) => [
+          `${prefix}${index}.md`,
+          `# File ${prefix}${index}\n\nThe text of file ${prefix}${index}.\n`,
+        ])
       const tip = await remote.commit(
-        Object.fromEntries(
-          Array.from({ length: count }, (_, index) => [
-            name(index),
-            `# File ${index}\n\nThe text of file ${index}.\n`,
-          ]),
-        ),
+        Object.fromEntries([
+          ...markdown("a"),
+          ["b.doc", Buffer.alloc(2 * 1024 * 1024 + 1, 1)],
+          ...markdown("c"),
+        ]),
       )
       const workspaceId = await newWorkspace()
-      // The first write sends its 1000 short chunks in one request. The
-      // request of the second write fails the run, after the first write is
-      // in ClickHouse.
+      // The first write sends its 5 chunks in one request, and the second
+      // write sends none. The request of the third write fails the run,
+      // after the first two writes are in ClickHouse.
       embeddings.failAt = 2
+      fault.writes = []
       await expect(run(remote, workspaceId, tip)).rejects.toThrow("HTTP 401")
       expect(embeddings.requests).toBe(2)
+      expect(
+        fault.writes.filter((write) => write === "INSERT INTO documents"),
+      ).toHaveLength(2)
       expect(await getKnowledgeState({ orgId, workspaceId })).toMatchObject({
         lastSha: null,
         runStatus: "failed",
@@ -1998,10 +2006,10 @@ describe("vector reuse (CTX-1428)", () => {
       expect(embeddings.requests).toBe(1)
       expect(sentTexts().sort()).toEqual(
         Array.from({ length: 5 }, (_, index) =>
-          expect.stringContaining(`The text of file ${1000 + index}.`),
+          expect.stringContaining(`The text of file c${index}.`),
         ),
       )
-      // The 1000 file versions of the first write are stored, so the retry
+      // The file versions of the first two writes are stored, so the retry
       // uses them and embeds nothing of them.
       expect(embeddingOf()).toMatchObject({
         "ctxpipe.knowledge.outcome": "completed",
@@ -2009,9 +2017,12 @@ describe("vector reuse (CTX-1428)", () => {
         "ctxpipe.knowledge.embedding_misses": 5,
         "ctxpipe.knowledge.embedding_requests": 1,
       })
-      const statuses = Object.values(await statusOf(workspaceId))
-      expect(statuses).toHaveLength(count)
-      expect(statuses.every((status) => status === "active")).toBe(true)
+      expect(await statusOf(workspaceId)).toMatchObject({
+        [servingIdForKnowledgePath(workspaceId, "a0.md")]: "active",
+        [servingIdForKnowledgePath(workspaceId, "b.doc")]: "failed",
+        [servingIdForKnowledgePath(workspaceId, "c4.md")]: "active",
+      })
+      expect(Object.keys(await statusOf(workspaceId))).toHaveLength(11)
     } finally {
       await remote.remove()
     }
