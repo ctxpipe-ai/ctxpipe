@@ -74,6 +74,8 @@ Each run of a dataset, and its baseline, is scored against the same labels. A ch
 | Operations (guards) | p50 and p95 latency of each call; the Jev calls, the Jev questions and the embedding calls of each question; the cost. |
 | Agent tasks | Comes later ([CTX-1117](https://linear.app/ctxpipe/issue/CTX-1117)). It reads `answers.jsonl` of a run, or it adds a step to `ask` in `runner.ts`. |
 
+**A "no answer" is an empty result (CTX-1562).** A client that reads "no answer" does not use the hits. Thus, when a search says "no answer" (see the rule at the end of "The regression checks"), recall@5, nDCG@10 and search recall@50 score it as a search with no hit. A false "no answer" on an answerable question gets 0 for each of the three metrics. A correct "no answer" does not change. The old stack says "no answer" only when it finds no hit, so the baseline arm does not change. A rescore of a run from before CTX-1562 can give a lower plane recall@5, nDCG@10 and search recall@50: each answerable question where the plane said "no answer" now gets 0.
+
 ### The regression checks (CTX-1518)
 
 The production reviews of the Falkor retrieval (CTX-1131, CTX-1114) found failures that recall and nDCG do not show. The knowledge plane must not have them. The report gives each check for both arms, in the section "Regression checks" after the first table, and `report.json` gives them in `checks`. Each check reads only the kept answers of the scored questions, and it makes no model call (`checks.ts`).

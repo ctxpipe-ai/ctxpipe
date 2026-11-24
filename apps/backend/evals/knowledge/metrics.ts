@@ -126,6 +126,12 @@ export function scoreAnswer(
   const kept = judged
     ? (search?.scores ?? []).filter((score) => score >= keepAt).length
     : refs.length
+  // The "no answer" of the search, which the `noAnswer` metric also reads.
+  // A client that reads "no answer" does not use the hits, so the retrieval
+  // metrics score the search as an empty result (CTX-1562). The old stack
+  // says "no answer" only with no hit, so its scores do not change.
+  const saysNoAnswer = Boolean(search && !search.partialReason && kept === 0)
+  const used = saysNoAnswer ? [] : refs
   const related =
     answer.related && !("error" in answer.related) ? answer.related : null
   const targets = new Set(
@@ -152,18 +158,14 @@ export function scoreAnswer(
     split: question.split,
     category: question.category,
     metrics: {
-      recall5: noAnswer ? null : recallAt(refs, gold, 5),
-      ndcg10: noAnswer ? null : ndcgAt(refs, gold, 10),
-      searchRecall50: noAnswer ? null : recallAt(refs, gold, 50),
+      recall5: noAnswer ? null : recallAt(used, gold, 5),
+      ndcg10: noAnswer ? null : ndcgAt(used, gold, 10),
+      searchRecall50: noAnswer ? null : recallAt(used, gold, 50),
       traversalRecall:
         question.seeds && targets.size > 0
           ? recallAt(related?.refs ?? [], targets, Number.POSITIVE_INFINITY)
           : null,
-      noAnswer: noAnswer
-        ? search && !search.partialReason && kept === 0
-          ? 1
-          : 0
-        : null,
+      noAnswer: noAnswer ? (saysNoAnswer ? 1 : 0) : null,
       positions:
         question.positions && answer.arm === "plane"
           ? positionsCorrect(question.positions, related?.positions ?? [])

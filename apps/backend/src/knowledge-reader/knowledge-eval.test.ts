@@ -230,6 +230,96 @@ describe("the metrics", () => {
   })
 })
 
+describe('the retrieval metrics of a "no answer"', () => {
+  // A client that reads "no answer" does not use the hits (CTX-1562). The
+  // scores are below 0.5 or above 0.6, so the test holds for each "no
+  // answer" threshold of the report.
+  const metricsOf = async (
+    id: string,
+    arm: "legacy" | "plane",
+    search: { scores: number[]; partialReason?: string },
+  ) => {
+    const dataset = await readDataset(datasetFile)
+    const question = dataset.questions.find((item) => item.id === id)
+    if (!question) throw new Error(`The example has no question ${id}.`)
+    const refs = [...question.gold, "other.md"].slice(0, search.scores.length)
+    const answer = (answerArm: "legacy" | "plane") => ({
+      arm: answerArm,
+      question: id,
+      search: { refs, latencyMs: 10, ...search },
+      calls: {
+        jev: 1,
+        jevQuestions: 1,
+        embedding: 1,
+        costUsd: 0,
+        missing: 0,
+        failed: 0,
+        unrecorded: 0,
+      },
+    })
+    const report = buildReport({
+      manifest: {
+        datasetVersion: dataset.version,
+        splits: ["dev"],
+        now: "2026-11-24T00:00:00.000Z",
+        settings: {},
+        loop: { keepAt: 0.5 },
+        mode: "live",
+        capUsd: 1,
+        spentUsd: 0,
+        stopped: false,
+      },
+      dataset: { ...dataset, questions: [question] },
+      // A report scores a question only with an answer of each arm.
+      answers: [answer("legacy"), answer("plane")],
+      kept: null,
+    })
+    return report.questions.find((score) => score.arm === arm)?.metrics
+  }
+  const retrieval = (metrics: Awaited<ReturnType<typeof metricsOf>>) => ({
+    recall5: metrics?.recall5,
+    ndcg10: metrics?.ndcg10,
+    searchRecall50: metrics?.searchRecall50,
+    noAnswer: metrics?.noAnswer,
+  })
+
+  it("scores a plane search with no hit at the threshold as an empty result", async () => {
+    const answered = { recall5: 1, ndcg10: 1, searchRecall50: 1 }
+    const empty = { recall5: 0, ndcg10: 0, searchRecall50: 0 }
+    // An answerable question: a false "no answer" costs all its recall.
+    expect(
+      retrieval(await metricsOf("orm-dist-tag", "plane", { scores: [0.4] })),
+    ).toEqual({ ...empty, noAnswer: null })
+    expect(
+      retrieval(await metricsOf("orm-dist-tag", "plane", { scores: [0.7] })),
+    ).toEqual({ ...answered, noAnswer: null })
+    // The old stack has no threshold: it says "no answer" only with no hit.
+    expect(
+      retrieval(await metricsOf("orm-dist-tag", "legacy", { scores: [0.4] })),
+    ).toEqual({ ...answered, noAnswer: null })
+    // A partial search does not say "no answer", so its hits keep their score.
+    expect(
+      retrieval(
+        await metricsOf("orm-dist-tag", "plane", {
+          scores: [0.4],
+          partialReason: "time_budget",
+        }),
+      ),
+    ).toEqual({ ...answered, noAnswer: null })
+    // A correct "no answer" does not change.
+    expect(
+      retrieval(
+        await metricsOf("billing-provider", "plane", { scores: [0.4] }),
+      ),
+    ).toEqual({
+      recall5: null,
+      ndcg10: null,
+      searchRecall50: null,
+      noAnswer: 1,
+    })
+  })
+})
+
 describe("the spend cap", () => {
   const BASE = "https://cap.test/v1"
   const JEV = "https://cap.test/alpha/decisions"
