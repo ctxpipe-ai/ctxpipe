@@ -13,6 +13,7 @@ import {
   openRunVault,
   type RunVault,
 } from "./agent-vault.js"
+import { GITHUB_PENDING_GUARD } from "./chat-runtime.js"
 import type { WorkspaceRevision } from "./revision.js"
 import { recordedRunGitToken, revokeRunGitTokens } from "./run-git-tokens.js"
 import { githubCredentialRules } from "./sandbox-credential-rules.js"
@@ -185,6 +186,9 @@ export async function openDockerRunVault(input: {
       },
       close: async () => {
         await vault.close()
+        // A mint that a turn started can still run: its token is recorded
+        // first, so the revoke finds it.
+        await github?.catch(() => undefined)
         await revokeToken()
       },
     }
@@ -200,40 +204,56 @@ const NETWORK_GIT = /\bgit\b[\s\S]*\b(?:clone|fetch|pull|push|ls-remote)\b/
 /**
  * Wait for the vault's GitHub read rules before each sandbox command that
  * can reach GitHub: `git.clone`, `push` and `pull`, and each command that
- * runs Git with `clone`, `fetch`, `pull`, `push` or `ls-remote`. A lazy
- * vault (`github: "lazy"`) then mints its token only when a command needs it.
- * The agent's own commands do not pass through the handle: a turn waits for
- * the rules before the agent starts.
+ * runs Git with `clone`, `fetch`, `pull`, `push` or `ls-remote`. A command
+ * with {@link GITHUB_PENDING_GUARD} runs first without the rules, and waits
+ * for them only when it exits at a guard. A lazy vault (`github: "lazy"`)
+ * then mints its token only when a command needs it. The agent's own
+ * commands do not pass through the handle: a turn waits for the rules
+ * before the agent starts.
  */
 export function withGithubBeforeNetworkGit(
   provider: SandboxProvider,
   github: () => Promise<void>,
 ): SandboxProvider {
+  let ready = false
+  const rules = async () => {
+    await github()
+    ready = true
+  }
   return wrapSandboxHandles(provider, (handle) => ({
     ...handle,
     process: {
       ...handle.process,
       exec: async (command, options) => {
-        if (NETWORK_GIT.test(command)) await github()
+        if (!ready && NETWORK_GIT.test(command)) {
+          if (command.includes(GITHUB_PENDING_GUARD)) {
+            const first = await handle.process.exec(command, {
+              ...options,
+              env: { ...options?.env, CTXPIPE_GITHUB_PENDING: "1" },
+            })
+            if (first.exitCode !== 75) return first
+          }
+          await rules()
+        }
         return handle.process.exec(command, options)
       },
       spawn: async (command, options) => {
-        if (NETWORK_GIT.test(command)) await github()
+        if (!ready && NETWORK_GIT.test(command)) await rules()
         return handle.process.spawn(command, options)
       },
     },
     git: {
       ...handle.git,
       clone: async (input) => {
-        await github()
+        await rules()
         return handle.git.clone(input)
       },
       push: async (dir) => {
-        await github()
+        await rules()
         return handle.git.push(dir)
       },
       pull: async (dir) => {
-        await github()
+        await rules()
         return handle.git.pull(dir)
       },
     },

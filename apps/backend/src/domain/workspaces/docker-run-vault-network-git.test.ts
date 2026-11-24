@@ -1,7 +1,7 @@
 import type { SandboxHandle, SandboxProvider } from "@tanstack/ai-sandbox"
 import { describe, expect, it } from "vitest"
 
-import { SANDBOX_READ_GIT } from "./chat-runtime.js"
+import { GITHUB_PENDING_GUARD, SANDBOX_READ_GIT } from "./chat-runtime.js"
 import { withGithubBeforeNetworkGit } from "./docker-run-vault.js"
 
 // The sandbox is the environment: a provider whose sandbox records each call
@@ -11,9 +11,15 @@ function recording() {
   const handle = {
     id: "sbx",
     process: {
-      exec: async (command: string) => {
-        log.push(`exec ${command}`)
-        return { exitCode: 0, stdout: "", stderr: "" }
+      exec: async (
+        command: string,
+        options?: { env?: Record<string, string> },
+      ) => {
+        const pending = options?.env?.CTXPIPE_GITHUB_PENDING === "1"
+        log.push(`exec${pending ? " (pending)" : ""} ${command}`)
+        // A guarded script that needs the network exits at its guard.
+        const exitCode = pending && command.includes("needs-network") ? 75 : 0
+        return { exitCode, stdout: "", stderr: "" }
       },
       spawn: async (command: string) => {
         log.push(`spawn ${command}`)
@@ -72,7 +78,7 @@ describe("withGithubBeforeNetworkGit", () => {
     const handle = await withGithubBeforeNetworkGit(
       r.provider,
       r.github,
-    ).resume({ id: "sbx" })
+    ).create({})
 
     await handle.process.exec("git rev-parse HEAD")
     await handle.process.exec(
@@ -106,5 +112,25 @@ describe("withGithubBeforeNetworkGit", () => {
       "mint failed",
     )
     expect(r.log).toEqual([])
+  })
+  it("runs a guarded script without the rules first, and mints only when it exits at a guard", async () => {
+    const r = recording()
+    const handle = await withGithubBeforeNetworkGit(
+      r.provider,
+      r.github,
+    ).create({})
+    const local = `${GITHUB_PENDING_GUARD}; git fetch origin # local path`
+    const remote = `${GITHUB_PENDING_GUARD}; git fetch origin # needs-network`
+
+    await handle.process.exec(local)
+    expect(r.mints()).toBe(0)
+    await handle.process.exec(remote)
+
+    expect(r.log).toEqual([
+      `exec (pending) ${local}`,
+      `exec (pending) ${remote}`,
+      "mint",
+      `exec ${remote}`,
+    ])
   })
 })
