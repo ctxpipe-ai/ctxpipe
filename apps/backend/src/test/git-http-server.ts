@@ -14,12 +14,17 @@ type GitHttpRequest = { method: string; url: string; host: string }
  * repositories below `root` (bare, or a work tree with `.git`). `answer`
  * can answer a request first (a redirect, a stall); when it returns false,
  * git answers. A plain git source (CTX-815) reads it with real git. With
- * `unref`, the server does not keep a script process alive.
+ * `unref`, the server does not keep a script process alive. With `throttle`,
+ * the server sends each git answer in parts of `bytes`, one part each
+ * `everyMs`: a slow Git host.
  */
 export async function startGitHttpServer(
   root: string,
   answer?: (request: IncomingMessage, response: ServerResponse) => boolean,
-  options: { unref?: boolean } = {},
+  options: {
+    unref?: boolean
+    throttle?: { bytes: number; everyMs: number }
+  } = {},
 ): Promise<{
   port: number
   requests: GitHttpRequest[]
@@ -73,7 +78,22 @@ export async function startGitHttpServer(
         else if (name) headers[name] = value
       }
       response.writeHead(status, headers)
-      response.end(all.subarray(split + 4))
+      const body = all.subarray(split + 4)
+      const throttle = options.throttle
+      if (!throttle) {
+        response.end(body)
+        return
+      }
+      const send = (at: number) => {
+        if (response.destroyed) return
+        if (at >= body.length) {
+          response.end()
+          return
+        }
+        response.write(body.subarray(at, at + throttle.bytes))
+        setTimeout(() => send(at + throttle.bytes), throttle.everyMs)
+      }
+      send(0)
     })
   })
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))

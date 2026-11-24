@@ -109,25 +109,24 @@ it("records the thin pack that Git receives, not the delta bases that Git adds t
   )
 })
 
-it("records that a fetch at depth 1 downloads each blob again, also one that the directory has", async () => {
+it("records that a second fetch of a commit at depth 1 downloads no blob again (CTX-1601)", async () => {
   const { url, sha } = await remoteWithLargeFile()
-  await withGitDirectory(
-    sha,
-    async (directory) => {
-      await fetchGitCommits(directory, { url, shas: [sha] })
-      expect(fetchedBytes("git.fetch-commits")).toBeGreaterThanOrEqual(
-        192 * 1024,
-      )
-      // Git does not use the objects below a shallow boundary as a base.
-      spans.reset()
-      await fetchGitCommits(directory, { url, shas: [sha] })
-      expect(fetchedBytes("git.fetch-commits")).toBeGreaterThanOrEqual(
-        192 * 1024,
-      )
-    },
-    undefined,
-    null,
-  )
+  const fetchCommit = () =>
+    withGitDirectory(
+      sha,
+      (directory) => fetchGitCommits(directory, { url, shas: [sha] }),
+      undefined,
+      null,
+    )
+
+  await fetchCommit()
+  expect(fetchedBytes("git.fetch-commits")).toBeGreaterThanOrEqual(192 * 1024)
+
+  // The clone of the remote that the process keeps has a ref to the
+  // commit, so Git sends its objects only once.
+  spans.reset()
+  await fetchCommit()
+  expect(fetchedBytes("git.fetch-commits")).toBeLessThan(16 * 1024)
 })
 
 it("records the bytes of a fetch that fails after it received the pack", async () => {
