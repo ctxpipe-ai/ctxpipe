@@ -2,7 +2,7 @@
 
 Shared by every [preview-env](SKILL.md) run and every area. Complete it before the [harness](harness.md). Leading word: **run state**, the accounts, org, Workspaces, and ids this run creates and later flows read.
 
-> **Shared eval account:** read its password from the keychain (`ctxpipe-eval-account`). Never reset it. When the sign-in fails, report it to the lead. Details: [Shared eval account](#shared-eval-account-production-measures).
+> **Shared eval account:** only for production measures outside a run. Read its password from the keychain (`ctxpipe-eval-account`), and send it only to `https://app.ctxpipe.ai`, never to a run target. Never reset it. When the sign-in fails, report it to the lead. Details: [Shared eval account](#shared-eval-account-production-measures).
 
 ## Target guard
 
