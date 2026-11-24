@@ -256,9 +256,9 @@ export function requestChatSandboxPoolFill(
 /**
  * A measure of CTX-1322, removed after its decision: a shallow clone takes
  * 5 to 30 s on AgentCore, against 3 s on a laptop. This splits the work in
- * the session from the transfer. It times a local `git index-pack` of the
- * clone's pack (the CPU part of the receive) and a copy of the work tree
- * (the disk part of the checkout). The proxy logs the transfer of the pack.
+ * the session from the transfer. It times a `git index-pack` of the clone's
+ * pack outside any repository (the CPU part of the receive) and a copy of
+ * the work tree without `.git` (the disk part of the checkout). The proxy logs the transfer of the pack.
  * It runs after the vault closed and the warm-up ended, off the path of a
  * turn, and a failure only leaves the mark out.
  */
@@ -267,12 +267,15 @@ async function markCloneSplit(handle: SandboxHandle, cloneMs: number) {
     const result = await handle.process.exec(`set -e
 P=$(ls /workspace/.git/objects/pack/*.pack | head -n 1)
 D=$(mktemp -d)
-t0=$(date +%s%N)
 cp "$P" "$D/p.pack"
-git index-pack "$D/p.pack" >/dev/null 2>&1
+cd "$D"
+t0=$(date +%s%N)
+git index-pack p.pack >/dev/null 2>&1
 t1=$(date +%s%N)
-cp -r /workspace "$D/w"
+mkdir w
+tar -C /workspace --exclude=.git -cf - . | tar -C w -xf -
 t2=$(date +%s%N)
+cd /
 rm -rf "$D"
 echo "$(stat -c %s "$P") $(( (t1 - t0) / 1000000 )) $(( (t2 - t1) / 1000000 )) $(nproc)"`)
     const [packBytes, indexPackMs, copyMs, cpus] = result.stdout
