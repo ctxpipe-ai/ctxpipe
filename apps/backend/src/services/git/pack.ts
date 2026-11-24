@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process"
 import { createHash } from "node:crypto"
-import { createReadStream } from "node:fs"
+import { createReadStream, rmSync } from "node:fs"
 import {
   mkdir,
   mkdtemp,
@@ -150,28 +150,35 @@ function isTransientFetchError(error: unknown): boolean {
 }
 
 /**
- * A fetch from a Git host stops when no pack data comes for this long. A
- * Git host that sends slowly but without a stop does not stop the fetch.
- */
-const FETCH_STALL_MS = 60_000
-
-/**
  * A fetch from a Git host that stopped at a time limit. After it, each fetch
  * of the same remote in this process fails with this error at once for a
  * short time (CTX-1601).
  */
-export class GitFetchTimeLimitError extends Error {
+class GitFetchTimeLimitError extends Error {
   constructor(message: string) {
     super(message)
     this.name = "GitFetchTimeLimitError"
   }
 }
 
-/** The remotes whose last fetch stopped at a time limit, by URL. */
-const pausedRemotes = new Map<string, { stoppedAt: number; until: number }>()
+/** The time of the last stop at a time limit of each remote, by URL. */
+const remoteStops = new Map<string, number>()
 
-/** The last operation on each remote clone; the next one waits for it. */
-const cloneQueues = new Map<string, Promise<void>>()
+/** After a stop at a time limit, the fetches of a remote fail at once for this long. */
+const REMOTE_PAUSE_MS = 5 * 60_000
+
+/**
+ * The clones of remotes that this process keeps, the least recently used
+ * first. Each value is the last operation on the clone: the next operation
+ * waits for it, so one operation at a time uses a clone.
+ */
+const clones = new Map<string, Promise<void>>()
+
+/** The removals of clones that went out of `clones`, until they end. */
+const removals = new Map<string, Promise<void>>()
+
+/** The private folder of this process for its clones. */
+let cloneRoot: Promise<string> | undefined
 
 /**
  * Shallow-fetch immutable commits into `directory`.
@@ -198,88 +205,127 @@ export async function fetchGitCommits(
     depth?: number
   },
 ): Promise<void> {
-  const depth = String(input.depth ?? 1)
+  // The clones hold objects of private repositories, and Git locks in a
+  // clone that two processes share make a fetch fail: each process has its
+  // own private folder, which it removes when it exits.
+  cloneRoot ??= mkdtemp(join(tmpdir(), "ctxpipe-git-remotes-")).then((root) => {
+    process.once("exit", () => rmSync(root, { recursive: true, force: true }))
+    return root
+  })
   const shas = [...new Set(input.shas)]
   const sha256 = shas[0]?.length === 64
-  // Only this process uses its clones: Git locks in a clone that two
-  // processes share (two test workers on one host) make a fetch fail.
   const clone = join(
-    tmpdir(),
-    `ctxpipe-git-remotes-${process.pid}`,
+    await cloneRoot,
     `${createHash("sha256").update(input.url).digest("hex").slice(0, 32)}${sha256 ? "-sha256" : ""}`,
   )
-  const previous = cloneQueues.get(clone) ?? Promise.resolve()
-  const run = previous.then(async () => {
-    failWhenPaused(input.url)
-    const opened = await stat(join(clone, "HEAD")).then(
-      () => true,
-      () => false,
-    )
-    if (!opened) {
-      await mkdir(clone, { recursive: true })
-      await nativeGit(clone, [
-        "init",
-        "--bare",
-        "-q",
-        "--template=",
-        `--object-format=${sha256 ? "sha256" : "sha1"}`,
-      ])
-      // The fetch into `directory` asks the clone for commits by SHA.
-      await nativeGit(clone, [
-        "config",
-        "uploadpack.allowAnySHA1InWant",
-        "true",
-      ])
-    }
-    for (let attempt = 1; ; attempt++) {
-      try {
-        await measuredGitFetch("git.fetch-commits", (traced) =>
-          nativeGit(
-            clone,
-            [
-              "fetch",
-              "--depth",
-              depth,
-              "--",
-              input.url,
-              ...shas.map((sha) => `${sha}:refs/ctxpipe/fetched/${sha}`),
-            ],
-            undefined,
-            {
-              ...gitRemoteEnvironment({ url: input.url, token: input.token }),
-              ...traced,
-            },
-            { progressFile: traced.GIT_TRACE_PACKFILE },
-          ),
-        )
-        break
-      } catch (error) {
-        if (error instanceof GitFetchTimeLimitError) {
-          const stoppedAt = Date.now()
-          const until = stoppedAt + 5 * 60_000
-          pausedRemotes.set(input.url, { stoppedAt, until })
-          log.warn({
-            step: "git.fetch_time_limit",
-            message: error.message,
-            "git.remote.paused_until": new Date(until).toISOString(),
-          })
-          throw error
-        }
-        if (attempt >= 3 || !isTransientFetchError(error)) throw error
-        await new Promise((resolve) => setTimeout(resolve, 500 * attempt))
-      }
-    }
-    await nativeGit(directory, [
-      "fetch",
-      "--depth",
-      depth,
-      "--",
-      clone,
-      ...shas,
+  const run = (
+    clones.get(clone) ??
+    removals.get(clone) ??
+    Promise.resolve()
+  ).then(() => fetchThroughClone(clone, directory, { ...input, shas, sha256 }))
+  clones.delete(clone)
+  clones.set(
+    clone,
+    run.catch(() => {}),
+  )
+  // A process keeps at most 32 clones. The least recently used one goes
+  // when its last operation ends.
+  const [oldest] = clones.size > 32 ? clones : []
+  if (oldest) {
+    const [path, last] = oldest
+    clones.delete(path)
+    const removal = last
+      .then(() => rm(path, { recursive: true, force: true }))
+      .catch(() => {})
+    removals.set(path, removal)
+    void removal.then(() => {
+      if (removals.get(path) === removal) removals.delete(path)
+    })
+  }
+  return run
+}
+
+async function fetchThroughClone(
+  clone: string,
+  directory: string,
+  input: {
+    url: string
+    shas: string[]
+    sha256: boolean
+    token?: string
+    depth?: number
+  },
+): Promise<void> {
+  failWhenPaused(input.url)
+  const depth = String(input.depth ?? 1)
+  const opened = await stat(join(clone, "HEAD")).then(
+    () => true,
+    () => false,
+  )
+  if (!opened) {
+    await mkdir(clone, { recursive: true })
+    await nativeGit(clone, [
+      "init",
+      "--bare",
+      "-q",
+      "--template=",
+      `--object-format=${input.sha256 ? "sha256" : "sha1"}`,
     ])
-    // Only the newest commits are the base of a later fetch. Git removes the
-    // objects that no kept ref reaches when the clone has many packs or
-    // loose objects, so the clone does not grow without a limit.
+    // The fetch into `directory` asks the clone for commits by SHA.
+    await nativeGit(clone, ["config", "uploadpack.allowAnySHA1InWant", "true"])
+  }
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await measuredGitFetch("git.fetch-commits", (traced) =>
+        nativeGit(
+          clone,
+          [
+            "fetch",
+            "--depth",
+            depth,
+            "--",
+            input.url,
+            ...input.shas.map((sha) => `${sha}:refs/ctxpipe/fetched/${sha}`),
+          ],
+          undefined,
+          {
+            ...gitRemoteEnvironment({ url: input.url, token: input.token }),
+            ...traced,
+          },
+          traced.GIT_TRACE_PACKFILE,
+        ),
+      )
+      break
+    } catch (error) {
+      if (error instanceof GitFetchTimeLimitError) {
+        const stoppedAt = Date.now()
+        remoteStops.set(input.url, stoppedAt)
+        log.warn({
+          step: "git.fetch_time_limit",
+          message: error.message,
+          "git.remote.paused_until": new Date(
+            stoppedAt + REMOTE_PAUSE_MS,
+          ).toISOString(),
+        })
+        throw error
+      }
+      if (attempt >= 3 || !isTransientFetchError(error)) throw error
+      await new Promise((resolve) => setTimeout(resolve, 500 * attempt))
+    }
+  }
+  await nativeGit(directory, [
+    "fetch",
+    "--depth",
+    depth,
+    "--",
+    clone,
+    ...input.shas,
+  ])
+  // The commits are in `directory`, so a failure from here does not fail
+  // the fetch. Only the newest commits are the base of a later fetch. Git
+  // removes the objects that no kept ref reaches when the clone has many
+  // packs or loose objects, so the clone does not grow without a limit.
+  try {
     const refs = (
       await nativeGit(clone, [
         "for-each-ref",
@@ -313,30 +359,30 @@ export async function fetchGitCommits(
       "--auto",
       "--quiet",
     ])
-  })
-  const settled = run.catch(() => {})
-  cloneQueues.set(clone, settled)
-  void settled.then(() => {
-    if (cloneQueues.get(clone) === settled) cloneQueues.delete(clone)
-  })
-  return run
+  } catch (error) {
+    log.warn({
+      step: "git.clone_cleanup",
+      message: error instanceof Error ? error.message : String(error),
+    })
+  }
 }
 
 /** Fail at once while `url` is paused after a fetch that stopped at a time limit. */
 function failWhenPaused(url: string) {
-  const paused = pausedRemotes.get(url)
-  if (!paused) return
-  if (Date.now() >= paused.until) {
-    pausedRemotes.delete(url)
+  const stoppedAt = remoteStops.get(url)
+  if (stoppedAt === undefined) return
+  const until = stoppedAt + REMOTE_PAUSE_MS
+  if (Date.now() >= until) {
+    remoteStops.delete(url)
     return
   }
-  const until = new Date(paused.until).toISOString()
-  const message = `The last fetch of this repository from its Git host stopped at a time limit at ${new Date(paused.stoppedAt).toISOString()}. ctxpipe tries this repository again after ${until}.`
-  trace.getActiveSpan()?.setAttribute("git.remote.paused_until", until)
+  const pausedUntil = new Date(until).toISOString()
+  const message = `The last fetch of this repository from its Git host stopped at a time limit at ${new Date(stoppedAt).toISOString()}. ctxpipe tries this repository again after ${pausedUntil}.`
+  trace.getActiveSpan()?.setAttribute("git.remote.paused_until", pausedUntil)
   log.warn({
     step: "git.fetch_paused",
     message,
-    "git.remote.paused_until": until,
+    "git.remote.paused_until": pausedUntil,
   })
   throw new GitFetchTimeLimitError(message)
 }
@@ -398,10 +444,10 @@ export async function nativeGit(
    * (`GIT_TRACE_PACKFILE`). The fetch then has no fixed time limit: it stops
    * when the file does not grow for 60 s, or after 10 min.
    */
-  limit?: { progressFile: string },
+  progressFile?: string,
 ): Promise<Buffer> {
   const call = withGitProcessSlot(() =>
-    startNativeGit(directory, args, input, env, limit),
+    startNativeGit(directory, args, input, env, progressFile),
   )
   const settled = call.then(
     () => undefined,
@@ -423,13 +469,13 @@ async function startNativeGit(
   args: string[],
   input?: Uint8Array | string | { file: string },
   env?: NodeJS.ProcessEnv,
-  limit?: { progressFile: string },
+  progressFile?: string,
 ): Promise<Buffer> {
   if (closing.has(directory))
     throw new Error("The temporary Git directory is closed")
   const started = Date.now()
   try {
-    return await runNativeGit(directory, args, input, env, limit)
+    return await runNativeGit(directory, args, input, env, progressFile)
   } catch (error) {
     throw describeGitFailure(error, args, Date.now() - started)
   }
@@ -515,7 +561,7 @@ async function runNativeGit(
   args: string[],
   input?: Uint8Array | string | { file: string },
   env?: NodeJS.ProcessEnv,
-  limit?: { progressFile: string },
+  progressFile?: string,
 ): Promise<Buffer> {
   const result = execute(
     "git",
@@ -533,7 +579,7 @@ async function runNativeGit(
     ],
     {
       encoding: "buffer",
-      timeout: limit ? 0 : GIT_TIME_LIMIT_MS,
+      timeout: progressFile ? 0 : GIT_TIME_LIMIT_MS,
       maxBuffer: 64 * 1024 * 1024,
       env: env ?? { ...process.env, GIT_TERMINAL_PROMPT: "0" },
     },
@@ -581,15 +627,17 @@ async function runNativeGit(
   // start has no reader; the exit status gives the result, not the pipe.
   result.child.stdin?.on("error", () => {})
   if (input !== undefined) result.child.stdin?.end(input)
-  if (!limit) return (await result).stdout
+  if (!progressFile) return (await result).stdout
   // The time limit of a fetch follows its progress, not the clock alone
-  // (CTX-1601): a throttled Git host can need minutes for a large pack.
+  // (CTX-1601): a throttled Git host can need minutes for a large pack, but
+  // a fetch that gets no data for this long stops.
+  const stallMs = 60_000
   const startedAt = Date.now()
   let progressAt = startedAt
   let received = 0
   let stopped: string | undefined
   const watch = setInterval(() => {
-    void stat(limit.progressFile).then(
+    void stat(progressFile).then(
       ({ size }) => check(size),
       () => check(0),
     )
@@ -602,8 +650,8 @@ async function runNativeGit(
       progressAt = now
     }
     const got = `${(received / 2 ** 20).toFixed(1)} MiB received`
-    if (now - progressAt >= FETCH_STALL_MS)
-      stopped = `The Git host sent no data for ${FETCH_STALL_MS / 1000} s, so ctxpipe stopped the fetch (${got}).`
+    if (now - progressAt >= stallMs)
+      stopped = `The Git host sent no data for ${stallMs / 1000} s, so ctxpipe stopped the fetch (${got}).`
     else if (now - startedAt >= 10 * 60_000)
       stopped = `The fetch from the Git host did not finish in 10 min, so ctxpipe stopped it (${got}).`
     if (stopped) result.child.kill()

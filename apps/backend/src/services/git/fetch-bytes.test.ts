@@ -111,22 +111,22 @@ it("records the thin pack that Git receives, not the delta bases that Git adds t
 
 it("records that a second fetch of a commit at depth 1 downloads no blob again (CTX-1601)", async () => {
   const { url, sha } = await remoteWithLargeFile()
-  for (const fetch of ["first", "second"]) {
-    spans.reset()
-    await withGitDirectory(
+  const fetchCommit = () =>
+    withGitDirectory(
       sha,
       (directory) => fetchGitCommits(directory, { url, shas: [sha] }),
       undefined,
       null,
     )
-    // The clone of the remote that the process keeps has a ref to the
-    // commit, so Git sends its objects only once.
-    if (fetch === "first")
-      expect(fetchedBytes("git.fetch-commits")).toBeGreaterThanOrEqual(
-        192 * 1024,
-      )
-    else expect(fetchedBytes("git.fetch-commits")).toBeLessThan(16 * 1024)
-  }
+
+  await fetchCommit()
+  expect(fetchedBytes("git.fetch-commits")).toBeGreaterThanOrEqual(192 * 1024)
+
+  // The clone of the remote that the process keeps has a ref to the
+  // commit, so Git sends its objects only once.
+  spans.reset()
+  await fetchCommit()
+  expect(fetchedBytes("git.fetch-commits")).toBeLessThan(16 * 1024)
 })
 
 it("records the bytes of a fetch that fails after it received the pack", async () => {

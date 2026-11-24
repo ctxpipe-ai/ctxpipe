@@ -154,8 +154,8 @@ it("finishes a slow fetch that makes progress past 60 s (CTX-1601)", async () =>
 
   const directory = await emptyGitDirectory()
   let settled = false
-  const fetch = fetchGitCommits(directory, { url: server.url, shas: [sha] })
-  void fetch.finally(() => (settled = true)).catch(() => {})
+  const slowFetch = fetchGitCommits(directory, { url: server.url, shas: [sha] })
+  void slowFetch.finally(() => (settled = true)).catch(() => {})
   // Each 10 ms of real time is 1 s on the clock of the fetch: one part of
   // the pack comes each 2 s, and the whole fetch takes about 2 min.
   while (!settled) {
@@ -163,7 +163,7 @@ it("finishes a slow fetch that makes progress past 60 s (CTX-1601)", async () =>
     await vi.advanceTimersByTimeAsync(1_000)
   }
 
-  await expect(fetch).resolves.toBeUndefined()
+  await expect(slowFetch).resolves.toBeUndefined()
   expect(Date.now() - startedAt).toBeGreaterThan(60_000)
   expect(await nativeGit(directory, ["cat-file", "-t", sha])).toEqual(
     Buffer.from("commit\n"),
@@ -189,7 +189,6 @@ it("stops a fetch that gets no data for 60 s once, then fails the next fetches o
   const events: Record<string, unknown>[] = []
   initLogger({
     pretty: false,
-    silent: true,
     drain: (ctx) => {
       for (const item of Array.isArray(ctx) ? ctx : [ctx])
         events.push(item.event as Record<string, unknown>)
