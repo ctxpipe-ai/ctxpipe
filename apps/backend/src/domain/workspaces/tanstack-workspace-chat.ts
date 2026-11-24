@@ -73,7 +73,11 @@ import {
 } from "./conversation-sandbox-lifecycle.js"
 import { checkoutSessionBranch } from "./conversation-session-branch.js"
 import { nameConversationIfUnnamed } from "./conversation-title.js"
-import { openDockerRunVault } from "./docker-run-vault.js"
+import {
+  type DockerRunVault,
+  openDockerRunVault,
+  withGithubBeforeNetworkGit,
+} from "./docker-run-vault.js"
 import { adaptTanstackHandle, SANDBOX_GIT_GUARD } from "./job-sandbox.js"
 import type { JobSandboxHandle } from "./job-worktree.js"
 import { createChunkMasker, maskCredentials } from "./mask-credentials.js"
@@ -773,6 +777,10 @@ async function startWorkspaceChat(
       await turn.failRun(new Error(built.error))
       return built
     }
+    // The agent can reach GitHub as soon as it starts, so a turn mints its
+    // token now, in parallel with the sandbox setup, and OpenCode starts
+    // only after the rules are in the vault (\`workspace-chat-permissions\`).
+    built.vault?.github().catch(() => undefined)
     let revoked: Promise<void> | undefined
     revokeTurnGitTokens = () => {
       revoked ??= built.release()
@@ -1087,7 +1095,10 @@ async function startWorkspaceChat(
               // runs: the turn's OpenCode starts with the files that the
               // warm-up already read, and does not wait for the rest.
               if (built.isolation !== "unsandboxed")
-                await stopEarlierTurnProcesses(activeSandbox)
+                await Promise.all([
+                  stopEarlierTurnProcesses(activeSandbox),
+                  built.vault?.github(),
+                ])
               // The conversation lock is held and OpenCode has not started.
               // Its subprocesses inherit these values (none on Docker or
               // AgentCore).
@@ -1323,7 +1334,7 @@ async function buildWorkspaceChatSandbox(
   const repoFullName = githubRepoFullNameFromWorkspaceUrl(desiredUrl)
   // Docker: the run's vault holds the GitHub token and Agent Vault adds it.
   // A Files read (no label) runs no network command and gets no vault.
-  let vault: RunVault | undefined
+  let vault: DockerRunVault | undefined
   if (
     (selectedProvider === "docker" || selectedProvider === "agentcore") &&
     cloneLabel
@@ -1334,6 +1345,9 @@ async function buildWorkspaceChatSandbox(
         conversationId: input.conversationId,
         label: cloneLabel,
         revision: revision.data,
+        // The GitHub token is minted before the first command that reaches
+        // GitHub (`withGithubBeforeNetworkGit`); a turn starts it at once.
+        github: "lazy",
         // Hosted: the proxy forwards only its rules. Passthrough could reach
         // private VPC addresses and the Fargate task metadata endpoint.
         ...(selectedProvider === "agentcore"
@@ -1392,13 +1406,16 @@ async function buildWorkspaceChatSandbox(
     workspaceId: input.workspaceId,
     revision: revision.data,
   }
-  const provider = conversationSandboxProvider(
+  const stockProvider = conversationSandboxProvider(
     selectedProvider,
     agentPassword,
     baseImage,
     vault?.caPem,
     pool,
   )
+  const provider = vault
+    ? withGithubBeforeNetworkGit(stockProvider, vault.github)
+    : stockProvider
   return {
     ok: true as const,
     isolation: selectedProvider,
