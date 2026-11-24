@@ -357,7 +357,11 @@ export async function resolveDisagreements({
  *      the question: `partial`;
  *    - else `contradicts`.
  * 2. **Positions:** the items that are joined by a chain of `agrees` labels
- *    form one position. Each other item is a position of its own.
+ *    form one position. Each other item is a position of its own. Two items
+ *    whose own pair is `contradicts` or `updates` are never in one
+ *    position: a chain does not join their groups, whatever a third item
+ *    agrees with. The pairs join in their order, so the items of a higher
+ *    rank join first.
  * 3. **The status of each position**, with the first rule that decides:
  *    - A rival replaces it (`supersedes`: a stored SUPERSEDES; `updates`:
  *      Jev's `updates` in one direction only): superseded. A position that
@@ -421,16 +425,27 @@ export function decideDisagreements({
     }),
   )
 
-  // Step 2: positions, as a union-find over the `agrees` pairs. A root is
-  // the item of the group with the lowest number.
+  // Step 2: positions, as a union-find over the `agrees` pairs, in the
+  // order of the pairs. A root is the item of the group with the lowest
+  // number. Two groups do not join when a pair across them is a rival pair
+  // (`contradicts` or `updates`): else a third item that agrees with both
+  // items of a rival pair puts them in one position.
   const parent = entries.map((_, index) => index)
   const root = (index: number): number => {
     const next = parent[index] ?? index
     return next === index ? index : root(next)
   }
+  const rivalPairs = labeled.filter(
+    ({ label }) => label === "contradicts" || label === "updates",
+  )
   for (const { a, b, label } of labeled) {
     if (label !== "agrees") continue
     const [rootA, rootB] = [root(a.n - 1), root(b.n - 1)]
+    if (rootA === rootB) continue
+    const across = (x: Entry, y: Entry) =>
+      root(x.n - 1) === rootA && root(y.n - 1) === rootB
+    if (rivalPairs.some(({ a: x, b: y }) => across(x, y) || across(y, x)))
+      continue
     parent[Math.max(rootA, rootB)] = Math.min(rootA, rootB)
   }
   const roots = [...new Set(entries.map((_, index) => root(index)))]
