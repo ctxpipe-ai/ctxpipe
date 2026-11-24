@@ -363,7 +363,8 @@ afterEach((context) => {
   phase(fullName(context.task))
   childrenOf(collect)
 })
-afterAll((suite) => {
+// oxlint-disable-next-line no-empty-pattern -- Vitest 5 passes the fixtures first and the suite second, and reads the first parameter from an object pattern
+afterAll(({}, suite) => {
   phase(collect)
   if (coverage === undefined) delete process.env.NODE_V8_COVERAGE
   else process.env.NODE_V8_COVERAGE = coverage
