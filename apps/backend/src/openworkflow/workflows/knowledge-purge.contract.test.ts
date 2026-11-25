@@ -6,6 +6,7 @@ import { afterAll, beforeAll, expect, it, vi } from "vitest"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { orgFeatures } from "../../db/schema/org_features.js"
 import { purgeOrgDataBeforeAuthDelete } from "../../domain/repositoryDeletion.js"
+import { postgresSandboxLocks } from "../../domain/workspaces/sandbox-lock-store.js"
 import {
   createKnowledgeStore,
   type KnowledgeScope,
@@ -30,6 +31,7 @@ import { workspaceHttpApp } from "../../test/workspace-http-fixture.js"
 import { enqueueKnowledgePurge } from "../enqueue-knowledge-purge.js"
 import { openWorkflowNamespaceId } from "../namespace.js"
 import { knowledgeProjection } from "./knowledge-projection.js"
+import { IDLE_WORKSPACE_CHECKS } from "./knowledge-purge.js"
 
 /*
  * CTX-1642: the deletion of an org or a Workspace deletes its rows of the
@@ -66,8 +68,6 @@ async function rowsOf(scope: KnowledgeScope) {
   if (!clickhouse) throw new Error("No ClickHouse")
   return knowledgeRowCounts(clickhouse.client(adminUrl), scope)
 }
-
-const none = noKnowledgeRows
 
 /** Rows of one file in each knowledge table, for a scope with no hydrate. */
 async function seed(scope: KnowledgeScope): Promise<void> {
@@ -270,7 +270,7 @@ it(
         expect(await purged(f.org.id)).toEqual([
           expect.objectContaining({ workspaceId: f.workspaceId }),
         ])
-        expect(await rowsOf(workspace)).toEqual(none)
+        expect(await rowsOf(workspace)).toEqual(noKnowledgeRows)
         expect(await rowsOf(sibling)).toEqual(kept)
         expect(await rowsOf(otherOrg)).toEqual(kept)
         // The heads of the Workspace go with its row.
@@ -278,7 +278,7 @@ it(
         expect(await listBranchHeads(workspace)).toEqual([])
 
         expect(await projectAgain(f)).toBeNull()
-        expect(await rowsOf(workspace)).toEqual(none)
+        expect(await rowsOf(workspace)).toEqual(noKnowledgeRows)
       },
     ),
 )
@@ -306,8 +306,8 @@ it(
         expect(await purged(f.org.id)).toEqual([
           expect.objectContaining({ workspaceId: null }),
         ])
-        expect(await rowsOf(workspace)).toEqual(none)
-        expect(await rowsOf(sibling)).toEqual(none)
+        expect(await rowsOf(workspace)).toEqual(noKnowledgeRows)
+        expect(await rowsOf(sibling)).toEqual(noKnowledgeRows)
         expect(await rowsOf(otherOrg)).toEqual(kept)
         expect(
           await withOrgDbContext(f.org.id, (db) =>
@@ -321,7 +321,7 @@ it(
         expect(await listBranchHeads(workspace)).toEqual([])
 
         expect(await projectAgain(f)).toBeNull()
-        expect(await rowsOf(workspace)).toEqual(none)
+        expect(await rowsOf(workspace)).toEqual(noKnowledgeRows)
       },
     ),
 )
@@ -377,13 +377,13 @@ it(
             and id = ${projectionRun}
         `)
         await purged(f.org.id)
-        expect(await rowsOf(workspace)).toEqual(none)
+        expect(await rowsOf(workspace)).toEqual(noKnowledgeRows)
       },
     ),
 )
 
 it(
-  "the purge of a Workspace whose delete did not happen stops after its checks and deletes nothing",
+  "the purge of a Workspace whose delete did not happen waits while the sandbox lock of the Workspace is held, then stops after its idle checks and deletes nothing",
   { timeout: 180_000 },
   async () =>
     withNativeHydrationFixture(
@@ -393,15 +393,40 @@ it(
         const workspace = { orgId: f.org.id, workspaceId: f.workspaceId }
         const before = await rowsOf(workspace)
         expect(before.documents).toBeGreaterThan(0)
-        // As a delete whose transaction failed after the enqueue.
-        await enqueueKnowledgePurge(workspace)
+        // As a delete that holds the sandbox lock, and then fails.
+        await postgresSandboxLocks(f.org.id).withLock(
+          `workspace-sandboxes:${f.workspaceId}`,
+          async () => {
+            await enqueueKnowledgePurge(workspace)
+            await vi.waitFor(
+              async () => {
+                await skipPurgeSleeps(f.org.id)
+                const outputs = (await purgeSteps(f.org.id)).map(
+                  (step) => step.output,
+                )
+                expect(outputs.slice(0, 3)).toEqual([
+                  "deleting",
+                  "deleting",
+                  "deleting",
+                ])
+              },
+              { timeout: 60_000, interval: 200 },
+            )
+          },
+        )
         await purged(f.org.id)
-        const steps = await purgeSteps(f.org.id)
-        expect(steps.map((step) => step.output)).toEqual([
-          ...Array.from({ length: 60 }, () => "workspace"),
-          null,
-        ])
-        expect(steps.at(-1)?.name).toBe("workspace-kept")
+        const outputs = (await purgeSteps(f.org.id)).map((step) => step.output)
+        const checks = outputs.slice(0, -1)
+        expect(checks.filter((output) => output === "workspace")).toHaveLength(
+          IDLE_WORKSPACE_CHECKS,
+        )
+        expect(
+          checks.every(
+            (output) => output === "deleting" || output === "workspace",
+          ),
+        ).toBe(true)
+        expect(outputs.at(-1)).toBeNull()
+        expect((await purgeSteps(f.org.id)).at(-1)?.name).toBe("workspace-kept")
         expect(await rowsOf(workspace)).toEqual(before)
       },
     ),

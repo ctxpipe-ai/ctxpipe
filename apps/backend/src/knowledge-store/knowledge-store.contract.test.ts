@@ -1003,27 +1003,32 @@ describe("users and mutations", () => {
     const seeded = await rowsOfScope(workspace)
     for (const table of KNOWLEDGE_TABLES)
       expect(seeded[table], table).toBeGreaterThan(0)
-    const none = noKnowledgeRows
 
     // The reader user cannot purge, and a purge needs an org.
     await expect(reader.purge(workspace)).rejects.toThrow(denied)
-    await expect(writer.purge({ orgId: "" })).rejects.toThrow(/needs an org/)
+    await expect(
+      writer.purge({ orgId: "", workspaceId: null }),
+    ).rejects.toThrow(/needs an org/)
     await expect(
       writer.purge({ orgId: "org_purge", workspaceId: "" }),
     ).rejects.toThrow(/needs a Workspace id/)
     expect(await rowsOfScope(workspace)).toEqual(seeded)
 
     expect(await writer.purge(workspace)).toEqual(seeded)
-    expect(await rowsOfScope(workspace)).toEqual(none)
+    expect(await rowsOfScope(workspace)).toEqual(noKnowledgeRows)
     expect(await rowsOfScope(sibling)).toEqual(seeded)
     expect(await rowsOfScope(otherOrg)).toEqual(seeded)
     // A purge that runs again finds nothing more.
-    expect(await writer.purge(workspace)).toEqual(none)
+    expect(await writer.purge(workspace)).toEqual(noKnowledgeRows)
 
-    expect(await writer.purge({ orgId: "org_purge" })).toEqual(seeded)
-    expect(await rowsOfScope(sibling)).toEqual(none)
+    expect(
+      await writer.purge({ orgId: "org_purge", workspaceId: null }),
+    ).toEqual(seeded)
+    expect(await rowsOfScope(sibling)).toEqual(noKnowledgeRows)
     expect(await rowsOfScope(otherOrg)).toEqual(seeded)
-    expect(await writer.purge({ orgId: "org_purge" })).toEqual(none)
+    expect(
+      await writer.purge({ orgId: "org_purge", workspaceId: null }),
+    ).toEqual(noKnowledgeRows)
   })
 
   describe("each write keeps the org and Workspace scope", () => {

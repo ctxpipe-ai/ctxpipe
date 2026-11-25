@@ -3,14 +3,22 @@ import { z } from "zod"
 
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
+import { withSandboxLockIfFree } from "../../domain/workspaces/sandbox-lock-store.js"
 import {
   createKnowledgeStore,
   type PurgeScope,
 } from "../../knowledge-store/knowledge-store.js"
+import { deleteOrgKnowledgeState } from "../../models/knowledge-state.js"
 import { getWorkspaceById } from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { openWorkflowNamespaceId } from "../namespace.js"
+
+/**
+ * The count of checks that find the Workspace row there while no delete
+ * runs, before the purge of a Workspace stops with no change.
+ */
+export const IDLE_WORKSPACE_CHECKS = 10
 
 /**
  * Deletes the knowledge plane rows of a deleted org or Workspace from
@@ -26,14 +34,15 @@ import { openWorkflowNamespaceId } from "../namespace.js"
  * deletes. The lease of a Workspace cannot give this order for an org: the
  * lease rows go with the org row.
  *
- * A Workspace delete queues the purge before its transaction, so that a
- * failed enqueue deletes nothing and the delete can run again. Thus the
- * purge of a Workspace also waits until the Workspace row is gone. The
- * delete first destroys the sandboxes of the Workspace, under their lock.
- * When the row is still there after 60 checks (about one hour), the delete
- * did not happen, and the purge stops with no change. An org delete queues the
- * purge after its Postgres transaction: when the enqueue fails, the
- * organization row stays, and a new delete queues the purge again.
+ * A Workspace delete queues the purge before it starts, so that a failed
+ * enqueue deletes nothing and the delete can run again. The delete holds
+ * the sandbox lock of the Workspace while it destroys the sandboxes and
+ * deletes the row. Thus the purge of a Workspace waits while the row is
+ * there. When the row is there and no one holds that lock at
+ * {@link IDLE_WORKSPACE_CHECKS} checks, no delete runs, and the purge stops
+ * with no change. An org delete queues the purge after its Postgres
+ * transaction: when the enqueue fails, the organization row stays, and a
+ * new delete queues the purge again.
  */
 export const knowledgePurge = defineWorkflow(
   {
@@ -41,8 +50,8 @@ export const knowledgePurge = defineWorkflow(
     schema: z
       .object({
         orgId: z.string().min(1),
-        /** The deleted Workspace; absent: the org is deleted. */
-        workspaceId: z.string().min(1).optional(),
+        /** The deleted Workspace; null: the org is deleted. */
+        workspaceId: z.string().min(1).nullable(),
       })
       .strict(),
     logFields: (input) => ({
@@ -51,13 +60,14 @@ export const knowledgePurge = defineWorkflow(
     }),
   },
   async ({ input, step }) => {
+    let idle = 0
     // A sleeping run holds no worker slot, as in the projection.
     for (let check = 0; ; check++) {
       const wait = await step.run({ name: `check-purge-${check}` }, () =>
         purgeWait(input),
       )
       if (!wait) break
-      if (wait === "workspace" && check + 1 >= 60)
+      if (wait === "workspace" && ++idle >= IDLE_WORKSPACE_CHECKS)
         return step.run({ name: "workspace-kept" }, async () => {
           getLogger().set({
             step: "knowledge-purge",
@@ -80,6 +90,11 @@ export const knowledgePurge = defineWorkflow(
         },
       },
       async () => {
+        // The Workspace rows of a deleted org stay, so a projection run
+        // that ran before the delete can have written the state again. The
+        // state of a deleted Workspace went with its row.
+        if (input.workspaceId === null)
+          await deleteOrgKnowledgeState(input.orgId)
         const url = parseEnv(process.env).CLICKHOUSE_URL
         // A worker with no ClickHouse wrote no knowledge plane rows.
         if (!url) {
@@ -107,21 +122,32 @@ export const knowledgePurge = defineWorkflow(
 )
 
 /**
- * Why the purge must wait now: the Workspace row is still there, or a
- * projection run of the scope runs now. Null: the purge can delete. A
- * projection run that waits (pending, or asleep before a retry) reads the
- * flag and the Workspace again when it runs, so it writes nothing for a
- * deleted scope.
+ * Why the purge must wait now, or null when it can delete:
+ * - `deleting`: the Workspace row is there, and its delete (or another
+ *   holder of its sandbox lock) runs now;
+ * - `workspace`: the Workspace row is there, and no one holds that lock;
+ * - `projection`: a projection run of the scope is `running`. A run asleep
+ *   in a step (as one that waits for the projection lease) also counts.
+ *   A `pending` run (new, or before a retry) does not: it reads the flag
+ *   and the Workspace again when it runs, so it writes nothing for a
+ *   deleted scope.
  */
 async function purgeWait(
   scope: PurgeScope,
-): Promise<"workspace" | "projection" | null> {
+): Promise<"deleting" | "workspace" | "projection" | null> {
   const { orgId, workspaceId } = scope
   if (
-    workspaceId &&
+    workspaceId !== null &&
     (await withOrgDbContext(orgId, () => getWorkspaceById(workspaceId, orgId)))
-  )
-    return "workspace"
+  ) {
+    // The key of `withDestroyedWorkspaceSandboxes`, which the delete holds.
+    const lock = await withSandboxLockIfFree(
+      orgId,
+      `workspace-sandboxes:${workspaceId}`,
+      async () => undefined,
+    )
+    return lock.busy ? "deleting" : "workspace"
+  }
   const result = await getSystemDb().execute<{ running: string }>(sql`
     select count(*) as running
     from openworkflow.workflow_runs
@@ -129,8 +155,8 @@ async function purgeWait(
       and workflow_name = 'knowledge-projection'
       and status = 'running'
       and input->>'orgId' = ${orgId}
-      and (${workspaceId ?? null}::text is null
-        or input->>'workspaceId' = ${workspaceId ?? null})
+      and (${workspaceId}::text is null
+        or input->>'workspaceId' = ${workspaceId})
   `)
   return Number(result.rows[0]?.running ?? 0) > 0 ? "projection" : null
 }

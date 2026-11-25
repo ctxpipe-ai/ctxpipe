@@ -331,3 +331,20 @@ export async function deleteBranchHead(key: BranchKey): Promise<void> {
     db.delete(knowledgeBranchHeads).where(headRow(key)),
   )
 }
+
+/**
+ * Delete the knowledge state and the head rows of each Workspace of a
+ * deleted org (CTX-1642). The purge of the org calls it after no projection
+ * run of the org runs: such a run can write these rows again, because the
+ * Workspace rows of a deleted org stay.
+ */
+export async function deleteOrgKnowledgeState(orgId: string): Promise<void> {
+  await withOrgDbContext(orgId, async (db) => {
+    await db
+      .delete(knowledgeBranchHeads)
+      .where(eq(knowledgeBranchHeads.organizationId, orgId))
+    await db
+      .delete(knowledgeState)
+      .where(eq(knowledgeState.organizationId, orgId))
+  })
+}

@@ -10,10 +10,6 @@ import {
 import { organizations } from "../db/schema/auth.js"
 import { claims } from "../db/schema/claims.js"
 import { conversations } from "../db/schema/conversations.js"
-import {
-  knowledgeBranchHeads,
-  knowledgeState,
-} from "../db/schema/knowledge_state.js"
 import { objects } from "../db/schema/objects.js"
 import { orgFeatures } from "../db/schema/org_features.js"
 import { repositories } from "../db/schema/repositories.js"
@@ -416,14 +412,9 @@ export async function purgeOrgDataBeforeAuthDelete(
     await db.delete(repositories).where(eq(repositories.orgId, orgId))
     // The knowledge plane (CTX-1642). With no flag, the org is `off`, so a
     // projection run that starts after this commit writes nothing, also
-    // when the delete of the organization row fails after this hook.
+    // when the delete of the organization row fails after this hook. The
+    // purge deletes the knowledge state and the ClickHouse rows.
     await db.delete(orgFeatures).where(eq(orgFeatures.organizationId, orgId))
-    await db
-      .delete(knowledgeBranchHeads)
-      .where(eq(knowledgeBranchHeads.organizationId, orgId))
-    await db
-      .delete(knowledgeState)
-      .where(eq(knowledgeState.organizationId, orgId))
     return { orgSlug, repoRows }
   })
 
@@ -438,7 +429,7 @@ export async function purgeOrgDataBeforeAuthDelete(
 
   // A failed enqueue fails the hook, so the organization row stays, and a
   // retry of the delete queues the purge again.
-  await enqueueKnowledgePurge({ orgId })
+  await enqueueKnowledgePurge({ orgId, workspaceId: null })
 
   for (const r of prepared.repoRows) {
     await notifyCodesearchRepositoryDeleted({
