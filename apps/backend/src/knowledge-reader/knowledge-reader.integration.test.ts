@@ -600,6 +600,23 @@ const branchPlaneDocument = (
   relations: [],
 })
 
+type ShadowEvent = Record<string, unknown> & {
+  plane: Record<string, unknown>
+}
+
+/** The one shadow event of a call, after the plane read off the request path ends. */
+async function shadowEvent(): Promise<ShadowEvent> {
+  const shadow = () =>
+    events.filter((event) => event.step === "knowledge_plane.shadow")
+  await vi.waitFor(
+    () => {
+      expect(shadow()).toHaveLength(1)
+    },
+    { timeout: 10_000 },
+  )
+  return shadow()[0] as ShadowEvent
+}
+
 const structured = (result: CallToolResult) =>
   result.structuredContent as Record<string, unknown>
 const searchCall = (args: Record<string, unknown>) =>
@@ -1753,17 +1770,7 @@ describe("the knowledge reader seam", () => {
       await searchCall({ workspaces: ["ready"], query }),
     )
     expect(answered).toEqual(off)
-    await vi.waitFor(
-      () => {
-        expect(
-          events.filter((event) => event.step === "knowledge_plane.shadow"),
-        ).toHaveLength(1)
-      },
-      { timeout: 10_000 },
-    )
-    const event = events.find(
-      (item) => item.step === "knowledge_plane.shadow",
-    ) as Record<string, unknown> & {
+    const event = (await shadowEvent()) as ShadowEvent & {
       legacy: { ids: string[] }
       plane: { ids: string[] }
     }
@@ -1808,15 +1815,7 @@ describe("the knowledge reader seam", () => {
       query: "what is near checkout in the shadow",
     })
     expect(result.isError).toBeFalsy()
-    await vi.waitFor(
-      () => {
-        expect(
-          events.filter((event) => event.step === "knowledge_plane.shadow"),
-        ).toHaveLength(1)
-      },
-      { timeout: 10_000 },
-    )
-    const event = events.find((item) => item.step === "knowledge_plane.shadow")
+    const event = await shadowEvent()
     expect(event).toMatchObject({
       tool: "get_related",
       // Layer 0, two layers, and one call for the disagreement facts.
@@ -1834,15 +1833,7 @@ describe("the knowledge reader seam", () => {
       query: "who owns checkout when the embedding fails",
     })
     expect(result.isError).toBeFalsy()
-    await vi.waitFor(
-      () => {
-        expect(
-          events.filter((event) => event.step === "knowledge_plane.shadow"),
-        ).toHaveLength(1)
-      },
-      { timeout: 10_000 },
-    )
-    const event = events.find((item) => item.step === "knowledge_plane.shadow")
+    const event = await shadowEvent()
     expect(event).toMatchObject({
       plane: { failure: "embedding", failureCode: "400" },
     })
@@ -1873,23 +1864,14 @@ describe("the knowledge reader seam", () => {
         query: "who owns checkout when ClickHouse fails",
       })
       expect(result.isError).toBeFalsy()
-      await vi.waitFor(
-        () => {
-          expect(
-            events.filter((event) => event.step === "knowledge_plane.shadow"),
-          ).toHaveLength(1)
-        },
-        { timeout: 10_000 },
-      )
+      await shadowEvent()
     } finally {
       await migrateKnowledgeStore(knowledgeUrl, {
         reader: "reader-test",
         writer: "writer-test",
       })
     }
-    expect(
-      events.find((item) => item.step === "knowledge_plane.shadow"),
-    ).toMatchObject({
+    expect(await shadowEvent()).toMatchObject({
       // ACCESS_DENIED
       plane: { failure: "clickhouse", failureCode: "497" },
     })
@@ -1931,19 +1913,15 @@ describe("the knowledge reader seam", () => {
         query: `who owns checkout after ${cause}`,
       })
       expect(result.isError).toBeFalsy()
-      await vi.waitFor(
-        () => {
-          expect(
-            events.filter((event) => event.step === "knowledge_plane.shadow"),
-          ).toHaveLength(1)
-        },
-        { timeout: 10_000 },
-      )
-      const event = events.find(
-        (item) => item.step === "knowledge_plane.shadow",
-      ) as { plane: Record<string, unknown> }
-      expect(event.plane).toMatchObject({ partialReason, partialCause })
-      expect(event.plane.failure).toBeUndefined()
+      const { plane } = await shadowEvent()
+      expect(plane).toMatchObject({ partialReason, partialCause })
+      expect(plane.failure).toBeUndefined()
+      // A partial answer is not an error: the span names the cause.
+      const span = spans.spanNamed("knowledge_plane.shadow")
+      expect(span?.status.code).toBe(0)
+      expect(span?.attributes).toMatchObject({
+        "ctxpipe.knowledge_plane.partial_cause": partialCause.kind,
+      })
     },
     15_000,
   )
@@ -1956,17 +1934,9 @@ describe("the knowledge reader seam", () => {
       query: "what is near checkout when Jev fails",
     })
     expect(result.isError).toBeFalsy()
-    await vi.waitFor(
-      () => {
-        expect(
-          events.filter((event) => event.step === "knowledge_plane.shadow"),
-        ).toHaveLength(1)
-      },
-      { timeout: 10_000 },
-    )
-    expect(
-      events.find((item) => item.step === "knowledge_plane.shadow"),
-    ).toMatchObject({ plane: { failure: "jev", failureCode: "http_503" } })
+    expect(await shadowEvent()).toMatchObject({
+      plane: { failure: "jev", failureCode: "http_503" },
+    })
   })
 
   it("on: the graph view and the chat walk read the plane", async () => {

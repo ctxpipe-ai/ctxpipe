@@ -10,6 +10,7 @@ import {
 import { JevError } from "../retrieval/jev/client.js"
 import { judgeLayer } from "../retrieval/jev/layer-judge.js"
 import type { CandidateMeta } from "../retrieval/jev/state.js"
+import { BudgetSpentError, type Failure, notePartial } from "./failure.js"
 
 /*
  * The retrieval loop of ADR-068 decisions 2 and 3. Layer 0 judges the seed
@@ -74,24 +75,14 @@ export type ModelMeter = {
   jevCandidates: number
   embeddingCalls: number
   /**
-   * The first error that the read turned into a partial answer
-   * (`notePartial`). The shadow log gives only its source and code.
+   * The source and the code of the first error that the read turned into
+   * a partial answer (`notePartial`).
    */
-  partialError?: unknown
-}
-
-/** Keep `error` as the cause of a partial answer, when it is the first. */
-export function notePartial(meter: ModelMeter, error: unknown): void {
-  if (!("partialError" in meter)) meter.partialError = error
+  partialCause?: Failure
 }
 
 /** The candidates that one Jev call takes (the `judgeLayer` default). */
 const JEV_BATCH = 25
-
-/** The time budget of a retrieval ended before a step could start or end. */
-export class BudgetSpentError extends Error {
-  override readonly name = "BudgetSpentError"
-}
 
 /**
  * The `performance.now()` time at which a retrieval that starts now must

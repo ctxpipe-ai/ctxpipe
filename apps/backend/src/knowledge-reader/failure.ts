@@ -3,7 +3,7 @@ import { ClickHouseError } from "@clickhouse/client"
 import { McpToolError } from "../mcp/framework/tool-errors.js"
 import { EmbeddingError } from "../retrieval/embeddings/textEmbeddings.js"
 import { JevError } from "../retrieval/jev/client.js"
-import { BudgetSpentError } from "./orchestrator.js"
+import type { ModelMeter } from "./orchestrator.js"
 
 /**
  * The source of an error of the plane read (CTX-1645):
@@ -21,7 +21,7 @@ import { BudgetSpentError } from "./orchestrator.js"
  * - `tool`: the plane refused the call. The code is the tool error code.
  * - `unknown`: any other error. The code is the class name of the error.
  */
-export type FailureKind =
+type FailureKind =
   | "clickhouse"
   | "network"
   | "embedding"
@@ -31,6 +31,19 @@ export type FailureKind =
   | "unknown"
 
 export type Failure = { kind: FailureKind; code?: string }
+
+/** The time budget of a retrieval ended before a step could start or end. */
+export class BudgetSpentError extends Error {
+  override readonly name = "BudgetSpentError"
+}
+
+/**
+ * Keep the source and the code of `error` as the cause of a partial answer,
+ * when it is the first.
+ */
+export function notePartial(meter: ModelMeter, error: unknown): void {
+  meter.partialCause ??= failureOf(error)
+}
 
 /**
  * The source and the code of `error`, with no message: a message can quote

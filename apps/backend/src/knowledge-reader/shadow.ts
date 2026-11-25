@@ -118,7 +118,22 @@ function compare(
       (span) =>
         run(plane(meter))
           .then(
-            (shadow) => ({ shadow, failure: undefined }),
+            (shadow) => {
+              // A partial answer is not an error: the span stays ok, and
+              // names the cause.
+              if (meter.partialCause)
+                span.setAttributes({
+                  "ctxpipe.knowledge_plane.partial_cause":
+                    meter.partialCause.kind,
+                  ...(meter.partialCause.code === undefined
+                    ? {}
+                    : {
+                        "ctxpipe.knowledge_plane.partial_cause_code":
+                          meter.partialCause.code,
+                      }),
+                })
+              return { shadow, failure: undefined }
+            },
             (error: unknown) => {
               const failure = failureOf(error)
               span.setAttributes({
@@ -174,13 +189,9 @@ function compare(
                   : { failureCode: failure.code }),
               }
             : {}),
-          ...("partialError" in meter
-            ? { partialCause: failureOf(meter.partialError) }
-            : {}),
           latencyMs: Math.round(performance.now() - started),
-          jevCalls: meter.jevCalls,
-          jevCandidates: meter.jevCandidates,
-          embeddingCalls: meter.embeddingCalls,
+          // The counts, and the source and the code of a partial answer.
+          ...meter,
         },
       })
     })

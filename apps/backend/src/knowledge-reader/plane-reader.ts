@@ -54,6 +54,7 @@ import {
   isValidAt,
   resolveDisagreements,
 } from "../retrieval/jev/disagreement.js"
+import { BudgetSpentError, notePartial } from "./failure.js"
 import type {
   KnowledgeReader,
   RelatedRequest,
@@ -61,7 +62,6 @@ import type {
   SearchResult,
 } from "./knowledge-reader.js"
 import {
-  BudgetSpentError,
   beforeDeadline,
   callTimeLimitMs,
   evidenceText,
@@ -69,7 +69,6 @@ import {
   jevMeta,
   judge,
   type ModelMeter,
-  notePartial,
   ORCHESTRATOR_DEFAULTS,
   retrievalDeadline,
   type TraversalNode,

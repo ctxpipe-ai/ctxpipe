@@ -4,12 +4,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { useMswServer } from "../../test/msw.js"
 import type { KnowledgeDocument } from "../knowledge-store/knowledge-store.js"
 import { JevError } from "../retrieval/jev/client.js"
-import {
-  BudgetSpentError,
-  isBudgetSpent,
-  type JudgeInput,
-  judge,
-} from "./orchestrator.js"
+import { BudgetSpentError } from "./failure.js"
+import { isBudgetSpent, type JudgeInput, judge } from "./orchestrator.js"
 
 describe("the end of the time budget", () => {
   it("is a Jev timeout only when the retrieval has a time budget", () => {

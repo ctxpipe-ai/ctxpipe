@@ -4,8 +4,7 @@ import { describe, expect, it } from "vitest"
 import { McpToolError } from "../mcp/framework/tool-errors.js"
 import { EmbeddingError } from "../retrieval/embeddings/textEmbeddings.js"
 import { JevError } from "../retrieval/jev/client.js"
-import { failureOf } from "./failure.js"
-import { BudgetSpentError } from "./orchestrator.js"
+import { BudgetSpentError, failureOf } from "./failure.js"
 
 /*
  * The source and the code of each error of the plane read (CTX-1645). The
