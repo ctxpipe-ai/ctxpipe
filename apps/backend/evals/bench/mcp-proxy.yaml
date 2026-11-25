@@ -18,6 +18,8 @@ configs:
   mcp-proxy:
     content: |
       # Forward only /mcp to the bench backend, with these limits:
+      # - only the tools that the CTX arm allows (arms.json): Bash can send a
+      #   request, so the proxy also refuses get_related (FalkorDB, D5),
       # - at most MAX_TOOL_CALLS tool calls (the count of the server reserve
       #   of the CTX arm in arms.json),
       # - one JSON-RPC message for each request (no batch), and a small body,
@@ -32,6 +34,7 @@ configs:
 
       UPSTREAM = "host.docker.internal:3660"
       MAX_TOOL_CALLS = 120
+      TOOLS = {"list_workspaces", "search_knowledge", "read_file", "list_files"}
       MAX_BODY = 64 * 1024
       DROP = {"host", "connection", "content-length", "transfer-encoding", "traceparent", "tracestate", "baggage"}
       lock = threading.Lock()
@@ -60,6 +63,8 @@ configs:
               if not isinstance(message, dict):
                   return self.send_error(400, "a batch is not allowed")
               if message.get("method") == "tools/call":
+                  if (message.get("params") or {}).get("name") not in TOOLS:
+                      return self.send_error(403, "the CTX arm does not allow this tool")
                   with lock:
                       if tool_calls >= MAX_TOOL_CALLS:
                           return self.send_error(429, "the run used its tool calls")

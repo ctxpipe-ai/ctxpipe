@@ -114,8 +114,9 @@ def main():
                     if (model_name, arm_name, task) in done:
                         continue
                     # The server calls of a CTX run (a query embedding and Jev
-                    # for each search) have no cap of their own, so the arm
-                    # reserves an estimate of them (README.md).
+                    # for each search) have no spend cap: the MCP proxy limits
+                    # only their count. Thus the arm reserves an estimate of
+                    # their cost (README.md).
                     reserve = model["runCapUsd"] + config["arms"][arm_name]["serverReserveUsd"]
                     if spent + reserve > args.cap_usd:
                         print(f"stop: ${spent:.3f} spent, the next run can cost ${reserve}, cap ${args.cap_usd}")
