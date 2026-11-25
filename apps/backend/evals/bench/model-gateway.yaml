@@ -30,7 +30,7 @@ configs:
       # the model key, and keep the spend of the run in GATEWAY_BUDGET_USD.
       # Before a request, the gateway reserves its worst cost: each byte of the
       # body as one input token at the highest input price (a token is at least
-      # one byte), IMAGE_TOKENS for each image, and max_tokens (at most
+      # one byte; a one-hour cache write), IMAGE_TOKENS for each image, and max_tokens (at most
       # MAX_OUTPUT) at the output price. It refuses the request (402) when the
       # spend and that reserve are more than the budget. After the response, it
       # charges the usage of the response at the list price (GATEWAY_PRICES, USD
@@ -72,37 +72,43 @@ configs:
 
 
       def cost(usage):
-          prompt = sum(usage.get(k, 0) for k in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"))
-          p = rates(prompt)
+          tokens = {k: usage.get(k) or 0 for k in ("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")}
+          # A one-hour cache write costs more than a five-minute one.
+          hour = (usage.get("cache_creation") or {}).get("ephemeral_1h_input_tokens") or 0
+          p = rates(tokens["input_tokens"] + tokens["cache_creation_input_tokens"] + tokens["cache_read_input_tokens"])
           return (
-              usage.get("input_tokens", 0) * p["input"]
-              + usage.get("output_tokens", 0) * p["output"]
-              + usage.get("cache_creation_input_tokens", 0) * p["cacheWrite"]
-              + usage.get("cache_read_input_tokens", 0) * p["cacheRead"]
+              tokens["input_tokens"] * p["input"]
+              + tokens["output_tokens"] * p["output"]
+              + (tokens["cache_creation_input_tokens"] - hour) * p["cacheWrite"]
+              + hour * p["cacheWrite1h"]
+              + tokens["cache_read_input_tokens"] * p["cacheRead"]
           ) / 1e6
 
 
       def blocks(content):
-          """The types of the content blocks of a message, also in a tool result."""
+          """The content blocks of a message, also in a tool result."""
           for block in content if isinstance(content, list) else []:
               if isinstance(block, dict):
-                  yield block.get("type")
+                  yield block
                   yield from blocks(block.get("content"))
 
 
-      def refused(message):
-          """Whether the request asks for more than tokens."""
-          types = [t for m in message["messages"] for t in blocks(m.get("content"))]
+      def inspect(message):
+          """Whether the request asks for more than tokens, and its count of images."""
+          found = [b for m in message["messages"] for b in blocks(m.get("content"))]
+          images = [b for b in found if b.get("type") == "image"]
           tools = [t for t in message.get("tools") or [] if isinstance(t, dict)]
           edits = (message.get("context_management") or {}).get("edits") or []
           return (
               bool(message.keys() - FIELDS)
-              or bool(REFUSED_BLOCKS & set(types))
+              or any(b.get("type") in REFUSED_BLOCKS for b in found)
+              # The model host fetches an image from a URL for the agent.
+              or any((b.get("source") or {}).get("type") != "base64" for b in images)
               # A server tool (web search, code execution) has a type.
               or any(t.get("type") not in (None, "custom") for t in tools)
               # A compaction is a second model call.
               or any(not str(e.get("type", "")).startswith("clear_") for e in edits if isinstance(e, dict))
-          ), types.count("image")
+          ), len(images)
 
 
       def save():
@@ -122,19 +128,19 @@ configs:
                   message = json.loads(self.rfile.read(length))
                   model = message.get("model")
                   message["max_tokens"] = min(int(message["max_tokens"]), MAX_OUTPUT)
-                  no, images = refused(message)
+                  refuse, images = inspect(message)
               except (ValueError, AttributeError, KeyError, TypeError):
                   return self.send_error(400, "not a Messages request")
               # Harbor gives Claude Code the model id with no provider prefix.
               if model not in {MODEL, MODEL.split("/")[-1]}:
                   return self.send_error(403, "the run allows only its own model")
-              if no:
+              if refuse:
                   return self.send_error(403, "the run allows only tokens")
               message["model"] = MODEL
               body = json.dumps(message).encode()
               tokens = len(body) + IMAGE_TOKENS * images
               p = rates(tokens)
-              reserve = (tokens * max(p["input"], p["cacheWrite"]) + message["max_tokens"] * p["output"]) / 1e6
+              reserve = (tokens * max(p["input"], p["cacheWrite"], p["cacheWrite1h"]) + message["max_tokens"] * p["output"]) / 1e6
               with lock:
                   if spend["usd"] + reserve > BUDGET:
                       spend["refused"] += 1
@@ -210,7 +216,7 @@ configs:
               # An error response with no usage costs nothing.
               if response.status != 200 and not usage:
                   return {}
-              return {k: v for k, v in usage.items() if isinstance(v, int)} if done else None
+              return usage if done else None
 
 
       save()
