@@ -1,7 +1,8 @@
+import { SpanStatusCode, trace } from "@opentelemetry/api"
+
 import { servingIdForKnowledgePath } from "../domain/workspaces/hydrate.js"
-import { McpToolError } from "../mcp/framework/tool-errors.js"
 import { log } from "../observability/logger.js"
-import { JevError } from "../retrieval/jev/client.js"
+import { failureOf } from "./failure.js"
 import type { KnowledgeReader } from "./knowledge-reader.js"
 import type { ModelMeter } from "./orchestrator.js"
 
@@ -18,7 +19,11 @@ type Ranked = { ids: string[]; scores: number[] }
  * call off the request path, and one evlog event
  * (`knowledge_plane.shadow`) compares the two. The event holds only ids,
  * scores, overlap@k, latency and the counts of the model calls: no query, no
- * path, no text, no error message.
+ * path, no text, no error message. A failed plane read gives the source
+ * and the code of its error (`failureOf`), and a partial answer gives the
+ * source and the code of the error that made it partial. A failed plane
+ * read also sets the span `knowledge_plane.shadow` of the request trace to
+ * error, with the source and the code.
  */
 export function shadowKnowledgeReader(
   legacy: KnowledgeReader,
@@ -104,10 +109,50 @@ function compare(
 ): void {
   const meter: ModelMeter = { jevCalls: 0, jevCandidates: 0, embeddingCalls: 0 }
   const started = performance.now()
-  void run(plane(meter))
-    .then(
-      (shadow) => ({ shadow, failure: undefined }),
-      (error: unknown) => ({ shadow: undefined, failure: failureKind(error) }),
+  // A child of the active span of the request, which can end first.
+  void trace
+    .getTracer("ctxpipe-backend")
+    .startActiveSpan(
+      "knowledge_plane.shadow",
+      { attributes: { "ctxpipe.knowledge_plane.tool": answered.tool } },
+      (span) =>
+        run(plane(meter))
+          .then(
+            (shadow) => {
+              // A partial answer is not an error: the span stays ok, and
+              // names the cause.
+              if (meter.partialCause)
+                span.setAttributes({
+                  "ctxpipe.knowledge_plane.partial_cause":
+                    meter.partialCause.kind,
+                  ...(meter.partialCause.code === undefined
+                    ? {}
+                    : {
+                        "ctxpipe.knowledge_plane.partial_cause_code":
+                          meter.partialCause.code,
+                      }),
+                })
+              return { shadow, failure: undefined }
+            },
+            (error: unknown) => {
+              const failure = failureOf(error)
+              span.setAttributes({
+                "error.type": failure.kind,
+                ...(failure.code === undefined
+                  ? {}
+                  : { "ctxpipe.knowledge_plane.failure_code": failure.code }),
+              })
+              // The kind only (`exception.type`), with no message and no
+              // stack: they can quote content. The code is on the span.
+              span.recordException({ name: failure.kind })
+              span.setStatus({
+                code: SpanStatusCode.ERROR,
+                message: failure.kind,
+              })
+              return { shadow: undefined, failure }
+            },
+          )
+          .finally(() => span.end()),
     )
     .then(({ shadow, failure }) => {
       const legacyTop = answered.legacy.ids.slice(0, OVERLAP_K)
@@ -136,17 +181,18 @@ function compare(
           ...(shadow?.partialReason
             ? { partialReason: shadow.partialReason }
             : {}),
-          ...(failure ? { failure } : {}),
+          ...(failure
+            ? {
+                failure: failure.kind,
+                ...(failure.code === undefined
+                  ? {}
+                  : { failureCode: failure.code }),
+              }
+            : {}),
           latencyMs: Math.round(performance.now() - started),
+          // The counts, and the source and the code of a partial answer.
           ...meter,
         },
       })
     })
-}
-
-/** The kind of a failure, with no message: a message can quote content. */
-function failureKind(error: unknown): string {
-  if (error instanceof JevError) return `jev_${error.kind}`
-  if (error instanceof McpToolError) return error.code
-  return error instanceof Error ? error.name : "unknown"
 }

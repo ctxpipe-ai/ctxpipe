@@ -4,6 +4,7 @@ import "./src/observability/register.js"
 import { defineConfig } from "@openworkflow/cli"
 
 import { initDb } from "./src/db/client.js"
+import { startCrmIntakeSender } from "./src/domain/crm-intake.js"
 import { refuseVercelSandboxRows } from "./src/domain/workspaces/sandbox-provider.js"
 import { createLogger, flushEvlog, log } from "./src/observability/logger.js"
 import { shutdownOtel } from "./src/observability/otel.js"
@@ -101,6 +102,9 @@ const armTipChecks = () =>
   )
 wakeParents()
 armTipChecks()
+// Send the sign-ups of the CRM outbox each minute (CTX-1630). Only hosted
+// production has the setting; elsewhere this starts nothing.
+startCrmIntakeSender()
 // Name the running step in the logs when memory nears its limit (CTX-1615).
 // A step can fill the memory in seconds, so check each second.
 setInterval(memoryPressureCheck(workerMemoryBytes()), 1000).unref()

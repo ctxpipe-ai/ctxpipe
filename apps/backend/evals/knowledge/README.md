@@ -50,6 +50,13 @@ Opus 5.5 drafted the questions (`draft`). The panel labeled them: Sonnet 5.5, GP
 
 `fixtures/backstage-v0.dataset.json` (version `backstage-0`) holds the 35 questions of Backstage (`eval-v0-backstage-context` at `144bda17`), made with the same commands and settings. Its categories are 4 lookups, 6 multi-hop, 10 across sources, 8 time, 1 disagreement and 6 no-answer, with the same split rule. Multi-hop has only 6 questions: Backstage has few links between its documents, and the drafter tried each chain. Backstage is its own dataset, not a corpus of `corpora-v0`: the runs of each dataset form their own series, so a new corpus does not change the version of an older series. Each generation of the plane runs both files.
 
+Version 1 ([CTX-1589](https://linear.app/ctxpipe/issue/CTX-1589)) has the same split in two files, made with the same commands, settings and quotas as v0. A new ingest of the v0 source commits gave the context repos design records, owner teams and feature gates. The v1 questions also ask about these new kinds of document (rule 3 above). A corpus keeps its v0 Workspace fixture: the hydrate keys the Workspace by the corpus id, so a hydrate of v1 moves that Workspace to the v1 SHA, and a later v0 run hydrates the v0 SHA again:
+
+- `fixtures/corpora-v1.dataset.json` (version `1`) holds 90 questions. **Kubernetes** (`eval-v0-kubernetes-context` at `2ae27a27`) has 47: 4 lookups, 12 multi-hop, 10 across sources, 6 time, 9 disagreement and 6 no-answer. **Rust** (`eval-v0-rust-context` at `60102ff8`) has 43: 4 lookups, 12 multi-hop, 10 across sources, 3 time, 8 disagreement and 6 no-answer.
+- `fixtures/backstage-v1.dataset.json` (version `backstage-1`) holds 34 questions of Backstage (`eval-v0-backstage-context` at `a7f81344`): 4 lookups, 5 multi-hop, 9 across sources, 5 time, 5 disagreement and 6 no-answer.
+
+The panel removed more time questions than in v0: the majority did not find that their answer depends on the time. The ingest left out two documents of the Kubernetes context repo (the instruction areas of `kubernetes/kubernetes` and the API document of `cmd/kubelet`) and the instruction areas of `rust-lang/rust` and `backstage/backstage` ([CTX-1570](https://linear.app/ctxpipe/issue/CTX-1570)). No question asks about them.
+
 ### Hill-climb by generations
 
 "We don't have hard targets, we want to hillclimb the retrieval for many generations until the improvements plateau. Every generation can be merged as we are behind feature flag" (the CTO, 2026-11-22). The rules are in the [amendment of ADR-069](../../../../.ai/memory/decisions/ADR-069-knowledge-plane-evals-and-rollout.md#amendment-2026-11-22-hill-climb-by-generations-with-no-fixed-target-ctx-1499).
@@ -107,7 +114,7 @@ The production reviews of the Falkor retrieval (CTX-1131, CTX-1114) found failur
 
 A stale document is never gold, and a `no-answer` question has no `stale` list (`dataset.ts` refuses both). Check 5 has no value until the dataset has such questions.
 
-A plane search says "no answer" when no Jev-judged hit reaches the `keepAt` setting. The old stack has no such threshold, so it says "no answer" only when it finds no hit. A search that failed, or that the time budget cut, gets no credit for "no answer".
+A plane search says "no answer" when no Jev-judged hit reaches the `answerAt` setting (0.6, CTX-1561). It is above `keepAt` (0.5), the threshold of `get_related`. A run from before CTX-1561 has no `answerAt`, so its report uses `keepAt`. The old stack has no such threshold, so it says "no answer" only when it finds no hit. A search that failed, or that the time budget cut, gets no credit for "no answer".
 
 ## Commands
 
@@ -245,14 +252,14 @@ bun evals/knowledge/cli.ts finalize --draft LABELED-A.json,LABELED-B.json --out 
 ### Make the public corpora
 
 ```sh
-GITHUB_TOKEN=… DATABASE_URL=… AUTH_SECRET=… bun --no-env-file evals/knowledge/cli.ts corpus snapshot --plan fixtures/corpora-v0.plan.json --out "$TMPDIR/corpora/snapshots.json"
-GITHUB_TOKEN=… DATABASE_URL=… AUTH_SECRET=… bun --no-env-file evals/knowledge/cli.ts corpus issues   --plan fixtures/corpora-v0.plan.json --out "$TMPDIR/corpora/issues.json"
-GITHUB_TOKEN=… DATABASE_URL=… AUTH_SECRET=… bun --no-env-file evals/knowledge/cli.ts corpus freeze   --plan fixtures/corpora-v0.plan.json --out DATASET.json
+GITHUB_TOKEN=… bun --no-env-file evals/knowledge/cli.ts corpus snapshot --plan fixtures/corpora-v0.plan.json --out "$TMPDIR/corpora/snapshots.json"
+GITHUB_TOKEN=… bun --no-env-file evals/knowledge/cli.ts corpus issues   --plan fixtures/corpora-v0.plan.json --out "$TMPDIR/corpora/issues.json"
+GITHUB_TOKEN=… bun --no-env-file evals/knowledge/cli.ts corpus freeze   --plan fixtures/corpora-v0.plan.json --out DATASET.json
 ```
 
 The plan (`fixtures/corpora-v0.plan.json`) gives the slice of each source of ADR-069 decision 2: the public repositories at fixed SHAs, the count of issues, and the issue cut-off date. The repositories that the steps make are private, in the org `owner`, with the name prefix `prefix`. `GITHUB_TOKEN` must be able to make and push to them.
 
-The steps use no database. But `cli.ts` loads the backend config when it starts, so also set `DATABASE_URL` and `AUTH_SECRET` (`DATABASE_URL` must be a URL and `AUTH_SECRET` must have at least 32 characters; the values of your local database are good). Run the commands with `bun --no-env-file` when the shell gives the token, so that no `.env` file adds another value.
+The steps use no database, so they need no `DATABASE_URL` and no `AUTH_SECRET`. Run the commands with `bun --no-env-file` when the shell gives the token, so that no `.env` file adds another value.
 
 1. `snapshot` copies the tree of each repository at its SHA into the private repository `<prefix><corpus>-<repo>`, as one commit with no history. The commit has a fixed author ("ctxpipe evals") and the cut-off date, so it holds no personal data, and the same plan gives the same commit. A repository that holds another commit is refused.
 2. The ingest is not a command. In a product org that is only for the evals, make one Workspace for each corpus on the context repo `<prefix><corpus>-context`, and add the snapshot repositories of the corpus as its sources. The current production stack then makes the ingest output (ADR-069 decision 4).
@@ -288,7 +295,7 @@ Before the first org leaves `off`, this command confirms with real calls that Op
 | `allowlist-refused-outside-list` | The same request with the allowlist gets HTTP 404 with a no-endpoint error. The two requests differ only in `only`, so this proves that OpenRouter applies the allowlist with ZDR and fallback. |
 | `provider-allowlist` | The allowlist is set, and each slug is on the OpenRouter provider list (`GET /api/v1/providers`). The probe maps each slug to the provider name that an answer gives. |
 
-The probe sends only fixed texts (questions and one batch of 2048 checkerboard chunks) and one made-up diagram (`fixtures/vision/order-states.png`), and the default spend cap is $1: the recorder holds $0.05 for each vision call and $0.25 for each chat call in flight. An answer names only its provider, not the endpoint: when a provider has more than one endpoint of a model, the name does not show which endpoint served the call. The `zdr` field of the request decides the endpoint, and the refusal pairs show that OpenRouter applies `zdr`. A ZDR refusal pair sends no `only` field: its control model can be at a trusted provider that the hosted allowlist does not include now, and the allowlist pair proves `only` (ADR-070). When the probe cannot read the ZDR list, the check `zdr-list` fails with the error, and the other checks find no ZDR provider. It writes `probe.json` and `probe.md` to `--out`. It needs no store, but the backend environment check still needs `DATABASE_URL` and `AUTH_SECRET` to be set. Exit codes: 0 all checks pass, 3 the spend cap stopped a call, 4 a check failed. A failed check shows the error of the client, then the error text of the provider. The client error keeps only a complete routing message of OpenRouter (for example "No endpoints found that can handle the requested parameters."), because other error text can echo the input. The probe sends only fixed public inputs, so it also shows the provider text. When a check fails, report it. Do not change the request settings to make it pass.
+The probe sends only fixed texts (questions and one batch of 2048 checkerboard chunks) and one made-up diagram (`fixtures/vision/order-states.png`), and the default spend cap is $1: the recorder holds $0.05 for each vision call and $0.25 for each chat call in flight. An answer names only its provider, not the endpoint: when a provider has more than one endpoint of a model, the name does not show which endpoint served the call. The `zdr` field of the request decides the endpoint, and the refusal pairs show that OpenRouter applies `zdr`. A ZDR refusal pair sends no `only` field: its control model can be at a trusted provider that the hosted allowlist does not include now, and the allowlist pair proves `only` (ADR-070). When the probe cannot read the ZDR list, the check `zdr-list` fails with the error, and the other checks find no ZDR provider. It writes `probe.json` and `probe.md` to `--out`. It needs no store, no `DATABASE_URL` and no `AUTH_SECRET`: on a host, it needs only the model key. Each model call goes through the secret scrubber (ADR-072), so the probe builds the converter first (`cargo`, as the other commands that send a model call). Exit codes: 0 all checks pass, 3 the spend cap stopped a call, 4 a check failed. A failed check shows the error of the client, then the error text of the provider. The client error keeps only a complete routing message of OpenRouter (for example "No endpoints found that can handle the requested parameters."), because other error text can echo the input. The probe sends only fixed public inputs, so it also shows the provider text. When a check fails, report it. Do not change the request settings to make it pass.
 
 ### Measure the latency of the model calls
 

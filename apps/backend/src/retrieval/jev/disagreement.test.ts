@@ -395,6 +395,59 @@ describe("decideDisagreements", () => {
     })
   })
 
+  describe("the positions", () => {
+    it.each([
+      ["updates", { "same.1.2": 0.9, "replaces.1.2": 0.9 }],
+      ["contradicts", contradicting],
+    ] as const)(
+      "never puts two items whose pair %s in one position, when a third item agrees with both",
+      (label, facts) => {
+        // An ADR (a) replaces an older ADR (b), and an issue (c) agrees
+        // with both of them.
+        const result = decide(
+          [
+            item("a", { sourceType: "adr" }),
+            item("b", {
+              sourceType: "adr",
+              observedAt: "2026-09-01T00:00:00Z",
+            }),
+            item("c", { sourceType: "issue" }),
+          ],
+          { ...facts, "same.1.3": 0.9, "same.2.3": 0.9 },
+        )
+        expect(result.positions.map(({ itemIds }) => itemIds)).toEqual([
+          ["a", "c"],
+          ["b"],
+        ])
+        expect(result.pairs).toContainEqual({
+          itemIds: ["a", "b"],
+          positions: [0, 1],
+          label,
+        })
+        expect(statuses(result)).toEqual([
+          {
+            status: "current",
+            rule: label === "updates" ? label : "observed-at",
+          },
+          {
+            status: "superseded",
+            rule: label === "updates" ? label : "observed-at",
+          },
+        ])
+      },
+    )
+
+    it("still joins a chain of agreeing items when no pair of them is a rival", () => {
+      const result = decide([item("a"), item("b"), item("c")], {
+        "same.1.2": 0.9,
+        "same.2.3": 0.9,
+      })
+      expect(result.positions.map(({ itemIds }) => itemIds)).toEqual([
+        ["a", "b", "c"],
+      ])
+    })
+  })
+
   describe("the position status", () => {
     it("gives current when no other position contradicts or updates the position", () => {
       expect(

@@ -10,6 +10,7 @@ import {
 import { JevError } from "../retrieval/jev/client.js"
 import { judgeLayer } from "../retrieval/jev/layer-judge.js"
 import type { CandidateMeta } from "../retrieval/jev/state.js"
+import { BudgetSpentError, type Failure, notePartial } from "./failure.js"
 
 /*
  * The retrieval loop of ADR-068 decisions 2 and 3. Layer 0 judges the seed
@@ -40,6 +41,16 @@ export const ORCHESTRATOR_DEFAULTS = {
    * what the loop finds (the CTO, 2026-11-22).
    */
   timeBudgetMs: 3_000,
+  /**
+   * The search adds the neighbors of its best hits (CTX-1605): the
+   * documents that the first `searchNeighborsFrom` hits have a relation
+   * to, in either direction, take at most this many of the last places of
+   * the hits, the closest to the query first. A question about an issue
+   * often has the document of the code that the issue names as an answer,
+   * with no word of the question in it. 0: no neighbors.
+   */
+  searchNeighbors: 10,
+  searchNeighborsFrom: 5,
   /** The top results that the disagreement step compares (N). */
   disagreementItems: 10,
   /**
@@ -47,6 +58,15 @@ export const ORCHESTRATOR_DEFAULTS = {
    * is a result, and so is each step on its "why" path (CTX-1520).
    */
   keepAt: 0.5,
+  /**
+   * The eval's rule for a "no answer" of the search: no hit has p(answers) of
+   * at least this value (CTX-1561). Only the eval reads it. It is here so
+   * that the run manifest records it and `--set answerAt=…` can change it.
+   * It is above `keepAt`: on the dev questions, a no-answer question can get
+   * a top hit of 0.5 to 0.6, and an answered question with a gold document in
+   * the top 5 always got more than 0.6.
+   */
+  answerAt: 0.6,
   /**
    * The loop explores from a candidate when p(explore) is at least this.
    * Such a candidate is also a result: a step (CTX-1534).
@@ -65,7 +85,13 @@ export const ORCHESTRATOR_DEFAULTS = {
   sameAt: 0.5,
   disagreeAt: 0.5,
   replacesAt: 0.5,
-  scopedAt: 0.5,
+  /**
+   * Jev gives the `scoped` fact a p(yes) near 0.5 to most items: at 0.5,
+   * 47% of the items of the dev questions are "scoped", at 0.6 24%. Thus
+   * at 0.5 a position that no rival replaces is often "scoped" when it is
+   * current (generation 11).
+   */
+  scopedAt: 0.6,
 }
 
 /** The model calls of one retrieval, for the shadow log (no content). */
@@ -73,15 +99,15 @@ export type ModelMeter = {
   jevCalls: number
   jevCandidates: number
   embeddingCalls: number
+  /**
+   * The source and the code of the first error that the read turned into
+   * a partial answer (`notePartial`).
+   */
+  partialCause?: Failure
 }
 
 /** The candidates that one Jev call takes (the `judgeLayer` default). */
 const JEV_BATCH = 25
-
-/** The time budget of a retrieval ended before a step could start or end. */
-export class BudgetSpentError extends Error {
-  override readonly name = "BudgetSpentError"
-}
 
 /**
  * The `performance.now()` time at which a retrieval that starts now must
@@ -458,6 +484,7 @@ export async function traverse(input: {
     await seedJudge
   } catch (error) {
     if (!isBudgetSpent(error, deadline)) throw error
+    notePartial(input.meter, error)
     partialReason = "total_timeout"
   }
   // The seeds come first, when Jev judged them (also before the end of the

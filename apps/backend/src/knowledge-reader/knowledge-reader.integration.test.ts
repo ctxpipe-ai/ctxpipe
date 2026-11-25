@@ -430,6 +430,40 @@ const bridgeUnits: (RelatedUnit & { text: string })[] = [
   },
 ]
 
+/**
+ * A Workspace for the neighbors of the best search hits (CTX-1605). The
+ * issue answers the question in its words and mentions the mailer. The
+ * mailer answers it too, but it has no word of the question, so 60 notes
+ * with words of the question come before it in the search order.
+ */
+const namedUnits: (RelatedUnit & { text: string })[] = [
+  {
+    path: "github/issues/acme/shop/40.md",
+    kind: "Issue",
+    title: "Refund email is late",
+    text: "The refund email comes one day late.",
+    claims: [
+      {
+        to: "knowledge/services/mailer.md",
+        predicate: "MENTIONS",
+        confidence: 0.8,
+      },
+    ],
+  },
+  {
+    path: "knowledge/services/mailer.md",
+    kind: "Service",
+    title: "Mailer",
+    text: "Sends messages from a queue. answer",
+  },
+  ...Array.from({ length: 60 }, (_, index) => ({
+    path: `notes/refund-${String(index + 1).padStart(2, "0")}.md`,
+    kind: "Note",
+    title: `Refund note ${index + 1}`,
+    text: "A note about a refund.",
+  })),
+]
+
 /** The rows of `list` in the knowledge plane for one Workspace. */
 function planeRows(
   workspaceId: string,
@@ -600,6 +634,23 @@ const branchPlaneDocument = (
   relations: [],
 })
 
+type ShadowEvent = Record<string, unknown> & {
+  plane: Record<string, unknown>
+}
+
+/** The one shadow event of a call, after the plane read off the request path ends. */
+async function shadowEvent(): Promise<ShadowEvent> {
+  const shadow = () =>
+    events.filter((event) => event.step === "knowledge_plane.shadow")
+  await vi.waitFor(
+    () => {
+      expect(shadow()).toHaveLength(1)
+    },
+    { timeout: 10_000 },
+  )
+  return shadow()[0] as ShadowEvent
+}
+
 const structured = (result: CallToolResult) =>
   result.structuredContent as Record<string, unknown>
 const searchCall = (args: Record<string, unknown>) =>
@@ -737,11 +788,13 @@ describe("the knowledge reader seam", () => {
     await planeOnly("wide", wideUnits)
     await planeOnly("diamond", diamondUnits)
     await planeOnly("bridge", bridgeUnits)
+    await planeOnly("named", namedUnits)
     await markReady(ids.ready as string)
     await markReady(ids.paging as string)
     await markReady(ids.wide as string)
     await markReady(ids.diamond as string)
     await markReady(ids.bridge as string)
+    await markReady(ids.named as string)
     // A first run that has not ended: not ready.
     await beginKnowledgeRun({
       orgId: seed.orgId,
@@ -999,6 +1052,57 @@ describe("the knowledge reader seam", () => {
     )
     expect(hits.every((hit) => hit.served.sha === legacySha)).toBe(true)
     expect(jevRequests).toEqual([])
+  })
+
+  it.each(["shadow", "on"] as const)(
+    "%s: a read that the old stack serves because a Workspace is not ready logs one fallback event with ids only",
+    async (flag) => {
+      await setFlag(flag)
+      const query = "who owns checkout in the fallback"
+      const result = await searchCall({ workspaces: ["ready", "fresh"], query })
+      expect(result.isError).toBeFalsy()
+      const fallbacks = events.filter(
+        (event) => event.step === "knowledge_plane.fallback",
+      )
+      expect(fallbacks).toEqual([
+        expect.objectContaining({
+          flag,
+          orgId: seed.orgId,
+          workspaceIds: expect.arrayContaining([ids.ready, ids.fresh]),
+          notReadyIds: [ids.fresh],
+        }),
+      ])
+      expect(fallbacks[0]?.workspaceIds).toHaveLength(2)
+      expect(JSON.stringify(fallbacks)).not.toContain(query)
+      // The chat selection logs the same event when it ends in the fallback.
+      events.length = 0
+      const selection = await selectFirstKnowledgeBranch(
+        seed.orgId,
+        [ids.fresh as string],
+        ["no-such-branch"],
+      )
+      expect(selection.reader.stack).toBe("legacy")
+      expect(
+        events.filter((event) => event.step === "knowledge_plane.fallback"),
+      ).toEqual([
+        expect.objectContaining({
+          flag,
+          orgId: seed.orgId,
+          workspaceIds: [ids.fresh],
+          notReadyIds: [ids.fresh],
+        }),
+      ])
+    },
+  )
+
+  it("no fallback event when the flag is off, or when each Workspace is ready", async () => {
+    await setFlag("off")
+    await searchCall({ workspaces: ["ready", "fresh"] })
+    await setFlag("on")
+    await searchCall({ workspaces: ["ready"] })
+    expect(
+      events.filter((event) => event.step === "knowledge_plane.fallback"),
+    ).toEqual([])
   })
 
   it("on: the output of both tools has the shape of the old stack", async () => {
@@ -1449,6 +1553,48 @@ describe("the knowledge reader seam", () => {
     expect((authored.hits as unknown[]).length).toBe(units.length)
   })
 
+  it("on: search_knowledge adds the documents that its best hits name, in the last places of the hits", async () => {
+    await setFlag("on")
+    const mailer = "knowledge/services/mailer.md"
+    /** The first page, and the texts of the hits that Jev judged. */
+    const call = async (args: Record<string, unknown> = {}) => {
+      jevRequests.length = 0
+      jevParts.length = 0
+      const hits = structured(
+        await searchCall({
+          workspaces: ["named"],
+          query: "Why is the refund email late?",
+          ...args,
+        }),
+      ).hits as { ref: string }[]
+      return {
+        refs: hits.map((hit) => hit.ref),
+        judged: jevRequests.reduce((sum, item) => sum + item.candidates, 0),
+        judgedMailer: jevParts.some((part) =>
+          String(part).includes("Sends messages"),
+        ),
+      }
+    }
+    const before = ORCHESTRATOR_DEFAULTS.searchNeighbors
+    ORCHESTRATOR_DEFAULTS.searchNeighbors = 0
+    try {
+      // With no neighbors, the 50 hits are the issue and 49 notes.
+      expect(await call()).toMatchObject({ judged: 50, judgedMailer: false })
+    } finally {
+      ORCHESTRATOR_DEFAULTS.searchNeighbors = before
+    }
+    // The issue is a best hit, and it mentions the mailer. The mailer takes
+    // the last place of the 50 hits, and Jev judges it with the others: it
+    // answers, so it comes first.
+    const named = await call()
+    expect(named).toMatchObject({ judged: 50, judgedMailer: true })
+    expect(named.refs[0]).toBe(mailer)
+    // A neighbor must pass the filters of the search.
+    const filtered = await call({ kinds: ["Issue", "Note"] })
+    expect(filtered).toMatchObject({ judgedMailer: false })
+    expect(filtered.refs).not.toContain(mailer)
+  })
+
   it("on: search_knowledge puts a hit that is not valid now after the valid hits, through code", async () => {
     await setFlag("on")
     const { workspaceId } = await seedRelatedWorkspace({
@@ -1702,17 +1848,7 @@ describe("the knowledge reader seam", () => {
       await searchCall({ workspaces: ["ready"], query }),
     )
     expect(answered).toEqual(off)
-    await vi.waitFor(
-      () => {
-        expect(
-          events.filter((event) => event.step === "knowledge_plane.shadow"),
-        ).toHaveLength(1)
-      },
-      { timeout: 10_000 },
-    )
-    const event = events.find(
-      (item) => item.step === "knowledge_plane.shadow",
-    ) as Record<string, unknown> & {
+    const event = (await shadowEvent()) as ShadowEvent & {
       legacy: { ids: string[] }
       plane: { ids: string[] }
     }
@@ -1757,21 +1893,128 @@ describe("the knowledge reader seam", () => {
       query: "what is near checkout in the shadow",
     })
     expect(result.isError).toBeFalsy()
-    await vi.waitFor(
-      () => {
-        expect(
-          events.filter((event) => event.step === "knowledge_plane.shadow"),
-        ).toHaveLength(1)
-      },
-      { timeout: 10_000 },
-    )
-    const event = events.find((item) => item.step === "knowledge_plane.shadow")
+    const event = await shadowEvent()
     expect(event).toMatchObject({
       tool: "get_related",
       // Layer 0, two layers, and one call for the disagreement facts.
       plane: { jevCalls: 4, embeddingCalls: 1 },
     })
     expect(JSON.stringify(event)).not.toContain("knowledge/")
+  })
+
+  it("shadow: a failed query embedding gives the kind embedding and the HTTP status, on the event and on a span of the request trace", async () => {
+    await setFlag("shadow")
+    embeddingFailure = 400
+    spans.reset()
+    const result = await searchCall({
+      workspaces: ["ready"],
+      query: "who owns checkout when the embedding fails",
+    })
+    expect(result.isError).toBeFalsy()
+    const event = await shadowEvent()
+    expect(event).toMatchObject({
+      plane: { failure: "embedding", failureCode: "400" },
+    })
+    const span = spans.spanNamed("knowledge_plane.shadow")
+    expect(span?.attributes).toMatchObject({
+      "error.type": "embedding",
+      "ctxpipe.knowledge_plane.failure_code": "400",
+    })
+    expect(span?.status).toEqual({ code: 2, message: "embedding" })
+    const tool = spans.spanNamed("mcp.tool search_knowledge")
+    expect(span?.spanContext().traceId).toBe(tool?.spanContext().traceId)
+    expect(span?.events.map((item) => item.attributes)).toEqual([
+      { "exception.type": "embedding" },
+    ])
+  })
+
+  it("shadow: a ClickHouse error gives the kind clickhouse and the ClickHouse error code", async () => {
+    await setFlag("shadow")
+    // The reader user loses its grant on the relations: the read of the
+    // claims of the hits fails on the server.
+    const admin = clickHouse.client(knowledgeUrl)
+    await admin.command({
+      query: "REVOKE SELECT ON relations FROM ctxpipe_reader",
+    })
+    try {
+      const result = await searchCall({
+        workspaces: ["ready"],
+        query: "who owns checkout when ClickHouse fails",
+      })
+      expect(result.isError).toBeFalsy()
+      await shadowEvent()
+    } finally {
+      await migrateKnowledgeStore(knowledgeUrl, {
+        reader: "reader-test",
+        writer: "writer-test",
+      })
+    }
+    expect(await shadowEvent()).toMatchObject({
+      // ACCESS_DENIED
+      plane: { failure: "clickhouse", failureCode: "497" },
+    })
+  })
+
+  it.each([
+    [
+      "a 503 of the query embedding",
+      () => {
+        embeddingFailure = 503
+      },
+      "total_timeout",
+      { kind: "embedding", code: "503" },
+    ],
+    [
+      "a failed Jev call of search_knowledge",
+      () => {
+        jevFails = "all"
+      },
+      "judge_unavailable",
+      { kind: "jev", code: "http_503" },
+    ],
+    [
+      "the end of the time budget",
+      () => {
+        slowEmbedding = true
+      },
+      "total_timeout",
+      { kind: "timeout" },
+    ],
+  ] as const)(
+    "shadow: a partial answer after %s gives the source of its cause",
+    async (cause, fault, partialReason, partialCause) => {
+      await setFlag("shadow")
+      fault()
+      const result = await searchCall({
+        workspaces: ["ready"],
+        // A query of its own: a kept query vector needs no embedding.
+        query: `who owns checkout after ${cause}`,
+      })
+      expect(result.isError).toBeFalsy()
+      const { plane } = await shadowEvent()
+      expect(plane).toMatchObject({ partialReason, partialCause })
+      expect(plane.failure).toBeUndefined()
+      // A partial answer is not an error: the span names the cause.
+      const span = spans.spanNamed("knowledge_plane.shadow")
+      expect(span?.status.code).toBe(0)
+      expect(span?.attributes).toMatchObject({
+        "ctxpipe.knowledge_plane.partial_cause": partialCause.kind,
+      })
+    },
+    15_000,
+  )
+
+  it("shadow: a failed Jev call of get_related gives the kind jev and its HTTP status", async () => {
+    await setFlag("shadow")
+    jevFails = "all"
+    const result = await relatedCall({
+      maxDepth: 1,
+      query: "what is near checkout when Jev fails",
+    })
+    expect(result.isError).toBeFalsy()
+    expect(await shadowEvent()).toMatchObject({
+      plane: { failure: "jev", failureCode: "http_503" },
+    })
   })
 
   it("on: the graph view and the chat walk read the plane", async () => {

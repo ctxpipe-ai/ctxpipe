@@ -35,8 +35,13 @@ export class McpToolError extends Error {
   readonly code: McpToolErrorCode
   readonly retryable: boolean
 
-  constructor(code: McpToolErrorCode, message: string) {
-    super(message)
+  constructor(
+    code: McpToolErrorCode,
+    message: string,
+    /** `cause`: the error behind this one, for the logs. The tool does not show it. */
+    options?: ErrorOptions,
+  ) {
+    super(message, options)
     this.name = "McpToolError"
     this.code = code
     this.retryable = RETRYABLE.has(code)

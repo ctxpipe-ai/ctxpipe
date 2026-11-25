@@ -5,8 +5,10 @@ import { config } from "dotenv"
 
 import { migrateKnowledgeStore } from "../knowledge-store/migrate.js"
 import { flushEvlog, initEvlog, log } from "../observability/logger.js"
+import { closeDb, initDb } from "./client.js"
 import { describeMigrateError } from "./describe-migrate-error.js"
 import { runMigrations } from "./run-migrations.js"
+import { formatUnknownError } from "./transientDbRetry.js"
 
 config({ path: ".env.local", quiet: true })
 config({ path: ".env", quiet: true })
@@ -39,6 +41,11 @@ try {
       step: "migrate",
       message: "[migrate] CLICKHOUSE_URL is not set: no ClickHouse migrations",
     })
+  // Each deploy queues the knowledge plane backfill of each org whose flag
+  // is not `off` (CTX-1643). Thus a self-host needs no operator step. A
+  // failed backfill does not fail the deploy: it logs, and the next deploy
+  // or hydrate queues the run again.
+  await backfillAfterMigrate(connectionString)
   log.info({ step: "migrate", message: "[migrate] done" })
 } catch (error) {
   exitCode = 1
@@ -52,3 +59,28 @@ try {
 }
 await flushEvlog()
 process.exit(exitCode)
+
+async function backfillAfterMigrate(connectionString: string): Promise<void> {
+  try {
+    initDb(connectionString)
+    // Dynamic imports: the OpenWorkflow client connects when it loads, and
+    // its tables exist only after the migrations.
+    const { backfillAllKnowledgePlanes } =
+      await import("../knowledge-plane/backfill.js")
+    const { closeOpenWorkflowClient } =
+      await import("../openworkflow/client.js")
+    try {
+      await backfillAllKnowledgePlanes()
+    } finally {
+      await closeOpenWorkflowClient()
+    }
+  } catch (error) {
+    log.error({
+      step: "knowledge_plane.backfill_failed",
+      message: "[migrate] the knowledge plane backfill failed",
+      error: formatUnknownError(error),
+    })
+  } finally {
+    await closeDb()
+  }
+}
