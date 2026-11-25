@@ -9,6 +9,7 @@ import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { ingestionRunTree } from "../ingestion/ingest-spend.js"
 import {
   INGEST_SHARD_MAX_ROOTS,
+  INGEST_SHARD_WINDOW,
   plannedIngestSkills,
 } from "../ingestion/ingestion-plan.js"
 import {
@@ -21,7 +22,6 @@ import {
   sourceRepositoryName,
 } from "../workspace-sources/providers/git.js"
 import { githubSourceScopeRepositories } from "../workspace-sources/providers/github.js"
-import { ORG_INGEST_SANDBOX_LIMIT } from "../workspaces/chat-lifecycle.js"
 import { lockedSandboxProvider } from "../workspaces/sandbox-provider.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../workspaces/write-status.js"
@@ -82,11 +82,11 @@ const ESTIMATE = {
   setupMinutes: { low: 3, high: 8 },
   /**
    * Shards of one repository that run at the same time. The v2 workflow
-   * starts up to `ORG_INGEST_SANDBOX_LIMIT` shards (low). The worker slots
-   * of ADR-027 can run fewer: the default worker concurrency (high).
+   * starts up to `INGEST_SHARD_WINDOW` shards (low). The worker slots of
+   * ADR-027 can run fewer: the default worker concurrency (high).
    */
   parallelShards: {
-    low: ORG_INGEST_SANDBOX_LIMIT,
+    low: INGEST_SHARD_WINDOW,
     high: DEFAULT_OPENWORKFLOW_CONCURRENCY,
   },
 } as const

@@ -30,6 +30,7 @@ import {
 } from "../../domain/ingestion/ingest-telemetry.js"
 import {
   INGEST_SHARD_MAX_ROOTS,
+  INGEST_SHARD_WINDOW,
   ingestRunSkills,
   ingestShardCount,
   packRootsWithin,
@@ -51,7 +52,6 @@ import {
   ingestPublishTurn,
   waitForPublishTurn,
 } from "../../domain/ingestion/publish-turn.js"
-import { ORG_INGEST_SANDBOX_LIMIT } from "../../domain/workspaces/chat-lifecycle.js"
 import {
   resolveIngestConflicts,
   SemanticResolveError,
@@ -620,13 +620,12 @@ export function defineRepositoryIngestionV2Workflow(
         )
 
         // A sliding window of shards (ADR-052, revision 2026-11-25): a new
-        // shard starts when a shard ends. The ingest sandbox limit of the
-        // org is the only cap; a shard that cannot get a sandbox waits for
-        // one. The run waits for every shard that it started, also when one
+        // shard starts when a shard ends. A shard that cannot get a sandbox
+        // waits for one. The run waits for every shard that it started, also when one
         // fails, so it never ends (and cleans up) while a sibling still runs.
         const shardOutputs: IngestionShardOutput[] = await windowedChildren(
           shards,
-          ORG_INGEST_SANDBOX_LIMIT,
+          INGEST_SHARD_WINDOW,
           (n) =>
             step.runWorkflow(deps.shard.spec, child(n, "roots", runBase), {
               name: `shard:${n}`,

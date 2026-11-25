@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto"
 import { gunzipSync, gzipSync } from "node:zlib"
 
+import { ORG_INGEST_SANDBOX_LIMIT } from "../workspaces/chat-lifecycle.js"
 import { isDependencyListPart } from "../workspaces/layout.js"
 import type { RootFile } from "./context-index.js"
 import type { DiscoveredRoot } from "./discovered-roots.js"
@@ -22,6 +23,15 @@ import type { IngestRootMap } from "./ingest-shard-runtime.js"
  * progress to another shard.
  */
 export const INGEST_SHARD_MAX_ROOTS = 5
+
+/**
+ * The shards of one run that run at the same time: the window of the parent
+ * (ADR-052, revision 2026-11-25). A new shard starts when a shard ends. It
+ * is the ingest sandbox limit of an org: one run never starts more shards
+ * than the org has ingest sandboxes. Do not make it smaller while a run is in progress:
+ * a replay then does not ask a shard that it started.
+ */
+export const INGEST_SHARD_WINDOW = ORG_INGEST_SANDBOX_LIMIT
 
 /**
  * The root cap of a run: the recorded value, or 20 for a run that a release

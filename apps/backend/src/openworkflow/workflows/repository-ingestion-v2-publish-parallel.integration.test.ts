@@ -71,8 +71,10 @@ describe("ingestion v2 publish", () => {
       for (const i of parallelNames.keys())
         expect(files).toContain(`knowledge/services/parallel-${i}.md`)
 
-      // The publishes raced: each one after the first replayed its delta on
-      // a newer tip at least once.
+      // One publish of the Workspace runs at a time, and it replays its
+      // delta on the tip of now: no publish lost a push race. Without the
+      // lease, each publish after the first lost its first push, and one of
+      // the 5 lost each of its 3 attempts.
       const raced = await getSystemDb().execute<{ count: string }>(sql`
         select count(*) from openworkflow.step_attempts step
         join openworkflow.workflow_runs publish
@@ -87,9 +89,7 @@ describe("ingestion v2 publish", () => {
           and step.step_name like 'refresh-raced-revision%'
           and step.status = 'completed'
       `)
-      expect(Number(raced.rows[0]?.count)).toBeGreaterThanOrEqual(
-        parallelNames.length - 1,
-      )
+      expect(Number(raced.rows[0]?.count)).toBe(0)
     },
   )
 })
