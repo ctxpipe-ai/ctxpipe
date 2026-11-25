@@ -93,6 +93,7 @@ export const knowledgePurge = defineWorkflow(
       maximumInterval: "1h",
       maximumAttempts: 30,
     } as const
+    const url = parseEnv(process.env).CLICKHOUSE_URL
     const deleted = await step.run(
       { name: "purge-knowledge-plane", retryPolicy },
       async () => {
@@ -101,7 +102,6 @@ export const knowledgePurge = defineWorkflow(
         // state of a deleted Workspace went with its row.
         if (input.workspaceId === null)
           await deleteOrgKnowledgeState(input.orgId)
-        const url = parseEnv(process.env).CLICKHOUSE_URL
         // A worker with no ClickHouse wrote no knowledge plane rows.
         if (!url) {
           getLogger().set({
@@ -110,7 +110,7 @@ export const knowledgePurge = defineWorkflow(
           })
           return null
         }
-        return withStore(async (store) => {
+        return withStore(url, async (store) => {
           const deleted = await store.purge(input)
           // Counts only: the log holds no content.
           getLogger().set({
@@ -121,45 +121,56 @@ export const knowledgePurge = defineWorkflow(
         })
       },
     )
-    if (!deleted) return null
+    if (deleted === null) return null
     // The DELETEs only hid the rows. The erase removes their bytes from the
-    // parts (CTX-1672), and the checks wait until it is done.
+    // parts (CTX-1672), also when these DELETEs found no row: an earlier
+    // attempt of the purge step can have hidden them.
     await step.run({ name: "erase-purged-rows", retryPolicy }, () =>
-      withStore((store) => store.erasePurged(input)),
+      withStore(url, (store) => store.erasePurged(input)),
     )
     for (let check = 1; ; check++) {
-      const rows = await step.run({ name: `check-erase-${check}` }, () =>
-        withStore(async (store) => {
-          const rows = await store.purgedRowsInParts(input)
-          if (rows === 0)
-            getLogger().set({
-              step: "knowledge-purge",
-              knowledgePurge: { outcome: "erased", checks: check },
-            })
-          // Each hour: the erase again, in case ClickHouse dropped a
-          // mutation.
-          else if (check % 6 === 0) await store.erasePurged(input)
-          return rows
-        }),
+      const rows = await step.run(
+        { name: `check-erase-${check}`, retryPolicy },
+        () =>
+          withStore(url, async (store) => {
+            const rows = await store.purgedRowsInParts(input)
+            // Each hour: the erase again, in case an operator killed a
+            // mutation.
+            if (rows > 0 && check % 6 === 0) await store.erasePurged(input)
+            return rows
+          }),
       )
-      if (rows === 0) return deleted
-      // ClickHouse keeps a mutation until it is done. 144 checks, 10 minutes
-      // apart, are one day after the erase: a run that fails here shows
-      // that the bytes stay longer than ADR-066 decision 9 allows.
+      if (rows === 0) break
+      // ClickHouse stores a mutation on disk and retries it until it is
+      // done. 144 checks, 10 minutes apart, are one day after the erase: a
+      // run that fails here shows that the bytes stay longer than ADR-066
+      // decision 9 allows.
       if (check >= 144)
         throw new Error(
           `The parts still hold ${rows} purged rows one day after the erase`,
         )
       await step.sleep(`await-erase-${check}`, "10 minutes")
     }
+    // The active parts hold no purged row. ClickHouse removes the replaced
+    // parts old_parts_lifetime (8 minutes) after the mutation. The writer
+    // cannot read system.parts, so the run waits for that time.
+    await step.sleep("await-old-parts", "10 minutes")
+    return step.run({ name: "erased" }, async () => {
+      getLogger().set({
+        step: "knowledge-purge",
+        knowledgePurge: { outcome: "erased" },
+      })
+      return deleted
+    })
   },
 )
 
-/** Runs `use` with a store of the writer, and closes the store. */
+/** Runs `use` with a store of the writer at `url`, and closes the store. */
 async function withStore<T>(
+  url: string | undefined,
   use: (store: KnowledgeStore) => Promise<T>,
 ): Promise<T> {
-  const store = createKnowledgeStore(parseEnv(process.env).CLICKHOUSE_URL)
+  const store = createKnowledgeStore(url)
   try {
     return await use(store)
   } finally {

@@ -281,6 +281,10 @@ it(
         expect(await rowsOf(workspace)).toEqual(NO_KNOWLEDGE_ROWS)
         // The parts do not hold the deleted rows either (CTX-1672).
         expect(await rowsInParts(workspace)).toEqual(NO_KNOWLEDGE_ROWS)
+        expect((await purgeSteps(f.org.id)).at(-1)).toEqual({
+          name: "erased",
+          output: projectedRows,
+        })
         expect(await rowsOf(sibling)).toEqual(kept)
         expect(await rowsOf(otherOrg)).toEqual(kept)
         // The heads of the Workspace go with its row.
