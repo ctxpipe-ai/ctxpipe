@@ -36,13 +36,13 @@ import { ingestPublishTurn } from "../ingestion/publish-turn.js"
 import {
   ingestionRunState,
   reingestRunKeyPrefix,
-  reingestSlotTurn,
+  reingestTurn,
 } from "./reingest.js"
 import { startWorkspaceUpgrade } from "./start.js"
 import { stopOrphanedReingestRuns } from "./stop-orphans.js"
 
 /*
- * The re-ingestion throttle and the step budget of a long run, with real
+ * The turn of a re-ingestion and the step budget of a long run, with real
  * Postgres and real OpenWorkflow runs. This file has its own OpenWorkflow
  * namespace, so it sees no run of another test file. No worker implements
  * ingestion v2 here, so each ingestion v2 run stays active.
@@ -108,61 +108,6 @@ async function startedAt(id: string, at: Date): Promise<void> {
   `)
 }
 
-describe("re-ingestion throttle", () => {
-  it("gives the slot of an org to its first upgrade run until that run ends, and caps the runs of the instance", async () => {
-    const [orgA, orgB, orgC] = [
-      generateObjectId("org"),
-      generateObjectId("org"),
-      generateObjectId("org"),
-    ]
-    const runs = {
-      a1: await upgradeRun(orgA),
-      a2: await upgradeRun(orgA),
-      other: await upgradeRun(orgB),
-      third: await upgradeRun(orgC),
-    }
-    // The two runs of org A start in the same millisecond: the run id
-    // orders them, so the same run gets the slot each time.
-    const at = Date.now()
-    await startedAt(runs.a1, new Date(at))
-    await startedAt(runs.a2, new Date(at))
-    await startedAt(runs.other, new Date(at + 1))
-    await startedAt(runs.third, new Date(at + 2))
-    const [first = "", second = ""] = [runs.a1, runs.a2].sort()
-    const [other, third] = [runs.other, runs.third]
-    const turn = (orgId: string, upgradeRunId: string, runsPerInstance = 4) =>
-      reingestSlotTurn({
-        orgId,
-        upgradeRunId,
-        runsPerInstance,
-        workspaceId: generateObjectId("ws"),
-        sourceUrls: [],
-      })
-
-    for (let ask = 0; ask < 3; ask++) {
-      expect(await turn(orgA, first)).toEqual({ turn: true })
-      // The slot stays with the first run, also between its repositories.
-      expect(await turn(orgA, second)).toEqual({
-        wait: "Another re-ingestion of this organization runs.",
-      })
-    }
-    // Another org is not held by this org.
-    expect(await turn(orgB, other)).toEqual({ turn: true })
-    // Two heads are before the third org.
-    expect(await turn(orgC, third, 2)).toEqual({
-      wait: "The re-ingestion slots of this instance are full.",
-    })
-
-    await runner.cancelWorkflowRun(first)
-    expect(await turn(orgA, second)).toEqual({ turn: true })
-    expect(await turn(orgC, third, 2)).toEqual({
-      wait: "The re-ingestion slots of this instance are full.",
-    })
-    await runner.cancelWorkflowRun(other)
-    expect(await turn(orgC, third, 2)).toEqual({ turn: true })
-  })
-})
-
 describe("an ingestion run of a source of the Workspace", () => {
   it("makes the upgrade wait until that run ends, so the re-ingestion pins what it published", async () => {
     const orgId = generateObjectId("org")
@@ -189,12 +134,9 @@ describe("an ingestion run of a source of the Workspace", () => {
       queued.push(handle.workflowRun.id)
       return handle.workflowRun.id
     }
-    const upgradeRunId = await upgradeRun(orgId)
     const turn = () =>
-      reingestSlotTurn({
+      reingestTurn({
         orgId,
-        upgradeRunId,
-        runsPerInstance: 4,
         workspaceId,
         sourceUrls: ["https://github.com/Acme/Ky"],
       })
@@ -354,7 +296,7 @@ describe("step budget", () => {
       const stepBudget = 12
       const repository = defineWorkspaceUpgradeReingestRepository({
         stepBudget,
-        throttle: { firstPollSeconds: 1, maxRunPollSeconds: 1 },
+        polls: { firstPollSeconds: 1, maxRunPollSeconds: 1 },
       })
       runner.implementWorkflow(repository.spec, repository.fn)
       const worker = runner.newWorker({ concurrency: 2 })
@@ -412,7 +354,7 @@ describe("step budget", () => {
 async function orphanedRepositoryRun(orgId: string) {
   const fleet = new OpenWorkflow({ backend })
   const repository = defineWorkspaceUpgradeReingestRepository({
-    throttle: { firstPollSeconds: 1, maxRunPollSeconds: 1 },
+    polls: { firstPollSeconds: 1, maxRunPollSeconds: 1 },
   })
   const parent = {
     spec: upgradeSpec,
@@ -520,28 +462,28 @@ async function until<T>(read: () => Promise<T | undefined>): Promise<T> {
 
 describe("a parent run that ends before its repository runs", () => {
   it(
-    "cancels the repository run and its ingestion runs, and keeps the slot until they ended",
+    "cancels the repository run and its ingestion runs, and a re-ingestion of the same source and Workspace waits until they ended",
     { timeout: 90_000 },
     async () => {
       const orgId = generateObjectId("org")
       const { worker, repositoryRun, ingestionRun } =
         await orphanedRepositoryRun(orgId)
       try {
-        // The next run of the org waits: the slot is not free yet.
-        const next = await upgradeRun(orgId)
-        expect(
-          await reingestSlotTurn({
+        const orphan = await repositoryRun()
+        if (!orphan) throw new Error("The orphan is missing")
+        const turn = () =>
+          reingestTurn({
             orgId,
-            upgradeRunId: next,
-            runsPerInstance: 4,
-            workspaceId: generateObjectId("ws"),
-            sourceUrls: [],
-          }),
-        ).toEqual({
-          wait: "A repository run of an earlier re-ingestion of this organization has not ended.",
+            workspaceId: orphan.input.workspaceId,
+            sourceUrls: ["https://github.com/acme/orphan"],
+          })
+        // Its ingestion run can still publish to the Workspace (CTX-895).
+        expect(await turn()).toEqual({
+          wait: "An ingestion run of a source repository of this Workspace has not ended. The re-ingestion starts after it.",
         })
         // The worker of this test also runs the next run, and that run starts
         // its own repository run. Its parent is live, so it is not an orphan.
+        const next = await upgradeRun(orgId)
         await until(() => repositoryRunOf(next))
 
         await stopOrphanedReingestRuns()
@@ -549,15 +491,7 @@ describe("a parent run that ends before its repository runs", () => {
         const ingestion = await ingestionRun()
         expect(ingestion?.status).toBe("canceled")
         expect((await repositoryRunOf(next))?.status).not.toBe("canceled")
-        expect(
-          await reingestSlotTurn({
-            orgId,
-            upgradeRunId: next,
-            runsPerInstance: 4,
-            workspaceId: generateObjectId("ws"),
-            sourceUrls: [],
-          }),
-        ).toEqual({ turn: true })
+        expect(await turn()).toEqual({ turn: true })
       } finally {
         await worker.stop()
       }

@@ -4,7 +4,6 @@ import { WorkflowLeaseLostError } from "./execution-lease.js"
 import {
   cleanUpUnlessParked,
   isWorkflowControlSignal,
-  settledChildren,
 } from "./isSleepSignal.js"
 
 function namedError(name: string, message = "park"): Error {
@@ -130,33 +129,5 @@ describe("cleanUpUnlessParked", () => {
         ),
       ).rejects.toThrow(WorkflowLeaseLostError)
     expect(cleaned).toEqual(["tree", "tree", "tree"])
-  })
-})
-
-describe("settledChildren", () => {
-  const ok = <T>(value: T): PromiseSettledResult<T> => ({
-    status: "fulfilled",
-    value,
-  })
-  const no = (reason: unknown): PromiseSettledResult<never> => ({
-    status: "rejected",
-    reason,
-  })
-
-  it("parks while a sibling still runs, also when another child failed", () => {
-    const park = namedError("SleepSignalError")
-    const failed = new Error("shard 0 failed")
-    expect(() => settledChildren([no(failed), no(park), ok(1)])).toThrow(park)
-  })
-
-  it("fails with the first failure when every child has ended", () => {
-    const failed = new Error("shard 0 failed")
-    expect(() =>
-      settledChildren([ok(1), no(failed), no(new Error("shard 2 failed"))]),
-    ).toThrow(failed)
-  })
-
-  it("returns the values when every child is done", () => {
-    expect(settledChildren([ok(1), ok(2)])).toEqual([1, 2])
   })
 })

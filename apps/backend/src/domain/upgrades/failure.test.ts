@@ -194,7 +194,7 @@ describe("isTemporaryFailure", () => {
       isTemporaryFailure({
         status: "failed",
         failureReason:
-          "Another re-ingestion of this organization runs. The re-ingestion waited too long for its turn. Start it again.",
+          "An ingestion run of a source repository of this Workspace has not ended. The re-ingestion starts after it. The re-ingestion waited too long for its turn. Start it again.",
       }),
     ).toBe(false)
   })

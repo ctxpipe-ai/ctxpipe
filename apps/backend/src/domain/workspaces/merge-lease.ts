@@ -1,9 +1,11 @@
 /**
- * One semantic merge of a Workspace runs at a time (CTX-1598). Before, the
- * merges of one Workspace raced on its default branch: each push made the
- * other merges discard their merge commits and merge again.
+ * One semantic merge or ingestion publish of a Workspace runs at a time
+ * (CTX-1598, CTX-1621). Before, the merges and the publishes of one
+ * Workspace raced on its default branch: each push made the others discard
+ * their commits and merge again. The key keeps its first name, so a lease
+ * that a run holds stays valid after a deploy.
  *
- * The merge run holds a lease on its Workspace from its first acquire to its
+ * The run holds a lease on its Workspace from its first acquire to its
  * push. The lease is a `sandbox_locks` row that names the run, with no time
  * limit. It is free when its run releases it, or when its run is not open
  * any more (completed, failed, or canceled). Thus a crashed worker cannot

@@ -4,7 +4,8 @@ import { getOrgDb, withOrgDbContext } from "../db/client.js"
 import { repositories } from "../db/schema/repositories.js"
 import { workspaceSources } from "../db/schema/workspace_sources.js"
 import {
-  INGEST_SHARD_MAX_ROOTS,
+  ingestShardCount,
+  plannedShardMaxRoots,
   unpackRoots,
 } from "../domain/ingestion/ingestion-plan.js"
 import { INGESTION_V2_WORKFLOW_NAME } from "../domain/ingestion/ingestion-run.js"
@@ -82,6 +83,8 @@ type StepRow = {
   waiting: boolean | null
   shards_done: number | string | null
   roots: string | null
+  /** The root cap of the run's shards; null for a run before CTX-1621. */
+  shard_max_roots: number | string | null
 }
 
 type ActiveRun = { run: RunRow; workspaceIds: string[] }
@@ -339,11 +342,8 @@ export async function listActiveIngestion(
             where s.namespace_id = ${namespaceId} and s.workflow_run_id = r.id
               and s.step_name like 'shard:%' and s.status = 'completed'
           ) as shards_done,
-          (select s.output->>'roots' from openworkflow.step_attempts s
-            where s.namespace_id = ${namespaceId} and s.workflow_run_id = r.id
-              and s.step_name = 'discover-roots' and s.status = 'completed'
-            limit 1
-          ) as roots
+          discover.output->>'roots' as roots,
+          discover.output->>'shardMaxRoots' as shard_max_roots
         from unnest(array[${ids}]::text[]) as r(id)
         left join lateral (
           select s.step_name, s.output->>'wait' is not null as waiting
@@ -352,6 +352,12 @@ export async function listActiveIngestion(
           order by s.created_at desc, s.id desc
           limit 1
         ) last on true
+        left join lateral (
+          select s.output from openworkflow.step_attempts s
+          where s.namespace_id = ${namespaceId} and s.workflow_run_id = r.id
+            and s.step_name = 'discover-roots' and s.status = 'completed'
+          limit 1
+        ) discover on true
       `)
       for (const row of rows.rows) steps.set(row.id, row)
     }
@@ -446,9 +452,14 @@ function repositoryStage(
   if (!step.roots) return { stage: "planning", progress: null }
   let total: number
   try {
-    total = Math.ceil(
+    total = ingestShardCount(
       // The unzipped root list of a run is smaller than 32 MB.
-      unpackRoots(step.roots, 32 * 1024 * 1024).length / INGEST_SHARD_MAX_ROOTS,
+      unpackRoots(step.roots, 32 * 1024 * 1024).length,
+      plannedShardMaxRoots(
+        step.shard_max_roots === null
+          ? undefined
+          : Number(step.shard_max_roots),
+      ),
     )
   } catch {
     // A corrupt or too large root list hides only the progress of this run.

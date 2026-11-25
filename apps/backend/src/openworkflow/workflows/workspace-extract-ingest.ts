@@ -35,7 +35,6 @@ import {
   refreshWorkspaceWriteRevision,
 } from "../../domain/workspaces/write-broker.js"
 import {
-  acquireWorkspaceWriteRevision,
   completedWorkspaceWrite,
   completeWorkspaceWrite,
   prepareWorkspaceWriteCommit,
@@ -58,6 +57,10 @@ import {
 import { enqueueWorkflow } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { whileWorkflowRunActive } from "../run-ended.js"
+import {
+  acquireOnCurrentTip,
+  holdWorkspaceMergeLease,
+} from "../workspace-merge-lease-steps.js"
 import { runJobRefStep } from "../write-steps.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
 
@@ -226,313 +229,320 @@ export function defineWorkspaceExtractIngestWorkflow() {
               ingest: ingestSource,
             }),
           )
-          for (let refreshAttempt = 0; refreshAttempt < 3; refreshAttempt++) {
-            let acquired: NonNullable<
-              Awaited<ReturnType<typeof acquireWorkspaceWriteRevision>>
-            >
-            for (;;) {
-              const candidate = await step.run(
-                { name: "acquire-revision-v2" },
-                () => acquireWorkspaceWriteRevision(input, revision, env),
+          // The publish, under the lease below.
+          const publish = async (): Promise<ExtractIngestResult> => {
+            for (let refreshAttempt = 0; refreshAttempt < 3; refreshAttempt++) {
+              // The first acquire replays the delta onto the tip of now.
+              const next = await acquireOnCurrentTip(
+                step,
+                input,
+                revision,
+                env,
+                { refresh: refreshAttempt === 0 },
               )
-              if (candidate) {
-                acquired = candidate
-                break
-              }
-              await step.run({ name: "pause-command" }, () =>
-                persistWriteJobStatus(input.jobId, "paused"),
-              )
-              await step.sleep("await-write-access", "1 minute")
-              await step.run({ name: "resume-command" }, () =>
-                persistWriteJobStatus(input.jobId, "running"),
-              )
-            }
-            // One step merges the run onto the tip, commits the result, and
-            // pushes the commit to its job ref: no step output holds a file
-            // (CTX-1239).
-            const committed = await runJobRefStep(
-              step,
-              input.jobId,
-              { name: "prepare-commit" },
-              () =>
-                prepareWorkspaceWriteCommit(
-                  input,
-                  revision,
-                  acquired.pack,
-                  {
-                    change: async () => {
-                      const { source, sourcePath, sourceSha, ...ingest } =
-                        ingestSource
-                      // Its own copy of the source tree, for the validator.
-                      const holder = `publish:${input.workspaceId}`
-                      const sourceTree = () =>
-                        ingestSourceTree({
-                          orgId: input.orgId,
-                          runId: ingest.runId,
-                          source,
-                          sha: sourceSha,
-                          env,
-                          holder,
-                        })
-                      try {
-                        const merged = await mergeWorkspaceIngestPublish(
-                          {
+              const { acquired } = next
+              revision = next.revision
+              // One step merges the run onto the tip, commits the result, and
+              // pushes the commit to its job ref: no step output holds a file
+              // (CTX-1239).
+              const committed = await runJobRefStep(
+                step,
+                input.jobId,
+                { name: "prepare-commit" },
+                () =>
+                  prepareWorkspaceWriteCommit(
+                    input,
+                    revision,
+                    acquired.pack,
+                    {
+                      change: async () => {
+                        const { source, sourcePath, sourceSha, ...ingest } =
+                          ingestSource
+                        // Its own copy of the source tree, for the validator.
+                        const holder = `publish:${input.workspaceId}`
+                        const sourceTree = () =>
+                          ingestSourceTree({
                             orgId: input.orgId,
-                            workspaceId: input.workspaceId,
                             runId: ingest.runId,
-                            pinnedRevision: input.revision.sha,
-                            tip: ingest.tip,
-                            current: revision.sha,
-                            withheldRoots: ingest.withheldRoots,
-                            bundle: ingest.bundle,
-                            semanticMerge: {
-                              resolve: resolveIngestConflicts,
-                              source: { url: source.url, sha: sourceSha },
-                              sourcePath,
-                              sourcePathExists: (path) =>
-                                sourceTree().exists(path),
-                              readSourceFile: (path) => sourceTree().read(path),
-                            },
-                          },
-                          env,
-                        )
-                        const { withheldReasons, ...output } = merged
-                        if (merged.withheld.length)
-                          logIngestEvent("warn", "ingestion-v2.partial", {
-                            ingestionRunId: ingest.runId,
-                            ingestStep: "publish",
-                            workspaceId: input.workspaceId,
-                            // Fixed codes and a count: a path can hold model text.
-                            reason: "withheld",
-                            rules: [
-                              ...new Set(
-                                merged.withheld.flatMap((w) => w.rules),
-                              ),
-                            ].sort(),
-                            withheld: merged.withheld.length,
+                            source,
+                            sha: sourceSha,
+                            env,
+                            holder,
                           })
-                        // Log the validator reasons of the withheld files as the step
-                        // rejections log them, with a count and no path (CTX-1099).
-                        for (const { rule, reason, files } of withheldReasons)
-                          logIngestEvent(
-                            "warn",
-                            "ingestion-v2.publish-withheld",
+                        try {
+                          const merged = await mergeWorkspaceIngestPublish(
                             {
-                              ingestionRunId: ingest.runId,
+                              orgId: input.orgId,
                               workspaceId: input.workspaceId,
-                              rule,
-                              reason: capIngestText(reason),
-                              files,
+                              runId: ingest.runId,
+                              pinnedRevision: input.revision.sha,
+                              tip: ingest.tip,
+                              current: revision.sha,
+                              withheldRoots: ingest.withheldRoots,
+                              bundle: ingest.bundle,
+                              semanticMerge: {
+                                resolve: resolveIngestConflicts,
+                                source: { url: source.url, sha: sourceSha },
+                                sourcePath,
+                                sourcePathExists: (path) =>
+                                  sourceTree().exists(path),
+                                readSourceFile: (path) =>
+                                  sourceTree().read(path),
+                              },
                             },
+                            env,
                           )
-                        // The list of withheld files can be long: the job keeps it,
-                        // not the step output (CTX-1239).
-                        await persistWriteJobUnchangedFiles(input.jobId, {
-                          withheld: output.withheld,
-                        })
-                        return {
-                          files: output.files,
-                          deletePaths: output.deletePaths,
-                        }
-                      } catch (error) {
-                        // A refused publish (not a validator rejection of a
-                        // merged file, which is withheld): the Workspace is
-                        // `partial`, and the publish writes nothing.
-                        if (error instanceof IngestRefRefusedError) {
-                          logIngestEvent("warn", "ingestion-v2.partial", {
-                            ingestionRunId: ingest.runId,
-                            ingestStep: "publish",
-                            workspaceId: input.workspaceId,
-                            // Fixed codes: the cause text can hold model or
-                            // customer text.
-                            reason: "refused",
-                            rules: error.rules,
+                          const { withheldReasons, ...output } = merged
+                          if (merged.withheld.length)
+                            logIngestEvent("warn", "ingestion-v2.partial", {
+                              ingestionRunId: ingest.runId,
+                              ingestStep: "publish",
+                              workspaceId: input.workspaceId,
+                              // Fixed codes and a count: a path can hold model text.
+                              reason: "withheld",
+                              rules: [
+                                ...new Set(
+                                  merged.withheld.flatMap((w) => w.rules),
+                                ),
+                              ].sort(),
+                              withheld: merged.withheld.length,
+                            })
+                          // Log the validator reasons of the withheld files as the step
+                          // rejections log them, with a count and no path (CTX-1099).
+                          for (const { rule, reason, files } of withheldReasons)
+                            logIngestEvent(
+                              "warn",
+                              "ingestion-v2.publish-withheld",
+                              {
+                                ingestionRunId: ingest.runId,
+                                workspaceId: input.workspaceId,
+                                rule,
+                                reason: capIngestText(reason),
+                                files,
+                              },
+                            )
+                          // The list of withheld files can be long: the job keeps it,
+                          // not the step output (CTX-1239).
+                          await persistWriteJobUnchangedFiles(input.jobId, {
+                            withheld: output.withheld,
                           })
                           return {
-                            stopped: "refused" as const,
-                            refused: error.message.slice(0, 300),
-                            rules: error.rules,
+                            files: output.files,
+                            deletePaths: output.deletePaths,
                           }
-                        }
-                        // A failed semantic merge model: the same, but the run
-                        // keeps the refs.
-                        if (error instanceof SemanticResolveError) {
-                          logIngestEvent("warn", "ingestion-v2.partial", {
-                            ingestionRunId: ingest.runId,
-                            ingestStep: "publish",
-                            workspaceId: input.workspaceId,
-                            reason: "failed",
-                          })
-                          return {
-                            stopped: "failed" as const,
-                            failed: error.message.slice(0, 300),
+                        } catch (error) {
+                          // A refused publish (not a validator rejection of a
+                          // merged file, which is withheld): the Workspace is
+                          // `partial`, and the publish writes nothing.
+                          if (error instanceof IngestRefRefusedError) {
+                            logIngestEvent("warn", "ingestion-v2.partial", {
+                              ingestionRunId: ingest.runId,
+                              ingestStep: "publish",
+                              workspaceId: input.workspaceId,
+                              // Fixed codes: the cause text can hold model or
+                              // customer text.
+                              reason: "refused",
+                              rules: error.rules,
+                            })
+                            return {
+                              stopped: "refused" as const,
+                              refused: error.message.slice(0, 300),
+                              rules: error.rules,
+                            }
                           }
+                          // A failed semantic merge model: the same, but the run
+                          // keeps the refs.
+                          if (error instanceof SemanticResolveError) {
+                            logIngestEvent("warn", "ingestion-v2.partial", {
+                              ingestionRunId: ingest.runId,
+                              ingestStep: "publish",
+                              workspaceId: input.workspaceId,
+                              reason: "failed",
+                            })
+                            return {
+                              stopped: "failed" as const,
+                              failed: error.message.slice(0, 300),
+                            }
+                          }
+                          throw error
+                        } finally {
+                          await releaseIngestSourceTree(
+                            ingest.runId,
+                            sourceSha,
+                            holder,
+                          )
                         }
-                        throw error
-                      } finally {
-                        await releaseIngestSourceTree(
-                          ingest.runId,
-                          sourceSha,
-                          holder,
-                        )
-                      }
+                      },
+                      // A fixed message: the same run makes the same commit.
+                      subject: `Update extracted knowledge\n\nCtxpipe-Run: ${ingestSource.runId}`,
+                      // A replay of a publish is a new workflow run: the run's
+                      // author time keeps the SHA.
+                      createdAt: new Date(ingestSource.authorTime),
                     },
-                    // A fixed message: the same run makes the same commit.
-                    subject: `Update extracted knowledge\n\nCtxpipe-Run: ${ingestSource.runId}`,
-                    // A replay of a publish is a new workflow run: the run's
-                    // author time keeps the SHA.
-                    createdAt: new Date(ingestSource.authorTime),
+                    env,
+                  ),
+              )
+              if (committed && "stopped" in committed) {
+                await step.run(
+                  {
+                    name:
+                      committed.stopped === "refused"
+                        ? "refuse-publish"
+                        : "fail-publish",
                   },
+                  () => persistWriteJobStatus(input.jobId, "failed"),
+                )
+                return committed.stopped === "refused"
+                  ? {
+                      committed: false as const,
+                      reason: "refused" as const,
+                      refused: committed.refused,
+                      rules: committed.rules,
+                    }
+                  : {
+                      committed: false as const,
+                      reason: "failed" as const,
+                      failed: committed.failed,
+                    }
+              }
+              if (!committed) {
+                // The delta is from the pinned revision, so a later tip cannot
+                // add to it: there is nothing to confirm.
+                await step.run({ name: "complete-no-op" }, () =>
+                  persistWriteJobStatus(input.jobId, "completed"),
+                )
+                return {
+                  committed: false as const,
+                  reason: "no_changes" as const,
+                  withheld: await withheldFiles(),
+                }
+              }
+              let pushed: Awaited<ReturnType<typeof attemptWorkspaceCommit>>
+              for (;;) {
+                const attempt = await step.run(
+                  { name: "broker-push", retryPolicy: { maximumAttempts: 3 } },
+                  async () => {
+                    // The format can change after the transform and while the
+                    // push waits for write access. The step that pushes reads
+                    // it from the tree that it pushes on: the push lands only
+                    // on that parent, so no other tree can get the commit.
+                    if (await pipelineStopped(committed, read)) {
+                      // The job publishes nothing, so it keeps no commit.
+                      await discardWriteJobPreparedCommit(
+                        input.jobId,
+                        committed.sha,
+                      )
+                      await persistWriteJobStatus(input.jobId, "completed")
+                      return { stopped: true as const }
+                    }
+                    if (await sourceUnlinked(committed, read)) {
+                      await discardWriteJobPreparedCommit(
+                        input.jobId,
+                        committed.sha,
+                      )
+                      await persistWriteJobStatus(input.jobId, "completed")
+                      return { unlinked: true as const }
+                    }
+                    // A cancel of the ingestion run tree (CTX-1507) stops
+                    // the push of this step, which can be in progress.
+                    return attemptWorkspaceCommit(
+                      input,
+                      revision,
+                      committed,
+                      env,
+                      (push) => whileWorkflowRunActive(run.id, push),
+                    )
+                  },
+                )
+                if ("unlinked" in attempt)
+                  return {
+                    committed: false as const,
+                    reason: "source_unlinked" as const,
+                  }
+                if ("stopped" in attempt)
+                  return {
+                    committed: false as const,
+                    reason: "publish_pipeline_stopped" as const,
+                  }
+                pushed = attempt
+                if (pushed.pushed || pushed.reason !== "paused") break
+                await step.run({ name: "pause-push" }, () =>
+                  persistWriteJobStatus(input.jobId, "paused"),
+                )
+                await step.sleep("await-default-write-access", "1 minute")
+                await step.run({ name: "resume-push" }, () =>
+                  persistWriteJobStatus(input.jobId, "running"),
+                )
+              }
+              if (!pushed.pushed) {
+                // The default branch moved: replay the delta on the new tip. A
+                // semantic merge handoff would push a merge that no validator saw.
+                await step.run({ name: "discard-unpublished-candidate" }, () =>
+                  discardWriteJobPreparedCommit(input.jobId, committed.sha),
+                )
+                revision = await step.run(
+                  { name: "refresh-raced-revision" },
+                  () => refreshWorkspaceWriteRevision(input, revision, env),
+                )
+                continue
+              }
+              const published = await step.run({ name: "publish-result" }, () =>
+                publishWorkspaceWriteRevision(input, revision, committed, env),
+              )
+              await step.run({ name: "enqueue-hydrate" }, async () => {
+                await enqueueWorkflow(
+                  workspaceHydrate.spec,
+                  {
+                    orgId: input.orgId,
+                    workspaceId: input.workspaceId,
+                    revision: published,
+                  },
+                  { idempotencyKey: extractionHydrateKey(input.jobId) },
+                )
+              })
+              await step.run({ name: "complete" }, () =>
+                completeWorkspaceWrite(
+                  { ...input, remote: input.revision.remote },
+                  committed.sha,
                   env,
                 ),
-            )
-            if (committed && "stopped" in committed) {
-              await step.run(
-                {
-                  name:
-                    committed.stopped === "refused"
-                      ? "refuse-publish"
-                      : "fail-publish",
-                },
-                () => persistWriteJobStatus(input.jobId, "failed"),
-              )
-              return committed.stopped === "refused"
-                ? {
-                    committed: false as const,
-                    reason: "refused" as const,
-                    refused: committed.refused,
-                    rules: committed.rules,
-                  }
-                : {
-                    committed: false as const,
-                    reason: "failed" as const,
-                    failed: committed.failed,
-                  }
-            }
-            if (!committed) {
-              // The delta is from the pinned revision, so a later tip cannot
-              // add to it: there is nothing to confirm.
-              await step.run({ name: "complete-no-op" }, () =>
-                persistWriteJobStatus(input.jobId, "completed"),
               )
               return {
-                committed: false as const,
-                reason: "no_changes" as const,
+                committed: true as const,
+                commitSha: committed.sha,
                 withheld: await withheldFiles(),
               }
             }
-            let pushed: Awaited<ReturnType<typeof attemptWorkspaceCommit>>
-            for (;;) {
-              const attempt = await step.run(
-                { name: "broker-push", retryPolicy: { maximumAttempts: 3 } },
-                async () => {
-                  // The format can change after the transform and while the
-                  // push waits for write access. The step that pushes reads
-                  // it from the tree that it pushes on: the push lands only
-                  // on that parent, so no other tree can get the commit.
-                  if (await pipelineStopped(committed, read)) {
-                    // The job publishes nothing, so it keeps no commit.
-                    await discardWriteJobPreparedCommit(
-                      input.jobId,
-                      committed.sha,
-                    )
-                    await persistWriteJobStatus(input.jobId, "completed")
-                    return { stopped: true as const }
-                  }
-                  if (await sourceUnlinked(committed, read)) {
-                    await discardWriteJobPreparedCommit(
-                      input.jobId,
-                      committed.sha,
-                    )
-                    await persistWriteJobStatus(input.jobId, "completed")
-                    return { unlinked: true as const }
-                  }
-                  // A cancel of the ingestion run tree (CTX-1507) stops
-                  // the push of this step, which can be in progress.
-                  return attemptWorkspaceCommit(
-                    input,
-                    revision,
-                    committed,
-                    env,
-                    (push) => whileWorkflowRunActive(run.id, push),
-                  )
-                },
-              )
-              if ("unlinked" in attempt)
-                return {
-                  committed: false as const,
-                  reason: "source_unlinked" as const,
-                }
-              if ("stopped" in attempt)
-                return {
-                  committed: false as const,
-                  reason: "publish_pipeline_stopped" as const,
-                }
-              pushed = attempt
-              if (pushed.pushed || pushed.reason !== "paused") break
-              await step.run({ name: "pause-push" }, () =>
-                persistWriteJobStatus(input.jobId, "paused"),
-              )
-              await step.sleep("await-default-write-access", "1 minute")
-              await step.run({ name: "resume-push" }, () =>
-                persistWriteJobStatus(input.jobId, "running"),
-              )
-            }
-            if (!pushed.pushed) {
-              // The default branch moved: replay the delta on the new tip. A
-              // semantic merge handoff would push a merge that no validator saw.
-              await step.run({ name: "discard-unpublished-candidate" }, () =>
-                discardWriteJobPreparedCommit(input.jobId, committed.sha),
-              )
-              revision = await step.run(
-                { name: "refresh-raced-revision" },
-                () => refreshWorkspaceWriteRevision(input, revision, env),
-              )
-              continue
-            }
-            const published = await step.run({ name: "publish-result" }, () =>
-              publishWorkspaceWriteRevision(input, revision, committed, env),
-            )
-            await step.run({ name: "enqueue-hydrate" }, async () => {
-              await enqueueWorkflow(
-                workspaceHydrate.spec,
-                {
-                  orgId: input.orgId,
-                  workspaceId: input.workspaceId,
-                  revision: published,
-                },
-                { idempotencyKey: extractionHydrateKey(input.jobId) },
-              )
+            // Each attempt lost the push race: publish nothing, and let the
+            // run publish its other Workspaces.
+            await step.run({ name: "fail-raced-publish" }, async () => {
+              logIngestEvent("warn", "ingestion-v2.partial", {
+                ingestionRunId: ingestSource.runId,
+                ingestStep: "publish",
+                workspaceId: input.workspaceId,
+                reason: "failed",
+              })
+              await persistWriteJobStatus(input.jobId, "failed")
             })
-            await step.run({ name: "complete" }, () =>
-              completeWorkspaceWrite(
-                { ...input, remote: input.revision.remote },
-                committed.sha,
-                env,
-              ),
-            )
             return {
-              committed: true as const,
-              commitSha: committed.sha,
-              withheld: await withheldFiles(),
+              committed: false as const,
+              reason: "failed" as const,
+              failed: "The default branch kept changing during the publish",
             }
           }
-          // Each attempt lost the push race: publish nothing, and let the
-          // run publish its other Workspaces.
-          await step.run({ name: "fail-raced-publish" }, async () => {
-            logIngestEvent("warn", "ingestion-v2.partial", {
-              ingestionRunId: ingestSource.runId,
-              ingestStep: "publish",
-              workspaceId: input.workspaceId,
-              reason: "failed",
-            })
-            await persistWriteJobStatus(input.jobId, "failed")
+          // One ingestion publish or semantic merge of a Workspace runs at a
+          // time (CTX-1621, the lease of CTX-1598). The runs of one
+          // re-ingestion pin the same revision and publish at the same
+          // time: without the lease, each one after the first lost its
+          // push, and one lost each attempt.
+          const lease = await holdWorkspaceMergeLease(step, {
+            orgId: input.orgId,
+            workspaceId: input.workspaceId,
+            runId: run.id,
           })
-          return {
-            committed: false as const,
-            reason: "failed" as const,
-            failed: "The default branch kept changing during the publish",
-          }
+          const result = await publish()
+          await lease.release()
+          return result
         },
       )
     },

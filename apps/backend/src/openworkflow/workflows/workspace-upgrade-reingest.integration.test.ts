@@ -431,16 +431,16 @@ beforeAll(async () => {
   const parent = defineRepositoryIngestionV2Workflow({ ...deps, shard })
   const extract = defineWorkspaceExtractIngestWorkflow()
   scan = defineWorkspaceUpgradeScan([])
-  const throttle = {
+  const polls = {
     firstPollSeconds: 1,
-    maxSlotPollSeconds: 1,
+    maxTurnPollSeconds: 1,
     maxRunPollSeconds: 1,
   }
-  repository = defineWorkspaceUpgradeReingestRepository({ throttle })
+  repository = defineWorkspaceUpgradeReingestRepository({ polls })
   // 11 step attempts hold 2 repositories: 5 fixed, 2 for each repository, and
-  // one slot poll of 2.
+  // one poll of the turn of 2.
   reingest = defineWorkspaceUpgradeReingest({
-    throttle,
+    polls,
     repository,
     stepBudget: 11,
   })
@@ -572,6 +572,40 @@ const start = async (workspaceId: string) =>
       userId: "user_admin",
     }),
   )
+
+/**
+ * The repository runs of the last upgrade run of the Workspace, in the order
+ * that they started.
+ */
+async function repositoryRunsOf(workspaceId: string) {
+  const upgradeRunId = (await row(workspaceId))?.workflowRunId ?? ""
+  const result = await getSystemDb().execute<{
+    created_at: string | Date
+    finished_at: string | Date
+  }>(sql`
+    select created_at, finished_at from openworkflow.workflow_runs
+    where namespace_id = ${openWorkflowNamespaceId()}
+      and workflow_name = 'workspace-upgrade-reingest-repository'
+      and input->>'upgradeRunId' = ${upgradeRunId}
+    order by created_at, id
+  `)
+  return result.rows.map((r) => ({
+    createdAt: new Date(r.created_at).getTime(),
+    finishedAt: new Date(r.finished_at).getTime(),
+  }))
+}
+
+/** The `record-wait` steps of the last upgrade run of the Workspace. */
+async function waitsOf(workspaceId: string) {
+  const upgradeRunId = (await row(workspaceId))?.workflowRunId ?? ""
+  const result = await getSystemDb().execute<{ step_name: string }>(sql`
+    select step_name from openworkflow.step_attempts
+    where namespace_id = ${openWorkflowNamespaceId()}
+      and workflow_run_id = ${upgradeRunId}
+      and step_name = 'record-wait'
+  `)
+  return result.rows.map((r) => r.step_name)
+}
 
 /** The ingestion v2 runs that a re-ingestion started in this file (of one Workspace). */
 async function reingestRuns(workspaceId = "") {
@@ -772,7 +806,7 @@ it(
 )
 
 it(
-  "runs every model step when the spend is high, publishes all of it, and records the spend",
+  "runs every model step when the spend is high, publishes all of it, and records the spend; its repositories and another re-ingestion of the org run at the same time",
   { timeout: 420_000 },
   async () => {
     // Each model step reports $50. The first repository has three roots
@@ -782,7 +816,26 @@ it(
     expect(await row(costly)).toMatchObject({ status: "awaiting_operator" })
     const callsBefore = modelCalls.filter((id) => id === costly).length
     expect(await start(costly)).toMatchObject({ kind: "queued" })
+    // A second re-ingestion of the org, at the same time (ADR-052, revision
+    // 2026-11-25). It fails again: its Workspace is not a destination.
+    expect(await start(yamlOnly)).toMatchObject({ kind: "queued" })
     const finished = await settled(costly)
+    expect(await settled(yamlOnly)).toMatchObject({ status: "failed" })
+    // No re-ingestion waited for another one. The two repository runs of
+    // `costly` ran at the same time, and the repository run of `yamlOnly`
+    // started before the run of `costly` ended. One after the other, a
+    // repository run started only after the run before it ended.
+    const [runA, runB] = await repositoryRunsOf(costly)
+    const [otherRun] = await repositoryRunsOf(yamlOnly)
+    if (!runA || !runB || !otherRun)
+      throw new Error("A repository run is missing")
+    expect(runB.createdAt).toBeLessThan(runA.finishedAt)
+    expect(runA.createdAt).toBeLessThan(runB.finishedAt)
+    expect(otherRun.createdAt).toBeLessThan(
+      Math.max(runA.finishedAt, runB.finishedAt),
+    )
+    for (const workspaceId of [costly, yamlOnly])
+      expect(await waitsOf(workspaceId)).toEqual([])
     expect(finished).toMatchObject({
       status: "completed",
       upgrade: {

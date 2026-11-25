@@ -7,15 +7,9 @@ import {
   connectorMirrorContentSchema,
   connectorMirrorSourceSchema,
 } from "../../domain/workspaces/connector-mirror-input.js"
-import {
-  releaseWorkspaceMergeLease,
-  takeWorkspaceMergeLease,
-  workspaceMergeWakeSignal,
-} from "../../domain/workspaces/merge-lease.js"
 import { workspaceGitRead } from "../../domain/workspaces/resolve-revision.js"
 import {
   sameWorkspaceRevision,
-  type WorkspaceRevision,
   workspaceRevisionSchema,
 } from "../../domain/workspaces/revision.js"
 import {
@@ -28,7 +22,6 @@ import {
   refreshWorkspaceWriteRevision,
 } from "../../domain/workspaces/write-broker.js"
 import {
-  acquireWorkspaceWriteRevision,
   completedWorkspaceWrite,
   completeWorkspaceWrite,
   prepareSemanticMergeCommit,
@@ -41,17 +34,18 @@ import {
   persistBoundWriteJob,
   validateSemanticHandoff,
 } from "../../models/workspace-write-jobs.js"
-import {
-  getWorkspaceWriteAdmission,
-  persistWriteJobStatus,
-} from "../../models/workspaces.js"
+import { persistWriteJobStatus } from "../../models/workspaces.js"
 import {
   gitFileChangeSchema,
   repositoryFilePathSchema,
 } from "../../services/git/file-change.js"
 import { readGitFiles } from "../../services/git/pack.js"
-import { enqueueWorkflow, ow } from "../client.js"
+import { enqueueWorkflow } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
+import {
+  acquireOnCurrentTip,
+  holdWorkspaceMergeLease,
+} from "../workspace-merge-lease-steps.js"
 import { runJobRefStep } from "../write-steps.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
 
@@ -211,103 +205,23 @@ export const workspaceSemanticMerge = defineWorkflow(
               deletePaths: input.deletePaths,
             }),
           )
-        // One semantic merge of a Workspace runs at a time (CTX-1598), so
-        // that the merges do not race on the default branch. A merge that
-        // finds the lease busy waits in order, without a worker slot, until
-        // the merge before it wakes it. Only the first waiter checks the
-        // lease again on a short timeout: a holder that ended without a
-        // release, or a wake before the wait starts, costs that timeout.
-        // A runtime that runs one key in series would replace this: see the
-        // top of merge-lease.ts and ADR-047.
-        const lease = {
+        // One semantic merge or ingestion publish of a Workspace runs at a
+        // time (CTX-1598, CTX-1621).
+        const { release: releaseLease } = await holdWorkspaceMergeLease(step, {
           orgId: input.orgId,
           workspaceId: input.workspaceId,
           runId: run.id,
-        }
-        const wake = (runId: string | undefined) =>
-          runId
-            ? ow.sendSignal({ signal: workspaceMergeWakeSignal(runId) })
-            : undefined
-        for (;;) {
-          const taken = await step.run(
-            { name: "take-merge-lease" },
-            async () => {
-              const result = await takeWorkspaceMergeLease(lease)
-              // The next waiter is first now: it waits on the short timeout.
-              if (result.taken) await wake(result.wake)
-              return result
-            },
-          )
-          if (taken.taken) break
-          await step.waitForSignal({
-            name: "await-merge-lease",
-            signal: workspaceMergeWakeSignal(run.id),
-            timeout: taken.first ? "30 seconds" : "10 minutes",
-          })
-        }
-        const releaseLease = () =>
-          step.run({ name: "release-merge-lease" }, async () => {
-            await wake(await releaseWorkspaceMergeLease(lease))
-          })
+        })
         for (
           let refreshAttempt = 0;
           refreshAttempt < MERGE_ATTEMPTS;
           refreshAttempt++
         ) {
-          type Acquired = NonNullable<
-            Awaited<ReturnType<typeof acquireWorkspaceWriteRevision>>
-          >
-          let acquired: Acquired
-          for (;;) {
-            const candidate = await step.run(
-              {
-                name: "acquire-revision-v2",
-                retryPolicy: { maximumAttempts: 3 },
-              },
-              async (): Promise<
-                (Acquired & { revision?: WorkspaceRevision }) | null
-              > => {
-                // The queued revision can be hours old, and other merges of
-                // the Workspace can push while this merge waits for the
-                // lease: merge onto the tip of now, not onto an old tip
-                // that the push then loses to. The refresh is in this step,
-                // so a replay gives the revision of the pack again. An output
-                // from before CTX-1598 has no revision. The refresh reads only
-                // the tip: the acquire checks the connector mirror on it.
-                // Without write access, the acquire pauses the merge, and
-                // the acquire after the pause reads the tip.
-                const current =
-                  refreshAttempt === 0 &&
-                  (await getWorkspaceWriteAdmission(input.workspaceId))
-                    ?.writeStatus === "writable"
-                    ? await refreshWorkspaceWriteRevision(
-                        { orgId: input.orgId, workspaceId: input.workspaceId },
-                        revision,
-                        env,
-                      )
-                    : revision
-                const acquired = await acquireWorkspaceWriteRevision(
-                  input,
-                  current,
-                  env,
-                  input.previousSha,
-                )
-                return acquired && { ...acquired, revision: current }
-              },
-            )
-            if (candidate) {
-              acquired = candidate
-              revision = candidate.revision ?? revision
-              break
-            }
-            await step.run({ name: "pause-command" }, () =>
-              persistWriteJobStatus(input.jobId, "paused"),
-            )
-            await step.sleep("await-write-access", "1 minute")
-            await step.run({ name: "resume-command" }, () =>
-              persistWriteJobStatus(input.jobId, "running"),
-            )
-          }
+          const next = await acquireOnCurrentTip(step, input, revision, env, {
+            refresh: refreshAttempt === 0,
+          })
+          const { acquired } = next
+          revision = next.revision
           // Check every path the write changes, not only the paths that
           // conflict, as the origin requires (CTX-722).
           if (input.origin !== "host")

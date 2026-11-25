@@ -157,7 +157,7 @@ const WorkspaceUpgradeItemSchema = z
       .nullable()
       .openapi({
         description:
-          "Only on a re-ingestion that waits for its turn to use a free sandbox slot: why it waits and when the wait began. `null` when it does not wait.",
+          "Only on a re-ingestion that waits for its turn: an ingestion run of one of its source repositories can still publish to the Workspace. Why it waits and when the wait began. `null` when it does not wait.",
       }),
     failureReason: z.string().nullable(),
     failure: z

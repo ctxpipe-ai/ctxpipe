@@ -105,8 +105,8 @@ export const sameFile = {
   second: false,
 }
 /**
- * A source with 21 roots (two shards). In context A, roots p20 (shard 0) and
- * p21 (shard 1) both write `knowledge/services/shared.md`.
+ * A source with 21 roots (five shards of 5 roots). In context A, roots p20
+ * (shard 3) and p21 (shard 4) both write `knowledge/services/shared.md`.
  */
 export const wideName = `acme/wide-monorepo-${suffix}`
 /**
@@ -115,10 +115,35 @@ export const wideName = `acme/wide-monorepo-${suffix}`
  */
 export const floodName = `acme/flood-monorepo-${suffix}`
 export const FLOOD_FILES = 310
+/**
+ * Sources that publish to one Workspace at the same time, as the
+ * repositories of one re-ingestion do (CTX-1621). Each one writes its own
+ * file, named after it.
+ */
+export const parallelNames = Array.from(
+  { length: 5 },
+  (_, i) => `acme/parallel-${i}-${suffix}`,
+)
+export const parallelShas: string[] = []
 const MERGE_MODEL_URL = "https://merge-model.test/v1"
 
 /** The stand-in agent's reply to a model step. */
 export function modelReply(body: IngestModelStep) {
+  const parallel = parallelNames.find((name) =>
+    body.args?.includes(`https://github.com/${name}`),
+  )
+  if (parallel) {
+    const name = `parallel-${parallelNames.indexOf(parallel)}`
+    return {
+      more: false,
+      files: [
+        {
+          path: `knowledge/services/${name}.md`,
+          content: `---\nkind: Service\nname: ${name}\n---\n# ${name}\n\nThe ${name} service sends invoices (edition ${edition}).\n`,
+        },
+      ],
+    }
+  }
   if (body.args?.includes(`https://github.com/${floodName}`))
     return {
       more: false,
@@ -406,10 +431,12 @@ export function refsOf(name: string, runId: string): string[] {
     .filter(Boolean)
 }
 
+/** `destinations` names the Workspaces of a re-ingestion run. */
 export function startRun(
   authorTime: string,
   source = sourceName,
   sha = sourceSha,
+  destinations?: string[],
 ) {
   return runner.runWorkflow(parent.spec, {
     orgId,
@@ -421,6 +448,7 @@ export function startRun(
     },
     sha,
     authorTime,
+    ...(destinations ? { destinations } : {}),
   })
 }
 
@@ -494,8 +522,16 @@ beforeAll(async () => {
         [sourceFileOf(sourceName)]: sourceFileText(sourceName),
         [sourceFileOf(wideName)]: sourceFileText(wideName),
         [sourceFileOf(floodName)]: sourceFileText(floodName),
+        ...Object.fromEntries(
+          parallelNames.map((name) => [
+            sourceFileOf(name),
+            sourceFileText(name),
+          ]),
+        ),
       }),
     )
+  for (const name of parallelNames)
+    parallelShas.push(remote(name, { "package.json": '{ "name": "tool" }\n' }))
   floodSha = remote(floodName, {
     "package.json": '{ "name": "flood-monorepo" }\n',
   })
@@ -564,16 +600,16 @@ beforeAll(async () => {
       revision: pinned[i] ?? "",
       // One GitHub source file for each repository (ADR-050 revision
       // 2026-10-16).
-      rows: [sourceName, wideName, floodName].map((repository) => {
-        return {
+      rows: [sourceName, wideName, floodName, ...parallelNames].map(
+        (repository) => ({
           sourceKey: sourceFileOf(repository),
           provider: "github" as const,
           connectionId,
           scope: { repository },
           status: "ok" as const,
           statusDetail: null,
-        }
-      }),
+        }),
+      ),
     })
   }
 
@@ -630,7 +666,7 @@ export function expectNoPublishOnContextA(
   runId: string,
   rules: string[],
 ) {
-  expect(result).toMatchObject({ status: "partial", shards: 2 })
+  expect(result).toMatchObject({ status: "partial", shards: 5 })
   if (!("workspaces" in result)) throw new Error("The run did not finish")
   const bare = join(remotes, contexts[0] ?? "")
   const entry = result.workspaces.find((w) => w.workspaceId === workspaceIds[0])
