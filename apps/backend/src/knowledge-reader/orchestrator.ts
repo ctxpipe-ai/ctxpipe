@@ -193,7 +193,7 @@ export function jevMeta(document: KnowledgeDocument): CandidateMeta {
 
 /**
  * Judge `inputs` for `question` in one layer, before `deadline`. With
- * `askStatesAnswer`, also p(states the answer) (the search, CTX-1685).
+ * `askStatesAnswer`, also get p(states the answer) (the search, CTX-1685).
  * Throws the `JevError` of a failed call. Jev reads only text: an image goes to Jev as
  * its text, never as its bytes (ADR-068 decision 6).
  *

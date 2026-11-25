@@ -237,11 +237,11 @@ function queryTerms(query: string): string[] {
  * `search_knowledge` and the chat search: the hybrid search, then layer 0
  * (Jev orders the hits by p(answers)). With `statesAnswerAt` above 0, each
  * judged hit also has p(states the answer), for the "no answer" (CTX-1685).
- * A hit that is not valid at `validAt` (or now) comes after the valid hits. When Jev fails, the hits keep the
- * search order and the result says `judge_unavailable`. When the time
- * budget ends during the judge, they keep the search order and the result
- * says `total_timeout`; when it ends before the search ends, there are no
- * hits.
+ * A hit that is not valid at `validAt` (or now) comes after the valid
+ * hits. When Jev fails, the hits keep the search order and the result says
+ * `judge_unavailable`. When the time budget ends during the judge, they
+ * keep the search order and the result says `total_timeout`; when it ends
+ * before the search ends, there are no hits.
  */
 async function search(
   request: SearchRequest,
