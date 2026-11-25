@@ -791,7 +791,7 @@ describe("the knowledge eval harness", () => {
     const before = { ...requests }
     const recorded = await readRun(join(folder, "live"))
     const rescored = await run("rescore", {
-      settings: { keepAt: 0.95, answerAt: 0.95 },
+      settings: { keepAt: 0.95 },
       capUsd: 0,
       kept: live,
       replay: { calls: recorded.calls },
@@ -817,11 +817,11 @@ describe("the knowledge eval harness", () => {
       pageBytes,
     })
     expect(page(rescored.checks.plane)).toEqual(page(live.checks.plane))
-    // At an answerAt of 0.95, no hit of the plane answers (Jev gave 0.9).
-    // Thus each plane search says "no answer" (CTX-1561), and the retrieval
-    // metrics score it as an empty result (CTX-1562): each answerable
-    // question gets worse, with recall@5 0. At a keepAt of 0.95, no fact of
-    // a disagreement has a position, so the positions get worse too. A gold
+    // At a keepAt of 0.95, Jev keeps no hit of the plane (it gave 0.9).
+    // Thus each plane search says "no answer", and the retrieval metrics
+    // score it as an empty result (CTX-1562): each answerable question gets
+    // worse, with recall@5 0. No fact of a disagreement has a position, so
+    // the positions get worse too. A gold
     // document of get_related stays a step, because Jev gave it a
     // p(explore) of 0.9 (CTX-1534), so traversal recall stays. A no-answer
     // stays correct.
