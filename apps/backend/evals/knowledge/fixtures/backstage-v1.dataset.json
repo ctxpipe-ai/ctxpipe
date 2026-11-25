@@ -1,0 +1,561 @@
+{
+  "version": "backstage-1",
+  "corpora": [
+    {
+      "id": "backstage",
+      "source": "backstage/backstage@8514f7c19cda22aa63bc72281a1d1c4229a54b54",
+      "contextRepo": {
+        "url": "https://github.com/ctxpipe-ai/eval-v0-backstage-context",
+        "sha": "a7f81344ffdf4d79d68c10f31137d6df4631bf16",
+        "root": ""
+      },
+      "workspace": "backstage-v0"
+    }
+  ],
+  "questions": [
+    {
+      "id": "backstage-lookup-03",
+      "corpus": "backstage",
+      "category": "lookup",
+      "split": "dev",
+      "text": "For a new piece of UI written as a TypeScript function, do we have a house rule on annotating it with the UI library's ready-made alias type, or should the input argument types be spelled out by hand? And why?",
+      "gold": [
+        "knowledge/decisions/ctxpipe-ai-eval-v0-backstage-backstage-adr006-avoid-react-fc.md"
+      ],
+      "keyFacts": [
+        "New code should avoid React.FC and React.SFC.",
+        "Components should be declared as functions with an explicit props type, including children only when needed (PropsWithChildren is an acceptable shorthand).",
+        "The reason is that these aliases implicitly add a children prop and don't support generic children types, for little benefit."
+      ]
+    },
+    {
+      "id": "backstage-lookup-04",
+      "corpus": "backstage",
+      "category": "lookup",
+      "split": "holdout",
+      "text": "When I write specs for a change, is the house preference to give each individual check its own tiny test case, or to bundle several checks into a smaller number of bigger test cases?",
+      "gold": ["knowledge/instructions/unit-testing.md"],
+      "keyFacts": [
+        "Prefer a few thorough tests with multiple assertions over many small tests."
+      ]
+    },
+    {
+      "id": "backstage-lookup-06",
+      "corpus": "backstage",
+      "category": "lookup",
+      "split": "dev",
+      "text": "In our developer portal, the screen that lists all registered software shows dotted, machine-style identifiers instead of human-readable words. This happens in the page-flipping controls, the filter input and the message shown when nothing is listed. What is behind this, and how do we resolve it?",
+      "gold": ["github/issues/backstage/backstage/30649.md"],
+      "keyFacts": [
+        "The raw i18n keys appear because duplicate versions of the core component package are installed, typically pulled in by an older plugin",
+        "Updating the older plugin so that it uses the latest core component version fixes the problem",
+        "Running `yarn backstage-cli info` helps confirm the duplicate versions"
+      ]
+    },
+    {
+      "id": "backstage-lookup-07",
+      "corpus": "backstage",
+      "category": "lookup",
+      "split": "holdout",
+      "text": "When a plugin shows a timestamp to users, should we write our own pattern string for how the date looks, or is there an agreed way to format it so it reads naturally in every user's region?",
+      "gold": [
+        "knowledge/decisions/ctxpipe-ai-eval-v0-backstage-backstage-adr012-use-luxon-locale-and-date-presets.md"
+      ],
+      "keyFacts": [
+        "Use Luxon's toLocaleString with its date/time presets",
+        "Avoid custom toFormat strings for user-facing dates and times",
+        "Reasons: consistency across plugins and formats that are familiar and unambiguous in each locale"
+      ]
+    },
+    {
+      "id": "backstage-multi-hop-14",
+      "corpus": "backstage",
+      "category": "multi-hop",
+      "split": "dev",
+      "text": "Our access-control conditions for the service directory stopped compiling after our backend module began depending on the latest major release of the data-parsing package. The project-wide move to that release is still open. Separately, we'd like to define the argument shapes for our own project-creation wizard steps in standalone reusable files rather than inline. Does the core team expect the same kind of clash there, and what did they suggest doing about it?",
+      "gold": [
+        "github/issues/backstage/backstage/31544.md",
+        "github/issues/backstage/backstage/30607.md",
+        "github/issues/backstage/backstage/30646.md"
+      ],
+      "seeds": ["github/issues/backstage/backstage/31544.md"],
+      "keyFacts": [
+        "Maintainers say scaffolder action schemas are passed as callbacks (z => schema) precisely to avoid Zod version mismatches, and that even exporting the internal ZodType would not prevent conflicts between plugins built against different Zod versions.",
+        "Floated options: making zod a peer dependency (like React), or adding a helper such as createScaffolderActionSchema((z) => ...) that returns something usable as input/output."
+      ]
+    },
+    {
+      "id": "backstage-multi-hop-18",
+      "corpus": "backstage",
+      "category": "multi-hop",
+      "split": "holdout",
+      "text": "A docs request to fold an outside, community-maintained list of term definitions into the project's official terminology reference was auto-closed without anyone acting on it. Under the same broader push to make that reference the one place to look up definitions, did any later follow-up task actually get finished? What did it cover, and how was it resolved?",
+      "gold": [
+        "github/issues/backstage/backstage/29770.md",
+        "github/issues/backstage/backstage/29655.md",
+        "github/issues/backstage/backstage/30132.md"
+      ],
+      "seeds": ["github/issues/backstage/backstage/29770.md"],
+      "keyFacts": [
+        "Issue #29770 (combine glossaries) was closed as not planned. It was a sub-issue of the still-open umbrella issue #29655, 'Make glossary more usable'.",
+        "A sibling subtask, #30132, covered reviewing existing search definitions and adding terms from the Search, Permissions, and TechDocs concept docs to the main glossary.",
+        "#30132 was closed as completed in August 2025 because the groundwork was done in PR #30346."
+      ]
+    },
+    {
+      "id": "backstage-multi-hop-20",
+      "corpus": "backstage",
+      "category": "multi-hop",
+      "split": "dev",
+      "text": "Our custom steps for the project-creation wizard won't compile once their argument definitions move into a module of their own. That move forces us to pull in a separately installed copy of the data-parsing package, and it differs from the copy the platform ships. The platform-wide bump of that package is still pending. Has anyone run into something similar while writing their own access-policy checks? And what did they propose the how-to guide for those checks should say in the meantime?",
+      "gold": [
+        "github/issues/backstage/backstage/30646.md",
+        "github/issues/backstage/backstage/30607.md",
+        "github/issues/backstage/backstage/31544.md"
+      ],
+      "seeds": ["github/issues/backstage/backstage/30646.md"],
+      "keyFacts": [
+        "Adding zod v4 to a module caused type errors on the permission rule's paramsSchema, because the v4 z.object type does not fit the v3 ZodSchema type used by createPermissionRule.",
+        "The suggestion was for the custom-rules docs to call out that zod v3 is needed until the Zod 4 migration (#30607) is complete."
+      ]
+    },
+    {
+      "id": "backstage-multi-hop-26",
+      "corpus": "backstage",
+      "category": "multi-hop",
+      "split": "holdout",
+      "text": "I asked for a screen that shows when our background jobs last ran and when they'll run next. It was closed as a duplicate of a proposal to add that view to the built-in admin tools page. In that thread, someone mentioned an in-house version of such a viewer with per-job access rules. If we enforce who can see or kick off jobs only inside our own viewer plugin, is that enough? What gap did the maintainers point out, and what alternative was proposed?",
+      "gold": [
+        "github/issues/backstage/backstage/30616.md",
+        "github/issues/backstage/backstage/29674.md",
+        "github/issues/backstage/backstage/30049.md"
+      ],
+      "seeds": ["github/issues/backstage/backstage/30616.md"],
+      "keyFacts": [
+        "Permission checks done only in a custom task plugin can be bypassed: users can call the core scheduler service endpoints directly with their own access token.",
+        "The proposed alternative was to stop users from triggering scheduled tasks at all, allowing it only through service-to-service auth or a static token (PR #30533).",
+        "A custom task UI would then need its own backend plugin that forwards user requests and adds its own permission checks, or would use the proxy with a static token."
+      ]
+    },
+    {
+      "id": "backstage-multi-hop-28",
+      "corpus": "backstage",
+      "category": "multi-hop",
+      "split": "dev",
+      "text": "While porting our web portal to the newer plugin architecture, a wrapper that chose between two landing screens based on a user-controlled switch started blowing up inside our routing table. The maintainers said the newer architecture can't handle those switches yet. They pointed us to a broader discussion about turning UI pieces on or off at runtime. That discussion links to another report: the screen for adding software from a repository URL stopped working after the same port once it was guarded by an authorization wrapper. In that report, what did the core team say about when built-in support for both would land, and what workaround did a user share?",
+      "gold": [
+        "github/issues/backstage/backstage/30001.md",
+        "github/issues/backstage/backstage/31220.md",
+        "github/issues/backstage/backstage/31070.md"
+      ],
+      "seeds": ["github/issues/backstage/backstage/30001.md"],
+      "keyFacts": [
+        "A maintainer said upcoming work to take the New Frontend System to a 1.0 release would bring first-class support for Feature Flags and Permissions before that milestone.",
+        "A user reported a workaround using convertLegacyPlugin and convertLegacyPageExtension from core-compat-api, keeping the existing RequirePermission-wrapped legacy routes untouched."
+      ]
+    },
+    {
+      "id": "backstage-cross-source-02",
+      "corpus": "backstage",
+      "category": "cross-source",
+      "split": "dev",
+      "text": "After we enabled crash-resume for our project-creation jobs, with job state persisted to Alphabet's cloud blob service, jobs made of several near-instant actions began dying with an HTTP throttling response. Why does this happen, and which other Backstage pieces rely on that same blob service?",
+      "gold": [
+        "github/issues/backstage/backstage/36465.md",
+        "knowledge/databases/google-cloud-storage.md"
+      ],
+      "seeds": ["github/issues/backstage/backstage/36465.md"],
+      "keyFacts": [
+        "The GcpBucketWorkspaceProvider writes every workspace snapshot to the same GCS object, named after the task ID, after each step. GCS allows only about one write per second to a single object, so quick consecutive steps hit the 429 rate limit and the task fails.",
+        "Besides the scaffolder GCP module, GCS is also used by the GCS URL reader in backend-defaults and, optionally, by the TechDocs publisher in techdocs-node."
+      ]
+    },
+    {
+      "id": "backstage-cross-source-07",
+      "corpus": "backstage",
+      "category": "cross-source",
+      "split": "holdout",
+      "text": "Our legacy engineering handbooks have to stay on an in-house file server, while newly written guides get pushed to buckets in the largest cloud vendor's blob service. Can a single portal deployment render guides from both locations side by side? And which other portal features also talk to that vendor's bucket service?",
+      "gold": [
+        "github/issues/backstage/backstage/34457.md",
+        "knowledge/databases/amazon-s3.md"
+      ],
+      "seeds": ["github/issues/backstage/backstage/34457.md"],
+      "keyFacts": [
+        "TechDocs currently supports only a single publisher configuration; a 'multi' publisher type is proposed in an open issue and not yet supported.",
+        "Amazon S3 is an optional TechDocs publisher (techdocs-node awsS3 publish stage).",
+        "S3 is also used by the backend-defaults S3 URL reader and the AWS catalog module's AwsS3EntityProvider for entity discovery."
+      ]
+    },
+    {
+      "id": "backstage-cross-source-12",
+      "corpus": "backstage",
+      "category": "cross-source",
+      "split": "dev",
+      "text": "AI assistant apps that plug into our developer portal's tool-calling service can't kick off sign-in. When they poke the service without a token, the refusal comes back with nothing pointing them to where they could learn how to log in. Does the project treat that as a defect? And how does that same service respond if someone simply fetches it with a plain read request, for example from a browser?",
+      "gold": [
+        "github/issues/backstage/backstage/33750.md",
+        "knowledge/operations/mcp-streamable-http-api-get-api-mcp-actions-v1.md"
+      ],
+      "seeds": ["github/issues/backstage/backstage/33750.md"],
+      "keyFacts": [
+        "Maintainers said the missing WWW-Authenticate header on 401 responses is not really a bug. It is a part of the newer MCP auth spec that has not been implemented yet, because they were waiting for clients to support it.",
+        "GET requests to /api/mcp-actions/v1, the streamable endpoint, are rejected with method not allowed."
+      ]
+    },
+    {
+      "id": "backstage-cross-source-13",
+      "corpus": "backstage",
+      "category": "cross-source",
+      "split": "holdout",
+      "text": "We connect our developer portal to our container clusters with one shared service account. We'd like the clusters to see each request as coming from whichever person is signed in to the portal, so that per-user access rules apply. Did the project agree to pass the signed-in caller's identity down to a custom object-retrieval plugin, so that it can add act-as-user headers? And which HTTP routes does that backend offer for listing clusters and looking up an entity's resources, including any that are deprecated?",
+      "gold": [
+        "github/issues/backstage/backstage/31285.md",
+        "knowledge/apis/kubernetes-api.md"
+      ],
+      "seeds": ["github/issues/backstage/backstage/31285.md"],
+      "keyFacts": [
+        "The proposal to pass backstageIdentity into fetchObjectsForService in KubernetesFanOutHandler for impersonation was closed as not planned after going stale.",
+        "The Kubernetes API exposes a clusters listing, workload and custom resource query routes, a deprecated services/:serviceId lookup route, and a proxy to the Kubernetes API."
+      ]
+    },
+    {
+      "id": "backstage-cross-source-16",
+      "corpus": "backstage",
+      "category": "cross-source",
+      "split": "dev",
+      "text": "Developers keep pinging our platform team asking why a service they described in a repo descriptor file never appears in the developer portal's software inventory after automatic discovery. Did the project accept the idea of a self-service lookup on the inventory page for this? What backend call did the requester end up building their own tool on, and what is that call documented to do?",
+      "gold": [
+        "github/issues/backstage/backstage/30000.md",
+        "knowledge/operations/catalog-api-post-locations.md"
+      ],
+      "seeds": ["github/issues/backstage/backstage/30000.md"],
+      "keyFacts": [
+        "The suggestion was not adopted: the issue went stale and was closed as not planned.",
+        "The requester built their own plugin on the catalog backend's POST /locations endpoint.",
+        "POST /locations registers a location for a target; it is defined in the catalog backend's OpenAPI schema."
+      ]
+    },
+    {
+      "id": "backstage-cross-source-17",
+      "corpus": "backstage",
+      "category": "cross-source",
+      "split": "dev",
+      "text": "We attach some extra arbitrary key-value data when we push alerts to users through our developer portal's alerting service. When we fetch those alerts later, that extra data is gone. Did the maintainers say this is a bug or deliberate? And which HTTP routes does that service offer for fetching alerts back, either as a list or one at a time?",
+      "gold": [
+        "github/issues/backstage/backstage/34484.md",
+        "knowledge/apis/notifications-api.md"
+      ],
+      "seeds": ["github/issues/backstage/backstage/34484.md"],
+      "keyFacts": [
+        "A maintainer said payload.metadata is intentionally not persisted, because it was only meant to be consumed by processors (such as email or Slack) in the initial implementation.",
+        "The Notifications API is defined in the notifications-backend router (plugins/notifications-backend/src/service/router.ts).",
+        "For reading notifications it offers GET /api/notifications and GET /api/notifications/:id, plus /api/notifications/notifications variants of both."
+      ]
+    },
+    {
+      "id": "backstage-cross-source-19",
+      "corpus": "backstage",
+      "category": "cross-source",
+      "split": "holdout",
+      "text": "Our security bot opened a ticket about a helper library that reads network host numbers. Crafted host numbers with extra padding digits get read one way by the library and another way by the resolver, so requests can reach private machines. One of the flagged items is the add-on for our package installer that supports the portal's multi-package workspace. Which release of the helper fixes this? And where does that add-on sit in the source tree, and why was it categorized as a deployable service?",
+      "gold": [
+        "github/issues/backstage/backstage/35433.md",
+        "knowledge/services/yarn-plugin-backstage.md"
+      ],
+      "seeds": ["github/issues/backstage/backstage/35433.md"],
+      "keyFacts": [
+        "ip-address must be upgraded to version 10.3.1 or higher.",
+        "yarn-plugin-backstage lives at packages/yarn-plugin.",
+        "It is classified as a service because its package.json has a start script."
+      ]
+    },
+    {
+      "id": "backstage-cross-source-20",
+      "corpus": "backstage",
+      "category": "cross-source",
+      "split": "dev",
+      "text": "When our container platform swaps out instances during a release, the instance doing the periodic sync of staff accounts and teams from our corporate identity directory can be shut down partway through. Afterwards the job still looks busy, and no sibling instance picks it up until the long lock window lapses. How did the maintainers resolve this? Which HTTP endpoint lists our background jobs along with their worker status, and in which source module is it defined?",
+      "gold": [
+        "github/issues/backstage/backstage/32641.md",
+        "knowledge/operations/task-scheduler-api-get-backstage-scheduler-v1-tasks.md"
+      ],
+      "seeds": ["github/issues/backstage/backstage/32641.md"],
+      "keyFacts": [
+        "The fix (PR #33187) passes the task runner's AbortSignal into MicrosoftGraphOrgEntityProvider.read() and the MS Graph calls after it, so shutdown is clean and the lock is released right away.",
+        "GET /.backstage/scheduler/v1/tasks lists scheduled tasks and their task and worker states.",
+        "The endpoint is defined in packages/backend-defaults/src/entrypoints/scheduler/lib/PluginTaskSchedulerImpl.ts."
+      ]
+    },
+    {
+      "id": "backstage-cross-source-21",
+      "corpus": "backstage",
+      "category": "cross-source",
+      "split": "holdout",
+      "text": "We'd like chat-bot style agents hooked into our developer portal to browse, rehearse and launch our new-project blueprints on behalf of whoever is logged in, so that our current per-user restrictions on those blueprints keep working. What did the maintainers propose for how such agents get credentials for that person? And which HTTP endpoints does the portal's login service expose for the authorize-and-issue-credentials flow?",
+      "gold": [
+        "github/issues/backstage/backstage/31755.md",
+        "knowledge/apis/auth-api.md"
+      ],
+      "seeds": ["github/issues/backstage/backstage/31755.md"],
+      "keyFacts": [
+        "Maintainers suggested enabling the experimental dynamic client registration to protect mcp-actions-backend, which automatically issues user tokens on behalf of the user.",
+        "Actions should pass the user's token along when calling the scaffolder API, so that existing scaffolder permissions are respected rather than creating new ones.",
+        "The Auth API offers OIDC routes such as GET /v1/authorize, POST /v1/token, POST /v1/revoke, session approve/reject, GET /v1/userinfo and /.well-known/openid-configuration."
+      ]
+    },
+    {
+      "id": "backstage-time-01",
+      "corpus": "backstage",
+      "category": "time",
+      "split": "dev",
+      "text": "Early in 2026, someone proposed letting people who authenticate through our code-hosting provider be tied to their directory records by mail address, using config alone and no hand-written code. Did that proposal go anywhere, and when was it wrapped up?",
+      "gold": ["github/issues/backstage/backstage/32500.md"],
+      "keyFacts": [
+        "The request was closed on 2026-01-30 with state reason not_planned.",
+        "On 2026-01-23 a maintainer called it an oversight and opened it for contribution, and the author offered to work on it."
+      ]
+    },
+    {
+      "id": "backstage-time-02",
+      "corpus": "backstage",
+      "category": "time",
+      "split": "holdout",
+      "text": "In 2026, someone suggested that our self-service repo generator let each stage of a generation run declare a fallback hook. The hook would fire when that stage blows up, for example when proposing code changes to a hosted repo breaks, so diagnostics could be pushed to observability dashboards before the run halts. What happened to that suggestion, and on what date was it resolved?",
+      "gold": ["github/issues/backstage/backstage/33040.md"],
+      "keyFacts": [
+        "The request was closed as not planned (it was auto-marked stale for inactivity).",
+        "It was closed on 2026-05-12, after being marked stale on 2026-04-28."
+      ]
+    },
+    {
+      "id": "backstage-time-03",
+      "corpus": "backstage",
+      "category": "time",
+      "split": "dev",
+      "text": "In 2025, someone said that syncing people and teams from our internal source-control server into the software inventory pulled in every team in the company, around three and a half thousand. They had only pointed it at a couple of root teams. Some of the teams that came in were also empty of people. What happened to that complaint, and on what date was it shut?",
+      "gold": ["github/issues/backstage/backstage/30290.md"],
+      "keyFacts": [
+        "The issue was opened on 2025-06-17.",
+        "It was marked stale on 2025-08-18 and closed as not planned on 2025-08-25, without a fix."
+      ]
+    },
+    {
+      "id": "backstage-time-04",
+      "corpus": "backstage",
+      "category": "time",
+      "split": "holdout",
+      "text": "In 2026, someone complained that the picture of how a service relates to other things, shown on its detail screen, lurches around wildly the moment it first appears. The pieces slide and reposition until they settle, and that could upset viewers prone to seizures or dizziness. Did anyone resolve that complaint, and on what date was it shut?",
+      "gold": ["github/issues/backstage/backstage/33097.md"],
+      "keyFacts": [
+        "The Catalog Graph accessibility issue was closed as not planned, after being marked stale, without a fix.",
+        "It was closed on 2026-06-09."
+      ]
+    },
+    {
+      "id": "backstage-time-06",
+      "corpus": "backstage",
+      "category": "time",
+      "split": "dev",
+      "text": "In 2025, someone asked that when our internal developer hub quietly renews a user's credentials with the corporate identity vendor in the background, and a flaky network cuts the call off, people not be forced through the whole sign-in dance again, because they were still logged in all along. What became of that ask, and on what date was it closed?",
+      "gold": ["github/issues/backstage/backstage/31178.md"],
+      "keyFacts": [
+        "The request (filed 2025-09-17) was closed as not planned, without being implemented.",
+        "It was marked stale on 2025-11-17 and closed on 2025-12-01."
+      ]
+    },
+    {
+      "id": "backstage-disagreement-01",
+      "corpus": "backstage",
+      "category": "disagreement",
+      "split": "dev",
+      "text": "In our backend services and command-line tools, which library should we use to make outgoing HTTP calls, and should browser-side code do the same?",
+      "gold": [
+        "knowledge/decisions/ctxpipe-ai-eval-v0-backstage-backstage-adr014-use-fetch.md",
+        "knowledge/decisions/ctxpipe-ai-eval-v0-backstage-backstage-adr013-use-node-fetch.md"
+      ],
+      "seeds": [
+        "knowledge/decisions/ctxpipe-ai-eval-v0-backstage-backstage-adr014-use-fetch.md"
+      ],
+      "positions": [
+        {
+          "refs": [
+            "knowledge/decisions/ctxpipe-ai-eval-v0-backstage-backstage-adr014-use-fetch.md"
+          ],
+          "status": "current"
+        },
+        {
+          "refs": [
+            "knowledge/decisions/ctxpipe-ai-eval-v0-backstage-backstage-adr013-use-node-fetch.md"
+          ],
+          "status": "superseded"
+        }
+      ],
+      "keyFacts": [
+        "Node.js code (backend and CLIs) should use native fetch, since Node.js 20+ is required; node-fetch is no longer the choice.",
+        "Frontend code should prefer fetchApiRef.",
+        "Isomorphic packages use cross-fetch for mocking and types and preferably accept an injected typeof fetch implementation."
+      ]
+    },
+    {
+      "id": "backstage-disagreement-03",
+      "corpus": "backstage",
+      "category": "disagreement",
+      "split": "holdout",
+      "text": "Is there supposed to be one canonical place that explains the project's jargon, and is the effort to pull in word lists maintained outside the repo still going ahead? Would that list also get promoted to the site's main menu?",
+      "gold": [
+        "github/issues/backstage/backstage/29770.md",
+        "github/issues/backstage/backstage/29655.md"
+      ],
+      "seeds": ["github/issues/backstage/backstage/29655.md"],
+      "positions": [
+        {
+          "refs": ["github/issues/backstage/backstage/29770.md"],
+          "status": "scoped"
+        },
+        {
+          "refs": ["github/issues/backstage/backstage/29655.md"],
+          "status": "scoped"
+        }
+      ],
+      "keyFacts": [
+        "The request to merge the external secondary glossary (and search concept terms) into the public glossary was closed as not_planned after going stale.",
+        "The parent issue proposing a single main glossary, built incrementally, and elevating it to a top-level TOC section remains open.",
+        "A maintainer noted the top nav is kept lean and deferred the placement question to the Docs SIG."
+      ]
+    },
+    {
+      "id": "backstage-disagreement-04",
+      "corpus": "backstage",
+      "category": "disagreement",
+      "split": "dev",
+      "text": "In our developer portal, there's a screen that shows the history of executions of the project-creation wizards. When I type an execution's identifier into the box at the top, it only matches executions already shown on screen, and reordering by a column also ignores everything beyond what's displayed. Is that by design, and will lookup across the whole history ever be supported?",
+      "gold": [
+        "github/issues/backstage/backstage/30542.md",
+        "github/issues/backstage/backstage/30672.md"
+      ],
+      "seeds": ["github/issues/backstage/backstage/30542.md"],
+      "positions": [
+        {
+          "refs": ["github/issues/backstage/backstage/30542.md"],
+          "status": "current"
+        },
+        {
+          "refs": ["github/issues/backstage/backstage/30672.md"],
+          "status": "scoped"
+        }
+      ],
+      "keyFacts": [
+        "Filtering and sorting in the Scaffolder task list apply only to the current page; only the owned/all toggle and pagination hit the backend.",
+        "The proposal to add backend filters and a search field to the task list was closed as not planned, and the server-side search PR (#33995) was not merged.",
+        "The bug about search not covering all pages remains open and was recently picked up by a contributor."
+      ]
+    },
+    {
+      "id": "backstage-disagreement-09",
+      "corpus": "backstage",
+      "category": "disagreement",
+      "split": "holdout",
+      "text": "Should our developer portal stop showing users the full technical details when something fails in production, and show only a generic notice with a code we can match to the server logs? We noticed that a search request with an odd character returned the internal database query text to the browser.",
+      "gold": [
+        "github/issues/backstage/backstage/29879.md",
+        "github/issues/backstage/backstage/29961.md"
+      ],
+      "seeds": ["github/issues/backstage/backstage/29961.md"],
+      "positions": [
+        {
+          "refs": ["github/issues/backstage/backstage/29879.md"],
+          "status": "current"
+        },
+        {
+          "refs": ["github/issues/backstage/backstage/29961.md"],
+          "status": "scoped"
+        }
+      ],
+      "keyFacts": [
+        "The proposal to suppress all error details in production in favor of a UUID/sha log reference was not adopted. Maintainers said detailed error messages are valuable even in production for Backstage users, and the issue was closed as a duplicate.",
+        "Only the specific search case was treated as a bug: the error exposed the SQL query structure through /api/search/query. That case was fixed by a merged PR and closed in June 2025."
+      ]
+    },
+    {
+      "id": "backstage-disagreement-17",
+      "corpus": "backstage",
+      "category": "disagreement",
+      "split": "dev",
+      "text": "When I scaffold a brand-new developer portal app on the latest long-term-support server-side JavaScript runtime, the dependency install fails because a native sandboxing module won't compile. Do I need to drop back to the previous runtime release, or is the newest one supported?",
+      "gold": [
+        "github/issues/backstage/backstage/31446.md",
+        "github/issues/backstage/backstage/32012.md"
+      ],
+      "seeds": ["github/issues/backstage/backstage/32012.md"],
+      "positions": [
+        {
+          "refs": ["github/issues/backstage/backstage/31446.md"],
+          "status": "superseded"
+        },
+        {
+          "refs": ["github/issues/backstage/backstage/32012.md"],
+          "status": "current"
+        }
+      ],
+      "keyFacts": [
+        "Earlier advice: Node 24 did not work out of the box because isolated-vm needed upgrading to v6, so users were told to use Node 22.",
+        "The Node 24 upgrade, including isolated-vm 6, was completed and the tracking issue was closed by PR #31454 in February 2026."
+      ]
+    },
+    {
+      "id": "backstage-no-answer-01",
+      "corpus": "backstage",
+      "category": "no-answer",
+      "split": "dev",
+      "text": "Is there a built-in way to show monthly cloud spending per team or service right on the entity page, and how is the data pulled from the cloud provider's billing export?",
+      "gold": [],
+      "keyFacts": []
+    },
+    {
+      "id": "backstage-no-answer-03",
+      "corpus": "backstage",
+      "category": "no-answer",
+      "split": "holdout",
+      "text": "Is there an official native mobile client for iOS or Android that sends push notifications to engineers' phones when a software template run finishes or fails? How would device tokens be registered against a user's identity?",
+      "gold": [],
+      "keyFacts": []
+    },
+    {
+      "id": "backstage-no-answer-04",
+      "corpus": "backstage",
+      "category": "no-answer",
+      "split": "dev",
+      "text": "Does the developer portal have a built-in way to define service-level objectives for a component and track how much error budget is left, and does it page the owning team's on-call rotation automatically when the budget runs out?",
+      "gold": [],
+      "keyFacts": []
+    },
+    {
+      "id": "backstage-no-answer-05",
+      "corpus": "backstage",
+      "category": "no-answer",
+      "split": "holdout",
+      "text": "Can the portal automatically generate a human-readable description for each registered component by sending its source code to a large language model, and where would the generated summaries be cached between catalog refreshes?",
+      "gold": [],
+      "keyFacts": []
+    },
+    {
+      "id": "backstage-no-answer-06",
+      "corpus": "backstage",
+      "category": "no-answer",
+      "split": "dev",
+      "text": "If our primary region goes down, does the developer portal ship a built-in way to snapshot the whole software catalog and restore it into a standby deployment in another region? How often would those snapshots run?",
+      "gold": [],
+      "keyFacts": []
+    },
+    {
+      "id": "backstage-no-answer-07",
+      "corpus": "backstage",
+      "category": "no-answer",
+      "split": "dev",
+      "text": "Is there a built-in way to declare a company-wide change freeze, for example over the holidays, so that software template runs that create or deploy services are blocked until the freeze ends? Could individual teams be granted exceptions to it?",
+      "gold": [],
+      "keyFacts": []
+    }
+  ]
+}

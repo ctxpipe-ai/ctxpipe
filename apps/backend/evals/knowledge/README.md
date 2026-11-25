@@ -50,6 +50,13 @@ Opus 5.5 drafted the questions (`draft`). The panel labeled them: Sonnet 5.5, GP
 
 `fixtures/backstage-v0.dataset.json` (version `backstage-0`) holds the 35 questions of Backstage (`eval-v0-backstage-context` at `144bda17`), made with the same commands and settings. Its categories are 4 lookups, 6 multi-hop, 10 across sources, 8 time, 1 disagreement and 6 no-answer, with the same split rule. Multi-hop has only 6 questions: Backstage has few links between its documents, and the drafter tried each chain. Backstage is its own dataset, not a corpus of `corpora-v0`: the runs of each dataset form their own series, so a new corpus does not change the version of an older series. Each generation of the plane runs both files.
 
+Version 1 ([CTX-1589](https://linear.app/ctxpipe/issue/CTX-1589)) has the same split in two files, made with the same commands, settings and quotas as v0. A new ingest of the v0 source commits gave the context repos design records, owner teams and feature gates. The v1 questions also ask about these new kinds of document (rule 3 above). A corpus keeps its v0 Workspace fixture: the hydrate keys the Workspace by the corpus id, so a hydrate of v1 moves that Workspace to the v1 SHA, and a later v0 run hydrates the v0 SHA again:
+
+- `fixtures/corpora-v1.dataset.json` (version `1`) holds 90 questions. **Kubernetes** (`eval-v0-kubernetes-context` at `2ae27a27`) has 47: 4 lookups, 12 multi-hop, 10 across sources, 6 time, 9 disagreement and 6 no-answer. **Rust** (`eval-v0-rust-context` at `60102ff8`) has 43: 4 lookups, 12 multi-hop, 10 across sources, 3 time, 8 disagreement and 6 no-answer.
+- `fixtures/backstage-v1.dataset.json` (version `backstage-1`) holds 34 questions of Backstage (`eval-v0-backstage-context` at `a7f81344`): 4 lookups, 5 multi-hop, 9 across sources, 5 time, 5 disagreement and 6 no-answer.
+
+The panel removed more time questions than in v0: the majority did not find that their answer depends on the time. The ingest left out two documents of the Kubernetes context repo (the instruction areas of `kubernetes/kubernetes` and the API document of `cmd/kubelet`) and the instruction areas of `rust-lang/rust` and `backstage/backstage` ([CTX-1570](https://linear.app/ctxpipe/issue/CTX-1570)). No question asks about them.
+
 ### Hill-climb by generations
 
 "We don't have hard targets, we want to hillclimb the retrieval for many generations until the improvements plateau. Every generation can be merged as we are behind feature flag" (the CTO, 2026-11-22). The rules are in the [amendment of ADR-069](../../../../.ai/memory/decisions/ADR-069-knowledge-plane-evals-and-rollout.md#amendment-2026-11-22-hill-climb-by-generations-with-no-fixed-target-ctx-1499).

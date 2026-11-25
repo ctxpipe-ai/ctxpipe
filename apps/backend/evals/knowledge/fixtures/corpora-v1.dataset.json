@@ -1,0 +1,1616 @@
+{
+  "version": "1",
+  "corpora": [
+    {
+      "id": "kubernetes",
+      "source": "kubernetes/kubernetes@07f8a0edfd890e4f5f24197e6a50ed1c6dd0c9e8, kubernetes/enhancements@ebf37575297a991155890e7f1fae7c62bbee7ca0, kubernetes/community@07db4ef4ba5a90903f3dd5e35976970dafa1face, kubernetes/website@80f8465181e32d4751af070ba4d801e4ce4371ce, kubernetes-sigs/kind@4b8b4fedae60a3cf6a9e6bb3eca724c375c974c4",
+      "contextRepo": {
+        "url": "https://github.com/ctxpipe-ai/eval-v0-kubernetes-context",
+        "sha": "2ae27a273b9d54b8a90c99f795443cf7304c4281",
+        "root": ""
+      },
+      "workspace": "kubernetes-v0"
+    },
+    {
+      "id": "rust",
+      "source": "rust-lang/rust@e3b9a8345a8a58fda3ac9446c532625d5a59acd8, rust-lang/cargo@b925b29b9c8943d7dc05d3e07091948d45db6d46, rust-lang/rfcs@f43d5789b838fb0d80962e3d4b45fb9ddfcc9a07",
+      "contextRepo": {
+        "url": "https://github.com/ctxpipe-ai/eval-v0-rust-context",
+        "sha": "60102ff832b99b637a3793fa48a4e4c070037bb6",
+        "root": ""
+      },
+      "workspace": "rust-v0"
+    }
+  ],
+  "questions": [
+    {
+      "id": "kubernetes-lookup-02",
+      "corpus": "kubernetes",
+      "category": "lookup",
+      "split": "dev",
+      "text": "In the beta version of the scheduler's API group, what HTTP verb and URL do I use to completely replace the reported state of a namespaced object that bundles several gang-scheduled pod groups together?",
+      "gold": [
+        "knowledge/operations/scheduling-v1beta1-api-put-apis-scheduling-k8s-io-v1beta1-namespaces--6030bfc9.md"
+      ],
+      "keyFacts": [
+        "The method is PUT",
+        "The path is /apis/scheduling.k8s.io/v1beta1/namespaces/{namespace}/compositepodgroups/{name}/status",
+        "The operation is defined in the OpenAPI spec (api/openapi-spec/swagger.json)"
+      ]
+    },
+    {
+      "id": "kubernetes-lookup-03",
+      "corpus": "kubernetes",
+      "category": "lookup",
+      "split": "holdout",
+      "text": "I want the cluster to prefer packing workloads tightly onto as few machines as possible, rather than spreading them out, when it ranks candidate machines. Do I still switch on a different ranking component for each behavior, or is there now a single knob where I pick the mode?",
+      "gold": [
+        "knowledge/decisions/ctxpipe-ai-eval-v0-kubernetes-enhancements-sig-scheduling-2458-node-resource-score-strategy.md"
+      ],
+      "keyFacts": [
+        "Least-allocated, most-allocated, and requested-to-capacity-ratio scoring are consolidated under the NodeResourcesFit plugin",
+        "The strategy is selected through a ScoringStrategy field, which also carries resource weights and, for requested-to-capacity-ratio, the scoring curve"
+      ]
+    },
+    {
+      "id": "kubernetes-lookup-04",
+      "corpus": "kubernetes",
+      "category": "lookup",
+      "split": "dev",
+      "text": "Does the documentation website's own backend rely on that popular in-memory cache server, or does it only appear in the tutorial sample apps, such as the multi-tier comment-board demo with one writer and several readers?",
+      "gold": ["knowledge/databases/redis-kubernetes-examples.md"],
+      "keyFacts": [
+        "The Redis manifests are documentation examples (guestbook leader/follower, ephemeral-storage pods).",
+        "They do not demonstrate that the website service uses Redis."
+      ]
+    },
+    {
+      "id": "kubernetes-lookup-05",
+      "corpus": "kubernetes",
+      "category": "lookup",
+      "split": "holdout",
+      "text": "When kubectl exec talks to the API server over WebSockets, the server translates the stream. Which release made that translation GA for the newer protocol version that lets the client signal stdin is done, and can I still turn it off?",
+      "gold": [
+        "knowledge/features/translate-stream-close-websocket-requests.md"
+      ],
+      "keyFacts": [
+        "The TranslateStreamCloseWebsocketRequests gate went GA in 1.38",
+        "It is on by default and locked to the default, so it cannot be turned off",
+        "It was alpha in 1.29 and beta (on by default) in 1.30"
+      ]
+    },
+    {
+      "id": "kubernetes-multi-hop-01",
+      "corpus": "kubernetes",
+      "category": "multi-hop",
+      "split": "dev",
+      "text": "We hit a bug where the 'how many items are left' count on paginated reads was computed over the unfiltered window. The count ignored the hash-range subsetting that lets a client ask the API server for only its slice of objects. Fixing that was called a blocker before the parent proposal moved to its next stage. In which release did the switch controlling that server-side subsetting become enabled by default, and at what maturity level?",
+      "gold": [
+        "github/issues/kubernetes/kubernetes/140510.md",
+        "github/issues/kubernetes/enhancements/5866.md",
+        "knowledge/features/sharded-list-and-watch.md"
+      ],
+      "seeds": ["github/issues/kubernetes/kubernetes/140510.md"],
+      "keyFacts": [
+        "The fix was required before KEP-5866 (Server-side Sharded List and Watch) went to beta.",
+        "The ShardedListAndWatch feature gate is beta and on by default since 1.38.",
+        "It was alpha and off by default in 1.36."
+      ]
+    },
+    {
+      "id": "kubernetes-multi-hop-02",
+      "corpus": "kubernetes",
+      "category": "multi-hop",
+      "split": "holdout",
+      "text": "We're following the effort to give workload controllers reusable API pieces and a shared translation library so they can use group-aware (gang-style) scheduling natively. A follow-on effort will plug the controller for pods with stable identities and persistent per-replica storage into that work. Which release is that follow-on now aiming at for its first alpha, and what happened to the earlier target?",
+      "gold": [
+        "github/issues/kubernetes/kubernetes/139361.md",
+        "github/issues/kubernetes/enhancements/6089.md",
+        "github/issues/kubernetes/enhancements/6277.md"
+      ],
+      "seeds": ["github/issues/kubernetes/kubernetes/139361.md"],
+      "keyFacts": [
+        "The StatefulSet integration with the Workload APIs (KEP-6277) now targets alpha in v1.39.",
+        "It was first opted in and tracked for v1.38, then removed from the v1.38 milestone after review (marked tracked/no).",
+        "Its KEP PR #6298 was reverted in #6451."
+      ]
+    },
+    {
+      "id": "kubernetes-multi-hop-03",
+      "corpus": "kubernetes",
+      "category": "multi-hop",
+      "split": "dev",
+      "text": "We use the device-allocation feature that lets several pods each take a share of one device's capacity, such as network bandwidth on a NIC. Now we need to request non-whole amounts inside the min/max/step range the driver allows. Which separate switch governs that, and what maturity level did it have in the release right after the parent capability first turned on by default?",
+      "gold": [
+        "knowledge/features/draconsumable-capacity.md",
+        "github/issues/kubernetes/enhancements/5075.md",
+        "github/issues/kubernetes/website/57141.md"
+      ],
+      "seeds": ["knowledge/features/draconsumable-capacity.md"],
+      "keyFacts": [
+        "The DRAFractionalCapacityRange feature gate controls fractional values in CapacityRequestPolicyRange.",
+        "DRAFractionalCapacityRange was beta in Kubernetes v1.37, added under KEP-5075 (DRA Consumable Capacity)."
+      ]
+    },
+    {
+      "id": "kubernetes-multi-hop-04",
+      "corpus": "kubernetes",
+      "category": "multi-hop",
+      "split": "holdout",
+      "text": "We're tracking a kubelet problem: stopping a container's health-check loop does not abort a command-based check that is already running. A related regression broke command-based traffic-gating checks while pods were shutting down, and a user reported it. According to that user's report, which other Kubernetes minor versions behaved correctly, and on which managed cloud platform was the problem first seen?",
+      "gold": [
+        "github/issues/kubernetes/kubernetes/140977.md",
+        "github/issues/kubernetes/kubernetes/140978.md",
+        "github/issues/kubernetes/kubernetes/140509.md"
+      ],
+      "seeds": ["github/issues/kubernetes/kubernetes/140977.md"],
+      "keyFacts": [
+        "Only v1.35 showed the issue; versions 1.33, 1.34 and 1.36 worked as expected",
+        "It was first observed on AWS EKS (v1.35.5-eks-a3a0722), then reproduced with kind"
+      ]
+    },
+    {
+      "id": "kubernetes-multi-hop-05",
+      "corpus": "kubernetes",
+      "category": "multi-hop",
+      "split": "dev",
+      "text": "We rely on the now-GA ability for cluster admins to mark hardware accelerators so new pods avoid them, or so running pods get evicted. I remember this capability was first pitched alongside a sibling proposal. That sibling would let admins override how drivers describe devices, and was meant to be the foundation for the admin-side marking. Did that sibling proposal ever ship, and how far did it get?",
+      "gold": [
+        "knowledge/features/dradevice-taint-rules.md",
+        "github/issues/kubernetes/enhancements/5055.md",
+        "github/issues/kubernetes/enhancements/5027.md"
+      ],
+      "seeds": ["knowledge/features/dradevice-taint-rules.md"],
+      "keyFacts": [
+        "The admin-controlled device attributes enhancement (KEP-5027) was closed as not planned and never shipped; it went rotten and was closed in December 2025.",
+        "It only ever targeted alpha for 1.33 and had no beta or stable targets; its alpha code PR was never completed."
+      ]
+    },
+    {
+      "id": "kubernetes-multi-hop-06",
+      "corpus": "kubernetes",
+      "category": "multi-hop",
+      "split": "dev",
+      "text": "The docs section on changing a running pod's CPU and memory shows a broken maturity banner inside a callout box. That report was closed in favour of a broader tracking issue. Another person separately reported the same banner problem on the page about kubelet evicting pods when a node runs low on memory or disk. How was that other report closed, and what fix did its author suggest?",
+      "gold": [
+        "github/issues/kubernetes/website/57734.md",
+        "github/issues/kubernetes/website/57415.md",
+        "github/issues/kubernetes/website/57486.md"
+      ],
+      "seeds": ["github/issues/kubernetes/website/57734.md"],
+      "keyFacts": [
+        "The node-pressure-eviction report (#57486) was triaged as a duplicate of #57415 and closed as \"not planned\".",
+        "Its author proposed moving the feature-state call above the note."
+      ]
+    },
+    {
+      "id": "kubernetes-multi-hop-07",
+      "corpus": "kubernetes",
+      "category": "multi-hop",
+      "split": "holdout",
+      "text": "We'd like container images kept on one drive and each container's own changing data on a different drive, using containerd. A maintainer said the node agent can now handle that arrangement, but only one runtime supports it. Which node-agent switch lets it clean up old images and dead containers when they live on separate drives? What maturity level is it at, and since which release has it been enabled by default?",
+      "gold": [
+        "github/issues/kubernetes/enhancements/5509.md",
+        "github/issues/kubernetes/enhancements/4191.md",
+        "knowledge/features/kubelet-separate-disk-gc.md"
+      ],
+      "seeds": ["github/issues/kubernetes/enhancements/5509.md"],
+      "keyFacts": [
+        "The feature gate is KubeletSeparateDiskGC (KEP-4191).",
+        "It has been beta and on by default since Kubernetes 1.31.",
+        "It was introduced as alpha, off by default, in 1.29."
+      ]
+    },
+    {
+      "id": "kubernetes-multi-hop-08",
+      "corpus": "kubernetes",
+      "category": "multi-hop",
+      "split": "dev",
+      "text": "Which component serves the endpoints that list extension API groups and the versions each group offers? It ships a standalone example for deploying it onto a cluster. Apart from the service fronting the component itself, which backing data store also gets its own service in that example?",
+      "gold": [
+        "knowledge/apis/aggregated-api-discovery.md",
+        "knowledge/services/kube-aggregator.md",
+        "knowledge/infrastructure/kubernetes.md"
+      ],
+      "seeds": ["knowledge/apis/aggregated-api-discovery.md"],
+      "keyFacts": [
+        "The Aggregated API Discovery endpoints are exposed by kube-aggregator.",
+        "kube-aggregator runs on Kubernetes using self-contained example manifests (kubernetes-discovery-svc.yaml).",
+        "The self-contained example also includes an etcd service manifest (etcd-svc.yaml)."
+      ]
+    },
+    {
+      "id": "kubernetes-multi-hop-11",
+      "corpus": "kubernetes",
+      "category": "multi-hop",
+      "split": "holdout",
+      "text": "Our local test clusters run every node as a container on the usual desktop container engine. The tool also ships its own lightweight pod-networking daemon, packaged as an image for that same engine. What do the tool's stated design guidelines, which shape that daemon, say about where cluster state should be kept? And what baseline should runtime support aim for?",
+      "gold": [
+        "knowledge/infrastructure/docker.md",
+        "knowledge/services/kindnetd.md",
+        "knowledge/decisions/ctxpipe-ai-eval-v0-kubernetes-kind-site-content-principles.md"
+      ],
+      "seeds": ["knowledge/infrastructure/docker.md"],
+      "keyFacts": [
+        "Cluster state is kept in the node containers, with operations made hermetic and reproducible: no external dependencies or state stores.",
+        "When supporting runtimes, kind targets the functionality represented by the Kubernetes CRI."
+      ]
+    },
+    {
+      "id": "kubernetes-multi-hop-13",
+      "corpus": "kubernetes",
+      "category": "multi-hop",
+      "split": "dev",
+      "text": "Our local test-cluster tool only promises that each prebuilt machine snapshot gives a working cluster member at its stated version, when used with the matching tool release. That promise also shapes the tool's bundled pod-networking daemon. That daemon is shaped as well by the project's earliest architecture write-up. According to that write-up, how does the tool find which containers belong to a cluster when tearing it down? And what state are the member containers kept in while they are being set up, before system services start?",
+      "gold": [
+        "knowledge/decisions/ctxpipe-ai-eval-v0-kubernetes-kind-site-content-node-image.md",
+        "knowledge/services/kindnetd.md",
+        "knowledge/decisions/ctxpipe-ai-eval-v0-kubernetes-kind-site-content-initial.md"
+      ],
+      "seeds": [
+        "knowledge/decisions/ctxpipe-ai-eval-v0-kubernetes-kind-site-content-node-image.md"
+      ],
+      "keyFacts": [
+        "Cluster membership is identified by container labels rather than container names or host-managed state; deletion locates and removes containers by cluster label.",
+        "Nodes are prepared while paused, then system services start, Kubernetes is initialized with kubeadm, kubeconfig is exported and a pod network applied."
+      ]
+    },
+    {
+      "id": "kubernetes-multi-hop-14",
+      "corpus": "kubernetes",
+      "category": "multi-hop",
+      "split": "dev",
+      "text": "The main Kubernetes repo includes a standalone example that deploys the proxy layer fronting extension API servers. The example also gives a backing key-value store its own service. What API does that proxy component expose so clients can find out which API groups exist? What two kinds of lookup does that API answer?",
+      "gold": [
+        "knowledge/infrastructure/kubernetes.md",
+        "knowledge/services/kube-aggregator.md",
+        "knowledge/apis/aggregated-api-discovery.md"
+      ],
+      "seeds": ["knowledge/infrastructure/kubernetes.md"],
+      "keyFacts": [
+        "The component is kube-aggregator, which exposes the Aggregated API Discovery API",
+        "It lists the aggregated API groups (get apis operation)",
+        "It describes a single group's available versions (get apis/group operation)"
+      ]
+    },
+    {
+      "id": "kubernetes-multi-hop-15",
+      "corpus": "kubernetes",
+      "category": "multi-hop",
+      "split": "holdout",
+      "text": "Our cluster bootstrap tool stopped filling in defaults for other components' settings and now leaves checking those settings to the components themselves. A related idea let admins make deeper tweaks to the generated control-plane pod definitions through a third-party overlay tool, but that idea was dropped. What replaced it? How do admins supply their tweaks under the replacement, and which generated objects do those tweaks apply to?",
+      "gold": [
+        "knowledge/decisions/ctxpipe-ai-eval-v0-kubernetes-enhancements-sig-cluster-lifecycle-kubeadm-1381-component-config.md",
+        "knowledge/decisions/ctxpipe-ai-eval-v0-kubernetes-enhancements-sig-cluster-lifecycle-kubeadm-1177-kubeadm-with-kustomize.md",
+        "knowledge/decisions/ctxpipe-ai-eval-v0-kubernetes-enhancements-sig-cluster-lifecycle-kubeadm-1739-customizatio-b3e62b8d.md"
+      ],
+      "seeds": [
+        "knowledge/decisions/ctxpipe-ai-eval-v0-kubernetes-enhancements-sig-cluster-lifecycle-kubeadm-1381-component-config.md"
+      ],
+      "keyFacts": [
+        "The Kustomize-based approach (KEP-1177) was replaced by a kubeadm-native patch mechanism (KEP-1739) that does not use Kustomize.",
+        "Users provide a directory of ordered patch files; each filename indicates the patch format and the target.",
+        "The patches are applied to generated control-plane static pod manifests and to kubelet configuration during init, join, upgrade and their phases, and the experimental Kustomize option is deprecated."
+      ]
+    },
+    {
+      "id": "kubernetes-cross-source-01",
+      "corpus": "kubernetes",
+      "category": "cross-source",
+      "split": "dev",
+      "text": "We're migrating accelerator sharing off the old per-node agent model onto the newer scheduler-driven hardware allocation API. Legacy pods that ask for the 'shared card' name in their limits should land on a fixed portion of one card, with no edits to the pods. What does a cluster operator set up so the scheduler reserves only a portion of the card for those pods? Is that behavior active by default in the version that first introduces it, or must it be turned on?",
+      "gold": [
+        "github/issues/kubernetes/enhancements/6406.md",
+        "knowledge/features/draextended-resource-capacity.md",
+        "knowledge/decisions/ctxpipe-ai-eval-v0-kubernetes-enhancements-sig-scheduling-6406-dra-extended-resource-capacity.md"
+      ],
+      "seeds": ["github/issues/kubernetes/enhancements/6406.md"],
+      "keyFacts": [
+        "The administrator sets the new optional extendedResourceCapacityRequests field on the DeviceClass (alongside extendedResourceName, e.g. requests: {shares: \"1\"}). The scheduler copies it into the Capacity of each synthesized ResourceClaim request.",
+        "This is gated by the DRAExtendedResourceCapacity feature gate, alpha in 1.38.",
+        "The gate is off by default and must be explicitly enabled."
+      ]
+    },
+    {
+      "id": "kubernetes-cross-source-03",
+      "corpus": "kubernetes",
+      "category": "cross-source",
+      "split": "holdout",
+      "text": "Our pods that keep crashing sit idle far too long between restart attempts. I heard the upstream work on restart-delay tuning was split into two separately graduating pieces. One lets node admins pick their own ceiling for the wait. The other just lowers the built-in ceiling for the whole cluster. Which switch turns on the lower built-in ceiling, and is it enabled out of the box at its current maturity level?",
+      "gold": [
+        "github/issues/kubernetes/enhancements/5593.md",
+        "knowledge/features/reduce-default-crash-loop-back-off-decay.md"
+      ],
+      "seeds": ["github/issues/kubernetes/enhancements/5593.md"],
+      "keyFacts": [
+        "KEP-4603 was split. The original KEP keeps the reduced default backoff maximum behind the ReduceDefaultCrashLoopBackoffDecay gate. The new KEP-5593 covers the user-configurable maximum (EnableKubeletCrashLoopBackoffMax), which targets beta in 1.35.",
+        "The ReduceDefaultCrashLoopBackOffDecay feature gate has been alpha since 1.33 and is off by default, so it must be explicitly enabled."
+      ]
+    },
+    {
+      "id": "kubernetes-cross-source-08",
+      "corpus": "kubernetes",
+      "category": "cross-source",
+      "split": "dev",
+      "text": "Upstream is replacing the hand-written correctness checks on built-in API objects with code produced automatically from markers in the type definitions. Which generator program produces those checks, and in which part of the source tree does it live? Also, which release was this effort targeted to reach stable?",
+      "gold": [
+        "github/issues/kubernetes/enhancements/5073.md",
+        "knowledge/services/validation-gen.md"
+      ],
+      "seeds": ["github/issues/kubernetes/enhancements/5073.md"],
+      "keyFacts": [
+        "The checks are generated by validation-gen, a tool for auto-generating Validation functions.",
+        "validation-gen is a Go main package under the code-generator staging module (staging/src/k8s.io/code-generator/cmd/validation-gen).",
+        "The enhancement targeted stable (GA) in Kubernetes 1.36, after beta."
+      ]
+    },
+    {
+      "id": "kubernetes-cross-source-09",
+      "corpus": "kubernetes",
+      "category": "cross-source",
+      "split": "holdout",
+      "text": "After a recent merge, many of our node-level test runs covering processor pinning and NUMA alignment began dying before any test body ran. They complain that the node agent's systemd unit couldn't be located. The culprit was a change that tied one toggle to its umbrella toggle, which those jobs keep disabled. That toggle corrects how a workload's guaranteed/burstable/best-effort tier is derived when budgets are declared for the whole workload rather than per container. What is that correcting toggle called, how mature is it, and does it ship switched on?",
+      "gold": [
+        "github/issues/kubernetes/kubernetes/140628.md",
+        "knowledge/features/pod-level-resources-fix-kubelet-qosclass.md"
+      ],
+      "seeds": ["github/issues/kubernetes/kubernetes/140628.md"],
+      "keyFacts": [
+        "The gate is PodLevelResourcesFixKubeletQOSClass, which now depends on PodLevelResources.",
+        "It is beta since 1.37.",
+        "It is enabled (on) by default."
+      ]
+    },
+    {
+      "id": "kubernetes-cross-source-11",
+      "corpus": "kubernetes",
+      "category": "cross-source",
+      "split": "dev",
+      "text": "On our CI lane for Microsoft's server OS, each pod runs inside its own lightweight virtual machine. There, end-to-end checks never succeed when one workload exiting should relaunch every workload of that pod while keeping the pod's environment. The same checks succeed on nodes where pods share the host kernel. Why does this break only on the per-VM nodes? Also, what maturity level has the capability reached that lets single workloads override the pod-wide relaunch behavior, and does it ship enabled?",
+      "gold": [
+        "github/issues/kubernetes/kubernetes/140187.md",
+        "knowledge/features/container-restart-rules.md"
+      ],
+      "seeds": ["github/issues/kubernetes/kubernetes/140187.md"],
+      "keyFacts": [
+        "Under Hyper-V isolation the pod sandbox is a shared Utility VM; killing containers can make hcsshim tear down the UVM (30-second watchdog), so the sandbox goes NotReady and the pod fails before containers are restarted.",
+        "The ContainerRestartRules feature gate is beta since 1.35.",
+        "ContainerRestartRules is on by default (it was alpha and off by default in 1.34)."
+      ]
+    },
+    {
+      "id": "kubernetes-cross-source-12",
+      "corpus": "kubernetes",
+      "category": "cross-source",
+      "split": "dev",
+      "text": "Before the old cloud-placement node tags get retired, we're surveying the code that still understands them. One piece converts the placement constraints on older persistent volumes between the legacy keys and their current replacements. It does this while storage moves off drivers compiled into the core and onto externally maintained plugins. Which shared module holds that conversion? Is it a runnable program or something else, and which outside components are meant to consume it?",
+      "gold": [
+        "github/issues/kubernetes/kubernetes/142011.md",
+        "knowledge/libraries/csi-translation-lib.md"
+      ],
+      "seeds": ["github/issues/kubernetes/kubernetes/142011.md"],
+      "keyFacts": [
+        "The translation of legacy PV node affinities between beta and GA topology labels happens in csi-translation-lib (getTopologyLabel in plugins/in_tree_volume.go).",
+        "csi-translation-lib is a library with no main package, not a binary.",
+        "It is meant to be consumed by Kubernetes and out-of-tree CSI components such as the external provisioner, to help migrate in-tree plugins to CSI."
+      ]
+    },
+    {
+      "id": "kubernetes-cross-source-13",
+      "corpus": "kubernetes",
+      "category": "cross-source",
+      "split": "holdout",
+      "text": "Our node end-to-end CI lanes that turn on every experimental switch now die during test-binary startup, before any spec runs. The error is a switch-dependency check: a newly promoted workload-placement switch is off, but a still-experimental grouping switch needs it. Why does the 'turn on all experimental' setting no longer cover this? These same lanes also explicitly turn on the switch that makes the node agent take pod and container stats from the container runtime instead of the built-in metrics collector. What maturity level is that stats switch at, and is it on by default, or does it really need to be set explicitly?",
+      "gold": [
+        "github/issues/kubernetes/kubernetes/143375.md",
+        "knowledge/features/pod-and-container-stats-from-cri.md"
+      ],
+      "seeds": ["github/issues/kubernetes/kubernetes/143375.md"],
+      "keyFacts": [
+        "TopologyAwareWorkloadScheduling was promoted to beta with Default false, so AllAlpha=true no longer enables it, yet the alpha CompositePodGroup depends on it and validation fails.",
+        "The fix is to add AllBeta=true or TopologyAwareWorkloadScheduling=true to the test binary's --feature-gates.",
+        "PodAndContainerStatsFromCRI is beta since 1.37 and off by default, so the jobs must set it to true explicitly."
+      ]
+    },
+    {
+      "id": "kubernetes-cross-source-14",
+      "corpus": "kubernetes",
+      "category": "cross-source",
+      "split": "dev",
+      "text": "Tools that build client libraries from the cluster's API description still read the old one-big-file description. The newer-format description is chopped into dozens of pieces, one per API family, with common object types copied into each piece. What fix is being suggested: a new live endpoint on the control plane, or something else? And which control-plane piece already stitches together the newer-format descriptions coming from extension API servers, and what does it expose?",
+      "gold": [
+        "github/issues/kubernetes/kubernetes/142562.md",
+        "knowledge/apis/aggregated-openapi-v3.md"
+      ],
+      "seeds": ["github/issues/kubernetes/kubernetes/142562.md"],
+      "keyFacts": [
+        "The proposal is a single pre-merged OpenAPI v3 document published as a static file in the repo or as a release artifact, not a new endpoint served by kube-apiserver.",
+        "The kube-aggregator's OpenAPI v3 aggregator already aggregates the specs from API services.",
+        "It serves an OpenAPI v3 discovery endpoint plus separate per-group-version spec endpoints."
+      ]
+    },
+    {
+      "id": "kubernetes-cross-source-15",
+      "corpus": "kubernetes",
+      "category": "cross-source",
+      "split": "holdout",
+      "text": "We want the scheduler to evict lower-priority neighbors when a running pod's CPU/memory bump, done without a restart, is postponed by the node agent for lack of room. Upstream is tracking a list of open items before this capability moves up a maturity level. What kinds of problems are on that list? And what maturity level and default state does the toggle for this behavior have right now?",
+      "gold": [
+        "github/issues/kubernetes/kubernetes/140854.md",
+        "knowledge/features/in-place-pod-vertical-scaling-scheduler-preemption.md"
+      ],
+      "seeds": ["github/issues/kubernetes/kubernetes/140854.md"],
+      "keyFacts": [
+        "The beta tracking issue lists: metrics and events, more integration tests, co-existence with workload-aware scheduling, victim grace periods longer than the resize window, preventing double preemption across scheduler restarts, and aligning NodeResourcesFit accounting with the kubelet's max(desired, allocated, actual).",
+        "The InPlacePodVerticalScalingSchedulerPreemption feature gate is beta since 1.38 and on by default (it was alpha and off in 1.37)."
+      ]
+    },
+    {
+      "id": "kubernetes-cross-source-16",
+      "corpus": "kubernetes",
+      "category": "cross-source",
+      "split": "dev",
+      "text": "Next spring Google stops bundling its legacy object-store copy utility with its cloud CLI packages. In our tree, one affected spot is a tiny staging step that pushes the packaged image of a node-side helper binary to remote storage. What does that helper do when it runs on a node? And what does the staging step call today that will have to be swapped out?",
+      "gold": [
+        "github/issues/kubernetes/kubernetes/142384.md",
+        "knowledge/services/mounter.md"
+      ],
+      "seeds": ["github/issues/kubernetes/kubernetes/142384.md"],
+      "keyFacts": [
+        "The helper is the GCI mounter: it runs mount inside a containerized root filesystem via chroot, starting rpcbind and retrying when an NFS v3 mount needs it.",
+        "The stage-upload script uploads the mounter ACI image with `gsutil cp`, which needs replacing (e.g. with `gcloud storage cp`) before gsutil is dropped from the Google Cloud CLI in March 2027."
+      ]
+    },
+    {
+      "id": "kubernetes-time-02",
+      "corpus": "kubernetes",
+      "category": "time",
+      "split": "dev",
+      "text": "In 2025, a tracking list collected the open discussion points for promoting the hardware-claim feature to beta. That feature makes the scheduler hold off finalizing a pod's node placement until an attached device reports it is ready. When was that list opened, when was it closed, and which of its items was already finished at closing?",
+      "gold": ["github/issues/kubernetes/enhancements/5700.md"],
+      "keyFacts": [
+        "The beta tracking issue for KEP-5007 Device Binding Conditions was opened on 2025-11-20.",
+        "It was closed as completed on 2025-11-27.",
+        "Only the happy-path item without binding failure in the device attachment scenario (#5701) was checked off. The items on scheduler behavior after binding failure, metrics, and driver feedback were left unchecked."
+      ]
+    },
+    {
+      "id": "kubernetes-time-04",
+      "corpus": "kubernetes",
+      "category": "time",
+      "split": "holdout",
+      "text": "In 2026 there was a proposal to let a pod pick the numeric owner of the files Kubernetes writes into mounted secrets, config maps and projected volumes. The goal was that a non-root workload under the strictest pod security profile would no longer need a root init container to chown those files. In which Kubernetes release did this land as alpha, in which release did it move to beta, and which release is planned for stable?",
+      "gold": ["github/issues/kubernetes/enhancements/5936.md"],
+      "keyFacts": [
+        "Alpha in v1.37 (KEP merged 2026-06-15, before the v1.37 enhancements freeze of 16 June 2026)",
+        "Beta in v1.38",
+        "Stable is planned for v1.39 and is not done yet"
+      ]
+    },
+    {
+      "id": "kubernetes-time-07",
+      "corpus": "kubernetes",
+      "category": "time",
+      "split": "dev",
+      "text": "In 2020, Kubernetes decided to drop the cloud-vendor-specific code that the per-node agent used to log in to private container registries for image pulls. It moved that logic into separate programs that operators plug in. On what date was that decided, and how does the node agent exchange requests and replies with those programs?",
+      "gold": [
+        "knowledge/decisions/ctxpipe-ai-eval-v0-kubernetes-enhancements-sig-node-2133-kubelet-credential-providers.md",
+        "knowledge/decisions/ctxpipe-ai-eval-v0-kubernetes-enhancements-sig-cloud-provider-2133-out-of-tree-credential-provider.md"
+      ],
+      "keyFacts": [
+        "KEP-2133 (Kubelet Credential Providers) is dated 2020-11-12.",
+        "The kubelet invokes configurable exec-based credential-provider plugins, which it selects by image matching configuration.",
+        "The kubelet and the plugin exchange versioned JSON request and response objects over stdin and stdout, and responses may be cached."
+      ]
+    },
+    {
+      "id": "kubernetes-time-08",
+      "corpus": "kubernetes",
+      "category": "time",
+      "split": "holdout",
+      "text": "In 2026 there was an effort to let the controller that runs pods with stable identities and per-replica storage declare group scheduling intent through the new scheduling building blocks. It was first aimed at an alpha in one release. Did it stay in that release? If not, when was it pulled, and which release was it moved to?",
+      "gold": ["github/issues/kubernetes/enhancements/6277.md"],
+      "keyFacts": [
+        "The StatefulSet\u2013Workload API integration was opted in for alpha in v1.38 and was tracked at enhancements freeze on 2026-09-30.",
+        "On 2026-10-02 it was removed from the v1.38 milestone after review.",
+        "It was pushed to v1.39 for alpha."
+      ]
+    },
+    {
+      "id": "kubernetes-time-09",
+      "corpus": "kubernetes",
+      "category": "time",
+      "split": "dev",
+      "text": "In 2018 someone proposed letting operators change the rules for what the API server records about incoming requests, and the remote endpoint those records get pushed to, by creating cluster objects rather than editing startup settings and restarting the server. When was that proposal dated, and did it ever ship, or what became of it?",
+      "gold": [
+        "knowledge/decisions/ctxpipe-ai-eval-v0-kubernetes-enhancements-sig-auth-600-dynamic-audit-configuration.md"
+      ],
+      "keyFacts": [
+        "KEP-600 Dynamic Audit Configuration is dated 2018-05-18.",
+        "The KEP is marked withdrawn, so the design was not delivered as an active decision.",
+        "The record does not state a specific reason for the withdrawal."
+      ]
+    },
+    {
+      "id": "kubernetes-time-10",
+      "corpus": "kubernetes",
+      "category": "time",
+      "split": "dev",
+      "text": "In 2024 someone proposed a performance improvement for API server list requests that are served in pages. The idea was to stop asking the backing key-value store to recount how many objects remain for every follow-up page. Which Kubernetes release was it first aimed at for alpha, and what ended up happening to the proposal, and when?",
+      "gold": ["github/issues/kubernetes/enhancements/4567.md"],
+      "keyFacts": [
+        "The enhancement was opened on 2024-04-03 with an alpha target of v1.31.",
+        "SIG etcd objected in July 2024, preferring broader fixes such as fast count in etcd or a paginated watch cache.",
+        "The issue was closed as not planned on 2024-10-19 after going stale and rotten."
+      ]
+    },
+    {
+      "id": "kubernetes-disagreement-01",
+      "corpus": "kubernetes",
+      "category": "disagreement",
+      "split": "dev",
+      "text": "Now that Linux kernel pressure-stall measurements from cgroup v2 have reached GA in Kubernetes, does the kubelet also flag nodes in their status when CPU, memory or IO pressure is high, or is that still a separate, unfinished piece?",
+      "gold": [
+        "github/issues/kubernetes/enhancements/4205.md",
+        "github/issues/kubernetes/enhancements/5394.md"
+      ],
+      "seeds": ["github/issues/kubernetes/enhancements/5394.md"],
+      "positions": [
+        {
+          "refs": ["github/issues/kubernetes/enhancements/4205.md"],
+          "status": "superseded"
+        },
+        {
+          "refs": ["github/issues/kubernetes/enhancements/5394.md"],
+          "status": "current"
+        }
+      ],
+      "keyFacts": [
+        "Enhancement 4205 originally described integrating PSI metrics and using them to set node conditions, and it graduated to stable in 1.36.",
+        "PSI-based node conditions were split into a separate enhancement (5394), so 4205 tracks only the exposure of PSI metrics.",
+        "PSI-based node conditions are still alpha: the 5394 code PR for 1.36 is not merged, and 1.34 was deferred."
+      ]
+    },
+    {
+      "id": "kubernetes-disagreement-04",
+      "corpus": "kubernetes",
+      "category": "disagreement",
+      "split": "holdout",
+      "text": "Our team wants to hook custom programs into the overlay-based YAML patching tool bundled with the k8s CLI, so that they produce or modify objects while manifests are rendered. Is the recommended approach still to call arbitrary local binaries that read and write manifests through pipes? Or did the community move to a different scheme, where users choose which sources of extensions they are willing to run?",
+      "gold": [
+        "knowledge/decisions/ctxpipe-ai-eval-v0-kubernetes-enhancements-sig-cli-993-kustomize-generators-transformers.md",
+        "knowledge/decisions/ctxpipe-ai-eval-v0-kubernetes-enhancements-sig-cli-2953-kustomize-plugin-graduation.md"
+      ],
+      "seeds": [
+        "knowledge/decisions/ctxpipe-ai-eval-v0-kubernetes-enhancements-sig-cli-2953-kustomize-plugin-graduation.md"
+      ],
+      "positions": [
+        {
+          "refs": [
+            "knowledge/decisions/ctxpipe-ai-eval-v0-kubernetes-enhancements-sig-cli-993-kustomize-generators-transformers.md"
+          ],
+          "status": "superseded"
+        },
+        {
+          "refs": [
+            "knowledge/decisions/ctxpipe-ai-eval-v0-kubernetes-enhancements-sig-cli-2953-kustomize-plugin-graduation.md"
+          ],
+          "status": "current"
+        }
+      ],
+      "keyFacts": [
+        "KEP-993 proposed executable generator/transformer plugins declared in kustomization.yaml that exchange resources over stdin/stdout; it is marked Superseded.",
+        "KEP-2953 replaces it with a model built on KRM functions, with catalog-based discovery and distribution.",
+        "Under KEP-2953, users configure which catalogs they trust, and Kustomize verifies the catalog entry and the provider identity before execution."
+      ]
+    },
+    {
+      "id": "kubernetes-disagreement-05",
+      "corpus": "kubernetes",
+      "category": "disagreement",
+      "split": "dev",
+      "text": "We run our cluster's per-node service proxy in the mode that uses the Linux kernel's built-in virtual-server load balancer. If we upgrade to the newest Kubernetes releases, does that mode still work by default, or has it already been taken out? When is it expected to stop working?",
+      "gold": [
+        "knowledge/features/kube-proxy-ipvs.md",
+        "github/issues/kubernetes/enhancements/5495.md"
+      ],
+      "seeds": ["knowledge/features/kube-proxy-ipvs.md"],
+      "positions": [
+        {
+          "refs": ["knowledge/features/kube-proxy-ipvs.md"],
+          "status": "scoped"
+        },
+        {
+          "refs": ["github/issues/kubernetes/enhancements/5495.md"],
+          "status": "current"
+        }
+      ],
+      "keyFacts": [
+        "IPVS mode in kube-proxy is deprecated (deprecation warnings since v1.35; the KubeProxyIPVS deprecation feature gate since 1.37) but is still enabled by default.",
+        "Disabling the feature gate by default is planned for v1.40 under KEP-5495 and is not yet done."
+      ]
+    },
+    {
+      "id": "kubernetes-disagreement-08",
+      "corpus": "kubernetes",
+      "category": "disagreement",
+      "split": "holdout",
+      "text": "Our team keeps per-environment YAML overlays in git. Before rollout, an extra program creates config and credential objects from local files and stamps shared metadata onto every resource. Is that program meant to stay a separate download next to the main cluster command-line client? Or can the main client itself now print the fully assembled output to stdout, so we can feed it into other tools?",
+      "gold": [
+        "knowledge/decisions/ctxpipe-ai-eval-v0-kubernetes-enhancements-sig-cli-2377-kustomize.md",
+        "knowledge/decisions/ctxpipe-ai-eval-v0-kubernetes-enhancements-sig-cli-2386-kustomize-subcommand-integration.md"
+      ],
+      "seeds": [
+        "knowledge/decisions/ctxpipe-ai-eval-v0-kubernetes-enhancements-sig-cli-2386-kustomize-subcommand-integration.md"
+      ],
+      "positions": [
+        {
+          "refs": [
+            "knowledge/decisions/ctxpipe-ai-eval-v0-kubernetes-enhancements-sig-cli-2377-kustomize.md"
+          ],
+          "status": "superseded"
+        },
+        {
+          "refs": [
+            "knowledge/decisions/ctxpipe-ai-eval-v0-kubernetes-enhancements-sig-cli-2386-kustomize-subcommand-integration.md"
+          ],
+          "status": "current"
+        }
+      ],
+      "keyFacts": [
+        "KEP-2377 (Kustomize as a declarative kustomization.yaml tool) is marked superseded by KEP-2386.",
+        "KEP-2386 (implemented) exposes Kustomize's build as `kubectl kustomize <directory>`, which renders the resources to stdout so they can be piped into other commands.",
+        "Direct integration such as `kubectl apply -k` was deferred to follow-up work."
+      ]
+    },
+    {
+      "id": "kubernetes-disagreement-09",
+      "corpus": "kubernetes",
+      "category": "disagreement",
+      "split": "dev",
+      "text": "Kubernetes has been moving built-in API object checks from hand-coded Go to rules generated from comment tags on the types. Since that work went to stable, does the API server now return the errors from the generated rules to clients by default? Or do clients still get the hand-coded errors, with the generated checks only running in the background?",
+      "gold": [
+        "knowledge/features/declarative-validation-takeover.md",
+        "github/issues/kubernetes/enhancements/5073.md"
+      ],
+      "seeds": ["knowledge/features/declarative-validation-takeover.md"],
+      "positions": [
+        {
+          "refs": ["github/issues/kubernetes/enhancements/5073.md"],
+          "status": "scoped"
+        },
+        {
+          "refs": ["knowledge/features/declarative-validation-takeover.md"],
+          "status": "current"
+        }
+      ],
+      "keyFacts": [
+        "KEP-5073 (declarative validation with validation-gen) went to beta in 1.33 and targeted stable/GA in 1.36.",
+        "The DeclarativeValidationTakeover gate, which makes declarative errors replace hand-written errors, is deprecated since 1.36, off by default, and locked off in 1.37.",
+        "With the gate off, hand-written errors are returned and declarative validation runs in shadow mode."
+      ]
+    },
+    {
+      "id": "kubernetes-disagreement-12",
+      "corpus": "kubernetes",
+      "category": "disagreement",
+      "split": "dev",
+      "text": "Our cluster spans several datacenter failure areas. We want in-cluster requests to a load-balanced app address to land on backends in the caller's own failure area, so we pay less for inter-datacenter transfer and avoid the slowdown. Can we attach a ranked list of locality keys to the app's virtual-IP object, such as same datacenter first, then same geography, then anything, and have each machine's traffic forwarder honor that order? Or was that idea abandoned? If it was abandoned, what took over, and which piece of the successor is fully stable?",
+      "gold": [
+        "knowledge/decisions/ctxpipe-ai-eval-v0-kubernetes-enhancements-sig-network-536-topology-aware-routing.md",
+        "knowledge/decisions/ctxpipe-ai-eval-v0-kubernetes-enhancements-sig-network-2433-topology-aware-hints.md"
+      ],
+      "seeds": [
+        "knowledge/decisions/ctxpipe-ai-eval-v0-kubernetes-enhancements-sig-network-2433-topology-aware-hints.md"
+      ],
+      "positions": [
+        {
+          "refs": [
+            "knowledge/decisions/ctxpipe-ai-eval-v0-kubernetes-enhancements-sig-network-536-topology-aware-routing.md"
+          ],
+          "status": "superseded"
+        },
+        {
+          "refs": [
+            "knowledge/decisions/ctxpipe-ai-eval-v0-kubernetes-enhancements-sig-network-2433-topology-aware-hints.md"
+          ],
+          "status": "current"
+        }
+      ],
+      "keyFacts": [
+        "The Service topologyKeys preference-order design (KEP-536) is superseded and is not the current direction.",
+        "KEP-2433 Topology Aware Hints replaced it by adding per-endpoint zone hints on EndpointSlices, which consumers such as kube-proxy use to filter endpoints.",
+        "GA scope of KEP-2433 covers only the hints field, not the topology-mode annotation or its routing heuristics."
+      ]
+    },
+    {
+      "id": "kubernetes-disagreement-13",
+      "corpus": "kubernetes",
+      "category": "disagreement",
+      "split": "holdout",
+      "text": "On our nodes, the memory-exhaustion killer can either take down the whole container or only the single offending process, and today that choice is one setting for the entire node. Is there a planned way to choose this per workload instead? Is that proposal being done at the level of individual containers, or at a different level? How far along is it?",
+      "gold": [
+        "github/issues/kubernetes/enhancements/6476.md",
+        "github/issues/kubernetes/enhancements/5507.md"
+      ],
+      "seeds": ["github/issues/kubernetes/enhancements/6476.md"],
+      "positions": [
+        {
+          "refs": ["github/issues/kubernetes/enhancements/5507.md"],
+          "status": "superseded"
+        },
+        {
+          "refs": ["github/issues/kubernetes/enhancements/6476.md"],
+          "status": "current"
+        }
+      ],
+      "keyFacts": [
+        "KEP-5507 (container-level OOM kill mode configuration) stalled and was closed as not planned.",
+        "KEP-6476 supersedes it with a narrower pod-level setting for process- or container-level OOM kills, complementing the kubelet's node-level singleProcessOOMKill.",
+        "KEP-6476 targets alpha in v1.39 and is still a draft awaiting SIG Node design consensus."
+      ]
+    },
+    {
+      "id": "kubernetes-disagreement-15",
+      "corpus": "kubernetes",
+      "category": "disagreement",
+      "split": "dev",
+      "text": "Our cluster's secrets at rest are protected by an external cloud vault, reached through a small bridge process next to the control plane. When one write or read of protected data fails, can we follow that single call end to end, through the control plane, the bridge and the vault, using a shared ID instead of guessing from clock times? Did that tracing idea ship as its own effort, or was it absorbed into a later version of the bridge's interface?",
+      "gold": [
+        "knowledge/decisions/ctxpipe-ai-eval-v0-kubernetes-enhancements-sig-auth-3130-kms-observability.md",
+        "knowledge/decisions/ctxpipe-ai-eval-v0-kubernetes-enhancements-sig-auth-3299-kms-v2-improvements.md"
+      ],
+      "seeds": [
+        "knowledge/decisions/ctxpipe-ai-eval-v0-kubernetes-enhancements-sig-auth-3299-kms-v2-improvements.md"
+      ],
+      "positions": [
+        {
+          "refs": [
+            "knowledge/decisions/ctxpipe-ai-eval-v0-kubernetes-enhancements-sig-auth-3130-kms-observability.md"
+          ],
+          "status": "superseded"
+        },
+        {
+          "refs": [
+            "knowledge/decisions/ctxpipe-ai-eval-v0-kubernetes-enhancements-sig-auth-3299-kms-v2-improvements.md"
+          ],
+          "status": "current"
+        }
+      ],
+      "keyFacts": [
+        "KEP-3130 proposed that kube-apiserver generate a unique transaction ID (UID) for each envelope encryption operation and pass it to the KMS plugin and remote KMS for correlation.",
+        "KEP-3130 was superseded by KEP-3299 (KMS v2 Improvements), which includes transaction UIDs in its KMS v2 KeyManagementService contract.",
+        "KEP-3299 is implemented."
+      ]
+    },
+    {
+      "id": "kubernetes-disagreement-16",
+      "corpus": "kubernetes",
+      "category": "disagreement",
+      "split": "holdout",
+      "text": "We have a hardware driver for the newer claim-based device allocation system. All of its work happens in the central allocation step, so there is nothing to set up or tear down on the machine itself. Can the per-node agent skip calling our driver's setup and teardown hooks for such devices? Is that behavior available without turning anything on, or does it still need to be enabled explicitly?",
+      "gold": [
+        "knowledge/features/draoptional-node-operations.md",
+        "github/issues/kubernetes/enhancements/5945.md"
+      ],
+      "seeds": ["knowledge/features/draoptional-node-operations.md"],
+      "positions": [
+        {
+          "refs": ["github/issues/kubernetes/enhancements/5945.md"],
+          "status": "scoped"
+        },
+        {
+          "refs": ["knowledge/features/draoptional-node-operations.md"],
+          "status": "current"
+        }
+      ],
+      "keyFacts": [
+        "DRA can mark node-local prepare/unprepare as optional, so kubelet skips the plugin calls for allocations that do not need node preparation (KEP-5945, DRAOptionalNodeOperations).",
+        "The feature was alpha and off by default in v1.37.",
+        "It is beta since v1.38 and on by default."
+      ]
+    },
+    {
+      "id": "kubernetes-no-answer-01",
+      "corpus": "kubernetes",
+      "category": "no-answer",
+      "split": "dev",
+      "text": "Is there a design proposal or decision to make a relational database like PostgreSQL the default storage backend for the API server instead of the current key-value store, and what migration path was planned for existing clusters?",
+      "gold": [],
+      "keyFacts": []
+    },
+    {
+      "id": "kubernetes-no-answer-02",
+      "corpus": "kubernetes",
+      "category": "no-answer",
+      "split": "holdout",
+      "text": "Is there a tool in the enhancements repo that automatically closes or archives a proposal after it has gone a set number of release cycles with no changes to its design file? If so, what inactivity threshold does it use?",
+      "gold": [],
+      "keyFacts": []
+    },
+    {
+      "id": "kubernetes-no-answer-03",
+      "corpus": "kubernetes",
+      "category": "no-answer",
+      "split": "dev",
+      "text": "Does the contributor community run a paid stipend or bounty program that pays first-time contributors for fixing issues labeled as good starter work? If so, how do I apply, and what is the payout per merged change?",
+      "gold": [],
+      "keyFacts": []
+    },
+    {
+      "id": "kubernetes-no-answer-04",
+      "corpus": "kubernetes",
+      "category": "no-answer",
+      "split": "holdout",
+      "text": "Does the docs site have a built-in dark mode toggle that remembers the reader's color preference across visits, and where is the choice stored \u2014 in a cookie or in browser local storage?",
+      "gold": [],
+      "keyFacts": []
+    },
+    {
+      "id": "kubernetes-no-answer-05",
+      "corpus": "kubernetes",
+      "category": "no-answer",
+      "split": "dev",
+      "text": "Can the local cluster tool run its nodes as real virtual machines through a hypervisor such as QEMU or Hyper-V, instead of as containers? If it can, how do I pick that backend when I create a cluster?",
+      "gold": [],
+      "keyFacts": []
+    },
+    {
+      "id": "kubernetes-no-answer-06",
+      "corpus": "kubernetes",
+      "category": "no-answer",
+      "split": "dev",
+      "text": "Does the local container-based cluster tool have a built-in command to snapshot a running cluster's full state, including the etcd data and loaded images, so I can restore it later on another machine? If it does, what format does the archive use?",
+      "gold": [],
+      "keyFacts": []
+    },
+    {
+      "id": "rust-lookup-01",
+      "corpus": "rust",
+      "category": "lookup",
+      "split": "dev",
+      "text": "In Rust's standard library, the owned string type that ends with a zero byte and is used when calling into native libraries: what type does it automatically turn into when you take a reference to it? And why was handing out a plain view of its chars judged not good enough?",
+      "gold": [
+        "knowledge/decisions/ctxpipe-ai-eval-v0-rust-rfcs-0592-c-str-deref.md"
+      ],
+      "keyFacts": [
+        "CString dereferences to a new borrowed CStr type",
+        "A character slice does not express the null-termination invariant, so safe FFI wrappers would need runtime checks or temporary allocations",
+        "A slice requires computing a length when callers only need a thin pointer to the C string data"
+      ]
+    },
+    {
+      "id": "rust-lookup-02",
+      "corpus": "rust",
+      "category": "lookup",
+      "split": "holdout",
+      "text": "Where does Cargo keep the record of which downloaded cache files were used and when cleanup last ran, what kind of storage is it, and how does it avoid conflicts with other Cargo processes touching it?",
+      "gold": ["knowledge/databases/sqlite-global-cache-tracking.md"],
+      "keyFacts": [
+        "Cargo's global cache tracker stores cache-use and garbage-collection state in an SQLite database",
+        "The database lives under the Cargo home directory",
+        "Access is coordinated with the package-cache lock"
+      ]
+    },
+    {
+      "id": "rust-lookup-03",
+      "corpus": "rust",
+      "category": "lookup",
+      "split": "dev",
+      "text": "Which Rust release first let you compute a field's byte position through a chain of fields, like going into a struct inside a struct, in one macro call without enabling anything on nightly?",
+      "gold": ["knowledge/features/offset-of-nested.md"],
+      "keyFacts": [
+        "The offset_of_nested feature was accepted (stabilized) in Rust 1.82.0",
+        "It allows multiple nested field accesses in offset_of!",
+        "Tracking issue #120140"
+      ]
+    },
+    {
+      "id": "rust-lookup-04",
+      "corpus": "rust",
+      "category": "lookup",
+      "split": "holdout",
+      "text": "Some of Cargo's own tests spin up containerized servers to exercise fetching dependencies from remote repositories. Are those tests run by default, and what kinds of server images do they use?",
+      "gold": [
+        "knowledge/infrastructure/docker-cargo-test-support.md",
+        "knowledge/instructions/integration-testing.md"
+      ],
+      "keyFacts": [
+        "Container-backed tests are disabled unless an enabling environment variable is set",
+        "Apache and SSH (sshd) test images provide fixtures for Git-based tests",
+        "Docker is test infrastructure in the test support library, not a runtime platform for Cargo"
+      ]
+    },
+    {
+      "id": "rust-multi-hop-02",
+      "corpus": "rust",
+      "category": "multi-hop",
+      "split": "dev",
+      "text": "The generator that emits Rust's NEON/SVE vector-instruction wrappers from its definition files depends on a common data-serialization crate. Which other tool in that same SIMD subtree of the Rust repo shares this dependency, and how does it validate the wrappers?",
+      "gold": [
+        "knowledge/services/stdarch-gen-arm.md",
+        "knowledge/libraries/serde.md",
+        "knowledge/services/intrinsic-test.md"
+      ],
+      "seeds": ["knowledge/services/stdarch-gen-arm.md"],
+      "keyFacts": [
+        "The generator uses the Serde library, and so does the intrinsic-test tool in library/stdarch/crates/intrinsic-test.",
+        "intrinsic-test generates and runs programs that use equivalent C and Rust intrinsics, checking that both give the same result from random inputs."
+      ]
+    },
+    {
+      "id": "rust-multi-hop-03",
+      "corpus": "rust",
+      "category": "multi-hop",
+      "split": "holdout",
+      "text": "I want a compile-time helper that gives me whatever one member of a record was declared as, so I can reuse that in a function signature without writing it out again. A later ask about copying a local binding's annotation into another declaration was redirected to an earlier, still-open proposal. What postfix spelling did that earlier proposal put forward, and what trouble with the parser did commenters raise about it?",
+      "gold": [
+        "github/issues/rust-lang/rfcs/3175.md",
+        "github/issues/rust-lang/rfcs/3241.md",
+        "github/issues/rust-lang/rfcs/2704.md"
+      ],
+      "seeds": ["github/issues/rust-lang/rfcs/3175.md"],
+      "keyFacts": [
+        "Issue 2704 proposed a postfix `.type` syntax (e.g. `let y: x.type = x;`), modeled on the `.await` keyword-in-property-position precedent",
+        "The parsing concern: an expression appears in type position without warning to the parser, so as with const generics it might need braces like `{foo()}.type` for non-trivial expressions"
+      ]
+    },
+    {
+      "id": "rust-multi-hop-05",
+      "corpus": "rust",
+      "category": "multi-hop",
+      "split": "dev",
+      "text": "Rust's package manager can now show, for each crate it builds, the highest RAM use that crate's compilation reached. Someone separately asked for a build preset for weak, slow-disk PCs and was pointed to related package-manager tickets. One of those tickets wants the package manager to pass its own worker count on to the compiler. What does a fixed upper bound buy when the tool already hands out work slots at runtime? And which stage-specific knobs should be passed on only if the user configured them?",
+      "gold": [
+        "github/issues/rust-lang/cargo/17520.md",
+        "github/issues/rust-lang/rust/163395.md",
+        "github/issues/rust-lang/cargo/17483.md"
+      ],
+      "seeds": ["github/issues/rust-lang/cargo/17520.md"],
+      "keyFacts": [
+        "Passing a static --jobs N lets rustc know the maximum number of jobs it can use, so it can size things like thread pools; with a limit of 1 it can apply further optimizations. The dynamic limit is still governed by jobserver tokens.",
+        "The fine-grained options --jobs-frontend, --jobs-backend and --jobs-linker should be passed only when they are explicitly set in cargo config, unlike --jobs, which is always passed."
+      ]
+    },
+    {
+      "id": "rust-multi-hop-06",
+      "corpus": "rust",
+      "category": "multi-hop",
+      "split": "holdout",
+      "text": "On the new 1.99 beta, a doc example in one library now fails because it imports items that only exist when a cargo feature is on. Maintainers grouped that breakage with other doc-example failures from the same ecosystem-wide test run. The main one involves an attribute standing alone in an example. A related report, said to have the same root cause, has an example that starts with a block guarded by a config check. What was actually wrong in that crate's docs? And how did the code that stable sent to the compiler differ from what beta sent?",
+      "gold": [
+        "github/issues/rust-lang/rust/162351.md",
+        "github/issues/rust-lang/rust/162131.md",
+        "github/issues/rust-lang/rust/162352.md"
+      ],
+      "seeds": ["github/issues/rust-lang/rust/162351.md"],
+      "keyFacts": [
+        "The last documentation line had a typo: the closing code fence sat on the same line as the hidden closing brace (`/// # }    /// ```), leaving a stray doc comment with nothing to attach to.",
+        "On stable, rustdoc wrapped the snippet in a generated `fn main` (with an inner `_doctest_main_...` function), so the test compiled.",
+        "On beta, the raw snippet, including the stray doc comment, was passed to rustc unwrapped, giving the error."
+      ]
+    },
+    {
+      "id": "rust-multi-hop-09",
+      "corpus": "rust",
+      "category": "multi-hop",
+      "split": "dev",
+      "text": "The small Rust program that picks which CI jobs to run for a pull request, a trial build or a merge attempt relies on a widely used data-serialization crate. In the same repo, another binary with that dependency produces the ARM vector-intrinsic bindings for the core library. How do I run that generator by hand: which toolchain, which input definitions, and where does its output go?",
+      "gold": [
+        "knowledge/services/citool.md",
+        "knowledge/libraries/serde.md",
+        "knowledge/services/stdarch-gen-arm.md"
+      ],
+      "seeds": ["knowledge/services/citool.md"],
+      "keyFacts": [
+        "The generator is run with a nightly toolchain: `cargo +nightly run --bin=stdarch-gen-arm -- ...`",
+        "It takes the spec files in `crates/stdarch-gen-arm/spec` as input and writes into `crates/core_arch/src`"
+      ]
+    },
+    {
+      "id": "rust-multi-hop-10",
+      "corpus": "rust",
+      "category": "multi-hop",
+      "split": "dev",
+      "text": "I'd like Rust to let me say \"whatever this value's static type is\" wherever a type is expected, especially inside generated code. Somebody later asked for a shorthand to copy one local binding's declared type into another annotation, and replies sent them to older tickets. One of those older tickets wanted something narrower: a helper that yields what one member of a record was declared as. What pushback did that ticket get about authors of code generators already knowing that type, and how did the person who opened it answer?",
+      "gold": [
+        "github/issues/rust-lang/rfcs/2704.md",
+        "github/issues/rust-lang/rfcs/3241.md",
+        "github/issues/rust-lang/rfcs/3175.md"
+      ],
+      "seeds": ["github/issues/rust-lang/rfcs/2704.md"],
+      "keyFacts": [
+        "A commenter said it sounds like typeof and that a #[derive]-macro author already knows the field's type (Bar) from the input tokens",
+        "The requester replied they meant accessing the field type from another macro expansion, not from the derive input"
+      ]
+    },
+    {
+      "id": "rust-multi-hop-12",
+      "corpus": "rust",
+      "category": "multi-hop",
+      "split": "holdout",
+      "text": "A cargo ticket proposes having the package manager forward its own worker count to the compiler. Separately, someone asked for a preset aimed at old, underpowered PCs and was redirected to that ticket and a few related ones. Maintainers said they'd start with the one about observing usage first, so the tool can schedule work more smartly. What does that related ticket add to the build profiling output? Did maintainers prefer gating it as an unstable toolchain-only feature, and what did they say about keeping that page's format the same across versions?",
+      "gold": [
+        "github/issues/rust-lang/cargo/17483.md",
+        "github/issues/rust-lang/rust/163395.md",
+        "github/issues/rust-lang/cargo/17520.md"
+      ],
+      "seeds": ["github/issues/rust-lang/cargo/17483.md"],
+      "keyFacts": [
+        "It adds a per-build-unit peak memory consumption table to the --timings report (and to the build analysis feature).",
+        "A maintainer said a nightly feature (e.g. -Zmem-report) would be easier to start with.",
+        "There is no strong compatibility guarantee for the HTML content, so it could be removed in a later version."
+      ]
+    },
+    {
+      "id": "rust-multi-hop-13",
+      "corpus": "rust",
+      "category": "multi-hop",
+      "split": "dev",
+      "text": "With the multi-threaded rustc front end turned on, the library summary file emitted for a tiny struct with two methods returning lazy sequences gets a different checksum on almost every build. The culprit was an unordered lookup table written out in whatever order it happened to walk. Someone thought this repeated an older ticket in which functions returning futures gave changing output hashes. That older ticket blamed a routine that creates fresh item identifiers while evaluating constants, and pointed to another report. What sort of global declaration triggers that other report, and why does the output change between runs?",
+      "gold": [
+        "github/issues/rust-lang/rust/163878.md",
+        "github/issues/rust-lang/rust/162202.md",
+        "github/issues/rust-lang/rust/162203.md"
+      ],
+      "seeds": ["github/issues/rust-lang/rust/163878.md"],
+      "keyFacts": [
+        "The third report is triggered by mutable statics holding references or raw pointers (static mut with &mut slices) in a lib crate.",
+        "Such statics create new DefIds during const eval (in intern_as_new_static), and when const eval runs in parallel the order of those DefIds is not deterministic."
+      ]
+    },
+    {
+      "id": "rust-multi-hop-14",
+      "corpus": "rust",
+      "category": "multi-hop",
+      "split": "holdout",
+      "text": "I asked Rust's build tooling for a preset suited to underpowered laptops with little RAM and an old rotating drive. A maintainer replied that they'd start by having the build tool watch how much RAM each crate's build step consumes. That capability is now available as a nightly-only option. What exactly does it record? What hookup work is still open? And which other per-crate figures are expected later?",
+      "gold": [
+        "github/issues/rust-lang/rust/163395.md",
+        "github/issues/rust-lang/cargo/17520.md",
+        "github/issues/rust-lang/cargo/17577.md"
+      ],
+      "seeds": ["github/issues/rust-lang/rust/163395.md"],
+      "keyFacts": [
+        "-Zmem-stats records the peak resident set size (peak memory usage) of each build unit's process in Cargo's timing report",
+        "Integration with `cargo report timings` and `-Zbuild-analysis` is still unresolved",
+        "Future extensions include more per-unit metrics such as CPU and disk space usage"
+      ]
+    },
+    {
+      "id": "rust-multi-hop-15",
+      "corpus": "rust",
+      "category": "multi-hop",
+      "split": "dev",
+      "text": "In Rust's SIMD library subtree there's a tool that builds matching C and Rust programs for the same CPU instructions and checks that they give the same results on random inputs. It pulls in a popular data-serialization crate. One other binary in the main Rust repo shares that dependency and lives in the continuous-integration area. What does that CI binary decide, which situations does it base the decision on, and can I use it on my own machine?",
+      "gold": [
+        "knowledge/services/intrinsic-test.md",
+        "knowledge/libraries/serde.md",
+        "knowledge/services/citool.md"
+      ],
+      "seeds": ["knowledge/services/intrinsic-test.md"],
+      "keyFacts": [
+        "citool determines which CI jobs should be executed",
+        "The decision depends on the situation: pull request, try job, or merge attempt",
+        "It also provides a way to execute some CI jobs locally"
+      ]
+    },
+    {
+      "id": "rust-multi-hop-16",
+      "corpus": "rust",
+      "category": "multi-hop",
+      "split": "dev",
+      "text": "Our automated checks run Rust's style checker with the package manager's newer config knob that makes every compiler complaint break the job. Now the job breaks on a notice that a check we still silence was retired from the style checker. The old command-line approach left that notice harmless. A maintainer connected this to an earlier report about output from the step that joins object code into the final executable. Later, someone opened a repeat of that earlier report and cited a well-known project's macOS pipeline as an example. Which project was it, and what were those messages about?",
+      "gold": [
+        "github/issues/rust-lang/cargo/17193.md",
+        "github/issues/rust-lang/cargo/17142.md",
+        "github/issues/rust-lang/cargo/17550.md"
+      ],
+      "seeds": ["github/issues/rust-lang/cargo/17193.md"],
+      "keyFacts": [
+        "The project was Miri, built on macOS in CI",
+        "The linker stderr messages said '+zcm' / '+zcz' is not a recognized feature for this target (ignoring feature)"
+      ]
+    },
+    {
+      "id": "rust-multi-hop-17",
+      "corpus": "rust",
+      "category": "multi-hop",
+      "split": "holdout",
+      "text": "There's a standard-library debate about whether directory delimiters should count when hashing filesystem path values. It was split off from a compiler bug where crafted file names made rustc silently use one source file's contents for another. After the compiler side was patched, a follow-up ticket tracked the places where the compiler's persistent fingerprints still rely on the standard library's internal hashing details. Besides paths, what else did it name? And what approach was suggested for enum variants?",
+      "gold": [
+        "github/issues/rust-lang/rust/164415.md",
+        "github/issues/rust-lang/rust/164348.md",
+        "github/issues/rust-lang/rust/164734.md"
+      ],
+      "seeds": ["github/issues/rust-lang/rust/164415.md"],
+      "keyFacts": [
+        "Besides Path/PathBuf, the remaining dependencies are std hash details such as derive order and the way a type's components are fed to the hasher. Examples are the discriminants of the Tag enum, Discriminant<T>, and other StableHash impls.",
+        "For #[derive(StableHash)] on enums, the suggestion was to stop using Discriminant. Instead, the derive would mix in its own pseudo-discriminant based on the syntactic order of the variants: 0 for the first variant, 1 for the next, and so on."
+      ]
+    },
+    {
+      "id": "rust-cross-source-02",
+      "corpus": "rust",
+      "category": "cross-source",
+      "split": "dev",
+      "text": "Building docs for a downstream crate that just aliases a struct from a dependency panics the doc tool. The struct has a method whose array length uses a constant with its own const parameter; building and documenting the dependency alone both work. The panic's stack goes through the compiler query that normalizes a type after stripping lifetimes. Which compiler crate provides that query, and how does that crate describe its purpose?",
+      "gold": [
+        "github/issues/rust-lang/rust/165186.md",
+        "knowledge/libraries/rustc-traits.md"
+      ],
+      "seeds": ["github/issues/rust-lang/rust/165186.md"],
+      "keyFacts": [
+        "The backtrace goes through the normalize_erasing_regions query provider in the rustc_traits crate (called from rustdoc's clean_middle_ty while inlining impls).",
+        "rustc_traits describes itself as queries that are independent from the main solver code."
+      ]
+    },
+    {
+      "id": "rust-cross-source-05",
+      "corpus": "rust",
+      "category": "cross-source",
+      "split": "holdout",
+      "text": "When the compiler's build tooling runs the code examples in compiler crates' doc comments, it switches on an unstable feature for all of them. This sets off the lint against using compiler-internal features, so every crate has to silence it again. What is that feature meant to enable, and since which release has it been classed as internal?",
+      "gold": [
+        "github/issues/rust-lang/rust/161881.md",
+        "knowledge/features/rustdoc-internals.md"
+      ],
+      "seeds": ["github/issues/rust-lang/rust/161881.md"],
+      "keyFacts": [
+        "The injected feature is rustdoc_internals, which bootstrap's rustdoc wrapper adds to every doctest in compiler/.",
+        "rustdoc_internals allows using internal rustdoc features such as doc(keyword).",
+        "It has been an internal feature gate since 1.58.0."
+      ]
+    },
+    {
+      "id": "rust-cross-source-07",
+      "corpus": "rust",
+      "category": "cross-source",
+      "split": "dev",
+      "text": "I want to use the Arm 64-bit vector intrinsics that work on the 16-bit 'brain' floating-point format in stable code. Their stabilization reportedly waits on another unstable language feature. What does that prerequisite feature allow, since which release has it been unstable, and where is its progress tracked?",
+      "gold": [
+        "github/issues/rust-lang/rust/164986.md",
+        "knowledge/features/f16b.md"
+      ],
+      "seeds": ["github/issues/rust-lang/rust/164986.md"],
+      "keyFacts": [
+        "The NEON bf16 intrinsics (stdarch_neon_bf16) depend on stabilisation of the f16b feature gate",
+        "f16b allows using bfloat16 floating point numbers and has been unstable since 1.100.0",
+        "f16b's tracking issue is #160630"
+      ]
+    },
+    {
+      "id": "rust-cross-source-09",
+      "corpus": "rust",
+      "category": "cross-source",
+      "split": "holdout",
+      "text": "Casting an unsafe pointer to a dyn trait object through a generic associated type lets me change the trait's lifetime argument, even though the same cast written directly is rejected. Someone showed this turns into a use-after-free when combined with an unstable feature that lets trait methods take an unsafe pointer as their receiver. What does that feature allow, since which release has it been unstable, and where is its progress tracked?",
+      "gold": [
+        "github/issues/rust-lang/rust/165174.md",
+        "knowledge/features/arbitrary-self-types-pointers.md"
+      ],
+      "seeds": ["github/issues/rust-lang/rust/165174.md"],
+      "keyFacts": [
+        "The use-after-free relies on the arbitrary_self_types_pointers feature gate.",
+        "The gate allows inherent and trait methods with arbitrary self types that are raw pointers.",
+        "It has been unstable since 1.83.0, with tracking issue #44874."
+      ]
+    },
+    {
+      "id": "rust-cross-source-12",
+      "corpus": "rust",
+      "category": "cross-source",
+      "split": "dev",
+      "text": "Running the whole local test suite of the compiler repository fails after about 45 minutes. One step complains that several pages of the language reference point to a page that doesn't exist: the page for the core library's uninhabited error type in the conversion module. Which tool in the repo performs this check, what does it do and where does it live, and what was suggested to get past the failure?",
+      "gold": [
+        "github/issues/rust-lang/rust/163011.md",
+        "knowledge/services/linkchecker.md"
+      ],
+      "seeds": ["github/issues/rust-lang/rust/163011.md"],
+      "keyFacts": [
+        "The failure comes from the linkchecker tool, which checks the validity of href links in the generated HTML documentation.",
+        "linkchecker is a binary crate located at src/tools/linkchecker.",
+        "The failure happened with a stage 1 build; the suggested fix is to run the tests at --stage=2 (a known issue)."
+      ]
+    },
+    {
+      "id": "rust-cross-source-13",
+      "corpus": "rust",
+      "category": "cross-source",
+      "split": "dev",
+      "text": "After updating nightly, a trait no longer compiles. One of its methods takes its receiver through a homemade smart-pointer wrapper, and that wrapper's type argument is a trait object of the same trait. The compiler now reports that its check of whether the trait can be used as a trait object depends on itself. This code only builds because of an unstable feature that lets methods use custom receiver types. What does that feature allow, since which release has it been unstable, and where is its progress tracked?",
+      "gold": [
+        "github/issues/rust-lang/rust/161536.md",
+        "knowledge/features/arbitrary-self-types.md"
+      ],
+      "seeds": ["github/issues/rust-lang/rust/161536.md"],
+      "keyFacts": [
+        "The regression involves the arbitrary_self_types feature gate (an E0391 cycle when checking whether the trait is dyn-compatible).",
+        "arbitrary_self_types allows inherent and trait methods with arbitrary self types.",
+        "It has been unstable since 1.23.0, and its tracking issue is #44874."
+      ]
+    },
+    {
+      "id": "rust-cross-source-15",
+      "corpus": "rust",
+      "category": "cross-source",
+      "split": "holdout",
+      "text": "I have a trait method with two const generic parameters, where the second one is an array whose length is the first. Copying the exact same signature into the impl gets rejected: the compiler says the impl's parameter type doesn't match the trait's, even though both print identically. This only compiles at all on nightly, behind an unstable feature that lets a const parameter's type refer to other generic parameters. What is that feature's status, since which release has it been in that state, and where is its progress tracked?",
+      "gold": [
+        "github/issues/rust-lang/rust/162897.md",
+        "knowledge/features/generic-const-parameter-types.md"
+      ],
+      "seeds": ["github/issues/rust-lang/rust/162897.md"],
+      "keyFacts": [
+        "The feature involved is generic_const_parameter_types, which allows the type of const generics to depend on generic parameters",
+        "It has been unstable (incomplete) since 1.87.0",
+        "Its tracking issue is #137626"
+      ]
+    },
+    {
+      "id": "rust-cross-source-17",
+      "corpus": "rust",
+      "category": "cross-source",
+      "split": "dev",
+      "text": "Someone proposed writing down in the language spec the exact point at which annotations on code must be meaningful, because some that get stripped away before macros run still change what diagnostics come out. One of their examples depends on a nightly-only capability that lets a declarative macro be put on a function as an annotation, throwing away the other annotations there. What does that capability allow, since which release has it been unstable, and where is its progress tracked?",
+      "gold": [
+        "github/issues/rust-lang/rust/165073.md",
+        "knowledge/features/macro-attr.md"
+      ],
+      "seeds": ["github/issues/rust-lang/rust/165073.md"],
+      "keyFacts": [
+        "The feature gate macro_attr allows macro_rules! attribute rules",
+        "macro_attr has been unstable since 1.91.0",
+        "Its tracking issue is #143547"
+      ]
+    },
+    {
+      "id": "rust-cross-source-18",
+      "corpus": "rust",
+      "category": "cross-source",
+      "split": "holdout",
+      "text": "After a fresh dependency resolve on the latest stable toolchain, my project fails to compile inside a small helper library published from Cargo's own repository. The error says its blanket conversion impl for a wrapper around sensitive values conflicts with an impl in an upstream date/time formatting dependency. What is that library meant for, where does it sit in the Cargo repo, and how did the breakage end up being fixed?",
+      "gold": [
+        "github/issues/rust-lang/cargo/17099.md",
+        "knowledge/libraries/cargo-credential.md"
+      ],
+      "seeds": ["github/issues/rust-lang/cargo/17099.md"],
+      "keyFacts": [
+        "The failing crate is cargo-credential, a library to assist writing Cargo credential helpers.",
+        "It lives at credential/cargo-credential in the Cargo repository.",
+        "The cause was in the upstream time crate, and a new release of time (0.3.49) fixed it."
+      ]
+    },
+    {
+      "id": "rust-cross-source-19",
+      "corpus": "rust",
+      "category": "cross-source",
+      "split": "dev",
+      "text": "When I build a no_std library for an NVIDIA GPU target, the compiler panics with an 'unreachable code' internal error. It happens when a GPU kernel entry function takes, by value, a C-layout struct that is over-aligned to a large boundary such as a cache line. Writing these kernel functions at all needs a nightly-only feature for the GPU kernel calling convention. What does that feature allow, since which release has it been unstable, and where is its progress tracked?",
+      "gold": [
+        "github/issues/rust-lang/rust/163497.md",
+        "knowledge/features/abi-ptx.md"
+      ],
+      "seeds": ["github/issues/rust-lang/rust/163497.md"],
+      "keyFacts": [
+        "The crash involves the abi_ptx feature gate, which allows `extern \"ptx-*\" fn()` functions such as \"ptx-kernel\".",
+        "abi_ptx has been unstable since 1.15.0.",
+        "Its tracking issue is #38788."
+      ]
+    },
+    {
+      "id": "rust-time-02",
+      "corpus": "rust",
+      "category": "time",
+      "split": "dev",
+      "text": "In 2021, someone floated an informal idea for letting a wrapper struct automatically forward a trait's methods to one of its inner fields, instead of abusing pointer-dereference tricks. When was that idea closed, and why?",
+      "gold": ["github/issues/rust-lang/rfcs/3108.md"],
+      "keyFacts": [
+        "The issue was opened on 2021-04-12.",
+        "It was closed on 2021-06-03.",
+        "It was closed because the earlier delegation RFC (PR #2393) had been postponed."
+      ]
+    },
+    {
+      "id": "rust-time-04",
+      "corpus": "rust",
+      "category": "time",
+      "split": "holdout",
+      "text": "In 2024, someone proposed that library authors be able to plug their own types into the language's built-in operator for changing a value's type. One example was turning four bytes into a network address. When did that proposal end, and what convinced its author to give it up?",
+      "gold": ["github/issues/rust-lang/rfcs/3592.md"],
+      "keyFacts": [
+        "The issue was closed as not planned on 2024-03-23, one day after it was opened on 2024-03-22.",
+        "Commenters said the language is moving away from `as` casts in favor of method conversions, because `as` is footgun-prone (silent truncation, too powerful) and fits poorly in call chains.",
+        "Mapping `as` to `.into()` would also dilute the naming convention that `as` conversions are free, so the author retracted the idea."
+      ]
+    },
+    {
+      "id": "rust-time-06",
+      "corpus": "rust",
+      "category": "time",
+      "split": "dev",
+      "text": "As of March 2024, what was the status of the request to let a type's trait implementations sit nested inside its own method block, so the lifetime and generic parameter lists don't have to be repeated on every block? When was it first raised?",
+      "gold": ["github/issues/rust-lang/rfcs/2676.md"],
+      "keyFacts": [
+        "The proposal was filed on 2019-04-02.",
+        "It was still open, with no decision, as of its last activity on 2024-03-06."
+      ]
+    },
+    {
+      "id": "rust-disagreement-06",
+      "corpus": "rust",
+      "category": "disagreement",
+      "split": "dev",
+      "text": "Can I write a Rust function by putting an equals sign or arrow after the signature followed directly by the returned value, skipping the curly braces around the body? Has that kind of shorthand been accepted?",
+      "gold": [
+        "github/issues/rust-lang/rfcs/3897.md",
+        "github/issues/rust-lang/rfcs/3369.md"
+      ],
+      "seeds": ["github/issues/rust-lang/rfcs/3369.md"],
+      "positions": [
+        {
+          "refs": ["github/issues/rust-lang/rfcs/3897.md"],
+          "status": "scoped"
+        },
+        {
+          "refs": ["github/issues/rust-lang/rfcs/3369.md"],
+          "status": "current"
+        }
+      ],
+      "keyFacts": [
+        "A shorthand that returns a struct literal directly after the signature (with `=>` instead of `->` plus braces) was proposed, but it was closed as a duplicate of the single-expression-function idea.",
+        "The Kotlin-style `fn name() -> T = expr` proposal was closed as not planned because it had more disadvantages than benefits.",
+        "Rust function bodies must still be block expressions in braces."
+      ]
+    },
+    {
+      "id": "rust-disagreement-07",
+      "corpus": "rust",
+      "category": "disagreement",
+      "split": "holdout",
+      "text": "I have a piece of text I'm finished with and I need a version where the English letters become small letters. Can Rust's built-in library just rewrite that same heap memory instead of making a fresh copy? Is there a plan for a variant that takes the value by move, or for the language to choose the cheaper route on its own when the original isn't used afterward?",
+      "gold": [
+        "github/issues/rust-lang/rfcs/2447.md",
+        "github/issues/rust-lang/rfcs/2448.md"
+      ],
+      "seeds": ["github/issues/rust-lang/rfcs/2448.md"],
+      "positions": [
+        {
+          "refs": ["github/issues/rust-lang/rfcs/2447.md"],
+          "status": "scoped"
+        },
+        {
+          "refs": ["github/issues/rust-lang/rfcs/2448.md"],
+          "status": "scoped"
+        }
+      ],
+      "keyFacts": [
+        "The request for a consuming String::into_ascii_lowercase (make_/to_/into_ convention) was closed without adding it; it was redirected to the API guidelines and individual PRs.",
+        "A follow-up proposal for a std::ops::Cow-style self type that lets the compiler pass Owned vs Borrowed automatically remains open and undecided.",
+        "Today the in-place option is make_ascii_lowercase, while to_ascii_lowercase allocates a new value."
+      ]
+    },
+    {
+      "id": "rust-disagreement-10",
+      "corpus": "rust",
+      "category": "disagreement",
+      "split": "dev",
+      "text": "I'd like to use one specific alternative of a tagged union on its own in Rust, for example the 'has a value' case of an optional, as the type of a variable or as a generic parameter. Has this idea been proposed, what is its status, and where should I follow it?",
+      "gold": [
+        "github/issues/rust-lang/rfcs/2346.md",
+        "github/issues/rust-lang/rfcs/2347.md"
+      ],
+      "seeds": ["github/issues/rust-lang/rfcs/2347.md"],
+      "positions": [
+        {
+          "refs": ["github/issues/rust-lang/rfcs/2346.md"],
+          "status": "superseded"
+        },
+        {
+          "refs": ["github/issues/rust-lang/rfcs/2347.md"],
+          "status": "current"
+        }
+      ],
+      "keyFacts": [
+        "The idea duplicates RFC 1450 \"Types for enum variants\", which proposes making enum variants first-class types.",
+        "RFC 1450 is postponed, not accepted.",
+        "The separate postponement tracking issue (#2347) was closed because such issues are no longer used. The RFC PR #1450 itself is now labeled 'postponed' and is the place to follow."
+      ]
+    },
+    {
+      "id": "rust-disagreement-13",
+      "corpus": "rust",
+      "category": "disagreement",
+      "split": "holdout",
+      "text": "Since moving to a pre-release Rust toolchain, code that passes a closure together with a value into a generic constructor fails to compile. The compiler now wants me to write out the type of the closure's parameter. Is this a deliberate change in how types get inferred that I have to work around, or was the breakage fixed later?",
+      "gold": [
+        "github/issues/rust-lang/rust/161913.md",
+        "github/issues/rust-lang/rust/162109.md"
+      ],
+      "seeds": ["github/issues/rust-lang/rust/162109.md"],
+      "positions": [
+        {
+          "refs": ["github/issues/rust-lang/rust/161913.md"],
+          "status": "scoped"
+        },
+        {
+          "refs": ["github/issues/rust-lang/rust/162109.md"],
+          "status": "current"
+        }
+      ],
+      "keyFacts": [
+        "The 1.99 beta failure (E0282) was bisected to PR #158447, which changed the inference fudging rules; its author called it a knowingly landed and possibly desired breaking change.",
+        "The reduced example no longer reproduces on 1.100.0-beta.7, and the issues were closed as completed."
+      ]
+    },
+    {
+      "id": "rust-disagreement-17",
+      "corpus": "rust",
+      "category": "disagreement",
+      "split": "dev",
+      "text": "On a recent nightly toolchain, generating API docs crashes the doc tool with an internal error. This happens when a module inside my crate is marked as obsolete and the reason text has a bracketed link to some item. Was this crash fixed? If so, does the fix cover every variant, for example a module that has no doc comment of its own?",
+      "gold": [
+        "github/issues/rust-lang/rust/164459.md",
+        "github/issues/rust-lang/rust/164711.md"
+      ],
+      "seeds": ["github/issues/rust-lang/rust/164711.md"],
+      "positions": [
+        {
+          "refs": ["github/issues/rust-lang/rust/164459.md"],
+          "status": "scoped"
+        },
+        {
+          "refs": ["github/issues/rust-lang/rust/164711.md"],
+          "status": "current"
+        }
+      ],
+      "keyFacts": [
+        "A nightly-only regression made rustdoc ICE with 'no resolutions for a doc link' when a module's #![deprecated] note contained an intra-doc link. The first reported case had an inner //! doc comment, and that issue was closed as fixed.",
+        "The fix for the first issue (PR 164594) caused a new ICE with the same message for a module whose deprecated note contains a link but which has no doc comment. That second issue was then also closed as completed.",
+        "Making the module public triggers the second case just as well, so --document-private-items is not needed."
+      ]
+    },
+    {
+      "id": "rust-disagreement-19",
+      "corpus": "rust",
+      "category": "disagreement",
+      "split": "dev",
+      "text": "After upgrading to the latest unstable Rust toolchain, my extra code-quality checker panics whenever its stricter warning set is switched on. It happens at every spot where I wait for the result of a coroutine-style function, while a normal build succeeds. Is the culprit the new type-reasoning backend that was turned on by default, or the checker itself? Was this resolved?",
+      "gold": [
+        "github/issues/rust-lang/rust/161563.md",
+        "github/issues/rust-lang/rust/161495.md"
+      ],
+      "seeds": ["github/issues/rust-lang/rust/161495.md"],
+      "positions": [
+        {
+          "refs": ["github/issues/rust-lang/rust/161563.md"],
+          "status": "superseded"
+        },
+        {
+          "refs": ["github/issues/rust-lang/rust/161495.md"],
+          "status": "current"
+        }
+      ],
+      "keyFacts": [
+        "The ICE 'unexpected rigid alias in layout_of after normalization' is triggered by clippy's large_futures lint calling layout_of on async fn opaque futures; it bisects to the PR enabling the next-generation trait solver by default.",
+        "The assignee diagnosed that clippy is probably using the wrong typing mode (it should be PostTypeck), rather than this being a solver bug as the duplicate report claimed.",
+        "Issue 161563 was closed as a duplicate of 161495, which was closed as completed."
+      ]
+    },
+    {
+      "id": "rust-disagreement-20",
+      "corpus": "rust",
+      "category": "disagreement",
+      "split": "holdout",
+      "text": "I attach a short explanatory note to each opt-in capability switch of my Rust crate in its config file. How will the package manager's project-introspection JSON command expose those notes to third-party tooling? Has a shape been picked, or is it undecided?",
+      "gold": [
+        "github/issues/rust-lang/cargo/17445.md",
+        "github/issues/rust-lang/cargo/17507.md"
+      ],
+      "seeds": ["github/issues/rust-lang/cargo/17507.md"],
+      "positions": [
+        {
+          "refs": ["github/issues/rust-lang/cargo/17445.md"],
+          "status": "superseded"
+        },
+        {
+          "refs": ["github/issues/rust-lang/cargo/17507.md"],
+          "status": "current"
+        }
+      ],
+      "keyFacts": [
+        "The tracking issue for feature-documentation listed how to expose `doc` in `cargo metadata` as an unresolved question.",
+        "The later issue chose a parallel field with a full mirror (`features_v2`, each feature as a table with `enables` and `doc`) alongside the existing `features` field, keeping the old output for compatibility.",
+        "A format-version 2 bump that replaces `features` remains a possible future step, but is not the current choice."
+      ]
+    },
+    {
+      "id": "rust-disagreement-21",
+      "corpus": "rust",
+      "category": "disagreement",
+      "split": "dev",
+      "text": "On a bleeding-edge toolchain build where the newer lifetime analysis is switched on out of the box, a program gets accepted that modifies a local variable while a value handed back by some function still points into it. It only seems to go wrong when an anonymous inline function sits somewhere in the middle. What conditions trigger it? Does the called function have to take an argument written via a trait's associated output type, or is it enough to pass the returned value through a do-nothing lambda?",
+      "gold": [
+        "github/issues/rust-lang/rust/164337.md",
+        "github/issues/rust-lang/rust/164546.md",
+        "github/issues/rust-lang/rust/164421.md"
+      ],
+      "seeds": [
+        "github/issues/rust-lang/rust/164546.md",
+        "github/issues/rust-lang/rust/164421.md"
+      ],
+      "positions": [
+        {
+          "refs": ["github/issues/rust-lang/rust/164337.md"],
+          "status": "superseded"
+        },
+        {
+          "refs": [
+            "github/issues/rust-lang/rust/164546.md",
+            "github/issues/rust-lang/rust/164421.md"
+          ],
+          "status": "current"
+        }
+      ],
+      "keyFacts": [
+        "Issue #164337 reported that both a projection-typed parameter and a call through a closure were required for Polonius to lose the borrow captured by an impl Trait return value.",
+        "A later report (#164546, closed as duplicate) showed that passing the impl Trait value through an identity closure `(|a| a)(...)` alone is enough, without any projection.",
+        "The bug is in Polonius alpha, which became the default on nightly; NLL (-Zpolonius=off) rejects these programs."
+      ]
+    },
+    {
+      "id": "rust-no-answer-01",
+      "corpus": "rust",
+      "category": "no-answer",
+      "split": "dev",
+      "text": "How are the official compiler and standard library binaries code-signed and notarized for macOS before they ship, and which signing identity does the release pipeline use?",
+      "gold": [],
+      "keyFacts": []
+    },
+    {
+      "id": "rust-no-answer-02",
+      "corpus": "rust",
+      "category": "no-answer",
+      "split": "holdout",
+      "text": "How does the crate registry website rank search results when someone searches for a package by keyword, and what weight do recent download counts get compared with exact name matches?",
+      "gold": [],
+      "keyFacts": []
+    },
+    {
+      "id": "rust-no-answer-03",
+      "corpus": "rust",
+      "category": "no-answer",
+      "split": "dev",
+      "text": "When a new proposal is opened for discussion, how does the project automatically choose which team member becomes its shepherd, and is a reviewer rotation enforced by a bot?",
+      "gold": [],
+      "keyFacts": []
+    },
+    {
+      "id": "rust-no-answer-04",
+      "corpus": "rust",
+      "category": "no-answer",
+      "split": "holdout",
+      "text": "How does the project build and deploy the browsable website of accepted proposals, and which static site generator and hosting service does it use for that site?",
+      "gold": [],
+      "keyFacts": []
+    },
+    {
+      "id": "rust-no-answer-05",
+      "corpus": "rust",
+      "category": "no-answer",
+      "split": "dev",
+      "text": "Does the package manager send anonymous usage statistics (such as which subcommands people run or how long builds take) to a project server, and how would a user opt out of that collection?",
+      "gold": [],
+      "keyFacts": []
+    },
+    {
+      "id": "rust-no-answer-06",
+      "corpus": "rust",
+      "category": "no-answer",
+      "split": "dev",
+      "text": "When someone moves their dev setup to a new laptop, is there a supported way to export and import the registry login tokens kept by the OS-keychain credential helpers, and does the package manager encrypt that exported bundle with a passphrase?",
+      "gold": [],
+      "keyFacts": []
+    }
+  ]
+}
