@@ -1848,15 +1848,105 @@ describe("the knowledge reader seam", () => {
     })
     const span = spans.spanNamed("knowledge_plane.shadow")
     expect(span?.attributes).toMatchObject({
-      "ctxpipe.knowledge_plane.failure": "embedding",
+      "error.type": "embedding",
       "ctxpipe.knowledge_plane.failure_code": "400",
     })
+    expect(span?.status).toEqual({ code: 2, message: "embedding" })
     const tool = spans.spanNamed("mcp.tool search_knowledge")
     expect(span?.spanContext().traceId).toBe(tool?.spanContext().traceId)
     expect(span?.events.map((item) => item.attributes)).toEqual([
       { "exception.type": "embedding" },
     ])
   })
+
+  it("shadow: a ClickHouse error gives the kind clickhouse and the ClickHouse error code", async () => {
+    await setFlag("shadow")
+    // The reader user loses its grant on the relations: the read of the
+    // claims of the hits fails on the server.
+    const admin = clickHouse.client(knowledgeUrl)
+    await admin.command({
+      query: "REVOKE SELECT ON relations FROM ctxpipe_reader",
+    })
+    try {
+      const result = await searchCall({
+        workspaces: ["ready"],
+        query: "who owns checkout when ClickHouse fails",
+      })
+      expect(result.isError).toBeFalsy()
+      await vi.waitFor(
+        () => {
+          expect(
+            events.filter((event) => event.step === "knowledge_plane.shadow"),
+          ).toHaveLength(1)
+        },
+        { timeout: 10_000 },
+      )
+    } finally {
+      await migrateKnowledgeStore(knowledgeUrl, {
+        reader: "reader-test",
+        writer: "writer-test",
+      })
+    }
+    expect(
+      events.find((item) => item.step === "knowledge_plane.shadow"),
+    ).toMatchObject({
+      // ACCESS_DENIED
+      plane: { failure: "clickhouse", failureCode: "497" },
+    })
+  })
+
+  it.each([
+    [
+      "a 503 of the query embedding",
+      () => {
+        embeddingFailure = 503
+      },
+      "total_timeout",
+      { kind: "embedding", code: "503" },
+    ],
+    [
+      "a failed Jev call of search_knowledge",
+      () => {
+        jevFails = "all"
+      },
+      "judge_unavailable",
+      { kind: "jev", code: "http_503" },
+    ],
+    [
+      "the end of the time budget",
+      () => {
+        slowEmbedding = true
+      },
+      "total_timeout",
+      { kind: "timeout" },
+    ],
+  ] as const)(
+    "shadow: a partial answer after %s gives the source of its cause",
+    async (cause, fault, partialReason, partialCause) => {
+      await setFlag("shadow")
+      fault()
+      const result = await searchCall({
+        workspaces: ["ready"],
+        // A query of its own: a kept query vector needs no embedding.
+        query: `who owns checkout after ${cause}`,
+      })
+      expect(result.isError).toBeFalsy()
+      await vi.waitFor(
+        () => {
+          expect(
+            events.filter((event) => event.step === "knowledge_plane.shadow"),
+          ).toHaveLength(1)
+        },
+        { timeout: 10_000 },
+      )
+      const event = events.find(
+        (item) => item.step === "knowledge_plane.shadow",
+      ) as { plane: Record<string, unknown> }
+      expect(event.plane).toMatchObject({ partialReason, partialCause })
+      expect(event.plane.failure).toBeUndefined()
+    },
+    15_000,
+  )
 
   it("shadow: a failed Jev call of get_related gives the kind jev and its HTTP status", async () => {
     await setFlag("shadow")

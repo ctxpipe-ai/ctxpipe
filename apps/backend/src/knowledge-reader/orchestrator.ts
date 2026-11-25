@@ -73,6 +73,16 @@ export type ModelMeter = {
   jevCalls: number
   jevCandidates: number
   embeddingCalls: number
+  /**
+   * The first error that the read turned into a partial answer
+   * (`notePartial`). The shadow log gives only its source and code.
+   */
+  partialError?: unknown
+}
+
+/** Keep `error` as the cause of a partial answer, when it is the first. */
+export function notePartial(meter: ModelMeter, error: unknown): void {
+  if (!("partialError" in meter)) meter.partialError = error
 }
 
 /** The candidates that one Jev call takes (the `judgeLayer` default). */
@@ -458,6 +468,7 @@ export async function traverse(input: {
     await seedJudge
   } catch (error) {
     if (!isBudgetSpent(error, deadline)) throw error
+    notePartial(input.meter, error)
     partialReason = "total_timeout"
   }
   // The seeds come first, when Jev judged them (also before the end of the

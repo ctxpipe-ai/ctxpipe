@@ -163,7 +163,7 @@ export async function selectKnowledgeReader(
       step: "knowledge_plane.fallback",
       flag,
       orgId,
-      workspaceIds: [...workspaceIds],
+      workspaceIds,
       notReady,
     })
     return legacy

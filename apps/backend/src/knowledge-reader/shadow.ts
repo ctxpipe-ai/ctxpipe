@@ -1,13 +1,10 @@
-import { ClickHouseError } from "@clickhouse/client"
 import { SpanStatusCode, trace } from "@opentelemetry/api"
 
 import { servingIdForKnowledgePath } from "../domain/workspaces/hydrate.js"
-import { McpToolError } from "../mcp/framework/tool-errors.js"
 import { log } from "../observability/logger.js"
-import { EmbeddingError } from "../retrieval/embeddings/textEmbeddings.js"
-import { JevError } from "../retrieval/jev/client.js"
+import { failureOf } from "./failure.js"
 import type { KnowledgeReader } from "./knowledge-reader.js"
-import { BudgetSpentError, type ModelMeter } from "./orchestrator.js"
+import type { ModelMeter } from "./orchestrator.js"
 
 /** The results that the shadow event lists, and the k of overlap@k. */
 const LOGGED_IDS = 50
@@ -22,9 +19,11 @@ type Ranked = { ids: string[]; scores: number[] }
  * call off the request path, and one evlog event
  * (`knowledge_plane.shadow`) compares the two. The event holds only ids,
  * scores, overlap@k, latency and the counts of the model calls: no query, no
- * path, no text, no error message. A failed plane read also sets the
- * span `knowledge_plane.shadow` of the request trace to error, with the
- * kind and the code of the failure (`failureOf`).
+ * path, no text, no error message. A failed plane read gives the source
+ * and the code of its error (`failureOf`), and a partial answer gives the
+ * source and the code of the error that made it partial. A failed plane
+ * read also sets the span `knowledge_plane.shadow` of the request trace to
+ * error, with the source and the code.
  */
 export function shadowKnowledgeReader(
   legacy: KnowledgeReader,
@@ -124,7 +123,6 @@ function compare(
               const failure = failureOf(error)
               span.setAttributes({
                 "error.type": failure.kind,
-                "ctxpipe.knowledge_plane.failure": failure.kind,
                 ...(failure.code === undefined
                   ? {}
                   : { "ctxpipe.knowledge_plane.failure_code": failure.code }),
@@ -176,59 +174,14 @@ function compare(
                   : { failureCode: failure.code }),
               }
             : {}),
+          ...("partialError" in meter
+            ? { partialCause: failureOf(meter.partialError) }
+            : {}),
           latencyMs: Math.round(performance.now() - started),
-          ...meter,
+          jevCalls: meter.jevCalls,
+          jevCandidates: meter.jevCandidates,
+          embeddingCalls: meter.embeddingCalls,
         },
       })
     })
-}
-
-/**
- * The source of a failure of the plane read, and its code, with no message:
- * a message can quote content.
- * - `clickhouse`: the ClickHouse server answered with an error. The code is
- *   the ClickHouse error code.
- * - `network`: a connection failed (in this path, to ClickHouse). The code is
- *   the system error code, for example `ECONNREFUSED`.
- * - `embedding`: the query embedding failed with no retry. The code is the
- *   HTTP status, when the endpoint gave one.
- * - `jev`: the Jev call failed. The code is the Jev error kind, with the HTTP
- *   status when there is one (`http_503`).
- * - `timeout`: the time budget of the read ended.
- * - `tool`: the plane refused the call. The code is the tool error code.
- * - `unknown`: any other error. The code is the class name of the error.
- * A tool error with a cause (`judge_unavailable`) gives the kind of its cause.
- */
-function failureOf(error: unknown): { kind: string; code?: string } {
-  if (error instanceof McpToolError)
-    return error.cause === undefined
-      ? { kind: "tool", code: error.code }
-      : failureOf(error.cause)
-  if (error instanceof ClickHouseError)
-    return { kind: "clickhouse", code: error.code }
-  if (error instanceof EmbeddingError)
-    return {
-      kind: "embedding",
-      ...(error.status === undefined ? {} : { code: String(error.status) }),
-    }
-  if (error instanceof JevError)
-    return {
-      kind: "jev",
-      code:
-        error.status === undefined
-          ? error.kind
-          : `${error.kind}_${error.status}`,
-    }
-  if (error instanceof BudgetSpentError) return { kind: "timeout" }
-  const code = (error as { code?: unknown } | null)?.code
-  if (
-    error instanceof Error &&
-    typeof code === "string" &&
-    /^E[A-Z_]+$/.test(code)
-  )
-    return { kind: "network", code }
-  return {
-    kind: "unknown",
-    ...(error instanceof Error ? { code: error.name } : {}),
-  }
 }
