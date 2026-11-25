@@ -7,5 +7,5 @@
 # gives a new converter version. The knowledge plane then converts each file
 # again, but it reuses the vectors by their embedding key.
 [toolchain]
-channel = "1.100.0"
+channel = "1.99.1"
 profile = "minimal"
