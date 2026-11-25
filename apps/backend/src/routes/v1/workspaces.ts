@@ -43,6 +43,7 @@ import {
 } from "../../models/workspaces.js"
 import { detachedErrorLog, getLogger } from "../../observability/logger.js"
 import { startLostAccessRebuilds } from "../../openworkflow/enqueue-codesearch-rebuild.js"
+import { enqueueKnowledgePurge } from "../../openworkflow/enqueue-knowledge-purge.js"
 import {
   enqueueWorkspaceGraphRebuild,
   enqueueWorkspaceHydrate,
@@ -677,6 +678,12 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
         },
       )
       if (!deleted) return c.json({ error: "Not found" }, 404)
+      // The Workspace row is gone, so a projection run that starts now
+      // writes nothing. The purge deletes the rows of the earlier runs.
+      await enqueueKnowledgePurge({
+        orgId: workspace.orgId,
+        workspaceId: deleted.id,
+      })
       return c.body(null, 204)
     } catch (error) {
       const status =

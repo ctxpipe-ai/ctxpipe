@@ -103,6 +103,7 @@ We deferred direct S3 adjacency objects. They can take graph load off ClickHouse
    - **A `DELETE` has one wall.** ClickHouse applies neither the row policy nor the `CHECK` constraint to a `DELETE` or an `UPDATE`. Its docs say that a row policy is useful only for read-only users. Thus:
      - `KnowledgeStore` builds the org and Workspace predicates of each `DELETE` itself. A caller gives only document keys.
      - A test proves that the API cannot build a `DELETE` without the two predicates.
+     - **Amended for the deletion of an org or a Workspace** ([CTX-1642](https://linear.app/ctxpipe/issue/CTX-1642)): the purge of a deleted org has only the org predicate, because it deletes the rows of each Workspace of the org. The purge of a deleted Workspace has both predicates. The purge makes one `DELETE` for each knowledge table, and it is the only `DELETE` without a Workspace predicate. The worker runs it (`knowledge-purge`) after no projection run of the org or the Workspace is running.
      - The migrations make two users. The backend connects as `ctxpipe_reader`, with `SELECT` only. The worker, which runs the projection, connects as `ctxpipe_writer`, with `SELECT`, `INSERT` and `ALTER DELETE` on the knowledge tables. It has no `ALTER UPDATE` grant. Neither user can manage access, so neither can drop a row policy or a constraint. Only the migrations have the admin user.
    - **Tests:**
      - each read wall works with the other removed;

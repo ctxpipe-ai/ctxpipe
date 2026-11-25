@@ -10,7 +10,12 @@ import {
 import { organizations } from "../db/schema/auth.js"
 import { claims } from "../db/schema/claims.js"
 import { conversations } from "../db/schema/conversations.js"
+import {
+  knowledgeBranchHeads,
+  knowledgeState,
+} from "../db/schema/knowledge_state.js"
 import { objects } from "../db/schema/objects.js"
+import { orgFeatures } from "../db/schema/org_features.js"
 import { repositories } from "../db/schema/repositories.js"
 import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
 import { formatUnknownError } from "../db/transientDbRetry.js"
@@ -25,6 +30,7 @@ import { clearPagerdutySyncBindingsForRepository } from "../models/pagerduty-con
 import { DEFAULT_CHECKOUT_KEY } from "../models/repositories.js"
 import { clearSlackSyncBindingsForRepository } from "../models/slack-connector.js"
 import { log } from "../observability/logger.js"
+import { enqueueKnowledgePurge } from "../openworkflow/enqueue-knowledge-purge.js"
 import { getGraphClient, withGraphClient } from "../platform/graph/client.js"
 import {
   applyIngestionRetractionGraphEffects,
@@ -370,7 +376,9 @@ export async function applyRepositoryDeletionGraphCleanup(params: {
  * Must be called inside {@link withOrgDbContext} (the hook in auth/config.ts
  * sets that up). Uses {@link getOrgDb} for all queries and deletes.
  * External side-effects (codesearch disk cleanup, FalkorDB graph drop) are
- * best-effort and run after the Postgres deletes.
+ * best-effort and run after the Postgres deletes. The worker deletes the
+ * ClickHouse rows of the knowledge plane (`knowledge-purge`): this function
+ * queues that purge after the Postgres deletes.
  */
 export async function purgeOrgDataBeforeAuthDelete(
   orgId: string,
@@ -405,6 +413,16 @@ export async function purgeOrgDataBeforeAuthDelete(
     await db.delete(objects).where(eq(objects.orgId, orgId))
     await db.delete(conversations).where(eq(conversations.orgId, orgId))
     await db.delete(repositories).where(eq(repositories.orgId, orgId))
+    // The knowledge plane (CTX-1642). With no flag, the org is `off`, so a
+    // projection run that starts after this commit writes nothing, also
+    // when the delete of the organization row fails after this hook.
+    await db.delete(orgFeatures).where(eq(orgFeatures.organizationId, orgId))
+    await db
+      .delete(knowledgeBranchHeads)
+      .where(eq(knowledgeBranchHeads.organizationId, orgId))
+    await db
+      .delete(knowledgeState)
+      .where(eq(knowledgeState.organizationId, orgId))
     return { orgSlug, repoRows }
   })
 
@@ -416,6 +434,10 @@ export async function purgeOrgDataBeforeAuthDelete(
     })
     return
   }
+
+  // A failed enqueue fails the hook, so the organization row stays, and a
+  // retry of the delete queues the purge again.
+  await enqueueKnowledgePurge({ orgId })
 
   for (const r of prepared.repoRows) {
     await notifyCodesearchRepositoryDeleted({

@@ -24,6 +24,29 @@ export const REFERENCE_TARGET_PREFIX = "ref:"
 /** The org and the Workspace of each statement. */
 export type KnowledgeScope = { orgId: string; workspaceId: string }
 
+/**
+ * The knowledge tables. The migrations give the users their grants on these
+ * tables, and a purge deletes from each of them.
+ */
+export const KNOWLEDGE_TABLES = [
+  "documents",
+  "chunks",
+  "relations",
+  "relations_in",
+  "doc_refs",
+  "image_texts",
+  "trees",
+] as const
+
+/**
+ * The rows of a purge: all rows of the org, or only the rows of one
+ * Workspace of the org.
+ */
+export type PurgeScope = { orgId: string; workspaceId?: string }
+
+/** The count of rows that a purge deleted from each knowledge table. */
+export type PurgeCounts = Record<(typeof KNOWLEDGE_TABLES)[number], number>
+
 export type DocumentStatus = "active" | "deleted" | "missing" | "failed"
 
 export type KnowledgeDocument = {
@@ -344,6 +367,16 @@ export type KnowledgeStore = {
     counter?: MutationCounter,
   ): Promise<CleanupCounts>
   /**
+   * Deletes all rows of the org of `scope` from each knowledge table, or
+   * only the rows of its Workspace when `scope` has one. This is the
+   * deletion of an org or a Workspace (CTX-1642). Each table gets one
+   * DELETE, with the org predicate and, for a Workspace, the Workspace
+   * predicate. A purge that runs again deletes nothing more. The caller
+   * makes sure that no projection run of the scope writes during or after
+   * the purge.
+   */
+  purge(scope: PurgeScope): Promise<PurgeCounts>
+  /**
    * The stored vector of each key of `embeddingKeys` that a chunk of a
    * document of `docKeys` has (any file version), in the Workspace of
    * `scope` only. The vector is the stored BFloat16 value, so a write of it
@@ -477,6 +510,7 @@ export function createKnowledgeStore(url: string | undefined): KnowledgeStore {
       ),
     cleanUp: (scope, input, counter) =>
       cleanUp(client, scope, input, counted(counter)),
+    purge: (scope) => purge(client, scope),
     readEmbeddings: (scope, docKeys, embeddingKeys) =>
       readEmbeddings(client, scope, docKeys, embeddingKeys),
     readImageTexts: (scope, blobShas, model, promptVersion) =>
@@ -1077,6 +1111,47 @@ async function cleanUp(
   )
   await deleteVersions(client, scope, unused, counter)
   counts.fileVersions = unused.length
+  return counts
+}
+
+/**
+ * The purge of {@link KnowledgeStore.purge}. It builds its own DELETEs,
+ * because a purge of an org has no Workspace predicate. The org predicate is
+ * always there, and the Workspace predicate is there when the scope has a
+ * Workspace. Each value comes in as a query parameter. Each DELETE is the
+ * classic lightweight DELETE, as in {@link deleteWhere}.
+ */
+async function purge(
+  client: ClickHouseClient,
+  scope: PurgeScope,
+): Promise<PurgeCounts> {
+  if (!scope.orgId || scope.workspaceId === "")
+    throw new Error("A knowledge purge needs an org")
+  const where =
+    scope.workspaceId === undefined
+      ? "org_id = {orgId:String}"
+      : "org_id = {orgId:String} AND workspace_id = {workspaceId:String}"
+  const params = { orgId: scope.orgId, workspaceId: scope.workspaceId }
+  const settings = { [ORG_SETTING]: scope.orgId }
+  const counts = {} as PurgeCounts
+  for (const table of KNOWLEDGE_TABLES) {
+    // The count goes to the log. A table with no row of the scope gets no
+    // DELETE, so a purge of a scope with no rows makes no mutation.
+    const result = await client.query({
+      query: `SELECT count() AS rows FROM ${table} WHERE ${where}`,
+      query_params: params,
+      format: "JSONEachRow",
+      clickhouse_settings: settings,
+    })
+    const [row] = await result.json<{ rows: string }>()
+    counts[table] = Number(row?.rows ?? 0)
+    if (counts[table] === 0) continue
+    await client.command({
+      query: `DELETE FROM ${table} WHERE ${where}`,
+      query_params: params,
+      clickhouse_settings: { ...settings, lightweight_deletes_sync: "2" },
+    })
+  }
   return counts
 }
 
