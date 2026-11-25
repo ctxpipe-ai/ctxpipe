@@ -8,12 +8,14 @@ import {
   createKnowledgeStore,
   type PurgeScope,
 } from "../../knowledge-store/knowledge-store.js"
-import { deleteOrgKnowledgeState } from "../../models/knowledge-state.js"
+import {
+  deleteOrgKnowledgeState,
+  KNOWLEDGE_PROJECTION_WORKFLOW_NAME,
+} from "../../models/knowledge-state.js"
 import { getWorkspaceById } from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { openWorkflowNamespaceId } from "../namespace.js"
-import { knowledgeProjection } from "./knowledge-projection.js"
 
 /**
  * The count of checks that find the Workspace row there while no delete
@@ -153,7 +155,7 @@ async function purgeWait(
     select count(*) as running
     from openworkflow.workflow_runs
     where namespace_id = ${openWorkflowNamespaceId()}
-      and workflow_name = ${knowledgeProjection.spec.name}
+      and workflow_name = ${KNOWLEDGE_PROJECTION_WORKFLOW_NAME}
       and status = 'running'
       and input->>'orgId' = ${orgId}
       and (${workspaceId}::text is null

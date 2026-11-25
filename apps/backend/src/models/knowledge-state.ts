@@ -8,6 +8,13 @@ import {
 import { workspaces } from "../db/schema/workspaces.js"
 import type { TreeHead } from "../knowledge-store/knowledge-store.js"
 
+/**
+ * The name of the knowledge projection workflow. The purge workflow reads
+ * its runs by this name, and does not import the projection workflow: that
+ * import pulls the workflow graph into the delete paths (an import cycle).
+ */
+export const KNOWLEDGE_PROJECTION_WORKFLOW_NAME = "knowledge-projection"
+
 /*
  * The heads of the knowledge projection (ADR-071 decision 4): one row of
  * `knowledge_branch_heads` for each projected branch of a Workspace, the
