@@ -2,6 +2,7 @@ import { BackendPostgres } from "openworkflow/postgres"
 
 import { storable } from "../db/storable.js"
 import { getLogger, log } from "../observability/logger.js"
+import { claimInIngestWorkerShare } from "./ingest-worker-share.js"
 import { openWorkflowNamespaceId } from "./namespace.js"
 
 /**
@@ -80,5 +81,8 @@ export async function connectOpenWorkflowBackend(
     failRun({ ...params, error: storable(params.error) })
   backend.rescheduleWorkflowRunAfterFailedStepAttempt = (params) =>
     rescheduleRun({ ...params, error: storable(params.error) })
+  // The ingestion shards use at most half of the worker slots (ADR-052,
+  // revision 2026-11-25).
+  claimInIngestWorkerShare(backend, namespaceId)
   return backend
 }

@@ -1,10 +1,9 @@
-import { parseOpenWorkflowConcurrency } from "./codesearchCapacity.js"
+import { sql } from "drizzle-orm"
+import type { BackendPostgres } from "openworkflow/postgres"
 
-/**
- * The ingestion shards that run in this worker process now. A shard holds
- * its worker slot for its whole run, also while its sandbox works.
- */
-let running = 0
+import { getSystemDb } from "../db/client.js"
+import { INGESTION_SHARD_WORKFLOW_NAME } from "../domain/ingestion/ingestion-run.js"
+import { parseOpenWorkflowConcurrency } from "./codesearchCapacity.js"
 
 /**
  * The worker slots of this process that ingestion shards can use: half of
@@ -25,25 +24,50 @@ export function ingestWorkerShare(
 }
 
 /**
- * Run the execution `fn` of a shard in the worker share. When the share is
- * full, the shard parks (`step.sleep`), so it frees its worker slot, and
- * tries again: after 15 seconds, then up to 5 minutes. A replay finds its
- * finished waits, so it waits again only when the share is full again.
+ * Keep the ingestion shards of this worker process in its worker share.
+ * While the slots of the process hold `share` shards, a claim of the
+ * process does not take a shard run. A shard that has no place stays in the
+ * queue: `WorkerQueueDepth` counts it, so the worker scales out. The claim
+ * order (first available, first claimed) gives a free place in any worker
+ * process to the shard that waits longest (CTX-1634).
+ *
+ * The count reads the shard runs that the slots of this process own in
+ * Postgres. The claims of one process run one at a time, so the claims of
+ * one poll cannot take more places than are free.
  */
-export async function withIngestWorkerShare<T>(
-  step: { sleep(name: string, duration: `${number} seconds`): Promise<void> },
-  fn: () => Promise<T>,
+export function claimInIngestWorkerShare(
+  backend: BackendPostgres,
+  namespaceId: string,
   share = ingestWorkerShare(),
-): Promise<T> {
-  for (let wait = 0; running >= share; wait++)
-    await step.sleep(
-      `await-worker-share:${wait}`,
-      `${Math.min(300, 15 * 2 ** Math.min(wait, 5))} seconds`,
-    )
-  running++
-  try {
-    return await fn()
-  } finally {
-    running--
+): void {
+  const claim = backend.claimWorkflowRun.bind(backend)
+  // OpenWorkflow gives each slot of a worker one fixed id.
+  const slots = new Set<string>()
+  let previous: Promise<unknown> = Promise.resolve()
+  backend.claimWorkflowRun = (params) => {
+    slots.add(params.workerId)
+    const claimed = previous.then(async () => {
+      const { rows } = await getSystemDb().execute<{ held: string }>(sql`
+        select count(*) as held
+        from openworkflow.workflow_runs
+        where namespace_id = ${namespaceId}
+          and workflow_name = ${INGESTION_SHARD_WORKFLOW_NAME}
+          and status = 'running'
+          and worker_id in (${sql.join(
+            [...slots].map((slot) => sql`${slot}`),
+            sql`, `,
+          )})
+      `)
+      return claim(
+        Number(rows[0]?.held ?? 0) < share
+          ? params
+          : {
+              ...params,
+              excludeWorkflowNames: [INGESTION_SHARD_WORKFLOW_NAME],
+            },
+      )
+    })
+    previous = claimed.catch(() => undefined)
+    return claimed
   }
 }

@@ -1,5 +1,18 @@
+diff --git a/dist/core/backend.d.ts b/dist/core/backend.d.ts
+index e36a2cf55c73f2999d4aae31b12faf611c0fcc6b..61f4ef099081d71cc054c3b5eb91068f43e4c72e 100644
+--- a/dist/core/backend.d.ts
++++ b/dist/core/backend.d.ts
+@@ -52,6 +52,8 @@ export interface ListWorkflowRunsParams extends PaginationOptions {
+ export interface ClaimWorkflowRunParams {
+     workerId: string;
+     leaseDurationMs: number;
++    /** ctxpipe patch (CTX-1634): do not claim a run of these workflows. */
++    excludeWorkflowNames?: readonly string[];
+ }
+ export interface ExtendWorkflowRunLeaseParams {
+     workflowRunId: string;
 diff --git a/dist/postgres/backend.js b/dist/postgres/backend.js
-index d2cdb79bdd2ecb511f95180767067cb6c0679f3c..54001b5a6fcf8aa3da0153a516ee3c5a7d334f33 100644
+index d2cdb79bdd2ecb511f95180767067cb6c0679f3c..c3d41af4b3207b77a91cfec502de056fe9117e2a 100644
 --- a/dist/postgres/backend.js
 +++ b/dist/postgres/backend.js
 @@ -141,7 +141,27 @@ export class BackendPostgres {
@@ -48,10 +61,13 @@ index d2cdb79bdd2ecb511f95180767067cb6c0679f3c..54001b5a6fcf8aa3da0153a516ee3c5a
        RETURNING *
      `;
          requireRow(workflowRun, "create workflow run");
-@@ -366,8 +386,10 @@ export class BackendPostgres {
+@@ -366,8 +386,13 @@ export class BackendPostgres {
            AND "status" IN ('pending', 'running', 'sleeping')
            AND "available_at" <= NOW()
            AND ("deadline_at" IS NULL OR "deadline_at" > NOW())
++          -- ctxpipe patch (CTX-1634): a worker does not claim the runs of
++          -- a workflow that has no free place in that worker.
++          AND "workflow_name" <> ALL(${params.excludeWorkflowNames ?? []}::text[])
 +        -- ctxpipe patch (CTX-1478): first available, first claimed. A woken
 +        -- parent is 'running', so a 'pending'-first order let each newer
 +        -- pending run take the free slot before it.
