@@ -6,13 +6,13 @@
   "additionalProperties": false,
   "required": ["areas"],
   "properties": {
-    "complete": {
-      "type": "boolean",
-      "description": "True when the proposal names every area of the repository: the source leaves the other area files."
+    "done": {
+      "type": "array",
+      "description": "The paths of the documents of this page whose rules are in this proposal, or that state no rule. The cursor moves past the documents of the page, in list order, up to the first document that is not here.",
+      "items": { "type": "string" }
     },
     "areas": {
       "type": "array",
-      "maxItems": 40,
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -26,12 +26,10 @@
           "summary": { "type": "string", "maxLength": 300 },
           "notes": {
             "type": "array",
-            "maxItems": 5,
             "items": { "type": "string", "maxLength": 300 }
           },
           "rules": {
             "type": "array",
-            "maxItems": 40,
             "items": {
               "type": "object",
               "additionalProperties": false,

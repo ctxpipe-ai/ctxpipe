@@ -31,7 +31,7 @@
     },
     "more": {
       "type": "boolean",
-      "description": "Always false: a repository follows at most 15 areas, so one step holds them."
+      "description": "True while documents of documents.mjs wait for a next page."
     }
   }
 }

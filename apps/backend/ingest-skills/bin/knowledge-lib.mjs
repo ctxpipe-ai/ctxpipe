@@ -737,8 +737,9 @@ function rewritten(before, next) {
  * function that counts the inputs that are done after the page wrote its
  * files. A skill that writes lists gives `options.cursorAt`, because the
  * parts of a list change the count of the plans. `options.claimOrder` is
- * described at the order of the plans. patch.json holds `more` and `stats`
- * for the host. Prints and returns { ops, skipped, more }.
+ * described at the order of the plans. `options.more` says that inputs wait
+ * for a next page. patch.json holds `more` and `stats` for the host. Prints
+ * and returns { ops, skipped, more }.
  */
 export function writeStep(step, plans, skipped = [], options = {}) {
   const byPath = new Map()
@@ -787,7 +788,9 @@ export function writeStep(step, plans, skipped = [], options = {}) {
     room.patch -= opBytes({ op: "delete", path, ...entry })
     room.ops -= 1
   }
-  let more = false
+  // `options.more`: inputs wait for a next page, also when this page wrote
+  // each of its plans (a skill whose input is not its plans).
+  let more = options.more === true
   // Path order, but each plan comes after the plans of this step that its
   // claims link to. A page that ends at a size limit then has no claim to a
   // file that the page does not write (an API file and its operations).

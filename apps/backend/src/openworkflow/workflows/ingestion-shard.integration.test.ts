@@ -130,9 +130,8 @@ describe("runSkillPages", () => {
     expect(state).toMatchObject({ ops: 2, partial: 1 })
   })
 
-  it("stops a cursor skill as partial when a page says more at the end of its input, changes the length of its input, or gives no cursor", async () => {
+  it("stops a cursor skill as partial when a page says more past the end of its input, changes the length of its input, or gives no cursor", async () => {
     for (const second of [
-      page(10, 10),
       page(11, 10),
       page(4, 11),
       { tip: "a".repeat(40), ops: 1, rejects: 0, more: true },
@@ -180,17 +179,42 @@ describe("runSkillPages", () => {
     expect(state).toMatchObject({ ops: 26, partial: 0 })
   })
 
-  it("stops a skill with no cursor as partial when its one page says more, and keeps the ops of the page (CTX-1487)", async () => {
-    for (const name of ["classify-kind", "instruction-areas"]) {
-      const results = [
-        { tip: "b".repeat(40), ops: 3, rejects: 0, more: true },
-        { tip: "c".repeat(40), ops: 1, rejects: 0, more: false },
-      ]
-      const state = await pages(null, results, { name })
-      // The second page does not run.
-      expect(results).toHaveLength(1)
-      expect(state).toMatchObject({ tip: "b".repeat(40), ops: 3, partial: 1 })
+  it("ends a cursor skill as done when a page reaches the end of its input and says more, also on an empty input (CTX-1570)", async () => {
+    // The checkpoint of the last page, and a model that says more when its
+    // finder found no input ("0 of 0 after 0").
+    for (const [results, ops] of [
+      [[page(2, 10), page(10, 10), page(10, 10, false)], 2],
+      [[page(0, 0), page(0, 0, false)], 1],
+      [[{ ...page(0, 0), ops: 0 }, page(0, 0, false)], 0],
+    ] as const) {
+      const left = [...results]
+      const state = await pages("services/k", left, ownership)
+      // The page after the end of the input does not run.
+      expect(left).toHaveLength(1)
+      expect(state).toMatchObject({ ops, partial: 0, partialRoots: [] })
     }
+  })
+
+  it("pages instruction-areas by its cursor over the documents, also over a page with no op (CTX-1570)", async () => {
+    // Page 2 read its documents but changed no file.
+    const results = [page(4, 9), { ...page(8, 9), ops: 0 }, page(9, 9, false)]
+    const state = await pages(null, results, {
+      name: "instruction-areas",
+      cursor: { finder: "documents.mjs" },
+    })
+    expect(results).toEqual([])
+    expect(state).toMatchObject({ ops: 2, partial: 0 })
+  })
+
+  it("stops a skill with no cursor as partial when its one page says more, and keeps the ops of the page (CTX-1487)", async () => {
+    const results = [
+      { tip: "b".repeat(40), ops: 3, rejects: 0, more: true },
+      { tip: "c".repeat(40), ops: 1, rejects: 0, more: false },
+    ]
+    const state = await pages(null, results, { name: "classify-kind" })
+    // The second page does not run.
+    expect(results).toHaveLength(1)
+    expect(state).toMatchObject({ tip: "b".repeat(40), ops: 3, partial: 1 })
   })
 
   it("records no root for a root whose steps all pass", async () => {
@@ -450,10 +474,17 @@ describe("runSkillPages on a shard ref that another execution moved", () => {
     const { runtime, calls } = stuckCursorSandbox()
     const cursor = { finder: "ownership.mjs" }
     await runSkill("ownership", state, runtime, cursor)
-    // The runtime runs the finder of each page; page 2 repeats the cursor.
+    // The runtime runs the finder of each page; each page gets the cursor
+    // of the page before it (CTX-1570), and page 2 repeats the cursor.
     expect(calls).toEqual([
-      { name: skillStepName(ROOT, "ownership", WS, 1), cursor },
-      { name: skillStepName(ROOT, "ownership", WS, 2), cursor },
+      {
+        name: skillStepName(ROOT, "ownership", WS, 1),
+        cursor: { ...cursor, at: 0 },
+      },
+      {
+        name: skillStepName(ROOT, "ownership", WS, 2),
+        cursor: { ...cursor, at: 1 },
+      },
     ])
     expect(state).toMatchObject({ ops: 2, partial: 1, partialRoots: [ROOT] })
     expect(git(remote, ["log", "-1", "--format=%B", REF])).toContain(

@@ -256,7 +256,85 @@ describe("pattern counting (concept 5.4)", () => {
   })
 })
 
+/** documents.mjs on a repository, as the host and the agent run it. */
+function documentsScript(
+  dir: string,
+  roots: object[],
+  options: { count?: boolean; cursorAt?: number } = {},
+) {
+  const stepRoot = mkdtempSync(join(root, "documents-"))
+  writeFileSync(
+    join(stepRoot, "step.json"),
+    JSON.stringify({
+      workspaceId: "ws_fixture",
+      baseCommit: "0".repeat(40),
+      cursorAt: options.cursorAt ?? 0,
+    }),
+  )
+  writeFileSync(join(stepRoot, "roots.json"), JSON.stringify({ roots }))
+  const result = spawnSync(
+    process.execPath,
+    [
+      join(SKILL, "documents.mjs"),
+      "--root",
+      stepRoot,
+      "--source",
+      dir,
+      "--source-url",
+      URL_A,
+      "--source-path",
+      PATH_A,
+      "--roots",
+      join(stepRoot, "roots.json"),
+      ...(options.count ? ["--count"] : []),
+    ],
+    { encoding: "utf8", env: baseEnv },
+  )
+  expect(result.status, result.stderr).toBe(0)
+  return JSON.parse(result.stdout)
+}
+
 describe("document selection (concept 5.4)", () => {
+  it("lists every document with no count limit, in pages that fit the read budget (CTX-1570)", () => {
+    // 200 package READMEs and 3 documents larger than the 64 KiB that the
+    // agent reads.
+    const files: Record<string, string> = {}
+    const roots: object[] = [{ path: "." }]
+    for (let i = 0; i < 200; i++) {
+      const path = `packages/p${String(i).padStart(3, "0")}`
+      files[`${path}/README.md`] = `# p${i}\n${"x".repeat(1500)}\n`
+      roots.push({ path })
+    }
+    for (const name of ["a", "b", "c"])
+      files[`${name}/CONTRIBUTING.md`] = `# ${name}\n${"y".repeat(100_000)}\n`
+    const repo = source("many-documents", [{ days: 10, files }])
+    const { count } = documentsScript(repo.dir, roots, { count: true })
+    expect(count).toBe(203)
+    const seen: string[] = []
+    let at = 0
+    for (let pages = 1; at < count; pages++) {
+      expect(pages).toBeLessThan(count)
+      const listed = documentsScript(repo.dir, roots, { cursorAt: at }) as {
+        documents: Array<{ path: string; bytes: number }>
+        page: { from: number; to: number; of: number }
+      }
+      expect(listed.page).toMatchObject({ from: at, of: count })
+      const read = listed.documents.reduce(
+        (sum, d) => sum + Math.min(d.bytes, 64 * 1024),
+        0,
+      )
+      // A page holds at least one document, and more only within 256 KiB.
+      expect(listed.documents.length).toBeGreaterThan(0)
+      if (listed.documents.length > 1) expect(read).toBeLessThanOrEqual(262_144)
+      seen.push(...listed.documents.map((d) => d.path))
+      at = listed.page.to
+    }
+    // Each document is on exactly one page.
+    expect(seen).toHaveLength(203)
+    expect(new Set(seen).size).toBe(203)
+    expect(seen).toContain("packages/p199/README.md")
+  })
+
   it("lists practice documents by class and skips vendored, hidden, and unrelated files", async () => {
     const repo = source("docs", [
       {
@@ -279,30 +357,10 @@ describe("document selection (concept 5.4)", () => {
         },
       },
     ])
-    const rootsFile = join(repo.dir, "..", `roots-documents-${Date.now()}.json`)
-    writeFileSync(
-      rootsFile,
-      JSON.stringify({ roots: [{ path: "." }, { path: "packages/api" }] }),
-    )
-    const result = spawnSync(
-      process.execPath,
-      [
-        join(SKILL, "documents.mjs"),
-        "--source",
-        repo.dir,
-        "--source-url",
-        URL_A,
-        "--source-path",
-        PATH_A,
-        "--roots",
-        rootsFile,
-      ],
-      { encoding: "utf8", env: baseEnv },
-    )
-    expect(result.status, result.stderr).toBe(0)
-    const { documents } = JSON.parse(result.stdout) as {
-      documents: Array<{ path: string; class: string }>
-    }
+    const { documents } = documentsScript(repo.dir, [
+      { path: "." },
+      { path: "packages/api" },
+    ]) as { documents: Array<{ path: string; class: string }> }
     expect(documents.map((d) => `${d.class} ${d.path}`)).toEqual([
       "instructions AGENTS.md",
       "instructions packages/api/AGENTS.md",
@@ -336,7 +394,7 @@ const codebase = (name: string, url: string) =>
     `# ${name}\n`,
   )
 
-type Proposal = { areas: object[]; complete?: boolean }
+type Proposal = { areas: object[]; done?: string[] }
 
 /** Context repository shared by the runs of several sources. */
 function contextRepo() {
@@ -423,6 +481,8 @@ async function ingest(
   /** The codebase file in the root-to-file map; null for none. */
   codebasePath: string | null,
   proposal: Proposal,
+  /** The cursor of the page before this one (step.json). */
+  cursorAt = 0,
 ) {
   const stepRoot = mkdtempSync(join(root, "step-"))
   const contextCheckout = join(stepRoot, "context", "ws_fixture")
@@ -432,7 +492,11 @@ async function ingest(
   })
   writeFileSync(
     join(stepRoot, "step.json"),
-    JSON.stringify({ workspaceId: "ws_fixture", baseCommit: context.base }),
+    JSON.stringify({
+      workspaceId: "ws_fixture",
+      baseCommit: context.base,
+      cursorAt,
+    }),
   )
   mkdirSync(join(stepRoot, "out", "files"), { recursive: true })
   await writeStepIndex({
@@ -456,31 +520,40 @@ async function ingest(
     }),
   )
   writeFileSync(join(stepRoot, "proposal.json"), JSON.stringify(proposal))
-  const run = spawnSync(
-    process.execPath,
-    [
-      join(SKILL, "instruction-areas.mjs"),
-      "--root",
-      stepRoot,
-      "--source",
-      repo.dir,
-      "--source-url",
-      url,
-      "--source-path",
-      pathOf(url),
-      "--roots",
-      join(stepRoot, "roots.json"),
-      "--proposal",
-      join(stepRoot, "proposal.json"),
-      "--now",
-      NOW.toISOString(),
-    ],
-    { encoding: "utf8", env: baseEnv, timeout: 30_000 },
-  )
-  expect(run.status, `${run.stdout}${run.stderr}`).toBe(0)
-  const summary = JSON.parse(run.stdout) as {
-    ops: Array<{ op: string; path: string }>
-    skipped: Array<{ path: string | null; reason: string }>
+  const runScript = () =>
+    spawnSync(
+      process.execPath,
+      [
+        join(SKILL, "instruction-areas.mjs"),
+        "--root",
+        stepRoot,
+        "--source",
+        repo.dir,
+        "--source-url",
+        url,
+        "--source-path",
+        pathOf(url),
+        "--roots",
+        join(stepRoot, "roots.json"),
+        "--proposal",
+        join(stepRoot, "proposal.json"),
+        "--now",
+        NOW.toISOString(),
+      ],
+      { encoding: "utf8", env: baseEnv, timeout: 30_000 },
+    )
+  const summaryOf = (run: ReturnType<typeof runScript>) => {
+    expect(run.status, `${run.stdout}${run.stderr}`).toBe(0)
+    return JSON.parse(run.stdout) as {
+      ops: Array<{ op: string; path: string }>
+      skipped: Array<{ path: string | null; reason: string }>
+    }
+  }
+  const summary = summaryOf(runScript())
+  /** The script again in the same step, with the next proposal. */
+  const again = (next: Proposal) => {
+    writeFileSync(join(stepRoot, "proposal.json"), JSON.stringify(next))
+    return summaryOf(runScript())
   }
   const validate = (rootGone = false) =>
     validatePatchStep({
@@ -507,7 +580,12 @@ async function ingest(
         candidates: number
       }>
     }>
-  return { summary, validate, report }
+  const patch = () =>
+    JSON.parse(readFileSync(join(stepRoot, "out", "patch.json"), "utf8")) as {
+      more?: boolean
+      cursor?: { at: number }
+    }
+  return { summary, validate, report, patch, again }
 }
 
 const AGENTS = (lines: string[]) => `# Agents\n\n${lines.join("\n")}\n`
@@ -742,6 +820,251 @@ describe("the instruction-areas skill", () => {
     )
   })
 
+  // 5 documents larger than the 64 KiB that the agent reads: page 1 holds
+  // 4 (256 KiB), page 2 holds the last one.
+  const pad = `\n${"z".repeat(70_000)}\n`
+  const SNAPSHOTS = "Use inline snapshots in each test file."
+  const PAGE_ONE = [
+    "AGENTS.md",
+    "a/CONTRIBUTING.md",
+    "b/CONTRIBUTING.md",
+    "c/CONTRIBUTING.md",
+  ]
+  const pagedShop = () =>
+    source("shop-pages", [
+      {
+        days: 40,
+        files: {
+          "AGENTS.md": `${AGENTS(GOOD)}${pad}`,
+          "a/CONTRIBUTING.md": `# a${pad}`,
+          "b/CONTRIBUTING.md": `# b${pad}`,
+          "c/CONTRIBUTING.md": `# c${pad}`,
+          "d/CONTRIBUTING.md": `# d\n\n${SNAPSHOTS}\n${pad}`,
+          ...testFiles("vitest"),
+        },
+      },
+    ])
+  const snapshotArea = (extra: object = {}): Proposal => ({
+    done: ["d/CONTRIBUTING.md"],
+    areas: [
+      {
+        slug: "unit-testing",
+        summary: "How the code is tested.",
+        rules: [
+          {
+            key: "snapshots",
+            value: "inline",
+            text: SNAPSHOTS,
+            documents: [{ path: "d/CONTRIBUTING.md", quote: SNAPSHOTS }],
+          },
+        ],
+      },
+    ],
+    ...extra,
+  })
+
+  it("pages the areas over the documents: a later page adds to the file of an earlier page and keeps its rules (CTX-1570)", async () => {
+    const context = contextRepo()
+    // Another source follows the same practice first.
+    const b = source("billing", [
+      {
+        days: 30,
+        files: { "AGENTS.md": AGENTS(GOOD), ...testFiles("vitest") },
+      },
+    ])
+    const other = await (
+      await ingest(
+        context,
+        b,
+        URL_B,
+        "knowledge/codebases/billing.md",
+        unitTesting("vitest"),
+      )
+    ).validate()
+    context.advance(other.tree)
+    const a = pagedShop()
+    const first = await ingest(
+      context,
+      a,
+      URL_A,
+      "knowledge/codebases/shop.md",
+      { ...unitTesting("vitest"), done: PAGE_ONE },
+    )
+    expect(first.report()[0]).toMatchObject({ decision: "same", file: AREA })
+    expect(first.patch()).toMatchObject({ more: true, cursor: { at: 4 } })
+    const firstResult = await first.validate()
+    expect(firstResult.rejections).toEqual([])
+    context.advance(firstResult.tree)
+    const before = context.show(context.base, AREA)
+
+    const second = await ingest(
+      context,
+      a,
+      URL_A,
+      "knowledge/codebases/shop.md",
+      snapshotArea(),
+      4,
+    )
+    expect(second.report()).toEqual([
+      expect.objectContaining({ decision: "add", file: AREA }),
+    ])
+    expect(second.patch()).toMatchObject({ cursor: { at: 5 } })
+    expect(second.patch().more).toBeFalsy()
+    const result = await second.validate()
+    expect(result.rejections).toEqual([])
+    const after = context.show(result.tree, AREA)
+    // The rules and evidence of page 1 and of the other source stay.
+    for (const line of before.split("\n").filter((l) => l.startsWith("  - ")))
+      expect(after).toContain(line)
+    expect(after).toContain(
+      `- source \`${PATH_A}\`, documented: \`d/CONTRIBUTING.md\``,
+    )
+  })
+
+  it("moves the cursor only past the documents that the proposal is done with (CTX-1570)", async () => {
+    const context = contextRepo()
+    const step = await ingest(
+      context,
+      pagedShop(),
+      URL_A,
+      "knowledge/codebases/shop.md",
+      // The proposal holds the rules of the first two documents and of the
+      // fourth one.
+      {
+        ...unitTesting("vitest"),
+        done: ["AGENTS.md", "a/CONTRIBUTING.md", "c/CONTRIBUTING.md"],
+      },
+    )
+    expect(step.patch()).toMatchObject({ more: true, cursor: { at: 2 } })
+  })
+
+  it("on a re-ingestion, the first page writes the areas of the source again, and a later page adds to them (CTX-1570)", async () => {
+    const a = pagedShop()
+    const reingest = async (pageOne: Proposal) => {
+      const context = contextRepo()
+      // The run before wrote the area.
+      const old = await (
+        await ingest(
+          context,
+          a,
+          URL_A,
+          "knowledge/codebases/shop.md",
+          unitTesting("vitest"),
+        )
+      ).validate()
+      context.advance(old.tree)
+      const first = await ingest(
+        context,
+        a,
+        URL_A,
+        "knowledge/codebases/shop.md",
+        { ...pageOne, done: PAGE_ONE },
+      )
+      const result = await first.validate()
+      expect(result.rejections).toEqual([])
+      context.advance(result.tree)
+      return context
+    }
+    // Page 1 names no area: the source leaves the area of the run before.
+    const left = await reingest({ areas: [] })
+    expect(left.has(left.base, AREA)).toBe(false)
+    // Page 1 writes the same rules again, so the file does not change. Page
+    // 2 adds a rule, and the rules of page 1 stay.
+    const same = await reingest(unitTesting("vitest"))
+    const before = same.show(same.base, AREA)
+    const second = await ingest(
+      same,
+      a,
+      URL_A,
+      "knowledge/codebases/shop.md",
+      snapshotArea(),
+      4,
+    )
+    expect(second.report()[0]).toMatchObject({ decision: "update-own" })
+    const result = await second.validate()
+    expect(result.rejections).toEqual([])
+    const after = same.show(result.tree, AREA)
+    for (const line of before.split("\n").filter((l) => l.startsWith("  - ")))
+      expect(after).toContain(line)
+    expect(after).toContain("topic: `snapshots` = `inline`")
+  })
+
+  it("writes the whole page again on each run of the script in one step (CTX-1570)", async () => {
+    const context = contextRepo()
+    const repo = shop()
+    const old = await (
+      await ingest(
+        context,
+        repo,
+        URL_A,
+        "knowledge/codebases/shop.md",
+        unitTesting("vitest"),
+      )
+    ).validate()
+    context.advance(old.tree)
+    // Run 1 does not name the area yet, so the source leaves it.
+    const step = await ingest(
+      context,
+      repo,
+      URL_A,
+      "knowledge/codebases/shop.md",
+      { areas: [] },
+    )
+    expect(step.summary.ops).toEqual([{ op: "delete", path: AREA }])
+    expect(step.patch().more).toBeTruthy()
+    // Run 2 names it and is done with the only document.
+    const second = step.again({ ...unitTesting("vitest"), done: ["AGENTS.md"] })
+    expect(second.ops).toEqual([])
+    expect(step.patch().more).toBeFalsy()
+    const result = await step.validate()
+    expect(result.rejections).toEqual([])
+    expect(context.show(result.tree, AREA)).toBe(context.show(old.tree, AREA))
+  })
+
+  it("keeps the 60 rules that an area file can take and lists each other rule in skipped (CTX-1570)", async () => {
+    const context = contextRepo()
+    const lines = Array.from(
+      { length: 62 },
+      (_, i) => `Rule number ${i + 10} of this repository is a real rule.`,
+    )
+    const repo = source("many-rules", [
+      {
+        days: 40,
+        files: { "AGENTS.md": AGENTS(lines), ...testFiles("vitest") },
+      },
+    ])
+    const step = await ingest(
+      context,
+      repo,
+      URL_A,
+      "knowledge/codebases/shop.md",
+      {
+        done: ["AGENTS.md"],
+        areas: [
+          {
+            slug: "code-style",
+            summary: "How the code is written.",
+            rules: lines.map((line, i) => ({
+              key: `rule-${i + 10}`,
+              value: "yes",
+              text: line,
+              documents: [{ path: "AGENTS.md", quote: line }],
+            })),
+          },
+        ],
+      },
+    )
+    expect(step.summary.skipped.map((s) => s.reason)).toEqual([
+      "The area file holds at most 60 rules, so the rule rule-70 was left out",
+      "The area file holds at most 60 rules, so the rule rule-71 was left out",
+    ])
+    const result = await step.validate()
+    expect(result.rejections).toEqual([])
+    expect(
+      context.show(result.tree, "knowledge/instructions/code-style.md"),
+    ).toContain("topic: `rule-69` = `yes`")
+  })
+
   it("gives a repository on another framework its own file, named by the difference", async () => {
     const context = contextRepo()
     const first = await ingest(
@@ -815,16 +1138,13 @@ describe("the instruction-areas skill", () => {
     expect(joined.rejections).toEqual([])
     context.advance(joined.tree)
 
-    // B leaves: a complete proposal without the area.
+    // B leaves: its first page does not name the area.
     const leaving = await ingest(
       context,
       b,
       URL_B,
       "knowledge/codebases/billing.md",
-      {
-        areas: [],
-        complete: true,
-      },
+      { areas: [] },
     )
     const left = await leaving.validate()
     expect(left.rejections).toEqual([])
@@ -837,7 +1157,6 @@ describe("the instruction-areas skill", () => {
     const last = await (
       await ingest(context, a, URL_A, "knowledge/codebases/shop.md", {
         areas: [],
-        complete: true,
       })
     ).validate()
     expect(last.rejections).toEqual([])
@@ -864,10 +1183,7 @@ describe("the instruction-areas skill", () => {
       shop(),
       URL_A,
       "knowledge/codebases/shop.md",
-      {
-        areas: [],
-        complete: true,
-      },
+      { areas: [] },
     )
     expect(leaving.summary.skipped.map((s) => s.reason)).toContain(
       "The file has a human section, so the script keeps it",

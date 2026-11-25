@@ -127,7 +127,7 @@ describe("ingestion v2 plan", () => {
         ).toBe(true)
     expect(
       skills.filter((skill) => !skill.cursor).map((skill) => skill.name),
-    ).toEqual(["classify-kind", "instruction-areas"])
+    ).toEqual(["classify-kind"])
   })
 
   it("refuses a bundle skill that the plan does not know", () => {

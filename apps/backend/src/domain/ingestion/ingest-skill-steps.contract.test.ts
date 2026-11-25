@@ -727,6 +727,8 @@ describe("one ingestion run of each skill through the host path (Docker)", () =>
   it("instruction-areas: the repository-wide step writes a shared area file and FOLLOWS from the repository unit", async () => {
     const doc = (quote: string) => [{ path: "AGENTS.md", quote }]
     const proposal = {
+      // The documents of the page (CTX-1570).
+      done: ["AGENTS.md", "docs/adr/0001-use-postgres.md"],
       areas: [
         {
           slug: "unit-testing",

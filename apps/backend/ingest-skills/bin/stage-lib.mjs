@@ -4,7 +4,8 @@
 // (apps/backend/src/domain/ingestion/patch-validator.ts).
 //
 // Prepare (as root) writes <root>/step.json before each step:
-//   { "workspaceId": "<id>", "baseCommit": "<sha>" }
+//   { "workspaceId": "<id>", "baseCommit": "<sha>", "cursorAt"?: <n> }
+// `cursorAt` is the cursor of the page before this one, for a cursor skill.
 // The context checkout <root>/context/<workspaceId> is read-only and is at
 // the step's base commit. The step output goes to <root>/out, which the host
 // empties before each step. `--root <dir>` changes the root (default /ctxpipe).
@@ -76,17 +77,24 @@ export function fail(message) {
 export function currentStep(root) {
   const file = join(root, "step.json")
   if (!existsSync(file)) fail(`No step is active: ${file} does not exist`)
-  const { workspaceId, baseCommit } = JSON.parse(readFileSync(file, "utf8"))
+  const {
+    workspaceId,
+    baseCommit,
+    cursorAt = 0,
+  } = JSON.parse(readFileSync(file, "utf8"))
   if (
     typeof workspaceId !== "string" ||
     !/^[A-Za-z0-9_-]+$/.test(workspaceId) ||
     typeof baseCommit !== "string" ||
-    !/^[0-9a-f]{40,64}$/.test(baseCommit)
+    !/^[0-9a-f]{40,64}$/.test(baseCommit) ||
+    !Number.isSafeInteger(cursorAt) ||
+    cursorAt < 0
   )
-    fail(`${file} does not name a Workspace and a base commit`)
+    fail(`${file} does not name a Workspace, a base commit, and a cursor`)
   const stepDir = join(root, "out")
   return {
     baseCommit,
+    cursorAt,
     stepDir,
     contextDir: join(root, "context", workspaceId),
     indexFile: join(root, "context", `${workspaceId}.index.json`),

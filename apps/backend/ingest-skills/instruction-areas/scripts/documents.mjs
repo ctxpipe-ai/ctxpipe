@@ -4,12 +4,19 @@
 // CONTRIBUTING, ADRs, lessons-learned files, and package READMEs. The agent
 // reads these first; a rule from a document comes before a rule from code.
 //
-//   node documents.mjs --source <checkout> [--roots <root-to-file map>]
+//   node documents.mjs --source <checkout> --roots <root-to-file map> [--count]
 //
-// Result: { documents: [{ path, class, bytes, truncated }], skipped: [...] }
-// `class` orders the list: instructions, rules, skills, contributing, adr,
-// lessons, readme. `truncated` is true when the file is larger than 64 KiB;
-// the agent reads only its first 64 KiB. The list has at most 150 entries.
+// The documents are the input of the cursor of the skill (CTX-1570). The
+// list has no count limit. With --count, the script prints
+// `{"count": <documents>}`: the host takes it as the length of the input.
+// Else it prints the documents of this page:
+// { documents: [{ path, class, bytes, truncated }], page: { from, to, of },
+// skipped: [...] }. A page starts at the cursor of the page before it
+// (`cursorAt` of step.json) and holds the next documents while their read
+// bytes fit in 256 KiB, at least one. `class` orders the list:
+// instructions, rules, skills, contributing, adr, lessons, readme.
+// `truncated` is true when the file is larger than 64 KiB; the agent reads
+// only its first 64 KiB.
 //
 // The source repository is hostile: the script lists tracked regular files
 // only, skips symbolic links and unsafe paths, and never reads a file.
@@ -19,13 +26,13 @@ import { readFileSync } from "node:fs"
 import { posix } from "node:path"
 import { pathToFileURL } from "node:url"
 
+import { currentStep, parseArgs } from "../../bin/stage-lib.mjs"
 import {
   inTestFixture,
   safePath,
   testFixtureSkips,
 } from "../../discover-roots/scripts/roots-lib.mjs"
 
-const MAX_DOCUMENTS = 150
 const READ_LIMIT = 64 * 1024
 const IGNORED = new Set([
   "node_modules",
@@ -149,26 +156,45 @@ export function selectDocuments(source, rootPaths = null) {
       a.path.split("/").length - b.path.split("/").length ||
       (a.path < b.path ? -1 : 1),
   )
-  if (documents.length > MAX_DOCUMENTS)
-    skipped.push({
-      path: null,
-      reason: `The list has the first ${MAX_DOCUMENTS} of ${documents.length} documents`,
-    })
-  return { documents: documents.slice(0, MAX_DOCUMENTS), skipped }
+  return { documents, skipped }
+}
+
+/**
+ * The documents of the page that starts at `from`: the next documents while
+ * their read bytes fit in 256 KiB, at least one, so that the model can read
+ * them before the step checkpoint. `to` is the cursor after the page.
+ */
+export function documentPage(documents, from) {
+  const budget = 256 * 1024
+  const start = Math.min(from, documents.length)
+  let to = start
+  let read = 0
+  while (to < documents.length) {
+    const bytes = Math.min(documents[to].bytes, READ_LIMIT)
+    if (to > start && read + bytes > budget) break
+    read += bytes
+    to++
+  }
+  return { documents: documents.slice(start, to), from: start, to }
 }
 
 function main() {
-  const argv = process.argv.slice(2)
+  const { root, args: argv } = parseArgs()
   let source = null
   let rootsFile = null
+  let count = false
   for (let i = 0; i < argv.length; i += 2) {
     if (argv[i] === "--source") source = argv[i + 1]
     else if (argv[i] === "--roots") rootsFile = argv[i + 1]
+    else if (argv[i] === "--count") {
+      count = true
+      i--
+    }
     // The other host inputs (ADR-052 section 6); the list needs neither.
     else if (
       argv[i] === "--source-url" ||
       argv[i] === "--source-path" ||
-      argv[i] === "--root"
+      argv[i] === "--path"
     )
       continue
     else {
@@ -178,7 +204,7 @@ function main() {
   }
   if (!source || !rootsFile) {
     process.stderr.write(
-      "Usage: documents.mjs --source <checkout> --source-url <url> --source-path <path> --roots <file>\n",
+      "Usage: documents.mjs --source <checkout> --source-url <url> --source-path <path> --roots <file> [--count]\n",
     )
     process.exit(1)
   }
@@ -188,7 +214,19 @@ function main() {
         .map((r) => r?.path)
         .filter((p) => typeof p === "string" && safePath(p))
     : null
-  process.stdout.write(`${JSON.stringify(selectDocuments(source, roots))}\n`)
+  const { documents, skipped } = selectDocuments(source, roots)
+  if (count) {
+    process.stdout.write(`${JSON.stringify({ count: documents.length })}\n`)
+    return
+  }
+  const page = documentPage(documents, currentStep(root).cursorAt)
+  process.stdout.write(
+    `${JSON.stringify({
+      documents: page.documents,
+      page: { from: page.from, to: page.to, of: documents.length },
+      skipped,
+    })}\n`,
+  )
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) main()

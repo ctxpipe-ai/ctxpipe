@@ -11,13 +11,24 @@
 // node instruction-areas.mjs --root /ctxpipe --source /ctxpipe/source/<handle> \
 //   --source-url <url> --source-path <path> --roots <root-to-file map> --proposal <file> [--now <ISO date>]
 //
+// The skill pages by a cursor over the documents of documents.mjs
+// (CTX-1570). The first page writes the areas of the source again: the
+// source leaves each area file that it lists, and then joins the areas of
+// the proposal. Thus after the first page, each area file that lists the
+// source is a file of this run, and a later page adds to it: the rules and
+// notes of the earlier pages stay. patch.json gets the cursor after the
+// documents of the page that the proposal is done with (`done`, in list
+// order), and `more` while documents wait. An area file takes what fits in
+// the host format and in 63 KiB, and the step stages at most what fits in
+// 2 MiB; each rule, note, or file that does not fit gets a `skipped` entry.
+//
 // The proposal and the source repository are hostile. Text from the proposal
 // is cleaned (no backtick, control character, or markup), each quote of a
 // document is looked up in the file, and each pattern is counted by
 // patterns.mjs. The host validator checks the result again.
 
 import { execFileSync } from "node:child_process"
-import { readFileSync, writeFileSync } from "node:fs"
+import { readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 
 import { relativeTo, scriptStep, writeStep } from "../../bin/knowledge-lib.mjs"
@@ -26,14 +37,17 @@ import {
   blobContent,
   ensureParent,
   readDeletes,
+  removeStaged,
+  STEP_LIMITS,
   stagedFile,
+  stagedPaths,
   writeDeletes,
 } from "../../bin/stage-lib.mjs"
 import { readTracked } from "../../discover-roots/scripts/roots-lib.mjs"
 import {
   cleanText,
   compareRules,
-  MAX_AREAS,
+  MAX_NOTES,
   MAX_RULES,
   MIN_NEW_AREA_RULES,
   newFront,
@@ -44,6 +58,7 @@ import {
   SEED_SLUGS,
   slugify,
 } from "./areas-lib.mjs"
+import { documentPage, selectDocuments } from "./documents.mjs"
 import { measurePattern } from "./patterns.mjs"
 
 const { step, source, roots, index, skipped, value, ...given } = scriptStep()
@@ -66,7 +81,16 @@ try {
   process.exit(1)
 }
 const proposed = Array.isArray(proposal?.areas) ? proposal.areas : []
-const complete = proposal?.complete === true
+// The documents of this page, as documents.mjs lists them.
+const documents = selectDocuments(
+  source,
+  roots.map((r) => r.path),
+).documents
+const page = documentPage(documents, step.cursorAt)
+const done = new Set(Array.isArray(proposal?.done) ? proposal.done : [])
+let cursorAt = page.from
+while (cursorAt < page.to && done.has(documents[cursorAt].path)) cursorAt++
+const laterPage = page.from > 0
 
 // ---- the rules of one area --------------------------------------------------
 
@@ -102,7 +126,7 @@ function documentEvidence(documents) {
 function evaluate(area) {
   const kept = []
   const drift = []
-  for (const raw of Array.isArray(area.rules) ? area.rules.slice(0, 40) : []) {
+  for (const raw of Array.isArray(area.rules) ? area.rules : []) {
     const key =
       typeof raw?.key === "string" && KEY.test(raw.key) ? raw.key : null
     const val = cleanText(raw?.value, 100)
@@ -171,7 +195,7 @@ function evaluate(area) {
       )
     }
   }
-  const notes = (Array.isArray(area.notes) ? area.notes.slice(0, 5) : [])
+  const notes = (Array.isArray(area.notes) ? area.notes : [])
     .map((n) => cleanText(n, 300))
     .filter(Boolean)
   return { rules: [...byKey.values()], notes: [...notes, ...drift] }
@@ -266,24 +290,54 @@ function leave(parsed) {
   )
 }
 
-/** Join or update a file; returns false when the file would hold too many rules. */
+/**
+ * Join, update, or make a file. On a later page, the rules and notes of the
+ * source from the earlier pages stay. A rule or a note that the file cannot
+ * take (60 rules, 100 notes, 63 KiB with the host fields) gets a `skipped`
+ * entry; the rules and notes that the file had stay.
+ */
 function mergeInto(parsed, area) {
-  const rest = withoutSource(parsed)
+  const rest = laterPage
+    ? {
+        rules: parsed.area.rules.map((r) => ({
+          ...r,
+          sources: new Map(r.sources),
+        })),
+        notes: parsed.area.notes,
+      }
+    : withoutSource(parsed)
   const rules = rest.rules
   const notes = [...rest.notes]
-  const addNote = (text) => notes.push({ source: sourceId, text })
+  const added = [] // the new rules and notes, in the order of the file
+  const leftOut = (limit, what) =>
+    skip(
+      parsed.path,
+      `The area file holds at most ${limit}, so ${what} was left out`,
+    )
+  const addNote = (text) => {
+    if (notes.some((n) => n.source === sourceId && n.text === text)) return
+    if (notes.length >= MAX_NOTES)
+      return leftOut(`${MAX_NOTES} notes`, `a note of ${sourceId}`)
+    const note = { source: sourceId, text }
+    notes.push(note)
+    added.push({ note })
+  }
   for (const text of area.notes) addNote(text)
   for (const rule of [...area.rules].sort((a, b) => (a.key < b.key ? -1 : 1))) {
     const known = rules.find((r) => r.key === rule.key)
-    if (!known) {
-      rules.push({
+    if (!known && rules.length >= MAX_RULES) {
+      leftOut(`${MAX_RULES} rules`, `the rule ${rule.key}`)
+    } else if (!known) {
+      const shared = {
         section: rule.section,
         key: rule.key,
         value: rule.value,
         core: rule.core,
         text: rule.text,
         sources: new Map([[sourceId, toEvidence(rule)]]),
-      })
+      }
+      rules.push(shared)
+      added.push({ rule: shared })
     } else if (nameKeyDiffers(known.value, rule.value)) {
       addNote(
         `Uses \`${rule.value}\` for \`${rule.key}\`; the shared rule says \`${known.value}\`.`,
@@ -296,16 +350,32 @@ function mergeInto(parsed, area) {
       )
     } else known.sources.set(sourceId, toEvidence(rule))
   }
-  if (rules.length > MAX_RULES) return false
-  outputs.set(
-    parsed.path,
-    renderAreaFile(
-      parsed.front,
-      { ...parsed.area, rules, notes },
-      parsed.human,
-    ),
-  )
-  return true
+  const render = () =>
+    renderAreaFile(parsed.front, { ...parsed.area, rules, notes }, parsed.human)
+  // The validator adds host fields of at most 1 KiB to a file.
+  let text = render()
+  while (
+    Buffer.byteLength(text) > STEP_LIMITS.fileBytes - 1024 &&
+    added.length
+  ) {
+    const last = added.pop()
+    if (last.note) {
+      notes.splice(notes.indexOf(last.note), 1)
+      leftOut("63 KiB", `a note of ${sourceId}`)
+    } else {
+      rules.splice(rules.indexOf(last.rule), 1)
+      leftOut("63 KiB", `the rule ${last.rule.key}`)
+    }
+    text = render()
+  }
+  // The evidence that the source adds to shared rules can still make the
+  // file too large.
+  if (Buffer.byteLength(text) > STEP_LIMITS.fileBytes - 1024)
+    skip(
+      parsed.path,
+      "The area file would be larger than 63 KiB, so the script did not change it",
+    )
+  else outputs.set(parsed.path, text)
 }
 
 const nameKeyDiffers = (a, b) =>
@@ -336,18 +406,10 @@ function differenceName(slug, family, comparisons, area) {
 
 const followed = [] // { path, evidence }
 const touched = new Set()
-let count = 0
 for (const raw of proposed) {
   const slug = typeof raw?.slug === "string" ? raw.slug : ""
   if (!SLUG.test(slug) || slug.length > 60) {
     skip(null, "An area has no valid slug")
-    continue
-  }
-  if (count >= MAX_AREAS) {
-    skip(
-      null,
-      `A source follows at most ${MAX_AREAS} areas; ${slug} was left out`,
-    )
     continue
   }
   const summary = cleanText(raw.summary, 300)
@@ -382,6 +444,12 @@ for (const raw of proposed) {
       target = { file, decision: "update-own", cmp: null }
       break
     }
+    // An earlier page of this run decided the file of the area; a later
+    // page adds to it.
+    if (mine && laterPage) {
+      target = { file, decision: "add", cmp: null }
+      break
+    }
     const theirs = file.area.rules.filter(
       (r) =>
         r.section === "rules" &&
@@ -402,10 +470,7 @@ for (const raw of proposed) {
       skip(path, `The area file was already changed by another area (${slug})`)
       continue
     }
-    if (!mergeInto(target.file, area)) {
-      skip(path, `The area ${slug} would hold more than ${MAX_RULES} rules`)
-      continue
-    }
+    mergeInto(target.file, area)
   } else {
     if (standing.length < MIN_NEW_AREA_RULES || !summary) {
       skip(
@@ -433,32 +498,20 @@ for (const raw of proposed) {
     path = `knowledge/instructions/${name}.md`
     const seed = SEED_AREAS.find(([s]) => s === slug)
     const title = `${seed ? seed[1] : slug.replaceAll("-", " ").replace(/^./, (c) => c.toUpperCase())}${name === slug ? "" : ` (${name.slice(slug.length + 1).replaceAll("-", " ")})`}`
-    const rules = area.rules.map((r) => ({
-      section: r.section,
-      key: r.key,
-      value: r.value,
-      core: r.core,
-      text: r.text,
-      sources: new Map([[sourceId, toEvidence(r)]]),
-    }))
-    outputs.set(
-      path,
-      renderAreaFile(
-        newFront(title, summary),
-        {
-          title,
-          summary,
-          rules,
-          notes: area.notes.map((text) => ({ source: sourceId, text })),
-        },
-        [],
-      ),
+    mergeInto(
+      {
+        path,
+        front: newFront(title, summary),
+        area: { title, summary, rules: [], notes: [] },
+        human: [],
+      },
+      area,
     )
   }
   touched.add(path)
-  count++
   // The source leaves each other file of this family that still lists it.
-  for (const file of readable)
+  // On a later page, each such file is a file of this run.
+  for (const file of laterPage ? [] : readable)
     if (
       file.path !== path &&
       file.sources.includes(sourceId) &&
@@ -489,8 +542,9 @@ for (const raw of proposed) {
   })
 }
 
-// A complete proposal names every area of the source: the source leaves the others.
-if (complete) {
+// The first page writes the areas of the source again: the source leaves
+// each other area file that lists it. The later pages add theirs.
+if (!laterPage) {
   for (const name of existingNames) {
     const file = readAreaFile(name)
     if (
@@ -510,19 +564,35 @@ if (complete) {
   }
 }
 
+// Each run of the script writes the whole page (SKILL.md asks for more than
+// one run in a step), so it first drops the area files, deletes, and
+// patch.json of the run before. The codebase file goes before writeStep.
+const AREAS = "knowledge/instructions/"
+for (const path of stagedPaths(step))
+  if (path.startsWith(AREAS)) removeStaged(step, path)
+rmSync(join(step.stepDir, "patch.json"), { force: true })
+// The step stages at most 2 MiB. Room stays for the codebase file with
+// its FOLLOWS claims.
+let room = STEP_LIMITS.stagedBytes - STEP_LIMITS.fileBytes
 for (const [path, text] of outputs) {
+  room -= Buffer.byteLength(text) + 1024
+  if (room < 0) {
+    skip(path, "The step stages at most 2 MiB, so this area file was left out")
+    outputs.delete(path)
+    continue
+  }
   const file = stagedFile(step, path)
   ensureParent(file)
   writeFileSync(file, text)
 }
-if (deletes.size) {
-  const recorded = readDeletes(step)
-  for (const [path, reason] of deletes) {
-    const blob = baseBlob(step, path)
-    if (blob) recorded[path] = { baseBlob: blob, reason }
-  }
-  writeDeletes(step, recorded)
+const recorded = Object.fromEntries(
+  Object.entries(readDeletes(step)).filter(([path]) => !path.startsWith(AREAS)),
+)
+for (const [path, reason] of deletes) {
+  const blob = baseBlob(step, path)
+  if (blob) recorded[path] = { baseBlob: blob, reason }
 }
+writeDeletes(step, recorded)
 writeFileSync(
   join(step.stepDir, "areas-report.json"),
   `${JSON.stringify({ areas: report }, null, 2)}\n`,
@@ -561,7 +631,12 @@ if (!codebase && followed.length)
   )
 else
   for (const { path, evidence } of followed)
-    if (evidence)
+    // An area file that the step left out gets a claim only when the source
+    // follows it already.
+    if (
+      evidence &&
+      (outputs.has(path) || parsedCache.get(path)?.sources?.includes(sourceId))
+    )
       plans.push({
         path: codebase,
         create: null,
@@ -574,4 +649,10 @@ else
           },
         ],
       })
-writeStep(step, plans, skipped)
+// The documents of this page that the proposal is done with are done. The
+// FOLLOWS claims of the run before go with its codebase file.
+if (codebase) removeStaged(step, codebase)
+writeStep(step, plans, skipped, {
+  more: cursorAt < documents.length,
+  cursorAt: () => cursorAt,
+})
