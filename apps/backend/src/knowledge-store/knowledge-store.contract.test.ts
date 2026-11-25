@@ -963,6 +963,25 @@ describe("users and mutations", () => {
     ).rejects.toThrow(/default admin password ctxpipe is public/)
   })
 
+  // CTX-1672: the erase reads the names of the parts, and nothing more.
+  it("the writer reads only the database, table and name of the parts of the knowledge tables, and the reader reads no part", async () => {
+    const parts = await rawRows<{ table: string }>(
+      rawClient(writerUrl),
+      "SELECT DISTINCT table FROM system.parts ORDER BY table",
+    )
+    expect(parts.length).toBeGreaterThan(0)
+    for (const { table } of parts) expect(KNOWLEDGE_TABLES).toContain(table)
+    await expect(
+      rawRows(rawClient(writerUrl), "SELECT rows FROM system.parts"),
+    ).rejects.toThrow(denied)
+    await expect(
+      rawRows(rawClient(readerUrl), "SELECT name FROM system.parts"),
+    ).rejects.toThrow(denied)
+    await expect(reader.partsLeft(["documents/all_1_1_0"])).rejects.toThrow(
+      denied,
+    )
+  })
+
   it("a second migration sets a new password and keeps the grants", async () => {
     await migrateKnowledgeStore(adminUrl, {
       reader: "reader-rotated",
@@ -1007,7 +1026,7 @@ describe("users and mutations", () => {
       knowledgeRowCounts(rawClient(adminUrl), scope, { inParts: true })
     /** Erases the purged rows, and waits until the parts hold none. */
     const erase = async (scope: PurgeScope) => {
-      expect(await writer.erasePurged(scope)).toBeGreaterThan(0)
+      expect(await writer.erasePurged(scope)).not.toEqual([])
       await vi.waitFor(
         async () => expect(await writer.purgedRowsInParts(scope)).toBe(0),
         { timeout: 30_000, interval: 200 },
@@ -1044,7 +1063,7 @@ describe("users and mutations", () => {
     expect(await rowsOfScope(sibling)).toEqual(seeded)
     expect(await rowsInParts(otherOrg)).toEqual(seeded)
     // An erase with no purged rows left in the parts changes nothing.
-    expect(await writer.erasePurged(workspace)).toBe(0)
+    expect(await writer.erasePurged(workspace)).toEqual([])
 
     const org = { orgId: "org_purge", workspaceId: null }
     expect(await writer.purge(org)).toEqual(seeded)

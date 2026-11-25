@@ -101,6 +101,11 @@ export async function migrateKnowledgeStore(
       "ctxpipe_writer",
       passwords.writer,
       "SELECT, INSERT, ALTER DELETE",
+      // The erase after a purge waits until the parts that held the purged
+      // rows are gone from the disk (CTX-1672, ADR-066 decision 9). Only
+      // the names of the parts: ClickHouse shows a user only the parts of
+      // the tables that it can read, and no column of a row.
+      "SELECT(database, table, name) ON system.parts",
     )
   } finally {
     await client.close()
@@ -109,8 +114,8 @@ export async function migrateKnowledgeStore(
 
 /**
  * Makes the user `name`, or sets its password, and gives it `privileges` on
- * the knowledge tables of the current database, and nothing more (ADR-066
- * decision 9). The user gets no access management, so it cannot drop a row
+ * the knowledge tables of the current database, and `extraGrant` if given,
+ * and nothing more (ADR-066 decision 9). The user gets no access management, so it cannot drop a row
  * policy or a constraint. The row policies are `TO ALL`, so they also apply
  * to this user.
  */
@@ -119,6 +124,7 @@ async function setUser(
   name: string,
   password: string | undefined,
   privileges: string,
+  extraGrant?: string,
 ): Promise<void> {
   if (!password) {
     log.info({
@@ -141,9 +147,10 @@ async function setUser(
   await client.command({ query: `ALTER USER ${name} ${identified}` })
   // WITH REPLACE OPTION removes each grant that is not in this statement.
   await client.command({
-    query: `GRANT ${KNOWLEDGE_TABLES.map(
-      (table) => `${privileges} ON ${table}`,
-    ).join(", ")} TO ${name} WITH REPLACE OPTION`,
+    query: `GRANT ${[
+      ...KNOWLEDGE_TABLES.map((table) => `${privileges} ON ${table}`),
+      ...(extraGrant ? [extraGrant] : []),
+    ].join(", ")} TO ${name} WITH REPLACE OPTION`,
   })
   log.info({
     step: "migrate",

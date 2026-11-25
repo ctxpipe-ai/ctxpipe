@@ -119,10 +119,13 @@ describe("old knowledge parts", () => {
     )
 
     // The server keeps an old part for 8 minutes after a mutation replaced
-    // it. A test cannot wait that long.
+    // it, and its cleanup waits up to 5 minutes when it has nothing to do.
+    // A test cannot wait that long.
     for (const table of tables)
       await client.command({
-        query: `ALTER TABLE ${table} MODIFY SETTING old_parts_lifetime = 1`,
+        query: `ALTER TABLE ${table} MODIFY SETTING old_parts_lifetime = 1,
+          cleanup_delay_period = 1, max_cleanup_delay_period = 1,
+          cleanup_delay_period_random_add = 0`,
       })
 
     const store = createKnowledgeStore(url)
@@ -131,10 +134,20 @@ describe("old knowledge parts", () => {
       expect(
         await knowledgeRowCounts(client, purged, { inParts: true }),
       ).toEqual(oneRow)
-      expect(await store.erasePurged(purged)).toBe(tables.length)
+      // Each table has one part of the purged org.
+      const erased = await store.erasePurged(purged)
+      expect(erased.map((part) => part.split("/")[0]).sort()).toEqual(
+        [...tables].sort(),
+      )
       await vi.waitFor(
         async () => expect(await store.purgedRowsInParts(purged)).toBe(0),
         { timeout: 30_000, interval: 200 },
+      )
+      // The server removes the parts that held the purged rows from the
+      // disk.
+      await vi.waitFor(
+        async () => expect(await store.partsLeft(erased)).toBe(0),
+        { timeout: 120_000, interval: 1_000 },
       )
     } finally {
       await store.close()
@@ -146,23 +159,6 @@ describe("old knowledge parts", () => {
     expect(await knowledgeRowCounts(client, kept)).toEqual(oneRow)
     expect(await parts()).toEqual(
       [...tables].sort().map((table) => ({ table, disk: "cold", rows: 1 })),
-    )
-    // The server removes the old parts, which held the purged rows, from
-    // the disk. An old part with no rows (the empty result of the erase of
-    // a part of only purged rows) can stay longer: it holds no bytes of a
-    // row.
-    await vi.waitFor(
-      async () => {
-        const result = await client.query({
-          query: `SELECT toUInt32(count()) AS parts FROM system.parts
-            WHERE database = currentDatabase() AND NOT active AND rows > 0
-              AND table IN {tables:Array(String)}`,
-          query_params: { tables },
-          format: "JSONEachRow",
-        })
-        expect(await result.json()).toEqual([{ parts: 0 }])
-      },
-      { timeout: 120_000, interval: 1_000 },
     )
   }, 240_000)
 })

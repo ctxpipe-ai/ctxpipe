@@ -9,6 +9,7 @@ import { purgeOrgDataBeforeAuthDelete } from "../../domain/repositoryDeletion.js
 import { postgresSandboxLocks } from "../../domain/workspaces/sandbox-lock-store.js"
 import {
   createKnowledgeStore,
+  KNOWLEDGE_TABLES,
   type KnowledgeScope,
   NO_KNOWLEDGE_ROWS,
 } from "../../knowledge-store/knowledge-store.js"
@@ -52,6 +53,16 @@ beforeAll(async () => {
     writer: "writer-test",
   })
   writerUrl = userUrl(adminUrl, "ctxpipe_writer", "writer-test")
+  // The server keeps a replaced part for 8 minutes, and its cleanup waits
+  // up to 5 minutes when it has nothing to do. The erase waits until the
+  // parts that held purged rows are gone. A test cannot wait that long.
+  const admin = clickhouse.client(adminUrl)
+  for (const table of KNOWLEDGE_TABLES)
+    await admin.command({
+      query: `ALTER TABLE ${table} MODIFY SETTING old_parts_lifetime = 1,
+        cleanup_delay_period = 1, max_cleanup_delay_period = 1,
+        cleanup_delay_period_random_add = 0`,
+    })
 }, 240_000)
 
 afterAll(async () => {
@@ -151,7 +162,8 @@ async function runsOf(workflowName: string, orgId: string) {
     await getSystemDb().execute(
       sql`select id, input->>'workspaceId' as "workspaceId", status
         from openworkflow.workflow_runs
-        where workflow_name = ${workflowName} and input->>'orgId' = ${orgId}`,
+        where workflow_name = ${workflowName} and input->>'orgId' = ${orgId}
+        order by created_at`,
     )
   ).rows as { id: string; workspaceId: string | null; status: string }[]
 }
@@ -198,28 +210,39 @@ async function skipPurgeSleeps(orgId: string): Promise<void> {
   `)
 }
 
-/** Wait until each purge run of the org completed, and return the runs. */
+/**
+ * Wait until each purge run of the org ended, and return the completed
+ * runs. A run that ends with `erased` cancels the next run that it queued.
+ */
 async function purged(orgId: string) {
+  const ended = (run: { status: string }) =>
+    run.status === "completed" || run.status === "canceled"
   await vi.waitFor(
     async () => {
       await skipPurgeSleeps(orgId)
       const runs = await runsOf("knowledge-purge", orgId)
-      expect(runs.length).toBeGreaterThan(0)
-      expect(runs.every((run) => run.status === "completed")).toBe(true)
+      expect(runs.some((run) => run.status === "completed")).toBe(true)
+      expect(runs.every(ended)).toBe(true)
     },
-    { timeout: 60_000, interval: 200 },
+    { timeout: 120_000, interval: 200 },
   )
-  return runsOf("knowledge-purge", orgId)
+  return (await runsOf("knowledge-purge", orgId)).filter(
+    (run) => run.status === "completed",
+  )
 }
 
-/** The outputs of the completed steps of the purge runs of the org. */
-async function purgeSteps(orgId: string) {
+/**
+ * The outputs of the completed steps of the purge runs of the org, or of
+ * the run `runId`.
+ */
+async function purgeSteps(orgId: string, runId?: string) {
   return (
     await getSystemDb().execute(sql`
       select s.step_name as name, s.output from openworkflow.step_attempts s
       join openworkflow.workflow_runs r
         on r.namespace_id = s.namespace_id and r.id = s.workflow_run_id
       where r.workflow_name = 'knowledge-purge' and r.input->>'orgId' = ${orgId}
+        and (${runId ?? null}::text is null or r.id = ${runId ?? null})
         and s.status = 'completed' and s.kind = 'function'
       order by s.created_at`)
   ).rows as { name: string; output: unknown }[]
@@ -285,6 +308,10 @@ it(
           name: "erased",
           output: projectedRows,
         })
+        // The run ended with `erased`, so it canceled its next run.
+        expect(
+          (await runsOf("knowledge-purge", f.org.id)).map((run) => run.status),
+        ).toEqual(["completed", "canceled"])
         expect(await rowsOf(sibling)).toEqual(kept)
         expect(await rowsOf(otherOrg)).toEqual(kept)
         // The heads of the Workspace go with its row.
@@ -444,6 +471,71 @@ it(
         expect(outputs.at(-1)).toBeNull()
         expect((await purgeSteps(f.org.id)).at(-1)?.name).toBe("workspace-kept")
         expect(await rowsOf(workspace)).toEqual(before)
+      },
+    ),
+)
+
+it(
+  "a purge run that fails leaves its next run, which purges and erases the rows of the Workspace",
+  { timeout: 240_000 },
+  async () =>
+    withNativeHydrationFixture(
+      { files, knowledgePlane: { clickhouseUrl: writerUrl } },
+      async (f) => {
+        await projected(f)
+        const workspace = { orgId: f.org.id, workspaceId: f.workspaceId }
+        // ClickHouse is down: the purge step fails and retries.
+        process.env.CLICKHOUSE_URL = "http://ctxpipe_writer:x@127.0.0.1:1/x"
+        expect(await deleteWorkspace(f)).toBe(204)
+        await vi.waitFor(
+          async () => {
+            await skipPurgeSleeps(f.org.id)
+            const failed = await getSystemDb().execute(sql`
+              select 1 from openworkflow.step_attempts s
+              join openworkflow.workflow_runs r on r.id = s.workflow_run_id
+              where r.workflow_name = 'knowledge-purge'
+                and r.input->>'orgId' = ${f.org.id}
+                and s.step_name = 'purge-knowledge-plane'
+                and s.status = 'failed'`)
+            expect(failed.rows.length).toBeGreaterThan(0)
+          },
+          { timeout: 60_000, interval: 200 },
+        )
+        const [first, next] = await runsOf("knowledge-purge", f.org.id)
+        expect(next).toMatchObject({ status: "pending" })
+        // As after the last retry: the run fails, and its next run stays.
+        await getSystemDb().execute(sql`
+          update openworkflow.workflow_runs
+          set status = 'failed', worker_id = null, available_at = null,
+            finished_at = now()
+          where namespace_id = ${openWorkflowNamespaceId()}
+            and id = ${first?.id}
+        `)
+        expect(await rowsOf(workspace)).not.toEqual(NO_KNOWLEDGE_ROWS)
+
+        // ClickHouse is back, and the day is over.
+        process.env.CLICKHOUSE_URL = writerUrl
+        await getSystemDb().execute(sql`
+          update openworkflow.workflow_runs set available_at = now()
+          where namespace_id = ${openWorkflowNamespaceId()}
+            and id = ${next?.id}
+        `)
+        await vi.waitFor(
+          async () => {
+            await skipPurgeSleeps(f.org.id)
+            expect(
+              (await runsOf("knowledge-purge", f.org.id)).map(
+                (run) => run.status,
+              ),
+            ).toEqual(["failed", "completed", "canceled"])
+          },
+          { timeout: 120_000, interval: 200 },
+        )
+        expect(await rowsOf(workspace)).toEqual(NO_KNOWLEDGE_ROWS)
+        expect(await rowsInParts(workspace)).toEqual(NO_KNOWLEDGE_ROWS)
+        expect((await purgeSteps(f.org.id, next?.id)).at(-1)?.name).toBe(
+          "erased",
+        )
       },
     ),
 )

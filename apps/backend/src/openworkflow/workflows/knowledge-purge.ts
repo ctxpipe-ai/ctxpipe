@@ -15,6 +15,7 @@ import {
 } from "../../models/knowledge-state.js"
 import { getWorkspaceById } from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
+import { enqueueWorkflow, ow } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { openWorkflowNamespaceId } from "../namespace.js"
 
@@ -49,8 +50,9 @@ export const IDLE_WORKSPACE_CHECKS = 10
  * new delete queues the purge again.
  *
  * After the DELETEs, the purge makes ClickHouse remove the deleted rows
- * from the parts, and waits until the parts hold no row of the scope
- * (CTX-1672, ADR-066 decision 9).
+ * from the parts, and waits until no part holds a row of the scope and the
+ * parts that held them are gone from the disk. A run that fails leaves a
+ * purge run for the next day (CTX-1672, ADR-066 decision 9).
  */
 export const knowledgePurge = defineWorkflow(
   {
@@ -67,7 +69,7 @@ export const knowledgePurge = defineWorkflow(
       ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
     }),
   },
-  async ({ input, step }) => {
+  async ({ input, step, run }) => {
     let idle = 0
     // A sleeping run holds no worker slot, as in the projection.
     for (let check = 0; ; check++) {
@@ -85,8 +87,7 @@ export const knowledgePurge = defineWorkflow(
         })
       await step.sleep(`await-purge-${check}`, "1 minute")
     }
-    // A purge that fails is not queued again, so a step retries for about
-    // one day before the run fails.
+    // A step retries for about one day before the run fails.
     const retryPolicy = {
       initialInterval: "10s",
       backoffCoefficient: 2,
@@ -94,6 +95,19 @@ export const knowledgePurge = defineWorkflow(
       maximumAttempts: 30,
     } as const
     const url = parseEnv(process.env).CLICKHOUSE_URL
+    // The next purge run of the scope, one day later. A run that ends with
+    // `erased` cancels it. A run that fails (a step that still fails after
+    // its retries, as while ClickHouse is down) leaves it, so the purge and
+    // the erase start again each day with no operator (ADR-066 decision 9).
+    const next = url
+      ? await step.run({ name: "queue-next-purge", retryPolicy }, async () => {
+          const handle = await enqueueWorkflow(knowledgePurge.spec, input, {
+            availableAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+            idempotencyKey: `knowledge-purge-next:${run.id}`,
+          })
+          return handle.workflowRun.id
+        })
+      : null
     const deleted = await step.run(
       { name: "purge-knowledge-plane", retryPolicy },
       async () => {
@@ -124,12 +138,16 @@ export const knowledgePurge = defineWorkflow(
     if (deleted === null) return null
     // The DELETEs only hid the rows. The erase removes their bytes from the
     // parts (CTX-1672), also when these DELETEs found no row: an earlier
-    // attempt of the purge step can have hidden them.
-    await step.run({ name: "erase-purged-rows", retryPolicy }, () =>
-      withStore(url, (store) => store.erasePurged(input)),
+    // attempt of the purge step, or an earlier run, can have hidden them.
+    const parts = await step.run(
+      { name: "erase-purged-rows", retryPolicy },
+      () => withStore(url, (store) => store.erasePurged(input)),
     )
+    // Done when the active parts hold no row of the scope, and the parts
+    // that held them are gone from the disk. A part that a merge made
+    // after the erase holds no hidden row: a merge drops them.
     for (let check = 1; ; check++) {
-      const rows = await step.run(
+      const left = await step.run(
         { name: `check-erase-${check}`, retryPolicy },
         () =>
           withStore(url, async (store) => {
@@ -137,25 +155,21 @@ export const knowledgePurge = defineWorkflow(
             // Each hour: the erase again, in case an operator killed a
             // mutation.
             if (rows > 0 && check % 6 === 0) await store.erasePurged(input)
-            return rows
+            return { rows, parts: await store.partsLeft(parts) }
           }),
       )
-      if (rows === 0) break
+      if (left.rows === 0 && left.parts === 0) break
       // ClickHouse stores a mutation on disk and retries it until it is
-      // done. 144 checks, 10 minutes apart, are one day after the erase: a
-      // run that fails here shows that the bytes stay longer than ADR-066
-      // decision 9 allows.
+      // done. 144 checks, 10 minutes apart, are one day after the erase.
+      // The run then fails, and the next run starts the erase again.
       if (check >= 144)
         throw new Error(
-          `The parts still hold ${rows} purged rows one day after the erase`,
+          `One day after the erase, ${left.rows} purged rows and ${left.parts} parts are left`,
         )
       await step.sleep(`await-erase-${check}`, "10 minutes")
     }
-    // The active parts hold no purged row. ClickHouse removes the replaced
-    // parts old_parts_lifetime (8 minutes) after the mutation. The writer
-    // cannot read system.parts, so the run waits for that time.
-    await step.sleep("await-old-parts", "10 minutes")
     return step.run({ name: "erased" }, async () => {
+      if (next) await cancelUnlessEnded(next)
       getLogger().set({
         step: "knowledge-purge",
         knowledgePurge: { outcome: "erased" },
@@ -164,6 +178,23 @@ export const knowledgePurge = defineWorkflow(
     })
   },
 )
+
+/**
+ * Cancels the queued run `id`. A run that already ended (it ran before this
+ * run ended) needs no cancel.
+ */
+async function cancelUnlessEnded(id: string): Promise<void> {
+  try {
+    await ow.cancelWorkflowRun(id)
+  } catch (error) {
+    if (
+      !/^Cannot cancel workflow run .* with status/.test(
+        String(error instanceof Error ? error.message : error),
+      )
+    )
+      throw error
+  }
+}
 
 /** Runs `use` with a store of the writer at `url`, and closes the store. */
 async function withStore<T>(
