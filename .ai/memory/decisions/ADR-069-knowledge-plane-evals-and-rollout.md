@@ -124,7 +124,7 @@ The CTO, 2026-11-22: "We don't have hard targets, we want to hillclimb the retri
 
 ## Amendment 2026-11-25: OrgBench is the agent-task level ([CTX-1659](https://linear.app/ctxpipe/issue/CTX-1659))
 
-[ADR-075](ADR-075-orgbench-org-scale-agent-benchmark.md) supplies the agent-task metrics of decision 6. The evals of this ADR are its level L0, the main climb signal. For a change that an agent can feel, the keep rule of ADR-075 decision 9 replaces decision 7: an L0 hold-out win or an L2 process win, plus L2 non-inferiority. The BM25 leak lint of the question set (the rule "No words of the gold" in [`apps/backend/evals/knowledge/README.md`](../../../apps/backend/evals/knowledge/README.md)) stays on the L0 questions. It does not apply to the OrgBench agent tasks.
+[ADR-075](ADR-075-orgbench-org-scale-agent-benchmark.md) supplies the agent-task metrics of decision 6. The evals of this ADR are its level L0, the main climb signal. For a change that an agent can feel, the keep rule of ADR-075 decision 9 replaces only the keep condition of decision 7: an L0 hold-out win or an L2 process win, plus L2 non-inferiority. The other parts of decision 7 stay, and no guard metric may get worse. The BM25 leak lint of the question set (the rule "No words of the gold" in [`apps/backend/evals/knowledge/README.md`](../../../apps/backend/evals/knowledge/README.md)) stays on the L0 questions. It does not apply to the OrgBench agent tasks.
 
 ## Consequences
 
