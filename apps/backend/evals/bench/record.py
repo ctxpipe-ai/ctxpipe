@@ -82,7 +82,7 @@ def gateway_usage():
 
 
 def transcript(stream_path):
-    """The result event, the tool calls and the failed MCP calls of a Claude Code transcript.
+    """The result event, the tool calls and the MCP error results of a Claude Code transcript.
 
     A call with bad arguments fails in the MCP SDK before the tool runs, so it
     has no `mcp.tool` span: only the transcript shows it.
