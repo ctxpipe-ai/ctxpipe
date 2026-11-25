@@ -12,12 +12,13 @@ import { buildKnowledgeIndexes } from "./knowledge-indexes.js"
 import { checkKnowledgeSearchPlan } from "./knowledge-search-plan.js"
 import { migrateOpenWorkflow } from "./migrate-openworkflow.js"
 import { APP_ROLE_NAME, provisionAppRole } from "./provision-app-role.js"
+import { provisionConsoleRole } from "./provision-console-role.js"
 import { reconcileConnectionDirectory } from "./reconcile-connection-directory.js"
 
 /**
  * The one migrate sequence for hosted, Compose, CDK and local dev. Run it as the
  * table owner. Steps: app role, Drizzle, OpenWorkflow, the concurrent builds of the
- * knowledge chunks' indexes, every backfill, grants,
+ * knowledge chunks' indexes, every backfill, grants, the console role,
  * the plan of the knowledge search's full-text match as the app role.
  * Each step is idempotent, so a second run changes nothing.
  */
@@ -94,6 +95,8 @@ export async function runMigrations(options: {
 
     // Again after the migrations, for the tables and schemas they added.
     await provisionAppRole(pool, undefined, roleName)
+    // After OpenWorkflow's migrations: it limits access to their runs table.
+    await provisionConsoleRole(pool, roleName)
     await checkKnowledgeSearchPlan(pool, roleName)
   } catch (error) {
     if (!(error instanceof LockRetriesExhaustedError) && isLockTimeout(error))
