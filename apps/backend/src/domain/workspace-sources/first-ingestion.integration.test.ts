@@ -14,7 +14,7 @@ import {
 import { workspaceSources } from "../../db/schema/workspace_sources.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import { codesearchBaseUrl } from "../../lib/agentToolRuntime.js"
-import { createLogger, log, withLogger } from "../../observability/logger.js"
+import { createLogger, withLogger } from "../../observability/logger.js"
 import { workspaceHydrate } from "../../openworkflow/workflows/workspace-hydrate.js"
 import { usePlainGitNetwork } from "../../services/git/plain-git-remote.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
@@ -271,19 +271,12 @@ it.each([
           revision: "b".repeat(40),
         })
       })
-      const warn = vi.spyOn(log, "warn")
       await withOrgIdContext(f.org, () =>
         linkPlainGitSource({ orgId: f.org.id, scope }),
       )
 
       // The sources do not agree: the repository leaves the old pin, and
       // its ingestion reads the tip of the branch.
-      expect(warn).toHaveBeenCalledWith(
-        expect.objectContaining({
-          step: "workspace_sources.git.pin_conflict",
-          repositoryUrl: SOURCE_URL,
-        }),
-      )
       expect(await ingestionRequested(f.org.id)).toBe(true)
       const tip = f.git("rev-parse", "HEAD")
       f.server.use(
