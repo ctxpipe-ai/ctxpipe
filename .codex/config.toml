@@ -31,3 +31,9 @@ env_http_headers = { "CF-Access-Client-Id" = "HYPERDX_CF_ACCESS_CLIENT_ID", "CF-
 [mcp_servers.cloudflare]
 url = "https://mcp.cloudflare.com/mcp"
 bearer_token_env_var = "CLOUDFLARE_API_TOKEN_READONLY"
+
+# The CRM. Only Claude Code can send its headers (the headersHelper in .mcp.json), so Codex
+# does not start it (.ai/agents/mcp-servers.md, "CRM").
+[mcp_servers.crm]
+url = "https://crm.ctxpipe.dev/mcp"
+enabled = false

@@ -2,13 +2,14 @@
 
 The root [`AGENTS.md`](../../AGENTS.md) lists the config files for each harness. Keep the server lists the same in all of them. This file says what each server is for and how to sign in.
 
-Claude Code and Codex read keys from environment variables. Only `ctxpipe` can fall back to OAuth: use `/mcp` in Claude Code, or `codex mcp login ctxpipe` in Codex. Cursor uses OAuth for `ctxpipe`, and environment variables for the other servers. `codex mcp list` shows the auth state of each server.
+Claude Code and Codex read keys from environment variables. `crm` is different: Claude Code gets its headers from a command (see [CRM](#crm)). Only `ctxpipe` can fall back to OAuth: use `/mcp` in Claude Code, or `codex mcp login ctxpipe` in Codex. Cursor uses OAuth for `ctxpipe`, and environment variables for the other servers. `codex mcp list` shows the auth state of each server.
 
 | Server | Purpose | Auth in Claude Code and Codex |
 | --- | --- | --- |
 | `ctxpipe` | Hosted product MCP (org `ctx-tev`) | `CTXPIPE_API_KEY` (sent as `x-api-key`), or OAuth with access to that org |
 | `hyperdx` | ClickStack logs, traces with prompt text, metrics, dashboards (`hyperdx.ctxpipe.dev`, behind Cloudflare Access) | All required: `HYPERDX_ACCESS_KEY` = personal access key (Bearer), not the ingest token; `HYPERDX_CF_ACCESS_CLIENT_ID` and `HYPERDX_CF_ACCESS_CLIENT_SECRET` = the Access service token `agents`. Where each agent host keeps them: [ops/observability/USING.md](../../ops/observability/USING.md#agent-hosts) |
 | `cloudflare` | Cloudflare API, **read-only** by token: zones, DNS records, Access apps and policies, tunnel configuration, Logpush jobs. See [Cloudflare](#cloudflare) | `CLOUDFLARE_API_TOKEN_READONLY` (Bearer) is required |
+| `crm` | The self-hosted Twenty CRM (`crm.ctxpipe.dev`, behind Cloudflare Access), read and write. Holds customer data. See [CRM](#crm) | Claude Code only, on a factory agent host: the `headersHelper` `factory crm headers`. No environment variable. Codex does not start it |
 
 ## Cloudflare
 
@@ -39,3 +40,11 @@ Logs Read gives more than configuration. Obey these rules:
 - Logs Read can also pull request logs (Logpull, Instant Logs). These hold client IP addresses and URLs that can name a customer. Do not pull request logs through this server. Use HyperDX for request data. If you must read a request log, do not put a customer identifier into a reply, a commit, a PR, or `.ai/memory/` (see _Customer privacy_ in [`AGENTS.md`](../../AGENTS.md)).
 
 Put the token in `CLOUDFLARE_API_TOKEN_READONLY`. A Paseo agent does not read `~/.zshrc`. Thus also set the variable in Paseo's agent environment: `agents.providers.<provider>.env` in `~/.paseo/config.json`, for each provider that you use.
+
+## CRM
+
+The `crm` server is the MCP server of the CRM: the self-hosted Twenty CRM at `https://crm.ctxpipe.dev/mcp` (factory `machines/crm`). It can read and write CRM records. The factory repo's `.mcp.json` has the same entry.
+
+The server works only on a factory agent host. Its `headersHelper`, `factory crm headers`, prints the host's own Cloudflare Access service token and Twenty API key each time that Claude Code connects. Nothing is in an environment variable or in a config file. Thus the host must have `factory` on the `PATH` and the host's `ctxpipe-factory-crm-reader` AWS profile (factory `machines/cli` README, "CRM"). On a different machine, the command fails and the server does not connect. A person can use the same `/mcp` path from a WARP device with their own Twenty API key, in their own MCP config. Codex and Cursor cannot run a headers command: Codex lists the server with `enabled = false`, and Cursor lists it without headers.
+
+The CRM holds customer data: names, email addresses, and companies of people. What an agent reads there (records, names, identifiers) stays in its session. Never put it into a pull request, an issue, a ticket, a commit, a log, or a file in a repo. Describe a finding without it, for example "one company record has no domain", not the name of the company. Read only the records that the task needs. This repository is public: also obey _Customer privacy_ in [`AGENTS.md`](../../AGENTS.md).
