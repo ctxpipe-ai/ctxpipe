@@ -339,6 +339,19 @@ it("writes the pull requests closed before the cut-off date and the chat as they
         return HttpResponse.json({
           data: { repository: { n7: { lastEditedAt: null } } },
         })
+      // The token owner's draft review holds comment 3.
+      if (query.includes("PendingComments"))
+        return HttpResponse.json({
+          data: {
+            repository: {
+              p7: {
+                reviews: {
+                  nodes: [{ comments: { nodes: [{ databaseId: 3 }] } }],
+                },
+              },
+            },
+          },
+        })
       expect(query).toContain("pr7: pullRequest(number: 7)")
       expect(query).not.toContain("pr8:")
       return HttpResponse.json({
@@ -379,7 +392,20 @@ it("writes the pull requests closed before the cut-off date and the chat as they
                   createdAt: "2026-07-01T00:00:00Z",
                 },
               ]),
-              reviewThreads: connection([]),
+              reviewThreads: connection([
+                {
+                  comments: connection([
+                    {
+                      databaseId: 3,
+                      author: { login: "eve", __typename: "User" },
+                      body: "Draft note.",
+                      createdAt: "2026-05-02T00:00:00Z",
+                      path: "api.ts",
+                      line: 1,
+                    },
+                  ]),
+                },
+              ]),
             },
           },
         },
@@ -447,6 +473,7 @@ it("writes the pull requests closed before the cut-off date and the chat as they
   expect(file).not.toContain("later")
   expect(file).toContain("Thanks, merged.")
   expect(file).not.toContain("This broke later.")
+  expect(file).not.toContain("Draft note.")
   expect(file).toContain("updatedAt: 2026-06-01T00:00:00Z")
   expect(file).toContain("  - sources/github/evals/v0-demo-api.md")
   // Each login and the chat names are pseudonyms.
