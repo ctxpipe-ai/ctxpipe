@@ -10,7 +10,6 @@ import {
 import { workspaceGitRead } from "../../domain/workspaces/resolve-revision.js"
 import {
   sameWorkspaceRevision,
-  type WorkspaceRevision,
   workspaceRevisionSchema,
 } from "../../domain/workspaces/revision.js"
 import {
@@ -23,7 +22,6 @@ import {
   refreshWorkspaceWriteRevision,
 } from "../../domain/workspaces/write-broker.js"
 import {
-  acquireWorkspaceWriteRevision,
   completedWorkspaceWrite,
   completeWorkspaceWrite,
   prepareSemanticMergeCommit,
@@ -36,10 +34,7 @@ import {
   persistBoundWriteJob,
   validateSemanticHandoff,
 } from "../../models/workspace-write-jobs.js"
-import {
-  getWorkspaceWriteAdmission,
-  persistWriteJobStatus,
-} from "../../models/workspaces.js"
+import { persistWriteJobStatus } from "../../models/workspaces.js"
 import {
   gitFileChangeSchema,
   repositoryFilePathSchema,
@@ -47,7 +42,10 @@ import {
 import { readGitFiles } from "../../services/git/pack.js"
 import { enqueueWorkflow } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
-import { holdWorkspaceMergeLease } from "../workspace-merge-lease-steps.js"
+import {
+  acquireOnCurrentTip,
+  holdWorkspaceMergeLease,
+} from "../workspace-merge-lease-steps.js"
 import { runJobRefStep } from "../write-steps.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
 
@@ -219,60 +217,12 @@ export const workspaceSemanticMerge = defineWorkflow(
           refreshAttempt < MERGE_ATTEMPTS;
           refreshAttempt++
         ) {
-          type Acquired = NonNullable<
-            Awaited<ReturnType<typeof acquireWorkspaceWriteRevision>>
-          >
-          let acquired: Acquired
-          for (;;) {
-            const candidate = await step.run(
-              {
-                name: "acquire-revision-v2",
-                retryPolicy: { maximumAttempts: 3 },
-              },
-              async (): Promise<
-                (Acquired & { revision?: WorkspaceRevision }) | null
-              > => {
-                // The queued revision can be hours old, and other merges of
-                // the Workspace can push while this merge waits for the
-                // lease: merge onto the tip of now, not onto an old tip
-                // that the push then loses to. The refresh is in this step,
-                // so a replay gives the revision of the pack again. An output
-                // from before CTX-1598 has no revision. The refresh reads only
-                // the tip: the acquire checks the connector mirror on it.
-                // Without write access, the acquire pauses the merge, and
-                // the acquire after the pause reads the tip.
-                const current =
-                  refreshAttempt === 0 &&
-                  (await getWorkspaceWriteAdmission(input.workspaceId))
-                    ?.writeStatus === "writable"
-                    ? await refreshWorkspaceWriteRevision(
-                        { orgId: input.orgId, workspaceId: input.workspaceId },
-                        revision,
-                        env,
-                      )
-                    : revision
-                const acquired = await acquireWorkspaceWriteRevision(
-                  input,
-                  current,
-                  env,
-                  input.previousSha,
-                )
-                return acquired && { ...acquired, revision: current }
-              },
-            )
-            if (candidate) {
-              acquired = candidate
-              revision = candidate.revision ?? revision
-              break
-            }
-            await step.run({ name: "pause-command" }, () =>
-              persistWriteJobStatus(input.jobId, "paused"),
-            )
-            await step.sleep("await-write-access", "1 minute")
-            await step.run({ name: "resume-command" }, () =>
-              persistWriteJobStatus(input.jobId, "running"),
-            )
-          }
+          const next = await acquireOnCurrentTip(step, input, revision, env, {
+            refresh: refreshAttempt === 0,
+            retryPolicy: { maximumAttempts: 3 },
+          })
+          const { acquired } = next
+          revision = next.revision
           // Check every path the write changes, not only the paths that
           // conflict, as the origin requires (CTX-722).
           if (input.origin !== "host")

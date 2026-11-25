@@ -191,7 +191,7 @@ function waitedFor(sinceIso: string, now = Date.now()): string {
   return `${Math.floor(minutes / 60)} h ${minutes % 60} min`
 }
 
-/** The status of an item. A run that waits for a sandbox slot says so. */
+/** The status of an item. A run that waits for its turn says so. */
 export function upgradeStatusLabel(
   item: Pick<
     WorkspaceUpgradeItem,
@@ -212,7 +212,7 @@ export function upgradeStatusLabel(
   )
     return "Re-ingesting the sources"
   return item.status === "running" && item.waitingForSlot
-    ? "Waiting for a free sandbox"
+    ? "Waiting for another ingestion run"
     : UPGRADE_STATUS_LABEL[item.status]
 }
 

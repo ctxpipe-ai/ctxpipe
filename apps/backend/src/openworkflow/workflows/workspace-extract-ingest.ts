@@ -21,10 +21,7 @@ import { sourceRepositoryUrls } from "../../domain/workspace-sources/providers/g
 import { parseSourceFile } from "../../domain/workspace-sources/source-file-text.js"
 import { ingestPublishSourceSchema } from "../../domain/workspaces/extraction-source.js"
 import { workspaceGitRead } from "../../domain/workspaces/resolve-revision.js"
-import {
-  type WorkspaceRevision,
-  workspaceRevisionSchema,
-} from "../../domain/workspaces/revision.js"
+import { workspaceRevisionSchema } from "../../domain/workspaces/revision.js"
 import {
   resolveIngestConflicts,
   SemanticResolveError,
@@ -38,7 +35,6 @@ import {
   refreshWorkspaceWriteRevision,
 } from "../../domain/workspaces/write-broker.js"
 import {
-  acquireWorkspaceWriteRevision,
   completedWorkspaceWrite,
   completeWorkspaceWrite,
   prepareWorkspaceWriteCommit,
@@ -51,10 +47,7 @@ import {
   persistBoundWriteJob,
   persistWriteJobUnchangedFiles,
 } from "../../models/workspace-write-jobs.js"
-import {
-  getWorkspaceWriteAdmission,
-  persistWriteJobStatus,
-} from "../../models/workspaces.js"
+import { persistWriteJobStatus } from "../../models/workspaces.js"
 import {
   type GitRemoteRead,
   type GitWriteCommit,
@@ -64,7 +57,10 @@ import {
 import { enqueueWorkflow } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { whileWorkflowRunActive } from "../run-ended.js"
-import { holdWorkspaceMergeLease } from "../workspace-merge-lease-steps.js"
+import {
+  acquireOnCurrentTip,
+  holdWorkspaceMergeLease,
+} from "../workspace-merge-lease-steps.js"
 import { runJobRefStep } from "../write-steps.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
 
@@ -233,77 +229,19 @@ export function defineWorkspaceExtractIngestWorkflow() {
               ingest: ingestSource,
             }),
           )
-          // One ingestion publish or semantic merge of a Workspace runs at a
-          // time (CTX-1621, the lease of CTX-1598). The runs of one
-          // re-ingestion pin the same revision and publish at the same
-          // time: without the lease, each one after the first lost its
-          // push, and one lost each attempt.
-          const lease = await holdWorkspaceMergeLease(step, {
-            orgId: input.orgId,
-            workspaceId: input.workspaceId,
-            runId: run.id,
-          })
-          const result = await publishUnderLease(ingestSource)
-          await lease.release()
-          return result
-
-          // The publish, with the lease. `ingestSource` is the narrowed input.
-          async function publishUnderLease(
-            ingestSource: NonNullable<typeof input.ingest>,
-          ): Promise<ExtractIngestResult> {
+          // The publish, under the lease below.
+          const publish = async (): Promise<ExtractIngestResult> => {
             for (let refreshAttempt = 0; refreshAttempt < 3; refreshAttempt++) {
-              type Acquired = NonNullable<
-                Awaited<ReturnType<typeof acquireWorkspaceWriteRevision>>
-              >
-              let acquired: Acquired
-              for (;;) {
-                const candidate = await step.run(
-                  { name: "acquire-revision-v2" },
-                  async (): Promise<
-                    (Acquired & { revision?: WorkspaceRevision }) | null
-                  > => {
-                    // The pinned revision can be hours old, and other
-                    // publishes of the Workspace can push while this one
-                    // waits for the lease: replay the delta onto the tip of
-                    // now. The refresh is in this step, so a replay gives the
-                    // revision of the pack again. An output from before
-                    // CTX-1621 has no revision. Without write access, the
-                    // acquire pauses the publish, and the acquire after the
-                    // pause reads the tip.
-                    const current =
-                      refreshAttempt === 0 &&
-                      (await getWorkspaceWriteAdmission(input.workspaceId))
-                        ?.writeStatus === "writable"
-                        ? await refreshWorkspaceWriteRevision(
-                            {
-                              orgId: input.orgId,
-                              workspaceId: input.workspaceId,
-                            },
-                            revision,
-                            env,
-                          )
-                        : revision
-                    const acquired = await acquireWorkspaceWriteRevision(
-                      input,
-                      current,
-                      env,
-                    )
-                    return acquired && { ...acquired, revision: current }
-                  },
-                )
-                if (candidate) {
-                  acquired = candidate
-                  revision = candidate.revision ?? revision
-                  break
-                }
-                await step.run({ name: "pause-command" }, () =>
-                  persistWriteJobStatus(input.jobId, "paused"),
-                )
-                await step.sleep("await-write-access", "1 minute")
-                await step.run({ name: "resume-command" }, () =>
-                  persistWriteJobStatus(input.jobId, "running"),
-                )
-              }
+              // The first acquire replays the delta onto the tip of now.
+              const next = await acquireOnCurrentTip(
+                step,
+                input,
+                revision,
+                env,
+                { refresh: refreshAttempt === 0 },
+              )
+              const { acquired } = next
+              revision = next.revision
               // One step merges the run onto the tip, commits the result, and
               // pushes the commit to its job ref: no step output holds a file
               // (CTX-1239).
@@ -592,6 +530,19 @@ export function defineWorkspaceExtractIngestWorkflow() {
               failed: "The default branch kept changing during the publish",
             }
           }
+          // One ingestion publish or semantic merge of a Workspace runs at a
+          // time (CTX-1621, the lease of CTX-1598). The runs of one
+          // re-ingestion pin the same revision and publish at the same
+          // time: without the lease, each one after the first lost its
+          // push, and one lost each attempt.
+          const lease = await holdWorkspaceMergeLease(step, {
+            orgId: input.orgId,
+            workspaceId: input.workspaceId,
+            runId: run.id,
+          })
+          const result = await publish()
+          await lease.release()
+          return result
         },
       )
     },

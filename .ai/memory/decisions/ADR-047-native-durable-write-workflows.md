@@ -1,6 +1,6 @@
 # ADR-047: Durable write workflows
 
-**Status:** Accepted (revised 2026-10-06; amended 2026-10-13 by [ADR-052](ADR-052-ingestion-sandbox-skills-patches.md); amended 2026-11-09 by CTX-1235, 2026-11-10 by CTX-1239 2026-11-24 by CTX-1598 and 2026-11-25 by CTX-1621) | **Date:** 2026-09-08 | **Tags:** git, openworkflow, workspaces, credentials
+**Status:** Accepted (revised 2026-10-06; amended 2026-10-13 by [ADR-052](ADR-052-ingestion-sandbox-skills-patches.md); amended 2026-11-09 by CTX-1235, 2026-11-10 by CTX-1239, 2026-11-24 by CTX-1598, and 2026-11-25 by CTX-1621) | **Date:** 2026-09-08 | **Tags:** git, openworkflow, workspaces, credentials
 
 ## Context
 

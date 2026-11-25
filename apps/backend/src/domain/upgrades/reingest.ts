@@ -10,6 +10,7 @@ import { ingestionRunTree } from "../ingestion/ingest-spend.js"
 import {
   INGEST_SHARD_MAX_ROOTS,
   INGEST_SHARD_WINDOW,
+  ingestShardCount,
   plannedIngestSkills,
 } from "../ingestion/ingestion-plan.js"
 import {
@@ -235,7 +236,10 @@ export async function estimateReingest(input: {
     // The root steps of one shard run one after the other; at most
     // `parallel` shards run at the same time.
     const sequentialSteps = (count: number, parallel: number) => {
-      const shards = Math.max(1, Math.ceil(count / INGEST_SHARD_MAX_ROOTS))
+      const shards = Math.max(
+        1,
+        ingestShardCount(count, INGEST_SHARD_MAX_ROOTS),
+      )
       return (
         Math.ceil(shards / parallel) *
           Math.min(count, INGEST_SHARD_MAX_ROOTS) *

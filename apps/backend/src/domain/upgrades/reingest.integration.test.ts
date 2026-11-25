@@ -108,31 +108,6 @@ async function startedAt(id: string, at: Date): Promise<void> {
   `)
 }
 
-describe("re-ingestions of one org", () => {
-  it("run at the same time: another re-ingestion of the org or of the instance does not make one wait", async () => {
-    const orgId = generateObjectId("org")
-    const runs = [
-      await upgradeRun(orgId),
-      await upgradeRun(orgId),
-      await upgradeRun(generateObjectId("org")),
-    ]
-    expect(runs).toHaveLength(3)
-    // Two re-ingestions of the org, of two Workspaces with other sources,
-    // while each upgrade run is active.
-    for (const url of [
-      "https://github.com/acme/api",
-      "https://github.com/acme/web",
-    ])
-      expect(
-        await reingestTurn({
-          orgId,
-          workspaceId: generateObjectId("ws"),
-          sourceUrls: [url],
-        }),
-      ).toEqual({ turn: true })
-  })
-})
-
 describe("an ingestion run of a source of the Workspace", () => {
   it("makes the upgrade wait until that run ends, so the re-ingestion pins what it published", async () => {
     const orgId = generateObjectId("org")

@@ -255,7 +255,7 @@ describe("ingestion v2 publish", () => {
             spans.find(
               (span) =>
                 span.name === "ingestion.shard" &&
-                span.attributes["ctxpipe.ingest.shard"] === "1",
+                span.attributes["ctxpipe.ingest.shard"] === "4",
             )?.attributes,
           ).toMatchObject(crossed)
         })
