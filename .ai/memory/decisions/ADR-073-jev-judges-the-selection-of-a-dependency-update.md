@@ -31,9 +31,19 @@ The CTO, 2026-11-24: "We were using LLM because of the ability to use tools, oth
 4. **Run the eval again** for each change of the question, the evidence, the threshold or the model, as rule 7 of ADR-063 does for the visual critic. It runs on the host, never in CI.
 5. **ctxpipe pins the factory release** that has this default (factory PR #681, `74259360`).
 
+## Revision 2026-11-25: test groups by the nearest importing module
+
+Jev judges the test checks of a changed package in groups by the nearest module that imports the package, as the screenshot checks (factory PR #697, `2beb6e49`). Before, the test groups were by the folder of that module. A bake-off on four labeled cases (#1043, #1068, #1070, #1092; 3 runs each, 9 for threshold 0.4) applied the rule of decision 3:
+
+- Thresholds 0.2 and 0.3 by module kept every regression in every run. Threshold 0.3 selected fewer checks.
+- Threshold 0.4 by module missed `scope-caps.test.ts` of #1043 in 4 of 9 runs. Jev gave its group 0.37 to 0.45.
+- On #1043, 0.3 by module selects 349 to 540 checks; 0.3 by folder selected 482 to 648. On the other cases the counts are about the same.
+
+Most of the checks that stay on #1043 do not come from the grouping. A group of 149 backend tests imports `@modelcontextprotocol/sdk` through a type-only import that the evidence step cannot resolve, so the group stays (fail wide). 163 required stories get a probability of 0.30 to 0.31. Better evidence is the next step to cut the selection.
+
 ## Consequences
 
-- Some dependency updates keep more checks than before. On #1043, Jev keeps about 400 to 480 checks; the old judge kept about 65. The old judge found both regressions of that case, but by chance. Jev keeps or drops whole test groups by folder. Smaller test groups are a follow-up.
+- Some dependency updates keep more checks than before. On #1043, Jev keeps about 350 to 540 checks; the old judge kept about 65. The old judge found both regressions of that case, but by chance.
 - The probabilities of the regression groups are near the threshold. Jev gave the #1043 regression groups 0.34 to 0.39, and the #1070 chart play groups 0.46 to 0.51. Three labeled cases are few. More cases make the threshold safer. Each label build takes about 3 hours.
 - The evidence (code of public npm packages and of the public ctxpipe repo) goes to TypeSafe through OpenRouter, with `data_collection: "deny"`.
 - A host with no OpenRouter key keeps every judged group. It selects more than CI, never fewer.
