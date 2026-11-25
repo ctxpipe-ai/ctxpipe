@@ -1,0 +1,235 @@
+# The model gateway of a run (run.py adds this file to each Harbor job).
+# The model key stays in this container: Claude Code gets only the URL of the
+# gateway and a dummy token, and the egress allowlist of the agent phase never
+# holds the model host. The gateway stops the run at its dollar budget, also
+# for a model request from Bash (README.md).
+services:
+  ctxpipe-model-gateway:
+    image: python:3.12.11-alpine3.22@sha256:efcdfa6a6b2fd2afb9c7dfa9a5b288a6f68338b5cfdebe6b637d986067d85757
+    # An explicit network: Harbor then does not put the gateway behind the
+    # egress sidecar, and the gateway can reach the model host.
+    networks: [default]
+    command: ["python", "-u", "/gateway.py"]
+    environment:
+      GATEWAY_UPSTREAM: ${MODEL_GATEWAY_UPSTREAM:?}
+      GATEWAY_KEY: ${MODEL_GATEWAY_KEY:?}
+      GATEWAY_MODEL: ${MODEL_GATEWAY_MODEL:?}
+      GATEWAY_PRICES: ${MODEL_GATEWAY_PRICES:?}
+      GATEWAY_BUDGET_USD: ${MODEL_GATEWAY_BUDGET_USD:?}
+    volumes:
+      - ${MODEL_GATEWAY_OUT:?}:/out
+    configs:
+      - source: model-gateway
+        target: /gateway.py
+
+configs:
+  model-gateway:
+    content: |
+      # Forward only the Messages API of the run model to the model host, with
+      # the model key, and keep the spend of the run in GATEWAY_BUDGET_USD.
+      # A token is at least one byte. Thus, before a request, the gateway
+      # reserves its worst cost: each byte of the body as one input token at
+      # the highest input price, IMAGE_TOKENS for each image, and max_tokens
+      # (at most MAX_OUTPUT) at the output price. It refuses the request (402)
+      # when the spend and that reserve are more than the budget. After the
+      # response, it charges the usage of the response at the list price
+      # (GATEWAY_PRICES, USD for each million tokens), or the reserve when a
+      # response of 200 has no full usage (an error with no usage costs
+      # nothing). One request at a time, so the spend can never go
+      # over the budget. /out/spend.json holds the spend after each request.
+      import http.client
+      import http.server
+      import json
+      import os
+      import threading
+      from urllib.parse import urlsplit
+
+      UPSTREAM = urlsplit(os.environ["GATEWAY_UPSTREAM"])
+      KEY = os.environ["GATEWAY_KEY"]
+      MODEL = os.environ["GATEWAY_MODEL"]
+      PRICES = json.loads(os.environ["GATEWAY_PRICES"])
+      BUDGET = float(os.environ["GATEWAY_BUDGET_USD"])
+      MAX_BODY = 4 * 1024 * 1024
+      MAX_OUTPUT = 16000
+      IMAGE_TOKENS = 5000
+      # Only the body fields and the beta features that Claude Code sends
+      # (claudeCodeVersion in arms.json). The other fields (MCP servers,
+      # containers, fast mode, a region) cost more than tokens, or let the
+      # model host fetch for the agent. A document block (a PDF) can have
+      # more tokens than bytes.
+      FIELDS = {"model", "messages", "system", "tools", "tool_choice", "max_tokens", "stream", "metadata", "thinking", "output_config", "context_management", "temperature", "stop_sequences"}
+      BETAS = {"interleaved-thinking-2025-05-14", "context-management-2025-06-27", "claude-code-20250219", "per-turn-control-2026-07-01", "mid-conversation-tool-changes-2026-07-01", "thinking-token-count-2026-05-13", "advanced-tool-use-2025-11-20", "effort-2025-11-24", "thinking-display-updates-2026-08-18"}
+      REFUSED_BLOCKS = {"document", "container_upload"}
+      DROP = {"host", "connection", "content-length", "transfer-encoding", "accept-encoding", "x-api-key", "authorization", "anthropic-beta"}
+      lock = threading.Lock()
+      spend = {"usd": 0.0, "requests": 0, "refused": 0}
+
+
+      def rates(prompt_tokens):
+          """The prices for a prompt of this size (some models cost more above a size)."""
+          long = PRICES.get("longContext")
+          return long if long and prompt_tokens > long["over"] else PRICES
+
+
+      def cost(usage):
+          tokens = {k: usage.get(k) or 0 for k in ("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")}
+          p = rates(tokens["input_tokens"] + tokens["cache_creation_input_tokens"] + tokens["cache_read_input_tokens"])
+          return (
+              tokens["input_tokens"] * p["input"]
+              + tokens["output_tokens"] * p["output"]
+              + tokens["cache_creation_input_tokens"] * p["cacheWrite"]
+              + tokens["cache_read_input_tokens"] * p["cacheRead"]
+          ) / 1e6
+
+
+      def cache_ttls(value):
+          """The ttl of each cache_control in a request body."""
+          if isinstance(value, dict):
+              if isinstance(value.get("cache_control"), dict):
+                  yield value["cache_control"].get("ttl")
+              for item in value.values():
+                  yield from cache_ttls(item)
+          elif isinstance(value, list):
+              for item in value:
+                  yield from cache_ttls(item)
+
+
+      def blocks(content):
+          """The content blocks of a message, also in a tool result."""
+          for block in content if isinstance(content, list) else []:
+              if isinstance(block, dict):
+                  yield block
+                  yield from blocks(block.get("content"))
+
+
+      def inspect(message):
+          """Whether the request asks for more than tokens, and its count of images."""
+          found = [b for m in message["messages"] for b in blocks(m.get("content"))]
+          images = [b for b in found if b.get("type") == "image"]
+          tools = [t for t in message.get("tools") or [] if isinstance(t, dict)]
+          edits = (message.get("context_management") or {}).get("edits") or []
+          return (
+              bool(message.keys() - FIELDS)
+              or any(b.get("type") in REFUSED_BLOCKS for b in found)
+              # The model host fetches an image from a URL for the agent.
+              or any((b.get("source") or {}).get("type") != "base64" for b in images)
+              # A one-hour cache write costs more than the five-minute one of Claude Code.
+              or any(ttl not in (None, "5m") for ttl in cache_ttls(message))
+              # A server tool (web search, code execution) has a type.
+              or any(t.get("type") not in (None, "custom") for t in tools)
+              # A compaction is a second model call.
+              or any(not str(e.get("type", "")).startswith("clear_") for e in edits if isinstance(e, dict))
+          ), len(images)
+
+
+      def save():
+          with open("/out/spend.json.tmp", "w") as f:
+              json.dump(spend, f)
+          os.replace("/out/spend.json.tmp", "/out/spend.json")
+
+
+      class Gateway(http.server.BaseHTTPRequestHandler):
+          def do_POST(self):
+              # Only these two exact targets: the gateway sends one of them upstream.
+              if self.path not in {"/v1/messages", "/v1/messages?beta=true"}:
+                  return self.send_error(404)
+              length = int(self.headers.get("content-length") or 0)
+              if "transfer-encoding" in self.headers or length > MAX_BODY:
+                  return self.send_error(413)
+              try:
+                  message = json.loads(self.rfile.read(length))
+                  model = message.get("model")
+                  message["max_tokens"] = min(int(message["max_tokens"]), MAX_OUTPUT)
+                  refuse, images = inspect(message)
+              except (ValueError, AttributeError, KeyError, TypeError):
+                  return self.send_error(400, "not a Messages request")
+              # Harbor gives Claude Code the model id with no provider prefix.
+              if model not in {MODEL, MODEL.split("/")[-1]}:
+                  return self.send_error(403, "the run allows only its own model")
+              if refuse:
+                  return self.send_error(403, "the run allows only tokens")
+              message["model"] = MODEL
+              body = json.dumps(message).encode()
+              tokens = len(body) + IMAGE_TOKENS * images
+              p = rates(tokens)
+              reserve = (tokens * max(p["input"], p["cacheWrite"]) + message["max_tokens"] * p["output"]) / 1e6
+              with lock:
+                  if spend["usd"] + reserve > BUDGET:
+                      spend["refused"] += 1
+                      save()
+                      return self.send_error(402, "the run used its budget")
+                  charge = reserve
+                  try:
+                      usage = self.forward(body)
+                      if usage is not None:
+                          charge = cost(usage)
+                  finally:
+                      spend["usd"] += charge
+                      spend["requests"] += 1
+                      save()
+
+          def to_client(self, write, *args):
+              """Send to the client; after a failure, send nothing more."""
+              if self.client:
+                  try:
+                      write(*args)
+                  except OSError:
+                      self.client = False
+
+          def forward(self, body):
+              """Send the request upstream and the response back.
+
+              Return the usage of the response, or None when the response has no
+              full usage. Read to the end also when the client goes, because the
+              model host bills the full response.
+              """
+              headers = {k: v for k, v in self.headers.items() if k.lower() not in DROP}
+              headers["Authorization"] = f"Bearer {KEY}"
+              headers["Accept-Encoding"] = "identity"
+              betas = [b.strip() for b in self.headers.get("anthropic-beta", "").split(",") if b.strip() in BETAS]
+              if betas:
+                  headers["anthropic-beta"] = ",".join(betas)
+              self.client, self.close_connection = True, True
+              upstream = http.client.HTTPSConnection(UPSTREAM.hostname, UPSTREAM.port or 443, timeout=600)
+              upstream.request("POST", UPSTREAM.path.rstrip("/") + self.path, body, headers)
+              response = upstream.getresponse()
+              self.to_client(self.send_response, response.status)
+              for k, v in response.getheaders():
+                  if k.lower() not in {"connection", "content-length", "transfer-encoding"}:
+                      self.to_client(self.send_header, k, v)
+              self.to_client(self.send_header, "Connection", "close")
+              self.to_client(self.end_headers)
+              stream = "text/event-stream" in (response.getheader("content-type") or "")
+              usage, data, done = {}, b"", False
+              while part := response.read1(65536):
+                  self.to_client(self.wfile.write, part)
+                  self.to_client(self.wfile.flush)
+                  data += part
+                  if stream:
+                      *lines, data = data.split(b"\n")
+                      for line in lines:
+                          if not line.startswith(b"data:"):
+                              continue
+                          try:
+                              event = json.loads(line[5:])
+                          except ValueError:
+                              continue
+                          if not isinstance(event, dict):
+                              continue
+                          # message_start has the input usage, message_delta the output.
+                          usage.update((event.get("message") or {}).get("usage") or event.get("usage") or {})
+                          done = done or event.get("type") == "message_delta"
+              upstream.close()
+              if not stream:
+                  try:
+                      usage, done = json.loads(data)["usage"], True
+                  except (ValueError, KeyError, TypeError):
+                      pass
+              # An error response with no usage costs nothing.
+              if response.status != 200 and not usage:
+                  return {}
+              return usage if done else None
+
+
+      save()
+      http.server.ThreadingHTTPServer(("", 80), Gateway).serve_forever()
