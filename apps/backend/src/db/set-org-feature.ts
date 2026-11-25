@@ -1,7 +1,9 @@
-// The operator path for org features (CTX-1424): sets one feature of one org.
+// The config path for org features (CTX-1424): sets one feature of one org.
 // Usage: bun run apps/backend/src/db/set-org-feature.ts <org id> <feature> <value>
 // The hosted stack runs it as a one-off task for each entry of its private
-// config. Never put an org id in this repository.
+// config. It does not change a value that an operator set with the
+// `admin.set-org-feature` job until the config names that value (CTX-1646).
+// Never put an org id in this repository.
 import { parseArgs } from "node:util"
 
 import { setOrgFeature } from "../models/org-features.js"
@@ -24,7 +26,7 @@ try {
   const url = process.env.DATABASE_URL
   if (!url) throw new Error("DATABASE_URL is required")
   initDb(url)
-  await setOrgFeature(orgId, feature, value)
+  await setOrgFeature(orgId, feature, value, { source: "config" })
 } catch (error) {
   exitCode = 1
   log.error({

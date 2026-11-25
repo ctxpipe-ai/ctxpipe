@@ -57,16 +57,42 @@ function isFeature(feature: string): feature is OrgFeature {
 }
 
 /**
- * Sets the value of a feature for an org (the operator path of CTX-1424).
- * The feature and the value must be in `FEATURE_VALUES`, and the org must
- * exist. When the value does not change, nothing is written, so a second run
- * keeps `updated_at`. Each call logs `org_features.set` as the audit record.
+ * Who sets a value. `config` is the hosted config (`src/db/set-org-feature.ts`,
+ * once for each entry on each hosted update). `operator` is the
+ * `admin.set-org-feature` job of the operator console, with the request and
+ * the people who asked and approved.
+ */
+export type OrgFeatureSetter =
+  | { source: "config" }
+  | {
+      source: "operator"
+      requestId: string
+      requestedBy: unknown
+      approvedBy: string
+    }
+
+/**
+ * Sets the value of a feature for an org. The feature and the value must be
+ * in `FEATURE_VALUES`, and the org must exist.
+ *
+ * A value that an operator sets is held: the config does not change it, so
+ * the next hosted update does not undo a fast `off`. The hold ends when the
+ * config names the same value (the config PR that follows the operator's
+ * change). When the value does not change, nothing is written, so a second
+ * run keeps `updated_at`. Each call logs `org_features.set` as the audit
+ * record.
  */
 export async function setOrgFeature(
   orgId: string,
   feature: string,
   value: string,
-): Promise<{ previous: string; value: string; changed: boolean }> {
+  by: OrgFeatureSetter,
+): Promise<{
+  previous: string
+  value: string
+  changed: boolean
+  held: boolean
+}> {
   if (!isFeature(feature))
     throw new Error(`"${feature}" is not a known feature`)
   if (!isPermitted(feature, value))
@@ -85,7 +111,7 @@ export async function setOrgFeature(
       sql`select pg_advisory_xact_lock(hashtextextended(${`org_features:${orgId}:${feature}`}, 0))`,
     )
     const [row] = await db
-      .select({ value: orgFeatures.value })
+      .select({ value: orgFeatures.value, held: orgFeatures.held })
       .from(orgFeatures)
       .where(
         and(
@@ -94,24 +120,37 @@ export async function setOrgFeature(
         ),
       )
     const previous = row?.value ?? FEATURE_VALUES[feature][0]
-    if (previous === value) return { previous, value, changed: false }
+    const wasHeld = row?.held ?? false
+    const held = by.source === "operator"
+    if (by.source === "config" && wasHeld && previous !== value)
+      return { previous, value: previous, changed: false, held: true }
+    if (previous === value && wasHeld === held)
+      return { previous, value, changed: false, held }
     await db
       .insert(orgFeatures)
-      .values({ organizationId: orgId, feature, value })
+      .values({ organizationId: orgId, feature, value, held })
       .onConflictDoUpdate({
         target: [orgFeatures.organizationId, orgFeatures.feature],
-        set: { value, updatedAt: new Date() },
+        set: { value, held, updatedAt: new Date() },
       })
-    return { previous, value, changed: true }
+    return { previous, value, changed: previous !== value, held }
   })
-  log.info({
+  const { source, ...actor } = by
+  const refused = source === "config" && result.held
+  const entry = {
     step: "org_features.set",
-    message: result.changed
-      ? "an operator set an org feature"
-      : "an operator set an org feature to its current value: nothing changed",
+    message: refused
+      ? "the config did not change an org feature that an operator set"
+      : result.changed
+        ? "an org feature changed"
+        : "an org feature was set to its current value: nothing changed",
     orgId,
     feature,
+    source,
+    ...actor,
     ...result,
-  })
+  }
+  if (refused) log.warn(entry)
+  else log.info(entry)
   return result
 }

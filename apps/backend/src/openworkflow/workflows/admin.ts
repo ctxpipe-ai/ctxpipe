@@ -8,6 +8,7 @@ import {
   removeMember,
   setMemberRole,
 } from "../../domain/organization-admin.js"
+import { FEATURE_VALUES, setOrgFeature } from "../../models/org-features.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 
 /*
@@ -15,7 +16,8 @@ import { defineWorkflow } from "../defineObservedWorkflow.js"
  * INSERT on `openworkflow.workflow_runs` only for `admin.*` runs
  * (`db/provision-console-role.ts`), with `requestId` as the idempotency key.
  * Each input names who asked and who approved. The output and the logs hold
- * ids only, never a name or an email of a user.
+ * ids only, never a name or an email of a user. Only the audit entry
+ * `org_features.set` names the operator who asked and approved.
  */
 
 const requestedBy = z.discriminatedUnion("kind", [
@@ -49,6 +51,7 @@ function defineAdminWorkflow<P extends z.ZodRawShape, Output>(
   fn: (
     params: z.output<z.ZodObject<P>>,
     run: <T>(step: string, work: () => Promise<T>) => Promise<T>,
+    request: Omit<z.output<ReturnType<typeof adminInput<P>>>, "params">,
   ) => Promise<Output>,
 ) {
   const schema = adminInput(params)
@@ -69,19 +72,24 @@ function defineAdminWorkflow<P extends z.ZodRawShape, Output>(
     async ({ input, step }) => {
       // The worker does not check the input of a run that it did not
       // enqueue, and the console enqueues without this schema.
-      const { params: parsed } = schema.parse(input)
-      return fn(parsed, async (stepName, work) => {
-        const outcome = await step.run({ name: stepName }, async () => {
-          try {
-            return { done: await work() }
-          } catch (error) {
-            if (error instanceof AdminRefusal) return { refused: error.message }
-            throw error
-          }
-        })
-        if ("refused" in outcome) throw new AdminRefusal(outcome.refused)
-        return outcome.done
-      })
+      const { params: parsed, ...request } = schema.parse(input)
+      return fn(
+        parsed,
+        async (stepName, work) => {
+          const outcome = await step.run({ name: stepName }, async () => {
+            try {
+              return { done: await work() }
+            } catch (error) {
+              if (error instanceof AdminRefusal)
+                return { refused: error.message }
+              throw error
+            }
+          })
+          if ("refused" in outcome) throw new AdminRefusal(outcome.refused)
+          return outcome.done
+        },
+        request,
+      )
     },
   )
 }
@@ -176,5 +184,36 @@ export const adminDeleteOrganization = defineAdminWorkflow(
       throw new AdminRefusal(`Organization ${organizationId} not found`)
     await run("delete", () => deleteOrganization(organizationId))
     return { ok: true as const, organizationId }
+  },
+)
+
+/**
+ * The fast path to `off` of ADR-069 decision 9 (CTX-1646). The value holds
+ * against the hosted config until the config names the same value.
+ */
+export const adminSetOrgFeature = defineAdminWorkflow(
+  "admin.set-org-feature",
+  {
+    organizationId: id,
+    feature: z.literal("knowledge_plane"),
+    value: z.enum(FEATURE_VALUES.knowledge_plane),
+  },
+  async ({ organizationId, feature, value }, run, request) => {
+    const { previous, changed } = await run("set", async () => {
+      if (!(await organizationExists(organizationId)))
+        throw new AdminRefusal(`Organization ${organizationId} not found`)
+      return setOrgFeature(organizationId, feature, value, {
+        source: "operator",
+        ...request,
+      })
+    })
+    return {
+      ok: true as const,
+      organizationId,
+      feature,
+      previous,
+      value,
+      changed,
+    }
   },
 )
