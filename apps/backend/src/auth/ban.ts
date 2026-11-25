@@ -320,6 +320,31 @@ function jwtClaims(token: unknown) {
   }
 }
 
+/**
+ * The `iat` of a JWT, in seconds. A JWT with no readable `iat` gives 0, so
+ * a cutoff refuses it. An opaque token (a stored row) gives undefined.
+ */
+function jwtIssuedAt(token: string | undefined): number | undefined {
+  if (!token || token.split(".").length !== 3) return undefined
+  return jwtClaims(token)?.iat ?? 0
+}
+
+/**
+ * The access token of a user info request, as Better Auth reads it: the
+ * `Bearer` or `DPoP` header, else `access_token` in a POST body.
+ */
+function userInfoToken(ctx: {
+  headers?: Headers
+  body?: unknown
+}): string | undefined {
+  const header = /^(?:Bearer|DPoP)\s+(\S+)\s*$/i.exec(
+    ctx.headers?.get("authorization") ?? "",
+  )?.[1]
+  if (header) return header
+  const body = (ctx.body as Record<string, unknown> | undefined)?.access_token
+  return typeof body === "string" ? body : undefined
+}
+
 /** The user of an access token that the token endpoint gave. */
 async function accessTokenUser(token: unknown): Promise<string | undefined> {
   const claims = jwtClaims(token)
@@ -389,7 +414,9 @@ export function refuseBannedOAuthSubjects(): BetterAuthPlugin {
               if (!userId) return
               const user = await banState(getSystemDb(), userId)
               if (!user || !isBanned(user)) return
-              await revokeOAuthTokens(getSystemDb(), userId, new Date())
+              await getSystemDb().transaction((tx) =>
+                revokeOAuthTokens(tx, userId, new Date()),
+              )
               throw new APIError("BAD_REQUEST", {
                 error: "invalid_grant",
                 error_description: "The user is banned",
@@ -398,17 +425,11 @@ export function refuseBannedOAuthSubjects(): BetterAuthPlugin {
             const { sub, active, iat } = result
             if (typeof sub !== "string" || active === false) return
             const introspect = ctx.path === "/oauth2/introspect"
-            // The user info takes the token in the header or in the body.
-            const body = ctx.body as Record<string, unknown> | undefined
             const issuedAt = introspect
               ? typeof iat === "number"
                 ? iat
                 : undefined
-              : jwtClaims(
-                  ctx.headers
-                    ?.get("authorization")
-                    ?.replace(/^Bearer\s+/i, "") ?? body?.access_token,
-                )?.iat
+              : jwtIssuedAt(userInfoToken(ctx))
             const user = await banState(getSystemDb(), sub)
             const refused =
               (user && isBanned(user)) ||

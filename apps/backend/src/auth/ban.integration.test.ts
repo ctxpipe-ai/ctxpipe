@@ -194,6 +194,21 @@ describe("a ban (Postgres)", () => {
     })
   }
 
+  /** The user info request with the token in the header, and in the body. */
+  function userInfoTransports(authorization: string) {
+    const url = `${baseUrl}/.auth/api/v1/auth/oauth2/userinfo`
+    const token = authorization.replace(/^Bearer /, "")
+    return [
+      () => app.request(url, { headers: { authorization } }),
+      () =>
+        app.request(url, {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({ access_token: token }).toString(),
+        }),
+    ]
+  }
+
   function signIn() {
     return getAuth().api.signInEmail({
       body: { email: seed.email, password: PASSWORD },
@@ -285,18 +300,18 @@ describe("a ban (Postgres)", () => {
       Object.fromEntries(Object.keys(credentials).map((kind) => [kind, status]))
     expect(await accepted()).toEqual(all(200))
 
-    const jwt = credentials["OAuth JWT access token"] ?? {}
-    const userinfo = () =>
-      app.request(`${baseUrl}/.auth/api/v1/auth/oauth2/userinfo`, {
-        headers: jwt,
-      })
-    expect((await userinfo()).status).toBe(200)
+    const transports = userInfoTransports(
+      credentials["OAuth JWT access token"]?.authorization ?? "",
+    )
+    for (const transport of transports)
+      expect((await transport()).status, "user info").toBe(200)
 
     // The flag alone, without the job's revocation: the request check.
     await setBan(true)
     expect(await accepted()).toEqual(all(401))
     // Better Auth answers the user info itself.
-    expect((await userinfo()).status).toBe(401)
+    for (const transport of transports)
+      expect((await transport()).status, "user info").toBe(401)
 
     await setBan(true, new Date(Date.now() - 1000))
     expect(await accepted()).toEqual(all(200))
@@ -419,9 +434,11 @@ describe("a ban (Postgres)", () => {
     // After an unban, a JWT from before the ban stays refused; no row can
     // revoke it.
     await setBan(false)
-    expect(
-      (await call(credentials["OAuth JWT access token"] ?? {})).status,
-    ).toBe(401)
+    const jwt = credentials["OAuth JWT access token"]?.authorization ?? ""
+    expect((await call({ authorization: jwt })).status).toBe(401)
+    // Better Auth's user info reads the token from the header or the body.
+    for (const transport of userInfoTransports(jwt))
+      expect((await transport()).status, "user info").toBe(401)
     expect((await signIn()).status).toBe(200)
   })
 })
