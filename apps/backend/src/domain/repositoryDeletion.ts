@@ -414,7 +414,14 @@ export async function purgeOrgDataBeforeAuthDelete(
     // projection run that starts after this commit writes nothing, also
     // when the delete of the organization row fails after this hook. The
     // purge deletes the knowledge state and the ClickHouse rows.
-    await db.delete(orgFeatures).where(eq(orgFeatures.organizationId, orgId))
+    await db
+      .delete(orgFeatures)
+      .where(
+        and(
+          eq(orgFeatures.organizationId, orgId),
+          eq(orgFeatures.feature, "knowledge_plane"),
+        ),
+      )
     return { orgSlug, repoRows }
   })
 

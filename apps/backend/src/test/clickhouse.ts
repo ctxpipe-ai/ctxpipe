@@ -14,6 +14,7 @@ import { testLabelArgs } from "../../../../scripts/ci/test-containers.mjs"
 import {
   KNOWLEDGE_TABLES,
   type KnowledgeScope,
+  NO_KNOWLEDGE_ROWS,
   ORG_SETTING,
   type PurgeCounts,
 } from "../knowledge-store/knowledge-store.js"
@@ -37,7 +38,7 @@ export async function knowledgeRowCounts(
   client: ClickHouseClient,
   scope: KnowledgeScope,
 ): Promise<PurgeCounts> {
-  const counts = { ...noKnowledgeRows }
+  const counts = { ...NO_KNOWLEDGE_ROWS }
   for (const table of KNOWLEDGE_TABLES) {
     const result = await client.query({
       query: `SELECT count() AS rows FROM ${table}
@@ -50,17 +51,6 @@ export async function knowledgeRowCounts(
     counts[table] = Number(row?.rows)
   }
   return counts
-}
-
-/** The counts of {@link knowledgeRowCounts} of a scope with no rows. */
-export const noKnowledgeRows: PurgeCounts = {
-  documents: 0,
-  chunks: 0,
-  relations: 0,
-  relations_in: 0,
-  doc_refs: 0,
-  image_texts: 0,
-  trees: 0,
 }
 
 /**

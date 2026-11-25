@@ -10,6 +10,7 @@ import { postgresSandboxLocks } from "../../domain/workspaces/sandbox-lock-store
 import {
   createKnowledgeStore,
   type KnowledgeScope,
+  NO_KNOWLEDGE_ROWS,
 } from "../../knowledge-store/knowledge-store.js"
 import { migrateKnowledgeStore } from "../../knowledge-store/migrate.js"
 import {
@@ -19,7 +20,6 @@ import {
 import { workspaceRoutes } from "../../routes/v1/workspaces.js"
 import {
   knowledgeRowCounts,
-  noKnowledgeRows,
   startClickHouse,
   userUrl,
 } from "../../test/clickhouse.js"
@@ -270,7 +270,7 @@ it(
         expect(await purged(f.org.id)).toEqual([
           expect.objectContaining({ workspaceId: f.workspaceId }),
         ])
-        expect(await rowsOf(workspace)).toEqual(noKnowledgeRows)
+        expect(await rowsOf(workspace)).toEqual(NO_KNOWLEDGE_ROWS)
         expect(await rowsOf(sibling)).toEqual(kept)
         expect(await rowsOf(otherOrg)).toEqual(kept)
         // The heads of the Workspace go with its row.
@@ -278,7 +278,7 @@ it(
         expect(await listBranchHeads(workspace)).toEqual([])
 
         expect(await projectAgain(f)).toBeNull()
-        expect(await rowsOf(workspace)).toEqual(noKnowledgeRows)
+        expect(await rowsOf(workspace)).toEqual(NO_KNOWLEDGE_ROWS)
       },
     ),
 )
@@ -306,8 +306,8 @@ it(
         expect(await purged(f.org.id)).toEqual([
           expect.objectContaining({ workspaceId: null }),
         ])
-        expect(await rowsOf(workspace)).toEqual(noKnowledgeRows)
-        expect(await rowsOf(sibling)).toEqual(noKnowledgeRows)
+        expect(await rowsOf(workspace)).toEqual(NO_KNOWLEDGE_ROWS)
+        expect(await rowsOf(sibling)).toEqual(NO_KNOWLEDGE_ROWS)
         expect(await rowsOf(otherOrg)).toEqual(kept)
         expect(
           await withOrgDbContext(f.org.id, (db) =>
@@ -321,7 +321,7 @@ it(
         expect(await listBranchHeads(workspace)).toEqual([])
 
         expect(await projectAgain(f)).toBeNull()
-        expect(await rowsOf(workspace)).toEqual(noKnowledgeRows)
+        expect(await rowsOf(workspace)).toEqual(NO_KNOWLEDGE_ROWS)
       },
     ),
 )
@@ -377,7 +377,7 @@ it(
             and id = ${projectionRun}
         `)
         await purged(f.org.id)
-        expect(await rowsOf(workspace)).toEqual(noKnowledgeRows)
+        expect(await rowsOf(workspace)).toEqual(NO_KNOWLEDGE_ROWS)
       },
     ),
 )

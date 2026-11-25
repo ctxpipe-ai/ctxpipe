@@ -48,6 +48,17 @@ export type PurgeScope = { orgId: string; workspaceId: string | null }
 /** The count of rows that a purge deleted from each knowledge table. */
 export type PurgeCounts = Record<(typeof KNOWLEDGE_TABLES)[number], number>
 
+/** The counts of a scope with no rows. */
+export const NO_KNOWLEDGE_ROWS: Readonly<PurgeCounts> = {
+  documents: 0,
+  chunks: 0,
+  relations: 0,
+  relations_in: 0,
+  doc_refs: 0,
+  image_texts: 0,
+  trees: 0,
+}
+
 export type DocumentStatus = "active" | "deleted" | "missing" | "failed"
 
 export type KnowledgeDocument = {
@@ -370,9 +381,9 @@ export type KnowledgeStore = {
   /**
    * Deletes all rows of the org of `scope` from each knowledge table, or
    * only the rows of its Workspace when `scope` has one. This is the
-   * deletion of an org or a Workspace (CTX-1642). Each table gets one
-   * DELETE, with the org predicate and, for a Workspace, the Workspace
-   * predicate. A purge that runs again deletes nothing more. The caller
+   * deletion of an org or a Workspace (CTX-1642). Each table gets at most
+   * one DELETE, with the org predicate and, for a Workspace, the Workspace
+   * predicate. A table with no rows of the scope gets none. A purge that runs again deletes nothing more. The caller
    * makes sure that no projection run of the scope writes during or after
    * the purge.
    */
@@ -1129,24 +1140,15 @@ async function purge(
   if (!scope.orgId) throw new Error("A knowledge purge needs an org")
   if (scope.workspaceId !== null && !scope.workspaceId)
     throw new Error("A knowledge purge of a Workspace needs a Workspace id")
-  const where =
+  const [where, params] =
     scope.workspaceId === null
-      ? "org_id = {orgId:String}"
-      : "org_id = {orgId:String} AND workspace_id = {workspaceId:String}"
-  const params =
-    scope.workspaceId === null
-      ? { orgId: scope.orgId }
-      : { orgId: scope.orgId, workspaceId: scope.workspaceId }
+      ? ["org_id = {orgId:String}", { orgId: scope.orgId }]
+      : [
+          "org_id = {orgId:String} AND workspace_id = {workspaceId:String}",
+          { orgId: scope.orgId, workspaceId: scope.workspaceId },
+        ]
   const settings = { [ORG_SETTING]: scope.orgId }
-  const counts: PurgeCounts = {
-    documents: 0,
-    chunks: 0,
-    relations: 0,
-    relations_in: 0,
-    doc_refs: 0,
-    image_texts: 0,
-    trees: 0,
-  }
+  const counts = { ...NO_KNOWLEDGE_ROWS }
   for (const table of KNOWLEDGE_TABLES) {
     // The count goes to the log. A table with no row of the scope gets no
     // DELETE, so a purge of a scope with no rows makes no mutation.

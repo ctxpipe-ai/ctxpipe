@@ -11,7 +11,6 @@ import {
 
 import {
   knowledgeRowCounts,
-  noKnowledgeRows,
   startClickHouse,
   userUrl as databaseUserUrl,
 } from "../test/clickhouse.js"
@@ -22,6 +21,7 @@ import {
   type KnowledgeScope,
   KNOWLEDGE_TABLES,
   type KnowledgeStore,
+  NO_KNOWLEDGE_ROWS,
   ORG_SETTING,
   type TreeEntry,
 } from "./knowledge-store.js"
@@ -1015,20 +1015,20 @@ describe("users and mutations", () => {
     expect(await rowsOfScope(workspace)).toEqual(seeded)
 
     expect(await writer.purge(workspace)).toEqual(seeded)
-    expect(await rowsOfScope(workspace)).toEqual(noKnowledgeRows)
+    expect(await rowsOfScope(workspace)).toEqual(NO_KNOWLEDGE_ROWS)
     expect(await rowsOfScope(sibling)).toEqual(seeded)
     expect(await rowsOfScope(otherOrg)).toEqual(seeded)
     // A purge that runs again finds nothing more.
-    expect(await writer.purge(workspace)).toEqual(noKnowledgeRows)
+    expect(await writer.purge(workspace)).toEqual(NO_KNOWLEDGE_ROWS)
 
     expect(
       await writer.purge({ orgId: "org_purge", workspaceId: null }),
     ).toEqual(seeded)
-    expect(await rowsOfScope(sibling)).toEqual(noKnowledgeRows)
+    expect(await rowsOfScope(sibling)).toEqual(NO_KNOWLEDGE_ROWS)
     expect(await rowsOfScope(otherOrg)).toEqual(seeded)
     expect(
       await writer.purge({ orgId: "org_purge", workspaceId: null }),
-    ).toEqual(noKnowledgeRows)
+    ).toEqual(NO_KNOWLEDGE_ROWS)
   })
 
   describe("each write keeps the org and Workspace scope", () => {
