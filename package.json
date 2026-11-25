@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "license": "MIT",
-  "packageManager": "pnpm@11.28.13",
+  "packageManager": "pnpm@11.28.11",
   "engines": {
     "bun": "^1.4.4",
     "node": "^26"

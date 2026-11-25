@@ -26,7 +26,7 @@ WORKDIR /app
 ENV CI=true
 # pnpm is a Node CLI. Running it through Bun can stall during lifecycle scripts.
 RUN apk add --no-cache nodejs
-RUN bun install -g pnpm@11.28.13
+RUN bun install -g pnpm@11.28.11
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* tsconfig.json ./
 COPY patches patches
 COPY apps/backend/package.json apps/backend/package.json

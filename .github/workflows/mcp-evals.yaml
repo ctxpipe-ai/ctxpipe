@@ -107,7 +107,7 @@ jobs:
           bun-version: 1.4.4
       - run: pnpm install --frozen-lockfile
       - name: Install the SCIP TypeScript indexer
-        run: npm install --global @sourcegraph/scip-typescript@0.4.0
+        run: npm install --global @sourcegraph/scip-typescript@0.6.2
       - name: Restore native revision index tools
         id: zoekt
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -117,7 +117,7 @@ jobs:
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         if: steps.zoekt.outputs.cache-hit != 'true'
         with:
-          go-version: 1.27.4
+          go-version: 1.25.12
           cache: false
       # The pinned zoekt of scripts/zoekt, and the ast-grep of the root
       # devDependencies.
