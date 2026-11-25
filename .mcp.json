@@ -22,6 +22,11 @@
       "headers": {
         "Authorization": "Bearer ${CLOUDFLARE_API_TOKEN_READONLY:-}"
       }
+    },
+    "crm": {
+      "type": "http",
+      "url": "https://crm.ctxpipe.dev/mcp",
+      "headersHelper": "factory crm headers"
     }
   }
 }
