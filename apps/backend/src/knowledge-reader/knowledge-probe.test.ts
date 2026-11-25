@@ -2,13 +2,16 @@ import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
+import { initLogger } from "evlog"
 import { HttpResponse, http } from "msw"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { z } from "zod"
 
+import { main } from "../../evals/knowledge/cli.js"
 import { ModelCalls } from "../../evals/knowledge/model-calls.js"
 import { applyProbeSettings, probe } from "../../evals/knowledge/probe.js"
 import { useMswServer } from "../../test/msw.js"
+import { flushEvlog, initEvlog } from "../observability/logger.js"
 
 /*
  * The live provider probe (`cli.ts probe`) against a fake OpenRouter (msw).
@@ -736,6 +739,26 @@ describe("the provider probe", () => {
     ])
     expect(result.checks[2]?.error).toBe(
       "The spend cap stopped the probe before this check.",
+    )
+  })
+
+  it("runs on a host with only the model key: no database and no auth secret (CTX-1650)", async () => {
+    gateway({ enforcesZdr: true })
+    vi.stubEnv("DATABASE_URL", undefined)
+    vi.stubEnv("AUTH_SECRET", undefined)
+
+    // As the entry of `cli.ts`: the logger, then the command.
+    initEvlog()
+    try {
+      expect(await main(["probe", "--out", out])).toBe(0)
+    } finally {
+      // Put back the logger of the tests (`src/test/setup-evlog.ts`).
+      await flushEvlog()
+      initLogger({ enabled: false, env: { service: "ctxpipe-backend-test" } })
+    }
+
+    expect(Object.values(await passes()).every((pass) => pass === true)).toBe(
+      true,
     )
   })
 })
