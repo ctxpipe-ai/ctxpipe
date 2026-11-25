@@ -65,15 +65,14 @@ export async function* importPublicGithubPullRequests(input: {
       .slice(0, input.limit - count)
     // Small batches keep each GraphQL request under the node limit.
     for (let start = 0; start < numbers.length; start += 10) {
-      const batch = { octokit: input.octokit, owner, repo }
-      const snapshots = await fetchPullRequestsByNumber({
-        ...batch,
+      const batch = {
+        octokit: input.octokit,
+        owner,
+        repo,
         numbers: numbers.slice(start, start + 10),
-      })
-      const pending = await pendingCommentIds({
-        ...batch,
-        numbers: numbers.slice(start, start + 10),
-      })
+      }
+      const snapshots = await fetchPullRequestsByNumber(batch)
+      const pending = await pendingCommentIds(batch)
       for (const snapshot of snapshots.sort((a, b) => b.number - a.number)) {
         count += 1
         const atUntil = await snapshotAt(
@@ -125,34 +124,38 @@ async function pendingCommentIds(input: {
   numbers: number[]
 }): Promise<Set<number>> {
   if (input.numbers.length === 0) return new Set()
+  type Page<T> = { pageInfo: { hasNextPage: boolean }; nodes: T[] }
   const data = await input.octokit.graphql<{
     repository: Record<
       string,
       {
-        reviews: {
-          nodes: Array<{
-            comments: { nodes: Array<{ databaseId: number | null }> }
-          }>
-        }
+        reviews: Page<{ comments: Page<{ databaseId: number | null }> }>
       } | null
     > | null
   }>(
     `query PendingComments($owner: String!, $repo: String!) {
       repository(owner: $owner, name: $repo) {
-        ${input.numbers.map((number) => `p${number}: pullRequest(number: ${number}) { reviews(states: [PENDING], first: 10) { nodes { comments(first: 100) { nodes { databaseId } } } } }`).join("\n")}
+        ${input.numbers.map((number) => `p${number}: pullRequest(number: ${number}) { reviews(states: [PENDING], first: 10) { pageInfo { hasNextPage } nodes { comments(first: 100) { pageInfo { hasNextPage } nodes { databaseId } } } } }`).join("\n")}
       }
     }`,
     { owner: input.owner, repo: input.repo },
   )
-  return new Set(
-    Object.values(data.repository ?? {}).flatMap((pull) =>
-      (pull?.reviews.nodes ?? []).flatMap((review) =>
-        review.comments.nodes.flatMap((comment) =>
-          comment.databaseId === null ? [] : [comment.databaseId],
-        ),
-      ),
-    ),
-  )
+  const ids = new Set<number>()
+  for (const [alias, pull] of Object.entries(data.repository ?? {})) {
+    const reviews = pull?.reviews
+    // A draft past the page would go into the twin: stop instead.
+    if (
+      reviews?.pageInfo.hasNextPage ||
+      reviews?.nodes.some((review) => review.comments.pageInfo.hasNextPage)
+    )
+      throw new Error(
+        `Pull request ${alias.slice(1)} of ${input.owner}/${input.repo} has more pending review comments than one page. Submit or delete the pending review of the token owner.`,
+      )
+    for (const review of reviews?.nodes ?? [])
+      for (const comment of review.comments.nodes)
+        if (comment.databaseId !== null) ids.add(comment.databaseId)
+  }
+  return ids
 }
 
 /** True when `time` is a time at or before `until`. */

@@ -345,9 +345,9 @@ it("writes the pull requests closed before the cut-off date and the chat as they
           data: {
             repository: {
               p7: {
-                reviews: {
-                  nodes: [{ comments: { nodes: [{ databaseId: 3 }] } }],
-                },
+                reviews: connection([
+                  { comments: connection([{ databaseId: 3 }]) },
+                ]),
               },
             },
           },
