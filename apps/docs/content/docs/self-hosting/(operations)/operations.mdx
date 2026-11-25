@@ -44,7 +44,7 @@ RDS it gets `rds_iam` for IAM database authentication). It owns the schema
 `console`, reads the views of the schema `console_read` (no secret column), and
 can only queue the operator jobs: row-level security on
 `openworkflow.workflow_runs` lets it read and insert only `admin.*` runs.
-`ctxpipe_app` keeps all rows through its own policy. A role with no password
+Every other role keeps all rows. A role with no password
 cannot sign in with a password, so you can ignore it when you run no console.
 When the migrate role may not create roles, migrate skips this step with a
 warning.

@@ -31,7 +31,11 @@ import { emailTransport } from "../email/configured.js"
 import { generateObjectId } from "../lib/id.js"
 import { log } from "../observability/logger.js"
 import { apiKeyLifecycleEvents } from "./api-key-events.js"
-import { endSessionOfBannedUser, refuseSessionOfBannedUser } from "./ban.js"
+import {
+  endSessionOfBannedUser,
+  refuseBannedOAuthSubjects,
+  refuseSessionOfBannedUser,
+} from "./ban.js"
 import { githubOAuthUrls } from "./github-oauth-urls.js"
 import { invitationEmailLink } from "./invitation-email-url.js"
 import { MCP_READ_SCOPE, MCP_WRITE_SCOPE } from "./mcp-scopes.js"
@@ -488,6 +492,7 @@ export function createBetterAuth() {
         accessTokenExpiresIn: 14_400,
         silenceWarnings: { oauthAuthServerConfig: true },
       }),
+      refuseBannedOAuthSubjects(),
       ...(env.BETTER_AUTH_API_KEY ? [dash()] : []),
     ],
   })

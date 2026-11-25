@@ -32,19 +32,15 @@ const ADMIN_RUN = `"workflow_name" LIKE 'admin.%'`
  * - the schema `console` for its own state, owned by it,
  * - read views of the auth tables in the schema `console_read`,
  * - INSERT and SELECT on `openworkflow.workflow_runs`, limited by row-level
- *   security to the `admin.*` jobs. The app role keeps all rows through its
- *   own policy. The table owner (migrate) is not subject to the policies.
+ *   security to the `admin.*` jobs. Every other role keeps every row. The
+ *   table owner (migrate) is not subject to the policy.
  *
  * Runs as the table owner, after the OpenWorkflow migrations. Each step is
  * idempotent. A migrate role that may not create roles skips this with a
  * warning, so a self-hosted database without a console still migrates.
  */
-export async function provisionConsoleRole(
-  pool: Pool,
-  appRoleName: string,
-): Promise<void> {
+export async function provisionConsoleRole(pool: Pool): Promise<void> {
   const role = quoteIdent(CONSOLE_ROLE_NAME)
-  const appRole = quoteIdent(appRoleName)
   const client = await pool.connect()
   try {
     const roles = await client.query<{ rolname: string; elevated: boolean }>(
@@ -108,17 +104,15 @@ export async function provisionConsoleRole(
       `CREATE SCHEMA IF NOT EXISTS console AUTHORIZATION ${role}`,
     )
     await client.query(`ALTER SCHEMA console OWNER TO ${role}`)
-    await client.query(`REVOKE ALL ON SCHEMA console FROM PUBLIC, ${appRole}`)
+    await client.query("REVOKE ALL ON SCHEMA console FROM PUBLIC")
 
     await client.query("CREATE SCHEMA IF NOT EXISTS console_read")
-    await client.query(
-      `REVOKE ALL ON SCHEMA console_read FROM PUBLIC, ${appRole}`,
-    )
+    await client.query("REVOKE ALL ON SCHEMA console_read FROM PUBLIC")
     await client.query(`GRANT USAGE ON SCHEMA console_read TO ${role}`)
     for (const [name, query] of Object.entries(READ_VIEWS)) {
       const view = `console_read.${quoteIdent(name)}`
       await client.query(`CREATE OR REPLACE VIEW ${view} AS ${query}`)
-      await client.query(`REVOKE ALL ON ${view} FROM PUBLIC, ${appRole}`)
+      await client.query(`REVOKE ALL ON ${view} FROM PUBLIC`)
       await client.query(`GRANT SELECT ON ${view} TO ${role}`)
     }
 
@@ -128,34 +122,23 @@ export async function provisionConsoleRole(
     await client.query(
       `GRANT SELECT, INSERT ON openworkflow.workflow_runs TO ${role}`,
     )
-    const policies = new Set(
-      (
-        await client.query<{ policyname: string }>(
-          "SELECT policyname FROM pg_catalog.pg_policies WHERE schemaname = 'openworkflow' AND tablename = 'workflow_runs'",
-        )
-      ).rows.map((row) => row.policyname),
+    // One policy for every role, so that it names no role: a dump and
+    // restore of the database (`copy-database.ts`) needs no role. Every role
+    // but the console keeps every row. The console reads only admin runs,
+    // and inserts only a new one: no worker, no parent, no attempt yet. A
+    // statement on the table takes a lock that stops the worker, so it runs
+    // only when the policy is missing.
+    const existing = await client.query(
+      "SELECT 1 FROM pg_catalog.pg_policies WHERE schemaname = 'openworkflow' AND tablename = 'workflow_runs' AND policyname = 'console_admin_runs_only'",
     )
-    // Each statement on the table takes a lock that stops the worker, so
-    // only the missing ones run.
-    const policy = async (name: string, sql: string) => {
-      if (!policies.has(name))
-        await client.query(
-          `CREATE POLICY ${name} ON openworkflow.workflow_runs ${sql}`,
-        )
-    }
-    await policy(
-      `app_role_all`,
-      `AS PERMISSIVE FOR ALL TO ${appRole} USING (true) WITH CHECK (true)`,
-    )
-    await policy(
-      "console_select_admin_runs",
-      `AS PERMISSIVE FOR SELECT TO ${role} USING (${ADMIN_RUN})`,
-    )
-    // A new run only: no worker, no parent, no attempt yet.
-    await policy(
-      "console_insert_admin_runs",
-      `AS PERMISSIVE FOR INSERT TO ${role} WITH CHECK (${ADMIN_RUN} AND "status" = 'pending' AND "attempts" = 0 AND "worker_id" IS NULL AND "parent_step_attempt_id" IS NULL)`,
-    )
+    const notConsole = `current_user <> '${CONSOLE_ROLE_NAME}'`
+    if (existing.rowCount === 0)
+      await client.query(
+        `CREATE POLICY console_admin_runs_only ON openworkflow.workflow_runs
+         AS PERMISSIVE FOR ALL TO PUBLIC
+         USING (${notConsole} OR ${ADMIN_RUN})
+         WITH CHECK (${notConsole} OR (${ADMIN_RUN} AND "status" = 'pending' AND "attempts" = 0 AND "worker_id" IS NULL AND "parent_step_attempt_id" IS NULL))`,
+      )
     const rls = await client.query<{ on: boolean }>(
       "SELECT relrowsecurity AS on FROM pg_catalog.pg_class WHERE oid = 'openworkflow.workflow_runs'::regclass",
     )

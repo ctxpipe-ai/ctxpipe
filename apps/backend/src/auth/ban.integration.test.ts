@@ -119,7 +119,7 @@ describe("a ban (Postgres)", () => {
       response_type: "code",
       client_id: clientId,
       redirect_uri: REDIRECT_URI,
-      scope: "ctxpipe:read offline_access",
+      scope: "openid ctxpipe:read offline_access",
       state: "ban-test",
       code_challenge: createHash("sha256").update(verifier).digest("base64url"),
       code_challenge_method: "S256",
@@ -285,9 +285,18 @@ describe("a ban (Postgres)", () => {
       Object.fromEntries(Object.keys(credentials).map((kind) => [kind, status]))
     expect(await accepted()).toEqual(all(200))
 
+    const jwt = credentials["OAuth JWT access token"] ?? {}
+    const userinfo = () =>
+      app.request(`${baseUrl}/.auth/api/v1/auth/oauth2/userinfo`, {
+        headers: jwt,
+      })
+    expect((await userinfo()).status).toBe(200)
+
     // The flag alone, without the job's revocation: the request check.
     await setBan(true)
     expect(await accepted()).toEqual(all(401))
+    // Better Auth answers the user info itself.
+    expect((await userinfo()).status).toBe(401)
 
     await setBan(true, new Date(Date.now() - 1000))
     expect(await accepted()).toEqual(all(200))

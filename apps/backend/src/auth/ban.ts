@@ -1,5 +1,7 @@
-import { APIError } from "better-auth/api"
+import type { BetterAuthPlugin } from "better-auth"
+import { APIError, createAuthMiddleware } from "better-auth/api"
 import { and, eq, inArray, isNull } from "drizzle-orm"
+import { decodeJwt } from "jose"
 
 import { type Db, getSystemDb } from "../db/client.js"
 import {
@@ -45,6 +47,9 @@ const banState = (db: Db, userId: string) =>
     .limit(1)
     .then((rows) => rows[0])
 
+/** The fields of a user with no ban. */
+const noBan = { banned: false, banReason: null, banExpires: null }
+
 /**
  * Better Auth `databaseHooks.session.create.before`, as in the admin plugin:
  * refuse a session to a banned user, and clear a ban whose end date is past.
@@ -58,7 +63,7 @@ export async function refuseSessionOfBannedUser(session: {
     // Only the ended ban that was read: a new ban stays.
     const cleared = await db
       .update(users)
-      .set({ banned: false, banReason: null, banExpires: null })
+      .set(noBan)
       .where(
         and(
           eq(users.id, session.userId),
@@ -150,8 +155,9 @@ export async function disableOrgApiKeysMadeBy(
 /**
  * Record who made an organization API key (`org_api_key_creators`). A ban
  * or a removal of the maker can commit after the key and before this row, so
- * the row commits first, and then a check that waits for a removal that
- * holds the member rows. A maker that may not act gets no key.
+ * the row commits first, and then a check that waits for a ban or a removal
+ * that holds the user or the member rows. A maker that may not act gets no
+ * key.
  */
 export async function recordOrgApiKeyCreator(input: {
   apiKeyId: string
@@ -173,7 +179,12 @@ export async function recordOrgApiKeyCreator(input: {
       ),
     )
     .for("share")
-  const user = await banState(db, input.userId)
+  // FOR SHARE waits for a ban that holds the user row (`banUser`).
+  const [user] = await db
+    .select({ banned: users.banned, banExpires: users.banExpires })
+    .from(users)
+    .where(eq(users.id, input.userId))
+    .for("share")
   if (member && user && !isBanned(user)) return
   await db.delete(apikeys).where(eq(apikeys.id, input.apiKeyId))
   throw bannedError()
@@ -269,16 +280,65 @@ export async function isTokenRevoked(
   )
 }
 
+/** The `iat` of a JWT Bearer token, else undefined (an opaque token). */
+function bearerIssuedAt(authorization: string | null | undefined) {
+  const token = authorization?.replace(/^Bearer\s+/i, "")
+  if (!token || token.split(".").length !== 3) return undefined
+  try {
+    return decodeJwt(token).iat
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Better Auth answers `/oauth2/userinfo` and `/oauth2/introspect` itself,
+ * not through `withAuth.ts`. For a banned user, or a JWT from before a ban,
+ * the user info is refused and the introspection says `active: false`.
+ */
+export function refuseBannedOAuthSubjects(): BetterAuthPlugin {
+  return {
+    id: "refuse-banned-oauth-subjects",
+    hooks: {
+      after: [
+        {
+          matcher: (ctx) =>
+            ctx.path === "/oauth2/userinfo" ||
+            ctx.path === "/oauth2/introspect",
+          handler: createAuthMiddleware(async (ctx) => {
+            const returned = ctx.context.returned
+            if (!returned || typeof returned !== "object") return
+            if (returned instanceof Error) return
+            const { sub, active, iat } = returned as Record<string, unknown>
+            if (typeof sub !== "string" || active === false) return
+            const introspect = ctx.path === "/oauth2/introspect"
+            const issuedAt = introspect
+              ? typeof iat === "number"
+                ? iat
+                : undefined
+              : bearerIssuedAt(ctx.headers?.get("authorization"))
+            const user = await banState(getSystemDb(), sub)
+            const refused =
+              (user && isBanned(user)) ||
+              (issuedAt !== undefined && (await isTokenRevoked(sub, issuedAt)))
+            if (!refused) return
+            if (introspect) return ctx.json({ active: false })
+            throw new APIError("UNAUTHORIZED", {
+              error: "invalid_token",
+              error_description: "The access token was revoked",
+            })
+          }),
+        },
+      ],
+    },
+  }
+}
+
 /** End the ban. False: no such user. */
 export async function unbanUser(userId: string): Promise<boolean> {
   const [user] = await getSystemDb()
     .update(users)
-    .set({
-      banned: false,
-      banReason: null,
-      banExpires: null,
-      updatedAt: new Date(),
-    })
+    .set({ ...noBan, updatedAt: new Date() })
     .where(eq(users.id, userId))
     .returning({ id: users.id })
   return Boolean(user)

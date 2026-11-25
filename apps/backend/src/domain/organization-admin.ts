@@ -16,14 +16,12 @@ import { purgeOrgDataBeforeAuthDelete } from "./repositoryDeletion.js"
 /** A rule of an operator job refused the change. A retry gives the same answer. */
 export class AdminRefusal extends Error {}
 
-/** The role that the organization plugin gives the creator (`creatorRole`). */
-const OWNER = "owner"
-
+/** The role list holds `owner`, the plugin's `creatorRole`. */
 const hasOwnerRole = (role: string) =>
   role
     .split(",")
     .map((value) => value.trim())
-    .includes(OWNER)
+    .includes("owner")
 
 /**
  * In one transaction that locks the members of the organization: the member,

@@ -96,7 +96,7 @@ export async function runMigrations(options: {
     // Again after the migrations, for the tables and schemas they added.
     await provisionAppRole(pool, undefined, roleName)
     // After OpenWorkflow's migrations: it limits access to their runs table.
-    await provisionConsoleRole(pool, roleName)
+    await provisionConsoleRole(pool)
     await checkKnowledgeSearchPlan(pool, roleName)
   } catch (error) {
     if (!(error instanceof LockRetriesExhaustedError) && isLockTimeout(error))
