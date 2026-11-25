@@ -14,7 +14,6 @@ import { getContext } from "hono/context-storage"
 
 import { isPreviewDeployment } from "../../../../shared/deployment-environment.js"
 import type { AppEnv } from "../app/env.js"
-import { parseEnv } from "../config/env.js"
 import { applyLogContract } from "./logContract.js"
 import {
   forceFlushOtel,
@@ -112,14 +111,15 @@ export function initEvlog(options?: {
     })
     return
   }
-  const env = parseEnv(process.env as Record<string, string | undefined>)
-  const pretty = env.NODE_ENV === "development" && !options?.stderr
+  // The logger reads only its own settings, as `otel.ts` does: a script
+  // with no database (the provider probe) can log too (CTX-1650). The
+  // default of NODE_ENV is the one of `parseEnv`.
+  const pretty =
+    (process.env.NODE_ENV || "development") === "development" &&
+    !options?.stderr
   otlpPipeline = otlpDrain()
   initLogger({
-    env: {
-      service: otelServiceName(env.OTEL_SERVICE_NAME),
-      environment: envFields.environment,
-    },
+    env: envFields,
     pretty,
     silent: !pretty,
     redact: evlogRedact,

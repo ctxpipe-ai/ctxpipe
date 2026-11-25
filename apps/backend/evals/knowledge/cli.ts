@@ -782,6 +782,8 @@ export async function main(argv: string[]): Promise<number> {
     } catch (error) {
       throw new SetupError((error as Error).message)
     }
+    // Each model call scrubs its text with it (ADR-072).
+    buildConverter()
     const calls = modelCalls(capUsd)
     return probe({ out, calls, capUsd, base: modelBase() })
   }
@@ -792,6 +794,8 @@ export async function main(argv: string[]): Promise<number> {
     const runs = Number(values.runs ?? 50)
     if (!Number.isInteger(runs) || runs < 1)
       throw new SetupError("--runs needs a whole number of 1 or more.")
+    // Each model call scrubs its text with it (ADR-072).
+    buildConverter()
     const calls = modelCalls(capUsd)
     const restore = calls.install()
     try {
