@@ -369,60 +369,6 @@ test("a Vitest exit failure fails every record that has not failed", async () =>
   )
 })
 
-test("an eval case verdict is the eval gate for that case", async () => {
-  const { caseVerdict } = await import("../checks/evals.mjs")
-  const run = (a, b) => ({
-    iterations: 3,
-    passes: { m1: { x: a }, m2: { x: b } },
-  })
-  const baseline = {
-    recordedAt: "",
-    models: {
-      m1: { aggregate: 1, cases: { x: 1 } },
-      m2: { aggregate: 1, cases: { x: 1 } },
-    },
-  }
-  const verdict = async (...args) =>
-    (await caseVerdict(...args)).cases.map((c) => c.status)
-  assert.deepEqual(await verdict(run(3, 3), "x", baseline), [
-    "passed",
-    "passed",
-  ])
-  // 2 of 3 is under the floor of the gate, and 3 of 3 is not required for 0.9.
-  assert.deepEqual(await verdict(run(2, 3), "x", baseline), [
-    "failed",
-    "passed",
-  ])
-  assert.deepEqual(await verdict(run(3, 3), "x", null), ["passed", "passed"])
-  // One model is under the gate minimum of models.
-  const single = await caseVerdict(
-    { iterations: 3, passes: { m1: { x: 3 } } },
-    "x",
-    null,
-  )
-  assert.match(single.general.join(), /at least 2 models/)
-  // A model without a baseline entry for the case gets only the floor.
-  const partial = {
-    recordedAt: "",
-    models: { m1: { aggregate: 1, cases: { y: 1 } } },
-  }
-  const floor = await caseVerdict(run(2, 3), "x", partial)
-  assert.deepEqual(
-    floor.cases.map((c) => c.status),
-    ["failed", "passed"],
-  )
-  assert.match(floor.cases[1].message, /no baseline/)
-  assert.doesNotMatch(
-    (await caseVerdict(run(3, 3), "x", baseline)).cases[0].message,
-    /no baseline/,
-  )
-  // A whole-run failure is not a case failure.
-  assert.deepEqual(
-    single.cases.map((c) => c.status),
-    ["passed"],
-  )
-})
-
 test("the rerun takes each failed record below the results once, and no rerun record", () => {
   const directory = mkdtempSync(join(tmpdir(), "ctxpipe-rerun-"))
   const write = (path, records) => {

@@ -199,10 +199,10 @@ function withRunnerFloor(selection, { inputs, seconds, stored, config }) {
 //   checks, so they can drop checks from the selection.
 // - `changed`: a check with a key that only the PR lists, or whose entry
 //   differs other than by more inputs or another intent. More inputs only
-//   make a key wider, so no pass of the old definition matches it. An eval
-//   or a stochastic check has no key, so it reuses no pass.
+//   make a key wider, so no pass of the old definition matches it. A
+//   stochastic check has no key, so it reuses no pass.
 export function definitionChanges(base, manifest) {
-  const keyed = (check) => !check.stochastic && check.family !== "eval"
+  const keyed = (check) => !check.stochastic
   // The entry with its object keys in order, so that two entries with the
   // same fields compare equal.
   const rest = ({ intent: _intent, inputs: _inputs, ownInputs: _own, ...item }) =>
@@ -474,19 +474,13 @@ function carryCause(selection, lookup, delta, deltaCause) {
 
 // Where a check runs in a gated run. Every Storybook play runs in the
 // Storybook plays shards, and each screenshot in the screenshots shards
-// (runsIn). A check that ci.yaml does not run is `external`:
-// another workflow runs it, and its own status reports the result.
-const external = {
-  eval: "MCP evals (mcp-evals.yaml, starts with the label mcp-evals)",
-}
+// (runsIn). A check that no job of ci.yaml runs has no job.
 export function placeOf(id) {
   const [family, lane] = id.split(":")
-  const workflow = external[family]
-  if (workflow) return { workflow }
   if (family === "storybook" && lane !== "visual")
     return { job: "storybook-plays" }
   const job = runsInOf(id)?.job
-  return job ? { job } : { workflow: "no job of PR CI runs it" }
+  return job ? { job } : {}
 }
 
 // The image builds of the Production build job. A test keeps these entries

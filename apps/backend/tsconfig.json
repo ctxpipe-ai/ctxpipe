@@ -19,7 +19,6 @@
   },
   "include": [
     "src/**/*",
-    "evals/mcp/**/*.ts",
     "evals/knowledge/**/*.ts",
     "test/setup.ts",
     "drizzle.config.ts",

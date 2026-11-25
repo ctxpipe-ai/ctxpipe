@@ -63,22 +63,16 @@ coherent; it does not prove that browser OAuth, authenticated tools, or
 an MCP tool call work. The doctor does not accept bearer tokens and does not test
 STDIO servers.
 
-Use the external, version-pinned MCPJam CLI for the authenticated part of the
-investigation:
+For the authenticated part of the investigation, use the external,
+version-pinned MCP Inspector:
 
 ```bash
-npx @mcpjam/cli@3.24.0 oauth login \
-  --url "https://app.example.com/mcp" \
-  --registration dcr \
-  --credentials-out .mcpjam/credentials.json
-
-npx @mcpjam/cli@3.24.0 tools list \
-  --url "https://app.example.com/mcp" \
-  --credentials-file .mcpjam/credentials.json
+npx @modelcontextprotocol/inspector@2.16.0
 ```
 
-MCPJam remains an external diagnostic client; it is not bundled into the
-`ctxpipe` package or the self-hosted backend.
+Connect it to `https://app.example.com/mcp` with the Streamable HTTP transport.
+It runs OAuth, `tools/list`, and tool calls. The MCP Inspector is not bundled
+into the `ctxpipe` package or the self-hosted backend.
 
 ### Local memory (Markdown-only)
 

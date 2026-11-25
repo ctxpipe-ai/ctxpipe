@@ -78,7 +78,7 @@ line gives its expected output. The dry run of the copy is its preflight against
 
 - **Who:** agent.
 - **Check:** [CTX-1217] has the report of one real rehearsal with `"ok": true` from copy-database, no difference
-  from verify-graph, a passed `validateTarget` and MCP eval run, and a window shorter than the planned length. One
+  from verify-graph, a passed `validateTarget`, and a window shorter than the planned length (the MCP evals are removed, CTX-1663). One
   rehearsal is enough (CTO, 2026-11-14: "After we do one successfully we're ready to do it properly").
 - **If not:** stop. Plan another rehearsal.
 
@@ -378,7 +378,8 @@ Do the steps that apply, in this order. Skip a step whose change was not made ye
   5. Delete the seed file of the MCP evals, if one stays:
      `aws s3 rm --recursive "s3://<shard bucket>/cutover-mcp-evals/"`. It holds an API key of the eval test
      organizations. That key and those organizations exist only in the copy of a rehearsal: the task
-     `cutover-reset-database` drops the copy after each rehearsal and again at T+3. The evals never run after G4.
+     `cutover-reset-database` drops the copy after each rehearsal and again at T+3. The MCP evals are removed
+     ([CTX-1663](https://linear.app/ctxpipe/issue/CTX-1663)), so no run writes a new seed file.
 - **Expected:** `aws s3 ls "s3://<shard bucket>/cutover-transfer/"` and
   `aws s3 ls "s3://<shard bucket>/cutover-mcp-evals/"` print nothing.
 
@@ -390,7 +391,7 @@ After a rollback, AWS still holds copies that no step deletes. AWS deletes them 
 
 ## Open items
 
-- The MCP evals run in a rehearsal only, never in the window: they write test organizations. Run the task
-  `cutover-mcp-evals-seed`, then `cutover-mcp-evals` (see `apps/backend/evals/mcp/README.md`). Both refuse to run
-  while `CUTOVER_G4_PASSED` is `true`.
+- The MCP evals are removed ([CTX-1663](https://linear.app/ctxpipe/issue/CTX-1663)). Do not run the tasks
+  `cutover-mcp-evals-seed` and `cutover-mcp-evals`. The image has no eval client, so they fail. A change in the
+  factory repository (`machines/hosted`) removes the two tasks.
 - Delete this file in the pull request that removes the cutover tasks.

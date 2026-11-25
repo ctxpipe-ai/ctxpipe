@@ -160,7 +160,7 @@ describe("diagnoseMcpEndpoint", () => {
     expect(result.status).toBe("ready-for-oauth")
     expect(result.checks).toHaveLength(5)
     expect(result.checks.every((check) => check.status === "pass")).toBe(true)
-    expect(result.nextSteps.join(" ")).toContain("MCPJam")
+    expect(result.nextSteps.join(" ")).toContain("MCP Inspector")
   })
 
   it("fails a malformed Bearer challenge without fetching metadata", async () => {

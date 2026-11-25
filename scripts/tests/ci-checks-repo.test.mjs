@@ -44,12 +44,6 @@ const records = (result) =>
     .trim()
     .split("\n")
     .map((line) => JSON.parse(line))
-const evalCaseCount = () =>
-  (
-    readFileSync(join(root, "apps/backend/evals/mcp/cases.ts"), "utf8").match(
-      /^ {4}id: "/gm,
-    ) ?? []
-  ).length
 const script = (name) => join(root, "scripts/checks", name)
 const schema = (name) =>
   JSON.parse(readFileSync(script(`schema/${name}.v1.schema.json`), "utf8"))
@@ -170,23 +164,6 @@ test("the manifest matches its schema and lists each check of each family", asyn
     )
   assert.equal(count("lint"), 3)
   assert.ok(count("policy") >= 8)
-  assert.equal(count("eval", "mcp"), evalCaseCount())
-  assert.equal(count("eval", "cli-memory"), 0)
-  // Each eval check lists the MCP tools of its rules, sorted and unique.
-  const evals = manifest.checks.filter((check) => check.family === "eval")
-  for (const check of evals) {
-    assert.ok(Array.isArray(check.tools), `${check.id}: tools`)
-    assert.deepEqual(check.tools, [...new Set(check.tools)].sort(), check.id)
-  }
-  assert.deepEqual(
-    evals.find((check) => check.id.endsWith("#stale-cursor")).tools,
-    ["search_knowledge"],
-  )
-  assert.deepEqual(
-    evals.find((check) => check.id.endsWith("#parallel-knowledge-and-code"))
-      .tools,
-    ["search_code", "search_knowledge"],
-  )
   assert.equal(count("vitest", "latency"), 2)
   assert.equal(count("vitest", "upgrade"), 1)
   assert.ok(count("storybook", "required") > 0)
@@ -216,7 +193,6 @@ test("the manifest matches its schema and lists each check of each family", asyn
   // remote state or base images by tag is not cacheable.
   for (const check of manifest.checks) {
     const expensive =
-      check.family === "eval" ||
       check.lane === "required" ||
       check.lane === "latency" ||
       check.lane === "upgrade" ||
@@ -230,7 +206,7 @@ test("the manifest matches its schema and lists each check of each family", asyn
     }
     assert.equal(
       check.stochastic ?? false,
-      check.family === "eval" || check.lane === "latency",
+      check.lane === "latency",
       check.id,
     )
     assert.equal(
@@ -454,13 +430,12 @@ test("the manifest marks exactly the platform-independent checks portable", () =
     "storybook:required",
     "storybook:plays",
     "storybook:visual",
-    "eval:mcp",
     "build:package",
   ])
     assert.ok(lanes(true).includes(lane), lane)
   assert.ok(
     lanes(true).every((lane) =>
-      /^(vitest|storybook|eval|typecheck|lint|policy|build):/.test(lane),
+      /^(vitest|storybook|typecheck|lint|policy|build):/.test(lane),
     ),
   )
   const programs = (lane) =>
@@ -841,28 +816,6 @@ test("the trace records the files that a case runs in a Bun child process, and t
   }
 })
 
-test("an eval check refuses to run without the workbench variables", () => {
-  const id = "eval:mcp:apps/backend/evals/mcp/cases.ts#stale-cursor"
-  const env = { ...process.env }
-  delete env.MODEL_PROVIDER_API_KEY
-  delete env.MCP_EVAL_MODELS
-  const result = spawnSync(process.execPath, [script("run.mjs")], {
-    cwd: root,
-    encoding: "utf8",
-    input: `${id}\n`,
-    env,
-  })
-  assert.equal(result.status, 1)
-  const [record] = records(result)
-  const document = schema("result")
-  validate(record, document, document)
-  assert.equal(record.status, "error")
-  assert.equal(record.origin, "prerequisite")
-  assert.match(record.message, /Prerequisite workbench failed/)
-  assert.match(record.message, /MODEL_PROVIDER_API_KEY/)
-  assert.match(record.message, /workbench environment/)
-})
-
 test("a project check runs its command and records its time in the trace", () => {
   const directory = mkdtempSync(join(tmpdir(), "ctxpipe-trace-"))
   try {
@@ -1166,10 +1119,6 @@ test("the manifest lists a check for each job of the other pull request workflow
     if (check.stochastic) continue
     assert.ok(runsInOf(check.id), check.id)
   }
-  // mcp-evals.yaml runs the eval cases; a model call is stochastic.
-  assert.ok(lane("eval", "mcp").length > 0)
-  for (const check of lane("eval", "mcp"))
-    assert.equal(check.stochastic, true, check.id)
 })
 
 test("the manifest lists a build check for each production image and package of CI", () => {
@@ -1498,7 +1447,6 @@ test("each test file of the CI scripts is a policy check that selects on the fil
           !/^(apps|packages)\//.test(input) ||
           [
             "apps/ui/.storybook/**",
-            "apps/backend/evals/mcp/**",
             "packages/visual-review/src/**",
             "apps/backend/package.json",
           ].includes(input),

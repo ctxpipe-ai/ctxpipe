@@ -53,8 +53,8 @@ const contract = "vitest:contracts:apps/backend/src/c.contract.test.ts"
 const story = "storybook:required:apps/ui/src/d.stories.tsx#d--one"
 const lint = "lint:oxlint:.oxlintrc.json"
 const image = "build:image-ui:apps/ui/Dockerfile"
-const evalCase = "eval:mcp:apps/backend/evals/mcp/cases.ts#stale-cursor"
-const addedCase = "eval:mcp:apps/backend/evals/mcp/cases.ts#added-case"
+const latency = "vitest:latency:apps/backend/src/f.latency.ts"
+const addedLatency = "vitest:latency:apps/backend/src/g.latency.ts"
 const omitted = "vitest:backend:apps/backend/src/e.test.ts"
 
 const check = (id, reason = { kind: "changed" }) => ({
@@ -80,7 +80,7 @@ const selectRecord = () => ({
   base: sha(6),
   trace: { commit: sha(7), checks: 787 },
   counts: { selected: 7, total: 9, stochasticOmitted: 0 },
-  selected: [ui, backend, contract, story, lint, image, evalCase].map((id) =>
+  selected: [ui, backend, contract, story, lint, image, latency].map((id) =>
     check(id),
   ),
   omitted: [{ id: omitted, lane: "backend", reason: "not reached" }],
@@ -99,10 +99,10 @@ const selectRecord = () => ({
 })
 
 // The record of the LLM job (`--llm-provider openrouter --dry-run`): it dropped the
-// backend test and added an eval case.
+// backend test and added a latency check.
 const llmRecord = () => ({
   ...selectRecord(),
-  selected: [ui, contract, story, lint, image, evalCase, addedCase].map((id) =>
+  selected: [ui, contract, story, lint, image, latency, addedLatency].map((id) =>
     check(id),
   ),
   omitted: [
@@ -121,7 +121,7 @@ const llmRecord = () => ({
     behaviors: ["UI renders the prop"],
     kept: [{ id: ui, reason: "observes the prop" }],
     dropped: [{ id: backend, reason: "same path" }],
-    added: [{ id: addedCase, reason: "eval case" }],
+    added: [{ id: addedLatency, reason: "latency check" }],
     floor: 0,
   },
 })
@@ -161,7 +161,7 @@ test("the plan takes the LLM selection with the cache lookup of the select job",
   assert.equal(planned.mode, "gate")
   assert.deepEqual(
     planned.selection.selected.map(({ id }) => id),
-    [ui, contract, story, lint, image, evalCase, addedCase],
+    [ui, contract, story, lint, image, latency, addedLatency],
   )
   // The hits of the select job stay; the dropped check has no lookup.
   assert.deepEqual(
@@ -171,7 +171,7 @@ test("the plan takes the LLM selection with the cache lookup of the select job",
       [lint, "agent"],
     ],
   )
-  assert.deepEqual(planned.ran, [ui, contract, image, evalCase, addedCase])
+  assert.deepEqual(planned.ran, [ui, contract, image, latency, addedLatency])
   assert.equal(planned.selection.llm.change, "renames a UI prop")
 })
 
@@ -202,7 +202,7 @@ test("a failed LLM job, an invalid LLM record or a provider fallback keeps the d
     // The run stays gated, with the selection of the select job.
     assert.equal(kept.mode, "gate", cause)
     assert.ok(kept.ran.includes(backend), cause)
-    assert.ok(!kept.ran.includes(addedCase), cause)
+    assert.ok(!kept.ran.includes(addedLatency), cause)
     assert.ok(
       kept.selection.notes.includes(
         `llm job: ${cause}; the deterministic selection stays`,
@@ -361,7 +361,6 @@ test("each planned check goes to the job that runs it, and a job without one doe
   ])
   // A lint or policy check runs in the Lint and format job. The stored pass
   // of the agent covers the only lint check, so that job does not start.
-  // Evals run in their own workflow.
   assert.deepEqual(placeOf(lint), { job: "lint" })
   assert.equal(planned.outputs.lint, undefined)
   // Without the stored pass, the lint job runs only that check.
@@ -375,7 +374,7 @@ test("each planned check goes to the job that runs it, and a job without one doe
   })
   assert.equal(missed.outputs.lint, "1")
   assert.deepEqual(missed.jobs.lint, { ids: [lint], rerun: [] })
-  assert.match(placeOf(evalCase).workflow, /mcp-evals\.yaml/)
+  assert.deepEqual(placeOf(latency), {})
   // Every Storybook play runs in the plays shards, after the build.
   const stories = planOf({
     files: {
@@ -1089,7 +1088,7 @@ test("a change to a definition of checks reuses each stored pass whose definitio
   // The LLM stage does not decide: the deterministic selection stays, with
   // each hit of the select job.
   assert.ok(planned.ran.includes(backend))
-  assert.ok(!planned.ran.includes(addedCase))
+  assert.ok(!planned.ran.includes(addedLatency))
   assert.deepEqual(
     planned.hits.map(({ id }) => id),
     [story, lint],
@@ -1254,16 +1253,19 @@ test("a PR cannot redefine a check to reuse a pass of the old definition", () =>
     stochastic.reason,
     `definitions of checks changed, and 1 check whose definition changed is in no selection: ${backend}`,
   )
-  // A dropped eval case has no key, but it is dropped too.
-  const evals = planOf({
+  // A dropped stochastic check has no key, but it is dropped too.
+  const droppedStochastic = planOf({
     files: {
       "mode.json": definitions,
       "manifest.json": manifestOf(listed()),
-      "base-manifest.json": manifestOf([...listed(), entry(evalCase)]),
+      "base-manifest.json": manifestOf([
+        ...listed(),
+        { ...entry(latency), stochastic: true },
+      ]),
     },
   })
-  assert.equal(evals.mode, "full")
-  assert.match(evals.reason, /drops 1 check that the base revision lists/)
+  assert.equal(droppedStochastic.mode, "full")
+  assert.match(droppedStochastic.reason, /drops 1 check that the base revision lists/)
   // Without a valid listing of the base revision, the run is full.
   for (const base of [undefined, { schemaVersion: 1, checks: "all" }])
     assert.equal(
@@ -1404,7 +1406,7 @@ test("a PR that changes the gate code cannot reduce its own selection: the base 
   )
   assert.equal(planned.mode, "gate")
   assert.match(planned.reason, /gate inputs changed \(scripts\/checks\/plan\.mjs\)/)
-  assert.deepEqual(planned.ran, [ui, contract, image, evalCase, addedCase])
+  assert.deepEqual(planned.ran, [ui, contract, image, latency, addedLatency])
   // The gate code of the PR would plan no check, so the test proves the
   // base revision.
   run("node", [
@@ -1520,10 +1522,10 @@ test("the gated verdict needs a result for each planned check of CI", () => {
       [image, "passed"],
     ],
   )
-  // The other workflows report their own status.
+  // No job of PR CI runs the latency checks.
   assert.deepEqual(
     decision.external.map(({ id }) => id),
-    [evalCase, addedCase],
+    [latency, addedLatency],
   )
   // Each check that passed under a key goes to the PR store.
   assert.deepEqual(
@@ -1618,7 +1620,7 @@ test("the summary shows the selection, the hits, the LLM decisions and the minut
   assert.ok(text.startsWith("## Merge gate\n"))
   for (const part of [
     "**Verdict:** pass",
-    "3 ran, 2 hits (ci 1, agent 1), 2 in other workflows",
+    "3 ran, 2 hits (ci 1, agent 1), 2 not run by PR CI",
     "**Cache hits:** ci 1, pr 0, agent 1, carry 0 of ",
     "renames a UI prop",
     "dropped 1, added 1",

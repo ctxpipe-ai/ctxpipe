@@ -67,8 +67,6 @@ OpenAPI, MCP, contract tests, and package scripts, see
 | `pnpm lint` | Run Oxlint. |
 | `pnpm format:check` / `pnpm format` | Check or fix formatting with Oxfmt. |
 | `pnpm mcp:inspect` | Open the MCP inspector for the backend. |
-| `pnpm mcpjam:inspect --url <mcp-url> --oauth` | Open the pinned MCPJam Inspector against an MCP endpoint. |
-| `pnpm mcpjam:doctor --url <mcp-url>` | Probe an MCP endpoint and capture transport/OAuth diagnostics. |
 | `pnpm changeset` | Create a Changesets entry for publishable package changes. |
 | `pnpm release` | Build and publish release-ready packages. |
 

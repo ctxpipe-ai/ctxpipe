@@ -29,22 +29,13 @@ Core HTTP API and MCP service for [ctxpipe](https://ctxpipe.ai). Built with **Ho
 - MCP endpoint: `/mcp?orgSlug=<slug>`
 - Status: `/.status`
 
-## Diagnose MCP with MCPJam
+## Diagnose MCP
 
-MCPJam is a **diagnostic client**, not part of the backend runtime and not a
-ctxpipe product feature. Use it to exercise OAuth and tools against a **test**
-organisation. Keep the official `pnpm mcp:inspect` workflow as an independent
-protocol reference.
+Use the official MCP Inspector (`@modelcontextprotocol/inspector`) as the
+diagnostic client. It is not part of the backend runtime. Use it with a
+**test** organization only.
 
-**In scope:** interactive DCR OAuth, `tools/list`, a test `list_workspaces` call,
-protocol conformance (CI), and a visual Inspector for local HTTP(S).
-
-**Out of scope:** tenant isolation, token refresh races, dropped-session
-recovery, concurrent clients, customer orgs, and CI gates on interactive OAuth
-or LLM evals.
-
-For host development, start ctxpipe normally and target the exact org-scoped
-endpoint:
+For host development, start ctxpipe and target the org-scoped endpoint:
 
 ```bash
 pnpm dev:infra
@@ -52,61 +43,21 @@ pnpm dev
 
 export MCP_URL="https://app.ctxpipe.localhost/mcp?orgSlug=<slug>"
 export NODE_EXTRA_CA_CERTS="$HOME/.portless/ca.pem"
+npx @modelcontextprotocol/inspector@2.16.0
 ```
 
-Portless installs its CA into the system trust store with `pnpm trust`, but a
-separate Node.js CLI may still require `NODE_EXTRA_CA_CERTS`. If that file does
-not exist, inspect the Portless output for its CA path rather than disabling TLS
-verification.
+In the Inspector, select the Streamable HTTP transport, enter `$MCP_URL`, and
+connect. The Inspector shows the OAuth flow, `tools/list`, and each JSON-RPC
+message.
 
-Start broad and narrow the failure:
+`pnpm trust` puts the Portless CA into the system trust store, but a separate
+Node.js CLI can still need `NODE_EXTRA_CA_CERTS`. If that file does not exist,
+find the CA path in the Portless output. Do not disable TLS verification.
 
-```bash
-# 1. Reachability, transport selection, 401 challenge, and OAuth discovery
-pnpm mcpjam:doctor --url "$MCP_URL" --out .mcpjam/doctor-unauthenticated.json
-
-# 2. Run interactive DCR OAuth and retain redacted HTTP diagnostics
-pnpm mcpjam:login \
-  --url "$MCP_URL" \
-  --protocol-version 2025-11-25 \
-  --registration dcr \
-  --credentials-out .mcpjam/credentials.json \
-  --debug-out .mcpjam/oauth-debug.json
-
-# 3. Retry the complete MCP sweep with refreshable credentials
-pnpm mcpjam:doctor \
-  --url "$MCP_URL" \
-  --credentials-file .mcpjam/credentials.json \
-  --out .mcpjam/doctor-authenticated.json
-
-# 4. Exercise the deterministic tool surface
-pnpm mcpjam:tools list \
-  --url "$MCP_URL" \
-  --credentials-file .mcpjam/credentials.json
-```
-
-For the visual OAuth and JSON-RPC timeline:
-
-```bash
-pnpm mcpjam:inspect \
-  --url "$MCP_URL" \
-  --name "ctxpipe local" \
-  --oauth \
-  --tab servers
-```
-
-Use the local MCPJam Inspector for `*.localhost`. The hosted MCPJam application
-cannot reach a local endpoint or refresh tokens against a local authorisation
-server. For `https://app.ctxpipe.ai/mcp?orgSlug=<slug>`, use a test organisation
-and a test user; do not expose customer tool results or reusable credentials to
-a third-party hosted project.
-
-When a failure reproduces, correlate the MCPJam timestamp and JSON-RPC method
-with the backend's `step=mcp.request` event in Railway logs, then find the
-`mcp.tool <name>` span of the call in HyperDX by its call id. OAuth
-endpoint failures use `step=oauth.endpoint_error`. Files under `.mcpjam/` are
-gitignored, but they can still contain operational details: review them before
-sharing.
+When a failure occurs again, find the backend `step=mcp.request` event at the
+same time and JSON-RPC method. Then find the `mcp.tool <name>` span of the call
+in HyperDX by its call id. OAuth endpoint failures use
+`step=oauth.endpoint_error`.
 
 ## Webhooks (GitHub App)
 

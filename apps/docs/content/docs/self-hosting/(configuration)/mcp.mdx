@@ -1,6 +1,6 @@
 ---
 title: MCP
-description: Connect MCP clients to a self-hosted ctxpipe origin. Then diagnose routing and OAuth with ctxpipe doctor mcp and MCPJam.
+description: Connect MCP clients to a self-hosted ctxpipe origin. Then diagnose routing and OAuth with ctxpipe doctor mcp and the MCP Inspector.
 ---
 
 Self-hosted ctxpipe exposes the same organization-scoped Streamable HTTP endpoint as
@@ -81,57 +81,33 @@ Overall status is `ready-for-oauth`, `ready-for-api-key` (with
 If TLS fails from a Node CLI against a local CA (Portless or a private CA), set
 `NODE_EXTRA_CA_CERTS` to the CA file. Do not disable TLS verification.
 
-## Authenticated checks with MCPJam
+## Authenticated checks with the MCP Inspector
 
-MCPJam is an external diagnostic client. It is not bundled into `ctxpipe` or the
-self-hosted backend. Pin the versions below. Do not use `@latest`. Use a test
-organization. Do not use a customer organization.
-
-```bash
-npx @mcpjam/cli@3.24.0 oauth login \
-  --url "$AUTH_BASE_URL/mcp" \
-  --protocol-version 2025-11-25 \
-  --registration dcr \
-  --credentials-out .mcpjam/credentials.json \
-  --debug-out .mcpjam/oauth-debug.json
-
-npx @mcpjam/cli@3.24.0 tools list \
-  --url "$AUTH_BASE_URL/mcp" \
-  --credentials-file .mcpjam/credentials.json
-
-npx @mcpjam/cli@3.24.0 tools call \
-  --url "$AUTH_BASE_URL/mcp" \
-  --credentials-file .mcpjam/credentials.json \
-  --tool-name list_workspaces \
-  --tool-args '{}'
-```
-
-For a visual OAuth and JSON-RPC timeline on a local origin:
+The official MCP Inspector is an external diagnostic client. It is not bundled
+into `ctxpipe` or the self-hosted backend. Pin its version. Do not use
+`@latest`. Use a test organization. Do not use a customer organization.
 
 ```bash
-npx @mcpjam/inspector@2.40.0 \
-  --url "$AUTH_BASE_URL/mcp" \
-  --name "ctxpipe self-host" \
-  --oauth \
-  --tab servers
+npx @modelcontextprotocol/inspector@2.16.0
 ```
 
-The hosted MCPJam application only reaches public HTTPS. It cannot use
-`localhost` or refresh against a local authorization server.
+In the Inspector, select the Streamable HTTP transport, enter
+`$AUTH_BASE_URL/mcp`, and connect. The Inspector runs OAuth in the browser.
+Then list the tools, and call `list_workspaces` with no arguments. The
+Inspector shows each JSON-RPC message.
 
-## Artifacts and credentials
+## Credentials
 
-Keep OAuth credentials and debug traces out of Git. Write them under `.mcpjam/`
-(gitignored in the ctxpipe repository). Review files before sharing. The
-credentials file can include an access token, refresh token, client id, and
-client secret even when stdout is redacted.
+Keep OAuth credentials and debug traces out of Git. Review files before
+sharing. A saved credentials file can include an access token, refresh token,
+client id, and client secret.
 
 The ctxpipe doctor never accepts or prints OAuth bearer tokens, and never
 prints an API key. Do not put `access_token`
 on the MCP URL.
 
-MCPJam does not prove token refresh races, dropped-session recovery, or
-concurrent clients. Do not gate CI on interactive OAuth or LLM evals.
+The Inspector does not prove token refresh races, dropped-session recovery, or
+concurrent clients. Do not gate CI on interactive OAuth.
 
 ## Common failures
 

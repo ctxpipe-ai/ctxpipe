@@ -1,7 +1,6 @@
 import { readFileSync } from "node:fs"
 
 import { builds } from "./builds.mjs"
-import { listEvals, runEvals } from "./evals.mjs"
 import { listVitest, runVitest } from "./lanes.mjs"
 import { withNeeds } from "./prerequisites.mjs"
 import { listProjects, runProjects } from "./projects.mjs"
@@ -13,7 +12,6 @@ import { listStorybook, runStorybook, storybookArtifact } from "./storybook.mjs"
 export const runners = {
   vitest: runVitest,
   storybook: runStorybook,
-  eval: runEvals,
   typecheck: runProjects,
   lint: runProjects,
   policy: runProjects,
@@ -30,7 +28,6 @@ export async function listChecks() {
   const lists = await Promise.all([
     listVitest(),
     listStorybook(),
-    listEvals(),
     listProjects(),
   ])
   // The checks that the nightly audit found not portable: their result

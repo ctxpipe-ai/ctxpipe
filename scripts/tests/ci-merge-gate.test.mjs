@@ -99,8 +99,6 @@ test("a change to a file that lists, defines or runs checks gives a full run, or
     "scripts/ci/check-test-report.mjs",
     // An input of each aws-cdk check that needs the image tag.
     "packages/aws-cdk/scripts/stamp-image-tag.mjs",
-    // The evals are stochastic: the store keeps no pass of them.
-    "apps/backend/evals/mcp/baseline.json",
   ])
   // The walk finds the known files, so a broken walk cannot pass.
   for (const known of [
@@ -113,7 +111,6 @@ test("a change to a file that lists, defines or runs checks gives a full run, or
     "scripts/checks/non-portable.json",
     "scripts/ci/vitest-launch.mjs",
     "scripts/ci/projects.json",
-    "apps/backend/evals/mcp/cases.ts",
     "apps/ui/.storybook/check-modules.mjs",
     "apps/codesearch/scripts/run-vitest-contracts.mjs",
     ...keyed,
@@ -285,7 +282,6 @@ test("the base listing job runs no code of the PR, and the plan reads its listin
   }
   visit("scripts/checks/list.mjs")
   assert.ok(imported.has("apps/ui/.storybook/check-modules.mjs"))
-  assert.ok(imported.has("apps/backend/evals/mcp/cases.ts"))
   for (const file of [...imported, "apps/ui/.storybook/main.ts"])
     assert.ok(at(file), file)
   // The Storybook config that buildIndex loads decides which stories exist,
@@ -453,7 +449,6 @@ test("only a same-repo pull_request without gate input changes runs the selector
     })
   for (const path of [
     ".github/workflows/deploy.yaml",
-    ".github/workflows/mcp-evals.yaml",
     "scripts/checks/README.md",
     ".node-version",
     "scripts/ci/check-secret-jobs.mjs",
@@ -1493,7 +1488,7 @@ test("a gated run packs its checks into the fewest shards that hold the target, 
     ["vitest:ui:apps/ui/d.test.tsx", 5],
     ["vitest:ui:apps/ui/e.test.tsx", 5],
   ])
-  const shards = shard([...seconds.keys(), "eval:mcp:x#y"], seconds, {})
+  const shards = shard([...seconds.keys(), "vitest:latency:x"], seconds, {})
   assert.deepEqual(Object.keys(shards), ["database", "node"])
   assert.deepEqual(
     shards.database.map((item) => item.seconds),
@@ -1552,7 +1547,6 @@ test("a gated run packs its checks into the fewest shards that hold the target, 
   )
   assert.equal(shard([...many.keys()], many, {}).node.length, 1)
   assert.equal(shardMinutes({ node: [{ ids: [], seconds: 60 }] }), 1.3)
-  assert.equal(runsInOf("eval:mcp:x"), undefined)
   assert.equal(runsInOf("vitest:latency:x"), undefined)
   assert.deepEqual(runsInOf("policy:runners:scripts/ci/check-runners.mjs"), {
     job: "lint",
@@ -1922,8 +1916,7 @@ test("the summary stays under the size limit of a GitHub job summary, and a cut 
   )
   assert.equal(run.status, 0, run.stderr)
   const bytes = readFileSync(join(out, "summary.md"))
-  // GitHub refuses a step summary over 1 MiB; the MCP evals reminder adds a
-  // line after the decision.
+  // GitHub refuses a step summary over 1 MiB.
   assert.ok(bytes.length <= 1000 * 1024, `${bytes.length} bytes`)
   const text = bytes.toString("utf8")
   assert.ok(!text.includes("\uFFFD"), "no split character")
