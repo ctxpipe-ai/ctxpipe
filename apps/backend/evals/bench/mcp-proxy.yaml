@@ -1,5 +1,5 @@
 # The MCP proxy of the CTX arm (run.py adds this file to the Harbor job).
-# The egress allowlist of the agent phase holds only the model host and
+# The egress allowlist of the agent phase holds only the model gateway and
 # ctxpipe-mcp-proxy, never host.docker.internal. Thus the agent cannot reach
 # the other ports of the host (FalkorDB, ClickHouse, Postgres). Each trial has
 # its own proxy, so its limits apply to one run (README.md).

@@ -1,13 +1,16 @@
 """Run the OrgBench spike (CTX-1660): each task x arm x model once, through Harbor.
 
-Each run is one Harbor job with the stock `claude-code` agent. The script
-stops before a run that could take the spend over --cap-usd, records each run
-(record.py), and resumes from runs.jsonl in --out: a run with an error runs
-again. See README.md.
+Each run is one Harbor job with the stock `claude-code` agent. The model
+requests of a run go through the model gateway of the run (model-gateway.yaml),
+which holds the model key and stops the run at its budget. The script admits
+a run only when the spend so far, the budget of the run and the server reserve
+of the arm are not more than --cap-usd. It records each run (record.py), and
+resumes from runs.jsonl in --out: a run with an error runs again. See
+README.md.
 
 Environment:
-  ANTHROPIC_AUTH_TOKEN  the model key of `factory eval` (or ANTHROPIC_API_KEY); --cap-usd
-                        and the --max-budget-usd of each run are the spend cap
+  ANTHROPIC_AUTH_TOKEN  the model key of `factory eval` (or ANTHROPIC_API_KEY). Only the
+                        model gateway gets it, never the agent container.
   ANTHROPIC_BASE_URL    optional, an Anthropic-compatible endpoint
   CTXPIPE_API_KEY       the org key of the bench org (CTX arm)
   DOCKER_HOST           the Docker of Harbor
@@ -20,9 +23,8 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from urllib.parse import urlparse
 
-from record import falkor_graph_calls, gateway_usage, record_run, run_cost, write_report
+from record import falkor_graph_calls, byok_usage, record_run, run_cost, write_report
 
 BENCH = Path(__file__).resolve().parent
 
@@ -30,10 +32,10 @@ BENCH = Path(__file__).resolve().parent
 def job_config(args, config, arm_name, model_name, task, run_id):
     arm = config["arms"][arm_name]
     model = config["models"][model_name]
-    base_url = os.environ.get("ANTHROPIC_BASE_URL")
     # The tasks allow no egress in the agent phase (task.toml); the agent
-    # reaches only the model endpoint and, in the CTX arm, the MCP proxy.
-    hosts = [urlparse(base_url).hostname if base_url else "api.anthropic.com"]
+    # reaches only the model gateway and, in the CTX arm, the MCP proxy.
+    # The allowlist never holds the model host.
+    hosts = ["ctxpipe-model-gateway"]
     agent = {
         "name": "claude-code",
         "model_name": model["id"],
@@ -44,17 +46,16 @@ def job_config(args, config, arm_name, model_name, task, run_id):
         },
         "env": {"CTXPIPE_CONVERSATION_ID": run_id},
         "extra_allowed_hosts": hosts,
+        "base_url": "http://ctxpipe-model-gateway",
     }
     if arm["disallowedTools"]:
         agent["kwargs"]["disallowed_tools"] = ",".join(arm["disallowedTools"])
-    if base_url:
-        agent["base_url"] = base_url
-    environment = {"type": "docker"}
+    environment = {"type": "docker", "extra_docker_compose": [str(BENCH / "model-gateway.yaml")]}
     if arm["mcp"]:
         # The proxy forwards only /mcp to the backend (mcp-proxy.yaml). The
         # allowlist never holds host.docker.internal: that host also gives
         # the ports of the stores.
-        environment["extra_docker_compose"] = [str(BENCH / "mcp-proxy.yaml")]
+        environment["extra_docker_compose"].append(str(BENCH / "mcp-proxy.yaml"))
         hosts.append("ctxpipe-mcp-proxy")
         agent["mcp_servers"] = [
             {
@@ -83,6 +84,30 @@ def job_config(args, config, arm_name, model_name, task, run_id):
     }
 
 
+def harbor_env(model, out):
+    """The environment of Harbor: the model key goes only to the model gateway.
+
+    Claude Code gets a dummy token. Compose gives the key and the budget of
+    the run to the gateway (model-gateway.yaml).
+    """
+    env = dict(os.environ)
+    token = env.pop("ANTHROPIC_AUTH_TOKEN", None)
+    api_key = env.pop("ANTHROPIC_API_KEY", None)
+    env.pop("ANTHROPIC_BASE_URL", None)
+    out.mkdir(parents=True, exist_ok=True)
+    env.update(
+        ANTHROPIC_AUTH_TOKEN="model-gateway",
+        MODEL_GATEWAY_UPSTREAM=os.environ.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com"),
+        MODEL_GATEWAY_KEY=token or api_key,
+        MODEL_GATEWAY_KEY_HEADER="Authorization" if token else "x-api-key",
+        MODEL_GATEWAY_MODEL=model["id"],
+        MODEL_GATEWAY_PRICES=json.dumps(model["pricesUsdPerMTok"]),
+        MODEL_GATEWAY_BUDGET_USD=str(model["runCapUsd"]),
+        MODEL_GATEWAY_OUT=str(out),
+    )
+    return env
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", type=Path, required=True, help="run folder, in a path Docker can mount")
@@ -102,21 +127,22 @@ def main():
     # A failed run keeps its spend, but it is not done: it runs again.
     done = {(r["model"], r["arm"], r["task"]) for r in runs if not r["error"]}
     spent = sum(run_cost(r) for r in runs)
-    # The gateway counter lags by up to a minute, so it checks the spend of
-    # the whole invocation, not of each run.
-    gateway_before, new_runs, status = gateway_usage(), [], 0
+    # The byok_usage counter of OpenRouter lags by up to a minute, so it
+    # checks the spend of the whole invocation, not of each run.
+    byok_before, new_runs, status = byok_usage(), [], 0
     try:
         for model_name in args.models.split(","):
             model = config["models"][model_name]
-            # Task first, so that a stop at the cap leaves whole pairs of arms.
+            # Task first, so that the arms of a task run one after the other.
             for task in args.tasks.split(","):
                 for arm_name in args.arms.split(","):
                     if (model_name, arm_name, task) in done:
                         continue
+                    # The model gateway stops the agent at the cap of the run.
                     # The server calls of a CTX run (a query embedding and Jev
-                    # for each search) have no spend cap: the MCP proxy limits
-                    # only their count. Thus the arm reserves an estimate of
-                    # their cost (README.md).
+                    # for each search) have no dollar cap: the MCP proxy limits
+                    # only their count. Thus the arm also reserves an estimate
+                    # of their cost (README.md).
                     reserve = model["runCapUsd"] + config["arms"][arm_name]["serverReserveUsd"]
                     if spent + reserve > args.cap_usd:
                         print(f"stop: ${spent:.3f} spent, the next run can cost ${reserve}, cap ${args.cap_usd}")
@@ -131,6 +157,7 @@ def main():
                     subprocess.run(
                         [str(Path(sys.executable).parent / "harbor"), "run", "--config", str(config_path), "--yes"],
                         check=False,
+                        env=harbor_env(model, args.out / "gateway" / run_id),
                     )
                     ended = time.time()
                     # The backend exports its spans every 5 s, and the collector writes each second.
@@ -151,15 +178,15 @@ def main():
         return status
     finally:
         write_report(args.out, runs)
-        if gateway_before is not None:
+        if byok_before is not None:
             check = {
-                "byokUsageDelta": round(gateway_usage() - gateway_before, 6),
+                "byokUsageDelta": round(byok_usage() - byok_before, 6),
                 "claudeCodeCostUsd": round(sum(r["claudeCodeCostUsd"] or 0 for r in new_runs), 6),
                 "runs": [r["runId"] for r in new_runs],
             }
-            with (args.out / "gateway.jsonl").open("a") as f:
+            with (args.out / "byok.jsonl").open("a") as f:
                 f.write(json.dumps(check) + "\n")
-            print(f"gateway check: {check['byokUsageDelta']} USD on the provider key, Claude Code says {check['claudeCodeCostUsd']}")
+            print(f"byok check: {check['byokUsageDelta']} USD on the provider key, Claude Code says {check['claudeCodeCostUsd']}")
 
 
 if __name__ == "__main__":

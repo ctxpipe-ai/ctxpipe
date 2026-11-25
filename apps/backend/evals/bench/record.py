@@ -34,7 +34,7 @@ def falkor_graph_calls(container):
     return calls
 
 
-def openrouter_key():
+def openrouter_key_status():
     """The status of the OpenRouter model key of the run, or None for another endpoint."""
     base = os.environ.get("ANTHROPIC_BASE_URL", "")
     token = os.environ.get("ANTHROPIC_AUTH_TOKEN") or os.environ.get("ANTHROPIC_API_KEY")
@@ -47,18 +47,19 @@ def openrouter_key():
         return json.load(response)["data"]
 
 
-def gateway_usage():
+def byok_usage():
     """The upstream spend of the OpenRouter key on the provider key of the account (`byok_usage`).
 
     The counter lags by up to a minute, so the function reads until two reads
     20 s apart agree.
     """
-    if openrouter_key() is None:
+    status = openrouter_key_status()
+    if status is None:
         return None
-    last = openrouter_key()["byok_usage"]
+    last = status["byok_usage"]
     for _ in range(6):
         time.sleep(20)
-        now = openrouter_key()["byok_usage"]
+        now = openrouter_key_status()["byok_usage"]
         if now == last:
             break
         last = now
@@ -153,6 +154,8 @@ def record_run(*, out, run_id, model, arm, task, cap_usd, otlp, started, ended, 
     reward_path = trial / "verifier" / "reward.txt"
     facts_path = trial / "verifier" / "facts.json"
     trial_result = json.loads((trial / "result.json").read_text()) if (trial / "result.json").is_file() else {}
+    gateway_path = out / "gateway" / run_id / "spend.json"
+    gateway = json.loads(gateway_path.read_text()) if gateway_path.is_file() else {}
     return {
         "runId": run_id,
         "model": model,
@@ -162,6 +165,9 @@ def record_run(*, out, run_id, model, arm, task, cap_usd, otlp, started, ended, 
         "facts": json.loads(facts_path.read_text())["facts"] if facts_path.is_file() else None,
         "tokens": tokens,
         "claudeCodeCostUsd": result.get("total_cost_usd"),
+        "gatewayCostUsd": gateway.get("usd"),
+        "gatewayRequests": gateway.get("requests"),
+        "gatewayRefused": gateway.get("refused"),
         "runCapUsd": cap_usd,
         "turns": result.get("num_turns"),
         "agentSeconds": round(result.get("duration_ms", 0) / 1000, 1),
@@ -182,10 +188,14 @@ def record_run(*, out, run_id, model, arm, task, cap_usd, otlp, started, ended, 
 def run_cost(run):
     """The spend of a run: the agent, and the model calls of the server.
 
-    A run with no result event (a timeout, a crash) has no cost count, so it
-    counts as its full cap.
+    The agent spend is the total of the model gateway, which also counts the
+    model requests that did not come from Claude Code. A run with no gateway
+    total (a record from before the gateway) uses the Claude Code cost, and a
+    run with neither counts as its full cap.
     """
-    agent = run["claudeCodeCostUsd"]
+    agent = run.get("gatewayCostUsd")
+    if agent is None:
+        agent = run["claudeCodeCostUsd"]
     server = run["server"]
     return (run["runCapUsd"] if agent is None else agent) + server.get("backendCostUsd", server["modelCostUsd"])
 

@@ -25,10 +25,22 @@
   "models": {
     "haiku": {
       "id": "anthropic/claude-haiku-5-5",
+      "pricesUsdPerMTok": {
+        "input": 0.1,
+        "output": 0.5,
+        "cacheWrite": 0.125,
+        "cacheRead": 0.01
+      },
       "runCapUsd": 0.1
     },
     "sonnet": {
       "id": "anthropic/claude-sonnet-5-5",
+      "pricesUsdPerMTok": {
+        "input": 2,
+        "output": 10,
+        "cacheWrite": 2.5,
+        "cacheRead": 0.1
+      },
       "runCapUsd": 0.3
     }
   },

@@ -7,8 +7,9 @@ This folder holds the phase 0 spike of OrgBench, the org-scale benchmark for con
 | File | What it is |
 | --- | --- |
 | `tasks/<id>/` | One Harbor task for each question: `instruction.md` (the question), `environment/Dockerfile` (the agent workspace), `tests/` (the verifier). Harbor copies only the task folder into the container, so each task has its own copy of `grade.py`. |
-| `arms.json` | The arms, the neutral preamble, the models, the spend cap of each run and the reserve for the server calls of an arm. |
+| `arms.json` | The arms, the neutral preamble, the models with their list prices, the spend cap of each run and the reserve for the server calls of an arm. |
 | `run.py` | Runs each task × arm × model one time as a Harbor job, stops before the spend cap, and resumes from `runs.jsonl`. |
+| `model-gateway.yaml` | The model gateway of each run: a Compose service that holds the model key and stops the run at its cap. |
 | `mcp-proxy.yaml` | The MCP proxy of the CTX arm: a Compose service that Harbor adds to the job of a CTX run. |
 | `record.py` | The recorder: one record for each run, and `report.md`. |
 | `mint-key.ts` | Makes an org API key for the CTX arm. |
@@ -28,7 +29,7 @@ The agent writes its answer to `/app/answer.md`. The verifier (`tests/grade.py`)
 
 ## The arms
 
-Both arms get the same preamble (`arms.json`), with one sentence that tells where the sources are. Both arms disallow the web tools (`WebSearch`, `WebFetch` in `disallowedTools`). The agent phase has no egress (`network_mode = "allowlist"` in `task.toml`) except to the hosts that `run.py` adds: the model endpoint, and the MCP proxy in the CTX arm. The install of Claude Code runs before the agent phase, with network. The verifier has no network.
+Both arms get the same preamble (`arms.json`), with one sentence that tells where the sources are. Both arms disallow the web tools (`WebSearch`, `WebFetch` in `disallowedTools`). The agent phase has no egress (`network_mode = "allowlist"` in `task.toml`) except to the hosts that `run.py` adds: the model gateway, and the MCP proxy in the CTX arm. The install of Claude Code runs before the agent phase, with network. The verifier has no network.
 
 | Arm | Workspace | MCP |
 | --- | --- | --- |
@@ -37,7 +38,7 @@ Both arms get the same preamble (`arms.json`), with one sentence that tells wher
 
 ### The CTX arm reaches only the MCP
 
-On Colima and Docker Desktop, a container can connect to each port of the host through `host.docker.internal`. This includes the stores of the bench (FalkorDB, ClickHouse, Postgres). Harbor allows hosts, not ports. Thus the allowlist of the CTX arm never holds `host.docker.internal`. It holds only the model host and `ctxpipe-mcp-proxy`.
+On Colima and Docker Desktop, a container can connect to each port of the host through `host.docker.internal`. This includes the stores of the bench (FalkorDB, ClickHouse, Postgres). Harbor allows hosts, not ports. Thus the allowlist of the CTX arm never holds `host.docker.internal`. It holds only `ctxpipe-model-gateway` and `ctxpipe-mcp-proxy`.
 
 `ctxpipe-mcp-proxy` is a small Python proxy in a pinned image, in the Compose project of the trial (`mcp-proxy.yaml`). Each trial has its own proxy, so its limits apply to one run. It forwards only the path `/mcp` (exactly) to the backend at `host.docker.internal:3660`, with the headers of the request (`x-api-key`, `x-ctxpipe-conversation-id`). Each other path, also an encoded path such as `/api/x%2F..%2F..%2Fmcp`, gets 404, and the proxy listens on no other port. It also has these limits. They limit the count of the tool calls of a run, not their cost:
 
@@ -47,6 +48,17 @@ On Colima and Docker Desktop, a container can connect to each port of the host t
 - It removes the tracing headers of the client (`traceparent`, `tracestate`, `baggage`). Thus a client cannot stop the sampling of the model calls of the backend, and the recorder counts each of them. The proxy sends the Host header `host.docker.internal:3660`, the host of `AUTH_BASE_URL`, so the DNS rebinding check of the backend accepts the request. The egress sidecar of Harbor sniffs the HTTP Host and the TLS SNI, and it connects to that host, not to the address of the packet. Thus a request to the address of the host with the Host header `ctxpipe-mcp-proxy` goes to the proxy, not to the host.
 
 A probe in a task container of the CTX arm (the `oracle` agent, with the same network setup) got these results: `POST /mcp` through the proxy gave 200 with the org key and 401 with no key, other paths and the encoded path above gave 404, a batch gave 400, `get_related` gave 403, tool calls 1 to 120 gave 200 and call 121 gave 429, the backend sampled all 120 calls although each sent an unsampled `traceparent`, and FalkorDB (16379), ClickHouse (18123), Postgres (5433) and the backend (3660) on `host.docker.internal` sent no data, also with a false Host header. From a container with no egress control, the same probe got `+PONG`, `200 OK` and an answer from Postgres.
+
+### The model key stays in the model gateway
+
+The agent can run Bash, and text in the corpus can tell it to send model requests. Thus the agent container never gets the model key, and it cannot reach the model host. `ctxpipe-model-gateway` is a small Python proxy in a pinned image, in the Compose project of the trial (`model-gateway.yaml`), in both arms. It has these properties:
+
+- `run.py` gives the model key only to the Compose project of the trial (`MODEL_GATEWAY_KEY`). Claude Code gets `ANTHROPIC_BASE_URL=http://ctxpipe-model-gateway` and a dummy token. The egress allowlist holds the gateway, never the model host.
+- It forwards only `POST /v1/messages` and `/v1/messages/count_tokens`, and only for the model of the run. It adds the key. Each other path gets 404, and another model gets 403.
+- It reads the `usage` of each response (also a streamed response), and prices it with the list price of the model (`pricesUsdPerMTok` in `arms.json`). It sends one request at a time. When the spend of the run gets to the cap of the run (`runCapUsd`), it refuses each next request with 402. Thus a run can go over its cap only by the request that was in flight.
+- It writes the spend of the run to `gateway/<run>/spend.json` in the run folder. The recorder uses that total as the agent spend, because it also counts a model request that did not come from Claude Code.
+
+A probe in a task container (the `oracle` agent, with the network setup of a CTX run) got these results: no environment variable, process environment or file had the model key, `openrouter.ai` and `api.anthropic.com` sent no answer, the gateway gave 200 with the dummy token (with and without a stream), 403 for another model and 404 for another path, and with a budget of $0.002 it refused the third long request with 402. Its total was $0.00202. A Haiku CTX run through the gateway (`backstage-cross-source-13`) scored 1.0. The gateway total ($0.006881, 5 requests) was equal to the Claude Code `total_cost_usd` and to the change of the upstream spend of the key (`byok_usage`). The run folder had no copy of the model key.
 
 ### The CTX arm reads only the knowledge plane (decision D5)
 
@@ -90,14 +102,14 @@ DOCKER_HOST=… ANTHROPIC_BASE_URL=https://openrouter.ai/api ANTHROPIC_AUTH_TOKE
 python evals/bench/record.py ~/RUN   # writes report.md again from runs.jsonl
 ```
 
-- Use the model keys of `factory eval`: the factory gets the model key from `MODEL_PROVIDER_API_KEY` or the login keychain (`factory-model-provider`). Give the backend (`MODEL_PROVIDER_API_KEY`) the same key. The limit of that key does not count the Claude calls (provider-key, BYOK, usage), so the spend cap is `--cap-usd` of `run.py` and the `--max-budget-usd` of each run. The MCP proxy limits the count of the server calls of a run (see [The CTX arm reaches only the MCP](#the-ctx-arm-reaches-only-the-mcp)).
+- Use the model keys of `factory eval`: the factory gets the model key from `MODEL_PROVIDER_API_KEY` or the login keychain (`factory-model-provider`). Give the backend (`MODEL_PROVIDER_API_KEY`) the same key. The limit of that key does not count the Claude calls (provider-key, BYOK, usage), so the spend cap is `--cap-usd` of `run.py`, which the model gateway enforces for each run (see [The model key stays in the model gateway](#the-model-key-stays-in-the-model-gateway)). The MCP proxy limits the count of the server calls of a run (see [The CTX arm reaches only the MCP](#the-ctx-arm-reaches-only-the-mcp)).
 - The CTX arm reaches the backend only through the MCP proxy (see [The CTX arm reaches only the MCP](#the-ctx-arm-reaches-only-the-mcp)).
 - Each run is one Harbor job with the stock `claude-code` agent at a pinned Claude Code version, with `--max-turns` and `--max-budget-usd` (the cap of the run in `arms.json`).
-- Before each run, `run.py` adds the cap of the run and the server reserve of the arm to the spend so far. The CTX reserve ($0.12) is an estimate: each search makes one query embedding and about two Jev calls (at most $0.001 measured), and it assumes at most three searches in each of the `maxTurns` (40) turns. The MCP proxy enforces that count: at most 120 tool calls in a run. When the sum is more than `--cap-usd`, it stops with exit code 3. The order is model, then task, then arm, so a stop leaves whole pairs of arms.
+- Before each run, `run.py` adds the cap of the run and the server reserve of the arm to the spend so far. When the sum is more than `--cap-usd`, it stops with exit code 3. The model gateway enforces the cap of the run, in dollars. The server calls have no dollar limit for each run: the backend calls the model host from the host, with its own key. Thus the CTX reserve ($0.12) is an estimate: each search makes one query embedding and about two Jev calls (at most $0.001 measured), and it assumes at most three searches in each of the `maxTurns` (40) turns. The MCP proxy enforces that count: at most 120 tool calls in a run. The recorded server spend of each run counts, so `run.py` stops before a run when the recorded spend and the reserve of the next run are more than the cap.
 - A run with no result event or no reward is a failed run: it keeps its spend, `run.py` exits with 1, and the next invocation runs it again.
-- The spend of a run is the Claude Code `total_cost_usd` (the full cap of the run when the run has no result event), plus the cost of the model calls of the bench backend after the start of the run (`gen_ai.usage.cost` on its spans: the query embeddings and Jev; `server.backendCostUsd`). This also counts a call with no conversation id or the id of another run. `server.modelCostUsd` is the part of the MCP calls of the run.
-- With an OpenRouter key, `run.py` also reads the upstream spend of the key (`byok_usage`) before and after all its runs, and writes the change and the Claude Code total to `gateway.jsonl`. The counter lags by up to a minute, so it checks the total, not each run.
+- The spend of a run is the total of the model gateway (the Claude Code `total_cost_usd` when there is no gateway total, and the full cap of the run when the run has neither), plus the cost of the model calls of the bench backend after the start of the run (`gen_ai.usage.cost` on its spans: the query embeddings and Jev; `server.backendCostUsd`). This also counts a call with no conversation id or the id of another run. `server.modelCostUsd` is the part of the MCP calls of the run.
+- With an OpenRouter key, `run.py` also reads the upstream spend of the key (`byok_usage`) before and after all its runs, and writes the change and the Claude Code total to `byok.jsonl`. The counter lags by up to a minute, so it checks the total, not each run.
 
 ## The record of a run
 
-`runs.jsonl` holds one record for each run: the reward and the matched facts, the tokens (input, output, cache read, cache write), the Claude Code cost, the turns, the agent time and the wall time, the tool calls of the transcript and the MCP calls that gave an error result (`mcpFailedCalls`: bad arguments that the MCP SDK refused, which have no span, and the errors of the tools), the MCP server spans of the run (joined by `ctxpipe.mcp.conversation.id`: the calls and the error codes for each tool, the Jev calls, the model cost of the server) and the D5 proof. The trial folder of each run holds the full transcript (`agent/claude-code.txt`, `agent/trajectory.json`) and the verifier output.
+`runs.jsonl` holds one record for each run: the reward and the matched facts, the tokens (input, output, cache read, cache write), the Claude Code cost, the total of the model gateway (`gatewayCostUsd`, with its requests and its refused requests), the turns, the agent time and the wall time, the tool calls of the transcript and the MCP calls that gave an error result (`mcpFailedCalls`: bad arguments that the MCP SDK refused, which have no span, and the errors of the tools), the MCP server spans of the run (joined by `ctxpipe.mcp.conversation.id`: the calls and the error codes for each tool, the Jev calls, the model cost of the server) and the D5 proof. The trial folder of each run holds the full transcript (`agent/claude-code.txt`, `agent/trajectory.json`) and the verifier output.

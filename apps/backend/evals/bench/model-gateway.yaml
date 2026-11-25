@@ -1,0 +1,146 @@
+# The model gateway of a run (run.py adds this file to each Harbor job).
+# The model key stays in this container: Claude Code gets only the URL of the
+# gateway and a dummy token, and the egress allowlist of the agent phase never
+# holds the model host. The gateway stops the run at its dollar budget, also
+# for a model request from Bash (README.md).
+services:
+  ctxpipe-model-gateway:
+    image: python:3.12.11-alpine3.22@sha256:efcdfa6a6b2fd2afb9c7dfa9a5b288a6f68338b5cfdebe6b637d986067d85757
+    # An explicit network: Harbor then does not put the gateway behind the
+    # egress sidecar, and the gateway can reach the model host.
+    networks: [default]
+    command: ["python", "-u", "/gateway.py"]
+    environment:
+      GATEWAY_UPSTREAM: ${MODEL_GATEWAY_UPSTREAM:?}
+      GATEWAY_KEY: ${MODEL_GATEWAY_KEY:?}
+      GATEWAY_KEY_HEADER: ${MODEL_GATEWAY_KEY_HEADER:?}
+      GATEWAY_MODEL: ${MODEL_GATEWAY_MODEL:?}
+      GATEWAY_PRICES: ${MODEL_GATEWAY_PRICES:?}
+      GATEWAY_BUDGET_USD: ${MODEL_GATEWAY_BUDGET_USD:?}
+    volumes:
+      - ${MODEL_GATEWAY_OUT:?}:/out
+    configs:
+      - source: model-gateway
+        target: /gateway.py
+
+configs:
+  model-gateway:
+    content: |
+      # Forward only the Messages API of the run model to the model host, with
+      # the model key. Price the usage of each response with the list price
+      # (GATEWAY_PRICES, USD for each million tokens), and refuse each request
+      # after the spend of the run gets to GATEWAY_BUDGET_USD. One request at a
+      # time, so a run can go over its budget by at most the request that was
+      # in flight. /out/spend.json holds the spend after each request.
+      import http.client
+      import http.server
+      import json
+      import os
+      import threading
+      from urllib.parse import urlsplit
+
+      UPSTREAM = urlsplit(os.environ["GATEWAY_UPSTREAM"])
+      KEY, KEY_HEADER = os.environ["GATEWAY_KEY"], os.environ["GATEWAY_KEY_HEADER"]
+      MODEL = os.environ["GATEWAY_MODEL"]
+      PRICES = json.loads(os.environ["GATEWAY_PRICES"])
+      BUDGET = float(os.environ["GATEWAY_BUDGET_USD"])
+      PATHS = {"/v1/messages", "/v1/messages/count_tokens"}
+      MAX_BODY = 8 * 1024 * 1024
+      DROP = {"host", "connection", "content-length", "transfer-encoding", "accept-encoding", "x-api-key", "authorization"}
+      lock = threading.Lock()
+      spend = {"usd": 0.0, "requests": 0, "refused": 0}
+
+
+      def cost(usage):
+          return (
+              usage.get("input_tokens", 0) * PRICES["input"]
+              + usage.get("output_tokens", 0) * PRICES["output"]
+              + usage.get("cache_creation_input_tokens", 0) * PRICES["cacheWrite"]
+              + usage.get("cache_read_input_tokens", 0) * PRICES["cacheRead"]
+          ) / 1e6
+
+
+      def save():
+          with open("/out/spend.json.tmp", "w") as f:
+              json.dump(spend, f)
+          os.replace("/out/spend.json.tmp", "/out/spend.json")
+
+
+      class Gateway(http.server.BaseHTTPRequestHandler):
+          def do_POST(self):
+              path = urlsplit(self.path).path
+              if path not in PATHS:
+                  return self.send_error(404)
+              length = int(self.headers.get("content-length") or 0)
+              if "transfer-encoding" in self.headers or length > MAX_BODY:
+                  return self.send_error(413)
+              body = self.rfile.read(length)
+              try:
+                  message = json.loads(body)
+                  model = message.get("model")
+              except (ValueError, AttributeError):
+                  return self.send_error(400, "not a JSON object")
+              # Harbor gives Claude Code the model id with no provider prefix.
+              if model not in {MODEL, MODEL.split("/")[-1]}:
+                  return self.send_error(403, "the run allows only its own model")
+              message["model"] = MODEL
+              body = json.dumps(message).encode()
+              with lock:
+                  if spend["usd"] >= BUDGET:
+                      spend["refused"] += 1
+                      save()
+                      return self.send_error(402, "the run used its budget")
+                  usage = self.forward(body)
+                  spend["usd"] += cost(usage)
+                  spend["requests"] += 1
+                  save()
+
+          def forward(self, body):
+              """Send the request upstream, send the response back, and return its usage."""
+              headers = {k: v for k, v in self.headers.items() if k.lower() not in DROP}
+              headers[KEY_HEADER] = f"Bearer {KEY}" if KEY_HEADER.lower() == "authorization" else KEY
+              headers["Accept-Encoding"] = "identity"
+              upstream = http.client.HTTPSConnection(UPSTREAM.hostname, UPSTREAM.port or 443, timeout=600)
+              upstream.request("POST", UPSTREAM.path.rstrip("/") + self.path, body, headers)
+              response = upstream.getresponse()
+              self.send_response(response.status)
+              for k, v in response.getheaders():
+                  if k.lower() not in {"connection", "content-length", "transfer-encoding"}:
+                      self.send_header(k, v)
+              self.send_header("Connection", "close")
+              self.end_headers()
+              stream = "text/event-stream" in (response.getheader("content-type") or "")
+              usage, data, client = {}, b"", True
+              # Send each part when it comes (server-sent events). Read to the
+              # end also when the client goes, because the model host bills
+              # the full response.
+              while part := response.read1(65536):
+                  if client:
+                      try:
+                          self.wfile.write(part)
+                          self.wfile.flush()
+                      except OSError:
+                          client = False
+                  data += part
+                  if stream:
+                      *lines, data = data.split(b"\n")
+                      for line in lines:
+                          if line.startswith(b"data:"):
+                              try:
+                                  event = json.loads(line[5:])
+                              except ValueError:
+                                  continue
+                              # message_start has the input usage, message_delta the output.
+                              usage.update((event.get("message") or {}).get("usage") or event.get("usage") or {})
+              if not stream:
+                  try:
+                      usage.update(json.loads(data).get("usage") or {})
+                  except (ValueError, AttributeError):
+                      pass
+              upstream.close()
+              self.close_connection = True
+              return {k: v for k, v in usage.items() if isinstance(v, int)}
+
+
+      save()
+      http.server.ThreadingHTTPServer(("", 80), Gateway).serve_forever()
