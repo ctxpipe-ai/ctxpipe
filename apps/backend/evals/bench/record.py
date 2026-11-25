@@ -47,11 +47,13 @@ def openrouter_key():
         return json.load(response)["data"]
 
 
-def key_limit_problem():
-    """Why the OpenRouter key cannot cap the spend of the Claude calls, or None.
+def key_limit_problem(cap_usd):
+    """Why the OpenRouter key cannot hold the spend under `cap_usd`, or None.
 
     The Claude calls of OpenRouter go to the provider key of the account
     (BYOK), so the limit of the key caps them only when it counts that usage.
+    The key is the hard cap: what it still allows must not be more than the
+    cap of the run.
     """
     key = openrouter_key()
     if key is None:
@@ -60,6 +62,8 @@ def key_limit_problem():
         return "the OpenRouter key has no spend limit"
     if not key.get("include_byok_in_limit"):
         return "the limit of the OpenRouter key does not count the provider-key (BYOK) usage of the Claude calls"
+    if key["limit_remaining"] > cap_usd:
+        return f"the OpenRouter key still allows ${key['limit_remaining']:.2f}, more than the cap of ${cap_usd:.2f}"
     return None
 
 

@@ -94,7 +94,7 @@ def main():
     args = parser.parse_args()
     args.out = args.out.resolve()
     args.out.mkdir(parents=True, exist_ok=True)
-    if problem := key_limit_problem():
+    if problem := key_limit_problem(args.cap_usd):
         print(f"refused: {problem}. Give a bench model key whose limit covers the Claude calls (README.md).")
         return 2
     config = json.loads((BENCH / "arms.json").read_text())
@@ -116,7 +116,7 @@ def main():
                         continue
                     # The server calls of a CTX run (a query embedding and Jev
                     # for each search) have no cap of their own, so the arm
-                    # reserves their bound (README.md).
+                    # reserves an estimate of them (README.md); the key limit is the hard cap.
                     reserve = model["runCapUsd"] + config["arms"][arm_name]["serverReserveUsd"]
                     if spent + reserve > args.cap_usd:
                         print(f"stop: ${spent:.3f} spent, the next run can cost ${reserve}, cap ${args.cap_usd}")
