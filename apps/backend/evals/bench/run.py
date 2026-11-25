@@ -6,9 +6,8 @@ stops before a run that could take the spend over --cap-usd, records each run
 again. See README.md.
 
 Environment:
-  ANTHROPIC_AUTH_TOKEN  the spend-capped model key of the bench (or ANTHROPIC_API_KEY); the
-                        script refuses an OpenRouter key whose limit does not count the
-                        Claude calls, or that still allows more than --cap-usd
+  ANTHROPIC_AUTH_TOKEN  the model key of `factory eval` (or ANTHROPIC_API_KEY); --cap-usd
+                        and the --max-budget-usd of each run are the spend cap
   ANTHROPIC_BASE_URL    optional, an Anthropic-compatible endpoint
   CTXPIPE_API_KEY       the org key of the bench org (CTX arm)
   DOCKER_HOST           the Docker of Harbor
@@ -23,7 +22,7 @@ import time
 from pathlib import Path
 from urllib.parse import urlparse
 
-from record import falkor_graph_calls, gateway_usage, key_limit_problem, record_run, run_cost, write_report
+from record import falkor_graph_calls, gateway_usage, record_run, run_cost, write_report
 
 BENCH = Path(__file__).resolve().parent
 
@@ -94,9 +93,6 @@ def main():
     args = parser.parse_args()
     args.out = args.out.resolve()
     args.out.mkdir(parents=True, exist_ok=True)
-    if problem := key_limit_problem(args.cap_usd):
-        print(f"refused: {problem}. Give a bench model key whose limit covers the Claude calls and allows at most --cap-usd (README.md).")
-        return 2
     config = json.loads((BENCH / "arms.json").read_text())
     runs_path = args.out / "runs.jsonl"
     runs = [json.loads(line) for line in runs_path.read_text().splitlines()] if runs_path.exists() else []
@@ -116,7 +112,7 @@ def main():
                         continue
                     # The server calls of a CTX run (a query embedding and Jev
                     # for each search) have no cap of their own, so the arm
-                    # reserves an estimate of them (README.md); the key limit is the hard cap.
+                    # reserves an estimate of them (README.md).
                     reserve = model["runCapUsd"] + config["arms"][arm_name]["serverReserveUsd"]
                     if spent + reserve > args.cap_usd:
                         print(f"stop: ${spent:.3f} spent, the next run can cost ${reserve}, cap ${args.cap_usd}")
