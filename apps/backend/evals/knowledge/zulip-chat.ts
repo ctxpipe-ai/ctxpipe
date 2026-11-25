@@ -1,19 +1,17 @@
 import { createHash } from "node:crypto"
-import { setTimeout as sleep } from "node:timers/promises"
 
 import { stringify } from "yaml"
 import { z } from "zod"
 
+import { Pseudonyms } from "./pseudonyms.js"
+
 /*
  * The public chat of an org twin (OrgBench, CTX-1661): the messages of the
  * web-public channels of a Zulip server, read with no credential, as one
- * Markdown file for each topic. The same files go into the context repo of
- * the twin and are the chat files of the files arm.
- *
- * No real name, email address or user id goes into a file. Each person gets
- * a pseudonym (`person-0001`) in the order of the first message that names
- * the person. The same slice gives the same pseudonyms, and a later end
- * date only adds new ones.
+ * Markdown file for each topic as it was at the cut-off date. The same
+ * files go into the context repo of the twin and are the chat files of the
+ * files arm. No real name, email address or user id goes into a file
+ * (`pseudonyms.ts`).
  */
 
 /** The chat slice of a corpus in a plan. The end of the slice is the plan's cut-off date. */
@@ -28,51 +26,47 @@ export const zulipChatSchema = z.strictObject({
 
 export type ZulipChat = z.infer<typeof zulipChatSchema>
 
-/** The fields of a Zulip message that the export reads. */
-type ZulipMessage = {
-  id: number
-  sender_id: number
-  sender_full_name: string
-  content: string
-  timestamp: number
-  stream_id: number
-  display_recipient: string
-  subject: string
-  last_edit_timestamp?: number
-  last_moved_timestamp?: number
-  /** Each entry holds the text or the topic from before that edit. */
-  edit_history?: Array<{
-    timestamp: number
-    prev_content?: string
-    prev_topic?: string
-  }>
-}
+const id = z.number().int().positive()
 
-type ZulipPage = {
-  result: string
-  msg?: string
-  messages: ZulipMessage[]
-  found_oldest?: boolean
-  found_newest?: boolean
-}
+/** The fields of a Zulip message that the export reads. The server is not trusted. */
+const messageSchema = z.object({
+  id,
+  sender_id: id,
+  sender_full_name: z.string(),
+  content: z.string(),
+  timestamp: z.number().int(),
+  stream_id: id,
+  display_recipient: z.string(),
+  subject: z.string(),
+  last_edit_timestamp: z.number().optional(),
+  last_moved_timestamp: z.number().optional(),
+  /** Each entry holds the text, topic or channel from before that edit. */
+  edit_history: z
+    .array(
+      z.object({
+        timestamp: z.number(),
+        prev_content: z.string().optional(),
+        prev_topic: z.string().optional(),
+        prev_stream: id.optional(),
+      }),
+    )
+    .optional(),
+})
 
-/** How the export reads the server. Tests give a fetch and no pause. */
-export type ZulipAccess = {
-  fetch: (url: URL) => Promise<Response>
-  /**
-   * The wait before each request. The server asks for at most 5 requests
-   * in 10 seconds.
-   */
-  pause: () => Promise<void>
-}
+export type ZulipMessage = z.infer<typeof messageSchema>
 
-export const politeZulipAccess: ZulipAccess = {
-  fetch: (url) => fetch(url),
-  pause: () => sleep(2_000),
-}
+const pageSchema = z.object({
+  result: z.literal("success"),
+  messages: z.array(messageSchema),
+  found_oldest: z.boolean().optional(),
+})
+
+const wait = (ms: number) =>
+  new Promise<void>((resolve) => {
+    setTimeout(resolve, ms)
+  })
 
 async function page(
-  access: ZulipAccess,
   realm: string,
   query: {
     anchor: number | "newest"
@@ -81,7 +75,7 @@ async function page(
     channel?: number
     includeAnchor?: boolean
   },
-): Promise<ZulipPage> {
+) {
   // The web-public operator lets a request with no credential read.
   const narrow = [
     { operator: "channels", operand: "web-public" },
@@ -100,19 +94,17 @@ async function page(
     narrow: JSON.stringify(narrow),
   }).toString()
   for (;;) {
-    await access.pause()
-    const response = await access.fetch(url)
+    // The server asks for at most 5 requests in 10 seconds.
+    await wait(2_000)
+    const response = await fetch(url)
     if (response.status === 429) {
-      const seconds = Number(response.headers.get("retry-after") ?? "10")
-      await sleep(Math.max(1, seconds) * 1_000)
+      const seconds = Number(response.headers.get("retry-after")) || 10
+      await wait(Math.max(1, seconds) * 1_000)
       continue
     }
-    const body = (await response.json()) as ZulipPage
-    if (!response.ok || body.result !== "success")
-      throw new Error(
-        `${realm} refused a message request: ${response.status} ${body.msg ?? ""}`,
-      )
-    return body
+    if (!response.ok)
+      throw new Error(`${realm} refused a message request: ${response.status}`)
+    return pageSchema.parse(await response.json())
   }
 }
 
@@ -120,26 +112,18 @@ async function page(
  * The id of the last web-public message of the server at or before `time`,
  * by binary search over the message ids. Message ids grow with time.
  */
-async function lastIdAt(
-  access: ZulipAccess,
-  realm: string,
-  time: number,
-): Promise<number> {
+async function lastIdAt(realm: string, time: number): Promise<number> {
   const newest = (
-    await page(access, realm, {
-      anchor: "newest",
-      before: 1,
-      after: 0,
-    })
+    await page(realm, { anchor: "newest", before: 1, after: 0 })
   ).messages.at(-1)
   if (!newest || newest.timestamp <= time) return newest?.id ?? 0
-  // Each id up to `low` is at or before `time`; `high` is after it.
+  // Each id up to `low` is at or before `time`; each id from `high` is after it.
   let low = 0
   let high = newest.id
   while (high - low > 1) {
     const middle = Math.floor((low + high) / 2)
     const next = (
-      await page(access, realm, {
+      await page(realm, {
         anchor: middle,
         before: 0,
         after: 1,
@@ -162,18 +146,17 @@ async function lastIdAt(
 export async function readZulipChat(
   chat: ZulipChat,
   until: Date,
-  access: ZulipAccess,
   log: (line: string) => void,
 ): Promise<ZulipMessage[]> {
   const since = Date.parse(chat.since) / 1_000
   const end = until.getTime() / 1_000
-  const last = await lastIdAt(access, chat.realm, end)
+  const last = await lastIdAt(chat.realm, end)
   const messages: ZulipMessage[] = []
   for (const channel of chat.channels) {
     let anchor = last + 1
     let count = 0
     for (;;) {
-      const batch = await page(access, chat.realm, {
+      const batch = await page(chat.realm, {
         anchor,
         before: 100,
         after: 0,
@@ -202,78 +185,49 @@ export async function readZulipChat(
   return messages.sort((left, right) => left.id - right.id)
 }
 
-const MENTION = /@_?\*\*([^*|\n]+?)(?:\|(\d+))?\*\*/g
-const EMAIL = /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g
-// Links to a direct message or a user profile name the person by id.
-const PERSON_LINK = /#narrow\/(?:dm|pm-with|sender)\/[\w.,-]+|#user\/\d+/g
 const RESOLVED = "✔ "
+const MENTION = /@_?\*\*([^*|\n]+?)(?:\|(\d+))?\*\*/g
 
-/** The stable pseudonyms of the people of a slice. */
-class Pseudonyms {
-  private readonly byId = new Map<number, string>()
-  private readonly byName = new Map<string, number>()
-
-  /** Assign in the order of the messages: the sender, then each mention. */
-  constructor(messages: ZulipMessage[]) {
-    for (const message of messages) {
-      this.add(message.sender_id, message.sender_full_name)
-      for (const [, name = "", id] of message.content.matchAll(MENTION))
-        if (id) this.add(Number(id), name.trim())
-    }
+/**
+ * The text, topic and channel of a message as they were at `end`. The edit
+ * history gives the text, topic and channel from before each later edit,
+ * so the oldest later edit gives the state at `end`. When the history does
+ * not explain a later edit, the text is left out (`null`). When it does not
+ * explain a later move, the topic loses its resolved mark, which can be
+ * later than `end`, and the move counts as not restored.
+ */
+function atCutoff(message: ZulipMessage, end: number) {
+  const later = (message.edit_history ?? [])
+    .filter((edit) => edit.timestamp > end)
+    .sort((left, right) => left.timestamp - right.timestamp)
+  const first = <K extends "prev_content" | "prev_topic" | "prev_stream">(
+    key: K,
+  ) => later.find((edit) => edit[key] !== undefined)?.[key]
+  const explains = (time: number | undefined) =>
+    later.some((edit) => edit.timestamp === time)
+  const editedLater = (message.last_edit_timestamp ?? 0) > end
+  const movedLater = (message.last_moved_timestamp ?? 0) > end
+  const content = first("prev_content")
+  const topic = first("prev_topic")
+  const stream = first("prev_stream")
+  const unexplainedMove = movedLater && !explains(message.last_moved_timestamp)
+  return {
+    ...message,
+    content:
+      content ??
+      (editedLater && !explains(message.last_edit_timestamp)
+        ? null
+        : message.content),
+    subject:
+      topic ??
+      (unexplainedMove && message.subject.startsWith(RESOLVED)
+        ? message.subject.slice(RESOLVED.length)
+        : message.subject),
+    stream_id: stream ?? message.stream_id,
+    restored:
+      content !== undefined || topic !== undefined || stream !== undefined,
+    unexplainedMove,
   }
-
-  private add(id: number, name: string) {
-    if (!this.byId.has(id))
-      this.byId.set(id, `person-${String(this.byId.size + 1).padStart(4, "0")}`)
-    if (name && !this.byName.has(name)) this.byName.set(name, id)
-  }
-
-  get count() {
-    return this.byId.size
-  }
-
-  of(id: number): string {
-    return this.byId.get(id) ?? "someone"
-  }
-
-  /** The text with each mention, known full name and email address replaced. */
-  scrub(text: string): string {
-    let result = text.replace(MENTION, (_match, name: string, id?: string) => {
-      const person = id ? Number(id) : this.byName.get(name.trim())
-      return `@${person === undefined ? "someone" : this.of(person)}`
-    })
-    result = result.replace(EMAIL, "[email]")
-    result = result.replace(PERSON_LINK, "#narrow/[person]")
-    // A full name of two or more words, longest first. A one-word name can
-    // be a common word or code, so it stays.
-    const names = [...this.byName.keys()]
-      .filter((name) => /\s/.test(name.trim()))
-      .sort((left, right) => right.length - left.length)
-    for (const name of names) {
-      const id = this.byName.get(name)
-      const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-      if (id !== undefined)
-        result = result.replace(
-          new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, "gu"),
-          this.of(id),
-        )
-    }
-    return result
-  }
-}
-
-function slug(text: string): string {
-  return (
-    text
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 60) || "channel"
-  )
-}
-
-function iso(seconds: number): string {
-  return new Date(seconds * 1_000).toISOString().replace(/\.000Z$/, "Z")
 }
 
 export type ChatFile = { path: string; content: string }
@@ -286,16 +240,15 @@ export type ChatManifest = {
   topics: number
   messages: number
   people: number
-  /** Messages whose text or topic the edit history set back to `until`. */
+  /** Messages whose text, topic or channel the edit history set back to `until`. */
   restoredFromHistory: number
-  /** Messages edited after `until` with no edit history: their text is left out. */
+  /** Messages edited after `until` that the history does not explain: their text is left out. */
   leftOut: number
-  channels: Array<{
-    id: number
-    name: string
-    topics: number
-    messages: number
-  }>
+  /** Messages moved after `until` that the history does not explain. */
+  moveNotRestored: number
+  /** Messages that were in a channel out of the slice at `until`. */
+  outOfSlice: number
+  channels: Array<{ id: number; topics: number; messages: number }>
   files: Array<{
     path: string
     sha256: string
@@ -305,53 +258,52 @@ export type ChatManifest = {
 }
 
 /**
- * The text and the topic of a message as they were at `end`. The edit
- * history gives the text and the topic from before each later edit, so the
- * oldest later edit gives the state at `end`. With no history, a later
- * edit leaves the text out (`null`), and a later move removes the resolved
- * mark, which can be later than `end`.
- */
-function atCutoff(message: ZulipMessage, end: number) {
-  const later = (message.edit_history ?? [])
-    .filter((edit) => edit.timestamp > end)
-    .sort((left, right) => left.timestamp - right.timestamp)
-  const content = later.find((edit) => edit.prev_content !== undefined)
-  const topic = later.find((edit) => edit.prev_topic !== undefined)
-  const history = message.edit_history !== undefined
-  const editedLater = (message.last_edit_timestamp ?? 0) > end
-  const movedLater = (message.last_moved_timestamp ?? 0) > end
-  return {
-    ...message,
-    content:
-      content?.prev_content ??
-      (editedLater && !history ? null : message.content),
-    subject:
-      topic?.prev_topic ??
-      (movedLater && !history && message.subject.startsWith(RESOLVED)
-        ? message.subject.slice(RESOLVED.length)
-        : message.subject),
-    restored: content !== undefined || topic !== undefined,
-  }
-}
-
-/**
  * One Markdown file for each topic as it was at `until`, at
- * `chat/zulip/<channel>/<first message id>.md`. The path holds no topic
- * name, so the manifest holds none.
+ * `chat/zulip/<channel id>/<first message id>.md`. The path holds no name,
+ * so the manifest holds none. `people` gives the pseudonyms; a corpus step
+ * gives the one of its corpus, so that the names of its other sources go
+ * too.
  */
 export function renderZulipChat(
   chat: ZulipChat,
   until: Date,
   messages: ZulipMessage[],
+  people = new Pseudonyms(),
 ): { files: ChatFile[]; manifest: ChatManifest } {
   const end = until.getTime() / 1_000
-  const restored = messages.map((message) => atCutoff(message, end))
-  const people = new Pseudonyms(
-    restored.map((message) => ({ ...message, content: message.content ?? "" })),
+  const channelNames = new Map(
+    messages.map((message) => [message.stream_id, message.display_recipient]),
   )
-  const topics = new Map<string, typeof restored>()
-  for (const message of restored) {
-    const key = `${message.stream_id}\n${message.subject}`
+  const restored = messages.map((message) => atCutoff(message, end))
+  const kept = restored.filter((message) =>
+    chat.channels.includes(message.stream_id),
+  )
+  for (const message of kept) {
+    people.add(`zulip:${message.sender_id}`, [message.sender_full_name])
+    for (const [, name = "", mentioned] of (message.content ?? "").matchAll(
+      MENTION,
+    ))
+      if (mentioned) people.add(`zulip:${mentioned}`, [name])
+  }
+  const scrub = (text: string) =>
+    people.scrub(
+      text
+        .replace(
+          MENTION,
+          (_match, name: string, mentioned?: string) =>
+            `@${(mentioned ? people.of(`zulip:${mentioned}`) : people.named(name)) ?? "someone"}`,
+        )
+        // A narrow link to a direct message or a sender names the person by id.
+        .replace(
+          /(\/(?:sender|dm|pm-with|dm-including|group-pm-with)\/)[\w,-]+/g,
+          "$1[person]",
+        )
+        .replace(/#user\/\d+/g, "#user/[person]"),
+    )
+  // Zulip topic names do not depend on case.
+  const topics = new Map<string, typeof kept>()
+  for (const message of kept) {
+    const key = `${message.stream_id}\n${message.subject.toLowerCase()}`
     topics.set(key, [...(topics.get(key) ?? []), message])
   }
   const manifest: ChatManifest = {
@@ -359,24 +311,28 @@ export function renderZulipChat(
     since: chat.since,
     until: until.toISOString(),
     topics: topics.size,
-    messages: messages.length,
+    messages: kept.length,
     people: people.count,
-    restoredFromHistory: restored.filter((message) => message.restored).length,
-    leftOut: restored.filter((message) => message.content === null).length,
+    restoredFromHistory: kept.filter((message) => message.restored).length,
+    leftOut: kept.filter((message) => message.content === null).length,
+    moveNotRestored: kept.filter((message) => message.unexplainedMove).length,
+    outOfSlice: restored.length - kept.length,
     channels: [],
     files: [],
   }
   const files: ChatFile[] = []
   const channels = new Map<number, ChatManifest["channels"][number]>()
   for (const thread of topics.values()) {
-    const first = thread[0] as (typeof restored)[number]
-    const last = thread.at(-1) as (typeof restored)[number]
-    const topic = people.scrub(first.subject)
+    const first = thread[0] as (typeof kept)[number]
+    const last = thread.at(-1) as (typeof kept)[number]
+    const topic = scrub(first.subject)
     const header = {
       source: "zulip",
       type: "topic",
       realm: chat.realm,
-      channel: first.display_recipient,
+      channel: scrub(
+        channelNames.get(first.stream_id) ?? `channel ${first.stream_id}`,
+      ),
       channelId: first.stream_id,
       topic,
       resolved: topic.startsWith(RESOLVED),
@@ -390,11 +346,12 @@ export function renderZulipChat(
       const text =
         message.content === null
           ? "_This message was edited after the snapshot date. Its text is left out._"
-          : people.scrub(message.content).trim() || "_No text._"
-      return `### ${people.of(message.sender_id)} · ${iso(message.timestamp)}\n\n${text}`
+          : scrub(message.content).trim() || "_No text._"
+      return `### ${people.of(`zulip:${message.sender_id}`)} · ${iso(message.timestamp)}\n\n${text}`
     })
     const content = `---\n${stringify(header).trimEnd()}\n---\n\n# ${topic}\n\n${body.join("\n\n")}\n`
-    const path = `chat/zulip/${first.stream_id}-${slug(first.display_recipient)}/${first.id}.md`
+    // Both parts of the path are positive integers (`messageSchema`).
+    const path = `chat/zulip/${first.stream_id}/${first.id}.md`
     files.push({ path, content })
     manifest.files.push({
       path,
@@ -404,7 +361,6 @@ export function renderZulipChat(
     })
     const channel = channels.get(first.stream_id) ?? {
       id: first.stream_id,
-      name: first.display_recipient,
       topics: 0,
       messages: 0,
     }
@@ -416,4 +372,8 @@ export function renderZulipChat(
   manifest.files.sort((a, b) => a.path.localeCompare(b.path))
   files.sort((a, b) => a.path.localeCompare(b.path))
   return { files, manifest }
+}
+
+function iso(seconds: number): string {
+  return new Date(seconds * 1_000).toISOString().replace(/\.000Z$/, "Z")
 }

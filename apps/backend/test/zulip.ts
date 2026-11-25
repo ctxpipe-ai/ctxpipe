@@ -1,30 +1,15 @@
 import { HttpResponse, http } from "msw"
 import type { SetupServer } from "msw/node"
+import { vi } from "vitest"
+
+import type { ZulipMessage } from "../evals/knowledge/zulip-chat.js"
 
 /** A message as `GET /json/messages` of Zulip gives it. Made-up people only. */
-type ZulipTestMessage = {
-  id: number
-  sender_id: number
-  sender_full_name: string
-  content: string
-  timestamp: number
-  stream_id: number
-  display_recipient: string
-  subject: string
-  last_edit_timestamp?: number
-  last_moved_timestamp?: number
-  edit_history?: Array<{
-    timestamp: number
-    prev_content?: string
-    prev_topic?: string
-  }>
-}
-
 export function zulipMessage(
   id: number,
   at: string,
-  fields: Partial<ZulipTestMessage> = {},
-): ZulipTestMessage {
+  fields: Partial<ZulipMessage> = {},
+): ZulipMessage {
   return {
     id,
     sender_id: 11,
@@ -47,7 +32,7 @@ export function zulipMessage(
 export function serveZulip(
   server: SetupServer,
   realm: string,
-  messages: ZulipTestMessage[],
+  messages: ZulipMessage[],
 ): URL[] {
   const requests: URL[] = []
   server.use(
@@ -94,4 +79,24 @@ export function serveZulip(
     }),
   )
   return requests
+}
+
+/**
+ * Run `work` with a fake clock, and move the clock until `work` ends. The
+ * chat export waits 2 seconds before each request, as the server asks.
+ */
+export async function withFakeClock<T>(work: () => Promise<T>): Promise<T> {
+  vi.useFakeTimers({ toFake: ["setTimeout"] })
+  try {
+    let done = false
+    const result = work().finally(() => {
+      done = true
+    })
+    // The test reads the result below; this keeps an early failure handled.
+    result.catch(() => {})
+    while (!done) await vi.advanceTimersByTimeAsync(2_000)
+    return await result
+  } finally {
+    vi.useRealTimers()
+  }
 }

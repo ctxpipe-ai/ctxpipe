@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { dirname, join } from "node:path"
+import { dirname, join, resolve, sep } from "node:path"
 
 import type { Octokit } from "octokit"
 import { z } from "zod"
@@ -9,18 +9,16 @@ import { runGit } from "../../src/domain/ingestion/run-git.js"
 import { githubSourcePath } from "../../src/domain/workspace-sources/source-file.js"
 import { stampMirrorFiles } from "../../src/domain/workspace-sources/stamp-sources.js"
 import { gitRemoteEnvironment } from "../../src/services/git/clone-tree.js"
+import { bodiesEditedAfter } from "../../src/services/github/github-mirror.js"
 import { importPublicGithubIssues } from "../../src/services/github/issue-mirror/public-import.js"
-import {
-  bodiesEditedAfter,
-  importPublicGithubPullRequests,
-} from "../../src/services/github/pull-request-mirror/public-import.js"
+import { importPublicGithubPullRequests } from "../../src/services/github/pull-request-mirror/public-import.js"
 import type { Corpus } from "./dataset.js"
+import { Pseudonyms } from "./pseudonyms.js"
 import {
   type ChatFile,
   type ChatManifest,
   readZulipChat,
   renderZulipChat,
-  type ZulipAccess,
   zulipChatSchema,
 } from "./zulip-chat.js"
 
@@ -332,158 +330,189 @@ type MirrorCount = {
   editedAfterCutoff: number[]
 }
 
-/** The number of an issue or pull request mirror file (`…/12.md`, `…/12--345.md`). */
-function mirrorNumber(path: string): number {
-  return Number(/\/(\d+)(?:--\d+)?\.md$/.exec(path)?.[1])
-}
-
 /**
  * Write the mirror files of each corpus into its context repo, and push one
  * commit: the issue and pull request files of each repository, as the
  * production mirrors write them for the snapshot repository (the converter
  * output, with the source file of the snapshot repository in `sources`),
- * and the chat files of the corpus. The product makes the context repo
+ * and the chat files of the corpus. Each person of a corpus gets one
+ * pseudonym for each account (`pseudonyms.ts`), and the text of each file
+ * loses the known names and logins. The product makes the context repo
  * when it makes the Workspace, so it must be there. The commit is made with
  * git plumbing in a bare clone, so no path of the context repo is written
  * to the disk.
  */
-export async function importCorpusIssues(
+export async function importCorpusMirrors(
   plan: Plan,
   access: GithubAccess,
-  zulip: ZulipAccess,
   log: (line: string) => void,
 ): Promise<{ repositories: MirrorCount[]; chat: ChatManifest[] }> {
   const counts: MirrorCount[] = []
   const manifests: ChatManifest[] = []
   const until = new Date(plan.cutoff)
+  // The accounts of the orgs are not people, and their names are in paths.
+  const orgs = new Set(
+    [
+      plan.owner,
+      ...plan.corpora.flatMap((corpus) =>
+        corpus.repositories.map(
+          (repository) => repository.source.split("/")[0],
+        ),
+      ),
+    ].map((name) => name?.toLowerCase()),
+  )
   for (const corpus of plan.corpora) {
     const repositories = corpus.repositories.filter(
       (r) => r.issues > 0 || r.pulls > 0,
     )
     if (repositories.length === 0 && !corpus.chat) continue
-    const target = remote(
-      access,
-      `${plan.owner}/${contextName(plan.prefix, corpus.id)}`,
-    )
-    const work = await mkdtemp(join(tmpdir(), "eval-issues-"))
-    try {
-      const env = { ...target.env, GIT_INDEX_FILE: join(work, "index") }
-      await git(work, ["init", "-q", "--bare"], env)
-      await git(
-        work,
-        ["fetch", "-q", "--depth", "1", target.url, "refs/heads/main"],
-        env,
+    const people = new Pseudonyms()
+    const alias = (login: string) =>
+      orgs.has(login.toLowerCase())
+        ? login
+        : people.add(`github:${login.toLowerCase()}`, [login])
+    const github: ChatFile[] = []
+    for (const repository of repositories) {
+      const sourcePath = githubSourcePath(
+        plan.owner,
+        snapshotName(plan.prefix, corpus.id, repository.source),
       )
-      const parent = await git(work, ["rev-parse", "FETCH_HEAD"], env)
-      await git(work, ["read-tree", parent], env)
-      const entries: string[] = []
-      const add = async (file: ChatFile) => {
-        const blob = await git(
-          work,
-          ["hash-object", "-w", "--stdin"],
-          env,
-          file.content,
-        )
-        entries.push(`100644 blob ${blob}\t${file.path}`)
-      }
-      for (const repository of repositories) {
-        const sourcePath = githubSourcePath(
-          plan.owner,
-          snapshotName(plan.prefix, corpus.id, repository.source),
-        )
-        const read = { octokit: access.octokit, repository: repository.source }
-        const numbers: number[] = []
-        let issues = 0
-        let pulls = 0
-        const files = [
+      const read = { octokit: access.octokit, repository: repository.source }
+      const kinds = {
+        issues:
           repository.issues > 0
             ? importPublicGithubIssues({
                 ...read,
                 until,
                 limit: repository.issues,
+                alias,
               })
-            : null,
+            : [],
+        pulls:
           repository.pulls > 0
             ? importPublicGithubPullRequests({
                 ...read,
                 until,
                 limit: repository.pulls,
+                alias,
               })
-            : null,
-        ]
-        for (const [kind, generator] of files.entries())
-          for await (const file of generator ?? []) {
-            for (const stamped of stampMirrorFiles([file], sourcePath, []))
-              await add(stamped)
-            numbers.push(mirrorNumber(file.path))
-            if (kind === 0) issues += 1
-            else pulls += 1
-          }
-        const editedAfterCutoff = await bodiesEditedAfter({
-          ...read,
-          numbers,
-          until,
-        })
-        log(
-          `${repository.source}: ${issues} issues, ${pulls} pull requests, ${editedAfterCutoff.length} edited after the cut-off date`,
-        )
-        counts.push({
-          corpus: corpus.id,
-          source: repository.source,
-          issues,
-          pulls,
-          editedAfterCutoff,
-        })
+            : [],
       }
-      if (corpus.chat) {
-        const chat = await corpusChat(corpus.chat, until, zulip, log)
-        for (const file of chat.files) await add(file)
-        manifests.push(chat.manifest)
-      }
-      if (entries.length === 0) continue
-      await git(
-        work,
-        ["update-index", "--index-info"],
-        env,
-        `${entries.join("\n")}\n`,
+      const numbers: number[] = []
+      const count = { issues: 0, pulls: 0 }
+      for (const [kind, files] of Object.entries(kinds) as Array<
+        [keyof typeof kinds, (typeof kinds)[keyof typeof kinds]]
+      >)
+        for await (const file of files) {
+          github.push(...stampMirrorFiles([file], sourcePath, []))
+          numbers.push(file.number)
+          count[kind] += 1
+        }
+      const editedAfterCutoff = await bodiesEditedAfter({
+        ...read,
+        numbers,
+        until,
+      })
+      log(
+        `${repository.source}: ${count.issues} issues, ${count.pulls} pull requests, ${editedAfterCutoff.length} edited after the cut-off date`,
       )
-      const tree = await git(work, ["write-tree"], env)
-      if (tree === (await git(work, ["rev-parse", `${parent}^{tree}`], env)))
-        continue
-      const commit = await git(
-        work,
-        [
-          "commit-tree",
-          tree,
-          "-p",
-          parent,
-          "-m",
-          `Mirror the issues, pull requests and chat up to ${plan.cutoff}`,
-        ],
-        { ...env, ...author(new Date().toISOString()) },
-      )
-      await git(
-        work,
-        ["push", "-q", target.url, `${commit}:refs/heads/main`],
-        env,
-      )
-    } finally {
-      await rm(work, { recursive: true, force: true })
+      counts.push({
+        corpus: corpus.id,
+        source: repository.source,
+        ...count,
+        editedAfterCutoff,
+      })
     }
+    // The chat comes after the GitHub files, so that its text loses the
+    // logins too; then the GitHub files lose the names of the chat.
+    const chat = corpus.chat
+      ? await corpusChat(corpus.chat, until, people, log)
+      : null
+    const files = [
+      ...github.map((file) => ({
+        ...file,
+        content: people.scrub(file.content),
+      })),
+      ...(chat?.files ?? []),
+    ]
+    if (chat) manifests.push(chat.manifest)
+    if (files.length > 0) await commitToContext(plan, access, corpus.id, files)
   }
   return { repositories: counts, chat: manifests }
 }
 
-type CorpusChat = { files: ChatFile[]; manifest: ChatManifest }
+/** Add `files` to the main branch of the context repo of `corpus` in one commit. */
+async function commitToContext(
+  plan: Plan,
+  access: GithubAccess,
+  corpus: string,
+  files: ChatFile[],
+): Promise<void> {
+  const target = remote(
+    access,
+    `${plan.owner}/${contextName(plan.prefix, corpus)}`,
+  )
+  const work = await mkdtemp(join(tmpdir(), "eval-mirrors-"))
+  try {
+    const env = { ...target.env, GIT_INDEX_FILE: join(work, "index") }
+    await git(work, ["init", "-q", "--bare"], env)
+    await git(
+      work,
+      ["fetch", "-q", "--depth", "1", target.url, "refs/heads/main"],
+      env,
+    )
+    const parent = await git(work, ["rev-parse", "FETCH_HEAD"], env)
+    await git(work, ["read-tree", parent], env)
+    const entries: string[] = []
+    for (const file of files) {
+      const blob = await git(
+        work,
+        ["hash-object", "-w", "--stdin"],
+        env,
+        file.content,
+      )
+      entries.push(`100644 blob ${blob}\t${file.path}`)
+    }
+    // NUL ends each entry, so no path can add another entry.
+    await git(
+      work,
+      ["update-index", "-z", "--index-info"],
+      env,
+      `${entries.join("\0")}\0`,
+    )
+    const tree = await git(work, ["write-tree"], env)
+    if (tree === (await git(work, ["rev-parse", `${parent}^{tree}`], env)))
+      return
+    const commit = await git(
+      work,
+      [
+        "commit-tree",
+        tree,
+        "-p",
+        parent,
+        "-m",
+        `Mirror the issues, pull requests and chat up to ${plan.cutoff}`,
+      ],
+      { ...env, ...author(new Date().toISOString()) },
+    )
+    await git(
+      work,
+      ["push", "-q", target.url, `${commit}:refs/heads/main`],
+      env,
+    )
+  } finally {
+    await rm(work, { recursive: true, force: true })
+  }
+}
 
 async function corpusChat(
   chat: NonNullable<Plan["corpora"][number]["chat"]>,
   until: Date,
-  zulip: ZulipAccess,
+  people: Pseudonyms,
   log: (line: string) => void,
-): Promise<CorpusChat> {
-  const messages = await readZulipChat(chat, until, zulip, log)
-  const result = renderZulipChat(chat, until, messages)
+): Promise<{ files: ChatFile[]; manifest: ChatManifest }> {
+  const messages = await readZulipChat(chat, until, log)
+  const result = renderZulipChat(chat, until, messages, people)
   log(
     `${chat.realm}: ${result.manifest.topics} topics, ${result.manifest.messages} messages`,
   )
@@ -493,12 +522,12 @@ async function corpusChat(
 /**
  * Write the chat files of each corpus to `<dir>/<corpus>/`, and the
  * manifest to `<dir>/<corpus>.chat.json`, with no GitHub step. The files
- * are the same as the `issues` step writes into the context repo, so a
- * pilot slice or the files arm can use them.
+ * are the chat files that `importCorpusMirrors` writes into the context
+ * repo, with no GitHub login to remove, so a pilot slice or a fork can use
+ * them.
  */
 export async function exportCorpusChat(
   plan: Plan,
-  zulip: ZulipAccess,
   dir: string,
   log: (line: string) => void,
 ): Promise<ChatManifest[]> {
@@ -508,11 +537,14 @@ export async function exportCorpusChat(
     const chat = await corpusChat(
       corpus.chat,
       new Date(plan.cutoff),
-      zulip,
+      new Pseudonyms(),
       log,
     )
+    const root = resolve(dir, corpus.id)
     for (const file of chat.files) {
-      const path = join(dir, corpus.id, file.path)
+      const path = resolve(root, file.path)
+      if (!path.startsWith(`${root}${sep}`))
+        throw new Error(`${file.path} is not in ${root}.`)
       await mkdir(dirname(path), { recursive: true })
       await writeFile(path, file.content)
     }

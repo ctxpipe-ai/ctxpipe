@@ -52,7 +52,7 @@ import { modelProviderProblem } from "./chat.js"
 import {
   exportCorpusChat,
   freezeCorpora,
-  importCorpusIssues,
+  importCorpusMirrors,
   planSchema,
   snapshotRepositories,
 } from "./corpus.js"
@@ -100,7 +100,6 @@ import {
   writeRun,
 } from "./runner.js"
 import { runVision, VISION_MODELS } from "./vision.js"
-import { politeZulipAccess } from "./zulip-chat.js"
 
 /** The model calls go to `MODEL_PROVIDER_URL`, as in the readers. */
 const modelBase = () =>
@@ -622,7 +621,7 @@ async function corpus(
   const parsed = planSchema.parse(await readJson(plan))
   const log = (line: string) => process.stderr.write(`${line}\n`)
   if (step === "chat") {
-    await exportCorpusChat(parsed, politeZulipAccess, out, log)
+    await exportCorpusChat(parsed, out, log)
     return 0
   }
   const token = process.env.GITHUB_TOKEN
@@ -640,10 +639,7 @@ async function corpus(
   if (step === "snapshot")
     await writeJson(out, await snapshotRepositories(parsed, access, log))
   else if (step === "issues")
-    await writeJson(
-      out,
-      await importCorpusIssues(parsed, access, politeZulipAccess, log),
-    )
+    await writeJson(out, await importCorpusMirrors(parsed, access, log))
   else if (step === "freeze") await freezeCorpora(parsed, access, out)
   else throw new SetupError("Use corpus snapshot, issues, chat or freeze.")
   return 0

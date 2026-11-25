@@ -1,9 +1,15 @@
 import type { Octokit } from "octokit"
 
-import { type GithubMirrorFile, splitRepository } from "../github-mirror.js"
+import {
+  aliasActor,
+  type GithubMirrorFile,
+  splitRepository,
+} from "../github-mirror.js"
+import { undoLaterEvents } from "../issue-mirror/public-import.js"
 import { fetchPullRequestsByNumber } from "./client.js"
 import { renderGithubPullRequest } from "./converter.js"
 import { shouldMirrorGithubPullRequest } from "./policy.js"
+import type { GithubPullRequestSnapshot } from "./types.js"
 
 /** A GitHub timestamp, which has no milliseconds. */
 function githubTime(time: number): string {
@@ -13,18 +19,22 @@ function githubTime(time: number): string {
 /**
  * The pull request mirror files of a public repository, for an eval corpus
  * (ADR-069, CTX-1661). It takes at most `limit` pull requests, newest first,
- * that the production mirror shows at `until`: closed up to `until` and not
- * a draft. Each is rendered with the production converter. The reviews and
- * comments after `until` are not there. The body, the labels and the
- * requested reviewers are the current ones, because the API does not give
- * their history. GraphQL needs a token, so `octokit` must have one.
+ * that the production mirror shows at `until` (`policy.ts`): closed up to
+ * `until` and not a draft. Each is rendered with the production converter,
+ * as it was at `until`: the issue events give the title, the labels and the
+ * requested reviewers, and the reviews and comments after `until` are not
+ * there. The body is the current one, because the API does not give its
+ * history (`bodiesEditedAfter` finds the edited ones). GraphQL needs a
+ * token, so `octokit` must have one. With `alias`, each person's login
+ * becomes `alias(login)`.
  */
 export async function* importPublicGithubPullRequests(input: {
   octokit: Octokit
   repository: string
   until: Date
   limit: number
-}): AsyncGenerator<GithubMirrorFile> {
+  alias?: (login: string) => string
+}): AsyncGenerator<GithubMirrorFile & { number: number }> {
   const { owner, repo } = splitRepository(input.repository)
   const { data: repository } = await input.octokit.rest.repos.get({
     owner,
@@ -67,54 +77,67 @@ export async function* importPublicGithubPullRequests(input: {
       })
       for (const snapshot of snapshots.sort((a, b) => b.number - a.number)) {
         count += 1
-        yield renderGithubPullRequest({
-          ...snapshot,
-          updatedAt: before(snapshot.updatedAt)
-            ? snapshot.updatedAt
-            : githubTime(until),
-          reviews: snapshot.reviews.filter((review) =>
-            before(review.submittedAt),
+        const atUntil = await snapshotAt(input.octokit, snapshot, until)
+        const alias = input.alias
+        yield {
+          ...renderGithubPullRequest(
+            alias
+              ? {
+                  ...atUntil,
+                  author: aliasActor(atUntil.author, alias),
+                  requestedReviewers: atUntil.requestedReviewers.map(alias),
+                  reviews: atUntil.reviews.map((review) => ({
+                    ...review,
+                    author: aliasActor(review.author, alias),
+                  })),
+                  comments: atUntil.comments.map((comment) => ({
+                    ...comment,
+                    author: aliasActor(comment.author, alias),
+                  })),
+                }
+              : atUntil,
           ),
-          comments: snapshot.comments.filter((comment) =>
-            before(comment.createdAt),
-          ),
-        })
+          number: snapshot.number,
+        }
       }
     }
     if (count >= input.limit) return
   }
 }
 
-/**
- * The numbers of the issues and pull requests whose body was edited after
- * `until`. Their mirror file shows the current body, which can hold later
- * facts, so the corpus records them. One GraphQL request for each 100.
- */
-export async function bodiesEditedAfter(input: {
-  octokit: Octokit
-  repository: string
-  numbers: number[]
-  until: Date
-}): Promise<number[]> {
-  const { owner, repo } = splitRepository(input.repository)
-  const until = input.until.getTime()
-  const edited: number[] = []
-  for (let start = 0; start < input.numbers.length; start += 100) {
-    const numbers = input.numbers.slice(start, start + 100)
-    const data = await input.octokit.graphql<{
-      repository: Record<string, { lastEditedAt: string | null } | null> | null
-    }>(
-      `query BodiesEdited($owner: String!, $repo: String!) {
-        repository(owner: $owner, name: $repo) {
-          ${numbers.map((number) => `n${number}: issueOrPullRequest(number: ${number}) { ... on Issue { lastEditedAt } ... on PullRequest { lastEditedAt } }`).join("\n")}
-        }
-      }`,
-      { owner, repo },
-    )
-    for (const number of numbers) {
-      const time = data.repository?.[`n${number}`]?.lastEditedAt
-      if (time && Date.parse(time) > until) edited.push(number)
-    }
+/** The pull request as it was at `until`. */
+async function snapshotAt(
+  octokit: Octokit,
+  snapshot: GithubPullRequestSnapshot,
+  until: number,
+): Promise<GithubPullRequestSnapshot> {
+  const before = (time: string | null) => !!time && Date.parse(time) <= until
+  const kept = {
+    ...snapshot,
+    reviews: snapshot.reviews.filter((review) => before(review.submittedAt)),
+    comments: snapshot.comments.filter((comment) => before(comment.createdAt)),
   }
-  return edited.sort((a, b) => a - b)
+  // A pull request with no change after `until` needs no history.
+  if (before(snapshot.updatedAt)) return kept
+  const { owner, repo } = splitRepository(snapshot.repository)
+  const events = await octokit.paginate(octokit.rest.issues.listEvents, {
+    owner,
+    repo,
+    issue_number: snapshot.number,
+    per_page: 100,
+  })
+  const labels = new Set(snapshot.labels)
+  const reviewers = new Set(snapshot.requestedReviewers)
+  const title = undoLaterEvents(
+    { title: snapshot.title, labels, assignees: new Set(), reviewers },
+    events,
+    until,
+  )
+  return {
+    ...kept,
+    title,
+    labels: [...labels],
+    requestedReviewers: [...reviewers],
+    updatedAt: githubTime(until),
+  }
 }

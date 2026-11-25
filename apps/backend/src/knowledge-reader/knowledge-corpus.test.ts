@@ -11,14 +11,13 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import {
   freezeCorpora,
   type GithubAccess,
-  importCorpusIssues,
+  importCorpusMirrors,
   type Plan,
   planSchema,
   snapshotRepositories,
 } from "../../evals/knowledge/corpus.js"
-import type { ZulipAccess } from "../../evals/knowledge/zulip-chat.js"
 import { useMswServer } from "../../test/msw.js"
-import { serveZulip, zulipMessage } from "../../test/zulip.js"
+import { serveZulip, withFakeClock, zulipMessage } from "../../test/zulip.js"
 
 /*
  * The corpus steps with real git and `file://` remotes in place of GitHub,
@@ -130,8 +129,6 @@ function access(): GithubAccess {
   return { octokit: new Octokit(), gitBase: `file://${base}` }
 }
 
-const zulip: ZulipAccess = { fetch: (url) => fetch(url), pause: async () => {} }
-
 const quiet = () => {}
 
 beforeEach(async () => {
@@ -211,7 +208,7 @@ describe("snapshotRepositories", () => {
   })
 })
 
-describe("importCorpusIssues and freezeCorpora", () => {
+describe("importCorpusMirrors and freezeCorpora", () => {
   it("writes the stamped issue files, then freezes the context repo SHA", async () => {
     const sha = await repository("acme/api", { "README.md": "# API\n" })
     await repository("evals/v0-demo-context", { ".ctxpipe": "format: 3\n" })
@@ -249,12 +246,7 @@ describe("importCorpusIssues and freezeCorpora", () => {
       ),
     )
 
-    const counts = await importCorpusIssues(
-      plan(sha, 5),
-      access(),
-      zulip,
-      quiet,
-    )
+    const counts = await importCorpusMirrors(plan(sha, 5), access(), quiet)
 
     expect(counts).toEqual({
       repositories: [
@@ -274,6 +266,9 @@ describe("importCorpusIssues and freezeCorpora", () => {
     expect(file).toContain(
       "sources:\n  - sources/github/evals/v0-demo-api.md\n---",
     )
+    // The login of each person is a pseudonym.
+    expect(file).toContain("author: person-0001")
+    expect(file).not.toContain("bob")
     expect(git(context, "log", "--format=%ae", "-1", "main")).toBe(
       "evals@ctxpipe.invalid",
     )
@@ -354,7 +349,7 @@ it("writes the pull requests closed before the cut-off date and the chat as they
               number: 7,
               url: "https://github.com/acme/api/pull/7",
               title: "Add typing events",
-              body: "Adds the events.",
+              body: "Adds the events. Asked Ada Quill in the chat.",
               state: "MERGED",
               merged: true,
               isDraft: false,
@@ -366,7 +361,7 @@ it("writes the pull requests closed before the cut-off date and the chat as they
               createdAt: "2026-05-01T00:00:00Z",
               updatedAt: "2026-07-01T00:00:00Z",
               mergedAt: "2026-05-02T00:00:00Z",
-              labels: connection([]),
+              labels: connection([{ name: "api" }, { name: "later" }]),
               reviewRequests: connection([]),
               files: connection([{ path: "api.ts", changeType: "MODIFIED" }]),
               reviews: connection([]),
@@ -391,8 +386,25 @@ it("writes the pull requests closed before the cut-off date and the chat as they
       })
     }),
   )
+  server.use(
+    // After the cut-off date, the pull request got a label and a new title.
+    http.get(`${API}/repos/acme/api/issues/7/events`, () =>
+      HttpResponse.json([
+        {
+          event: "labeled",
+          label: { name: "later" },
+          created_at: "2026-07-01T00:00:00Z",
+        },
+        {
+          event: "renamed",
+          rename: { from: "Add typing", to: "Add typing events" },
+          created_at: "2026-07-01T00:00:00Z",
+        },
+      ]),
+    ),
+  )
   serveZulip(server, "https://chat.example.test", [
-    zulipMessage(1, "2026-05-20T00:00:00Z", { content: "Ship it?" }),
+    zulipMessage(1, "2026-05-20T00:00:00Z", { content: "Ship it, bob?" }),
     zulipMessage(2, "2026-06-20T00:00:00Z", { content: "Later." }),
   ])
   const withPulls = plan(sha)
@@ -405,7 +417,9 @@ it("writes the pull requests closed before the cut-off date and the chat as they
     channels: [7],
   }
 
-  const counts = await importCorpusIssues(withPulls, access(), zulip, quiet)
+  const counts = await withFakeClock(() =>
+    importCorpusMirrors(withPulls, access(), quiet),
+  )
 
   expect(counts.repositories).toEqual([
     {
@@ -416,23 +430,34 @@ it("writes the pull requests closed before the cut-off date and the chat as they
       editedAfterCutoff: [],
     },
   ])
-  expect(counts.chat[0]).toMatchObject({ topics: 1, messages: 1, people: 1 })
+  // bob and eve of GitHub, then the author of the chat.
+  expect(counts.chat[0]).toMatchObject({ topics: 1, messages: 1, people: 3 })
   const context = join(base, "evals", "v0-demo-context.git")
   expect(
     git(context, "ls-tree", "-r", "--name-only", "main").split("\n"),
   ).toEqual([
     ".ctxpipe",
-    "chat/zulip/7-api-design/1.md",
+    "chat/zulip/7/1.md",
     "github/pulls/acme/api/7--700.md",
   ])
   const file = git(context, "show", "main:github/pulls/acme/api/7--700.md")
-  expect(file).toContain("# Add typing events")
+  // The title and labels at the cut-off date, and no later comment.
+  expect(file).toContain("# Add typing\n")
+  expect(file).toContain("labels:\n  - api\n")
+  expect(file).not.toContain("later")
   expect(file).toContain("Thanks, merged.")
   expect(file).not.toContain("This broke later.")
   expect(file).toContain("updatedAt: 2026-06-01T00:00:00Z")
   expect(file).toContain("  - sources/github/evals/v0-demo-api.md")
-  const chat = git(context, "show", "main:chat/zulip/7-api-design/1.md")
-  expect(chat).toContain("### person-0001 · 2026-05-20T00:00:00Z\n\nShip it?")
+  // Each login and the chat names are pseudonyms.
+  expect(file).toContain("author: person-0001")
+  expect(file).toContain("Asked person-0003 in the chat.")
+  for (const secret of [/\bbob\b/, /\beve\b/, /Ada/, /Quill/])
+    expect(file).not.toMatch(secret)
+  const chat = git(context, "show", "main:chat/zulip/7/1.md")
+  expect(chat).toContain(
+    "### person-0003 · 2026-05-20T00:00:00Z\n\nShip it, person-0001?",
+  )
   expect(chat).not.toContain("Later.")
 })
 
@@ -461,7 +486,7 @@ it("imports nothing and pushes nothing when no issue is before the cut-off date"
     http.get(`${API}/repos/acme/api/issues`, () => HttpResponse.json([])),
   )
 
-  const counts = await importCorpusIssues(plan(sha, 5), access(), zulip, quiet)
+  const counts = await importCorpusMirrors(plan(sha, 5), access(), quiet)
 
   expect(counts.repositories).toEqual([
     {
