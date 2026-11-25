@@ -6,7 +6,7 @@
 
 [ADR-069](ADR-069-knowledge-plane-evals-and-rollout.md) measures retrieval: questions in, ranked units out. It does not measure an agent that works with the ctxpipe MCP in a real harness. [ADR-051](ADR-051-mcp-read-surface.md) asks for "tests and evals for each tool". The MCPJam suite (`apps/backend/evals/mcp/`) was to supply the evals. It has 22 cases in an emulated model loop on synthetic fixture orgs. Its `baseline.json` is null, and its runs have failed since 2026-10-20 ([CTX-1045](https://linear.app/ctxpipe/issue/CTX-1045)).
 
-Public results show these facts:
+Public results and one internal eval show these facts:
 
 - No public benchmark has tasks that need discovery across tens or hundreds of repositories.
 - No public benchmark has code work that depends on knowledge that is not code, for example a chat decision, a ticket, or an RFC.
@@ -87,7 +87,7 @@ We must know whether ctxpipe helps a real agent on org-scale work, where it help
     - Arm configs read the key from the environment. No published config or transcript holds a key.
     - Before we publish an artifact, the publish step replaces the exact value of each arm credential (the CTX key, competitor keys and model keys) with a marker. When a value is still found after the replacement, the publish stops.
     - The publish step also runs the secret scrub of [ADR-072](ADR-072-scrub-secrets-before-every-model-call.md) on each artifact.
-    - We revoke the bench key after each published run and make a new key for the next run.
+    - Before we publish an artifact, we revoke the CTX key of its run and rotate the competitor and model keys of that run. An agent can print a key in an encoded form that no scrub finds, so no key of a published run stays valid.
 
 ## Consequences
 
