@@ -65,10 +65,14 @@ def gateway_usage(settle=False):
 
 
 def transcript(stream_path):
-    """The result event and the tool calls of a Claude Code stream-json transcript."""
-    result, tools = {}, collections.Counter()
+    """The result event, the tool calls and the failed MCP calls of a Claude Code transcript.
+
+    A call with bad arguments fails in the MCP SDK before the tool runs, so it
+    has no `mcp.tool` span: only the transcript shows it.
+    """
+    result, tools, names, failed = {}, collections.Counter(), {}, collections.Counter()
     if not stream_path.is_file():
-        return result, tools
+        return result, tools, failed
     for line in stream_path.read_text(errors="replace").splitlines():
         if not line.startswith("{"):
             continue
@@ -78,11 +82,15 @@ def transcript(stream_path):
             continue
         if event.get("type") == "result":
             result = event
-        if event.get("type") == "assistant":
-            for block in event.get("message", {}).get("content", []):
-                if block.get("type") == "tool_use":
-                    tools[block["name"]] += 1
-    return result, tools
+        content = event.get("message", {}).get("content", [])
+        for block in content if isinstance(content, list) else []:
+            if block.get("type") == "tool_use":
+                tools[block["name"]] += 1
+                names[block["id"]] = block["name"]
+            name = names.get(block.get("tool_use_id"), "")
+            if block.get("type") == "tool_result" and block.get("is_error") and name.startswith("mcp__"):
+                failed[name] += 1
+    return result, tools, failed
 
 
 def attributes(item):
@@ -129,7 +137,7 @@ def server_spans(otlp_path, conversation_id, started):
 def record_run(*, out, run_id, model, arm, task, prices, otlp, started, before, after):
     trials = sorted((out / "jobs" / run_id).glob("*/agent"))
     trial = trials[0].parent if trials else out / "jobs" / run_id
-    result, tools = transcript(trial / "agent" / "claude-code.txt")
+    result, tools, failed = transcript(trial / "agent" / "claude-code.txt")
     usage = result.get("usage", {})
     tokens = {
         "input": usage.get("input_tokens", 0),
@@ -160,6 +168,7 @@ def record_run(*, out, run_id, model, arm, task, prices, otlp, started, before, 
         "stopReason": result.get("subtype"),
         "toolCalls": dict(tools),
         "mcpCalls": sum(n for name, n in tools.items() if name.startswith("mcp__")),
+        "mcpFailedCalls": dict(failed),
         "server": server_spans(otlp, run_id, started),
         "falkorGraphCommands": after["falkor"] - before["falkor"],
         "error": (trial_result.get("exception_info") or {}).get("exception_type"),
