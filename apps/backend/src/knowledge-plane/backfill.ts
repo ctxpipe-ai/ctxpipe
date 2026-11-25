@@ -1,5 +1,6 @@
 import { getSystemDb, withOrgDbContext } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
+import { formatUnknownError } from "../db/transientDbRetry.js"
 import { readyKnowledgeHeads } from "../models/knowledge-state.js"
 import { getOrgFeature } from "../models/org-features.js"
 import { listOrgWorkspaces } from "../models/workspaces.js"
@@ -35,7 +36,8 @@ export async function backfillKnowledgePlane(orgId: string): Promise<string[]> {
     await enqueueWorkflow(knowledgeProjection.spec, { orgId, workspaceId })
   log.info({
     step: "knowledge_plane.backfill",
-    message: "queued the first knowledge projection of each Workspace that is not ready",
+    message:
+      "queued the first knowledge projection of each Workspace that is not ready",
     orgId,
     count: workspaceIds.length,
     workspaceIds,
@@ -61,7 +63,7 @@ export async function backfillAllKnowledgePlanes(): Promise<void> {
         step: "knowledge_plane.backfill",
         message: "the backfill of the org failed",
         orgId,
-        error: error instanceof Error ? error.message : String(error),
+        error: formatUnknownError(error),
       })
     }
   }

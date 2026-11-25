@@ -8,6 +8,7 @@ import { flushEvlog, initEvlog, log } from "../observability/logger.js"
 import { closeDb, initDb } from "./client.js"
 import { describeMigrateError } from "./describe-migrate-error.js"
 import { runMigrations } from "./run-migrations.js"
+import { formatUnknownError } from "./transientDbRetry.js"
 
 config({ path: ".env.local", quiet: true })
 config({ path: ".env", quiet: true })
@@ -77,7 +78,7 @@ async function backfillAfterMigrate(connectionString: string): Promise<void> {
     log.error({
       step: "knowledge_plane.backfill",
       message: "[migrate] the knowledge plane backfill failed",
-      error: error instanceof Error ? error.message : String(error),
+      error: formatUnknownError(error),
     })
   } finally {
     await closeDb()

@@ -57,8 +57,8 @@ beforeAll(async () => {
   if (!url) throw new Error("DATABASE_URL is required for the backfill")
   initDb(url)
   initLogger({
+    env: { service: "ctxpipe-backend", environment: "test" },
     pretty: false,
-    silent: true,
     drain: (ctx) => {
       events.push(ctx.event)
     },
@@ -86,6 +86,10 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
+  initLogger({
+    env: { service: "ctxpipe-backend", environment: "test" },
+    pretty: false,
+  })
   await getSystemDb().execute(
     sql`delete from openworkflow.workflow_runs where input->>'orgId' = ${orgId}`,
   )
