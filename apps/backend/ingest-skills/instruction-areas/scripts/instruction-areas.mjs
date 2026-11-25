@@ -28,7 +28,7 @@
 // patterns.mjs. The host validator checks the result again.
 
 import { execFileSync } from "node:child_process"
-import { readFileSync, writeFileSync } from "node:fs"
+import { readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 
 import { relativeTo, scriptStep, writeStep } from "../../bin/knowledge-lib.mjs"
@@ -36,9 +36,10 @@ import {
   baseBlob,
   blobContent,
   ensureParent,
-  readDeletes,
+  removeStaged,
   STEP_LIMITS,
   stagedFile,
+  stagedPaths,
   writeDeletes,
 } from "../../bin/stage-lib.mjs"
 import { readTracked } from "../../discover-roots/scripts/roots-lib.mjs"
@@ -366,7 +367,14 @@ function mergeInto(parsed, area) {
     }
     text = render()
   }
-  outputs.set(parsed.path, text)
+  // The evidence that the source adds to shared rules can still make the
+  // file too large.
+  if (Buffer.byteLength(text) > STEP_LIMITS.fileBytes - 1024)
+    skip(
+      parsed.path,
+      "The area file would be larger than 63 KiB, so the script did not change it",
+    )
+  else outputs.set(parsed.path, text)
 }
 
 const nameKeyDiffers = (a, b) =>
@@ -555,6 +563,11 @@ if (!laterPage) {
   }
 }
 
+// Each run of the script writes the whole page (SKILL.md asks for more than
+// one run in a step), so it first drops the output of the run before.
+for (const path of stagedPaths(step)) removeStaged(step, path)
+writeDeletes(step, {})
+rmSync(join(step.stepDir, "patch.json"), { force: true })
 // The step stages at most 2 MiB. Room stays for the codebase file with
 // its FOLLOWS claims.
 let room = STEP_LIMITS.stagedBytes - STEP_LIMITS.fileBytes
@@ -570,7 +583,7 @@ for (const [path, text] of outputs) {
   writeFileSync(file, text)
 }
 if (deletes.size) {
-  const recorded = readDeletes(step)
+  const recorded = {}
   for (const [path, reason] of deletes) {
     const blob = baseBlob(step, path)
     if (blob) recorded[path] = { baseBlob: blob, reason }

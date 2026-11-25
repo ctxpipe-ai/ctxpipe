@@ -520,31 +520,40 @@ async function ingest(
     }),
   )
   writeFileSync(join(stepRoot, "proposal.json"), JSON.stringify(proposal))
-  const run = spawnSync(
-    process.execPath,
-    [
-      join(SKILL, "instruction-areas.mjs"),
-      "--root",
-      stepRoot,
-      "--source",
-      repo.dir,
-      "--source-url",
-      url,
-      "--source-path",
-      pathOf(url),
-      "--roots",
-      join(stepRoot, "roots.json"),
-      "--proposal",
-      join(stepRoot, "proposal.json"),
-      "--now",
-      NOW.toISOString(),
-    ],
-    { encoding: "utf8", env: baseEnv, timeout: 30_000 },
-  )
-  expect(run.status, `${run.stdout}${run.stderr}`).toBe(0)
-  const summary = JSON.parse(run.stdout) as {
-    ops: Array<{ op: string; path: string }>
-    skipped: Array<{ path: string | null; reason: string }>
+  const runScript = () =>
+    spawnSync(
+      process.execPath,
+      [
+        join(SKILL, "instruction-areas.mjs"),
+        "--root",
+        stepRoot,
+        "--source",
+        repo.dir,
+        "--source-url",
+        url,
+        "--source-path",
+        pathOf(url),
+        "--roots",
+        join(stepRoot, "roots.json"),
+        "--proposal",
+        join(stepRoot, "proposal.json"),
+        "--now",
+        NOW.toISOString(),
+      ],
+      { encoding: "utf8", env: baseEnv, timeout: 30_000 },
+    )
+  const summaryOf = (run: ReturnType<typeof runScript>) => {
+    expect(run.status, `${run.stdout}${run.stderr}`).toBe(0)
+    return JSON.parse(run.stdout) as {
+      ops: Array<{ op: string; path: string }>
+      skipped: Array<{ path: string | null; reason: string }>
+    }
+  }
+  const summary = summaryOf(runScript())
+  /** The script again in the same step, with the next proposal. */
+  const again = (next: Proposal) => {
+    writeFileSync(join(stepRoot, "proposal.json"), JSON.stringify(next))
+    return summaryOf(runScript())
   }
   const validate = (rootGone = false) =>
     validatePatchStep({
@@ -576,7 +585,7 @@ async function ingest(
       more?: boolean
       cursor?: { at: number }
     }
-  return { summary, validate, report, patch }
+  return { summary, validate, report, patch, again }
 }
 
 const AGENTS = (lines: string[]) => `# Agents\n\n${lines.join("\n")}\n`
@@ -978,6 +987,38 @@ describe("the instruction-areas skill", () => {
     for (const line of before.split("\n").filter((l) => l.startsWith("  - ")))
       expect(after).toContain(line)
     expect(after).toContain("topic: `snapshots` = `inline`")
+  })
+
+  it("writes the whole page again on each run of the script in one step (CTX-1570)", async () => {
+    const context = contextRepo()
+    const repo = shop()
+    const old = await (
+      await ingest(
+        context,
+        repo,
+        URL_A,
+        "knowledge/codebases/shop.md",
+        unitTesting("vitest"),
+      )
+    ).validate()
+    context.advance(old.tree)
+    // Run 1 does not name the area yet, so the source leaves it.
+    const step = await ingest(
+      context,
+      repo,
+      URL_A,
+      "knowledge/codebases/shop.md",
+      { areas: [] },
+    )
+    expect(step.summary.ops).toEqual([{ op: "delete", path: AREA }])
+    expect(step.patch().more).toBeTruthy()
+    // Run 2 names it and is done with the only document.
+    const second = step.again({ ...unitTesting("vitest"), done: ["AGENTS.md"] })
+    expect(second.ops).toEqual([])
+    expect(step.patch().more).toBeFalsy()
+    const result = await step.validate()
+    expect(result.rejections).toEqual([])
+    expect(context.show(result.tree, AREA)).toBe(context.show(old.tree, AREA))
   })
 
   it("keeps the 60 rules that an area file can take and lists each other rule in skipped (CTX-1570)", async () => {
