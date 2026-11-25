@@ -192,9 +192,9 @@ const MENTION = /@_?\*\*([^*|\n]+?)(?:\|(\d+))?\*\*/g
  * The text, topic and channel of a message as they were at `end`. The edit
  * history gives the text, topic and channel from before each later edit,
  * so the oldest later edit gives the state at `end`. When the history does
- * not explain a later edit, the text is left out (`null`). When it does not
- * explain a later move, the topic loses its resolved mark, which can be
- * later than `end`, and the move counts as not restored.
+ * not give the earlier text of a later edit, the text is left out (`null`).
+ * When it does not give the earlier topic or channel of a later move, the
+ * topic is a neutral one, and the move counts as not restored.
  */
 function atCutoff(message: ZulipMessage, end: number) {
   const later = (message.edit_history ?? [])
@@ -203,25 +203,21 @@ function atCutoff(message: ZulipMessage, end: number) {
   const first = <K extends "prev_content" | "prev_topic" | "prev_stream">(
     key: K,
   ) => later.find((edit) => edit[key] !== undefined)?.[key]
-  const explains = (time: number | undefined) =>
-    later.some((edit) => edit.timestamp === time)
-  const editedLater = (message.last_edit_timestamp ?? 0) > end
-  const movedLater = (message.last_moved_timestamp ?? 0) > end
   const content = first("prev_content")
   const topic = first("prev_topic")
   const stream = first("prev_stream")
-  const unexplainedMove = movedLater && !explains(message.last_moved_timestamp)
+  const editedLater = (message.last_edit_timestamp ?? 0) > end
+  const unexplainedMove =
+    (message.last_moved_timestamp ?? 0) > end &&
+    topic === undefined &&
+    stream === undefined
   return {
     ...message,
-    content:
-      content ??
-      (editedLater && !explains(message.last_edit_timestamp)
-        ? null
-        : message.content),
+    content: content ?? (editedLater ? null : message.content),
     subject:
       topic ??
-      (unexplainedMove && message.subject.startsWith(RESOLVED)
-        ? message.subject.slice(RESOLVED.length)
+      (unexplainedMove
+        ? "Topic not known at the snapshot date"
         : message.subject),
     stream_id: stream ?? message.stream_id,
     restored:
@@ -293,11 +289,26 @@ export function renderZulipChat(
           (_match, name: string, mentioned?: string) =>
             `@${(mentioned ? people.of(`zulip:${mentioned}`) : people.named(name)) ?? "someone"}`,
         )
-        // A narrow link to a direct message or a sender names the person by id.
-        .replace(
-          /(\/(?:sender|dm|pm-with|dm-including|group-pm-with)\/)[\w,-]+/g,
-          "$1[person]",
-        )
+        // A narrow link is pairs of operator and operand. The operand of a
+        // person operator (a direct message or a sender) names the person.
+        .replace(/#narrow((?:\/[^\s/)\]>]+)+)/g, (_match, link: string) => {
+          // Punctuation at the end belongs to the sentence, not to the link.
+          const [, path = "", end = ""] = /^(.*?)([.,;:!?]*)$/.exec(link) ?? []
+          const parts = path.slice(1).split("/")
+          const person = (operator = "") =>
+            [
+              "sender",
+              "dm",
+              "pm-with",
+              "dm-including",
+              "group-pm-with",
+            ].includes(operator.replace(/^-/, ""))
+          return `#narrow/${parts
+            .map((part, index) =>
+              index % 2 === 1 && person(parts[index - 1]) ? "[person]" : part,
+            )
+            .join("/")}${end}`
+        })
         .replace(/#user\/\d+/g, "#user/[person]"),
     )
   // Zulip topic names do not depend on case.

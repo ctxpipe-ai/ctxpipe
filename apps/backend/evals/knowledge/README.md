@@ -270,14 +270,14 @@ The steps use no database, so they need no `DATABASE_URL` and no `AUTH_SECRET`. 
 
    The body of an issue or a pull request is the current one, because the API does not give its history. The output file gives, for each repository, the counts and `editedAfterCutoff`: the issues and pull requests whose body was edited after the cut-off date. A task must not take its answer from them ([ADR-075](../../../../.ai/memory/decisions/ADR-075-orgbench-org-scale-agent-benchmark.md) decision 6). The output file also holds the chat manifest of each corpus.
 
-   Each person gets a pseudonym (`person-0001`) for each GitHub login and each chat account, in the order in which the step first sees the account. The step then replaces each known login, full name and first name in the text of each file of the corpus, so that the GitHub files lose the chat names and the chat files lose the logins. A bot keeps its name.
+   Each person gets a pseudonym (`person-0001`) for each GitHub login and each chat account, in the order in which the step first sees the account. The step then replaces each known login, full name and first name in the text of each file of the corpus, so that the GitHub files lose the chat names and the chat files lose the logins. A bot keeps its name. An `@login` mention of a person who took no part in the slice stays, because the step cannot tell it from code such as a decorator.
 4. `freeze` writes the SHA of the main branch of each context repo into the `corpora` of the dataset file. The questions of the file stay.
 
 #### The chat of a corpus
 
 The `chat` of a corpus names a Zulip server, the start of the slice (`since`), and the ids of the web-public channels to read. The end of the slice is the cut-off date. `zulip-chat.ts` reads the messages with no credential, 100 messages for each request and at most one request each 2 seconds, as the server asks in its `llms.txt`. It refuses a reply that is not a list of messages with integer ids. It writes one Markdown file for each topic, at `chat/zulip/<channel id>/<first message id>.md`:
 
-- Each message is as it was at the cut-off date. The edit history of the message gives its earlier text, topic and channel. A message that moved after the cut-off date goes to its channel and topic of that date, and a message that was then in a channel out of the slice is not there. When the history does not explain a later edit, the text is left out. When it does not explain a later move, the topic loses its resolved mark. The manifest counts each case.
+- Each message is as it was at the cut-off date. The edit history of the message gives its earlier text, topic and channel. A message that moved after the cut-off date goes to its channel and topic of that date, and a message that was then in a channel out of the slice is not there. When the history does not give the earlier text of a later edit, the text is left out. When it does not give the earlier topic or channel of a later move, the message goes to the topic "Topic not known at the snapshot date". The manifest counts each case.
 - No real name, email address or user id goes into a file. The export replaces each mention, each known full name in any case, each first name of a known full name, each email address, each avatar link, and each link to a direct message or a sender. Text can still name a person who never wrote in the slice: read a sample before you publish anything from the files.
 - The manifest gives the counts and, for each file, the path, the SHA-256 and the first message id. It holds no name and no text, so it can be public.
 
@@ -294,7 +294,7 @@ bun --no-env-file evals/knowledge/cli.ts corpus chat --plan PLAN.json --out "$TM
 - **T:** each model that OrgBench tests (Claude Haiku 5.5, Sonnet 5.5 and Opus 5.5) has a training data cutoff of June 2026. The ingest and hydrate models of production are `openai/gpt-6-luna` (the ingest agents), `openai/text-embedding-3-large`, `google/gemini-embedding-2`, `openai/gpt-6.1-terra` (vision), `anthropic/claude-haiku-4-5` (commit subjects) and `xiaomi/mimo-v2.6-pro` (merges). Their cutoffs are not published, but each model was released by 2026-10-26, so each cutoff is before T. The tasks come from the events in (T, the run date]. On 2026-11-25 that window held 211 pull requests and 42 issues in `zulip/zulip` alone.
 - **Repositories:** the 8 core repositories at their last commit up to T. The plan takes the newest 3000 issues and 2000 pull requests of `zulip/zulip`, and all or most of those of the smaller repositories.
 - **Chat:** the 25 web-public channels of `chat.zulip.org` from 2025-11-01 to T. The `commits` channel is not there, because it repeats the Git history.
-- **Not done yet:** the snapshot, the ingest, the import and the freeze need the setup of the bench org in production. Before the full chat export, get the permission of the `chat.zulip.org` administrators: their `llms.txt` asks for it before a bulk download.
+- **Permission:** before a full chat export, get the permission of the administrators of `chat.zulip.org`. Their `llms.txt` asks for it before a bulk download.
 
 ### Probe the provider settings
 

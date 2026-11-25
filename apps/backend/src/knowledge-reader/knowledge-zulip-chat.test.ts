@@ -92,7 +92,7 @@ describe("the Zulip chat of an org twin", () => {
         content: [
           "ada quill said so, and Ada agreed.",
           "Mail bo@reed.example.",
-          "See #narrow/dm/11-Ada-Quill and #narrow/channel/7-api-design/sender/11.",
+          "See #narrow/dm/11-Ada-Quill, #narrow/is/dm/dm/11-Ada-Quill and #narrow/channel/7-api-design/sender/11 too.",
           "Ask @**Cy Unknown**. ![](https://secure.gravatar.com/avatar/0a1b2c?d=identicon)",
         ].join(" "),
       }),
@@ -116,7 +116,7 @@ describe("the Zulip chat of an org twin", () => {
       "### person-0001 · 2026-10-02T00:00:00Z\n\nPing @person-0002 and @person-0001 about it.",
     )
     expect(text).toContain(
-      "person-0001 said so, and person-0001 agreed. Mail [email]. See #narrow/dm/[person] and #narrow/channel/7-api-design/sender/[person]. Ask @someone. ![]([avatar])",
+      "person-0001 said so, and person-0001 agreed. Mail [email]. See #narrow/dm/[person], #narrow/is/dm/dm/[person] and #narrow/channel/7-api-design/sender/[person] too. Ask @someone. ![]([avatar])",
     )
     expect(text).toContain("channelId: 7")
     expect(text).toContain("messages: 3")
@@ -169,8 +169,8 @@ describe("the Zulip chat of an org twin", () => {
           { timestamp: before, prev_content: "First text." },
         ],
       }),
-      // Edited and resolved after the cut-off date, and the history does
-      // not explain it: the text is left out, and the resolved mark goes.
+      // Edited and resolved after the cut-off date, with no earlier text or
+      // topic in the history: both are left out.
       message(2, "2026-10-02T01:00:00Z", {
         subject: "✔ Typing events",
         content: "Changed later.",
@@ -194,15 +194,22 @@ describe("the Zulip chat of an org twin", () => {
 
     const { files, manifest } = renderZulipChat(chat, until, messages)
 
-    expect(files.map((file) => file.path)).toEqual(["chat/zulip/7/1.md"])
+    expect(files.map((file) => file.path)).toEqual([
+      "chat/zulip/7/1.md",
+      "chat/zulip/7/2.md",
+    ])
     const text = files[0]?.content ?? ""
     expect(text).toContain("# Typing events")
     expect(text).toContain("resolved: false")
     expect(text).toContain("Second text.")
     expect(text).not.toContain("Final text")
-    expect(text).toContain("Its text is left out.")
-    expect(text).not.toContain("Changed later.")
-    expect(text).toContain("messages: 3")
+    expect(text).toContain("messages: 2")
+    // The topic and the text of message 2 at the cut-off date are not known.
+    const unknown = files[1]?.content ?? ""
+    expect(unknown).toContain("# Topic not known at the snapshot date")
+    expect(unknown).toContain("Its text is left out.")
+    expect(unknown).not.toContain("Changed later.")
+    expect(unknown).not.toContain("✔")
     expect(manifest).toMatchObject({
       messages: 3,
       restoredFromHistory: 2,

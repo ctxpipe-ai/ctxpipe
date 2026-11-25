@@ -4,7 +4,8 @@ import {
   actorFromGraphql,
   aliasActor,
   type GithubMirrorFile,
-  splitRepository,
+  githubTime,
+  publicRepository,
 } from "../github-mirror.js"
 import type { GithubIssueSnapshot } from "./client.js"
 import { renderGithubIssue } from "./converter.js"
@@ -18,11 +19,6 @@ type RestUser = RestIssue["user"]
 /** REST and GraphQL both give `type` `User`, `Bot` or `Organization`. */
 function actor(user: RestUser) {
   return actorFromGraphql(user && { login: user.login, __typename: user.type })
-}
-
-/** A GitHub timestamp, which has no milliseconds. */
-function githubTime(time: number): string {
-  return new Date(time).toISOString().replace(/\.\d{3}Z$/, "Z")
 }
 
 /**
@@ -114,7 +110,7 @@ function stateAt(issue: RestIssue, events: RestEvent[], until: number) {
  * their edit history.
  *
  * `closedBy` is empty. Only GraphQL gives the closing pull requests, and
- * GraphQL needs a token. The eval corpora do not mirror pull requests.
+ * GraphQL needs a token, and the closing pull requests are not needed.
  */
 function snapshotAt(
   repository: string,
@@ -171,13 +167,10 @@ export async function* importPublicGithubIssues(input: {
   limit?: number
   alias?: (login: string) => string
 }): AsyncGenerator<GithubMirrorFile & { number: number }> {
-  const { owner, repo } = splitRepository(input.repository)
-  const { data: repository } = await input.octokit.rest.repos.get({
-    owner,
-    repo,
-  })
-  if (repository.private || repository.visibility !== "public")
-    throw new Error(`${input.repository} is not a public repository`)
+  const { owner, repo } = await publicRepository(
+    input.octokit,
+    input.repository,
+  )
   const until = input.until.getTime()
   const limit = input.limit ?? Number.POSITIVE_INFINITY
   let count = 0

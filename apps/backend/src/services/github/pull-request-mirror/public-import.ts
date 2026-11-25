@@ -3,6 +3,8 @@ import type { Octokit } from "octokit"
 import {
   aliasActor,
   type GithubMirrorFile,
+  githubTime,
+  publicRepository,
   splitRepository,
 } from "../github-mirror.js"
 import { undoLaterEvents } from "../issue-mirror/public-import.js"
@@ -10,11 +12,6 @@ import { fetchPullRequestsByNumber } from "./client.js"
 import { renderGithubPullRequest } from "./converter.js"
 import { shouldMirrorGithubPullRequest } from "./policy.js"
 import type { GithubPullRequestSnapshot } from "./types.js"
-
-/** A GitHub timestamp, which has no milliseconds. */
-function githubTime(time: number): string {
-  return new Date(time).toISOString().replace(/\.\d{3}Z$/, "Z")
-}
 
 /**
  * The pull request mirror files of a public repository, for an eval corpus
@@ -35,13 +32,10 @@ export async function* importPublicGithubPullRequests(input: {
   limit: number
   alias?: (login: string) => string
 }): AsyncGenerator<GithubMirrorFile & { number: number }> {
-  const { owner, repo } = splitRepository(input.repository)
-  const { data: repository } = await input.octokit.rest.repos.get({
-    owner,
-    repo,
-  })
-  if (repository.private || repository.visibility !== "public")
-    throw new Error(`${input.repository} is not a public repository`)
+  const { owner, repo } = await publicRepository(
+    input.octokit,
+    input.repository,
+  )
   const until = input.until.getTime()
   const before = (time: string | null | undefined) =>
     !!time && Date.parse(time) <= until

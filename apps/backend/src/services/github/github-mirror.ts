@@ -40,6 +40,27 @@ export function aliasActor(
     : { ...actor, login: alias(actor.login) }
 }
 
+/** A GitHub timestamp, which has no milliseconds. */
+export function githubTime(time: number): string {
+  return new Date(time).toISOString().replace(/\.\d{3}Z$/, "Z")
+}
+
+/**
+ * The two parts of `repository`, for a public import of an eval corpus. A
+ * repository that is not public is refused, also when the token can read
+ * it, because the corpora are public.
+ */
+export async function publicRepository(
+  octokit: Octokit,
+  repository: string,
+): Promise<{ owner: string; repo: string }> {
+  const { owner, repo } = splitRepository(repository)
+  const { data } = await octokit.rest.repos.get({ owner, repo })
+  if (data.private || data.visibility !== "public")
+    throw new Error(`${repository} is not a public repository`)
+  return { owner, repo }
+}
+
 /**
  * The numbers of the issues and pull requests whose body was edited after
  * `until`, for an eval corpus (CTX-1661). Their mirror file shows the
