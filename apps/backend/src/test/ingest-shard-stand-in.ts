@@ -142,7 +142,9 @@ export function standInIngestShardRuntime(options: {
           JSON.stringify({
             workspaceId: step.workspaceId,
             baseCommit: step.baseCommit,
-            ...(step.cursor ? { cursorAt: step.cursor.at } : {}),
+            ...(step.cursor
+              ? { cursorAt: step.cursor.at, cursorBase: step.cursor.base }
+              : {}),
           }),
         )
         let more = false

@@ -136,17 +136,16 @@ export function testFixtureSkips(files) {
 /** Folder names that never hold a code root. */
 const IGNORED_SEGMENTS = new Set(["node_modules", "vendor", "third_party"])
 
+/** True for a vendored or dot folder name. */
+const vendoredOrHidden = (segment) =>
+  segment.startsWith(".") || IGNORED_SEGMENTS.has(segment)
+
 /** True for a folder that never holds a code root: vendored, test input, or a dot folder. */
 export function ignoredFolder(dir) {
   if (dir === ".") return false
   return dir
     .split("/")
-    .some(
-      (segment) =>
-        segment.startsWith(".") ||
-        IGNORED_SEGMENTS.has(segment) ||
-        testFixtureFolder(segment),
-    )
+    .some((segment) => vendoredOrHidden(segment) || testFixtureFolder(segment))
 }
 
 /** Tracked files of a checkout at HEAD. */
@@ -972,9 +971,7 @@ function goMainPackages(source, files, markersOf) {
     const fixture = inTestFixture(file)
     if (
       fixture
-        ? dir
-            .split("/")
-            .some((s) => s.startsWith(".") || IGNORED_SEGMENTS.has(s))
+        ? dir.split("/").some(vendoredOrHidden)
         : ignoredFolder(dir) || inTestFolder(dir)
     )
       continue

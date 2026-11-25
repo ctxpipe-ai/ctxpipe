@@ -106,7 +106,7 @@ describe("the finder of a cursor skill (CTX-1487)", () => {
     step: {
       ...step("ownership"),
       run: "script" as const,
-      cursor: { finder: "ownership.mjs", at: 3 },
+      cursor: { finder: "ownership.mjs", at: 3, base: "b".repeat(40) },
     },
   })
 
@@ -129,14 +129,20 @@ describe("the finder of a cursor skill (CTX-1487)", () => {
       .flatMap((c) => [...c.matchAll(/printf %s '([A-Za-z0-9+/=]+)'/g)])
       .map((m) => Buffer.from(m[1] ?? "", "base64").toString("utf8"))
       .find((text) => text.includes('"baseCommit"'))
-    expect(JSON.parse(stepFile ?? "{}")).toMatchObject({ cursorAt: 3 })
+    expect(JSON.parse(stepFile ?? "{}")).toMatchObject({
+      cursorAt: 3,
+      cursorBase: "b".repeat(40),
+    })
   })
 
   it("runs the finder that the plan names before the model of a model skill", async () => {
     const s = finderSandbox({ exitCode: 0, stdout: '{"count":7}\n' })
     const result = await runIngestShardStep(s.root, {
       ...input("apis"),
-      step: { ...step("apis"), cursor: { finder: "find-apis.mjs", at: 0 } },
+      step: {
+        ...step("apis"),
+        cursor: { finder: "find-apis.mjs", at: 0, base: "b".repeat(40) },
+      },
     })
     expect(result).toMatchObject({ inputs: 7 })
     const finder = s.commands.findIndex(

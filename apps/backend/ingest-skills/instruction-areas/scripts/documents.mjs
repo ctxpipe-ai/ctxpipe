@@ -13,7 +13,7 @@
 // { documents: [{ path, class, bytes, truncated }], page: { from, to, of },
 // skipped: [...] }. A page starts at the cursor of the page before it
 // (`cursorAt` of step.json) and holds the next documents while their read
-// bytes fit in PAGE_READ_BYTES, at least one. `class` orders the list:
+// bytes fit in 256 KiB, at least one. `class` orders the list:
 // instructions, rules, skills, contributing, adr, lessons, readme.
 // `truncated` is true when the file is larger than 64 KiB; the agent reads
 // only its first 64 KiB.
@@ -34,11 +34,6 @@ import {
 } from "../../discover-roots/scripts/roots-lib.mjs"
 
 const READ_LIMIT = 64 * 1024
-/**
- * The bytes that the agent reads on one page: the documents of a page fit
- * in it, so that the model can read them before the step checkpoint.
- */
-export const PAGE_READ_BYTES = 256 * 1024
 const IGNORED = new Set([
   "node_modules",
   "vendor",
@@ -166,30 +161,21 @@ export function selectDocuments(source, rootPaths = null) {
 
 /**
  * The documents of the page that starts at `from`: the next documents while
- * their read bytes fit in PAGE_READ_BYTES, at least one. `to` is the cursor
- * after the page.
+ * their read bytes fit in 256 KiB, at least one, so that the model can read
+ * them before the step checkpoint. `to` is the cursor after the page.
  */
 export function documentPage(documents, from) {
+  const budget = 256 * 1024
   const start = Math.min(from, documents.length)
   let to = start
   let read = 0
   while (to < documents.length) {
     const bytes = Math.min(documents[to].bytes, READ_LIMIT)
-    if (to > start && read + bytes > PAGE_READ_BYTES) break
+    if (to > start && read + bytes > budget) break
     read += bytes
     to++
   }
   return { documents: documents.slice(start, to), from: start, to }
-}
-
-/** The root folders of the root-to-file map, or null when it has no list. */
-function rootPaths(rootsFile) {
-  const listed = JSON.parse(readFileSync(rootsFile, "utf8")).roots
-  return Array.isArray(listed)
-    ? listed
-        .map((r) => r?.path)
-        .filter((p) => typeof p === "string" && safePath(p))
-    : null
 }
 
 function main() {
@@ -222,7 +208,13 @@ function main() {
     )
     process.exit(1)
   }
-  const { documents, skipped } = selectDocuments(source, rootPaths(rootsFile))
+  const listed = JSON.parse(readFileSync(rootsFile, "utf8")).roots
+  const roots = Array.isArray(listed)
+    ? listed
+        .map((r) => r?.path)
+        .filter((p) => typeof p === "string" && safePath(p))
+    : null
+  const { documents, skipped } = selectDocuments(source, roots)
   if (count) {
     process.stdout.write(`${JSON.stringify({ count: documents.length })}\n`)
     return

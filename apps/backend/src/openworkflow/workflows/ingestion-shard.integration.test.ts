@@ -195,14 +195,15 @@ describe("runSkillPages", () => {
     }
   })
 
-  it("pages instruction-areas by its cursor over the documents (CTX-1570)", async () => {
-    const results = [page(4, 9), page(8, 9), page(9, 9, false)]
+  it("pages instruction-areas by its cursor over the documents, also over a page with no op (CTX-1570)", async () => {
+    // Page 2 read its documents but changed no file.
+    const results = [page(4, 9), { ...page(8, 9), ops: 0 }, page(9, 9, false)]
     const state = await pages(null, results, {
       name: "instruction-areas",
       cursor: { finder: "documents.mjs" },
     })
     expect(results).toEqual([])
-    expect(state).toMatchObject({ ops: 3, partial: 0 })
+    expect(state).toMatchObject({ ops: 2, partial: 0 })
   })
 
   it("stops a skill with no cursor as partial when its one page says more, and keeps the ops of the page (CTX-1487)", async () => {
@@ -478,11 +479,11 @@ describe("runSkillPages on a shard ref that another execution moved", () => {
     expect(calls).toEqual([
       {
         name: skillStepName(ROOT, "ownership", WS, 1),
-        cursor: { ...cursor, at: 0 },
+        cursor: { ...cursor, at: 0, base: pinned },
       },
       {
         name: skillStepName(ROOT, "ownership", WS, 2),
-        cursor: { ...cursor, at: 1 },
+        cursor: { ...cursor, at: 1, base: pinned },
       },
     ])
     expect(state).toMatchObject({ ops: 2, partial: 1, partialRoots: [ROOT] })

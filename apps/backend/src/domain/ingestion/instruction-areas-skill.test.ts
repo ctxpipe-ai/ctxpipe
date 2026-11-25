@@ -394,7 +394,7 @@ const codebase = (name: string, url: string) =>
     `# ${name}\n`,
   )
 
-type Proposal = { areas: object[]; complete?: boolean }
+type Proposal = { areas: object[]; complete?: boolean; read?: string[] }
 
 /** Context repository shared by the runs of several sources. */
 function contextRepo() {
@@ -481,8 +481,8 @@ async function ingest(
   /** The codebase file in the root-to-file map; null for none. */
   codebasePath: string | null,
   proposal: Proposal,
-  /** The cursor of the page before this one (step.json). */
-  cursorAt = 0,
+  /** The cursor of the page before this one, and the base of the first page (step.json). */
+  cursor: { at: number; base: string } = { at: 0, base: context.base },
 ) {
   const stepRoot = mkdtempSync(join(root, "step-"))
   const contextCheckout = join(stepRoot, "context", "ws_fixture")
@@ -495,7 +495,8 @@ async function ingest(
     JSON.stringify({
       workspaceId: "ws_fixture",
       baseCommit: context.base,
-      cursorAt,
+      cursorAt: cursor.at,
+      cursorBase: cursor.base,
     }),
   )
   mkdirSync(join(stepRoot, "out", "files"), { recursive: true })
@@ -811,6 +812,49 @@ describe("the instruction-areas skill", () => {
     )
   })
 
+  // 5 documents larger than the 64 KiB that the agent reads: page 1 holds
+  // 4 (256 KiB), page 2 holds the last one.
+  const pad = `\n${"z".repeat(70_000)}\n`
+  const SNAPSHOTS = "Use inline snapshots in each test file."
+  const PAGE_ONE = [
+    "AGENTS.md",
+    "a/CONTRIBUTING.md",
+    "b/CONTRIBUTING.md",
+    "c/CONTRIBUTING.md",
+  ]
+  const pagedShop = () =>
+    source("shop-pages", [
+      {
+        days: 40,
+        files: {
+          "AGENTS.md": `${AGENTS(GOOD)}${pad}`,
+          "a/CONTRIBUTING.md": `# a${pad}`,
+          "b/CONTRIBUTING.md": `# b${pad}`,
+          "c/CONTRIBUTING.md": `# c${pad}`,
+          "d/CONTRIBUTING.md": `# d\n\n${SNAPSHOTS}\n${pad}`,
+          ...testFiles("vitest"),
+        },
+      },
+    ])
+  const snapshotArea = (extra: object = {}): Proposal => ({
+    read: ["d/CONTRIBUTING.md"],
+    areas: [
+      {
+        slug: "unit-testing",
+        summary: "How the code is tested.",
+        rules: [
+          {
+            key: "snapshots",
+            value: "inline",
+            text: SNAPSHOTS,
+            documents: [{ path: "d/CONTRIBUTING.md", quote: SNAPSHOTS }],
+          },
+        ],
+      },
+    ],
+    ...extra,
+  })
+
   it("pages the areas over the documents: a later page adds to the file of an earlier page and keeps its rules (CTX-1570)", async () => {
     const context = contextRepo()
     // Another source follows the same practice first.
@@ -830,29 +874,14 @@ describe("the instruction-areas skill", () => {
       )
     ).validate()
     context.advance(other.tree)
-    // 5 documents larger than the 64 KiB that the agent reads: page 1 holds
-    // 4 (256 KiB), page 2 holds the last one.
-    const pad = `\n${"z".repeat(70_000)}\n`
-    const snapshots = "Use inline snapshots in each test file."
-    const a = source("shop-pages", [
-      {
-        days: 40,
-        files: {
-          "AGENTS.md": `${AGENTS(GOOD)}${pad}`,
-          "a/CONTRIBUTING.md": `# a${pad}`,
-          "b/CONTRIBUTING.md": `# b${pad}`,
-          "c/CONTRIBUTING.md": `# c${pad}`,
-          "d/CONTRIBUTING.md": `# d\n\n${snapshots}\n${pad}`,
-          ...testFiles("vitest"),
-        },
-      },
-    ])
+    const firstBase = context.base
+    const a = pagedShop()
     const first = await ingest(
       context,
       a,
       URL_A,
       "knowledge/codebases/shop.md",
-      unitTesting("vitest"),
+      { ...unitTesting("vitest"), read: PAGE_ONE },
     )
     expect(first.report()[0]).toMatchObject({ decision: "same", file: AREA })
     expect(first.patch()).toMatchObject({ more: true, cursor: { at: 4 } })
@@ -866,33 +895,14 @@ describe("the instruction-areas skill", () => {
       a,
       URL_A,
       "knowledge/codebases/shop.md",
-      {
-        complete: true,
-        areas: [
-          {
-            slug: "unit-testing",
-            summary: "How the code is tested.",
-            rules: [
-              {
-                key: "snapshots",
-                value: "inline",
-                text: snapshots,
-                documents: [{ path: "d/CONTRIBUTING.md", quote: snapshots }],
-              },
-            ],
-          },
-        ],
-      },
-      4,
+      snapshotArea({ complete: true }),
+      { at: 4, base: firstBase },
     )
     expect(second.report()).toEqual([
       expect.objectContaining({ decision: "add", file: AREA }),
     ])
     expect(second.patch()).toMatchObject({ cursor: { at: 5 } })
     expect(second.patch().more).toBeFalsy()
-    expect(second.summary.skipped.map((s) => s.reason)).toEqual([
-      "A later page adds to the areas of the earlier pages, so the script did not read complete",
-    ])
     const result = await second.validate()
     expect(result.rejections).toEqual([])
     const after = context.show(result.tree, AREA)
@@ -902,6 +912,107 @@ describe("the instruction-areas skill", () => {
     expect(after).toContain(
       `- source \`${PATH_A}\`, documented: \`d/CONTRIBUTING.md\``,
     )
+  })
+
+  it("moves the cursor only past the documents that the proposal read (CTX-1570)", async () => {
+    const context = contextRepo()
+    const step = await ingest(
+      context,
+      pagedShop(),
+      URL_A,
+      "knowledge/codebases/shop.md",
+      // The model read the first two documents and the fourth one.
+      {
+        ...unitTesting("vitest"),
+        read: ["AGENTS.md", "a/CONTRIBUTING.md", "c/CONTRIBUTING.md"],
+      },
+    )
+    expect(step.patch()).toMatchObject({ more: true, cursor: { at: 2 } })
+  })
+
+  it("on a re-ingestion, a later page replaces the old rules of the source in an area that no earlier page changed (CTX-1570)", async () => {
+    const context = contextRepo()
+    const a = pagedShop()
+    // The run before wrote the area with 5 rules.
+    const old = await (
+      await ingest(
+        context,
+        a,
+        URL_A,
+        "knowledge/codebases/shop.md",
+        unitTesting("vitest"),
+      )
+    ).validate()
+    context.advance(old.tree)
+    // Page 1 of the new run names no area.
+    const firstBase = context.base
+    const first = await ingest(
+      context,
+      a,
+      URL_A,
+      "knowledge/codebases/shop.md",
+      { areas: [], read: PAGE_ONE },
+    )
+    context.advance((await first.validate()).tree)
+    // Page 2 names the area with other rules: the old rules go.
+    const second = await ingest(
+      context,
+      a,
+      URL_A,
+      "knowledge/codebases/shop.md",
+      snapshotArea(),
+      { at: 4, base: firstBase },
+    )
+    expect(second.report()[0]).toMatchObject({ decision: "update-own" })
+    const result = await second.validate()
+    expect(result.rejections).toEqual([])
+    const after = context.show(result.tree, AREA)
+    expect(after).toContain("topic: `snapshots` = `inline`")
+    expect(after).not.toContain("topic: `mocking`")
+  })
+
+  it("keeps the 60 rules that an area file can take and lists each other rule in skipped (CTX-1570)", async () => {
+    const context = contextRepo()
+    const lines = Array.from(
+      { length: 62 },
+      (_, i) => `Rule number ${i + 10} of this repository is a real rule.`,
+    )
+    const repo = source("many-rules", [
+      {
+        days: 40,
+        files: { "AGENTS.md": AGENTS(lines), ...testFiles("vitest") },
+      },
+    ])
+    const step = await ingest(
+      context,
+      repo,
+      URL_A,
+      "knowledge/codebases/shop.md",
+      {
+        read: ["AGENTS.md"],
+        areas: [
+          {
+            slug: "code-style",
+            summary: "How the code is written.",
+            rules: lines.map((line, i) => ({
+              key: `rule-${i + 10}`,
+              value: "yes",
+              text: line,
+              documents: [{ path: "AGENTS.md", quote: line }],
+            })),
+          },
+        ],
+      },
+    )
+    expect(step.summary.skipped.map((s) => s.reason)).toEqual([
+      "The area file holds at most 60 rules, so the rule rule-70 was left out",
+      "The area file holds at most 60 rules, so the rule rule-71 was left out",
+    ])
+    const result = await step.validate()
+    expect(result.rejections).toEqual([])
+    expect(
+      context.show(result.tree, "knowledge/instructions/code-style.md"),
+    ).toContain("topic: `rule-69` = `yes`")
   })
 
   it("gives a repository on another framework its own file, named by the difference", async () => {

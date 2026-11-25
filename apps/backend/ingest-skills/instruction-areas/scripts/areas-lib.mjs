@@ -39,7 +39,9 @@ export const SEED_AREAS = [
 
 export const SEED_SLUGS = new Set(SEED_AREAS.map(([slug]) => slug))
 export const MIN_NEW_AREA_RULES = 5
+/** The limits of the host format of an area file (`area-file.ts`). */
 export const MAX_RULES = 60
+export const MAX_NOTES = 100
 /** An area file of another source agrees at this share, or more, when no core rule conflicts. */
 export const SAME_SHARE = 0.7
 /** Below this share of agreeing rules, the practice is significantly different. */

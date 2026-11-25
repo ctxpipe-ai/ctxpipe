@@ -64,10 +64,11 @@ export type IngestRuntimeStep = {
    * The skill pages by a cursor (CTX-1487): before the skill runs, the
    * runtime runs its finder (`<skill>/scripts/<finder> <arguments> --count`)
    * and returns the count as `inputs`. `at` is the cursor of the page before
-   * this one (0 on the first page); `step.json` gives it to the skill as
-   * `cursorAt` (CTX-1570).
+   * this one (0 on the first page), and `base` is the base commit of the
+   * first page; `step.json` gives them to the skill as `cursorAt` and
+   * `cursorBase` (CTX-1570).
    */
-  cursor?: { finder: string; at: number }
+  cursor?: { finder: string; at: number; base: string }
   signal: AbortSignal
   /**
    * Before the step limit (`ingestStepCheckpoint`): a model step then stops

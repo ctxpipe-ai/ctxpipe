@@ -586,7 +586,9 @@ export async function runIngestShardStep(
   await startIngestStep(root, {
     workspaceId: step.workspaceId,
     baseCommit: step.baseCommit,
-    ...(step.cursor ? { cursorAt: step.cursor.at } : {}),
+    ...(step.cursor
+      ? { cursor: { at: step.cursor.at, base: step.cursor.base } }
+      : {}),
     ...(step.fetchRef
       ? { fetch: { remote: input.remote, ref: step.fetchRef } }
       : {}),

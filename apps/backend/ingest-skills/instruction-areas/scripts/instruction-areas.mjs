@@ -12,11 +12,13 @@
 //   --source-url <url> --source-path <path> --roots <root-to-file map> --proposal <file> [--now <ISO date>]
 //
 // The skill pages by a cursor over the documents of documents.mjs
-// (CTX-1570). The first page (cursor 0) writes the areas of the source again:
-// the source leaves its rules that the proposal does not name, and with a
-// complete proposal it leaves its other areas. A later page adds: it keeps
-// what the earlier pages wrote, so the source leaves nothing. patch.json gets
-// the cursor after the documents of the page, and `more` while documents
+// (CTX-1570). An area file that no earlier page of the skill changed gets the
+// areas of the source again: the source leaves its rules that the proposal
+// does not name, and on the first page a complete proposal makes it leave its
+// other areas. A later page adds to an area file that an earlier page changed
+// (since `cursorBase` of step.json): it keeps the rules and notes of the
+// source there. patch.json gets the cursor after the documents of the page
+// that the proposal read (`read`, in list order), and `more` while documents
 // wait.
 //
 // The proposal and the source repository are hostile. Text from the proposal
@@ -41,6 +43,7 @@ import { readTracked } from "../../discover-roots/scripts/roots-lib.mjs"
 import {
   cleanText,
   compareRules,
+  MAX_NOTES,
   MAX_RULES,
   MIN_NEW_AREA_RULES,
   newFront,
@@ -80,13 +83,11 @@ const documents = selectDocuments(
   roots.map((r) => r.path),
 ).documents
 const page = documentPage(documents, step.cursorAt)
-const later = page.from > 0
-if (later && proposal?.complete === true)
-  skip(
-    null,
-    "A later page adds to the areas of the earlier pages, so the script did not read complete",
-  )
-const complete = !later && proposal?.complete === true
+const read = new Set(Array.isArray(proposal?.read) ? proposal.read : [])
+let cursorAt = page.from
+while (cursorAt < page.to && read.has(documents[cursorAt].path)) cursorAt++
+const laterPage = page.from > 0
+const complete = !laterPage && proposal?.complete === true
 
 // ---- the rules of one area --------------------------------------------------
 
@@ -219,6 +220,23 @@ const existingNames = contextGit([
   .map((p) => p.slice("knowledge/instructions/".length, -3))
   .sort()
 
+// The area files that an earlier page of this skill changed (CTX-1570).
+const writtenByEarlierPage = new Set(
+  laterPage
+    ? contextGit([
+        "diff",
+        "--name-only",
+        "-z",
+        step.cursorBase,
+        step.baseCommit,
+        "--",
+        "knowledge/instructions/",
+      ])
+        .split("\0")
+        .filter(Boolean)
+    : [],
+)
+
 const parsedCache = new Map()
 function readAreaFile(name) {
   const path = `knowledge/instructions/${name}.md`
@@ -287,12 +305,12 @@ function leave(parsed) {
 }
 
 /**
- * Join or update a file; returns false when the file would hold too many
- * rules. On a later page, the evidence and notes of the source from the
- * earlier pages stay.
+ * Join or update a file. A rule or a note that the host format of the file
+ * cannot take gets a `skipped` entry. In a file that an earlier page
+ * changed, the evidence and notes of the source stay.
  */
 function mergeInto(parsed, area) {
-  const rest = later
+  const rest = writtenByEarlierPage.has(parsed.path)
     ? {
         rules: parsed.area.rules.map((r) => ({
           ...r,
@@ -304,13 +322,23 @@ function mergeInto(parsed, area) {
   const rules = rest.rules
   const notes = [...rest.notes]
   const addNote = (text) => {
-    if (!notes.some((n) => n.source === sourceId && n.text === text))
-      notes.push({ source: sourceId, text })
+    if (notes.some((n) => n.source === sourceId && n.text === text)) return
+    if (notes.length >= MAX_NOTES)
+      skip(
+        parsed.path,
+        `The area file holds at most ${MAX_NOTES} notes, so a note of ${sourceId} was left out`,
+      )
+    else notes.push({ source: sourceId, text })
   }
   for (const text of area.notes) addNote(text)
   for (const rule of [...area.rules].sort((a, b) => (a.key < b.key ? -1 : 1))) {
     const known = rules.find((r) => r.key === rule.key)
-    if (!known) {
+    if (!known && rules.length >= MAX_RULES) {
+      skip(
+        parsed.path,
+        `The area file holds at most ${MAX_RULES} rules, so the rule ${rule.key} was left out`,
+      )
+    } else if (!known) {
       rules.push({
         section: rule.section,
         key: rule.key,
@@ -331,7 +359,6 @@ function mergeInto(parsed, area) {
       )
     } else known.sources.set(sourceId, toEvidence(rule))
   }
-  if (rules.length > MAX_RULES) return false
   outputs.set(
     parsed.path,
     renderAreaFile(
@@ -340,7 +367,6 @@ function mergeInto(parsed, area) {
       parsed.human,
     ),
   )
-  return true
 }
 
 const nameKeyDiffers = (a, b) =>
@@ -410,7 +436,7 @@ for (const raw of proposed) {
       break
     }
     // An earlier page decided the file of the area; a later page adds to it.
-    if (mine && later) {
+    if (mine && writtenByEarlierPage.has(file.path)) {
       target = { file, decision: "add", cmp: null }
       break
     }
@@ -434,10 +460,7 @@ for (const raw of proposed) {
       skip(path, `The area file was already changed by another area (${slug})`)
       continue
     }
-    if (!mergeInto(target.file, area)) {
-      skip(path, `The area ${slug} would hold more than ${MAX_RULES} rules`)
-      continue
-    }
+    mergeInto(target.file, area)
   } else {
     if (standing.length < MIN_NEW_AREA_RULES || !summary) {
       skip(
@@ -465,7 +488,18 @@ for (const raw of proposed) {
     path = `knowledge/instructions/${name}.md`
     const seed = SEED_AREAS.find(([s]) => s === slug)
     const title = `${seed ? seed[1] : slug.replaceAll("-", " ").replace(/^./, (c) => c.toUpperCase())}${name === slug ? "" : ` (${name.slice(slug.length + 1).replaceAll("-", " ")})`}`
-    const rules = area.rules.map((r) => ({
+    // A new file takes what the host format of the file can take.
+    for (const rule of area.rules.slice(MAX_RULES))
+      skip(
+        path,
+        `The area file holds at most ${MAX_RULES} rules, so the rule ${rule.key} was left out`,
+      )
+    if (area.notes.length > MAX_NOTES)
+      skip(
+        path,
+        `The area file holds at most ${MAX_NOTES} notes, so ${area.notes.length - MAX_NOTES} notes of ${sourceId} were left out`,
+      )
+    const rules = area.rules.slice(0, MAX_RULES).map((r) => ({
       section: r.section,
       key: r.key,
       value: r.value,
@@ -481,20 +515,23 @@ for (const raw of proposed) {
           title,
           summary,
           rules,
-          notes: area.notes.map((text) => ({ source: sourceId, text })),
+          notes: area.notes
+            .slice(0, MAX_NOTES)
+            .map((text) => ({ source: sourceId, text })),
         },
         [],
       ),
     )
   }
   touched.add(path)
-  // The source leaves each other file of this family that still lists it.
-  // A later page adds only, so it leaves no file.
-  for (const file of later ? [] : readable)
+  // The source leaves each other file of this family that still lists it,
+  // but not a file that an earlier page of the skill changed.
+  for (const file of readable)
     if (
       file.path !== path &&
       file.sources.includes(sourceId) &&
-      !touched.has(file.path)
+      !touched.has(file.path) &&
+      !writtenByEarlierPage.has(file.path)
     ) {
       leave(file)
       touched.add(file.path)
@@ -606,8 +643,8 @@ else
           },
         ],
       })
-// The documents of this page are done when the script writes its areas.
+// The documents of this page that the proposal read are done.
 writeStep(step, plans, skipped, {
-  more: page.to < documents.length,
-  cursorAt: () => page.to,
+  more: cursorAt < documents.length,
+  cursorAt: () => cursorAt,
 })
