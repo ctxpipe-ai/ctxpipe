@@ -11,11 +11,13 @@ import { getSystemDb } from "../../db/client.js"
 import { ownerUrlForMigrate } from "../../db/owner-migrate-url.js"
 import { CONSOLE_ROLE_NAME } from "../../db/provision-console-role.js"
 import {
+  apikeys,
   members,
   organizations,
   sessions,
   users,
 } from "../../db/schema/auth.js"
+import { orgApiKeyCreators } from "../../db/schema/org_api_key_creators.js"
 import { generateObjectId } from "../../lib/id.js"
 import { openWorkflowNamespaceId } from "../namespace.js"
 import { connectOpenWorkflowBackend } from "../storable-backend.js"
@@ -32,7 +34,7 @@ const namespaceId = openWorkflowNamespaceId()
 let seed: SeededOrg
 let consoleSql: postgres.Sql
 let consoleBackend: BackendPostgres
-let console: OpenWorkflow
+let consoleClient: OpenWorkflow
 let workerBackend: BackendPostgres
 let worker: Worker
 /** A second user: an admin member of the seeded organization. */
@@ -49,7 +51,7 @@ const request = (params: Record<string, unknown>) => ({
 
 /** Enqueue as the console does, and wait for the worker. */
 async function runAsConsole(name: string, input: Record<string, unknown>) {
-  const handle = await console.runWorkflow({ name }, input, {
+  const handle = await consoleClient.runWorkflow({ name }, input, {
     idempotencyKey: String(input.requestId),
   })
   return handle.result()
@@ -67,7 +69,7 @@ beforeAll(async () => {
   consoleBackend = BackendPostgres.fromPool(consoleSql as never, {
     namespaceId,
   })
-  console = new OpenWorkflow({ backend: consoleBackend })
+  consoleClient = new OpenWorkflow({ backend: consoleBackend })
 
   workerBackend = await connectOpenWorkflowBackend(databaseUrl, namespaceId)
   const runner = new OpenWorkflow({ backend: workerBackend })
@@ -110,12 +112,12 @@ afterAll(async () => {
 describe("the console role on workflow_runs", () => {
   it("enqueues an admin run by name once per request id", async () => {
     const input = request({ userId: otherUserId })
-    const first = await console.runWorkflow(
+    const first = await consoleClient.runWorkflow(
       { name: "admin.revoke-sessions" },
       input,
       { idempotencyKey: input.requestId },
     )
-    const again = await console.runWorkflow(
+    const again = await consoleClient.runWorkflow(
       { name: "admin.revoke-sessions" },
       input,
       { idempotencyKey: input.requestId },
@@ -130,7 +132,7 @@ describe("the console role on workflow_runs", () => {
 
   it("may not insert another run, nor see, change or delete one", async () => {
     await expect(
-      console.runWorkflow({ name: "repository-deletion" }, {}),
+      consoleClient.runWorkflow({ name: "repository-deletion" }, {}),
     ).rejects.toThrow(/row-level security/)
 
     const app = new OpenWorkflow({ backend: workerBackend })
@@ -249,7 +251,7 @@ describe("the admin jobs", () => {
     for (const missing of ["requestId", "requestedBy", "approvedBy"]) {
       const input: Record<string, unknown> = request({ userId: otherUserId })
       delete input[missing]
-      const handle = await console.runWorkflow(
+      const handle = await consoleClient.runWorkflow(
         { name: "admin.revoke-sessions" },
         input,
       )
@@ -350,17 +352,45 @@ describe("the admin jobs", () => {
         role: "owner",
       }),
     )
+    // An organization key that the member made: the removal disables it.
+    const keyId = generateObjectId("key")
+    await getSystemDb().insert(apikeys).values({
+      id: keyId,
+      configId: "organization",
+      referenceId: seed.orgId,
+      key: randomUUID(),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    await getSystemDb()
+      .insert(orgApiKeyCreators)
+      .values({ apiKeyId: keyId, userId: otherUserId })
     expect(await runAsConsole("admin.remove-member", request(params))).toEqual({
       ok: true,
       ...params,
       userId: otherUserId,
+      disabledOrgApiKeys: 1,
     })
+    const [key] = await getSystemDb()
+      .select({ enabled: apikeys.enabled })
+      .from(apikeys)
+      .where(eq(apikeys.id, keyId))
+    expect(key?.enabled).toBe(false)
     expect(
       await getSystemDb()
         .select({ id: members.id })
         .from(members)
         .where(eq(members.id, otherMemberId)),
     ).toEqual([])
+  })
+
+  it("refuses to delete an organization that does not exist", async () => {
+    await expect(
+      runAsConsole(
+        "admin.delete-organization",
+        request({ organizationId: "org_unknown" }),
+      ),
+    ).rejects.toThrow(/not found/)
   })
 
   it("deletes an organization with its members", async () => {

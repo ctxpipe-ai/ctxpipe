@@ -25,7 +25,7 @@ import {
 } from "../observability/attribution.js"
 import { getLogger } from "../observability/logger.js"
 import { recordApiKeyEvent } from "./api-key-events.js"
-import { isBanned } from "./ban.js"
+import { isBanned, isTokenRevoked } from "./ban.js"
 import { callPrincipalFromContext, resolveCallOrg } from "./call-org.js"
 import { type AuthSession, type AuthUser, getAuth } from "./config.js"
 import { MCP_READ_SCOPE, quoteHeaderValue } from "./mcp-scopes.js"
@@ -851,6 +851,9 @@ async function authenticateBearer(
   if (tokenSessionContext) {
     const banned = refuseBannedUser(c, tokenSessionContext.user)
     if (banned) return banned
+    // No row can revoke a JWT: a ban sets a time before which none counts.
+    if (await isTokenRevoked(tokenSessionContext.user.id, payload.iat))
+      return unauthorized(c, "token_revoked", "The access token was revoked")
     c.set("personalApiKeyId", null)
     c.set("session", tokenSessionContext.session)
     c.set("user", tokenSessionContext.user)

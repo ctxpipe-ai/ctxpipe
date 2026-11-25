@@ -1,9 +1,10 @@
 import { getOrgAdapter } from "better-auth/plugins"
 import { and, eq } from "drizzle-orm"
 
+import { disableOrgApiKeysMadeBy } from "../auth/ban.js"
 import { getAuth } from "../auth/config.js"
 import { type Db, getSystemDb } from "../db/client.js"
-import { members, sessions } from "../db/schema/auth.js"
+import { members, organizations, sessions } from "../db/schema/auth.js"
 import { purgeOrgDataBeforeAuthDelete } from "./repositoryDeletion.js"
 
 /*
@@ -56,7 +57,7 @@ async function withLockedMember<T>(
 export async function removeMember(input: {
   organizationId: string
   memberId: string
-}): Promise<{ userId: string }> {
+}): Promise<{ userId: string; disabledOrgApiKeys: number }> {
   return withLockedMember(
     input.organizationId,
     input.memberId,
@@ -76,7 +77,13 @@ export async function removeMember(input: {
             eq(sessions.activeOrganizationId, input.organizationId),
           ),
         )
-      return { userId: member.userId }
+      // The member does not keep the organization's access through a key.
+      const disabledOrgApiKeys = await disableOrgApiKeysMadeBy(
+        tx,
+        member.userId,
+        input.organizationId,
+      )
+      return { userId: member.userId, disabledOrgApiKeys }
     },
   )
 }
@@ -107,24 +114,31 @@ export async function setMemberRole(input: {
   )
 }
 
+export async function organizationExists(
+  organizationId: string,
+): Promise<boolean> {
+  const [organization] = await getSystemDb()
+    .select({ id: organizations.id })
+    .from(organizations)
+    .where(eq(organizations.id, organizationId))
+    .limit(1)
+  return Boolean(organization)
+}
+
 /**
  * The deletion of Better Auth's `/organization/delete`: its
  * `beforeDeleteOrganization` hook (in `auth/config.ts`, the purge of the
  * organization's data), then the plugin's own delete of the members, the
- * invitations and the organization. No session is the caller's, so each
- * session that has the organization active loses it.
+ * invitations and the organization, in its transaction. Each step can run
+ * again after a crash.
  */
 export async function deleteOrganization(
   organizationId: string,
 ): Promise<void> {
   await purgeOrgDataBeforeAuthDelete(organizationId)
-  // The typed context of our options is not assignable to the plain one.
+  // The context type of our options is not assignable to the plain one.
   const context = (await getAuth().$context) as unknown as Parameters<
     typeof getOrgAdapter
   >[0]
   await getOrgAdapter(context).deleteOrganization(organizationId)
-  await getSystemDb()
-    .update(sessions)
-    .set({ activeOrganizationId: null })
-    .where(eq(sessions.activeOrganizationId, organizationId))
 }

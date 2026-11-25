@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "9058a43f-8bf6-4a3a-b93c-e71153f96264",
+  "id": "4626608b-17b3-4d2b-97c1-903460d67dbc",
   "prevIds": ["ab6a43b2-2659-4f1b-a352-3632f2fdbf33"],
   "ddl": [
     {
@@ -228,6 +228,12 @@
       "schema": "public"
     },
     {
+      "isRlsEnabled": false,
+      "name": "org_api_key_creators",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
       "isRlsEnabled": true,
       "name": "objects",
       "entityType": "tables",
@@ -284,6 +290,12 @@
     {
       "isRlsEnabled": true,
       "name": "workspace_merge_waiters",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "user_token_cutoffs",
       "entityType": "tables",
       "schema": "public"
     },
@@ -5144,6 +5156,45 @@
       "default": null,
       "generated": null,
       "identity": null,
+      "name": "api_key_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "org_api_key_creators"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "user_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "org_api_key_creators"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "org_api_key_creators"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
       "name": "id",
       "entityType": "columns",
       "schema": "public",
@@ -6266,6 +6317,32 @@
       "entityType": "columns",
       "schema": "public",
       "table": "workspace_merge_waiters"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "user_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "user_token_cutoffs"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "revoked_before",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "user_token_cutoffs"
     },
     {
       "type": "text",
@@ -9091,6 +9168,27 @@
       "table": "oauth_grant_organizations"
     },
     {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "user_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "org_api_key_creators_user_id_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "org_api_key_creators"
+    },
+    {
       "nameExplicit": false,
       "columns": [
         {
@@ -10369,6 +10467,32 @@
     },
     {
       "nameExplicit": false,
+      "columns": ["api_key_id"],
+      "schemaTo": "public",
+      "tableTo": "apikeys",
+      "columnsTo": ["id"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "org_api_key_creators_api_key_id_apikeys_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "org_api_key_creators"
+    },
+    {
+      "nameExplicit": false,
+      "columns": ["user_id"],
+      "schemaTo": "public",
+      "tableTo": "users",
+      "columnsTo": ["id"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "org_api_key_creators_user_id_users_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "org_api_key_creators"
+    },
+    {
+      "nameExplicit": false,
       "columns": ["organization_id"],
       "schemaTo": "public",
       "tableTo": "organizations",
@@ -10496,6 +10620,19 @@
       "entityType": "fks",
       "schema": "public",
       "table": "workspace_merge_waiters"
+    },
+    {
+      "nameExplicit": false,
+      "columns": ["user_id"],
+      "schemaTo": "public",
+      "tableTo": "users",
+      "columnsTo": ["id"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "user_token_cutoffs_user_id_users_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "user_token_cutoffs"
     },
     {
       "nameExplicit": false,
@@ -10988,6 +11125,14 @@
       "entityType": "pks"
     },
     {
+      "columns": ["api_key_id"],
+      "nameExplicit": false,
+      "name": "org_api_key_creators_pkey",
+      "schema": "public",
+      "table": "org_api_key_creators",
+      "entityType": "pks"
+    },
+    {
       "columns": ["id"],
       "nameExplicit": false,
       "name": "objects_pkey",
@@ -11033,6 +11178,14 @@
       "name": "repository_checkouts_pkey",
       "schema": "public",
       "table": "repository_checkouts",
+      "entityType": "pks"
+    },
+    {
+      "columns": ["user_id"],
+      "nameExplicit": false,
+      "name": "user_token_cutoffs_pkey",
+      "schema": "public",
+      "table": "user_token_cutoffs",
       "entityType": "pks"
     },
     {

@@ -327,6 +327,7 @@ That deploy:
 - rolls backend, worker, UI, codesearch, and migrate to the SHA stamped into this package
 - runs Postgres migrations (including new enum values) before ECS services update
 - creates the `ctxpipe_app` LOGIN role (no `BYPASSRLS`) during the migrate task if it is missing, then rewrites the runtime `DATABASE_URL` secret to that role. Do not run `psql`, add `CtxPipe` props, or put a second connection string in your CDK app. Image-tag-only rolls without a construct bump do not create the role.
+- creates the `ctxpipe_console` LOGIN role (no password, `rds_iam`) for an operator console, its schemas `console` and `console_read`, and the row-level security on `openworkflow.workflow_runs` that limits it to `admin.*` jobs. With no console, the role is not used.
 - adds the chat sandbox host on the first upgrade that includes it (new resources only; nothing that holds data is replaced). The deploy waits for the host to report ready before it rolls backend and worker.
 - adds the ClickHouse knowledge store on the first upgrade that includes it (new resources only). The deploy waits until ClickHouse answers; then migrate makes its tables and the two users, before the services roll.
 

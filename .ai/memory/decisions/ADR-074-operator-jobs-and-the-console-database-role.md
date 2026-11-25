@@ -14,12 +14,18 @@ The operators of hosted ctxpipe need to ban a user, end the sessions of a user, 
    - The views of `console_read` (`users`, `organizations`, `members`, `invitations`, `sessions`), with no secret column. A view reads with the rights of its owner, so the role has no right on the tables.
    - The schema `console` for its own state, owned by it. The app role has no right on it.
    The app role keeps every row of `workflow_runs` through its own permissive policy. The table owner (migrate) is not subject to the policies, so RLS is not forced.
-3. **A ban uses the admin plugin's fields, not the plugin.** `users.banned`, `ban_reason` and `ban_expires` have the plugin's names. `apps/backend/src/auth/ban.ts` does the plugin's part: a session-create hook refuses a banned user (all sign-in methods, and a device login, make a session) and clears a ban that ended. The ban job also deletes the sessions, disables the personal API keys, revokes the OAuth access and refresh tokens and denies the approved device logins, in one transaction. `withAuth.ts` refuses a banned user for each credential on each request, which also stops a JWT access token.
-4. **Member jobs keep the organization plugin's rules.** An organization always keeps an owner. The delete runs the organization's `beforeDeleteOrganization` purge, then the plugin's own delete.
+3. **A ban uses the admin plugin's fields, not the plugin.** `users.banned`, `ban_reason` and `ban_expires` have the plugin's names. `apps/backend/src/auth/ban.ts` does the plugin's part: a session-create hook refuses a banned user (all sign-in methods, and a device login, make a session) and clears a ban that ended, only when no new ban replaced it. The ban job, in one transaction with the flag:
+   - deletes the sessions,
+   - disables the personal API keys and the organization API keys that the user made (`org_api_key_creators` records the maker of each new organization key),
+   - revokes the OAuth access and refresh tokens, and denies the approved device logins,
+   - writes a cutoff time (`user_token_cutoffs`): no row can revoke a JWT access token, so a JWT issued before the ban stays refused after an unban.
+   `withAuth.ts` refuses a banned user for each credential on each request. A chat WebSocket checks its session, the ban and the membership before each turn, because a socket stays open after a sign-out, a ban or a removal.
+4. **Member jobs keep the organization plugin's rules.** An organization always keeps an owner. The removal of a member also disables the organization API keys of that organization that the member made. The delete runs the organization's `beforeDeleteOrganization` purge, then the plugin's own delete.
+5. **Self-host gets the role too.** Migrate is the same for every deployment, and an env toggle for it is not allowed. A role with no password cannot sign in with a password, so the role does nothing where no console runs. A migrate role that may not create roles skips the step with a warning.
 
 ## Consequences
 
 - No admin route exists in the app. A leaked console credential can only queue `admin.*` jobs and read the views.
-- An organization API key belongs to the organization, so a ban does not stop it. Remove the member or delete the organization to stop it.
-- An unban does not enable the disabled personal API keys again, and does not bring back revoked OAuth tokens: the user signs in and makes new ones.
+- An organization API key made before `org_api_key_creators` has no maker, so a ban or a removal does not disable it. Delete the organization, or let an owner delete the key.
+- An unban does not enable the disabled API keys again, and does not bring back revoked OAuth tokens: the user signs in and makes new ones.
 - A new `admin.*` workflow is a new right of the console role. Review it as such.

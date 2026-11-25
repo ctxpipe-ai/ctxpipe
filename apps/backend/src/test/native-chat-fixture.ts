@@ -12,7 +12,7 @@ import { withUserIdContext } from "../auth/context.js"
 import { withOrgIdContext } from "../auth/withAuth.js"
 import { parseEnv } from "../config/env.js"
 import { closeDb, getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
-import { organizations } from "../db/schema/auth.js"
+import { members, organizations, sessions, users } from "../db/schema/auth.js"
 import {
   chatInterrupts,
   chatMetadata,
@@ -36,6 +36,8 @@ export async function withNativeChatFixture<T>(
   fn: (fixture: {
     orgId: string
     userId: string
+    /** A live session of the user: a chat socket checks it on each turn. */
+    sessionId: string
     orgSlug: string
     workspaceId: string
     conversationId: string
@@ -66,6 +68,7 @@ export async function withNativeChatFixture<T>(
   const workspaceId = generateObjectId("ws")
   const conversationId = `conv_${orgId}`
   const userId = `user_${orgId}`
+  const sessionId = `session_${orgId}`
   const org = { id: orgId, slug: orgId, name: "Native chat proof" }
   const modelRequests: Array<Record<string, unknown>> = []
   const previous = Object.fromEntries(
@@ -85,7 +88,7 @@ export async function withNativeChatFixture<T>(
     c.set("env", parseEnv(process.env))
     c.set("user", { id: userId } as AppEnv["Variables"]["user"])
     c.set("session", {
-      id: `session_${orgId}`,
+      id: sessionId,
     } as AppEnv["Variables"]["session"])
     c.set("orgSlug", orgId)
     c.set("orgId", orgId)
@@ -229,6 +232,31 @@ export async function withNativeChatFixture<T>(
     await getSystemDb()
       .insert(organizations)
       .values({ ...org, createdAt: new Date() })
+    await getSystemDb()
+      .insert(users)
+      .values({
+        id: userId,
+        name: "Native chat",
+        email: `${userId}@example.test`,
+      })
+    await getSystemDb()
+      .insert(members)
+      .values({
+        id: `member_${orgId}`,
+        organizationId: orgId,
+        userId,
+        role: "owner",
+        createdAt: new Date(),
+      })
+    await getSystemDb()
+      .insert(sessions)
+      .values({
+        id: sessionId,
+        token: sessionId,
+        userId,
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+        updatedAt: new Date(),
+      })
     await withOrgDbContext(orgId, async (db) => {
       await db.insert(workspaces).values({
         id: workspaceId,
@@ -254,6 +282,7 @@ export async function withNativeChatFixture<T>(
           fn({
             orgId,
             userId,
+            sessionId,
             orgSlug: orgId,
             workspaceId,
             conversationId,
@@ -302,6 +331,8 @@ export async function withNativeChatFixture<T>(
       await db.delete(workspaces).where(eq(workspaces.orgId, orgId))
     })
     await getSystemDb().delete(organizations).where(eq(organizations.id, orgId))
+    // Its member and session rows go with it.
+    await getSystemDb().delete(users).where(eq(users.id, userId))
     await closeDb()
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()))

@@ -37,6 +37,7 @@ await withNativeChatFixture(async (f) => {
           orgId: f.orgId,
           conversationId,
           userId: f.userId,
+          sessionId: f.sessionId,
           request,
           socket: bunSocketToWebSocketLike({ send() {}, close() {} }),
         },

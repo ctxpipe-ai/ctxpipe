@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto"
 
-import { eq } from "drizzle-orm"
+import { eq, inArray } from "drizzle-orm"
 import { evlog } from "evlog/hono"
 import { Hono } from "hono"
 import { contextStorage } from "hono/context-storage"
@@ -284,11 +284,6 @@ describe("a ban (Postgres)", () => {
     // The flag alone, without the job's revocation: the request check.
     await setBan(true)
     expect(await accepted()).toEqual(all(401))
-    // An organization API key is the organization's, not the user's.
-    expect(
-      (await call({ "x-api-key": seed.orgApiKey })).status,
-      "org key",
-    ).toBe(200)
 
     await setBan(true, new Date(Date.now() - 1000))
     expect(await accepted()).toEqual(all(200))
@@ -323,19 +318,29 @@ describe("a ban (Postgres)", () => {
       run: { id: "run_ban_test" } as never,
     })
     const db = getSystemDb()
-    const where = <T extends { userId: unknown }>(table: T) =>
-      eq(table.userId as never, seed.userId)
-    expect(await db.select().from(sessions).where(where(sessions))).toEqual([])
+    expect(
+      await db.select().from(sessions).where(eq(sessions.userId, seed.userId)),
+    ).toEqual([])
+    // The personal key, and the organization key that the user made.
     const keys = await db
       .select({ configId: apikeys.configId, enabled: apikeys.enabled })
       .from(apikeys)
-      .where(eq(apikeys.referenceId, seed.userId))
-    expect(keys).toEqual([{ configId: "default", enabled: false }])
-    for (const table of [oauthAccessTokens, oauthRefreshTokens]) {
-      const rows = await db
-        .select({ revoked: table.revoked })
-        .from(table)
-        .where(where(table))
+      .where(inArray(apikeys.referenceId, [seed.userId, seed.orgId]))
+      .orderBy(apikeys.configId)
+    expect(keys).toEqual([
+      { configId: "default", enabled: false },
+      { configId: "organization", enabled: false },
+    ])
+    expect((await call({ "x-api-key": seed.orgApiKey })).status).toBe(401)
+    const accessTokens = await db
+      .select({ revoked: oauthAccessTokens.revoked })
+      .from(oauthAccessTokens)
+      .where(eq(oauthAccessTokens.userId, seed.userId))
+    const refreshTokens = await db
+      .select({ revoked: oauthRefreshTokens.revoked })
+      .from(oauthRefreshTokens)
+      .where(eq(oauthRefreshTokens.userId, seed.userId))
+    for (const rows of [accessTokens, refreshTokens]) {
       expect(rows.length).toBeGreaterThan(0)
       expect(rows.every((row) => row.revoked !== null)).toBe(true)
     }
@@ -361,5 +366,13 @@ describe("a ban (Postgres)", () => {
       )
     expect(redeem).toBe("refused")
     expect((await signIn()).status).toBe(403)
+
+    // After an unban, a JWT from before the ban stays refused; no row can
+    // revoke it.
+    await setBan(false)
+    expect(
+      (await call(credentials["OAuth JWT access token"] ?? {})).status,
+    ).toBe(401)
+    expect((await signIn()).status).toBe(200)
   })
 })

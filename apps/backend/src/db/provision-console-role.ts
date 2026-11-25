@@ -56,6 +56,18 @@ export async function provisionConsoleRole(
       throw new Error(
         `role ${CONSOLE_ROLE_NAME} has elevated attributes; refusing to continue`,
       )
+    // A role that something else made can hold the rights of another role.
+    const groups = await client.query<{ rolname: string }>(
+      `SELECT r.rolname FROM pg_catalog.pg_auth_members m
+       JOIN pg_catalog.pg_roles r ON r.oid = m.roleid
+       JOIN pg_catalog.pg_roles mbr ON mbr.oid = m.member
+       WHERE mbr.rolname = $1 AND r.rolname <> 'rds_iam'`,
+      [CONSOLE_ROLE_NAME],
+    )
+    if (groups.rows.length > 0)
+      throw new Error(
+        `role ${CONSOLE_ROLE_NAME} is a member of ${groups.rows.map((r) => r.rolname).join(", ")}; refusing to continue`,
+      )
     if (!has(CONSOLE_ROLE_NAME)) {
       const me = await client.query<{ allowed: boolean }>(
         "SELECT rolsuper OR rolcreaterole AS allowed FROM pg_catalog.pg_roles WHERE rolname = current_user",

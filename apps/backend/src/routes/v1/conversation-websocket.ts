@@ -1,12 +1,18 @@
 import { and, eq } from "drizzle-orm"
 
+import { isBanned } from "../../auth/ban.js"
 import { getAuth } from "../../auth/config.js"
 import { withUserIdContext } from "../../auth/context.js"
 import { isAllowedRequestOrigin } from "../../auth/request-origin.js"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import type { Env } from "../../config/env.js"
 import { getSystemDb } from "../../db/client.js"
-import { members, organizations } from "../../db/schema/auth.js"
+import {
+  members,
+  organizations,
+  sessions,
+  users,
+} from "../../db/schema/auth.js"
 import {
   type ConversationChatRequest,
   chatRequestErrorMessage,
@@ -52,6 +58,8 @@ export type ConversationWebSocketData = {
   orgId: string
   conversationId: string
   userId: string
+  /** Each turn checks that this session is still live (`socketUserMayAct`). */
+  sessionId: string
   request: Request
   socket: BunWebSocketLike
 }
@@ -100,7 +108,11 @@ export async function handleConversationWebSocket(
   const authSession = await auth.api.getSession({
     headers: request.headers,
   })
-  if (!authSession?.user || !authSession.session) {
+  if (
+    !authSession?.user ||
+    !authSession.session ||
+    isBanned(authSession.user)
+  ) {
     return new Response("Unauthorized", { status: 401 })
   }
 
@@ -148,6 +160,7 @@ export async function handleConversationWebSocket(
       orgId: org.id,
       conversationId,
       userId: authSession.user.id,
+      sessionId: authSession.session.id,
       request,
       socket,
     },
@@ -186,6 +199,7 @@ export const conversationWebSocketHandlers = {
           runId: ctx.runId,
           forwardedProps: ctx.forwardedProps,
           signal: ctx.signal,
+          sessionId: ws.data.sessionId,
         }),
       { endLostRun: (runId) => endLostRun(ws.data, runId) },
     )
@@ -226,6 +240,43 @@ async function endLostRun(data: ConversationWebSocketData, runId: string) {
   )
 }
 
+/** The session of the socket is live, its user is not banned, and is a member. */
+async function socketUserMayAct(input: {
+  sessionId: string
+  userId: string
+  orgId: string
+}): Promise<boolean> {
+  const [session] = await getSystemDb()
+    .select({
+      expiresAt: sessions.expiresAt,
+      banned: users.banned,
+      banExpires: users.banExpires,
+    })
+    .from(sessions)
+    .innerJoin(users, eq(users.id, sessions.userId))
+    .where(
+      and(eq(sessions.id, input.sessionId), eq(sessions.userId, input.userId)),
+    )
+    .limit(1)
+  if (
+    !session ||
+    session.expiresAt.getTime() <= Date.now() ||
+    isBanned(session)
+  )
+    return false
+  const [member] = await getSystemDb()
+    .select({ id: members.id })
+    .from(members)
+    .where(
+      and(
+        eq(members.organizationId, input.orgId),
+        eq(members.userId, input.userId),
+      ),
+    )
+    .limit(1)
+  return Boolean(member)
+}
+
 async function* streamWorkspaceChatSocketTurn(input: {
   conversationId: string
   orgId: string
@@ -236,7 +287,15 @@ async function* streamWorkspaceChatSocketTurn(input: {
   runId: string
   forwardedProps?: Record<string, unknown>
   signal: AbortSignal
+  /** The session that opened the socket. */
+  sessionId: string
 }) {
+  // A socket stays open after a sign-out, a ban or a removal from the
+  // organization, so each turn checks the user again.
+  if (!(await socketUserMayAct(input))) {
+    yield workspaceChatRunError("unauthorized")
+    return
+  }
   // toWebSocketStream already validated the official run. Reconstruct the
   // same AG-UI body (tools/context/state are required arrays/objects) so the
   // shared HTTP parser can extract the prompt without a second-frame failure.

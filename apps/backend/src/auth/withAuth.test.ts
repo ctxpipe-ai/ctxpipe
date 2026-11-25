@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { AppEnv } from "../app/env.js"
 import { oauthAccessTokens, organizations, users } from "../db/schema/auth.js"
+import { userTokenCutoffs } from "../db/schema/user_token_cutoffs.js"
 
 const {
   getSessionMock,
@@ -159,6 +160,11 @@ function createMockDb(input: {
               })),
             }
           }
+          // No ban wrote a cutoff for the JWT access tokens of the user.
+          if (table === userTokenCutoffs)
+            return {
+              where: vi.fn(() => ({ limit: vi.fn(async () => []) })),
+            }
           const rows = table === oauthAccessTokens ? opaqueTokenRows : orgRows
           return {
             where: vi.fn(() => ({

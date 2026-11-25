@@ -4,6 +4,7 @@ import { banUser, revokeUserSessions, unbanUser } from "../../auth/ban.js"
 import {
   AdminRefusal,
   deleteOrganization,
+  organizationExists,
   removeMember,
   setMemberRole,
 } from "../../domain/organization-admin.js"
@@ -130,8 +131,8 @@ export const adminRemoveMember = defineAdminWorkflow(
   "admin.remove-member",
   { organizationId: id, memberId: id },
   async (params, run) => {
-    const { userId } = await run("remove", () => removeMember(params))
-    return { ok: true as const, ...params, userId }
+    const removed = await run("remove", () => removeMember(params))
+    return { ok: true as const, ...params, ...removed }
   },
 )
 
@@ -152,6 +153,9 @@ export const adminDeleteOrganization = defineAdminWorkflow(
   "admin.delete-organization",
   { organizationId: id },
   async ({ organizationId }, run) => {
+    // Its own step: a delete that runs again after a crash finds no row.
+    if (!(await run("find", () => organizationExists(organizationId))))
+      throw new AdminRefusal(`Organization ${organizationId} not found`)
     await run("delete", () => deleteOrganization(organizationId))
     return { ok: true as const, organizationId }
   },

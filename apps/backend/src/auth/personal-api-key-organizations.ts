@@ -4,6 +4,7 @@ import { and, asc, eq, inArray } from "drizzle-orm"
 import { getSystemDb } from "../db/client.js"
 import { apikeys, members, organizations } from "../db/schema/auth.js"
 import { oauthGrantOrganizations } from "../db/schema/oauth_grant_organizations.js"
+import { recordOrgApiKeyCreator } from "./ban.js"
 import { setOrganizations } from "./oauth-grants.js"
 
 /**
@@ -117,7 +118,8 @@ export async function setPersonalApiKeyOrganizations(input: {
 
 /**
  * Better Auth after-hook on `POST /api-key/create`. It writes the org set of
- * a new personal key before the response gives the secret to the client.
+ * a new personal key before the response gives the secret to the client, and
+ * the maker of a new organization key.
  *
  * An HTTP request must send the set in
  * {@link PERSONAL_API_KEY_ORGANIZATIONS_HEADER}. A server-side call without
@@ -133,6 +135,13 @@ export const personalApiKeyOrganizationsHook = createAuthMiddleware(
     if (!created || typeof created !== "object" || created instanceof Error)
       return
     const { id, configId, referenceId } = created as Record<string, unknown>
+    // Better Auth keeps only the organization of an organization key. A ban
+    // of its maker disables it (`ban.ts`).
+    const maker = ctx.context.session?.user.id
+    if (configId === "organization" && typeof id === "string" && maker) {
+      await recordOrgApiKeyCreator(id, maker)
+      return
+    }
     if (
       configId !== "default" ||
       typeof id !== "string" ||
