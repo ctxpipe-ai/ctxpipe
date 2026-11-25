@@ -129,19 +129,14 @@ export async function setOrgFeature(
     step: "org_features.set",
     message: refused
       ? "the config did not change an org feature that an operator set"
-      : wasHeld && !result.held
-        ? "the config named the value that an operator set: the hold ended"
-        : result.changed
-          ? "an org feature changed"
-          : !wasHeld && result.held
-            ? "an operator held the current value of an org feature"
-            : "an org feature was set to its current value: nothing changed",
+      : "an org feature was set",
     orgId,
     feature,
     source: request ? "operator" : "config",
     ...request,
     requested: value,
     ...result,
+    holdEnded: wasHeld && !result.held,
   }
   if (refused) log.warn(entry)
   else log.info(entry)
