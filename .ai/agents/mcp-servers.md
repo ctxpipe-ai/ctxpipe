@@ -2,7 +2,7 @@
 
 The root [`AGENTS.md`](../../AGENTS.md) lists the config files for each harness. Keep the server lists the same in all of them. This file says what each server is for and how to sign in.
 
-Claude Code and Codex read keys from environment variables. `crm` is different: Claude Code gets its headers from a command (see [CRM](#crm)). Only `ctxpipe` can fall back to OAuth: use `/mcp` in Claude Code, or `codex mcp login ctxpipe` in Codex. Cursor uses OAuth for `ctxpipe`, and environment variables for the other servers. `codex mcp list` shows the auth state of each server.
+Claude Code and Codex read keys from environment variables, except for `crm` (see [CRM](#crm)). Only `ctxpipe` can fall back to OAuth: use `/mcp` in Claude Code, or `codex mcp login ctxpipe` in Codex. Cursor uses OAuth for `ctxpipe`, and environment variables for the other servers except `crm`. `codex mcp list` shows the auth state of each server.
 
 | Server | Purpose | Auth in Claude Code and Codex |
 | --- | --- | --- |
@@ -45,6 +45,6 @@ Put the token in `CLOUDFLARE_API_TOKEN_READONLY`. A Paseo agent does not read `~
 
 The `crm` server is the MCP server of the CRM: the self-hosted Twenty CRM at `https://crm.ctxpipe.dev/mcp` (factory `machines/crm`). It can read and write CRM records. The factory repo's `.mcp.json` has the same entry.
 
-The server works only on a factory agent host. Its `headersHelper`, `factory crm headers`, prints the host's own Cloudflare Access service token and Twenty API key each time that Claude Code connects. Nothing is in an environment variable or in a config file. Thus the host must have `factory` on the `PATH` and the host's `ctxpipe-factory-crm-reader` AWS profile (factory `machines/cli` README, "CRM"). On a different machine, the command fails and the server does not connect. A person can use the same `/mcp` path from a WARP device with their own Twenty API key, in their own MCP config. Codex and Cursor cannot run a headers command: Codex lists the server with `enabled = false`, and Cursor lists it without headers.
+The server works only on a factory agent host. Its `headersHelper`, `factory crm headers`, prints the host's own Cloudflare Access service token and Twenty API key each time that Claude Code connects. Nothing is in an environment variable or in a config file. Thus the host must have `factory` on the `PATH` and the host's `ctxpipe-factory-crm-reader` AWS profile (factory `machines/cli` README, "CRM"). On a different machine, the command fails and the server does not connect. A person can use the same `/mcp` path from a WARP device with their own Twenty API key, in their own MCP config. Codex and Cursor cannot run a headers command. Codex lists the server with `enabled = false`. Cursor lists it without headers, so in Cursor it does not connect.
 
 The CRM holds customer data: names, email addresses, and companies of people. What an agent reads there (records, names, identifiers) stays in its session. Never put it into a pull request, an issue, a ticket, a commit, a log, or a file in a repo. Describe a finding without it, for example "one company record has no domain", not the name of the company. Read only the records that the task needs. This repository is public: also obey _Customer privacy_ in [`AGENTS.md`](../../AGENTS.md).

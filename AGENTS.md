@@ -18,7 +18,7 @@ This file holds repo-wide rules. In an app or package, also read that folder's `
 1. **Product MCP (`ctxpipe`)** — the hosted, customer-facing ctxpipe tools for the live org. Do **not** point it at localhost.
 2. **Agent tooling MCPs** — helpers for work on this repo. They are not the backend’s in-process Hono `/mcp` product server.
 
-Claude Code and Codex read keys from environment variables. Only `ctxpipe` can fall back to OAuth. The auth for each server, and the purpose of each server, are in [`.ai/agents/mcp-servers.md`](.ai/agents/mcp-servers.md). `codex mcp list` shows the auth state.
+Claude Code and Codex read keys from env vars (not `crm`). Only `ctxpipe` can fall back to OAuth. The auth for each server, and the purpose of each server, are in [`.ai/agents/mcp-servers.md`](.ai/agents/mcp-servers.md). `codex mcp list` shows the auth state.
 
 **Not wired** (intentionally): local Postgres MCP, GitHub MCP, codesearch MCP, Notion MCP, ClickHouse `mcp-clickhouse` (query through `hyperdx`). The Linear MCP is not in the project config either, but the issue tracker needs it: add the Linear MCP (`linear-server`) to your own agent host.
 
