@@ -209,6 +209,23 @@ it(
         hash: first,
       })
       expect(await pinOf(f.org.id)).toBe(first)
+      // A repository that a GitHub connection reads has no pin, also for a
+      // caller that does not know the binding (the re-ingestion).
+      await withOrgDbContext(f.org.id, (db) =>
+        db
+          .update(repositories)
+          .set({ githubConnectionId: f.connectionId })
+          .where(eq(repositories.id, id)),
+      )
+      expect(
+        (await plainGitPins({ orgId: f.org.id, gitUrl: SOURCE_URL })).pin,
+      ).toBeNull()
+      await withOrgDbContext(f.org.id, (db) =>
+        db
+          .update(repositories)
+          .set({ githubConnectionId: null })
+          .where(eq(repositories.id, id)),
+      )
 
       // The org published the pinned commit: the next hydrate starts no
       // ingestion.

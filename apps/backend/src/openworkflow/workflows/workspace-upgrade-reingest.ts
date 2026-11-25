@@ -415,13 +415,11 @@ async function planReingest(input: {
               connectionId: source.githubConnectionId,
             },
           })
-        : plainGitPins({
-            orgId: input.orgId,
-            gitUrl: source.url,
-            githubConnectionId: null,
-          }).then(({ pin }) =>
-            // A pinned plain git repository keeps its commit (CTX-1661).
-            pin ? { sha: pin } : resolvePlainGitTip(source.url),
+        : // The binding of the org repository decides the pin: read it.
+          plainGitPins({ orgId: input.orgId, gitUrl: source.url }).then(
+            ({ pin }) =>
+              // A pinned plain git repository keeps its commit (CTX-1661).
+              pin ? { sha: pin } : resolvePlainGitTip(source.url),
           )
     ).catch((error: unknown) => {
       tipError = tipErrorText(error)

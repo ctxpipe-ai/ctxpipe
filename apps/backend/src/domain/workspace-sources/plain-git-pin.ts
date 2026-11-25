@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm"
 
 import { withOrgDbContext } from "../../db/client.js"
+import { repositories } from "../../db/schema/repositories.js"
 import { workspaceSources } from "../../db/schema/workspace_sources.js"
 import { log } from "../../observability/logger.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
@@ -13,8 +14,10 @@ import { gitSourceScopeCommit, gitSourceScopeUrl } from "./providers/git.js"
  * repository follows its branch. `pinned` holds each commit that an `ok`
  * plain git source of the org pins for the repository.
  *
- * A repository that a GitHub connection reads (`githubConnectionId`) has
- * no pins. The org has one index of each repository, so the pin applies
+ * A repository that a GitHub connection reads has no pins. Give the
+ * `githubConnectionId` of its org repository row when the caller has it;
+ * without it, the function reads the row. The org has one index of each
+ * repository, so the pin applies
  * only when each `ok` plain git source of the org that names the
  * repository pins the same commit. When they do not agree, the repository
  * follows its branch, and the disagreement is logged.
@@ -22,10 +25,28 @@ import { gitSourceScopeCommit, gitSourceScopeUrl } from "./providers/git.js"
 export async function plainGitPins(input: {
   orgId: string
   gitUrl: string
-  githubConnectionId: string | null
+  githubConnectionId?: string | null
 }): Promise<{ pin: string | null; pinned: ReadonlySet<string> }> {
-  if (input.githubConnectionId) return { pin: null, pinned: new Set() }
   const url = normalizeWorkspaceRepositoryUrl(input.gitUrl)
+  const bound =
+    input.githubConnectionId !== undefined
+      ? input.githubConnectionId !== null
+      : (
+          await withOrgDbContext(input.orgId, (db) =>
+            db
+              .select({
+                gitUrl: repositories.gitUrl,
+                githubConnectionId: repositories.githubConnectionId,
+              })
+              .from(repositories)
+              .where(eq(repositories.orgId, input.orgId)),
+          )
+        ).some(
+          (row) =>
+            row.githubConnectionId !== null &&
+            normalizeWorkspaceRepositoryUrl(row.gitUrl) === url,
+        )
+  if (bound) return { pin: null, pinned: new Set() }
   const rows = await withOrgDbContext(input.orgId, (db) =>
     db
       .select({ scope: workspaceSources.scope })
