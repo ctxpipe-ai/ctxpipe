@@ -101,9 +101,7 @@ describe("Default branch in the Workspace list (Postgres)", () => {
       ).knowledgePlane
 
     expect(await flag()).toBe("off")
-    await setOrgFeature(org.id, "knowledge_plane", "shadow", {
-      source: "config",
-    })
+    await setOrgFeature(org.id, "knowledge_plane", "shadow")
     expect(await flag()).toBe("shadow")
   })
 })

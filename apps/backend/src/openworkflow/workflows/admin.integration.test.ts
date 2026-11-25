@@ -463,6 +463,7 @@ describe("the fast path to off (admin.set-org-feature)", () => {
   it("sets the flag at once, logs the audit record, and holds the value against the config", async () => {
     const events: Record<string, unknown>[] = []
     // setup-evlog turns evlog off; this test reads the drained events.
+    // `silent` keeps them off stdout; the drain still gets each event.
     initLogger({
       pretty: false,
       silent: true,
@@ -471,9 +472,7 @@ describe("the fast path to off (admin.set-org-feature)", () => {
       },
     })
     try {
-      await setOrgFeature(seed.orgId, "knowledge_plane", "shadow", {
-        source: "config",
-      })
+      await setOrgFeature(seed.orgId, "knowledge_plane", "shadow")
       const input = request({
         organizationId: seed.orgId,
         feature: "knowledge_plane",
@@ -501,6 +500,7 @@ describe("the fast path to off (admin.set-org-feature)", () => {
           previous: "shadow",
           value: "off",
           changed: true,
+          requested: "off",
           requestId: input.requestId,
           requestedBy: input.requestedBy,
           approvedBy: input.approvedBy,
@@ -508,16 +508,14 @@ describe("the fast path to off (admin.set-org-feature)", () => {
       ])
 
       // The next hosted update runs the config with its old value.
-      await setOrgFeature(seed.orgId, "knowledge_plane", "shadow", {
-        source: "config",
-      })
+      await setOrgFeature(seed.orgId, "knowledge_plane", "shadow")
       expect(await getOrgFeature(seed.orgId, "knowledge_plane")).toBe("off")
     } finally {
       initLogger({ enabled: false })
     }
   })
 
-  it("refuses an unknown organization, feature or value", async () => {
+  it("refuses an unknown organization or feature, and any value but off", async () => {
     await expect(
       runAsConsole(
         "admin.set-org-feature",
@@ -531,6 +529,8 @@ describe("the fast path to off (admin.set-org-feature)", () => {
     for (const params of [
       { feature: "no_such_feature", value: "off" },
       { feature: "knowledge_plane", value: "maybe" },
+      { feature: "knowledge_plane", value: "on" },
+      { feature: "knowledge_plane", value: "shadow" },
     ])
       await expect(
         runAsConsole(

@@ -3,6 +3,7 @@ import { and, eq, sql } from "drizzle-orm"
 import { withOrgDbContext } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
 import { orgFeatures } from "../db/schema/org_features.js"
+import type { AdminRequest } from "../domain/admin-request.js"
 import { log } from "../observability/logger.js"
 
 /** The permitted values of each feature. The first value is the default. */
@@ -57,23 +58,11 @@ function isFeature(feature: string): feature is OrgFeature {
 }
 
 /**
- * Who sets a value. `config` is the hosted config (`src/db/set-org-feature.ts`,
- * once for each entry on each hosted update). `operator` is the
- * `admin.set-org-feature` job of the operator console, with the request and
- * the people who asked and approved.
- */
-export type OrgFeatureSetter =
-  | { source: "config" }
-  | {
-      source: "operator"
-      requestId: string
-      requestedBy: unknown
-      approvedBy: string
-    }
-
-/**
  * Sets the value of a feature for an org. The feature and the value must be
- * in `FEATURE_VALUES`, and the org must exist.
+ * in `FEATURE_VALUES`, and the org must exist. With no `operator`, the caller
+ * is the hosted config (`src/db/set-org-feature.ts`, once for each entry on
+ * each hosted update). With `operator`, the caller is the operator job
+ * `admin.set-org-feature`.
  *
  * A value that an operator sets is held: the config does not change it, so
  * the next hosted update does not undo a fast `off`. The hold ends when the
@@ -86,7 +75,7 @@ export async function setOrgFeature(
   orgId: string,
   feature: string,
   value: string,
-  by: OrgFeatureSetter,
+  operator?: AdminRequest,
 ): Promise<{
   previous: string
   value: string
@@ -121,8 +110,8 @@ export async function setOrgFeature(
       )
     const previous = row?.value ?? FEATURE_VALUES[feature][0]
     const wasHeld = row?.held ?? false
-    const held = by.source === "operator"
-    if (by.source === "config" && wasHeld && previous !== value)
+    const held = operator !== undefined
+    if (!operator && wasHeld && previous !== value)
       return { previous, value: previous, changed: false, held: true }
     if (previous === value && wasHeld === held)
       return { previous, value, changed: false, held }
@@ -135,8 +124,7 @@ export async function setOrgFeature(
       })
     return { previous, value, changed: previous !== value, held }
   })
-  const { source, ...actor } = by
-  const refused = source === "config" && result.held
+  const refused = !operator && result.held
   const entry = {
     step: "org_features.set",
     message: refused
@@ -146,8 +134,9 @@ export async function setOrgFeature(
         : "an org feature was set to its current value: nothing changed",
     orgId,
     feature,
-    source,
-    ...actor,
+    source: operator ? "operator" : "config",
+    ...operator,
+    requested: value,
     ...result,
   }
   if (refused) log.warn(entry)

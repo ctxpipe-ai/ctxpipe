@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { closeDb, getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
 import { orgFeatures } from "../db/schema/org_features.js"
+import type { AdminRequest } from "../domain/admin-request.js"
 import { generateObjectId } from "../lib/id.js"
 import { getOrgFeature, setOrgFeature } from "./org-features.js"
 
@@ -14,13 +15,11 @@ const orgC = generateObjectId("org")
 const orgD = generateObjectId("org")
 const orgE = generateObjectId("org")
 const orgF = generateObjectId("org")
-const CONFIG = { source: "config" } as const
 const OPERATOR = {
-  source: "operator",
   requestId: "00000000-0000-4000-8000-000000000001",
   requestedBy: { kind: "operator", email: "operator@example.com" },
   approvedBy: "approver@example.com",
-} as const
+} as const satisfies AdminRequest
 
 function setFeature(orgId: string, value: string) {
   return withOrgDbContext(orgId, (db) =>
@@ -88,9 +87,7 @@ describe("org features (Postgres)", () => {
   })
 
   it("the config sets a value, changes it, and a second set with the same value writes nothing", async () => {
-    expect(
-      await setOrgFeature(orgD, "knowledge_plane", "shadow", CONFIG),
-    ).toEqual({
+    expect(await setOrgFeature(orgD, "knowledge_plane", "shadow")).toEqual({
       previous: "off",
       value: "shadow",
       changed: true,
@@ -101,9 +98,7 @@ describe("org features (Postgres)", () => {
       withOrgDbContext(orgD, (db) => db.select().from(orgFeatures))
     const [first] = await read()
 
-    expect(
-      await setOrgFeature(orgD, "knowledge_plane", "shadow", CONFIG),
-    ).toEqual({
+    expect(await setOrgFeature(orgD, "knowledge_plane", "shadow")).toEqual({
       previous: "shadow",
       value: "shadow",
       changed: false,
@@ -111,32 +106,25 @@ describe("org features (Postgres)", () => {
     })
     expect((await read())[0]?.updatedAt).toEqual(first?.updatedAt)
 
-    expect(await setOrgFeature(orgD, "knowledge_plane", "off", CONFIG)).toEqual(
-      {
-        previous: "shadow",
-        value: "off",
-        changed: true,
-        held: false,
-      },
-    )
+    expect(await setOrgFeature(orgD, "knowledge_plane", "off")).toEqual({
+      previous: "shadow",
+      value: "off",
+      changed: true,
+      held: false,
+    })
     expect(await getOrgFeature(orgD, "knowledge_plane")).toBe("off")
     expect(await read()).toHaveLength(1)
   })
 
   it("refuses a feature or a value that is not permitted, and an org that does not exist", async () => {
     await expect(
-      setOrgFeature(orgD, "knowledge_plane", "maybe", CONFIG),
+      setOrgFeature(orgD, "knowledge_plane", "maybe"),
     ).rejects.toThrow(/not a permitted value/)
+    await expect(setOrgFeature(orgD, "no_such_feature", "on")).rejects.toThrow(
+      /not a known feature/,
+    )
     await expect(
-      setOrgFeature(orgD, "no_such_feature", "on", CONFIG),
-    ).rejects.toThrow(/not a known feature/)
-    await expect(
-      setOrgFeature(
-        generateObjectId("org"),
-        "knowledge_plane",
-        "shadow",
-        CONFIG,
-      ),
+      setOrgFeature(generateObjectId("org"), "knowledge_plane", "shadow"),
     ).rejects.toThrow(/no organization/)
     expect(await getOrgFeature(orgD, "knowledge_plane")).toBe("off")
   })
@@ -144,14 +132,12 @@ describe("org features (Postgres)", () => {
   it("setting the default on an org with no row writes nothing, and concurrent first sets give one change", async () => {
     const read = () =>
       withOrgDbContext(orgE, (db) => db.select().from(orgFeatures))
-    expect(await setOrgFeature(orgE, "knowledge_plane", "off", CONFIG)).toEqual(
-      {
-        previous: "off",
-        value: "off",
-        changed: false,
-        held: false,
-      },
-    )
+    expect(await setOrgFeature(orgE, "knowledge_plane", "off")).toEqual({
+      previous: "off",
+      value: "off",
+      changed: false,
+      held: false,
+    })
     expect(await read()).toEqual([])
 
     // Open the pool connections first, so that the setters start together.
@@ -162,7 +148,7 @@ describe("org features (Postgres)", () => {
     )
     const results = await Promise.all(
       Array.from({ length: 8 }, () =>
-        setOrgFeature(orgE, "knowledge_plane", "shadow", CONFIG),
+        setOrgFeature(orgE, "knowledge_plane", "shadow"),
       ),
     )
     const changed = results.filter((r) => r.changed)
@@ -178,7 +164,7 @@ describe("org features (Postgres)", () => {
   it("the config does not change a value that an operator set, until the config names that value", async () => {
     const read = () =>
       withOrgDbContext(orgF, (db) => db.select().from(orgFeatures))
-    await setOrgFeature(orgF, "knowledge_plane", "on", CONFIG)
+    await setOrgFeature(orgF, "knowledge_plane", "on")
 
     expect(
       await setOrgFeature(orgF, "knowledge_plane", "off", OPERATOR),
@@ -186,7 +172,7 @@ describe("org features (Postgres)", () => {
     expect(await getOrgFeature(orgF, "knowledge_plane")).toBe("off")
 
     // Each hosted update runs the config again with its old value.
-    expect(await setOrgFeature(orgF, "knowledge_plane", "on", CONFIG)).toEqual({
+    expect(await setOrgFeature(orgF, "knowledge_plane", "on")).toEqual({
       previous: "off",
       value: "off",
       changed: false,
@@ -195,15 +181,21 @@ describe("org features (Postgres)", () => {
     expect(await getOrgFeature(orgF, "knowledge_plane")).toBe("off")
 
     // The config PR names the operator's value: the hold ends.
-    expect(await setOrgFeature(orgF, "knowledge_plane", "off", CONFIG)).toEqual(
-      { previous: "off", value: "off", changed: false, held: false },
-    )
+    expect(await setOrgFeature(orgF, "knowledge_plane", "off")).toEqual({
+      previous: "off",
+      value: "off",
+      changed: false,
+      held: false,
+    })
     expect((await read())[0]?.held).toBe(false)
 
     // A later config change applies again.
-    expect(
-      await setOrgFeature(orgF, "knowledge_plane", "shadow", CONFIG),
-    ).toEqual({ previous: "off", value: "shadow", changed: true, held: false })
+    expect(await setOrgFeature(orgF, "knowledge_plane", "shadow")).toEqual({
+      previous: "off",
+      value: "shadow",
+      changed: true,
+      held: false,
+    })
     expect(await getOrgFeature(orgF, "knowledge_plane")).toBe("shadow")
   })
 })

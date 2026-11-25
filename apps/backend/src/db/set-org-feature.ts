@@ -26,7 +26,7 @@ try {
   const url = process.env.DATABASE_URL
   if (!url) throw new Error("DATABASE_URL is required")
   initDb(url)
-  await setOrgFeature(orgId, feature, value, { source: "config" })
+  await setOrgFeature(orgId, feature, value)
 } catch (error) {
   exitCode = 1
   log.error({

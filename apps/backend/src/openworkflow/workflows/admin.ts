@@ -1,6 +1,7 @@
 import { z } from "zod"
 
 import { banUser, revokeUserSessions, unbanUser } from "../../auth/ban.js"
+import { type AdminRequest, adminRequest } from "../../domain/admin-request.js"
 import {
   AdminRefusal,
   deleteOrganization,
@@ -8,7 +9,7 @@ import {
   removeMember,
   setMemberRole,
 } from "../../domain/organization-admin.js"
-import { FEATURE_VALUES, setOrgFeature } from "../../models/org-features.js"
+import { setOrgFeature } from "../../models/org-features.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 
 /*
@@ -20,22 +21,8 @@ import { defineWorkflow } from "../defineObservedWorkflow.js"
  * `org_features.set` names the operator who asked and approved.
  */
 
-const requestedBy = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("operator"), email: z.email() }),
-  z.object({
-    kind: z.literal("agent"),
-    host: z.string().min(1),
-    runUrl: z.url(),
-  }),
-])
-
 function adminInput<P extends z.ZodRawShape>(params: P) {
-  return z.object({
-    requestId: z.uuid(),
-    requestedBy,
-    approvedBy: z.email(),
-    params: z.object(params),
-  })
+  return adminRequest.extend({ params: z.object(params) })
 }
 
 const id = z.string().min(1)
@@ -51,7 +38,7 @@ function defineAdminWorkflow<P extends z.ZodRawShape, Output>(
   fn: (
     params: z.output<z.ZodObject<P>>,
     run: <T>(step: string, work: () => Promise<T>) => Promise<T>,
-    request: Omit<z.output<ReturnType<typeof adminInput<P>>>, "params">,
+    request: AdminRequest,
   ) => Promise<Output>,
 ) {
   const schema = adminInput(params)
@@ -189,23 +176,21 @@ export const adminDeleteOrganization = defineAdminWorkflow(
 
 /**
  * The fast path to `off` of ADR-069 decision 9 (CTX-1646). The value holds
- * against the hosted config until the config names the same value.
+ * against the hosted config until the config names `off` too. The job sets
+ * only `off`: a value that enables a feature goes through the reviewed config.
  */
 export const adminSetOrgFeature = defineAdminWorkflow(
   "admin.set-org-feature",
   {
     organizationId: id,
     feature: z.literal("knowledge_plane"),
-    value: z.enum(FEATURE_VALUES.knowledge_plane),
+    value: z.literal("off"),
   },
   async ({ organizationId, feature, value }, run, request) => {
     const { previous, changed } = await run("set", async () => {
       if (!(await organizationExists(organizationId)))
         throw new AdminRefusal(`Organization ${organizationId} not found`)
-      return setOrgFeature(organizationId, feature, value, {
-        source: "operator",
-        ...request,
-      })
+      return setOrgFeature(organizationId, feature, value, request)
     })
     return {
       ok: true as const,
