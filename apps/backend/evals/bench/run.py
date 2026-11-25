@@ -32,7 +32,7 @@ def job_config(args, config, arm_name, model_name, task, run_id):
     model = config["models"][model_name]
     base_url = os.environ.get("ANTHROPIC_BASE_URL")
     # The tasks allow no egress in the agent phase (task.toml); the agent
-    # reaches only the model endpoint and, in the CTX arm, the MCP host.
+    # reaches only the model endpoint and, in the CTX arm, the MCP proxy.
     hosts = [urlparse(base_url).hostname if base_url else "api.anthropic.com"]
     agent = {
         "name": "claude-code",
@@ -49,20 +49,24 @@ def job_config(args, config, arm_name, model_name, task, run_id):
         agent["kwargs"]["disallowed_tools"] = ",".join(arm["disallowedTools"])
     if base_url:
         agent["base_url"] = base_url
+    environment = {"type": "docker"}
     if arm["mcp"]:
-        hosts.append(urlparse(args.mcp_url).hostname)
+        # The proxy forwards only /mcp to the backend (mcp-proxy.yaml). The
+        # allowlist never holds host.docker.internal: that host also gives
+        # the ports of the stores.
+        environment["extra_docker_compose"] = [str(BENCH / "mcp-proxy.yaml")]
+        hosts.append("ctxpipe-mcp-proxy")
         agent["mcp_servers"] = [
             {
                 "name": "ctxpipe",
                 "transport": "streamable-http",
-                "url": args.mcp_url,
+                "url": "http://ctxpipe-mcp-proxy/mcp",
                 "headers": {
                     "x-api-key": "${CTXPIPE_API_KEY}",
                     "x-ctxpipe-conversation-id": "${CTXPIPE_CONVERSATION_ID}",
                 },
             }
         ]
-    environment = {"type": "docker"}
     if arm["mountCorpus"]:
         environment["mounts"] = [
             {"type": "bind", "source": str(args.corpus), "target": "/app/org", "read_only": True}
@@ -83,7 +87,6 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", type=Path, required=True, help="run folder, in a path Docker can mount")
     parser.add_argument("--corpus", type=Path, required=True, help="B1+ corpus: repos/ and issues/")
-    parser.add_argument("--mcp-url", default="http://host.docker.internal:3660/mcp")
     parser.add_argument("--otlp", type=Path, required=True, help="OTLP JSON lines of the backend spans")
     parser.add_argument("--falkor-container", required=True, help="the FalkorDB of the backend")
     parser.add_argument("--cap-usd", type=float, default=2.0)

@@ -9,6 +9,7 @@ This folder holds the phase 0 spike of OrgBench, the org-scale benchmark for con
 | `tasks/<id>/` | One Harbor task for each question: `instruction.md` (the question), `environment/Dockerfile` (the agent workspace), `tests/` (the verifier). Harbor copies only the task folder into the container, so each task has its own copy of `grade.py`. |
 | `arms.json` | The arms, the neutral preamble, the models, the spend cap of each run and the reserve for the server calls of an arm. |
 | `run.py` | Runs each task × arm × model one time as a Harbor job, stops before the spend cap, and resumes from `runs.jsonl`. |
+| `mcp-proxy.yaml` | The MCP proxy of the CTX arm: a Compose service that Harbor adds to the job of a CTX run. |
 | `record.py` | The recorder: one record for each run, and `report.md`. |
 | `mint-key.ts` | Makes an org API key for the CTX arm. |
 | `requirements.in`, `requirements.txt` | The pinned Harbor release, and its lock with hashes (`uv pip compile --generate-hashes requirements.in`). |
@@ -27,12 +28,20 @@ The agent writes its answer to `/app/answer.md`. The verifier (`tests/grade.py`)
 
 ## The arms
 
-Both arms get the same preamble (`arms.json`), with one sentence that tells where the sources are. Both arms disallow the web tools (`WebSearch`, `WebFetch` in `disallowedTools`). The agent phase has no egress (`network_mode = "allowlist"` in `task.toml`) except to the hosts that `run.py` adds: the model endpoint, and the MCP host in the CTX arm. The install of Claude Code runs before the agent phase, with network. The verifier has no network.
+Both arms get the same preamble (`arms.json`), with one sentence that tells where the sources are. Both arms disallow the web tools (`WebSearch`, `WebFetch` in `disallowedTools`). The agent phase has no egress (`network_mode = "allowlist"` in `task.toml`) except to the hosts that `run.py` adds: the model endpoint, and the MCP proxy in the CTX arm. The install of Claude Code runs before the agent phase, with network. The verifier has no network.
 
 | Arm | Workspace | MCP |
 | --- | --- | --- |
 | `b1plus` | The corpus as plain files, mounted read-only at `/app/org`: `repos/backstage` (the source at the frozen SHA) and `issues/` (the issue mirror of the frozen context repo, one Markdown file for each issue). | None. |
-| `ctx` | Empty. | The ctxpipe MCP over HTTP, with the headers `x-api-key` and `x-ctxpipe-conversation-id`. |
+| `ctx` | Empty. | The ctxpipe MCP over HTTP at `http://ctxpipe-mcp-proxy/mcp`, with the headers `x-api-key` and `x-ctxpipe-conversation-id`. |
+
+### The CTX arm reaches only the MCP
+
+On Colima and Docker Desktop, a container can connect to each port of the host through `host.docker.internal`. This includes the stores of the bench (FalkorDB, ClickHouse, Postgres). Harbor allows hosts, not ports. Thus the allowlist of the CTX arm never holds `host.docker.internal`. It holds only the model host and `ctxpipe-mcp-proxy`.
+
+`ctxpipe-mcp-proxy` is a pinned nginx in the Compose project of the trial (`mcp-proxy.yaml`). It forwards only the path `/mcp` to the backend at `host.docker.internal:3660`, with the headers of the request. Each other path gets 404, and the proxy listens on no other port. The proxy sends the Host header `host.docker.internal:3660`, the host of `AUTH_BASE_URL`, so the DNS rebinding check of the backend accepts the request. The egress sidecar of Harbor sniffs the HTTP Host and the TLS SNI, and it connects to that host, not to the address of the packet. Thus a request to the address of the host with the Host header `ctxpipe-mcp-proxy` goes to the proxy, not to the host.
+
+A probe in a task container of the CTX arm (the `oracle` agent, with the same network setup) got these results: `POST /mcp` through the proxy gave 200 with the org key and 401 with no key, other paths gave 404, and FalkorDB (16379), ClickHouse (18123), Postgres (5433) and the backend (3660) on `host.docker.internal` sent no data, also with a false Host header. From a container with no egress control, the same probe got `+PONG`, `200 OK` and an answer from Postgres.
 
 ### The CTX arm reads only the knowledge plane (decision D5)
 
@@ -61,7 +70,7 @@ The CTX arm needs a backend with the frozen corpus on the plane. Do these steps 
 1. Get the stores of the corpus. `../knowledge` `hydrate` writes the frozen context repo into Postgres, FalkorDB and ClickHouse (see `../knowledge/README.md`). The context repo is private, so a hydrate serves it from a local Git server. To reuse an earlier hydrate, copy its Postgres database (`CREATE DATABASE … TEMPLATE …`), migrate the copy, and copy the plane rows of the Workspace into a ClickHouse of your own (`SELECT … FORMAT Native` into `INSERT … FORMAT Native`, with the setting `SQL_ctxpipe_org_id`).
 2. In the copy, keep only the Workspace of the corpus, and set the flag `knowledge_plane` of the org to `on`. Serve the context repo with `src/test/git-http-server.ts`, and point the remote URL of the Workspace revision at it.
 3. Start an empty FalkorDB for the backend (`GRAPH_DB_URI`), and an OpenTelemetry collector that writes OTLP JSON lines to a file (the `file` exporter). Set `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` of the backend to it.
-4. Set `AUTH_BASE_URL` of the backend to `http://host.docker.internal:<port>`. With a loopback base URL, `/mcp` refuses each request from a container (the DNS rebinding check of `rejectInvalidMcpOrigin`).
+4. Start the backend on port 3660 (`mcp-proxy.yaml` forwards to that port), and set `AUTH_BASE_URL` of the backend to `http://host.docker.internal:3660`. With a loopback base URL, `/mcp` refuses each request from the proxy (the DNS rebinding check of `rejectInvalidMcpOrigin`).
 5. Start the backend alone, with no worker: `bun --env-file=BENCH.env src/server.ts` from `apps/backend`. Do not use `pnpm dev`.
 6. Make the org key: `bun --env-file=BENCH.env evals/bench/mint-key.ts --org ORG_ID --out KEY_FILE`.
 7. Make the B1+ corpus: `repos/backstage` (a `git fetch --depth 1` of the frozen SHA, with no `.git`) and `issues/` (`git archive` of `github/issues` of the frozen context repo).
@@ -77,7 +86,7 @@ python evals/bench/record.py ~/RUN   # writes report.md again from runs.jsonl
 ```
 
 - Use the model keys of `factory eval`: the factory gets the model key from `MODEL_PROVIDER_API_KEY` or the login keychain (`factory-model-provider`). Give the backend (`MODEL_PROVIDER_API_KEY`) the same key. The limit of that key does not count the Claude calls (provider-key, BYOK, usage), so the spend cap is `--cap-usd` of `run.py` and the `--max-budget-usd` of each run. The server reserve of `run.py` is only an estimate.
-- The CTX arm allows the whole host `host.docker.internal`, not only the port of the MCP: Harbor allows hosts, not ports. Run the bench on a host where only the bench backend and its stores listen.
+- The CTX arm reaches the backend only through the MCP proxy (see [The CTX arm reaches only the MCP](#the-ctx-arm-reaches-only-the-mcp)).
 - Each run is one Harbor job with the stock `claude-code` agent at a pinned Claude Code version, with `--max-turns` and `--max-budget-usd` (the cap of the run in `arms.json`).
 - Before each run, `run.py` adds the cap of the run and the server reserve of the arm to the spend so far. The CTX reserve ($0.12) is an estimate: each search makes one query embedding and about two Jev calls (at most $0.001 measured), and it assumes at most three searches in each of the `maxTurns` (40) turns. Nothing enforces that count. When the sum is more than `--cap-usd`, it stops with exit code 3. The order is model, then task, then arm, so a stop leaves whole pairs of arms.
 - A run with no result event or no reward is a failed run: it keeps its spend, `run.py` exits with 1, and the next invocation runs it again.
