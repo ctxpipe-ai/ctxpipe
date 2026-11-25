@@ -53,7 +53,7 @@ def key_limit_problem(cap_usd):
     The Claude calls of OpenRouter go to the provider key of the account
     (BYOK), so the limit of the key caps them only when it counts that usage.
     The key is the hard cap: what it still allows must not be more than the
-    cap of the run.
+    total spend cap (`--cap-usd`).
     """
     key = openrouter_key()
     if key is None:

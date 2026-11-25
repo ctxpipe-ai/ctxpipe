@@ -8,7 +8,7 @@ again. See README.md.
 Environment:
   ANTHROPIC_AUTH_TOKEN  the spend-capped model key of the bench (or ANTHROPIC_API_KEY); the
                         script refuses an OpenRouter key whose limit does not count the
-                        Claude calls
+                        Claude calls, or that still allows more than --cap-usd
   ANTHROPIC_BASE_URL    optional, an Anthropic-compatible endpoint
   CTXPIPE_API_KEY       the org key of the bench org (CTX arm)
   DOCKER_HOST           the Docker of Harbor
@@ -95,7 +95,7 @@ def main():
     args.out = args.out.resolve()
     args.out.mkdir(parents=True, exist_ok=True)
     if problem := key_limit_problem(args.cap_usd):
-        print(f"refused: {problem}. Give a bench model key whose limit covers the Claude calls (README.md).")
+        print(f"refused: {problem}. Give a bench model key whose limit covers the Claude calls and allows at most --cap-usd (README.md).")
         return 2
     config = json.loads((BENCH / "arms.json").read_text())
     runs_path = args.out / "runs.jsonl"
