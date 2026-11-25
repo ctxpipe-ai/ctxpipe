@@ -7,9 +7,10 @@ import {
   type WorkspaceUpgradeRow,
 } from "../../models/workspace-upgrades.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
+import { cancelRun } from "../../openworkflow/run-ended.js"
 import { UPGRADE_STATUSES, upgradeJobId } from "./registry.js"
 import { isReingestUpgradeKey, REINGEST_WORKFLOW_NAME } from "./reingest.js"
-import { cancelRepositoryRuns, cancelRun } from "./stop-orphans.js"
+import { cancelRepositoryRuns } from "./stop-orphans.js"
 
 type CancelUpgradeResult =
   | { kind: "canceled"; row: WorkspaceUpgradeRow }

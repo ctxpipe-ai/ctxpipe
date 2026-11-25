@@ -485,7 +485,7 @@ it(
         await projected(f)
         const workspace = { orgId: f.org.id, workspaceId: f.workspaceId }
         // ClickHouse is down: the purge step fails and retries.
-        process.env.CLICKHOUSE_URL = "http://ctxpipe_writer:x@127.0.0.1:1/x"
+        vi.stubEnv("CLICKHOUSE_URL", "http://ctxpipe_writer:x@127.0.0.1:1/x")
         expect(await deleteWorkspace(f)).toBe(204)
         await vi.waitFor(
           async () => {
@@ -514,7 +514,7 @@ it(
         expect(await rowsOf(workspace)).not.toEqual(NO_KNOWLEDGE_ROWS)
 
         // ClickHouse is back, and the day is over.
-        process.env.CLICKHOUSE_URL = writerUrl
+        vi.unstubAllEnvs()
         await getSystemDb().execute(sql`
           update openworkflow.workflow_runs set available_at = now()
           where namespace_id = ${openWorkflowNamespaceId()}

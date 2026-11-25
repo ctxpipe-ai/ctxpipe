@@ -15,9 +15,10 @@ import {
 } from "../../models/knowledge-state.js"
 import { getWorkspaceById } from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
-import { enqueueWorkflow, ow } from "../client.js"
+import { enqueueWorkflow } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { openWorkflowNamespaceId } from "../namespace.js"
+import { cancelRun } from "../run-ended.js"
 
 /**
  * The count of checks that find the Workspace row there while no delete
@@ -169,7 +170,7 @@ export const knowledgePurge = defineWorkflow(
       await step.sleep(`await-erase-${check}`, "10 minutes")
     }
     return step.run({ name: "erased" }, async () => {
-      if (next) await cancelUnlessEnded(next)
+      if (next) await cancelRun(next)
       getLogger().set({
         step: "knowledge-purge",
         knowledgePurge: { outcome: "erased" },
@@ -178,23 +179,6 @@ export const knowledgePurge = defineWorkflow(
     })
   },
 )
-
-/**
- * Cancels the queued run `id`. A run that already ended (it ran before this
- * run ended) needs no cancel.
- */
-async function cancelUnlessEnded(id: string): Promise<void> {
-  try {
-    await ow.cancelWorkflowRun(id)
-  } catch (error) {
-    if (
-      !/^Cannot cancel workflow run .* with status/.test(
-        String(error instanceof Error ? error.message : error),
-      )
-    )
-      throw error
-  }
-}
 
 /** Runs `use` with a store of the writer at `url`, and closes the store. */
 async function withStore<T>(

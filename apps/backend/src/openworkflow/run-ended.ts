@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm"
 
 import { getSystemDb } from "../db/client.js"
+import { ow } from "./client.js"
 import { openWorkflowNamespaceId } from "./namespace.js"
 
 /**
@@ -43,5 +44,16 @@ export async function whileWorkflowRunActive<T>(
       sql`select set_config('idle_in_transaction_session_timeout', '0', true)`,
     )
     return effect()
+  })
+}
+
+/**
+ * Cancel one workflow run. A run that ended in the meantime is not an
+ * error. Each other failure throws: the caller must not report a run as
+ * stopped while it can still spend or publish.
+ */
+export async function cancelRun(runId: string): Promise<void> {
+  await ow.cancelWorkflowRun(runId).catch(async (error: unknown) => {
+    if (!(await workflowRunEnded(runId))) throw error
   })
 }
