@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto"
 
-import { eq, inArray } from "drizzle-orm"
+import { and, eq, inArray, isNull } from "drizzle-orm"
 import { evlog } from "evlog/hono"
 import { Hono } from "hono"
 import { contextStorage } from "hono/context-storage"
@@ -333,6 +333,25 @@ describe("a ban (Postgres)", () => {
       .from(users)
       .where(eq(users.id, seed.userId))
     expect(user).toEqual({ banned: false, banExpires: null })
+  })
+
+  it("refuses a token to a banned user and revokes the tokens that it gave", async () => {
+    // The flag alone: a refresh token that the ban did not revoke.
+    await setBan(true)
+    const refused = await refresh()
+    expect(refused.status).toBe(400)
+    expect(await refused.json()).toMatchObject({ error: "invalid_grant" })
+    const live = await getSystemDb()
+      .select({ id: oauthRefreshTokens.id })
+      .from(oauthRefreshTokens)
+      .where(
+        and(
+          eq(oauthRefreshTokens.userId, seed.userId),
+          isNull(oauthRefreshTokens.revoked),
+        ),
+      )
+    expect(live).toEqual([])
+    await setBan(false)
   })
 
   it("the ban job revokes each credential: sessions, keys, OAuth tokens, device logins", async () => {

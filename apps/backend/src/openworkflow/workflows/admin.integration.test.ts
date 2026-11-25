@@ -49,6 +49,28 @@ const request = (params: Record<string, unknown>) => ({
   params,
 })
 
+/** An enabled organization API key of the seeded organization. */
+async function insertOrgKey(): Promise<string> {
+  const keyId = generateObjectId("key")
+  await getSystemDb().insert(apikeys).values({
+    id: keyId,
+    configId: "organization",
+    referenceId: seed.orgId,
+    key: randomUUID(),
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  })
+  return keyId
+}
+
+const keyEnabled = async (keyId: string) =>
+  (
+    await getSystemDb()
+      .select({ enabled: apikeys.enabled })
+      .from(apikeys)
+      .where(eq(apikeys.id, keyId))
+  )[0]?.enabled
+
 /** Enqueue as the console does, and wait for the worker. */
 async function runAsConsole(name: string, input: Record<string, unknown>) {
   const handle = await consoleClient.runWorkflow({ name }, input, {
@@ -261,6 +283,8 @@ describe("the admin jobs", () => {
 
   it("bans and unbans a user", async () => {
     const until = new Date(Date.now() + 60 * 60 * 1000)
+    // An organization key with no known maker, in an organization of the user.
+    const legacyKey = await insertOrgKey()
     expect(
       await runAsConsole(
         "admin.ban-user",
@@ -268,9 +292,15 @@ describe("the admin jobs", () => {
           userId: otherUserId,
           reason: "Abuse",
           expiresAt: until.toISOString(),
+          disableUnattributedOrgApiKeys: true,
         }),
       ),
-    ).toEqual({ ok: true, userId: otherUserId })
+    ).toEqual({
+      ok: true,
+      userId: otherUserId,
+      disabledUnattributedOrgApiKeys: 1,
+    })
+    expect(await keyEnabled(legacyKey)).toBe(false)
     const banState = () =>
       getSystemDb()
         .select({
@@ -352,30 +382,27 @@ describe("the admin jobs", () => {
         role: "owner",
       }),
     )
-    // An organization key that the member made: the removal disables it.
-    const keyId = generateObjectId("key")
-    await getSystemDb().insert(apikeys).values({
-      id: keyId,
-      configId: "organization",
-      referenceId: seed.orgId,
-      key: randomUUID(),
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })
+    // A key that the member made, and one with no known maker: the
+    // removal disables both.
+    const keyId = await insertOrgKey()
     await getSystemDb()
       .insert(orgApiKeyCreators)
       .values({ apiKeyId: keyId, userId: otherUserId })
-    expect(await runAsConsole("admin.remove-member", request(params))).toEqual({
+    const legacyKey = await insertOrgKey()
+    expect(
+      await runAsConsole(
+        "admin.remove-member",
+        request({ ...params, disableUnattributedOrgApiKeys: true }),
+      ),
+    ).toEqual({
       ok: true,
       ...params,
       userId: otherUserId,
       disabledOrgApiKeys: 1,
+      disabledUnattributedOrgApiKeys: 1,
     })
-    const [key] = await getSystemDb()
-      .select({ enabled: apikeys.enabled })
-      .from(apikeys)
-      .where(eq(apikeys.id, keyId))
-    expect(key?.enabled).toBe(false)
+    expect(await keyEnabled(keyId)).toBe(false)
+    expect(await keyEnabled(legacyKey)).toBe(false)
     expect(
       await getSystemDb()
         .select({ id: members.id })

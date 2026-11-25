@@ -1,7 +1,10 @@
 import { getOrgAdapter } from "better-auth/plugins"
 import { and, eq } from "drizzle-orm"
 
-import { disableOrgApiKeysMadeBy } from "../auth/ban.js"
+import {
+  disableOrgApiKeysMadeBy,
+  disableUnattributedOrgApiKeys,
+} from "../auth/ban.js"
 import { getAuth } from "../auth/config.js"
 import { type Db, getSystemDb } from "../db/client.js"
 import { members, organizations, sessions } from "../db/schema/auth.js"
@@ -55,7 +58,12 @@ async function withLockedMember<T>(
 export async function removeMember(input: {
   organizationId: string
   memberId: string
-}): Promise<{ userId: string; disabledOrgApiKeys: number }> {
+  disableUnattributedOrgApiKeys?: boolean
+}): Promise<{
+  userId: string
+  disabledOrgApiKeys: number
+  disabledUnattributedOrgApiKeys: number
+}> {
   return withLockedMember(
     input.organizationId,
     input.memberId,
@@ -81,7 +89,14 @@ export async function removeMember(input: {
         member.userId,
         input.organizationId,
       )
-      return { userId: member.userId, disabledOrgApiKeys }
+      const disabledUnattributedOrgApiKeys = input.disableUnattributedOrgApiKeys
+        ? await disableUnattributedOrgApiKeys(tx, [input.organizationId])
+        : 0
+      return {
+        userId: member.userId,
+        disabledOrgApiKeys,
+        disabledUnattributedOrgApiKeys,
+      }
     },
   )
 }

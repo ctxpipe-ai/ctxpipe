@@ -1,6 +1,8 @@
+import { createHash } from "node:crypto"
+
 import type { BetterAuthPlugin } from "better-auth"
 import { APIError, createAuthMiddleware } from "better-auth/api"
-import { and, eq, inArray, isNull } from "drizzle-orm"
+import { and, eq, inArray, isNull, notInArray } from "drizzle-orm"
 import { decodeJwt } from "jose"
 
 import { type Db, getSystemDb } from "../db/client.js"
@@ -153,6 +155,34 @@ export async function disableOrgApiKeysMadeBy(
 }
 
 /**
+ * Disable the organization API keys of these organizations that have no
+ * known maker: the keys made before `org_api_key_creators`. An operator asks
+ * for it, because such a key can be the key of a banned or removed user.
+ */
+export async function disableUnattributedOrgApiKeys(
+  db: Db,
+  organizationIds: string[],
+): Promise<number> {
+  if (organizationIds.length === 0) return 0
+  const disabled = await db
+    .update(apikeys)
+    .set({ enabled: false, updatedAt: new Date() })
+    .where(
+      and(
+        eq(apikeys.configId, "organization"),
+        inArray(apikeys.referenceId, organizationIds),
+        eq(apikeys.enabled, true),
+        notInArray(
+          apikeys.id,
+          db.select({ id: orgApiKeyCreators.apiKeyId }).from(orgApiKeyCreators),
+        ),
+      ),
+    )
+    .returning({ id: apikeys.id })
+  return disabled.length
+}
+
+/**
  * Record who made an organization API key (`org_api_key_creators`). A ban
  * or a removal of the maker can commit after the key and before this row, so
  * the row commits first, and then a check that waits for a ban or a removal
@@ -190,12 +220,17 @@ export async function recordOrgApiKeyCreator(input: {
   throw bannedError()
 }
 
-/** Ban the user and revoke each credential of the user. False: no such user. */
+/**
+ * Ban the user and revoke each credential of the user. With
+ * `disableUnattributedOrgApiKeys`, also the organization keys with no known
+ * maker of each organization of the user. Null: no such user.
+ */
 export async function banUser(input: {
   userId: string
   reason: string
   expiresAt: Date | null
-}): Promise<boolean> {
+  disableUnattributedOrgApiKeys?: boolean
+}): Promise<{ disabledUnattributedOrgApiKeys: number } | null> {
   return getSystemDb().transaction(async (tx) => {
     const now = new Date()
     // FOR UPDATE conflicts with the key share lock of a session insert, so a
@@ -215,7 +250,7 @@ export async function banUser(input: {
       })
       .where(eq(users.id, input.userId))
       .returning({ id: users.id })
-    if (!user) return false
+    if (!user) return null
     await tx.delete(sessions).where(eq(sessions.userId, input.userId))
     // Disabled, not deleted: the owners still see the keys. An unban does
     // not enable them again.
@@ -229,24 +264,7 @@ export async function banUser(input: {
         ),
       )
     await disableOrgApiKeysMadeBy(tx, input.userId)
-    await tx
-      .update(oauthAccessTokens)
-      .set({ revoked: now })
-      .where(
-        and(
-          eq(oauthAccessTokens.userId, input.userId),
-          isNull(oauthAccessTokens.revoked),
-        ),
-      )
-    await tx
-      .update(oauthRefreshTokens)
-      .set({ revoked: now })
-      .where(
-        and(
-          eq(oauthRefreshTokens.userId, input.userId),
-          isNull(oauthRefreshTokens.revoked),
-        ),
-      )
+    await revokeOAuthTokens(tx, input.userId, now)
     await tx
       .update(deviceCodes)
       .set({ status: "denied" })
@@ -258,7 +276,18 @@ export async function banUser(input: {
         target: userTokenCutoffs.userId,
         set: { revokedBefore: now },
       })
-    return true
+    const memberships = input.disableUnattributedOrgApiKeys
+      ? await tx
+          .select({ id: members.organizationId })
+          .from(members)
+          .where(eq(members.userId, input.userId))
+      : []
+    return {
+      disabledUnattributedOrgApiKeys: await disableUnattributedOrgApiKeys(
+        tx,
+        memberships.map((row) => row.id),
+      ),
+    }
   })
 }
 
@@ -280,21 +309,65 @@ export async function isTokenRevoked(
   )
 }
 
-/** The `iat` of a JWT Bearer token, else undefined (an opaque token). */
-function bearerIssuedAt(authorization: string | null | undefined) {
-  const token = authorization?.replace(/^Bearer\s+/i, "")
-  if (!token || token.split(".").length !== 3) return undefined
+/** The claims of a JWT, else undefined (an opaque token). */
+function jwtClaims(token: unknown) {
+  if (typeof token !== "string" || token.split(".").length !== 3)
+    return undefined
   try {
-    return decodeJwt(token).iat
+    return decodeJwt(token)
   } catch {
     return undefined
   }
 }
 
+/** The user of an access token that the token endpoint gave. */
+async function accessTokenUser(token: unknown): Promise<string | undefined> {
+  const claims = jwtClaims(token)
+  if (claims) return claims.sub
+  if (typeof token !== "string") return undefined
+  const [row] = await getSystemDb()
+    .select({ userId: oauthAccessTokens.userId })
+    .from(oauthAccessTokens)
+    .where(
+      eq(
+        oauthAccessTokens.token,
+        createHash("sha256").update(token).digest("base64url"),
+      ),
+    )
+    .limit(1)
+  return row?.userId ?? undefined
+}
+
+/** Revoke each OAuth access and refresh token of the user. */
+async function revokeOAuthTokens(db: Db, userId: string, now: Date) {
+  await db
+    .update(oauthAccessTokens)
+    .set({ revoked: now })
+    .where(
+      and(
+        eq(oauthAccessTokens.userId, userId),
+        isNull(oauthAccessTokens.revoked),
+      ),
+    )
+  await db
+    .update(oauthRefreshTokens)
+    .set({ revoked: now })
+    .where(
+      and(
+        eq(oauthRefreshTokens.userId, userId),
+        isNull(oauthRefreshTokens.revoked),
+      ),
+    )
+}
+
 /**
- * Better Auth answers `/oauth2/userinfo` and `/oauth2/introspect` itself,
- * not through `withAuth.ts`. For a banned user, or a JWT from before a ban,
- * the user info is refused and the introspection says `active: false`.
+ * Better Auth answers `/oauth2/token`, `/oauth2/userinfo` and
+ * `/oauth2/introspect` itself, not through `withAuth.ts`. For a banned user:
+ * - the token endpoint revokes the tokens that it just gave and refuses. A
+ *   refresh can insert its new token after a ban committed (the insert waits
+ *   for the ban's lock of the user row), and this finds it.
+ * - the user info is refused and the introspection says `active: false`,
+ *   also for a JWT from before a ban.
  */
 export function refuseBannedOAuthSubjects(): BetterAuthPlugin {
   return {
@@ -303,20 +376,39 @@ export function refuseBannedOAuthSubjects(): BetterAuthPlugin {
       after: [
         {
           matcher: (ctx) =>
+            ctx.path === "/oauth2/token" ||
             ctx.path === "/oauth2/userinfo" ||
             ctx.path === "/oauth2/introspect",
           handler: createAuthMiddleware(async (ctx) => {
             const returned = ctx.context.returned
             if (!returned || typeof returned !== "object") return
             if (returned instanceof Error) return
-            const { sub, active, iat } = returned as Record<string, unknown>
+            const result = returned as Record<string, unknown>
+            if (ctx.path === "/oauth2/token") {
+              const userId = await accessTokenUser(result.access_token)
+              if (!userId) return
+              const user = await banState(getSystemDb(), userId)
+              if (!user || !isBanned(user)) return
+              await revokeOAuthTokens(getSystemDb(), userId, new Date())
+              throw new APIError("BAD_REQUEST", {
+                error: "invalid_grant",
+                error_description: "The user is banned",
+              })
+            }
+            const { sub, active, iat } = result
             if (typeof sub !== "string" || active === false) return
             const introspect = ctx.path === "/oauth2/introspect"
+            // The user info takes the token in the header or in the body.
+            const body = ctx.body as Record<string, unknown> | undefined
             const issuedAt = introspect
               ? typeof iat === "number"
                 ? iat
                 : undefined
-              : bearerIssuedAt(ctx.headers?.get("authorization"))
+              : jwtClaims(
+                  ctx.headers
+                    ?.get("authorization")
+                    ?.replace(/^Bearer\s+/i, "") ?? body?.access_token,
+                )?.iat
             const user = await banState(getSystemDb(), sub)
             const refused =
               (user && isBanned(user)) ||

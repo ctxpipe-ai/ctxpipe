@@ -93,16 +93,24 @@ export const adminBanUser = defineAdminWorkflow(
     // Free text of the operator: kept on the user, never logged.
     reason: z.string().min(1),
     expiresAt: z.iso.datetime({ offset: true }).optional(),
+    // Also the organization keys with no known maker (made before the maker
+    // was recorded) of each organization of the user.
+    disableUnattributedOrgApiKeys: z.boolean().optional(),
   },
-  async ({ userId, reason, expiresAt }, run) => {
+  async ({ userId, reason, expiresAt, disableUnattributedOrgApiKeys }, run) => {
     const until = expiresAt ? new Date(expiresAt) : null
     const found = await run("ban", async () => {
       if (until && until.getTime() <= Date.now())
         throw new AdminRefusal("The ban must end in the future")
-      return banUser({ userId, reason, expiresAt: until })
+      return banUser({
+        userId,
+        reason,
+        expiresAt: until,
+        disableUnattributedOrgApiKeys,
+      })
     })
     if (!found) throw new Error(`User ${userId} not found`)
-    return { ok: true as const, userId }
+    return { ok: true as const, userId, ...found }
   },
 )
 
@@ -129,10 +137,20 @@ export const adminRevokeSessions = defineAdminWorkflow(
 
 export const adminRemoveMember = defineAdminWorkflow(
   "admin.remove-member",
-  { organizationId: id, memberId: id },
+  {
+    organizationId: id,
+    memberId: id,
+    // Also the organization keys of the organization with no known maker.
+    disableUnattributedOrgApiKeys: z.boolean().optional(),
+  },
   async (params, run) => {
     const removed = await run("remove", () => removeMember(params))
-    return { ok: true as const, ...params, ...removed }
+    return {
+      ok: true as const,
+      organizationId: params.organizationId,
+      memberId: params.memberId,
+      ...removed,
+    }
   },
 )
 
