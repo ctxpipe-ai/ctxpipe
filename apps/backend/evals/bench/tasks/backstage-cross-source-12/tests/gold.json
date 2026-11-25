@@ -1,5 +1,4 @@
 {
-  "question": "backstage-cross-source-12",
   "facts": [
     {
       "fact": "Maintainers said the missing WWW-Authenticate header (with resource_metadata) on 401s is not really a bug: it is a part of the newer spec not yet implemented because clients didn't support it. The issue was closed as not planned.",

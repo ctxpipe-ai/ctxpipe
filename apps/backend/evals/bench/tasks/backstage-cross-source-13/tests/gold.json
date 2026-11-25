@@ -1,5 +1,4 @@
 {
-  "question": "backstage-cross-source-13",
   "facts": [
     {
       "fact": "Maintainers say payload.metadata is intentionally not persisted; in the initial implementation it is meant only for consumption by processors (such as email/Slack).",

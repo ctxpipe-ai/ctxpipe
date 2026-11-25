@@ -1,5 +1,4 @@
 {
-  "question": "backstage-multi-hop-27",
   "facts": [
     {
       "fact": "The requester, who maintains a Backstage instance, wanted a UI to check when a job last ran and when the next run is scheduled.",

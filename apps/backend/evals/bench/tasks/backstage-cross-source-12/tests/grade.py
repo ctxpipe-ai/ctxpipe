@@ -15,21 +15,22 @@ import sys
 from pathlib import Path
 
 
-def answer_text() -> str:
+def answer_text() -> tuple[str, str]:
+    """The answer and where it came from."""
     path = Path("/app/answer.md")
     if path.is_file():
-        return path.read_text(errors="replace")
+        return path.read_text(errors="replace"), "answer.md"
     stream = Path("/logs/agent/claude-code.txt")
     if stream.is_file():
         for line in reversed(stream.read_text(errors="replace").splitlines()):
             if line.startswith("{") and '"type":"result"' in line.replace(" ", ""):
-                return json.loads(line).get("result") or ""
-    return ""
+                return json.loads(line).get("result") or "", "result event"
+    return "", "none"
 
 
 def main() -> None:
     gold = json.loads(Path(sys.argv[1]).read_text())
-    text = answer_text()
+    text, source = answer_text()
     facts = []
     for fact in gold["facts"]:
         matched = all(
@@ -42,7 +43,7 @@ def main() -> None:
     out.mkdir(parents=True, exist_ok=True)
     (out / "reward.txt").write_text(f"{reward:.4f}\n")
     (out / "facts.json").write_text(
-        json.dumps({"answer_chars": len(text), "facts": facts}, indent=2)
+        json.dumps({"answer_source": source, "answer_chars": len(text), "facts": facts}, indent=2)
     )
     print(f"reward {reward:.4f}")
 

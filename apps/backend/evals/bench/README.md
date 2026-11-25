@@ -7,11 +7,11 @@ This folder holds the phase 0 spike of OrgBench, the org-scale benchmark for con
 | File | What it is |
 | --- | --- |
 | `tasks/<id>/` | One Harbor task for each question: `instruction.md` (the question), `environment/Dockerfile` (the agent workspace), `tests/` (the verifier). Harbor copies only the task folder into the container, so each task has its own copy of `grade.py`. |
-| `arms.json` | The arms, the neutral preamble, the models, their prices and the spend cap of each run. |
+| `arms.json` | The arms, the neutral preamble, the models, the spend cap of each run and the reserve for the server calls of an arm. |
 | `run.py` | Runs each task × arm × model one time as a Harbor job, stops before the spend cap, and resumes from `runs.jsonl`. |
 | `record.py` | The recorder: one record for each run, and `report.md`. |
 | `mint-key.ts` | Makes an org API key for the CTX arm. |
-| `requirements.txt` | The pinned Harbor release. |
+| `requirements.in`, `requirements.txt` | The pinned Harbor release, and its lock with hashes (`uv pip compile --generate-hashes requirements.in`). |
 
 ## The tasks
 
@@ -23,11 +23,11 @@ The three questions come from the dev split of `../knowledge/fixtures/backstage-
 | `backstage-cross-source-12` | cross-source | an issue and the knowledge document of the endpoint |
 | `backstage-cross-source-13` | cross-source | an issue and the knowledge document of the API |
 
-The agent writes its answer to `/app/answer.md`. The verifier (`tests/grade.py`) scores the answer against the key facts of the dataset. Each key fact has groups of regular expressions in `tests/gold.json`, and the fact matches when each group has a match. The reward is the fraction of the facts that match. Each `gold.json` gives 1.0 for the text of its own key facts, and 0 for an empty answer and for the question text. This check is crude on purpose. The claims rubric and the judge panel of the plan replace it.
+The agent writes its answer to `/app/answer.md`. The verifier (`tests/grade.py`) scores the answer against the key facts of the dataset. Each key fact has groups of regular expressions in `tests/gold.json`, and the fact matches when each group has a match. The reward is the fraction of the facts that match. When the agent wrote no `/app/answer.md`, the verifier scores the final text of the run, and `facts.json` says so (`answer_source`). Each `gold.json` gives 1.0 for the text of its own key facts, and 0 for an empty answer and for the question text. This check is crude on purpose. The claims rubric and the judge panel of the plan replace it.
 
 ## The arms
 
-Both arms get the same preamble (`arms.json`), with one sentence that tells where the sources are. Both arms block the web tools (`WebSearch`, `WebFetch`).
+Both arms get the same preamble (`arms.json`), with one sentence that tells where the sources are. Both arms block the web tools (`WebSearch`, `WebFetch`). The agent phase has no egress (`network_mode = "allowlist"` in `task.toml`) except to the hosts that `run.py` adds: the model endpoint, and the MCP host in the CTX arm. The install of Claude Code runs before the agent phase, with network. The verifier has no network.
 
 | Arm | Workspace | MCP |
 | --- | --- | --- |
@@ -65,7 +65,7 @@ The CTX arm needs a backend with the frozen corpus on the plane. Do these steps 
 5. Start the backend alone, with no worker: `bun --env-file=BENCH.env src/server.ts` from `apps/backend`. Do not use `pnpm dev`.
 6. Make the org key: `bun --env-file=BENCH.env evals/bench/mint-key.ts --org ORG_ID --out KEY_FILE`.
 7. Make the B1+ corpus: `repos/backstage` (a `git fetch --depth 1` of the frozen SHA, with no `.git`) and `issues/` (`git archive` of `github/issues` of the frozen context repo).
-8. Install Harbor: `uv venv && uv pip install -r requirements.txt`.
+8. Install Harbor: `uv venv && uv pip install --require-hashes -r requirements.txt`.
 
 ## Run
 
@@ -76,12 +76,13 @@ DOCKER_HOST=… ANTHROPIC_BASE_URL=https://openrouter.ai/api ANTHROPIC_AUTH_TOKE
 python evals/bench/record.py ~/RUN   # writes report.md again from runs.jsonl
 ```
 
-- Give a spend-capped model key, never a production key. The factory model key works through the Anthropic endpoint of OpenRouter.
+- Give a model key of its own for the bench, never a production key, and revoke it after the run. Its spend limit must cover the Claude calls: an Anthropic key in a workspace with a spend limit, or an OpenRouter key whose limit counts the provider-key (BYOK) usage. The agent reads issue text that anybody can write, and it holds the key, so a key with no such limit is a risk even with the egress allowlist. The spike used the factory model key: its limit does not count the BYOK usage, so only the caps of `run.py` and `--max-budget-usd` held its spend.
 - Each run is one Harbor job with the stock `claude-code` agent at a pinned Claude Code version, with `--max-turns` and `--max-budget-usd` (the cap of the run in `arms.json`).
-- Before each run, `run.py` adds the cap of the run to the spend so far. When the sum is more than `--cap-usd`, it stops with exit code 3. The order is model, then task, then arm, so a stop leaves whole pairs of arms.
-- The spend of a run is the larger of two counts of the agent cost (Claude Code `total_cost_usd`, and the tokens at the prices of `arms.json`), plus the cost of the model calls of the server (`gen_ai.usage.cost` on the spans of the run: the query embeddings and Jev).
+- Before each run, `run.py` adds the cap of the run and the server reserve of the arm to the spend so far. When the sum is more than `--cap-usd`, it stops with exit code 3. The order is model, then task, then arm, so a stop leaves whole pairs of arms.
+- A run with no result event or no reward is a failed run: it keeps its spend, `run.py` exits with 1, and the next invocation runs it again.
+- The spend of a run is the Claude Code `total_cost_usd` (the full cap of the run when the run has no result event), plus the cost of the model calls of the server (`gen_ai.usage.cost` on the spans of the run: the query embeddings and Jev).
 - With an OpenRouter key, `run.py` also reads the upstream spend of the key (`byok_usage`) before and after all its runs, and writes the change and the Claude Code total to `gateway.jsonl`. The counter lags by up to a minute, so it checks the total, not each run.
 
 ## The record of a run
 
-`runs.jsonl` holds one record for each run: the reward and the matched facts, the tokens (input, output, cache read, cache write), the three cost counts, the turns, the agent time and the wall time, the tool calls of the transcript, the MCP server spans of the run (joined by `ctxpipe.mcp.conversation.id`: the calls and the error codes for each tool, the Jev calls, the model cost of the server) and the D5 proof. The trial folder of each run holds the full transcript (`agent/claude-code.txt`, `agent/trajectory.json`) and the verifier output.
+`runs.jsonl` holds one record for each run: the reward and the matched facts, the tokens (input, output, cache read, cache write), the Claude Code cost, the turns, the agent time and the wall time, the tool calls of the transcript and the MCP calls that failed before the tool ran (bad arguments), the MCP server spans of the run (joined by `ctxpipe.mcp.conversation.id`: the calls and the error codes for each tool, the Jev calls, the model cost of the server) and the D5 proof. The trial folder of each run holds the full transcript (`agent/claude-code.txt`, `agent/trajectory.json`) and the verifier output.

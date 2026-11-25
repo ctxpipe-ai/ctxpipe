@@ -5,7 +5,8 @@
       "where": "The repositories and the issue tracker of the organization are available as plain files under /app/org: repos/ holds the source code and issues/ holds each issue as Markdown.",
       "mountCorpus": true,
       "mcp": false,
-      "disallowedTools": []
+      "disallowedTools": [],
+      "serverReserveUsd": 0
     },
     "ctx": {
       "where": "The repositories and the issue tracker of the organization are available through the ctxpipe MCP tools (org knowledge-eval, Workspace backstage-v0). The folder /app is empty.",
@@ -15,29 +16,18 @@
         "mcp__ctxpipe__get_related",
         "mcp__ctxpipe__search_code",
         "mcp__ctxpipe__find_symbol"
-      ]
+      ],
+      "serverReserveUsd": 0.02
     }
   },
   "models": {
     "haiku": {
       "id": "anthropic/claude-haiku-5-5",
-      "runCapUsd": 0.1,
-      "usdPerMillion": {
-        "input": 0.1,
-        "output": 0.5,
-        "cacheRead": 0.01,
-        "cacheWrite": 0.125
-      }
+      "runCapUsd": 0.1
     },
     "sonnet": {
       "id": "anthropic/claude-sonnet-5-5",
-      "runCapUsd": 0.3,
-      "usdPerMillion": {
-        "input": 2,
-        "output": 10,
-        "cacheRead": 0.1,
-        "cacheWrite": 2.5
-      }
+      "runCapUsd": 0.3
     }
   },
   "claudeCodeVersion": "2.1.332",

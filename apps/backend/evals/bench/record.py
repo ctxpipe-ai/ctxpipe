@@ -125,14 +125,12 @@ def server_spans(otlp_path, conversation_id, started):
         )),
         "jevCalls": sum(s["name"] == "jev.decide" for s, _ in in_traces),
         "modelCostUsd": round(sum(float(a.get("gen_ai.usage.cost", 0)) for _, a in in_traces), 6),
-        "falkorSpans": sum(
-            s["name"].startswith("falkordb") or a.get("db.system.name") == "falkordb" for s, a in in_traces
-        ),
+        "falkorSpans": sum(a.get("db.system.name") == "falkordb" for _, a in in_traces),
         "planeFallbackLogs": fallback_logs,
     }
 
 
-def record_run(*, out, run_id, model, arm, task, prices, otlp, started, falkor_commands):
+def record_run(*, out, run_id, model, arm, task, cap_usd, otlp, started, ended, falkor_commands):
     trials = sorted((out / "jobs" / run_id).glob("*/agent"))
     trial = trials[0].parent if trials else out / "jobs" / run_id
     result, tools, failed = transcript(trial / "agent" / "claude-code.txt")
@@ -155,43 +153,46 @@ def record_run(*, out, run_id, model, arm, task, prices, otlp, started, falkor_c
         "facts": json.loads(facts_path.read_text())["facts"] if facts_path.is_file() else None,
         "tokens": tokens,
         "claudeCodeCostUsd": result.get("total_cost_usd"),
-        "tokenCostUsd": round(sum(tokens[k] * prices[k] for k in tokens) / 1e6, 6),
+        "runCapUsd": cap_usd,
         "turns": result.get("num_turns"),
         "agentSeconds": round(result.get("duration_ms", 0) / 1000, 1),
-        "wallSeconds": round(time.time() - started, 1),
+        "wallSeconds": round(ended - started, 1),
         "stopReason": result.get("subtype"),
         "toolCalls": dict(tools),
         "mcpCalls": sum(n for name, n in tools.items() if name.startswith("mcp__")),
         "mcpFailedCalls": dict(failed),
         "server": server_spans(otlp, run_id, started),
         "falkorGraphCommands": falkor_commands,
-        "error": (trial_result.get("exception_info") or {}).get("exception_type"),
+        "error": (trial_result.get("exception_info") or {}).get("exception_type")
+        or (None if result else "no result event")
+        or (None if reward_path.is_file() else "no reward"),
         "trial": str(trial),
     }
 
 
-def agent_cost(run):
-    """The larger of the two counts of the agent spend: Claude Code, and the tokens at list prices."""
-    return max(run["claudeCodeCostUsd"] or 0, run["tokenCostUsd"] or 0)
-
-
 def run_cost(run):
-    """The spend of a run: the agent, and the model calls of the server."""
-    return agent_cost(run) + run["server"]["modelCostUsd"]
+    """The spend of a run: the agent, and the model calls of the server.
+
+    A run with no result event (a timeout, a crash) has no cost count, so it
+    counts as its full cap.
+    """
+    agent = run["claudeCodeCostUsd"]
+    return (run["runCapUsd"] if agent is None else agent) + run["server"]["modelCostUsd"]
 
 
 def write_report(out, runs):
     lines = [
-        "| Model | Arm | Task | Score | $ agent | $ server | Input | Output | Cache read | Cache write | Turns | Wall s | MCP calls | Falkor cmds |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| Model | Arm | Task | Score | $ Claude Code | $ server | Input | Output | Cache read | Cache write | Turns | Agent s | Wall s | MCP calls | Falkor cmds | Error |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for r in runs:
         t = r["tokens"]
+        cost = "-" if r["claudeCodeCostUsd"] is None else f"{r['claudeCodeCostUsd']:.4f}"
         lines.append(
             f"| {r['model']} | {r['arm']} | {r['task']} | {r['reward']} | "
-            f"{agent_cost(r):.4f} | {r['server']['modelCostUsd']:.4f} | "
+            f"{cost} | {r['server']['modelCostUsd']:.4f} | "
             f"{t['input']} | {t['output']} | {t['cacheRead']} | {t['cacheWrite']} | {r['turns']} | "
-            f"{r['wallSeconds']} | {r['mcpCalls']} | {r['falkorGraphCommands']} |"
+            f"{r['agentSeconds']} | {r['wallSeconds']} | {r['mcpCalls']} | {r['falkorGraphCommands']} | {r['error'] or ''} |"
         )
     lines.append("")
     lines.append(f"Total spend: ${sum(run_cost(r) for r in runs):.4f}")

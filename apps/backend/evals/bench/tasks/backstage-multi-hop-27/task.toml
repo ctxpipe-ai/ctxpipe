@@ -9,9 +9,14 @@ split = "dev"
 [verifier]
 timeout_sec = 120.0
 environment_mode = "shared"
+network_mode = "no-network"
 
 [agent]
 timeout_sec = 900.0
+# No egress in the agent phase: run.py allows only the model endpoint and the
+# MCP host. The install of Claude Code runs before this phase, with network.
+network_mode = "allowlist"
+allowed_hosts = []
 
 [environment]
 network_mode = "public"

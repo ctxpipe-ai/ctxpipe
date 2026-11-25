@@ -2,7 +2,8 @@
 
 Each run is one Harbor job with the stock `claude-code` agent. The script
 stops before a run that could take the spend over --cap-usd, records each run
-(record.py), and resumes from runs.jsonl in --out. See README.md.
+(record.py), and resumes from runs.jsonl in --out: a run with an error runs
+again. See README.md.
 
 Environment:
   ANTHROPIC_AUTH_TOKEN  the spend-capped model key (or ANTHROPIC_API_KEY)
@@ -18,31 +19,38 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from urllib.parse import urlparse
 
 from record import falkor_graph_calls, gateway_usage, record_run, run_cost, write_report
 
 BENCH = Path(__file__).resolve().parent
 
 
-def job_config(args, config, arm_name, model_name, task, run_id, budget):
+def job_config(args, config, arm_name, model_name, task, run_id):
     arm = config["arms"][arm_name]
     model = config["models"][model_name]
+    base_url = os.environ.get("ANTHROPIC_BASE_URL")
+    # The tasks allow no egress in the agent phase (task.toml); the agent
+    # reaches only the model endpoint and, in the CTX arm, the MCP host.
+    hosts = [urlparse(base_url).hostname if base_url else "api.anthropic.com"]
     agent = {
         "name": "claude-code",
         "model_name": model["id"],
         "kwargs": {
             "version": config["claudeCodeVersion"],
             "max_turns": config["maxTurns"],
-            "max_budget_usd": f"{budget:.2f}",
+            "max_budget_usd": f"{model['runCapUsd']:.2f}",
             "disable_web_search": True,
         },
         "env": {"CTXPIPE_CONVERSATION_ID": run_id},
+        "extra_allowed_hosts": hosts,
     }
     if arm["disallowedTools"]:
         agent["kwargs"]["disallowed_tools"] = ",".join(arm["disallowedTools"])
-    if base_url := os.environ.get("ANTHROPIC_BASE_URL"):
+    if base_url:
         agent["base_url"] = base_url
     if arm["mcp"]:
+        hosts.append(urlparse(args.mcp_url).hostname)
         agent["mcp_servers"] = [
             {
                 "name": "ctxpipe",
@@ -88,63 +96,65 @@ def main():
     config = json.loads((BENCH / "arms.json").read_text())
     runs_path = args.out / "runs.jsonl"
     runs = [json.loads(line) for line in runs_path.read_text().splitlines()] if runs_path.exists() else []
-    done = {(r["model"], r["arm"], r["task"]) for r in runs}
+    # A failed run keeps its spend, but it is not done: it runs again.
+    done = {(r["model"], r["arm"], r["task"]) for r in runs if not r["error"]}
     spent = sum(run_cost(r) for r in runs)
-    # The gateway counters lag by up to a minute, so they check the spend of
+    # The gateway counter lags by up to a minute, so it checks the spend of
     # the whole invocation, not of each run.
-    gateway_before, new_runs = gateway_usage(), []
+    gateway_before, new_runs, status = gateway_usage(), [], 0
     try:
-        return run_all(args, config, runs, runs_path, done, spent, new_runs)
+        for model_name in args.models.split(","):
+            model = config["models"][model_name]
+            # Task first, so that a stop at the cap leaves whole pairs of arms.
+            for task in args.tasks.split(","):
+                for arm_name in args.arms.split(","):
+                    if (model_name, arm_name, task) in done:
+                        continue
+                    # The server calls of a CTX run (embeddings, Jev) have no
+                    # cap of their own, so the arm reserves an amount for them.
+                    reserve = model["runCapUsd"] + config["arms"][arm_name]["serverReserveUsd"]
+                    if spent + reserve > args.cap_usd:
+                        print(f"stop: ${spent:.3f} spent, the next run can cost ${reserve}, cap ${args.cap_usd}")
+                        return 3
+                    run_id = f"bench-{model_name}-{arm_name}-{task}-{int(time.time())}"
+                    config_path = args.out / "configs" / f"{run_id}.json"
+                    config_path.parent.mkdir(exist_ok=True)
+                    config_path.write_text(json.dumps(job_config(args, config, arm_name, model_name, task, run_id), indent=2))
+                    falkor_before = falkor_graph_calls(args.falkor_container)
+                    started = time.time()
+                    print(f"run {run_id}", flush=True)
+                    subprocess.run(
+                        [str(Path(sys.executable).parent / "harbor"), "run", "--config", str(config_path), "--yes"],
+                        check=False,
+                    )
+                    ended = time.time()
+                    # The backend exports its spans every 5 s, and the collector writes each second.
+                    time.sleep(10)
+                    run = record_run(
+                        out=args.out, run_id=run_id, model=model_name, arm=arm_name, task=task,
+                        cap_usd=model["runCapUsd"], otlp=args.otlp, started=started, ended=ended,
+                        falkor_commands=falkor_graph_calls(args.falkor_container) - falkor_before,
+                    )
+                    runs.append(run)
+                    new_runs.append(run)
+                    with runs_path.open("a") as f:
+                        f.write(json.dumps(run) + "\n")
+                    spent += run_cost(run)
+                    if run["error"]:
+                        status = 1
+                    print(f"done {run_id}: reward {run['reward']} error {run['error']} cost ${run_cost(run):.4f} spent ${spent:.4f}", flush=True)
+        return status
     finally:
         write_report(args.out, runs)
         if gateway_before is not None:
-            after = gateway_usage()
             check = {
-                "byokUsageDelta": round(after - gateway_before, 6),
+                "byokUsageDelta": round(gateway_usage() - gateway_before, 6),
                 "claudeCodeCostUsd": round(sum(r["claudeCodeCostUsd"] or 0 for r in new_runs), 6),
                 "runs": [r["runId"] for r in new_runs],
             }
             with (args.out / "gateway.jsonl").open("a") as f:
                 f.write(json.dumps(check) + "\n")
             print(f"gateway check: {check['byokUsageDelta']} USD on the provider key, Claude Code says {check['claudeCodeCostUsd']}")
-
-
-def run_all(args, config, runs, runs_path, done, spent, new_runs):
-    for model_name in args.models.split(","):
-        model = config["models"][model_name]
-        # Task first, so that a stop at the cap leaves whole pairs of arms.
-        for task in args.tasks.split(","):
-            for arm_name in args.arms.split(","):
-                if (model_name, arm_name, task) in done:
-                    continue
-                if spent + model["runCapUsd"] > args.cap_usd:
-                    print(f"stop: ${spent:.3f} spent, a {model_name} run can cost ${model['runCapUsd']}, cap ${args.cap_usd}")
-                    return 3
-                run_id = f"bench-{model_name}-{arm_name}-{task}-{int(time.time())}"
-                config_path = args.out / "configs" / f"{run_id}.json"
-                config_path.parent.mkdir(exist_ok=True)
-                config_path.write_text(json.dumps(job_config(args, config, arm_name, model_name, task, run_id, model["runCapUsd"]), indent=2))
-                falkor_before = falkor_graph_calls(args.falkor_container)
-                started = time.time()
-                print(f"run {run_id}", flush=True)
-                subprocess.run(
-                    [str(Path(sys.executable).parent / "harbor"), "run", "--config", str(config_path), "--yes"],
-                    check=False,
-                )
-                # The backend exports its spans every 5 s, and the collector writes each second.
-                time.sleep(10)
-                run = record_run(
-                    out=args.out, run_id=run_id, model=model_name, arm=arm_name, task=task,
-                    prices=model["usdPerMillion"], otlp=args.otlp, started=started,
-                    falkor_commands=falkor_graph_calls(args.falkor_container) - falkor_before,
-                )
-                runs.append(run)
-                new_runs.append(run)
-                with runs_path.open("a") as f:
-                    f.write(json.dumps(run) + "\n")
-                spent += run_cost(run)
-                print(f"done {run_id}: reward {run['reward']} cost ${run_cost(run):.4f} spent ${spent:.4f}", flush=True)
-    return 0
 
 
 if __name__ == "__main__":
