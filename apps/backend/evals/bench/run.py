@@ -90,7 +90,26 @@ def main():
     runs = [json.loads(line) for line in runs_path.read_text().splitlines()] if runs_path.exists() else []
     done = {(r["model"], r["arm"], r["task"]) for r in runs}
     spent = sum(run_cost(r) for r in runs)
+    # The gateway counters lag by up to a minute, so they check the spend of
+    # the whole invocation, not of each run.
+    gateway_before, new_runs = gateway_usage(), []
+    try:
+        return run_all(args, config, runs, runs_path, done, spent, new_runs)
+    finally:
+        write_report(args.out, runs)
+        if gateway_before is not None:
+            after = gateway_usage()
+            check = {
+                "byokUsageDelta": round(after - gateway_before, 6),
+                "claudeCodeCostUsd": round(sum(r["claudeCodeCostUsd"] or 0 for r in new_runs), 6),
+                "runs": [r["runId"] for r in new_runs],
+            }
+            with (args.out / "gateway.jsonl").open("a") as f:
+                f.write(json.dumps(check) + "\n")
+            print(f"gateway check: {check['byokUsageDelta']} USD on the provider key, Claude Code says {check['claudeCodeCostUsd']}")
 
+
+def run_all(args, config, runs, runs_path, done, spent, new_runs):
     for model_name in args.models.split(","):
         model = config["models"][model_name]
         # Task first, so that a stop at the cap leaves whole pairs of arms.
@@ -100,32 +119,31 @@ def main():
                     continue
                 if spent + model["runCapUsd"] > args.cap_usd:
                     print(f"stop: ${spent:.3f} spent, a {model_name} run can cost ${model['runCapUsd']}, cap ${args.cap_usd}")
-                    write_report(args.out, runs)
                     return 3
                 run_id = f"bench-{model_name}-{arm_name}-{task}-{int(time.time())}"
                 config_path = args.out / "configs" / f"{run_id}.json"
                 config_path.parent.mkdir(exist_ok=True)
                 config_path.write_text(json.dumps(job_config(args, config, arm_name, model_name, task, run_id, model["runCapUsd"]), indent=2))
-                before = {"falkor": falkor_graph_calls(args.falkor_container), "gateway": gateway_usage(settle=True)}
+                falkor_before = falkor_graph_calls(args.falkor_container)
                 started = time.time()
                 print(f"run {run_id}", flush=True)
                 subprocess.run(
                     [str(Path(sys.executable).parent / "harbor"), "run", "--config", str(config_path), "--yes"],
                     check=False,
                 )
-                time.sleep(3)  # the collector flushes each second
+                # The backend exports its spans every 5 s, and the collector writes each second.
+                time.sleep(10)
                 run = record_run(
                     out=args.out, run_id=run_id, model=model_name, arm=arm_name, task=task,
                     prices=model["usdPerMillion"], otlp=args.otlp, started=started,
-                    before=before,
-                    after={"falkor": falkor_graph_calls(args.falkor_container), "gateway": gateway_usage(settle=True)},
+                    falkor_commands=falkor_graph_calls(args.falkor_container) - falkor_before,
                 )
                 runs.append(run)
+                new_runs.append(run)
                 with runs_path.open("a") as f:
                     f.write(json.dumps(run) + "\n")
                 spent += run_cost(run)
                 print(f"done {run_id}: reward {run['reward']} cost ${run_cost(run):.4f} spent ${spent:.4f}", flush=True)
-    write_report(args.out, runs)
     return 0
 
 

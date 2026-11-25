@@ -34,12 +34,11 @@ def falkor_graph_calls(container):
     return calls
 
 
-def gateway_usage(settle=False):
-    """The usage counters of an OpenRouter key: the gateway's own count of the spend.
+def gateway_usage():
+    """The upstream spend of an OpenRouter key on the provider key of the account (`byok_usage`).
 
-    `byok_usage` is the upstream cost of the calls that went to the provider
-    key of the account (the Claude calls). The counters lag by up to a
-    minute, so `settle` reads until two reads 20 s apart agree.
+    The Claude calls go to that provider key. The counter lags by up to a
+    minute, so the function reads until two reads 20 s apart agree.
     """
     base = os.environ.get("ANTHROPIC_BASE_URL", "")
     token = os.environ.get("ANTHROPIC_AUTH_TOKEN") or os.environ.get("ANTHROPIC_API_KEY")
@@ -51,11 +50,10 @@ def gateway_usage(settle=False):
 
     def read():
         with urllib.request.urlopen(request, timeout=30) as response:
-            data = json.load(response)["data"]
-        return {"usage": data["usage"], "byok_usage": data["byok_usage"]}
+            return json.load(response)["data"]["byok_usage"]
 
     last = read()
-    for _ in range(6 if settle else 0):
+    for _ in range(6):
         time.sleep(20)
         now = read()
         if now == last:
@@ -134,7 +132,7 @@ def server_spans(otlp_path, conversation_id, started):
     }
 
 
-def record_run(*, out, run_id, model, arm, task, prices, otlp, started, before, after):
+def record_run(*, out, run_id, model, arm, task, prices, otlp, started, falkor_commands):
     trials = sorted((out / "jobs" / run_id).glob("*/agent"))
     trial = trials[0].parent if trials else out / "jobs" / run_id
     result, tools, failed = transcript(trial / "agent" / "claude-code.txt")
@@ -147,9 +145,6 @@ def record_run(*, out, run_id, model, arm, task, prices, otlp, started, before, 
     }
     reward_path = trial / "verifier" / "reward.txt"
     facts_path = trial / "verifier" / "facts.json"
-    gateway = None
-    if before["gateway"] and after["gateway"]:
-        gateway = {k: round(after["gateway"][k] - before["gateway"][k], 6) for k in before["gateway"]}
     trial_result = json.loads((trial / "result.json").read_text()) if (trial / "result.json").is_file() else {}
     return {
         "runId": run_id,
@@ -161,7 +156,6 @@ def record_run(*, out, run_id, model, arm, task, prices, otlp, started, before, 
         "tokens": tokens,
         "claudeCodeCostUsd": result.get("total_cost_usd"),
         "tokenCostUsd": round(sum(tokens[k] * prices[k] for k in tokens) / 1e6, 6),
-        "gatewayDelta": gateway,
         "turns": result.get("num_turns"),
         "agentSeconds": round(result.get("duration_ms", 0) / 1000, 1),
         "wallSeconds": round(time.time() - started, 1),
@@ -170,16 +164,15 @@ def record_run(*, out, run_id, model, arm, task, prices, otlp, started, before, 
         "mcpCalls": sum(n for name, n in tools.items() if name.startswith("mcp__")),
         "mcpFailedCalls": dict(failed),
         "server": server_spans(otlp, run_id, started),
-        "falkorGraphCommands": after["falkor"] - before["falkor"],
+        "falkorGraphCommands": falkor_commands,
         "error": (trial_result.get("exception_info") or {}).get("exception_type"),
         "trial": str(trial),
     }
 
 
 def agent_cost(run):
-    """The largest of the three counts of the agent spend: Claude Code, the tokens, the gateway."""
-    gateway = (run["gatewayDelta"] or {}).get("byok_usage", 0)
-    return max(run["claudeCodeCostUsd"] or 0, run["tokenCostUsd"] or 0, gateway)
+    """The larger of the two counts of the agent spend: Claude Code, and the tokens at list prices."""
+    return max(run["claudeCodeCostUsd"] or 0, run["tokenCostUsd"] or 0)
 
 
 def run_cost(run):

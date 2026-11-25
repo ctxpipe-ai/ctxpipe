@@ -79,7 +79,8 @@ python evals/bench/record.py ~/RUN   # writes report.md again from runs.jsonl
 - Give a spend-capped model key, never a production key. The factory model key works through the Anthropic endpoint of OpenRouter.
 - Each run is one Harbor job with the stock `claude-code` agent at a pinned Claude Code version, with `--max-turns` and `--max-budget-usd` (the cap of the run in `arms.json`).
 - Before each run, `run.py` adds the cap of the run to the spend so far. When the sum is more than `--cap-usd`, it stops with exit code 3. The order is model, then task, then arm, so a stop leaves whole pairs of arms.
-- The spend of a run is the largest of three counts of the agent cost (Claude Code `total_cost_usd`, the tokens at the prices of `arms.json`, and the `byok_usage` change of the OpenRouter key), plus the cost of the model calls of the server (`gen_ai.usage.cost` on the spans of the run: the query embeddings and Jev).
+- The spend of a run is the larger of two counts of the agent cost (Claude Code `total_cost_usd`, and the tokens at the prices of `arms.json`), plus the cost of the model calls of the server (`gen_ai.usage.cost` on the spans of the run: the query embeddings and Jev).
+- With an OpenRouter key, `run.py` also reads the upstream spend of the key (`byok_usage`) before and after all its runs, and writes the change and the Claude Code total to `gateway.jsonl`. The counter lags by up to a minute, so it checks the total, not each run.
 
 ## The record of a run
 
