@@ -50,7 +50,7 @@
     "concurrently": "^10.0.7",
     "knip": "5.88.1",
     "msw": "^2.15.0",
-    "opencode-ai": "1.19.6",
+    "opencode-ai": "1.19.5",
     "oxfmt": "^0.79.0",
     "oxlint": "^1.89.0",
     "portless": "^0.18.0",
