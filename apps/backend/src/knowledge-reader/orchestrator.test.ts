@@ -55,11 +55,11 @@ describe("the default fact thresholds of the disagreement step", () => {
       thresholds: { sameAt, disagreeAt, replacesAt, scopedAt },
     })
 
-  // Jev gives the scoped fact a p(yes) near 0.5 to most items, so a p(yes)
-  // just over 0.5 is not "yes".
+  // Jev gives the scoped fact a p(yes) from 0.5 to 0.8 to many items, also
+  // to current ones, so only a p(yes) of 0.8 or more is "yes" (CTX-1684).
   it.each([
-    [0.56, "current"],
-    [0.6, "scoped"],
+    [0.77, "current"],
+    [0.8, "scoped"],
   ] as const)(
     "gives a position with no rival and scoped p(yes) %s the status %s",
     (p, status) => {
@@ -69,9 +69,29 @@ describe("the default fact thresholds of the disagreement step", () => {
     },
   )
 
+  // Jev gives "changes or replaces" a low p(yes) also to a record that
+  // replaces the other, so a p(yes) from 0.35 is "yes" (CTX-1684).
   it.each([
-    [0.56, "contradicts"],
-    [0.6, "partial"],
+    [0.34, [{ itemIds: ["a", "b"], status: "current" }]],
+    [
+      0.35,
+      [
+        { itemIds: ["a"], status: "superseded" },
+        { itemIds: ["b"], status: "current" },
+      ],
+    ],
+  ] as const)(
+    "gives a pair with a replaces p(yes) %s the positions %j",
+    (p, positions) => {
+      expect(decide({ "same.1.2": 0.9, "replaces.2.1": p }).positions).toEqual(
+        positions.map((position) => expect.objectContaining(position)),
+      )
+    },
+  )
+
+  it.each([
+    [0.77, "contradicts"],
+    [0.8, "partial"],
   ] as const)(
     "labels a disagreeing pair with one scoped p(yes) %s as %s",
     (p, label) => {

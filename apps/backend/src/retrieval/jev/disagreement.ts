@@ -350,6 +350,9 @@ export async function resolveDisagreements({
  * fact is "no".
  *
  * 1. **The label of each pair** (Item a, Item b):
+ *    - a stored SUPERSEDES between the documents of the two items:
+ *      `updates`, whatever Jev's facts are, also when Jev says that the
+ *      claims are about different parts of the question;
  *    - not the same part of the question: `unrelated`;
  *    - one item changes or replaces the claim of the other: `updates`;
  *    - the claims do not disagree: `agrees`;
@@ -376,10 +379,9 @@ export async function resolveDisagreements({
  *    - Each valid item has the `scoped` fact (`scoped`): scoped.
  *    - Else current, with the rule of the first rival, or `no-rival`.
  *
- *    A rival is a position with a `contradicts` or `updates` label, or a
- *    stored SUPERSEDES, to the position. After `validity`, only the valid
- *    items of a position count, so that a later rule does not use the
- *    metadata of an expired item.
+ *    A rival is a position with a `contradicts` or `updates` label to the
+ *    position. After `validity`, only the valid items of a position count,
+ *    so that a later rule does not use the metadata of an expired item.
  */
 export function decideDisagreements({
   items,
@@ -404,9 +406,22 @@ export function decideDisagreements({
 
   // Step 1: the label of each pair. `replacer` is the item that changes or
   // replaces the claim of the other, when only one does.
+  const storedSupersedes = (from: Entry, to: Entry) =>
+    relations.some(
+      ({ srcDoc, predicate, dstDoc }) =>
+        predicate === "SUPERSEDES" &&
+        srcDoc === from.item.meta.documentKey &&
+        dstDoc === to.item.meta.documentKey,
+    )
   const labeled = entries.flatMap((a, index) =>
     entries.slice(index + 1).map((b) => {
       const label = (): { label: PairLabel; replacer?: Entry } => {
+        // A stored SUPERSEDES is a fact of the store, so it decides before
+        // Jev's facts (CTX-1684). Else Jev can read the same plan in both
+        // records, and the two items join one position. The label makes
+        // the pair a rival pair; the rule `supersedes` gives the direction.
+        if (storedSupersedes(a, b) || storedSupersedes(b, a))
+          return { label: "updates" }
         if (!yes(KEYS.same(a.n, b.n), thresholds.sameAt))
           return { label: "unrelated" }
         const aReplaces = yes(KEYS.replaces(a.n, b.n), thresholds.replacesAt)
@@ -458,15 +473,8 @@ export function decideDisagreements({
 
   // Step 3: the status of each position.
   const supersedes = (from: number, to: number) =>
-    relations.some(
-      ({ srcDoc, predicate, dstDoc }) =>
-        predicate === "SUPERSEDES" &&
-        (members[from] ?? []).some(
-          ({ item }) => item.meta.documentKey === srcDoc,
-        ) &&
-        (members[to] ?? []).some(
-          ({ item }) => item.meta.documentKey === dstDoc,
-        ),
+    (members[from] ?? []).some((x) =>
+      (members[to] ?? []).some((y) => storedSupersedes(x, y)),
     )
   const updates = (from: number, to: number) =>
     crossPairs.some(
@@ -475,23 +483,17 @@ export function decideDisagreements({
     )
   /**
    * The positions that compete with a position: a label `contradicts` or
-   * `updates`, or a stored SUPERSEDES in either direction.
+   * `updates`. A stored SUPERSEDES gives its pair the label `updates`.
    */
   const rivalsOf = (position: number) => [
-    ...new Set([
-      ...crossPairs.flatMap(({ a, b, label }) => {
+    ...new Set(
+      crossPairs.flatMap(({ a, b, label }) => {
         if (label !== "contradicts" && label !== "updates") return []
         if (a.position === position) return [b.position]
         if (b.position === position) return [a.position]
         return []
       }),
-      ...members.flatMap((_, other) =>
-        other !== position &&
-        (supersedes(position, other) || supersedes(other, position))
-          ? [other]
-          : [],
-      ),
-    ]),
+    ),
   ]
   const now = queryTime.getTime()
   const isValid = ({ meta }: EvidenceItem) => isValidAt(meta, queryTime)
