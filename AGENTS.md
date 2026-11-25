@@ -143,8 +143,9 @@ Use one shared Postgres on the host (port 5433) and one database per linked work
 ### Git branches (agents)
 
 - **Stay on the current branch** for follow-up planning/implementation sessions. Do **not** create a new branch (or worktree branch) unless `HEAD` is already on **`main`** (or the user explicitly asks for a new branch).
-- Multiple plans/features in one PR branch are normal; continue committing on the existing feature branch.
+- Multiple plans/features in one PR branch are normal.
 - If you are on `main` and need isolated work, then create a feature branch from `main`.
+- **GitHub identity**: Paseo agents on the Mac Studio push as `ctxpipe-factory[bot]` (CTX-1623). A person pushes `.github/workflows` changes; use no other login.
 
 ## Local agent memory
 
@@ -166,7 +167,7 @@ This repository is public. **Never** put the name, slug, email, username, id (`o
 ## Code style
 
 - **Avoid pulling to globals**: Do not extract config or one-off values to module/global scope unless they are reused in more than one place. Inline them where they are used.
-- **Environment variables**: Use only for values that differ by **environment** or that **operators/customers must set** (secrets, base URLs, infra limits). Do not use env for **feature toggles** or **internal logic**; keep those in code or committed config. See [.ai/memory/lessons-learned.md](.ai/memory/lessons-learned.md). **Agents:** Do not add or document **new** environment variables unless they are **required** to complete the assigned task — prefer resolving paths or behavior in committed code rather than expanding operator surface area.
+- **Environment variables**: Use only for values that differ by **environment** or that **operators/customers must set** (secrets, base URLs, infra limits). Do not use env for **feature toggles** or **internal logic**; keep those in code or committed config. See [.ai/memory/lessons-learned.md](.ai/memory/lessons-learned.md). **Agents:** add or document a **new** environment variable only when the task requires it; prefer committed code.
 - **Backend logging**: In `apps/backend`, use **evlog** (`getLogger()` or `log` from `src/observability/logger.ts`) — not `console.*`. See [apps/backend/AGENTS.md](apps/backend/AGENTS.md) (Logging).
 - **Formatting**: run `pnpm format` before a commit. CI runs `pnpm format:check`.
 - **Versions**: write a range in package.json; the lockfile pins.
