@@ -11,6 +11,13 @@ import {
 } from "@clickhouse/client"
 
 import { testLabelArgs } from "../../../../scripts/ci/test-containers.mjs"
+import {
+  KNOWLEDGE_TABLES,
+  type KnowledgeScope,
+  NO_KNOWLEDGE_ROWS,
+  ORG_SETTING,
+  type PurgeCounts,
+} from "../knowledge-store/knowledge-store.js"
 import { migrateKnowledgeStore } from "../knowledge-store/migrate.js"
 import { contractImage } from "./contract-images.js"
 
@@ -24,6 +31,26 @@ export function userUrl(url: string, user: string, password: string): string {
   withUser.username = user
   withUser.password = password
   return withUser.toString()
+}
+
+/** The count of rows of `scope` in each knowledge table. */
+export async function knowledgeRowCounts(
+  client: ClickHouseClient,
+  scope: KnowledgeScope,
+): Promise<PurgeCounts> {
+  const counts = { ...NO_KNOWLEDGE_ROWS }
+  for (const table of KNOWLEDGE_TABLES) {
+    const result = await client.query({
+      query: `SELECT count() AS rows FROM ${table}
+              WHERE org_id = {orgId:String} AND workspace_id = {workspaceId:String}`,
+      query_params: scope,
+      format: "JSONEachRow",
+      clickhouse_settings: { [ORG_SETTING]: scope.orgId },
+    })
+    const [row] = await result.json<{ rows: string }>()
+    counts[table] = Number(row?.rows)
+  }
+  return counts
 }
 
 /**

@@ -156,6 +156,7 @@ We do not port the weighted walk, the advisor planner, its eval, or the old retr
 - Contract tests on each PR: the MCP SDK `Client`, real Postgres, msw for codesearch and embedding providers. They cover schemas, scopes, the same error for a foreign and an unknown org, an untick that denies the next call with no reconnect, a removed membership, exclusion by handle and by URL, paging, budgets, the `get_related` caps, and no `ctx_advisor` in `tools/list`.
 - A graph relevance eval with no LLM, on live FalkorDB in CI: recall@5 floors for each intent and a p95 latency budget.
 - MCPJam evals nightly and on a label, against a preview environment with a seeded fixture org. They include parallel calls in one turn and sessions with two orgs.
+- **Amendment 2026-11-25 ([ADR-075](ADR-075-orgbench-org-scale-agent-benchmark.md), [CTX-1659](https://linear.app/ctxpipe/issue/CTX-1659)):** the OrgBench L2 transcripts and MCP spans now meet the requirement of evals for each tool. They give tool choice, argument errors and tool adoption for each tool. [CTX-1663](https://linear.app/ctxpipe/issue/CTX-1663) removes the MCPJam suite.
 
 ### 11. Accepted deviations from the design
 

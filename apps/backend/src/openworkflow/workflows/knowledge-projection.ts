@@ -13,6 +13,7 @@ import { projectKnowledgePlane } from "../../knowledge-plane/writer.js"
 import { createKnowledgeStore } from "../../knowledge-store/knowledge-store.js"
 import {
   deleteBranchHead,
+  KNOWLEDGE_PROJECTION_WORKFLOW_NAME,
   listBranchHeads,
   readyKnowledgeHeads,
 } from "../../models/knowledge-state.js"
@@ -51,7 +52,7 @@ import { knowledgeMaintenance } from "./knowledge-maintenance.js"
  */
 export const knowledgeProjection = defineWorkflow(
   {
-    name: "knowledge-projection",
+    name: KNOWLEDGE_PROJECTION_WORKFLOW_NAME,
     schema: z
       .object({
         orgId: z.string().min(1),

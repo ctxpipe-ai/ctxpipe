@@ -10,6 +10,7 @@ import {
 } from "vitest"
 
 import {
+  knowledgeRowCounts,
   startClickHouse,
   userUrl as databaseUserUrl,
 } from "../test/clickhouse.js"
@@ -18,7 +19,9 @@ import {
   type DocumentRows,
   type KnowledgeReadScope,
   type KnowledgeScope,
+  KNOWLEDGE_TABLES,
   type KnowledgeStore,
+  NO_KNOWLEDGE_ROWS,
   ORG_SETTING,
   type TreeEntry,
 } from "./knowledge-store.js"
@@ -980,6 +983,54 @@ describe("users and mutations", () => {
     }
   })
 
+  // CTX-1642: the deletion of an org or a Workspace deletes its rows.
+  it("a purge of a Workspace, then of its org, deletes their rows from each knowledge table and keeps the rows of another Workspace and another org", async () => {
+    const workspace = { orgId: "org_purge", workspaceId: "ws_purge" }
+    const sibling = { orgId: "org_purge", workspaceId: "ws_purge_sibling" }
+    // The same Workspace id in another org: only the org predicate keeps it.
+    const otherOrg = { orgId: "org_purge_other", workspaceId: "ws_purge" }
+    for (const scope of [workspace, sibling, otherOrg]) {
+      await put(writer, scope, [
+        rowsOf("Doc", "doc.md", "ref:key:target.md"),
+        rowsOf("Target", "target.md", "doc.md"),
+      ])
+      await writer.writeImageTexts(scope, [
+        { blobSha: "sha1", model: "m/a", promptVersion: 1, reading: "text" },
+      ])
+    }
+    const rowsOfScope = (scope: KnowledgeScope) =>
+      knowledgeRowCounts(rawClient(adminUrl), scope)
+    const seeded = await rowsOfScope(workspace)
+    for (const table of KNOWLEDGE_TABLES)
+      expect(seeded[table], table).toBeGreaterThan(0)
+
+    // The reader user cannot purge, and a purge needs an org.
+    await expect(reader.purge(workspace)).rejects.toThrow(denied)
+    await expect(
+      writer.purge({ orgId: "", workspaceId: null }),
+    ).rejects.toThrow(/needs an org/)
+    await expect(
+      writer.purge({ orgId: "org_purge", workspaceId: "" }),
+    ).rejects.toThrow(/needs a Workspace id/)
+    expect(await rowsOfScope(workspace)).toEqual(seeded)
+
+    expect(await writer.purge(workspace)).toEqual(seeded)
+    expect(await rowsOfScope(workspace)).toEqual(NO_KNOWLEDGE_ROWS)
+    expect(await rowsOfScope(sibling)).toEqual(seeded)
+    expect(await rowsOfScope(otherOrg)).toEqual(seeded)
+    // A purge that runs again finds nothing more.
+    expect(await writer.purge(workspace)).toEqual(NO_KNOWLEDGE_ROWS)
+
+    expect(
+      await writer.purge({ orgId: "org_purge", workspaceId: null }),
+    ).toEqual(seeded)
+    expect(await rowsOfScope(sibling)).toEqual(NO_KNOWLEDGE_ROWS)
+    expect(await rowsOfScope(otherOrg)).toEqual(seeded)
+    expect(
+      await writer.purge({ orgId: "org_purge", workspaceId: null }),
+    ).toEqual(NO_KNOWLEDGE_ROWS)
+  })
+
   describe("each write keeps the org and Workspace scope", () => {
     let run = 0
     let target: KnowledgeScope
@@ -1245,8 +1296,9 @@ describe("users and mutations", () => {
 
   // The proof that the API cannot make a DELETE without both predicates: the
   // server logs the text of each statement that the tests above sent as the
-  // writer user.
-  it("each DELETE of the writer has the org and Workspace predicates first, and the writer sends no other change", async () => {
+  // writer user. Only the purge of an org (CTX-1642) has no Workspace
+  // predicate: its only predicate is the org.
+  it("each DELETE of the writer has the org and Workspace predicates first, or is the purge of an org, and the writer sends no other change", async () => {
     const admin = rawClient(adminUrl)
     await admin.command({ query: "SYSTEM FLUSH LOGS" })
     const statements = await rawRows<{ kind: string; query: string }>(
@@ -1262,8 +1314,12 @@ describe("users and mutations", () => {
     )
     for (const { query } of statements)
       expect(query).toMatch(
-        /^DELETE FROM \w+ WHERE \(org_id = '\w+'\) AND \(workspace_id = '\w+'\) AND \(/,
+        /^DELETE FROM \w+ WHERE (\(org_id = '\w+'\) AND \(workspace_id = '\w+'\)( AND \(|$)|org_id = '\w+'$)/,
       )
+    // The purges of the test above: the Workspace, then the org.
+    expect(
+      statements.filter(({ query }) => query.includes("'org_purge'")),
+    ).toHaveLength(2 * KNOWLEDGE_TABLES.length)
   })
 })
 

@@ -182,7 +182,8 @@ function serverAttributes(
   return attributes
 }
 
-function sqlState(error: unknown): string | undefined {
+/** The SQLSTATE of a Postgres error, or of its cause. It holds no row value. */
+export function sqlState(error: unknown): string | undefined {
   if (!error || typeof error !== "object") return undefined
   const code = (error as { code?: unknown }).code
   if (typeof code === "string" && /^[0-9A-Z]{5}$/.test(code)) return code

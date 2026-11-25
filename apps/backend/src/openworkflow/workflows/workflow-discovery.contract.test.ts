@@ -47,6 +47,7 @@ it(
         "workspace-hydrate",
         "knowledge-maintenance",
         "knowledge-projection",
+        "knowledge-purge",
         "workspace-index",
         "repository-index",
         "repository-ingestion-v2",

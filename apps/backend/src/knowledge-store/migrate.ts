@@ -4,7 +4,7 @@ import { readdir, readFile } from "node:fs/promises"
 import type { ClickHouseClient } from "@clickhouse/client"
 
 import { log } from "../observability/logger.js"
-import { createClickHouseClient } from "./knowledge-store.js"
+import { createClickHouseClient, KNOWLEDGE_TABLES } from "./knowledge-store.js"
 
 /**
  * The passwords of the two ClickHouse users that the migration makes. If a
@@ -141,17 +141,9 @@ async function setUser(
   await client.command({ query: `ALTER USER ${name} ${identified}` })
   // WITH REPLACE OPTION removes each grant that is not in this statement.
   await client.command({
-    query: `GRANT ${[
-      "documents",
-      "chunks",
-      "relations",
-      "relations_in",
-      "doc_refs",
-      "image_texts",
-      "trees",
-    ]
-      .map((table) => `${privileges} ON ${table}`)
-      .join(", ")} TO ${name} WITH REPLACE OPTION`,
+    query: `GRANT ${KNOWLEDGE_TABLES.map(
+      (table) => `${privileges} ON ${table}`,
+    ).join(", ")} TO ${name} WITH REPLACE OPTION`,
   })
   log.info({
     step: "migrate",
