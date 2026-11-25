@@ -5,7 +5,10 @@ import {
   TupleParam,
 } from "@clickhouse/client"
 
-import { CONNECTOR_MIRROR_ROOTS } from "../domain/codeIngestion/connectorMirrorPaths.js"
+import {
+  CONNECTOR_MIRROR_ROOTS,
+  connectorMirrorRoot,
+} from "../domain/codeIngestion/connectorMirrorPaths.js"
 
 /**
  * The per-query custom setting that holds the org of a statement. The row
@@ -172,6 +175,9 @@ export type MutationCounter = { mutations: number }
 /** The org and the heads of a read. A read can span Workspaces. */
 export type KnowledgeReadScope = { orgId: string; heads: WorkspaceHead[] }
 
+/** The documents that the search of the store gives, at most. */
+export const SEARCH_HITS = 50
+
 /** One document of a Workspace. */
 export type DocumentRef = { workspaceId: string; docKey: string }
 
@@ -202,6 +208,37 @@ export type SearchQuery = {
   validAt?: Date | null
   /** The best chunks of each found document that the hit holds, at most. */
   chunksPerDocument: number
+}
+
+/** The filters of a search, without the time of validity. */
+type SearchFilters = Pick<
+  SearchQuery,
+  "kinds" | "pathPrefix" | "sources" | "observedAfter"
+>
+
+/**
+ * True when `document` of the view passes `filters`, as the `searchable`
+ * condition of the search: active, of a kind, under the path prefix, from
+ * a source, and observed after the time. A read that takes `validAt`
+ * applies the time of validity itself.
+ */
+export function passesSearchFilters(
+  document: KnowledgeDocument,
+  {
+    kinds = [],
+    pathPrefix = "",
+    sources = [],
+    observedAfter = null,
+  }: SearchFilters,
+): boolean {
+  return (
+    document.status === "active" &&
+    (kinds.length === 0 || kinds.includes(document.kind)) &&
+    document.path.startsWith(pathPrefix) &&
+    (sources.length === 0 ||
+      sources.includes(connectorMirrorRoot(document.path) ?? "authored")) &&
+    (!observedAfter || document.observedAt > observedAfter)
+  )
 }
 
 /** A chunk of a read, with its text and its file lines. */
@@ -1573,13 +1610,13 @@ async function search(
   lexicalRows.forEach(({ share, ...key }, index) =>
     fuse(key, index, 0.4 + 0.6 * share ** 2),
   )
-  // The top 50 documents, each with its best chunks.
+  // The top SEARCH_HITS documents, each with its best chunks.
   const byDocument = new Map<string, (ChunkKey & { score: number })[]>()
   for (const hit of [...fused.values()].sort((a, b) => b.score - a.score)) {
     const id = documentId(hit)
     let chunks = byDocument.get(id)
     if (!chunks) {
-      if (byDocument.size === 50) continue
+      if (byDocument.size === SEARCH_HITS) continue
       chunks = []
       byDocument.set(id, chunks)
     }

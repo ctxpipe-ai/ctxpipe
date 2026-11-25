@@ -41,6 +41,16 @@ export const ORCHESTRATOR_DEFAULTS = {
    * what the loop finds (the CTO, 2026-11-22).
    */
   timeBudgetMs: 3_000,
+  /**
+   * The search adds the neighbors of its best hits (CTX-1605): the
+   * documents that the first `searchNeighborsFrom` hits have a relation
+   * to, in either direction, take at most this many of the last places of
+   * the hits, the closest to the query first. A question about an issue
+   * often has the document of the code that the issue names as an answer,
+   * with no word of the question in it. 0: no neighbors.
+   */
+  searchNeighbors: 10,
+  searchNeighborsFrom: 5,
   /** The top results that the disagreement step compares (N). */
   disagreementItems: 10,
   /**
