@@ -177,25 +177,21 @@ async function remoteRefs(
   )
 }
 
-/** The body of a source file that the `sources` step writes. */
-function sourceBody(source: string, sha: string, cutoff: string) {
-  return `The public repository ${source} at ${sha}, its last commit up to ${cutoff}.\n`
-}
-
 /**
  * Write one plain git source file for each repository of each corpus into
  * the context repo of the corpus, in one commit. The file names the public
  * URL and pins the SHA of the plan (ADR-050, revision 2026-11-26), so the
  * product reads the public repository at that SHA with no credential and
  * no copy. A repository that is not public is refused. A second run with
- * the same plan pushes nothing.
+ * the same plan pushes nothing. Returns the main branch SHA of each context
+ * repo after the step.
  */
 export async function writeCorpusSources(
   plan: Plan,
   access: GithubAccess,
   log: (line: string) => void,
-): Promise<Array<{ corpus: string; source: string; path: string }>> {
-  const written: Array<{ corpus: string; source: string; path: string }> = []
+): Promise<Array<{ corpus: string; sha: string }>> {
+  const contexts: Array<{ corpus: string; sha: string }> = []
   for (const corpus of plan.corpora) {
     const files: ChatFile[] = []
     for (const repository of corpus.repositories) {
@@ -219,21 +215,21 @@ export async function writeCorpusSources(
               commit: repository.sha,
             },
           },
-          sourceBody(repository.source, repository.sha, plan.cutoff),
+          `The public repository ${repository.source} at ${repository.sha}, its last commit up to ${plan.cutoff}.\n`,
         ),
       })
-      written.push({ corpus: corpus.id, source: repository.source, path })
       log(`${repository.source}@${repository.sha} -> ${path}`)
     }
-    await commitToContext(
+    const sha = await commitToContext(
       plan,
       access,
       corpus.id,
       files,
       `Add the public repositories at ${plan.cutoff} as pinned sources`,
     )
+    contexts.push({ corpus: corpus.id, sha })
   }
-  return written
+  return contexts
 }
 
 /** What the `issues` step wrote for one repository. */
@@ -375,14 +371,18 @@ export async function importCorpusMirrors(
   return { repositories: counts, chat: manifests }
 }
 
-/** Add `files` to the main branch of the context repo of `corpus` in one commit. */
+/**
+ * Add `files` to the main branch of the context repo of `corpus` in one
+ * commit, and return the SHA of the main branch. When the files change
+ * nothing, it pushes nothing.
+ */
 async function commitToContext(
   plan: Plan,
   access: GithubAccess,
   corpus: string,
   files: ChatFile[],
   message: string,
-): Promise<void> {
+): Promise<string> {
   const target = remote(
     access,
     `${plan.owner}/${contextName(plan.prefix, corpus)}`,
@@ -417,7 +417,7 @@ async function commitToContext(
     )
     const tree = await git(work, ["write-tree"], env)
     if (tree === (await git(work, ["rev-parse", `${parent}^{tree}`], env)))
-      return
+      return parent
     const commit = await git(
       work,
       ["commit-tree", tree, "-p", parent, "-m", message],
@@ -428,6 +428,7 @@ async function commitToContext(
       ["push", "-q", target.url, `${commit}:refs/heads/main`],
       env,
     )
+    return commit
   } finally {
     await rm(work, { recursive: true, force: true })
   }

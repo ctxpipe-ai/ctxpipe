@@ -60,7 +60,8 @@
       "chat": {
         "realm": "https://chat.zulip.org",
         "since": "2026-08-01T00:00:00Z",
-        "channels": [3, 6, 9, 16, 48, 206, 378]
+        "channels": [3, 6, 9, 16, 48, 206, 378],
+        "maxMessages": 10000
       }
     }
   ]

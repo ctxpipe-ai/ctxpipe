@@ -10,11 +10,13 @@ import {
   repositoryIngestionRequests,
 } from "../../db/schema/repositories.js"
 import { workspaceSources } from "../../db/schema/workspace_sources.js"
+import { workspaces } from "../../db/schema/workspaces.js"
 import { createLogger, withLogger } from "../../observability/logger.js"
 import { workspaceHydrate } from "../../openworkflow/workflows/workspace-hydrate.js"
 import { usePlainGitNetwork } from "../../services/git/plain-git-remote.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { resolveRepositoryRef } from "../codeIngestion/queue.js"
+import { plainGitPin, plainGitTip } from "./plain-git-pin.js"
 
 beforeAll(() => {
   if (!process.env.DATABASE_URL)
@@ -26,13 +28,17 @@ const SOURCE_URL = "https://git.example.org/team/app"
 
 type Fixture = Parameters<Parameters<typeof withNativeHydrationFixture>[1]>[0]
 
+/** The text of the plain git source file, with an optional pinned commit. */
+const sourceText = (commit?: string) =>
+  `---\nprovider: git\nurl: ${SOURCE_URL}.git\n${commit ? `commit: ${commit}\n` : ""}---\n`
+
 /**
- * Merge the plain git source file that `text` gives, hydrate the Workspace,
- * and call `check`. `before` is the tip of main before the merge.
+ * Run `check` on a published Workspace whose plain git host resolves to a
+ * public address, while each git read of the host goes to the local
+ * fixture repository.
  */
-async function withMergedPlainGitSource(
-  text: (before: string) => string,
-  check: (f: Fixture, before: string) => Promise<void>,
+async function withPlainGitWorkspace(
+  check: (f: Fixture) => Promise<void>,
 ): Promise<void> {
   vi.stubEnv("SANDBOX_PROVIDER", "agentcore")
   try {
@@ -40,38 +46,12 @@ async function withMergedPlainGitSource(
       { github: true, githubWriteView: "writable" },
       async (f) => {
         await f.publish()
-        // The plain git host resolves to a public address, and each git
-        // read of it goes to the local fixture repository.
         const restore = usePlainGitNetwork({
           lookup: async () => [{ address: "140.82.112.3" }],
           gitConfig: [[`url.${f.remote}.insteadOf`, SOURCE_URL]],
         })
         try {
-          const before = f.git("rev-parse", "HEAD")
-          mkdirSync(join(f.directory, "sources/git/git.example.org"), {
-            recursive: true,
-          })
-          writeFileSync(join(f.directory, SOURCE_PATH), text(before))
-          f.git("add", "sources")
-          f.git(
-            "-c",
-            "user.name=Human",
-            "-c",
-            "user.email=human@example.test",
-            "commit",
-            "-m",
-            "Add a plain git source",
-          )
-          f.git("push", f.remote, "HEAD:refs/heads/main")
-          const hydrate = await f.runner.runWorkflow(workspaceHydrate.spec, {
-            orgId: f.org.id,
-            workspaceId: f.workspaceId,
-            revision: await f.resolveRevision(true),
-          })
-          expect(await hydrate.result({ timeoutMs: 60_000 })).toMatchObject({
-            hydrated: true,
-          })
-          await check(f, before)
+          await check(f)
         } finally {
           restore()
         }
@@ -80,6 +60,33 @@ async function withMergedPlainGitSource(
   } finally {
     vi.unstubAllEnvs()
   }
+}
+
+/** Merge `text` as the plain git source file, and hydrate the Workspace. */
+async function mergeSource(f: Fixture, text: string): Promise<void> {
+  mkdirSync(join(f.directory, "sources/git/git.example.org"), {
+    recursive: true,
+  })
+  writeFileSync(join(f.directory, SOURCE_PATH), text)
+  f.git("add", "sources")
+  f.git(
+    "-c",
+    "user.name=Human",
+    "-c",
+    "user.email=human@example.test",
+    "commit",
+    "-m",
+    "Change the plain git source",
+  )
+  f.git("push", f.remote, "HEAD:refs/heads/main")
+  const hydrate = await f.runner.runWorkflow(workspaceHydrate.spec, {
+    orgId: f.org.id,
+    workspaceId: f.workspaceId,
+    revision: await f.resolveRevision(true),
+  })
+  expect(await hydrate.result({ timeoutMs: 60_000 })).toMatchObject({
+    hydrated: true,
+  })
 }
 
 async function sourceRow(orgId: string) {
@@ -92,81 +99,167 @@ async function sourceRow(orgId: string) {
   return source
 }
 
-async function requestedUrls(orgId: string): Promise<string[]> {
+async function repositoryId(orgId: string): Promise<string> {
+  const [repository] = await withOrgDbContext(orgId, (db) =>
+    db
+      .select({ id: repositories.id })
+      .from(repositories)
+      .where(eq(repositories.gitUrl, SOURCE_URL)),
+  )
+  if (!repository) throw new Error("The plain git repository has no row")
+  return repository.id
+}
+
+/** True when an org ingestion of the repository is requested. */
+async function ingestionRequested(orgId: string): Promise<boolean> {
   const rows = await withOrgDbContext(orgId, (db) =>
     db
       .select({ gitUrl: repositoryIngestionRequests.repositoryUrl })
       .from(repositoryIngestionRequests)
       .where(eq(repositoryIngestionRequests.orgId, orgId)),
   )
-  return rows.map((row) => row.gitUrl)
+  return rows.some((row) => row.gitUrl === SOURCE_URL)
 }
+
+/**
+ * The org ingestion of the repository published `sha`, and its request is
+ * done: the next request is a new ingestion.
+ */
+async function ingested(orgId: string, sha: string): Promise<void> {
+  await withOrgDbContext(orgId, async (db) => {
+    await db
+      .update(repositories)
+      .set({ lastIngestedHash: sha })
+      .where(eq(repositories.gitUrl, SOURCE_URL))
+    await db
+      .delete(repositoryIngestionRequests)
+      .where(eq(repositoryIngestionRequests.orgId, orgId))
+  })
+}
+
+/** True when no pin applies: an ingestion reads the default branch. */
+const unpinned = async (orgId: string) =>
+  (await plainGitPin({
+    orgId,
+    gitUrl: SOURCE_URL,
+    githubConnectionId: null,
+  })) === null
+
+const resolve = (orgId: string, id: string) =>
+  withLogger(createLogger({}), () =>
+    resolveRepositoryRef({ repositoryId: id, orgId }),
+  )
 
 it(
   "links the repository of a merged plain git source and starts its first ingestion",
   { timeout: 120_000 },
   async () => {
-    await withMergedPlainGitSource(
-      () => `---\nprovider: git\nurl: ${SOURCE_URL}.git\n---\n`,
-      async (f) => {
-        expect(await sourceRow(f.org.id)).toMatchObject({
-          provider: "git",
-          connectionId: null,
-          status: "ok",
-        })
-        // The link makes the org repository row with no connection, and
-        // starts its first org ingestion.
-        const rows = await withOrgDbContext(f.org.id, (db) =>
-          db
-            .select({
-              gitUrl: repositories.gitUrl,
-              githubConnectionId: repositories.githubConnectionId,
-            })
-            .from(repositories)
-            .where(eq(repositories.orgId, f.org.id)),
-        )
-        expect(rows).toContainEqual({
-          gitUrl: SOURCE_URL,
-          githubConnectionId: null,
-        })
-        expect(await requestedUrls(f.org.id)).toContain(SOURCE_URL)
-      },
-    )
+    await withPlainGitWorkspace(async (f) => {
+      await mergeSource(f, sourceText())
+      expect(await sourceRow(f.org.id)).toMatchObject({
+        provider: "git",
+        connectionId: null,
+        status: "ok",
+      })
+      // The link makes the org repository row with no connection, and
+      // starts its first org ingestion.
+      const rows = await withOrgDbContext(f.org.id, (db) =>
+        db
+          .select({
+            gitUrl: repositories.gitUrl,
+            githubConnectionId: repositories.githubConnectionId,
+          })
+          .from(repositories)
+          .where(eq(repositories.orgId, f.org.id)),
+      )
+      expect(rows).toContainEqual({
+        gitUrl: SOURCE_URL,
+        githubConnectionId: null,
+      })
+      expect(await ingestionRequested(f.org.id)).toBe(true)
+    })
   },
 )
 
 it(
-  "ingests a pinned plain git source at its commit, not at the branch tip",
+  "ingests a pinned plain git source at its commit, and again when the pin changes or goes",
+  { timeout: 180_000 },
+  async () => {
+    await withPlainGitWorkspace(async (f) => {
+      const first = f.git("rev-parse", "HEAD")
+      await mergeSource(f, sourceText(first))
+      expect(await sourceRow(f.org.id)).toMatchObject({
+        status: "ok",
+        scope: { url: `${SOURCE_URL}.git`, commit: first },
+      })
+      expect(await ingestionRequested(f.org.id)).toBe(true)
+      const id = await repositoryId(f.org.id)
+      // The tip of main is the commit that added the source. Each
+      // ingestion of the repository (and a re-ingestion) reads the pinned
+      // commit, and asks the host for no branch tip.
+      expect(f.git("rev-parse", "HEAD")).not.toBe(first)
+      expect(await resolve(f.org.id, id)).toEqual({
+        branch: "HEAD",
+        hash: first,
+      })
+      expect(await plainGitTip({ orgId: f.org.id, url: SOURCE_URL })).toEqual({
+        sha: first,
+      })
+
+      // The org published the pinned commit: the next hydrate starts no
+      // ingestion.
+      await ingested(f.org.id, first)
+      await mergeSource(f, `${sourceText(first)}\nThe app at its release.\n`)
+      expect(await ingestionRequested(f.org.id)).toBe(false)
+
+      // A changed pin starts an ingestion of the new commit.
+      const second = f.git("rev-parse", "HEAD")
+      await mergeSource(f, sourceText(second))
+      expect(await ingestionRequested(f.org.id)).toBe(true)
+      expect(await resolve(f.org.id, id)).toEqual({
+        branch: "HEAD",
+        hash: second,
+      })
+
+      // A removed pin starts an ingestion, which follows the branch again.
+      await ingested(f.org.id, second)
+      await mergeSource(f, sourceText())
+      expect(await ingestionRequested(f.org.id)).toBe(true)
+      expect(await unpinned(f.org.id)).toBe(true)
+    })
+  },
+)
+
+it(
+  "follows the branch when two Workspaces of the org pin the repository at different commits",
   { timeout: 120_000 },
   async () => {
-    await withMergedPlainGitSource(
-      (before) =>
-        `---\nprovider: git\nurl: ${SOURCE_URL}.git\ncommit: ${before}\n---\n`,
-      async (f, before) => {
-        expect(await sourceRow(f.org.id)).toMatchObject({
-          status: "ok",
-          scope: { url: `${SOURCE_URL}.git`, commit: before },
+    await withPlainGitWorkspace(async (f) => {
+      const first = f.git("rev-parse", "HEAD")
+      await mergeSource(f, sourceText(first))
+      // Another Workspace of the org pins the same repository at another
+      // commit: its projection wrote this row.
+      const other = `${f.workspaceId}_other`
+      await withOrgDbContext(f.org.id, async (db) => {
+        await db.insert(workspaces).values({
+          id: other,
+          orgId: f.org.id,
+          slug: "other",
+          displayName: "Other",
+          workspaceRepositoryUrl: "https://github.com/acme/other",
         })
-        expect(await requestedUrls(f.org.id)).toContain(SOURCE_URL)
-        const [repository] = await withOrgDbContext(f.org.id, (db) =>
-          db
-            .select({ id: repositories.id })
-            .from(repositories)
-            .where(eq(repositories.gitUrl, SOURCE_URL)),
-        )
-        // The tip of main is the commit that added the source. Each
-        // ingestion of the repository resolves the pinned commit, and asks
-        // codesearch for no branch tip.
-        expect(f.git("rev-parse", "HEAD")).not.toBe(before)
-        expect(
-          await withLogger(createLogger({}), () =>
-            resolveRepositoryRef({
-              repositoryId: repository?.id ?? "",
-              orgId: f.org.id,
-            }),
-          ),
-        ).toEqual({ branch: "HEAD", hash: before })
-      },
-    )
+        await db.insert(workspaceSources).values({
+          id: `${other}_source`,
+          orgId: f.org.id,
+          workspaceId: other,
+          sourceKey: SOURCE_PATH,
+          provider: "git",
+          scope: { url: SOURCE_URL, commit: "a".repeat(40) },
+          status: "ok",
+          revision: "b".repeat(40),
+        })
+      })
+      expect(await unpinned(f.org.id)).toBe(true)
+    })
   },
 )

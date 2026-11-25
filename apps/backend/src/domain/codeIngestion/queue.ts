@@ -48,9 +48,11 @@ export async function resolveRepositoryRef(input: {
   // A plain git repository that its sources pin reads the pinned commit,
   // never the tip of a branch (CTX-1661). Thus a follow-up or a reindex
   // stays at the pin.
-  const pin = repository.githubConnectionId
-    ? null
-    : await plainGitPin({ orgId: input.orgId, gitUrl: repository.gitUrl })
+  const pin = await plainGitPin({
+    orgId: input.orgId,
+    gitUrl: repository.gitUrl,
+    githubConnectionId: repository.githubConnectionId,
+  })
   if (pin) return { branch: input.branch ?? "HEAD", hash: pin }
   // With no GitHub token, codesearch reads the repository only through the
   // checked plain git remote (CTX-815); a refused URL throws its rule.

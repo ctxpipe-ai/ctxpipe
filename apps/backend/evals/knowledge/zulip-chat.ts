@@ -22,6 +22,12 @@ export const zulipChatSchema = z.strictObject({
   since: z.iso.datetime({ offset: true }),
   /** The ids of the web-public channels to read. */
   channels: z.array(z.number().int().positive()).min(1),
+  /**
+   * The most messages of the slice. Each channel gets an equal share, and
+   * keeps its newest messages before the cut-off date. No value reads the
+   * full slice.
+   */
+  maxMessages: z.number().int().positive().optional(),
 })
 
 export type ZulipChat = z.infer<typeof zulipChatSchema>
@@ -141,7 +147,9 @@ async function lastIdAt(realm: string, time: number): Promise<number> {
 /**
  * The messages of each channel from `since` to `until`, oldest first. The
  * export reads backward from the last message at `until`, 100 messages for
- * each request, as the server asks.
+ * each request, as the server asks. With `maxMessages`, each channel stops
+ * at its share, so the export sends no request for a message that it does
+ * not keep.
  */
 export async function readZulipChat(
   chat: ZulipChat,
@@ -152,26 +160,33 @@ export async function readZulipChat(
   const end = until.getTime() / 1_000
   const last = await lastIdAt(chat.realm, end)
   const messages: ZulipMessage[] = []
+  const share = chat.maxMessages
+    ? Math.max(1, Math.floor(chat.maxMessages / chat.channels.length))
+    : Number.POSITIVE_INFINITY
   for (const channel of chat.channels) {
     let anchor = last + 1
     let count = 0
     for (;;) {
       const batch = await page(chat.realm, {
         anchor,
-        before: 100,
+        before: Math.min(100, share - count),
         after: 0,
         channel,
       })
-      const kept = batch.messages.filter(
-        (message) =>
-          message.id < anchor &&
-          message.timestamp >= since &&
-          message.timestamp <= end,
-      )
+      const kept = batch.messages
+        .filter(
+          (message) =>
+            message.id < anchor &&
+            message.timestamp >= since &&
+            message.timestamp <= end,
+        )
+        // The newest messages of the channel come first in its share.
+        .slice(-(share - count))
       messages.push(...kept)
       count += kept.length
       const oldest = batch.messages[0]
       if (
+        count >= share ||
         !oldest ||
         batch.found_oldest ||
         oldest.timestamp < since ||

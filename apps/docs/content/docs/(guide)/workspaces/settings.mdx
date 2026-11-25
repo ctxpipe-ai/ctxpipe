@@ -198,7 +198,7 @@ source also has `connection`. An unknown key makes the file **Not valid**.
 | PagerDuty | `sources/pagerduty/<name>.md` | `services`: a list of service ids |
 | Buildkite | `sources/buildkite/<name>.md` | `pipelines`: a list of pipeline slugs |
 | Plain | `sources/plain/<name>.md` | `helpCenters` (Help Center ids) and `labels` (label type ids). At least one of them. |
-| Plain git | `sources/git/<host>/<name>.md` | `url` only |
+| Plain git | `sources/git/<host>/<name>.md` | `url`, and optional `commit`: a full commit SHA that pins the repository |
 
 Each path segment after the provider folder matches
 `[a-z0-9][a-z0-9._-]{0,99}`. The keys `id` and `kind` are not allowed.

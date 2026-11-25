@@ -111,10 +111,10 @@ describe("writeCorpusSources", () => {
 
     const written = await writeCorpusSources(plan(sha), access(), quiet)
 
-    expect(written).toEqual([
-      { corpus: "demo", source: "acme/api", path: SOURCE },
-    ])
     const context = join(base, "evals", "v0-demo-context.git")
+    expect(written).toEqual([
+      { corpus: "demo", sha: git(context, "rev-parse", "main") },
+    ])
     // The product reads the file as an `ok` plain git source at the SHA.
     const parsed = parseSourceFile(
       SOURCE,
