@@ -103,9 +103,7 @@ def server_spans(otlp_path, conversation_id, started):
     spans, fallback_logs = [], 0
     since = int(started * 1e9)
     if otlp_path.is_file():
-        # The collector can be in the middle of a line, so the text after the
-        # last newline is not read.
-        for line in otlp_path.read_text(errors="replace").split("\n")[:-1]:
+        for line in otlp_path.read_text().splitlines():
             batch = json.loads(line)
             for resource in batch.get("resourceSpans", []):
                 for scope in resource["scopeSpans"]:
@@ -130,12 +128,6 @@ def server_spans(otlp_path, conversation_id, started):
         )),
         "jevCalls": sum(s["name"] == "jev.decide" for s, _ in in_traces),
         "modelCostUsd": round(sum(float(a.get("gen_ai.usage.cost", 0)) for _, a in in_traces), 6),
-        # The bench backend serves only the bench, so the cost of each of its
-        # spans since the start counts, also a call with no conversation id
-        # or with the id of another run.
-        "backendCostUsd": round(sum(
-            float(a.get("gen_ai.usage.cost", 0)) for s, a in spans if int(s.get("startTimeUnixNano", 0)) >= since
-        ), 6),
         "falkorSpans": sum(a.get("db.system.name") == "falkordb" for _, a in in_traces),
         "planeFallbackLogs": fallback_logs,
     }
@@ -188,8 +180,7 @@ def run_cost(run):
     counts as its full cap.
     """
     agent = run["claudeCodeCostUsd"]
-    server = run["server"]
-    return (run["runCapUsd"] if agent is None else agent) + server.get("backendCostUsd", server["modelCostUsd"])
+    return (run["runCapUsd"] if agent is None else agent) + run["server"]["modelCostUsd"]
 
 
 def write_report(out, runs):

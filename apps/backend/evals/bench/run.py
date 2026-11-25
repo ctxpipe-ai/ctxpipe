@@ -22,7 +22,7 @@ import time
 from pathlib import Path
 from urllib.parse import urlparse
 
-from record import falkor_graph_calls, gateway_usage, record_run, run_cost, server_spans, write_report
+from record import falkor_graph_calls, gateway_usage, record_run, run_cost, write_report
 
 BENCH = Path(__file__).resolve().parent
 
@@ -114,11 +114,9 @@ def main():
                     if (model_name, arm_name, task) in done:
                         continue
                     # The server calls of a CTX run (a query embedding and Jev
-                    # for each search) have no cap in the backend, so the arm
-                    # reserves an amount for them, and the run stops when they
-                    # use half of it (README.md).
-                    server_reserve = config["arms"][arm_name]["serverReserveUsd"]
-                    reserve = model["runCapUsd"] + server_reserve
+                    # for each search) have no cap of their own, so the arm
+                    # reserves an estimate of them (README.md).
+                    reserve = model["runCapUsd"] + config["arms"][arm_name]["serverReserveUsd"]
                     if spent + reserve > args.cap_usd:
                         print(f"stop: ${spent:.3f} spent, the next run can cost ${reserve}, cap ${args.cap_usd}")
                         return 3
@@ -129,16 +127,10 @@ def main():
                     falkor_before = falkor_graph_calls(args.falkor_container)
                     started = time.time()
                     print(f"run {run_id}", flush=True)
-                    harbor = subprocess.Popen(
-                        [str(Path(sys.executable).parent / "harbor"), "run", "--config", str(config_path), "--yes"]
+                    subprocess.run(
+                        [str(Path(sys.executable).parent / "harbor"), "run", "--config", str(config_path), "--yes"],
+                        check=False,
                     )
-                    while harbor.poll() is None:
-                        time.sleep(5)
-                        server_cost = server_spans(args.otlp, run_id, started)["backendCostUsd"]
-                        if server_reserve and server_cost >= server_reserve / 2:
-                            print(f"stop {run_id}: the server calls cost ${server_cost:.4f}, the reserve is ${server_reserve}")
-                            harbor.terminate()
-                            harbor.wait()
                     ended = time.time()
                     # The backend exports its spans every 5 s, and the collector writes each second.
                     time.sleep(10)
