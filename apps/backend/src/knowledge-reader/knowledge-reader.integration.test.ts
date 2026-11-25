@@ -1033,7 +1033,7 @@ describe("the knowledge reader seam", () => {
           flag,
           orgId: seed.orgId,
           workspaceIds: expect.arrayContaining([ids.ready, ids.fresh]),
-          notReady: [ids.fresh],
+          notReadyIds: [ids.fresh],
         }),
       ])
       expect(fallbacks[0]?.workspaceIds).toHaveLength(2)
@@ -1053,7 +1053,7 @@ describe("the knowledge reader seam", () => {
           flag,
           orgId: seed.orgId,
           workspaceIds: [ids.fresh],
-          notReady: [ids.fresh],
+          notReadyIds: [ids.fresh],
         }),
       ])
     },

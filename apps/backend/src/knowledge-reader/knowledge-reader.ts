@@ -155,8 +155,8 @@ export async function selectKnowledgeReader(
   }
   if (flag === "off" || workspaceIds.length === 0) return legacy
   const heads = await readyKnowledgeHeads(orgId, workspaceIds)
-  const notReady = workspaceIds.filter((id) => !heads.has(id))
-  if (notReady.length > 0) {
+  const notReadyIds = workspaceIds.filter((id) => !heads.has(id))
+  if (notReadyIds.length > 0) {
     // The rollout needs each Workspace of the org ready (ADR-069 decision
     // 9). Ids only: no query and no content.
     log.info({
@@ -164,7 +164,7 @@ export async function selectKnowledgeReader(
       flag,
       orgId,
       workspaceIds,
-      notReady,
+      notReadyIds,
     })
     return legacy
   }
