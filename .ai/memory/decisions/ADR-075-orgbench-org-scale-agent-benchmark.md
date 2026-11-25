@@ -51,7 +51,7 @@ We must know whether ctxpipe helps a real agent on org-scale work, where it help
    - The judge is calibrated against about 100 human labels, and again when a judge model changes.
    - Each grader passes a calibration triad: a null answer scores 0.1 or less, the gold answer 0.9 or more, and a keyword dump 0.5 or less. A task with an ORACLE pass rate of 0% is broken.
    - A grader change is applied with `rescore`, with no model calls.
-9. **Keep rule.** A change of the product is kept when both conditions are true:
+9. **Keep rule.** A change of the product that an agent can feel is kept when both conditions are true:
    - it wins at L0 (hold-out recall or nDCG), or on an L2 process metric (argument errors, tool adoption);
    - at L2 it is non-inferior on success, cost and harm. A margin for each metric is set before the run. The confidence bound of each metric must exclude a loss that is larger than its margin. An inconclusive result does not keep the change.
 
@@ -85,7 +85,9 @@ We must know whether ctxpipe helps a real agent on org-scale work, where it help
     - The CTX arm uses only a read-scope key. The org set of its grant ([ADR-051](ADR-051-mcp-read-surface.md)) is only the bench org.
     - The key belongs to a bench user that is a member of no other org.
     - Arm configs read the key from the environment. No published config or transcript holds a key.
-    - Each artifact goes through the secret scrub of [ADR-072](ADR-072-scrub-secrets-before-every-model-call.md) before we publish it.
+    - Before we publish an artifact, the publish step replaces the exact value of each arm credential (the CTX key, competitor keys and model keys) with a marker. When a value is still found after the replacement, the publish stops.
+    - The publish step also runs the secret scrub of [ADR-072](ADR-072-scrub-secrets-before-every-model-call.md) on each artifact.
+    - We revoke the bench key after each published run and make a new key for the next run.
 
 ## Consequences
 
