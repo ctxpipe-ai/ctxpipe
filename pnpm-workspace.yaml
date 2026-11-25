@@ -48,11 +48,11 @@ verifyDepsBeforeRun: false
 
 overrides:
   '@daveyplate/better-auth-ui>better-call': 1.4.5
-  '@luma.gl/core': 9.2.6
-  '@luma.gl/engine': 9.2.6
-  '@luma.gl/webgl': 9.2.6
-  '@luma.gl/shadertools': 9.2.6
-  '@luma.gl/constants': 9.2.6
+  '@luma.gl/core': 9.4.2
+  '@luma.gl/engine': 9.4.2
+  '@luma.gl/webgl': 9.4.2
+  '@luma.gl/shadertools': 9.4.2
+  '@luma.gl/constants': 9.4.2
 
 patchedDependencies:
   '@cosmograph/cosmograph@2.2.1': patches/@cosmograph__cosmograph@2.2.1.patch

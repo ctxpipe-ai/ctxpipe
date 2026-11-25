@@ -48,7 +48,7 @@ jobs:
     environment: workbench
     services:
       postgres:
-        image: pgvector/pgvector:0.8.7-pg17-bookworm@sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8
+        image: pgvector/pgvector:0.8.7-pg17-bookworm@sha256:b513c48566e4777cd3370451400000c78eda6a08131d68f4c31d4a76f27bd8fd
         env:
           POSTGRES_USER: ctxpipe
           POSTGRES_PASSWORD: ctxpipe
@@ -114,10 +114,10 @@ jobs:
         with:
           path: .tools/bin
           key: zoekt-${{ runner.os }}-${{ runner.arch }}-go1.25.12-${{ hashFiles('scripts/zoekt/go.mod', 'scripts/zoekt/go.sum', 'scripts/zoekt/build.sh') }}
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         if: steps.zoekt.outputs.cache-hit != 'true'
         with:
-          go-version: 1.25.12
+          go-version: 1.27.4
           cache: false
       # The pinned zoekt of scripts/zoekt, and the ast-grep of the root
       # devDependencies.

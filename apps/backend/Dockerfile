@@ -1,6 +1,6 @@
 # Build from monorepo root: docker build -f apps/backend/Dockerfile .
 FROM node:26.13.1-alpine3.24@sha256:6bd9ab43c0ec0190ca7b2d193906cb8b7edf6e7f4afa43ddeccd6452710bffb5 AS opencode
-RUN npm install -g opencode-ai@1.19.5
+RUN npm install -g opencode-ai@1.19.6
 
 # The converter of the knowledge plane (apps/backend/converter, CTX-1433),
 # also the secret scrubber of each model call (`--scrub`, ADR-072): one
@@ -26,7 +26,7 @@ WORKDIR /app
 ENV CI=true
 # pnpm is a Node CLI. Running it through Bun can stall during lifecycle scripts.
 RUN apk add --no-cache nodejs
-RUN bun install -g pnpm@11.28.11
+RUN bun install -g pnpm@11.28.13
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* tsconfig.json ./
 COPY patches patches
 COPY apps/backend/package.json apps/backend/package.json

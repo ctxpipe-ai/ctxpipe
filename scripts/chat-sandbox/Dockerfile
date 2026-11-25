@@ -10,7 +10,7 @@ FROM node:26.13.1-trixie-slim@sha256:e6bedef217677b276c591795e169840edd9096dbf13
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl git gh findutils procps ripgrep \
     && rm -rf /var/lib/apt/lists/* \
-    && npm install --global opencode-ai@1.19.5 undici@8.12.4 @ast-grep/cli@0.45.0 \
+    && npm install --global opencode-ai@1.19.6 undici@8.12.4 @ast-grep/cli@0.51.3 \
     && npm cache clean --force \
     && mkdir -p /workspace /home/node/.config /home/node/.local/share /home/node/.local/state /home/node/.cache \
     && chown -R 1000:1000 /workspace /home/node

@@ -3,6 +3,6 @@
   "private": true,
   "description": "The pinned Claude Code CLI that scripts/ci/check-claude-plugin.mjs runs. It is outside the pnpm workspace, so its 200 MB binary stays out of every other install.",
   "devDependencies": {
-    "@anthropic-ai/claude-code": "2.1.251"
+    "@anthropic-ai/claude-code": "2.1.327"
   }
 }

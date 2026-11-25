@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "license": "MIT",
-  "packageManager": "pnpm@11.28.11",
+  "packageManager": "pnpm@11.28.13",
   "engines": {
     "bun": "^1.4.4",
     "node": "^26"
@@ -44,16 +44,16 @@
     "release": "pnpm -r --filter \"./packages/*\" run --if-present build && pnpm -r --filter \"./packages/*\" run --if-present test && changeset publish"
   },
   "devDependencies": {
-    "@ast-grep/cli": "0.45.0",
+    "@ast-grep/cli": "0.51.3",
     "@changesets/cli": "^3.0.3",
     "@jridgewell/sourcemap-codec": "^1.5.5",
     "concurrently": "^10.0.7",
     "knip": "5.88.1",
     "msw": "^2.15.0",
-    "opencode-ai": "1.19.5",
-    "oxfmt": "^0.74.0",
+    "opencode-ai": "1.19.6",
+    "oxfmt": "^0.79.0",
     "oxlint": "^1.89.0",
-    "portless": "^0.9.4",
+    "portless": "^0.18.0",
     "turbo": "^2.10.9",
     "typescript": "^6.0.3",
     "yaml": "^2.8.2"
