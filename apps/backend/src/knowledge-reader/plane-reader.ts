@@ -32,6 +32,9 @@ import {
   type KnowledgeReadScope,
   type KnowledgeRelation,
   type KnowledgeStore,
+  passesSearchFilters,
+  SEARCH_HITS,
+  type SearchQuery,
 } from "../knowledge-store/knowledge-store.js"
 import {
   isRetryableFetchFailure,
@@ -255,17 +258,21 @@ async function search(
   // time left for the search itself, there is no hit to give. The store
   // gets the query vector as a promise, so that its lexical query runs
   // while the embedding call is on its way (CTX-1576).
-  let found: Awaited<ReturnType<KnowledgeStore["search"]>>
+  let found: SearchHits
+  const vector = beforeDeadline(deadline, () => embed(scope.orgId, query))
+  const filters = {
+    kinds: request.kinds ? [...request.kinds] : undefined,
+    pathPrefix: request.pathPrefix,
+    sources: request.sources ? [...request.sources] : undefined,
+    observedAfter: request.updatedAfter ?? null,
+    validAt: request.validAt ?? null,
+  }
   try {
     found = await beforeDeadline(deadline, () =>
       store.search(scope, {
-        vector: beforeDeadline(deadline, () => embed(scope.orgId, query)),
+        vector,
         terms: queryTerms(query),
-        kinds: request.kinds ? [...request.kinds] : undefined,
-        pathPrefix: request.pathPrefix,
-        sources: request.sources ? [...request.sources] : undefined,
-        observedAfter: request.updatedAfter ?? null,
-        validAt: request.validAt ?? null,
+        ...filters,
         chunksPerDocument: ORCHESTRATOR_DEFAULTS.evidenceChunks,
       }),
     )
@@ -274,9 +281,10 @@ async function search(
     notePartial(meter, error)
     return { hits: [], partialReason: "total_timeout" }
   }
+  found = await withNeighbors(store, scope, found, vector, filters, deadline)
   const limit = Math.min(Math.max(Math.trunc(request.limit ?? 10), 1), 50)
   const inputs = found.map((hit) => ({
-    ref: { workspaceId: hit.workspaceId, docKey: hit.document.docKey },
+    ref: refOf(hit),
     document: hit.document,
     text: evidenceText(hit.document, hit.chunks),
   }))
@@ -324,13 +332,7 @@ async function search(
           startLine: chunk.startLine,
           endLine: chunk.endLine,
           text: chunk.text,
-          claims:
-            claimsOf.get(
-              documentId({
-                workspaceId: hit.workspaceId,
-                docKey: hit.document.docKey,
-              }),
-            ) ?? [],
+          claims: claimsOf.get(documentId(refOf(hit))) ?? [],
           score: judged ? (judged[index]?.pAnswers ?? 0) : chunk.score,
         },
       ]
@@ -350,6 +352,101 @@ async function search(
       .slice(0, limit)
       .map(({ order: _order, valid: _valid, ...hit }) => hit),
     ...(unjudged ? { partialReason: unjudged } : {}),
+  }
+}
+
+type SearchHits = Awaited<ReturnType<KnowledgeStore["search"]>>
+
+/** The document of a search hit. */
+const refOf = (hit: SearchHits[number]): DocumentRef => ({
+  workspaceId: hit.workspaceId,
+  docKey: hit.document.docKey,
+})
+
+/**
+ * The hits of `found` with the neighbors of its best hits (CTX-1605). A
+ * neighbor is a document that one of the first `searchNeighborsFrom` hits
+ * has a relation to, in either direction, except a `FROM_SOURCE` relation,
+ * as the walk of `get_related` with no named predicate. It must pass the
+ * filters of the search and not be a hit. The neighbors closest to the
+ * query (their closest chunk) take at most `searchNeighbors` of the last
+ * places of the `SEARCH_HITS` hits, so the hits stay at most as many. A
+ * neighbor takes the score of the hit whose place it takes (else of the
+ * last hit), so that the search order keeps it there when Jev does not
+ * judge. When the time budget ends during these reads, the hits stay as
+ * the store gave them.
+ */
+async function withNeighbors(
+  store: KnowledgeStore,
+  scope: KnowledgeReadScope,
+  found: SearchHits,
+  vector: Promise<number[]>,
+  filters: Omit<SearchQuery, "vector" | "terms" | "chunksPerDocument">,
+  deadline: number,
+): Promise<SearchHits> {
+  const { searchNeighbors, searchNeighborsFrom, evidenceChunks } =
+    ORCHESTRATOR_DEFAULTS
+  if (searchNeighbors <= 0 || found.length === 0) return found
+  const hitIds = new Set(found.map((hit) => documentId(refOf(hit))))
+  try {
+    const relations = await beforeDeadline(deadline, () =>
+      store.readFrontier(
+        scope,
+        found.slice(0, searchNeighborsFrom).map(refOf),
+        filters.validAt,
+      ),
+    )
+    const neighbors = new Map<string, DocumentRef>()
+    for (const { workspaceId, relation, neighbor } of relations) {
+      const ref = { workspaceId, docKey: neighbor.docKey }
+      const id = documentId(ref)
+      if (
+        relation.predicate !== FROM_SOURCE_PREDICATE &&
+        passesSearchFilters(neighbor, filters) &&
+        !hitIds.has(id)
+      )
+        neighbors.set(id, ref)
+    }
+    if (neighbors.size === 0) return found
+    const queryVector = await vector
+    const evidence = await beforeDeadline(deadline, () =>
+      store.readEvidence(
+        scope,
+        [...neighbors.values()],
+        queryVector,
+        evidenceChunks,
+      ),
+    )
+    const closest = evidence
+      .filter((item) => item.chunks.length > 0)
+      .sort(
+        (a, b) =>
+          (a.chunks[0]?.distance ?? 0) - (b.chunks[0]?.distance ?? 0) ||
+          a.document.path.localeCompare(b.document.path),
+      )
+      .slice(0, searchNeighbors)
+    const kept = found.slice(0, SEARCH_HITS - closest.length)
+    return [
+      ...kept,
+      ...closest.map(({ workspaceId, document, chunks }, index) => {
+        // The place of the neighbor in `found`, or the last hit.
+        const score =
+          found[kept.length + index]?.chunks[0]?.score ??
+          found.at(-1)?.chunks[0]?.score ??
+          0
+        return {
+          workspaceId,
+          document,
+          chunks: chunks.map(({ distance: _distance, ...chunk }) => ({
+            ...chunk,
+            score,
+          })),
+        }
+      }),
+    ]
+  } catch (error) {
+    if (!isBudgetSpent(error, deadline)) throw error
+    return found
   }
 }
 

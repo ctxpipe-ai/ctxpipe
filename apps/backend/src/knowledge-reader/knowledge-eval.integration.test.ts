@@ -817,12 +817,14 @@ describe("the knowledge eval harness", () => {
       pageBytes,
     })
     expect(page(rescored.checks.plane)).toEqual(page(live.checks.plane))
-    // At 0.95, no hit of the plane answers (Jev gave 0.9). Thus each plane
-    // search says "no answer", and the retrieval metrics score it as an
-    // empty result (CTX-1562): each answerable question gets worse, with
-    // recall@5 0. A gold document of get_related stays a step, because Jev
-    // gave it a p(explore) of 0.9 (CTX-1534), so traversal recall stays. A
-    // no-answer stays correct.
+    // At a keepAt of 0.95, Jev keeps no hit of the plane (it gave 0.9).
+    // Thus each plane search says "no answer", and the retrieval metrics
+    // score it as an empty result (CTX-1562): each answerable question gets
+    // worse, with recall@5 0. No fact of a disagreement has a position, so
+    // the positions get worse too. A gold
+    // document of get_related stays a step, because Jev gave it a
+    // p(explore) of 0.9 (CTX-1534), so traversal recall stays. A no-answer
+    // stays correct.
     const answerable = rescored.questions.filter(
       (question) =>
         question.arm === "plane" && question.category !== "no-answer",

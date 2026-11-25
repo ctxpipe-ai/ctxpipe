@@ -11,12 +11,13 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import {
   freezeCorpora,
   type GithubAccess,
-  importCorpusIssues,
+  importCorpusMirrors,
   type Plan,
   planSchema,
   snapshotRepositories,
 } from "../../evals/knowledge/corpus.js"
 import { useMswServer } from "../../test/msw.js"
+import { serveZulip, withFakeClock, zulipMessage } from "../../test/zulip.js"
 
 /*
  * The corpus steps with real git and `file://` remotes in place of GitHub,
@@ -118,7 +119,7 @@ function plan(sha: string, issues = 0): Plan {
       {
         id: "demo",
         workspace: "demo-v0",
-        repositories: [{ source: "acme/api", sha, issues }],
+        repositories: [{ source: "acme/api", sha, issues, pulls: 0 }],
       },
     ],
   }
@@ -207,7 +208,7 @@ describe("snapshotRepositories", () => {
   })
 })
 
-describe("importCorpusIssues and freezeCorpora", () => {
+describe("importCorpusMirrors and freezeCorpora", () => {
   it("writes the stamped issue files, then freezes the context repo SHA", async () => {
     const sha = await repository("acme/api", { "README.md": "# API\n" })
     await repository("evals/v0-demo-context", { ".ctxpipe": "format: 3\n" })
@@ -235,17 +236,40 @@ describe("importCorpusIssues and freezeCorpora", () => {
           },
         ]),
       ),
+      // The body of issue 1 was edited after the cut-off date.
+      http.post(`${API}/graphql`, () =>
+        HttpResponse.json({
+          data: {
+            repository: { n1: { lastEditedAt: "2026-07-01T00:00:00Z" } },
+          },
+        }),
+      ),
     )
 
-    const counts = await importCorpusIssues(plan(sha, 5), access(), quiet)
+    const counts = await importCorpusMirrors(plan(sha, 5), access(), quiet)
 
-    expect(counts).toEqual([{ corpus: "demo", source: "acme/api", issues: 1 }])
+    expect(counts).toEqual({
+      repositories: [
+        {
+          corpus: "demo",
+          source: "acme/api",
+          issues: 1,
+          pulls: 0,
+          openAtCutoff: 0,
+          editedAfterCutoff: [1],
+        },
+      ],
+      chat: [],
+    })
     const context = join(base, "evals", "v0-demo-context.git")
     const file = git(context, "show", "main:github/issues/acme/api/1.md")
     expect(file).toContain("# Problem")
     expect(file).toContain(
       "sources:\n  - sources/github/evals/v0-demo-api.md\n---",
     )
+    // The login of each person is a pseudonym.
+    expect(file).toContain("author: person-0001")
+    expect(file).not.toContain("bob")
     expect(git(context, "log", "--format=%ae", "-1", "main")).toBe(
       "evals@ctxpipe.invalid",
     )
@@ -281,15 +305,213 @@ describe("importCorpusIssues and freezeCorpora", () => {
   })
 })
 
-it("the committed plan of version 0 is valid", async () => {
-  const file = new URL(
-    "../../evals/knowledge/fixtures/corpora-v0.plan.json",
-    import.meta.url,
+it("writes the pull requests closed before the cut-off date and the chat as they were then", async () => {
+  const sha = await repository("acme/api", { "README.md": "# API\n" })
+  await repository("evals/v0-demo-context", { ".ctxpipe": "format: 3\n" })
+  const pull = (number: number, created: string, closed: string | null) => ({
+    number,
+    created_at: created,
+    closed_at: closed,
+    draft: false,
+  })
+  const connection = <T>(nodes: T[]) => ({
+    pageInfo: { hasNextPage: false },
+    nodes,
+  })
+  server.use(
+    http.get(`${API}/repos/acme/api`, () =>
+      HttpResponse.json({ private: false, visibility: "public" }),
+    ),
+    http.get(`${API}/repos/acme/api/pulls`, () =>
+      HttpResponse.json([
+        pull(9, "2026-06-05T00:00:00Z", "2026-06-06T00:00:00Z"),
+        // Open at the cut-off date, so the mirror does not show it.
+        pull(8, "2026-05-01T00:00:00Z", "2026-06-02T00:00:00Z"),
+        pull(7, "2026-05-01T00:00:00Z", "2026-05-02T00:00:00Z"),
+        {
+          ...pull(6, "2026-05-01T00:00:00Z", "2026-05-02T00:00:00Z"),
+          draft: true,
+        },
+      ]),
+    ),
+    http.post(`${API}/graphql`, async ({ request }) => {
+      const { query } = (await request.json()) as { query: string }
+      if (query.includes("BodiesEdited"))
+        return HttpResponse.json({
+          data: { repository: { n7: { lastEditedAt: null } } },
+        })
+      // The token owner's draft review holds comment 3.
+      if (query.includes("PendingComments"))
+        return HttpResponse.json({
+          data: {
+            repository: {
+              p7: {
+                reviews: connection([
+                  { comments: connection([{ databaseId: 3 }]) },
+                ]),
+              },
+            },
+          },
+        })
+      expect(query).toContain("pr7: pullRequest(number: 7)")
+      expect(query).not.toContain("pr8:")
+      return HttpResponse.json({
+        data: {
+          repository: {
+            pr7: {
+              databaseId: 700,
+              number: 7,
+              url: "https://github.com/acme/api/pull/7",
+              title: "Add typing events",
+              body: "Adds the events. Asked Ada Quill in the chat.",
+              state: "MERGED",
+              merged: true,
+              isDraft: false,
+              author: { login: "bob", __typename: "User" },
+              baseRefName: "main",
+              baseRefOid: "a".repeat(40),
+              headRefName: "typing",
+              headRefOid: "b".repeat(40),
+              createdAt: "2026-05-01T00:00:00Z",
+              updatedAt: "2026-07-01T00:00:00Z",
+              mergedAt: "2026-05-02T00:00:00Z",
+              labels: connection([{ name: "api" }, { name: "later" }]),
+              reviewRequests: connection([]),
+              files: connection([{ path: "api.ts", changeType: "MODIFIED" }]),
+              reviews: connection([]),
+              comments: connection([
+                {
+                  databaseId: 1,
+                  author: { login: "eve", __typename: "User" },
+                  body: "Thanks, merged.",
+                  createdAt: "2026-05-02T00:00:00Z",
+                },
+                {
+                  databaseId: 2,
+                  author: { login: "eve", __typename: "User" },
+                  body: "This broke later.",
+                  createdAt: "2026-07-01T00:00:00Z",
+                },
+              ]),
+              reviewThreads: connection([
+                {
+                  comments: connection([
+                    {
+                      databaseId: 3,
+                      author: { login: "eve", __typename: "User" },
+                      body: "Draft note.",
+                      createdAt: "2026-05-02T00:00:00Z",
+                      path: "api.ts",
+                      line: 1,
+                    },
+                  ]),
+                },
+              ]),
+            },
+          },
+        },
+      })
+    }),
   )
-  expect(() =>
-    planSchema.parse(JSON.parse(readFileSync(file, "utf8"))),
-  ).not.toThrow()
+  server.use(
+    // Pull requests 6, 7 and 8 were made before the cut-off date; 6 and 7
+    // were closed before it.
+    http.get(`${API}/search/issues`, ({ request }) => {
+      const q = new URL(request.url).searchParams.get("q") ?? ""
+      expect(q).toMatch(
+        /^repo:acme\/api is:pr (created|closed):<=2026-06-01T00:00:00Z$/,
+      )
+      return HttpResponse.json({ total_count: q.includes("created") ? 3 : 2 })
+    }),
+    // After the cut-off date, the pull request got a label and a new title.
+    http.get(`${API}/repos/acme/api/issues/7/events`, () =>
+      HttpResponse.json([
+        {
+          event: "labeled",
+          label: { name: "later" },
+          created_at: "2026-07-01T00:00:00Z",
+        },
+        {
+          event: "renamed",
+          rename: { from: "Add typing", to: "Add typing events" },
+          created_at: "2026-07-01T00:00:00Z",
+        },
+      ]),
+    ),
+  )
+  serveZulip(server, "https://chat.example.test", [
+    zulipMessage(1, "2026-05-20T00:00:00Z", { content: "Ship it, bob?" }),
+    zulipMessage(2, "2026-06-20T00:00:00Z", { content: "Later." }),
+  ])
+  const withPulls = plan(sha)
+  const corpus = withPulls.corpora[0]
+  if (!corpus) throw new Error("no corpus")
+  corpus.repositories[0] = { source: "acme/api", sha, issues: 0, pulls: 5 }
+  corpus.chat = {
+    realm: "https://chat.example.test",
+    since: "2026-05-01T00:00:00Z",
+    channels: [7],
+  }
+
+  const counts = await withFakeClock(() =>
+    importCorpusMirrors(withPulls, access(), quiet),
+  )
+
+  expect(counts.repositories).toEqual([
+    {
+      corpus: "demo",
+      source: "acme/api",
+      issues: 0,
+      pulls: 1,
+      // Pull request 8 was open at the cut-off date.
+      openAtCutoff: 1,
+      editedAfterCutoff: [],
+    },
+  ])
+  // bob and eve of GitHub, then the author of the chat.
+  expect(counts.chat[0]).toMatchObject({ topics: 1, messages: 1, people: 3 })
+  const context = join(base, "evals", "v0-demo-context.git")
+  expect(
+    git(context, "ls-tree", "-r", "--name-only", "main").split("\n"),
+  ).toEqual([
+    ".ctxpipe",
+    "chat/zulip/7/1.md",
+    "github/pulls/acme/api/7--700.md",
+  ])
+  const file = git(context, "show", "main:github/pulls/acme/api/7--700.md")
+  // The title and labels at the cut-off date, and no later comment.
+  expect(file).toContain("# Add typing\n")
+  expect(file).toContain("labels:\n  - api\n")
+  expect(file).not.toContain("later")
+  expect(file).toContain("Thanks, merged.")
+  expect(file).not.toContain("This broke later.")
+  expect(file).not.toContain("Draft note.")
+  expect(file).toContain("updatedAt: 2026-06-01T00:00:00Z")
+  expect(file).toContain("  - sources/github/evals/v0-demo-api.md")
+  // Each login and the chat names are pseudonyms.
+  expect(file).toContain("author: person-0001")
+  expect(file).toContain("Asked person-0003 in the chat.")
+  for (const secret of [/\bbob\b/, /\beve\b/, /Ada/, /Quill/])
+    expect(file).not.toMatch(secret)
+  const chat = git(context, "show", "main:chat/zulip/7/1.md")
+  expect(chat).toContain(
+    "### person-0003 · 2026-05-20T00:00:00Z\n\nShip it, person-0001?",
+  )
+  expect(chat).not.toContain("Later.")
 })
+
+it.each(["corpora-v0.plan.json", "orgbench-zulip-v1.plan.json"])(
+  "the committed plan %s is valid",
+  (name) => {
+    const file = new URL(
+      `../../evals/knowledge/fixtures/${name}`,
+      import.meta.url,
+    )
+    expect(() =>
+      planSchema.parse(JSON.parse(readFileSync(file, "utf8"))),
+    ).not.toThrow()
+  },
+)
 
 it("imports nothing and pushes nothing when no issue is before the cut-off date", async () => {
   const sha = await repository("acme/api", { "README.md": "# API\n" })
@@ -303,16 +525,30 @@ it("imports nothing and pushes nothing when no issue is before the cut-off date"
     http.get(`${API}/repos/acme/api/issues`, () => HttpResponse.json([])),
   )
 
-  const counts = await importCorpusIssues(plan(sha, 5), access(), quiet)
+  const counts = await importCorpusMirrors(plan(sha, 5), access(), quiet)
 
-  expect(counts).toEqual([{ corpus: "demo", source: "acme/api", issues: 0 }])
+  expect(counts.repositories).toEqual([
+    {
+      corpus: "demo",
+      source: "acme/api",
+      issues: 0,
+      pulls: 0,
+      openAtCutoff: 0,
+      editedAfterCutoff: [],
+    },
+  ])
   expect(git(context, "rev-parse", "main")).toBe(before)
 })
 
 it("refuses a plan with two repositories of the same name", () => {
   const sha = "a".repeat(40)
   const clash = plan(sha)
-  clash.corpora[0]?.repositories.push({ source: "other/api", sha, issues: 0 })
+  clash.corpora[0]?.repositories.push({
+    source: "other/api",
+    sha,
+    issues: 0,
+    pulls: 0,
+  })
   expect(() => planSchema.parse(clash)).toThrow(
     "Two repositories of the plan are named v0-demo-api.",
   )

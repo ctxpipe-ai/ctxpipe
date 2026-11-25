@@ -1,0 +1,70 @@
+{
+  "version": "orgbench-zulip-v1",
+  "cutoff": "2026-11-01T00:00:00Z",
+  "owner": "ctxpipe-ai",
+  "prefix": "orgbench-v1-",
+  "corpora": [
+    {
+      "id": "zulip",
+      "workspace": "zulip-orgbench-v1",
+      "repositories": [
+        {
+          "source": "zulip/zulip",
+          "sha": "c803cca1ceac58fed390846d4aae5be40e06132d",
+          "issues": 3000,
+          "pulls": 2000
+        },
+        {
+          "source": "zulip/zulip-flutter",
+          "sha": "92ebd6d86b27aaea8e7d1227c3c1f3a2082941c1",
+          "issues": 1100,
+          "pulls": 1300
+        },
+        {
+          "source": "zulip/zulip-mobile",
+          "sha": "d7cf6da79b4b9467e240b42f24330e97390a8aff",
+          "issues": 1000,
+          "pulls": 500
+        },
+        {
+          "source": "zulip/zulip-desktop",
+          "sha": "308ea3b248badd4664d533afe08427022563536e",
+          "issues": 750,
+          "pulls": 750
+        },
+        {
+          "source": "zulip/zulip-terminal",
+          "sha": "dedc62d6b96a0302b3b084b0c60abc029e6066ae",
+          "issues": 550,
+          "pulls": 950
+        },
+        {
+          "source": "zulip/python-zulip-api",
+          "sha": "b172347594a4634517f925f9e30522fe987dbb9c",
+          "issues": 200,
+          "pulls": 700
+        },
+        {
+          "source": "zulip/docker-zulip",
+          "sha": "916aeb2348c9648ad2271225f54560ae4c31b655",
+          "issues": 400,
+          "pulls": 350
+        },
+        {
+          "source": "zulip/zulip-architecture",
+          "sha": "71020fdea3ad8d454790d6e7d41d688769a09204",
+          "issues": 0,
+          "pulls": 10
+        }
+      ],
+      "chat": {
+        "realm": "https://chat.zulip.org",
+        "since": "2025-11-01T00:00:00Z",
+        "channels": [
+          1, 2, 3, 6, 9, 16, 18, 19, 31, 43, 48, 92, 101, 127, 137, 138, 206,
+          378, 387, 412, 415, 516, 530, 550, 582
+        ]
+      }
+    }
+  ]
+}

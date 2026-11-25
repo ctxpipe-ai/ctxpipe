@@ -43,6 +43,7 @@ import {
 } from "../../models/workspaces.js"
 import { detachedErrorLog, getLogger } from "../../observability/logger.js"
 import { startLostAccessRebuilds } from "../../openworkflow/enqueue-codesearch-rebuild.js"
+import { enqueueKnowledgePurge } from "../../openworkflow/enqueue-knowledge-purge.js"
 import {
   enqueueWorkspaceGraphRebuild,
   enqueueWorkspaceHydrate,
@@ -664,6 +665,12 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
           400,
         )
       }
+      // Before the delete: a failed enqueue deletes nothing, and the purge
+      // waits until the Workspace row is gone (CTX-1642).
+      await enqueueKnowledgePurge({
+        orgId: workspace.orgId,
+        workspaceId: workspace.id,
+      })
       const deleted = await withDestroyedWorkspaceSandboxes(
         { workspaceId: workspace.id, orgId: workspace.orgId },
         async (remaining) => {

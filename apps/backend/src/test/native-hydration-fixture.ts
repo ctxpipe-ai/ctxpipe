@@ -38,6 +38,7 @@ import {
 import { openWorkflowNamespaceId } from "../openworkflow/namespace.js"
 import { connectOpenWorkflowBackend } from "../openworkflow/storable-backend.js"
 import { knowledgeProjection } from "../openworkflow/workflows/knowledge-projection.js"
+import { knowledgePurge } from "../openworkflow/workflows/knowledge-purge.js"
 import { repositoryIndex } from "../openworkflow/workflows/repository-index.js"
 import { workspaceHydrate } from "../openworkflow/workflows/workspace-hydrate.js"
 import { workspaceIndex } from "../openworkflow/workflows/workspace-index.js"
@@ -728,8 +729,10 @@ async function createNativeHydrationFixture(
   runner.implementWorkflow(workspaceHydrate.spec, workspaceHydrate.fn)
   runner.implementWorkflow(workspaceIndex.spec, workspaceIndex.fn)
   runner.implementWorkflow(repositoryIndex.spec, repositoryIndex.fn)
-  if (options.knowledgePlane)
+  if (options.knowledgePlane) {
     runner.implementWorkflow(knowledgeProjection.spec, knowledgeProjection.fn)
+    runner.implementWorkflow(knowledgePurge.spec, knowledgePurge.fn)
+  }
   const worker = runner.newWorker({ concurrency: 2 })
   const gitTrace = join(tmpdir(), `ctxpipe-hydration-trace-${id}.jsonl`)
   // Outside the fixture worktree, so that a later commit cannot add it.

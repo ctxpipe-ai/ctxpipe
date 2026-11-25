@@ -8,6 +8,13 @@ import {
 import { workspaces } from "../db/schema/workspaces.js"
 import type { TreeHead } from "../knowledge-store/knowledge-store.js"
 
+/**
+ * The name of the knowledge projection workflow. The purge workflow reads
+ * its runs by this name, and does not import the projection workflow: that
+ * import pulls the workflow graph into the delete paths (an import cycle).
+ */
+export const KNOWLEDGE_PROJECTION_WORKFLOW_NAME = "knowledge-projection"
+
 /*
  * The heads of the knowledge projection (ADR-071 decision 4): one row of
  * `knowledge_branch_heads` for each projected branch of a Workspace, the
@@ -330,4 +337,21 @@ export async function deleteBranchHead(key: BranchKey): Promise<void> {
   await withOrgDbContext(key.orgId, (db) =>
     db.delete(knowledgeBranchHeads).where(headRow(key)),
   )
+}
+
+/**
+ * Delete the knowledge state and the head rows of each Workspace of a
+ * deleted org (CTX-1642). The purge of the org calls it after no projection
+ * run of the org runs: such a run can write these rows again, because the
+ * Workspace rows of a deleted org stay.
+ */
+export async function deleteOrgKnowledgeState(orgId: string): Promise<void> {
+  await withOrgDbContext(orgId, async (db) => {
+    await db
+      .delete(knowledgeBranchHeads)
+      .where(eq(knowledgeBranchHeads.organizationId, orgId))
+    await db
+      .delete(knowledgeState)
+      .where(eq(knowledgeState.organizationId, orgId))
+  })
 }

@@ -107,6 +107,17 @@ const envSchema = z
     EMAIL_FROM_ADDRESS: z.string().email().optional(),
 
     /**
+     * The CRM intake of the ctxpipe team (CTX-1630,
+     * `src/domain/crm-intake.ts`). Only hosted production sets these: with
+     * `CRM_INTAKE_URL`, the backend records each sign-up in an outbox; with
+     * the Cloudflare Access service token too, the worker sends the outbox.
+     * A deployment other than `production` ignores them.
+     */
+    CRM_INTAKE_URL: z.string().url().startsWith("https://").optional(),
+    CRM_INTAKE_ACCESS_CLIENT_ID: z.string().min(1).optional(),
+    CRM_INTAKE_ACCESS_CLIENT_SECRET: z.string().min(1).optional(),
+
+    /**
      * The ClickHouse server of the knowledge content (ADR-066), as
      * `http[s]://user:password@host:8123/database`. URL-encode special
      * characters in the password. Required for self-host. Optional here until

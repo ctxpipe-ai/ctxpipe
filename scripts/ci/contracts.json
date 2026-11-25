@@ -101,6 +101,7 @@
   "knowledge projection writer (Git, Postgres, ClickHouse)": [
     "src/knowledge-plane/writer.contract.test.ts",
     "src/openworkflow/workflows/knowledge-maintenance.contract.test.ts",
+    "src/openworkflow/workflows/knowledge-purge.contract.test.ts",
     "src/openworkflow/workflows/workspace-hydrate-knowledge.contract.test.ts"
   ],
   "knowledge plane faults (ClickHouse restart, refused tenant, rebuild)": [

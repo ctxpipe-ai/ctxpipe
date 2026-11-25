@@ -2,8 +2,10 @@ import type { Octokit } from "octokit"
 
 import {
   actorFromGraphql,
+  aliasActor,
   type GithubMirrorFile,
-  splitRepository,
+  githubTime,
+  publicRepository,
 } from "../github-mirror.js"
 import type { GithubIssueSnapshot } from "./client.js"
 import { renderGithubIssue } from "./converter.js"
@@ -19,9 +21,42 @@ function actor(user: RestUser) {
   return actorFromGraphql(user && { login: user.login, __typename: user.type })
 }
 
-/** A GitHub timestamp, which has no milliseconds. */
-function githubTime(time: number): string {
-  return new Date(time).toISOString().replace(/\.\d{3}Z$/, "Z")
+/**
+ * Undo each change of the events after `until`, newest first, on the
+ * labels, the assignees and the requested reviewers. It returns the title
+ * at `until`. Pull requests have the same events.
+ */
+export function undoLaterEvents(
+  state: {
+    title: string
+    labels: Set<string>
+    assignees: Set<string>
+    reviewers: Set<string>
+  },
+  events: RestEvent[],
+  until: number,
+): string {
+  let title = state.title
+  const later = events.filter((event) => Date.parse(event.created_at) > until)
+  for (const event of later.reverse()) {
+    const label = "label" in event ? event.label?.name : undefined
+    const assignee = "assignee" in event ? event.assignee?.login : undefined
+    const reviewer =
+      "requested_reviewer" in event
+        ? event.requested_reviewer?.login
+        : undefined
+    if (event.event === "labeled" && label) state.labels.delete(label)
+    if (event.event === "unlabeled" && label) state.labels.add(label)
+    if (event.event === "assigned" && assignee) state.assignees.delete(assignee)
+    if (event.event === "unassigned" && assignee) state.assignees.add(assignee)
+    if (event.event === "review_requested" && reviewer)
+      state.reviewers.delete(reviewer)
+    if (event.event === "review_request_removed" && reviewer)
+      state.reviewers.add(reviewer)
+    if (event.event === "renamed" && "rename" in event)
+      title = event.rename.from
+  }
+  return title
 }
 
 /** The fields that the issue events can change, as they were at `until`. */
@@ -32,19 +67,11 @@ function stateAt(issue: RestIssue, events: RestEvent[], until: number) {
     ),
   )
   const assignees = new Set((issue.assignees ?? []).map((user) => user.login))
-  let title = issue.title
-  // Undo each change after `until`, newest first.
-  const later = events.filter((event) => Date.parse(event.created_at) > until)
-  for (const event of later.reverse()) {
-    const label = "label" in event ? event.label?.name : undefined
-    const assignee = "assignee" in event ? event.assignee?.login : undefined
-    if (event.event === "labeled" && label) labels.delete(label)
-    if (event.event === "unlabeled" && label) labels.add(label)
-    if (event.event === "assigned" && assignee) assignees.delete(assignee)
-    if (event.event === "unassigned" && assignee) assignees.add(assignee)
-    if (event.event === "renamed" && "rename" in event)
-      title = event.rename.from
-  }
+  const title = undoLaterEvents(
+    { title: issue.title, labels, assignees, reviewers: new Set() },
+    events,
+    until,
+  )
   if (events.length === 0)
     return {
       title,
@@ -83,7 +110,7 @@ function stateAt(issue: RestIssue, events: RestEvent[], until: number) {
  * their edit history.
  *
  * `closedBy` is empty. Only GraphQL gives the closing pull requests, and
- * GraphQL needs a token. The eval corpora do not mirror pull requests.
+ * GraphQL needs a token, and the closing pull requests are not needed.
  */
 function snapshotAt(
   repository: string,
@@ -130,21 +157,20 @@ function snapshotAt(
  * each issue with the production converter. It takes at most `limit` issues
  * created up to `until`. Pull requests are not issues and are skipped. A
  * repository that is not public is refused, also when the token can read
- * it, because the corpora are public.
+ * it, because the corpora are public. With `alias`, each person's login
+ * becomes `alias(login)` (the pseudonyms of an org twin).
  */
 export async function* importPublicGithubIssues(input: {
   octokit: Octokit
   repository: string
   until: Date
   limit?: number
-}): AsyncGenerator<GithubMirrorFile> {
-  const { owner, repo } = splitRepository(input.repository)
-  const { data: repository } = await input.octokit.rest.repos.get({
-    owner,
-    repo,
-  })
-  if (repository.private || repository.visibility !== "public")
-    throw new Error(`${input.repository} is not a public repository`)
+  alias?: (login: string) => string
+}): AsyncGenerator<GithubMirrorFile & { number: number }> {
+  const { owner, repo } = await publicRepository(
+    input.octokit,
+    input.repository,
+  )
   const until = input.until.getTime()
   const limit = input.limit ?? Number.POSITIVE_INFINITY
   let count = 0
@@ -180,9 +206,29 @@ export async function* importPublicGithubIssues(input: {
             )
           : []
       count += 1
-      yield renderGithubIssue(
-        snapshotAt(input.repository, issue, { comments, events }, until),
+      const snapshot = snapshotAt(
+        input.repository,
+        issue,
+        { comments, events },
+        until,
       )
+      const alias = input.alias
+      yield {
+        ...renderGithubIssue(
+          alias
+            ? {
+                ...snapshot,
+                author: aliasActor(snapshot.author, alias),
+                assignees: snapshot.assignees.map(alias),
+                comments: snapshot.comments.map((comment) => ({
+                  ...comment,
+                  author: aliasActor(comment.author, alias),
+                })),
+              }
+            : snapshot,
+        ),
+        number: issue.number,
+      }
     }
   }
 }

@@ -41,6 +41,16 @@ export const ORCHESTRATOR_DEFAULTS = {
    * what the loop finds (the CTO, 2026-11-22).
    */
   timeBudgetMs: 3_000,
+  /**
+   * The search adds the neighbors of its best hits (CTX-1605): the
+   * documents that the first `searchNeighborsFrom` hits have a relation
+   * to, in either direction, take at most this many of the last places of
+   * the hits, the closest to the query first. A question about an issue
+   * often has the document of the code that the issue names as an answer,
+   * with no word of the question in it. 0: no neighbors.
+   */
+  searchNeighbors: 10,
+  searchNeighborsFrom: 5,
   /** The top results that the disagreement step compares (N). */
   disagreementItems: 10,
   /**
@@ -66,7 +76,13 @@ export const ORCHESTRATOR_DEFAULTS = {
   sameAt: 0.5,
   disagreeAt: 0.5,
   replacesAt: 0.5,
-  scopedAt: 0.5,
+  /**
+   * Jev gives the `scoped` fact a p(yes) near 0.5 to most items: at 0.5,
+   * 47% of the items of the dev questions are "scoped", at 0.6 24%. Thus
+   * at 0.5 a position that no rival replaces is often "scoped" when it is
+   * current (generation 11).
+   */
+  scopedAt: 0.6,
 }
 
 /** The model calls of one retrieval, for the shadow log (no content). */
