@@ -113,6 +113,7 @@ describe("importPublicGithubIssues", () => {
     expect(files).toEqual([
       {
         path: "github/issues/acme/api/7.md",
+        number: 7,
         content: `---
 source: github
 type: issue
