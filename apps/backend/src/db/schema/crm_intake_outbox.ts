@@ -16,12 +16,14 @@ export type CrmIntakePayload = {
   name?: string
   occurredAt: string
   externalId: string
+  /** Added at the first send, when the user has an organization. */
+  company?: string
 }
 
 /**
- * The sign-ups that the worker sends to the CRM intake (CTX-1630,
- * `src/domain/crm-intake.ts`). The Better Auth hook adds one row for each new
- * user. The worker sends the row and then clears `payload`, so the table keeps
+ * The sign-ups that the worker sends to the CRM intake with the source
+ * `app-signup` (CTX-1630, `src/domain/crm-intake.ts`). The Better Auth hook
+ * adds one row for each new user. The worker sends the row and then clears `payload`, so the table keeps
  * no copy of the email or the name after the CRM accepted it. A deleted user
  * deletes its row. `last_status` holds an HTTP status or a fixed error code,
  * never a response body.
@@ -34,7 +36,6 @@ export const crmIntakeOutbox = pgTable(
       .notNull()
       .unique()
       .references(() => users.id, { onDelete: "cascade" }),
-    source: text("source").notNull(),
     payload: jsonb("payload").$type<CrmIntakePayload>(),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
       .notNull()

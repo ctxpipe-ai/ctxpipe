@@ -1,4 +1,4 @@
-import { eq, inArray, like } from "drizzle-orm"
+import { eq, like } from "drizzle-orm"
 import { initLogger } from "evlog"
 import { HttpResponse, http } from "msw"
 import {
@@ -40,8 +40,13 @@ let reply: () => Response = () => new Response(null, { status: 202 })
 const server = useMswServer()
 
 const events: Record<string, unknown>[] = []
-/** Each event of the file; `events` is cleared before a test that reads it. */
-const allEvents: Record<string, unknown>[] = []
+
+/** No log event holds the email or the name of a test user. */
+function expectNoUserData() {
+  const logged = JSON.stringify(events)
+  expect(logged).not.toContain(emailDomain)
+  expect(logged).not.toContain(personName)
+}
 
 let userCount = 0
 /** A user row made directly, with a made-up id and email. */
@@ -68,7 +73,6 @@ async function dueRow(
     .values({
       id,
       userId: user.id,
-      source: "app-signup",
       payload: {
         email: user.email,
         name: personName,
@@ -100,7 +104,6 @@ describe("CRM intake outbox (Postgres)", () => {
       pretty: false,
       drain: (ctx) => {
         events.push(ctx.event as Record<string, unknown>)
-        allEvents.push(ctx.event as Record<string, unknown>)
       },
     })
   })
@@ -172,7 +175,6 @@ describe("CRM intake outbox (Postgres)", () => {
         .from(crmIntakeOutbox)
         .where(eq(crmIntakeOutbox.userId, user.id))
       expect(outbox).toMatchObject({
-        source: "app-signup",
         attempts: 0,
         sentAt: null,
         payload: {
@@ -213,10 +215,85 @@ describe("CRM intake outbox (Postgres)", () => {
 
       const failure = events.find((e) => e.step === "crm-intake.record")
       expect(failure).toMatchObject({ level: "error", sqlState: "23503" })
+      expectNoUserData()
     })
   })
 
   describe("the sender", () => {
+    it("keeps the body of the first try, with its organization, for each later try", async () => {
+      reply = () => new Response(null, { status: 503 })
+      const { id, user } = await dueRow()
+      const orgId = `org_crm_${suffix}_rename`
+      await getSystemDb()
+        .insert(organizations)
+        .values({
+          id: orgId,
+          name: "First Name Ltd",
+          slug: `crm-${suffix}-rename`,
+          createdAt: new Date(),
+        })
+      await getSystemDb()
+        .insert(members)
+        .values({
+          id: `mbr_crm_${suffix}_rename`,
+          organizationId: orgId,
+          userId: user.id,
+          createdAt: new Date(),
+        })
+      const now = new Date()
+      await sendDueSignups(target, now)
+      await getSystemDb()
+        .update(organizations)
+        .set({ name: "Renamed Ltd" })
+        .where(eq(organizations.id, orgId))
+      await sendDueSignups(target, new Date(now.getTime() + 3_600_000))
+
+      const bodies = posted
+        .filter((p) => p.body.externalId === user.id)
+        .map((p) => p.body)
+      expect(bodies).toHaveLength(2)
+      expect(bodies[1]).toEqual(bodies[0])
+      expect(bodies[0]?.company).toBe("First Name Ltd")
+      expect((await row(id))?.attempts).toBe(2)
+    })
+
+    it("cuts a long name to 200 characters, and refuses a body over 16 KiB without sending it", async () => {
+      events.length = 0
+      // 4-byte characters: the cut counts characters, not bytes.
+      const longName = "\u{1F600}".repeat(300)
+      const signup = await newUser()
+      await recordSignupForCrm({
+        ...signup,
+        name: longName,
+        createdAt: new Date(),
+      })
+      const [recorded] = await getSystemDb()
+        .select()
+        .from(crmIntakeOutbox)
+        .where(eq(crmIntakeOutbox.userId, signup.id))
+      expect(recorded?.payload?.name).toBe("\u{1F600}".repeat(200))
+
+      const { id, user } = await dueRow()
+      await getSystemDb()
+        .update(crmIntakeOutbox)
+        .set({
+          payload: {
+            email: `${"x".repeat(16 * 1024)}@${emailDomain}`,
+            occurredAt: "2026-11-25T10:00:00.000Z",
+            externalId: user.id,
+          },
+        })
+        .where(eq(crmIntakeOutbox.id, id))
+      const now = new Date()
+      await sendDueSignups(target, now)
+      expect(await row(id)).toMatchObject({
+        failedAt: now,
+        lastStatus: "too_large",
+      })
+      expect(posted.find((p) => p.body.externalId === user.id)).toBeUndefined()
+      expectNoUserData()
+    })
+
     it("sends a due row with the Access token and the user's organization, then clears its payload", async () => {
       const { id, user } = await dueRow()
       const orgId = `org_crm_${suffix}`
@@ -259,6 +336,7 @@ describe("CRM intake outbox (Postgres)", () => {
         payload: null,
         attempts: 1,
       })
+      expectNoUserData()
 
       // A sent row is not sent again.
       posted.length = 0
@@ -304,6 +382,7 @@ describe("CRM intake outbox (Postgres)", () => {
           status: "400",
         }),
       )
+      expectNoUserData()
 
       // A refused row is not sent again.
       posted.length = 0
@@ -325,13 +404,7 @@ describe("CRM intake outbox (Postgres)", () => {
           message: STALE_ALERT_MESSAGE,
         }),
       )
+      expectNoUserData()
     })
-  })
-
-  it("puts no email and no name in a log", async () => {
-    expect(allEvents.length).toBeGreaterThan(0)
-    const logged = JSON.stringify(allEvents)
-    expect(logged).not.toContain(emailDomain)
-    expect(logged).not.toContain(personName)
   })
 })

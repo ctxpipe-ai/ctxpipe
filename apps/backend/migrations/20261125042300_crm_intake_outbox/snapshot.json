@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "84c8d11c-addb-4686-86af-8747bb757329",
+  "id": "bd812ff6-631c-4b58-9e63-4d7e05a7a3e6",
   "prevIds": ["4626608b-17b3-4d2b-97c1-903460d67dbc"],
   "ddl": [
     {
@@ -4253,19 +4253,6 @@
       "generated": null,
       "identity": null,
       "name": "user_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "crm_intake_outbox"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "source",
       "entityType": "columns",
       "schema": "public",
       "table": "crm_intake_outbox"

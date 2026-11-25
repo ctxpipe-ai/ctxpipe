@@ -4,7 +4,10 @@ import { deploymentEnvironment } from "../../../../shared/deployment-environment
 import { parseEnv } from "../config/env.js"
 import { getSystemDb } from "../db/client.js"
 import { members, organizations } from "../db/schema/auth.js"
-import { crmIntakeOutbox } from "../db/schema/crm_intake_outbox.js"
+import {
+  type CrmIntakePayload,
+  crmIntakeOutbox,
+} from "../db/schema/crm_intake_outbox.js"
 import { generateObjectId } from "../lib/id.js"
 import { sqlState } from "../observability/dbTrace.js"
 import { log } from "../observability/logger.js"
@@ -27,8 +30,15 @@ type CrmIntakeTarget = { url: string; clientId: string; clientSecret: string }
 const FIRST_SEND_DELAY_MS = 5 * 60_000
 /** A claimed row is not claimed again for this time, while its send runs. */
 const CLAIM_LEASE_MS = 2 * 60_000
-const MAX_ROWS_PER_PASS = 50
 const STALE_AFTER_MS = 24 * 60 * 60_000
+
+/** The intake refuses a larger body. */
+const MAX_BODY_BYTES = 16 * 1024
+
+/** The first 200 characters (code points) of a name, or undefined when it is empty. */
+function shortName(value: string): string | undefined {
+  return Array.from(value.trim()).slice(0, 200).join("") || undefined
+}
 
 /** The stable message of the alert on sign-ups that the CRM did not get in 24 hours. */
 export const STALE_ALERT_MESSAGE =
@@ -70,14 +80,13 @@ export async function recordSignupForCrm(user: {
   name: string
   createdAt: Date
 }): Promise<void> {
-  const name = user.name.trim()
+  const name = shortName(user.name)
   try {
     await getSystemDb()
       .insert(crmIntakeOutbox)
       .values({
         id: generateObjectId("crmo"),
         userId: user.id,
-        source: "app-signup",
         payload: {
           email: user.email,
           ...(name ? { name } : {}),
@@ -122,7 +131,6 @@ async function claimDueRow(now: Date) {
     .returning({
       id: t.id,
       userId: t.userId,
-      source: t.source,
       payload: t.payload,
       attempts: t.attempts,
     })
@@ -138,13 +146,13 @@ async function organizationName(userId: string): Promise<string | undefined> {
     .where(eq(members.userId, userId))
     .orderBy(asc(members.createdAt))
     .limit(1)
-  return org?.name.trim() || undefined
+  return org ? shortName(org.name) : undefined
 }
 
 /** The HTTP status, or a fixed code when no response came. The body is not read. */
 async function post(
   target: CrmIntakeTarget,
-  body: Record<string, string>,
+  body: string,
 ): Promise<number | "timeout" | "network"> {
   try {
     const response = await fetch(target.url, {
@@ -154,7 +162,7 @@ async function post(
         "CF-Access-Client-Id": target.clientId,
         "CF-Access-Client-Secret": target.clientSecret,
       },
-      body: JSON.stringify(body),
+      body,
       // An Access refusal can be a redirect to a login page: do not follow it.
       redirect: "manual",
       signal: AbortSignal.timeout(10_000),
@@ -181,17 +189,25 @@ export async function sendDueSignups(
 ): Promise<{ sent: number; retried: number; refused: number }> {
   const t = crmIntakeOutbox
   const counts = { sent: 0, retried: 0, refused: 0 }
-  for (let i = 0; i < MAX_ROWS_PER_PASS; i++) {
+  for (let i = 0; i < 50; i++) {
     const row = await claimDueRow(now)
     if (!row) break
-    const company = await organizationName(row.userId)
-    const status = row.payload
-      ? await post(target, {
-          source: row.source,
-          ...row.payload,
-          ...(company ? { company } : {}),
-        })
-      : "no_payload"
+    // The claim takes only unsent rows, and only a sent row has no payload.
+    let payload = row.payload as CrmIntakePayload
+    if (row.attempts === 1) {
+      // The organization is added once, before the first try, so that each
+      // try sends the same body and the intake stays idempotent.
+      const company = await organizationName(row.userId)
+      if (company) {
+        payload = { ...payload, company }
+        await getSystemDb().update(t).set({ payload }).where(eq(t.id, row.id))
+      }
+    }
+    const body = JSON.stringify({ source: "app-signup", ...payload })
+    const status =
+      Buffer.byteLength(body) > MAX_BODY_BYTES
+        ? "too_large"
+        : await post(target, body)
     const lastStatus = String(status)
     if (status === 202) {
       counts.sent++
@@ -200,7 +216,7 @@ export async function sendDueSignups(
         .set({ sentAt: now, lastStatus, payload: null })
         .where(eq(t.id, row.id))
     } else if (
-      status === "no_payload" ||
+      status === "too_large" ||
       (typeof status === "number" &&
         status >= 400 &&
         status < 500 &&

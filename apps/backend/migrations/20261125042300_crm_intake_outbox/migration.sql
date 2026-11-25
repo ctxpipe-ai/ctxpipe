@@ -1,7 +1,6 @@
 CREATE TABLE "crm_intake_outbox" (
 	"id" text PRIMARY KEY,
 	"user_id" text NOT NULL UNIQUE,
-	"source" text NOT NULL,
 	"payload" jsonb,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"attempts" integer DEFAULT 0 NOT NULL,
