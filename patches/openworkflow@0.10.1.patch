@@ -1,5 +1,25 @@
+diff --git a/dist/core/backend.d.ts b/dist/core/backend.d.ts
+index e36a2cf55c73f2999d4aae31b12faf611c0fcc6b..7331c26ca0e53726f5c71118d8f6d49e14abbf23 100644
+--- a/dist/core/backend.d.ts
++++ b/dist/core/backend.d.ts
+@@ -52,6 +52,15 @@ export interface ListWorkflowRunsParams extends PaginationOptions {
+ export interface ClaimWorkflowRunParams {
+     workerId: string;
+     leaseDurationMs: number;
++    /**
++     * ctxpipe patch (CTX-1634): claim no run of `workflowName` while the
++     * `workerIds` run `max` runs of it with a live lease.
++     */
++    workflowSlotLimit?: {
++        workflowName: string;
++        workerIds: readonly string[];
++        max: number;
++    };
+ }
+ export interface ExtendWorkflowRunLeaseParams {
+     workflowRunId: string;
 diff --git a/dist/postgres/backend.js b/dist/postgres/backend.js
-index d2cdb79bdd2ecb511f95180767067cb6c0679f3c..54001b5a6fcf8aa3da0153a516ee3c5a7d334f33 100644
+index d2cdb79bdd2ecb511f95180767067cb6c0679f3c..1225ab5c95314f3f7476349129357f0592b5a5f2 100644
 --- a/dist/postgres/backend.js
 +++ b/dist/postgres/backend.js
 @@ -141,7 +141,27 @@ export class BackendPostgres {
@@ -48,10 +68,37 @@ index d2cdb79bdd2ecb511f95180767067cb6c0679f3c..54001b5a6fcf8aa3da0153a516ee3c5a
        RETURNING *
      `;
          requireRow(workflowRun, "create workflow run");
-@@ -366,8 +386,10 @@ export class BackendPostgres {
+@@ -343,6 +363,25 @@ export class BackendPostgres {
+         // 2. find an available workflow run to claim
+         // 3. claim the workflow run
+         const workflowRunsTable = this.workflowRunsTable();
++        // ctxpipe patch (CTX-1634): claim no run of a workflow while the
++        // given worker ids (the slots of one worker) run its maximum of it.
++        // Only a live lease counts: a run whose lease ended runs in no slot.
++        const limit = params.workflowSlotLimit;
++        const limitWorkflowSlots = limit === undefined
++            ? this.pg ``
++            : this.pg `
++          AND NOT (
++            "workflow_name" = ${limit.workflowName}
++            AND (
++              SELECT COUNT(*)
++              FROM ${workflowRunsTable} held
++              WHERE held."namespace_id" = ${this.namespaceId}
++                AND held."workflow_name" = ${limit.workflowName}
++                AND held."status" = 'running'
++                AND held."worker_id" = ANY(${limit.workerIds}::text[])
++                AND held."available_at" > NOW()
++            ) >= ${limit.max}
++          )`;
+         const [claimed] = await this.pg `
+       WITH expired AS (
+         UPDATE ${workflowRunsTable}
+@@ -366,8 +405,11 @@ export class BackendPostgres {
            AND "status" IN ('pending', 'running', 'sleeping')
            AND "available_at" <= NOW()
            AND ("deadline_at" IS NULL OR "deadline_at" > NOW())
++          ${limitWorkflowSlots}
 +        -- ctxpipe patch (CTX-1478): first available, first claimed. A woken
 +        -- parent is 'running', so a 'pending'-first order let each newer
 +        -- pending run take the free slot before it.

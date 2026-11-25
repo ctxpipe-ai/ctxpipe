@@ -74,7 +74,6 @@ import {
   type WorkflowExecution,
   WorkflowLeaseLostError,
 } from "../execution-lease.js"
-import { withIngestWorkerShare } from "../ingest-worker-share.js"
 import {
   cleanUpUnlessParked,
   isWorkflowControlSignal,
@@ -403,21 +402,18 @@ export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
       // The child's own copy of the source tree and its index
       // repositories go when the child ends, also when it fails. A sibling
       // child has its own copies. A stale execution keeps them while another
-      // execution has the run (CTX-1080). The shards use at most half of
-      // the worker slots (ADR-052, revision 2026-11-25).
-      return withIngestWorkerShare(step, () =>
-        cleanUpUnlessParked(
-          runShardSpan,
-          async () => {
-            await releaseIngestSourceTree(
-              input.runId,
-              input.source.sha,
-              shardTreeHolder(input),
-            )
-            await releaseIngestStepIndexes(input.runId, input.shard)
-          },
-          execution,
-        ),
+      // execution has the run (CTX-1080).
+      return cleanUpUnlessParked(
+        runShardSpan,
+        async () => {
+          await releaseIngestSourceTree(
+            input.runId,
+            input.source.sha,
+            shardTreeHolder(input),
+          )
+          await releaseIngestStepIndexes(input.runId, input.shard)
+        },
+        execution,
       )
     },
   )
