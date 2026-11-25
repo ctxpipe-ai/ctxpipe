@@ -15,11 +15,6 @@ const orgC = generateObjectId("org")
 const orgD = generateObjectId("org")
 const orgE = generateObjectId("org")
 const orgF = generateObjectId("org")
-const OPERATOR = {
-  requestId: "00000000-0000-4000-8000-000000000001",
-  requestedBy: { kind: "operator", email: "operator@example.com" },
-  approvedBy: "approver@example.com",
-} as const satisfies AdminRequest
 
 function setFeature(orgId: string, value: string) {
   return withOrgDbContext(orgId, (db) =>
@@ -162,6 +157,11 @@ describe("org features (Postgres)", () => {
   })
 
   it("the config does not change a value that an operator set, until the config names that value", async () => {
+    const OPERATOR = {
+      requestId: "00000000-0000-4000-8000-000000000001",
+      requestedBy: { kind: "operator", email: "operator@example.com" },
+      approvedBy: "approver@example.com",
+    } as const satisfies AdminRequest
     const read = () =>
       withOrgDbContext(orgF, (db) => db.select().from(orgFeatures))
     await setOrgFeature(orgF, "knowledge_plane", "on")

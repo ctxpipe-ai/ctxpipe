@@ -59,23 +59,23 @@ function isFeature(feature: string): feature is OrgFeature {
 
 /**
  * Sets the value of a feature for an org. The feature and the value must be
- * in `FEATURE_VALUES`, and the org must exist. With no `operator`, the caller
+ * in `FEATURE_VALUES`, and the org must exist. With no `request`, the caller
  * is the hosted config (`src/db/set-org-feature.ts`, once for each entry on
- * each hosted update). With `operator`, the caller is the operator job
+ * each hosted update). With `request`, the caller is the operator job
  * `admin.set-org-feature`.
  *
  * A value that an operator sets is held: the config does not change it, so
  * the next hosted update does not undo a fast `off`. The hold ends when the
  * config names the same value (the config PR that follows the operator's
- * change). When the value does not change, nothing is written, so a second
- * run keeps `updated_at`. Each call logs `org_features.set` as the audit
+ * change). When the value and the hold do not change, nothing is written, so
+ * a second run keeps `updated_at`. Each call logs `org_features.set` as the audit
  * record.
  */
 export async function setOrgFeature(
   orgId: string,
   feature: string,
   value: string,
-  operator?: AdminRequest,
+  request?: AdminRequest,
 ): Promise<{
   previous: string
   value: string
@@ -88,7 +88,7 @@ export async function setOrgFeature(
     throw new Error(
       `"${value}" is not a permitted value of ${feature} (${FEATURE_VALUES[feature].join(", ")})`,
     )
-  const result = await withOrgDbContext(orgId, async (db) => {
+  const { wasHeld, ...result } = await withOrgDbContext(orgId, async (db) => {
     const [org] = await db
       .select({ id: organizations.id })
       .from(organizations)
@@ -110,11 +110,11 @@ export async function setOrgFeature(
       )
     const previous = row?.value ?? FEATURE_VALUES[feature][0]
     const wasHeld = row?.held ?? false
-    const held = operator !== undefined
-    if (!operator && wasHeld && previous !== value)
-      return { previous, value: previous, changed: false, held: true }
+    const held = request !== undefined
+    if (!request && wasHeld && previous !== value)
+      return { previous, value: previous, changed: false, held: true, wasHeld }
     if (previous === value && wasHeld === held)
-      return { previous, value, changed: false, held }
+      return { previous, value, changed: false, held, wasHeld }
     await db
       .insert(orgFeatures)
       .values({ organizationId: orgId, feature, value, held })
@@ -122,20 +122,24 @@ export async function setOrgFeature(
         target: [orgFeatures.organizationId, orgFeatures.feature],
         set: { value, held, updatedAt: new Date() },
       })
-    return { previous, value, changed: previous !== value, held }
+    return { previous, value, changed: previous !== value, held, wasHeld }
   })
-  const refused = !operator && result.held
+  const refused = !request && result.held
   const entry = {
     step: "org_features.set",
     message: refused
       ? "the config did not change an org feature that an operator set"
-      : result.changed
-        ? "an org feature changed"
-        : "an org feature was set to its current value: nothing changed",
+      : wasHeld && !result.held
+        ? "the config named the value that an operator set: the hold ended"
+        : result.changed
+          ? "an org feature changed"
+          : !wasHeld && result.held
+            ? "an operator held the current value of an org feature"
+            : "an org feature was set to its current value: nothing changed",
     orgId,
     feature,
-    source: operator ? "operator" : "config",
-    ...operator,
+    source: request ? "operator" : "config",
+    ...request,
     requested: value,
     ...result,
   }
