@@ -115,13 +115,13 @@ describe("judgeLayer", () => {
     )
   })
 
-  it("asks if each candidate states the answer only with statesAnswer, after the two questions of each candidate", async () => {
+  it("asks if each candidate states the answer only with askStatesAnswer, after the two questions of each candidate", async () => {
     server.use(answering)
     const result = await judgeLayer({
       question: "Who owns checkout?",
       intent: "search",
       candidates: textCandidates(2),
-      statesAnswer: true,
+      askStatesAnswer: true,
     })
 
     const [{ body }] = requests as [(typeof requests)[number]]

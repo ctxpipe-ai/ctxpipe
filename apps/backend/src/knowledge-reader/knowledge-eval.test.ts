@@ -363,14 +363,18 @@ describe('the retrieval metrics of a "no answer"', () => {
     ).toBe(1)
     // A run with statesAnswerAt 0, or from before CTX-1685, reads keepAt
     // alone.
-    for (const before of [{ keepAt: 0.5, statesAnswerAt: 0 }, { keepAt: 0.5 }])
+    const before: { keepAt: number; [setting: string]: number }[] = [
+      { keepAt: 0.5, statesAnswerAt: 0 },
+      { keepAt: 0.5 },
+    ]
+    for (const loopBefore of before)
       expect(
         (
           await metricsOf(
             "billing-provider",
             "plane",
             { scores: [0.9], statesAnswer: [0.2] },
-            before,
+            loopBefore,
           )
         )?.noAnswer,
       ).toBe(0)

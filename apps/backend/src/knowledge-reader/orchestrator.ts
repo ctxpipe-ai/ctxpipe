@@ -193,8 +193,8 @@ export function jevMeta(document: KnowledgeDocument): CandidateMeta {
 
 /**
  * Judge `inputs` for `question` in one layer, before `deadline`. With
- * `statesAnswer`, also p(states the answer) (the search, CTX-1685). Throws the
- * `JevError` of a failed call. Jev reads only text: an image goes to Jev as
+ * `askStatesAnswer`, also p(states the answer) (the search, CTX-1685).
+ * Throws the `JevError` of a failed call. Jev reads only text: an image goes to Jev as
  * its text, never as its bytes (ADR-068 decision 6).
  *
  * The id of a candidate is its document key (a hash of its path), then its
@@ -208,7 +208,7 @@ export async function judge(
   intent: string,
   deadline: number,
   meter: ModelMeter,
-  statesAnswer = false,
+  askStatesAnswer = false,
 ): Promise<Judgment[]> {
   if (inputs.length === 0) return []
   meter.jevCalls += Math.ceil(inputs.length / JEV_BATCH)
@@ -222,7 +222,7 @@ export async function judge(
       intent,
       timeoutMs: callTimeLimitMs(deadline),
       batchSize: JEV_BATCH,
-      statesAnswer,
+      askStatesAnswer,
       candidates: inputs.map((input) => ({
         id: idOf(input),
         text: input.text,
