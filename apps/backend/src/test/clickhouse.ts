@@ -90,6 +90,13 @@ export async function startClickHouse({
   restart(): Promise<void>
   /** Whether the file `path` is in the container of the server. */
   fileExists(path: string): Promise<boolean>
+  /**
+   * The server keeps a replaced part for 8 minutes, and its cleanup waits
+   * up to 5 minutes when it has nothing to do. A test cannot wait that
+   * long: this makes the cleanup of `tables` of the database at `url` run
+   * each second, and removes a replaced part after one second.
+   */
+  shortenPartCleanup(url: string, tables: readonly string[]): Promise<void>
   stop(): Promise<void>
 }> {
   const container = `ctxpipe-knowledge-${randomUUID().slice(0, 8)}`
@@ -180,10 +187,32 @@ export async function startClickHouse({
         await waitUntilStarted()
       },
       async fileExists(path) {
-        return docker("exec", container, "test", "-e", path).then(
-          () => true,
-          () => false,
-        )
+        try {
+          await docker("exec", container, "test", "-e", path)
+          return true
+        } catch (error) {
+          // Exit code 1 of `test -e`: no such file. Each other failure (of
+          // Docker, or a timeout) is no proof.
+          if ((error as { code?: unknown }).code === 1) return false
+          throw error
+        }
+      },
+      async shortenPartCleanup(url, tables) {
+        const client = createClient({ url })
+        try {
+          for (const table of tables)
+            await client.command({
+              query: `ALTER TABLE ${table} MODIFY SETTING old_parts_lifetime = 1,
+                cleanup_delay_period = 1, max_cleanup_delay_period = 1,
+                cleanup_delay_period_random_add = 0`,
+            })
+        } finally {
+          await client.close()
+        }
+        // The cleanup of a table read its delay before this change: a
+        // restart starts it again with the new settings.
+        await docker("restart", "--time", "0", container)
+        await waitUntilStarted()
       },
       stop,
     }

@@ -72,6 +72,14 @@ export const knowledgePurge = defineWorkflow(
   },
   async ({ input, step, run }) => {
     const url = parseEnv(process.env).CLICKHOUSE_URL
+    // A step with this policy retries for about one day before the run
+    // fails.
+    const retryPolicy = {
+      initialInterval: "10s",
+      backoffCoefficient: 2,
+      maximumInterval: "1h",
+      maximumAttempts: 30,
+    } as const
     // The first step queues the next purge run of the scope, one day later.
     // A run that ends with no error cancels it. A run that fails (a step
     // that still fails after its retries, as while ClickHouse is down)
@@ -84,9 +92,7 @@ export const knowledgePurge = defineWorkflow(
           {
             name: "queue-next-purge",
             retryPolicy: {
-              initialInterval: "10s",
-              backoffCoefficient: 2,
-              maximumInterval: "1h",
+              ...retryPolicy,
               maximumAttempts: Number.MAX_SAFE_INTEGER,
             },
           },
@@ -117,13 +123,6 @@ export const knowledgePurge = defineWorkflow(
         })
       await step.sleep(`await-purge-${check}`, "1 minute")
     }
-    // A step retries for about one day before the run fails.
-    const retryPolicy = {
-      initialInterval: "10s",
-      backoffCoefficient: 2,
-      maximumInterval: "1h",
-      maximumAttempts: 30,
-    } as const
     const deleted = await step.run(
       { name: "purge-knowledge-plane", retryPolicy },
       async () => {

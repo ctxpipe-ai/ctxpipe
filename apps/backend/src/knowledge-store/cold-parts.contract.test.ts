@@ -119,18 +119,7 @@ describe("old knowledge parts", () => {
       { timeout: 60_000, interval: 500 },
     )
 
-    // The server keeps an old part for 8 minutes after a mutation replaced
-    // it, and its cleanup waits up to 5 minutes when it has nothing to do.
-    // A test cannot wait that long.
-    for (const table of tables)
-      await client.command({
-        query: `ALTER TABLE ${table} MODIFY SETTING old_parts_lifetime = 1,
-          cleanup_delay_period = 1, max_cleanup_delay_period = 1,
-          cleanup_delay_period_random_add = 0`,
-      })
-    // The cleanup of a table read its delay before this change: a restart
-    // starts it again with the new settings.
-    await clickHouse.restart()
+    await clickHouse.shortenPartCleanup(url, tables)
 
     const store = createKnowledgeStore(url)
     try {

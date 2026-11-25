@@ -53,19 +53,7 @@ beforeAll(async () => {
     writer: "writer-test",
   })
   writerUrl = userUrl(adminUrl, "ctxpipe_writer", "writer-test")
-  // The server keeps a replaced part for 8 minutes, and its cleanup waits
-  // up to 5 minutes when it has nothing to do. The erase waits until the
-  // parts that held purged rows are gone. A test cannot wait that long.
-  const admin = clickhouse.client(adminUrl)
-  for (const table of KNOWLEDGE_TABLES)
-    await admin.command({
-      query: `ALTER TABLE ${table} MODIFY SETTING old_parts_lifetime = 1,
-        cleanup_delay_period = 1, max_cleanup_delay_period = 1,
-        cleanup_delay_period_random_add = 0`,
-    })
-  // The cleanup of a table read its delay before this change: a restart
-  // starts it again with the new settings.
-  await clickhouse.restart()
+  await clickhouse.shortenPartCleanup(adminUrl, KNOWLEDGE_TABLES)
 }, 240_000)
 
 afterAll(async () => {
