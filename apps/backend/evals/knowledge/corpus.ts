@@ -11,7 +11,10 @@ import { stampMirrorFiles } from "../../src/domain/workspace-sources/stamp-sourc
 import { gitRemoteEnvironment } from "../../src/services/git/clone-tree.js"
 import { bodiesEditedAfter } from "../../src/services/github/github-mirror.js"
 import { importPublicGithubIssues } from "../../src/services/github/issue-mirror/public-import.js"
-import { importPublicGithubPullRequests } from "../../src/services/github/pull-request-mirror/public-import.js"
+import {
+  countOpenPullRequestsAt,
+  importPublicGithubPullRequests,
+} from "../../src/services/github/pull-request-mirror/public-import.js"
 import type { Corpus } from "./dataset.js"
 import { Pseudonyms } from "./pseudonyms.js"
 import {
@@ -323,6 +326,11 @@ type MirrorCount = {
   issues: number
   pulls: number
   /**
+   * The pull requests that were open at the cut-off date. The production
+   * mirror shows only closed ones, so the twin leaves them out.
+   */
+  openAtCutoff: number
+  /**
    * The issues and pull requests whose body was edited after the cut-off
    * date. Their file shows the current body, so a task must not take its
    * answer from them.
@@ -413,13 +421,18 @@ export async function importCorpusMirrors(
         numbers,
         until,
       })
+      const openAtCutoff =
+        repository.pulls > 0
+          ? await countOpenPullRequestsAt({ ...read, until })
+          : 0
       log(
-        `${repository.source}: ${count.issues} issues, ${count.pulls} pull requests, ${editedAfterCutoff.length} edited after the cut-off date`,
+        `${repository.source}: ${count.issues} issues, ${count.pulls} pull requests (${openAtCutoff} open at the cut-off date left out), ${editedAfterCutoff.length} edited after the cut-off date`,
       )
       counts.push({
         corpus: corpus.id,
         source: repository.source,
         ...count,
+        openAtCutoff,
         editedAfterCutoff,
       })
     }

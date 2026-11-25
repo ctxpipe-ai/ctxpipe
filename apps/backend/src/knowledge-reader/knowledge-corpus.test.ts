@@ -255,6 +255,7 @@ describe("importCorpusMirrors and freezeCorpora", () => {
           source: "acme/api",
           issues: 1,
           pulls: 0,
+          openAtCutoff: 0,
           editedAfterCutoff: [1],
         },
       ],
@@ -413,6 +414,15 @@ it("writes the pull requests closed before the cut-off date and the chat as they
     }),
   )
   server.use(
+    // Pull requests 6, 7 and 8 were made before the cut-off date; 6 and 7
+    // were closed before it.
+    http.get(`${API}/search/issues`, ({ request }) => {
+      const q = new URL(request.url).searchParams.get("q") ?? ""
+      expect(q).toMatch(
+        /^repo:acme\/api is:pr (created|closed):<=2026-06-01T00:00:00Z$/,
+      )
+      return HttpResponse.json({ total_count: q.includes("created") ? 3 : 2 })
+    }),
     // After the cut-off date, the pull request got a label and a new title.
     http.get(`${API}/repos/acme/api/issues/7/events`, () =>
       HttpResponse.json([
@@ -453,6 +463,8 @@ it("writes the pull requests closed before the cut-off date and the chat as they
       source: "acme/api",
       issues: 0,
       pulls: 1,
+      // Pull request 8 was open at the cut-off date.
+      openAtCutoff: 1,
       editedAfterCutoff: [],
     },
   ])
@@ -521,6 +533,7 @@ it("imports nothing and pushes nothing when no issue is before the cut-off date"
       source: "acme/api",
       issues: 0,
       pulls: 0,
+      openAtCutoff: 0,
       editedAfterCutoff: [],
     },
   ])

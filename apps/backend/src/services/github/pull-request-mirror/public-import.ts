@@ -19,7 +19,8 @@ import type { GithubPullRequestSnapshot } from "./types.js"
  * that the production mirror shows at `until` (`policy.ts`): closed up to
  * `until` and not a draft. A pull request that was open at `until` is left
  * out on purpose, because the production mirror does not show an open one,
- * and the twin must hold what production holds at `until`. Each is
+ * and the twin must hold what production holds at `until`
+ * (`countOpenPullRequestsAt` gives their count for the report). Each is
  * rendered with the production converter, as it was at `until`: the issue
  * events give the title, the labels and the requested reviewers, and the
  * reviews and comments after `until` and the comments of a pending review
@@ -156,6 +157,28 @@ async function pendingCommentIds(input: {
         if (comment.databaseId !== null) ids.add(comment.databaseId)
   }
   return ids
+}
+
+/**
+ * The count of the pull requests that were open at `until`: created up to
+ * `until`, and not closed up to `until`. The import leaves them out, as the
+ * production mirror does, and the corpus step reports this count, so the
+ * twin accounts for them. Two requests of the search API.
+ */
+export async function countOpenPullRequestsAt(input: {
+  octokit: Octokit
+  repository: string
+  until: Date
+}): Promise<number> {
+  const time = githubTime(input.until.getTime())
+  const count = async (filter: string) =>
+    (
+      await input.octokit.rest.search.issuesAndPullRequests({
+        q: `repo:${input.repository} is:pr ${filter}:<=${time}`,
+        per_page: 1,
+      })
+    ).data.total_count
+  return (await count("created")) - (await count("closed"))
 }
 
 /** True when `time` is a time at or before `until`. */
