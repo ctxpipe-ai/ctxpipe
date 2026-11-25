@@ -6,7 +6,9 @@ stops before a run that could take the spend over --cap-usd, records each run
 again. See README.md.
 
 Environment:
-  ANTHROPIC_AUTH_TOKEN  the spend-capped model key (or ANTHROPIC_API_KEY)
+  ANTHROPIC_AUTH_TOKEN  the spend-capped model key of the bench (or ANTHROPIC_API_KEY); the
+                        script refuses an OpenRouter key whose limit does not count the
+                        Claude calls
   ANTHROPIC_BASE_URL    optional, an Anthropic-compatible endpoint
   CTXPIPE_API_KEY       the org key of the bench org (CTX arm)
   DOCKER_HOST           the Docker of Harbor
@@ -21,7 +23,7 @@ import time
 from pathlib import Path
 from urllib.parse import urlparse
 
-from record import falkor_graph_calls, gateway_usage, record_run, run_cost, write_report
+from record import falkor_graph_calls, gateway_usage, key_limit_problem, record_run, run_cost, write_report
 
 BENCH = Path(__file__).resolve().parent
 
@@ -40,7 +42,6 @@ def job_config(args, config, arm_name, model_name, task, run_id):
             "version": config["claudeCodeVersion"],
             "max_turns": config["maxTurns"],
             "max_budget_usd": f"{model['runCapUsd']:.2f}",
-            "disable_web_search": True,
         },
         "env": {"CTXPIPE_CONVERSATION_ID": run_id},
         "extra_allowed_hosts": hosts,
@@ -93,6 +94,9 @@ def main():
     args = parser.parse_args()
     args.out = args.out.resolve()
     args.out.mkdir(parents=True, exist_ok=True)
+    if problem := key_limit_problem():
+        print(f"refused: {problem}. Give a bench model key whose limit covers the Claude calls (README.md).")
+        return 2
     config = json.loads((BENCH / "arms.json").read_text())
     runs_path = args.out / "runs.jsonl"
     runs = [json.loads(line) for line in runs_path.read_text().splitlines()] if runs_path.exists() else []
@@ -110,8 +114,9 @@ def main():
                 for arm_name in args.arms.split(","):
                     if (model_name, arm_name, task) in done:
                         continue
-                    # The server calls of a CTX run (embeddings, Jev) have no
-                    # cap of their own, so the arm reserves an amount for them.
+                    # The server calls of a CTX run (a query embedding and Jev
+                    # for each search) have no cap of their own, so the arm
+                    # reserves their bound (README.md).
                     reserve = model["runCapUsd"] + config["arms"][arm_name]["serverReserveUsd"]
                     if spent + reserve > args.cap_usd:
                         print(f"stop: ${spent:.3f} spent, the next run can cost ${reserve}, cap ${args.cap_usd}")

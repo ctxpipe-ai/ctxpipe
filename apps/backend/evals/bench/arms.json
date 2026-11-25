@@ -5,7 +5,7 @@
       "where": "The repositories and the issue tracker of the organization are available as plain files under /app/org: repos/ holds the source code and issues/ holds each issue as Markdown.",
       "mountCorpus": true,
       "mcp": false,
-      "disallowedTools": [],
+      "disallowedTools": ["WebSearch", "WebFetch"],
       "serverReserveUsd": 0
     },
     "ctx": {
@@ -13,11 +13,13 @@
       "mountCorpus": false,
       "mcp": true,
       "disallowedTools": [
+        "WebSearch",
+        "WebFetch",
         "mcp__ctxpipe__get_related",
         "mcp__ctxpipe__search_code",
         "mcp__ctxpipe__find_symbol"
       ],
-      "serverReserveUsd": 0.02
+      "serverReserveUsd": 0.12
     }
   },
   "models": {

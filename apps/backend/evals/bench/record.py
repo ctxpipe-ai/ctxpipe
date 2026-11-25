@@ -34,12 +34,8 @@ def falkor_graph_calls(container):
     return calls
 
 
-def gateway_usage():
-    """The upstream spend of an OpenRouter key on the provider key of the account (`byok_usage`).
-
-    The Claude calls go to that provider key. The counter lags by up to a
-    minute, so the function reads until two reads 20 s apart agree.
-    """
+def openrouter_key():
+    """The status of the OpenRouter model key of the run, or None for another endpoint."""
     base = os.environ.get("ANTHROPIC_BASE_URL", "")
     token = os.environ.get("ANTHROPIC_AUTH_TOKEN") or os.environ.get("ANTHROPIC_API_KEY")
     if "openrouter.ai" not in base or not token:
@@ -47,15 +43,38 @@ def gateway_usage():
     request = urllib.request.Request(
         "https://openrouter.ai/api/v1/key", headers={"Authorization": f"Bearer {token}"}
     )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return json.load(response)["data"]
 
-    def read():
-        with urllib.request.urlopen(request, timeout=30) as response:
-            return json.load(response)["data"]["byok_usage"]
 
-    last = read()
+def key_limit_problem():
+    """Why the OpenRouter key cannot cap the spend of the Claude calls, or None.
+
+    The Claude calls of OpenRouter go to the provider key of the account
+    (BYOK), so the limit of the key caps them only when it counts that usage.
+    """
+    key = openrouter_key()
+    if key is None:
+        return None
+    if key.get("limit") is None:
+        return "the OpenRouter key has no spend limit"
+    if not key.get("include_byok_in_limit"):
+        return "the limit of the OpenRouter key does not count the provider-key (BYOK) usage of the Claude calls"
+    return None
+
+
+def gateway_usage():
+    """The upstream spend of the OpenRouter key on the provider key of the account (`byok_usage`).
+
+    The counter lags by up to a minute, so the function reads until two reads
+    20 s apart agree.
+    """
+    if openrouter_key() is None:
+        return None
+    last = openrouter_key()["byok_usage"]
     for _ in range(6):
         time.sleep(20)
-        now = read()
+        now = openrouter_key()["byok_usage"]
         if now == last:
             break
         last = now

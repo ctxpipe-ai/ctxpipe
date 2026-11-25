@@ -27,7 +27,7 @@ The agent writes its answer to `/app/answer.md`. The verifier (`tests/grade.py`)
 
 ## The arms
 
-Both arms get the same preamble (`arms.json`), with one sentence that tells where the sources are. Both arms block the web tools (`WebSearch`, `WebFetch`). The agent phase has no egress (`network_mode = "allowlist"` in `task.toml`) except to the hosts that `run.py` adds: the model endpoint, and the MCP host in the CTX arm. The install of Claude Code runs before the agent phase, with network. The verifier has no network.
+Both arms get the same preamble (`arms.json`), with one sentence that tells where the sources are. Both arms disallow the web tools (`WebSearch`, `WebFetch` in `disallowedTools`). The agent phase has no egress (`network_mode = "allowlist"` in `task.toml`) except to the hosts that `run.py` adds: the model endpoint, and the MCP host in the CTX arm. The install of Claude Code runs before the agent phase, with network. The verifier has no network.
 
 | Arm | Workspace | MCP |
 | --- | --- | --- |
@@ -65,7 +65,7 @@ The CTX arm needs a backend with the frozen corpus on the plane. Do these steps 
 5. Start the backend alone, with no worker: `bun --env-file=BENCH.env src/server.ts` from `apps/backend`. Do not use `pnpm dev`.
 6. Make the org key: `bun --env-file=BENCH.env evals/bench/mint-key.ts --org ORG_ID --out KEY_FILE`.
 7. Make the B1+ corpus: `repos/backstage` (a `git fetch --depth 1` of the frozen SHA, with no `.git`) and `issues/` (`git archive` of `github/issues` of the frozen context repo).
-8. Install Harbor: `uv venv && uv pip install --require-hashes -r requirements.txt`.
+8. Install Harbor from `apps/backend`: `uv venv && uv pip install --require-hashes -r evals/bench/requirements.txt`.
 
 ## Run
 
@@ -76,9 +76,11 @@ DOCKER_HOST=… ANTHROPIC_BASE_URL=https://openrouter.ai/api ANTHROPIC_AUTH_TOKE
 python evals/bench/record.py ~/RUN   # writes report.md again from runs.jsonl
 ```
 
-- Give a model key of its own for the bench, never a production key, and revoke it after the run. Its spend limit must cover the Claude calls: an Anthropic key in a workspace with a spend limit, or an OpenRouter key whose limit counts the provider-key (BYOK) usage. The agent reads issue text that anybody can write, and it holds the key, so a key with no such limit is a risk even with the egress allowlist. The spike used the factory model key: its limit does not count the BYOK usage, so only the caps of `run.py` and `--max-budget-usd` held its spend.
+- Give a model key of its own for the bench, never a production key, and revoke it after the run. Its spend limit must cover the Claude calls: an Anthropic key in a workspace with a spend limit, or an OpenRouter key whose limit counts the provider-key (BYOK) usage. `run.py` refuses an OpenRouter key with no limit, or with a limit that does not count the BYOK usage. The agent reads issue text that anybody can write, and it holds the key, so the limit of the key is the last guard.
+- Give the backend (`MODEL_PROVIDER_API_KEY`) a spend-capped key too: its plane calls are the server cost of the CTX arm.
+- The CTX arm allows the whole host `host.docker.internal`, not only the port of the MCP: Harbor allows hosts, not ports. Run the bench on a host where only the bench backend and its stores listen.
 - Each run is one Harbor job with the stock `claude-code` agent at a pinned Claude Code version, with `--max-turns` and `--max-budget-usd` (the cap of the run in `arms.json`).
-- Before each run, `run.py` adds the cap of the run and the server reserve of the arm to the spend so far. When the sum is more than `--cap-usd`, it stops with exit code 3. The order is model, then task, then arm, so a stop leaves whole pairs of arms.
+- Before each run, `run.py` adds the cap of the run and the server reserve of the arm to the spend so far. The CTX reserve ($0.12) is a bound: each search makes one query embedding and about two Jev calls (at most $0.001 measured), and a run has at most `maxTurns` (40) turns of at most three searches each. When the sum is more than `--cap-usd`, it stops with exit code 3. The order is model, then task, then arm, so a stop leaves whole pairs of arms.
 - A run with no result event or no reward is a failed run: it keeps its spend, `run.py` exits with 1, and the next invocation runs it again.
 - The spend of a run is the Claude Code `total_cost_usd` (the full cap of the run when the run has no result event), plus the cost of the model calls of the server (`gen_ai.usage.cost` on the spans of the run: the query embeddings and Jev).
 - With an OpenRouter key, `run.py` also reads the upstream spend of the key (`byok_usage`) before and after all its runs, and writes the change and the Claude Code total to `gateway.jsonl`. The counter lags by up to a minute, so it checks the total, not each run.
