@@ -6,13 +6,9 @@
   "additionalProperties": false,
   "required": ["areas"],
   "properties": {
-    "complete": {
-      "type": "boolean",
-      "description": "True when the proposal names every area of the repository: the source leaves the other area files. The script reads it only on the first page."
-    },
-    "read": {
+    "done": {
       "type": "array",
-      "description": "The paths of the documents of this page that you read. The cursor moves past the documents of the page, in list order, up to the first document that is not here.",
+      "description": "The paths of the documents of this page whose rules are in this proposal, or that state no rule. The cursor moves past the documents of the page, in list order, up to the first document that is not here.",
       "items": { "type": "string" }
     },
     "areas": {

@@ -479,11 +479,11 @@ describe("runSkillPages on a shard ref that another execution moved", () => {
     expect(calls).toEqual([
       {
         name: skillStepName(ROOT, "ownership", WS, 1),
-        cursor: { ...cursor, at: 0, base: pinned },
+        cursor: { ...cursor, at: 0 },
       },
       {
         name: skillStepName(ROOT, "ownership", WS, 2),
-        cursor: { ...cursor, at: 1, base: pinned },
+        cursor: { ...cursor, at: 1 },
       },
     ])
     expect(state).toMatchObject({ ops: 2, partial: 1, partialRoots: [ROOT] })

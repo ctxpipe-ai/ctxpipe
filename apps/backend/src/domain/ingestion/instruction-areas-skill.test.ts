@@ -394,7 +394,7 @@ const codebase = (name: string, url: string) =>
     `# ${name}\n`,
   )
 
-type Proposal = { areas: object[]; complete?: boolean; read?: string[] }
+type Proposal = { areas: object[]; done?: string[] }
 
 /** Context repository shared by the runs of several sources. */
 function contextRepo() {
@@ -481,8 +481,8 @@ async function ingest(
   /** The codebase file in the root-to-file map; null for none. */
   codebasePath: string | null,
   proposal: Proposal,
-  /** The cursor of the page before this one, and the base of the first page (step.json). */
-  cursor: { at: number; base: string } = { at: 0, base: context.base },
+  /** The cursor of the page before this one (step.json). */
+  cursorAt = 0,
 ) {
   const stepRoot = mkdtempSync(join(root, "step-"))
   const contextCheckout = join(stepRoot, "context", "ws_fixture")
@@ -495,8 +495,7 @@ async function ingest(
     JSON.stringify({
       workspaceId: "ws_fixture",
       baseCommit: context.base,
-      cursorAt: cursor.at,
-      cursorBase: cursor.base,
+      cursorAt,
     }),
   )
   mkdirSync(join(stepRoot, "out", "files"), { recursive: true })
@@ -837,7 +836,7 @@ describe("the instruction-areas skill", () => {
       },
     ])
   const snapshotArea = (extra: object = {}): Proposal => ({
-    read: ["d/CONTRIBUTING.md"],
+    done: ["d/CONTRIBUTING.md"],
     areas: [
       {
         slug: "unit-testing",
@@ -874,14 +873,13 @@ describe("the instruction-areas skill", () => {
       )
     ).validate()
     context.advance(other.tree)
-    const firstBase = context.base
     const a = pagedShop()
     const first = await ingest(
       context,
       a,
       URL_A,
       "knowledge/codebases/shop.md",
-      { ...unitTesting("vitest"), read: PAGE_ONE },
+      { ...unitTesting("vitest"), done: PAGE_ONE },
     )
     expect(first.report()[0]).toMatchObject({ decision: "same", file: AREA })
     expect(first.patch()).toMatchObject({ more: true, cursor: { at: 4 } })
@@ -895,8 +893,8 @@ describe("the instruction-areas skill", () => {
       a,
       URL_A,
       "knowledge/codebases/shop.md",
-      snapshotArea({ complete: true }),
-      { at: 4, base: firstBase },
+      snapshotArea(),
+      4,
     )
     expect(second.report()).toEqual([
       expect.objectContaining({ decision: "add", file: AREA }),
@@ -914,61 +912,72 @@ describe("the instruction-areas skill", () => {
     )
   })
 
-  it("moves the cursor only past the documents that the proposal read (CTX-1570)", async () => {
+  it("moves the cursor only past the documents that the proposal is done with (CTX-1570)", async () => {
     const context = contextRepo()
     const step = await ingest(
       context,
       pagedShop(),
       URL_A,
       "knowledge/codebases/shop.md",
-      // The model read the first two documents and the fourth one.
+      // The proposal holds the rules of the first two documents and of the
+      // fourth one.
       {
         ...unitTesting("vitest"),
-        read: ["AGENTS.md", "a/CONTRIBUTING.md", "c/CONTRIBUTING.md"],
+        done: ["AGENTS.md", "a/CONTRIBUTING.md", "c/CONTRIBUTING.md"],
       },
     )
     expect(step.patch()).toMatchObject({ more: true, cursor: { at: 2 } })
   })
 
-  it("on a re-ingestion, a later page replaces the old rules of the source in an area that no earlier page changed (CTX-1570)", async () => {
-    const context = contextRepo()
+  it("on a re-ingestion, the first page writes the areas of the source again, and a later page adds to them (CTX-1570)", async () => {
     const a = pagedShop()
-    // The run before wrote the area with 5 rules.
-    const old = await (
-      await ingest(
+    const reingest = async (pageOne: Proposal) => {
+      const context = contextRepo()
+      // The run before wrote the area.
+      const old = await (
+        await ingest(
+          context,
+          a,
+          URL_A,
+          "knowledge/codebases/shop.md",
+          unitTesting("vitest"),
+        )
+      ).validate()
+      context.advance(old.tree)
+      const first = await ingest(
         context,
         a,
         URL_A,
         "knowledge/codebases/shop.md",
-        unitTesting("vitest"),
+        { ...pageOne, done: PAGE_ONE },
       )
-    ).validate()
-    context.advance(old.tree)
-    // Page 1 of the new run names no area.
-    const firstBase = context.base
-    const first = await ingest(
-      context,
-      a,
-      URL_A,
-      "knowledge/codebases/shop.md",
-      { areas: [], read: PAGE_ONE },
-    )
-    context.advance((await first.validate()).tree)
-    // Page 2 names the area with other rules: the old rules go.
+      const result = await first.validate()
+      expect(result.rejections).toEqual([])
+      context.advance(result.tree)
+      return context
+    }
+    // Page 1 names no area: the source leaves the area of the run before.
+    const left = await reingest({ areas: [] })
+    expect(left.has(left.base, AREA)).toBe(false)
+    // Page 1 writes the same rules again, so the file does not change. Page
+    // 2 adds a rule, and the rules of page 1 stay.
+    const same = await reingest(unitTesting("vitest"))
+    const before = same.show(same.base, AREA)
     const second = await ingest(
-      context,
+      same,
       a,
       URL_A,
       "knowledge/codebases/shop.md",
       snapshotArea(),
-      { at: 4, base: firstBase },
+      4,
     )
     expect(second.report()[0]).toMatchObject({ decision: "update-own" })
     const result = await second.validate()
     expect(result.rejections).toEqual([])
-    const after = context.show(result.tree, AREA)
+    const after = same.show(result.tree, AREA)
+    for (const line of before.split("\n").filter((l) => l.startsWith("  - ")))
+      expect(after).toContain(line)
     expect(after).toContain("topic: `snapshots` = `inline`")
-    expect(after).not.toContain("topic: `mocking`")
   })
 
   it("keeps the 60 rules that an area file can take and lists each other rule in skipped (CTX-1570)", async () => {
@@ -989,7 +998,7 @@ describe("the instruction-areas skill", () => {
       URL_A,
       "knowledge/codebases/shop.md",
       {
-        read: ["AGENTS.md"],
+        done: ["AGENTS.md"],
         areas: [
           {
             slug: "code-style",
@@ -1088,16 +1097,13 @@ describe("the instruction-areas skill", () => {
     expect(joined.rejections).toEqual([])
     context.advance(joined.tree)
 
-    // B leaves: a complete proposal without the area.
+    // B leaves: its first page does not name the area.
     const leaving = await ingest(
       context,
       b,
       URL_B,
       "knowledge/codebases/billing.md",
-      {
-        areas: [],
-        complete: true,
-      },
+      { areas: [] },
     )
     const left = await leaving.validate()
     expect(left.rejections).toEqual([])
@@ -1110,7 +1116,6 @@ describe("the instruction-areas skill", () => {
     const last = await (
       await ingest(context, a, URL_A, "knowledge/codebases/shop.md", {
         areas: [],
-        complete: true,
       })
     ).validate()
     expect(last.rejections).toEqual([])
@@ -1137,10 +1142,7 @@ describe("the instruction-areas skill", () => {
       shop(),
       URL_A,
       "knowledge/codebases/shop.md",
-      {
-        areas: [],
-        complete: true,
-      },
+      { areas: [] },
     )
     expect(leaving.summary.skipped.map((s) => s.reason)).toContain(
       "The file has a human section, so the script keeps it",

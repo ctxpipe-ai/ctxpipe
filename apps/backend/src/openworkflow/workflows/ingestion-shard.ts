@@ -578,8 +578,8 @@ type SkillPages = {
 /**
  * The pages of one skill for one Workspace (ADR-052 section 6): the host runs
  * the skill again on the new tip while its `patch.json` says `more`. A page
- * that accepts no op stops the skill: the next page would start from the
- * same tip.
+ * of a skill with no cursor that accepts no op stops the skill: the next
+ * page would start from the same tip.
  *
  * A cursor skill (CTX-1487) has no page count. Before each page, the
  * skill's own finder gives the length of its input (`of`), and the page's
@@ -591,9 +591,8 @@ type SkillPages = {
  * skill has at most `of` pages. The finder runs before the model, so its
  * count is trusted. A forged `at` can only end the loop sooner. A page with
  * no op goes on while its cursor moves forward. Each page gets the `at` of
- * the page before it and the base commit of the first page (`step.json`), so
- * a skill can find the inputs of the page and what its earlier pages wrote
- * when the tip does not show them.
+ * the page before it (`step.json`), so a skill can find the inputs of the
+ * page when the tip does not show them.
  *
  * A skill with no cursor has one page: when its page says `more`, the skill
  * stops as `partial` and keeps the ops of the page. No skill has a page
@@ -614,9 +613,6 @@ export async function runSkillPages(ctx: SkillPages): Promise<void> {
   )
   let cursorAt = 0
   let cursorOf: number | undefined
-  // The base commit of the first page: a later page compares with it to
-  // find what the earlier pages of the skill wrote (CTX-1570).
-  const cursorBase = state.tip ?? ctx.runBase
   for (let page = 1; ctx.skill.cursor || page === 1; page++) {
     const name = skillStepName(
       ctx.root,
@@ -626,7 +622,7 @@ export async function runSkillPages(ctx: SkillPages): Promise<void> {
     )
     const oldTip = state.tip
     const result = await ctx.step(name, () =>
-      runSkillStep({ ...ctx, name, oldTip, seen, cursorAt, cursorBase }),
+      runSkillStep({ ...ctx, name, oldTip, seen, cursorAt }),
     )
     if (result.partial) {
       failed()
@@ -719,8 +715,6 @@ type SkillStep = SkillPages & {
   seen: { executionAttempt?: number }
   /** The inputs of a cursor skill that the earlier pages did (CTX-1570). */
   cursorAt: number
-  /** The base commit of the first page of the skill (CTX-1570). */
-  cursorBase: string
 }
 
 /**
@@ -930,13 +924,7 @@ async function attemptSkillStep(
         workspaceId: destination.workspaceId,
         baseCommit,
         ...(ctx.skill.cursor
-          ? {
-              cursor: {
-                ...ctx.skill.cursor,
-                at: ctx.cursorAt,
-                base: ctx.cursorBase,
-              },
-            }
+          ? { cursor: { ...ctx.skill.cursor, at: ctx.cursorAt } }
           : {}),
         ...(fetchRef ? { fetchRef } : {}),
         rootMap,

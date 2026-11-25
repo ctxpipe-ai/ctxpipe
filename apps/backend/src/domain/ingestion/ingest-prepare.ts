@@ -290,11 +290,8 @@ export async function startIngestStep(
   input: {
     workspaceId: string
     baseCommit: string
-    /**
-     * For a cursor skill (CTX-1570): the cursor of the page before this one,
-     * and the base commit of the first page.
-     */
-    cursor?: { at: number; base: string }
+    /** The cursor of the page before this one, for a cursor skill (CTX-1570). */
+    cursorAt?: number
     /** The shard ref to fetch first; absent when the commit is already there. */
     fetch?: { remote: string; ref: string }
     /** The T07 `<workspaceId>.index.json` content. */
@@ -305,8 +302,6 @@ export async function startIngestStep(
     throw new Error("Ingest step: the Workspace id is not a plain id")
   if (!/^[0-9a-f]{40,64}$/.test(input.baseCommit))
     throw new Error("Ingest step: the base commit is not a full SHA")
-  if (input.cursor && !/^[0-9a-f]{40,64}$/.test(input.cursor.base))
-    throw new Error("Ingest step: the cursor base is not a full SHA")
   if (input.fetch && !INGEST_REF.test(input.fetch.ref))
     throw new Error("Ingest step: the ref is not an ingest ref")
   const context = `${INGEST_CONTEXT_ROOT}/${input.workspaceId}`
@@ -333,9 +328,7 @@ export async function startIngestStep(
     JSON.stringify({
       workspaceId: input.workspaceId,
       baseCommit: input.baseCommit,
-      ...(input.cursor
-        ? { cursorAt: input.cursor.at, cursorBase: input.cursor.base }
-        : {}),
+      ...(input.cursorAt === undefined ? {} : { cursorAt: input.cursorAt }),
     }),
   )
 }
