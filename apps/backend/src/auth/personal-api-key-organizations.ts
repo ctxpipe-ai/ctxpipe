@@ -138,8 +138,23 @@ export const personalApiKeyOrganizationsHook = createAuthMiddleware(
     // Better Auth keeps only the organization of an organization key. A ban
     // of its maker disables it (`ban.ts`).
     const maker = ctx.context.session?.user.id
-    if (configId === "organization" && typeof id === "string" && maker) {
-      await recordOrgApiKeyCreator(id, maker)
+    if (
+      configId === "organization" &&
+      typeof id === "string" &&
+      typeof referenceId === "string" &&
+      maker
+    ) {
+      try {
+        await recordOrgApiKeyCreator({
+          apiKeyId: id,
+          userId: maker,
+          organizationId: referenceId,
+        })
+      } catch (error) {
+        // No key without its maker: a ban could not disable it.
+        await getSystemDb().delete(apikeys).where(eq(apikeys.id, id))
+        throw error
+      }
       return
     }
     if (

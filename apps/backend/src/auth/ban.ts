@@ -5,6 +5,7 @@ import { type Db, getSystemDb } from "../db/client.js"
 import {
   apikeys,
   deviceCodes,
+  members,
   oauthAccessTokens,
   oauthRefreshTokens,
   sessions,
@@ -69,12 +70,47 @@ export async function refuseSessionOfBannedUser(session: {
     if (cleared.length === 0) user = await banState(db, session.userId)
     else return
   }
-  if (user && isBanned(user))
-    throw new APIError("FORBIDDEN", {
-      code: "BANNED_USER",
-      message:
-        "You have been banned from this application. Please contact support if you believe this is an error.",
-    })
+  if (user && isBanned(user)) throw bannedError()
+}
+
+const bannedError = () =>
+  new APIError("FORBIDDEN", {
+    code: "BANNED_USER",
+    message:
+      "You have been banned from this application. Please contact support if you believe this is an error.",
+  })
+
+/**
+ * Better Auth `databaseHooks.session.create.after`, after the commit of the
+ * session. A ban can commit between the check of the before hook and the
+ * insert: the ban locks the user row, so such an insert waits for the ban,
+ * and this check then finds it and deletes the session.
+ */
+export async function endSessionOfBannedUser(session: {
+  id: string
+  userId: string
+}): Promise<void> {
+  const db = getSystemDb()
+  const user = await banState(db, session.userId)
+  if (!user || !isBanned(user)) return
+  await db.delete(sessions).where(eq(sessions.id, session.id))
+  throw bannedError()
+}
+
+/**
+ * True when the user who made the organization API key is banned. A key
+ * that no maker is known for gives false.
+ */
+export async function isOrgApiKeyMakerBanned(
+  apiKeyId: string,
+): Promise<boolean> {
+  const [maker] = await getSystemDb()
+    .select({ banned: users.banned, banExpires: users.banExpires })
+    .from(orgApiKeyCreators)
+    .innerJoin(users, eq(users.id, orgApiKeyCreators.userId))
+    .where(eq(orgApiKeyCreators.apiKeyId, apiKeyId))
+    .limit(1)
+  return Boolean(maker && isBanned(maker))
 }
 
 /** The organization API keys that the user made, of one organization or all. */
@@ -111,15 +147,36 @@ export async function disableOrgApiKeysMadeBy(
   return disabled.length
 }
 
-/** Record who made an organization API key (`org_api_key_creators`). */
-export async function recordOrgApiKeyCreator(
-  apiKeyId: string,
-  userId: string,
-): Promise<void> {
-  await getSystemDb()
+/**
+ * Record who made an organization API key (`org_api_key_creators`). A ban
+ * or a removal of the maker can commit after the key and before this row, so
+ * the row commits first, and then a check that waits for a removal that
+ * holds the member rows. A maker that may not act gets no key.
+ */
+export async function recordOrgApiKeyCreator(input: {
+  apiKeyId: string
+  userId: string
+  organizationId: string
+}): Promise<void> {
+  const db = getSystemDb()
+  await db
     .insert(orgApiKeyCreators)
-    .values({ apiKeyId, userId })
+    .values({ apiKeyId: input.apiKeyId, userId: input.userId })
     .onConflictDoNothing()
+  const [member] = await db
+    .select({ id: members.id })
+    .from(members)
+    .where(
+      and(
+        eq(members.organizationId, input.organizationId),
+        eq(members.userId, input.userId),
+      ),
+    )
+    .for("share")
+  const user = await banState(db, input.userId)
+  if (member && user && !isBanned(user)) return
+  await db.delete(apikeys).where(eq(apikeys.id, input.apiKeyId))
+  throw bannedError()
 }
 
 /** Ban the user and revoke each credential of the user. False: no such user. */
@@ -130,6 +187,13 @@ export async function banUser(input: {
 }): Promise<boolean> {
   return getSystemDb().transaction(async (tx) => {
     const now = new Date()
+    // FOR UPDATE conflicts with the key share lock of a session insert, so a
+    // sign-in and a ban cannot interleave (`endSessionOfBannedUser`).
+    await tx
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.id, input.userId))
+      .for("update")
     const [user] = await tx
       .update(users)
       .set({

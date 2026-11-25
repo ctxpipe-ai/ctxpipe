@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { AppEnv } from "../app/env.js"
 import { oauthAccessTokens, organizations, users } from "../db/schema/auth.js"
+import { orgApiKeyCreators } from "../db/schema/org_api_key_creators.js"
 import { userTokenCutoffs } from "../db/schema/user_token_cutoffs.js"
 
 const {
@@ -160,10 +161,17 @@ function createMockDb(input: {
               })),
             }
           }
-          // No ban wrote a cutoff for the JWT access tokens of the user.
+          // No ban wrote a cutoff for the JWT access tokens of the user,
+          // and no organization key has a known maker.
           if (table === userTokenCutoffs)
             return {
               where: vi.fn(() => ({ limit: vi.fn(async () => []) })),
+            }
+          if (table === orgApiKeyCreators)
+            return {
+              innerJoin: vi.fn(() => ({
+                where: vi.fn(() => ({ limit: vi.fn(async () => []) })),
+              })),
             }
           const rows = table === oauthAccessTokens ? opaqueTokenRows : orgRows
           return {

@@ -25,7 +25,7 @@ import {
 } from "../observability/attribution.js"
 import { getLogger } from "../observability/logger.js"
 import { recordApiKeyEvent } from "./api-key-events.js"
-import { isBanned, isTokenRevoked } from "./ban.js"
+import { isBanned, isOrgApiKeyMakerBanned, isTokenRevoked } from "./ban.js"
 import { callPrincipalFromContext, resolveCallOrg } from "./call-org.js"
 import { type AuthSession, type AuthUser, getAuth } from "./config.js"
 import { MCP_READ_SCOPE, quoteHeaderValue } from "./mcp-scopes.js"
@@ -439,7 +439,7 @@ type BearerApiKeyAuthResult =
   | { kind: "invalid"; refusal: OrgApiKeyRefusal }
 
 type OrgApiKeyRefusal = {
-  /** `invalid`, `expired`, `disabled`, `rate_limited`, or `not_org_key`. */
+  /** `invalid`, `expired`, `disabled`, `rate_limited`, `not_org_key`, or `maker_banned`. */
   reason: string
   /** The key id, when the auth library tells it or the key row still exists. */
   keyId?: string
@@ -554,6 +554,10 @@ async function verifyOrgApiKey(
   }
   if (verified.key.configId !== "organization" || !verified.key.referenceId) {
     return { refusal: { reason: "not_org_key", keyId: verified.key.id } }
+  }
+  // A banned user acts with no key that the user made (`ban.ts`).
+  if (await isOrgApiKeyMakerBanned(verified.key.id)) {
+    return { refusal: { reason: "maker_banned", keyId: verified.key.id } }
   }
 
   return {

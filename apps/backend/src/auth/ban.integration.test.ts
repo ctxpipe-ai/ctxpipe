@@ -23,6 +23,7 @@ import { generateObjectId } from "../lib/id.js"
 import { adminBanUser } from "../openworkflow/workflows/admin.js"
 import { registerAuthRoutes } from "../routes/auth.js"
 import { withTestRequestLogger } from "../test/hono-test-logger.js"
+import { endSessionOfBannedUser } from "./ban.js"
 import { DEVICE_LOGIN_CLIENT_ID, getAuth } from "./config.js"
 import {
   requireAuth,
@@ -257,6 +258,9 @@ describe("a ban (Postgres)", () => {
         authorization: `Bearer ${tokens.accessToken}`,
       },
       "OAuth opaque access token": { authorization: `Bearer ${opaque}` },
+      "organization API key that the user made": {
+        "x-api-key": seed.orgApiKey,
+      },
     })
   })
 
@@ -295,6 +299,23 @@ describe("a ban (Postgres)", () => {
     const refused = await signIn()
     expect(refused.status).toBe(403)
     expect(await refused.json()).toMatchObject({ code: "BANNED_USER" })
+
+    // A session that a sign-in inserts after a ban committed is ended.
+    const db = getSystemDb()
+    const late = {
+      id: generateObjectId("sess"),
+      token: randomUUID(),
+      userId: seed.userId,
+      expiresAt: new Date(Date.now() + 60_000),
+      updatedAt: new Date(),
+    }
+    await db.insert(sessions).values(late)
+    await expect(endSessionOfBannedUser(late)).rejects.toMatchObject({
+      body: { code: "BANNED_USER" },
+    })
+    expect(
+      await db.select().from(sessions).where(eq(sessions.id, late.id)),
+    ).toEqual([])
 
     await setBan(true, new Date(Date.now() - 1000))
     expect((await signIn()).status).toBe(200)

@@ -31,7 +31,7 @@ import { emailTransport } from "../email/configured.js"
 import { generateObjectId } from "../lib/id.js"
 import { log } from "../observability/logger.js"
 import { apiKeyLifecycleEvents } from "./api-key-events.js"
-import { refuseSessionOfBannedUser } from "./ban.js"
+import { endSessionOfBannedUser, refuseSessionOfBannedUser } from "./ban.js"
 import { githubOAuthUrls } from "./github-oauth-urls.js"
 import { invitationEmailLink } from "./invitation-email-url.js"
 import { MCP_READ_SCOPE, MCP_WRITE_SCOPE } from "./mcp-scopes.js"
@@ -207,7 +207,12 @@ export function createBetterAuth() {
       },
     },
     databaseHooks: {
-      session: { create: { before: refuseSessionOfBannedUser } },
+      session: {
+        create: {
+          before: refuseSessionOfBannedUser,
+          after: endSessionOfBannedUser,
+        },
+      },
     },
     /** Web cookie + DB session: keep users signed in across days (MCP OAuth access JWT TTL is separate; see oauthProvider). */
     session: {
