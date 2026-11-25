@@ -10,6 +10,7 @@ import {
 } from "../retrieval/jev/disagreement.js"
 import { BudgetSpentError } from "./failure.js"
 import {
+  beforeDeadline,
   isBudgetSpent,
   type JudgeInput,
   judge,
@@ -28,6 +29,49 @@ describe("the end of the time budget", () => {
     expect(
       isBudgetSpent(new JevError("http", "busy", 503), performance.now()),
     ).toBe(false)
+  })
+})
+
+describe("beforeDeadline", () => {
+  it("with atDeadline, the step can still end with the part of its result that is ready", async () => {
+    vi.useFakeTimers()
+    try {
+      // As the store search: at the deadline, it stops the read of the
+      // neighbors and gives its hits after some more awaits.
+      const stepUntil = (end: AbortSignal) => async () => {
+        await new Promise((resolve) => end.addEventListener("abort", resolve))
+        await Promise.resolve()
+        return "hits without neighbors"
+      }
+      const end = new AbortController()
+      const partial = beforeDeadline(
+        performance.now() + 100,
+        stepUntil(end.signal),
+        () => end.abort(),
+      )
+      await vi.runAllTimersAsync()
+      await expect(partial).resolves.toBe("hits without neighbors")
+      // A step that does not end after atDeadline, and a step with no
+      // atDeadline, get the end of the budget.
+      const never = () => new Promise<string>(() => {})
+      const stuck = beforeDeadline(performance.now() + 100, never, () => {})
+      const stopped = beforeDeadline(
+        performance.now() + 100,
+        stepUntil(new AbortController().signal),
+      )
+      const spent = Promise.allSettled([stuck, stopped])
+      await vi.runAllTimersAsync()
+      expect(
+        (await spent).map((result) =>
+          result.status === "rejected" &&
+          result.reason instanceof BudgetSpentError
+            ? "spent"
+            : result.status,
+        ),
+      ).toEqual(["spent", "spent"])
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

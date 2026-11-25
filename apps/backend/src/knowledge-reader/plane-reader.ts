@@ -255,24 +255,31 @@ async function search(
   // time left for the search itself, there is no hit to give. The store
   // gets the query vector as a promise, so that its lexical query runs
   // while the embedding call is on its way (CTX-1576). The neighbors of the
-  // best hits take the last places of the hits (CTX-1605).
+  // best hits take the last places of the hits (CTX-1605). When the time
+  // budget ends during the read of the neighbors only, the hits stay
+  // without them.
   let found: SearchHits
+  const neighborsEnd = new AbortController()
   try {
-    found = await beforeDeadline(deadline, () =>
-      store.search(scope, {
-        vector: beforeDeadline(deadline, () => embed(scope.orgId, query)),
-        terms: queryTerms(query),
-        kinds: request.kinds ? [...request.kinds] : undefined,
-        pathPrefix: request.pathPrefix,
-        sources: request.sources ? [...request.sources] : undefined,
-        observedAfter: request.updatedAfter ?? null,
-        validAt: request.validAt ?? null,
-        chunksPerDocument: ORCHESTRATOR_DEFAULTS.evidenceChunks,
-        neighbors: {
-          from: ORCHESTRATOR_DEFAULTS.searchNeighborsFrom,
-          places: ORCHESTRATOR_DEFAULTS.searchNeighbors,
-        },
-      }),
+    found = await beforeDeadline(
+      deadline,
+      () =>
+        store.search(scope, {
+          vector: beforeDeadline(deadline, () => embed(scope.orgId, query)),
+          terms: queryTerms(query),
+          kinds: request.kinds ? [...request.kinds] : undefined,
+          pathPrefix: request.pathPrefix,
+          sources: request.sources ? [...request.sources] : undefined,
+          observedAfter: request.updatedAfter ?? null,
+          validAt: request.validAt ?? null,
+          chunksPerDocument: ORCHESTRATOR_DEFAULTS.evidenceChunks,
+          neighbors: {
+            from: ORCHESTRATOR_DEFAULTS.searchNeighborsFrom,
+            places: ORCHESTRATOR_DEFAULTS.searchNeighbors,
+            signal: neighborsEnd.signal,
+          },
+        }),
+      () => neighborsEnd.abort(),
     )
   } catch (error) {
     if (!isBudgetSpent(error, deadline)) throw error

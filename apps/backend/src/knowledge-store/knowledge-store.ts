@@ -247,9 +247,10 @@ export type SearchQuery = {
    * predicate. A neighbor must pass the filters of the search and not be a
    * hit. The `places` neighbors closest to the query vector (their closest
    * chunk) take the last places of the hits. Absent, or `places` 0: no
-   * neighbors.
+   * neighbors. When `signal` aborts before the read of the neighbors ends,
+   * the search gives its hits without neighbors.
    */
-  neighbors?: { from: number; places: number }
+  neighbors?: { from: number; places: number; signal?: AbortSignal }
 }
 
 /** A chunk of a read, with its text and its file lines. */
@@ -1737,20 +1738,24 @@ async function search(
       },
     ),
     neighbors && neighbors.places > 0
-      ? searchNeighbors(client, scope, {
-          // The first chunk of each document has its version in the view.
-          seeds: [...byDocument.values()]
-            .slice(0, neighbors.from)
-            .flatMap((chunks) => chunks.slice(0, 1)),
-          hits: [...byDocument.values()].flatMap((chunks) =>
-            chunks.slice(0, 1),
-          ),
-          searchable,
-          filters,
-          vector: await vector,
-          chunksPerDocument,
-          places: neighbors.places,
-        })
+      ? untilAborted(
+          neighbors.signal,
+          [],
+          searchNeighbors(client, scope, {
+            // The first chunk of each document has its version in the view.
+            seeds: [...byDocument.values()]
+              .slice(0, neighbors.from)
+              .flatMap((chunks) => chunks.slice(0, 1)),
+            hits: [...byDocument.values()].flatMap((chunks) =>
+              chunks.slice(0, 1),
+            ),
+            searchable,
+            filters,
+            vector: await vector,
+            chunksPerDocument,
+            places: neighbors.places,
+          }),
+        )
       : [],
   ])
   const documentById = new Map(
@@ -1810,6 +1815,25 @@ async function search(
   ]
 }
 
+/** `read`, or `fallback` when `signal` aborts first. */
+function untilAborted<T>(
+  signal: AbortSignal | undefined,
+  fallback: T,
+  read: Promise<T>,
+): Promise<T> {
+  if (!signal) return read
+  return Promise.race([
+    read,
+    new Promise<T>((resolve) => {
+      if (signal.aborted) resolve(fallback)
+      else
+        signal.addEventListener("abort", () => resolve(fallback), {
+          once: true,
+        })
+    }),
+  ])
+}
+
 /**
  * The `places` neighbors of the hits `seeds` that are closest to `vector`,
  * each with its `chunksPerDocument` chunks closest to it (step 4 of
@@ -1822,9 +1846,7 @@ async function search(
  *
  * One query finds the neighbors, then two reads by file version get their
  * chunks and their documents. ClickHouse evaluates a CTE again at each use,
- * so the query uses each CTE one time. On the eval store, the
- * `readFrontier` of 5 seeds and the `readEvidence` of their neighbors took
- * 170 ms (p50), and this read takes 50 ms (CTX-1683).
+ * so the query uses each CTE one time (CTX-1683, ADR-068 decision 1).
  */
 async function searchNeighbors(
   client: ClickHouseClient,

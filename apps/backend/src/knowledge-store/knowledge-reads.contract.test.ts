@@ -719,6 +719,14 @@ describe("search", () => {
         }),
       ).slice(46),
     ).toEqual(["mailer.md", "out.md", "in.md", "keyed-in.md"])
+    // When the signal aborts before the read of the neighbors ends, the
+    // search gives its hits without neighbors.
+    const end = new AbortController()
+    const stopped = searchIn(url, {
+      neighbors: { ...neighbors, signal: end.signal },
+    })
+    end.abort()
+    expect(hitKeys(await stopped)).toEqual(hitKeys(plain))
     // Only the relations of the first `from` hits count.
     expect(
       hitKeys(await searchIn(url, { neighbors: { from: 0, places: 10 } })),
