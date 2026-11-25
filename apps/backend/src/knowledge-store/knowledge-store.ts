@@ -383,9 +383,9 @@ export type KnowledgeStore = {
    * only the rows of its Workspace when `scope` has one. This is the
    * deletion of an org or a Workspace (CTX-1642). Each table gets at most
    * one DELETE, with the org predicate and, for a Workspace, the Workspace
-   * predicate. A table with no rows of the scope gets none. A purge that runs again deletes nothing more. The caller
-   * makes sure that no projection run of the scope writes during or after
-   * the purge.
+   * predicate. A table with no rows of the scope gets none. A purge that
+   * runs again deletes nothing more. The caller makes sure that no
+   * projection run of the scope writes during or after the purge.
    */
   purge(scope: PurgeScope): Promise<PurgeCounts>
   /**
