@@ -33,10 +33,14 @@ export function userUrl(url: string, user: string, password: string): string {
   return withUser.toString()
 }
 
-/** The count of rows of `scope` in each knowledge table. */
+/**
+ * The count of rows of `scope` in each knowledge table. With `inParts`, the
+ * count also has the rows that a DELETE hid but that the parts still hold.
+ */
 export async function knowledgeRowCounts(
   client: ClickHouseClient,
   scope: KnowledgeScope,
+  { inParts = false } = {},
 ): Promise<PurgeCounts> {
   const counts = { ...NO_KNOWLEDGE_ROWS }
   for (const table of KNOWLEDGE_TABLES) {
@@ -45,7 +49,10 @@ export async function knowledgeRowCounts(
               WHERE org_id = {orgId:String} AND workspace_id = {workspaceId:String}`,
       query_params: scope,
       format: "JSONEachRow",
-      clickhouse_settings: { [ORG_SETTING]: scope.orgId },
+      clickhouse_settings: {
+        [ORG_SETTING]: scope.orgId,
+        apply_deleted_mask: inParts ? 0 : 1,
+      },
     })
     const [row] = await result.json<{ rows: string }>()
     counts[table] = Number(row?.rows)

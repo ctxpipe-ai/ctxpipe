@@ -426,6 +426,23 @@ export type KnowledgeStore = {
    */
   purge(scope: PurgeScope): Promise<PurgeCounts>
   /**
+   * After {@link purge}: makes ClickHouse rewrite each part that holds a
+   * deleted row of `scope`, without its deleted rows (CTX-1672). A DELETE
+   * only hides a row, and its bytes stay in the part, also on the cold
+   * volume, until a merge rewrites the part. Each table gets one
+   * `APPLY DELETED MASK` for each month partition with rows of the scope,
+   * so that a part of another month stays as it is. The mutations run in
+   * the background; {@link purgedRowsInParts} tells when they are done.
+   * Returns the count of mutations.
+   */
+  erasePurged(scope: PurgeScope): Promise<number>
+  /**
+   * The count of rows of `scope` that the parts of the knowledge tables
+   * hold, also the rows that a DELETE hid. Zero after a purge and its
+   * erase: the parts hold no byte of the scope.
+   */
+  purgedRowsInParts(scope: PurgeScope): Promise<number>
+  /**
    * The stored vector of each key of `embeddingKeys` that a chunk of a
    * document of `docKeys` has (any file version), in the Workspace of
    * `scope` only. The vector is the stored BFloat16 value, so a write of it
@@ -560,6 +577,8 @@ export function createKnowledgeStore(url: string | undefined): KnowledgeStore {
     cleanUp: (scope, input, counter) =>
       cleanUp(client, scope, input, counted(counter)),
     purge: (scope) => purge(client, scope),
+    erasePurged: (scope) => erasePurged(client, scope),
+    purgedRowsInParts: (scope) => purgedRowsInParts(client, scope),
     readEmbeddings: (scope, docKeys, embeddingKeys) =>
       readEmbeddings(client, scope, docKeys, embeddingKeys),
     readImageTexts: (scope, blobShas, model, promptVersion) =>
@@ -1174,16 +1193,7 @@ async function purge(
   client: ClickHouseClient,
   scope: PurgeScope,
 ): Promise<PurgeCounts> {
-  if (!scope.orgId) throw new Error("A knowledge purge needs an org")
-  if (scope.workspaceId !== null && !scope.workspaceId)
-    throw new Error("A knowledge purge of a Workspace needs a Workspace id")
-  const [where, params] =
-    scope.workspaceId === null
-      ? ["org_id = {orgId:String}", { orgId: scope.orgId }]
-      : [
-          "org_id = {orgId:String} AND workspace_id = {workspaceId:String}",
-          { orgId: scope.orgId, workspaceId: scope.workspaceId },
-        ]
+  const [where, params] = purgeWhere(scope)
   const settings = { [ORG_SETTING]: scope.orgId }
   const counts = { ...NO_KNOWLEDGE_ROWS }
   for (const table of KNOWLEDGE_TABLES) {
@@ -1205,6 +1215,90 @@ async function purge(
     })
   }
   return counts
+}
+
+/**
+ * The WHERE clause and its parameters of a purge: the org predicate, and
+ * the Workspace predicate when the scope has a Workspace.
+ */
+function purgeWhere(
+  scope: PurgeScope,
+): [string, { orgId: string; workspaceId?: string }] {
+  if (!scope.orgId) throw new Error("A knowledge purge needs an org")
+  if (scope.workspaceId !== null && !scope.workspaceId)
+    throw new Error("A knowledge purge of a Workspace needs a Workspace id")
+  return scope.workspaceId === null
+    ? ["org_id = {orgId:String}", { orgId: scope.orgId }]
+    : [
+        "org_id = {orgId:String} AND workspace_id = {workspaceId:String}",
+        { orgId: scope.orgId, workspaceId: scope.workspaceId },
+      ]
+}
+
+/**
+ * The partitions of `table` whose parts hold rows of `scope`, also rows
+ * that a DELETE hid (`apply_deleted_mask = 0`), with the count of those
+ * rows.
+ */
+async function purgedPartitions(
+  client: ClickHouseClient,
+  table: (typeof KNOWLEDGE_TABLES)[number],
+  scope: PurgeScope,
+): Promise<{ partition: string; rows: number }[]> {
+  const [where, params] = purgeWhere(scope)
+  const result = await client.query({
+    query: `SELECT _partition_id AS partition, count() AS rows
+            FROM ${table} WHERE ${where} GROUP BY partition`,
+    query_params: params,
+    format: "JSONEachRow",
+    clickhouse_settings: { [ORG_SETTING]: scope.orgId, apply_deleted_mask: 0 },
+  })
+  return (await result.json<{ partition: string; rows: string }>()).map(
+    (row) => ({ partition: row.partition, rows: Number(row.rows) }),
+  )
+}
+
+/**
+ * The erase of {@link KnowledgeStore.erasePurged}. `APPLY DELETED MASK`
+ * removes only the rows that a DELETE hid, so it cannot remove a visible
+ * row of another scope. A partition with rows of the scope can also hold
+ * rows that the projection deleted: the mutation removes those too. A part
+ * keeps its volume: a cold part is read from the bucket and written to it
+ * again (ADR-066 decision 9).
+ */
+async function erasePurged(
+  client: ClickHouseClient,
+  scope: PurgeScope,
+): Promise<number> {
+  let mutations = 0
+  for (const table of KNOWLEDGE_TABLES)
+    for (const { partition } of await purgedPartitions(client, table, scope)) {
+      // The id of a partition by toYYYYMM is digits only, and a table with
+      // no partition key (image_texts) has the one partition `all`. The
+      // statement takes no query parameter at this place.
+      if (!/^(\d+|all)$/.test(partition))
+        throw new Error(`Unexpected partition id of ${table}`)
+      await client.command({
+        query: `ALTER TABLE ${table} APPLY DELETED MASK IN PARTITION ID '${partition}'`,
+        // The mutation runs in the background. A rewrite of a large cold
+        // part can take longer than one HTTP request.
+        clickhouse_settings: { mutations_sync: "0" },
+      })
+      mutations += 1
+    }
+  return mutations
+}
+
+/** The count of {@link KnowledgeStore.purgedRowsInParts}. */
+async function purgedRowsInParts(
+  client: ClickHouseClient,
+  scope: PurgeScope,
+): Promise<number> {
+  let rows = 0
+  for (const table of KNOWLEDGE_TABLES)
+    for (const partition of await purgedPartitions(client, table, scope))
+      rows += partition.rows
+  return rows
 }
 
 /**

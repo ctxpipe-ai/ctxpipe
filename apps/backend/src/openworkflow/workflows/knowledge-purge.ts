@@ -6,6 +6,7 @@ import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { withSandboxLockIfFree } from "../../domain/workspaces/sandbox-lock-store.js"
 import {
   createKnowledgeStore,
+  type KnowledgeStore,
   type PurgeScope,
 } from "../../knowledge-store/knowledge-store.js"
 import {
@@ -46,6 +47,10 @@ export const IDLE_WORKSPACE_CHECKS = 10
  * with no change. An org delete queues the purge after its Postgres
  * transaction: when the enqueue fails, the organization row stays, and a
  * new delete queues the purge again.
+ *
+ * After the DELETEs, the purge makes ClickHouse remove the deleted rows
+ * from the parts, and waits until the parts hold no row of the scope
+ * (CTX-1672, ADR-066 decision 9).
  */
 export const knowledgePurge = defineWorkflow(
   {
@@ -80,18 +85,16 @@ export const knowledgePurge = defineWorkflow(
         })
       await step.sleep(`await-purge-${check}`, "1 minute")
     }
-    return step.run(
-      {
-        name: "purge-knowledge-plane",
-        // A purge that fails is not queued again, so it retries for about
-        // one day before the run fails.
-        retryPolicy: {
-          initialInterval: "10s",
-          backoffCoefficient: 2,
-          maximumInterval: "1h",
-          maximumAttempts: 30,
-        },
-      },
+    // A purge that fails is not queued again, so a step retries for about
+    // one day before the run fails.
+    const retryPolicy = {
+      initialInterval: "10s",
+      backoffCoefficient: 2,
+      maximumInterval: "1h",
+      maximumAttempts: 30,
+    } as const
+    const deleted = await step.run(
+      { name: "purge-knowledge-plane", retryPolicy },
       async () => {
         // The Workspace rows of a deleted org stay, so a projection run
         // that ran before the delete can have written the state again. The
@@ -107,8 +110,7 @@ export const knowledgePurge = defineWorkflow(
           })
           return null
         }
-        const store = createKnowledgeStore(url)
-        try {
+        return withStore(async (store) => {
           const deleted = await store.purge(input)
           // Counts only: the log holds no content.
           getLogger().set({
@@ -116,13 +118,51 @@ export const knowledgePurge = defineWorkflow(
             knowledgePurge: { outcome: "purged", deleted },
           })
           return deleted
-        } finally {
-          await store.close()
-        }
+        })
       },
     )
+    if (!deleted) return null
+    // The DELETEs only hid the rows. The erase removes their bytes from the
+    // parts (CTX-1672), and the checks wait until it is done.
+    await step.run({ name: "erase-purged-rows", retryPolicy }, () =>
+      withStore((store) => store.erasePurged(input)),
+    )
+    for (let check = 0; ; check++) {
+      const rows = await step.run({ name: `check-erase-${check}` }, () =>
+        withStore(async (store) => {
+          const rows = await store.purgedRowsInParts(input)
+          if (rows === 0)
+            getLogger().set({
+              step: "knowledge-purge",
+              knowledgePurge: { outcome: "erased", checks: check + 1 },
+            })
+          return rows
+        }),
+      )
+      if (rows === 0) return deleted
+      // ClickHouse keeps a mutation until it is done. 144 checks, 10 minutes
+      // apart, are one day: a run that fails here shows that the bytes stay
+      // longer than ADR-066 decision 9 allows.
+      if (check >= 144)
+        throw new Error(
+          `The parts still hold ${rows} purged rows one day after the erase`,
+        )
+      await step.sleep(`await-erase-${check}`, "10 minutes")
+    }
   },
 )
+
+/** Runs `use` with a store of the writer, and closes the store. */
+async function withStore<T>(
+  use: (store: KnowledgeStore) => Promise<T>,
+): Promise<T> {
+  const store = createKnowledgeStore(parseEnv(process.env).CLICKHOUSE_URL)
+  try {
+    return await use(store)
+  } finally {
+    await store.close()
+  }
+}
 
 /**
  * Why the purge must wait now, or null when it can delete:

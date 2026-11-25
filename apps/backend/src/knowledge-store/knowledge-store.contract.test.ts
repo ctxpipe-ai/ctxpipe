@@ -7,6 +7,7 @@ import {
   describe,
   expect,
   it,
+  vi,
 } from "vitest"
 
 import {
@@ -23,6 +24,7 @@ import {
   type KnowledgeStore,
   NO_KNOWLEDGE_ROWS,
   ORG_SETTING,
+  type PurgeScope,
   type TreeEntry,
 } from "./knowledge-store.js"
 import { migrateKnowledgeStore } from "./migrate.js"
@@ -1000,6 +1002,17 @@ describe("users and mutations", () => {
     }
     const rowsOfScope = (scope: KnowledgeScope) =>
       knowledgeRowCounts(rawClient(adminUrl), scope)
+    /** The rows that the parts hold, also the rows that a DELETE hid. */
+    const rowsInParts = (scope: KnowledgeScope) =>
+      knowledgeRowCounts(rawClient(adminUrl), scope, { inParts: true })
+    /** Erases the purged rows, and waits until the parts hold none. */
+    const erase = async (scope: PurgeScope) => {
+      expect(await writer.erasePurged(scope)).toBeGreaterThan(0)
+      await vi.waitFor(
+        async () => expect(await writer.purgedRowsInParts(scope)).toBe(0),
+        { timeout: 30_000, interval: 200 },
+      )
+    }
     const seeded = await rowsOfScope(workspace)
     for (const table of KNOWLEDGE_TABLES)
       expect(seeded[table], table).toBeGreaterThan(0)
@@ -1021,14 +1034,27 @@ describe("users and mutations", () => {
     // A purge that runs again finds nothing more.
     expect(await writer.purge(workspace)).toEqual(NO_KNOWLEDGE_ROWS)
 
-    expect(
-      await writer.purge({ orgId: "org_purge", workspaceId: null }),
-    ).toEqual(seeded)
+    // CTX-1672: the DELETE only hides the rows. The parts hold them until
+    // the erase rewrites the parts.
+    expect(await rowsInParts(workspace)).toEqual(seeded)
+    await expect(reader.erasePurged(workspace)).rejects.toThrow(denied)
+    await erase(workspace)
+    expect(await rowsInParts(workspace)).toEqual(NO_KNOWLEDGE_ROWS)
+    expect(await rowsInParts(sibling)).toEqual(seeded)
+    expect(await rowsOfScope(sibling)).toEqual(seeded)
+    expect(await rowsInParts(otherOrg)).toEqual(seeded)
+    // An erase with no purged rows left in the parts changes nothing.
+    expect(await writer.erasePurged(workspace)).toBe(0)
+
+    const org = { orgId: "org_purge", workspaceId: null }
+    expect(await writer.purge(org)).toEqual(seeded)
     expect(await rowsOfScope(sibling)).toEqual(NO_KNOWLEDGE_ROWS)
     expect(await rowsOfScope(otherOrg)).toEqual(seeded)
-    expect(
-      await writer.purge({ orgId: "org_purge", workspaceId: null }),
-    ).toEqual(NO_KNOWLEDGE_ROWS)
+    expect(await writer.purge(org)).toEqual(NO_KNOWLEDGE_ROWS)
+    expect(await writer.purgedRowsInParts(org)).toBeGreaterThan(0)
+    await erase(org)
+    expect(await rowsInParts(sibling)).toEqual(NO_KNOWLEDGE_ROWS)
+    expect(await rowsInParts(otherOrg)).toEqual(seeded)
   })
 
   describe("each write keeps the org and Workspace scope", () => {
@@ -1310,11 +1336,14 @@ describe("users and mutations", () => {
        ORDER BY event_time_microseconds`,
     )
     expect(new Set(statements.map((statement) => statement.kind))).toEqual(
-      new Set(["Delete"]),
+      new Set(["Delete", "Alter"]),
     )
-    for (const { query } of statements)
+    for (const { kind, query } of statements)
       expect(query).toMatch(
-        /^DELETE FROM \w+ WHERE (\(org_id = '\w+'\) AND \(workspace_id = '\w+'\)( AND \(|$)|org_id = '\w+'$)/,
+        kind === "Alter"
+          ? // The erase after a purge (CTX-1672) changes no visible row.
+            /^ALTER TABLE \w+ APPLY DELETED MASK IN PARTITION ID '(\d+|all)'$/
+          : /^DELETE FROM \w+ WHERE (\(org_id = '\w+'\) AND \(workspace_id = '\w+'\)( AND \(|$)|org_id = '\w+'$)/,
       )
     // The purges of the test above: the Workspace, then the org.
     expect(

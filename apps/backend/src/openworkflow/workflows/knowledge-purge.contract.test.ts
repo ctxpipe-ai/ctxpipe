@@ -69,6 +69,14 @@ async function rowsOf(scope: KnowledgeScope) {
   return knowledgeRowCounts(clickhouse.client(adminUrl), scope)
 }
 
+/** The rows of `scope` that the parts hold, also the rows that a DELETE hid. */
+async function rowsInParts(scope: KnowledgeScope) {
+  if (!clickhouse) throw new Error("No ClickHouse")
+  return knowledgeRowCounts(clickhouse.client(adminUrl), scope, {
+    inParts: true,
+  })
+}
+
 /** Rows of one file in each knowledge table, for a scope with no hydrate. */
 async function seed(scope: KnowledgeScope): Promise<void> {
   const store = createKnowledgeStore(writerUrl)
@@ -271,6 +279,8 @@ it(
           expect.objectContaining({ workspaceId: f.workspaceId }),
         ])
         expect(await rowsOf(workspace)).toEqual(NO_KNOWLEDGE_ROWS)
+        // The parts do not hold the deleted rows either (CTX-1672).
+        expect(await rowsInParts(workspace)).toEqual(NO_KNOWLEDGE_ROWS)
         expect(await rowsOf(sibling)).toEqual(kept)
         expect(await rowsOf(otherOrg)).toEqual(kept)
         // The heads of the Workspace go with its row.
@@ -308,6 +318,8 @@ it(
         ])
         expect(await rowsOf(workspace)).toEqual(NO_KNOWLEDGE_ROWS)
         expect(await rowsOf(sibling)).toEqual(NO_KNOWLEDGE_ROWS)
+        expect(await rowsInParts(workspace)).toEqual(NO_KNOWLEDGE_ROWS)
+        expect(await rowsInParts(sibling)).toEqual(NO_KNOWLEDGE_ROWS)
         expect(await rowsOf(otherOrg)).toEqual(kept)
         expect(
           await withOrgDbContext(f.org.id, (db) =>
