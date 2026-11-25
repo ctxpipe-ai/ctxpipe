@@ -100,9 +100,11 @@ injects the matching pair for `small` / `medium` / `large`.
 
 The worker starts with a Node heap limit of about 55% of the memory its
 container may use, up to 12 GiB. Native memory, Git, and the sandbox SDKs
-use the rest. The AWS CDK worker task (1, 2, or 4 GiB for `small`, `medium`,
-`large`) and a Compose host therefore get a limit that fits their memory. No
-setting is needed.
+use the rest. The worker reads the container memory from its cgroup, also
+when the limit is on a parent cgroup, as on ECS and Fargate, where the limit
+is on the task. With no cgroup limit, it uses the host memory. The AWS CDK
+worker task (1, 2, or 4 GiB for `small`, `medium`, `large`) and a Compose
+host therefore get a limit that fits their memory. No setting is needed.
 
 To use another limit, set `--max-old-space-size=<MiB>` in `NODE_OPTIONS` on
 the worker. The worker keeps your value. Keep it below the container memory.
@@ -118,8 +120,12 @@ and the platform can then stop the process. The result is the same crash as
 without the snapshot. To turn the snapshot off, set
 `--heapsnapshot-near-heap-limit=0` in `NODE_OPTIONS` on the worker.
 
-The worker logs its heap limit at start (`heapLimitMib` in the
-`openworkflow.config-loaded` line).
+The worker logs its memory at start (`memoryMib` in the
+`openworkflow.worker-node-options` line) and its heap limit (`heapLimitMib`
+in the `openworkflow.config-loaded` line). When the worker uses 85% of its
+heap limit or of its container memory, it logs the error
+`openworkflow.memory-near-limit`, at most once a minute. The error names the
+ingestion steps that run at that time. It does not name other workflow steps.
 
 ## Secret handling
 

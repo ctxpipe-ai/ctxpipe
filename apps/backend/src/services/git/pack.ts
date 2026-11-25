@@ -1,4 +1,3 @@
-import { execFile } from "node:child_process"
 import { createHash } from "node:crypto"
 import { createReadStream, rmSync } from "node:fs"
 import {
@@ -13,16 +12,14 @@ import {
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pipeline } from "node:stream/promises"
-import { promisify } from "node:util"
 
 import { trace } from "@opentelemetry/api"
 
 import { log } from "../../observability/logger.js"
 import { gitRemoteEnvironment, isRegularFile } from "./clone-tree.js"
 import { measuredGitFetch } from "./fetch-bytes.js"
+import { startGitProcess } from "./git-process.js"
 import { withGitProcessSlot } from "./process-slot.js"
-
-const execute = promisify(execFile)
 
 /**
  * Native Git processes that have not exited, by repository directory. The
@@ -505,7 +502,7 @@ function describeGitFailure(
     stdout?: Buffer | string
     stderr?: Buffer | string
   }
-  // Only a Git process that ran has an exit status; execFile sets `cmd`.
+  // Only a Git process that ran has an exit status; startGitProcess sets `cmd`.
   if (!("cmd" in failure) || typeof failure.code === "string") return error
   const exitCode = typeof failure.code === "number" ? failure.code : undefined
   const signal = failure.signal ?? undefined
@@ -565,8 +562,7 @@ async function runNativeGit(
   env?: NodeJS.ProcessEnv,
   progressFile?: string,
 ): Promise<Buffer> {
-  const result = execute(
-    "git",
+  const result = startGitProcess(
     [
       "-c",
       "core.hooksPath=/dev/null",
@@ -580,15 +576,13 @@ async function runNativeGit(
       ...args,
     ],
     {
-      encoding: "buffer",
-      timeout: progressFile ? 0 : GIT_TIME_LIMIT_MS,
-      maxBuffer: 64 * 1024 * 1024,
       env: env ?? { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+      timeoutMs: progressFile ? 0 : GIT_TIME_LIMIT_MS,
     },
   )
   const entry = {
-    kill: () => result.child.kill(),
-    done: result.then(
+    kill: result.stop,
+    done: result.done.then(
       () => undefined,
       () => undefined,
     ),
@@ -602,7 +596,7 @@ async function runNativeGit(
       running.delete(directory)
   })
   if (typeof input === "object" && "file" in input) {
-    const stdin = result.child.stdin
+    const stdin = result.stdin
     if (!stdin) throw new Error("Native Git did not expose standard input")
     const streamed = pipeline(createReadStream(input.file), stdin).catch(
       (error: NodeJS.ErrnoException) => {
@@ -614,12 +608,12 @@ async function runNativeGit(
           error.code === "ERR_STREAM_PREMATURE_CLOSE"
         )
           return
-        result.child.kill()
+        result.stop()
         throw error
       },
     )
     try {
-      return (await Promise.all([result, streamed]))[0].stdout
+      return (await Promise.all([result.done, streamed]))[0]
     } finally {
       // A failed input stream kills Git; its slot stays taken until it exits.
       await entry.done
@@ -627,9 +621,9 @@ async function runNativeGit(
   }
   // Git can exit before it reads all of its input, and a process that did not
   // start has no reader; the exit status gives the result, not the pipe.
-  result.child.stdin?.on("error", () => {})
-  if (input !== undefined) result.child.stdin?.end(input)
-  if (!progressFile) return (await result).stdout
+  result.stdin?.on("error", () => {})
+  if (input !== undefined) result.stdin?.end(input)
+  if (!progressFile) return await result.done
   // The time limit of a fetch follows its progress, not the clock alone
   // (CTX-1601): a throttled Git host can need minutes for a large pack, but
   // a fetch that gets no data for this long stops.
@@ -656,10 +650,10 @@ async function runNativeGit(
       stopped = `The Git host sent no data for ${stallMs / 1000} s, so ctxpipe stopped the fetch (${got}).`
     else if (now - startedAt >= 10 * 60_000)
       stopped = `The fetch from the Git host did not finish in 10 min, so ctxpipe stopped it (${got}).`
-    if (stopped) result.child.kill()
+    if (stopped) result.stop()
   }
   try {
-    return (await result).stdout
+    return await result.done
   } catch (error) {
     throw stopped ? new GitFetchTimeLimitError(stopped) : error
   } finally {

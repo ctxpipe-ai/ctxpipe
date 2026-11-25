@@ -82,21 +82,35 @@ export const COMMIT_IDENTITY = {
 }
 
 /**
+ * A script that reaches GitHub only on some paths puts this before each Git
+ * network command. With `CTXPIPE_GITHUB_PENDING` set (the run's vault has no
+ * GitHub rules yet), the script exits 75 there, and
+ * `withGithubBeforeNetworkGit` adds the rules and runs it again. The script
+ * must be safe to run again from its start.
+ */
+export const GITHUB_PENDING_GUARD = `[ -z "\${CTXPIPE_GITHUB_PENDING:-}" ] || exit 75`
+
+/**
  * Checks out the conversation: the desired commit, then its session branch if
  * published. `refs/remotes/ctxpipe/base` marks the default commit the sandbox
  * builds on, so commits no remote-tracking ref covers are the unpushed ones.
+ * It reaches GitHub only for a missing commit or a session branch, so each
+ * network command has {@link GITHUB_PENDING_GUARD}.
  */
 export const WORKSPACE_CHAT_THREAD_SETUP = [
   `(git rev-parse --git-dir >/dev/null 2>&1 || {
   # The stock clone does not report its failure: ask the remote again, so the
   # setup error (which shows stdout) says why. Git's output names no credential.
   echo "Workspace clone failed: $CTXPIPE_CLONE_URL"
+  ${GITHUB_PENDING_GUARD}
   git ls-remote --heads -- "$CTXPIPE_CLONE_URL" 2>&1 | tail -n 5
   exit 1
 }
 # The stock clone is shallow; fetch the desired commit when the tip has moved on.
-git cat-file -e "$CTXPIPE_CLONE_SHA^{commit}" 2>/dev/null ||
-  ${SANDBOX_READ_GIT} fetch --depth 1 origin "$CTXPIPE_CLONE_SHA" || exit 1
+git cat-file -e "$CTXPIPE_CLONE_SHA^{commit}" 2>/dev/null || {
+  ${GITHUB_PENDING_GUARD}
+  ${SANDBOX_READ_GIT} fetch --depth 1 origin "$CTXPIPE_CLONE_SHA"
+} || exit 1
 git checkout -B "$CTXPIPE_CLONE_BRANCH" "$CTXPIPE_CLONE_SHA" &&
 git update-ref refs/remotes/ctxpipe/base "$CTXPIPE_CLONE_SHA" &&
 # The agent commits with plain git, and the sandbox has no identity.
@@ -104,6 +118,7 @@ git config user.name ${COMMIT_IDENTITY.GIT_AUTHOR_NAME} &&
 git config user.email ${COMMIT_IDENTITY.GIT_AUTHOR_EMAIL} &&
 if [ -n "\${CTXPIPE_SESSION_BRANCH:-}" ]; then
   git check-ref-format "refs/heads/$CTXPIPE_SESSION_BRANCH" || exit 1
+  ${GITHUB_PENDING_GUARD}
   ${SANDBOX_READ_GIT} ls-remote --exit-code --heads origin "refs/heads/$CTXPIPE_SESSION_BRANCH" >/dev/null
   REMOTE_STATUS=$?
   if [ "$REMOTE_STATUS" = 0 ]; then

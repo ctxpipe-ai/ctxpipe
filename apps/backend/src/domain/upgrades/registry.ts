@@ -280,8 +280,10 @@ export type WorkspaceUpgradePayload = {
    */
   reingested?: string[]
   /**
-   * Only on a re-ingestion that waits for its turn (a free sandbox slot):
-   * why, and when the wait began. The run clears it when its turn comes.
+   * Only on a re-ingestion that waits for its turn: why, and when the wait
+   * began. The run clears it when its turn comes. The name is from the old
+   * throttle; the one wait now is for an ingestion run of a source
+   * repository that can publish to the same Workspace (CTX-895).
    */
   waitingForSlot?: { reason: string; since: string }
   /**
@@ -303,7 +305,10 @@ export type ReingestEstimate = {
   repositories: number
   /** USD for the model calls. */
   costUsd: EstimateRange
-  /** Wall time when the repositories run one after the other. */
+  /**
+   * Wall time: the longest repository (low, the repositories run at the same
+   * time) to the sum of the repositories (high, they share the worker slots).
+   */
   minutes: EstimateRange
   perRepository: Array<{
     repository: string

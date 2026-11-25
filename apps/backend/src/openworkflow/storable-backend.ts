@@ -2,6 +2,7 @@ import { BackendPostgres } from "openworkflow/postgres"
 
 import { storable } from "../db/storable.js"
 import { getLogger, log } from "../observability/logger.js"
+import { limitIngestShardClaims } from "./ingest-worker-share.js"
 import { openWorkflowNamespaceId } from "./namespace.js"
 
 /**
@@ -9,6 +10,8 @@ import { openWorkflowNamespaceId } from "./namespace.js"
  * workflow can fail with, or return, text that Postgres refuses (for example
  * a file that holds a NUL byte). Without this, the write of the outcome
  * fails and hides the real error.
+ * A worker that claims through this backend runs at most its share of
+ * ingestion shards (`limitIngestShardClaims`).
  */
 export async function connectOpenWorkflowBackend(
   databaseUrl: string,
@@ -80,5 +83,8 @@ export async function connectOpenWorkflowBackend(
     failRun({ ...params, error: storable(params.error) })
   backend.rescheduleWorkflowRunAfterFailedStepAttempt = (params) =>
     rescheduleRun({ ...params, error: storable(params.error) })
+  // The ingestion shards use at most half of the worker slots (ADR-052,
+  // revision 2026-11-25).
+  limitIngestShardClaims(backend)
   return backend
 }

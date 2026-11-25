@@ -25,6 +25,7 @@ export function workspaceHttpApp(
       email: "contract@example.test",
       emailVerified: true,
       twoFactorEnabled: false,
+      banned: false,
       createdAt: new Date(),
       updatedAt: new Date(),
     })

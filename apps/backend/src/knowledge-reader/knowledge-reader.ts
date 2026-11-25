@@ -20,6 +20,7 @@ import {
   readyKnowledgeHeads,
 } from "../models/knowledge-state.js"
 import { getOrgFeature } from "../models/org-features.js"
+import { log } from "../observability/logger.js"
 import { legacyKnowledgeReader } from "./legacy-reader.js"
 import { planeKnowledgeReader } from "./plane-reader.js"
 import { shadowKnowledgeReader } from "./shadow.js"
@@ -123,6 +124,8 @@ function knowledgePlaneFlag(orgId: string): Promise<"off" | "shadow" | "on"> {
  *   logs only ids, scores, overlap, latency and call counts.
  * - `on`: the plane answers when each Workspace is ready on it, else the old
  *   stack answers the whole request.
+ * In `shadow` and `on`, a request that the old stack serves because a
+ * Workspace is not ready logs one `knowledge_plane.fallback` event.
  * A Workspace is ready when a knowledge run applied a commit in full
  * (`knowledge_state.last_sha`).
  */
@@ -152,7 +155,19 @@ export async function selectKnowledgeReader(
   }
   if (flag === "off" || workspaceIds.length === 0) return legacy
   const heads = await readyKnowledgeHeads(orgId, workspaceIds)
-  if (!workspaceIds.every((id) => heads.has(id))) return legacy
+  const notReadyIds = workspaceIds.filter((id) => !heads.has(id))
+  if (notReadyIds.length > 0) {
+    // The rollout needs each Workspace of the org ready (ADR-069 decision
+    // 9). Ids only: no query and no content.
+    log.info({
+      step: "knowledge_plane.fallback",
+      flag,
+      orgId,
+      workspaceIds,
+      notReadyIds,
+    })
+    return legacy
+  }
   if (flag === "on")
     return { reader: planeKnowledgeReader({ heads }), planeHeads: heads }
   return {
@@ -168,7 +183,8 @@ export async function selectKnowledgeReader(
  * each Workspace, else the reader of the default branch (ADR-071, the chat
  * branch selector). A conversation reads its session branch, then its base
  * branch: a session branch has a projection only after a push of it.
- * `branch` names the branch that the selection serves.
+ * `branch` names the branch that the selection serves. The fallback to the
+ * default branch logs as in `selectKnowledgeReader`.
  */
 export async function selectFirstKnowledgeBranch(
   orgId: string,

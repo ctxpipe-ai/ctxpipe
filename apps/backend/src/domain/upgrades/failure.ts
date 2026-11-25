@@ -52,8 +52,8 @@ type FailureInput = {
 /**
  * The first rule that matches wins. `temporary`: a second run can pass with
  * no change by the user (CTX-896), so ctxpipe starts it again by itself, once.
- * A long wait for a turn or for a run is not temporary: a new run waits at
- * the back of the queue again.
+ * A long wait for a turn or for a run is not temporary: the other ingestion
+ * run of the source, or the slow run, still runs.
  */
 const RULES: Array<{
   code: UpgradeFailureCode

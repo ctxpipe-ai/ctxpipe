@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto"
 import { sql } from "drizzle-orm"
 
 import { getSystemDb } from "../db/client.js"
-import { log } from "../observability/logger.js"
+import { currentWorkflowName, log } from "../observability/logger.js"
 import { openWorkflowNamespaceId } from "./namespace.js"
 
 /**
@@ -78,10 +78,21 @@ async function runningStepAttempts(
  * instances.
  */
 const workerStateKey = Symbol.for("ctxpipe.openworkflow.worker-stop-state")
-type WorkerStopState = { inFlight: Set<string>; stopping: boolean }
+/** A guarded step that runs now, by the id of its step attempt. */
+type GuardedStep = {
+  workflow?: string
+  workflowRunId: string
+  stepName: string
+}
+type WorkerStopState = { inFlight: Map<string, GuardedStep>; stopping: boolean }
 const processGlobals = globalThis as { [workerStateKey]?: WorkerStopState }
-processGlobals[workerStateKey] ??= { inFlight: new Set(), stopping: false }
+processGlobals[workerStateKey] ??= { inFlight: new Map(), stopping: false }
 const workerState = processGlobals[workerStateKey]
+
+/** The guarded steps that this worker process runs now. */
+export function guardedStepsInFlight(): GuardedStep[] {
+  return [...workerState.inFlight.values()]
+}
 
 /** Wait for ever. The process stops before this ends. */
 const never = () => new Promise<never>(() => {})
@@ -120,7 +131,7 @@ async function markAttemptsFailed(ids: string[]): Promise<string[]> {
  * marked.
  */
 export async function failInFlightStepAttempts(): Promise<number> {
-  const marked = await markAttemptsFailed([...workerState.inFlight])
+  const marked = await markAttemptsFailed([...workerState.inFlight.keys()])
   if (marked.length === 0) return 0
   log.warn({
     step: "openworkflow.step-attempts-stopped",
@@ -182,6 +193,7 @@ export async function withCrashLoopGuard<T>(
     log.error({
       step: "openworkflow.step-crash-loop",
       message: error.message,
+      workflow: currentWorkflowName(),
       workflowRunId,
       stepName,
       crashes,
@@ -190,7 +202,12 @@ export async function withCrashLoopGuard<T>(
     if (onCrashLoop) return onCrashLoop(error)
     throw error
   }
-  if (attemptId) workerState.inFlight.add(attemptId)
+  if (attemptId)
+    workerState.inFlight.set(attemptId, {
+      workflow: currentWorkflowName(),
+      workflowRunId,
+      stepName,
+    })
   try {
     return await fn()
   } finally {

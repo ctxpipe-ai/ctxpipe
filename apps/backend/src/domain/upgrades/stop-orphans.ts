@@ -61,7 +61,8 @@ export async function cancelRepositoryRuns(input: {
  * without it (failed or canceled), and the ingestion runs of that
  * repository run. It reads the runs of all orgs, so only two places
  * call it: the upgrade scan (once for each scan, not for each Workspace) and
- * the wait for a slot, because the slot stays taken until these runs end.
+ * the wait for the turn, because the ingestion run of an orphan makes a
+ * re-ingestion of the same source and Workspace wait (CTX-895).
  * A read path must not call it.
  */
 export async function stopOrphanedReingestRuns(): Promise<void> {

@@ -1,33 +1,36 @@
-import { execFile, spawn } from "node:child_process"
+import { spawn } from "node:child_process"
 import { mkdtemp, open, readFile, rm, stat } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { promisify } from "node:util"
 
 import { measuredGitFetch } from "./fetch-bytes.js"
+import { startGitProcess, stopGitProcessGroup } from "./git-process.js"
 import { withGitProcessSlot } from "./process-slot.js"
 import {
   workspaceRelativePath,
   workspaceRepositoryPath,
 } from "./root-folder.js"
 
-const execFileAsync = promisify(execFile)
-
 async function gitExec(
   args: string[],
-  options: Parameters<typeof execFileAsync>[2] = {},
+  options: {
+    timeout?: number
+    env?: NodeJS.ProcessEnv
+    maxBuffer?: number
+  } = {},
   input?: string,
-) {
+): Promise<{ stdout: Buffer }> {
   try {
-    return await withGitProcessSlot(() => {
-      const execution = execFileAsync("git", args, {
-        ...options,
-        encoding: "buffer",
+    return await withGitProcessSlot(async () => {
+      const execution = startGitProcess(args, {
+        env: options.env,
+        timeoutMs: options.timeout,
+        maxBuffer: options.maxBuffer,
       })
       // A process that did not start has no reader for its input.
-      execution.child.stdin?.on("error", () => {})
-      if (input !== undefined) execution.child.stdin?.end(input)
-      return execution
+      execution.stdin?.on("error", () => {})
+      if (input !== undefined) execution.stdin?.end(input)
+      return { stdout: await execution.done }
     })
   } catch (error) {
     const err = error as NodeJS.ErrnoException & {
@@ -89,12 +92,13 @@ export async function gitOutput(
                 stdout.fd,
                 "pipe",
               ],
+              detached: true,
             })
             let stderr = ""
             let timedOut = false
             const timer = setTimeout(() => {
               timedOut = true
-              child.kill()
+              stopGitProcessGroup(child)
             }, timeout)
             child.stderr?.on("data", (chunk: Buffer) => {
               stderr = (stderr + chunk.toString()).slice(-4096)

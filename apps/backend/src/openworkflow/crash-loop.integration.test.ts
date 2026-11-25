@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url"
 
 import { config } from "dotenv"
 import { eq, sql } from "drizzle-orm"
+import { initLogger } from "evlog"
 import { OpenWorkflow, type Workflow } from "openworkflow"
 import type { BackendPostgres } from "openworkflow/postgres"
 import { afterAll, beforeAll, expect, it, vi } from "vitest"
@@ -21,6 +22,7 @@ import {
   withCrashLoopGuard,
 } from "./crash-loop.js"
 import { defineWorkflow } from "./defineObservedWorkflow.js"
+import { memoryPressureCheck } from "./memory-pressure.js"
 import { connectOpenWorkflowBackend } from "./storable-backend.js"
 import {
   guardedSkillStep,
@@ -217,6 +219,66 @@ it("runs a real step after two worker stops, and ends it with the fallback after
       .filter((attempt) => attempt.status === "completed")
       .map((attempt) => [attempt.stepName, attempt.output]),
   ).toEqual([["discover", "crash-loop"]])
+})
+
+it("logs an error that names the workflow and the guarded step when the worker nears its memory limit (CTX-1615)", async () => {
+  const events: Record<string, unknown>[] = []
+  initLogger({
+    env: { service: "ctxpipe-backend-test" },
+    pretty: false,
+    drain: (ctx) => void events.push(ctx.event as Record<string, unknown>),
+  })
+  const GiB = 1024 ** 3
+  let heapUsed = 0.5 * GiB
+  const check = memoryPressureCheck(2 * GiB, () => ({
+    heapUsed,
+    heapLimit: GiB,
+    rss: GiB,
+  }))
+  const step = "skill:apps/api:apis.3:ws_test"
+  workflows++
+  const workflow = defineWorkflow(
+    {
+      name: `memory-${pr}-${workflows}`,
+      schema: z.object({}),
+      retryPolicy: once,
+    },
+    async ({ step: steps, run }) =>
+      steps.run({ name: step, retryPolicy: once }, () =>
+        withCrashLoopGuard(run.id, step, async () => {
+          check()
+          heapUsed = 0.9 * GiB
+          check()
+          check()
+          return "ran"
+        }),
+      ),
+  )
+  try {
+    const { output } = await runAfterCrashes(workflow, async () => {})
+    expect(output).toBe("ran")
+    // After the step, no ingestion step runs, and a second error waits a minute.
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.advanceTimersByTime(61_000)
+    check()
+  } finally {
+    vi.useRealTimers()
+    initLogger({ enabled: false, env: { service: "ctxpipe-backend-test" } })
+  }
+
+  const near = events.filter((e) => e.step === "openworkflow.memory-near-limit")
+  expect(near[0]).toMatchObject({
+    level: "error",
+    limit: "heap",
+    heapUsedMib: 922,
+    heapLimitMib: 1024,
+    memoryMib: 2048,
+    runningSteps: step,
+  })
+  expect(near[0]?.message).toContain(`memory-${pr}-${workflows}`)
+  expect(near[0]?.message).toContain(`step ${step}`)
+  expect(near).toHaveLength(2)
+  expect(near[1]?.message).toContain("no ingestion step")
 })
 
 it("does not count worker stops older than 2 hours, such as old deploys", async () => {

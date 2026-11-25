@@ -73,7 +73,11 @@ import {
 } from "./conversation-sandbox-lifecycle.js"
 import { checkoutSessionBranch } from "./conversation-session-branch.js"
 import { nameConversationIfUnnamed } from "./conversation-title.js"
-import { openDockerRunVault } from "./docker-run-vault.js"
+import {
+  type DockerRunVault,
+  openDockerRunVault,
+  withGithubBeforeNetworkGit,
+} from "./docker-run-vault.js"
 import { adaptTanstackHandle, SANDBOX_GIT_GUARD } from "./job-sandbox.js"
 import type { JobSandboxHandle } from "./job-worktree.js"
 import { createChunkMasker, maskCredentials } from "./mask-credentials.js"
@@ -773,6 +777,10 @@ async function startWorkspaceChat(
       await turn.failRun(new Error(built.error))
       return built
     }
+    // The agent can reach GitHub as soon as it starts, so a turn mints its
+    // token now, in parallel with the sandbox setup, and OpenCode starts
+    // only after the rules are in the vault (\`workspace-chat-permissions\`).
+    built.vault?.github().catch(() => undefined)
     let revoked: Promise<void> | undefined
     revokeTurnGitTokens = () => {
       revoked ??= built.release()
@@ -837,6 +845,8 @@ async function startWorkspaceChat(
       }
     }
     let revisionConflict: WorkspaceRevision | undefined
+    /** The revision setup and the turn-start snapshot (`workspace-chat-revision`). */
+    let turnSetup: Promise<void> | undefined
     const chatStarted = Date.now()
     // The files this turn changed: a snapshot of the work tree when the turn
     // starts and when it ends. Runs before the conversation lock is released,
@@ -849,6 +859,9 @@ async function startWorkspaceChat(
       runId: string
       messages: ReadonlyArray<{ role: string }>
     }) => {
+      // A turn that ends before its prompt: no git command of the setup runs
+      // after the conversation lock is released.
+      await turnSetup?.catch(() => undefined)
       const start = turnStart
       turnStart = undefined
       if (!start) return
@@ -913,6 +926,29 @@ async function startWorkspaceChat(
       adapter: withOrderedTranscript(
         opencodeText(built.contract.opencodeModel, {
           ...opencodeListen,
+          // The prompt waits for the revision setup and the turn-start
+          // snapshot, which run while OpenCode starts. The orientation (it
+          // changes only with the revision, so the prompt cache keeps it) and
+          // a revision conflict follow the other system prompts.
+          beforePrompt: async () => {
+            await turnSetup
+            return {
+              systemPrompts: [
+                ...(orientationPrompt ? [orientationPrompt] : []),
+                ...(revisionConflict
+                  ? [
+                      JSON.stringify({
+                        type: "workspace_revision_conflict",
+                        effectiveSha: revisionConflict.sha,
+                        desiredSha: built.revision.sha,
+                        instructions:
+                          "Keep the current branch. Publishing is blocked until it is rebased onto desiredSha. Inspect Git status and saved stashes before repairing. An interrupted update is recorded at .git/ctxpipe-revision-transition; after recovering its saved edits and resolving the rebase, remove that marker so the next turn can move to the new commit. Never discard saved edits without the user's request.",
+                      }),
+                    ]
+                  : []),
+              ],
+            }
+          },
           permissionMode: runtime.permissionMode,
           onPermissionRequest: runtime.onPermissionRequest,
         }),
@@ -959,104 +995,6 @@ async function startWorkspaceChat(
           instances: built.instances,
           locks: built.workspaceLock.locks(abortController),
         }),
-        defineChatMiddleware({
-          name: "workspace-chat-revision",
-          requires: [SandboxCapability],
-          async setup(ctx) {
-            return timeSandboxLifecycle("revision-setup", async () => {
-              const handle = getSandbox(ctx)
-              const updated = await updateConversationSandboxRevision({
-                handle,
-                orgId: input.orgId,
-                sandboxKey: definition.key({
-                  threadId: input.conversationId,
-                  runId: ctx.runId,
-                  tenant: { userId: undefined, orgId: input.orgId },
-                }),
-                desired: built.revision,
-                signal: abortController.signal,
-              })
-              if (updated.conflict) revisionConflict = updated.effective
-              else
-                await checkoutSessionBranch({
-                  handle,
-                  orgId: input.orgId,
-                  conversationId: input.conversationId,
-                  desired: built.revision,
-                })
-              orientationPrompt = await orientation
-            })
-          },
-          onConfig(_ctx, config) {
-            const rootPath = workspaceRootPath(built.revision)
-            // The docs block never changes, so it comes first and the prompt
-            // cache keeps it. The push refuses a change outside the root
-            // folder; the root block tells the agent first. The orientation
-            // follows: it changes only with the revision, so the prompt cache
-            // keeps it across turns.
-            const rootPrompts = [
-              JSON.stringify({
-                type: "ctxpipe_docs",
-                instructions: `For a question about ctxpipe itself (Workspaces, sources, upgrades, MCP setup, self-hosting), read ${DOCS_URL}/llms.txt, then the page that matches. Answer from that page, and give its URL without the .mdx ending. Do not answer such a question from the Workspace knowledge: it is about this organization, not about ctxpipe. If you cannot read the docs, give the user ${DOCS_URL}.`,
-              }),
-              ...(rootPath
-                ? [
-                    JSON.stringify({
-                      type: "workspace_root_folder",
-                      rootPath,
-                      instructions: `The Workspace is the folder ${rootPath}/ of this repository. Read and change files only below it. Do not change, add, or delete a file outside it: ctxpipe refuses to push such a commit.`,
-                    }),
-                  ]
-                : []),
-              ...(orientationPrompt ? [orientationPrompt] : []),
-            ]
-            const prompts = [
-              ...rootPrompts,
-              ...(revisionConflict
-                ? [
-                    JSON.stringify({
-                      type: "workspace_revision_conflict",
-                      effectiveSha: revisionConflict.sha,
-                      desiredSha: built.revision.sha,
-                      instructions:
-                        "Keep the current branch. Publishing is blocked until it is rebased onto desiredSha. Inspect Git status and saved stashes before repairing. An interrupted update is recorded at .git/ctxpipe-revision-transition; after recovering its saved edits and resolving the rebase, remove that marker so the next turn can move to the new commit. Never discard saved edits without the user's request.",
-                    }),
-                  ]
-                : []),
-            ]
-            // TanStack calls onConfig at the start and again before each model
-            // call: add each prompt once.
-            const missing = prompts.filter(
-              (prompt) => !config.systemPrompts.includes(prompt),
-            )
-            return missing.length
-              ? { systemPrompts: [...config.systemPrompts, ...missing] }
-              : undefined
-          },
-        }),
-        defineChatMiddleware({
-          name: "workspace-chat-turn-changes-start",
-          requires: [SandboxCapability],
-          async setup(ctx) {
-            const handle = adaptTanstackHandle(getSandbox(ctx))
-            const key = turnSnapshotKey(ctx.runId, Date.now())
-            try {
-              turnStart = {
-                handle,
-                key,
-                snapshot: await withTurnSnapshotTimeout(
-                  snapshotConversationTurn(handle, key, "start"),
-                ),
-              }
-            } catch (error) {
-              log.warn({
-                step: "workspace-chat-turn-changes",
-                message: `The turn start snapshot failed: ${String(error)}`,
-                conversationId: input.conversationId,
-              })
-            }
-          },
-        }),
         workspaceChatCallbackMiddleware(callbackHost, built.vault),
         defineChatMiddleware({
           name: "workspace-chat-permissions",
@@ -1087,7 +1025,10 @@ async function startWorkspaceChat(
               // runs: the turn's OpenCode starts with the files that the
               // warm-up already read, and does not wait for the rest.
               if (built.isolation !== "unsandboxed")
-                await stopEarlierTurnProcesses(activeSandbox)
+                await Promise.all([
+                  stopEarlierTurnProcesses(activeSandbox),
+                  built.vault?.github(),
+                ])
               // The conversation lock is held and OpenCode has not started.
               // Its subprocesses inherit these values (none on Docker or
               // AgentCore).
@@ -1100,6 +1041,89 @@ async function startWorkspaceChat(
               )
               abortController.signal.throwIfAborted()
             })
+          },
+        }),
+        defineChatMiddleware({
+          name: "workspace-chat-revision",
+          requires: [SandboxCapability],
+          // After the stop of earlier processes. The revision setup and the
+          // turn-start snapshot run while the adapter starts OpenCode; the
+          // prompt waits for them (`beforePrompt`, CTX-1322).
+          setup(ctx) {
+            turnSetup = (async () => {
+              await timeSandboxLifecycle("revision-setup", async () => {
+                const handle = getSandbox(ctx)
+                const updated = await updateConversationSandboxRevision({
+                  handle,
+                  orgId: input.orgId,
+                  sandboxKey: definition.key({
+                    threadId: input.conversationId,
+                    runId: ctx.runId,
+                    tenant: { userId: undefined, orgId: input.orgId },
+                  }),
+                  desired: built.revision,
+                  signal: abortController.signal,
+                })
+                if (updated.conflict) revisionConflict = updated.effective
+                else
+                  await checkoutSessionBranch({
+                    handle,
+                    orgId: input.orgId,
+                    conversationId: input.conversationId,
+                    desired: built.revision,
+                  })
+                orientationPrompt = await orientation
+              })
+              const handle = adaptTanstackHandle(getSandbox(ctx))
+              const key = turnSnapshotKey(ctx.runId, Date.now())
+              try {
+                turnStart = {
+                  handle,
+                  key,
+                  snapshot: await withTurnSnapshotTimeout(
+                    snapshotConversationTurn(handle, key, "start"),
+                  ),
+                }
+              } catch (error) {
+                log.warn({
+                  step: "workspace-chat-turn-changes",
+                  message: `The turn start snapshot failed: ${String(error)}`,
+                  conversationId: input.conversationId,
+                })
+              }
+            })()
+            // The prompt or the turn end reads the result.
+            turnSetup.catch(() => undefined)
+          },
+          onConfig(_ctx, config) {
+            const rootPath = workspaceRootPath(built.revision)
+            // The docs block never changes, so it comes first and the prompt
+            // cache keeps it. The push refuses a change outside the root
+            // folder; the root block tells the agent first. The orientation
+            // and a revision conflict come after them (`beforePrompt`).
+            const prompts = [
+              JSON.stringify({
+                type: "ctxpipe_docs",
+                instructions: `For a question about ctxpipe itself (Workspaces, sources, upgrades, MCP setup, self-hosting), read ${DOCS_URL}/llms.txt, then the page that matches. Answer from that page, and give its URL without the .mdx ending. Do not answer such a question from the Workspace knowledge: it is about this organization, not about ctxpipe. If you cannot read the docs, give the user ${DOCS_URL}.`,
+              }),
+              ...(rootPath
+                ? [
+                    JSON.stringify({
+                      type: "workspace_root_folder",
+                      rootPath,
+                      instructions: `The Workspace is the folder ${rootPath}/ of this repository. Read and change files only below it. Do not change, add, or delete a file outside it: ctxpipe refuses to push such a commit.`,
+                    }),
+                  ]
+                : []),
+            ]
+            // TanStack calls onConfig at the start and again before each model
+            // call: add each prompt once.
+            const missing = prompts.filter(
+              (prompt) => !config.systemPrompts.includes(prompt),
+            )
+            return missing.length
+              ? { systemPrompts: [...config.systemPrompts, ...missing] }
+              : undefined
           },
         }),
         openCodeTrailingUserMiddleware(input.prompt),
@@ -1323,7 +1347,7 @@ async function buildWorkspaceChatSandbox(
   const repoFullName = githubRepoFullNameFromWorkspaceUrl(desiredUrl)
   // Docker: the run's vault holds the GitHub token and Agent Vault adds it.
   // A Files read (no label) runs no network command and gets no vault.
-  let vault: RunVault | undefined
+  let vault: DockerRunVault | undefined
   if (
     (selectedProvider === "docker" || selectedProvider === "agentcore") &&
     cloneLabel
@@ -1334,6 +1358,9 @@ async function buildWorkspaceChatSandbox(
         conversationId: input.conversationId,
         label: cloneLabel,
         revision: revision.data,
+        // The GitHub token is minted before the first command that reaches
+        // GitHub (`withGithubBeforeNetworkGit`); a turn starts it at once.
+        github: "lazy",
         // Hosted: the proxy forwards only its rules. Passthrough could reach
         // private VPC addresses and the Fargate task metadata endpoint.
         ...(selectedProvider === "agentcore"
@@ -1392,13 +1419,16 @@ async function buildWorkspaceChatSandbox(
     workspaceId: input.workspaceId,
     revision: revision.data,
   }
-  const provider = conversationSandboxProvider(
+  const stockProvider = conversationSandboxProvider(
     selectedProvider,
     agentPassword,
     baseImage,
     vault?.caPem,
     pool,
   )
+  const provider = vault
+    ? withGithubBeforeNetworkGit(stockProvider, vault.github)
+    : stockProvider
   return {
     ok: true as const,
     isolation: selectedProvider,

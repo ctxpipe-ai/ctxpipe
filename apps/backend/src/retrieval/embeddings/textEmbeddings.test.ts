@@ -480,7 +480,10 @@ describe("embedTexts", () => {
         (err: unknown) => err,
       )
 
-      expect(String(error)).toBe("Error: Embedding request failed: HTTP 400")
+      expect(String(error)).toBe(
+        "EmbeddingError: Embedding request failed: HTTP 400",
+      )
+      expect(error).toMatchObject({ status: 400 })
     },
   )
 })

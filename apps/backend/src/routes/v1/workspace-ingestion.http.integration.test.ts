@@ -237,7 +237,8 @@ describe("Active ingestion of a Workspace (Postgres)", () => {
       }),
     )
 
-    // A run in its shards: 45 roots make 3 shards, and 2 are done.
+    // A run in its shards: 45 roots at the recorded 5 roots for each shard
+    // make 9 shards, and 2 are done.
     await insertRun({
       id: "run_shards",
       name: "repository-ingestion-v2",
@@ -265,6 +266,7 @@ describe("Active ingestion of a Workspace (Postgres)", () => {
           evidence: [],
         })),
       ),
+      shardMaxRoots: 5,
       repositorySkills: 1,
     })
     await insertStep("run_shards", "shard:0", "completed", {})
@@ -493,7 +495,7 @@ describe("Active ingestion of a Workspace (Postgres)", () => {
         kind: "repository",
         name: `acme/web-${suffix}`,
         stage: "ingesting",
-        progress: { done: 2, total: 3, unit: "shards" },
+        progress: { done: 2, total: 9, unit: "shards" },
       },
       {
         id: "run_waiting",

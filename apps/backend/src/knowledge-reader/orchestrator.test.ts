@@ -8,8 +8,8 @@ import {
   decideDisagreements,
   type EvidenceItem,
 } from "../retrieval/jev/disagreement.js"
+import { BudgetSpentError } from "./failure.js"
 import {
-  BudgetSpentError,
   isBudgetSpent,
   type JudgeInput,
   judge,

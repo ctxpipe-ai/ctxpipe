@@ -4,10 +4,14 @@ import { and, eq, inArray, sql } from "drizzle-orm"
 
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { workspaceSources } from "../../db/schema/workspace_sources.js"
+import { CODESEARCH_SIZE_CAPACITY } from "../../openworkflow/codesearchCapacity.js"
+import { ingestWorkerShare } from "../../openworkflow/ingest-worker-share.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { ingestionRunTree } from "../ingestion/ingest-spend.js"
 import {
   INGEST_SHARD_MAX_ROOTS,
+  INGEST_SHARD_WINDOW,
+  ingestShardCount,
   plannedIngestSkills,
 } from "../ingestion/ingestion-plan.js"
 import {
@@ -42,19 +46,16 @@ import {
 export const REINGEST_REQUIRES_FORMAT = 3
 
 /**
- * The throttle of re-ingestion (ADR-052): one upgrade run of an org at a
- * time, with its repositories one after the other, and a cap of upgrade runs
- * on the instance. The polls of a repository run back off from `firstPoll`,
- * so a long run spends few workflow steps. The slot polls stay short
- * (CTX-898): no event wakes a waiting run when a slot frees, so a long poll
- * left the slot idle for up to that poll.
+ * The polls of a re-ingestion. Re-ingestion has no throttle of its own
+ * (ADR-052, revision 2026-11-25). The polls of a repository run back off
+ * from `firstPoll`, so a long run spends few workflow steps. The polls of
+ * the turn stay short (CTX-898): no event wakes a waiting run when the other
+ * ingestion run ends, so a long poll made the run wait for up to that poll.
  */
-export const REINGEST_THROTTLE = {
-  /** Upgrade runs (each one org) that run their repositories at a time on this instance. */
-  runsPerInstance: 4,
+export const REINGEST_POLLS = {
   firstPollSeconds: 60,
   /** The longest wait of the upgrade run between two checks of its turn. */
-  maxSlotPollSeconds: 60,
+  maxTurnPollSeconds: 60,
   /** The longest wait of a repository run between two reads of its ingestion run and spend. */
   maxRunPollSeconds: 5 * 60,
 }
@@ -81,8 +82,23 @@ const ESTIMATE = {
   minutesPerModelStep: { low: 1, high: 3 },
   /** Index, discovery, assemble and publish. */
   setupMinutes: { low: 3, high: 8 },
-  /** Shards that run at the same time (`SHARD_BATCH` of the v2 workflow). */
-  parallelShards: 4,
+  /**
+   * Shards of one repository that run at the same time: the worker share of
+   * the shards, half of the worker slots (ADR-052). The low time takes half
+   * of the largest cluster budget of ADR-027, the high time the share of one
+   * worker with the default concurrency.
+   */
+  parallelShards: {
+    low: Math.min(
+      INGEST_SHARD_WINDOW,
+      Math.max(
+        ...Object.values(CODESEARCH_SIZE_CAPACITY).map(
+          (size) => size.clusterWorkflowBudget,
+        ),
+      ) / 2,
+    ),
+    high: ingestWorkerShare({}),
+  },
 } as const
 
 export { ingestionRunSpend } from "../ingestion/ingest-spend.js"
@@ -226,12 +242,15 @@ export async function estimateReingest(input: {
       low: steps.low * ESTIMATE.usdPerModelStep.low,
       high: steps.high * ESTIMATE.usdPerModelStep.high,
     }
-    // The root steps of one shard run one after the other; shards run in
-    // groups of `parallelShards`.
-    const sequentialSteps = (count: number) => {
-      const shards = Math.max(1, Math.ceil(count / INGEST_SHARD_MAX_ROOTS))
+    // The root steps of one shard run one after the other; at most
+    // `parallel` shards run at the same time.
+    const sequentialSteps = (count: number, parallel: number) => {
+      const shards = Math.max(
+        1,
+        ingestShardCount(count, INGEST_SHARD_MAX_ROOTS),
+      )
       return (
-        Math.ceil(shards / ESTIMATE.parallelShards) *
+        Math.ceil(shards / parallel) *
           Math.min(count, INGEST_SHARD_MAX_ROOTS) *
           rootSteps +
         repositorySteps
@@ -242,10 +261,12 @@ export async function estimateReingest(input: {
       : {
           low:
             ESTIMATE.setupMinutes.low +
-            sequentialSteps(roots.low) * ESTIMATE.minutesPerModelStep.low,
+            sequentialSteps(roots.low, ESTIMATE.parallelShards.low) *
+              ESTIMATE.minutesPerModelStep.low,
           high:
             ESTIMATE.setupMinutes.high +
-            sequentialSteps(roots.high) * ESTIMATE.minutesPerModelStep.high,
+            sequentialSteps(roots.high, ESTIMATE.parallelShards.high) *
+              ESTIMATE.minutesPerModelStep.high,
         }
     return {
       repository: repository.repository,
@@ -264,7 +285,12 @@ export async function estimateReingest(input: {
       { low: 0, high: 0 },
     )
   const costUsd = sum((r) => r.costUsd)
-  const minutes = sum((r) => r.minutes)
+  // The repositories run at the same time (low: the longest one), and share
+  // the worker slots of ADR-027 (high: one after the other).
+  const minutes = {
+    low: Math.max(0, ...perRepository.map((r) => r.minutes.low)),
+    high: sum((r) => r.minutes).high,
+  }
   return {
     repositories: perRepository.length,
     costUsd: { low: round(costUsd.low, 2), high: round(costUsd.high, 2) },
@@ -366,7 +392,7 @@ export function reingestRunKeyPrefix(input: {
   return `${RUN_KEY_PREFIX}${input.orgId}:${input.workspaceId}:${input.upgradeRunId}:`
 }
 
-/** The name of the upgrade workflow that holds a throttle slot. */
+/** The name of the upgrade workflow of a re-ingestion. */
 export const REINGEST_WORKFLOW_NAME = "workspace-upgrade-reingest"
 
 /** The name of the child workflow that runs one repository of a re-ingestion. */
@@ -374,88 +400,40 @@ export const REINGEST_REPOSITORY_WORKFLOW_NAME =
   "workspace-upgrade-reingest-repository"
 
 /**
- * Whether it is the turn of the upgrade run `upgradeRunId` (ADR-052). The
- * active upgrade runs keep their queue order (created first, then id): the
- * first run of each org is the head of that org, and the first
- * `runsPerInstance` heads run. A run holds its slot until it ends, so one
- * Workspace of an org runs at a time, and its repositories run one after the
- * other. Two runs that start in the same millisecond keep the id order, so
- * the same run gets the slot at each ask. A repository run of an earlier
- * upgrade run of the org that is still active also holds the slot, so a run
- * that ended early frees no slot while its children spend. The answer comes only from the run
- * rows, so two runs cannot both take the same slot, and a run that ended
- * frees its slot.
+ * Whether a re-ingestion of the Workspace can start its repository runs now.
+ * Re-ingestion has no throttle of its own (ADR-052, revision 2026-11-25):
+ * the other re-ingestions of the org and of the instance do not make it
+ * wait.
  *
- * An ingestion v2 run of a source repository in `sourceUrls` that can publish
- * to the Workspace (CTX-895) also makes the run wait. Both runs pin the same
- * revision, so the later publish finds each file of the run changed on the
- * default branch, and only the merge model can join them. When the upgrade
- * waits, its run pins the revision that the other run published.
+ * Only an ingestion v2 run of a source repository in `sourceUrls` that can
+ * publish to the Workspace (CTX-895) makes the run wait. Both runs pin the
+ * same revision, so the later publish finds each file of the run changed on
+ * the default branch, and only the merge model can join them. When the
+ * upgrade waits, its run pins the revision that the other run published.
  */
-export async function reingestSlotTurn(input: {
+export async function reingestTurn(input: {
   orgId: string
-  upgradeRunId: string
-  runsPerInstance: number
   workspaceId: string
   sourceUrls: readonly string[]
 }): Promise<{ turn: true } | { wait: string }> {
   const sourceUrls = input.sourceUrls.map((url) => url.toLowerCase())
-  const result = await getSystemDb().execute<{
-    org_head: string | null
-    ahead: string
-    open_children: string
-    open_ingestions: string
-  }>(sql`
-    with heads as (
-      select distinct on (input->>'orgId') id, input->>'orgId' as org_id, created_at
-      from openworkflow.workflow_runs
-      where namespace_id = ${openWorkflowNamespaceId()}
-        and workflow_name = ${REINGEST_WORKFLOW_NAME}
-        and status in ('pending', 'running', 'sleeping')
-      order by input->>'orgId', created_at, id
-    )
-    select
-      (select id from heads where org_id = ${input.orgId}) as org_head,
-      (select count(*) from heads h, heads me
-        where me.id = ${input.upgradeRunId}
-          and (h.created_at, h.id) < (me.created_at, me.id)) as ahead,
-      (select count(*) from openworkflow.workflow_runs child
-        where child.namespace_id = ${openWorkflowNamespaceId()}
-          and child.workflow_name = ${REINGEST_REPOSITORY_WORKFLOW_NAME}
-          and child.status in ('pending', 'running', 'sleeping')
-          and child.input->>'orgId' = ${input.orgId}
-          and child.input->>'upgradeRunId' <> ${input.upgradeRunId}) as open_children,
-      (select count(*) from openworkflow.workflow_runs ingest
-        where ingest.namespace_id = ${openWorkflowNamespaceId()}
-          and ingest.workflow_name = ${INGESTION_V2_WORKFLOW_NAME}
-          and ingest.status in ('pending', 'running', 'sleeping')
-          and ingest.input->>'orgId' = ${input.orgId}
-          and ingest.input->>'shadow' = 'false'
-          and ${
-            sourceUrls.length
-              ? sql`lower(ingest.input->'source'->>'url') in (${sql.join(
-                  sourceUrls.map((url) => sql`${url}`),
-                  sql`, `,
-                )})`
-              : sql`false`
-          }
-          and (ingest.input->'destinations' is null
-            or ingest.input->'destinations' @> ${JSON.stringify([input.workspaceId])}::jsonb)) as open_ingestions
+  if (!sourceUrls.length) return { turn: true }
+  const result = await getSystemDb().execute<{ open_ingestions: string }>(sql`
+    select count(*) as open_ingestions
+    from openworkflow.workflow_runs ingest
+    where ingest.namespace_id = ${openWorkflowNamespaceId()}
+      and ingest.workflow_name = ${INGESTION_V2_WORKFLOW_NAME}
+      and ingest.status in ('pending', 'running', 'sleeping')
+      and ingest.input->>'orgId' = ${input.orgId}
+      and ingest.input->>'shadow' = 'false'
+      and lower(ingest.input->'source'->>'url') in (${sql.join(
+        sourceUrls.map((url) => sql`${url}`),
+        sql`, `,
+      )})
+      and (ingest.input->'destinations' is null
+        or ingest.input->'destinations' @> ${JSON.stringify([input.workspaceId])}::jsonb)
   `)
-  const row = result.rows[0]
-  if (row?.org_head !== input.upgradeRunId)
-    return {
-      wait: "Another re-ingestion of this organization runs.",
-    }
-  // A repository run of an upgrade run that ended (failed or canceled) can
-  // still spend. Its slot stays taken until that run ends too.
-  if (Number(row.open_children) > 0)
-    return {
-      wait: "A repository run of an earlier re-ingestion of this organization has not ended.",
-    }
-  if (Number(row.ahead) >= input.runsPerInstance)
-    return { wait: "The re-ingestion slots of this instance are full." }
-  if (Number(row.open_ingestions) > 0)
+  if (Number(result.rows[0]?.open_ingestions ?? 0) > 0)
     return {
       wait: "An ingestion run of a source repository of this Workspace has not ended. The re-ingestion starts after it.",
     }

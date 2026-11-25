@@ -25,6 +25,7 @@ import {
 } from "../observability/attribution.js"
 import { getLogger } from "../observability/logger.js"
 import { recordApiKeyEvent } from "./api-key-events.js"
+import { isBanned, isOrgApiKeyMakerBanned, isTokenRevoked } from "./ban.js"
 import { callPrincipalFromContext, resolveCallOrg } from "./call-org.js"
 import { type AuthSession, type AuthUser, getAuth } from "./config.js"
 import { MCP_READ_SCOPE, quoteHeaderValue } from "./mcp-scopes.js"
@@ -148,6 +149,13 @@ function unauthorized(
     401,
     wwwAuthenticateForMcpRoute(c, errorDescription, kind),
   )
+}
+
+/** A banned user acts with no credential (`ban.ts`). */
+function refuseBannedUser(c: Context<AppEnv>, user: AuthUser) {
+  return isBanned(user)
+    ? unauthorized(c, "user_banned", "The user is banned")
+    : undefined
 }
 
 /**
@@ -369,6 +377,8 @@ export const withCookieAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     }
     return next()
   }
+  const banned = refuseBannedUser(c, authSession.user)
+  if (banned) return banned
   // @better-auth/api-key 1.6.23 sets this mocked session id to the key id
   // inside getSession, after validateApiKey has already counted the request.
   if (apiKeyHeader) c.set("personalApiKeyId", authSession.session.id)
@@ -429,7 +439,7 @@ type BearerApiKeyAuthResult =
   | { kind: "invalid"; refusal: OrgApiKeyRefusal }
 
 type OrgApiKeyRefusal = {
-  /** `invalid`, `expired`, `disabled`, `rate_limited`, or `not_org_key`. */
+  /** `invalid`, `expired`, `disabled`, `rate_limited`, `not_org_key`, or `maker_banned`. */
   reason: string
   /** The key id, when the auth library tells it or the key row still exists. */
   keyId?: string
@@ -545,6 +555,10 @@ async function verifyOrgApiKey(
   if (verified.key.configId !== "organization" || !verified.key.referenceId) {
     return { refusal: { reason: "not_org_key", keyId: verified.key.id } }
   }
+  // A banned user acts with no key that the user made (`ban.ts`).
+  if (await isOrgApiKeyMakerBanned(verified.key.id)) {
+    return { refusal: { reason: "maker_banned", keyId: verified.key.id } }
+  }
 
   return {
     orgApiKey: {
@@ -644,6 +658,8 @@ async function authenticateBearer(
   if (accessToken.split(".").length !== 3) {
     const opaque = await resolveOpaqueAccessToken(accessToken)
     if (opaque) {
+      const banned = refuseBannedUser(c, opaque.user)
+      if (banned) return banned
       c.set("personalApiKeyId", null)
       c.set("session", opaque.session)
       c.set("user", opaque.user)
@@ -655,6 +671,8 @@ async function authenticateBearer(
     }
     const sessionResolved = await resolveSessionToken(accessToken)
     if (sessionResolved) {
+      const banned = refuseBannedUser(c, sessionResolved.user)
+      if (banned) return banned
       c.set("personalApiKeyId", null)
       c.set("session", sessionResolved.session)
       c.set("user", sessionResolved.user)
@@ -665,6 +683,8 @@ async function authenticateBearer(
     if (allowApiKeyFallback) {
       const apiKeyAuth = await resolveBearerApiKeyAuth(accessToken)
       if (apiKeyAuth.kind === "user") {
+        const banned = refuseBannedUser(c, apiKeyAuth.user)
+        if (banned) return banned
         c.set("user", apiKeyAuth.user)
         c.set("session", apiKeyAuth.session)
         c.set("personalApiKeyId", apiKeyAuth.personalApiKeyId)
@@ -833,6 +853,11 @@ async function authenticateBearer(
   )
 
   if (tokenSessionContext) {
+    const banned = refuseBannedUser(c, tokenSessionContext.user)
+    if (banned) return banned
+    // No row can revoke a JWT: a ban sets a time before which none counts.
+    if (await isTokenRevoked(tokenSessionContext.user.id, payload.iat))
+      return unauthorized(c, "token_revoked", "The access token was revoked")
     c.set("personalApiKeyId", null)
     c.set("session", tokenSessionContext.session)
     c.set("user", tokenSessionContext.user)

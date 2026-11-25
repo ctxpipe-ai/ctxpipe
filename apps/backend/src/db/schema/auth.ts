@@ -31,6 +31,9 @@ export const users = pgTable("users", {
     .notNull(),
   twoFactorEnabled: boolean("two_factor_enabled").default(false),
   onboardingCompletedAt: timestamp("onboarding_completed_at"),
+  banned: boolean("banned").default(false),
+  banReason: text("ban_reason"),
+  banExpires: timestamp("ban_expires"),
 })
 
 export const sessions = pgTable(

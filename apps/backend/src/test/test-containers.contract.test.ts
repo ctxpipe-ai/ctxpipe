@@ -202,16 +202,8 @@ describe("test containers", () => {
         image: contractImage("alpine"),
       }).create({ workspace: { source: { type: "none" } } })
       try {
-        const [id] = docker(
-          "ps",
-          "-q",
-          "--no-trunc",
-          "--filter",
-          `label=${TEST_LABEL}=${owner}`,
-          "--filter",
-          `ancestor=${contractImage("alpine")}`,
-        ).split("\n")
-        expect(id).toBeTruthy()
+        // @tanstack/ai-sandbox-docker creates it with its own dockerode copy.
+        expect((await labels(handle.id))?.[TEST_LABEL]).toBe(owner)
         // The labels that the code gives stay.
         const container = await new Docker().createContainer({
           Image: contractImage("alpine"),

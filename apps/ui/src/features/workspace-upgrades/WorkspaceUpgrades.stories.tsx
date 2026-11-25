@@ -275,15 +275,16 @@ export const Running = meta.story({
 
 /**
  * Upgrades card in the Workspace settings: the admin started the re-ingestion,
- * but all sandbox slots are busy, so the item waits for a free one and says how
- * long it has waited (CTX-908).
+ * but an ingestion run of one of its source repositories can still publish to
+ * the Workspace (CTX-895). The item waits for that run and says how long it
+ * has waited (CTX-908).
  */
-export const WaitingForSandbox = meta.story({
+export const WaitingForAnotherRun = meta.story({
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(async () => {
       expect(
-        await canvas.findByText("Waiting for a free sandbox"),
+        await canvas.findByText("Waiting for another ingestion run"),
       ).toBeVisible()
       expect(await canvas.findByText(/has waited 12 min/)).toBeVisible()
     })
@@ -303,7 +304,8 @@ export const WaitingForSandbox = meta.story({
               kind: "reingest",
               status: "running",
               waitingForSlot: {
-                reason: "The re-ingestion slots of this instance are full.",
+                reason:
+                  "An ingestion run of a source repository of this Workspace has not ended. The re-ingestion starts after it.",
                 since: new Date(Date.now() - 12 * 60_000 - 5_000).toISOString(),
               },
             }),
