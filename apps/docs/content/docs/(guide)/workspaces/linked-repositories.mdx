@@ -110,7 +110,8 @@ commit: c803cca1ceac58fed390846d4aae5be40e06132d
 Each ingestion of the repository then reads that commit, not the newest commit
 of its default branch. A pin applies only when each plain git source of your
 organization that names the repository has the same `commit`. When the sources
-do not agree, the repository follows its default branch. To follow the branch
+do not agree, the repository follows its default branch. A pin has no effect on
+a repository that ctxpipe reads through the GitHub App. To follow the branch
 again, remove `commit`.
 
 A self-hosted deployment can also read a git server inside your network. See

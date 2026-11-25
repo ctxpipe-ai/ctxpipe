@@ -2,8 +2,10 @@ import { mkdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 
 import { eq } from "drizzle-orm"
+import { HttpResponse, http } from "msw"
 import { beforeAll, expect, it, vi } from "vitest"
 
+import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import {
   repositories,
@@ -11,12 +13,14 @@ import {
 } from "../../db/schema/repositories.js"
 import { workspaceSources } from "../../db/schema/workspace_sources.js"
 import { workspaces } from "../../db/schema/workspaces.js"
-import { createLogger, withLogger } from "../../observability/logger.js"
+import { codesearchBaseUrl } from "../../lib/agentToolRuntime.js"
+import { createLogger, log, withLogger } from "../../observability/logger.js"
 import { workspaceHydrate } from "../../openworkflow/workflows/workspace-hydrate.js"
 import { usePlainGitNetwork } from "../../services/git/plain-git-remote.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { resolveRepositoryRef } from "../codeIngestion/queue.js"
-import { plainGitPin, plainGitTip } from "./plain-git-pin.js"
+import { linkPlainGitSource } from "./first-ingestion.js"
+import { plainGitPins } from "./plain-git-pin.js"
 
 beforeAll(() => {
   if (!process.env.DATABASE_URL)
@@ -137,13 +141,15 @@ async function ingested(orgId: string, sha: string): Promise<void> {
   })
 }
 
-/** True when no pin applies: an ingestion reads the default branch. */
-const unpinned = async (orgId: string) =>
-  (await plainGitPin({
-    orgId,
-    gitUrl: SOURCE_URL,
-    githubConnectionId: null,
-  })) === null
+/** The pin that applies to the repository, or null. */
+const pinOf = async (orgId: string) =>
+  (
+    await plainGitPins({
+      orgId,
+      gitUrl: SOURCE_URL,
+      githubConnectionId: null,
+    })
+  ).pin
 
 const resolve = (orgId: string, id: string) =>
   withLogger(createLogger({}), () =>
@@ -202,9 +208,7 @@ it(
         branch: "HEAD",
         hash: first,
       })
-      expect(await plainGitTip({ orgId: f.org.id, url: SOURCE_URL })).toEqual({
-        sha: first,
-      })
+      expect(await pinOf(f.org.id)).toBe(first)
 
       // The org published the pinned commit: the next hydrate starts no
       // ingestion.
@@ -225,21 +229,29 @@ it(
       await ingested(f.org.id, second)
       await mergeSource(f, sourceText())
       expect(await ingestionRequested(f.org.id)).toBe(true)
-      expect(await unpinned(f.org.id)).toBe(true)
+      expect(await pinOf(f.org.id)).toBeNull()
     })
   },
 )
 
-it(
-  "follows the branch when two Workspaces of the org pin the repository at different commits",
+it.each([
+  ["pins it at another commit", "a".repeat(40)],
+  ["names it with no pin", null],
+])(
+  "follows the branch when another Workspace of the org %s",
   { timeout: 120_000 },
-  async () => {
+  async (_, otherCommit) => {
     await withPlainGitWorkspace(async (f) => {
       const first = f.git("rev-parse", "HEAD")
       await mergeSource(f, sourceText(first))
-      // Another Workspace of the org pins the same repository at another
-      // commit: its projection wrote this row.
+      await ingested(f.org.id, first)
+      // Another Workspace of the org names the same repository: its
+      // projection wrote this row, then links its source.
       const other = `${f.workspaceId}_other`
+      const scope = {
+        url: SOURCE_URL,
+        ...(otherCommit ? { commit: otherCommit } : {}),
+      }
       await withOrgDbContext(f.org.id, async (db) => {
         await db.insert(workspaces).values({
           id: other,
@@ -254,12 +266,35 @@ it(
           workspaceId: other,
           sourceKey: SOURCE_PATH,
           provider: "git",
-          scope: { url: SOURCE_URL, commit: "a".repeat(40) },
+          scope,
           status: "ok",
           revision: "b".repeat(40),
         })
       })
-      expect(await unpinned(f.org.id)).toBe(true)
+      const warn = vi.spyOn(log, "warn")
+      await withOrgIdContext(f.org, () =>
+        linkPlainGitSource({ orgId: f.org.id, scope }),
+      )
+
+      // The sources do not agree: the repository leaves the old pin, and
+      // its ingestion reads the tip of the branch.
+      expect(warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          step: "workspace_sources.git.pin_conflict",
+          repositoryUrl: SOURCE_URL,
+        }),
+      )
+      expect(await ingestionRequested(f.org.id)).toBe(true)
+      const tip = f.git("rev-parse", "HEAD")
+      f.server.use(
+        http.post(`${codesearchBaseUrl()}/:id/resolve-ref`, () =>
+          HttpResponse.json({ branch: "main", hash: tip }),
+        ),
+      )
+      expect(await resolve(f.org.id, await repositoryId(f.org.id))).toEqual({
+        branch: "main",
+        hash: tip,
+      })
     })
   },
 )

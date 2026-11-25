@@ -173,15 +173,12 @@ export async function readZulipChat(
         after: 0,
         channel,
       })
-      const kept = batch.messages
-        .filter(
-          (message) =>
-            message.id < anchor &&
-            message.timestamp >= since &&
-            message.timestamp <= end,
-        )
-        // The newest messages of the channel come first in its share.
-        .slice(-(share - count))
+      const kept = batch.messages.filter(
+        (message) =>
+          message.id < anchor &&
+          message.timestamp >= since &&
+          message.timestamp <= end,
+      )
       messages.push(...kept)
       count += kept.length
       const oldest = batch.messages[0]

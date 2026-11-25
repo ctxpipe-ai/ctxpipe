@@ -1,8 +1,7 @@
-import { findRepositoriesByNormalizedGitUrls } from "../../models/repositories.js"
 import { log } from "../../observability/logger.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
 import { ensureOrgRepositoryForGitUrl } from "../workspaces/ensure-org-repository.js"
-import { plainGitPin } from "./plain-git-pin.js"
+import { plainGitPins } from "./plain-git-pin.js"
 import { gitSourceScopeCommit, gitSourceScopeUrl } from "./providers/git.js"
 
 /**
@@ -39,10 +38,10 @@ export async function startFirstOrgIngestion(input: {
  * context (`withOrgIdContext`), as hydrate does.
  *
  * A pin (CTX-1661) also starts an ingestion when the repository is not at
- * the commit that it must read: the pin is new or changed, or the pin no
- * longer applies (`previousScope` had a commit, or the sources of the org
- * do not agree), so the repository goes back to its branch. An ingestion of
- * a commit that the org already published does nothing.
+ * the commit that it must read: a new or changed pin, or a repository that
+ * is still at a pinned commit (of a source of the org, or of the previous
+ * scope of this source) when no pin applies any more. That ingestion reads
+ * the default branch.
  */
 export async function linkPlainGitSource(input: {
   orgId: string
@@ -57,23 +56,21 @@ export async function linkPlainGitSource(input: {
     gitUrl: url,
   })
   if (!repository) return
-  const [row] = await findRepositoriesByNormalizedGitUrls([url])
-  const pin = await plainGitPin({
+  const { pin, pinned } = await plainGitPins({
     orgId: input.orgId,
     gitUrl: url,
-    githubConnectionId: row?.githubConnectionId ?? null,
+    githubConnectionId: repository.githubConnectionId,
   })
-  const unpinned =
-    !pin &&
-    (gitSourceScopeCommit(input.scope) !== null ||
-      gitSourceScopeCommit(input.previousScope) !== null)
+  const last = repository.lastIngestedHash
+  const atOldPin =
+    !repository.githubConnectionId &&
+    last !== null &&
+    (pinned.has(last) || last === gitSourceScopeCommit(input.previousScope))
   await startFirstOrgIngestion({
     orgId: input.orgId,
     repository: {
       id: repository.id,
-      ingested: pin
-        ? row?.lastIngestedHash === pin
-        : repository.ingested && !unpinned,
+      ingested: pin ? last === pin : repository.ingested && !atOldPin,
     },
     step: "workspace_sources.git.enqueue_first_ingestion",
   })

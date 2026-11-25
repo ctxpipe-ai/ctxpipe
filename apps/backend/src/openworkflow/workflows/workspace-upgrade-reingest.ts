@@ -30,7 +30,7 @@ import {
   cancelIngestionRun,
   stopOrphanedReingestRuns,
 } from "../../domain/upgrades/stop-orphans.js"
-import { plainGitTip } from "../../domain/workspace-sources/plain-git-pin.js"
+import { plainGitPins } from "../../domain/workspace-sources/plain-git-pin.js"
 import { resolveRepositoryReadTip } from "../../domain/workspaces/resolve-revision.js"
 import { CODE_FORMAT } from "../../domain/workspaces/workspace-format.js"
 import { withWorkspaceWriteContext } from "../../domain/workspaces/write-command.js"
@@ -46,6 +46,7 @@ import { getLogger } from "../../observability/logger.js"
 import {
   PlainGitUrlError,
   plainGitRefusalReason,
+  resolvePlainGitTip,
 } from "../../services/git/plain-git-remote.js"
 import { settledChildren } from "../child-runs.js"
 import { enqueueWorkflow } from "../client.js"
@@ -414,8 +415,14 @@ async function planReingest(input: {
               connectionId: source.githubConnectionId,
             },
           })
-        : // A pinned plain git source keeps its commit (CTX-1661).
-          plainGitTip({ orgId: input.orgId, url: source.url })
+        : plainGitPins({
+            orgId: input.orgId,
+            gitUrl: source.url,
+            githubConnectionId: null,
+          }).then(({ pin }) =>
+            // A pinned plain git repository keeps its commit (CTX-1661).
+            pin ? { sha: pin } : resolvePlainGitTip(source.url),
+          )
     ).catch((error: unknown) => {
       tipError = tipErrorText(error)
       return null

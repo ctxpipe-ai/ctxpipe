@@ -177,6 +177,9 @@ async function remoteRefs(
   )
 }
 
+/** The main branch SHA of the context repo of a corpus. */
+type CorpusContext = { corpus: string; sha: string }
+
 /**
  * Write one plain git source file for each repository of each corpus into
  * the context repo of the corpus, in one commit. The file names the public
@@ -190,8 +193,8 @@ export async function writeCorpusSources(
   plan: Plan,
   access: GithubAccess,
   log: (line: string) => void,
-): Promise<Array<{ corpus: string; sha: string }>> {
-  const contexts: Array<{ corpus: string; sha: string }> = []
+): Promise<CorpusContext[]> {
+  const contexts: CorpusContext[] = []
   for (const corpus of plan.corpora) {
     const files: ChatFile[] = []
     for (const repository of corpus.repositories) {

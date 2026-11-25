@@ -8,7 +8,7 @@ import { getRepositoryReadCloneToken } from "../../models/github-installation.js
 import { getRepositoryReadBinding } from "../../models/repositories.js"
 import { getLogger } from "../../observability/logger.js"
 import { checkedPlainGitRemote } from "../../services/git/plain-git-remote.js"
-import { plainGitPin } from "../workspace-sources/plain-git-pin.js"
+import { plainGitPins } from "../workspace-sources/plain-git-pin.js"
 
 type ResolveRefResponse = {
   branch: string
@@ -48,7 +48,7 @@ export async function resolveRepositoryRef(input: {
   // A plain git repository that its sources pin reads the pinned commit,
   // never the tip of a branch (CTX-1661). Thus a follow-up or a reindex
   // stays at the pin.
-  const pin = await plainGitPin({
+  const { pin } = await plainGitPins({
     orgId: input.orgId,
     gitUrl: repository.gitUrl,
     githubConnectionId: repository.githubConnectionId,
