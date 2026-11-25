@@ -78,7 +78,7 @@ line gives its expected output. The dry run of the copy is its preflight against
 
 - **Who:** agent.
 - **Check:** [CTX-1217] has the report of one real rehearsal with `"ok": true` from copy-database, no difference
-  from verify-graph, a passed `validateTarget` and MCP eval run, and a window shorter than the planned length. One
+  from verify-graph, a passed `validateTarget`, and a window shorter than the planned length (the MCP evals are removed, CTX-1663). One
   rehearsal is enough (CTO, 2026-11-14: "After we do one successfully we're ready to do it properly").
 - **If not:** stop. Plan another rehearsal.
 
