@@ -33,12 +33,18 @@ import {
   type KnowledgeRelation,
   type KnowledgeStore,
 } from "../knowledge-store/knowledge-store.js"
-import { isRetryableFetchFailure } from "../lib/withTransientHttpRetry.js"
+import {
+  isRetryableFetchFailure,
+  TransientHttpError,
+} from "../lib/withTransientHttpRetry.js"
 import { truncateText } from "../mcp/framework/budget.js"
 import { checkPath } from "../mcp/framework/refs.js"
 import { McpToolError } from "../mcp/framework/tool-errors.js"
 import type { KnowledgeHead } from "../models/knowledge-state.js"
-import { embedQuery } from "../retrieval/embeddings/textEmbeddings.js"
+import {
+  EmbeddingError,
+  embedQuery,
+} from "../retrieval/embeddings/textEmbeddings.js"
 import { JevError } from "../retrieval/jev/client.js"
 import {
   askDisagreementFacts,
@@ -48,6 +54,7 @@ import {
   isValidAt,
   resolveDisagreements,
 } from "../retrieval/jev/disagreement.js"
+import { BudgetSpentError, notePartial } from "./failure.js"
 import type {
   KnowledgeReader,
   RelatedRequest,
@@ -55,7 +62,6 @@ import type {
   SearchResult,
 } from "./knowledge-reader.js"
 import {
-  BudgetSpentError,
   beforeDeadline,
   callTimeLimitMs,
   evidenceText,
@@ -124,7 +130,14 @@ export function planeKnowledgeReader(input: {
         // a 429, a 5xx or a network error ends the budget, and the call
         // returns partial, as when the budget ends.
         if (isRetryableFetchFailure(error))
-          throw new BudgetSpentError("The query embedding failed")
+          throw new BudgetSpentError("The query embedding failed", {
+            // The status only: the shadow log gives the cause of the
+            // partial answer.
+            cause: new EmbeddingError(
+              "The query embedding failed",
+              error instanceof TransientHttpError ? error.status : undefined,
+            ),
+          })
         throw error
       }
     })
@@ -258,6 +271,7 @@ async function search(
     )
   } catch (error) {
     if (!isBudgetSpent(error, deadline)) throw error
+    notePartial(meter, error)
     return { hits: [], partialReason: "total_timeout" }
   }
   const limit = Math.min(Math.max(Math.trunc(request.limit ?? 10), 1), 50)
@@ -274,6 +288,7 @@ async function search(
       if (isBudgetSpent(error, deadline)) unjudged = "total_timeout"
       else if (error instanceof JevError) unjudged = "judge_unavailable"
       else throw error
+      notePartial(meter, error)
       return null
     }),
     // The claims of the hits. With no time left, the hits have none.
@@ -432,6 +447,7 @@ async function related(
     )
   } catch (error) {
     if (!isBudgetSpent(error, deadline)) throw error
+    notePartial(meter, error)
     return {
       results: [],
       explored: { nodes: 0, edges: 0 },
@@ -505,6 +521,7 @@ async function related(
       ).catch((error: unknown) => {
         // The end of the budget gives the ranking with no positions.
         if (!isBudgetSpent(error, deadline)) throw error
+        notePartial(meter, error)
         traversal.partialReason = "total_timeout"
         return undefined
       })
@@ -513,6 +530,7 @@ async function related(
     throw new McpToolError(
       "judge_unavailable",
       "The relevance judge did not answer, so get_related has no ranking. Try again later, or use search_knowledge.",
+      { cause: error },
     )
   }
   return {

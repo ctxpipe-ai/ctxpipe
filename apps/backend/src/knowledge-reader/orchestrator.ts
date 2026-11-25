@@ -10,6 +10,7 @@ import {
 import { JevError } from "../retrieval/jev/client.js"
 import { judgeLayer } from "../retrieval/jev/layer-judge.js"
 import type { CandidateMeta } from "../retrieval/jev/state.js"
+import { BudgetSpentError, type Failure, notePartial } from "./failure.js"
 
 /*
  * The retrieval loop of ADR-068 decisions 2 and 3. Layer 0 judges the seed
@@ -73,15 +74,15 @@ export type ModelMeter = {
   jevCalls: number
   jevCandidates: number
   embeddingCalls: number
+  /**
+   * The source and the code of the first error that the read turned into
+   * a partial answer (`notePartial`).
+   */
+  partialCause?: Failure
 }
 
 /** The candidates that one Jev call takes (the `judgeLayer` default). */
 const JEV_BATCH = 25
-
-/** The time budget of a retrieval ended before a step could start or end. */
-export class BudgetSpentError extends Error {
-  override readonly name = "BudgetSpentError"
-}
 
 /**
  * The `performance.now()` time at which a retrieval that starts now must
@@ -458,6 +459,7 @@ export async function traverse(input: {
     await seedJudge
   } catch (error) {
     if (!isBudgetSpent(error, deadline)) throw error
+    notePartial(input.meter, error)
     partialReason = "total_timeout"
   }
   // The seeds come first, when Jev judged them (also before the end of the
