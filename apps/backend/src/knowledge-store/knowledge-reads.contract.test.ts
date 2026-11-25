@@ -10,6 +10,7 @@ import {
   type KnowledgeScope,
   type KnowledgeStore,
   ORG_SETTING,
+  REFERENCE_TARGET_PREFIX,
   type SearchQuery,
   type TreeEntry,
 } from "./knowledge-store.js"
@@ -65,11 +66,13 @@ function document(
   options: Partial<DocumentRows["document"]> & {
     validFrom?: Date | null
     relations?: Partial<FileRelation>[]
+    refKeys?: string[]
   } = {},
 ): Seeded {
-  const { relations = [], validFrom = null, ...fields } = options
+  const { relations = [], validFrom = null, refKeys, ...fields } = options
   return {
     validFrom,
+    refKeys,
     document: {
       docKey,
       kind: "note",
@@ -613,6 +616,115 @@ describe("search", () => {
     expect(keys.slice(0, 2)).toContain("z-doc-00000.md")
   })
 
+  it("neighbors: the documents that the best hits have a relation to take the last places, the closest first", async () => {
+    // The first k dimensions of the query vector flipped: a larger k is
+    // farther. Each such document is farther than the 60 fillers, so it is
+    // no hit, and only a relation of a best hit can bring it in.
+    const far = (k: number) =>
+      queryVector.map((value, i) => (i < k ? -value : value))
+    const key = (name: string) => `${REFERENCE_TARGET_PREFIX}${name}`
+    const url = await clickHouse.freshDatabase()
+    await filler(url)("note", "filler-", 60, "filler", nearQuery(1))
+    const writer = createKnowledgeStore(url)
+    try {
+      await seed(writer, { orgId: orgA.orgId, workspaceId: workspace }, [
+        document("issue.md", [{ text: "the issue", embedding: queryVector }], {
+          refKeys: ["issue-key"],
+          relations: [
+            // A mention of a key goes to the documents of the key.
+            { dstDoc: key("mailer"), predicate: "MENTIONS" },
+            { dstDoc: "out.md" },
+            { dstDoc: "guide.md" },
+            { dstDoc: "expired.md" },
+            { dstDoc: "old-out.md", validTo: new Date("2021-01-01") },
+            // The relation to the source of a file is no neighbor.
+            { dstDoc: "source.md", predicate: "FROM_SOURCE" },
+          ],
+        }),
+        document("mailer.md", [{ text: "sends mail", embedding: far(8) }], {
+          refKeys: ["mailer"],
+        }),
+        document("guide.md", [{ text: "a guide", embedding: far(9) }], {
+          kind: "guide",
+        }),
+        document("out.md", [{ text: "named", embedding: far(10) }]),
+        document("expired.md", [{ text: "of 2020", embedding: far(11) }], {
+          validTo: new Date("2021-01-01T00:00:00.000Z"),
+        }),
+        // In-relations: to the issue, and to a key of the issue.
+        document("in.md", [{ text: "names it", embedding: far(12) }], {
+          relations: [{ dstDoc: "issue.md" }],
+        }),
+        document("keyed-in.md", [{ text: "by key", embedding: far(13) }], {
+          relations: [{ dstDoc: key("issue-key"), predicate: "MENTIONS" }],
+        }),
+        document("old-out.md", [{ text: "was named", embedding: far(14) }]),
+        document("old-in.md", [{ text: "named it", embedding: far(15) }], {
+          relations: [{ dstDoc: "issue.md", validTo: new Date("2021-01-01") }],
+        }),
+        // Closer than the neighbors, with no relation that counts.
+        document("source.md", [{ text: "the source", embedding: far(7) }]),
+        document("lonely.md", [{ text: "no relation", embedding: far(7) }]),
+      ])
+    } finally {
+      await writer.close()
+    }
+    const plain = await searchIn(url, {})
+    expect(plain).toHaveLength(50)
+    expect(plain[0]?.document.docKey).toBe("issue.md")
+    const neighbors = { from: 5, places: 10 }
+    const found = await searchIn(url, { neighbors })
+    expect(found).toHaveLength(50)
+    expect(hitKeys(found).slice(0, 42)).toEqual(hitKeys(plain).slice(0, 42))
+    expect(hitKeys(found).slice(42)).toEqual([
+      "mailer.md",
+      "guide.md",
+      "out.md",
+      "expired.md",
+      "in.md",
+      "keyed-in.md",
+      "old-out.md",
+      "old-in.md",
+    ])
+    // A neighbor has its closest chunks and its document, and the score of
+    // the hit whose place it takes, so the search order keeps it there.
+    expect(found[42]?.document).toMatchObject({
+      path: "notes/mailer.md",
+      title: "mailer.md",
+      sourceType: "git",
+      status: "active",
+    })
+    expect(found[42]?.chunks).toEqual([
+      expect.objectContaining({
+        ordinal: 0,
+        text: "sends mail",
+        score: plain[42]?.chunks[0]?.score,
+      }),
+    ])
+    expect(found[49]?.chunks[0]?.score).toBe(plain[49]?.chunks[0]?.score)
+    // At most `places` neighbors, the closest first.
+    expect(
+      hitKeys(await searchIn(url, { neighbors: { from: 5, places: 2 } })).slice(
+        48,
+      ),
+    ).toEqual(["mailer.md", "guide.md"])
+    // A neighbor must pass the filters of the search, and the neighbor and
+    // its relation must be valid at `validAt`.
+    expect(
+      hitKeys(
+        await searchIn(url, {
+          neighbors,
+          kinds: ["note"],
+          validAt: new Date("2026-06-01T00:00:00.000Z"),
+        }),
+      ).slice(46),
+    ).toEqual(["mailer.md", "out.md", "in.md", "keyed-in.md"])
+    // Only the relations of the first `from` hits count.
+    expect(
+      hitKeys(await searchIn(url, { neighbors: { from: 0, places: 10 } })),
+    ).toEqual(hitKeys(plain))
+  })
+
   it("never finds a deleted document", async () => {
     const keys = hitKeys(await search({ terms: ["zebracorn", "deleted"] }))
     expect(keys).not.toContain("deleted.md")
@@ -894,6 +1006,7 @@ async function readAllForOrgA(
       vector: queryVector,
       chunksPerDocument: 2,
       terms: ["zebracorn", "Org", "B"],
+      neighbors: { from: 5, places: 10 },
     }),
     await reader.readFrontier(orgA, refs),
     await reader.readDocuments(orgA, refs),
