@@ -207,6 +207,12 @@ function atCutoff(message: ZulipMessage, end: number) {
   const topic = first("prev_topic")
   const stream = first("prev_stream")
   const editedLater = (message.last_edit_timestamp ?? 0) > end
+  // Zulip writes `prev_topic` in each edit that changes the topic, and
+  // `prev_stream` in each edit that changes the channel. A move of a topic
+  // to another channel keeps its name, so a later edit with only
+  // `prev_stream` did not change the topic. On chat.zulip.org, 45 sampled
+  // topic edits had `prev_topic` and `topic`, and 7 channel moves had
+  // `prev_stream` and `stream` and no topic key (2026-11-25).
   const unexplainedMove =
     (message.last_moved_timestamp ?? 0) > end &&
     topic === undefined &&

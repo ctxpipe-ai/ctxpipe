@@ -37,8 +37,7 @@ export async function* importPublicGithubPullRequests(input: {
     input.repository,
   )
   const until = input.until.getTime()
-  const before = (time: string | null | undefined) =>
-    !!time && Date.parse(time) <= until
+  const before = (time: string | null | undefined) => atOrBefore(time, until)
   let count = 0
   const pages = input.octokit.paginate.iterator(input.octokit.rest.pulls.list, {
     owner,
@@ -99,13 +98,18 @@ export async function* importPublicGithubPullRequests(input: {
   }
 }
 
+/** True when `time` is a time at or before `until`. */
+function atOrBefore(time: string | null | undefined, until: number): boolean {
+  return !!time && Date.parse(time) <= until
+}
+
 /** The pull request as it was at `until`. */
 async function snapshotAt(
   octokit: Octokit,
   snapshot: GithubPullRequestSnapshot,
   until: number,
 ): Promise<GithubPullRequestSnapshot> {
-  const before = (time: string | null) => !!time && Date.parse(time) <= until
+  const before = (time: string | null) => atOrBefore(time, until)
   const kept = {
     ...snapshot,
     reviews: snapshot.reviews.filter((review) => before(review.submittedAt)),
