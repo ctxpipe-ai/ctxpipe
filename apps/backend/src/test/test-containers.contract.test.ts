@@ -202,16 +202,16 @@ describe("test containers", () => {
         image: contractImage("alpine"),
       }).create({ workspace: { source: { type: "none" } } })
       try {
-        const [id] = docker(
-          "ps",
-          "-q",
-          "--no-trunc",
-          "--filter",
-          `label=${TEST_LABEL}=${owner}`,
-          "--filter",
-          `ancestor=${contractImage("alpine")}`,
-        ).split("\n")
-        expect(id).toBeTruthy()
+        // Read the container of the handle. A filter on the image reference
+        // can find no container on CI, so the test does not use one.
+        expect(
+          docker(
+            "inspect",
+            "--format",
+            `{{index .Config.Labels "${TEST_LABEL}"}}`,
+            handle.id,
+          ),
+        ).toBe(owner)
         // The labels that the code gives stay.
         const container = await new Docker().createContainer({
           Image: contractImage("alpine"),
