@@ -1,0 +1,25 @@
+{
+  "question": "backstage-cross-source-12",
+  "facts": [
+    {
+      "fact": "Maintainers said the missing WWW-Authenticate header (with resource_metadata) on 401s is not really a bug: it is a part of the newer spec not yet implemented because clients didn't support it. The issue was closed as not planned.",
+      "groups": [
+        ["www-authenticate", "resource_metadata", "resource metadata"],
+        [
+          "not (really )?a bug",
+          "not (yet )?implemented",
+          "unimplemented",
+          "not planned"
+        ]
+      ]
+    },
+    {
+      "fact": "GET requests to /api/mcp-actions/v1 are rejected with method not allowed.",
+      "groups": [["405", "method not allowed"]]
+    },
+    {
+      "fact": "The endpoint is defined in the mcp-actions-backend plugin.",
+      "groups": [["mcp-actions-backend", "mcp-actions backend"]]
+    }
+  ]
+}

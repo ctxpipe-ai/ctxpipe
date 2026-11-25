@@ -1,0 +1,24 @@
+{
+  "question": "backstage-multi-hop-27",
+  "facts": [
+    {
+      "fact": "The requester, who maintains a Backstage instance, wanted a UI to check when a job last ran and when the next run is scheduled.",
+      "groups": [
+        [
+          "\\blast\\b.{0,40}(run|ran|execut)",
+          "(run|ran|execut).{0,40}\\blast\\b",
+          "most recent (run|execution)"
+        ],
+        [
+          "\\bnext\\b.{0,40}(run|schedul|execut)",
+          "upcoming (run|execution)",
+          "schedul.{0,40}\\bnext\\b"
+        ]
+      ]
+    },
+    {
+      "fact": "The request was closed as a duplicate of the DevTools tab issue (#29674), which already had a linked PR.",
+      "groups": [["duplicate"], ["29674", "dev ?tools"]]
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "question": "backstage-cross-source-13",
+  "facts": [
+    {
+      "fact": "Maintainers say payload.metadata is intentionally not persisted; in the initial implementation it is meant only for consumption by processors (such as email/Slack).",
+      "groups": [
+        ["intentional", "deliberate", "by design", "on purpose", "not a bug"],
+        ["processor"]
+      ]
+    },
+    {
+      "fact": "The Notifications API, defined in plugins/notifications-backend/src/service/router.ts, offers read operations such as GET /api/notifications (and /notifications) and GET /api/notifications/:id (and /notifications/:id).",
+      "groups": [
+        ["notifications-backend", "router\\.ts"],
+        [
+          "notifications/:id",
+          "notifications/\\{[a-z]*id\\}",
+          "notifications/<[a-z]*id>"
+        ]
+      ]
+    },
+    {
+      "fact": "It also offers GET routes for status, settings and topics.",
+      "groups": [["\\bstatus\\b"], ["\\bsettings\\b"], ["\\btopics\\b"]]
+    }
+  ]
+}
