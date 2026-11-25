@@ -1,6 +1,6 @@
 # ADR-069: The knowledge plane is proven with public-corpus evals and turned on for one org at a time
 
-**Status:** Accepted (the CTO, 2026-11-19; nothing is built yet; amended 2026-11-22, CTX-1499: hill-climb by generations; amended 2026-11-25, CTX-1659: OrgBench, ADR-075, is the agent-task level) | **Date:** 2026-11-19 | **Tags:** knowledge, evals, dataset, rollout, feature-flags, better-auth, privacy
+**Status:** Accepted (the CTO, 2026-11-19; nothing is built yet; amended 2026-11-22, CTX-1499: hill-climb by generations; amended 2026-11-25, [CTX-1659](https://linear.app/ctxpipe/issue/CTX-1659): OrgBench, ADR-075, is the agent-task level) | **Date:** 2026-11-19 | **Tags:** knowledge, evals, dataset, rollout, feature-flags, better-auth, privacy
 
 ## Context
 
@@ -122,9 +122,9 @@ The CTO, 2026-11-22: "We don't have hard targets, we want to hillclimb the retri
 - **The labels:** one label version for each dataset (the knowledge evals README, "One label version for each dataset").
 - **The question set v0:** the knowledge evals README ("The dataset") gives its file, its corpora and its counts.
 
-## Amendment 2026-11-25: OrgBench is the agent-task level (CTX-1659)
+## Amendment 2026-11-25: OrgBench is the agent-task level ([CTX-1659](https://linear.app/ctxpipe/issue/CTX-1659))
 
-[ADR-075](ADR-075-orgbench-org-scale-agent-benchmark.md) supplies the agent-task metrics of decision 6. The evals of this ADR are its level L0, the main climb signal. The keep rule of decision 7 adds an L2 non-inferiority guard for a change that an agent can feel. The BM25 leak lint stays on the L0 questions, but it does not apply to the OrgBench agent tasks.
+[ADR-075](ADR-075-orgbench-org-scale-agent-benchmark.md) supplies the agent-task metrics of decision 6. The evals of this ADR are its level L0, the main climb signal. For a change that an agent can feel, the keep rule of ADR-075 decision 9 replaces decision 7: an L0 hold-out win or an L2 process win, plus L2 non-inferiority. The BM25 leak lint of the question set (the rule "No words of the gold" in [`apps/backend/evals/knowledge/README.md`](../../../apps/backend/evals/knowledge/README.md)) stays on the L0 questions. It does not apply to the OrgBench agent tasks.
 
 ## Consequences
 

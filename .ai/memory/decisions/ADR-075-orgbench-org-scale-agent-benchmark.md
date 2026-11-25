@@ -24,17 +24,17 @@ We must know whether ctxpipe helps a real agent on org-scale work, where it help
    - **L2, agent tasks:** a production harness in a container, on an org twin. The run varies the arm, the model and the trial. L2 is the benchmark, and it is the guard and the truth check of the climb.
    - **L3, external:** a 20-task set of CodeScaleBench on repository sets of medium size. It is a sanity check only, because its gold answers are public.
    - There is no tool-surface level (L1). Tool choice and argument errors come from the L2 transcripts and the MCP spans.
-2. **Org twins.** A twin is a public org at a frozen snapshot: its repositories, its issues and pull requests, its doc, RFC and ADR repositories, and its chat as Markdown. Zulip is the first twin. A scale sweep runs the same tasks with 5, 50 and 200 repositories (distractor repositories from other public orgs fill the gap). Later tiers are replay workspaces that we own (Slack, Linear, Notion), a synthetic org, and a partner org that opts in and gives aggregates only.
+2. **Org twins.** A twin is a public org at a frozen snapshot: its repositories, its issues and pull requests, its doc, RFC and ADR repositories, and its chat as Markdown. Zulip is the first twin. A scale sweep runs the same tasks with 5, 50 and 200 repositories (distractor repositories from other public orgs fill the gap). The plan lists the later twins. A partner org opts in and gives aggregates only.
 3. **Arms.** Only the context arm changes in a comparison. The harness version, the model, the preamble shape, the budgets and the snapshot stay the same.
    - **B1+ is the primary comparator:** all org repositories at T, plus the docs, issues and chat as Markdown, in the workspace. The comparator is not "no context", because files + grep is the strong baseline that the evidence shows. A loss to B1+ is product information.
    - **CTX:** an empty workspace (or the one repository of the task) and the ctxpipe MCP.
    - **ORACLE:** the gold context in the prompt, 1 trial. It calibrates the task and shows the headroom.
-   - Later arms: B1 (repositories only), B0 (one repository, for harm), CTX with the skill, CTX-files (the Workspace mirror as files), NATIVE (vendor MCPs on the replay workspaces), and competitors, each with its own vendor guidance.
+   - The plan lists the later arms. Each competitor arm gets its own vendor guidance.
    - Every arm gets the same neutral preamble shape. The preamble of B1 and B1+ tells where the files are. An egress allowlist blocks web tools. The harness version is pinned. The run reports its concurrency, and the CTX concurrency stays at the level of a real customer team.
 4. **Natural tasks.**
    - The task text comes from what people really asked after T: issues, chat threads and pull request threads.
    - We remove only direct leaks: ids, titles and gold paths.
-   - **The BM25 leak lint of ADR-069 does not apply to agent tasks.** That lint removes exactly the questions that grep answers well, so it builds a ctxpipe win into the benchmark. Each task has a `lexical_hook` field (yes or no), and the report shows that stratum.
+   - **The BM25 leak lint of the ADR-069 question set does not apply to agent tasks** (the rule "No words of the gold" in [`apps/backend/evals/knowledge/README.md`](../../../apps/backend/evals/knowledge/README.md)). That lint removes exactly the questions that grep answers well, so it builds a ctxpipe win into the benchmark. Each task has a `lexical_hook` field (yes or no), and the report shows that stratum.
    - A memorization probe drops a task when the model names the answer from the prompt alone.
 5. **Org-scale tasks: two sources or more.** The gold evidence of each task spans two sources or more, or two repositories or more. A task that does not is tagged as a control (for example the harm control in one repository).
 6. **Time-clean snapshot.**
@@ -53,10 +53,10 @@ We must know whether ctxpipe helps a real agent on org-scale work, where it help
    - A grader change is applied with `rescore`, with no model calls.
 9. **Keep rule.** A change of the product is kept when both conditions are true:
    - it wins at L0 (hold-out recall or nDCG), or on an L2 process metric (argument errors, tool adoption);
-   - at L2 it is non-inferior: no significant loss of success, cost or harm, with a margin that is set before the run.
+   - at L2 it is non-inferior on success, cost and harm. A margin for each metric is set before the run. The confidence bound of each metric must exclude a loss that is larger than its margin. An inconclusive result does not keep the change.
 
-   The reason is power. With tasks in the 30–70% band, the minimum detectable effect is about 40 points at 20 × 1, about 10 points at 120 × 3, and about 5–7 points at a full release with 5 trials. L2 cannot find the small wins of one climb step. Continuous scores, the B1+ score as a covariate (CUPED), and a re-run of only the tasks that called the changed tool make the effect size smaller. A large L2 win is confirmed at release size before we make a claim.
-10. **Harbor is the only runner. MCPJam is removed.**
+   The reason is power. Tasks are in the 30–70% band. The minimum detectable effect is then about 40 points at 20 tasks × 1 trial and about 10 points at 120 × 3. At a full release with 5 trials, it is about 5–7 points. L2 cannot find the small wins of one climb step. Continuous scores, the B1+ score as a covariate (CUPED), and a re-run of only the tasks that called the changed tool make the effect size smaller. A large L2 win is confirmed at release size before we make a claim.
+10. **Harbor is the only runner. MCPJam is removed (D1).**
     - Harbor runs production CLIs in a container for each task, with test-based verifiers and remote HTTP MCP servers with headers. CodeScaleBench and SlackBench run on it, and its task format is public. We use the stock Harbor `claude-code` agent with native `mcp_servers`.
     - MCPJam (code read at commit `82a6acb`) does not fit:
       - Its real harnesses run only in the hosted E2B path and the local-native path. Both are behind feature flags in a limited rollout. The local CLI and the SDK runner are emulated only.
@@ -65,24 +65,27 @@ We must know whether ctxpipe helps a real agent on org-scale work, where it help
       - Its eval runner is under an Enterprise license. Each SDK and CLI run needs an MCPJam credential and is metered for each iteration, also with our own model keys. Hosted runs have at most 10 iterations and 2 concurrent runs for each org.
     - [CTX-1663](https://linear.app/ctxpipe/issue/CTX-1663) removes `apps/backend/evals/mcp/`, `@mcpjam/sdk`, its workflow and its checks. Our analyzer gets the tool-call checks from transcripts and MCP spans, and it copies the paired comparison design of MCPJam. A plain MCP SDK client test replaces the MCPJam conformance test where other tests do not cover the protocol.
     - We do not rebuild the CodeScaleBench `configs/`.
-11. **Spend: caps and campaigns on demand.**
+11. **Spend: caps and campaigns on demand (D3).**
     - No run has a schedule: no daily, weekly or monthly run.
     - A climb is a campaign of generations. It runs when the benchmark is ready, and again when a significant change is worth a climb. A public release is also on demand.
     - Climb generations use Haiku 5.5, campaign end checks and releases use Sonnet 5.5, and Opus 5.5 runs only on a small hold-out sample. Baseline arms are cached by task, snapshot, harness version, model and arm config. A B1+ sentinel of 10 to 20 tasks in each batch refreshes the cache when it drifts.
     - Each run has a spend cap. The first caps are estimates: $2 for the spike, $80 for the first baseline, $5–20 for a climb generation, $20 for a campaign end check, and $100 for a public release. The spike measures the real cost. When a run does not fit its cap, we cut tasks or trials, not the cap.
     - Runs go through `factory eval bench:*` on the host, as for ADR-069.
-12. **Publication.**
+12. **Publication (D2).**
     - The tasks, the runner, the graders and the report format are public. The factory adds the cache, the spend caps and the gate.
     - A sealed test split and one held-out twin stay private and run only at a release. The hold-out results are aggregates only.
     - A competitor result has a date and runs again at each release.
     - **A vendor whose terms forbid the publication of results is run but withheld** in the public table. The table links the exact clause and points to the public repository, so that anyone can run the comparison. Greptile (terms of 2026-10-17, §1.4(a)) is the known case. We read the terms of the other vendors before the first public release.
     - Transcripts are published as pointers and hashes where the content license is not clear.
-13. **CTO decisions (2026-11-25).**
-    - **D1, runner:** Harbor only. MCPJam is removed, with the `evals/mcp` suite (fewer tools).
-    - **D2, publication:** both an internal climb and a public benchmark, with the withhold rule of decision 12. The CTO's position: a comparison is not a use of the service to build a competing service.
-    - **D3, spend:** minimal, with no schedule (decision 11).
-    - **D4, production:** the CTX arm runs on a bench org in production for baselines and releases. An unmerged candidate runs on a local stack (freeze the context repo, hydrate it into the candidate build, point the harness at the local MCP), because production cannot serve it.
+13. **CTO decisions (2026-11-25).** D1 is decision 10, D2 is decision 12, and D3 is decision 11.
+    - **D2, reason:** the CTO's position is that a comparison is not a use of the service to build a competing service.
+    - **D4, production:** the CTX arm runs on a bench org in production for baselines and releases. Production cannot serve an unmerged candidate, so a candidate runs on a local stack. For a candidate, freeze the context repo, hydrate it into the candidate build, and point the harness at the local MCP.
     - **D5, retrieval backend:** every CTX run uses only the ClickHouse + Jev knowledge plane (the `knowledge_plane` path of ADR-066 to ADR-069). OrgBench ignores the FalkorDB-backed retrieval completely: it is not an arm and not a baseline. **A run that touches FalkorDB is invalid.**
+14. **Credentials of the CTX arm.** Public twin text can contain a prompt injection, and the transcripts become public. Thus:
+    - The CTX arm uses only a read-scope key. The org set of its grant ([ADR-051](ADR-051-mcp-read-surface.md)) is only the bench org.
+    - The key belongs to a bench user that is a member of no other org.
+    - Arm configs read the key from the environment. No published config or transcript holds a key.
+    - Each artifact goes through the secret scrub of [ADR-072](ADR-072-scrub-secrets-before-every-model-call.md) before we publish it.
 
 ## Consequences
 
