@@ -17,7 +17,7 @@ patchedDependencies:
   '@hono/zod-openapi@1.6.3': 90d1056918522f459c2439b685cf2cc211c0c3f42a1c673eb8f37c72b9534fa9
   '@tanstack/ai-opencode@0.4.14': 0b667273603d7a67bd080365728e6881f46b96093180693a1d2e6fa2b046667e
   opencode-ai@1.19.5: fbd7620d4152b3a7a000c2155af5372fb864fca5340d609c0ed34f9bce14c2d1
-  openworkflow@0.10.1: 1c188d966cb6373d9ce8759399502504d2c8897df019bb72930f7bb8413eab2a
+  openworkflow@0.10.1: caf33cf4d36f93fb53f686ce3e360b64c34047db50d22499e764c4519818db36
 
 importers:
 
@@ -142,7 +142,7 @@ importers:
         version: 2.12.1(@opentelemetry/api@1.9.1)
       '@openworkflow/cli':
         specifier: ^0.5.2
-        version: 0.5.2(openworkflow@0.10.1(patch_hash=1c188d966cb6373d9ce8759399502504d2c8897df019bb72930f7bb8413eab2a)(@opentelemetry/api@1.9.1)(postgres@3.4.9))
+        version: 0.5.2(openworkflow@0.10.1(patch_hash=caf33cf4d36f93fb53f686ce3e360b64c34047db50d22499e764c4519818db36)(@opentelemetry/api@1.9.1)(postgres@3.4.9))
       '@react-email/components':
         specifier: ^1.0.12
         version: 1.0.12(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -232,7 +232,7 @@ importers:
         version: 5.0.5
       openworkflow:
         specifier: ^0.10.1
-        version: 0.10.1(patch_hash=1c188d966cb6373d9ce8759399502504d2c8897df019bb72930f7bb8413eab2a)(@opentelemetry/api@1.9.1)(postgres@3.4.9)
+        version: 0.10.1(patch_hash=caf33cf4d36f93fb53f686ce3e360b64c34047db50d22499e764c4519818db36)(@opentelemetry/api@1.9.1)(postgres@3.4.9)
       pg:
         specifier: ^8.18.0
         version: 8.23.1
@@ -19434,7 +19434,7 @@ snapshots:
 
   '@opentelemetry/semantic-conventions@1.43.0': {}
 
-  '@openworkflow/cli@0.5.2(openworkflow@0.10.1(patch_hash=1c188d966cb6373d9ce8759399502504d2c8897df019bb72930f7bb8413eab2a)(@opentelemetry/api@1.9.1)(postgres@3.4.9))':
+  '@openworkflow/cli@0.5.2(openworkflow@0.10.1(patch_hash=caf33cf4d36f93fb53f686ce3e360b64c34047db50d22499e764c4519818db36)(@opentelemetry/api@1.9.1)(postgres@3.4.9))':
     dependencies:
       '@clack/prompts': 1.8.1
       commander: 15.0.0
@@ -19442,7 +19442,7 @@ snapshots:
       dotenv: 17.4.2
       jiti: 2.7.0
       nypm: 0.6.10
-      openworkflow: 0.10.1(patch_hash=1c188d966cb6373d9ce8759399502504d2c8897df019bb72930f7bb8413eab2a)(@opentelemetry/api@1.9.1)(postgres@3.4.9)
+      openworkflow: 0.10.1(patch_hash=caf33cf4d36f93fb53f686ce3e360b64c34047db50d22499e764c4519818db36)(@opentelemetry/api@1.9.1)(postgres@3.4.9)
       posthog-node: 5.21.2
 
   '@orama/orama@3.1.18': {}
@@ -27887,7 +27887,7 @@ snapshots:
 
   opener@1.5.2: {}
 
-  openworkflow@0.10.1(patch_hash=1c188d966cb6373d9ce8759399502504d2c8897df019bb72930f7bb8413eab2a)(@opentelemetry/api@1.9.1)(postgres@3.4.9):
+  openworkflow@0.10.1(patch_hash=caf33cf4d36f93fb53f686ce3e360b64c34047db50d22499e764c4519818db36)(@opentelemetry/api@1.9.1)(postgres@3.4.9):
     optionalDependencies:
       '@opentelemetry/api': 1.9.1
       postgres: 3.4.9

@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto"
 
+import { sql } from "drizzle-orm"
 import type { BackendPostgres } from "openworkflow/postgres"
 import { afterAll, beforeAll, expect, it, vi } from "vitest"
 
-import { closeDb, initDb } from "../db/client.js"
+import { closeDb, getSystemDb, initDb } from "../db/client.js"
 import { INGESTION_SHARD_WORKFLOW_NAME } from "../domain/ingestion/ingestion-run.js"
 import { startQueueDepthReports } from "./queue-depth.js"
 import { connectOpenWorkflowBackend } from "./storable-backend.js"
@@ -127,4 +128,26 @@ it("keeps the shards over the share in the queue, counted, and gives each free p
   )
   // The newer shard waits, also while the process has a free slot.
   expect(await workerQueueDepth()).toBe(1)
+})
+
+it("does not count a shard whose lease ended as a shard that the process runs", async () => {
+  const worker = await workerProcess()
+  await queue(worker.backend, INGESTION_SHARD_WORKFLOW_NAME, 30)
+  await queue(worker.backend, INGESTION_SHARD_WORKFLOW_NAME, 20)
+  await queue(worker.backend, INGESTION_SHARD_WORKFLOW_NAME, 10)
+  const [a, b, c] = worker.slots
+  if (!a || !b || !c) throw new Error("The process has 4 slots")
+  const held = (await worker.poll([a, b])).filter((run) => run !== null)
+  expect(held).toHaveLength(2)
+  expect(await worker.poll([c])).toEqual([null])
+
+  // For example, the worker could not write the outcome of the run. No slot
+  // runs it now, so it does not hold a place.
+  await getSystemDb().execute(sql`
+    update openworkflow.workflow_runs
+    set available_at = now() - interval '1 second'
+    where id = ${held[0]?.id}
+  `)
+  const [next] = await worker.poll([c])
+  expect(next).not.toBeNull()
 })
