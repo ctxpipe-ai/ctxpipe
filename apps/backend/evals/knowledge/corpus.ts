@@ -1,6 +1,6 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 
 import type { Octokit } from "octokit"
 import { z } from "zod"
@@ -10,7 +10,19 @@ import { githubSourcePath } from "../../src/domain/workspace-sources/source-file
 import { stampMirrorFiles } from "../../src/domain/workspace-sources/stamp-sources.js"
 import { gitRemoteEnvironment } from "../../src/services/git/clone-tree.js"
 import { importPublicGithubIssues } from "../../src/services/github/issue-mirror/public-import.js"
+import {
+  bodiesEditedAfter,
+  importPublicGithubPullRequests,
+} from "../../src/services/github/pull-request-mirror/public-import.js"
 import type { Corpus } from "./dataset.js"
+import {
+  type ChatFile,
+  type ChatManifest,
+  readZulipChat,
+  renderZulipChat,
+  type ZulipAccess,
+  zulipChatSchema,
+} from "./zulip-chat.js"
 
 /*
  * The public corpora of ADR-069 decision 2. A plan names the slice of each
@@ -20,8 +32,9 @@ import type { Corpus } from "./dataset.js"
  * 1. `snapshot`: copy the tree of each repository at its SHA into a private
  *    snapshot repository, as one commit with no history and no personal
  *    data. The product ingests the snapshot, so the ingest reads a fixed SHA.
- * 2. `issues`: write the issue mirror files of each repository into the
- *    context repo of the corpus, with the production converter.
+ * 2. `issues`: write the issue and pull request mirror files of each
+ *    repository into the context repo of the corpus, with the production
+ *    converters, and the public chat of the corpus (`zulip-chat.ts`).
  * 3. `freeze`: after the ingest, write the SHA of each context repo into
  *    the dataset.
  */
@@ -61,9 +74,16 @@ export const planSchema = z
                 sha: z.string().regex(/^[0-9a-f]{40}$/),
                 /** The count of the newest issues before the cut-off date. */
                 issues: z.number().int().min(0),
+                /**
+                 * The count of the newest pull requests that are closed
+                 * before the cut-off date (CTX-1661).
+                 */
+                pulls: z.number().int().min(0).default(0),
               }),
             )
             .min(1),
+          /** The public chat up to the cut-off date (CTX-1661). */
+          chat: zulipChatSchema.optional(),
         }),
       )
       .min(1),
@@ -298,24 +318,49 @@ export async function snapshotRepositories(
   return snapshots
 }
 
+/** What the `issues` step wrote for one repository. */
+type MirrorCount = {
+  corpus: string
+  source: string
+  issues: number
+  pulls: number
+  /**
+   * The issues and pull requests whose body was edited after the cut-off
+   * date. Their file shows the current body, so a task must not take its
+   * answer from them.
+   */
+  editedAfterCutoff: number[]
+}
+
+/** The number of an issue or pull request mirror file (`…/12.md`, `…/12--345.md`). */
+function mirrorNumber(path: string): number {
+  return Number(/\/(\d+)(?:--\d+)?\.md$/.exec(path)?.[1])
+}
+
 /**
- * Write the issue mirror files of each repository of each corpus into its
- * context repo, and push one commit. The files are as the production issue
- * mirror writes them for the snapshot repository: the converter output, with
- * the source file of the snapshot repository in `sources`. The product makes
- * the context repo when it makes the Workspace, so it must be there. The
- * commit is made with git plumbing in a bare clone, so no path of the
- * context repo is written to the disk.
+ * Write the mirror files of each corpus into its context repo, and push one
+ * commit: the issue and pull request files of each repository, as the
+ * production mirrors write them for the snapshot repository (the converter
+ * output, with the source file of the snapshot repository in `sources`),
+ * and the chat files of the corpus. The product makes the context repo
+ * when it makes the Workspace, so it must be there. The commit is made with
+ * git plumbing in a bare clone, so no path of the context repo is written
+ * to the disk.
  */
 export async function importCorpusIssues(
   plan: Plan,
   access: GithubAccess,
+  zulip: ZulipAccess,
   log: (line: string) => void,
-): Promise<Array<{ corpus: string; source: string; issues: number }>> {
-  const counts: Array<{ corpus: string; source: string; issues: number }> = []
+): Promise<{ repositories: MirrorCount[]; chat: ChatManifest[] }> {
+  const counts: MirrorCount[] = []
+  const manifests: ChatManifest[] = []
+  const until = new Date(plan.cutoff)
   for (const corpus of plan.corpora) {
-    const repositories = corpus.repositories.filter((r) => r.issues > 0)
-    if (repositories.length === 0) continue
+    const repositories = corpus.repositories.filter(
+      (r) => r.issues > 0 || r.pulls > 0,
+    )
+    if (repositories.length === 0 && !corpus.chat) continue
     const target = remote(
       access,
       `${plan.owner}/${contextName(plan.prefix, corpus.id)}`,
@@ -332,35 +377,68 @@ export async function importCorpusIssues(
       const parent = await git(work, ["rev-parse", "FETCH_HEAD"], env)
       await git(work, ["read-tree", parent], env)
       const entries: string[] = []
+      const add = async (file: ChatFile) => {
+        const blob = await git(
+          work,
+          ["hash-object", "-w", "--stdin"],
+          env,
+          file.content,
+        )
+        entries.push(`100644 blob ${blob}\t${file.path}`)
+      }
       for (const repository of repositories) {
         const sourcePath = githubSourcePath(
           plan.owner,
           snapshotName(plan.prefix, corpus.id, repository.source),
         )
-        let count = 0
-        for await (const file of importPublicGithubIssues({
-          octokit: access.octokit,
-          repository: repository.source,
-          until: new Date(plan.cutoff),
-          limit: repository.issues,
-        })) {
-          for (const stamped of stampMirrorFiles([file], sourcePath, [])) {
-            const blob = await git(
-              work,
-              ["hash-object", "-w", "--stdin"],
-              env,
-              stamped.content,
-            )
-            entries.push(`100644 blob ${blob}\t${stamped.path}`)
+        const read = { octokit: access.octokit, repository: repository.source }
+        const numbers: number[] = []
+        let issues = 0
+        let pulls = 0
+        const files = [
+          repository.issues > 0
+            ? importPublicGithubIssues({
+                ...read,
+                until,
+                limit: repository.issues,
+              })
+            : null,
+          repository.pulls > 0
+            ? importPublicGithubPullRequests({
+                ...read,
+                until,
+                limit: repository.pulls,
+              })
+            : null,
+        ]
+        for (const [kind, generator] of files.entries())
+          for await (const file of generator ?? []) {
+            for (const stamped of stampMirrorFiles([file], sourcePath, []))
+              await add(stamped)
+            numbers.push(mirrorNumber(file.path))
+            if (kind === 0) issues += 1
+            else pulls += 1
           }
-          count += 1
-        }
-        log(`${repository.source}: ${count} issues`)
+        const editedAfterCutoff = await bodiesEditedAfter({
+          ...read,
+          numbers,
+          until,
+        })
+        log(
+          `${repository.source}: ${issues} issues, ${pulls} pull requests, ${editedAfterCutoff.length} edited after the cut-off date`,
+        )
         counts.push({
           corpus: corpus.id,
           source: repository.source,
-          issues: count,
+          issues,
+          pulls,
+          editedAfterCutoff,
         })
+      }
+      if (corpus.chat) {
+        const chat = await corpusChat(corpus.chat, until, zulip, log)
+        for (const file of chat.files) await add(file)
+        manifests.push(chat.manifest)
       }
       if (entries.length === 0) continue
       await git(
@@ -380,7 +458,7 @@ export async function importCorpusIssues(
           "-p",
           parent,
           "-m",
-          `Mirror the issues up to ${plan.cutoff}`,
+          `Mirror the issues, pull requests and chat up to ${plan.cutoff}`,
         ],
         { ...env, ...author(new Date().toISOString()) },
       )
@@ -393,7 +471,58 @@ export async function importCorpusIssues(
       await rm(work, { recursive: true, force: true })
     }
   }
-  return counts
+  return { repositories: counts, chat: manifests }
+}
+
+type CorpusChat = { files: ChatFile[]; manifest: ChatManifest }
+
+async function corpusChat(
+  chat: NonNullable<Plan["corpora"][number]["chat"]>,
+  until: Date,
+  zulip: ZulipAccess,
+  log: (line: string) => void,
+): Promise<CorpusChat> {
+  const messages = await readZulipChat(chat, until, zulip, log)
+  const result = renderZulipChat(chat, until, messages)
+  log(
+    `${chat.realm}: ${result.manifest.topics} topics, ${result.manifest.messages} messages`,
+  )
+  return result
+}
+
+/**
+ * Write the chat files of each corpus to `<dir>/<corpus>/`, and the
+ * manifest to `<dir>/<corpus>.chat.json`, with no GitHub step. The files
+ * are the same as the `issues` step writes into the context repo, so a
+ * pilot slice or the files arm can use them.
+ */
+export async function exportCorpusChat(
+  plan: Plan,
+  zulip: ZulipAccess,
+  dir: string,
+  log: (line: string) => void,
+): Promise<ChatManifest[]> {
+  const manifests: ChatManifest[] = []
+  for (const corpus of plan.corpora) {
+    if (!corpus.chat) continue
+    const chat = await corpusChat(
+      corpus.chat,
+      new Date(plan.cutoff),
+      zulip,
+      log,
+    )
+    for (const file of chat.files) {
+      const path = join(dir, corpus.id, file.path)
+      await mkdir(dirname(path), { recursive: true })
+      await writeFile(path, file.content)
+    }
+    await writeFile(
+      join(dir, `${corpus.id}.chat.json`),
+      `${JSON.stringify(chat.manifest, null, 2)}\n`,
+    )
+    manifests.push(chat.manifest)
+  }
+  return manifests
 }
 
 const datasetDraftSchema = z.looseObject({

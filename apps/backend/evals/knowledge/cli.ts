@@ -16,8 +16,8 @@
  *   bun evals/knowledge/cli.ts finalize --draft LABELED,... --out FILE
  *   bun evals/knowledge/cli.ts label --draft FILE --repo DIR \
  *     --models A,B,C --out FILE [--cap-usd 5]
- *   bun evals/knowledge/cli.ts corpus snapshot|issues|freeze --plan FILE \
- *     --out FILE
+ *   bun evals/knowledge/cli.ts corpus snapshot|issues|chat|freeze --plan FILE \
+ *     --out FILE|DIR
  *   bun evals/knowledge/cli.ts probe --out DIR [--setting NAME=VALUE ...]
  *     [--cap-usd 1]
  *   bun evals/knowledge/cli.ts latency --out DIR [--runs 50] [--cap-usd 2]
@@ -50,6 +50,7 @@ import {
 } from "../../src/retrieval/services/openRouterProvider.js"
 import { modelProviderProblem } from "./chat.js"
 import {
+  exportCorpusChat,
   freezeCorpora,
   importCorpusIssues,
   planSchema,
@@ -99,6 +100,7 @@ import {
   writeRun,
 } from "./runner.js"
 import { runVision, VISION_MODELS } from "./vision.js"
+import { politeZulipAccess } from "./zulip-chat.js"
 
 /** The model calls go to `MODEL_PROVIDER_URL`, as in the readers. */
 const modelBase = () =>
@@ -608,7 +610,8 @@ async function draft(values: {
 
 /**
  * One step of the public corpora (`corpus.ts`). `GITHUB_TOKEN` must be able
- * to make and push to the private repositories of the plan's owner.
+ * to make and push to the private repositories of the plan's owner. The
+ * `chat` step reads only public chat, so it needs no token.
  */
 async function corpus(
   step: string | undefined,
@@ -617,6 +620,11 @@ async function corpus(
 ) {
   if (!plan) throw new SetupError("corpus needs --plan.")
   const parsed = planSchema.parse(await readJson(plan))
+  const log = (line: string) => process.stderr.write(`${line}\n`)
+  if (step === "chat") {
+    await exportCorpusChat(parsed, politeZulipAccess, out, log)
+    return 0
+  }
   const token = process.env.GITHUB_TOKEN
   if (!token) throw new SetupError("corpus needs GITHUB_TOKEN.")
   // Wait for a rate limit to reset, then go on.
@@ -629,13 +637,15 @@ async function corpus(
     token,
     gitBase: "https://github.com",
   }
-  const log = (line: string) => process.stderr.write(`${line}\n`)
   if (step === "snapshot")
     await writeJson(out, await snapshotRepositories(parsed, access, log))
   else if (step === "issues")
-    await writeJson(out, await importCorpusIssues(parsed, access, log))
+    await writeJson(
+      out,
+      await importCorpusIssues(parsed, access, politeZulipAccess, log),
+    )
   else if (step === "freeze") await freezeCorpora(parsed, access, out)
-  else throw new SetupError("Use corpus snapshot, issues or freeze.")
+  else throw new SetupError("Use corpus snapshot, issues, chat or freeze.")
   return 0
 }
 

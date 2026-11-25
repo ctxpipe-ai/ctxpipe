@@ -257,14 +257,42 @@ GITHUB_TOKEN=… bun --no-env-file evals/knowledge/cli.ts corpus issues   --plan
 GITHUB_TOKEN=… bun --no-env-file evals/knowledge/cli.ts corpus freeze   --plan fixtures/corpora-v0.plan.json --out DATASET.json
 ```
 
-The plan (`fixtures/corpora-v0.plan.json`) gives the slice of each source of ADR-069 decision 2: the public repositories at fixed SHAs, the count of issues, and the issue cut-off date. The repositories that the steps make are private, in the org `owner`, with the name prefix `prefix`. `GITHUB_TOKEN` must be able to make and push to them.
+The plan (`fixtures/corpora-v0.plan.json`) gives the slice of each source of ADR-069 decision 2: the public repositories at fixed SHAs, the count of issues and of pull requests (`pulls`, default 0), the cut-off date, and the public chat of a corpus (`chat`, optional). The repositories that the steps make are private, in the org `owner`, with the name prefix `prefix`. `GITHUB_TOKEN` must be able to make and push to them.
 
 The steps use no database, so they need no `DATABASE_URL` and no `AUTH_SECRET`. Run the commands with `bun --no-env-file` when the shell gives the token, so that no `.env` file adds another value.
 
 1. `snapshot` copies the tree of each repository at its SHA into the private repository `<prefix><corpus>-<repo>`, as one commit with no history. The commit has a fixed author ("ctxpipe evals") and the cut-off date, so it holds no personal data, and the same plan gives the same commit. A repository that holds another commit is refused.
 2. The ingest is not a command. In a product org that is only for the evals, make one Workspace for each corpus on the context repo `<prefix><corpus>-context`, and add the snapshot repositories of the corpus as its sources. The current production stack then makes the ingest output (ADR-069 decision 4).
-3. `issues` writes the newest issues before the cut-off date of each repository into the context repo, as the production issue mirror writes them (`github/issues/<owner>/<repo>/<n>.md`, with the source file of the snapshot repository in `sources`).
+3. `issues` writes one commit into the context repo of each corpus:
+   - The newest issues before the cut-off date of each repository, as the production issue mirror writes them (`github/issues/<owner>/<repo>/<n>.md`, with the source file of the snapshot repository in `sources`).
+   - The newest pull requests that are closed before the cut-off date and are not a draft, as the production pull request mirror writes them (`github/pulls/<owner>/<repo>/<n>--<id>.md`). The reviews and comments after the cut-off date are not there. The body, the labels and the requested reviewers are the current ones, because the API does not give their history.
+   - The chat of the corpus (see below).
+
+   Its output file gives, for each repository, the counts and `editedAfterCutoff`: the issues and pull requests whose body was edited after the cut-off date. Their file shows the current body, so a task must not take its answer from them. The output file also holds the chat manifest of each corpus.
 4. `freeze` writes the SHA of the main branch of each context repo into the `corpora` of the dataset file. The questions of the file stay.
+
+#### The chat of a corpus
+
+The `chat` of a corpus names a Zulip server, the start of the slice (`since`), and the ids of the web-public channels to read. The end of the slice is the cut-off date. `zulip-chat.ts` reads the messages with no credential, 100 messages for each request and at most one request each 2 seconds, as the server asks in its `llms.txt`. It writes one Markdown file for each topic, at `chat/zulip/<channel id>-<channel>/<first message id>.md`:
+
+- Each message is as it was at the cut-off date. The edit history of the message gives its earlier text and topic. A message edited after the cut-off date with no edit history keeps its place, but not its text.
+- No real name, email address or user id goes into a file. Each person gets a pseudonym (`person-0001`) in the order of the first message that names the person, so the same slice gives the same pseudonyms. The export replaces each mention, each full name of two or more words of a known person, each email address, and each link to a direct message or a profile. A first name alone in the text stays: read a sample before you publish anything from the files.
+- The manifest gives the counts and, for each file, the path, the SHA-256 and the first message id. It holds no name and no text, so it can be public.
+
+The files arm of OrgBench reads the same files from the frozen context repo. To read the chat with no GitHub step, for a pilot slice or a fork, run `corpus chat`. It writes the files to `--out DIR/<corpus>/` and the manifest to `DIR/<corpus>.chat.json`:
+
+```sh
+bun --no-env-file evals/knowledge/cli.ts corpus chat --plan PLAN.json --out "$TMPDIR/chat"
+```
+
+### The Zulip twin of OrgBench
+
+`fixtures/orgbench-zulip-v1.plan.json` is the first org twin of OrgBench (CTX-1661): the public Zulip org at T = 2026-11-01T00:00:00Z.
+
+- **T:** each model that OrgBench tests (Claude Haiku 5.5, Sonnet 5.5 and Opus 5.5) has a training data cutoff of June 2026. The ingest and hydrate models of production are `openai/gpt-6-luna` (the ingest agents), `openai/text-embedding-3-large`, `google/gemini-embedding-2`, `openai/gpt-6.1-terra` (vision), `anthropic/claude-haiku-4-5` (commit subjects) and `xiaomi/mimo-v2.6-pro` (merges). Their cutoffs are not published, but each model was released by 2026-10-26, so each cutoff is before T. The tasks come from the events in (T, the run date]. On 2026-11-25 that window held 211 pull requests and 42 issues in `zulip/zulip` alone.
+- **Repositories:** the 8 core repositories at their last commit up to T. The plan takes the newest 3000 issues and 2000 pull requests of `zulip/zulip`, and all or most of those of the smaller repositories.
+- **Chat:** the 25 web-public channels of `chat.zulip.org` from 2025-11-01 to T. The `commits` channel is not there, because it repeats the Git history.
+- **Not done yet:** the snapshot, the ingest, the import and the freeze need the setup of the bench org in production. Before the full chat export, get the permission of the `chat.zulip.org` administrators: their `llms.txt` asks for it before a bulk download.
 
 ### Probe the provider settings
 
@@ -365,3 +393,5 @@ Then come the change of each question against the kept run, the errors, and the 
 ## Proof
 
 `src/knowledge-reader/knowledge-eval-hydrate.integration.test.ts` hydrates a small context repo (real Git over HTTP) into real Postgres, FalkorDB and ClickHouse with `hydrate`, and `run` answers its question on both arms. It checks the ZDR block on each embedding call, a second hydrate with no model call, a new projection when the root changes, the exit code of the spend cap, and the stop at a failed step or a failed store of the old stack. `src/knowledge-reader/knowledge-eval.integration.test.ts` writes the example Workspace to real Postgres, FalkorDB and ClickHouse. It runs the 12 example questions through both arms with fixed model answers (msw), and it checks a small expected report. It then scores a new `keepAt` again from the recorded calls with no model request, it stops a run at the spend cap, and it refuses a Workspace that does not serve the frozen SHA or the root of the corpus on both stacks. `src/knowledge-reader/knowledge-eval.test.ts` checks the dataset rules, the metrics, the panel majority (also the no-answer check) and the stop of the panel at the spend cap. `src/knowledge-reader/knowledge-eval-checks.test.ts` gives each regression check a small result with its defect, which the check shows, and the same result without the defect, which the check passes. The integration test also checks that a live run and a rescore give each check for both arms. `src/knowledge-reader/knowledge-eval-hubs.integration.test.ts` checks the high-degree units of check 4 in real Postgres. `src/knowledge-reader/knowledge-eval-draft.test.ts` checks the picks of each category, the checks of a draft (the gold, the handles, the keyword leak and its second call), the splits, the scrub, the provider block and the spend cap of the drafter.
+
+`src/knowledge-reader/knowledge-corpus.test.ts` runs the corpus steps with real Git (`file://` remotes) and msw for the GitHub API and a Zulip server: the snapshot, the issues and pull requests as they were at the cut-off date with the edit flags, and the chat in the context repo. `src/knowledge-reader/knowledge-zulip-chat.test.ts` checks the chat slice of each channel, the web-public narrow and the page size of each request, the pseudonyms with no name or email address in a file or the manifest, and the text and topic of each message at the cut-off date.
