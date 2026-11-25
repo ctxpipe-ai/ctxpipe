@@ -915,6 +915,63 @@ describe("the product time budget", () => {
   })
 })
 
+describe('the plane "no answer"', () => {
+  // The search says "no answer" when its top hit has a p(answers) below
+  // `answerAt` (CTX-1561). `keepAt` stays the threshold of get_related.
+  it("reads answerAt of the run, and keepAt for a run from before it", async () => {
+    const dataset = await readDataset(datasetFile)
+    const id = "billing-provider"
+    const planeNoAnswer = (
+      loop: { keepAt: number; [setting: string]: number },
+      scores: number[],
+    ) =>
+      buildReport({
+        manifest: {
+          datasetVersion: dataset.version,
+          splits: ["dev"],
+          now: "2026-11-20T00:00:00.000Z",
+          settings: {},
+          loop,
+          mode: "live",
+          capUsd: 1,
+          spentUsd: 0,
+          stopped: false,
+        },
+        dataset: {
+          ...dataset,
+          questions: dataset.questions.filter((question) => question.id === id),
+        },
+        // A report scores a question only with an answer of each arm.
+        answers: (["legacy", "plane"] as const).map((arm) => ({
+          arm,
+          question: id,
+          search: {
+            refs: scores.map((_, index) => `doc-${index}.md`),
+            scores,
+            latencyMs: 10,
+          },
+          calls: {
+            jev: 2,
+            jevQuestions: 100,
+            embedding: 1,
+            costUsd: 0.001,
+            missing: 0,
+            failed: 0,
+            unrecorded: 0,
+          },
+        })),
+        kept: null,
+      }).questions.find((question) => question.arm === "plane")?.metrics
+        .noAnswer
+    const loop = { ...ORCHESTRATOR_DEFAULTS }
+    expect(loop.answerAt).toBe(0.6)
+    expect(loop.keepAt).toBe(0.5)
+    expect(planeNoAnswer(loop, [0.58, 0.58, 0.33])).toBe(1)
+    expect(planeNoAnswer(loop, [0.6, 0.2])).toBe(0)
+    expect(planeNoAnswer({ keepAt: 0.5 }, [0.58, 0.58, 0.33])).toBe(0)
+  })
+})
+
 describe("the comparison with the kept run", () => {
   it("counts an error of this run, not of the kept run, in the guards", async () => {
     const dataset = await readDataset(datasetFile)
