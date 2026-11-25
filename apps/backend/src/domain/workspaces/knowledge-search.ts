@@ -61,11 +61,6 @@ export type KnowledgeHit = {
   claims: Array<{ predicate: string | null; to: string }>
   /** Reciprocal rank fusion score of the chunk. */
   score: number
-  /**
-   * The plane only: Jev's p(states the answer), when the search asks it
-   * (`statesAnswerAt` above 0, CTX-1685).
-   */
-  pStatesAnswer?: number
 }
 
 // Each ranking keeps this many chunks before the fusion. It is also the HNSW
