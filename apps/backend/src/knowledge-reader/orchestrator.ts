@@ -130,11 +130,15 @@ export function callTimeLimitMs(deadline: number): number | undefined {
 /**
  * `step`, or `BudgetSpentError` when `deadline` (a `performance.now()` time)
  * comes first. A step that the deadline stops goes on in the background,
- * and its own time limit ends it. With no time budget, `step` alone.
+ * and its own time limit ends it. With no time budget, `step` alone. With
+ * `atDeadline`, the deadline calls it first, and `step` can still end in
+ * the same turn of the event loop: for example with the part of its result
+ * that is ready.
  */
 export async function beforeDeadline<T>(
   deadline: number,
   step: () => Promise<T>,
+  atDeadline?: () => void,
 ): Promise<T> {
   if (!Number.isFinite(deadline)) return step()
   const left = deadline - performance.now()
@@ -144,10 +148,13 @@ export async function beforeDeadline<T>(
     return await Promise.race([
       step(),
       new Promise<never>((_, reject) => {
-        timer = setTimeout(
-          () => reject(new BudgetSpentError("The time budget is spent")),
-          left,
-        )
+        const spent = () =>
+          reject(new BudgetSpentError("The time budget is spent"))
+        timer = setTimeout(() => {
+          if (!atDeadline) return spent()
+          atDeadline()
+          setImmediate(spent)
+        }, left)
       }),
     ])
   } finally {

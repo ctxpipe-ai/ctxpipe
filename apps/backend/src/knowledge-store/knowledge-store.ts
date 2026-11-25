@@ -5,10 +5,7 @@ import {
   TupleParam,
 } from "@clickhouse/client"
 
-import {
-  CONNECTOR_MIRROR_ROOTS,
-  connectorMirrorRoot,
-} from "../domain/codeIngestion/connectorMirrorPaths.js"
+import { CONNECTOR_MIRROR_ROOTS } from "../domain/codeIngestion/connectorMirrorPaths.js"
 
 /**
  * The per-query custom setting that holds the org of a statement. The row
@@ -211,7 +208,7 @@ export type MutationCounter = { mutations: number }
 export type KnowledgeReadScope = { orgId: string; heads: WorkspaceHead[] }
 
 /** The documents that the search of the store gives, at most. */
-export const SEARCH_HITS = 50
+const SEARCH_HITS = 50
 
 /** One document of a Workspace. */
 export type DocumentRef = { workspaceId: string; docKey: string }
@@ -243,37 +240,17 @@ export type SearchQuery = {
   validAt?: Date | null
   /** The best chunks of each found document that the hit holds, at most. */
   chunksPerDocument: number
-}
-
-/** The filters of a search, without the time of validity. */
-type SearchFilters = Pick<
-  SearchQuery,
-  "kinds" | "pathPrefix" | "sources" | "observedAfter"
->
-
-/**
- * True when `document` of the view passes `filters`, as the `searchable`
- * condition of the search: active, of a kind, under the path prefix, from
- * a source, and observed after the time. A read that takes `validAt`
- * applies the time of validity itself.
- */
-export function passesSearchFilters(
-  document: KnowledgeDocument,
-  {
-    kinds = [],
-    pathPrefix = "",
-    sources = [],
-    observedAfter = null,
-  }: SearchFilters,
-): boolean {
-  return (
-    document.status === "active" &&
-    (kinds.length === 0 || kinds.includes(document.kind)) &&
-    document.path.startsWith(pathPrefix) &&
-    (sources.length === 0 ||
-      sources.includes(connectorMirrorRoot(document.path) ?? "authored")) &&
-    (!observedAfter || document.observedAt > observedAfter)
-  )
+  /**
+   * The neighbors of the best hits (CTX-1605): the documents that the first
+   * `from` hits have a relation to, in either direction, except a
+   * `FROM_SOURCE` relation, as the walk of `get_related` with no named
+   * predicate. A neighbor must pass the filters of the search and not be a
+   * hit. The `places` neighbors closest to the query vector (their closest
+   * chunk) take the last places of the hits. Absent, or `places` 0: no
+   * neighbors. When `signal` aborts before the read of the neighbors ends,
+   * the search gives its hits without neighbors.
+   */
+  neighbors?: { from: number; places: number; signal?: AbortSignal }
 }
 
 /** A chunk of a read, with its text and its file lines. */
@@ -1465,11 +1442,18 @@ const relationsOf = (table: "relations" | "relations_in", sources: string) =>
 const clickHouseTime = (time: Date) =>
   time.toISOString().slice(0, 23).replace("T", " ")
 
-/** True for a row with no `validAt`, or with `validAt` in its validity. */
-const validDuring = (alias = "") =>
+/**
+ * True for a row with no `validAt`, or with `validAt` in its validity:
+ * `from` to `to`, by default the columns of `alias`.
+ */
+const validDuring = (
+  alias = "",
+  from = `${alias}valid_from`,
+  to = `${alias}valid_to`,
+) =>
   `({validAt:Nullable(DateTime64(3, 'UTC'))} IS NULL OR (
-    (${alias}valid_from IS NULL OR ${alias}valid_from <= {validAt:Nullable(DateTime64(3, 'UTC'))})
-    AND (${alias}valid_to IS NULL OR ${alias}valid_to > {validAt:Nullable(DateTime64(3, 'UTC'))})))`
+    (${from} IS NULL OR ${from} <= {validAt:Nullable(DateTime64(3, 'UTC'))})
+    AND (${to} IS NULL OR ${to} > {validAt:Nullable(DateTime64(3, 'UTC'))})))`
 
 /** The binary form of a vector, as hex: the same bits as `embedding_bits`. */
 function vectorBits(vector: number[]): string {
@@ -1519,6 +1503,9 @@ const refTuples = (refs: DocumentRef[]) =>
  *    chunks are grouped by document, a document in the order of its best
  *    chunk, and the top 50 documents are the hits. Thus a long document
  *    takes one place, not one place for each of its chunks (CTX-1455).
+ * 4. With `neighbors`, the neighbors of the best hits take the last places
+ *    (`searchNeighbors`). Their read runs at the same time as the read of
+ *    the documents and the texts of the hits.
  * The filters use the copies on the tree rows, so the search does not join
  * the documents table before the cut.
  */
@@ -1534,6 +1521,7 @@ async function search(
     observedAfter = null,
     validAt = null,
     chunksPerDocument,
+    neighbors,
   }: SearchQuery,
 ): Promise<SearchHit[]> {
   // hasToken refuses a term with a separator in it. Split each term as the
@@ -1546,13 +1534,17 @@ async function search(
         .filter(Boolean),
     ),
   ]
-  const params = {
+  // The parameters of `searchable`.
+  const filters = {
     kinds,
     pathPrefix,
     sources,
     mirrorRoots: CONNECTOR_MIRROR_ROOTS,
     observedAfter: observedAfter && clickHouseTime(observedAfter),
     validAt: validAt && clickHouseTime(validAt),
+  }
+  const params = {
+    ...filters,
     ...Object.fromEntries(uniqueTerms.map((term, i) => [`term${i}`, term])),
   }
   // The tree rows that the search can find: active, and in the filters.
@@ -1715,7 +1707,7 @@ async function search(
   const top = [...byDocument.values()].flat()
   if (top.length === 0) return []
 
-  const [documents, texts] = await Promise.all([
+  const [documents, texts, closest] = await Promise.all([
     selectIn<DocumentRecord & { workspaceId: string; version: string }>(
       client,
       scope,
@@ -1745,6 +1737,26 @@ async function search(
         ),
       },
     ),
+    neighbors && neighbors.places > 0
+      ? untilAborted(
+          neighbors.signal,
+          [],
+          searchNeighbors(client, scope, {
+            // The first chunk of each document has its version in the view.
+            seeds: [...byDocument.values()]
+              .slice(0, neighbors.from)
+              .flatMap((chunks) => chunks.slice(0, 1)),
+            hits: [...byDocument.values()].flatMap((chunks) =>
+              chunks.slice(0, 1),
+            ),
+            searchable,
+            filters,
+            vector: await vector,
+            chunksPerDocument,
+            places: neighbors.places,
+          }),
+        )
+      : [],
   ])
   const documentById = new Map(
     documents.map(({ workspaceId, version, ...record }) => [
@@ -1753,7 +1765,7 @@ async function search(
     ]),
   )
   const textById = new Map(texts.map((row) => [chunkId(row), row]))
-  return [...byDocument].flatMap(([id, bestChunks]): SearchHit[] => {
+  const hits = [...byDocument].flatMap(([id, bestChunks]): SearchHit[] => {
     const current = documentById.get(id)
     // A chunk of a file version that the view does not show any more is
     // not a hit.
@@ -1779,6 +1791,228 @@ async function search(
       },
     ]
   })
+  if (closest.length === 0) return hits
+  // A neighbor takes the score of the hit whose place it takes (else of the
+  // last hit), so that the search order keeps it there when Jev does not
+  // judge.
+  const kept = hits.slice(0, SEARCH_HITS - closest.length)
+  return [
+    ...kept,
+    ...closest.map(({ workspaceId, document, chunks }, index) => {
+      const score =
+        hits[kept.length + index]?.chunks[0]?.score ??
+        hits.at(-1)?.chunks[0]?.score ??
+        0
+      return {
+        workspaceId,
+        document,
+        chunks: chunks.map(({ distance: _distance, ...chunk }) => ({
+          ...chunk,
+          score,
+        })),
+      }
+    }),
+  ]
+}
+
+/** `read`, or `fallback` when `signal` aborts first. */
+function untilAborted<T>(
+  signal: AbortSignal | undefined,
+  fallback: T,
+  read: Promise<T>,
+): Promise<T> {
+  if (!signal) return read
+  return Promise.race([
+    read,
+    new Promise<T>((resolve) => {
+      if (signal.aborted) resolve(fallback)
+      else
+        signal.addEventListener("abort", () => resolve(fallback), {
+          once: true,
+        })
+    }),
+  ])
+}
+
+/**
+ * The `places` neighbors of the hits `seeds` that are closest to `vector`,
+ * each with its `chunksPerDocument` chunks closest to it (step 4 of
+ * `search`). A neighbor is a document that a seed has a relation to, in
+ * either direction, except a `FROM_SOURCE` relation, as in `readFrontier`:
+ * an out-relation to a reference key goes to the documents of the key, and
+ * an in-relation can name the seed or a key of the seed. The relation and
+ * the file version that it comes from must be in the view. The neighbor
+ * must pass `searchable` and not be one of `hits`.
+ *
+ * One query finds the neighbors, then two reads by file version get their
+ * chunks and their documents. ClickHouse evaluates a CTE again at each use,
+ * so the query uses each CTE one time (CTX-1683, ADR-068 decision 1).
+ */
+async function searchNeighbors(
+  client: ClickHouseClient,
+  scope: KnowledgeReadScope,
+  input: {
+    seeds: ChunkKey[]
+    hits: ChunkKey[]
+    /** The condition on a tree row of the view that the search can find. */
+    searchable: string
+    /** The parameters of `searchable`. */
+    filters: Record<string, unknown>
+    vector: number[]
+    chunksPerDocument: number
+    places: number
+  },
+): Promise<Evidence[]> {
+  const versions = (keys: Omit<ChunkKey, "ordinal">[]) =>
+    keys.map(
+      (key) => new TupleParam([key.workspaceId, key.docKey, key.version]),
+    )
+  const seedVersions =
+    "(workspace_id, doc_key, version) IN {seeds:Array(Tuple(String, String, String))}"
+  // `exact`: the neighbor must be in the view at `version`. A relation to a
+  // document key names no version.
+  const neighbors = await selectIn<
+    WithDateStrings<
+      Pick<
+        KnowledgeDocument,
+        | "docKey"
+        | "kind"
+        | "status"
+        | "path"
+        | "deletedAt"
+        | "validFrom"
+        | "validTo"
+        | "observedAt"
+      >,
+      "deletedAt" | "validFrom" | "validTo" | "observedAt"
+    > & { workspaceId: string; version: string }
+  >(
+    client,
+    scope,
+    `WITH tree_view AS (${treeView}),
+     candidates AS (
+       SELECT o.workspace_id AS workspace_id,
+         if(empty(keys.doc_key), o.dst_doc, keys.doc_key) AS doc_key,
+         keys.version AS version, NOT empty(keys.doc_key) AS exact,
+         false AS introduced, NULL AS valid_from, NULL AS valid_to
+       FROM (
+         SELECT workspace_id, dst_doc FROM (
+           ${relationsOf("relations", `${viewFiles} AND ${seedVersions}`)}
+             AND r.predicate != {fromSource:String}
+         ) WHERE ${validDuring()}
+       ) AS o
+       LEFT JOIN (
+         SELECT workspace_id, concat({prefix:String}, ref_key) AS target,
+           doc_key, version
+         FROM doc_refs WHERE ${inWorkspaces}
+       ) AS keys
+         ON keys.workspace_id = o.workspace_id AND keys.target = o.dst_doc
+       UNION ALL
+       SELECT workspace_id, src_doc, src_version, true, valid_from_introduced,
+         valid_from, valid_to
+       FROM relations_in
+       WHERE ${inWorkspaces} AND predicate != {fromSource:String} AND (
+         (workspace_id, dst_doc) IN {seedDocs:Array(Tuple(String, String))}
+         OR (workspace_id, dst_doc) IN (
+           SELECT workspace_id, concat({prefix:String}, ref_key)
+           FROM doc_refs WHERE ${inWorkspaces} AND ${seedVersions}))
+     )
+     SELECT DISTINCT v.workspace_id AS workspaceId, v.doc_key AS docKey,
+       v.version AS version, v.doc_kind AS kind,
+       toString(v.status) AS status, v.deleted_at AS deletedAt,
+       v.path AS path, v.valid_from AS validFrom, v.valid_to AS validTo,
+       v.observed_at AS observedAt
+     FROM candidates AS c
+     INNER JOIN (
+       SELECT * FROM tree_view WHERE ${input.searchable}
+         AND (workspace_id, doc_key) NOT IN {hits:Array(Tuple(String, String))}
+     ) AS v ON v.workspace_id = c.workspace_id AND v.doc_key = c.doc_key
+     WHERE (NOT c.exact OR c.version = v.version)
+       AND ${validDuring("", "if(c.introduced, v.valid_from, c.valid_from)", "c.valid_to")}`,
+    {
+      ...input.filters,
+      seeds: versions(input.seeds),
+      seedDocs: refTuples(input.seeds),
+      hits: refTuples(input.hits),
+      prefix: REFERENCE_TARGET_PREFIX,
+      fromSource: "FROM_SOURCE",
+    },
+  )
+  if (neighbors.length === 0) return []
+  const inNeighbors =
+    "(workspace_id, doc_key, version) IN {neighbors:Array(Tuple(String, String, String))}"
+  const params = {
+    neighbors: versions(neighbors),
+    queryVector: input.vector,
+    chunksPerDocument: input.chunksPerDocument,
+  }
+  const [chunks, documents] = await Promise.all([
+    selectIn<DocumentRef & ChunkLines & { distance: number }>(
+      client,
+      scope,
+      `SELECT workspace_id AS workspaceId, doc_key AS docKey, ordinal, text,
+         start_line AS startLine, end_line AS endLine,
+         cosineDistance(embedding, {queryVector:Array(Float32)}) AS distance
+       FROM chunks WHERE ${inWorkspaces} AND ${inNeighbors}
+       ORDER BY distance, ordinal
+       LIMIT {chunksPerDocument:UInt32} BY workspace_id, doc_key`,
+      params,
+    ),
+    selectIn<
+      DocumentRef &
+        Pick<
+          KnowledgeDocument,
+          "error" | "title" | "sourceType" | "source" | "summary" | "mime"
+        >
+    >(
+      client,
+      scope,
+      `SELECT workspace_id AS workspaceId, doc_key AS docKey, error, title,
+         source_type AS sourceType, source, summary, mime
+       FROM documents WHERE ${inWorkspaces} AND ${inNeighbors}`,
+      params,
+    ),
+  ])
+  const fieldsOf = new Map(
+    documents.map(({ workspaceId, docKey, ...fields }) => [
+      documentId({ workspaceId, docKey }),
+      fields,
+    ]),
+  )
+  const chunksOf = new Map<string, Evidence["chunks"]>()
+  for (const { workspaceId, docKey, ...chunk } of chunks) {
+    const id = documentId({ workspaceId, docKey })
+    chunksOf.set(id, [...(chunksOf.get(id) ?? []), chunk])
+  }
+  // The closest first; the path decides between equal distances.
+  return neighbors
+    .flatMap(({ workspaceId, version: _version, ...row }): Evidence[] => {
+      const id = documentId({ workspaceId, docKey: row.docKey })
+      const closest = chunksOf.get(id)
+      if (!closest?.length) return []
+      const fields = fieldsOf.get(id)
+      return [
+        {
+          workspaceId,
+          document: toDocument({
+            ...row,
+            error: fields?.error ?? "",
+            title: fields?.title ?? "",
+            sourceType: fields?.sourceType ?? "",
+            source: fields?.source ?? "",
+            summary: fields?.summary ?? "",
+            mime: fields?.mime ?? "",
+          }),
+          chunks: closest,
+        },
+      ]
+    })
+    .sort(
+      (a, b) =>
+        (a.chunks[0]?.distance ?? 0) - (b.chunks[0]?.distance ?? 0) ||
+        a.document.path.localeCompare(b.document.path),
+    )
+    .slice(0, input.places)
 }
 
 /**
