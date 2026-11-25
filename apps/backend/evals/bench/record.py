@@ -130,6 +130,12 @@ def server_spans(otlp_path, conversation_id, started):
         )),
         "jevCalls": sum(s["name"] == "jev.decide" for s, _ in in_traces),
         "modelCostUsd": round(sum(float(a.get("gen_ai.usage.cost", 0)) for _, a in in_traces), 6),
+        # The bench backend serves only the bench, so the cost of each of its
+        # spans since the start counts, also a call with no conversation id
+        # or with the id of another run.
+        "backendCostUsd": round(sum(
+            float(a.get("gen_ai.usage.cost", 0)) for s, a in spans if int(s.get("startTimeUnixNano", 0)) >= since
+        ), 6),
         "falkorSpans": sum(a.get("db.system.name") == "falkordb" for _, a in in_traces),
         "planeFallbackLogs": fallback_logs,
     }
@@ -182,7 +188,8 @@ def run_cost(run):
     counts as its full cap.
     """
     agent = run["claudeCodeCostUsd"]
-    return (run["runCapUsd"] if agent is None else agent) + run["server"]["modelCostUsd"]
+    server = run["server"]
+    return (run["runCapUsd"] if agent is None else agent) + server.get("backendCostUsd", server["modelCostUsd"])
 
 
 def write_report(out, runs):

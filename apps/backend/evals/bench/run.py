@@ -134,7 +134,7 @@ def main():
                     )
                     while harbor.poll() is None:
                         time.sleep(5)
-                        server_cost = server_spans(args.otlp, run_id, started)["modelCostUsd"]
+                        server_cost = server_spans(args.otlp, run_id, started)["backendCostUsd"]
                         if server_reserve and server_cost >= server_reserve / 2:
                             print(f"stop {run_id}: the server calls cost ${server_cost:.4f}, the reserve is ${server_reserve}")
                             harbor.terminate()
