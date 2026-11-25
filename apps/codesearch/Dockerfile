@@ -28,9 +28,9 @@ RUN export GOTOOLCHAIN=auto GOBIN=/zoekt-bin GOPROXY='https://proxy.golang.org|d
 # ── Stage 2: Node toolchain and npm-distributed SCIP tools ───────────────────
 FROM node:26.13.1-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1 AS node-tools
 RUN npm install --global \
-    @ast-grep/cli@0.45.0 \
-    @sourcegraph/scip-python@0.6.6 \
-    @sourcegraph/scip-typescript@0.4.0 \
+    @ast-grep/cli@0.51.3 \
+    @sourcegraph/scip-python@0.6.8 \
+    @sourcegraph/scip-typescript@0.6.2 \
   && npm cache clean --force
 
 # ── Stage 3: Rust toolchain and debian-lsp ───────────────────────────────────
@@ -57,7 +57,7 @@ RUN dotnet tool install \
     scip-dotnet
 
 # ── Stage 5: Dart SDK and scip_dart ─────────────────────────────────────────
-FROM dart:3.13.7@sha256:854f3c50b1cbd4a5a54c9fa67d4f5b6702ac49b4a26d21a80e7712a72528b215 AS dart-tools
+FROM dart:3.14.0@sha256:c78970229c8944bd6076caf4e5977ef569ba66750d301a2149f63b41a6725cec AS dart-tools
 ARG SCIP_DART_VERSION=1.6.2
 ENV PUB_CACHE=/opt/pub-cache
 RUN dart pub global activate scip_dart "${SCIP_DART_VERSION}"

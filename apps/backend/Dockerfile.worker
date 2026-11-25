@@ -3,7 +3,7 @@
 # Install Forge CLI here so npm/layout matches official Node layout; copying/npm in the Bun
 # stage and then RUN npm caused "Cannot find module '../lib/cli.js'" when invoking /usr/local/bin/npm.
 FROM node:26.13.1-alpine3.24@sha256:6bd9ab43c0ec0190ca7b2d193906cb8b7edf6e7f4afa43ddeccd6452710bffb5 AS nodeforge
-RUN npm install -g @forge/cli@13.4.0
+RUN npm install -g @forge/cli@13.5.0
 
 # The converter of the knowledge plane (apps/backend/converter, CTX-1433),
 # also the secret scrubber of each model call (`--scrub`, ADR-072): one
