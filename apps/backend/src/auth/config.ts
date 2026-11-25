@@ -26,6 +26,7 @@ import { parseEnv } from "../config/env.js"
 import { type Db, initDb } from "../db/client.js"
 import { schema } from "../db/schema.js"
 import { members, users } from "../db/schema/auth.js"
+import { crmIntakeRecords, recordSignupForCrm } from "../domain/crm-intake.js"
 import { isValidSlug } from "../domain/workspaces/slug.js"
 import { emailTransport } from "../email/configured.js"
 import { generateObjectId } from "../lib/id.js"
@@ -217,6 +218,11 @@ export function createBetterAuth() {
           after: endSessionOfBannedUser,
         },
       },
+      // Only hosted production records each sign-up for the CRM
+      // (src/domain/crm-intake.ts).
+      user: crmIntakeRecords(process.env)
+        ? { create: { after: recordSignupForCrm } }
+        : undefined,
     },
     /** Web cookie + DB session: keep users signed in across days (MCP OAuth access JWT TTL is separate; see oauthProvider). */
     session: {
