@@ -9,7 +9,7 @@
         "sha": "2ae27a273b9d54b8a90c99f795443cf7304c4281",
         "root": ""
       },
-      "workspace": "kubernetes-v1"
+      "workspace": "kubernetes-v0"
     },
     {
       "id": "rust",
@@ -19,7 +19,7 @@
         "sha": "60102ff832b99b637a3793fa48a4e4c070037bb6",
         "root": ""
       },
-      "workspace": "rust-v1"
+      "workspace": "rust-v0"
     }
   ],
   "questions": [
@@ -58,9 +58,7 @@
       "category": "lookup",
       "split": "dev",
       "text": "Does the documentation website's own backend rely on that popular in-memory cache server, or does it only appear in the tutorial sample apps, such as the multi-tier comment-board demo with one writer and several readers?",
-      "gold": [
-        "knowledge/databases/redis-kubernetes-examples.md"
-      ],
+      "gold": ["knowledge/databases/redis-kubernetes-examples.md"],
       "keyFacts": [
         "The Redis manifests are documentation examples (guestbook leader/follower, ephemeral-storage pods).",
         "They do not demonstrate that the website service uses Redis."
@@ -92,9 +90,7 @@
         "github/issues/kubernetes/enhancements/5866.md",
         "knowledge/features/sharded-list-and-watch.md"
       ],
-      "seeds": [
-        "github/issues/kubernetes/kubernetes/140510.md"
-      ],
+      "seeds": ["github/issues/kubernetes/kubernetes/140510.md"],
       "keyFacts": [
         "The fix was required before KEP-5866 (Server-side Sharded List and Watch) went to beta.",
         "The ShardedListAndWatch feature gate is beta and on by default since 1.38.",
@@ -112,9 +108,7 @@
         "github/issues/kubernetes/enhancements/6089.md",
         "github/issues/kubernetes/enhancements/6277.md"
       ],
-      "seeds": [
-        "github/issues/kubernetes/kubernetes/139361.md"
-      ],
+      "seeds": ["github/issues/kubernetes/kubernetes/139361.md"],
       "keyFacts": [
         "The StatefulSet integration with the Workload APIs (KEP-6277) now targets alpha in v1.39.",
         "It was first opted in and tracked for v1.38, then removed from the v1.38 milestone after review (marked tracked/no).",
@@ -132,9 +126,7 @@
         "github/issues/kubernetes/enhancements/5075.md",
         "github/issues/kubernetes/website/57141.md"
       ],
-      "seeds": [
-        "knowledge/features/draconsumable-capacity.md"
-      ],
+      "seeds": ["knowledge/features/draconsumable-capacity.md"],
       "keyFacts": [
         "The DRAFractionalCapacityRange feature gate controls fractional values in CapacityRequestPolicyRange.",
         "DRAFractionalCapacityRange was beta in Kubernetes v1.37, added under KEP-5075 (DRA Consumable Capacity)."
@@ -151,9 +143,7 @@
         "github/issues/kubernetes/kubernetes/140978.md",
         "github/issues/kubernetes/kubernetes/140509.md"
       ],
-      "seeds": [
-        "github/issues/kubernetes/kubernetes/140977.md"
-      ],
+      "seeds": ["github/issues/kubernetes/kubernetes/140977.md"],
       "keyFacts": [
         "Only v1.35 showed the issue; versions 1.33, 1.34 and 1.36 worked as expected",
         "It was first observed on AWS EKS (v1.35.5-eks-a3a0722), then reproduced with kind"
@@ -170,9 +160,7 @@
         "github/issues/kubernetes/enhancements/5055.md",
         "github/issues/kubernetes/enhancements/5027.md"
       ],
-      "seeds": [
-        "knowledge/features/dradevice-taint-rules.md"
-      ],
+      "seeds": ["knowledge/features/dradevice-taint-rules.md"],
       "keyFacts": [
         "The admin-controlled device attributes enhancement (KEP-5027) was closed as not planned and never shipped; it went rotten and was closed in December 2025.",
         "It only ever targeted alpha for 1.33 and had no beta or stable targets; its alpha code PR was never completed."
@@ -189,9 +177,7 @@
         "github/issues/kubernetes/website/57415.md",
         "github/issues/kubernetes/website/57486.md"
       ],
-      "seeds": [
-        "github/issues/kubernetes/website/57734.md"
-      ],
+      "seeds": ["github/issues/kubernetes/website/57734.md"],
       "keyFacts": [
         "The node-pressure-eviction report (#57486) was triaged as a duplicate of #57415 and closed as \"not planned\".",
         "Its author proposed moving the feature-state call above the note."
@@ -208,9 +194,7 @@
         "github/issues/kubernetes/enhancements/4191.md",
         "knowledge/features/kubelet-separate-disk-gc.md"
       ],
-      "seeds": [
-        "github/issues/kubernetes/enhancements/5509.md"
-      ],
+      "seeds": ["github/issues/kubernetes/enhancements/5509.md"],
       "keyFacts": [
         "The feature gate is KubeletSeparateDiskGC (KEP-4191).",
         "It has been beta and on by default since Kubernetes 1.31.",
@@ -228,9 +212,7 @@
         "knowledge/services/kube-aggregator.md",
         "knowledge/infrastructure/kubernetes.md"
       ],
-      "seeds": [
-        "knowledge/apis/aggregated-api-discovery.md"
-      ],
+      "seeds": ["knowledge/apis/aggregated-api-discovery.md"],
       "keyFacts": [
         "The Aggregated API Discovery endpoints are exposed by kube-aggregator.",
         "kube-aggregator runs on Kubernetes using self-contained example manifests (kubernetes-discovery-svc.yaml).",
@@ -248,9 +230,7 @@
         "knowledge/services/kindnetd.md",
         "knowledge/decisions/ctxpipe-ai-eval-v0-kubernetes-kind-site-content-principles.md"
       ],
-      "seeds": [
-        "knowledge/infrastructure/docker.md"
-      ],
+      "seeds": ["knowledge/infrastructure/docker.md"],
       "keyFacts": [
         "Cluster state is kept in the node containers, with operations made hermetic and reproducible: no external dependencies or state stores.",
         "When supporting runtimes, kind targets the functionality represented by the Kubernetes CRI."
@@ -286,9 +266,7 @@
         "knowledge/services/kube-aggregator.md",
         "knowledge/apis/aggregated-api-discovery.md"
       ],
-      "seeds": [
-        "knowledge/infrastructure/kubernetes.md"
-      ],
+      "seeds": ["knowledge/infrastructure/kubernetes.md"],
       "keyFacts": [
         "The component is kube-aggregator, which exposes the Aggregated API Discovery API",
         "It lists the aggregated API groups (get apis operation)",
@@ -326,9 +304,7 @@
         "knowledge/features/draextended-resource-capacity.md",
         "knowledge/decisions/ctxpipe-ai-eval-v0-kubernetes-enhancements-sig-scheduling-6406-dra-extended-resource-capacity.md"
       ],
-      "seeds": [
-        "github/issues/kubernetes/enhancements/6406.md"
-      ],
+      "seeds": ["github/issues/kubernetes/enhancements/6406.md"],
       "keyFacts": [
         "The administrator sets the new optional extendedResourceCapacityRequests field on the DeviceClass (alongside extendedResourceName, e.g. requests: {shares: \"1\"}). The scheduler copies it into the Capacity of each synthesized ResourceClaim request.",
         "This is gated by the DRAExtendedResourceCapacity feature gate, alpha in 1.38.",
@@ -345,9 +321,7 @@
         "github/issues/kubernetes/enhancements/5593.md",
         "knowledge/features/reduce-default-crash-loop-back-off-decay.md"
       ],
-      "seeds": [
-        "github/issues/kubernetes/enhancements/5593.md"
-      ],
+      "seeds": ["github/issues/kubernetes/enhancements/5593.md"],
       "keyFacts": [
         "KEP-4603 was split. The original KEP keeps the reduced default backoff maximum behind the ReduceDefaultCrashLoopBackoffDecay gate. The new KEP-5593 covers the user-configurable maximum (EnableKubeletCrashLoopBackoffMax), which targets beta in 1.35.",
         "The ReduceDefaultCrashLoopBackOffDecay feature gate has been alpha since 1.33 and is off by default, so it must be explicitly enabled."
@@ -363,9 +337,7 @@
         "github/issues/kubernetes/enhancements/5073.md",
         "knowledge/services/validation-gen.md"
       ],
-      "seeds": [
-        "github/issues/kubernetes/enhancements/5073.md"
-      ],
+      "seeds": ["github/issues/kubernetes/enhancements/5073.md"],
       "keyFacts": [
         "The checks are generated by validation-gen, a tool for auto-generating Validation functions.",
         "validation-gen is a Go main package under the code-generator staging module (staging/src/k8s.io/code-generator/cmd/validation-gen).",
@@ -382,9 +354,7 @@
         "github/issues/kubernetes/kubernetes/140628.md",
         "knowledge/features/pod-level-resources-fix-kubelet-qosclass.md"
       ],
-      "seeds": [
-        "github/issues/kubernetes/kubernetes/140628.md"
-      ],
+      "seeds": ["github/issues/kubernetes/kubernetes/140628.md"],
       "keyFacts": [
         "The gate is PodLevelResourcesFixKubeletQOSClass, which now depends on PodLevelResources.",
         "It is beta since 1.37.",
@@ -401,9 +371,7 @@
         "github/issues/kubernetes/kubernetes/140187.md",
         "knowledge/features/container-restart-rules.md"
       ],
-      "seeds": [
-        "github/issues/kubernetes/kubernetes/140187.md"
-      ],
+      "seeds": ["github/issues/kubernetes/kubernetes/140187.md"],
       "keyFacts": [
         "Under Hyper-V isolation the pod sandbox is a shared Utility VM; killing containers can make hcsshim tear down the UVM (30-second watchdog), so the sandbox goes NotReady and the pod fails before containers are restarted.",
         "The ContainerRestartRules feature gate is beta since 1.35.",
@@ -420,9 +388,7 @@
         "github/issues/kubernetes/kubernetes/142011.md",
         "knowledge/libraries/csi-translation-lib.md"
       ],
-      "seeds": [
-        "github/issues/kubernetes/kubernetes/142011.md"
-      ],
+      "seeds": ["github/issues/kubernetes/kubernetes/142011.md"],
       "keyFacts": [
         "The translation of legacy PV node affinities between beta and GA topology labels happens in csi-translation-lib (getTopologyLabel in plugins/in_tree_volume.go).",
         "csi-translation-lib is a library with no main package, not a binary.",
@@ -439,9 +405,7 @@
         "github/issues/kubernetes/kubernetes/143375.md",
         "knowledge/features/pod-and-container-stats-from-cri.md"
       ],
-      "seeds": [
-        "github/issues/kubernetes/kubernetes/143375.md"
-      ],
+      "seeds": ["github/issues/kubernetes/kubernetes/143375.md"],
       "keyFacts": [
         "TopologyAwareWorkloadScheduling was promoted to beta with Default false, so AllAlpha=true no longer enables it, yet the alpha CompositePodGroup depends on it and validation fails.",
         "The fix is to add AllBeta=true or TopologyAwareWorkloadScheduling=true to the test binary's --feature-gates.",
@@ -458,9 +422,7 @@
         "github/issues/kubernetes/kubernetes/142562.md",
         "knowledge/apis/aggregated-openapi-v3.md"
       ],
-      "seeds": [
-        "github/issues/kubernetes/kubernetes/142562.md"
-      ],
+      "seeds": ["github/issues/kubernetes/kubernetes/142562.md"],
       "keyFacts": [
         "The proposal is a single pre-merged OpenAPI v3 document published as a static file in the repo or as a release artifact, not a new endpoint served by kube-apiserver.",
         "The kube-aggregator's OpenAPI v3 aggregator already aggregates the specs from API services.",
@@ -477,9 +439,7 @@
         "github/issues/kubernetes/kubernetes/140854.md",
         "knowledge/features/in-place-pod-vertical-scaling-scheduler-preemption.md"
       ],
-      "seeds": [
-        "github/issues/kubernetes/kubernetes/140854.md"
-      ],
+      "seeds": ["github/issues/kubernetes/kubernetes/140854.md"],
       "keyFacts": [
         "The beta tracking issue lists: metrics and events, more integration tests, co-existence with workload-aware scheduling, victim grace periods longer than the resize window, preventing double preemption across scheduler restarts, and aligning NodeResourcesFit accounting with the kubelet's max(desired, allocated, actual).",
         "The InPlacePodVerticalScalingSchedulerPreemption feature gate is beta since 1.38 and on by default (it was alpha and off in 1.37)."
@@ -495,9 +455,7 @@
         "github/issues/kubernetes/kubernetes/142384.md",
         "knowledge/services/mounter.md"
       ],
-      "seeds": [
-        "github/issues/kubernetes/kubernetes/142384.md"
-      ],
+      "seeds": ["github/issues/kubernetes/kubernetes/142384.md"],
       "keyFacts": [
         "The helper is the GCI mounter: it runs mount inside a containerized root filesystem via chroot, starting rpcbind and retrying when an NFS v3 mount needs it.",
         "The stage-upload script uploads the mounter ACI image with `gsutil cp`, which needs replacing (e.g. with `gcloud storage cp`) before gsutil is dropped from the Google Cloud CLI in March 2027."
@@ -509,9 +467,7 @@
       "category": "time",
       "split": "dev",
       "text": "In 2025, a tracking list collected the open discussion points for promoting the hardware-claim feature to beta. That feature makes the scheduler hold off finalizing a pod's node placement until an attached device reports it is ready. When was that list opened, when was it closed, and which of its items was already finished at closing?",
-      "gold": [
-        "github/issues/kubernetes/enhancements/5700.md"
-      ],
+      "gold": ["github/issues/kubernetes/enhancements/5700.md"],
       "keyFacts": [
         "The beta tracking issue for KEP-5007 Device Binding Conditions was opened on 2025-11-20.",
         "It was closed as completed on 2025-11-27.",
@@ -524,9 +480,7 @@
       "category": "time",
       "split": "holdout",
       "text": "In 2026 there was a proposal to let a pod pick the numeric owner of the files Kubernetes writes into mounted secrets, config maps and projected volumes. The goal was that a non-root workload under the strictest pod security profile would no longer need a root init container to chown those files. In which Kubernetes release did this land as alpha, in which release did it move to beta, and which release is planned for stable?",
-      "gold": [
-        "github/issues/kubernetes/enhancements/5936.md"
-      ],
+      "gold": ["github/issues/kubernetes/enhancements/5936.md"],
       "keyFacts": [
         "Alpha in v1.37 (KEP merged 2026-06-15, before the v1.37 enhancements freeze of 16 June 2026)",
         "Beta in v1.38",
@@ -555,9 +509,7 @@
       "category": "time",
       "split": "holdout",
       "text": "In 2026 there was an effort to let the controller that runs pods with stable identities and per-replica storage declare group scheduling intent through the new scheduling building blocks. It was first aimed at an alpha in one release. Did it stay in that release? If not, when was it pulled, and which release was it moved to?",
-      "gold": [
-        "github/issues/kubernetes/enhancements/6277.md"
-      ],
+      "gold": ["github/issues/kubernetes/enhancements/6277.md"],
       "keyFacts": [
         "The StatefulSet\u2013Workload API integration was opted in for alpha in v1.38 and was tracked at enhancements freeze on 2026-09-30.",
         "On 2026-10-02 it was removed from the v1.38 milestone after review.",
@@ -585,9 +537,7 @@
       "category": "time",
       "split": "dev",
       "text": "In 2024 someone proposed a performance improvement for API server list requests that are served in pages. The idea was to stop asking the backing key-value store to recount how many objects remain for every follow-up page. Which Kubernetes release was it first aimed at for alpha, and what ended up happening to the proposal, and when?",
-      "gold": [
-        "github/issues/kubernetes/enhancements/4567.md"
-      ],
+      "gold": ["github/issues/kubernetes/enhancements/4567.md"],
       "keyFacts": [
         "The enhancement was opened on 2024-04-03 with an alpha target of v1.31.",
         "SIG etcd objected in July 2024, preferring broader fixes such as fast count in etcd or a paginated watch cache.",
@@ -604,20 +554,14 @@
         "github/issues/kubernetes/enhancements/4205.md",
         "github/issues/kubernetes/enhancements/5394.md"
       ],
-      "seeds": [
-        "github/issues/kubernetes/enhancements/5394.md"
-      ],
+      "seeds": ["github/issues/kubernetes/enhancements/5394.md"],
       "positions": [
         {
-          "refs": [
-            "github/issues/kubernetes/enhancements/4205.md"
-          ],
+          "refs": ["github/issues/kubernetes/enhancements/4205.md"],
           "status": "superseded"
         },
         {
-          "refs": [
-            "github/issues/kubernetes/enhancements/5394.md"
-          ],
+          "refs": ["github/issues/kubernetes/enhancements/5394.md"],
           "status": "current"
         }
       ],
@@ -670,20 +614,14 @@
         "knowledge/features/kube-proxy-ipvs.md",
         "github/issues/kubernetes/enhancements/5495.md"
       ],
-      "seeds": [
-        "knowledge/features/kube-proxy-ipvs.md"
-      ],
+      "seeds": ["knowledge/features/kube-proxy-ipvs.md"],
       "positions": [
         {
-          "refs": [
-            "knowledge/features/kube-proxy-ipvs.md"
-          ],
+          "refs": ["knowledge/features/kube-proxy-ipvs.md"],
           "status": "scoped"
         },
         {
-          "refs": [
-            "github/issues/kubernetes/enhancements/5495.md"
-          ],
+          "refs": ["github/issues/kubernetes/enhancements/5495.md"],
           "status": "current"
         }
       ],
@@ -735,20 +673,14 @@
         "knowledge/features/declarative-validation-takeover.md",
         "github/issues/kubernetes/enhancements/5073.md"
       ],
-      "seeds": [
-        "knowledge/features/declarative-validation-takeover.md"
-      ],
+      "seeds": ["knowledge/features/declarative-validation-takeover.md"],
       "positions": [
         {
-          "refs": [
-            "github/issues/kubernetes/enhancements/5073.md"
-          ],
+          "refs": ["github/issues/kubernetes/enhancements/5073.md"],
           "status": "scoped"
         },
         {
-          "refs": [
-            "knowledge/features/declarative-validation-takeover.md"
-          ],
+          "refs": ["knowledge/features/declarative-validation-takeover.md"],
           "status": "current"
         }
       ],
@@ -801,20 +733,14 @@
         "github/issues/kubernetes/enhancements/6476.md",
         "github/issues/kubernetes/enhancements/5507.md"
       ],
-      "seeds": [
-        "github/issues/kubernetes/enhancements/6476.md"
-      ],
+      "seeds": ["github/issues/kubernetes/enhancements/6476.md"],
       "positions": [
         {
-          "refs": [
-            "github/issues/kubernetes/enhancements/5507.md"
-          ],
+          "refs": ["github/issues/kubernetes/enhancements/5507.md"],
           "status": "superseded"
         },
         {
-          "refs": [
-            "github/issues/kubernetes/enhancements/6476.md"
-          ],
+          "refs": ["github/issues/kubernetes/enhancements/6476.md"],
           "status": "current"
         }
       ],
@@ -867,20 +793,14 @@
         "knowledge/features/draoptional-node-operations.md",
         "github/issues/kubernetes/enhancements/5945.md"
       ],
-      "seeds": [
-        "knowledge/features/draoptional-node-operations.md"
-      ],
+      "seeds": ["knowledge/features/draoptional-node-operations.md"],
       "positions": [
         {
-          "refs": [
-            "github/issues/kubernetes/enhancements/5945.md"
-          ],
+          "refs": ["github/issues/kubernetes/enhancements/5945.md"],
           "status": "scoped"
         },
         {
-          "refs": [
-            "knowledge/features/draoptional-node-operations.md"
-          ],
+          "refs": ["knowledge/features/draoptional-node-operations.md"],
           "status": "current"
         }
       ],
@@ -965,9 +885,7 @@
       "category": "lookup",
       "split": "holdout",
       "text": "Where does Cargo keep the record of which downloaded cache files were used and when cleanup last ran, what kind of storage is it, and how does it avoid conflicts with other Cargo processes touching it?",
-      "gold": [
-        "knowledge/databases/sqlite-global-cache-tracking.md"
-      ],
+      "gold": ["knowledge/databases/sqlite-global-cache-tracking.md"],
       "keyFacts": [
         "Cargo's global cache tracker stores cache-use and garbage-collection state in an SQLite database",
         "The database lives under the Cargo home directory",
@@ -980,9 +898,7 @@
       "category": "lookup",
       "split": "dev",
       "text": "Which Rust release first let you compute a field's byte position through a chain of fields, like going into a struct inside a struct, in one macro call without enabling anything on nightly?",
-      "gold": [
-        "knowledge/features/offset-of-nested.md"
-      ],
+      "gold": ["knowledge/features/offset-of-nested.md"],
       "keyFacts": [
         "The offset_of_nested feature was accepted (stabilized) in Rust 1.82.0",
         "It allows multiple nested field accesses in offset_of!",
@@ -1016,9 +932,7 @@
         "knowledge/libraries/serde.md",
         "knowledge/services/intrinsic-test.md"
       ],
-      "seeds": [
-        "knowledge/services/stdarch-gen-arm.md"
-      ],
+      "seeds": ["knowledge/services/stdarch-gen-arm.md"],
       "keyFacts": [
         "The generator uses the Serde library, and so does the intrinsic-test tool in library/stdarch/crates/intrinsic-test.",
         "intrinsic-test generates and runs programs that use equivalent C and Rust intrinsics, checking that both give the same result from random inputs."
@@ -1035,9 +949,7 @@
         "github/issues/rust-lang/rfcs/3241.md",
         "github/issues/rust-lang/rfcs/2704.md"
       ],
-      "seeds": [
-        "github/issues/rust-lang/rfcs/3175.md"
-      ],
+      "seeds": ["github/issues/rust-lang/rfcs/3175.md"],
       "keyFacts": [
         "Issue 2704 proposed a postfix `.type` syntax (e.g. `let y: x.type = x;`), modeled on the `.await` keyword-in-property-position precedent",
         "The parsing concern: an expression appears in type position without warning to the parser, so as with const generics it might need braces like `{foo()}.type` for non-trivial expressions"
@@ -1054,9 +966,7 @@
         "github/issues/rust-lang/rust/163395.md",
         "github/issues/rust-lang/cargo/17483.md"
       ],
-      "seeds": [
-        "github/issues/rust-lang/cargo/17520.md"
-      ],
+      "seeds": ["github/issues/rust-lang/cargo/17520.md"],
       "keyFacts": [
         "Passing a static --jobs N lets rustc know the maximum number of jobs it can use, so it can size things like thread pools; with a limit of 1 it can apply further optimizations. The dynamic limit is still governed by jobserver tokens.",
         "The fine-grained options --jobs-frontend, --jobs-backend and --jobs-linker should be passed only when they are explicitly set in cargo config, unlike --jobs, which is always passed."
@@ -1073,9 +983,7 @@
         "github/issues/rust-lang/rust/162131.md",
         "github/issues/rust-lang/rust/162352.md"
       ],
-      "seeds": [
-        "github/issues/rust-lang/rust/162351.md"
-      ],
+      "seeds": ["github/issues/rust-lang/rust/162351.md"],
       "keyFacts": [
         "The last documentation line had a typo: the closing code fence sat on the same line as the hidden closing brace (`/// # }    /// ```), leaving a stray doc comment with nothing to attach to.",
         "On stable, rustdoc wrapped the snippet in a generated `fn main` (with an inner `_doctest_main_...` function), so the test compiled.",
@@ -1093,9 +1001,7 @@
         "knowledge/libraries/serde.md",
         "knowledge/services/stdarch-gen-arm.md"
       ],
-      "seeds": [
-        "knowledge/services/citool.md"
-      ],
+      "seeds": ["knowledge/services/citool.md"],
       "keyFacts": [
         "The generator is run with a nightly toolchain: `cargo +nightly run --bin=stdarch-gen-arm -- ...`",
         "It takes the spec files in `crates/stdarch-gen-arm/spec` as input and writes into `crates/core_arch/src`"
@@ -1112,9 +1018,7 @@
         "github/issues/rust-lang/rfcs/3241.md",
         "github/issues/rust-lang/rfcs/3175.md"
       ],
-      "seeds": [
-        "github/issues/rust-lang/rfcs/2704.md"
-      ],
+      "seeds": ["github/issues/rust-lang/rfcs/2704.md"],
       "keyFacts": [
         "A commenter said it sounds like typeof and that a #[derive]-macro author already knows the field's type (Bar) from the input tokens",
         "The requester replied they meant accessing the field type from another macro expansion, not from the derive input"
@@ -1131,9 +1035,7 @@
         "github/issues/rust-lang/rust/163395.md",
         "github/issues/rust-lang/cargo/17520.md"
       ],
-      "seeds": [
-        "github/issues/rust-lang/cargo/17483.md"
-      ],
+      "seeds": ["github/issues/rust-lang/cargo/17483.md"],
       "keyFacts": [
         "It adds a per-build-unit peak memory consumption table to the --timings report (and to the build analysis feature).",
         "A maintainer said a nightly feature (e.g. -Zmem-report) would be easier to start with.",
@@ -1151,9 +1053,7 @@
         "github/issues/rust-lang/rust/162202.md",
         "github/issues/rust-lang/rust/162203.md"
       ],
-      "seeds": [
-        "github/issues/rust-lang/rust/163878.md"
-      ],
+      "seeds": ["github/issues/rust-lang/rust/163878.md"],
       "keyFacts": [
         "The third report is triggered by mutable statics holding references or raw pointers (static mut with &mut slices) in a lib crate.",
         "Such statics create new DefIds during const eval (in intern_as_new_static), and when const eval runs in parallel the order of those DefIds is not deterministic."
@@ -1170,9 +1070,7 @@
         "github/issues/rust-lang/cargo/17520.md",
         "github/issues/rust-lang/cargo/17577.md"
       ],
-      "seeds": [
-        "github/issues/rust-lang/rust/163395.md"
-      ],
+      "seeds": ["github/issues/rust-lang/rust/163395.md"],
       "keyFacts": [
         "-Zmem-stats records the peak resident set size (peak memory usage) of each build unit's process in Cargo's timing report",
         "Integration with `cargo report timings` and `-Zbuild-analysis` is still unresolved",
@@ -1190,9 +1088,7 @@
         "knowledge/libraries/serde.md",
         "knowledge/services/citool.md"
       ],
-      "seeds": [
-        "knowledge/services/intrinsic-test.md"
-      ],
+      "seeds": ["knowledge/services/intrinsic-test.md"],
       "keyFacts": [
         "citool determines which CI jobs should be executed",
         "The decision depends on the situation: pull request, try job, or merge attempt",
@@ -1210,9 +1106,7 @@
         "github/issues/rust-lang/cargo/17142.md",
         "github/issues/rust-lang/cargo/17550.md"
       ],
-      "seeds": [
-        "github/issues/rust-lang/cargo/17193.md"
-      ],
+      "seeds": ["github/issues/rust-lang/cargo/17193.md"],
       "keyFacts": [
         "The project was Miri, built on macOS in CI",
         "The linker stderr messages said '+zcm' / '+zcz' is not a recognized feature for this target (ignoring feature)"
@@ -1229,9 +1123,7 @@
         "github/issues/rust-lang/rust/164348.md",
         "github/issues/rust-lang/rust/164734.md"
       ],
-      "seeds": [
-        "github/issues/rust-lang/rust/164415.md"
-      ],
+      "seeds": ["github/issues/rust-lang/rust/164415.md"],
       "keyFacts": [
         "Besides Path/PathBuf, the remaining dependencies are std hash details such as derive order and the way a type's components are fed to the hasher. Examples are the discriminants of the Tag enum, Discriminant<T>, and other StableHash impls.",
         "For #[derive(StableHash)] on enums, the suggestion was to stop using Discriminant. Instead, the derive would mix in its own pseudo-discriminant based on the syntactic order of the variants: 0 for the first variant, 1 for the next, and so on."
@@ -1247,9 +1139,7 @@
         "github/issues/rust-lang/rust/165186.md",
         "knowledge/libraries/rustc-traits.md"
       ],
-      "seeds": [
-        "github/issues/rust-lang/rust/165186.md"
-      ],
+      "seeds": ["github/issues/rust-lang/rust/165186.md"],
       "keyFacts": [
         "The backtrace goes through the normalize_erasing_regions query provider in the rustc_traits crate (called from rustdoc's clean_middle_ty while inlining impls).",
         "rustc_traits describes itself as queries that are independent from the main solver code."
@@ -1265,9 +1155,7 @@
         "github/issues/rust-lang/rust/161881.md",
         "knowledge/features/rustdoc-internals.md"
       ],
-      "seeds": [
-        "github/issues/rust-lang/rust/161881.md"
-      ],
+      "seeds": ["github/issues/rust-lang/rust/161881.md"],
       "keyFacts": [
         "The injected feature is rustdoc_internals, which bootstrap's rustdoc wrapper adds to every doctest in compiler/.",
         "rustdoc_internals allows using internal rustdoc features such as doc(keyword).",
@@ -1284,9 +1172,7 @@
         "github/issues/rust-lang/rust/164986.md",
         "knowledge/features/f16b.md"
       ],
-      "seeds": [
-        "github/issues/rust-lang/rust/164986.md"
-      ],
+      "seeds": ["github/issues/rust-lang/rust/164986.md"],
       "keyFacts": [
         "The NEON bf16 intrinsics (stdarch_neon_bf16) depend on stabilisation of the f16b feature gate",
         "f16b allows using bfloat16 floating point numbers and has been unstable since 1.100.0",
@@ -1303,9 +1189,7 @@
         "github/issues/rust-lang/rust/165174.md",
         "knowledge/features/arbitrary-self-types-pointers.md"
       ],
-      "seeds": [
-        "github/issues/rust-lang/rust/165174.md"
-      ],
+      "seeds": ["github/issues/rust-lang/rust/165174.md"],
       "keyFacts": [
         "The use-after-free relies on the arbitrary_self_types_pointers feature gate.",
         "The gate allows inherent and trait methods with arbitrary self types that are raw pointers.",
@@ -1322,9 +1206,7 @@
         "github/issues/rust-lang/rust/163011.md",
         "knowledge/services/linkchecker.md"
       ],
-      "seeds": [
-        "github/issues/rust-lang/rust/163011.md"
-      ],
+      "seeds": ["github/issues/rust-lang/rust/163011.md"],
       "keyFacts": [
         "The failure comes from the linkchecker tool, which checks the validity of href links in the generated HTML documentation.",
         "linkchecker is a binary crate located at src/tools/linkchecker.",
@@ -1341,9 +1223,7 @@
         "github/issues/rust-lang/rust/161536.md",
         "knowledge/features/arbitrary-self-types.md"
       ],
-      "seeds": [
-        "github/issues/rust-lang/rust/161536.md"
-      ],
+      "seeds": ["github/issues/rust-lang/rust/161536.md"],
       "keyFacts": [
         "The regression involves the arbitrary_self_types feature gate (an E0391 cycle when checking whether the trait is dyn-compatible).",
         "arbitrary_self_types allows inherent and trait methods with arbitrary self types.",
@@ -1360,9 +1240,7 @@
         "github/issues/rust-lang/rust/162897.md",
         "knowledge/features/generic-const-parameter-types.md"
       ],
-      "seeds": [
-        "github/issues/rust-lang/rust/162897.md"
-      ],
+      "seeds": ["github/issues/rust-lang/rust/162897.md"],
       "keyFacts": [
         "The feature involved is generic_const_parameter_types, which allows the type of const generics to depend on generic parameters",
         "It has been unstable (incomplete) since 1.87.0",
@@ -1379,9 +1257,7 @@
         "github/issues/rust-lang/rust/165073.md",
         "knowledge/features/macro-attr.md"
       ],
-      "seeds": [
-        "github/issues/rust-lang/rust/165073.md"
-      ],
+      "seeds": ["github/issues/rust-lang/rust/165073.md"],
       "keyFacts": [
         "The feature gate macro_attr allows macro_rules! attribute rules",
         "macro_attr has been unstable since 1.91.0",
@@ -1398,9 +1274,7 @@
         "github/issues/rust-lang/cargo/17099.md",
         "knowledge/libraries/cargo-credential.md"
       ],
-      "seeds": [
-        "github/issues/rust-lang/cargo/17099.md"
-      ],
+      "seeds": ["github/issues/rust-lang/cargo/17099.md"],
       "keyFacts": [
         "The failing crate is cargo-credential, a library to assist writing Cargo credential helpers.",
         "It lives at credential/cargo-credential in the Cargo repository.",
@@ -1417,9 +1291,7 @@
         "github/issues/rust-lang/rust/163497.md",
         "knowledge/features/abi-ptx.md"
       ],
-      "seeds": [
-        "github/issues/rust-lang/rust/163497.md"
-      ],
+      "seeds": ["github/issues/rust-lang/rust/163497.md"],
       "keyFacts": [
         "The crash involves the abi_ptx feature gate, which allows `extern \"ptx-*\" fn()` functions such as \"ptx-kernel\".",
         "abi_ptx has been unstable since 1.15.0.",
@@ -1432,9 +1304,7 @@
       "category": "time",
       "split": "dev",
       "text": "In 2021, someone floated an informal idea for letting a wrapper struct automatically forward a trait's methods to one of its inner fields, instead of abusing pointer-dereference tricks. When was that idea closed, and why?",
-      "gold": [
-        "github/issues/rust-lang/rfcs/3108.md"
-      ],
+      "gold": ["github/issues/rust-lang/rfcs/3108.md"],
       "keyFacts": [
         "The issue was opened on 2021-04-12.",
         "It was closed on 2021-06-03.",
@@ -1447,9 +1317,7 @@
       "category": "time",
       "split": "holdout",
       "text": "In 2024, someone proposed that library authors be able to plug their own types into the language's built-in operator for changing a value's type. One example was turning four bytes into a network address. When did that proposal end, and what convinced its author to give it up?",
-      "gold": [
-        "github/issues/rust-lang/rfcs/3592.md"
-      ],
+      "gold": ["github/issues/rust-lang/rfcs/3592.md"],
       "keyFacts": [
         "The issue was closed as not planned on 2024-03-23, one day after it was opened on 2024-03-22.",
         "Commenters said the language is moving away from `as` casts in favor of method conversions, because `as` is footgun-prone (silent truncation, too powerful) and fits poorly in call chains.",
@@ -1462,9 +1330,7 @@
       "category": "time",
       "split": "dev",
       "text": "As of March 2024, what was the status of the request to let a type's trait implementations sit nested inside its own method block, so the lifetime and generic parameter lists don't have to be repeated on every block? When was it first raised?",
-      "gold": [
-        "github/issues/rust-lang/rfcs/2676.md"
-      ],
+      "gold": ["github/issues/rust-lang/rfcs/2676.md"],
       "keyFacts": [
         "The proposal was filed on 2019-04-02.",
         "It was still open, with no decision, as of its last activity on 2024-03-06."
@@ -1480,20 +1346,14 @@
         "github/issues/rust-lang/rfcs/3897.md",
         "github/issues/rust-lang/rfcs/3369.md"
       ],
-      "seeds": [
-        "github/issues/rust-lang/rfcs/3369.md"
-      ],
+      "seeds": ["github/issues/rust-lang/rfcs/3369.md"],
       "positions": [
         {
-          "refs": [
-            "github/issues/rust-lang/rfcs/3897.md"
-          ],
+          "refs": ["github/issues/rust-lang/rfcs/3897.md"],
           "status": "scoped"
         },
         {
-          "refs": [
-            "github/issues/rust-lang/rfcs/3369.md"
-          ],
+          "refs": ["github/issues/rust-lang/rfcs/3369.md"],
           "status": "current"
         }
       ],
@@ -1513,20 +1373,14 @@
         "github/issues/rust-lang/rfcs/2447.md",
         "github/issues/rust-lang/rfcs/2448.md"
       ],
-      "seeds": [
-        "github/issues/rust-lang/rfcs/2448.md"
-      ],
+      "seeds": ["github/issues/rust-lang/rfcs/2448.md"],
       "positions": [
         {
-          "refs": [
-            "github/issues/rust-lang/rfcs/2447.md"
-          ],
+          "refs": ["github/issues/rust-lang/rfcs/2447.md"],
           "status": "scoped"
         },
         {
-          "refs": [
-            "github/issues/rust-lang/rfcs/2448.md"
-          ],
+          "refs": ["github/issues/rust-lang/rfcs/2448.md"],
           "status": "scoped"
         }
       ],
@@ -1546,20 +1400,14 @@
         "github/issues/rust-lang/rfcs/2346.md",
         "github/issues/rust-lang/rfcs/2347.md"
       ],
-      "seeds": [
-        "github/issues/rust-lang/rfcs/2347.md"
-      ],
+      "seeds": ["github/issues/rust-lang/rfcs/2347.md"],
       "positions": [
         {
-          "refs": [
-            "github/issues/rust-lang/rfcs/2346.md"
-          ],
+          "refs": ["github/issues/rust-lang/rfcs/2346.md"],
           "status": "superseded"
         },
         {
-          "refs": [
-            "github/issues/rust-lang/rfcs/2347.md"
-          ],
+          "refs": ["github/issues/rust-lang/rfcs/2347.md"],
           "status": "current"
         }
       ],
@@ -1579,20 +1427,14 @@
         "github/issues/rust-lang/rust/161913.md",
         "github/issues/rust-lang/rust/162109.md"
       ],
-      "seeds": [
-        "github/issues/rust-lang/rust/162109.md"
-      ],
+      "seeds": ["github/issues/rust-lang/rust/162109.md"],
       "positions": [
         {
-          "refs": [
-            "github/issues/rust-lang/rust/161913.md"
-          ],
+          "refs": ["github/issues/rust-lang/rust/161913.md"],
           "status": "scoped"
         },
         {
-          "refs": [
-            "github/issues/rust-lang/rust/162109.md"
-          ],
+          "refs": ["github/issues/rust-lang/rust/162109.md"],
           "status": "current"
         }
       ],
@@ -1611,20 +1453,14 @@
         "github/issues/rust-lang/rust/164459.md",
         "github/issues/rust-lang/rust/164711.md"
       ],
-      "seeds": [
-        "github/issues/rust-lang/rust/164711.md"
-      ],
+      "seeds": ["github/issues/rust-lang/rust/164711.md"],
       "positions": [
         {
-          "refs": [
-            "github/issues/rust-lang/rust/164459.md"
-          ],
+          "refs": ["github/issues/rust-lang/rust/164459.md"],
           "status": "scoped"
         },
         {
-          "refs": [
-            "github/issues/rust-lang/rust/164711.md"
-          ],
+          "refs": ["github/issues/rust-lang/rust/164711.md"],
           "status": "current"
         }
       ],
@@ -1644,20 +1480,14 @@
         "github/issues/rust-lang/rust/161563.md",
         "github/issues/rust-lang/rust/161495.md"
       ],
-      "seeds": [
-        "github/issues/rust-lang/rust/161495.md"
-      ],
+      "seeds": ["github/issues/rust-lang/rust/161495.md"],
       "positions": [
         {
-          "refs": [
-            "github/issues/rust-lang/rust/161563.md"
-          ],
+          "refs": ["github/issues/rust-lang/rust/161563.md"],
           "status": "superseded"
         },
         {
-          "refs": [
-            "github/issues/rust-lang/rust/161495.md"
-          ],
+          "refs": ["github/issues/rust-lang/rust/161495.md"],
           "status": "current"
         }
       ],
@@ -1677,20 +1507,14 @@
         "github/issues/rust-lang/cargo/17445.md",
         "github/issues/rust-lang/cargo/17507.md"
       ],
-      "seeds": [
-        "github/issues/rust-lang/cargo/17507.md"
-      ],
+      "seeds": ["github/issues/rust-lang/cargo/17507.md"],
       "positions": [
         {
-          "refs": [
-            "github/issues/rust-lang/cargo/17445.md"
-          ],
+          "refs": ["github/issues/rust-lang/cargo/17445.md"],
           "status": "superseded"
         },
         {
-          "refs": [
-            "github/issues/rust-lang/cargo/17507.md"
-          ],
+          "refs": ["github/issues/rust-lang/cargo/17507.md"],
           "status": "current"
         }
       ],
@@ -1717,9 +1541,7 @@
       ],
       "positions": [
         {
-          "refs": [
-            "github/issues/rust-lang/rust/164337.md"
-          ],
+          "refs": ["github/issues/rust-lang/rust/164337.md"],
           "status": "superseded"
         },
         {

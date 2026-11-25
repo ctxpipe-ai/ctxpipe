@@ -9,7 +9,7 @@
         "sha": "a7f81344ffdf4d79d68c10f31137d6df4631bf16",
         "root": ""
       },
-      "workspace": "backstage-v1"
+      "workspace": "backstage-v0"
     }
   ],
   "questions": [
@@ -34,9 +34,7 @@
       "category": "lookup",
       "split": "holdout",
       "text": "When I write specs for a change, is the house preference to give each individual check its own tiny test case, or to bundle several checks into a smaller number of bigger test cases?",
-      "gold": [
-        "knowledge/instructions/unit-testing.md"
-      ],
+      "gold": ["knowledge/instructions/unit-testing.md"],
       "keyFacts": [
         "Prefer a few thorough tests with multiple assertions over many small tests."
       ]
@@ -47,9 +45,7 @@
       "category": "lookup",
       "split": "dev",
       "text": "In our developer portal, the screen that lists all registered software shows dotted, machine-style identifiers instead of human-readable words. This happens in the page-flipping controls, the filter input and the message shown when nothing is listed. What is behind this, and how do we resolve it?",
-      "gold": [
-        "github/issues/backstage/backstage/30649.md"
-      ],
+      "gold": ["github/issues/backstage/backstage/30649.md"],
       "keyFacts": [
         "The raw i18n keys appear because duplicate versions of the core component package are installed, typically pulled in by an older plugin",
         "Updating the older plugin so that it uses the latest core component version fixes the problem",
@@ -82,9 +78,7 @@
         "github/issues/backstage/backstage/30607.md",
         "github/issues/backstage/backstage/30646.md"
       ],
-      "seeds": [
-        "github/issues/backstage/backstage/31544.md"
-      ],
+      "seeds": ["github/issues/backstage/backstage/31544.md"],
       "keyFacts": [
         "Maintainers say scaffolder action schemas are passed as callbacks (z => schema) precisely to avoid Zod version mismatches, and that even exporting the internal ZodType would not prevent conflicts between plugins built against different Zod versions.",
         "Floated options: making zod a peer dependency (like React), or adding a helper such as createScaffolderActionSchema((z) => ...) that returns something usable as input/output."
@@ -101,9 +95,7 @@
         "github/issues/backstage/backstage/29655.md",
         "github/issues/backstage/backstage/30132.md"
       ],
-      "seeds": [
-        "github/issues/backstage/backstage/29770.md"
-      ],
+      "seeds": ["github/issues/backstage/backstage/29770.md"],
       "keyFacts": [
         "Issue #29770 (combine glossaries) was closed as not planned. It was a sub-issue of the still-open umbrella issue #29655, 'Make glossary more usable'.",
         "A sibling subtask, #30132, covered reviewing existing search definitions and adding terms from the Search, Permissions, and TechDocs concept docs to the main glossary.",
@@ -121,9 +113,7 @@
         "github/issues/backstage/backstage/30607.md",
         "github/issues/backstage/backstage/31544.md"
       ],
-      "seeds": [
-        "github/issues/backstage/backstage/30646.md"
-      ],
+      "seeds": ["github/issues/backstage/backstage/30646.md"],
       "keyFacts": [
         "Adding zod v4 to a module caused type errors on the permission rule's paramsSchema, because the v4 z.object type does not fit the v3 ZodSchema type used by createPermissionRule.",
         "The suggestion was for the custom-rules docs to call out that zod v3 is needed until the Zod 4 migration (#30607) is complete."
@@ -140,9 +130,7 @@
         "github/issues/backstage/backstage/29674.md",
         "github/issues/backstage/backstage/30049.md"
       ],
-      "seeds": [
-        "github/issues/backstage/backstage/30616.md"
-      ],
+      "seeds": ["github/issues/backstage/backstage/30616.md"],
       "keyFacts": [
         "Permission checks done only in a custom task plugin can be bypassed: users can call the core scheduler service endpoints directly with their own access token.",
         "The proposed alternative was to stop users from triggering scheduled tasks at all, allowing it only through service-to-service auth or a static token (PR #30533).",
@@ -160,9 +148,7 @@
         "github/issues/backstage/backstage/31220.md",
         "github/issues/backstage/backstage/31070.md"
       ],
-      "seeds": [
-        "github/issues/backstage/backstage/30001.md"
-      ],
+      "seeds": ["github/issues/backstage/backstage/30001.md"],
       "keyFacts": [
         "A maintainer said upcoming work to take the New Frontend System to a 1.0 release would bring first-class support for Feature Flags and Permissions before that milestone.",
         "A user reported a workaround using convertLegacyPlugin and convertLegacyPageExtension from core-compat-api, keeping the existing RequirePermission-wrapped legacy routes untouched."
@@ -178,9 +164,7 @@
         "github/issues/backstage/backstage/36465.md",
         "knowledge/databases/google-cloud-storage.md"
       ],
-      "seeds": [
-        "github/issues/backstage/backstage/36465.md"
-      ],
+      "seeds": ["github/issues/backstage/backstage/36465.md"],
       "keyFacts": [
         "The GcpBucketWorkspaceProvider writes every workspace snapshot to the same GCS object, named after the task ID, after each step. GCS allows only about one write per second to a single object, so quick consecutive steps hit the 429 rate limit and the task fails.",
         "Besides the scaffolder GCP module, GCS is also used by the GCS URL reader in backend-defaults and, optionally, by the TechDocs publisher in techdocs-node."
@@ -196,9 +180,7 @@
         "github/issues/backstage/backstage/34457.md",
         "knowledge/databases/amazon-s3.md"
       ],
-      "seeds": [
-        "github/issues/backstage/backstage/34457.md"
-      ],
+      "seeds": ["github/issues/backstage/backstage/34457.md"],
       "keyFacts": [
         "TechDocs currently supports only a single publisher configuration; a 'multi' publisher type is proposed in an open issue and not yet supported.",
         "Amazon S3 is an optional TechDocs publisher (techdocs-node awsS3 publish stage).",
@@ -215,9 +197,7 @@
         "github/issues/backstage/backstage/33750.md",
         "knowledge/operations/mcp-streamable-http-api-get-api-mcp-actions-v1.md"
       ],
-      "seeds": [
-        "github/issues/backstage/backstage/33750.md"
-      ],
+      "seeds": ["github/issues/backstage/backstage/33750.md"],
       "keyFacts": [
         "Maintainers said the missing WWW-Authenticate header on 401 responses is not really a bug. It is a part of the newer MCP auth spec that has not been implemented yet, because they were waiting for clients to support it.",
         "GET requests to /api/mcp-actions/v1, the streamable endpoint, are rejected with method not allowed."
@@ -233,9 +213,7 @@
         "github/issues/backstage/backstage/31285.md",
         "knowledge/apis/kubernetes-api.md"
       ],
-      "seeds": [
-        "github/issues/backstage/backstage/31285.md"
-      ],
+      "seeds": ["github/issues/backstage/backstage/31285.md"],
       "keyFacts": [
         "The proposal to pass backstageIdentity into fetchObjectsForService in KubernetesFanOutHandler for impersonation was closed as not planned after going stale.",
         "The Kubernetes API exposes a clusters listing, workload and custom resource query routes, a deprecated services/:serviceId lookup route, and a proxy to the Kubernetes API."
@@ -251,9 +229,7 @@
         "github/issues/backstage/backstage/30000.md",
         "knowledge/operations/catalog-api-post-locations.md"
       ],
-      "seeds": [
-        "github/issues/backstage/backstage/30000.md"
-      ],
+      "seeds": ["github/issues/backstage/backstage/30000.md"],
       "keyFacts": [
         "The suggestion was not adopted: the issue went stale and was closed as not planned.",
         "The requester built their own plugin on the catalog backend's POST /locations endpoint.",
@@ -270,9 +246,7 @@
         "github/issues/backstage/backstage/34484.md",
         "knowledge/apis/notifications-api.md"
       ],
-      "seeds": [
-        "github/issues/backstage/backstage/34484.md"
-      ],
+      "seeds": ["github/issues/backstage/backstage/34484.md"],
       "keyFacts": [
         "A maintainer said payload.metadata is intentionally not persisted, because it was only meant to be consumed by processors (such as email or Slack) in the initial implementation.",
         "The Notifications API is defined in the notifications-backend router (plugins/notifications-backend/src/service/router.ts).",
@@ -289,9 +263,7 @@
         "github/issues/backstage/backstage/35433.md",
         "knowledge/services/yarn-plugin-backstage.md"
       ],
-      "seeds": [
-        "github/issues/backstage/backstage/35433.md"
-      ],
+      "seeds": ["github/issues/backstage/backstage/35433.md"],
       "keyFacts": [
         "ip-address must be upgraded to version 10.3.1 or higher.",
         "yarn-plugin-backstage lives at packages/yarn-plugin.",
@@ -308,9 +280,7 @@
         "github/issues/backstage/backstage/32641.md",
         "knowledge/operations/task-scheduler-api-get-backstage-scheduler-v1-tasks.md"
       ],
-      "seeds": [
-        "github/issues/backstage/backstage/32641.md"
-      ],
+      "seeds": ["github/issues/backstage/backstage/32641.md"],
       "keyFacts": [
         "The fix (PR #33187) passes the task runner's AbortSignal into MicrosoftGraphOrgEntityProvider.read() and the MS Graph calls after it, so shutdown is clean and the lock is released right away.",
         "GET /.backstage/scheduler/v1/tasks lists scheduled tasks and their task and worker states.",
@@ -327,9 +297,7 @@
         "github/issues/backstage/backstage/31755.md",
         "knowledge/apis/auth-api.md"
       ],
-      "seeds": [
-        "github/issues/backstage/backstage/31755.md"
-      ],
+      "seeds": ["github/issues/backstage/backstage/31755.md"],
       "keyFacts": [
         "Maintainers suggested enabling the experimental dynamic client registration to protect mcp-actions-backend, which automatically issues user tokens on behalf of the user.",
         "Actions should pass the user's token along when calling the scaffolder API, so that existing scaffolder permissions are respected rather than creating new ones.",
@@ -342,9 +310,7 @@
       "category": "time",
       "split": "dev",
       "text": "Early in 2026, someone proposed letting people who authenticate through our code-hosting provider be tied to their directory records by mail address, using config alone and no hand-written code. Did that proposal go anywhere, and when was it wrapped up?",
-      "gold": [
-        "github/issues/backstage/backstage/32500.md"
-      ],
+      "gold": ["github/issues/backstage/backstage/32500.md"],
       "keyFacts": [
         "The request was closed on 2026-01-30 with state reason not_planned.",
         "On 2026-01-23 a maintainer called it an oversight and opened it for contribution, and the author offered to work on it."
@@ -356,9 +322,7 @@
       "category": "time",
       "split": "holdout",
       "text": "In 2026, someone suggested that our self-service repo generator let each stage of a generation run declare a fallback hook. The hook would fire when that stage blows up, for example when proposing code changes to a hosted repo breaks, so diagnostics could be pushed to observability dashboards before the run halts. What happened to that suggestion, and on what date was it resolved?",
-      "gold": [
-        "github/issues/backstage/backstage/33040.md"
-      ],
+      "gold": ["github/issues/backstage/backstage/33040.md"],
       "keyFacts": [
         "The request was closed as not planned (it was auto-marked stale for inactivity).",
         "It was closed on 2026-05-12, after being marked stale on 2026-04-28."
@@ -370,9 +334,7 @@
       "category": "time",
       "split": "dev",
       "text": "In 2025, someone said that syncing people and teams from our internal source-control server into the software inventory pulled in every team in the company, around three and a half thousand. They had only pointed it at a couple of root teams. Some of the teams that came in were also empty of people. What happened to that complaint, and on what date was it shut?",
-      "gold": [
-        "github/issues/backstage/backstage/30290.md"
-      ],
+      "gold": ["github/issues/backstage/backstage/30290.md"],
       "keyFacts": [
         "The issue was opened on 2025-06-17.",
         "It was marked stale on 2025-08-18 and closed as not planned on 2025-08-25, without a fix."
@@ -384,9 +346,7 @@
       "category": "time",
       "split": "holdout",
       "text": "In 2026, someone complained that the picture of how a service relates to other things, shown on its detail screen, lurches around wildly the moment it first appears. The pieces slide and reposition until they settle, and that could upset viewers prone to seizures or dizziness. Did anyone resolve that complaint, and on what date was it shut?",
-      "gold": [
-        "github/issues/backstage/backstage/33097.md"
-      ],
+      "gold": ["github/issues/backstage/backstage/33097.md"],
       "keyFacts": [
         "The Catalog Graph accessibility issue was closed as not planned, after being marked stale, without a fix.",
         "It was closed on 2026-06-09."
@@ -398,9 +358,7 @@
       "category": "time",
       "split": "dev",
       "text": "In 2025, someone asked that when our internal developer hub quietly renews a user's credentials with the corporate identity vendor in the background, and a flaky network cuts the call off, people not be forced through the whole sign-in dance again, because they were still logged in all along. What became of that ask, and on what date was it closed?",
-      "gold": [
-        "github/issues/backstage/backstage/31178.md"
-      ],
+      "gold": ["github/issues/backstage/backstage/31178.md"],
       "keyFacts": [
         "The request (filed 2025-09-17) was closed as not planned, without being implemented.",
         "It was marked stale on 2025-11-17 and closed on 2025-12-01."
@@ -449,20 +407,14 @@
         "github/issues/backstage/backstage/29770.md",
         "github/issues/backstage/backstage/29655.md"
       ],
-      "seeds": [
-        "github/issues/backstage/backstage/29655.md"
-      ],
+      "seeds": ["github/issues/backstage/backstage/29655.md"],
       "positions": [
         {
-          "refs": [
-            "github/issues/backstage/backstage/29770.md"
-          ],
+          "refs": ["github/issues/backstage/backstage/29770.md"],
           "status": "scoped"
         },
         {
-          "refs": [
-            "github/issues/backstage/backstage/29655.md"
-          ],
+          "refs": ["github/issues/backstage/backstage/29655.md"],
           "status": "scoped"
         }
       ],
@@ -482,20 +434,14 @@
         "github/issues/backstage/backstage/30542.md",
         "github/issues/backstage/backstage/30672.md"
       ],
-      "seeds": [
-        "github/issues/backstage/backstage/30542.md"
-      ],
+      "seeds": ["github/issues/backstage/backstage/30542.md"],
       "positions": [
         {
-          "refs": [
-            "github/issues/backstage/backstage/30542.md"
-          ],
+          "refs": ["github/issues/backstage/backstage/30542.md"],
           "status": "current"
         },
         {
-          "refs": [
-            "github/issues/backstage/backstage/30672.md"
-          ],
+          "refs": ["github/issues/backstage/backstage/30672.md"],
           "status": "scoped"
         }
       ],
@@ -515,20 +461,14 @@
         "github/issues/backstage/backstage/29879.md",
         "github/issues/backstage/backstage/29961.md"
       ],
-      "seeds": [
-        "github/issues/backstage/backstage/29961.md"
-      ],
+      "seeds": ["github/issues/backstage/backstage/29961.md"],
       "positions": [
         {
-          "refs": [
-            "github/issues/backstage/backstage/29879.md"
-          ],
+          "refs": ["github/issues/backstage/backstage/29879.md"],
           "status": "current"
         },
         {
-          "refs": [
-            "github/issues/backstage/backstage/29961.md"
-          ],
+          "refs": ["github/issues/backstage/backstage/29961.md"],
           "status": "scoped"
         }
       ],
@@ -547,20 +487,14 @@
         "github/issues/backstage/backstage/31446.md",
         "github/issues/backstage/backstage/32012.md"
       ],
-      "seeds": [
-        "github/issues/backstage/backstage/32012.md"
-      ],
+      "seeds": ["github/issues/backstage/backstage/32012.md"],
       "positions": [
         {
-          "refs": [
-            "github/issues/backstage/backstage/31446.md"
-          ],
+          "refs": ["github/issues/backstage/backstage/31446.md"],
           "status": "superseded"
         },
         {
-          "refs": [
-            "github/issues/backstage/backstage/32012.md"
-          ],
+          "refs": ["github/issues/backstage/backstage/32012.md"],
           "status": "current"
         }
       ],
