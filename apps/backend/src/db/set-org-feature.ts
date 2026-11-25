@@ -3,6 +3,8 @@
 // The hosted stack runs it as a one-off task for each entry of its private
 // config. It does not change a value that an operator set with the
 // `admin.set-org-feature` job until the config names that value (CTX-1646).
+// For `knowledge_plane`, each run also queues the backfill of the org
+// (CTX-1643): the first projection of each Workspace that is not ready.
 // Never put an org id in this repository.
 import { parseArgs } from "node:util"
 
@@ -27,6 +29,19 @@ try {
   if (!url) throw new Error("DATABASE_URL is required")
   initDb(url)
   await setOrgFeature(orgId, feature, value)
+  if (feature === "knowledge_plane") {
+    // A dynamic import: the OpenWorkflow client connects when it loads, and
+    // it needs DATABASE_URL.
+    const { backfillKnowledgePlane } =
+      await import("../knowledge-plane/backfill.js")
+    const { closeOpenWorkflowClient } =
+      await import("../openworkflow/client.js")
+    try {
+      await backfillKnowledgePlane(orgId)
+    } finally {
+      await closeOpenWorkflowClient()
+    }
+  }
 } catch (error) {
   exitCode = 1
   log.error({
