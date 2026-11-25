@@ -179,17 +179,52 @@ async function projected(f: NativeHydrationFixture): Promise<void> {
   )
 }
 
+/**
+ * Ends each sleep of the purge runs of the org now, as a clock that runs
+ * fast: the sleep step and the parked run.
+ */
+async function skipPurgeSleeps(orgId: string): Promise<void> {
+  const runs = sql`select id from openworkflow.workflow_runs
+    where namespace_id = ${openWorkflowNamespaceId()}
+      and workflow_name = 'knowledge-purge' and input->>'orgId' = ${orgId}`
+  await getSystemDb().execute(sql`
+    update openworkflow.step_attempts
+    set context = jsonb_set(context, '{resumeAt}', '"1970-01-01T00:00:00.000Z"')
+    where namespace_id = ${openWorkflowNamespaceId()}
+      and kind = 'sleep' and status = 'running' and workflow_run_id in (${runs})
+  `)
+  await getSystemDb().execute(sql`
+    update openworkflow.workflow_runs set available_at = now()
+    where id in (${runs}) and status = 'running' and worker_id is null
+      and available_at > now()
+  `)
+}
+
 /** Wait until each purge run of the org completed, and return the runs. */
-async function purged(orgId: string, timeout = 60_000) {
+async function purged(orgId: string) {
   await vi.waitFor(
     async () => {
+      await skipPurgeSleeps(orgId)
       const runs = await runsOf("knowledge-purge", orgId)
       expect(runs.length).toBeGreaterThan(0)
       expect(runs.every((run) => run.status === "completed")).toBe(true)
     },
-    { timeout, interval: 200 },
+    { timeout: 60_000, interval: 200 },
   )
   return runsOf("knowledge-purge", orgId)
+}
+
+/** The outputs of the completed steps of the purge runs of the org. */
+async function purgeSteps(orgId: string) {
+  return (
+    await getSystemDb().execute(sql`
+      select s.step_name as name, s.output from openworkflow.step_attempts s
+      join openworkflow.workflow_runs r
+        on r.namespace_id = s.namespace_id and r.id = s.workflow_run_id
+      where r.workflow_name = 'knowledge-purge' and r.input->>'orgId' = ${orgId}
+        and s.status = 'completed' and s.kind = 'function'
+      order by s.created_at`)
+  ).rows as { name: string; output: unknown }[]
 }
 
 /** A projection run of the Workspace, as one that starts after the purge. */
@@ -293,7 +328,7 @@ it(
 
 it(
   "a purge waits until the projection run of its Workspace that runs now ends, and then deletes the rows that the run wrote",
-  { timeout: 240_000 },
+  { timeout: 180_000 },
   async () =>
     withNativeHydrationFixture(
       { files, knowledgePlane: { clickhouseUrl: writerUrl } },
@@ -313,21 +348,20 @@ it(
              ${JSON.stringify(workspace)}::jsonb, 1, 'another-worker',
              now() + interval '1 hour', now(), now(), now())
         `)
-        await enqueueKnowledgePurge(workspace)
-        // The purge found the running projection and sleeps.
+        const app = workspaceHttpApp(f.org, workspaceRoutes)
+        const deleted = await app.request("/workspaces/knowledge", {
+          method: "DELETE",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ confirmName: f.org.name }),
+        })
+        expect(deleted.status).toBe(204)
+        // The purge finds the Workspace gone and the projection running.
         await vi.waitFor(
           async () => {
-            const [purge] = await runsOf("knowledge-purge", f.org.id)
-            const steps = await getSystemDb().execute(
-              sql`select step_name, status from openworkflow.step_attempts
-                where workflow_run_id = ${purge?.id ?? ""}`,
-            )
-            expect(steps.rows).toEqual(
+            await skipPurgeSleeps(f.org.id)
+            expect(await purgeSteps(f.org.id)).toEqual(
               expect.arrayContaining([
-                {
-                  step_name: "await-projection-runs-0",
-                  status: expect.any(String),
-                },
+                { name: expect.any(String), output: "projection" },
               ]),
             )
           },
@@ -337,9 +371,10 @@ it(
         await seed(workspace)
         const written = await rowsOf(workspace)
         expect(written.image_texts).toBeGreaterThan(0)
+        await skipPurgeSleeps(f.org.id)
+        expect(await rowsOf(workspace)).toEqual(written)
 
-        // The projection run ends. The purge finds no running projection
-        // at its next check, after its sleep of 1 minute.
+        // The projection run ends: the next check of the purge deletes.
         await getSystemDb().execute(sql`
           update openworkflow.workflow_runs
           set status = 'completed', worker_id = null, available_at = null,
@@ -347,9 +382,33 @@ it(
           where namespace_id = ${openWorkflowNamespaceId()}
             and id = ${projectionRun}
         `)
-        expect(await rowsOf(workspace)).toEqual(written)
-        await purged(f.org.id, 120_000)
+        await purged(f.org.id)
         expect(await rowsOf(workspace)).toEqual(none)
+      },
+    ),
+)
+
+it(
+  "the purge of a Workspace whose delete did not happen stops after its checks and deletes nothing",
+  { timeout: 180_000 },
+  async () =>
+    withNativeHydrationFixture(
+      { files, knowledgePlane: { clickhouseUrl: writerUrl } },
+      async (f) => {
+        await projected(f)
+        const workspace = { orgId: f.org.id, workspaceId: f.workspaceId }
+        const before = await rowsOf(workspace)
+        expect(before.documents).toBeGreaterThan(0)
+        // As a delete whose transaction failed after the enqueue.
+        await enqueueKnowledgePurge(workspace)
+        await purged(f.org.id)
+        const steps = await purgeSteps(f.org.id)
+        expect(steps.map((step) => step.output)).toEqual([
+          ...Array.from({ length: 10 }, () => "workspace"),
+          null,
+        ])
+        expect(steps.at(-1)?.name).toBe("workspace-kept")
+        expect(await rowsOf(workspace)).toEqual(before)
       },
     ),
 )

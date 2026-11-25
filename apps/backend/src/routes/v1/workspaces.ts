@@ -665,6 +665,12 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
           400,
         )
       }
+      // Before the delete: a failed enqueue deletes nothing, and the purge
+      // waits until the Workspace row is gone (CTX-1642).
+      await enqueueKnowledgePurge({
+        orgId: workspace.orgId,
+        workspaceId: workspace.id,
+      })
       const deleted = await withDestroyedWorkspaceSandboxes(
         { workspaceId: workspace.id, orgId: workspace.orgId },
         async (remaining) => {
@@ -678,12 +684,6 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
         },
       )
       if (!deleted) return c.json({ error: "Not found" }, 404)
-      // The Workspace row is gone, so a projection run that starts now
-      // writes nothing. The purge deletes the rows of the earlier runs.
-      await enqueueKnowledgePurge({
-        orgId: workspace.orgId,
-        workspaceId: deleted.id,
-      })
       return c.body(null, 204)
     } catch (error) {
       const status =

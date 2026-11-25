@@ -373,8 +373,9 @@ export async function applyRepositoryDeletionGraphCleanup(params: {
 /**
  * Wipes all org-scoped product data before Better Auth removes the organization row.
  *
- * Must be called inside {@link withOrgDbContext} (the hook in auth/config.ts
- * sets that up). Uses {@link getOrgDb} for all queries and deletes.
+ * Call it outside an org SQL transaction: it opens its own
+ * ({@link withOrgDbContext}, with {@link getOrgDb} for all queries and
+ * deletes), and then queues a workflow and calls codesearch.
  * External side-effects (codesearch disk cleanup, FalkorDB graph drop) are
  * best-effort and run after the Postgres deletes. The worker deletes the
  * ClickHouse rows of the knowledge plane (`knowledge-purge`): this function
