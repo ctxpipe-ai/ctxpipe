@@ -33,8 +33,9 @@ configs:
       # (at most MAX_OUTPUT) at the output price. It refuses the request (402)
       # when the spend and that reserve are more than the budget. After the
       # response, it charges the usage of the response at the list price
-      # (GATEWAY_PRICES, USD for each million tokens), or the reserve when it
-      # has no full usage. One request at a time, so the spend can never go
+      # (GATEWAY_PRICES, USD for each million tokens), or the reserve when a
+      # response of 200 has no full usage (an error with no usage costs
+      # nothing). One request at a time, so the spend can never go
       # over the budget. /out/spend.json holds the spend after each request.
       import http.client
       import http.server
@@ -129,7 +130,8 @@ configs:
 
       class Gateway(http.server.BaseHTTPRequestHandler):
           def do_POST(self):
-              if urlsplit(self.path).path != "/v1/messages":
+              # Only these two exact targets: the gateway sends one of them upstream.
+              if self.path not in {"/v1/messages", "/v1/messages?beta=true"}:
                   return self.send_error(404)
               length = int(self.headers.get("content-length") or 0)
               if "transfer-encoding" in self.headers or length > MAX_BODY:
