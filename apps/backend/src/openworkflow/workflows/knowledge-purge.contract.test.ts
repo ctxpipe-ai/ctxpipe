@@ -8,9 +8,7 @@ import { orgFeatures } from "../../db/schema/org_features.js"
 import { purgeOrgDataBeforeAuthDelete } from "../../domain/repositoryDeletion.js"
 import {
   createKnowledgeStore,
-  KNOWLEDGE_TABLES,
   type KnowledgeScope,
-  ORG_SETTING,
 } from "../../knowledge-store/knowledge-store.js"
 import { migrateKnowledgeStore } from "../../knowledge-store/migrate.js"
 import {
@@ -18,7 +16,12 @@ import {
   listBranchHeads,
 } from "../../models/knowledge-state.js"
 import { workspaceRoutes } from "../../routes/v1/workspaces.js"
-import { startClickHouse, userUrl } from "../../test/clickhouse.js"
+import {
+  knowledgeRowCounts,
+  noKnowledgeRows,
+  startClickHouse,
+  userUrl,
+} from "../../test/clickhouse.js"
 import {
   type NativeHydrationFixture,
   withNativeHydrationFixture,
@@ -60,24 +63,11 @@ const files = [
 
 /** The count of rows of `scope` in each knowledge table. */
 async function rowsOf(scope: KnowledgeScope) {
-  const client = clickhouse?.client(adminUrl)
-  if (!client) throw new Error("No ClickHouse")
-  const counts: Record<string, number> = {}
-  for (const table of KNOWLEDGE_TABLES) {
-    const result = await client.query({
-      query: `SELECT count() AS rows FROM ${table}
-              WHERE org_id = {orgId:String} AND workspace_id = {workspaceId:String}`,
-      query_params: scope,
-      format: "JSONEachRow",
-      clickhouse_settings: { [ORG_SETTING]: scope.orgId },
-    })
-    const [row] = await result.json<{ rows: string }>()
-    counts[table] = Number(row?.rows)
-  }
-  return counts
+  if (!clickhouse) throw new Error("No ClickHouse")
+  return knowledgeRowCounts(clickhouse.client(adminUrl), scope)
 }
 
-const none = Object.fromEntries(KNOWLEDGE_TABLES.map((table) => [table, 0]))
+const none = noKnowledgeRows
 
 /** Rows of one file in each knowledge table, for a scope with no hydrate. */
 async function seed(scope: KnowledgeScope): Promise<void> {
@@ -227,6 +217,17 @@ async function purgeSteps(orgId: string) {
   ).rows as { name: string; output: unknown }[]
 }
 
+/** The Workspace delete of the HTTP API. */
+async function deleteWorkspace(f: NativeHydrationFixture) {
+  const app = workspaceHttpApp(f.org, workspaceRoutes)
+  const response = await app.request("/workspaces/knowledge", {
+    method: "DELETE",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ confirmName: f.org.name }),
+  })
+  return response.status
+}
+
 /** A projection run of the Workspace, as one that starts after the purge. */
 async function projectAgain(f: NativeHydrationFixture) {
   const handle = await f.runner.runWorkflow(knowledgeProjection.spec, {
@@ -254,18 +255,17 @@ it(
         await seed(sibling)
         await seed(otherOrg)
         const projectedRows = await rowsOf(workspace)
-        for (const table of ["documents", "chunks", "relations", "trees"])
+        for (const table of [
+          "documents",
+          "chunks",
+          "relations",
+          "trees",
+        ] as const)
           expect(projectedRows[table], table).toBeGreaterThan(0)
         const kept = await rowsOf(sibling)
         expect(Object.values(kept).every((count) => count > 0)).toBe(true)
 
-        const app = workspaceHttpApp(f.org, workspaceRoutes)
-        const deleted = await app.request("/workspaces/knowledge", {
-          method: "DELETE",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ confirmName: f.org.name }),
-        })
-        expect(deleted.status).toBe(204)
+        expect(await deleteWorkspace(f)).toBe(204)
 
         expect(await purged(f.org.id)).toEqual([
           expect.objectContaining({ workspaceId: f.workspaceId }),
@@ -348,13 +348,7 @@ it(
              ${JSON.stringify(workspace)}::jsonb, 1, 'another-worker',
              now() + interval '1 hour', now(), now(), now())
         `)
-        const app = workspaceHttpApp(f.org, workspaceRoutes)
-        const deleted = await app.request("/workspaces/knowledge", {
-          method: "DELETE",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ confirmName: f.org.name }),
-        })
-        expect(deleted.status).toBe(204)
+        expect(await deleteWorkspace(f)).toBe(204)
         // The purge finds the Workspace gone and the projection running.
         await vi.waitFor(
           async () => {
@@ -404,7 +398,7 @@ it(
         await purged(f.org.id)
         const steps = await purgeSteps(f.org.id)
         expect(steps.map((step) => step.output)).toEqual([
-          ...Array.from({ length: 10 }, () => "workspace"),
+          ...Array.from({ length: 60 }, () => "workspace"),
           null,
         ])
         expect(steps.at(-1)?.name).toBe("workspace-kept")

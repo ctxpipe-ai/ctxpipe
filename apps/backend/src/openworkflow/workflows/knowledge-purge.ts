@@ -28,9 +28,10 @@ import { openWorkflowNamespaceId } from "../namespace.js"
  *
  * A Workspace delete queues the purge before its transaction, so that a
  * failed enqueue deletes nothing and the delete can run again. Thus the
- * purge of a Workspace also waits until the Workspace row is gone. When the
- * row is still there after 10 checks (10 minutes), the delete did not
- * happen, and the purge stops with no change. An org delete queues the
+ * purge of a Workspace also waits until the Workspace row is gone. The
+ * delete first destroys the sandboxes of the Workspace, under their lock.
+ * When the row is still there after 60 checks (about one hour), the delete
+ * did not happen, and the purge stops with no change. An org delete queues the
  * purge after its Postgres transaction: when the enqueue fails, the
  * organization row stays, and a new delete queues the purge again.
  */
@@ -56,7 +57,7 @@ export const knowledgePurge = defineWorkflow(
         purgeWait(input),
       )
       if (!wait) break
-      if (wait === "workspace" && check + 1 >= 10)
+      if (wait === "workspace" && check + 1 >= 60)
         return step.run({ name: "workspace-kept" }, async () => {
           getLogger().set({
             step: "knowledge-purge",

@@ -11,6 +11,11 @@ import {
 } from "@clickhouse/client"
 
 import { testLabelArgs } from "../../../../scripts/ci/test-containers.mjs"
+import {
+  KNOWLEDGE_TABLES,
+  type KnowledgeScope,
+  ORG_SETTING,
+} from "../knowledge-store/knowledge-store.js"
 import { migrateKnowledgeStore } from "../knowledge-store/migrate.js"
 import { contractImage } from "./contract-images.js"
 
@@ -25,6 +30,35 @@ export function userUrl(url: string, user: string, password: string): string {
   withUser.password = password
   return withUser.toString()
 }
+
+/** The count of rows of `scope` in each knowledge table. */
+export async function knowledgeRowCounts(
+  client: ClickHouseClient,
+  scope: KnowledgeScope,
+): Promise<Record<(typeof KNOWLEDGE_TABLES)[number], number>> {
+  const counts = await Promise.all(
+    KNOWLEDGE_TABLES.map(async (table) => {
+      const result = await client.query({
+        query: `SELECT count() AS rows FROM ${table}
+                WHERE org_id = {orgId:String} AND workspace_id = {workspaceId:String}`,
+        query_params: scope,
+        format: "JSONEachRow",
+        clickhouse_settings: { [ORG_SETTING]: scope.orgId },
+      })
+      const [row] = await result.json<{ rows: string }>()
+      return [table, Number(row?.rows)] as const
+    }),
+  )
+  return Object.fromEntries(counts) as Record<
+    (typeof KNOWLEDGE_TABLES)[number],
+    number
+  >
+}
+
+/** The counts of {@link knowledgeRowCounts} of a scope with no rows. */
+export const noKnowledgeRows = Object.fromEntries(
+  KNOWLEDGE_TABLES.map((table) => [table, 0]),
+)
 
 /**
  * A ClickHouse server of the pinned image in Docker, for the contract tests of

@@ -10,6 +10,8 @@ import {
 } from "vitest"
 
 import {
+  knowledgeRowCounts,
+  noKnowledgeRows,
   startClickHouse,
   userUrl as databaseUserUrl,
 } from "../test/clickhouse.js"
@@ -996,33 +998,19 @@ describe("users and mutations", () => {
         { blobSha: "sha1", model: "m/a", promptVersion: 1, reading: "text" },
       ])
     }
-    const admin = rawClient(adminUrl)
-    /** The count of rows of `scope` in each knowledge table. */
-    const rowsOfScope = async (scope: KnowledgeScope) =>
-      Object.fromEntries(
-        await Promise.all(
-          KNOWLEDGE_TABLES.map(async (table) => {
-            const [row] = await rawRows<{ rows: string }>(
-              admin,
-              `SELECT count() AS rows FROM ${table}
-               WHERE org_id = '${scope.orgId}' AND workspace_id = '${scope.workspaceId}'`,
-              scope.orgId,
-            )
-            return [table, Number(row?.rows)] as const
-          }),
-        ),
-      )
+    const rowsOfScope = (scope: KnowledgeScope) =>
+      knowledgeRowCounts(rawClient(adminUrl), scope)
     const seeded = await rowsOfScope(workspace)
     for (const table of KNOWLEDGE_TABLES)
       expect(seeded[table], table).toBeGreaterThan(0)
-    const none = Object.fromEntries(KNOWLEDGE_TABLES.map((table) => [table, 0]))
+    const none = noKnowledgeRows
 
     // The reader user cannot purge, and a purge needs an org.
     await expect(reader.purge(workspace)).rejects.toThrow(denied)
     await expect(writer.purge({ orgId: "" })).rejects.toThrow(/needs an org/)
     await expect(
       writer.purge({ orgId: "org_purge", workspaceId: "" }),
-    ).rejects.toThrow(/needs an org/)
+    ).rejects.toThrow(/needs a Workspace id/)
     expect(await rowsOfScope(workspace)).toEqual(seeded)
 
     expect(await writer.purge(workspace)).toEqual(seeded)

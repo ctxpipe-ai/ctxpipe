@@ -1125,8 +1125,9 @@ async function purge(
   client: ClickHouseClient,
   scope: PurgeScope,
 ): Promise<PurgeCounts> {
-  if (!scope.orgId || scope.workspaceId === "")
-    throw new Error("A knowledge purge needs an org")
+  if (!scope.orgId) throw new Error("A knowledge purge needs an org")
+  if (scope.workspaceId === "")
+    throw new Error("A knowledge purge of a Workspace needs a Workspace id")
   const where =
     scope.workspaceId === undefined
       ? "org_id = {orgId:String}"
