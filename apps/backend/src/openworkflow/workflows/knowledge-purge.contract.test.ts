@@ -63,6 +63,9 @@ beforeAll(async () => {
         cleanup_delay_period = 1, max_cleanup_delay_period = 1,
         cleanup_delay_period_random_add = 0`,
     })
+  // The cleanup of a table read its delay before this change: a restart
+  // starts it again with the new settings.
+  await clickhouse.restart()
 }, 240_000)
 
 afterAll(async () => {
@@ -246,6 +249,13 @@ async function purgeSteps(orgId: string, runId?: string) {
         and s.status = 'completed' and s.kind = 'function'
       order by s.created_at`)
   ).rows as { name: string; output: unknown }[]
+}
+
+/** The steps of {@link purgeSteps}, without the queue of the next run. */
+async function purgeChecks(orgId: string) {
+  return (await purgeSteps(orgId)).filter(
+    (step) => step.name !== "queue-next-purge",
+  )
 }
 
 /** The Workspace delete of the HTTP API. */
@@ -444,7 +454,7 @@ it(
             await vi.waitFor(
               async () => {
                 await skipPurgeSleeps(f.org.id)
-                const outputs = (await purgeSteps(f.org.id)).map(
+                const outputs = (await purgeChecks(f.org.id)).map(
                   (step) => step.output,
                 )
                 expect(outputs.slice(0, 3)).toEqual([
@@ -458,7 +468,7 @@ it(
           },
         )
         await purged(f.org.id)
-        const outputs = (await purgeSteps(f.org.id)).map((step) => step.output)
+        const outputs = (await purgeChecks(f.org.id)).map((step) => step.output)
         const checks = outputs.slice(0, -1)
         expect(checks.filter((output) => output === "workspace")).toHaveLength(
           IDLE_WORKSPACE_CHECKS,
@@ -470,6 +480,10 @@ it(
         ).toBe(true)
         expect(outputs.at(-1)).toBeNull()
         expect((await purgeSteps(f.org.id)).at(-1)?.name).toBe("workspace-kept")
+        // The run ended with no error, so it canceled its next run.
+        expect(
+          (await runsOf("knowledge-purge", f.org.id)).map((run) => run.status),
+        ).toEqual(["completed", "canceled"])
         expect(await rowsOf(workspace)).toEqual(before)
       },
     ),

@@ -64,7 +64,16 @@ export async function knowledgeRowCounts(
  * A ClickHouse server of the pinned image in Docker, for the contract tests of
  * KnowledgeStore. Call `stop` in `afterAll`.
  */
-export async function startClickHouse(): Promise<{
+export async function startClickHouse({
+  objectStorageCold = false,
+}: {
+  /**
+   * The disk cold is an object storage disk with its objects in a local
+   * folder (clickhouse-cold-object-storage.xml), as the S3 disk of the
+   * hosted node.
+   */
+  objectStorageCold?: boolean
+} = {}): Promise<{
   serverUrl: string
   /** A new database with the migrated tables. Returns its URL. */
   freshDatabase(): Promise<string>
@@ -79,6 +88,8 @@ export async function startClickHouse(): Promise<{
    * port and the URLs stay. Returns when the server answers again.
    */
   restart(): Promise<void>
+  /** Whether the file `path` is in the container of the server. */
+  fileExists(path: string): Promise<boolean>
   stop(): Promise<void>
 }> {
   const container = `ctxpipe-knowledge-${randomUUID().slice(0, 8)}`
@@ -109,6 +120,15 @@ export async function startClickHouse(): Promise<{
     ),
     `${container}:/etc/clickhouse-server/config.d/storage.xml`,
   )
+  if (objectStorageCold)
+    await docker(
+      "cp",
+      fileURLToPath(
+        new URL("./clickhouse-cold-object-storage.xml", import.meta.url),
+      ),
+      // After storage.xml in the order of the names: it replaces the disk.
+      `${container}:/etc/clickhouse-server/config.d/zz-cold-object-storage.xml`,
+    )
   await docker("start", container)
   const clients: ClickHouseClient[] = []
   const stop = async () => {
@@ -158,6 +178,12 @@ export async function startClickHouse(): Promise<{
       async restart() {
         await docker("restart", "--time", "0", container)
         await waitUntilStarted()
+      },
+      async fileExists(path) {
+        return docker("exec", container, "test", "-e", path).then(
+          () => true,
+          () => false,
+        )
       },
       stop,
     }

@@ -1,0 +1,16 @@
+<clickhouse>
+  <!-- For the cold part tests (CTX-1672): the disk cold is an object storage disk, as the S3 disk of the hosted node,
+       with its objects in a local folder (local_blob_storage). ClickHouse writes and removes the objects of a part
+       through the same object storage code as on S3. Thus a test can read the folder, and see when an object goes. -->
+  <storage_configuration>
+    <disks>
+      <cold replace="replace">
+        <type>object_storage</type>
+        <object_storage_type>local_blob_storage</object_storage_type>
+        <metadata_type>local</metadata_type>
+        <path>/var/lib/clickhouse/disks/cold_blobs/</path>
+        <metadata_path>/var/lib/clickhouse/disks/cold/</metadata_path>
+      </cold>
+    </disks>
+  </storage_configuration>
+</clickhouse>

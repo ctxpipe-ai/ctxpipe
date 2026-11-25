@@ -25,7 +25,8 @@ const tables = [
 let clickHouse: Awaited<ReturnType<typeof startClickHouse>>
 
 beforeAll(async () => {
-  clickHouse = await startClickHouse()
+  // The disk cold is object storage, as the S3 disk of the hosted node.
+  clickHouse = await startClickHouse({ objectStorageCold: true })
 }, 240_000)
 
 afterAll(async () => {
@@ -127,6 +128,9 @@ describe("old knowledge parts", () => {
           cleanup_delay_period = 1, max_cleanup_delay_period = 1,
           cleanup_delay_period_random_add = 0`,
       })
+    // The cleanup of a table read its delay before this change: a restart
+    // starts it again with the new settings.
+    await clickHouse.restart()
 
     const store = createKnowledgeStore(url)
     try {
@@ -134,9 +138,47 @@ describe("old knowledge parts", () => {
       expect(
         await knowledgeRowCounts(client, purged, { inParts: true }),
       ).toEqual(oneRow)
+      // The parts of the purged org, and their objects in the object
+      // storage, before the erase starts to rewrite them.
+      const before: string[] = []
+      for (const table of tables)
+        for (const { part } of await (
+          await client.query({
+            query: `SELECT DISTINCT _part AS part FROM ${table}
+              WHERE org_id = {orgId:String}`,
+            query_params: { orgId: purged.orgId },
+            format: "JSONEachRow",
+            clickhouse_settings: {
+              [ORG_SETTING]: purged.orgId,
+              apply_deleted_mask: 0,
+            },
+          })
+        ).json<{ part: string }>())
+          before.push(`${table}/${part}`)
+      const objects = (
+        await (
+          await client.query({
+            query: `SELECT remote_path AS object
+              FROM system.remote_data_paths AS paths
+              JOIN system.tables AS tables
+                ON paths.local_path LIKE concat('%', toString(tables.uuid), '/%')
+              WHERE paths.disk_name = 'cold'
+                AND tables.database = currentDatabase()
+                AND concat(tables.name, '/', splitByChar('/', paths.local_path)[4])
+                  IN {before:Array(String)}`,
+            query_params: { before },
+            format: "JSONEachRow",
+          })
+        ).json<{ object: string }>()
+      ).map((row) => row.object)
+      expect(objects.length).toBeGreaterThan(tables.length)
+      for (const object of objects)
+        expect(await clickHouse.fileExists(object), object).toBe(true)
+
       // Each table has one part of the purged org.
       const erased = await store.erasePurged(purged)
-      expect(erased.map((part) => part.split("/")[0]).sort()).toEqual(
+      expect(erased.sort()).toEqual(before.sort())
+      expect(before.map((part) => part.split("/")[0]).sort()).toEqual(
         [...tables].sort(),
       )
       await vi.waitFor(
@@ -144,11 +186,13 @@ describe("old knowledge parts", () => {
         { timeout: 30_000, interval: 200 },
       )
       // The server removes the parts that held the purged rows from the
-      // disk.
+      // disk, and so their objects from the object storage.
       await vi.waitFor(
         async () => expect(await store.partsLeft(erased)).toBe(0),
         { timeout: 120_000, interval: 1_000 },
       )
+      for (const object of objects)
+        expect(await clickHouse.fileExists(object), object).toBe(false)
     } finally {
       await store.close()
     }

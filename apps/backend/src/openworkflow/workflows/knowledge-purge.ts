@@ -71,6 +71,34 @@ export const knowledgePurge = defineWorkflow(
     }),
   },
   async ({ input, step, run }) => {
+    const url = parseEnv(process.env).CLICKHOUSE_URL
+    // The first step queues the next purge run of the scope, one day later.
+    // A run that ends with no error cancels it. A run that fails (a step
+    // that still fails after its retries, as while ClickHouse is down)
+    // leaves it, and the next run queues its own next run first. Thus the
+    // purge and the erase start again each day until one run ends, with no
+    // operator (ADR-066 decision 9). This step retries each hour until it
+    // succeeds, so no run ends before the next run is queued.
+    const next = url
+      ? await step.run(
+          {
+            name: "queue-next-purge",
+            retryPolicy: {
+              initialInterval: "10s",
+              backoffCoefficient: 2,
+              maximumInterval: "1h",
+              maximumAttempts: Number.MAX_SAFE_INTEGER,
+            },
+          },
+          async () => {
+            const handle = await enqueueWorkflow(knowledgePurge.spec, input, {
+              availableAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+              idempotencyKey: `knowledge-purge-next:${run.id}`,
+            })
+            return handle.workflowRun.id
+          },
+        )
+      : null
     let idle = 0
     // A sleeping run holds no worker slot, as in the projection.
     for (let check = 0; ; check++) {
@@ -80,6 +108,7 @@ export const knowledgePurge = defineWorkflow(
       if (!wait) break
       if (wait === "workspace" && ++idle >= IDLE_WORKSPACE_CHECKS)
         return step.run({ name: "workspace-kept" }, async () => {
+          if (next) await cancelRun(next)
           getLogger().set({
             step: "knowledge-purge",
             knowledgePurge: { outcome: "workspace_kept" },
@@ -95,20 +124,6 @@ export const knowledgePurge = defineWorkflow(
       maximumInterval: "1h",
       maximumAttempts: 30,
     } as const
-    const url = parseEnv(process.env).CLICKHOUSE_URL
-    // The next purge run of the scope, one day later. A run that ends with
-    // `erased` cancels it. A run that fails (a step that still fails after
-    // its retries, as while ClickHouse is down) leaves it, so the purge and
-    // the erase start again each day with no operator (ADR-066 decision 9).
-    const next = url
-      ? await step.run({ name: "queue-next-purge", retryPolicy }, async () => {
-          const handle = await enqueueWorkflow(knowledgePurge.spec, input, {
-            availableAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-            idempotencyKey: `knowledge-purge-next:${run.id}`,
-          })
-          return handle.workflowRun.id
-        })
-      : null
     const deleted = await step.run(
       { name: "purge-knowledge-plane", retryPolicy },
       async () => {
