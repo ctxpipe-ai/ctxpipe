@@ -1129,6 +1129,27 @@ describe("the test fixture rule (CTX-1531)", () => {
     }
   })
 
+  it("discover-roots takes no Go main package in a test fixture folder as a root, and records each folder (CTX-1570)", () => {
+    const result = discover(
+      repo({
+        "go.mod": "module example.com/tool\n",
+        "cmd/tool/main.go": "package main\n",
+        "pkg/edit/testdata/plugin/main.go": "package main\n",
+        "test/typecheck/testdata/a/main.go": "package main\n",
+        "test/typecheck/testdata/b/main.go": "package main\n",
+        // A library package in a fixture folder is no left-out binary.
+        "pkg/lib/testdata/lib/lib.go": "package lib\n",
+        // A vendored fixture folder is not read.
+        "vendor/x/testdata/tool/main.go": "package main\n",
+      }),
+    )
+    expect(result.roots.map((root) => root.path)).toEqual([".", "cmd/tool"])
+    expect(result.skipped.map((entry) => entry.reason)).toEqual([
+      "The test fixture folder pkg/edit/testdata has 1 Go main package. They are test input, so the script takes no root from them",
+      "The test fixture folder test/typecheck/testdata has 2 Go main packages. They are test input, so the script takes no root from them",
+    ])
+  })
+
   it("discover-roots takes no root from a workspace entry that names a test fixture folder", () => {
     const npm = discover(
       repo({

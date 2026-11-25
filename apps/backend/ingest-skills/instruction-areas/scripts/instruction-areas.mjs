@@ -11,6 +11,14 @@
 // node instruction-areas.mjs --root /ctxpipe --source /ctxpipe/source/<handle> \
 //   --source-url <url> --source-path <path> --roots <root-to-file map> --proposal <file> [--now <ISO date>]
 //
+// The skill pages by a cursor over the documents of documents.mjs
+// (CTX-1570). The first page (cursor 0) writes the areas of the source again:
+// the source leaves its rules that the proposal does not name, and with a
+// complete proposal it leaves its other areas. A later page adds: it keeps
+// what the earlier pages wrote, so the source leaves nothing. patch.json gets
+// the cursor after the documents of the page, and `more` while documents
+// wait.
+//
 // The proposal and the source repository are hostile. Text from the proposal
 // is cleaned (no backtick, control character, or markup), each quote of a
 // document is looked up in the file, and each pattern is counted by
@@ -33,7 +41,6 @@ import { readTracked } from "../../discover-roots/scripts/roots-lib.mjs"
 import {
   cleanText,
   compareRules,
-  MAX_AREAS,
   MAX_RULES,
   MIN_NEW_AREA_RULES,
   newFront,
@@ -44,6 +51,7 @@ import {
   SEED_SLUGS,
   slugify,
 } from "./areas-lib.mjs"
+import { documentPage, selectDocuments } from "./documents.mjs"
 import { measurePattern } from "./patterns.mjs"
 
 const { step, source, roots, index, skipped, value, ...given } = scriptStep()
@@ -66,7 +74,19 @@ try {
   process.exit(1)
 }
 const proposed = Array.isArray(proposal?.areas) ? proposal.areas : []
-const complete = proposal?.complete === true
+// The documents of this page, as documents.mjs lists them.
+const documents = selectDocuments(
+  source,
+  roots.map((r) => r.path),
+).documents
+const page = documentPage(documents, step.cursorAt)
+const later = page.from > 0
+if (later && proposal?.complete === true)
+  skip(
+    null,
+    "A later page adds to the areas of the earlier pages, so the script did not read complete",
+  )
+const complete = !later && proposal?.complete === true
 
 // ---- the rules of one area --------------------------------------------------
 
@@ -102,7 +122,7 @@ function documentEvidence(documents) {
 function evaluate(area) {
   const kept = []
   const drift = []
-  for (const raw of Array.isArray(area.rules) ? area.rules.slice(0, 40) : []) {
+  for (const raw of Array.isArray(area.rules) ? area.rules : []) {
     const key =
       typeof raw?.key === "string" && KEY.test(raw.key) ? raw.key : null
     const val = cleanText(raw?.value, 100)
@@ -171,7 +191,7 @@ function evaluate(area) {
       )
     }
   }
-  const notes = (Array.isArray(area.notes) ? area.notes.slice(0, 5) : [])
+  const notes = (Array.isArray(area.notes) ? area.notes : [])
     .map((n) => cleanText(n, 300))
     .filter(Boolean)
   return { rules: [...byKey.values()], notes: [...notes, ...drift] }
@@ -266,12 +286,27 @@ function leave(parsed) {
   )
 }
 
-/** Join or update a file; returns false when the file would hold too many rules. */
+/**
+ * Join or update a file; returns false when the file would hold too many
+ * rules. On a later page, the evidence and notes of the source from the
+ * earlier pages stay.
+ */
 function mergeInto(parsed, area) {
-  const rest = withoutSource(parsed)
+  const rest = later
+    ? {
+        rules: parsed.area.rules.map((r) => ({
+          ...r,
+          sources: new Map(r.sources),
+        })),
+        notes: parsed.area.notes,
+      }
+    : withoutSource(parsed)
   const rules = rest.rules
   const notes = [...rest.notes]
-  const addNote = (text) => notes.push({ source: sourceId, text })
+  const addNote = (text) => {
+    if (!notes.some((n) => n.source === sourceId && n.text === text))
+      notes.push({ source: sourceId, text })
+  }
   for (const text of area.notes) addNote(text)
   for (const rule of [...area.rules].sort((a, b) => (a.key < b.key ? -1 : 1))) {
     const known = rules.find((r) => r.key === rule.key)
@@ -336,18 +371,10 @@ function differenceName(slug, family, comparisons, area) {
 
 const followed = [] // { path, evidence }
 const touched = new Set()
-let count = 0
 for (const raw of proposed) {
   const slug = typeof raw?.slug === "string" ? raw.slug : ""
   if (!SLUG.test(slug) || slug.length > 60) {
     skip(null, "An area has no valid slug")
-    continue
-  }
-  if (count >= MAX_AREAS) {
-    skip(
-      null,
-      `A source follows at most ${MAX_AREAS} areas; ${slug} was left out`,
-    )
     continue
   }
   const summary = cleanText(raw.summary, 300)
@@ -380,6 +407,11 @@ for (const raw of proposed) {
     const others = file.sources.some((s) => s !== sourceId)
     if (mine && !others) {
       target = { file, decision: "update-own", cmp: null }
+      break
+    }
+    // An earlier page decided the file of the area; a later page adds to it.
+    if (mine && later) {
+      target = { file, decision: "add", cmp: null }
       break
     }
     const theirs = file.area.rules.filter(
@@ -456,9 +488,9 @@ for (const raw of proposed) {
     )
   }
   touched.add(path)
-  count++
   // The source leaves each other file of this family that still lists it.
-  for (const file of readable)
+  // A later page adds only, so it leaves no file.
+  for (const file of later ? [] : readable)
     if (
       file.path !== path &&
       file.sources.includes(sourceId) &&
@@ -574,4 +606,8 @@ else
           },
         ],
       })
-writeStep(step, plans, skipped)
+// The documents of this page are done when the script writes its areas.
+writeStep(step, plans, skipped, {
+  more: page.to < documents.length,
+  cursorAt: () => page.to,
+})

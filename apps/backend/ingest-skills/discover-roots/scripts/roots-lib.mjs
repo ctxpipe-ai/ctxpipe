@@ -945,13 +945,15 @@ export function goMainFile(source, files, dir) {
 /**
  * The Go `main` packages (binaries), as [folder, Go file with the package
  * clause]. The folder is in a Go module (it or a parent folder has a go.mod
- * that the script reads) and not in a test or example folder.
+ * that the script reads) and not in a test or example folder. `fixtures`
+ * holds the Go file of each `main` package below a test fixture folder: no
+ * root comes from them, and the caller records them (CTX-1570).
  */
 function goMainPackages(source, files, markersOf) {
   const modules = new Set(
     [...markersOf.keys()].filter((d) => markersOf.get(d).includes("go.mod")),
   )
-  if (modules.size === 0) return []
+  if (modules.size === 0) return { mains: [], fixtures: [] }
   const inModule = (dir) => {
     for (let d = dir; ; d = posix.dirname(d)) {
       if (modules.has(d)) return true
@@ -959,13 +961,26 @@ function goMainPackages(source, files, markersOf) {
     }
   }
   const byFolder = new Map()
+  const fixtureFolders = new Set()
   for (const file of files) {
     if (!goBuildFile(file)) continue
     const dir = posix.dirname(file)
     // The go tool skips a folder whose name starts with `_` or `.`.
     if (dir.split("/").some((segment) => segment.startsWith("_"))) continue
-    if (ignoredFolder(dir) || inTestFolder(dir) || !safePath(dir)) continue
+    // A folder below a test fixture folder is read only to record its
+    // `main` package; a vendored or dot folder is not read.
+    const fixture = inTestFixture(file)
+    if (
+      fixture
+        ? dir
+            .split("/")
+            .some((s) => s.startsWith(".") || IGNORED_SEGMENTS.has(s))
+        : ignoredFolder(dir) || inTestFolder(dir)
+    )
+      continue
+    if (!safePath(dir)) continue
     if (dir.split("/").length > MAX_DEPTH) continue
+    if (fixture) fixtureFolders.add(dir)
     byFolder.set(dir, [...(byFolder.get(dir) ?? []), file])
   }
   for (const [dir, list] of byFolder)
@@ -992,7 +1007,12 @@ function goMainPackages(source, files, markersOf) {
     }
     round = next
   }
-  return out
+  return {
+    mains: out.filter(([dir]) => !fixtureFolders.has(dir)),
+    fixtures: out
+      .filter(([dir]) => fixtureFolders.has(dir))
+      .map(([, file]) => file),
+  }
 }
 
 export function discoverRoots(source) {
@@ -1169,8 +1189,13 @@ export function discoverRoots(source) {
       listed.get(found),
     ))
       addRoot(dir, manifest)
-  for (const [dir, file] of goMainPackages(source, files, markersOf))
-    addRoot(dir, file)
+  const go = goMainPackages(source, files, markersOf)
+  for (const [dir, file] of go.mains) addRoot(dir, file)
+  for (const { path, count } of testFixtureSkips(go.fixtures))
+    skipped.push({
+      manifest: null,
+      reason: `The test fixture folder ${path ?? "(a name that the script does not quote)"} has ${count} Go main ${count === 1 ? "package" : "packages"}. They are test input, so the script takes no root from them`,
+    })
 
   // An entry with no candidate gives the model no choice, so no model runs for it.
   for (const entry of ambiguous.filter((a) => a.candidates.length === 0))

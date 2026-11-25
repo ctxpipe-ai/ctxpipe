@@ -39,7 +39,6 @@ export const SEED_AREAS = [
 
 export const SEED_SLUGS = new Set(SEED_AREAS.map(([slug]) => slug))
 export const MIN_NEW_AREA_RULES = 5
-export const MAX_AREAS = 15
 export const MAX_RULES = 60
 /** An area file of another source agrees at this share, or more, when no core rule conflicts. */
 export const SAME_SHARE = 0.7

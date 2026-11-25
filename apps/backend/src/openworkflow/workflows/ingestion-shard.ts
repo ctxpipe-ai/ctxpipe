@@ -585,10 +585,13 @@ type SkillPages = {
  * skill's own finder gives the length of its input (`of`), and the page's
  * `patch.json` says how many inputs are done (`at`). A page with `more`
  * must move `at` strictly forward and keep it below `of`, and `of` must not
- * change from the first page; else the skill stops as `partial`. So a skill
- * has at most `of` pages. The finder runs
- * before the model, so its count is trusted. A forged `at` can only end the
- * loop sooner.
+ * change from the first page; else the skill stops as `partial`. A page whose
+ * `at` is `of` ends the skill, also when it says `more`: no input waits, and
+ * the event `ingestion-v2.step-more-at-end` records it (CTX-1570). So a
+ * skill has at most `of` pages. The finder runs before the model, so its
+ * count is trusted. A forged `at` can only end the loop sooner. Each page
+ * gets the `at` of the page before it (`step.json`), so a skill can find the
+ * inputs of the page when the tip does not show them.
  *
  * A skill with no cursor has one page: when its page says `more`, the skill
  * stops as `partial` and keeps the ops of the page. No skill has a page
@@ -618,7 +621,7 @@ export async function runSkillPages(ctx: SkillPages): Promise<void> {
     )
     const oldTip = state.tip
     const result = await ctx.step(name, () =>
-      runSkillStep({ ...ctx, name, oldTip, seen }),
+      runSkillStep({ ...ctx, name, oldTip, seen, cursorAt }),
     )
     if (result.partial) {
       failed()
@@ -646,6 +649,22 @@ export async function runSkillPages(ctx: SkillPages): Promise<void> {
       return
     }
     if (!result.more) return
+    // A page that reached the end of its input ends the skill: no input
+    // waits for a next page. Its `more` comes from the step checkpoint or
+    // from work that no input of the finder bounds, so the event records
+    // what the page did not finish (CTX-1570).
+    if (cursor && cursor.at === cursor.of) {
+      logIngestEvent("warn", "ingestion-v2.step-more-at-end", {
+        ingestionRunId: ctx.run.runId,
+        ...(ctx.run.shard === undefined ? {} : { shard: ctx.run.shard }),
+        workspaceId: ctx.destination.workspaceId,
+        ingestStep: label,
+        page,
+        inputs: cursor.of,
+        ...executionFields(seen.executionAttempt),
+      })
+      return
+    }
     if (result.ops === 0) {
       failed()
       logStepPartial(
@@ -691,6 +710,8 @@ type SkillStep = SkillPages & {
    * execution, for the page events (CTX-1080). A cached step does not check.
    */
   seen: { executionAttempt?: number }
+  /** The inputs of a cursor skill that the earlier pages did (CTX-1570). */
+  cursorAt: number
 }
 
 /**
@@ -899,7 +920,9 @@ async function attemptSkillStep(
         root: ctx.root,
         workspaceId: destination.workspaceId,
         baseCommit,
-        ...(ctx.skill.cursor ? { cursor: ctx.skill.cursor } : {}),
+        ...(ctx.skill.cursor
+          ? { cursor: { ...ctx.skill.cursor, at: ctx.cursorAt } }
+          : {}),
         ...(fetchRef ? { fetchRef } : {}),
         rootMap,
         signal,

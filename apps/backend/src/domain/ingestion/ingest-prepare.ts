@@ -290,6 +290,8 @@ export async function startIngestStep(
   input: {
     workspaceId: string
     baseCommit: string
+    /** The cursor of the page before this one, for a cursor skill (CTX-1570). */
+    cursorAt?: number
     /** The shard ref to fetch first; absent when the commit is already there. */
     fetch?: { remote: string; ref: string }
     /** The T07 `<workspaceId>.index.json` content. */
@@ -326,6 +328,7 @@ export async function startIngestStep(
     JSON.stringify({
       workspaceId: input.workspaceId,
       baseCommit: input.baseCommit,
+      ...(input.cursorAt === undefined ? {} : { cursorAt: input.cursorAt }),
     }),
   )
 }
