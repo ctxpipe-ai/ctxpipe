@@ -1,9 +1,13 @@
+import { ClickHouseError } from "@clickhouse/client"
+import { SpanStatusCode, trace } from "@opentelemetry/api"
+
 import { servingIdForKnowledgePath } from "../domain/workspaces/hydrate.js"
 import { McpToolError } from "../mcp/framework/tool-errors.js"
 import { log } from "../observability/logger.js"
+import { EmbeddingError } from "../retrieval/embeddings/textEmbeddings.js"
 import { JevError } from "../retrieval/jev/client.js"
 import type { KnowledgeReader } from "./knowledge-reader.js"
-import type { ModelMeter } from "./orchestrator.js"
+import { BudgetSpentError, type ModelMeter } from "./orchestrator.js"
 
 /** The results that the shadow event lists, and the k of overlap@k. */
 const LOGGED_IDS = 50
@@ -18,7 +22,9 @@ type Ranked = { ids: string[]; scores: number[] }
  * call off the request path, and one evlog event
  * (`knowledge_plane.shadow`) compares the two. The event holds only ids,
  * scores, overlap@k, latency and the counts of the model calls: no query, no
- * path, no text, no error message.
+ * path, no text, no error message. A failed plane read also sets the
+ * span `knowledge_plane.shadow` of the request trace to error, with the
+ * kind and the code of the failure (`failureOf`).
  */
 export function shadowKnowledgeReader(
   legacy: KnowledgeReader,
@@ -104,10 +110,36 @@ function compare(
 ): void {
   const meter: ModelMeter = { jevCalls: 0, jevCandidates: 0, embeddingCalls: 0 }
   const started = performance.now()
-  void run(plane(meter))
-    .then(
-      (shadow) => ({ shadow, failure: undefined }),
-      (error: unknown) => ({ shadow: undefined, failure: failureKind(error) }),
+  // A child of the active span of the request, which can end first.
+  void trace
+    .getTracer("ctxpipe-backend")
+    .startActiveSpan(
+      "knowledge_plane.shadow",
+      { attributes: { "ctxpipe.knowledge_plane.tool": answered.tool } },
+      (span) =>
+        run(plane(meter))
+          .then(
+            (shadow) => ({ shadow, failure: undefined }),
+            (error: unknown) => {
+              const failure = failureOf(error)
+              span.setAttributes({
+                "error.type": failure.kind,
+                "ctxpipe.knowledge_plane.failure": failure.kind,
+                ...(failure.code === undefined
+                  ? {}
+                  : { "ctxpipe.knowledge_plane.failure_code": failure.code }),
+              })
+              // The kind only (`exception.type`), with no message and no
+              // stack: they can quote content. The code is on the span.
+              span.recordException({ name: failure.kind })
+              span.setStatus({
+                code: SpanStatusCode.ERROR,
+                message: failure.kind,
+              })
+              return { shadow: undefined, failure }
+            },
+          )
+          .finally(() => span.end()),
     )
     .then(({ shadow, failure }) => {
       const legacyTop = answered.legacy.ids.slice(0, OVERLAP_K)
@@ -136,7 +168,14 @@ function compare(
           ...(shadow?.partialReason
             ? { partialReason: shadow.partialReason }
             : {}),
-          ...(failure ? { failure } : {}),
+          ...(failure
+            ? {
+                failure: failure.kind,
+                ...(failure.code === undefined
+                  ? {}
+                  : { failureCode: failure.code }),
+              }
+            : {}),
           latencyMs: Math.round(performance.now() - started),
           ...meter,
         },
@@ -144,9 +183,52 @@ function compare(
     })
 }
 
-/** The kind of a failure, with no message: a message can quote content. */
-function failureKind(error: unknown): string {
-  if (error instanceof JevError) return `jev_${error.kind}`
-  if (error instanceof McpToolError) return error.code
-  return error instanceof Error ? error.name : "unknown"
+/**
+ * The source of a failure of the plane read, and its code, with no message:
+ * a message can quote content.
+ * - `clickhouse`: the ClickHouse server answered with an error. The code is
+ *   the ClickHouse error code.
+ * - `network`: a connection failed (in this path, to ClickHouse). The code is
+ *   the system error code, for example `ECONNREFUSED`.
+ * - `embedding`: the query embedding failed with no retry. The code is the
+ *   HTTP status, when the endpoint gave one.
+ * - `jev`: the Jev call failed. The code is the Jev error kind, with the HTTP
+ *   status when there is one (`http_503`).
+ * - `timeout`: the time budget of the read ended.
+ * - `tool`: the plane refused the call. The code is the tool error code.
+ * - `unknown`: any other error. The code is the class name of the error.
+ * A tool error with a cause (`judge_unavailable`) gives the kind of its cause.
+ */
+function failureOf(error: unknown): { kind: string; code?: string } {
+  if (error instanceof McpToolError)
+    return error.cause === undefined
+      ? { kind: "tool", code: error.code }
+      : failureOf(error.cause)
+  if (error instanceof ClickHouseError)
+    return { kind: "clickhouse", code: error.code }
+  if (error instanceof EmbeddingError)
+    return {
+      kind: "embedding",
+      ...(error.status === undefined ? {} : { code: String(error.status) }),
+    }
+  if (error instanceof JevError)
+    return {
+      kind: "jev",
+      code:
+        error.status === undefined
+          ? error.kind
+          : `${error.kind}_${error.status}`,
+    }
+  if (error instanceof BudgetSpentError) return { kind: "timeout" }
+  const code = (error as { code?: unknown } | null)?.code
+  if (
+    error instanceof Error &&
+    typeof code === "string" &&
+    /^E[A-Z_]+$/.test(code)
+  )
+    return { kind: "network", code }
+  return {
+    kind: "unknown",
+    ...(error instanceof Error ? { code: error.name } : {}),
+  }
 }

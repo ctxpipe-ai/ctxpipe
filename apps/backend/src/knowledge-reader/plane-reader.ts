@@ -513,6 +513,7 @@ async function related(
     throw new McpToolError(
       "judge_unavailable",
       "The relevance judge did not answer, so get_related has no ranking. Try again later, or use search_knowledge.",
+      { cause: error },
     )
   }
   return {

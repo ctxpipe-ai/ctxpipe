@@ -1001,6 +1001,57 @@ describe("the knowledge reader seam", () => {
     expect(jevRequests).toEqual([])
   })
 
+  it.each(["shadow", "on"] as const)(
+    "%s: a read that the old stack serves because a Workspace is not ready logs one fallback event with ids only",
+    async (flag) => {
+      await setFlag(flag)
+      const query = "who owns checkout in the fallback"
+      const result = await searchCall({ workspaces: ["ready", "fresh"], query })
+      expect(result.isError).toBeFalsy()
+      const fallbacks = events.filter(
+        (event) => event.step === "knowledge_plane.fallback",
+      )
+      expect(fallbacks).toEqual([
+        expect.objectContaining({
+          flag,
+          orgId: seed.orgId,
+          workspaceIds: expect.arrayContaining([ids.ready, ids.fresh]),
+          notReady: [ids.fresh],
+        }),
+      ])
+      expect(fallbacks[0]?.workspaceIds).toHaveLength(2)
+      expect(JSON.stringify(fallbacks)).not.toContain(query)
+      // The chat selection logs the same event when it ends in the fallback.
+      events.length = 0
+      const selection = await selectFirstKnowledgeBranch(
+        seed.orgId,
+        [ids.fresh as string],
+        ["no-such-branch"],
+      )
+      expect(selection.reader.stack).toBe("legacy")
+      expect(
+        events.filter((event) => event.step === "knowledge_plane.fallback"),
+      ).toEqual([
+        expect.objectContaining({
+          flag,
+          orgId: seed.orgId,
+          workspaceIds: [ids.fresh],
+          notReady: [ids.fresh],
+        }),
+      ])
+    },
+  )
+
+  it("no fallback event when the flag is off, or when each Workspace is ready", async () => {
+    await setFlag("off")
+    await searchCall({ workspaces: ["ready", "fresh"] })
+    await setFlag("on")
+    await searchCall({ workspaces: ["ready"] })
+    expect(
+      events.filter((event) => event.step === "knowledge_plane.fallback"),
+    ).toEqual([])
+  })
+
   it("on: the output of both tools has the shape of the old stack", async () => {
     await setFlag("off")
     const legacySearch = structured(await searchCall({ workspaces: ["ready"] }))
@@ -1772,6 +1823,60 @@ describe("the knowledge reader seam", () => {
       plane: { jevCalls: 4, embeddingCalls: 1 },
     })
     expect(JSON.stringify(event)).not.toContain("knowledge/")
+  })
+
+  it("shadow: a failed query embedding gives the kind embedding and the HTTP status, on the event and on a span of the request trace", async () => {
+    await setFlag("shadow")
+    embeddingFailure = 400
+    spans.reset()
+    const result = await searchCall({
+      workspaces: ["ready"],
+      query: "who owns checkout when the embedding fails",
+    })
+    expect(result.isError).toBeFalsy()
+    await vi.waitFor(
+      () => {
+        expect(
+          events.filter((event) => event.step === "knowledge_plane.shadow"),
+        ).toHaveLength(1)
+      },
+      { timeout: 10_000 },
+    )
+    const event = events.find((item) => item.step === "knowledge_plane.shadow")
+    expect(event).toMatchObject({
+      plane: { failure: "embedding", failureCode: "400" },
+    })
+    const span = spans.spanNamed("knowledge_plane.shadow")
+    expect(span?.attributes).toMatchObject({
+      "ctxpipe.knowledge_plane.failure": "embedding",
+      "ctxpipe.knowledge_plane.failure_code": "400",
+    })
+    const tool = spans.spanNamed("mcp.tool search_knowledge")
+    expect(span?.spanContext().traceId).toBe(tool?.spanContext().traceId)
+    expect(span?.events.map((item) => item.attributes)).toEqual([
+      { "exception.type": "embedding" },
+    ])
+  })
+
+  it("shadow: a failed Jev call of get_related gives the kind jev and its HTTP status", async () => {
+    await setFlag("shadow")
+    jevFails = "all"
+    const result = await relatedCall({
+      maxDepth: 1,
+      query: "what is near checkout when Jev fails",
+    })
+    expect(result.isError).toBeFalsy()
+    await vi.waitFor(
+      () => {
+        expect(
+          events.filter((event) => event.step === "knowledge_plane.shadow"),
+        ).toHaveLength(1)
+      },
+      { timeout: 10_000 },
+    )
+    expect(
+      events.find((item) => item.step === "knowledge_plane.shadow"),
+    ).toMatchObject({ plane: { failure: "jev", failureCode: "http_503" } })
   })
 
   it("on: the graph view and the chat walk read the plane", async () => {
