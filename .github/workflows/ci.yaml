@@ -1827,7 +1827,7 @@ jobs:
     outputs:
       artifact-id: ${{ steps.preserve.outputs.artifact-id }}
     env:
-      LIST_TIME_PATHS: scripts/checks scripts/ci apps/backend/evals/mcp apps/ui/.storybook apps/codesearch/scripts/run-vitest-contracts.mjs
+      LIST_TIME_PATHS: scripts/checks scripts/ci apps/ui/.storybook apps/codesearch/scripts/run-vitest-contracts.mjs
       # The files that decide the tools and the dependencies of the install.
       INSTALL_FILES: (^|/)(package\.json|\.npmrc|\.pnpmfile\.cjs|\.corepack\.env)$|(^|/)node_modules(/|$)|^(pnpm-lock\.yaml|pnpm-workspace\.yaml|\.node-version)$|^patches/
     steps:
@@ -2868,23 +2868,6 @@ jobs:
             node "scripts/ci/check-$script.mjs" || code=1
           done
           exit "$code"
-      # The evals call paid models: only the label starts them. The reminder
-      # reads the PR files and labels, so it shows in every mode. It goes into
-      # the job summary and into summary.md of the artifact.
-      - name: Remind the author of the MCP evals
-        if: always() && github.event.pull_request.head.repo.full_name == github.repository
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          PR: ${{ github.event.pull_request.number }}
-        run: |
-          reminder="$(bash scripts/ci/mcp-evals-reminder.sh)"
-          [ -n "$reminder" ] || exit 0
-          printf '%s\n' "$reminder" >> "$GITHUB_STEP_SUMMARY"
-          # No decision: the artifact gets no report of the reminder alone.
-          summary="$RUNNER_TEMP/decision/summary.md"
-          [ ! -f "$summary" ] || printf '%s\n' "$reminder" >> "$summary"
       # The report for an agent: summary.md is the text of the job summary,
       # which the GitHub API does not give (scripts/checks/README.md, Merge
       # gate).

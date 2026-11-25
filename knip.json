@@ -4,10 +4,6 @@
     "duplicates": "off"
   },
   "ignoreWorkspaces": ["apps/otel-collector", "apps/forge-ctxpipe-agent"],
-  "ignoreBinaries": [
-    "evals/mcp/run-seed.ts",
-    "evals/mcp/run.ts"
-  ],
   "ignoreUnresolved": ["./pinned-service-image-tag"],
   "workspaces": {
     ".": {

@@ -114,10 +114,6 @@ const reviewedScripts = new Set([
 // to a job without the secret. Each entry names the only secrets it may hold.
 const exceptions = new Map(
   Object.entries({
-    // Evaluates the product MCP with real models.
-    // The job uses the workbench environment: its model key is the
-    // spend-capped CI key, not the production key.
-    "mcp-evals.yaml:evals": ["MODEL_PROVIDER_API_KEY"],
     // Ingests real repositories with a real model and the preview GitHub App.
     // INGEST_PROOF_* hold the private test repository URLs, no credential:
     // a secret keeps them out of the public log.
