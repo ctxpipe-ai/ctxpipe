@@ -1,7 +1,9 @@
 // The operator path for org features (CTX-1424): sets one feature of one org.
 // Usage: bun run apps/backend/src/db/set-org-feature.ts <org id> <feature> <value>
 // The hosted stack runs it as a one-off task for each entry of its private
-// config. Never put an org id in this repository.
+// config, on each hosted update. Never put an org id in this repository.
+// For `knowledge_plane`, each run also queues the backfill of the org
+// (CTX-1643): the first projection of each Workspace that is not ready.
 import { parseArgs } from "node:util"
 
 import { setOrgFeature } from "../models/org-features.js"
@@ -25,6 +27,19 @@ try {
   if (!url) throw new Error("DATABASE_URL is required")
   initDb(url)
   await setOrgFeature(orgId, feature, value)
+  if (feature === "knowledge_plane") {
+    // A dynamic import: the OpenWorkflow client connects when it loads, and
+    // it needs DATABASE_URL.
+    const { backfillKnowledgePlane } =
+      await import("../knowledge-plane/backfill.js")
+    const { closeOpenWorkflowClient } =
+      await import("../openworkflow/client.js")
+    try {
+      await backfillKnowledgePlane(orgId)
+    } finally {
+      await closeOpenWorkflowClient()
+    }
+  }
 } catch (error) {
   exitCode = 1
   log.error({
