@@ -113,12 +113,17 @@ describe("old knowledge parts", () => {
     await vi.waitFor(
       async () =>
         expect(await parts()).toEqual(
-          [...tables]
-            .sort()
-            .map((table) => ({ table, disk: "cold", rows: 2 })),
+          [...tables].sort().map((table) => ({ table, disk: "cold", rows: 2 })),
         ),
       { timeout: 60_000, interval: 500 },
     )
+
+    // The server keeps an old part for 8 minutes after a mutation replaced
+    // it. A test cannot wait that long.
+    for (const table of tables)
+      await client.command({
+        query: `ALTER TABLE ${table} MODIFY SETTING old_parts_lifetime = 1`,
+      })
 
     const store = createKnowledgeStore(url)
     try {
@@ -135,14 +140,29 @@ describe("old knowledge parts", () => {
       await store.close()
     }
 
-    expect(
-      await knowledgeRowCounts(client, purged, { inParts: true }),
-    ).toEqual(NO_KNOWLEDGE_ROWS)
+    expect(await knowledgeRowCounts(client, purged, { inParts: true })).toEqual(
+      NO_KNOWLEDGE_ROWS,
+    )
     expect(await knowledgeRowCounts(client, kept)).toEqual(oneRow)
     expect(await parts()).toEqual(
-      [...tables]
-        .sort()
-        .map((table) => ({ table, disk: "cold", rows: 1 })),
+      [...tables].sort().map((table) => ({ table, disk: "cold", rows: 1 })),
     )
-  }, 120_000)
+    // The server removes the old parts, which held the purged rows, from
+    // the disk. An old part with no rows (the empty result of the erase of
+    // a part of only purged rows) can stay longer: it holds no bytes of a
+    // row.
+    await vi.waitFor(
+      async () => {
+        const result = await client.query({
+          query: `SELECT toUInt32(count()) AS parts FROM system.parts
+            WHERE database = currentDatabase() AND NOT active AND rows > 0
+              AND table IN {tables:Array(String)}`,
+          query_params: { tables },
+          format: "JSONEachRow",
+        })
+        expect(await result.json()).toEqual([{ parts: 0 }])
+      },
+      { timeout: 120_000, interval: 1_000 },
+    )
+  }, 240_000)
 })

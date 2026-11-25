@@ -127,22 +127,25 @@ export const knowledgePurge = defineWorkflow(
     await step.run({ name: "erase-purged-rows", retryPolicy }, () =>
       withStore((store) => store.erasePurged(input)),
     )
-    for (let check = 0; ; check++) {
+    for (let check = 1; ; check++) {
       const rows = await step.run({ name: `check-erase-${check}` }, () =>
         withStore(async (store) => {
           const rows = await store.purgedRowsInParts(input)
           if (rows === 0)
             getLogger().set({
               step: "knowledge-purge",
-              knowledgePurge: { outcome: "erased", checks: check + 1 },
+              knowledgePurge: { outcome: "erased", checks: check },
             })
+          // Each hour: the erase again, in case ClickHouse dropped a
+          // mutation.
+          else if (check % 6 === 0) await store.erasePurged(input)
           return rows
         }),
       )
       if (rows === 0) return deleted
       // ClickHouse keeps a mutation until it is done. 144 checks, 10 minutes
-      // apart, are one day: a run that fails here shows that the bytes stay
-      // longer than ADR-066 decision 9 allows.
+      // apart, are one day after the erase: a run that fails here shows
+      // that the bytes stay longer than ADR-066 decision 9 allows.
       if (check >= 144)
         throw new Error(
           `The parts still hold ${rows} purged rows one day after the erase`,
