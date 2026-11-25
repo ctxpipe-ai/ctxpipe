@@ -29,14 +29,12 @@
         "input": 0.1,
         "output": 0.5,
         "cacheWrite": 0.125,
-        "cacheWrite1h": 0.2,
         "cacheRead": 0.01,
         "longContext": {
           "over": 100000,
           "input": 0.5,
           "output": 2.5,
           "cacheWrite": 0.625,
-          "cacheWrite1h": 1,
           "cacheRead": 0.05
         }
       },
@@ -48,7 +46,6 @@
         "input": 2,
         "output": 10,
         "cacheWrite": 2.5,
-        "cacheWrite1h": 4,
         "cacheRead": 0.1
       },
       "runCapUsd": 1

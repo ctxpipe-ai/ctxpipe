@@ -9,9 +9,9 @@ resumes from runs.jsonl in --out: a run with an error runs again. See
 README.md.
 
 Environment:
-  ANTHROPIC_AUTH_TOKEN  the model key of `factory eval` (or ANTHROPIC_API_KEY). Only the
-                        model gateway gets it, never the agent container.
-  ANTHROPIC_BASE_URL    optional, an Anthropic-compatible endpoint
+  ANTHROPIC_AUTH_TOKEN  the model key of `factory eval`. Only the model gateway gets it,
+                        never the agent container.
+  ANTHROPIC_BASE_URL    the Anthropic-compatible endpoint of that key
   CTXPIPE_API_KEY       the org key of the bench org (CTX arm)
   DOCKER_HOST           the Docker of Harbor
 """
@@ -91,15 +91,12 @@ def harbor_env(model, out):
     the run to the gateway (model-gateway.yaml).
     """
     env = dict(os.environ)
-    token = env.pop("ANTHROPIC_AUTH_TOKEN", None)
-    api_key = env.pop("ANTHROPIC_API_KEY", None)
-    env.pop("ANTHROPIC_BASE_URL", None)
-    out.mkdir(parents=True, exist_ok=True)
+    env.pop("ANTHROPIC_API_KEY", None)
+    env.pop("ANTHROPIC_BASE_URL")
     env.update(
         ANTHROPIC_AUTH_TOKEN="model-gateway",
-        MODEL_GATEWAY_UPSTREAM=os.environ.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com"),
-        MODEL_GATEWAY_KEY=token or api_key,
-        MODEL_GATEWAY_KEY_HEADER="Authorization" if token else "x-api-key",
+        MODEL_GATEWAY_UPSTREAM=os.environ["ANTHROPIC_BASE_URL"],
+        MODEL_GATEWAY_KEY=os.environ["ANTHROPIC_AUTH_TOKEN"],
         MODEL_GATEWAY_MODEL=model["id"],
         MODEL_GATEWAY_PRICES=json.dumps(model["pricesUsdPerMTok"]),
         MODEL_GATEWAY_BUDGET_USD=str(model["runCapUsd"]),
@@ -126,7 +123,12 @@ def main():
     runs = [json.loads(line) for line in runs_path.read_text().splitlines()] if runs_path.exists() else []
     # A failed run keeps its spend, but it is not done: it runs again.
     done = {(r["model"], r["arm"], r["task"]) for r in runs if not r["error"]}
-    spent = sum(run_cost(r) for r in runs)
+    # A run with no record (an invocation that stopped during the run) keeps
+    # its full reserve.
+    recorded = {r["runId"] for r in runs}
+    spent = sum(run_cost(r) for r in runs) + sum(
+        float(path.read_text()) for path in (args.out / "gateway").glob("*/reserve.txt") if path.parent.name not in recorded
+    )
     # The byok_usage counter of OpenRouter lags by up to a minute, so it
     # checks the spend of the whole invocation, not of each run.
     byok_before, new_runs, status = byok_usage(), [], 0
@@ -146,18 +148,21 @@ def main():
                     reserve = model["runCapUsd"] + config["arms"][arm_name]["serverReserveUsd"]
                     if spent + reserve > args.cap_usd:
                         print(f"stop: ${spent:.3f} spent, the next run can cost ${reserve}, cap ${args.cap_usd}")
-                        return 3
+                        return status or 3
                     run_id = f"bench-{model_name}-{arm_name}-{task}-{int(time.time())}"
                     config_path = args.out / "configs" / f"{run_id}.json"
                     config_path.parent.mkdir(exist_ok=True)
                     config_path.write_text(json.dumps(job_config(args, config, arm_name, model_name, task, run_id), indent=2))
+                    gateway_out = args.out / "gateway" / run_id
+                    gateway_out.mkdir(parents=True)
+                    (gateway_out / "reserve.txt").write_text(str(reserve))
                     falkor_before = falkor_graph_calls(args.falkor_container)
                     started = time.time()
                     print(f"run {run_id}", flush=True)
                     subprocess.run(
                         [str(Path(sys.executable).parent / "harbor"), "run", "--config", str(config_path), "--yes"],
                         check=False,
-                        env=harbor_env(model, args.out / "gateway" / run_id),
+                        env=harbor_env(model, gateway_out),
                     )
                     ended = time.time()
                     # The backend exports its spans every 5 s, and the collector writes each second.

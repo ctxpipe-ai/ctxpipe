@@ -37,7 +37,7 @@ def falkor_graph_calls(container):
 def openrouter_key_status():
     """The status of the OpenRouter model key of the run, or None for another endpoint."""
     base = os.environ.get("ANTHROPIC_BASE_URL", "")
-    token = os.environ.get("ANTHROPIC_AUTH_TOKEN") or os.environ.get("ANTHROPIC_API_KEY")
+    token = os.environ.get("ANTHROPIC_AUTH_TOKEN")
     if "openrouter.ai" not in base or not token:
         return None
     request = urllib.request.Request(

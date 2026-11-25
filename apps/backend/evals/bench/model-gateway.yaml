@@ -13,7 +13,6 @@ services:
     environment:
       GATEWAY_UPSTREAM: ${MODEL_GATEWAY_UPSTREAM:?}
       GATEWAY_KEY: ${MODEL_GATEWAY_KEY:?}
-      GATEWAY_KEY_HEADER: ${MODEL_GATEWAY_KEY_HEADER:?}
       GATEWAY_MODEL: ${MODEL_GATEWAY_MODEL:?}
       GATEWAY_PRICES: ${MODEL_GATEWAY_PRICES:?}
       GATEWAY_BUDGET_USD: ${MODEL_GATEWAY_BUDGET_USD:?}
@@ -28,15 +27,15 @@ configs:
     content: |
       # Forward only the Messages API of the run model to the model host, with
       # the model key, and keep the spend of the run in GATEWAY_BUDGET_USD.
-      # Before a request, the gateway reserves its worst cost: each byte of the
-      # body as one input token at the highest input price (a token is at least
-      # one byte; a one-hour cache write), IMAGE_TOKENS for each image, and max_tokens (at most
-      # MAX_OUTPUT) at the output price. It refuses the request (402) when the
-      # spend and that reserve are more than the budget. After the response, it
-      # charges the usage of the response at the list price (GATEWAY_PRICES, USD
-      # for each million tokens), or the reserve when it has no full usage. One
-      # request at a time, so the spend can never go over the budget.
-      # /out/spend.json holds the spend after each request.
+      # A token is at least one byte. Thus, before a request, the gateway
+      # reserves its worst cost: each byte of the body as one input token at
+      # the highest input price, IMAGE_TOKENS for each image, and max_tokens
+      # (at most MAX_OUTPUT) at the output price. It refuses the request (402)
+      # when the spend and that reserve are more than the budget. After the
+      # response, it charges the usage of the response at the list price
+      # (GATEWAY_PRICES, USD for each million tokens), or the reserve when it
+      # has no full usage. One request at a time, so the spend can never go
+      # over the budget. /out/spend.json holds the spend after each request.
       import http.client
       import http.server
       import json
@@ -45,7 +44,7 @@ configs:
       from urllib.parse import urlsplit
 
       UPSTREAM = urlsplit(os.environ["GATEWAY_UPSTREAM"])
-      KEY, KEY_HEADER = os.environ["GATEWAY_KEY"], os.environ["GATEWAY_KEY_HEADER"]
+      KEY = os.environ["GATEWAY_KEY"]
       MODEL = os.environ["GATEWAY_MODEL"]
       PRICES = json.loads(os.environ["GATEWAY_PRICES"])
       BUDGET = float(os.environ["GATEWAY_BUDGET_USD"])
@@ -73,16 +72,25 @@ configs:
 
       def cost(usage):
           tokens = {k: usage.get(k) or 0 for k in ("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")}
-          # A one-hour cache write costs more than a five-minute one.
-          hour = (usage.get("cache_creation") or {}).get("ephemeral_1h_input_tokens") or 0
           p = rates(tokens["input_tokens"] + tokens["cache_creation_input_tokens"] + tokens["cache_read_input_tokens"])
           return (
               tokens["input_tokens"] * p["input"]
               + tokens["output_tokens"] * p["output"]
-              + (tokens["cache_creation_input_tokens"] - hour) * p["cacheWrite"]
-              + hour * p["cacheWrite1h"]
+              + tokens["cache_creation_input_tokens"] * p["cacheWrite"]
               + tokens["cache_read_input_tokens"] * p["cacheRead"]
           ) / 1e6
+
+
+      def cache_ttls(value):
+          """The ttl of each cache_control in a request body."""
+          if isinstance(value, dict):
+              if isinstance(value.get("cache_control"), dict):
+                  yield value["cache_control"].get("ttl")
+              for item in value.values():
+                  yield from cache_ttls(item)
+          elif isinstance(value, list):
+              for item in value:
+                  yield from cache_ttls(item)
 
 
       def blocks(content):
@@ -104,6 +112,8 @@ configs:
               or any(b.get("type") in REFUSED_BLOCKS for b in found)
               # The model host fetches an image from a URL for the agent.
               or any((b.get("source") or {}).get("type") != "base64" for b in images)
+              # A one-hour cache write costs more than the five-minute one of Claude Code.
+              or any(ttl not in (None, "5m") for ttl in cache_ttls(message))
               # A server tool (web search, code execution) has a type.
               or any(t.get("type") not in (None, "custom") for t in tools)
               # A compaction is a second model call.
@@ -140,7 +150,7 @@ configs:
               body = json.dumps(message).encode()
               tokens = len(body) + IMAGE_TOKENS * images
               p = rates(tokens)
-              reserve = (tokens * max(p["input"], p["cacheWrite"], p["cacheWrite1h"]) + message["max_tokens"] * p["output"]) / 1e6
+              reserve = (tokens * max(p["input"], p["cacheWrite"]) + message["max_tokens"] * p["output"]) / 1e6
               with lock:
                   if spend["usd"] + reserve > BUDGET:
                       spend["refused"] += 1
@@ -172,7 +182,7 @@ configs:
               model host bills the full response.
               """
               headers = {k: v for k, v in self.headers.items() if k.lower() not in DROP}
-              headers[KEY_HEADER] = f"Bearer {KEY}" if KEY_HEADER.lower() == "authorization" else KEY
+              headers["Authorization"] = f"Bearer {KEY}"
               headers["Accept-Encoding"] = "identity"
               betas = [b.strip() for b in self.headers.get("anthropic-beta", "").split(",") if b.strip() in BETAS]
               if betas:
