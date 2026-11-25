@@ -17,7 +17,7 @@ The operators of hosted ctxpipe need to ban a user, end the sessions of a user, 
 3. **A ban uses the admin plugin's fields, not the plugin.** `users.banned`, `ban_reason` and `ban_expires` have the plugin's names. `apps/backend/src/auth/ban.ts` does the plugin's part: a session-create hook refuses a banned user (all sign-in methods, and a device login, make a session) and clears a ban that ended, only when no new ban replaced it. The ban job, in one transaction with the flag:
    - deletes the sessions,
    - disables the personal API keys and the organization API keys that the user made (`org_api_key_creators` records the maker of each new organization key),
-   - revokes the OAuth access and refresh tokens, and denies the approved device logins,
+   - revokes the OAuth access and refresh tokens, clears the tokens that a social provider gave at sign-in (not the password), and denies the approved device logins,
    - writes a cutoff time (`user_token_cutoffs`): no row can revoke a JWT access token, so a JWT issued before the ban stays refused after an unban.
    The ban locks the user row, and a session-create after hook ends a session that a sign-in inserted after the ban committed.
    The OAuth token endpoint revokes the tokens that it gave a banned user and refuses, because a refresh can insert its new token after the ban.

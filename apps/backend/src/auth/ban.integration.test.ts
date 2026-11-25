@@ -11,6 +11,7 @@ import type { AppEnv } from "../app/env.js"
 import { parseEnv } from "../config/env.js"
 import { getSystemDb } from "../db/client.js"
 import {
+  accounts,
   apikeys,
   deviceCodes,
   oauthAccessTokens,
@@ -194,12 +195,16 @@ describe("a ban (Postgres)", () => {
     })
   }
 
-  /** The user info request with the token in the header, and in the body. */
+  /**
+   * The user info request with the token in each transport that Better Auth
+   * reads: a Bearer header, a header with no scheme, and the body.
+   */
   function userInfoTransports(authorization: string) {
     const url = `${baseUrl}/.auth/api/v1/auth/oauth2/userinfo`
     const token = authorization.replace(/^Bearer /, "")
     return [
       () => app.request(url, { headers: { authorization } }),
+      () => app.request(url, { headers: { authorization: token } }),
       () =>
         app.request(url, {
           method: "POST",
@@ -370,6 +375,32 @@ describe("a ban (Postgres)", () => {
   })
 
   it("the ban job revokes each credential: sessions, keys, OAuth tokens, device logins", async () => {
+    // A token that a social provider gave at sign-in.
+    const providerAccountId = generateObjectId("acct")
+    await getSystemDb()
+      .insert(accounts)
+      .values({
+        id: providerAccountId,
+        accountId: `github-${randomUUID()}`,
+        providerId: "github",
+        userId: seed.userId,
+        accessToken: "provider-access-token",
+        refreshToken: "provider-refresh-token",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+    // A JWT with no live session, as a refresh after a sign-out gives it.
+    const fresh = await oauthTokens(oauthClientId)
+    await getSystemDb().delete(sessions).where(eq(sessions.userId, seed.userId))
+    refreshToken = fresh.refreshToken
+    const refreshed = await refresh()
+    const { access_token: sessionless } = (await refreshed.json()) as {
+      access_token: string
+    }
+    const offline = userInfoTransports(`Bearer ${sessionless}`)
+    for (const transport of offline)
+      expect((await transport()).status, "user info").toBe(200)
+
     await adminBanUser.fn({
       input: {
         requestId: randomUUID(),
@@ -408,6 +439,23 @@ describe("a ban (Postgres)", () => {
       expect(rows.length).toBeGreaterThan(0)
       expect(rows.every((row) => row.revoked !== null)).toBe(true)
     }
+    const userAccounts = await db
+      .select({
+        providerId: accounts.providerId,
+        accessToken: accounts.accessToken,
+        refreshToken: accounts.refreshToken,
+        password: accounts.password,
+      })
+      .from(accounts)
+      .where(eq(accounts.userId, seed.userId))
+    expect(
+      userAccounts.find((account) => account.providerId === "github"),
+    ).toMatchObject({ accessToken: null, refreshToken: null })
+    // The password stays: the user signs in with it after an unban.
+    expect(
+      userAccounts.find((account) => account.providerId === "credential")
+        ?.password,
+    ).toBeTruthy()
     const [device] = await db
       .select({ status: deviceCodes.status })
       .from(deviceCodes)
@@ -437,7 +485,7 @@ describe("a ban (Postgres)", () => {
     const jwt = credentials["OAuth JWT access token"]?.authorization ?? ""
     expect((await call({ authorization: jwt })).status).toBe(401)
     // Better Auth's user info reads the token from the header or the body.
-    for (const transport of userInfoTransports(jwt))
+    for (const transport of offline)
       expect((await transport()).status, "user info").toBe(401)
     expect((await signIn()).status).toBe(200)
   })

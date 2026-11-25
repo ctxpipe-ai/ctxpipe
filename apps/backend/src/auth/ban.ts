@@ -2,11 +2,12 @@ import { createHash } from "node:crypto"
 
 import type { BetterAuthPlugin } from "better-auth"
 import { APIError, createAuthMiddleware } from "better-auth/api"
-import { and, eq, inArray, isNull, notInArray } from "drizzle-orm"
+import { and, eq, inArray, isNull, ne, notInArray } from "drizzle-orm"
 import { decodeJwt } from "jose"
 
 import { type Db, getSystemDb } from "../db/client.js"
 import {
+  accounts,
   apikeys,
   deviceCodes,
   members,
@@ -26,6 +27,7 @@ import { userTokenCutoffs } from "../db/schema/user_token_cutoffs.js"
  *
  * - A ban deletes the sessions of the user, disables the personal API keys and
  *   the organization API keys that the user made, revokes the OAuth tokens,
+ *   clears the tokens of the social providers,
  *   denies the approved device logins, and refuses each older JWT access
  *   token, in one transaction with the flag.
  * - Better Auth makes a session for each sign-in method, so the session hook
@@ -265,6 +267,24 @@ export async function banUser(input: {
       )
     await disableOrgApiKeysMadeBy(tx, input.userId)
     await revokeOAuthTokens(tx, input.userId, now)
+    // The tokens that a social provider gave at sign-in: the app acts with
+    // them for the user. A sign-in after an unban gives new ones.
+    await tx
+      .update(accounts)
+      .set({
+        accessToken: null,
+        refreshToken: null,
+        idToken: null,
+        accessTokenExpiresAt: null,
+        refreshTokenExpiresAt: null,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(accounts.userId, input.userId),
+          ne(accounts.providerId, "credential"),
+        ),
+      )
     await tx
       .update(deviceCodes)
       .set({ status: "denied" })
@@ -331,13 +351,15 @@ function jwtIssuedAt(token: string | undefined): number | undefined {
 
 /**
  * The access token of a user info request, as Better Auth reads it: the
- * `Bearer` or `DPoP` header, else `access_token` in a POST body.
+ * `Authorization` header (`Bearer`, `DPoP` or no scheme), else
+ * `access_token` in a POST body.
  */
 function userInfoToken(ctx: {
   headers?: Headers
   body?: unknown
 }): string | undefined {
-  const header = /^(?:Bearer|DPoP)\s+(\S+)\s*$/i.exec(
+  // A header with no scheme counts too, as in Better Auth.
+  const header = /^(?:(?:Bearer|DPoP)\s+)?(\S+)\s*$/i.exec(
     ctx.headers?.get("authorization") ?? "",
   )?.[1]
   if (header) return header
