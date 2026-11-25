@@ -31,6 +31,11 @@ import { emailTransport } from "../email/configured.js"
 import { generateObjectId } from "../lib/id.js"
 import { log } from "../observability/logger.js"
 import { apiKeyLifecycleEvents } from "./api-key-events.js"
+import {
+  endSessionOfBannedUser,
+  refuseBannedOAuthSubjects,
+  refuseSessionOfBannedUser,
+} from "./ban.js"
 import { githubOAuthUrls } from "./github-oauth-urls.js"
 import { invitationEmailLink } from "./invitation-email-url.js"
 import { MCP_READ_SCOPE, MCP_WRITE_SCOPE } from "./mcp-scopes.js"
@@ -193,6 +198,23 @@ export function createBetterAuth() {
           required: false,
           defaultValue: null,
           input: false,
+        },
+        // The ban fields of Better Auth's admin plugin (src/auth/ban.ts).
+        banned: {
+          type: "boolean",
+          required: false,
+          defaultValue: false,
+          input: false,
+        },
+        banReason: { type: "string", required: false, input: false },
+        banExpires: { type: "date", required: false, input: false },
+      },
+    },
+    databaseHooks: {
+      session: {
+        create: {
+          before: refuseSessionOfBannedUser,
+          after: endSessionOfBannedUser,
         },
       },
     },
@@ -470,6 +492,7 @@ export function createBetterAuth() {
         accessTokenExpiresIn: 14_400,
         silenceWarnings: { oauthAuthServerConfig: true },
       }),
+      refuseBannedOAuthSubjects(),
       ...(env.BETTER_AUTH_API_KEY ? [dash()] : []),
     ],
   })

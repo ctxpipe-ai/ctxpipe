@@ -50,6 +50,7 @@ it(
           orgId: f.orgId,
           conversationId: f.conversationId,
           userId: f.userId,
+          sessionId: f.sessionId,
           request: new Request(url.replace("ws:", "http:")),
           socket: bunSocketToWebSocketLike({ send() {}, close() {} }),
         },
@@ -126,6 +127,7 @@ it(
           orgId: f.orgId,
           conversationId: f.conversationId,
           userId: f.userId,
+          sessionId: f.sessionId,
           request: new Request(url),
           socket: bunSocketToWebSocketLike({ send() {}, close() {} }),
         },
@@ -199,7 +201,13 @@ it(
  * terminal chunk or when the server closes the socket.
  */
 function nativeSocket(
-  f: { orgSlug: string; orgId: string; conversationId: string; userId: string },
+  f: {
+    orgSlug: string
+    orgId: string
+    conversationId: string
+    userId: string
+    sessionId: string
+  },
   query = "",
 ) {
   const chunks: StreamChunk[] = []
@@ -215,6 +223,7 @@ function nativeSocket(
       orgId: f.orgId,
       conversationId: f.conversationId,
       userId: f.userId,
+      sessionId: f.sessionId,
       request: new Request(url),
       socket: bunSocketToWebSocketLike({ send() {}, close() {} }),
     },
