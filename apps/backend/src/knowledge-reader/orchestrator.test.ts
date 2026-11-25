@@ -69,6 +69,26 @@ describe("the default fact thresholds of the disagreement step", () => {
     },
   )
 
+  // Jev gives "changes or replaces" a low p(yes) also to a record that
+  // replaces the other, so a p(yes) from 0.35 is "yes" (CTX-1684).
+  it.each([
+    [0.34, [{ itemIds: ["a", "b"], status: "current" }]],
+    [
+      0.35,
+      [
+        { itemIds: ["a"], status: "superseded" },
+        { itemIds: ["b"], status: "current" },
+      ],
+    ],
+  ] as const)(
+    "gives a pair with a replaces p(yes) %s the positions %j",
+    (p, positions) => {
+      expect(decide({ "same.1.2": 0.9, "replaces.2.1": p }).positions).toEqual(
+        positions.map((position) => expect.objectContaining(position)),
+      )
+    },
+  )
+
   it.each([
     [0.77, "contradicts"],
     [0.8, "partial"],

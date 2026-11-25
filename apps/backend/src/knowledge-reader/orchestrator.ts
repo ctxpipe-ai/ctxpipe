@@ -75,7 +75,13 @@ export const ORCHESTRATOR_DEFAULTS = {
    */
   sameAt: 0.5,
   disagreeAt: 0.5,
-  replacesAt: 0.5,
+  /**
+   * Jev gives "changes or replaces" a low p(yes) also to a record that
+   * replaces the other: on the dev split of dataset v1, 0.37 and 0.38 to
+   * two such pairs, with the correct direction. At 0.5, 8 of the 235 pairs
+   * about the same part are "yes", at 0.35 17 (CTX-1684).
+   */
+  replacesAt: 0.35,
   /**
    * Jev gives the `scoped` fact a p(yes) near 0.5 to most items: at 0.5,
    * 47% of the items of the dev questions are "scoped", at 0.6 24%
