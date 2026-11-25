@@ -85,7 +85,13 @@ export const ORCHESTRATOR_DEFAULTS = {
   sameAt: 0.5,
   disagreeAt: 0.5,
   replacesAt: 0.5,
-  scopedAt: 0.5,
+  /**
+   * Jev gives the `scoped` fact a p(yes) near 0.5 to most items: at 0.5,
+   * 47% of the items of the dev questions are "scoped", at 0.6 24%. Thus
+   * at 0.5 a position that no rival replaces is often "scoped" when it is
+   * current (generation 11).
+   */
+  scopedAt: 0.6,
 }
 
 /** The model calls of one retrieval, for the shadow log (no content). */
