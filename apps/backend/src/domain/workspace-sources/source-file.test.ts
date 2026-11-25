@@ -213,6 +213,31 @@ describe("parseSourceFile", () => {
   })
 })
 
+describe("a plain git source that pins a commit (CTX-1661)", () => {
+  const path = "sources/git/github.com/zulip-zulip.md"
+  const text = (commit: string) =>
+    `---\nprovider: git\nurl: https://github.com/zulip/zulip\ncommit: ${commit}\n---\n`
+
+  it("keeps a full commit SHA in the scope", () => {
+    const commit = "c803cca1ceac58fed390846d4aae5be40e06132d"
+    expect(parseSourceFile(path, text(commit))).toMatchObject({
+      ok: true,
+      source: {
+        provider: "git",
+        connectionId: null,
+        scope: { url: "https://github.com/zulip/zulip", commit },
+      },
+    })
+  })
+
+  it.each(["c803cca", "main", "C803CCA1CEAC58FED390846D4AAE5BE40E06132D"])(
+    "refuses %s, which is not a full commit SHA",
+    (commit) => {
+      expect(failure(path, text(commit))).toMatch(/full commit SHA/)
+    },
+  )
+})
+
 describe("parseSourceFile of an invalid file", () => {
   it("keeps the scope when only another key is wrong", () => {
     const parsed = parseSourceFile(

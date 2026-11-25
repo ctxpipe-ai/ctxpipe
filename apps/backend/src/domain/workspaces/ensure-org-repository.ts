@@ -21,6 +21,8 @@ export async function ensureOrgRepositoryForGitUrl(input: {
   created: boolean
   /** True when an org ingestion published a revision of the repository. */
   ingested: boolean
+  /** The commit that the last org ingestion published, or null. */
+  lastIngestedHash: string | null
   /** What GitHub said about the requested connection's read access. */
   coverage: "covers" | "foreign" | "unknown"
 } | null> {
@@ -70,6 +72,7 @@ export async function ensureOrgRepositoryForGitUrl(input: {
       id: existing[0].id,
       created: false,
       ingested: existing[0].lastIngestedHash !== null,
+      lastIngestedHash: existing[0].lastIngestedHash,
       coverage,
     }
   }
@@ -82,7 +85,13 @@ export async function ensureOrgRepositoryForGitUrl(input: {
       : undefined,
   )
   if (created[0])
-    return { id: created[0].id, created: true, ingested: false, coverage }
+    return {
+      id: created[0].id,
+      created: true,
+      ingested: false,
+      lastIngestedHash: null,
+      coverage,
+    }
 
   const raced = await findRepositoriesByNormalizedGitUrls([gitUrl])
   if (!raced[0]) return null
@@ -91,6 +100,7 @@ export async function ensureOrgRepositoryForGitUrl(input: {
     id: raced[0].id,
     created: false,
     ingested: raced[0].lastIngestedHash !== null,
+    lastIngestedHash: raced[0].lastIngestedHash,
     coverage,
   }
 }

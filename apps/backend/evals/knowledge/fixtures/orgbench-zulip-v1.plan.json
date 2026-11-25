@@ -2,7 +2,7 @@
   "version": "orgbench-zulip-v1",
   "cutoff": "2026-11-01T00:00:00Z",
   "owner": "ctxpipe-ai",
-  "prefix": "orgbench-v1-",
+  "prefix": "orgbench-",
   "corpora": [
     {
       "id": "zulip",
@@ -59,11 +59,8 @@
       ],
       "chat": {
         "realm": "https://chat.zulip.org",
-        "since": "2025-11-01T00:00:00Z",
-        "channels": [
-          1, 2, 3, 6, 9, 16, 18, 19, 31, 43, 48, 92, 101, 127, 137, 138, 206,
-          378, 387, 412, 415, 516, 530, 550, 582
-        ]
+        "since": "2026-08-01T00:00:00Z",
+        "channels": [3, 6, 9, 16, 48, 206, 378]
       }
     }
   ]

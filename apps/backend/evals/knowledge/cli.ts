@@ -16,7 +16,7 @@
  *   bun evals/knowledge/cli.ts finalize --draft LABELED,... --out FILE
  *   bun evals/knowledge/cli.ts label --draft FILE --repo DIR \
  *     --models A,B,C --out FILE [--cap-usd 5]
- *   bun evals/knowledge/cli.ts corpus snapshot|issues|chat|freeze --plan FILE \
+ *   bun evals/knowledge/cli.ts corpus sources|issues|chat|freeze --plan FILE \
  *     --out FILE|DIR
  *   bun evals/knowledge/cli.ts probe --out DIR [--setting NAME=VALUE ...]
  *     [--cap-usd 1]
@@ -54,7 +54,7 @@ import {
   freezeCorpora,
   importCorpusMirrors,
   planSchema,
-  snapshotRepositories,
+  writeCorpusSources,
 } from "./corpus.js"
 import {
   type Dataset,
@@ -636,12 +636,12 @@ async function corpus(
     token,
     gitBase: "https://github.com",
   }
-  if (step === "snapshot")
-    await writeJson(out, await snapshotRepositories(parsed, access, log))
+  if (step === "sources")
+    await writeJson(out, await writeCorpusSources(parsed, access, log))
   else if (step === "issues")
     await writeJson(out, await importCorpusMirrors(parsed, access, log))
   else if (step === "freeze") await freezeCorpora(parsed, access, out)
-  else throw new SetupError("Use corpus snapshot, issues, chat or freeze.")
+  else throw new SetupError("Use corpus sources, issues, chat or freeze.")
   return 0
 }
 

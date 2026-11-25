@@ -14,10 +14,11 @@ import {
   importCorpusMirrors,
   type Plan,
   planSchema,
-  snapshotRepositories,
+  writeCorpusSources,
 } from "../../evals/knowledge/corpus.js"
 import { useMswServer } from "../../test/msw.js"
 import { serveZulip, withFakeClock, zulipMessage } from "../../test/zulip.js"
+import { parseSourceFile } from "../domain/workspace-sources/source-file-text.js"
 
 /*
  * The corpus steps with real git and `file://` remotes in place of GitHub,
@@ -66,49 +67,6 @@ async function repository(
   return sha
 }
 
-/** The GitHub repository API of the org `evals`, backed by bare repositories. */
-function serveOrg(): string[] {
-  const created: string[] = []
-  server.use(
-    http.get(`${API}/repos/acme/api`, () =>
-      HttpResponse.json({ private: false, visibility: "public" }),
-    ),
-    http.get(`${API}/repos/evals/:name`, ({ params }) =>
-      created.includes(String(params.name))
-        ? HttpResponse.json({ private: true })
-        : HttpResponse.json({ message: "Not Found" }, { status: 404 }),
-    ),
-    http.post(`${API}/orgs/evals/repos`, async ({ request }) => {
-      const body = (await request.json()) as { name: string; private: boolean }
-      expect(body.private).toBe(true)
-      execFileSync("git", [
-        "init",
-        "-q",
-        "--bare",
-        "-b",
-        "main",
-        join(base, "evals", `${body.name}.git`),
-      ])
-      created.push(body.name)
-      return HttpResponse.json({ private: true }, { status: 201 })
-    }),
-    http.put(
-      `${API}/repos/evals/:name/actions/permissions`,
-      async ({ params, request }) => {
-        const body = (await request.json()) as { enabled: boolean }
-        if (!body.enabled) actionsOff.add(String(params.name))
-        return new HttpResponse(null, { status: 204 })
-      },
-    ),
-    http.get(`${API}/repos/evals/:name/actions/permissions`, ({ params }) =>
-      HttpResponse.json({ enabled: !actionsOff.has(String(params.name)) }),
-    ),
-  )
-  return created
-}
-
-const actionsOff = new Set<string>()
-
 function plan(sha: string, issues = 0): Plan {
   return {
     version: "0-test",
@@ -132,7 +90,6 @@ function access(): GithubAccess {
 const quiet = () => {}
 
 beforeEach(async () => {
-  actionsOff.clear()
   base = await mkdtemp(join(tmpdir(), "corpus-"))
 })
 
@@ -140,71 +97,62 @@ afterEach(async () => {
   await rm(base, { recursive: true, force: true })
 })
 
-describe("snapshotRepositories", () => {
-  it("pushes the tree at the SHA as one commit with no personal data", async () => {
-    const sha = await repository("acme/api", {
-      "README.md": "# API\n",
-      ".github/workflows/ci.yml": "on: push\n",
-      ".github/dependabot.yml": "version: 2\n",
-      "renovate.json": "{}\n",
-      ".github/CODEOWNERS": "* @acme\n",
-    })
-    const created = serveOrg()
+const SOURCE = "sources/git/github.com/acme-api.md"
 
-    const [snapshot] = await snapshotRepositories(plan(sha), access(), quiet)
-
-    const target = join(base, "evals", "v0-demo-api.git")
-    expect(created).toEqual(["v0-demo-api"])
-    expect(snapshot).toMatchObject({
-      corpus: "demo",
-      source: "acme/api",
-      sha,
-      repository: "evals/v0-demo-api",
-    })
-    expect(git(target, "rev-parse", "main")).toBe(snapshot?.snapshotSha)
-    // No workflow of another project may run in our org.
-    expect(git(target, "ls-tree", "-r", "--name-only", "main")).toBe(
-      ".github/CODEOWNERS\nREADME.md",
-    )
-    expect(actionsOff.has("v0-demo-api")).toBe(true)
-    expect(git(target, "log", "--format=%an <%ae> %aI", "main")).toBe(
-      "ctxpipe evals <evals@ctxpipe.invalid> 2026-06-01T00:00:00Z",
-    )
-    expect(git(target, "rev-list", "--count", "main")).toBe("1")
-
-    // The same plan gives the same commit, so a second run pushes nothing.
-    const [again] = await snapshotRepositories(plan(sha), access(), quiet)
-    expect(again?.snapshotSha).toBe(snapshot?.snapshotSha)
-    expect(created).toHaveLength(1)
-  })
-
-  it("refuses a snapshot repository that holds another commit", async () => {
-    const first = await repository("acme/api", { "README.md": "# API\n" })
-    serveOrg()
-    await snapshotRepositories(plan(first), access(), quiet)
-    const work = await mkdtemp(join(tmpdir(), "corpus-work-"))
-    git(work, "clone", "-q", join(base, "acme/api.git"), ".")
-    await writeFile(join(work, "README.md"), "# API v2\n")
-    git(work, "commit", "-q", "-am", "Second")
-    git(work, "push", "-q", "origin", "main")
-    const second = git(work, "rev-parse", "HEAD")
-    await rm(work, { recursive: true, force: true })
-
-    await expect(
-      snapshotRepositories(plan(second), access(), quiet),
-    ).rejects.toThrow("evals/v0-demo-api holds another snapshot")
-  })
-
-  it("refuses a snapshot repository with another branch", async () => {
+describe("writeCorpusSources", () => {
+  it("writes a plain git source that pins the SHA of each public repository", async () => {
     const sha = await repository("acme/api", { "README.md": "# API\n" })
-    serveOrg()
-    await snapshotRepositories(plan(sha), access(), quiet)
-    const target = join(base, "evals", "v0-demo-api.git")
-    git(target, "branch", "master", "main")
+    await repository("evals/v0-demo-context", { ".ctxpipe": "format: 3\n" })
+    server.use(
+      http.get(`${API}/repos/acme/api`, () =>
+        HttpResponse.json({ private: false, visibility: "public" }),
+      ),
+    )
+
+    const written = await writeCorpusSources(plan(sha), access(), quiet)
+
+    expect(written).toEqual([
+      { corpus: "demo", source: "acme/api", path: SOURCE },
+    ])
+    const context = join(base, "evals", "v0-demo-context.git")
+    // The product reads the file as an `ok` plain git source at the SHA.
+    const parsed = parseSourceFile(
+      SOURCE,
+      git(context, "show", `main:${SOURCE}`),
+    )
+    expect(parsed).toMatchObject({
+      ok: true,
+      source: {
+        provider: "git",
+        connectionId: null,
+        scope: { url: "https://github.com/acme/api", commit: sha },
+      },
+    })
+    expect(git(context, "log", "--format=%ae", "-1", "main")).toBe(
+      "evals@ctxpipe.invalid",
+    )
+
+    // The same plan gives the same tree, so a second run pushes nothing.
+    const tip = git(context, "rev-parse", "main")
+    await writeCorpusSources(plan(sha), access(), quiet)
+    expect(git(context, "rev-parse", "main")).toBe(tip)
+  })
+
+  it("refuses a repository that is not public", async () => {
+    const sha = await repository("acme/api", { "README.md": "# API\n" })
+    await repository("evals/v0-demo-context", { ".ctxpipe": "format: 3\n" })
+    const context = join(base, "evals", "v0-demo-context.git")
+    const before = git(context, "rev-parse", "main")
+    server.use(
+      http.get(`${API}/repos/acme/api`, () =>
+        HttpResponse.json({ private: true, visibility: "private" }),
+      ),
+    )
 
     await expect(
-      snapshotRepositories(plan(sha), access(), quiet),
-    ).rejects.toThrow("holds another snapshot (refs/heads/master)")
+      writeCorpusSources(plan(sha), access(), quiet),
+    ).rejects.toThrow("acme/api is not a public repository")
+    expect(git(context, "rev-parse", "main")).toBe(before)
   })
 })
 
@@ -264,9 +212,7 @@ describe("importCorpusMirrors and freezeCorpora", () => {
     const context = join(base, "evals", "v0-demo-context.git")
     const file = git(context, "show", "main:github/issues/acme/api/1.md")
     expect(file).toContain("# Problem")
-    expect(file).toContain(
-      "sources:\n  - sources/github/evals/v0-demo-api.md\n---",
-    )
+    expect(file).toContain(`sources:\n  - ${SOURCE}\n---`)
     // The login of each person is a pseudonym.
     expect(file).toContain("author: person-0001")
     expect(file).not.toContain("bob")
@@ -487,7 +433,7 @@ it("writes the pull requests closed before the cut-off date and the chat as they
   expect(file).not.toContain("This broke later.")
   expect(file).not.toContain("Draft note.")
   expect(file).toContain("updatedAt: 2026-06-01T00:00:00Z")
-  expect(file).toContain("  - sources/github/evals/v0-demo-api.md")
+  expect(file).toContain(`  - ${SOURCE}`)
   // Each login and the chat names are pseudonyms.
   expect(file).toContain("author: person-0001")
   expect(file).toContain("Asked person-0003 in the chat.")
@@ -540,31 +486,16 @@ it("imports nothing and pushes nothing when no issue is before the cut-off date"
   expect(git(context, "rev-parse", "main")).toBe(before)
 })
 
-it("refuses a plan with two repositories of the same name", () => {
+it("refuses a plan with two source files of the same name", () => {
   const sha = "a".repeat(40)
   const clash = plan(sha)
-  clash.corpora[0]?.repositories.push({
-    source: "other/api",
-    sha,
-    issues: 0,
-    pulls: 0,
-  })
+  const corpus = clash.corpora[0]
+  if (!corpus) throw new Error("no corpus")
+  corpus.repositories = [
+    { source: "acme/b-c", sha, issues: 0, pulls: 0 },
+    { source: "acme-b/c", sha, issues: 0, pulls: 0 },
+  ]
   expect(() => planSchema.parse(clash)).toThrow(
-    "Two repositories of the plan are named v0-demo-api.",
+    "Two source files of the plan are named sources/git/github.com/acme-b-c.md.",
   )
-})
-
-it("refuses to snapshot a repository that is not public", async () => {
-  const sha = await repository("acme/api", { "README.md": "# API\n" })
-  const created = serveOrg()
-  server.use(
-    http.get(`${API}/repos/acme/api`, () =>
-      HttpResponse.json({ private: true, visibility: "private" }),
-    ),
-  )
-
-  await expect(
-    snapshotRepositories(plan(sha), access(), quiet),
-  ).rejects.toThrow("acme/api is not a public repository")
-  expect(created).toEqual([])
 })

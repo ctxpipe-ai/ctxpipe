@@ -1,6 +1,7 @@
 import { log } from "../../observability/logger.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
 import { ensureOrgRepositoryForGitUrl } from "../workspaces/ensure-org-repository.js"
+import { plainGitPin } from "./plain-git-pin.js"
 import { gitSourceScopeUrl } from "./providers/git.js"
 
 /**
@@ -46,10 +47,16 @@ export async function linkPlainGitSource(input: {
     orgId: input.orgId,
     gitUrl: url,
   })
-  if (repository)
-    await startFirstOrgIngestion({
-      orgId: input.orgId,
-      repository,
-      step: "workspace_sources.git.enqueue_first_ingestion",
-    })
+  if (!repository) return
+  // A pinned source needs an ingestion of its commit, also when an org
+  // ingestion published another commit of the repository before.
+  const pin = await plainGitPin({ orgId: input.orgId, gitUrl: url })
+  await startFirstOrgIngestion({
+    orgId: input.orgId,
+    repository: {
+      id: repository.id,
+      ingested: pin ? repository.lastIngestedHash === pin : repository.ingested,
+    },
+    step: "workspace_sources.git.enqueue_first_ingestion",
+  })
 }
