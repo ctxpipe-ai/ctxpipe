@@ -225,15 +225,7 @@ export function buildReport(input: {
     .flatMap((question) =>
       input.answers
         .filter((answer) => answer.question === question.id)
-        .map((answer) =>
-          // A run from before CTX-1561 has no answerAt: it said "no answer"
-          // from keepAt.
-          scoreAnswer(
-            question,
-            answer,
-            manifest.loop.answerAt ?? manifest.loop.keepAt,
-          ),
-        ),
+        .map((answer) => scoreAnswer(question, answer, manifest.loop.keepAt)),
     )
   const keptScores = new Map(
     (input.kept?.questions ?? []).map((score) => [
