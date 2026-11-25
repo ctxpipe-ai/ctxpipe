@@ -44,10 +44,11 @@ import {
   withIngestSpan,
 } from "../../domain/ingestion/ingest-telemetry.js"
 import {
-  INGEST_SHARD_MAX_ROOTS,
   type IngestSkillPlan,
   ingestRootMap,
   ingestRunSkills,
+  ingestShardRoots,
+  plannedShardMaxRoots,
   skillStepName,
 } from "../../domain/ingestion/ingestion-plan.js"
 import {
@@ -131,6 +132,11 @@ export const ingestionShardInputSchema = z.object({
    * its part of the list by its number.
    */
   roots: z.array(ingestionRootSchema),
+  /**
+   * The root cap of the run's shards (`INGEST_SHARD_MAX_ROOTS` when the
+   * parent planned). A shard that a release before CTX-1621 queued has none.
+   */
+  shardMaxRoots: z.number().int().positive().optional(),
   /**
    * The bundle name that the parent planned with. A deploy can change the
    * bundle while the run is in progress; the shard then goes on with the
@@ -251,17 +257,6 @@ export function shardTreeHolder(
   return `${input.mode}:${input.shard}`
 }
 
-/** The roots that a `roots` shard runs: its part of the run's list. */
-export function shardRoots(
-  roots: readonly IngestionRoot[],
-  shard: number,
-): IngestionRoot[] {
-  return roots.slice(
-    shard * INGEST_SHARD_MAX_ROOTS,
-    (shard + 1) * INGEST_SHARD_MAX_ROOTS,
-  )
-}
-
 export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
   const env = deps.env ?? (() => parseEnv(process.env))
   return defineWorkflow(
@@ -322,7 +317,11 @@ export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
         )
         const roots =
           input.mode === "roots"
-            ? shardRoots(input.roots, input.shard).map((r) => r.path)
+            ? ingestShardRoots(
+                input.roots,
+                input.shard,
+                plannedShardMaxRoots(input.shardMaxRoots),
+              ).map((r) => r.path)
             : [null]
         for (const root of roots)
           for (const skill of skills)

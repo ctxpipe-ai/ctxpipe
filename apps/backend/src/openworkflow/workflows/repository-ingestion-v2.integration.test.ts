@@ -78,7 +78,7 @@ const sourceName = `acme/checkout-api-${suffix}`
 const contexts = [`acme/context-a-${suffix}`, `acme/context-b-${suffix}`]
 /** A source whose stand-in agent always says `more` and writes a rejected file. */
 const stallName = `acme/stall-api-${suffix}`
-/** A source with 21 roots: two shards. */
+/** A source with 21 roots: five shards of 5 roots. */
 const wideName = `acme/wide-monorepo-${suffix}`
 /**
  * A public plain git source with no connection (CTX-815). The DNS of the
@@ -94,10 +94,11 @@ const sourcePathOf = (repository: string) => {
   return githubSourcePath(owner, name)
 }
 /**
- * The two-shard case: the sandbox of shard 0 does not start, and shard 1
- * waits at its second step until `release` is called.
+ * The wide source: the sandbox of shard 0 does not start (when `failFirst`
+ * is set), and shard 1 waits at its second step until `release` is called.
  */
 const wide = {
+  failFirst: true,
   waiting: false,
   release: () => {},
   gate: Promise.resolve(),
@@ -357,7 +358,7 @@ beforeAll(async () => {
         return {
           ...inner,
           async ensure() {
-            if (spec.shard === 0)
+            if (spec.shard === 0 && wide.failFirst)
               throw new Error("The sandbox of shard 0 does not start")
             return inner.ensure()
           },
@@ -651,6 +652,79 @@ describe("ingestion v2 paging", () => {
       if (!("workspaces" in result)) throw new Error("The run did not finish")
       for (const workspace of result.workspaces)
         expect(workspace).toMatchObject({ partial: 1, rejects: 1 })
+    },
+  )
+})
+
+describe("ingestion v2 shards in a sliding window", () => {
+  it(
+    "starts the next shards and finishes them while a slow shard still runs",
+    { timeout: 420_000 },
+    async () => {
+      wide.failFirst = false
+      wide.waiting = false
+      wide.gate = new Promise<void>((resolve) => {
+        wide.release = resolve
+      })
+      const handle = await runner.runWorkflow(parent.spec, {
+        orgId,
+        shadow: true,
+        source: {
+          kind: "github" as const,
+          url: `https://github.com/${wideName}`,
+          githubConnectionId: connectionId,
+        },
+        sha: wideSha,
+        authorTime: "2026-10-04T00:00:00.000Z",
+      })
+      const runId = handle.workflowRun.id
+      /** The status of each shard child of the run, by shard. */
+      const shardRuns = async () => {
+        const rows = await getSystemDb().execute<{
+          shard: string
+          status: string
+        }>(sql`
+          select input->>'shard' as shard, status
+          from openworkflow.workflow_runs
+          where namespace_id = ${openWorkflowNamespaceId()}
+            and workflow_name = 'ingestion-shard'
+            and input->>'runId' = ${runId}
+        `)
+        return Object.fromEntries(rows.rows.map((r) => [r.shard, r.status]))
+      }
+      try {
+        // Shard 1 waits at its gate. Fixed batches of 4 started shard 4
+        // only after shards 0 to 3 had ended; the window starts it when a
+        // shard ends, so it finishes while shard 1 still runs.
+        const deadline = Date.now() + 300_000
+        let shards: Record<string, string> = {}
+        for (;;) {
+          shards = await shardRuns()
+          if (wide.waiting && shards["4"] === "completed") break
+          if (Date.now() > deadline)
+            throw new Error(
+              `Shard 4 did not finish while shard 1 ran: ${JSON.stringify(shards)}`,
+            )
+          await delay(200)
+        }
+        expect(shards).toMatchObject({
+          "0": "completed",
+          "2": "completed",
+          "3": "completed",
+          "4": "completed",
+        })
+        expect(shards["1"]).toMatch(/running|pending/)
+      } finally {
+        wide.release()
+      }
+      try {
+        await expect(
+          handle.result({ timeoutMs: 300_000 }),
+        ).resolves.toMatchObject({ status: "done", shards: 5 })
+      } finally {
+        wide.failFirst = true
+      }
+      expect(heldIngestSourceTrees(runId)).toBe(0)
     },
   )
 })

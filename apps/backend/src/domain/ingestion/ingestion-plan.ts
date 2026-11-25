@@ -14,8 +14,36 @@ import type { IngestRootMap } from "./ingest-shard-runtime.js"
  * replayed run makes the same steps.
  */
 
-/** One shard takes at most this many roots (concept section 8). */
-export const INGEST_SHARD_MAX_ROOTS = 20
+/**
+ * One shard takes at most this many roots (ADR-052, revision 2026-11-25).
+ * Small shards let a large repository use more sandboxes at the same time.
+ * A run records the value in its `discover-roots` output and gives it to
+ * each shard, so a deploy that changes it does not move a root of a run in
+ * progress to another shard.
+ */
+export const INGEST_SHARD_MAX_ROOTS = 5
+
+/**
+ * The root cap of a run: the recorded value, or 20 for a run that a release
+ * before CTX-1621 planned (it recorded no value).
+ */
+export function plannedShardMaxRoots(recorded: number | undefined): number {
+  return recorded ?? 20
+}
+
+/** The count of `roots` shards of a run. */
+export function ingestShardCount(roots: number, maxRoots: number): number {
+  return Math.ceil(roots / maxRoots)
+}
+
+/** The roots that `roots` shard `shard` runs: its part of the run's list. */
+export function ingestShardRoots<T>(
+  roots: readonly T[],
+  shard: number,
+  maxRoots: number,
+): T[] {
+  return roots.slice(shard * maxRoots, (shard + 1) * maxRoots)
+}
 
 export type IngestSkillPlan = {
   name: string

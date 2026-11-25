@@ -17,13 +17,13 @@ import {
   ingestionRunSpend,
   ingestionRunState,
   isReingestUpgradeKey,
+  REINGEST_POLLS,
   REINGEST_REPOSITORY_WORKFLOW_NAME,
-  REINGEST_THROTTLE,
   reingestBlock,
   reingestPollSeconds,
   reingestRunKey,
-  reingestSlotTurn,
   reingestSource,
+  reingestTurn,
   workspaceSourceRepositories,
 } from "../../domain/upgrades/reingest.js"
 import {
@@ -50,7 +50,7 @@ import {
 import { enqueueWorkflow } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { enqueueWorkspaceHydrate } from "../enqueue-workspace-hydrate.js"
-import { isWorkflowControlSignal } from "../isSleepSignal.js"
+import { isWorkflowControlSignal, settledChildren } from "../isSleepSignal.js"
 import { workflowRunEnded } from "../run-ended.js"
 import type { IngestStepFailures } from "./ingestion-shard.js"
 import { repositoryIngestionV2 } from "./repository-ingestion-v2.js"
@@ -63,7 +63,7 @@ export const workspaceUpgradeReingestInputSchema = z
   })
   .strict()
 
-type Throttle = typeof REINGEST_THROTTLE
+type Polls = typeof REINGEST_POLLS
 
 /**
  * OpenWorkflow 0.10 stops a run after 1000 step attempts
@@ -74,7 +74,7 @@ const WORKFLOW_STEP_LIMIT = 1000
 
 type Options = {
   /** A test gives short polls. */
-  throttle?: Partial<Throttle>
+  polls?: Partial<Polls>
   /** The step attempts that one run may use. OpenWorkflow stops a run above {@link WORKFLOW_STEP_LIMIT}; a test gives less. */
   stepBudget?: number
 }
@@ -233,7 +233,7 @@ export function runReport(
 export function defineWorkspaceUpgradeReingestRepository(
   options: Options = {},
 ) {
-  const throttle = { ...REINGEST_THROTTLE, ...options.throttle }
+  const polls = { ...REINGEST_POLLS, ...options.polls }
   const maxPolls = pollBudget(options.stepBudget ?? WORKFLOW_STEP_LIMIT, 2)
   return defineWorkflow(
     {
@@ -310,8 +310,8 @@ export function defineWorkspaceUpgradeReingestRepository(
           sleepFor(
             reingestPollSeconds(
               poll,
-              throttle.firstPollSeconds,
-              throttle.maxRunPollSeconds,
+              polls.firstPollSeconds,
+              polls.maxRunPollSeconds,
             ),
           ),
         )
@@ -451,12 +451,13 @@ async function planReingest(input: {
  * One run handles one re-ingestion row that an owner or admin started
  * (status `queued`, ADR-053 section 5). It claims the row, checks the gates
  * again, and pins each GitHub source repository at its default tip. Then it
- * waits for its throttle slot (`reingestSlotTurn`, ADR-052): one upgrade run
- * of an org at a time, held until the run ends, and a cap of runs on the
- * instance. It runs one child run for each repository, one after the other
- * (`workspace-upgrade-reingest-repository`), so that each repository has its
- * own step budget. It records the model spend of each run, and nothing
- * caps it (ADR-052). The row is `completed` when each repository is `done`
+ * waits while an ingestion run of one of its source repositories can publish
+ * to the Workspace (`reingestTurn`, CTX-895). Re-ingestion has no throttle of
+ * its own (ADR-052, revision 2026-11-25). It runs one child run for each
+ * repository, all at the same time (`workspace-upgrade-reingest-repository`),
+ * so that each repository has its own step budget, and it records the report
+ * of each repository when its run ends. It records the model spend of each
+ * run, and nothing caps it (ADR-052). The row is `completed` when each repository is `done`
  * for this Workspace, else `failed` with the other repositories; the
  * operator can start it again. The next run skips each repository that is
  * done at the same commit.
@@ -466,7 +467,7 @@ export function defineWorkspaceUpgradeReingest(
     repository?: ReturnType<typeof defineWorkspaceUpgradeReingestRepository>
   } = {},
 ) {
-  const throttle = { ...REINGEST_THROTTLE, ...options.throttle }
+  const polls = { ...REINGEST_POLLS, ...options.polls }
   const stepBudget = options.stepBudget ?? WORKFLOW_STEP_LIMIT
   const repositoryWorkflow =
     options.repository ?? workspaceUpgradeReingestRepository
@@ -654,7 +655,7 @@ export function defineWorkspaceUpgradeReingest(
                 },
               })
             // Refuse at the start, not halfway: the run has 5 fixed steps
-            // and 2 for each repository, and it needs one slot poll (2 steps).
+            // and 2 for each repository, and it needs one poll of its turn (2 steps).
             if (planned.repositories.length > maxRepositories)
               throw new Error(
                 `The Workspace has ${planned.repositories.length} source repositories. One re-ingestion run handles at most ${maxRepositories}. Remove some source repositories, then start it again.`,
@@ -695,20 +696,20 @@ export function defineWorkspaceUpgradeReingest(
             })
             // The other steps: claim, plan, record-plan, one child and one
             // record for each repository, the last record, and record-error.
-            const maxSlotPolls = pollBudget(
+            // The step names of the turn keep `slot`, so that a run that an
+            // earlier release started finds its finished steps.
+            const maxTurnPolls = pollBudget(
               stepBudget,
               7 + 2 * planned.repositories.length,
             )
             let waitedSince: string | null = null
             for (let poll = 0; ; poll++) {
-              const slot = await step.run(
+              const turn = await step.run(
                 { name: `slot:${poll}` },
                 async () => {
                   await stopOrphanedReingestRuns()
-                  return reingestSlotTurn({
+                  return reingestTurn({
                     orgId,
-                    upgradeRunId: run.id,
-                    runsPerInstance: throttle.runsPerInstance,
                     workspaceId,
                     sourceUrls: planned.repositories
                       .filter((r) => r.sha && !r.done)
@@ -716,7 +717,7 @@ export function defineWorkspaceUpgradeReingest(
                   })
                 },
               )
-              if ("turn" in slot) {
+              if ("turn" in turn) {
                 if (waitedSince)
                   await record("record-turn", {
                     to: UPGRADE_STATUSES.running,
@@ -736,19 +737,19 @@ export function defineWorkspaceUpgradeReingest(
                       to: UPGRADE_STATUSES.running,
                       ownerRunId: run.id,
                       upgrade: {
-                        waitingForSlot: { reason: slot.wait, since },
+                        waitingForSlot: { reason: turn.wait, since },
                       },
                     })
                     return since
                   },
                 )
               }
-              if (poll >= maxSlotPolls)
-                // A long wait is not temporary: a new run waits at the back
-                // of the queue again. So it gets no automatic retry.
+              if (poll >= maxTurnPolls)
+                // A long wait is not temporary: the other ingestion run still
+                // runs. So it gets no automatic retry.
                 return record("record-no-slot", {
                   to: UPGRADE_STATUSES.failed,
-                  failureReason: `${slot.wait} The re-ingestion waited too long for its turn. Start it again.`,
+                  failureReason: `${turn.wait} The re-ingestion waited too long for its turn. Start it again.`,
                   upgrade: { repositories: reports, waitingForSlot: undefined },
                 })
               await step.sleep(
@@ -756,17 +757,21 @@ export function defineWorkspaceUpgradeReingest(
                 sleepFor(
                   reingestPollSeconds(
                     poll,
-                    throttle.firstPollSeconds,
-                    throttle.maxSlotPollSeconds,
+                    polls.firstPollSeconds,
+                    polls.maxTurnPollSeconds,
                   ),
                 ),
               )
             }
-            // A repository that an earlier run did keeps its spend in the
-            // report.
-            for (const [index, source] of planned.repositories.entries()) {
+            // The repositories run at the same time (ADR-052, revision
+            // 2026-11-25). Each one records its report when its run ends. A
+            // repository that an earlier run did keeps its spend in the
+            // report. A repository run that still runs parks this run, and
+            // the end of each child wakes it.
+            const runRepository = async (index: number) => {
+              const source = planned.repositories[index]
               const report = reports[index]
-              if (!source.sha || !report || report.status === "done") continue
+              if (!source?.sha || !report || report.status === "done") return
               const result: RepositoryResult = await step
                 .runWorkflow(
                   repositoryWorkflow.spec,
@@ -811,6 +816,12 @@ export function defineWorkspaceUpgradeReingest(
                 upgrade: { repositories: reports },
               })
             }
+            // Only control signals reject: each other error is a report.
+            settledChildren(
+              await Promise.allSettled(
+                planned.repositories.map((_, index) => runRepository(index)),
+              ),
+            )
             // Only a run that published all of its work to this Workspace
             // is done. A `partial` or `skipped` repository fails the row.
             const failed = reports.filter((r) => r.status !== "done")

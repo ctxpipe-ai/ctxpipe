@@ -31,8 +31,10 @@ import {
 import {
   INGEST_SHARD_MAX_ROOTS,
   ingestRunSkills,
+  ingestShardCount,
   packRootsWithin,
   plannedIngestSkills,
+  plannedShardMaxRoots,
   unpackRoots,
 } from "../../domain/ingestion/ingestion-plan.js"
 import {
@@ -49,6 +51,7 @@ import {
   ingestPublishTurn,
   waitForPublishTurn,
 } from "../../domain/ingestion/publish-turn.js"
+import { ORG_INGEST_SANDBOX_LIMIT } from "../../domain/workspaces/chat-lifecycle.js"
 import {
   resolveIngestConflicts,
   SemanticResolveError,
@@ -64,7 +67,7 @@ import { getLogger } from "../../observability/logger.js"
 import { withCrashLoopGuard } from "../crash-loop.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { openWorkflowExecution } from "../execution-lease.js"
-import { cleanUpUnlessParked, settledChildren } from "../isSleepSignal.js"
+import { cleanUpUnlessParked, windowedChildren } from "../isSleepSignal.js"
 import {
   addStepFailures,
   guardedSkillStep,
@@ -124,9 +127,6 @@ import { workspaceExtractIngest } from "./workspace-extract-ingest.js"
 export function ingestPublishJobId(runId: string, workspaceId: string): string {
   return `wjob_${runId}_publish_${workspaceId}`
 }
-
-/** Shards run in parallel, a few at a time. */
-const SHARD_BATCH = 4
 
 /**
  * The fixed code of the cause of a refused Workspace: a code of the
@@ -396,6 +396,8 @@ export function defineRepositoryIngestionV2Workflow(
                   version?: string
                   skills?: string[]
                   roots: string
+                  /** The root cap of the shards; a run before CTX-1621 has none. */
+                  shardMaxRoots?: number
                   repositorySkills: number
                 }
             > => {
@@ -475,6 +477,7 @@ export function defineRepositoryIngestionV2Workflow(
                 version: bundle.version,
                 skills: bundle.skills,
                 roots: packed,
+                shardMaxRoots: INGEST_SHARD_MAX_ROOTS,
                 repositorySkills: plannedIngestSkills(
                   bundle.skills,
                   "repository",
@@ -493,7 +496,9 @@ export function defineRepositoryIngestionV2Workflow(
           return { status: "partial", reason: scope.partial }
         }
         const roots = unpackRoots(scope.roots)
-        const shards = Math.ceil(roots.length / INGEST_SHARD_MAX_ROOTS)
+        // The run keeps the root cap that it planned with.
+        const shardMaxRoots = plannedShardMaxRoots(scope.shardMaxRoots)
+        const shards = ingestShardCount(roots.length, shardMaxRoots)
         Object.assign(attributes, {
           "ctxpipe.ingest.bundle": scope.bundle,
           "ctxpipe.ingest.roots": roots.length,
@@ -509,6 +514,7 @@ export function defineRepositoryIngestionV2Workflow(
           shard,
           mode,
           roots,
+          shardMaxRoots,
           bundle: scope.bundle,
           skills: scope.skills,
           source,
@@ -613,25 +619,19 @@ export function defineRepositoryIngestionV2Workflow(
           ),
         )
 
-        const shardOutputs: IngestionShardOutput[] = []
-        for (let n = 0; n < shards; n += SHARD_BATCH) {
-          // Wait for every child of the batch, also when one fails, so the
-          // run never ends (and cleans up) while a sibling still runs.
-          const settled = settledChildren(
-            await Promise.allSettled(
-              Array.from(
-                { length: Math.min(SHARD_BATCH, shards - n) },
-                (_, i) =>
-                  step.runWorkflow(
-                    deps.shard.spec,
-                    child(n + i, "roots", runBase),
-                    { name: `shard:${n + i}` },
-                  ),
-              ),
-            ),
-          )
-          shardOutputs.push(...settled)
-        }
+        // A sliding window of shards (ADR-052, revision 2026-11-25): a new
+        // shard starts when a shard ends. The ingest sandbox limit of the
+        // org is the only cap; a shard that cannot get a sandbox waits for
+        // one. The run waits for every shard that it started, also when one
+        // fails, so it never ends (and cleans up) while a sibling still runs.
+        const shardOutputs: IngestionShardOutput[] = await windowedChildren(
+          shards,
+          ORG_INGEST_SANDBOX_LIMIT,
+          (n) =>
+            step.runWorkflow(deps.shard.spec, child(n, "roots", runBase), {
+              name: `shard:${n}`,
+            }),
+        )
 
         /**
          * The Workspaces whose merge model failed (at assemble or publish),
