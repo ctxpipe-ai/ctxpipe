@@ -36,6 +36,7 @@ import {
   baseBlob,
   blobContent,
   ensureParent,
+  readDeletes,
   removeStaged,
   STEP_LIMITS,
   stagedFile,
@@ -564,9 +565,11 @@ if (!laterPage) {
 }
 
 // Each run of the script writes the whole page (SKILL.md asks for more than
-// one run in a step), so it first drops the output of the run before.
-for (const path of stagedPaths(step)) removeStaged(step, path)
-writeDeletes(step, {})
+// one run in a step), so it first drops the area files, deletes, and
+// patch.json of the run before. The codebase file goes before writeStep.
+const AREAS = "knowledge/instructions/"
+for (const path of stagedPaths(step))
+  if (path.startsWith(AREAS)) removeStaged(step, path)
 rmSync(join(step.stepDir, "patch.json"), { force: true })
 // The step stages at most 2 MiB. Room stays for the codebase file with
 // its FOLLOWS claims.
@@ -582,14 +585,14 @@ for (const [path, text] of outputs) {
   ensureParent(file)
   writeFileSync(file, text)
 }
-if (deletes.size) {
-  const recorded = {}
-  for (const [path, reason] of deletes) {
-    const blob = baseBlob(step, path)
-    if (blob) recorded[path] = { baseBlob: blob, reason }
-  }
-  writeDeletes(step, recorded)
+const recorded = Object.fromEntries(
+  Object.entries(readDeletes(step)).filter(([path]) => !path.startsWith(AREAS)),
+)
+for (const [path, reason] of deletes) {
+  const blob = baseBlob(step, path)
+  if (blob) recorded[path] = { baseBlob: blob, reason }
 }
+writeDeletes(step, recorded)
 writeFileSync(
   join(step.stepDir, "areas-report.json"),
   `${JSON.stringify({ areas: report }, null, 2)}\n`,
@@ -628,8 +631,12 @@ if (!codebase && followed.length)
   )
 else
   for (const { path, evidence } of followed)
-    // A new area file that the step left out gets no claim.
-    if (evidence && (outputs.has(path) || baseBlob(step, path)))
+    // An area file that the step left out gets a claim only when the source
+    // follows it already.
+    if (
+      evidence &&
+      (outputs.has(path) || parsedCache.get(path)?.sources?.includes(sourceId))
+    )
       plans.push({
         path: codebase,
         create: null,
@@ -642,7 +649,9 @@ else
           },
         ],
       })
-// The documents of this page that the proposal is done with are done.
+// The documents of this page that the proposal is done with are done. The
+// FOLLOWS claims of the run before go with its codebase file.
+if (codebase) removeStaged(step, codebase)
 writeStep(step, plans, skipped, {
   more: cursorAt < documents.length,
   cursorAt: () => cursorAt,
