@@ -116,7 +116,7 @@ def main():
                     # The server calls of a CTX run (a query embedding and Jev
                     # for each search) have no cap in the backend, so the arm
                     # reserves an amount for them, and the run stops when they
-                    # use it (README.md).
+                    # use half of it (README.md).
                     server_reserve = config["arms"][arm_name]["serverReserveUsd"]
                     reserve = model["runCapUsd"] + server_reserve
                     if spent + reserve > args.cap_usd:
@@ -135,7 +135,7 @@ def main():
                     while harbor.poll() is None:
                         time.sleep(5)
                         server_cost = server_spans(args.otlp, run_id, started)["modelCostUsd"]
-                        if server_reserve and server_cost >= server_reserve:
+                        if server_reserve and server_cost >= server_reserve / 2:
                             print(f"stop {run_id}: the server calls cost ${server_cost:.4f}, the reserve is ${server_reserve}")
                             harbor.terminate()
                             harbor.wait()

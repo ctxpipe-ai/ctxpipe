@@ -103,7 +103,9 @@ def server_spans(otlp_path, conversation_id, started):
     spans, fallback_logs = [], 0
     since = int(started * 1e9)
     if otlp_path.is_file():
-        for line in otlp_path.read_text().splitlines():
+        # The collector can be in the middle of a line, so the text after the
+        # last newline is not read.
+        for line in otlp_path.read_text(errors="replace").split("\n")[:-1]:
             batch = json.loads(line)
             for resource in batch.get("resourceSpans", []):
                 for scope in resource["scopeSpans"]:
