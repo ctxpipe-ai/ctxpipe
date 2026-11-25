@@ -202,8 +202,7 @@ describe("test containers", () => {
         image: contractImage("alpine"),
       }).create({ workspace: { source: { type: "none" } } })
       try {
-        // Read the container of the handle. A filter on the image reference
-        // can find no container on CI, so the test does not use one.
+        // @tanstack/ai-sandbox-docker creates it with its own dockerode copy.
         expect(
           docker(
             "inspect",
