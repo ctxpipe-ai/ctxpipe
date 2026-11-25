@@ -76,7 +76,7 @@ async function backfillAfterMigrate(connectionString: string): Promise<void> {
     }
   } catch (error) {
     log.error({
-      step: "knowledge_plane.backfill",
+      step: "knowledge_plane.backfill_failed",
       message: "[migrate] the knowledge plane backfill failed",
       error: formatUnknownError(error),
     })

@@ -20,6 +20,9 @@ import { knowledgeProjection } from "../openworkflow/workflows/knowledge-project
  * costs little: it waits for the projection lease, and a run of a tip that
  * is already applied returns `current` (ADR-067 decision 3).
  *
+ * The deploy calls it on the owner URL, which RLS does not limit. Thus each
+ * query here must filter by `orgId` itself.
+ *
  * Logs one `knowledge_plane.backfill` event with the queued Workspace ids,
  * and no name. Returns the ids.
  */
@@ -60,7 +63,7 @@ export async function backfillAllKnowledgePlanes(): Promise<void> {
       await backfillKnowledgePlane(orgId)
     } catch (error) {
       log.error({
-        step: "knowledge_plane.backfill",
+        step: "knowledge_plane.backfill_failed",
         message: "the backfill of the org failed",
         orgId,
         error: formatUnknownError(error),
