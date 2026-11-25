@@ -437,6 +437,27 @@ describe("decideDisagreements", () => {
       },
     )
 
+    it("never puts two items in one position when a stored SUPERSEDES joins their documents, also when Jev says that they agree", () => {
+      // A new design record replaces an old one. Jev reads the same plan in
+      // both and gives no "disagree" and no "replaces".
+      const result = decide(
+        [item("a", { sourceType: "adr" }), item("b", { sourceType: "adr" })],
+        { "same.1.2": 0.9 },
+        [{ srcDoc: "doc/b.md", predicate: "SUPERSEDES", dstDoc: "doc/a.md" }],
+      )
+      expect(result.positions.map(({ itemIds }) => itemIds)).toEqual([
+        ["a"],
+        ["b"],
+      ])
+      expect(result.pairs).toEqual([
+        { itemIds: ["a", "b"], positions: [0, 1], label: "updates" },
+      ])
+      expect(statuses(result)).toEqual([
+        { status: "superseded", rule: "supersedes" },
+        { status: "current", rule: "supersedes" },
+      ])
+    })
+
     it("still joins a chain of agreeing items when no pair of them is a rival", () => {
       const result = decide([item("a"), item("b"), item("c")], {
         "same.1.2": 0.9,

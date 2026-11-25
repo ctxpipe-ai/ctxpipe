@@ -32,7 +32,7 @@ export const storybookBuildMinutes = 1.2
 // Where each check runs, by `<family>:<lane>` or else `<family>`: `job` is
 // the job of the full run, `profile` the setup that the shards of a gated run
 // share (plan.mjs puts each check in its job).
-// A check without an entry (an eval, the latency check) has its own workflow.
+// A check without an entry (the latency check) runs in no job of PR CI.
 // A build check has no profile: its job is a plain build, one matrix entry
 // for each image, or one runner step for each package.
 const runsIn = {

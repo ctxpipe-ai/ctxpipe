@@ -8,7 +8,7 @@ import { formatUnknownError } from "../db/transientDbRetry.js"
  * the AWS stack before the go/no-go, and after each rehearsal). The checks
  * change no customer row. The only database write is the request counter of
  * the test API key (Better Auth), which the `mcp read` check uses. The
- * `preview-env` sweep and the MCP evals run after these checks pass.
+ * `preview-env` sweep runs after these checks pass.
  *
  * In each phase of the cutover, the target origin is the AUTH_BASE_URL of the
  * stack. Before the window (the empty database and each rehearsal), it is

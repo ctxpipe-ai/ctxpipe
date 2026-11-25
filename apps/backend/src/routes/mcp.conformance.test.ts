@@ -5,14 +5,16 @@ import {
 } from "node:child_process"
 import { once } from "node:events"
 import { existsSync } from "node:fs"
+import { request } from "node:http"
 import { createServer } from "node:net"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { MCPConformanceTest } from "@mcpjam/sdk"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
+import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { z } from "zod"
 
 const repoRoot = fileURLToPath(new URL("../../../../", import.meta.url))
 
@@ -153,20 +155,58 @@ describe("MCP conformance (Vitest-integrated)", () => {
     expect(result.status).toBe(0)
   }, 180_000)
 
-  it("passes MCPJam protocol conformance against the production transport", async () => {
-    const result = await new MCPConformanceTest({
-      serverUrl: `${baseUrl}/mcp`,
-      protocolVersion: "2025-11-25",
-    }).run()
+  it("answers the protocol requests of the MCP SDK Client", async () => {
+    const client = new Client({ name: "conformance-sdk", version: "1.0.0" })
+    const transport = new StreamableHTTPClientTransport(
+      new URL(`${baseUrl}/mcp`),
+    )
+    await client.connect(transport)
+    try {
+      expect(client.getServerVersion()?.name).toBeTruthy()
+      expect(client.getServerCapabilities()?.tools).toBeDefined()
+      expect(transport.protocolVersion).toBeTruthy()
+      await expect(client.ping()).resolves.toEqual({})
+      const { tools } = await client.listTools()
+      for (const tool of tools) expect(tool.inputSchema.type).toBe("object")
+      const unknownMethod = client.request(
+        { method: "unknown/method" },
+        z.object({}),
+      )
+      await expect(unknownMethod).rejects.toBeInstanceOf(McpError)
+      await expect(unknownMethod).rejects.toMatchObject({
+        code: ErrorCode.MethodNotFound,
+      })
+    } finally {
+      await client.close()
+    }
+  }, 60_000)
 
-    const failed = result.checks
-      .filter((check) => check.status === "failed")
-      .map((check) => `${check.id}: ${check.error?.message ?? check.title}`)
-    expect(
-      { passed: result.passed, outcome: result.outcome, failed },
-      `MCPJam conformance failed.\n${result.summary}\n${failed.join("\n")}`,
-    ).toEqual({ passed: true, outcome: "passed", failed: [] })
-  }, 180_000)
+  it("refuses a request whose Host is not loopback when the server is on loopback (DNS rebinding)", async () => {
+    // fetch ignores a Host header that the caller sets, so the test uses node:http.
+    const status = (host: string) =>
+      new Promise<number | undefined>((resolve, reject) => {
+        const call = request(
+          `${baseUrl}/mcp`,
+          {
+            method: "POST",
+            headers: {
+              Host: host,
+              Accept: "application/json, text/event-stream",
+              "Content-Type": "application/json",
+            },
+          },
+          (response) => {
+            response.resume()
+            resolve(response.statusCode)
+          },
+        )
+        call.on("error", reject)
+        call.end(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }))
+      })
+    expect(await status("attacker.example")).toBe(403)
+    expect(await status(`attacker.example:${port}`)).toBe(403)
+    expect(await status(`localhost:${port}`)).not.toBe(403)
+  }, 60_000)
 
   it("serves framework instructions, a read tool, and structuredContent to the MCP SDK Client", async () => {
     const client = new Client({ name: "conformance-sdk", version: "1.0.0" })

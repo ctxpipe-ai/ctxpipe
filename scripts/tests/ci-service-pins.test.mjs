@@ -16,11 +16,7 @@ const pins = JSON.parse(read("scripts/ci/service-pins.json"))
 const postgresImage = `${pins.postgres.image}:${pins.postgres.tag}@${pins.postgres.digest}`
 
 test("every Postgres image in compose and the workflows is the pinned one", () => {
-  for (const file of [
-    "docker-compose.yml",
-    ".github/workflows/ci.yaml",
-    ".github/workflows/mcp-evals.yaml",
-  ]) {
+  for (const file of ["docker-compose.yml", ".github/workflows/ci.yaml"]) {
     const images = [...read(file).matchAll(/image: (pgvector\/pgvector\S*)/g)]
     assert.ok(images.length > 0, `${file} has no pgvector image`)
     for (const [, image] of images) assert.equal(image, postgresImage, file)

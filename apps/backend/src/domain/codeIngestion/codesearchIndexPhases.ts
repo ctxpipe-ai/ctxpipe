@@ -56,7 +56,7 @@ export function isCodesearchAdmissionBusyError(
   return error instanceof CodesearchAdmissionBusyError
 }
 
-export type CodesearchIndexAuth = {
+type CodesearchIndexAuth = {
   repositoryId: string
   orgId: string
   repositoryRevisions?: Array<{ repositoryId: string; sha: string }>

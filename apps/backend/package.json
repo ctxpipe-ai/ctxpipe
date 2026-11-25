@@ -104,7 +104,6 @@
     "@graphql-codegen/cli": "^8.0.0",
     "@graphql-codegen/typed-document-node": "^8.0.0",
     "@graphql-codegen/typescript-operations": "^7.0.1",
-    "@mcpjam/sdk": "^10.0.0",
     "@modelcontextprotocol/conformance": "^0.1.15",
     "@opentelemetry/core": "^2.12.1",
     "@opentelemetry/sdk-trace-node": "^2.12.1",

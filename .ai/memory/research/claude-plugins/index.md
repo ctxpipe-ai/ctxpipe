@@ -219,7 +219,7 @@ ctxpipe can ship a **public plugin repo** for Claude Code/Cowork directory, and 
 
 Hosted surfaces register redirect `https://claude.ai/api/mcp/auth_callback`. Claude Code uses RFC 8252 loopback (`http://localhost/callback`, `http://127.0.0.1/callback`, port ignored). Claude Code does **not** use Anthropic-held directory credentials; it runs its own CIMD client. Pure machine `client_credentials` with no user is **not supported** on hosted Claude. Egress to the MCP and the AS is from `160.79.104.0/21`. Token/discovery timeouts: 10s (30s refresh). ([Auth](https://claude.com/docs/connectors/building/authentication.md))
 
-Protected-resource `resource` must match the MCP URL **exactly as the user enters it, including path**. Query-string canonicalization (ctxpipe already strips `?orgSlug=` on the PRM audience) must stay aligned with whatever URL the plugin/directory listing uses. ([Auth](https://claude.com/docs/connectors/building/authentication.md); [MCPJam note](../mcp-testing/mcpjam.md))
+Protected-resource `resource` must match the MCP URL **exactly as the user enters it, including path**. Query-string canonicalization (ctxpipe already strips `?orgSlug=` on the PRM audience) must stay aligned with whatever URL the plugin/directory listing uses. ([Auth](https://claude.com/docs/connectors/building/authentication.md))
 
 ### Per-organization / per-tenant configuration
 
