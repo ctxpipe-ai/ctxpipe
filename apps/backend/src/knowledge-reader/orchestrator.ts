@@ -78,11 +78,13 @@ export const ORCHESTRATOR_DEFAULTS = {
   replacesAt: 0.5,
   /**
    * Jev gives the `scoped` fact a p(yes) near 0.5 to most items: at 0.5,
-   * 47% of the items of the dev questions are "scoped", at 0.6 24%. Thus
-   * at 0.5 a position that no rival replaces is often "scoped" when it is
-   * current (generation 11).
+   * 47% of the items of the dev questions are "scoped", at 0.6 24%
+   * (generation 11). On the dev split of dataset v1, the fact does not
+   * separate the classes: the expected "scoped" items get 0.59 to 0.68,
+   * and the expected "current" items up to 0.77. Thus only a p(yes) of
+   * 0.8 or more is "yes" (CTX-1684).
    */
-  scopedAt: 0.6,
+  scopedAt: 0.8,
 }
 
 /** The model calls of one retrieval, for the shadow log (no content). */
