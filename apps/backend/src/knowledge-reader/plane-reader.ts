@@ -235,7 +235,8 @@ function queryTerms(query: string): string[] {
 
 /**
  * `search_knowledge` and the chat search: the hybrid search, then layer 0
- * (Jev orders the hits by p(answers)). A hit that is not valid at `validAt`
+ * (Jev orders the hits by p(answers)). With `statesAnswerAt` above 0, each
+ * judged hit also has p(states the answer), for the "no answer" (CTX-1685). A hit that is not valid at `validAt`
  * (or now) comes after the valid hits. When Jev fails, the hits keep the
  * search order and the result says `judge_unavailable`. When the time
  * budget ends during the judge, they keep the search order and the result
@@ -291,7 +292,14 @@ async function search(
   // A Jev failure or the end of the time budget keeps the search order.
   let unjudged: SearchResult["partialReason"]
   const [judged, relations] = await Promise.all([
-    judge(inputs, query, "search", deadline, meter).catch((error: unknown) => {
+    judge(
+      inputs,
+      query,
+      "search",
+      deadline,
+      meter,
+      ORCHESTRATOR_DEFAULTS.statesAnswerAt > 0,
+    ).catch((error: unknown) => {
       // A Jev timeout is the end of the budget: Jev gets the rest of it.
       if (isBudgetSpent(error, deadline)) unjudged = "total_timeout"
       else if (error instanceof JevError) unjudged = "judge_unavailable"
@@ -317,6 +325,7 @@ async function search(
       const chunk = hit.chunks[0]
       const sha = heads.get(hit.workspaceId)?.sha
       if (!chunk || !sha) return []
+      const pStatesAnswer = judged?.[index]?.pStatesAnswer
       return [
         {
           order: index,
@@ -334,6 +343,7 @@ async function search(
           text: chunk.text,
           claims: claimsOf.get(documentId(refOf(hit))) ?? [],
           score: judged ? (judged[index]?.pAnswers ?? 0) : chunk.score,
+          ...(pStatesAnswer === undefined ? {} : { pStatesAnswer }),
         },
       ]
     },

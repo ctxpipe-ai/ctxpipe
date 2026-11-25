@@ -225,7 +225,7 @@ export function buildReport(input: {
     .flatMap((question) =>
       input.answers
         .filter((answer) => answer.question === question.id)
-        .map((answer) => scoreAnswer(question, answer, manifest.loop.keepAt)),
+        .map((answer) => scoreAnswer(question, answer, manifest.loop)),
     )
   const keptScores = new Map(
     (input.kept?.questions ?? []).map((score) => [

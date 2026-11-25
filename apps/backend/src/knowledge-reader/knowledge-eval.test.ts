@@ -237,7 +237,12 @@ describe('the retrieval metrics of a "no answer"', () => {
   const metricsOf = async (
     id: string,
     arm: "legacy" | "plane",
-    search: { scores: number[]; partialReason?: string },
+    search: {
+      scores: number[]
+      statesAnswer?: number[]
+      partialReason?: string
+    },
+    loop: { keepAt: number; [setting: string]: number } = { keepAt: 0.5 },
   ) => {
     const dataset = await readDataset(datasetFile)
     const question = dataset.questions.find((item) => item.id === id)
@@ -263,7 +268,7 @@ describe('the retrieval metrics of a "no answer"', () => {
         splits: ["dev"],
         now: "2026-11-24T00:00:00.000Z",
         settings: {},
-        loop: { keepAt: 0.5 },
+        loop,
         mode: "live",
         capUsd: 1,
         spentUsd: 0,
@@ -317,6 +322,58 @@ describe('the retrieval metrics of a "no answer"', () => {
       searchRecall50: null,
       noAnswer: 1,
     })
+  })
+
+  it('with statesAnswerAt, says "no answer" when no kept hit states the answer', async () => {
+    // CTX-1685: a hit counts as an answer only with p(answers) of at least
+    // keepAt and p(states the answer) of at least statesAnswerAt.
+    const answered = { recall5: 1, ndcg10: 1, searchRecall50: 1 }
+    const empty = { recall5: 0, ndcg10: 0, searchRecall50: 0 }
+    const loop = { keepAt: 0.5, statesAnswerAt: 0.6 }
+    expect(
+      retrieval(
+        await metricsOf(
+          "orm-dist-tag",
+          "plane",
+          { scores: [0.9], statesAnswer: [0.4] },
+          loop,
+        ),
+      ),
+    ).toEqual({ ...empty, noAnswer: null })
+    expect(
+      retrieval(
+        await metricsOf(
+          "orm-dist-tag",
+          "plane",
+          { scores: [0.9], statesAnswer: [0.7] },
+          loop,
+        ),
+      ),
+    ).toEqual({ ...answered, noAnswer: null })
+    // The second hit states the answer, but it is not kept.
+    expect(
+      (
+        await metricsOf(
+          "billing-provider",
+          "plane",
+          { scores: [0.9, 0.3], statesAnswer: [0.2, 0.9] },
+          loop,
+        )
+      )?.noAnswer,
+    ).toBe(1)
+    // A run with statesAnswerAt 0, or from before CTX-1685, reads keepAt
+    // alone.
+    for (const before of [{ keepAt: 0.5, statesAnswerAt: 0 }, { keepAt: 0.5 }])
+      expect(
+        (
+          await metricsOf(
+            "billing-provider",
+            "plane",
+            { scores: [0.9], statesAnswer: [0.2] },
+            before,
+          )
+        )?.noAnswer,
+      ).toBe(0)
   })
 })
 

@@ -83,6 +83,14 @@ export const ORCHESTRATOR_DEFAULTS = {
    * current (generation 11).
    */
   scopedAt: 0.6,
+  /**
+   * The search also asks Jev if each hit states the answer (CTX-1685). It
+   * says "no answer" when no hit has p(answers) of at least `keepAt` and
+   * p(states the answer) of at least this value. 0: the search does not ask
+   * the question, and only `keepAt` decides. Only the eval reads the "no
+   * answer" (CTX-1164 adds it to `search_knowledge`).
+   */
+  statesAnswerAt: 0,
 }
 
 /** The model calls of one retrieval, for the shadow log (no content). */
@@ -169,7 +177,7 @@ export type JudgeInput = {
   text: string
 }
 
-type Judgment = { pAnswers: number; pExplore: number }
+type Judgment = { pAnswers: number; pExplore: number; pStatesAnswer?: number }
 
 /** The metadata of a document that Jev reads with its text. */
 export function jevMeta(document: KnowledgeDocument): CandidateMeta {
@@ -184,7 +192,8 @@ export function jevMeta(document: KnowledgeDocument): CandidateMeta {
 }
 
 /**
- * Judge `inputs` for `question` in one layer, before `deadline`. Throws the
+ * Judge `inputs` for `question` in one layer, before `deadline`. With
+ * `statesAnswer`, also p(states the answer) (the search, CTX-1685). Throws the
  * `JevError` of a failed call. Jev reads only text: an image goes to Jev as
  * its text, never as its bytes (ADR-068 decision 6).
  *
@@ -199,6 +208,7 @@ export async function judge(
   intent: string,
   deadline: number,
   meter: ModelMeter,
+  statesAnswer = false,
 ): Promise<Judgment[]> {
   if (inputs.length === 0) return []
   meter.jevCalls += Math.ceil(inputs.length / JEV_BATCH)
@@ -212,6 +222,7 @@ export async function judge(
       intent,
       timeoutMs: callTimeLimitMs(deadline),
       batchSize: JEV_BATCH,
+      statesAnswer,
       candidates: inputs.map((input) => ({
         id: idOf(input),
         text: input.text,

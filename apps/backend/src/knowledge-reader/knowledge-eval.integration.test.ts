@@ -134,6 +134,9 @@ function jevReply(
     const relevant = titles.some((title) => candidate.includes(title))
     answers[`answers.${n}`] = { type: "noul", noul: relevant ? 0.9 : 0.1 }
     answers[`explore.${n}`] = { type: "noul", noul: relevant ? 0.9 : 0.1 }
+    // Only a search with `statesAnswerAt` above 0 asks it (CTX-1685).
+    if (`states.${n}` in body.questions)
+      answers[`states.${n}`] = { type: "noul", noul: relevant ? 0.7 : 0.1 }
   })
   return { usage, answers }
 }
@@ -969,6 +972,93 @@ describe("the knowledge eval harness", () => {
     expect(markdown).toContain(
       "| holdout | 4 | Jev questions / question | 49.000 | 35.750 | -13.250 |",
     )
+  })
+
+  it('statesAnswerAt: the search also asks if each hit states the answer, and a rescore moves the "no answer" with no model call', async () => {
+    const stored = await readRun(join(folder, "live"))
+    const asked = await run("states", {
+      settings: { statesAnswerAt: 0.5 },
+      reuse: { folder: join(folder, "live"), run: stored },
+    })
+    expect(asked.status).toBe("complete")
+    const recorded = await readRun(join(folder, "states"))
+    // Only the search of the plane asks the question, after the two
+    // questions of each candidate. get_related sends its recorded requests.
+    const judged = recorded.calls.flatMap((call) => {
+      const request = call.request as {
+        state: string[]
+        questions: Record<string, unknown>
+      }
+      const keys = Object.keys(request.questions ?? {})
+      if (!keys.some((key) => key.startsWith("answers."))) return []
+      return [
+        {
+          search: request.state.includes("Intent: <data>search</data>"),
+          states: keys.filter((key) => key.startsWith("states.")).length,
+          last: keys.at(-1) ?? "",
+          candidates: keys.filter((key) => key.startsWith("answers.")).length,
+        },
+      ]
+    })
+    expect(judged.some((call) => !call.search)).toBe(true)
+    for (const call of judged)
+      expect(call).toEqual(
+        call.search
+          ? {
+              ...call,
+              states: call.candidates,
+              last: `states.${call.candidates}`,
+            }
+          : { ...call, states: 0 },
+      )
+    expect(asked.run.reuse?.live).toBe(
+      judged.filter((call) => call.search).length,
+    )
+    // The run records p(states the answer) of each hit of the plane search.
+    for (const answer of recorded.answers) {
+      const search = "error" in answer.search ? null : answer.search
+      expect(search?.statesAnswer?.length).toBe(
+        answer.arm === "plane" ? search?.refs.length : undefined,
+      )
+    }
+    // Jev says that each gold hit states the answer with 0.7: at 0.5 each
+    // "no answer" is the same as with keepAt alone.
+    const metricsOf = (report: Report) =>
+      report.questions.map(({ arm, question, metrics }) => ({
+        arm,
+        question,
+        metrics,
+      }))
+    expect(metricsOf(asked)).toEqual(metricsOf(live))
+
+    // At 0.8, no hit states the answer, so each plane search says "no
+    // answer". The recorded calls hold each question, so the rescore makes
+    // no model call.
+    const before = { ...requests }
+    const rescored = await run("states-rescore", {
+      settings: { statesAnswerAt: 0.8 },
+      capUsd: 0,
+      replay: { calls: recorded.calls },
+      now: new Date(recorded.manifest.now),
+    })
+    expect(requests).toEqual(before)
+    expect(rescored.incomplete).toEqual([])
+    const plane = rescored.questions.filter(
+      (question) => question.arm === "plane",
+    )
+    const recall5 = (report: Report) =>
+      report.questions
+        .filter(
+          (question) =>
+            question.arm === "plane" && question.category !== "no-answer",
+        )
+        .map((question) => question.metrics.recall5)
+    expect(recall5(live).some((value) => value && value > 0)).toBe(true)
+    expect(recall5(rescored).every((value) => value === 0)).toBe(true)
+    expect(
+      plane.find((question) => question.question === "billing-provider")
+        ?.metrics.noAnswer,
+    ).toBe(1)
   })
 
   it("scores a change of a fact threshold again from the kept calls, with no model call", async () => {

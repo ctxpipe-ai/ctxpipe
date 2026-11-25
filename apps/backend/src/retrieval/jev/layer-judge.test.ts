@@ -115,6 +115,37 @@ describe("judgeLayer", () => {
     )
   })
 
+  it("asks if each candidate states the answer only with statesAnswer, after the two questions of each candidate", async () => {
+    server.use(answering)
+    const result = await judgeLayer({
+      question: "Who owns checkout?",
+      intent: "search",
+      candidates: textCandidates(2),
+      statesAnswer: true,
+    })
+
+    const [{ body }] = requests as [(typeof requests)[number]]
+    // The start of the request is the same as without the question.
+    expect(Object.keys(body.questions)).toEqual([
+      "answers.1",
+      "explore.1",
+      "answers.2",
+      "explore.2",
+      "states.1",
+      "states.2",
+    ])
+    expect(body.questions["states.2"]).toEqual({
+      type: "noul",
+      instructions: "Does Candidate 2 state the answer to the question?",
+    })
+    expect(result).toEqual(
+      new Map([
+        ["c0", { pAnswers: 0.1, pExplore: 0.01, pStatesAnswer: 0.01 }],
+        ["c1", { pAnswers: 0.2, pExplore: 0.02, pStatesAnswer: 0.02 }],
+      ]),
+    )
+  })
+
   it("splits the candidates into parallel batches, each with no retention, with one span each", async () => {
     let inFlight = 0
     let maxInFlight = 0
