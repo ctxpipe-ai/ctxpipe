@@ -977,9 +977,9 @@ describe("users and mutations", () => {
     await expect(
       rawRows(rawClient(readerUrl), "SELECT name FROM system.parts"),
     ).rejects.toThrow(denied)
-    await expect(reader.partsLeft(["documents/all_1_1_0"])).rejects.toThrow(
-      denied,
-    )
+    await expect(
+      reader.partsLeft([{ table: "documents", part: "all_1_1_0" }]),
+    ).rejects.toThrow(denied)
   })
 
   it("a second migration sets a new password and keeps the grants", async () => {
@@ -1026,7 +1026,7 @@ describe("users and mutations", () => {
       knowledgeRowCounts(rawClient(adminUrl), scope, { inParts: true })
     /** Erases the purged rows, and waits until the parts hold none. */
     const erase = async (scope: PurgeScope) => {
-      expect(await writer.erasePurged(scope)).not.toEqual([])
+      expect(await writer.erasePurged(scope)).toBeGreaterThan(0)
       await vi.waitFor(
         async () => expect(await writer.purgedRowsInParts(scope)).toBe(0),
         { timeout: 30_000, interval: 200 },
@@ -1063,7 +1063,7 @@ describe("users and mutations", () => {
     expect(await rowsOfScope(sibling)).toEqual(seeded)
     expect(await rowsInParts(otherOrg)).toEqual(seeded)
     // An erase with no purged rows left in the parts changes nothing.
-    expect(await writer.erasePurged(workspace)).toEqual([])
+    expect(await writer.erasePurged(workspace)).toBe(0)
 
     const org = { orgId: "org_purge", workspaceId: null }
     expect(await writer.purge(org)).toEqual(seeded)

@@ -95,36 +95,41 @@ export async function migrateKnowledgeStore(
         migration: name,
       })
     }
-    await setUser(client, "ctxpipe_reader", passwords.reader, "SELECT")
     await setUser(
       client,
-      "ctxpipe_writer",
-      passwords.writer,
-      "SELECT, INSERT, ALTER DELETE",
+      "ctxpipe_reader",
+      passwords.reader,
+      onKnowledgeTables("SELECT"),
+    )
+    await setUser(client, "ctxpipe_writer", passwords.writer, [
+      ...onKnowledgeTables("SELECT, INSERT, ALTER DELETE"),
       // The erase after a purge waits until the parts that held the purged
       // rows are gone from the disk (CTX-1672, ADR-066 decision 9). Only
       // the names of the parts: ClickHouse shows a user only the parts of
       // the tables that it can read, and no column of a row.
       "SELECT(database, table, name) ON system.parts",
-    )
+    ])
   } finally {
     await client.close()
   }
 }
 
+/** `privileges` on each knowledge table of the current database. */
+function onKnowledgeTables(privileges: string): string[] {
+  return KNOWLEDGE_TABLES.map((table) => `${privileges} ON ${table}`)
+}
+
 /**
- * Makes the user `name`, or sets its password, and gives it `privileges` on
- * the knowledge tables of the current database, and `extraGrant` if given,
- * and nothing more (ADR-066 decision 9). The user gets no access management, so it cannot drop a row
- * policy or a constraint. The row policies are `TO ALL`, so they also apply
- * to this user.
+ * Makes the user `name`, or sets its password, and gives it `grants`, and
+ * nothing more (ADR-066 decision 9). The user gets no access management,
+ * so it cannot drop a row policy or a constraint. The row policies are
+ * `TO ALL`, so they also apply to this user.
  */
 async function setUser(
   client: ClickHouseClient,
   name: string,
   password: string | undefined,
-  privileges: string,
-  extraGrant?: string,
+  grants: string[],
 ): Promise<void> {
   if (!password) {
     log.info({
@@ -147,10 +152,7 @@ async function setUser(
   await client.command({ query: `ALTER USER ${name} ${identified}` })
   // WITH REPLACE OPTION removes each grant that is not in this statement.
   await client.command({
-    query: `GRANT ${[
-      ...KNOWLEDGE_TABLES.map((table) => `${privileges} ON ${table}`),
-      ...(extraGrant ? [extraGrant] : []),
-    ].join(", ")} TO ${name} WITH REPLACE OPTION`,
+    query: `GRANT ${grants.join(", ")} TO ${name} WITH REPLACE OPTION`,
   })
   log.info({
     step: "migrate",

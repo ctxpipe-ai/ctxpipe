@@ -1,0 +1,11 @@
+<clickhouse>
+  <!-- For the tests of the erase after a purge (CTX-1672): the server keeps a replaced part for 8 minutes
+       (old_parts_lifetime), and its cleanup waits up to 5 minutes when it has nothing to do. A test cannot wait that
+       long. Here, the cleanup runs each second and removes a replaced part after one second. -->
+  <merge_tree>
+    <old_parts_lifetime>1</old_parts_lifetime>
+    <cleanup_delay_period>1</cleanup_delay_period>
+    <max_cleanup_delay_period>1</max_cleanup_delay_period>
+    <cleanup_delay_period_random_add>0</cleanup_delay_period_random_add>
+  </merge_tree>
+</clickhouse>

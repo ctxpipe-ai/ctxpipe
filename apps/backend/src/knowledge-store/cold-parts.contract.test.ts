@@ -26,7 +26,10 @@ let clickHouse: Awaited<ReturnType<typeof startClickHouse>>
 
 beforeAll(async () => {
   // The disk cold is object storage, as the S3 disk of the hosted node.
-  clickHouse = await startClickHouse({ objectStorageCold: true })
+  clickHouse = await startClickHouse({
+    objectStorageCold: true,
+    fastPartCleanup: true,
+  })
 }, 240_000)
 
 afterAll(async () => {
@@ -119,8 +122,6 @@ describe("old knowledge parts", () => {
       { timeout: 60_000, interval: 500 },
     )
 
-    await clickHouse.shortenPartCleanup(url, tables)
-
     const store = createKnowledgeStore(url)
     try {
       await store.purge(purged)
@@ -165,11 +166,14 @@ describe("old knowledge parts", () => {
         expect(await clickHouse.fileExists(object), object).toBe(true)
 
       // Each table has one part of the purged org.
-      const erased = await store.erasePurged(purged)
-      expect(erased.sort()).toEqual(before.sort())
-      expect(before.map((part) => part.split("/")[0]).sort()).toEqual(
+      const erased = await store.findPurgedParts(purged)
+      expect(
+        erased.map(({ table, part }) => `${table}/${part}`).sort(),
+      ).toEqual(before.sort())
+      expect(erased.map(({ table }) => table).sort()).toEqual(
         [...tables].sort(),
       )
+      expect(await store.erasePurged(purged)).toBe(tables.length)
       await vi.waitFor(
         async () => expect(await store.purgedRowsInParts(purged)).toBe(0),
         { timeout: 30_000, interval: 200 },

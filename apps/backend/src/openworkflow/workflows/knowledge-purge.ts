@@ -81,30 +81,30 @@ export const knowledgePurge = defineWorkflow(
       maximumAttempts: 30,
     } as const
     // The first step queues the next purge run of the scope, one day later.
-    // A run that ends with no error cancels it. A run that fails (a step
-    // that still fails after its retries, as while ClickHouse is down)
-    // leaves it, and the next run queues its own next run first. Thus the
-    // purge and the erase start again each day until one run ends, with no
-    // operator (ADR-066 decision 9). This step retries each hour until it
-    // succeeds, so no run ends before the next run is queued.
-    const next = url
-      ? await step.run(
-          {
-            name: "queue-next-purge",
-            retryPolicy: {
-              ...retryPolicy,
-              maximumAttempts: Number.MAX_SAFE_INTEGER,
-            },
+    // A run that ends with no error cancels the queued runs of its scope. A
+    // run that fails (a step that still fails after its retries, as while
+    // ClickHouse is down) leaves its next run, and the next run queues its
+    // own next run first. Thus the purge and the erase start again each day
+    // until one run ends, with no operator (ADR-066 decision 9). This step
+    // retries each hour until it succeeds, so no run ends before its next
+    // run is queued.
+    if (url)
+      await step.run(
+        {
+          name: "queue-next-purge",
+          retryPolicy: {
+            ...retryPolicy,
+            maximumAttempts: Number.MAX_SAFE_INTEGER,
           },
-          async () => {
-            const handle = await enqueueWorkflow(knowledgePurge.spec, input, {
-              availableAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-              idempotencyKey: `knowledge-purge-next:${run.id}`,
-            })
-            return handle.workflowRun.id
-          },
-        )
-      : null
+        },
+        async () => {
+          const handle = await enqueueWorkflow(knowledgePurge.spec, input, {
+            availableAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+            idempotencyKey: `knowledge-purge-next:${run.id}`,
+          })
+          return handle.workflowRun.id
+        },
+      )
     let idle = 0
     // A sleeping run holds no worker slot, as in the projection.
     for (let check = 0; ; check++) {
@@ -114,7 +114,7 @@ export const knowledgePurge = defineWorkflow(
       if (!wait) break
       if (wait === "workspace" && ++idle >= IDLE_WORKSPACE_CHECKS)
         return step.run({ name: "workspace-kept" }, async () => {
-          if (next) await cancelRun(next)
+          await cancelQueuedPurges(input)
           getLogger().set({
             step: "knowledge-purge",
             knowledgePurge: { outcome: "workspace_kept" },
@@ -154,9 +154,14 @@ export const knowledgePurge = defineWorkflow(
     // The DELETEs only hid the rows. The erase removes their bytes from the
     // parts (CTX-1672), also when these DELETEs found no row: an earlier
     // attempt of the purge step, or an earlier run, can have hidden them.
+    // The parts to wait for, in a step of their own: a retry of the erase
+    // finds no hidden row in a part that a mutation already rewrote.
     const parts = await step.run(
-      { name: "erase-purged-rows", retryPolicy },
-      () => withStore(url, (store) => store.erasePurged(input)),
+      { name: "find-purged-parts", retryPolicy },
+      () => withStore(url, (store) => store.findPurgedParts(input)),
+    )
+    await step.run({ name: "erase-purged-rows", retryPolicy }, () =>
+      withStore(url, (store) => store.erasePurged(input)),
     )
     // Done when the active parts hold no row of the scope, and the parts
     // that held them are gone from the disk. A part that a merge made
@@ -184,7 +189,7 @@ export const knowledgePurge = defineWorkflow(
       await step.sleep(`await-erase-${check}`, "10 minutes")
     }
     return step.run({ name: "erased" }, async () => {
-      if (next) await cancelRun(next)
+      await cancelQueuedPurges(input)
       getLogger().set({
         step: "knowledge-purge",
         knowledgePurge: { outcome: "erased" },
@@ -193,6 +198,22 @@ export const knowledgePurge = defineWorkflow(
     })
   },
 )
+
+/**
+ * Cancels the purge runs of `scope` that wait for their start time: the
+ * next runs that this run, and a run before it, queued.
+ */
+async function cancelQueuedPurges(scope: PurgeScope): Promise<void> {
+  const queued = await getSystemDb().execute<{ id: string }>(sql`
+    select id from openworkflow.workflow_runs
+    where namespace_id = ${openWorkflowNamespaceId()}
+      and workflow_name = 'knowledge-purge'
+      and status = 'pending' and available_at > now()
+      and input->>'orgId' = ${scope.orgId}
+      and input->'workspaceId' = ${JSON.stringify(scope.workspaceId)}::jsonb
+  `)
+  for (const { id } of queued.rows) await cancelRun(id)
+}
 
 /** Runs `use` with a store of the writer at `url`, and closes the store. */
 async function withStore<T>(

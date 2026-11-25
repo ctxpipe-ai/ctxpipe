@@ -9,7 +9,6 @@ import { purgeOrgDataBeforeAuthDelete } from "../../domain/repositoryDeletion.js
 import { postgresSandboxLocks } from "../../domain/workspaces/sandbox-lock-store.js"
 import {
   createKnowledgeStore,
-  KNOWLEDGE_TABLES,
   type KnowledgeScope,
   NO_KNOWLEDGE_ROWS,
 } from "../../knowledge-store/knowledge-store.js"
@@ -46,14 +45,14 @@ let adminUrl: string
 let writerUrl: string
 
 beforeAll(async () => {
-  clickhouse = await startClickHouse()
+  // The erase waits until the replaced parts are gone from the disk.
+  clickhouse = await startClickHouse({ fastPartCleanup: true })
   adminUrl = await clickhouse.freshDatabase()
   await migrateKnowledgeStore(adminUrl, {
     reader: "reader-test",
     writer: "writer-test",
   })
   writerUrl = userUrl(adminUrl, "ctxpipe_writer", "writer-test")
-  await clickhouse.shortenPartCleanup(adminUrl, KNOWLEDGE_TABLES)
 }, 240_000)
 
 afterAll(async () => {

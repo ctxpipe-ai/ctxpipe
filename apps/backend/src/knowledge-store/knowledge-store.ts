@@ -51,6 +51,12 @@ export type PurgeScope = { orgId: string; workspaceId: string | null }
 /** The count of rows that a purge deleted from each knowledge table. */
 export type PurgeCounts = Record<(typeof KNOWLEDGE_TABLES)[number], number>
 
+/** A part of a knowledge table, by its name in `system.parts`. */
+export type PurgedPart = {
+  table: (typeof KNOWLEDGE_TABLES)[number]
+  part: string
+}
+
 /** The counts of a scope with no rows. */
 export const NO_KNOWLEDGE_ROWS: Readonly<PurgeCounts> = {
   documents: 0,
@@ -426,28 +432,32 @@ export type KnowledgeStore = {
    */
   purge(scope: PurgeScope): Promise<PurgeCounts>
   /**
+   * The active parts that hold rows of `scope`, also rows that a DELETE
+   * hid. Read them after {@link purge} and before {@link erasePurged}:
+   * {@link partsLeft} then tells when ClickHouse removed them (CTX-1672).
+   */
+  findPurgedParts(scope: PurgeScope): Promise<PurgedPart[]>
+  /**
    * After {@link purge}: makes ClickHouse rewrite each part that holds a
    * deleted row of `scope`, without its deleted rows (CTX-1672). A DELETE
    * only hides a row, and its bytes stay in the part, also on the cold
    * volume, until a merge rewrites the part. Each table gets one
    * `APPLY DELETED MASK` for each month partition with rows of the scope,
    * so that a part of another month stays as it is. The mutations run in
-   * the background. Returns the parts that held rows of the scope
-   * (`<table>/<part name>`): {@link purgedRowsInParts} and
-   * {@link partsLeft} tell when the erase is done.
+   * the background. Returns the count of mutations.
    */
-  erasePurged(scope: PurgeScope): Promise<string[]>
+  erasePurged(scope: PurgeScope): Promise<number>
   /**
    * The count of rows of `scope` that the active parts of the knowledge
    * tables hold, also the rows that a DELETE hid.
    */
   purgedRowsInParts(scope: PurgeScope): Promise<number>
   /**
-   * The count of `parts` (from {@link erasePurged}) that are still on the
-   * disk, active or replaced. ClickHouse removes a replaced part some
+   * The count of `parts` (from {@link findPurgedParts}) that are still on
+   * the disk, active or replaced. ClickHouse removes a replaced part some
    * minutes after the mutation that replaced it.
    */
-  partsLeft(parts: string[]): Promise<number>
+  partsLeft(parts: PurgedPart[]): Promise<number>
   /**
    * The stored vector of each key of `embeddingKeys` that a chunk of a
    * document of `docKeys` has (any file version), in the Workspace of
@@ -583,6 +593,7 @@ export function createKnowledgeStore(url: string | undefined): KnowledgeStore {
     cleanUp: (scope, input, counter) =>
       cleanUp(client, scope, input, counted(counter)),
     purge: (scope) => purge(client, scope),
+    findPurgedParts: (scope) => findPurgedParts(client, scope),
     erasePurged: (scope) => erasePurged(client, scope),
     purgedRowsInParts: (scope) => purgedRowsInParts(client, scope),
     partsLeft: (parts) => partsLeft(client, parts),
@@ -1265,6 +1276,18 @@ async function purgedParts(
   ).map((row) => ({ ...row, rows: Number(row.rows) }))
 }
 
+/** The parts of {@link KnowledgeStore.findPurgedParts}. */
+async function findPurgedParts(
+  client: ClickHouseClient,
+  scope: PurgeScope,
+): Promise<PurgedPart[]> {
+  const found: PurgedPart[] = []
+  for (const table of KNOWLEDGE_TABLES)
+    for (const { part } of await purgedParts(client, table, scope))
+      found.push({ table, part })
+  return found
+}
+
 /**
  * The erase of {@link KnowledgeStore.erasePurged}. `APPLY DELETED MASK`
  * removes only the rows that a DELETE hid, so it cannot remove a visible
@@ -1276,8 +1299,8 @@ async function purgedParts(
 async function erasePurged(
   client: ClickHouseClient,
   scope: PurgeScope,
-): Promise<string[]> {
-  const erased: string[] = []
+): Promise<number> {
+  let mutations = 0
   for (const table of KNOWLEDGE_TABLES) {
     const parts = await purgedParts(client, table, scope)
     for (const partition of new Set(parts.map((part) => part.partition))) {
@@ -1292,10 +1315,10 @@ async function erasePurged(
         // part can take longer than one HTTP request.
         clickhouse_settings: { mutations_sync: "0" },
       })
+      mutations += 1
     }
-    erased.push(...parts.map(({ part }) => `${table}/${part}`))
   }
-  return erased
+  return mutations
 }
 
 /** The count of {@link KnowledgeStore.purgedRowsInParts}. */
@@ -1317,14 +1340,17 @@ async function purgedRowsInParts(
  */
 async function partsLeft(
   client: ClickHouseClient,
-  parts: string[],
+  parts: PurgedPart[],
 ): Promise<number> {
   if (parts.length === 0) return 0
   const result = await client.query({
     query: `SELECT count() AS parts FROM system.parts
             WHERE database = currentDatabase()
               AND concat(table, '/', name) IN {parts:Array(String)}`,
-    query_params: { parts },
+    // A table name has no slash, so table/part names one part.
+    query_params: {
+      parts: parts.map(({ table, part }) => `${table}/${part}`),
+    },
     format: "JSONEachRow",
   })
   const [row] = await result.json<{ parts: string }>()

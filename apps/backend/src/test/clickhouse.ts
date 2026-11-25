@@ -66,6 +66,7 @@ export async function knowledgeRowCounts(
  */
 export async function startClickHouse({
   objectStorageCold = false,
+  fastPartCleanup = false,
 }: {
   /**
    * The disk cold is an object storage disk with its objects in a local
@@ -73,6 +74,11 @@ export async function startClickHouse({
    * hosted node.
    */
   objectStorageCold?: boolean
+  /**
+   * The server removes a replaced part after one second, not 8 minutes
+   * (clickhouse-fast-part-cleanup.xml).
+   */
+  fastPartCleanup?: boolean
 } = {}): Promise<{
   serverUrl: string
   /** A new database with the migrated tables. Returns its URL. */
@@ -90,13 +96,6 @@ export async function startClickHouse({
   restart(): Promise<void>
   /** Whether the file `path` is in the container of the server. */
   fileExists(path: string): Promise<boolean>
-  /**
-   * The server keeps a replaced part for 8 minutes, and its cleanup waits
-   * up to 5 minutes when it has nothing to do. A test cannot wait that
-   * long: this makes the cleanup of `tables` of the database at `url` run
-   * each second, and removes a replaced part after one second.
-   */
-  shortenPartCleanup(url: string, tables: readonly string[]): Promise<void>
   stop(): Promise<void>
 }> {
   const container = `ctxpipe-knowledge-${randomUUID().slice(0, 8)}`
@@ -135,6 +134,14 @@ export async function startClickHouse({
       ),
       // After storage.xml in the order of the names: it replaces the disk.
       `${container}:/etc/clickhouse-server/config.d/zz-cold-object-storage.xml`,
+    )
+  if (fastPartCleanup)
+    await docker(
+      "cp",
+      fileURLToPath(
+        new URL("./clickhouse-fast-part-cleanup.xml", import.meta.url),
+      ),
+      `${container}:/etc/clickhouse-server/config.d/fast-part-cleanup.xml`,
     )
   await docker("start", container)
   const clients: ClickHouseClient[] = []
@@ -187,32 +194,20 @@ export async function startClickHouse({
         await waitUntilStarted()
       },
       async fileExists(path) {
-        try {
-          await docker("exec", container, "test", "-e", path)
-          return true
-        } catch (error) {
-          // Exit code 1 of `test -e`: no such file. Each other failure (of
-          // Docker, or a timeout) is no proof.
-          if ((error as { code?: unknown }).code === 1) return false
-          throw error
-        }
-      },
-      async shortenPartCleanup(url, tables) {
-        const client = createClient({ url })
-        try {
-          for (const table of tables)
-            await client.command({
-              query: `ALTER TABLE ${table} MODIFY SETTING old_parts_lifetime = 1,
-                cleanup_delay_period = 1, max_cleanup_delay_period = 1,
-                cleanup_delay_period_random_add = 0`,
-            })
-        } finally {
-          await client.close()
-        }
-        // The cleanup of a table read its delay before this change: a
-        // restart starts it again with the new settings.
-        await docker("restart", "--time", "0", container)
-        await waitUntilStarted()
+        // The answer comes from the output, so that each Docker failure
+        // throws and is no answer.
+        const answer = await docker(
+          "exec",
+          container,
+          "sh",
+          "-c",
+          'if test -e "$1"; then echo yes; else echo no; fi',
+          "sh",
+          path,
+        )
+        if (answer !== "yes" && answer !== "no")
+          throw new Error(`Unexpected answer of test -e: ${answer}`)
+        return answer === "yes"
       },
       stop,
     }
