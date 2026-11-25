@@ -219,7 +219,6 @@ export const workspaceSemanticMerge = defineWorkflow(
         ) {
           const next = await acquireOnCurrentTip(step, input, revision, env, {
             refresh: refreshAttempt === 0,
-            retryPolicy: { maximumAttempts: 3 },
           })
           const { acquired } = next
           revision = next.revision

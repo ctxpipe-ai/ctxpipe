@@ -93,14 +93,12 @@ export async function acquireOnCurrentTip(
   command: WriteCommand & { jobId: string; previousSha?: string },
   revision: WorkspaceRevision,
   env: Env,
-  options: { refresh: boolean; retryPolicy?: { maximumAttempts: number } },
+  options: { refresh: boolean },
 ): Promise<{ acquired: Acquired; revision: WorkspaceRevision }> {
   for (;;) {
     const candidate = await step.run(
-      {
-        name: "acquire-revision-v2",
-        ...(options.retryPolicy ? { retryPolicy: options.retryPolicy } : {}),
-      },
+      // A read and a check: safe to retry.
+      { name: "acquire-revision-v2", retryPolicy: { maximumAttempts: 3 } },
       async (): Promise<
         (Acquired & { revision?: WorkspaceRevision }) | null
       > => {

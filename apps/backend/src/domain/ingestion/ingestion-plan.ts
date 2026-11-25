@@ -46,15 +46,6 @@ export function ingestShardCount(roots: number, maxRoots: number): number {
   return Math.ceil(roots / maxRoots)
 }
 
-/** The roots that `roots` shard `shard` runs: its part of the run's list. */
-export function ingestShardRoots<T>(
-  roots: readonly T[],
-  shard: number,
-  maxRoots: number,
-): T[] {
-  return roots.slice(shard * maxRoots, (shard + 1) * maxRoots)
-}
-
 export type IngestSkillPlan = {
   name: string
   /**

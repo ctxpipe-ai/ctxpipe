@@ -4,7 +4,8 @@ import { and, eq, inArray, sql } from "drizzle-orm"
 
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { workspaceSources } from "../../db/schema/workspace_sources.js"
-import { DEFAULT_OPENWORKFLOW_CONCURRENCY } from "../../openworkflow/codesearchCapacity.js"
+import { CODESEARCH_SIZE_CAPACITY } from "../../openworkflow/codesearchCapacity.js"
+import { ingestWorkerShare } from "../../openworkflow/ingest-worker-share.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { ingestionRunTree } from "../ingestion/ingest-spend.js"
 import {
@@ -82,13 +83,21 @@ const ESTIMATE = {
   /** Index, discovery, assemble and publish. */
   setupMinutes: { low: 3, high: 8 },
   /**
-   * Shards of one repository that run at the same time. The v2 workflow
-   * starts up to `INGEST_SHARD_WINDOW` shards (low). The worker slots of
-   * ADR-027 can run fewer: the default worker concurrency (high).
+   * Shards of one repository that run at the same time: the worker share of
+   * the shards, half of the worker slots (ADR-052). The low time takes half
+   * of the largest cluster budget of ADR-027, the high time the share of one
+   * worker with the default concurrency.
    */
   parallelShards: {
-    low: INGEST_SHARD_WINDOW,
-    high: DEFAULT_OPENWORKFLOW_CONCURRENCY,
+    low: Math.min(
+      INGEST_SHARD_WINDOW,
+      Math.max(
+        ...Object.values(CODESEARCH_SIZE_CAPACITY).map(
+          (size) => size.clusterWorkflowBudget,
+        ),
+      ) / 2,
+    ),
+    high: ingestWorkerShare({}),
   },
 } as const
 

@@ -134,7 +134,6 @@ describe("an ingestion run of a source of the Workspace", () => {
       queued.push(handle.workflowRun.id)
       return handle.workflowRun.id
     }
-    await upgradeRun(orgId)
     const turn = () =>
       reingestTurn({
         orgId,

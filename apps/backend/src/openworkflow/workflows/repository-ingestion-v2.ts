@@ -64,10 +64,11 @@ import {
 } from "../../domain/workspaces/write-broker.js"
 import { getWorkspaceWriteAdmission } from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
+import { windowedChildren } from "../child-runs.js"
 import { withCrashLoopGuard } from "../crash-loop.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { openWorkflowExecution } from "../execution-lease.js"
-import { cleanUpUnlessParked, windowedChildren } from "../isSleepSignal.js"
+import { cleanUpUnlessParked } from "../isSleepSignal.js"
 import {
   addStepFailures,
   guardedSkillStep,

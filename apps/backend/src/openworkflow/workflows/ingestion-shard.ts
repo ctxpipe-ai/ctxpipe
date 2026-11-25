@@ -47,7 +47,6 @@ import {
   type IngestSkillPlan,
   ingestRootMap,
   ingestRunSkills,
-  ingestShardRoots,
   plannedShardMaxRoots,
   skillStepName,
 } from "../../domain/ingestion/ingestion-plan.js"
@@ -258,6 +257,15 @@ export function shardTreeHolder(
   return `${input.mode}:${input.shard}`
 }
 
+/** The roots that a `roots` shard runs: its part of the run's list. */
+function shardRoots(
+  roots: readonly IngestionRoot[],
+  shard: number,
+  maxRoots: number,
+): IngestionRoot[] {
+  return roots.slice(shard * maxRoots, (shard + 1) * maxRoots)
+}
+
 export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
   const env = deps.env ?? (() => parseEnv(process.env))
   return defineWorkflow(
@@ -318,7 +326,7 @@ export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
         )
         const roots =
           input.mode === "roots"
-            ? ingestShardRoots(
+            ? shardRoots(
                 input.roots,
                 input.shard,
                 plannedShardMaxRoots(input.shardMaxRoots),

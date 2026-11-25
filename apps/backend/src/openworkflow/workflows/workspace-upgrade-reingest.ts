@@ -47,10 +47,11 @@ import {
   plainGitRefusalReason,
   resolvePlainGitTip,
 } from "../../services/git/plain-git-remote.js"
+import { settledChildren } from "../child-runs.js"
 import { enqueueWorkflow } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { enqueueWorkspaceHydrate } from "../enqueue-workspace-hydrate.js"
-import { isWorkflowControlSignal, settledChildren } from "../isSleepSignal.js"
+import { isWorkflowControlSignal } from "../isSleepSignal.js"
 import { workflowRunEnded } from "../run-ended.js"
 import type { IngestStepFailures } from "./ingestion-shard.js"
 import { repositoryIngestionV2 } from "./repository-ingestion-v2.js"
