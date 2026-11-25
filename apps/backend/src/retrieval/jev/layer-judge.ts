@@ -1,10 +1,11 @@
 // The layer judge of ADR-068 decision 2. For each candidate of one layer of
 // the traversal, Jev answers two yes/no questions: p(answers) gives the
-// final order, and p(explore) picks the next frontier. Each question asks
-// for one judgment. The metadata line stays in the state, because a
-// question about a time needs the dates of a candidate to judge relevance.
-// No question asks Jev to weigh the metadata: code applies the status and
-// the validity (ADR-068 decision 2).
+// final order, and p(explore) picks the next frontier. The search can ask a
+// third question, p(states the answer), for its "no answer" (CTX-1685).
+// Each question asks for one judgment. The metadata line stays in the
+// state, because a question about a time needs the dates of a candidate to
+// judge relevance. No question asks Jev to weigh the metadata: code applies
+// the status and the validity (ADR-068 decision 2).
 import { decideNoul, type JevQuestion, type JevState } from "./client.js"
 import {
   type CandidateMeta,
@@ -16,21 +17,29 @@ import {
 /** One candidate: its text. An image candidate gives the text of the image. */
 export type LayerCandidate = { id: string; meta: CandidateMeta; text: string }
 
-type LayerJudgment = { pAnswers: number; pExplore: number }
+type LayerJudgment = {
+  pAnswers: number
+  pExplore: number
+  /** Only when the call asks it (`askStatesAnswer`). */
+  pStatesAnswer?: number
+}
 
 /**
- * The wording of the two questions about Candidate `n`. The evals of ADR-069
+ * The wording of the questions about Candidate `n`. The evals of ADR-069
  * tune it.
  */
 const QUESTIONS = {
   answers: (n: number) => `Does Candidate ${n} help answer the question?`,
   explore: (n: number) =>
     `Must the search explore the items that are related to Candidate ${n} to answer the question?`,
+  statesAnswer: (n: number) =>
+    `Does Candidate ${n} state the answer to the question?`,
 }
 
 /**
  * Judge the candidates of one layer for the `question`. Returns p(answers)
- * and p(explore) for each candidate id. The candidates go to Jev in batches
+ * and p(explore) for each candidate id, and p(states the answer) when
+ * `askStatesAnswer` is true. The candidates go to Jev in batches
  * of at most `batchSize` (CTX-1391 measures the real limit), and the batches
  * run in parallel. Each batch is one Jev call with one span. A failure of
  * any batch throws its `JevError`: this function has no fallback. The ids
@@ -48,6 +57,7 @@ export async function judgeLayer({
   candidates,
   batchSize = 25,
   timeoutMs = 30_000,
+  askStatesAnswer = false,
 }: {
   question: string
   /** What the caller wants from the answer, for example "why" or "status". */
@@ -55,6 +65,12 @@ export async function judgeLayer({
   candidates: readonly LayerCandidate[]
   batchSize?: number
   timeoutMs?: number
+  /**
+   * Also ask if each candidate states the answer. These questions come
+   * after the two questions of each candidate, so that the start of the
+   * request does not change.
+   */
+  askStatesAnswer?: boolean
 }): Promise<Map<string, LayerJudgment>> {
   if (!Number.isInteger(batchSize) || batchSize < 1)
     throw new RangeError("batchSize must be a positive integer.")
@@ -88,6 +104,13 @@ export async function judgeLayer({
           instructions: QUESTIONS.explore(n),
         }
       })
+      if (askStatesAnswer)
+        batch.forEach((_, index) => {
+          questions[`states.${index + 1}`] = {
+            type: "noul",
+            instructions: QUESTIONS.statesAnswer(index + 1),
+          }
+        })
       const probabilities = await decideNoul(state, questions, {
         timeoutMs,
         attributes: {
@@ -100,6 +123,11 @@ export async function judgeLayer({
         {
           pAnswers: probabilities.get(`answers.${index + 1}`) ?? 0,
           pExplore: probabilities.get(`explore.${index + 1}`) ?? 0,
+          ...(askStatesAnswer
+            ? {
+                pStatesAnswer: probabilities.get(`states.${index + 1}`) ?? 0,
+              }
+            : {}),
         },
       ])
     }),

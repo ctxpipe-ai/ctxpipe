@@ -106,25 +106,31 @@ export function percentile(
 }
 
 /**
- * Score one answer. `keepAt` is the p(answers) from which the plane keeps a
- * hit: a plane search says "no answer" when no Jev-judged hit reaches it.
- * The old stack has no such threshold, so it says "no answer" only with no
- * hit. A search that failed or gave a partial answer (the time budget or a
- * Jev failure) gets no credit for "no answer". Only the plane gives
- * positions.
+ * Score one answer with the settings of its run. A plane search says "no
+ * answer" when no Jev-judged hit has a p(answers) of at least `keepAt` and,
+ * when the run asked it (`statesAnswerAt` above 0), a p(states the answer)
+ * of at least `statesAnswerAt` (CTX-1685). The old stack has no such
+ * threshold, so it says "no answer" only with no hit. A search that failed
+ * or gave a partial answer (the time budget or a Jev failure) gets no
+ * credit for "no answer". Only the plane gives positions.
  */
 export function scoreAnswer(
   question: Question,
   answer: ArmAnswer,
-  keepAt: number,
+  { keepAt, statesAnswerAt = 0 }: { keepAt: number; statesAnswerAt?: number },
 ): QuestionScore {
   const gold = new Set(question.gold)
   const noAnswer = question.category === "no-answer"
   const search = "error" in answer.search ? null : answer.search
   const refs = search?.refs ?? []
   const judged = answer.arm === "plane" && !search?.partialReason
+  const states = statesAnswerAt > 0 ? search?.statesAnswer : undefined
   const kept = judged
-    ? (search?.scores ?? []).filter((score) => score >= keepAt).length
+    ? (search?.scores ?? []).filter(
+        (score, index) =>
+          score >= keepAt &&
+          (!states || (states[index] ?? 0) >= statesAnswerAt),
+      ).length
     : refs.length
   // The "no answer" of the search, which the `noAnswer` metric also reads.
   // A client that reads "no answer" does not use the hits, so the retrieval

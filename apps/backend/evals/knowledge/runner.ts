@@ -117,6 +117,12 @@ const callFailureSchema = z.object({
 const rankedSchema = z.object({
   refs: z.array(z.string()),
   scores: z.array(z.number()),
+  /**
+   * The search of the plane only: Jev's p(states the answer) of each hit,
+   * in the order of `refs`. Only a run with `statesAnswerAt` above 0 asks
+   * it (CTX-1685).
+   */
+  statesAnswer: z.array(z.number()).optional(),
   partialReason: z.string().optional(),
   latencyMs: z.number(),
   /**
@@ -452,6 +458,11 @@ async function ask(
     search = {
       refs: result.hits.map((hit) => hit.path),
       scores: result.hits.map((hit) => hit.score),
+      ...(result.hits.some((hit) => hit.pStatesAnswer !== undefined)
+        ? {
+            statesAnswer: result.hits.map((hit) => hit.pStatesAnswer ?? 0),
+          }
+        : {}),
       ...(result.partialReason ? { partialReason: result.partialReason } : {}),
       latencyMs,
       ...quietBefore,
