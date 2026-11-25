@@ -2,28 +2,60 @@
   "entries": [
     {
       "package": "opencode-ai",
-      "files": ["package.json"],
+      "files": [
+        "package.json"
+      ],
       "reason": "The checks run this OpenCode, and the backend image, the chat sandbox image and WORKSPACE_CHAT_OPENCODE_CLI install the same version by its number; chat-runtime.test.ts compares them with this string (#764). The patch patches/opencode-ai@<version>.patch is keyed by it too. Bump all of them together."
     },
     {
       "package": "@ast-grep/cli",
-      "files": ["package.json"],
+      "files": [
+        "package.json"
+      ],
       "reason": "The checks run this ast-grep, and the chat sandbox and codesearch images install the same version by its number; chat-runtime.test.ts compares the sandbox image with this string (#764). Bump them together."
     },
     {
       "package": "@cosmograph/react",
-      "files": ["apps/ui/package.json"],
+      "files": [
+        "apps/ui/package.json"
+      ],
       "reason": "Each release depends on exactly the same version of @cosmograph/cosmograph, and that version is patched (patches/@cosmograph__cosmograph@<version>.patch, keyed by version). A newer @cosmograph/react needs the patch rebased to the new core version first."
     },
     {
       "package": "knip",
-      "files": ["package.json"],
+      "files": [
+        "package.json"
+      ],
       "reason": "knip.json names this version in its $schema URL, so the version lives in two files: a range would let a lockfile update move knip without its schema. Knip 6 is held back (CTX-1610): it reports about 60 new issues on this repo."
     },
     {
       "package": "@anthropic-ai/claude-code",
-      "files": ["scripts/ci/claude-cli/package.json"],
+      "files": [
+        "scripts/ci/claude-cli/package.json"
+      ],
       "reason": "The claude-plugin check installs this CLI from its own lockfile (CTX-1121), so the version of the check lives only here. Kept exact by the CTX-1539 brief; review whether a range is enough."
+    },
+    {
+      "package": "@hono/zod-openapi",
+      "files": [
+        "apps/backend/package.json",
+        "apps/codesearch/package.json"
+      ],
+      "reason": "Patched: patches/@hono__zod-openapi@1.6.3.patch is keyed by this version (pnpm-workspace.yaml patchedDependencies). A range lets the weekly batch's fresh lockfile resolve move past the patch, which pnpm then rejects (ERR_PNPM_UNUSED_PATCH). Bump the version and port the patch together."
+    },
+    {
+      "package": "@tanstack/ai-opencode",
+      "files": [
+        "apps/backend/package.json"
+      ],
+      "reason": "Patched: patches/@tanstack__ai-opencode@0.4.14.patch is keyed by this version (pnpm-workspace.yaml patchedDependencies). A range lets the weekly batch's fresh lockfile resolve move past the patch, which pnpm then rejects (ERR_PNPM_UNUSED_PATCH). Bump the version and port the patch together."
+    },
+    {
+      "package": "openworkflow",
+      "files": [
+        "apps/backend/package.json"
+      ],
+      "reason": "Patched: patches/openworkflow@0.10.1.patch is keyed by this version (pnpm-workspace.yaml patchedDependencies). A range lets the weekly batch's fresh lockfile resolve move past the patch, which pnpm then rejects (ERR_PNPM_UNUSED_PATCH). Bump the version and port the patch together."
     }
   ]
 }

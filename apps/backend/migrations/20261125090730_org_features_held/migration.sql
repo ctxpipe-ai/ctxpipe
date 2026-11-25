@@ -1,0 +1,1 @@
+ALTER TABLE "org_features" ADD COLUMN "held" boolean DEFAULT false NOT NULL;

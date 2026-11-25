@@ -29,6 +29,25 @@ import { scrubForModel } from "../services/scrubForModel.js"
  */
 
 /**
+ * A failure of the embedding call: an error status (`status`), an answer of
+ * the wrong shape, or model settings that cannot reach OpenRouter. The
+ * client throws it for each failure that does not retry. A 429, a 5xx and a
+ * network error are `TransientHttpError`s and fetch errors, so that
+ * `embedTexts` retries them. The query path does not retry: the plane
+ * reader gives such an error as an `EmbeddingError` with the status, when
+ * there is one. The message holds no input text.
+ */
+export class EmbeddingError extends Error {
+  override readonly name = "EmbeddingError"
+  constructor(
+    message: string,
+    readonly status?: number,
+  ) {
+    super(message)
+  }
+}
+
+/**
  * The model settings of the knowledge plane. The evals of ADR-069 pick the
  * model, so all of its values are here. The model and the dimension are part
  * of the projection version (ADR-067): a change of one of them makes all
@@ -199,7 +218,8 @@ export async function embedQuery(
     config,
     "latency",
   )
-  if (!vector) throw new Error("The embedding endpoint returned no vector")
+  if (!vector)
+    throw new EmbeddingError("The embedding endpoint returned no vector")
   return vector
 }
 
@@ -217,7 +237,7 @@ function embedRequest(
   // model settings do not point at OpenRouter sends no content to it.
   const settings = openRouterSettings()
   if (!settings)
-    throw new Error(
+    throw new EmbeddingError(
       "The knowledge embeddings need MODEL_PROVIDER openrouter or openai-like, an OpenRouter MODEL_PROVIDER_URL, and MODEL_PROVIDER_API_KEY.",
     )
   const count = texts.length
@@ -265,7 +285,7 @@ function embedRequest(
         if (res.status === 429 || res.status >= 500)
           // The message holds only the status, never the body.
           throw new TransientHttpError(message, res.status)
-        throw new Error(message)
+        throw new EmbeddingError(message, res.status)
       }
       // A parse error can quote the body, and the provider can echo the input
       // in it. Keep it out of the error, as for a failed status.
@@ -273,7 +293,7 @@ function embedRequest(
         await res.json().catch(() => undefined),
       )
       if (!parsed.success)
-        throw new Error(
+        throw new EmbeddingError(
           "Embedding response is not valid JSON of the expected shape",
         )
       const data = parsed.data
@@ -322,13 +342,13 @@ function vectorsInOrder(
   dimensions: number,
 ): number[][] {
   if (rows.length !== count)
-    throw new Error(`Expected ${count} embeddings, got ${rows.length}`)
+    throw new EmbeddingError(`Expected ${count} embeddings, got ${rows.length}`)
   const vectors = new Array<number[] | undefined>(count)
   for (const row of rows) {
     if (row.index >= count || vectors[row.index])
-      throw new Error(`Unexpected embedding index ${row.index}`)
+      throw new EmbeddingError(`Unexpected embedding index ${row.index}`)
     if (row.embedding.length !== dimensions)
-      throw new Error(
+      throw new EmbeddingError(
         `Expected ${dimensions} dimensions at index ${row.index}, got ${row.embedding.length}`,
       )
     vectors[row.index] = row.embedding
