@@ -11,6 +11,7 @@ import { organizations } from "../db/schema/auth.js"
 import { claims } from "../db/schema/claims.js"
 import { conversations } from "../db/schema/conversations.js"
 import { objects } from "../db/schema/objects.js"
+import { orgFeatures } from "../db/schema/org_features.js"
 import { repositories } from "../db/schema/repositories.js"
 import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
 import { formatUnknownError } from "../db/transientDbRetry.js"
@@ -367,10 +368,13 @@ export async function applyRepositoryDeletionGraphCleanup(params: {
 /**
  * Wipes all org-scoped product data before Better Auth removes the organization row.
  *
- * Must be called inside {@link withOrgDbContext} (the hook in auth/config.ts
- * sets that up). Uses {@link getOrgDb} for all queries and deletes.
+ * Call it outside an org SQL transaction: it opens its own
+ * ({@link withOrgDbContext}, with {@link getOrgDb} for all queries and
+ * deletes), and then queues a workflow and calls codesearch.
  * External side-effects (codesearch disk cleanup, FalkorDB graph drop) are
- * best-effort and run after the Postgres deletes.
+ * best-effort and run after the Postgres deletes. The worker deletes the
+ * ClickHouse rows of the knowledge plane (`knowledge-purge`): this function
+ * queues that purge after the Postgres deletes.
  */
 export async function purgeOrgDataBeforeAuthDelete(
   orgId: string,
@@ -405,6 +409,18 @@ export async function purgeOrgDataBeforeAuthDelete(
     await db.delete(objects).where(eq(objects.orgId, orgId))
     await db.delete(conversations).where(eq(conversations.orgId, orgId))
     await db.delete(repositories).where(eq(repositories.orgId, orgId))
+    // The knowledge plane (CTX-1642). With no flag, the org is `off`, so a
+    // projection run that starts after this commit writes nothing, also
+    // when the delete of the organization row fails after this hook. The
+    // purge deletes the knowledge state and the ClickHouse rows.
+    await db
+      .delete(orgFeatures)
+      .where(
+        and(
+          eq(orgFeatures.organizationId, orgId),
+          eq(orgFeatures.feature, "knowledge_plane"),
+        ),
+      )
     return { orgSlug, repoRows }
   })
 
@@ -416,6 +432,13 @@ export async function purgeOrgDataBeforeAuthDelete(
     })
     return
   }
+
+  // A failed enqueue fails the hook, so the organization row stays, and a
+  // retry of the delete queues the purge again. A dynamic import: the
+  // OpenWorkflow client connects when it loads, and it needs DATABASE_URL.
+  const { enqueueKnowledgePurge } =
+    await import("../openworkflow/enqueue-knowledge-purge.js")
+  await enqueueKnowledgePurge({ orgId, workspaceId: null })
 
   for (const r of prepared.repoRows) {
     await notifyCodesearchRepositoryDeleted({
