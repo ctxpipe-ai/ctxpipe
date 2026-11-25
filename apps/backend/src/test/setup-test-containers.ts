@@ -24,10 +24,6 @@ import {
  * copy of the backend (another major version). The setup changes each copy.
  */
 
-const sandboxDocker = createRequire(
-  import.meta.resolve("@tanstack/ai-sandbox-docker"),
-)("dockerode") as typeof Docker
-
 type Create = (
   this: Docker,
   options: Docker.ContainerCreateOptions,
@@ -39,7 +35,12 @@ type Commit = (
   ...rest: unknown[]
 ) => Promise<unknown>
 
-for (const Dockerode of new Set([Docker, sandboxDocker])) {
+for (const Dockerode of new Set([
+  Docker,
+  createRequire(import.meta.resolve("@tanstack/ai-sandbox-docker"))(
+    "dockerode",
+  ) as typeof Docker,
+])) {
   const create = Dockerode.prototype.createContainer as unknown as Create
   const labeledCreate: Create = function (options, ...rest) {
     return create.call(

@@ -203,14 +203,7 @@ describe("test containers", () => {
       }).create({ workspace: { source: { type: "none" } } })
       try {
         // @tanstack/ai-sandbox-docker creates it with its own dockerode copy.
-        expect(
-          docker(
-            "inspect",
-            "--format",
-            `{{index .Config.Labels "${TEST_LABEL}"}}`,
-            handle.id,
-          ),
-        ).toBe(owner)
+        expect((await labels(handle.id))?.[TEST_LABEL]).toBe(owner)
         // The labels that the code gives stay.
         const container = await new Docker().createContainer({
           Image: contractImage("alpine"),
