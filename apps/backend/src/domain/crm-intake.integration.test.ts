@@ -49,8 +49,10 @@ function expectNoUserData() {
 }
 
 let userCount = 0
-/** A user row made directly, with a made-up id and email. */
-async function newUser(): Promise<{ id: string; email: string }> {
+/** A user row made directly, with a made-up id and a verified email. */
+async function newUser(
+  emailVerified = true,
+): Promise<{ id: string; email: string }> {
   userCount++
   const user = {
     id: `user_crm_${suffix}_${userCount}`,
@@ -58,15 +60,16 @@ async function newUser(): Promise<{ id: string; email: string }> {
   }
   await getSystemDb()
     .insert(users)
-    .values({ ...user, name: personName, emailVerified: true })
+    .values({ ...user, name: personName, emailVerified })
   return user
 }
 
 /** A due outbox row for a new user, as the hook writes it. */
 async function dueRow(
   fields: Partial<typeof crmIntakeOutbox.$inferInsert> = {},
+  emailVerified = true,
 ) {
-  const user = await newUser()
+  const user = await newUser(emailVerified)
   const id = `crmo_${suffix}_${userCount}`
   await getSystemDb()
     .insert(crmIntakeOutbox)
@@ -388,6 +391,29 @@ describe("CRM intake outbox (Postgres)", () => {
       posted.length = 0
       await sendDueSignups(target, new Date(now.getTime() + 86_400_000))
       expect(posted.find((p) => p.body.externalId === user.id)).toBeUndefined()
+    })
+
+    it("waits until the user verifies the email: no send and no alert before", async () => {
+      events.length = 0
+      const now = new Date()
+      const { id, user } = await dueRow(
+        { createdAt: new Date(now.getTime() - 25 * 3_600_000) },
+        false,
+      )
+      await sendDueSignups(target, now)
+      expect(posted.find((p) => p.body.externalId === user.id)).toBeUndefined()
+      expect(await row(id)).toMatchObject({ attempts: 0, sentAt: null })
+      expect(
+        events.find((e) => e.message === STALE_ALERT_MESSAGE),
+      ).toBeUndefined()
+
+      await getSystemDb()
+        .update(users)
+        .set({ emailVerified: true })
+        .where(eq(users.id, user.id))
+      await sendDueSignups(target, now)
+      expect(posted.find((p) => p.body.externalId === user.id)).toBeDefined()
+      expect((await row(id))?.sentAt).toEqual(now)
     })
 
     it("alerts when a row is older than 24 hours and not sent", async () => {

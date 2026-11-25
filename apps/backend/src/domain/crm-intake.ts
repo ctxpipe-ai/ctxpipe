@@ -1,9 +1,9 @@
-import { and, asc, eq, isNull, lt, lte, sql } from "drizzle-orm"
+import { and, asc, eq, exists, isNull, lt, lte, sql } from "drizzle-orm"
 
 import { deploymentEnvironment } from "../../../../shared/deployment-environment.js"
 import { parseEnv } from "../config/env.js"
 import { getSystemDb } from "../db/client.js"
-import { members, organizations } from "../db/schema/auth.js"
+import { members, organizations, users } from "../db/schema/auth.js"
 import {
   type CrmIntakePayload,
   crmIntakeOutbox,
@@ -110,13 +110,34 @@ export function retryDelayMs(attempts: number): number {
   return Math.min(60_000 * 2 ** Math.max(0, attempts - 1), 60 * 60_000)
 }
 
+/**
+ * The rows to send: not sent, not refused, and of a user with a verified
+ * email. Anyone can sign up with the email of another person, so a row waits
+ * until its owner verifies the email; it is not sent and does not alert
+ * before. A user who never verifies leaves a row that waits until the user is
+ * deleted.
+ */
+function pending() {
+  const t = crmIntakeOutbox
+  return and(
+    isNull(t.sentAt),
+    isNull(t.failedAt),
+    exists(
+      getSystemDb()
+        .select({ id: users.id })
+        .from(users)
+        .where(and(eq(users.id, t.userId), eq(users.emailVerified, true))),
+    ),
+  )
+}
+
 /** A row that no other worker sends now, with its `attempts` counted. */
 async function claimDueRow(now: Date) {
   const t = crmIntakeOutbox
   const due = getSystemDb()
     .select({ id: t.id })
     .from(t)
-    .where(and(isNull(t.sentAt), isNull(t.failedAt), lte(t.nextAttemptAt, now)))
+    .where(and(pending(), lte(t.nextAttemptAt, now)))
     .orderBy(asc(t.nextAttemptAt))
     .limit(1)
     .for("update", { skipLocked: true })
@@ -246,11 +267,7 @@ export async function sendDueSignups(
   }
   const stale = await getSystemDb().$count(
     t,
-    and(
-      isNull(t.sentAt),
-      isNull(t.failedAt),
-      lt(t.createdAt, new Date(now.getTime() - STALE_AFTER_MS)),
-    ),
+    and(pending(), lt(t.createdAt, new Date(now.getTime() - STALE_AFTER_MS))),
   )
   if (stale > 0)
     log.error({ step: "crm-intake.stale", message: STALE_ALERT_MESSAGE, stale })
