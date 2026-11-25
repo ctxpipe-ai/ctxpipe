@@ -83,6 +83,6 @@ export async function connectOpenWorkflowBackend(
     rescheduleRun({ ...params, error: storable(params.error) })
   // The ingestion shards use at most half of the worker slots (ADR-052,
   // revision 2026-11-25).
-  claimInIngestWorkerShare(backend, namespaceId)
+  claimInIngestWorkerShare(backend)
   return backend
 }

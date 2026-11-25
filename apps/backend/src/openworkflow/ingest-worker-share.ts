@@ -1,7 +1,5 @@
-import { sql } from "drizzle-orm"
 import type { BackendPostgres } from "openworkflow/postgres"
 
-import { getSystemDb } from "../db/client.js"
 import { INGESTION_SHARD_WORKFLOW_NAME } from "../domain/ingestion/ingestion-run.js"
 import { parseOpenWorkflowConcurrency } from "./codesearchCapacity.js"
 
@@ -25,19 +23,16 @@ export function ingestWorkerShare(
 
 /**
  * Keep the ingestion shards of this worker process in its worker share.
- * While the slots of the process hold `share` shards, a claim of the
- * process does not take a shard run. A shard that has no place stays in the
- * queue: `WorkerQueueDepth` counts it, so the worker scales out. The claim
- * order (first available, first claimed) gives a free place in any worker
- * process to the shard that waits longest (CTX-1634).
- *
- * The count reads the shard runs that the slots of this process own in
- * Postgres. The claims of one process run one at a time, so the claims of
- * one poll cannot take more places than are free.
+ * While the slots of the process run `share` shards, a claim of the process
+ * does not take a shard run (the claim counts them in the OpenWorkflow runs
+ * table). A shard that has no place stays in the queue: `WorkerQueueDepth`
+ * counts it, so the worker scales out. The claim order (first available,
+ * first claimed) gives a free place in any worker process to the shard that
+ * waits longest (CTX-1634). The claims of one process run one at a time, so
+ * the claims of one poll cannot take more places than are free.
  */
 export function claimInIngestWorkerShare(
   backend: BackendPostgres,
-  namespaceId: string,
   share = ingestWorkerShare(),
 ): void {
   const claim = backend.claimWorkflowRun.bind(backend)
@@ -46,27 +41,16 @@ export function claimInIngestWorkerShare(
   let previous: Promise<unknown> = Promise.resolve()
   backend.claimWorkflowRun = (params) => {
     slots.add(params.workerId)
-    const claimed = previous.then(async () => {
-      const { rows } = await getSystemDb().execute<{ held: string }>(sql`
-        select count(*) as held
-        from openworkflow.workflow_runs
-        where namespace_id = ${namespaceId}
-          and workflow_name = ${INGESTION_SHARD_WORKFLOW_NAME}
-          and status = 'running'
-          and worker_id in (${sql.join(
-            [...slots].map((slot) => sql`${slot}`),
-            sql`, `,
-          )})
-      `)
-      return claim(
-        Number(rows[0]?.held ?? 0) < share
-          ? params
-          : {
-              ...params,
-              excludeWorkflowNames: [INGESTION_SHARD_WORKFLOW_NAME],
-            },
-      )
-    })
+    const claimed = previous.then(() =>
+      claim({
+        ...params,
+        workflowSlotLimit: {
+          workflowName: INGESTION_SHARD_WORKFLOW_NAME,
+          workerIds: [...slots],
+          max: share,
+        },
+      }),
+    )
     previous = claimed.catch(() => undefined)
     return claimed
   }
