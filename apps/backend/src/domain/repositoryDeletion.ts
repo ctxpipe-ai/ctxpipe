@@ -26,7 +26,6 @@ import { clearPagerdutySyncBindingsForRepository } from "../models/pagerduty-con
 import { DEFAULT_CHECKOUT_KEY } from "../models/repositories.js"
 import { clearSlackSyncBindingsForRepository } from "../models/slack-connector.js"
 import { log } from "../observability/logger.js"
-import { enqueueKnowledgePurge } from "../openworkflow/enqueue-knowledge-purge.js"
 import { getGraphClient, withGraphClient } from "../platform/graph/client.js"
 import {
   applyIngestionRetractionGraphEffects,
@@ -435,7 +434,10 @@ export async function purgeOrgDataBeforeAuthDelete(
   }
 
   // A failed enqueue fails the hook, so the organization row stays, and a
-  // retry of the delete queues the purge again.
+  // retry of the delete queues the purge again. A dynamic import: the
+  // OpenWorkflow client connects when it loads, and it needs DATABASE_URL.
+  const { enqueueKnowledgePurge } =
+    await import("../openworkflow/enqueue-knowledge-purge.js")
   await enqueueKnowledgePurge({ orgId, workspaceId: null })
 
   for (const r of prepared.repoRows) {
