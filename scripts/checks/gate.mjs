@@ -209,7 +209,6 @@ export function decideMode({ config, event, fork, changed, read, diff }) {
       // package from the nearest node_modules, also in the steps that must
       // not run PR code.
       /(?:^|\/)node_modules(?:\/|$)/,
-      /^apps\/backend\/evals\/mcp\/(?:cases|gate)\.ts$/,
       /^apps\/ui\/\.storybook\/(?:check-modules\.mjs|main\.ts)$/,
       /^apps\/codesearch\/scripts\/run-vitest-contracts\.mjs$/,
     ].some((input) => input.test(path)),
@@ -965,9 +964,9 @@ export function shadow({
 
 // The decision of a PR run in gate mode: the gated run gates. Each check of
 // the plan ran in its job of this run, and each other selected check has an
-// accepted hit. A check that another workflow runs (the MCP evals) has the
-// status of that workflow and is not part of this verdict. `reruns` are the
-// records of the one rerun of each failed check whose key has a stored pass.
+// accepted hit. A selected check that no job of PR CI runs (`external`) is
+// not part of this verdict. `reruns` are the records of the one rerun of each
+// failed check whose key has a stored pass.
 export function gateDecision({
   config,
   planned,
@@ -989,8 +988,7 @@ export function gateDecision({
   const external = []
   for (const id of planned.ran) {
     const reason = describe(reasons.get(id))
-    const { workflow } = placeOf(id)
-    if (workflow) external.push({ id, reason, workflow })
+    if (!placeOf(id).job) external.push({ id, reason })
     else
       ran.push({
         id,
@@ -1181,7 +1179,7 @@ export function gateText(decision, runUrl) {
       Object.entries(classes)
         .map(([k, v]) => `${k} ${v}`)
         .join(", ") || "none"
-    }), ${decision.external.length} in other workflows, ${s.counts.total - s.counts.selected} omitted.`,
+    }), ${decision.external.length} not run by PR CI, ${s.counts.total - s.counts.selected} omitted.`,
     "",
     // The cache hits of each class: the store of the nightly CI run, the PR
     // store, the passes that an agent stored (factory check), and the passes
@@ -1301,11 +1299,10 @@ export function gateText(decision, runUrl) {
       ),
     ])
   table(
-    "In other workflows",
-    "| Check | Reason | Workflow |",
+    "Not run by PR CI",
+    "| Check | Reason |",
     decision.external.map(
-      (item) =>
-        `| ${code(item.id)} | ${code(item.reason)} | ${item.workflow} |`,
+      (item) => `| ${code(item.id)} | ${code(item.reason)} |`,
     ),
   )
   table(
@@ -1428,8 +1425,8 @@ export function summary(decision, runUrl) {
   return `${lines.join("\n")}\n`
 }
 
-// GitHub refuses a job summary over 1 MiB for each step. The cut leaves room
-// for the MCP evals reminder, ends at a line, and says where the rest is.
+// GitHub refuses a job summary over 1 MiB for each step. The cut ends at a
+// line, and says where the rest is.
 function bounded(text) {
   const max = 1000 * 1024
   if (Buffer.byteLength(text) <= max) return text

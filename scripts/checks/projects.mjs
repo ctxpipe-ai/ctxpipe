@@ -271,7 +271,6 @@ const definitions = () => [
           "scripts/**",
           ".github/**",
           "apps/ui/.storybook/**",
-          "apps/backend/evals/mcp/**",
           "packages/visual-review/src/**",
           ...({
             // The manifest of the whole repo, or the files of the apps.

@@ -34,21 +34,6 @@ COPY apps/backend/package.json apps/backend/package.json
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm install --store-dir /pnpm/store --frozen-lockfile --prod --config.confirmModulesPurge=false
 
-# The MCP eval client (apps/backend/evals/mcp/run.ts) as one bundled file:
-# the AWS cutover rehearsal runs it in a one-off task of this image
-# (CTX-1217). Its dependencies are dev dependencies, so they stay in this
-# stage, and the server never loads the bundle.
-FROM deps AS evals
-COPY packages/visual-review/package.json packages/visual-review/package.json
-RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
-    pnpm install --store-dir /pnpm/store --frozen-lockfile --filter @ctxpipe/backend... --config.confirmModulesPurge=false
-COPY packages/visual-review packages/visual-review
-COPY apps/backend/evals/mcp apps/backend/evals/mcp
-# The one backend file that the bundle imports: the provider block of each
-# model call (ADR-070). A new import of the client fails this build.
-COPY apps/backend/src/retrieval/services/openRouterProvider.ts apps/backend/src/retrieval/services/openRouterProvider.ts
-RUN bun build apps/backend/evals/mcp/run.ts --target=bun --outfile /out/run.bundle.js
-
 # Production stage — Bun runs TypeScript natively, no tsc compilation needed
 FROM oven/bun:1.4.4-alpine@sha256:4cf82f5686b196504fe119db3fcd9185b191f82ece82c40680e597228ec6070a
 WORKDIR /app
@@ -87,8 +72,5 @@ COPY apps/backend/migrations ./apps/backend/migrations
 COPY apps/backend/openworkflow.config.ts ./apps/backend/openworkflow.config.ts
 COPY apps/backend/package.json ./apps/backend/package.json
 COPY apps/backend/tsconfig.json ./apps/backend/tsconfig.json
-# The MCP eval seed and the bundled client, for the cutover rehearsal task.
-COPY apps/backend/evals/mcp ./apps/backend/evals/mcp
-COPY --from=evals /out/run.bundle.js ./apps/backend/evals/mcp/run.bundle.js
 EXPOSE 3000
 CMD ["bun", "run", "apps/backend/src/server.ts"]

@@ -19,6 +19,7 @@ core
 .ai/memory/active-context.md
 .ai/memory/progress.md
 .turbo
+# OAuth credentials of the removed MCPJam instructions, in old checkouts.
 .mcpjam/
 .ci-results/
 dist/

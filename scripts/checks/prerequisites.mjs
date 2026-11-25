@@ -68,14 +68,6 @@ const pgQuery = async (sql) => {
     await pool.end()
   }
 }
-const answers = async (url, fix) => {
-  try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(10_000) })
-    return response.status
-  } catch (error) {
-    throw new Error(`${url} does not answer (${error.message}). ${fix}`)
-  }
-}
 // The pinned versions of the services, the digest of each image and the
 // previous release (scripts/ci/service-pins.json). A lane lists the file as
 // an input, so a change of a pin changes the key of a check.
@@ -116,12 +108,6 @@ export const falkordbModuleVersion = (uri) =>
     socket.on("error", reject)
     socket.on("close", () => clearTimeout(timer))
   })
-// `factory check` removes MODEL_PROVIDER_API_KEY from its environment before
-// it starts a check, so that no branch code gets the key. Thus under
-// `factory check` this prerequisite fails also when the key is exported.
-const workbenchFix =
-  "Evals call paid models, so they run only with the workbench environment: set MODEL_PROVIDER, MODEL_PROVIDER_API_KEY (the spend-capped workbench key) and MCP_EVAL_MODELS (two or more provider/model ids, comma-separated). Under `factory check` an eval never gets MODEL_PROVIDER_API_KEY, also when you exported it: the factory removes the key, so that no branch code gets it. This is intended: CI runs the evals in the workbench environment. To run an eval on this host, use pnpm --reporter=silent checks:run outside `factory check`."
-
 // Each entry: `needs` (other prerequisites, made first) and `prepare` (makes
 // or verifies). Keep this a small map; it is not a build system.
 export const prerequisites = {
@@ -470,44 +456,6 @@ export const prerequisites = {
         throw new Error(
           `RELEASE_TREE ${tree} is at ${found}, not ${ref} (${expected}). Run: git -C ${tree} checkout --detach ${ref}`,
         )
-    },
-  },
-  workbench: {
-    prepare: async () => {
-      required("MODEL_PROVIDER", workbenchFix)
-      required("MODEL_PROVIDER_API_KEY", workbenchFix)
-      const models = required("MCP_EVAL_MODELS", workbenchFix)
-      const { gateThresholds } =
-        await import("../../apps/backend/evals/mcp/gate.ts")
-      if (
-        new Set(models.split(",").filter(Boolean)).size <
-        gateThresholds.minModels
-      )
-        throw new Error(
-          `MCP_EVAL_MODELS names fewer than ${gateThresholds.minModels} models. ${workbenchFix}`,
-        )
-    },
-  },
-  "codesearch-server": {
-    prepare: () =>
-      answers(
-        required("CODESEARCH_URL", "Start codesearch and set CODESEARCH_URL."),
-        "Start codesearch (pnpm dev, or scripts/codesearch-host-dev.sh).",
-      ),
-  },
-  // The backend of this checkout, at its own base URL (AUTH_BASE_URL).
-  "mcp-server": {
-    prepare: async () => {
-      const base = required(
-        "AUTH_BASE_URL",
-        "Start the backend of this checkout and set AUTH_BASE_URL to its base URL.",
-      )
-      const status = await answers(
-        new URL("/mcp", base).href,
-        "Start the backend of this checkout (pnpm dev).",
-      )
-      if (status !== 401 && (status < 200 || status > 299))
-        throw new Error(`${base}/mcp answers ${status}, not an MCP endpoint.`)
     },
   },
   "aws-cdk-image-tag": {

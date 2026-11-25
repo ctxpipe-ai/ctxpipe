@@ -32,5 +32,3 @@ pnpm --filter ctxpipe exec vitest run test/memory/evals
 When wired: provision a disposable workspace, install memory via the CLI,
 materialize `seed`, invoke `claudeCodeText` (later Codex/OpenCode), then assert
 files (`candidatesFromAgentActivity`, `lessonsContains`, etc.).
-
-MCPJam is out of scope (wrong layer for Markdown + hooks memory).

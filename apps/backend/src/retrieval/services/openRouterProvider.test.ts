@@ -1,12 +1,7 @@
-import { createModelFromString } from "@mcpjam/sdk"
 import { chat } from "@tanstack/ai"
 import { HttpResponse, http } from "msw"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import {
-  openRouterClient,
-  sendProviderBlock,
-} from "../../../evals/mcp/models.js"
 import { useMswServer } from "../../../test/msw.js"
 import { parseEnv } from "../../config/env.js"
 import { readImage } from "../../knowledge-plane/image-text.js"
@@ -342,23 +337,5 @@ describe("each model client sends the provider block", () => {
       { model: "vendor/vision" },
     ).catch(() => undefined)
     expect(bodies[0]?.provider).toEqual({ ...BLOCK, require_parameters: true })
-  })
-
-  it("the model calls of the MCP eval, through its SDK client", async () => {
-    server.use(answer("/chat/completions", completion("ok")))
-    const client = openRouterClient("openai/gpt-5", {
-      MODEL_PROVIDER_API_KEY: "fixture-key",
-    })
-    const model = createModelFromString(client.sdkModel, client)
-    if (typeof model === "string") throw new Error("Not a model client.")
-    const restore = sendProviderBlock(OPENROUTER)
-    try {
-      await model.doGenerate({
-        prompt: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
-      })
-    } finally {
-      restore()
-    }
-    expect(bodies[0]?.provider).toEqual(BLOCK)
   })
 })

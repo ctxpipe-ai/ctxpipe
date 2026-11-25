@@ -177,7 +177,7 @@ test("accepts GITHUB_TOKEN in a job that installs dependencies", () => {
 test("rejects NEON_API_KEY in a package manager job, even in a reviewed exception", () => {
   rejects(
     {
-      ".github/workflows/mcp-evals.yaml": `on: pull_request\njobs:\n  evals:\n    steps:\n      - env:\n          NEON_API_KEY: \${{ secrets.NEON_API_KEY }}\n        run: echo\n${install}`,
+      ".github/workflows/ingestion-v2-proof.yaml": `on: pull_request\njobs:\n  proof:\n    steps:\n      - env:\n          NEON_API_KEY: \${{ secrets.NEON_API_KEY }}\n        run: echo\n${install}`,
     },
     /gives NEON_API_KEY to a job that runs untrusted code/,
   )
@@ -186,7 +186,7 @@ test("rejects NEON_API_KEY in a package manager job, even in a reviewed exceptio
 test("rejects a secret that a reviewed exception does not name", () => {
   rejects(
     {
-      ".github/workflows/mcp-evals.yaml": `on: pull_request\njobs:\n  evals:\n    steps:\n      - env:\n          OTHER: \${{ secrets.OTHER_KEY }}\n        run: echo\n${install}`,
+      ".github/workflows/ingestion-v2-proof.yaml": `on: pull_request\njobs:\n  proof:\n    steps:\n      - env:\n          OTHER: \${{ secrets.OTHER_KEY }}\n        run: echo\n${install}`,
     },
     /is a reviewed exception for .* only, not OTHER_KEY/,
   )
@@ -341,7 +341,7 @@ test("rejects an account token in a job that runs any untrusted code, even in a 
 })
 
 const secretJob = (secret, environment) => ({
-  ".github/workflows/mcp-evals.yaml": `on: pull_request\njobs:\n  evals:\n${environment}    steps:\n${install}      - env:\n          ${secret}: \${{ secrets.${secret} }}\n        run: bun evals/run.ts\n`,
+  ".github/workflows/paid-check.yaml": `on: pull_request\njobs:\n  evals:\n${environment}    steps:\n${install}      - env:\n          ${secret}: \${{ secrets.${secret} }}\n        run: bun evals/run.ts\n`,
 })
 
 test("rejects an outside-service secret in a job with untrusted code outside workbench", () => {
