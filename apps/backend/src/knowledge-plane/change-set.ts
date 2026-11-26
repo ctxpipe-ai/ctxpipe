@@ -6,10 +6,26 @@ import { IMAGE_TEXT_PROMPT_VERSION } from "./image-text.js"
 import { isKnowledgePath } from "./parse-file.js"
 
 /**
- * The projection version of the knowledge plane (ADR-067 decision 4): a code
- * version, the embedding model id and its dimension, and the Workspace root
- * folder. A change of any of them starts a full rebuild of the Workspace,
- * because the Git diff cannot show it.
+ * The code version of the projection of the knowledge plane (ADR-067
+ * decision 4). Increase it when the parser, the chunking or the mapper
+ * changes. 2: the reference keys of CTX-1400. 3: image vectors and the alt
+ * text of EMBEDS_IMAGE (CTX-1412). 4: the ClickHouse migration 0007 made the
+ * tables again, empty (CTX-1417). 5: `valid_from` from the commit that
+ * introduced the file (CTX-1421). 6: one text vector space, and an image
+ * document has no chunk (CTX-1431). 7: files become text at projection time
+ * (CTX-1433). 8: file versions and trees (ADR-071): the ClickHouse migration
+ * 0010 made the tables again, empty. 9: the `MENTIONS` links of an issue and
+ * the keys of a knowledge unit (CTX-1502). 10: `valid_from` from the
+ * source's own time of a file (CTX-1516). 11: the `MENTIONS` links of names
+ * in code and of product names (CTX-1579).
+ */
+export const KNOWLEDGE_PROJECTION_CODE_VERSION = 11
+
+/**
+ * The projection version of the knowledge plane (ADR-067 decision 4): the
+ * code version, the embedding model id and its dimension, and the Workspace
+ * root folder. A change of any of them starts a full rebuild of the
+ * Workspace, because the Git diff cannot show it.
  */
 export function knowledgeProjectionVersion(input: {
   embeddingModel: string
@@ -21,22 +37,11 @@ export function knowledgeProjectionVersion(input: {
   /** The vision model (`imageTextModel`). */
   visionModel: string
 }): string {
-  // Increase the code version when the parser, the chunking or the mapper
-  // changes. 2: the reference keys of CTX-1400. 3: image vectors and the alt
-  // text of EMBEDS_IMAGE (CTX-1412). 4: the ClickHouse migration 0007 made
-  // the tables again, empty (CTX-1417). 5: `valid_from` from the commit that
-  // introduced the file (CTX-1421). 6: one text vector space, and an image
-  // document has no chunk (CTX-1431). 7: files become text at projection
-  // time (CTX-1433). 8: file versions and trees (ADR-071): the ClickHouse
-  // migration 0010 made the tables again, empty. The converter version, the
-  // vision model and the prompt version of the image text are part of it
-  // too: a new parser, model or prompt gives other text for the same bytes.
-  // 9: the `MENTIONS` links of an issue and the keys of a knowledge unit
-  // (CTX-1502). 10: `valid_from` from the source's own time of a file
-  // (CTX-1516). 11: the `MENTIONS` links of names in code and of product
-  // names (CTX-1579).
+  // The converter version, the vision model and the prompt version of the
+  // image text are part of it too: a new parser, model or prompt gives other
+  // text for the same bytes.
   return JSON.stringify([
-    11,
+    KNOWLEDGE_PROJECTION_CODE_VERSION,
     input.embeddingModel,
     input.dimensions,
     input.root,
@@ -47,14 +52,18 @@ export function knowledgeProjectionVersion(input: {
 }
 
 /**
- * The Workspace root folder of a projection version
+ * The code version and the Workspace root folder of a projection version
  * (`knowledgeProjectionVersion`), or null for a version in another form.
  */
-export function knowledgeProjectionRoot(version: string): string | null {
+export function parseKnowledgeProjectionVersion(
+  version: string,
+): { code: number; root: string } | null {
   try {
     const parts: unknown = JSON.parse(version)
-    return Array.isArray(parts) && typeof parts[3] === "string"
-      ? parts[3]
+    return Array.isArray(parts) &&
+      typeof parts[0] === "number" &&
+      typeof parts[3] === "string"
+      ? { code: parts[0], root: parts[3] }
       : null
   } catch {
     return null
