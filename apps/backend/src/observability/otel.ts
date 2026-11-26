@@ -1,11 +1,15 @@
 import {
   type Context,
   context,
+  type Meter,
+  metrics,
   propagation,
   SpanKind,
   SpanStatusCode,
   trace,
+  ValueType,
 } from "@opentelemetry/api"
+import { setGlobalErrorHandler } from "@opentelemetry/core"
 import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http"
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http"
 import { HttpInstrumentation } from "@opentelemetry/instrumentation-http"
@@ -30,7 +34,6 @@ import {
   type Span,
   type SpanProcessor,
 } from "@opentelemetry/sdk-trace-base"
-import { log } from "evlog"
 
 import {
   deploymentEnvironment,
@@ -39,7 +42,9 @@ import {
 import type { Env } from "../config/env.js"
 import { baggageWithAttribution, copyAttributionToSpan } from "./attribution.js"
 import { BetterAuthSpanFilter } from "./betterAuthSpanFilter.js"
+import { ecsTaskId } from "./ecsTask.js"
 import { EvlogSpanExporter } from "./evlog-span-exporter.js"
+import { exportFailureReport } from "./exportFailures.js"
 import { FlushOnDemandMetricReader } from "./flushOnDemandMetricReader.js"
 import { scrubExportedSpan } from "./scrubDbError.js"
 import { redactSecretPath } from "./secretPath.js"
@@ -49,6 +54,7 @@ let spanProcessor: SpanProcessor | undefined
 let metricReader: MetricReader | undefined
 let started = false
 let outgoingFetchInstrumented = false
+const reportOtelExportFailure = exportFailureReport("traces and metrics")
 
 /** evlog `service` name. The tracer resource uses the same value. */
 export function otelServiceName(
@@ -99,17 +105,37 @@ function deploymentEnvironmentAttribute(
 
 /**
  * Tracer and meter resource. Env attributes merge in, then service name,
- * namespace, and deployment environment are pinned to this process.
+ * namespace, and deployment environment are pinned to this process. On ECS,
+ * `service.instance.id` is the task id, so a metric or a span names the task
+ * that wrote it (CTX-1705). The exporters wait for it before they send.
  */
 export function backendResource() {
   const attributes = {
     "service.name": otelServiceName(),
     "service.namespace": "ctxpipe",
     "deployment.environment": otelDeploymentEnvironment(),
+    ...(process.env.ECS_CONTAINER_METADATA_URI_V4
+      ? { "service.instance.id": ecsTaskId() }
+      : {}),
   }
   return defaultResource()
     .merge(detectResources({ detectors: [envDetector] }))
     .merge(resourceFromAttributes(attributes))
+}
+
+/**
+ * The gauge `process.memory.usage`: the resident memory of this process in
+ * bytes, read at each metric export. The container limit counts this memory,
+ * not the V8 heap (CTX-1705).
+ */
+export function observeProcessMemory(meter: Meter): void {
+  meter
+    .createObservableGauge("process.memory.usage", {
+      description: "Resident memory (RSS) of this process",
+      unit: "By",
+      valueType: ValueType.INT,
+    })
+    .addCallback((result) => result.observe(process.memoryUsage.rss()))
 }
 
 const SPAN_URL_KEYS = [
@@ -173,6 +199,8 @@ export function initOtel(env: Env): void {
     return
   }
 
+  // A failed span or metric export goes to this handler; it never throws.
+  setGlobalErrorHandler((error) => reportOtelExportFailure(error))
   const traceExporter = new OTLPTraceExporter({
     url: tracesEndpoint,
     timeoutMillis: 2_000,
@@ -203,6 +231,7 @@ export function initOtel(env: Env): void {
     ...(metricReader ? { metricReaders: [metricReader] } : {}),
   })
   sdk.start()
+  if (metricReader) observeProcessMemory(metrics.getMeter(TRACE_SCOPE))
   installOutgoingFetchInstrumentation()
   started = true
 }
@@ -354,18 +383,22 @@ export async function forceFlushOtel(): Promise<void> {
   try {
     await Promise.all([spanProcessor?.forceFlush(), metricReader?.forceFlush()])
   } catch (error) {
-    log.error({
-      step: "otel.flush",
-      message: error instanceof Error ? error.message : String(error),
-      error: error instanceof Error ? error.name : "Error",
-    })
+    reportOtelExportFailure(error)
   }
 }
 
-/** Shutdown the OTEL SDK. Call on process exit. */
+/**
+ * Shutdown the OTEL SDK. Call on process exit. The last export fails when
+ * the collector is down; that is logged, never thrown: the callers run this
+ * from a signal handler, where a rejection crashes the process (CTX-1705).
+ */
 export async function shutdownOtel(): Promise<void> {
   if (!sdk) return
-  await sdk.shutdown()
+  try {
+    await sdk.shutdown()
+  } catch (error) {
+    reportOtelExportFailure(error)
+  }
   sdk = undefined
   spanProcessor = undefined
   metricReader = undefined

@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 
+import { parseKeyPairsIntoRecord } from "@opentelemetry/core"
 import {
   createLogger,
   type DrainContext,
@@ -8,12 +9,14 @@ import {
   type RedactConfig,
   type RequestLogger,
 } from "evlog"
-import { createOTLPDrain } from "evlog/otlp"
+import { sendBatchToOTLP } from "evlog/otlp"
 import { createDrainPipeline, type PipelineDrainFn } from "evlog/pipeline"
 import { getContext } from "hono/context-storage"
 
 import { isPreviewDeployment } from "../../../../shared/deployment-environment.js"
 import type { AppEnv } from "../app/env.js"
+import { ecsTaskId } from "./ecsTask.js"
+import { exportFailureReport } from "./exportFailures.js"
 import { applyLogContract } from "./logContract.js"
 import {
   forceFlushOtel,
@@ -62,34 +65,44 @@ let otlpPipeline: PipelineDrainFn<DrainContext> | undefined
 
 /**
  * Batches OTLP log exports off the request path. A push only buffers; a slow
- * or unreachable collector costs dropped logs, never response latency.
+ * or unreachable collector costs dropped logs, never response latency, and
+ * never a crash. A batch that fails three times is dropped, and
+ * `exportFailureReport` logs the drops at most once a minute (CTX-1705).
+ * The send is our own, not `createOTLPDrain`: that drain catches each
+ * failure and writes it to `console.error` with a stack, once per batch, so
+ * the pipeline never saw it.
  */
 function otlpDrain(): PipelineDrainFn<DrainContext> | undefined {
   const endpoint = otlpLogsEndpoint()
   if (!endpoint) return undefined
+  const reportFailure = exportFailureReport("logs")
   const pipeline = createDrainPipeline<DrainContext>({
     batch: { size: 50, intervalMs: 5_000 },
     retry: { maxAttempts: 3, backoff: "exponential", initialDelayMs: 1_000 },
-    onDropped: (events, error) => {
-      log.error({
-        step: "evlog.pipeline",
-        droppedEventCount: events.length,
-        message: `[evlog] Dropped ${events.length} events`,
-        error: error instanceof Error ? error.message : undefined,
-      })
-    },
+    onDropped: (events, error) => reportFailure(error, events.length),
   })
-  return pipeline(
-    createOTLPDrain({
-      endpoint,
-      serviceName: otelServiceName(),
-      resourceAttributes: {
-        "service.namespace": "ctxpipe",
-        "deployment.environment": otelDeploymentEnvironment(),
-      },
-      timeout: 5_000,
-    }),
+  const headers = parseKeyPairsIntoRecord(
+    process.env.OTEL_EXPORTER_OTLP_HEADERS,
   )
+  return pipeline(async (batch) => {
+    const taskId = await ecsTaskId()
+    await sendBatchToOTLP(
+      batch.map((ctx) => ctx.event),
+      {
+        endpoint,
+        headers,
+        serviceName: otelServiceName(),
+        resourceAttributes: {
+          "service.namespace": "ctxpipe",
+          "deployment.environment": otelDeploymentEnvironment(),
+          ...(taskId ? { "service.instance.id": taskId } : {}),
+        },
+        timeout: 5_000,
+        // The pipeline retries the batch; no retry inside the send.
+        retries: 0,
+      },
+    )
+  })
 }
 
 /** Initialize evlog. Call early in app bootstrap. Reads env from process.env. */

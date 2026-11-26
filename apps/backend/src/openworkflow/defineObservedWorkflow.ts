@@ -11,6 +11,7 @@ import {
   restoreJobTelemetry,
 } from "../observability/jobTelemetry.js"
 import { createLogger, withLogger } from "../observability/logger.js"
+import { holdRun } from "./held-runs.js"
 
 type JobInput<S extends z.ZodType> = z.output<S> & { telemetry?: JobTelemetry }
 type JobRaw<S extends z.ZodType> = z.input<S> & { telemetry?: JobTelemetry }
@@ -91,13 +92,16 @@ export function defineWorkflow<S extends z.ZodType, Output>(
       const { telemetry: _telemetry, ...input } = ctx.input
       // This wrapper gives each workflow body a logger. Thus `getLogger()`
       // does not throw in a body.
-      return restoreJobTelemetry(ctx.input, () =>
-        withLogger(
-          createLogger({
-            workflow: spec.name,
-            ...spec.logFields?.(input as z.output<S>, ctx.run),
-          }),
-          () => fn({ ...ctx, input: input as z.output<S> }),
+      // The supervisor logs the runs that a killed worker held.
+      return holdRun(ctx.run.id, () =>
+        restoreJobTelemetry(ctx.input, () =>
+          withLogger(
+            createLogger({
+              workflow: spec.name,
+              ...spec.logFields?.(input as z.output<S>, ctx.run),
+            }),
+            () => fn({ ...ctx, input: input as z.output<S> }),
+          ),
         ),
       )
     },
