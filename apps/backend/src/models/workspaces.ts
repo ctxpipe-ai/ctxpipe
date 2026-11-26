@@ -2201,10 +2201,10 @@ export async function persistEmbeddingFailure(input: {
   )
 }
 
-/** SQL: the unit has text but no chunk row. */
+/** SQL: the unit has text but no chunk row. Exported for the plan test of `KNOWLEDGE_UNIT_INDEX`. */
 // The chunks first: a CASE fixes the order, so the body (TOAST, the heaviest column) is read only for a unit without
 // chunks, not for every unit (with `and`, Postgres may test the cheaper-looking btrim first).
-function unitWithoutChunks(workspaceId: SQL, servingId: SQL, body: SQL) {
+export function unitWithoutChunks(workspaceId: SQL, servingId: SQL, body: SQL) {
   return sql`case when exists (
     select 1 from workspace_knowledge_chunks as c
     where c.workspace_id = ${workspaceId} and c.unit_id = ${servingId}
