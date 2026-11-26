@@ -303,12 +303,14 @@ async function search(
       notePartial(meter, error)
       return null
     }),
-    // The claims of the hits. With no time left, the hits have none.
+    // The claims of the hits: their out-relations only (CTX-1688). With no
+    // time left, the hits have none.
     beforeDeadline(deadline, () =>
       store.readFrontier(
         scope,
         inputs.map((input) => input.ref),
         request.validAt ?? null,
+        "out",
       ),
     ).catch((error: unknown) => {
       if (!isBudgetSpent(error, deadline)) throw error

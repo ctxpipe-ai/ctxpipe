@@ -1,6 +1,8 @@
-import type { ClickHouseClient } from "@clickhouse/client"
+import { type ClickHouseClient, ClickHouseError } from "@clickhouse/client"
+import { trace } from "@opentelemetry/api"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
+import { recordSpans } from "../../test/spans.js"
 import { startClickHouse, userUrl } from "../test/clickhouse.js"
 import {
   createKnowledgeStore,
@@ -386,6 +388,8 @@ async function searchIn(url: string, query: Partial<SearchQuery>) {
     await reader.close()
   }
 }
+
+const spans = recordSpans()
 
 let store: ReturnType<typeof createKnowledgeStore>
 /** The admin URL of the database of `store`. */
@@ -816,6 +820,64 @@ describe("search", () => {
   })
 })
 
+describe("refused request (CTX-1688)", () => {
+  it("gives a ClickHouseError with the code when ClickHouse refuses the request before the query runs", async () => {
+    // A query parameter of more than 128 KiB: the HTTP handler of
+    // ClickHouse refuses it with a Poco exception, not a DB::Exception.
+    const refs = Array.from({ length: 3_000 }, (_, i) => ({
+      workspaceId: workspace,
+      docKey: `missing/${String(i).padStart(4, "0")}-${"x".repeat(40)}.md`,
+    }))
+    const error = await store.readFrontier(orgA, refs).catch((e) => e)
+    expect(error).toBeInstanceOf(ClickHouseError)
+    expect(error).toMatchObject({ code: "1000" })
+  })
+})
+
+describe("read spans (CTX-1688)", () => {
+  it("gives each ClickHouse read of a request a span with the name of its statement", async () => {
+    await trace
+      .getTracer("test")
+      .startActiveSpan("request", async (request) => {
+        await search({
+          terms: ["vector"],
+          neighbors: { from: 5, places: 10 },
+        })
+        request.end()
+      })
+    const request = spans.spanNamed("request")
+    const reads = spans
+      .finishedSpans()
+      .filter((span) => span.name.startsWith("clickhouse "))
+    expect(reads.map((span) => span.name).sort()).toEqual([
+      "clickhouse search.chunks",
+      "clickhouse search.documents",
+      "clickhouse search.lexical",
+      "clickhouse search.neighbor_chunks",
+      "clickhouse search.neighbor_documents",
+      "clickhouse search.neighbors",
+      "clickhouse search.vector",
+    ])
+    for (const span of reads) {
+      expect(span.parentSpanContext?.spanId).toBe(request?.spanContext().spanId)
+      expect(span.attributes).toMatchObject({
+        "db.system.name": "clickhouse",
+        "db.operation.name": "SELECT",
+      })
+      expect(span.attributes["db.response.returned_rows"]).toBeTypeOf("number")
+    }
+  })
+
+  it("gives a read with no active span no span", async () => {
+    await search({ terms: ["vector"] })
+    expect(
+      spans
+        .finishedSpans()
+        .filter((span) => span.name.startsWith("clickhouse ")),
+    ).toEqual([])
+  })
+})
+
 describe("tree view (ADR-071 decision 4)", () => {
   it("shows the tree at the head: a row above the head is not seen until the head moves", async () => {
     const unfinished = [
@@ -920,6 +982,14 @@ describe("frontier relations", () => {
     })
   })
 
+  it("out: returns only the out-relations, the same as the out-relations of a read in both directions (CTX-1688)", async () => {
+    const refs = [{ workspaceId: workspace, docKey: "vector.md" }]
+    const both = await store.readFrontier(orgA, refs)
+    const out = await store.readFrontier(orgA, refs, null, "out")
+    expect(out.length).toBeGreaterThan(0)
+    expect(out).toEqual(both.filter((row) => row.direction === "out"))
+  })
+
   it("validAt: leaves out a relation or a neighbor that is not valid at that time", async () => {
     const in2026 = await frontier(new Date("2026-06-01"))
     expect(in2026.map((row) => row.relation.srcDoc)).toEqual([
@@ -952,6 +1022,42 @@ describe("document read", () => {
         document.status,
       ]),
     ).toEqual([[workspace, "vector.md", "active"]])
+  })
+
+  it("reads the documents of more refs than one query parameter can hold (CTX-1688)", async () => {
+    // ClickHouse refuses a query parameter of more than 128 KiB
+    // (`http_max_field_value_size`): 3,000 refs are about 230 KiB.
+    const refs = [
+      { workspaceId: workspace, docKey: "vector.md" },
+      ...Array.from({ length: 3_000 }, (_, i) => ({
+        workspaceId: workspace,
+        docKey: `missing/${String(i).padStart(4, "0")}-${"x".repeat(40)}.md`,
+      })),
+    ]
+    const documents = await store.readDocuments(orgA, refs)
+    expect(documents.map(({ document }) => document.docKey)).toEqual([
+      "vector.md",
+    ])
+  })
+
+  it("counts the bytes of a key with characters outside ASCII (CTX-1688)", async () => {
+    // 3 bytes in UTF-8 for each character: 1,500 keys of 40 characters
+    // are about 180 KiB, but less than 64 K characters.
+    const refs = Array.from({ length: 1_500 }, (_, i) => ({
+      workspaceId: workspace,
+      docKey: `${String(i).padStart(4, "0")}-${"文".repeat(40)}.md`,
+    }))
+    expect(await store.readDocuments(orgA, refs)).toEqual([])
+  })
+
+  it("counts the escapes of a key with quotes and backslashes (CTX-1688)", async () => {
+    // The client escapes each quote and backslash, and the URL encodes
+    // both characters: 1,500 such keys are about 290 KiB in the URL.
+    const refs = Array.from({ length: 1_500 }, (_, i) => ({
+      workspaceId: workspace,
+      docKey: `${String(i).padStart(4, "0")}-${"'\\".repeat(20)}.md`,
+    }))
+    expect(await store.readDocuments(orgA, refs)).toEqual([])
   })
 })
 

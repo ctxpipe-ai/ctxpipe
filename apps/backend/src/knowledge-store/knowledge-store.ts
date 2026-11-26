@@ -1,9 +1,11 @@
 import {
   type ClickHouseClient,
+  ClickHouseError,
   ClickHouseLogLevel,
   createClient,
   TupleParam,
 } from "@clickhouse/client"
+import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api"
 
 import { CONNECTOR_MIRROR_ROOTS } from "../domain/codeIngestion/connectorMirrorPaths.js"
 
@@ -478,11 +480,15 @@ export type KnowledgeStore = {
   ): Promise<{ srcDoc: string; dstDoc: string }[]>
   /** The hybrid search of ADR-068 decision 1. */
   search(scope: KnowledgeReadScope, query: SearchQuery): Promise<SearchHit[]>
-  /** The out-relations and in-relations of the documents `refs`. */
+  /**
+   * The out-relations and in-relations of the documents `refs`. With
+   * `direction` `out`, only the out-relations.
+   */
   readFrontier(
     scope: KnowledgeReadScope,
     refs: DocumentRef[],
     validAt?: Date | null,
+    direction?: "out" | "both",
   ): Promise<FrontierRelation[]>
   /**
    * The path of each file of the view whose path starts with `prefix`, with
@@ -583,13 +589,14 @@ export function createKnowledgeStore(url: string | undefined): KnowledgeStore {
     listUnresolvedReferences: (scope) =>
       listUnresolvedReferences(client, scope),
     search: (scope, query) => search(client, scope, query),
-    readFrontier: (scope, refs, validAt) =>
-      readFrontier(client, scope, refs, validAt),
+    readFrontier: (scope, refs, validAt, direction) =>
+      readFrontier(client, scope, refs, validAt, direction),
     readDocuments: (scope, refs) => readDocuments(client, scope, refs),
     listViewFiles: (scope, prefix) =>
       selectIn<{ workspaceId: string; path: string; branch: string }>(
         client,
         scope,
+        "view_files",
         `WITH tree_view AS (${treeView})
          SELECT workspace_id AS workspaceId, path, branch FROM tree_view
          WHERE kind = 'file' AND startsWith(path, {prefix:String})
@@ -1069,6 +1076,7 @@ async function readTree(
       orgId: scope.orgId,
       heads: [{ workspaceId: scope.workspaceId, ...head }],
     },
+    "tree",
     // The rows of the tree itself, with its `inherit` rows: no view.
     `SELECT doc_key AS docKey, version, path, status,
        doc_kind AS kind, observed_at AS observedAt, valid_from AS validFrom,
@@ -1428,46 +1436,109 @@ async function writeImageTexts(
 async function selectIn<T>(
   client: ClickHouseClient,
   scope: KnowledgeReadScope,
+  /** The name of the statement in its span, for example `search.vector`. */
+  statement: string,
   query: string,
   params: Record<string, unknown>,
 ): Promise<T[]> {
   assertReadScope(scope)
-  const result = await client.query({
-    query,
-    query_params: {
-      ...params,
-      orgId: scope.orgId,
-      workspaceIds: scope.heads.map((head) => head.workspaceId),
-      // The full tree of each Workspace: the base of an overlay, else the
-      // tree of the branch itself.
-      treeBranches: scope.heads.map(
-        (head) =>
-          new TupleParam([head.workspaceId, (head.base ?? head).branch]),
-      ),
-      treeVersions: new Map(
-        scope.heads.map((head) => [
-          head.workspaceId,
-          (head.base ?? head).treeVersion,
-        ]),
-      ),
-      overlayBranches: scope.heads.flatMap((head) =>
-        head.base ? [new TupleParam([head.workspaceId, head.branch])] : [],
-      ),
-      overlayVersions: new Map(
-        scope.heads.flatMap((head) =>
-          head.base ? [[head.workspaceId, head.treeVersion] as const] : [],
+  // A span only inside a request or a job (CTX-1688). The span has no SQL
+  // text and no parameter: a parameter can be customer content.
+  if (!trace.getActiveSpan())
+    return runSelectIn<T>(client, scope, query, params)
+  return trace.getTracer("ctxpipe-knowledge-store").startActiveSpan(
+    `clickhouse ${statement}`,
+    {
+      kind: SpanKind.CLIENT,
+      attributes: {
+        "db.system.name": "clickhouse",
+        "db.operation.name": "SELECT",
+        "db.query.summary": statement,
+      },
+    },
+    async (span) => {
+      try {
+        const rows = await runSelectIn<T>(client, scope, query, params)
+        span.setAttribute("db.response.returned_rows", rows.length)
+        return rows
+      } catch (error) {
+        // The code only: the message can quote a parameter.
+        const type =
+          error instanceof ClickHouseError
+            ? error.code
+            : error instanceof Error
+              ? error.name
+              : "unknown"
+        span.setAttribute("error.type", type)
+        span.setStatus({ code: SpanStatusCode.ERROR, message: type })
+        throw error
+      } finally {
+        span.end()
+      }
+    },
+  )
+}
+
+async function runSelectIn<T>(
+  client: ClickHouseClient,
+  scope: KnowledgeReadScope,
+  query: string,
+  params: Record<string, unknown>,
+): Promise<T[]> {
+  try {
+    const result = await client.query({
+      query,
+      query_params: {
+        ...params,
+        orgId: scope.orgId,
+        workspaceIds: scope.heads.map((head) => head.workspaceId),
+        // The full tree of each Workspace: the base of an overlay, else the
+        // tree of the branch itself.
+        treeBranches: scope.heads.map(
+          (head) =>
+            new TupleParam([head.workspaceId, (head.base ?? head).branch]),
         ),
-      ),
-    },
-    format: "JSONEachRow",
-    clickhouse_settings: {
-      [ORG_SETTING]: scope.orgId,
-      date_time_output_format: "iso",
-      // tuple(x AS name, …) gives a JSON object with these names.
-      enable_named_columns_in_function_tuple: 1,
-    },
-  })
-  return result.json<T>()
+        treeVersions: new Map(
+          scope.heads.map((head) => [
+            head.workspaceId,
+            (head.base ?? head).treeVersion,
+          ]),
+        ),
+        overlayBranches: scope.heads.flatMap((head) =>
+          head.base ? [new TupleParam([head.workspaceId, head.branch])] : [],
+        ),
+        overlayVersions: new Map(
+          scope.heads.flatMap((head) =>
+            head.base ? [[head.workspaceId, head.treeVersion] as const] : [],
+          ),
+        ),
+      },
+      format: "JSONEachRow",
+      clickhouse_settings: {
+        [ORG_SETTING]: scope.orgId,
+        date_time_output_format: "iso",
+        // tuple(x AS name, …) gives a JSON object with these names.
+        enable_named_columns_in_function_tuple: 1,
+      },
+    })
+    return await result.json<T>()
+  } catch (error) {
+    throw asClickHouseError(error)
+  }
+}
+
+/**
+ * An error of the ClickHouse server that the client cannot parse, as a
+ * `ClickHouseError` with its code. Such an error has no `DB::Exception`,
+ * for example when the HTTP handler refuses the request before the query
+ * runs ("Poco::Exception. Code: 1000, …"). Then the shadow log and the span
+ * give its code (CTX-1688).
+ */
+function asClickHouseError(error: unknown): unknown {
+  if (!(error instanceof Error) || error instanceof ClickHouseError)
+    return error
+  const code = /^(?:Poco::Exception\. )?Code: (\d+)\b/.exec(error.message)?.[1]
+  return code ? new ClickHouseError({ message: error.message, code }) : error
 }
 
 function assertReadScope(scope: KnowledgeReadScope): void {
@@ -1748,6 +1819,7 @@ async function search(
     return selectIn<ChunkKey>(
       client,
       scope,
+      "search.vector",
       // The filter on the documents applies before the top 500 (and before the
       // cap of each term), so that a narrow filter still finds chunks. Index
       // analysis of the large set cost more than it saved: 60 ms against
@@ -1776,6 +1848,7 @@ async function search(
       : selectIn<ChunkKey & { share: number }>(
           client,
           scope,
+          "search.lexical",
           // The score: the weights of the matched terms of the chunk, plus 4
           // times the weights of the query terms in the title of its document
           // (the title boost, CTX-1564). The weights are one scalar map, so
@@ -1861,6 +1934,7 @@ async function search(
     selectIn<DocumentRecord & { workspaceId: string; version: string }>(
       client,
       scope,
+      "search.documents",
       `WITH tree_view AS (${treeView})
        SELECT v.workspace_id AS workspaceId, v.version AS version,
          ${viewDocumentColumns}
@@ -1871,6 +1945,7 @@ async function search(
     selectIn<ChunkKey & ChunkLines>(
       client,
       scope,
+      "search.chunks",
       `SELECT workspace_id AS workspaceId, doc_key AS docKey, version, ordinal,
          text, start_line AS startLine, end_line AS endLine
        FROM chunks WHERE ${inWorkspaces}
@@ -2039,6 +2114,7 @@ async function searchNeighbors(
   >(
     client,
     scope,
+    "search.neighbors",
     `WITH tree_view AS (${treeView}),
      candidates AS (
        SELECT o.workspace_id AS workspace_id,
@@ -2100,6 +2176,7 @@ async function searchNeighbors(
     selectIn<DocumentRef & ChunkLines & { distance: number }>(
       client,
       scope,
+      "search.neighbor_chunks",
       `SELECT workspace_id AS workspaceId, doc_key AS docKey, ordinal, text,
          start_line AS startLine, end_line AS endLine,
          cosineDistance(embedding, {queryVector:Array(Float32)}) AS distance
@@ -2117,6 +2194,7 @@ async function searchNeighbors(
     >(
       client,
       scope,
+      "search.neighbor_documents",
       `SELECT workspace_id AS workspaceId, doc_key AS docKey, error, title,
          source_type AS sourceType, source, summary, mime
        FROM documents WHERE ${inWorkspaces} AND ${inNeighbors}`,
@@ -2206,12 +2284,18 @@ const resolvedTarget = (alias: string) =>
  * a key that many files mention (the name of the whole project) is weak.
  * The mentions of one target by one file give one relation, with the
  * chunk and the confidence of the strongest.
+ *
+ * With `direction` `out`, the query reads no in-relations (CTX-1688). The
+ * claims of the search hits are out-relations only. For a hub document,
+ * the in-relations can use most of the time of the read and give most of
+ * its rows.
  */
 async function readFrontier(
   client: ClickHouseClient,
   scope: KnowledgeReadScope,
   refs: DocumentRef[],
   validAtTime: Date | null = null,
+  direction: "out" | "both" = "both",
 ): Promise<FrontierRelation[]> {
   assertReadScope(scope)
   if (refs.length === 0) return []
@@ -2220,27 +2304,8 @@ async function readFrontier(
   const isKey = (column: string) => `startsWith(${column}, {prefix:String})`
   const inRefs = (columns: string) =>
     `(${columns}) IN {refs:Array(Tuple(String, String))}`
-  const rows = await selectIn<
-    RelationRecord & {
-      direction: "out" | "in"
-      workspaceId: string
-      neighborDoc: string
-      viaKey: string
-    }
-  >(
-    client,
-    scope,
-    `WITH tree_view AS (${treeView}),
-     frontier AS (
-       ${viewFiles} AND ${inRefs("workspace_id, doc_key")}
-     ),
-     out_edges AS (
-       SELECT * FROM (
-         ${relationsOf("relations", "SELECT * FROM frontier")}
-           AND ${inRefs("r.workspace_id, r.src_doc")}
-       ) WHERE ${validDuring()}
-     ),
-     own_keys AS (
+  // The in-relations: to a frontier document, or to a key of it.
+  const inCtes = `own_keys AS (
        SELECT workspace_id, concat({prefix:String}, ref_key) AS target, doc_key
        FROM doc_refs
        WHERE ${inWorkspaces} AND (workspace_id, doc_key, version) IN (
@@ -2253,8 +2318,39 @@ async function readFrontier(
              OR (r.workspace_id, r.dst_doc) IN (
                SELECT workspace_id, target FROM own_keys))
        ) WHERE ${validDuring()}
+     ),`
+  const inBranches = `UNION ALL
+       SELECT 'in', src_doc, '', ${edgeColumns}
+       FROM in_edges WHERE ${inRefs("workspace_id, dst_doc")}
+       UNION ALL
+       SELECT 'in', i.src_doc, ${mentionKey("i")}, i.workspace_id, i.src_doc,
+         i.src_chunk, i.predicate, k.doc_key, i.confidence, i.valid_from,
+         i.valid_to, i.source, i.alt_text, i.observed_at
+       FROM in_edges AS i
+       INNER JOIN own_keys AS k
+         ON k.workspace_id = i.workspace_id AND k.target = i.dst_doc`
+  const rows = await selectIn<
+    RelationRecord & {
+      direction: "out" | "in"
+      workspaceId: string
+      neighborDoc: string
+      viaKey: string
+    }
+  >(
+    client,
+    scope,
+    "frontier.relations",
+    `WITH tree_view AS (${treeView}),
+     frontier AS (
+       ${viewFiles} AND ${inRefs("workspace_id, doc_key")}
      ),
-     edges AS (
+     out_edges AS (
+       SELECT * FROM (
+         ${relationsOf("relations", "SELECT * FROM frontier")}
+           AND ${inRefs("r.workspace_id, r.src_doc")}
+       ) WHERE ${validDuring()}
+     ),
+${direction === "out" ? "" : inCtes}     edges AS (
        SELECT 'out' AS direction, dst_doc AS neighbor_doc, '' AS via_key,
          ${edgeColumns}
        FROM out_edges WHERE NOT ${isKey("dst_doc")}
@@ -2272,16 +2368,7 @@ async function readFrontier(
          ON keys.workspace_id = o.workspace_id AND keys.target = o.dst_doc
        WHERE ${isKey("o.dst_doc")}
          AND NOT (o.predicate = 'MENTIONS' AND empty(keys.doc_key))
-       UNION ALL
-       SELECT 'in', src_doc, '', ${edgeColumns}
-       FROM in_edges WHERE ${inRefs("workspace_id, dst_doc")}
-       UNION ALL
-       SELECT 'in', i.src_doc, ${mentionKey("i")}, i.workspace_id, i.src_doc,
-         i.src_chunk, i.predicate, k.doc_key, i.confidence, i.valid_from,
-         i.valid_to, i.source, i.alt_text, i.observed_at
-       FROM in_edges AS i
-       INNER JOIN own_keys AS k
-         ON k.workspace_id = i.workspace_id AND k.target = i.dst_doc
+${direction === "out" ? "" : inBranches}
      )
      SELECT DISTINCT direction, via_key AS viaKey,
        workspace_id AS workspaceId, neighbor_doc AS neighborDoc,
@@ -2423,6 +2510,7 @@ async function readMentionStats(
   }>(
     client,
     scope,
+    "frontier.mention_stats",
     `WITH tree_view AS (${treeView})
      SELECT w.workspace_id AS workspaceId, w.target AS target,
        s.sources AS sources, d.documents AS documents, f.files AS files
@@ -2494,29 +2582,67 @@ const missingDocument = (
   observedAt,
 })
 
-/** The document of each of `refs` that the view has, in one query. */
+/**
+ * The document of each of `refs` that the view has. The neighbors of a hub
+ * document can be thousands of refs, and ClickHouse refuses a query
+ * parameter of more than 128 KiB (`http_max_field_value_size`). Thus the
+ * refs go in parallel queries of at most 64 KiB of refs each (CTX-1688),
+ * by the length of the escaped and URL-encoded text: a key with
+ * characters outside ASCII, or with quotes, has more bytes than
+ * characters.
+ */
 async function readDocuments(
   client: ClickHouseClient,
   scope: KnowledgeReadScope,
   refs: DocumentRef[],
 ): Promise<{ workspaceId: string; document: KnowledgeDocument }[]> {
   assertReadScope(scope)
-  if (refs.length === 0) return []
-  const rows = await selectIn<DocumentRecord & { workspaceId: string }>(
-    client,
-    scope,
-    `WITH tree_view AS (${treeView})
-     SELECT v.workspace_id AS workspaceId, ${viewDocumentColumns}
-     FROM ${viewDocumentsFrom(
-       "(workspace_id, doc_key) IN {refs:Array(Tuple(String, String))}",
-     )}
-     ORDER BY workspaceId, docKey`,
-    { refs: refTuples(refs) },
+  // The length of a string of a query parameter in the URL: the client
+  // escapes a backslash and a quote, then the URL encodes the text.
+  const urlLength = (value: string) =>
+    new URLSearchParams({ v: value.replace(/[\\']/g, "\\$&") }).toString()
+      .length - 2
+  const batches: DocumentRef[][] = []
+  let size = Number.POSITIVE_INFINITY
+  for (const ref of refs) {
+    // The text of the tuple in the URL: each string with its escapes,
+    // then the quotes, the comma and the brackets (3 characters each).
+    const length = urlLength(ref.workspaceId) + urlLength(ref.docKey) + 24
+    if (size + length > 64 * 1024) {
+      batches.push([])
+      size = 0
+    }
+    batches.at(-1)?.push(ref)
+    size += length
+  }
+  const rows = await Promise.all(
+    batches.map((batch) =>
+      selectIn<DocumentRecord & { workspaceId: string }>(
+        client,
+        scope,
+        "documents",
+        `WITH tree_view AS (${treeView})
+         SELECT v.workspace_id AS workspaceId, ${viewDocumentColumns}
+         FROM ${viewDocumentsFrom(
+           "(workspace_id, doc_key) IN {refs:Array(Tuple(String, String))}",
+         )}`,
+        { refs: refTuples(batch) },
+      ),
+    ),
   )
-  return rows.map(({ workspaceId, ...record }) => ({
-    workspaceId,
-    document: toDocument(record),
-  }))
+  // The order of one query: ORDER BY workspaceId, docKey (UTF-8 bytes).
+  const byBytes = (a: string, b: string) =>
+    Buffer.compare(Buffer.from(a), Buffer.from(b))
+  return rows
+    .flat()
+    .sort(
+      (a, b) =>
+        byBytes(a.workspaceId, b.workspaceId) || byBytes(a.docKey, b.docKey),
+    )
+    .map(({ workspaceId, ...record }) => ({
+      workspaceId,
+      document: toDocument(record),
+    }))
 }
 
 /**
@@ -2544,6 +2670,7 @@ async function readEvidence(
     selectIn<DocumentRecord & { workspaceId: string }>(
       client,
       scope,
+      "evidence.documents",
       `WITH tree_view AS (${treeView})
        SELECT v.workspace_id AS workspaceId, ${viewDocumentColumns}
        FROM ${viewDocumentsFrom(inRefs)}`,
@@ -2552,6 +2679,7 @@ async function readEvidence(
     selectIn<DocumentRef & ChunkLines & { distance: number }>(
       client,
       scope,
+      "evidence.chunks",
       `WITH tree_view AS (${treeView})
        SELECT workspace_id AS workspaceId, doc_key AS docKey, ordinal, text,
          start_line AS startLine, end_line AS endLine,
@@ -2591,6 +2719,7 @@ async function readGraph(
     selectIn<DocumentRecord>(
       client,
       scope,
+      "graph.documents",
       `WITH tree_view AS (${treeView})
        SELECT ${viewDocumentColumns} FROM ${viewDocumentsFrom("1")}
        ORDER BY docKey LIMIT {limit:UInt32}`,
@@ -2604,6 +2733,7 @@ async function readGraph(
     selectIn<RelationRecord>(
       client,
       scope,
+      "graph.relations",
       `WITH tree_view AS (${treeView})
        SELECT DISTINCT rel.src_doc AS srcDoc, rel.src_chunk AS srcChunk,
          rel.predicate AS predicate, ${resolvedTarget("rel")} AS dstDoc,
@@ -2634,6 +2764,7 @@ const listDocumentStatuses = (
   selectIn<{ docKey: string; status: DocumentStatus }>(
     client,
     scope,
+    "document_statuses",
     // An ORDER BY after a UNION ALL sorts only its last SELECT, so the
     // union is a subquery.
     `WITH tree_view AS (${treeView})
@@ -2659,6 +2790,7 @@ const listUnresolvedReferences = (
   selectIn<{ srcDoc: string; dstDoc: string }>(
     client,
     scope,
+    "unresolved_references",
     `WITH tree_view AS (${treeView})
      SELECT DISTINCT rel.src_doc AS srcDoc, rel.dst_doc AS dstDoc
      FROM (${relationsOf("relations", viewFiles)}) AS rel
