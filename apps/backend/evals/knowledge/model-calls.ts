@@ -70,9 +70,10 @@ export const callCountsSchema = z.object({
    */
   unrecorded: z.number().default(0),
   /**
-   * The Jev calls whose second copy (the hedge of the Jev client) went out
-   * because the provider was slow: the client stopped one copy when the
-   * other answered. A run folder from before this count has none (0).
+   * The copies of a request that went out while a copy of the same request
+   * was in flight: the hedge of the Jev client, which sends a second copy
+   * of a slow call. Each one shows a provider stall. A run folder from
+   * before this count has none (0).
    */
   hedged: z.number().default(0),
 })
@@ -286,8 +287,9 @@ export class ModelCalls {
   /** The recorded calls that a composed answer used, kept in `records`. */
   private readonly composedFrom = new Set<RecordedCall>()
   /**
-   * The copies of each request (`replayKeyOf`) that are in flight, and the
-   * cost of a copy that answered while they were in flight. The Jev client
+   * The copies of each request (`replayKeyOf`) of an arm and question that
+   * are in flight, and the cost of a copy that answered while they were in
+   * flight. The Jev client
    * sends a second copy of a slow request, and stops the copy that did not
    * answer first after the answer. The stopped copy then costs about the
    * same as its sibling, not the reservation.
@@ -443,9 +445,11 @@ export class ModelCalls {
     // Only a call that goes out counts as live.
     if (this.replay) this.reuse.live += 1
     this.reservedUsd += reserved
-    const copies = this.copies.get(key) ?? { inFlight: 0 }
+    const copiesKey = this.replayKey(owner.arm, owner.question, key)
+    const copies = this.copies.get(copiesKey) ?? { inFlight: 0 }
+    if (copies.inFlight > 0) owner.counts.hedged += 1
     copies.inFlight += 1
-    this.copies.set(key, copies)
+    this.copies.set(copiesKey, copies)
     const started = performance.now()
     let response: Response
     let text: string
@@ -456,17 +460,16 @@ export class ModelCalls {
       // The provider can charge a call that failed on the way back. A copy
       // that the Jev client stopped because its sibling answered costs what
       // the sibling cost.
-      const sibling = request.signal.aborted ? copies.answeredUsd : undefined
-      const costUsd = sibling ?? reserved
+      const siblingUsd = request.signal.aborted ? copies.answeredUsd : undefined
+      const costUsd = siblingUsd ?? reserved
       this.spentUsd += costUsd
       owner.counts.costUsd += costUsd
       if (!request.signal.aborted) owner.counts.failed += 1
-      else if (kind === "jev" && sibling !== undefined) owner.counts.hedged += 1
       throw error
     } finally {
       this.reservedUsd -= reserved
       copies.inFlight -= 1
-      if (copies.inFlight === 0) this.copies.delete(key)
+      if (copies.inFlight === 0) this.copies.delete(copiesKey)
     }
     const latencyMs = performance.now() - started
     const known = gatewayCost(

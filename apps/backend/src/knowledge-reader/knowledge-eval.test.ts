@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { delay, HttpResponse, http } from "msw"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { main } from "../../evals/knowledge/cli.js"
 import {
@@ -465,34 +465,47 @@ describe("a hedged Jev call", () => {
   let sent = 0
   useMswServer(
     // The first copy is slow (a provider stall), so the client sends a
-    // second copy after 700 ms. The second copy answers at once.
-    http.post(JEV, async () => {
+    // second copy after 700 ms. The second copy answers at once. A request
+    // with "stall" in its body does not answer before the time limit.
+    http.post(JEV, async ({ request }) => {
       sent += 1
-      if (sent === 1) await delay(5_000)
+      if (sent === 1 || (await request.text()).includes("stall"))
+        await delay(5_000)
       return HttpResponse.json({
         answers: { sky: { type: "noul", noul: 0.9 } },
         usage: { cost: 0.0004 },
       })
     }),
   )
-  afterEach(() => vi.unstubAllEnvs())
+  // Only the timers of the hedge and of msw.
+  beforeEach(() => {
+    sent = 0
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+  })
+  afterEach(async () => {
+    await vi.runOnlyPendingTimersAsync()
+    vi.useRealTimers()
+    vi.unstubAllEnvs()
+  })
 
   it("books the stopped copy at the cost of the copy that answered, and counts the hedge", async () => {
     vi.stubEnv("MODEL_PROVIDER", "openrouter")
     vi.stubEnv("MODEL_PROVIDER_URL", BASE)
     vi.stubEnv("MODEL_PROVIDER_API_KEY", "test-key")
     vi.stubEnv("MODEL_PROVIDER_ALLOWLIST", "openai,azure")
-    sent = 0
     const calls = new ModelCalls(BASE, 1)
     const restore = calls.install()
     try {
       calls.begin("plane", "question")
-      const answers = await decideNoul(
+      const call = decideNoul(
         ["The sky is blue."],
         { sky: { type: "noul", instructions: "Is the sky blue?" } },
         { timeoutMs: 5_000, attributes: {} },
       )
-      expect(answers.get("sky")).toBe(0.9)
+      // The client starts the hedge timer when the first copy goes out.
+      while (sent < 1) await new Promise((wake) => setImmediate(wake))
+      await vi.advanceTimersByTimeAsync(700)
+      expect((await call).get("sky")).toBe(0.9)
       await calls.settle()
       expect(sent).toBe(2)
       // The winner and the stopped copy, each at $0.0004: not the $0.002
@@ -505,6 +518,35 @@ describe("a hedged Jev call", () => {
       })
       expect(calls.spentUsd).toBeCloseTo(0.0008)
       expect(calls.records).toHaveLength(1)
+    } finally {
+      restore()
+    }
+  })
+
+  it("counts the hedge, and books the reservation, when both copies stop at the time limit", async () => {
+    const calls = new ModelCalls(BASE, 1)
+    const restore = calls.install()
+    try {
+      calls.begin("plane", "question")
+      // The two copies of the Jev client: the same body and one signal.
+      const limit = new AbortController()
+      const copy = () =>
+        fetch(JEV, {
+          method: "POST",
+          body: JSON.stringify({ questions: { stall: {} } }),
+          signal: limit.signal,
+        })
+      const copies = [copy(), copy()]
+      await vi.advanceTimersByTimeAsync(10)
+      limit.abort()
+      for (const sent of copies) await expect(sent).rejects.toThrow()
+      await calls.settle()
+      expect(calls.end()).toMatchObject({
+        jev: 0,
+        hedged: 1,
+        failed: 0,
+        costUsd: 0.004,
+      })
     } finally {
       restore()
     }
