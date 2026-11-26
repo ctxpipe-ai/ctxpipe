@@ -7,8 +7,8 @@ description: How ctxpipe helps coding agents remember what your team teaches the
   Local memory builds on features of coding agents (Cursor, Claude Code, Codex,
   OpenCode, VS Code) that change from month to month, and on ideas about agent
   memory that are still settling. Expect this page and `ctxpipe memory init` to
-  change frequently. After you upgrade the CLI, run `npx ctxpipe memory init` again
-  to get the latest hooks, rules, and skills.
+  change frequently. The hooks always run the newest CLI release. Run
+  `npx ctxpipe memory init` again to get the latest rules and skills.
 </Callout>
 
 ## What it is
@@ -149,7 +149,10 @@ The installed `memory-search` skill describes the full procedure.
   `lessons-learned.md`.
 - A repository that you set up with CLI 0.2.0 repairs itself at the next
   session. Its old hooks and MCP entries call `memory hook` and `memory mcp`.
-  These commands now do the same upgrade as `memory init`: they remove the old
-  entries and write the current capture hooks for each host that had one. They
-  exit with code 0 and write one line to stderr (the hook or MCP log). The
-  repair changes only a repository that has `.ai/memory`.
+  These commands now do the same upgrade as `memory init` in the repository:
+  they write the current capture hooks for each host that had an old entry, and
+  remove the old entries of the repository. They exit with code 0 and write one
+  line to stderr (the hook or MCP log). The repair changes only a repository
+  that has `.ai/memory`, and no file outside it. Old entries in your home
+  directory stay, so that your other repositories repair themselves too. Run
+  `npx ctxpipe memory init` once to remove them.

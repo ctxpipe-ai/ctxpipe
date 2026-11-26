@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process"
+import { randomUUID } from "node:crypto"
 import {
   existsSync,
   mkdirSync,
@@ -43,17 +44,20 @@ export function applyOperations(operations: Operation[]): ApplyResult {
  * Write through a temp file and a rename. The memory repair can run in two
  * processes at once (a session hook and an MCP server). A reader then sees the
  * old or the new file, never a partial one that parses as an empty object.
- * Writes go to the target of a symlink, so the link stays.
+ * Writes go to the target of a symlink, so the link stays. The temp file has a
+ * random name and is created only when it does not exist, so a planted file or
+ * link at that name is never written through.
  */
 function writeFileAtomic(path: string, content: string): void {
   const target = existsSync(path) ? realpathSync(path) : path
   mkdirSync(dirname(target), { recursive: true })
-  const temp = `${target}.${process.pid}.tmp`
+  const temp = `${target}.${randomUUID()}.tmp`
+  writeFileSync(temp, content, {
+    encoding: "utf8",
+    flag: "wx",
+    mode: existsSync(target) ? statSync(target).mode : 0o666,
+  })
   try {
-    writeFileSync(temp, content, {
-      encoding: "utf8",
-      mode: existsSync(target) ? statSync(target).mode : 0o666,
-    })
     renameSync(temp, target)
   } catch (error) {
     rmSync(temp, { force: true })

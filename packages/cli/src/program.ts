@@ -556,8 +556,8 @@ MCP auth:
       .description("Removed in 0.3.0. Repairs a 0.2.0 memory setup.")
       .argument("[args...]")
       .allowUnknownOption()
-      .action(() => {
-        runLegacyMemoryRepair(name)
+      .action(async () => {
+        await runLegacyMemoryRepair(name)
       })
   }
 

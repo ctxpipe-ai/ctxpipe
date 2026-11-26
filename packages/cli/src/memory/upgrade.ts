@@ -52,15 +52,16 @@ function isLegacyMemoryDoc(text: string): boolean {
 }
 
 /**
- * Strip retired local-memory MCP tables from Codex config.toml
- * (e.g. `[mcp_servers.ctxpipe-memory]` from `codex mcp add`).
+ * A `[mcp_servers.ctxpipe-memory]` table from `codex mcp add`, to the next
+ * table header or to the start of the managed capture-hook block. The repair
+ * writes that block before it removes the table, so the strip must keep it.
  */
+const LEGACY_CODEX_MEMORY_TABLE =
+  /^[ \t]*\[(?:mcp_servers|mcp\.servers)\.ctxpipe-memory\][^\n]*(?:\n(?![ \t]*\[|# BEGIN ctxpipe-memory-capture)[^\n]*)*/gm
+
+/** Strip retired local-memory MCP tables from Codex config.toml. */
 function stripLegacyCodexMemoryToml(existing: string): string {
-  // Match section headers even when indented; stop at the next header line.
-  let text = existing.replace(
-    /^[ \t]*\[(?:mcp_servers|mcp\.servers)\.ctxpipe-memory\][^\n]*(?:\n(?![ \t]*\[)[^\n]*)*/gm,
-    "",
-  )
+  let text = existing.replace(LEGACY_CODEX_MEMORY_TABLE, "")
   // Drop orphaned blank runs introduced by section removal.
   text = text.replace(/\n{3,}/g, "\n\n")
   if (!text.trim()) return text.endsWith("\n") ? "\n" : text
@@ -337,13 +338,13 @@ export function buildMemoryUpgradeOperations({
 
 /**
  * Finds the entries of CLI 0.2.0 (the `ctxpipe-memory` MCP server and the
- * `memory hook` commands) in the files that the upgrade cleans. Returns null
- * when there is no such entry. Else returns the hosts that hold one, so that
- * a repair can write the current capture hooks for them.
+ * `memory hook` commands) in the files that the upgrade cleans. Returns the
+ * file and the host of each, so that a repair can write the current capture
+ * hooks for these hosts.
  */
-export function findLegacyMemoryHosts(
+export function findLegacyMemoryEntries(
   context: OperationContext,
-): Client[] | null {
+): Array<{ path: string; host: Client | null }> {
   const { mcpFiles, claudeSettings, codexConfigs } = legacyMemoryFiles(context)
   const read = (path: string) =>
     existsSync(path) ? readFileSync(path, "utf8") : null
@@ -357,26 +358,16 @@ export function findLegacyMemoryHosts(
     return JSON.stringify(strip(existing)) !== JSON.stringify(existing)
   }
 
-  let found = false
-  const hosts = new Set<Client>()
-  const mark = (host: Client | null) => {
-    found = true
-    if (host) hosts.add(host)
-  }
-  for (const [path, host] of mcpFiles) {
-    if (changes(path, stripLegacyMemoryMcp)) mark(host)
-  }
-  for (const path of claudeSettings) {
-    if (changes(path, stripLegacyClaudeHooks)) mark("claude")
-  }
-  for (const path of codexConfigs) {
-    if (
-      /^[ \t]*\[(?:mcp_servers|mcp\.servers)\.ctxpipe-memory\]/m.test(
-        read(path) ?? "",
+  return [
+    ...mcpFiles.filter(([path]) => changes(path, stripLegacyMemoryMcp)),
+    ...claudeSettings
+      .filter((path) => changes(path, stripLegacyClaudeHooks))
+      .map((path): [string, Client] => [path, "claude"]),
+    // `search` ignores the lastIndex of a /g regex; `test` does not.
+    ...codexConfigs
+      .filter(
+        (path) => (read(path) ?? "").search(LEGACY_CODEX_MEMORY_TABLE) >= 0,
       )
-    ) {
-      mark("codex")
-    }
-  }
-  return found ? [...hosts] : null
+      .map((path): [string, Client] => [path, "codex"]),
+  ].map(([path, host]) => ({ path, host }))
 }
