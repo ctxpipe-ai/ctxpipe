@@ -228,7 +228,10 @@ export const workspaceKnowledgeChunks = pgTable.withRLS(
       t.chunkHash,
     ),
     // Also serves each read of the chunks by org only, as the old index on the org did.
-    index(KNOWLEDGE_UNIT_INDEX).on(t.orgId, t.workspaceId, t.unitId),
+    index(KNOWLEDGE_UNIT_INDEX).using(
+      "btree",
+      sql.raw(KNOWLEDGE_UNIT_INDEX_COLUMNS),
+    ),
     // The org and the Workspace under `COLLATE "C"` (btree_gin) and the
     // tsvector: the full-text match of workspaceKnowledgeChunkSearch, one
     // Workspace at a time. No other index has them under that collation, so

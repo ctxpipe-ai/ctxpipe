@@ -7,6 +7,7 @@ import pg from "pg"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 import { closeDb, initDb, withOrgDbContext } from "../db/client.js"
+import { planNodes } from "../db/knowledge-search-plan.js"
 import { ownerUrlForMigrate } from "../db/owner-migrate-url.js"
 import {
   KNOWLEDGE_UNIT_INDEX,
@@ -25,23 +26,11 @@ const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`
 const orgId = `org_test_read_plans_${suffix}`
 const workspaceId = `ws_test_read_plans_${suffix}`
 
-type PlanNode = {
-  "Node Type": string
-  "Relation Name"?: string
-  "Index Name"?: string
-  Plans?: PlanNode[]
-}
-
 /** Each scan of `relation` in a JSON plan, with its node type and index. */
 function scansOf(plan: unknown, relation: string) {
-  const scans: { type: string; index?: string }[] = []
-  const walk = (node: PlanNode) => {
-    if (node["Relation Name"] === relation)
-      scans.push({ type: node["Node Type"], index: node["Index Name"] })
-    for (const child of node.Plans ?? []) walk(child)
-  }
-  for (const root of plan as { Plan: PlanNode }[]) walk(root.Plan)
-  return scans
+  return planNodes(plan)
+    .filter((node) => node["Relation Name"] === relation)
+    .map((node) => ({ type: node["Node Type"], index: node["Index Name"] }))
 }
 
 /**

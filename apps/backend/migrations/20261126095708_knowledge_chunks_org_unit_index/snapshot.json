@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "8b32e43e-3807-45f6-a22f-d0ac880b8f7a",
+  "id": "08c19087-a709-40ca-963e-178c29e02312",
   "prevIds": [
     "9203a41b-e101-4d80-80e4-3f31ff043ad9",
     "bd812ff6-631c-4b58-9e63-4d7e05a7a3e6"
@@ -9817,22 +9817,8 @@
       "nameExplicit": true,
       "columns": [
         {
-          "value": "org_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "workspace_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "unit_id",
-          "isExpression": false,
+          "value": "\"org_id\", \"workspace_id\", \"unit_id\"",
+          "isExpression": true,
           "asc": true,
           "nullsFirst": false,
           "opclass": null
