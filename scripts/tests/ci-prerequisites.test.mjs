@@ -54,9 +54,17 @@ test("chat sandbox builds even when its tag exists, loads the image and holds it
     // runs: the disk bound of `factory check` does not remove an image that
     // a container uses (CTX-1723).
     const create = calls[2]?.split(" ") ?? []
-    assert.deepEqual(create.slice(0, 4), ["create", "--pull", "never", "--name"])
+    assert.deepEqual(create.slice(0, 4), [
+      "create",
+      "--pull",
+      "never",
+      "--name",
+    ])
     assert.match(create[4] ?? "", /^ctxpipe-test-hold-chat-sandbox-\d+$/)
-    assert.deepEqual(create.slice(5, 7), ["--label", "ai.ctxpipe.test=test-host/7"])
+    assert.deepEqual(create.slice(5, 7), [
+      "--label",
+      "ai.ctxpipe.test=test-host/7",
+    ])
     assert.equal(create.at(-1), tag)
     // The holder goes when the process ends.
     assert.equal(calls.at(-1), `rm --force --volumes ${create[4]}`)
