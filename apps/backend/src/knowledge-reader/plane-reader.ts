@@ -30,7 +30,6 @@ import {
   type FrontierRelation,
   type KnowledgeDocument,
   type KnowledgeReadScope,
-  type KnowledgeRelation,
   type KnowledgeStore,
 } from "../knowledge-store/knowledge-store.js"
 import {
@@ -500,7 +499,7 @@ async function related(
   // results, asked with the judge of the last layer: see `onLastLayer`
   // below.
   let earlyFacts: Promise<DisagreementFacts> | undefined
-  let earlyRelations: Promise<KnowledgeRelation[]> | undefined
+  let earlyRelations: Promise<FrontierRelation[]> | undefined
   const readRelations = (nodes: readonly TraversalNode[]) =>
     relationsBetween(store, scope, nodes, walk, deadline)
   try {
@@ -761,7 +760,7 @@ function relationsBetween(
   nodes: readonly TraversalNode[],
   walk: Pick<WalkFilter, "validAt" | "validBetween">,
   deadline: number,
-): Promise<KnowledgeRelation[]> {
+): Promise<FrontierRelation[]> {
   if (nodes.length < 2) return Promise.resolve([])
   const { validAt, validBetween } = walk
   const relations = beforeDeadline(deadline, () =>
@@ -772,9 +771,9 @@ function relationsBetween(
       "out",
     ),
   ).then((read) =>
-    read
-      .map(({ relation }) => relation)
-      .filter((relation) => !validBetween || overlaps(relation, validBetween)),
+    read.filter(
+      ({ relation }) => !validBetween || overlaps(relation, validBetween),
+    ),
   )
   relations.catch(() => {})
   return relations
@@ -791,7 +790,7 @@ async function topClaims(
   top: readonly TraversalNode[],
   deadline: number,
   facts: Promise<DisagreementFacts>,
-  relations: Promise<readonly KnowledgeRelation[]>,
+  relations: Promise<readonly FrontierRelation[]>,
 ): Promise<RelatedClaim[]> {
   const { sameAt, disagreeAt, replacesAt, scopedAt } = ORCHESTRATOR_DEFAULTS
   const pathOf = new Map(
@@ -800,7 +799,10 @@ async function topClaims(
   // A frontier read can give one relation more than one time (one row for
   // each chunk), so equal claims are kept once.
   const edges = new Map<string, RelatedClaim>()
-  for (const relation of await beforeDeadline(deadline, () => relations)) {
+  for (const { relation, statedConfidence } of await beforeDeadline(
+    deadline,
+    () => relations,
+  )) {
     const from = pathOf.get(relation.srcDoc)
     const to = pathOf.get(relation.dstDoc)
     if (from === undefined || to === undefined || from === to) continue
@@ -812,7 +814,8 @@ async function topClaims(
       source: relation.source,
       validFrom: relation.validFrom?.toISOString() ?? null,
       validTo: relation.validTo?.toISOString() ?? null,
-      confidence: round(relation.confidence),
+      // The confidence of the file, not the weight of the walk (CTX-1720).
+      confidence: round(statedConfidence),
     }
     edges.set(JSON.stringify(claim), claim)
   }

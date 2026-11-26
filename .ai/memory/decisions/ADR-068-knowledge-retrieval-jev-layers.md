@@ -82,10 +82,10 @@ The content and its tables are in [ADR-066](ADR-066-knowledge-content-in-clickho
 
       The confidence of a reading is the lowest p(yes) of the facts that give it.
    4. The output is a list of claims between the top results. Each claim has its two ends (`from`, `to`), its predicate, the kind of claim (`by`), and its confidence:
-      - **a stored relation** (`by: edge`) that the walk read between two top results: also its source and its `validFrom` and `validTo`. A `SUPERSEDES` is such a claim, like each other relation;
+      - **a stored relation** (`by: edge`) from one top result to another: also its source and its `validFrom` and `validTo`. The read of these relations starts with the judge of the last layer, as the facts do, and it uses the time filter of the walk. The confidence is the one that the file states: for a `MENTIONS` of a reference key, it is not the weight of the read ([ADR-066](ADR-066-knowledge-content-in-clickhouse.md) decision 5), which only the walk uses. A `SUPERSEDES` is such a claim, like each other relation;
       - **a reading of the model** (`by: reading`): the readings of item 3.
 
-      Each result also shows its source type and its document times. Code does not group the results into positions, and it does not give a status (current, superseded, disputed or scoped). The calling agent compares the claims, their sources, their times and their confidence, and it writes the answer.
+      A page shows the claims between its own results. Each result also shows its source type and its document times. Code does not group the results into positions, and it does not give a status (current, superseded, disputed or scoped). The calling agent compares the claims, their sources, their times and their confidence, and it writes the answer.
    5. Each fact is "yes" at a threshold that is a setting of the loop (`ORCHESTRATOR_DEFAULTS`). The function makes no call, so the evals score a change of a reading or a threshold again from the recorded answers ([ADR-069](ADR-069-knowledge-plane-evals-and-rollout.md) decision 7).
 
    Why the facts: Jev gives one fast judgment for each question, and the questions of one call do not see each other. A typed decision model follows the name of an option, not its definition, and the options of a Choice question compete. Thus a 5-way Choice with long definitions, or a question that weighs four factors, is not reliable. Small facts are reliable and can be tested.

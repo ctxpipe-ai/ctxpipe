@@ -1783,6 +1783,26 @@ describe("issue mentions (CTX-1502)", () => {
           confidence: expect.closeTo(PATH_OF_ONE_FILE, 3),
         },
       ])
+      // The file states the confidence of the rule that found the name;
+      // the read weighs it by the key (CTX-1720).
+      expect(
+        (
+          await store.readFrontier(await viewOf(workspaceId), [
+            { workspaceId, docKey: key(workspaceId, stale.path) },
+          ])
+        )
+          .filter(({ relation }) => relation.predicate === "MENTIONS")
+          .map(({ neighbor, statedConfidence }) => [
+            neighbor.path,
+            statedConfidence,
+          ])
+          .sort(),
+      ).toEqual(
+        [
+          [REPOSITORY, 0.8],
+          [LIBRARY, 0.9],
+        ].sort(),
+      )
       // The back-links of a unit, for `get_related` from the unit.
       expect(await mentionsOf(workspaceId, LIBRARY)).toEqual([
         {

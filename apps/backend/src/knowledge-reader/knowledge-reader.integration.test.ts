@@ -1373,7 +1373,9 @@ describe("the knowledge reader seam", () => {
     >
     const claims = properties.claims
     if (!claims) throw new Error("get_related has no claims output")
-    expect(claims.description).toBe("The claims between the top results.")
+    expect(claims.description).toBe(
+      "The claims between the top results of this page.",
+    )
     expect(
       claims.items.oneOf?.map(({ properties }) =>
         Object.keys(properties).sort(),
@@ -1433,6 +1435,19 @@ describe("the knowledge reader seam", () => {
         confidence: 0.9,
       },
     ])
+    // A page shows the claims between its own results.
+    const firstPage = structured(
+      await relatedCall({
+        workspace: "claims",
+        seeds: ["claims/seed.md"],
+        maxDepth: 1,
+        limit: 1,
+      }),
+    )
+    expect(
+      (firstPage.results as { ref: string }[]).map(({ ref }) => ref),
+    ).toEqual(["claims/new.md"])
+    expect(firstPage.claims).toEqual([])
   })
 
   it("on: with validBetween, get_related shows only the stored relations between top results that are valid in the window", async () => {

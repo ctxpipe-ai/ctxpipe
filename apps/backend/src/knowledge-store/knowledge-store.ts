@@ -283,6 +283,12 @@ export type FrontierRelation = {
   direction: "out" | "in"
   workspaceId: string
   relation: KnowledgeRelation
+  /**
+   * The confidence that the file states for the relation. It is the
+   * confidence of `relation`, except for a `MENTIONS` of a reference key:
+   * the read weighs that one by its key (ADR-066 decision 5).
+   */
+  statedConfidence: number
   neighbor: KnowledgeDocument
 }
 
@@ -2441,6 +2447,7 @@ ${direction === "out" ? "" : inBranches}
       direction,
       workspaceId,
       relation,
+      statedConfidence: row.confidence,
       // The view has no row for the target, so it is `missing`.
       neighbor:
         neighbor ?? missingDocument(relation.dstDoc, relation.observedAt),

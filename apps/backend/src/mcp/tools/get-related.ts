@@ -301,7 +301,7 @@ export const getRelatedTool = defineMcpReadTool({
     claims: z
       .array(claimSchema)
       .optional()
-      .describe("The claims between the top results."),
+      .describe("The claims between the top results of this page."),
     cursor: z.string().optional(),
     truncated: z.boolean().optional(),
     notices: knowledgeNoticesSchema,
@@ -385,7 +385,15 @@ export const getRelatedTool = defineMcpReadTool({
       ...(header.partialReason ? { partialReason: header.partialReason } : {}),
       ...(header.cappedHubs.length ? { cappedHubs: header.cappedHubs } : {}),
       results: page,
-      ...(header.claims ? { claims: header.claims } : {}),
+      // A page shows the claims between its own results, so that the
+      // claims fit the page budget with them.
+      ...(header.claims
+        ? {
+            claims: header.claims.filter(({ from, to }) =>
+              [from, to].every((ref) => page.some((item) => item.ref === ref)),
+            ),
+          }
+        : {}),
       ...(notices.length ? { notices } : {}),
     })
     const { page, nextOffset, truncated } = fitPage(items, {
