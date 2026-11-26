@@ -420,10 +420,12 @@ describe("the knowledge eval harness", () => {
     expect(live.run.loop.timeBudgetMs).toBe(0)
     expect(live.run.productBudgetMs).toBe(10_000)
     // The manifest records the projection version of each store.
-    expect(live.run.stores).toEqual({ "ctxpipe-memory": projectionAt(root) })
-    expect((await readRun(join(folder, "live"))).manifest.stores).toEqual(
-      live.run.stores,
-    )
+    expect(live.run.projectionVersions).toEqual({
+      "ctxpipe-memory": projectionAt(root),
+    })
+    expect(
+      (await readRun(join(folder, "live"))).manifest.projectionVersions,
+    ).toEqual(live.run.projectionVersions)
     // Jev agrees with the gold labels, so the plane is right each time. The
     // old stack ranks some gold documents lower, and it has no "no answer".
     expect(compact(live)).toEqual({
@@ -1074,23 +1076,35 @@ describe("the knowledge eval harness", () => {
     expect(requests).toEqual(before)
   })
 
-  it("refuses a plane store of an older projection version before any model call, and names the hydrate", async () => {
-    // A store that the code before the last projection-version bump wrote.
-    const older: unknown[] = JSON.parse(projectionAt(root))
-    older[0] = KNOWLEDGE_PROJECTION_CODE_VERSION - 1
-    await projectPlane(root, JSON.stringify(older))
-    const before = { ...requests }
-    try {
-      const refused = run("older-store")
-      await expect(refused).rejects.toBeInstanceOf(SetupError)
-      await expect(refused).rejects.toThrow(
-        `The plane store of Workspace memory (ctxpipe-memory) has projection version ${KNOWLEDGE_PROJECTION_CODE_VERSION - 1}, and the code has projection version ${KNOWLEDGE_PROJECTION_CODE_VERSION}. Run \`hydrate\` of the dataset with this code first`,
-      )
-      expect(requests).toEqual(before)
-    } finally {
-      await projectPlane(root)
-    }
-  })
+  it.each([
+    [
+      "an older code version",
+      () => {
+        const older: unknown[] = JSON.parse(projectionAt(root))
+        older[0] = KNOWLEDGE_PROJECTION_CODE_VERSION - 1
+        return JSON.stringify(older)
+      },
+      String(KNOWLEDGE_PROJECTION_CODE_VERSION - 1),
+    ],
+    ["a version in an older form", () => "9", "unknown"],
+  ])(
+    "refuses a plane store of %s before any model call, and names the hydrate",
+    async (_, version, shown) => {
+      // A store that the code before the last projection-version bump wrote.
+      await projectPlane(root, version())
+      const before = { ...requests }
+      try {
+        const refused = run("older-store")
+        await expect(refused).rejects.toBeInstanceOf(SetupError)
+        await expect(refused).rejects.toThrow(
+          `The plane store of Workspace memory (ctxpipe-memory) has projection version ${shown}, and the code has projection version ${KNOWLEDGE_PROJECTION_CODE_VERSION}. Run \`hydrate\` of the dataset with this code first`,
+        )
+        expect(requests).toEqual(before)
+      } finally {
+        await projectPlane(root)
+      }
+    },
+  )
 
   it("refuses a plane that serves another root of the frozen SHA", async () => {
     // A failed projection after a change of the root keeps the earlier

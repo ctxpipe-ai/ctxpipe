@@ -187,7 +187,7 @@ export async function executeRun(input: {
   const restoreSettings = applySettings({ timeBudgetMs: 0, ...input.settings })
   const restoreFetch = calls.install()
   try {
-    const { answers, stores } = await runEval({
+    const { answers, projectionVersions } = await runEval({
       dataset: input.dataset,
       questions,
       targets: input.targets,
@@ -210,7 +210,7 @@ export async function executeRun(input: {
         ? { reuse: { from: input.reuse.folder, ...calls.reuseSummary() } }
         : {}),
       ...(unrecordedYes === undefined ? {} : { unrecordedYes }),
-      stores,
+      projectionVersions,
       ...calls.summary(),
     }
     await writeRun(input.out, {

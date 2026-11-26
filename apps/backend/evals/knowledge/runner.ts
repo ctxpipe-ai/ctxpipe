@@ -228,7 +228,7 @@ const manifestSchema = z.object({
    * The projection version of the plane store of each corpus, by corpus id
    * (`knowledge_state`). Absent in a run from before CTX-1594.
    */
-  stores: z.record(z.string(), z.string().nullable()).optional(),
+  projectionVersions: z.record(z.string(), z.string()).optional(),
   capUsd: z.number(),
   spentUsd: z.number(),
   stopped: z.boolean(),
@@ -256,7 +256,7 @@ type EvalTarget = {
   hubs: ReadonlySet<string>
   head: KnowledgeHead
   /** The projection version of the plane store (`knowledge_state`). */
-  projectionVersion: string | null
+  projectionVersion: string
 }
 
 /**
@@ -296,26 +296,30 @@ async function resolveWorkspaces(
       orgId: org.id,
       workspaceId: workspace.id,
     })
-    const projection = state?.projectionVersion
-      ? parseKnowledgeProjectionVersion(state.projectionVersion)
+    const projectionVersion = state?.projectionVersion ?? null
+    const projection = projectionVersion
+      ? parseKnowledgeProjectionVersion(projectionVersion)
       : null
-    // A store of another code version does not hold the changes that need
-    // a new projection, so the run would mix them with the change that it
-    // measures (CTX-1594).
-    if (projection && projection.code !== KNOWLEDGE_PROJECTION_CODE_VERSION)
+    // A store of another code version, or of a version in an older form,
+    // does not hold the changes that need a new projection. The run would
+    // mix them with the change that it measures (CTX-1594).
+    if (
+      !projectionVersion ||
+      projection?.code !== KNOWLEDGE_PROJECTION_CODE_VERSION
+    )
       throw new SetupError(
-        `The plane store of Workspace ${workspace.slug} (${corpus.id}) has projection version ${projection.code}, and the code has projection version ${KNOWLEDGE_PROJECTION_CODE_VERSION}. Run \`hydrate\` of the dataset with this code first: \`factory eval knowledge:hydrate\` or \`bun evals/knowledge/cli.ts hydrate --dataset DATASET.json --out DIR\`.`,
+        `The plane store of Workspace ${workspace.slug} (${corpus.id}) has projection version ${projection?.code ?? "unknown"}, and the code has projection version ${KNOWLEDGE_PROJECTION_CODE_VERSION}. Run \`hydrate\` of the dataset with this code first: \`factory eval knowledge:hydrate\` or \`bun evals/knowledge/cli.ts hydrate --dataset DATASET.json --out DIR\`.`,
       )
     const roots = {
       workspace: workspaceRootPath(record),
       old: workspaceRootPath(
         workspaceRevisionSchema.safeParse(record?.activeRevision).data,
       ),
-      plane: projection?.root ?? null,
+      plane: projection.root,
     }
     if (Object.values(roots).some((served) => served !== root))
       throw new Error(
-        `Workspace ${workspace.slug} must serve the root "${root}" of ${corpus.id} on both stacks. The Workspace has "${roots.workspace}", the old stack serves "${roots.old}", and the plane serves "${roots.plane ?? "an unknown root"}".`,
+        `Workspace ${workspace.slug} must serve the root "${root}" of ${corpus.id} on both stacks. The Workspace has "${roots.workspace}", the old stack serves "${roots.old}", and the plane serves "${roots.plane}".`,
       )
     resolved.set(corpus.id, {
       org,
@@ -323,7 +327,7 @@ async function resolveWorkspaces(
       served: { branch: workspace.served.branch, sha },
       head,
       hubs: await highDegreeUnits(org.id, workspace.id),
-      projectionVersion: state?.projectionVersion ?? null,
+      projectionVersion,
     })
   }
   return resolved
@@ -374,10 +378,13 @@ export async function runEval(input: {
   quietMs: number
   /** The stored answers of the old stack, by question id. */
   baseline?: ReadonlyMap<string, ArmAnswer>
-}): Promise<{ answers: ArmAnswer[]; stores: Record<string, string | null> }> {
+}): Promise<{
+  answers: ArmAnswer[]
+  projectionVersions: Record<string, string>
+}> {
   const { calls, now } = input
   const workspaces = await resolveWorkspaces(input.dataset, input.targets)
-  const stores = Object.fromEntries(
+  const projectionVersions = Object.fromEntries(
     [...workspaces].map(([corpus, target]) => [
       corpus,
       target.projectionVersion,
@@ -404,7 +411,7 @@ export async function runEval(input: {
       const answer = await ask(reader, question, target, now, quiet)
       await calls.settle()
       const counts = calls.end()
-      if (calls.stopped) return { answers, stores }
+      if (calls.stopped) return { answers, projectionVersions }
       answers.push({
         arm,
         question: question.id,
@@ -413,7 +420,7 @@ export async function runEval(input: {
       })
     }
   }
-  return { answers, stores }
+  return { answers, projectionVersions }
 }
 
 /**
