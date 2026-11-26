@@ -26,9 +26,10 @@ export function ingestWorkerShare(
  * While the slots of the process run `share` shards, a claim of the process
  * does not take a shard run (the claim counts them in the OpenWorkflow runs
  * table, with a live lease). A shard that has no place stays in the queue: `WorkerQueueDepth`
- * counts it, so the worker scales out. The claim order (first available,
- * first claimed) gives a free place in any worker process to the shard that
- * waits longest (CTX-1634). The claims of one process run one at a time, so
+ * counts it, so the worker scales out. The claim order gives a free place
+ * in any worker process to a shard of the org that runs the fewest runs
+ * (CTX-1707), and in that org to the shard that waits longest (CTX-1634).
+ * The claims of one process run one at a time, so
  * the claims of one poll cannot take more places than are free.
  */
 export function limitIngestShardClaims(backend: BackendPostgres): void {
