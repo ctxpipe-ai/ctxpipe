@@ -111,15 +111,16 @@ Until a Workspace is ready, the old knowledge store answers for it.
 The new knowledge store needs:
 
 - ClickHouse. Docker Compose and `@ctxpipe/aws-cdk` include it.
-- Model settings that reach OpenRouter: `MODEL_PROVIDER` `openrouter` or
-  `openai-like`, an OpenRouter `MODEL_PROVIDER_URL`, and
-  `MODEL_PROVIDER_API_KEY`. The decision model (Jev), the embedding model, and
+- Model settings that reach OpenRouter: `MODEL_PROVIDER` `openrouter`, or
+  `openai-like` with a `MODEL_PROVIDER_URL` on `openrouter.ai` (the default),
+  and `MODEL_PROVIDER_API_KEY`. The decision model (Jev), the embedding model, and
   the image model of the knowledge store are only on OpenRouter. See
   [Model configuration](/docs/self-hosting/models#the-knowledge-store).
 
 | Variable | Description |
 |---|---|
 | `CLICKHOUSE_URL` | Required. The ClickHouse HTTP URL with the user, the password, and the database: `http://user:password@host:8123/database`. URL-encode special characters in the password. Each process gets a different user (see below). |
+| `CLICKHOUSE_PASSWORD_FILE` | Optional. A file that holds the password of the user in `CLICKHOUSE_URL`. It replaces the password of the URL. Docker Compose sets it for the backend and the worker. |
 | `CLICKHOUSE_READER_PASSWORD` | Migrations only. The password of the user `ctxpipe_reader`. |
 | `CLICKHOUSE_WRITER_PASSWORD` | Migrations only. The password of the user `ctxpipe_writer`. |
 

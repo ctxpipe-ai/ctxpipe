@@ -19,24 +19,18 @@ type OrgFeature = keyof typeof FEATURE_VALUES
 type OrgFeatureValue<F extends OrgFeature> = (typeof FEATURE_VALUES)[F][number]
 
 /**
- * The default of each feature on a self-hosted install. A self-hosted
- * install goes to the knowledge plane when it deploys the version that has
- * it, with no operator step (CTX-1712, ADR-069 decision 9).
- */
-const SELF_HOST_DEFAULTS: { [F in OrgFeature]: OrgFeatureValue<F> } = {
-  knowledge_plane: "on",
-}
-
-/**
  * The value of a feature for an org with no row. A hosted deployment sets
  * `DEPLOYMENT_ENVIRONMENT` (production, or `pr-N` for a preview), and its
  * config sets each value (`hosted:orgFeatures`). A self-hosted install
- * does not set it.
+ * does not set it, and goes to the knowledge plane when it deploys the
+ * version that has it, with no operator step (CTX-1712, ADR-069).
  */
 function featureDefault<F extends OrgFeature>(feature: F): OrgFeatureValue<F> {
-  return deploymentEnvironment(process.env)
-    ? FEATURE_VALUES[feature][0]
-    : SELF_HOST_DEFAULTS[feature]
+  if (deploymentEnvironment(process.env)) return FEATURE_VALUES[feature][0]
+  const selfHost: { [K in OrgFeature]: OrgFeatureValue<K> } = {
+    knowledge_plane: "on",
+  }
+  return selfHost[feature]
 }
 
 function isPermitted<F extends OrgFeature>(

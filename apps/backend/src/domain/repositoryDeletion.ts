@@ -409,18 +409,24 @@ export async function purgeOrgDataBeforeAuthDelete(
     await db.delete(objects).where(eq(objects.orgId, orgId))
     await db.delete(conversations).where(eq(conversations.orgId, orgId))
     await db.delete(repositories).where(eq(repositories.orgId, orgId))
-    // The knowledge plane (CTX-1642). With no flag, the org is `off`, so a
-    // projection run that starts after this commit writes nothing, also
-    // when the delete of the organization row fails after this hook. The
-    // purge deletes the knowledge state and the ClickHouse rows.
+    // The knowledge plane (CTX-1642). The flag is `off`, so a projection
+    // run that starts after this commit writes nothing, also when the
+    // delete of the organization row fails after this hook. An explicit row:
+    // with no row, a self-hosted org is `on` (CTX-1712). The row is held, so
+    // the hosted config does not change it. The purge deletes the knowledge
+    // state and the ClickHouse rows.
     await db
-      .delete(orgFeatures)
-      .where(
-        and(
-          eq(orgFeatures.organizationId, orgId),
-          eq(orgFeatures.feature, "knowledge_plane"),
-        ),
-      )
+      .insert(orgFeatures)
+      .values({
+        organizationId: orgId,
+        feature: "knowledge_plane",
+        value: "off",
+        held: true,
+      })
+      .onConflictDoUpdate({
+        target: [orgFeatures.organizationId, orgFeatures.feature],
+        set: { value: "off", held: true, updatedAt: new Date() },
+      })
     return { orgSlug, repoRows }
   })
 

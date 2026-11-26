@@ -1,3 +1,7 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
 import type { ClickHouseClient } from "@clickhouse/client"
 import {
   afterAll,
@@ -911,6 +915,28 @@ describe("users and mutations", () => {
     expect(await readOne(reader, at(scope), "r.md")).toMatchObject({
       document: { title: "Reader", status: "active" },
     })
+  })
+
+  it("takes the password of the user from CLICKHOUSE_PASSWORD_FILE, as Docker Compose gives it", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "clickhouse-password-"))
+    const file = join(directory, "password")
+    writeFileSync(file, `${passwords.reader}\n`)
+    const noPassword = userUrl("ctxpipe_reader", "")
+    const scope = { orgId: "org_users", workspaceId: "ws_password_file" }
+    const without = createKnowledgeStore(noPassword)
+    vi.stubEnv("CLICKHOUSE_PASSWORD_FILE", file)
+    const withFile = createKnowledgeStore(noPassword)
+    try {
+      await expect(without.listDocumentStatuses(at(scope))).rejects.toThrow(
+        /Authentication failed/,
+      )
+      expect(await withFile.listDocumentStatuses(at(scope))).toEqual([])
+    } finally {
+      vi.unstubAllEnvs()
+      await without.close()
+      await withFile.close()
+      rmSync(directory, { recursive: true })
+    }
   })
 
   it("the writer user cannot manage access, drop a wall or change the migrations", async () => {

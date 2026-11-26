@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs"
+
 import {
   type ClickHouseClient,
   ClickHouseError,
@@ -525,10 +527,18 @@ export type KnowledgeStore = {
 /**
  * A ClickHouse client for `url`. The client logs to the console, so its log
  * is off: each error goes to the caller instead. The migrations use it too.
+ * When `CLICKHOUSE_PASSWORD_FILE` is set, the password of the user in `url`
+ * comes from that file: Docker Compose generates it (CTX-1712).
  */
 export function createClickHouseClient(url: string): ClickHouseClient {
+  const file = process.env.CLICKHOUSE_PASSWORD_FILE?.trim()
+  const withPassword = new URL(url)
+  if (file)
+    withPassword.password = encodeURIComponent(
+      readFileSync(file, "utf8").trim(),
+    )
   return createClient({
-    url,
+    url: withPassword.toString(),
     application: "ctxpipe-knowledge-store",
     log: { level: ClickHouseLogLevel.OFF },
   })

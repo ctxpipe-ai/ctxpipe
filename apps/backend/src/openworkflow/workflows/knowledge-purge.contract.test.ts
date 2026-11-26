@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto"
 
 import { eq, sql } from "drizzle-orm"
-import { afterAll, beforeAll, expect, it, vi } from "vitest"
+import { afterAll, beforeAll, expect, it, onTestFinished, vi } from "vitest"
 
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { orgFeatures } from "../../db/schema/org_features.js"
@@ -322,7 +322,7 @@ it(
 )
 
 it(
-  "an org delete queues one purge, which deletes the rows of each Workspace of the org and keeps the rows of another org; the org has no flag and no knowledge state; a later projection run writes nothing",
+  "an org delete queues one purge, which deletes the rows of each Workspace of the org and keeps the rows of another org; the org flag is a held `off` and the org has no knowledge state; a later projection run writes nothing, also on a self-hosted install",
   { timeout: 180_000 },
   async () =>
     withNativeHydrationFixture(
@@ -352,14 +352,23 @@ it(
         expect(
           await withOrgDbContext(f.org.id, (db) =>
             db
-              .select()
+              .select({
+                feature: orgFeatures.feature,
+                value: orgFeatures.value,
+                held: orgFeatures.held,
+              })
               .from(orgFeatures)
               .where(eq(orgFeatures.organizationId, f.org.id)),
           ),
-        ).toEqual([])
+        ).toEqual([{ feature: "knowledge_plane", value: "off", held: true }])
         expect(await getKnowledgeState(workspace)).toBeNull()
         expect(await listBranchHeads(workspace)).toEqual([])
 
+        // A self-hosted install: with no row, the org would be `on`.
+        vi.stubEnv("DEPLOYMENT_ENVIRONMENT", "")
+        onTestFinished(() => {
+          vi.unstubAllEnvs()
+        })
         expect(await projectAgain(f)).toBeNull()
         expect(await rowsOf(workspace)).toEqual(NO_KNOWLEDGE_ROWS)
       },

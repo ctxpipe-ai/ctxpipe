@@ -4,7 +4,7 @@ import { join } from "node:path"
 
 import { eq, sql } from "drizzle-orm"
 import { http, passthrough } from "msw"
-import { afterAll, beforeAll, expect, it, vi } from "vitest"
+import { afterAll, beforeAll, expect, it, onTestFinished, vi } from "vitest"
 
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { orgFeatures } from "../../db/schema/org_features.js"
@@ -286,10 +286,14 @@ it(
 )
 
 it(
-  "with no flag (`off`), the hydrate writes only the old stack",
+  "on a hosted deployment with no flag (`off`), the hydrate writes only the old stack",
   { timeout: 120_000 },
   async () =>
     withNativeHydrationFixture({ files }, async (f) => {
+      vi.stubEnv("DEPLOYMENT_ENVIRONMENT", "production")
+      onTestFinished(() => {
+        vi.unstubAllEnvs()
+      })
       await f.publish()
       expect(
         await getKnowledgeState({
@@ -299,6 +303,29 @@ it(
       ).toBeNull()
       expect(await runsOf("knowledge-projection", f.workspaceId)).toEqual([])
       expect(await runsOf("knowledge-maintenance", f.workspaceId)).toEqual([])
+    }),
+)
+
+it(
+  "on a self-hosted install with no flag (`on`, CTX-1712), the hydrate queues the knowledge projection",
+  { timeout: 120_000 },
+  async () =>
+    withNativeHydrationFixture({ files }, async (f) => {
+      vi.stubEnv("DEPLOYMENT_ENVIRONMENT", "")
+      onTestFinished(() => {
+        vi.unstubAllEnvs()
+      })
+      await f.publish()
+      // No worker of this fixture runs the projection: the run waits.
+      expect(await runsOf("knowledge-projection", f.workspaceId)).toEqual([
+        { sha: null, status: "pending" },
+      ])
+      // So that no worker of a later test claims it.
+      await getSystemDb().execute(
+        sql`delete from openworkflow.workflow_runs
+          where workflow_name = 'knowledge-projection'
+            and input->>'workspaceId' = ${f.workspaceId}`,
+      )
     }),
 )
 

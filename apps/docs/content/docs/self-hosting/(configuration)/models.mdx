@@ -33,9 +33,11 @@ calls three models that are only on OpenRouter: the decision model (Jev), the
 embedding model (`MODEL_EMBEDDING_NAME`), and the image model
 (`MODEL_VISION_NAME`). These calls use `MODEL_PROVIDER_URL` and
 `MODEL_PROVIDER_API_KEY`. Thus the knowledge store needs `MODEL_PROVIDER`
-`openrouter` or `openai-like`, with an OpenRouter URL and key.
+`openrouter`, or `openai-like` with a `MODEL_PROVIDER_URL` on `openrouter.ai`
+(the default), and a key.
 
-With `azure` or `bedrock`, the worker logs the error
+With `azure`, `bedrock`, or an `openai-like` URL of another API, the worker
+logs the error
 `knowledge_plane.model_settings` at start. No Workspace becomes ready in the
 new knowledge store, and the old knowledge store answers.
 

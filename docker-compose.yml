@@ -100,8 +100,9 @@ services:
     environment:
       CLICKHOUSE_USER: ${CLICKHOUSE_USER:-ctxpipe}
       # The deploy profile: the password that clickhouse-secrets wrote. The
-      # file wins over CLICKHOUSE_PASSWORD. The infra profile has no file,
-      # so host dev keeps the password ctxpipe.
+      # file wins over CLICKHOUSE_PASSWORD. The infra profile writes no file,
+      # so host dev keeps the password ctxpipe. After a deploy profile run
+      # in the same project, remove the volume clickhouse_admin for host dev.
       CLICKHOUSE_PASSWORD_FILE: /run/clickhouse-admin/password
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-ctxpipe}
       CLICKHOUSE_DB: ${CLICKHOUSE_DB:-ctxpipe}
@@ -390,11 +391,16 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgresql://ctxpipe_app:${POSTGRES_PASSWORD:-ctxpipe}@postgres:5432/${POSTGRES_DB:-ctxpipe}
       GRAPH_DB_URI: redis://falkordb:6379
+      # SELECT only: the backend cannot change the knowledge content. The
+      # password is the file that clickhouse-secrets wrote.
+      CLICKHOUSE_URL: http://ctxpipe_reader@clickhouse:8123/${CLICKHOUSE_DB:-ctxpipe}
+      CLICKHOUSE_PASSWORD_FILE: /run/clickhouse-reader/password
       UI_PROXY_URL: http://ui:3002
       CODESEARCH_URL: http://codesearch:3001
       # The worker gets the same PORT: ingest sandboxes call the API on it.
       PORT: &api-port "3000"
-      # In the env, so that a new value in `.env` restarts the backend.
+      # Only so that a new value in `.env` restarts the backend: the backend
+      # reads the password file once.
       CLICKHOUSE_READER_PASSWORD: ${CLICKHOUSE_READER_PASSWORD:-}
       AUTH_SECRET: ${AUTH_SECRET:-}
       AUTH_BASE_URL: ${AUTH_BASE_URL:-http://localhost:3000}
@@ -422,16 +428,6 @@ services:
       PAGERDUTY_CLIENT_ID: ${PAGERDUTY_CLIENT_ID:-}
       PAGERDUTY_CLIENT_SECRET: ${PAGERDUTY_CLIENT_SECRET:-}
       PAGERDUTY_REDIRECT_URI: ${PAGERDUTY_REDIRECT_URI:-}
-    # SELECT only: the backend cannot change the knowledge content. The
-    # password of `.env`, else the generated one. The rest is the CMD of
-    # apps/backend/Dockerfile.
-    command:
-      - sh
-      - -ec
-      - |
-        CLICKHOUSE_URL="http://ctxpipe_reader:$${CLICKHOUSE_READER_PASSWORD:-$$(cat /run/clickhouse-reader/password)}@clickhouse:8123/${CLICKHOUSE_DB:-ctxpipe}"
-        export CLICKHOUSE_URL
-        exec bun run apps/backend/src/server.ts
     ports:
       - "${CTXPIPE_BACKEND_HOST_PORT:-3000}:3000"
     volumes:
@@ -472,6 +468,10 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgresql://ctxpipe_app:${POSTGRES_PASSWORD:-ctxpipe}@postgres:5432/${POSTGRES_DB:-ctxpipe}
       GRAPH_DB_URI: redis://falkordb:6379
+      # The projection writes the knowledge content. No access management.
+      # Each run reads the password file that clickhouse-secrets wrote.
+      CLICKHOUSE_URL: http://ctxpipe_writer@clickhouse:8123/${CLICKHOUSE_DB:-ctxpipe}
+      CLICKHOUSE_PASSWORD_FILE: /run/clickhouse-writer/password
       # Required to decrypt connection secrets (Slack bot tokens, GitHub App keys).
       AUTH_SECRET: ${AUTH_SECRET:-}
       AUTH_BASE_URL: ${AUTH_BASE_URL:-http://localhost:3000}
@@ -484,8 +484,6 @@ services:
       SANDBOX_CALLBACK_HOST: ${SANDBOX_CALLBACK_HOST:-backend.sandbox.ctxpipe.internal}
       # The PORT of the API service; the worker serves no HTTP on it.
       PORT: *api-port
-      # In the env, so that a new value in `.env` restarts the worker.
-      CLICKHOUSE_WRITER_PASSWORD: ${CLICKHOUSE_WRITER_PASSWORD:-}
       # The worker removes idle sandboxes through the same daemon, and builds
       # Workspace bases through Agent Vault.
       <<: [*otel-env, *model-env, *sandbox-docker-env, *agent-vault-env]
@@ -501,17 +499,6 @@ services:
       PAGERDUTY_CLIENT_ID: ${PAGERDUTY_CLIENT_ID:-}
       PAGERDUTY_CLIENT_SECRET: ${PAGERDUTY_CLIENT_SECRET:-}
       PAGERDUTY_REDIRECT_URI: ${PAGERDUTY_REDIRECT_URI:-}
-    # The projection writes the knowledge content. No access management. The
-    # password of `.env`, else the generated one. The rest is the CMD of
-    # apps/backend/Dockerfile.worker.
-    command:
-      - sh
-      - -ec
-      - |
-        CLICKHOUSE_URL="http://ctxpipe_writer:$${CLICKHOUSE_WRITER_PASSWORD:-$$(cat /run/clickhouse-writer/password)}@clickhouse:8123/${CLICKHOUSE_DB:-ctxpipe}"
-        export CLICKHOUSE_URL
-        cd /app/apps/backend
-        exec node dist/worker-supervisor.mjs
     volumes:
       - sandbox_client_certs:/certs/client:ro
       - agent_vault_owner:/run/agent-vault:ro
