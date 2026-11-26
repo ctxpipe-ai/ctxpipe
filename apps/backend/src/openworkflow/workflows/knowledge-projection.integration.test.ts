@@ -12,7 +12,10 @@ import { closeDb, getSystemDb, initDb } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
 import { MAX_CRASHED_STEP_ATTEMPTS } from "../crash-loop.js"
 import { connectOpenWorkflowBackend } from "../storable-backend.js"
-import { knowledgeProjection } from "./knowledge-projection.js"
+import {
+  knowledgeProjection,
+  knowledgeProjectionUnversioned,
+} from "./knowledge-projection.js"
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url))
 config({ path: resolve(__dirname, "../../../.env.local"), quiet: true })
@@ -42,6 +45,10 @@ beforeAll(async () => {
   backend = await connectOpenWorkflowBackend(connectionString)
   ow = new OpenWorkflow({ backend })
   ow.implementWorkflow(knowledgeProjection.spec, knowledgeProjection.fn)
+  ow.implementWorkflow(
+    knowledgeProjectionUnversioned.spec,
+    knowledgeProjectionUnversioned.fn,
+  )
   // The events go to a drain, as in production.
   initLogger({
     env: { service: "ctxpipe-backend-test" },
@@ -133,4 +140,63 @@ it("fails a projection run whose worker stopped in its step again and again, log
   } finally {
     await worker.stop()
   }
+}, 120_000)
+
+it("during a rolling deploy, a worker of the version before CTX-1712 gives a run of this version back, and a worker of this version runs it and the runs with no version", async () => {
+  // The worker of the earlier version has only the run with no version. Its
+  // body stands for the old flag check: an org with no row was `off`.
+  let oldBodyRuns = 0
+  const oldRunner = new OpenWorkflow({ backend })
+  oldRunner.implementWorkflow(
+    { name: knowledgeProjection.spec.name },
+    async () => {
+      oldBodyRuns += 1
+      return null
+    },
+  )
+  const row = async (id: string) =>
+    (
+      await getSystemDb().execute<{ status: string; attempts: number }>(
+        sql`select status, attempts from openworkflow.workflow_runs where id = ${id}`,
+      )
+    ).rows[0]
+
+  // As the deploy backfill of the new migrate queues it.
+  const queued = await ow.runWorkflow(knowledgeProjection.spec, {
+    orgId,
+    workspaceId,
+  })
+  const oldWorker = oldRunner.newWorker({ concurrency: 1 })
+  await oldWorker.start()
+  try {
+    await vi.waitFor(
+      async () => expect((await row(queued.workflowRun.id))?.attempts).toBe(1),
+      { timeout: 30_000, interval: 200 },
+    )
+  } finally {
+    await oldWorker.stop()
+  }
+  expect(oldBodyRuns).toBe(0)
+  expect((await row(queued.workflowRun.id))?.status).toBe("pending")
+
+  // The hydrate of an old worker queued a run with no version.
+  const unversioned = await ow.runWorkflow(knowledgeProjectionUnversioned.spec, {
+    orgId,
+    workspaceId,
+  })
+  await getSystemDb().execute(
+    sql`update openworkflow.workflow_runs set available_at = now() where id = ${queued.workflowRun.id}`,
+  )
+  const worker = ow.newWorker({ concurrency: 1 })
+  await worker.start()
+  try {
+    // The Workspace has no row, so each run projects nothing, and ends.
+    await expect(queued.result({ timeoutMs: 30_000 })).resolves.toBeNull()
+    await expect(
+      unversioned.result({ timeoutMs: 30_000 }),
+    ).resolves.toBeNull()
+  } finally {
+    await worker.stop()
+  }
+  expect(oldBodyRuns).toBe(0)
 }, 120_000)

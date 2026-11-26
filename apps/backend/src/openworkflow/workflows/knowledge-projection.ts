@@ -1,3 +1,4 @@
+import { defineWorkflow as defineOpenWorkflow } from "openworkflow"
 import { z } from "zod"
 
 import { parseEnv } from "../../config/env.js"
@@ -54,6 +55,14 @@ import { knowledgeMaintenance } from "./knowledge-maintenance.js"
 export const knowledgeProjection = defineWorkflow(
   {
     name: KNOWLEDGE_PROJECTION_WORKFLOW_NAME,
+    // The version of the plane with no flag (CTX-1712). A worker of an
+    // earlier version has only the run with no version, so it does not run
+    // these runs: OpenWorkflow gives the run back to the queue with no limit
+    // on the retries, until a worker of this version takes it. Else, during
+    // a rolling deploy, an old worker could end a run of the deploy
+    // backfill with its old default of the flag (`off`), and project
+    // nothing.
+    version: "2",
     schema: z
       .object({
         orgId: z.string().min(1),
@@ -255,4 +264,14 @@ export const knowledgeProjection = defineWorkflow(
     })
     return applied
   },
+)
+
+/**
+ * The runs that a worker of an earlier version queued, with no version (the
+ * hydrate of an old worker during a rolling deploy). A worker of this
+ * version runs them with the same body.
+ */
+export const knowledgeProjectionUnversioned = defineOpenWorkflow(
+  { ...knowledgeProjection.spec, version: undefined },
+  knowledgeProjection.fn,
 )
