@@ -1,6 +1,8 @@
 import type { ClickHouseClient } from "@clickhouse/client"
+import { trace } from "@opentelemetry/api"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
+import { recordSpans } from "../../test/spans.js"
 import { startClickHouse, userUrl } from "../test/clickhouse.js"
 import {
   createKnowledgeStore,
@@ -386,6 +388,8 @@ async function searchIn(url: string, query: Partial<SearchQuery>) {
     await reader.close()
   }
 }
+
+const spans = recordSpans()
 
 let store: ReturnType<typeof createKnowledgeStore>
 /** The admin URL of the database of `store`. */
@@ -813,6 +817,50 @@ describe("search", () => {
         [],
       ),
     ).rejects.toThrow(refused)
+  })
+})
+
+describe("read spans (CTX-1688)", () => {
+  it("gives each ClickHouse read of a request a span with the name of its statement", async () => {
+    await trace
+      .getTracer("test")
+      .startActiveSpan("request", async (request) => {
+        await search({
+          terms: ["vector"],
+          neighbors: { from: 5, places: 10 },
+        })
+        request.end()
+      })
+    const request = spans.spanNamed("request")
+    const reads = spans
+      .finishedSpans()
+      .filter((span) => span.name.startsWith("clickhouse "))
+    expect(reads.map((span) => span.name).sort()).toEqual([
+      "clickhouse search.chunks",
+      "clickhouse search.documents",
+      "clickhouse search.lexical",
+      "clickhouse search.neighbor_chunks",
+      "clickhouse search.neighbor_documents",
+      "clickhouse search.neighbors",
+      "clickhouse search.vector",
+    ])
+    for (const span of reads) {
+      expect(span.parentSpanContext?.spanId).toBe(request?.spanContext().spanId)
+      expect(span.attributes).toMatchObject({
+        "db.system.name": "clickhouse",
+        "db.operation.name": "SELECT",
+      })
+      expect(span.attributes["db.response.returned_rows"]).toBeTypeOf("number")
+    }
+  })
+
+  it("gives a read with no active span no span", async () => {
+    await search({ terms: ["vector"] })
+    expect(
+      spans
+        .finishedSpans()
+        .filter((span) => span.name.startsWith("clickhouse ")),
+    ).toEqual([])
   })
 })
 

@@ -1,9 +1,11 @@
 import {
   type ClickHouseClient,
+  ClickHouseError,
   ClickHouseLogLevel,
   createClient,
   TupleParam,
 } from "@clickhouse/client"
+import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api"
 
 import { CONNECTOR_MIRROR_ROOTS } from "../domain/codeIngestion/connectorMirrorPaths.js"
 
@@ -594,6 +596,7 @@ export function createKnowledgeStore(url: string | undefined): KnowledgeStore {
       selectIn<{ workspaceId: string; path: string; branch: string }>(
         client,
         scope,
+        "view_files",
         `WITH tree_view AS (${treeView})
          SELECT workspace_id AS workspaceId, path, branch FROM tree_view
          WHERE kind = 'file' AND startsWith(path, {prefix:String})
@@ -1073,6 +1076,7 @@ async function readTree(
       orgId: scope.orgId,
       heads: [{ workspaceId: scope.workspaceId, ...head }],
     },
+    "tree",
     // The rows of the tree itself, with its `inherit` rows: no view.
     `SELECT doc_key AS docKey, version, path, status,
        doc_kind AS kind, observed_at AS observedAt, valid_from AS validFrom,
@@ -1432,10 +1436,55 @@ async function writeImageTexts(
 async function selectIn<T>(
   client: ClickHouseClient,
   scope: KnowledgeReadScope,
+  /** The name of the statement in its span, for example `search.vector`. */
+  statement: string,
   query: string,
   params: Record<string, unknown>,
 ): Promise<T[]> {
   assertReadScope(scope)
+  // A span only inside a request or a job (CTX-1688). The span has no SQL
+  // text and no parameter: a parameter can be customer content.
+  if (!trace.getActiveSpan())
+    return runSelectIn<T>(client, scope, query, params)
+  return trace.getTracer("ctxpipe-knowledge-store").startActiveSpan(
+    `clickhouse ${statement}`,
+    {
+      kind: SpanKind.CLIENT,
+      attributes: {
+        "db.system.name": "clickhouse",
+        "db.operation.name": "SELECT",
+        "db.query.summary": statement,
+      },
+    },
+    async (span) => {
+      try {
+        const rows = await runSelectIn<T>(client, scope, query, params)
+        span.setAttribute("db.response.returned_rows", rows.length)
+        return rows
+      } catch (error) {
+        // The code only: the message can quote a parameter.
+        const type =
+          error instanceof ClickHouseError
+            ? error.code
+            : error instanceof Error
+              ? error.name
+              : "unknown"
+        span.setAttribute("error.type", type)
+        span.setStatus({ code: SpanStatusCode.ERROR, message: type })
+        throw error
+      } finally {
+        span.end()
+      }
+    },
+  )
+}
+
+async function runSelectIn<T>(
+  client: ClickHouseClient,
+  scope: KnowledgeReadScope,
+  query: string,
+  params: Record<string, unknown>,
+): Promise<T[]> {
   const result = await client.query({
     query,
     query_params: {
@@ -1752,6 +1801,7 @@ async function search(
     return selectIn<ChunkKey>(
       client,
       scope,
+      "search.vector",
       // The filter on the documents applies before the top 500 (and before the
       // cap of each term), so that a narrow filter still finds chunks. Index
       // analysis of the large set cost more than it saved: 60 ms against
@@ -1780,6 +1830,7 @@ async function search(
       : selectIn<ChunkKey & { share: number }>(
           client,
           scope,
+          "search.lexical",
           // The score: the weights of the matched terms of the chunk, plus 4
           // times the weights of the query terms in the title of its document
           // (the title boost, CTX-1564). The weights are one scalar map, so
@@ -1865,6 +1916,7 @@ async function search(
     selectIn<DocumentRecord & { workspaceId: string; version: string }>(
       client,
       scope,
+      "search.documents",
       `WITH tree_view AS (${treeView})
        SELECT v.workspace_id AS workspaceId, v.version AS version,
          ${viewDocumentColumns}
@@ -1875,6 +1927,7 @@ async function search(
     selectIn<ChunkKey & ChunkLines>(
       client,
       scope,
+      "search.chunks",
       `SELECT workspace_id AS workspaceId, doc_key AS docKey, version, ordinal,
          text, start_line AS startLine, end_line AS endLine
        FROM chunks WHERE ${inWorkspaces}
@@ -2043,6 +2096,7 @@ async function searchNeighbors(
   >(
     client,
     scope,
+    "search.neighbors",
     `WITH tree_view AS (${treeView}),
      candidates AS (
        SELECT o.workspace_id AS workspace_id,
@@ -2104,6 +2158,7 @@ async function searchNeighbors(
     selectIn<DocumentRef & ChunkLines & { distance: number }>(
       client,
       scope,
+      "search.neighbor_chunks",
       `SELECT workspace_id AS workspaceId, doc_key AS docKey, ordinal, text,
          start_line AS startLine, end_line AS endLine,
          cosineDistance(embedding, {queryVector:Array(Float32)}) AS distance
@@ -2121,6 +2176,7 @@ async function searchNeighbors(
     >(
       client,
       scope,
+      "search.neighbor_documents",
       `SELECT workspace_id AS workspaceId, doc_key AS docKey, error, title,
          source_type AS sourceType, source, summary, mime
        FROM documents WHERE ${inWorkspaces} AND ${inNeighbors}`,
@@ -2264,6 +2320,7 @@ async function readFrontier(
   >(
     client,
     scope,
+    "frontier.relations",
     `WITH tree_view AS (${treeView}),
      frontier AS (
        ${viewFiles} AND ${inRefs("workspace_id, doc_key")}
@@ -2434,6 +2491,7 @@ async function readMentionStats(
   }>(
     client,
     scope,
+    "frontier.mention_stats",
     `WITH tree_view AS (${treeView})
      SELECT w.workspace_id AS workspaceId, w.target AS target,
        s.sources AS sources, d.documents AS documents, f.files AS files
@@ -2534,6 +2592,7 @@ async function readDocuments(
       selectIn<DocumentRecord & { workspaceId: string }>(
         client,
         scope,
+        "documents",
         `WITH tree_view AS (${treeView})
          SELECT v.workspace_id AS workspaceId, ${viewDocumentColumns}
          FROM ${viewDocumentsFrom(
@@ -2582,6 +2641,7 @@ async function readEvidence(
     selectIn<DocumentRecord & { workspaceId: string }>(
       client,
       scope,
+      "evidence.documents",
       `WITH tree_view AS (${treeView})
        SELECT v.workspace_id AS workspaceId, ${viewDocumentColumns}
        FROM ${viewDocumentsFrom(inRefs)}`,
@@ -2590,6 +2650,7 @@ async function readEvidence(
     selectIn<DocumentRef & ChunkLines & { distance: number }>(
       client,
       scope,
+      "evidence.chunks",
       `WITH tree_view AS (${treeView})
        SELECT workspace_id AS workspaceId, doc_key AS docKey, ordinal, text,
          start_line AS startLine, end_line AS endLine,
@@ -2629,6 +2690,7 @@ async function readGraph(
     selectIn<DocumentRecord>(
       client,
       scope,
+      "graph.documents",
       `WITH tree_view AS (${treeView})
        SELECT ${viewDocumentColumns} FROM ${viewDocumentsFrom("1")}
        ORDER BY docKey LIMIT {limit:UInt32}`,
@@ -2642,6 +2704,7 @@ async function readGraph(
     selectIn<RelationRecord>(
       client,
       scope,
+      "graph.relations",
       `WITH tree_view AS (${treeView})
        SELECT DISTINCT rel.src_doc AS srcDoc, rel.src_chunk AS srcChunk,
          rel.predicate AS predicate, ${resolvedTarget("rel")} AS dstDoc,
@@ -2672,6 +2735,7 @@ const listDocumentStatuses = (
   selectIn<{ docKey: string; status: DocumentStatus }>(
     client,
     scope,
+    "document_statuses",
     // An ORDER BY after a UNION ALL sorts only its last SELECT, so the
     // union is a subquery.
     `WITH tree_view AS (${treeView})
@@ -2697,6 +2761,7 @@ const listUnresolvedReferences = (
   selectIn<{ srcDoc: string; dstDoc: string }>(
     client,
     scope,
+    "unresolved_references",
     `WITH tree_view AS (${treeView})
      SELECT DISTINCT rel.src_doc AS srcDoc, rel.dst_doc AS dstDoc
      FROM (${relationsOf("relations", viewFiles)}) AS rel
