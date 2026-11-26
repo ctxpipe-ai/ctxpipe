@@ -6,6 +6,7 @@ import { defineConfig } from "@openworkflow/cli"
 import { initDb } from "./src/db/client.js"
 import { startCrmIntakeSender } from "./src/domain/crm-intake.js"
 import { refuseVercelSandboxRows } from "./src/domain/workspaces/sandbox-provider.js"
+import { checkKnowledgePlaneModelSettings } from "./src/knowledge-plane/model-settings.js"
 import { createLogger, flushEvlog, log } from "./src/observability/logger.js"
 import { shutdownOtel } from "./src/observability/otel.js"
 import { parseOpenWorkflowConcurrency } from "./src/openworkflow/codesearchCapacity.js"
@@ -27,6 +28,9 @@ initDb(databaseUrl)
 // Before the worker schedules or runs a job: the config throws, so the CLI
 // does not start the worker.
 await refuseVercelSandboxRows()
+// A self-hosted install is on the knowledge plane by default (CTX-1712).
+// Model settings that cannot reach Jev log one clear error here.
+checkKnowledgePlaneModelSettings()
 // Queue depth for the dashboard (OTel). A hosted deployment sets
 // DEPLOYMENT_ENVIRONMENT and also gets the CloudWatch EMF line that its
 // worker autoscaling reads; self-host leaves it unset.

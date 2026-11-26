@@ -286,6 +286,37 @@ To turn the host off, set `sandboxHost: { enabled: false }` on `CtxPipe`. The
 deploy then adds no EC2 host and gives the services no sandbox host settings.
 Without the host, chat is off. It answers "sandbox unavailable" (503).
 
+## The switch to the new knowledge store
+
+The release with the new knowledge store turns it on for each organization of
+a self-hosted install. You do not do a step for this.
+
+1. The deploy runs the migrations. Then it queues one index run for each
+   Workspace that has a commit.
+2. The worker runs these index runs. Each run reads the files of the
+   Workspace, embeds them, and writes them to ClickHouse.
+3. When the run of a Workspace is complete, chat and MCP read that Workspace
+   from the new knowledge store. Until then, the old knowledge store answers.
+
+On our hosted service, the first index run of a Workspace took about
+3 minutes at the median, and up to about 30 minutes for a large Workspace. The
+worker runs other jobs at the same time. A Workspace with no commit yet gets
+its index run after its first hydrate.
+
+Before you deploy, make sure that:
+
+- the model settings reach OpenRouter
+  ([Model configuration](/docs/self-hosting/models#the-knowledge-store)). If
+  they do not, the worker logs `knowledge_plane.model_settings`, and the old
+  knowledge store continues to answer;
+- ClickHouse has disk space for the content of each Workspace. Docker Compose
+  generates the ClickHouse passwords at the first deploy (see
+  [Docker Compose](/docs/self-hosting/deployment/docker#clickhouse-users)).
+
+A failed index run is queued again at the next deploy, and at the next commit
+of the Workspace. The worker log has `knowledge_plane.backfill` with the
+queued Workspace ids.
+
 ## AWS CDK flow
 
 To upgrade a self-hosted AWS stack, update `@ctxpipe/aws-cdk` and deploy again. The published package pins the backend, worker, UI, codesearch, and migrate images to the same git SHA. It also applies the Fargate size profiles of that release.
@@ -313,7 +344,7 @@ ClickHouse, an EBS data volume, and an S3 bucket. The host is always on: no
 prop turns it off. At `size: "small"` it is a `t4g.large` with a 50 GB volume,
 for about **$55 a month** in us-east-1. The deploy waits until ClickHouse
 answers. Then the migrate task makes its tables and its two users, before the
-services roll. The new knowledge store stays off for each organization. See
+services roll. See
 [the knowledge store](/docs/self-hosting/deployment/aws#knowledge-store) for
 the larger sizes and for recovery.
 

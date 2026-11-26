@@ -3,7 +3,15 @@ import { fileURLToPath } from "node:url"
 
 import { config } from "dotenv"
 import { eq } from "drizzle-orm"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import {
+  afterAll,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+  vi,
+} from "vitest"
 
 import {
   closeDb,
@@ -91,7 +99,11 @@ describe("Default branch in the Workspace list (Postgres)", () => {
 
   // The base branch picker of the composer shows only when the org's
   // knowledge_plane flag is not off.
-  it("carries the knowledge_plane flag of the org: off by default, then the value that an operator set", async () => {
+  it("carries the knowledge_plane flag of the org: off by default on hosted, then the value that an operator set", async () => {
+    vi.stubEnv("DEPLOYMENT_ENVIRONMENT", "production")
+    onTestFinished(() => {
+      vi.unstubAllEnvs()
+    })
     const app = workspaceHttpApp(org, workspaceRoutes)
     const flag = async () =>
       (

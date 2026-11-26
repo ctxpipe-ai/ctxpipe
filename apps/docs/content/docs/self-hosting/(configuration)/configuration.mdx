@@ -103,12 +103,23 @@ ClickHouse holds the content of the new knowledge store: the documents, their
 sections, and the relations between them. ctxpipe makes this content from the
 files of each Workspace repository.
 
-The new knowledge store is off for every organization. A later release
-explains how to turn it on.
+On a self-hosted install, each organization uses the new knowledge store. You
+do not turn it on. After a deploy, the worker builds the knowledge store of
+each Workspace (see [The switch to the new knowledge store](/docs/self-hosting/upgrades#the-switch-to-the-new-knowledge-store)).
+Until a Workspace is ready, the old knowledge store answers for it.
+
+The new knowledge store needs:
+
+- ClickHouse. Docker Compose and `@ctxpipe/aws-cdk` include it.
+- Model settings that reach OpenRouter: `MODEL_PROVIDER` `openrouter` or
+  `openai-like`, an OpenRouter `MODEL_PROVIDER_URL`, and
+  `MODEL_PROVIDER_API_KEY`. The decision model (Jev), the embedding model, and
+  the image model of the knowledge store are only on OpenRouter. See
+  [Model configuration](/docs/self-hosting/models#the-knowledge-store).
 
 | Variable | Description |
 |---|---|
-| `CLICKHOUSE_URL` | Required for an organization on the new knowledge store. The ClickHouse HTTP URL with the user, the password, and the database: `http://user:password@host:8123/database`. URL-encode special characters in the password. Each process gets a different user (see below). |
+| `CLICKHOUSE_URL` | Required. The ClickHouse HTTP URL with the user, the password, and the database: `http://user:password@host:8123/database`. URL-encode special characters in the password. Each process gets a different user (see below). |
 | `CLICKHOUSE_READER_PASSWORD` | Migrations only. The password of the user `ctxpipe_reader`. |
 | `CLICKHOUSE_WRITER_PASSWORD` | Migrations only. The password of the user `ctxpipe_writer`. |
 

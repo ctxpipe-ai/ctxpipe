@@ -1,6 +1,14 @@
 import { eq, sql } from "drizzle-orm"
 import { initLogger } from "evlog"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest"
 
 import { closeDb, getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
@@ -11,14 +19,14 @@ import {
   beginKnowledgeRun,
   completeKnowledgeRun,
 } from "../models/knowledge-state.js"
-import { setOrgFeature } from "../models/org-features.js"
 import { closeOpenWorkflowClient } from "../openworkflow/client.js"
 import { backfillKnowledgePlane } from "./backfill.js"
 
 /*
  * The backfill of an org that leaves `off` (CTX-1643), with a real Postgres
  * and the real OpenWorkflow tables. No worker runs here; the test reads the
- * queued runs.
+ * queued runs. The org has no `org_features` row: hosted keeps it `off`,
+ * and a self-hosted install gives it `on` (CTX-1712).
  */
 
 const orgId = generateObjectId("org")
@@ -102,14 +110,19 @@ afterAll(async () => {
   await closeDb()
 })
 
+afterEach(() => {
+  vi.unstubAllEnvs()
+})
+
 describe("the knowledge plane backfill", () => {
-  it("queues nothing while the flag is off", async () => {
+  it("on a hosted deployment, queues nothing for an org with no flag row", async () => {
+    vi.stubEnv("DEPLOYMENT_ENVIRONMENT", "production")
     await expect(backfillKnowledgePlane(orgId)).resolves.toEqual([])
     expect(await projectionRuns()).toEqual([])
   })
 
-  it("queues one run for each Workspace with a tip and no ready head, on each call, until it is ready", async () => {
-    await setOrgFeature(orgId, "knowledge_plane", "shadow")
+  it("on a self-hosted install, queues one run for each Workspace with a tip and no ready head, on each call, until it is ready", async () => {
+    vi.stubEnv("DEPLOYMENT_ENVIRONMENT", "")
     await expect(backfillKnowledgePlane(orgId)).resolves.toEqual([fresh])
     expect(await projectionRuns()).toEqual([fresh])
     const backfill = events.find(
@@ -122,7 +135,7 @@ describe("the knowledge plane backfill", () => {
     })
     expect(JSON.stringify(backfill)).not.toContain("Backfill proof")
 
-    // The first run failed: the next hosted update queues it again.
+    // The first run failed: the next deploy queues it again.
     await backfillKnowledgePlane(orgId)
     expect(await projectionRuns()).toEqual([fresh, fresh])
 

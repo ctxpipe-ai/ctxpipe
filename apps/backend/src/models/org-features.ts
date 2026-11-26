@@ -1,18 +1,43 @@
 import { and, eq, sql } from "drizzle-orm"
 
+import { deploymentEnvironment } from "../../../../shared/deployment-environment.js"
 import { withOrgDbContext } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
 import { orgFeatures } from "../db/schema/org_features.js"
 import type { AdminRequest } from "../domain/admin-request.js"
 import { log } from "../observability/logger.js"
 
-/** The permitted values of each feature. The first value is the default. */
+/**
+ * The permitted values of each feature. The first value is the hosted
+ * default.
+ */
 export const FEATURE_VALUES = {
   knowledge_plane: ["off", "shadow", "on"],
 } as const
 
 type OrgFeature = keyof typeof FEATURE_VALUES
 type OrgFeatureValue<F extends OrgFeature> = (typeof FEATURE_VALUES)[F][number]
+
+/**
+ * The default of each feature on a self-hosted install. A self-hosted
+ * install goes to the knowledge plane when it deploys the version that has
+ * it, with no operator step (CTX-1712, ADR-069 decision 9).
+ */
+const SELF_HOST_DEFAULTS: { [F in OrgFeature]: OrgFeatureValue<F> } = {
+  knowledge_plane: "on",
+}
+
+/**
+ * The value of a feature for an org with no row. A hosted deployment sets
+ * `DEPLOYMENT_ENVIRONMENT` (production, or `pr-N` for a preview), and its
+ * config sets each value (`hosted:orgFeatures`). A self-hosted install
+ * does not set it.
+ */
+function featureDefault<F extends OrgFeature>(feature: F): OrgFeatureValue<F> {
+  return deploymentEnvironment(process.env)
+    ? FEATURE_VALUES[feature][0]
+    : SELF_HOST_DEFAULTS[feature]
+}
 
 function isPermitted<F extends OrgFeature>(
   feature: F,
@@ -29,7 +54,7 @@ export async function getOrgFeature<F extends OrgFeature>(
   orgId: string,
   feature: F,
 ): Promise<OrgFeatureValue<F>> {
-  const fallback: OrgFeatureValue<F> = FEATURE_VALUES[feature][0]
+  const fallback = featureDefault(feature)
   const [row] = await withOrgDbContext(orgId, (db) =>
     db
       .select({ value: orgFeatures.value })
@@ -108,7 +133,7 @@ export async function setOrgFeature(
           eq(orgFeatures.feature, feature),
         ),
       )
-    const previous = row?.value ?? FEATURE_VALUES[feature][0]
+    const previous = row?.value ?? featureDefault(feature)
     const wasHeld = row?.held ?? false
     const held = request !== undefined
     if (!request && wasHeld && previous !== value)

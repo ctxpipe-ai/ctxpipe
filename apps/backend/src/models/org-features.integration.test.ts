@@ -1,5 +1,14 @@
 import { inArray, sql } from "drizzle-orm"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest"
 
 import { closeDb, getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
@@ -15,6 +24,8 @@ const orgC = generateObjectId("org")
 const orgD = generateObjectId("org")
 const orgE = generateObjectId("org")
 const orgF = generateObjectId("org")
+const orgG = generateObjectId("org")
+const orgs = [orgA, orgB, orgC, orgD, orgE, orgF, orgG]
 
 function setFeature(orgId: string, value: string) {
   return withOrgDbContext(orgId, (db) =>
@@ -33,7 +44,7 @@ describe("org features (Postgres)", () => {
     await getSystemDb()
       .insert(organizations)
       .values(
-        [orgA, orgB, orgC, orgD, orgE, orgF].map((id, i) => ({
+        orgs.map((id, i) => ({
           id,
           name: `Features ${i} ${suffix}`,
           slug: `features-${i}-${suffix}`,
@@ -45,11 +56,21 @@ describe("org features (Postgres)", () => {
   afterAll(async () => {
     await getSystemDb()
       .delete(organizations)
-      .where(inArray(organizations.id, [orgA, orgB, orgC, orgD, orgE, orgF]))
+      .where(inArray(organizations.id, orgs))
     await closeDb()
   })
 
-  it("gives off when the org has no row", async () => {
+  // A hosted deployment, unless a test says otherwise: hosted keeps each
+  // feature off until its config sets a value.
+  beforeEach(() => {
+    vi.stubEnv("DEPLOYMENT_ENVIRONMENT", "production")
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it("on a hosted deployment, gives off when the org has no row", async () => {
     expect(await getOrgFeature(orgA, "knowledge_plane")).toBe("off")
   })
 
@@ -197,5 +218,36 @@ describe("org features (Postgres)", () => {
       held: false,
     })
     expect(await getOrgFeature(orgF, "knowledge_plane")).toBe("shadow")
+  })
+
+  it("on a self-hosted install, gives on when the org has no row, and a row still wins", async () => {
+    vi.stubEnv("DEPLOYMENT_ENVIRONMENT", "")
+    expect(await getOrgFeature(orgG, "knowledge_plane")).toBe("on")
+    // A preview is hosted too.
+    vi.stubEnv("DEPLOYMENT_ENVIRONMENT", "pr-12")
+    expect(await getOrgFeature(orgG, "knowledge_plane")).toBe("off")
+    vi.stubEnv("DEPLOYMENT_ENVIRONMENT", "")
+
+    // The default needs no write: a set of `on` changes nothing.
+    expect(await setOrgFeature(orgG, "knowledge_plane", "on")).toEqual({
+      previous: "on",
+      value: "on",
+      changed: false,
+      held: false,
+    })
+    expect(
+      await withOrgDbContext(orgG, (db) => db.select().from(orgFeatures)),
+    ).toEqual([])
+
+    // The fast `off` of an operator holds on a self-hosted install too.
+    const OPERATOR = {
+      requestId: "00000000-0000-4000-8000-000000000002",
+      requestedBy: { kind: "operator", email: "operator@example.com" },
+      approvedBy: "approver@example.com",
+    } as const satisfies AdminRequest
+    expect(
+      await setOrgFeature(orgG, "knowledge_plane", "off", OPERATOR),
+    ).toEqual({ previous: "on", value: "off", changed: true, held: true })
+    expect(await getOrgFeature(orgG, "knowledge_plane")).toBe("off")
   })
 })
