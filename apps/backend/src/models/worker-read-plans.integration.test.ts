@@ -1,0 +1,149 @@
+import { resolve } from "node:path"
+import { fileURLToPath } from "node:url"
+
+import { config } from "dotenv"
+import { eq, inArray, type SQL, sql } from "drizzle-orm"
+import pg from "pg"
+import { afterAll, beforeAll, describe, expect, it } from "vitest"
+
+import { closeDb, initDb, withOrgDbContext } from "../db/client.js"
+import { planNodes } from "../db/knowledge-search-plan.js"
+import { ownerUrlForMigrate } from "../db/owner-migrate-url.js"
+import {
+  KNOWLEDGE_UNIT_INDEX,
+  workspaceWriteJobs,
+} from "../db/schema/workspaces.js"
+import { openWorkflowNamespaceId } from "../openworkflow/namespace.js"
+import { analyzeAsOwner } from "../test/analyze-as-owner.js"
+import { failJobsWithEndedRun } from "./workspace-write-jobs.js"
+import { unitWithoutChunks } from "./workspaces.js"
+
+const __dirname = fileURLToPath(new URL(".", import.meta.url))
+config({ path: resolve(__dirname, "../../.env.local") })
+
+const connectionString = process.env.DATABASE_URL
+const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`
+const orgId = `org_test_read_plans_${suffix}`
+const workspaceId = `ws_test_read_plans_${suffix}`
+
+/** Each scan of `relation` in a JSON plan, with its node type and index. */
+function scansOf(plan: unknown, relation: string) {
+  return planNodes(plan)
+    .filter((node) => node["Relation Name"] === relation)
+    .map((node) => ({ type: node["Node Type"], index: node["Index Name"] }))
+}
+
+/**
+ * The plan as the app role, under row-level security, with sequential
+ * scans off: a scan stays sequential only when no index can serve it.
+ */
+async function explain(query: () => SQL) {
+  return withOrgDbContext(orgId, async (db) => {
+    await db.execute(sql`SET LOCAL ROLE ctxpipe_app`)
+    await db.execute(sql`SET LOCAL enable_seqscan = off`)
+    const explained = await db.execute<{ "QUERY PLAN": unknown }>(
+      sql`EXPLAIN (FORMAT JSON) ${query()}`,
+    )
+    return explained.rows[0]?.["QUERY PLAN"]
+  })
+}
+
+describe("index plans of the worker's frequent reads (CTX-1708)", () => {
+  let owner: pg.Client
+
+  beforeAll(async () => {
+    if (!connectionString) throw new Error("DATABASE_URL is required")
+    initDb(connectionString)
+    owner = new pg.Client({
+      connectionString: ownerUrlForMigrate(connectionString),
+    })
+    await owner.connect()
+  })
+
+  afterAll(async () => {
+    await owner.query("DELETE FROM workspaces WHERE id = $1", [workspaceId])
+    await owner.query(
+      "DELETE FROM openworkflow.workflow_runs WHERE namespace_id = $1 AND id LIKE $2",
+      [openWorkflowNamespaceId(), `run_read_plans_${suffix}_%`],
+    )
+    await owner.end()
+    await closeDb()
+  })
+
+  it("finds the owning run of a write job by its id or its idempotency key, not by a scan of every run", async () => {
+    // Runs of many write jobs, with statistics, as in production. A job need
+    // not exist: the plan does not depend on it.
+    await owner.query(
+      `INSERT INTO openworkflow.workflow_runs
+         (namespace_id, id, workflow_name, status, idempotency_key, config, input, attempts, created_at, updated_at)
+       SELECT $1, $2 || g, 'workspace-write-' || (array['connector-mirror', 'semantic-merge', 'ui-file-edit'])[1 + g % 3],
+         (array['completed', 'failed'])[1 + g % 2], 'wjob_' || $2 || g, '{}',
+         jsonb_build_object('orgId', $3::text, 'workspaceId', 'ws_' || g % 7, 'jobId', 'wjob_' || $2 || g), 1, now(), now()
+       FROM generate_series(1, 3000) g`,
+      [openWorkflowNamespaceId(), `run_read_plans_${suffix}_`, orgId],
+    )
+    await analyzeAsOwner(connectionString ?? "", ["openworkflow.workflow_runs"])
+    const plan = await explain(() =>
+      failJobsWithEndedRun(
+        eq(workspaceWriteJobs.id, `wjob_${suffix}`),
+        inArray(workspaceWriteJobs.status, ["queued", "running", "paused"]),
+      ).getSQL(),
+    )
+    const scans = scansOf(plan, "workflow_runs")
+    // The owner in the new payload and in the condition, each by id and by
+    // idempotency key, and the status of the owner by its id.
+    expect(scans.length).toBeGreaterThanOrEqual(5)
+    for (const scan of scans)
+      expect(scan).toEqual({
+        type: "Index Scan",
+        index: expect.toBeOneOf([
+          "workflow_runs_pkey",
+          "workflow_runs_workflow_name_idempotency_key_created_at_idx",
+        ]),
+      })
+  })
+
+  it("tests whether each unit has chunks in the unit index only, not in the rows of the chunks", async () => {
+    // An index-only scan needs pages that vacuum marked all-visible, as in
+    // production. On a new table, Postgres would read each row either way.
+    await owner.query(
+      `INSERT INTO workspaces (id, org_id, slug, display_name, workspace_repository_url)
+       VALUES ($1, $2, $1, $1, 'https://example.invalid/read-plans.git')`,
+      [workspaceId, orgId],
+    )
+    await owner.query(
+      `INSERT INTO workspace_knowledge_units (serving_id, org_id, workspace_id, path, body, projection_sha)
+       SELECT $1 || '_' || g, $2, $1, 'u/' || g || '.md', 'Text of unit ' || g, 'sha'
+       FROM generate_series(1, 200) g`,
+      [workspaceId, orgId],
+    )
+    await owner.query(
+      `INSERT INTO workspace_knowledge_chunks
+         (workspace_id, unit_id, chunk_hash, occurrence, org_id, ordinal, start_line, end_line, text)
+       SELECT $1, $1 || '_' || g, md5(g::text || c), 0, $2, c, 1, 2, 'Chunk ' || c || ' of unit ' || g
+       FROM generate_series(1, 200) g, generate_series(1, 2) c`,
+      [workspaceId, orgId],
+    )
+    await owner.query(
+      "VACUUM workspace_knowledge_units, workspace_knowledge_chunks",
+    )
+    await analyzeAsOwner(connectionString ?? "", [
+      "workspace_knowledge_units",
+      "workspace_knowledge_chunks",
+    ])
+    const plan = await explain(
+      () => sql`SELECT exists (
+      SELECT 1 FROM workspace_knowledge_units AS u
+      WHERE u.workspace_id = ${workspaceId}
+        AND ${unitWithoutChunks(sql`u.workspace_id`, sql`u.serving_id`, sql`u.body`)}
+    )`,
+    )
+    const scans = scansOf(plan, "workspace_knowledge_chunks")
+    expect(scans.length).toBeGreaterThan(0)
+    for (const scan of scans)
+      expect(scan).toEqual({
+        type: "Index Only Scan",
+        index: KNOWLEDGE_UNIT_INDEX,
+      })
+  })
+})
