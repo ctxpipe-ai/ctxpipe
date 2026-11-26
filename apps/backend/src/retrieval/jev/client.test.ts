@@ -11,8 +11,20 @@ const server = useMswServer()
 const spans = recordSpans()
 
 beforeEach(() => {
+  for (const name of [
+    "DECISION_MODEL_PROVIDER",
+    "DECISION_MODEL_NAME",
+    "DECISION_MODEL_URL",
+    "DECISION_MODEL_API_KEY",
+    "MODEL_PROVIDER_ALLOWLIST",
+  ])
+    vi.stubEnv(name, "")
+  vi.stubEnv("MODEL_PROVIDER", "")
   vi.stubEnv("MODEL_PROVIDER_URL", "https://jev-gateway.test/api/v1")
   vi.stubEnv("MODEL_PROVIDER_API_KEY", "test-key")
+})
+afterEach(() => {
+  vi.unstubAllEnvs()
 })
 
 const question = { type: "noul" as const, instructions: "Is the sky blue?" }
@@ -221,7 +233,7 @@ describe("decideNoul", () => {
       kind: "http",
       status: 404,
       message:
-        "Jev answered HTTP 404: No endpoints found matching your data policy.",
+        "The decision model answered HTTP 404: No endpoints found matching your data policy.",
     })
 
     server.use(
@@ -233,7 +245,115 @@ describe("decideNoul", () => {
       ),
     )
     await expect(decide()).rejects.toMatchObject({
-      message: "Jev answered HTTP 400.",
+      message: "The decision model answered HTTP 400.",
+    })
+  })
+
+  describe("the decision model setting", () => {
+    const ask = () =>
+      decideNoul(
+        ["The state."],
+        { sky: question },
+        { timeoutMs: 5_000, attributes: {} },
+      )
+
+    it("sends the questions to an OpenAI-compatible decisions endpoint with no OpenRouter field", async () => {
+      vi.stubEnv("MODEL_PROVIDER", "bedrock")
+      vi.stubEnv("DECISION_MODEL_PROVIDER", "openai")
+      vi.stubEnv("DECISION_MODEL_URL", "https://decisions.test/v1")
+      vi.stubEnv("DECISION_MODEL_API_KEY", "decision-key")
+      let body: unknown
+      let authorization: string | null = null
+      server.use(
+        http.post(
+          "https://decisions.test/v1/decisions",
+          async ({ request }) => {
+            body = await request.json()
+            authorization = request.headers.get("authorization")
+            return HttpResponse.json({
+              id: "dec_1",
+              object: "decision",
+              model: "gpt-6-luna",
+              answers: [{ type: "predicate", name: "sky", probability: 0.8 }],
+              usage: { input_tokens: 10, output_tokens: 0, total_tokens: 10 },
+            })
+          },
+        ),
+      )
+
+      expect(await ask()).toEqual(new Map([["sky", 0.8]]))
+      expect(authorization).toBe("Bearer decision-key")
+      expect(body).toEqual({
+        model: "gpt-6-luna",
+        input: JSON.stringify(["The state."]),
+        questions: [
+          { type: "predicate", name: "sky", instructions: "Is the sky blue?" },
+        ],
+      })
+      const span = spans.spanNamed("jev.decide")
+      expect(span?.attributes["gen_ai.provider.name"]).toBe("openai")
+      expect(span?.attributes["gen_ai.request.model"]).toBe("gpt-6-luna")
+    })
+
+    it("sends the questions to a Gemini decisions endpoint", async () => {
+      vi.stubEnv("DECISION_MODEL_PROVIDER", "gemini")
+      vi.stubEnv("DECISION_MODEL_URL", "https://gemini.test/")
+      vi.stubEnv("DECISION_MODEL_API_KEY", "gemini-key")
+      let body: unknown
+      server.use(
+        http.post(
+          "https://gemini.test/v1beta/decisions",
+          async ({ request }) => {
+            body = await request.json()
+            return HttpResponse.json({
+              model: "gemini-decision-1",
+              answers: { sky: { type: "noul", noul: 0.3 } },
+            })
+          },
+        ),
+      )
+
+      expect(await ask()).toEqual(new Map([["sky", 0.3]]))
+      expect(body).toEqual({
+        model: "gemini-decision-1",
+        input: JSON.stringify(["The state."]),
+        questions: { sky: question },
+      })
+    })
+
+    it("sends Jev on OpenRouter with the ZDR block when only a decision key is set", async () => {
+      vi.stubEnv("MODEL_PROVIDER", "bedrock")
+      vi.stubEnv("MODEL_PROVIDER_URL", "")
+      vi.stubEnv("MODEL_PROVIDER_API_KEY", "")
+      vi.stubEnv("DECISION_MODEL_API_KEY", "openrouter-key")
+      vi.stubEnv("MODEL_PROVIDER_ALLOWLIST", "typesafe")
+      let body: unknown
+      server.use(
+        http.post(
+          "https://openrouter.ai/api/alpha/decisions",
+          async ({ request }) => {
+            body = await request.json()
+            return HttpResponse.json({
+              answers: { sky: { type: "noul", noul: 0.6 } },
+            })
+          },
+        ),
+      )
+
+      expect(await ask()).toEqual(new Map([["sky", 0.6]]))
+      expect(body).toMatchObject({
+        model: "typesafe/jev-1.14",
+        provider: { data_collection: "deny", zdr: true, only: ["typesafe"] },
+      })
+    })
+
+    it("throws a config JevError for a Bedrock install with no decision key", async () => {
+      vi.stubEnv("MODEL_PROVIDER", "bedrock")
+
+      await expect(ask()).rejects.toMatchObject({
+        name: "JevError",
+        kind: "config",
+      })
     })
   })
 })

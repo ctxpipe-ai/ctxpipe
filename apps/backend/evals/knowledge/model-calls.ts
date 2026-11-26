@@ -9,10 +9,11 @@ import {
 } from "../../src/retrieval/jev/disagreement.js"
 
 /*
- * The model calls of an eval run: Jev, the embedding endpoints of both
- * stacks, and the chat calls (the judge panel and the vision model). They all
- * go to the model provider
- * (`MODEL_PROVIDER_URL`). The run puts this recorder in front of `fetch`, so
+ * The model calls of an eval run: the decision model (Jev by default), the
+ * embedding endpoints of both stacks, and the chat calls (the judge panel and
+ * the vision model). They go to the model provider (`MODEL_PROVIDER_URL`);
+ * a decision call can also go to another provider (`DECISION_MODEL_URL`).
+ * The run puts this recorder in front of `fetch`, so
  * the readers stay as they are. The recorder:
  * - keeps each Jev and embedding request and its raw answer, so that a later
  *   run can replay them with no new call (`rescore`);
@@ -138,7 +139,9 @@ const emptyCounts = (): CallCounts => ({
  * `image_reading`.
  */
 function kindOf(path: string, body: string): CallKind | null {
-  if (path.endsWith("/alpha/decisions")) return "jev"
+  // OpenRouter `/api/alpha/decisions`, OpenAI `/v1/decisions`, Gemini
+  // `/v1beta/decisions`.
+  if (path.endsWith("/decisions")) return "jev"
   if (path.endsWith("/embeddings")) return "embedding"
   if (path.endsWith("/chat/completions"))
     return body.includes('"name":"image_reading"') ? "vision" : "chat"
@@ -172,13 +175,40 @@ const parseOr = (text: string, fallback: unknown): unknown => {
   }
 }
 
-/** The number of questions of a Jev request body. */
+/**
+ * The number of questions of a decision request body: a record of questions
+ * (OpenRouter, Gemini) or a list (OpenAI).
+ */
 const questionsOf = (body: string): number =>
   Object.keys(
     z
-      .object({ questions: z.record(z.string(), z.unknown()) })
+      .object({
+        questions: z.union([
+          z.array(z.unknown()),
+          z.record(z.string(), z.unknown()),
+        ]),
+      })
       .safeParse(parseOr(body, {})).data?.questions ?? {},
   ).length
+
+/**
+ * The price of the OpenAI and Gemini decision models for each input token
+ * ($0.10 for each million, no charge for output; read 2026-11-26). Their
+ * answers report tokens but no cost.
+ */
+const DECISION_USD_PER_INPUT_TOKEN = 0.1 / 1_000_000
+
+/** The cost of a decision answer from its input tokens, when it has them. */
+function decisionTokenCost(usage: unknown): number | undefined {
+  const tokens = z
+    .object({
+      input_tokens: z.number().optional(),
+      total_input_tokens: z.number().optional(),
+    })
+    .safeParse(usage).data
+  const input = tokens?.total_input_tokens ?? tokens?.input_tokens
+  return input === undefined ? undefined : input * DECISION_USD_PER_INPUT_TOKEN
+}
 
 /**
  * The content keys of each question of a Jev request: the lines of the
@@ -413,7 +443,9 @@ export class ModelCalls {
     owner: Owner,
   ): Promise<Response> {
     const url = new URL(request.url)
-    if (url.origin !== this.origin) return next(request)
+    // A decision call can go to its own provider (`DECISION_MODEL_URL`).
+    if (url.origin !== this.origin && !url.pathname.endsWith("/decisions"))
+      return next(request)
     const body = await request.clone().text()
     const kind = kindOf(url.pathname, body)
     if (!kind) return next(request)
@@ -472,9 +504,10 @@ export class ModelCalls {
       if (copies.inFlight === 0) this.copies.delete(copiesKey)
     }
     const latencyMs = performance.now() - started
-    const known = gatewayCost(
-      answerSchema.safeParse(parseOr(text, {})).data?.usage,
-    )
+    const usage = answerSchema.safeParse(parseOr(text, {})).data?.usage
+    const known =
+      gatewayCost(usage) ??
+      (kind === "jev" ? decisionTokenCost(usage) : undefined)
     const costUsd = known ?? reserved
     copies.answeredUsd = costUsd
     this.spentUsd += costUsd

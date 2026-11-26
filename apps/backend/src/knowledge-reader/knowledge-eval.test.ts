@@ -347,7 +347,7 @@ describe("the spend cap", () => {
   const BASE = "https://cap.test/v1"
   const JEV = "https://cap.test/alpha/decisions"
   let sent = 0
-  useMswServer(
+  const server = useMswServer(
     // A Jev answer costs $0.0015, below its reservation of $0.002.
     http.post(JEV, async () => {
       sent += 1
@@ -431,6 +431,34 @@ describe("the spend cap", () => {
         jevQuestions: 2,
         missing: 0,
       })
+    } finally {
+      restore()
+    }
+  })
+
+  it("counts a decision call to another provider, at the price of its input tokens", async () => {
+    const decisions = "https://decisions.test/v1/decisions"
+    server.use(
+      http.post(decisions, () =>
+        HttpResponse.json({
+          answers: [{ type: "predicate", name: "a", probability: 0.5 }],
+          usage: {
+            input_tokens: 20_000,
+            output_tokens: 0,
+            total_tokens: 20_000,
+          },
+        }),
+      ),
+    )
+    const calls = new ModelCalls(BASE, 1)
+    const restore = calls.install()
+    try {
+      calls.begin("plane", "question")
+      await post(decisions, { questions: [{ name: "a" }, { name: "b" }] })
+      expect(calls.end()).toMatchObject({ jev: 1, jevQuestions: 2 })
+      // 20,000 input tokens at $0.10 for each million.
+      expect(calls.spentUsd).toBeCloseTo(0.002)
+      expect(calls.records[0]).toMatchObject({ kind: "jev", estimated: false })
     } finally {
       restore()
     }

@@ -1,38 +1,38 @@
-// The Jev client of the backend (ADR-068). Jev (TypeSafe) answers typed
-// questions with probabilities through the OpenRouter Decisions API. The
-// request shape is the same as in the visual critic
-// (`packages/visual-review/src/adapters/jev.ts`), but this client also
-// requires a zero-data-retention (ZDR) endpoint (ADR-068 decision 7), because
-// it sends customer content. It pins no provider, so OpenRouter can fall back
-// among the ZDR endpoints of the model. OpenRouter lists TypeSafe as a ZDR
-// endpoint of `typesafe/jev-1.14` (`GET /api/v1/endpoints/zdr`).
+// The decision calls of the backend (ADR-068). A decision model (Jev by
+// default) answers typed questions with probabilities. The calls go through
+// the `decide()` activity of TanStack AI with the adapter of the configured
+// provider (`decisionModelSettings`). A call to OpenRouter requires a
+// zero-data-retention (ZDR) endpoint (ADR-068 decision 7), because it sends
+// customer content. It pins no provider, so OpenRouter can fall back among
+// the ZDR endpoints of the model.
 import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api"
+import { decide, isEvaluateError } from "@tanstack/ai"
 import { z } from "zod"
 
 import { assertNotInOrgDbContext } from "../../db/client.js"
-import { gatewayCost } from "../../observability/gatewayCost.js"
 import { gatewayRoutingError } from "../../observability/gatewayError.js"
-import { openRouterSettings } from "../services/modelProvider.js"
-import { openRouterProvider } from "../services/openRouterProvider.js"
 import { scrubForModel } from "../services/scrubForModel.js"
+import { decisionAdapter, decisionModelSettings } from "./decision-model.js"
 
-/** The Jev model of the OpenRouter Decisions API. */
-export const JEV_MODEL = "typesafe/jev-1.14"
+export { JEV_MODEL } from "./decision-model.js"
 
 /**
- * The state of a decisions request: text only. Jev gets no image bytes
- * (ADR-068 decision 6).
+ * The state of a decisions request: text only. The decision model gets no
+ * image bytes (ADR-068 decision 6).
  */
 export type JevState = string[]
 
-/** A yes/no question. Jev answers it with a probability of yes. */
+/**
+ * A yes/no question (the wire form of `boolean()`). The decision model
+ * answers it with a probability of yes.
+ */
 export type JevQuestion = { type: "noul"; instructions: string }
 
 /**
- * The failure of one Jev call. The message holds no request or response
- * text, because that can be customer content. The one exception is a fixed
- * routing message of the gateway (`gatewayRoutingError`).
- * - `config`: the backend model settings cannot reach OpenRouter.
+ * The failure of one decision call. The message holds no request or
+ * response text, because that can be customer content. The one exception is
+ * a fixed routing message of OpenRouter (`gatewayRoutingError`).
+ * - `config`: the backend settings give no decision model.
  * - `network`: the request did not get an answer (DNS, connection, TLS).
  * - `timeout`: no full answer within the time limit.
  * - `http`: the endpoint answered with an error status.
@@ -50,32 +50,22 @@ export class JevError extends Error {
   }
 }
 
-const responseSchema = z.object({
-  answers: z.record(z.string(), z.unknown()),
-  usage: z.unknown().optional(),
-})
-
-const noulAnswer = z.object({
-  type: z.literal("noul"),
-  noul: z.number().min(0).max(1),
-})
-
 type DecideOptions = { timeoutMs: number; attributes: Record<string, number> }
 
 /**
- * Ask Jev the yes/no `questions` about the `state`, in one call. Returns the
- * probability of yes for each question key. The key and the base URL come
- * from the backend model settings (see `openRouterSettings`). A failure
- * throws a `JevError`. The call must not run inside an org database
- * transaction. A call with no answer after 700 ms sends a second
- * copy of its request (a hedged request), and the first copy that ends gives
- * the result. The time limit applies to both copies.
+ * Ask the decision model the yes/no `questions` about the `state`, in one
+ * call. Returns the probability of yes for each question key. The model and
+ * its endpoint come from the backend settings (`decisionModelSettings`). A
+ * failure throws a `JevError`. The call must not run inside an org database
+ * transaction. A call with no answer after 700 ms sends a second copy of its
+ * request (a hedged request), and the first copy that ends gives the result.
+ * The time limit applies to both copies.
  *
- * The call has one span (`jev.decide`) with the model, the cost
- * (`gen_ai.usage.cost`), the latency, `jev.hedged` (the second copy went
- * out), `jev.hedge_won` (the second copy ended first) and the `attributes`
- * of the caller. The span holds no prompt text: the state is customer
- * content.
+ * The call has one span (`jev.decide`) with the provider, the model, the
+ * cost (`gen_ai.usage.cost`, when the provider reports it), the latency,
+ * `jev.hedged` (the second copy went out), `jev.hedge_won` (the second copy
+ * ended first) and the `attributes` of the caller. The span holds no prompt
+ * text: the state is customer content.
  */
 export async function decideNoul(
   state: JevState,
@@ -83,14 +73,17 @@ export async function decideNoul(
   options: DecideOptions,
 ): Promise<Map<string, number>> {
   assertNotInOrgDbContext()
+  const settings = decisionModelSettings()
   return trace.getTracer("ctxpipe-llm").startActiveSpan(
     "jev.decide",
     {
       kind: SpanKind.CLIENT,
       attributes: {
         "gen_ai.operation.name": "decide",
-        "gen_ai.request.model": JEV_MODEL,
-        "gen_ai.provider.name": "openrouter",
+        ...(settings && {
+          "gen_ai.request.model": settings.model,
+          "gen_ai.provider.name": settings.provider,
+        }),
         "jev.hedged": false,
         ...options.attributes,
       },
@@ -98,51 +91,29 @@ export async function decideNoul(
     async (span) => {
       const started = performance.now()
       try {
-        // Jev is only on OpenRouter (see `openRouterSettings`).
-        const settings = openRouterSettings()
         if (!settings)
           throw new JevError(
             "config",
-            "Jev needs MODEL_PROVIDER openrouter or openai-like, an OpenRouter MODEL_PROVIDER_URL, and MODEL_PROVIDER_API_KEY.",
+            "The decision model needs DECISION_MODEL_API_KEY, or MODEL_PROVIDER openrouter or openai-like with MODEL_PROVIDER_API_KEY.",
           )
-        const { base, apiKey } = settings
-        const request = await scrubForModel({
-          model: JEV_MODEL,
-          state,
-          questions,
-          provider: openRouterProvider(),
-        })
-        const timeLimit = AbortSignal.timeout(options.timeoutMs)
-        const url = new URL(
-          "../alpha/decisions",
-          `${base.replace(/\/+$/, "")}/`,
-        )
-        const payload = JSON.stringify(request)
+        const { adapter, modelOptions } = decisionAdapter(settings)
+        const scrubbed = await scrubForModel({ state, questions })
         // Each copy of the request stops at the time limit, or when the
         // first copy ends.
+        const timeLimit = AbortSignal.timeout(options.timeoutMs)
         const done = new AbortController()
-        const signal = AbortSignal.any([timeLimit, done.signal])
-        const send = async () => {
-          const response = await fetch(url, {
-            method: "POST",
-            headers: {
-              authorization: `Bearer ${apiKey}`,
-              "content-type": "application/json",
-            },
-            body: payload,
-            signal,
+        const abortSignal = AbortSignal.any([timeLimit, done.signal])
+        const send = () =>
+          decide({
+            adapter,
+            ...scrubbed,
+            modelOptions,
+            abortSignal,
+            // No log of the SDK: an error can hold response text, and that
+            // can echo the state.
+            debug: false,
           })
-          // The time limit also covers the body.
-          signal.throwIfAborted()
-          const text = await new Promise<string>((resolve, reject) => {
-            signal.addEventListener("abort", () => reject(signal.reason), {
-              once: true,
-            })
-            response.text().then(resolve, reject)
-          })
-          return { status: response.status, body: text }
-        }
-        type Answer = { status: number; body: string }
+        type Answer = Awaited<ReturnType<typeof send>>
         let answer: Answer
         let hedge: ReturnType<typeof setTimeout> | undefined
         // True when the second copy ended first, also with a failure.
@@ -168,54 +139,26 @@ export async function decideNoul(
             }),
           ])
         } catch (error) {
-          throw error instanceof Error && error.name === "TimeoutError"
-            ? new JevError(
-                "timeout",
-                `Jev gave no answer in ${options.timeoutMs} ms.`,
-              )
-            : new JevError("network", "The Jev request got no answer.")
+          throw jevErrorOf(error, settings, options.timeoutMs)
         } finally {
           clearTimeout(hedge)
           // The race has its result: stop the copy that is still in flight.
           done.abort()
           span.setAttribute("jev.hedge_won", hedgeWon ?? false)
         }
-        const { status, body } = answer
-        if (status < 200 || status > 299) {
-          // Only a fixed routing message of the gateway: other error text
-          // can echo the state.
-          const routing = gatewayRoutingError(body, JEV_MODEL)
-          throw new JevError(
-            "http",
-            routing
-              ? `Jev answered HTTP ${status}: ${routing}`
-              : `Jev answered HTTP ${status}.`,
-            status,
-          )
-        }
-        let json: unknown
-        try {
-          json = JSON.parse(body)
-        } catch {
-          json = undefined
-        }
-        const parsed = responseSchema.safeParse(json)
-        if (!parsed.success)
-          throw new JevError(
-            "invalid-answer",
-            "The Jev response does not match the schema.",
-          )
-        const cost = gatewayCost(parsed.data.usage)
+        const cost = answer.meta.usage.cost
         if (cost !== undefined) span.setAttribute("gen_ai.usage.cost", cost)
         return new Map(
           Object.keys(questions).map((key) => {
-            const answer = noulAnswer.safeParse(parsed.data.answers[key])
-            if (!answer.success)
+            const probability = noulProbability.safeParse(
+              (answer as Record<string, unknown>)[key],
+            )
+            if (!probability.success)
               throw new JevError(
                 "invalid-answer",
-                `Jev gave no valid yes/no answer to question ${key}.`,
+                `The decision model gave no valid yes/no answer to question ${key}.`,
               )
-            return [key, answer.data.noul]
+            return [key, probability.data.probability]
           }),
         )
       } catch (error) {
@@ -234,5 +177,53 @@ export async function decideNoul(
         span.end()
       }
     },
+  )
+}
+
+const noulProbability = z.object({
+  type: z.literal("boolean"),
+  probability: z.number().min(0).max(1),
+})
+
+/**
+ * The `JevError` of a failed `decide()` call. Only a fixed routing message
+ * of OpenRouter keeps text of the answer: other error text can echo the
+ * state.
+ */
+function jevErrorOf(
+  error: unknown,
+  settings: { provider: string; model: string },
+  timeoutMs: number,
+): JevError {
+  if (!(error instanceof Error))
+    return new JevError("network", "The decision request got no answer.")
+  if (error.name === "TimeoutError")
+    return new JevError(
+      "timeout",
+      `The decision model gave no answer in ${timeoutMs} ms.`,
+    )
+  const { status, body } = error as { status?: unknown; body?: unknown }
+  if (typeof status === "number") {
+    const routing =
+      settings.provider === "openrouter" && typeof body === "string"
+        ? gatewayRoutingError(body, settings.model)
+        : undefined
+    return new JevError(
+      "http",
+      routing
+        ? `The decision model answered HTTP ${status}: ${routing}`
+        : `The decision model answered HTTP ${status}.`,
+      status,
+    )
+  }
+  // A failed fetch is a `TypeError`; the OpenAI SDK names its own.
+  if (error instanceof TypeError || error.name === "APIConnectionError")
+    return new JevError("network", "The decision request got no answer.")
+  // A refusal, an answer of another type, or a body that is no answer.
+  return new JevError(
+    "invalid-answer",
+    isEvaluateError(error)
+      ? `The decision model did not answer (${error.code}).`
+      : "The decision response does not match the schema.",
   )
 }

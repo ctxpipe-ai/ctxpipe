@@ -1,6 +1,6 @@
 # ADR-068: Knowledge retrieval: one hybrid search, Jev judges each layer, disagreements are reasoned at query time
 
-**Status:** Accepted (the CTO, 2026-11-19; the code does not implement it yet; the evals of [ADR-069](ADR-069-knowledge-plane-evals-and-rollout.md) tune it) | **Date:** 2026-11-19 | **Tags:** knowledge, retrieval, search, graph, jev, embeddings, images, mcp
+**Status:** Accepted (the CTO, 2026-11-19; the code does not implement it yet; the evals of [ADR-069](ADR-069-knowledge-plane-evals-and-rollout.md) tune it; amended 2026-11-26: decision calls through `decide()`, any decision model) | **Date:** 2026-11-19 | **Tags:** knowledge, retrieval, search, graph, jev, embeddings, images, mcp
 
 ## Context
 
@@ -139,3 +139,14 @@ The content and its tables are in [ADR-066](ADR-066-knowledge-content-in-clickho
   - how many Jev questions fit in one call (50 candidates × 2, or 12 pairs × 4 and the items);
   - the speed of the binary scan from real S3 (the measurements of decision 1 used S3 on the same host).
 - **Amends** ADR-051 decision 6 (graph relevance) and section 8 (data layer) for orgs on the new plane. Until the rollout ends, the old ranking serves the other orgs.
+
+## Amendment 2026-11-26: decision calls through `decide()`, any decision model ([CTX-1721](https://linear.app/ctxpipe/issue/CTX-1721))
+
+"We shouldn't require Jev specifically, we should allow any decision model" (the CTO, 2026-11-26).
+
+- **Interface.** The layer judge and the disagreement step call the decision model through the `decide()` activity of TanStack AI with a provider adapter (`decideNoul` in `apps/backend/src/retrieval/jev/client.ts`). The backend has no client of its own for a decision endpoint. Our logic around a call stays as it was: the hedged second copy after 700 ms, the time limit of the caller, the batches, the span `jev.decide` with no content, and the cost and hedge counts of the eval recorder.
+- **Supported decision providers:** OpenRouter (`/api/alpha/decisions`, the default), OpenAI (`/v1/decisions`, or a compatible server at a base URL) and Gemini (`/v1beta/decisions`). One setting selects the provider, the model, an optional base URL and the key (`DECISION_MODEL_PROVIDER`, `DECISION_MODEL_NAME`, `DECISION_MODEL_URL`, `DECISION_MODEL_API_KEY`). With no decision key, the model is Jev (`typesafe/jev-1.14`) on OpenRouter with the `MODEL_PROVIDER_*` values, so hosted does not change.
+- **Bedrock and Azure.** No decision model is on Bedrock or Azure. Such an install sets a decision provider of its own. Its embeddings and images stay on its model provider.
+- **Decision 7 for hosted.** A call to OpenRouter keeps the provider block of ADR-070 (`zdr: true`, `data_collection: "deny"`, `only` from the allowlist). The OpenRouter adapter of TanStack AI 1.1.2 sends no `modelOptions` and has a fixed URL, so a pnpm patch makes it send `modelOptions` and use the base URL (`patches/@tanstack__ai-openrouter@1.1.2.patch`), until upstream does. A call to OpenAI or Gemini gets no OpenRouter field: for a self-hosted install, the data terms of the operator's provider replace decision 7.
+- **Thresholds.** The evals of ADR-069 tuned the thresholds (`keepAt` and the others) on Jev. Another decision model can need other thresholds; the eval report of CTX-1721 measures this.
+
