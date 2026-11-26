@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process"
+import { execFileSync, spawnSync } from "node:child_process"
 import {
   existsSync,
   mkdtempSync,
@@ -574,7 +574,7 @@ enabled = true
       join(cwd, ".codex", "config.toml"),
       "utf8",
     )
-    expect(repoCodexToml).toContain("ctxpipe memory capture")
+    expect(repoCodexToml).toContain("memory capture finalize --host codex")
   })
 
   it("keeps a team README that names the memory-search skill and AgentMemory history", () => {
@@ -628,5 +628,108 @@ enabled = true
     expect(() => runMemoryInit(cwd, ["--non-interactive"])).toThrow(
       /Missing --agents/,
     )
+  })
+})
+
+describe("memory init pins the CLI version", () => {
+  const version = (
+    JSON.parse(readFileSync(join(PKG_ROOT, "package.json"), "utf8")) as {
+      version: string
+    }
+  ).version
+  const pinned = `npx -y ctxpipe@${version} memory capture`
+  const unpinned = /npx -y ctxpipe memory/
+
+  it("writes the pinned command in the hooks of each host", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mem-pin-"))
+    runMemoryInit(cwd, [
+      "--agents",
+      "cursor,claude,codex,opencode,vscode",
+      "--non-interactive",
+    ])
+
+    for (const rel of [
+      ".cursor/hooks.json",
+      ".claude/settings.json",
+      ".codex/config.toml",
+      ".opencode/plugins/ctxpipe-memory.js",
+      ".github/hooks/ctxpipe-memory.json",
+      ".github/copilot-instructions.md",
+      "AGENTS.md",
+    ]) {
+      const text = readFileSync(join(cwd, rel), "utf8")
+      expect(text, rel).toContain(pinned)
+      expect(text, rel).not.toMatch(unpinned)
+    }
+  })
+
+  it("replaces an unpinned capture hook with the pinned one on re-init", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mem-pin-reinit-"))
+    mkdirSync(join(cwd, ".claude"), { recursive: true })
+    mkdirSync(join(cwd, ".cursor"), { recursive: true })
+    writeFileSync(
+      join(cwd, ".claude", "settings.json"),
+      JSON.stringify({
+        hooks: {
+          Stop: [
+            {
+              hooks: [
+                {
+                  type: "command",
+                  command:
+                    "npx -y ctxpipe memory capture finalize --host claude --event Stop",
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    )
+    writeFileSync(
+      join(cwd, ".cursor", "hooks.json"),
+      JSON.stringify({
+        version: 1,
+        hooks: {
+          stop: [
+            {
+              command:
+                "npx -y ctxpipe@0.0.1 memory capture finalize --host cursor --event stop",
+            },
+          ],
+        },
+      }),
+    )
+
+    runMemoryInit(cwd, ["--agents", "claude,cursor", "--non-interactive"])
+
+    const claude = JSON.parse(
+      readFileSync(join(cwd, ".claude", "settings.json"), "utf8"),
+    ) as { hooks: { Stop: Array<{ hooks: Array<{ command: string }> }> } }
+    expect(claude.hooks.Stop.flatMap((g) => g.hooks.map((h) => h.command)))
+      .toEqual([
+        `${pinned} finalize --host claude --event Stop`,
+      ])
+    const cursor = JSON.parse(
+      readFileSync(join(cwd, ".cursor", "hooks.json"), "utf8"),
+    ) as { hooks: { stop: Array<{ command: string }> } }
+    expect(cursor.hooks.stop.map((h) => h.command)).toEqual([
+      `${pinned} finalize --host cursor --event stop`,
+    ])
+  })
+
+  it.each([
+    ["mcp", []],
+    ["hook", ["claude-stop", "--host", "claude"]],
+  ])("the removed `memory %s` command tells the user to migrate and exits 0", (name, args) => {
+    const result = spawnSync(
+      process.execPath,
+      [BIN, "memory", name, ...args],
+      { encoding: "utf8", input: '{"session_id":"s"}' },
+    )
+    expect(result.status).toBe(0)
+    expect(result.stdout).toBe("")
+    expect(result.stderr.trim().split("\n")).toEqual([
+      `ctxpipe: \`memory ${name}\` was removed. Run \`npx ctxpipe memory init\` to migrate this repo's memory hooks.`,
+    ])
   })
 })
