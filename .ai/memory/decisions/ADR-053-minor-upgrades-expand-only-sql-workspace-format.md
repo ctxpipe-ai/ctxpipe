@@ -61,8 +61,8 @@ All deploy paths run the same migrate command before the new code serves traffic
 - Revision 2026-11-23 (CTX-1559): the version markers in `apps/backend/ingest-skills/versions/` set the re-ingestion version, not `version.json`. A change that can change the knowledge adds a marker; other changes add none, so they start no re-ingestion, also in a Workspace with automatic upgrades (see [ADR-052](ADR-052-ingestion-sandbox-skills-patches.md), revision 2026-11-23).
 - Revision 2026-11-26 (CTX-1715, the CTO): "everything that doesn't have workspace repo has to be re-ingested". The knowledge plane ([ADR-066](ADR-066-knowledge-content-in-clickhouse.md)) projects only the Workspace repository. It gets no second input for the main-era knowledge in Postgres, so it does not serve the legacy overlay units (see Consequences). ctxpipe tells the operator instead:
   - The hydrate counts the legacy overlay units of each Workspace on the Workspace row (`workspaces.legacy_knowledge_files`). The migrate command fills the count from the active projection for each Workspace that has no count yet, so the count is there at the deploy.
-  - The Upgrades card of the Workspace shows the count, with the action: merge the format upgrade, then start the re-ingestion.
-  - When the plane serves a Workspace with a count above 0, `search_knowledge`, `list_files` and `get_related` give a `notices` entry with the count and the action. `read_file` and `get_related` add the same text to an `unknown_ref` error.
+  - The Upgrades card of the Workspace shows the count, with the action: below format 3, merge the format upgrade, then start the re-ingestion; at format 3 or more, start the re-ingestion.
+  - When the plane serves a Workspace with a count above 0, `search_knowledge`, `list_files` and `get_related` give a `notices` entry with the count and the action. `read_file`, `list_files` and `get_related` add the same text to an `unknown_ref` error.
   - The self-hosting upgrades page states that this knowledge needs the format upgrade and the re-ingestion before the release that removes the old stack.
 
 ### 6. Git holds the upgrade state
