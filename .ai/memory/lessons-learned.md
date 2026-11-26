@@ -622,3 +622,8 @@ Read this when you set up or change a deployment: Railway production or previews
 - **Category:** ingestion
 - **Date:** 2026-11-22
 - **Source:** CTO decision on the 300-file and 20-importer limits, which the lead applied to the root limits in CTX-1510 (PR #994)
+### Workspace content problems: fix them in the projection, not with a write gate
+- **Rule:** ctxpipe does not control every write to a Workspace repository. People and outside agents can commit to it directly, and ctxpipe is not in that loop. The state of ctxpipe is a projection of the git tree. So do not fix a content problem (for example, two paths that differ only in case) with a check on the ctxpipe write paths alone. Make the projection and the readers give a correct result for any tree that git can hold. A repair is optional: it is a normal commit, which the projection reads like any other commit. ctxpipe's own writes can still use one canonical form, but no rule depends on that.
+- **Category:** architecture
+- **Date:** 2026-11-26
+- **Source:** CTO review of the case-duplicate pattern for the GitHub mirror cleanup (CTX-1691, CTX-1693)
