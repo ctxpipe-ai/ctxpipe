@@ -992,6 +992,30 @@ describe("the removed memory mcp and memory hook commands repair a 0.2.0 setup",
     expect(existsSync(join(cwd, ".claude", "rules", "ai-memory.md"))).toBe(true)
   })
 
+  it("keeps the 0.2.0 entries for a retry when a migration step fails", () => {
+    const { cwd, home } = legacySetup()
+    // A directory where the migration writes lessons-learned.md: that write fails.
+    mkdirSync(join(cwd, ".ai", "memory", "lessons-learned.md"))
+
+    const failed = runRemoved(cwd, home, "mcp")
+
+    expect(failed.stderr).toContain("The repair of the memory setup failed")
+    expect(readFileSync(join(cwd, ".mcp.json"), "utf8")).toContain(
+      "ctxpipe-memory",
+    )
+    expect(existsSync(join(cwd, ".claude", "settings.json"))).toBe(false)
+
+    rmSync(join(cwd, ".ai", "memory", "lessons-learned.md"), {
+      recursive: true,
+    })
+    const retried = runRemoved(cwd, home, "mcp")
+
+    expect(retried.stderr).toContain("Removed the 0.2.0 memory entries")
+    expect(readFileSync(join(cwd, ".mcp.json"), "utf8")).not.toContain(
+      "ctxpipe-memory",
+    )
+  })
+
   it("refuses the repair when a JSON file that it changes does not parse", () => {
     const { cwd, home } = legacySetup()
     writeFileSync(

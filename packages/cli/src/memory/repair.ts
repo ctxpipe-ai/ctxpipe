@@ -11,6 +11,7 @@ import {
 import { CLIENT_LABELS } from "../constants.js"
 import { applyOperations } from "../fs-operations.js"
 import { isObject } from "../mcp/json.js"
+import type { Operation } from "../mcp/mcp-operations.js"
 import {
   buildMemoryArtifactOperations,
   createOperationContext,
@@ -89,22 +90,28 @@ function repair(cwd: string): string {
     ...new Set(pending.flatMap(({ host }) => (host ? [host] : []))),
   ]
 
-  // Write the capture-hook files after the other new files, and remove the
-  // 0.2.0 entries last. If a write fails, the next run still sees a host with
+  // Order the steps so that a failure leaves a retry: first all other steps
+  // of `memory init`, then the capture-hook files, and last the removal of
+  // the 0.2.0 entries. If a step fails, the next run still sees a host with
   // no capture hook or a 0.2.0 entry, and tries the repair again.
+  const hookFiles = new Set(
+    hosts.map((host) => resolve(context.cwd, REPO_CAPTURE_HOOK[host])),
+  )
+  const entryFiles = new Set(entries.map(({ path }) => path))
   const hookOps = buildMemoryHookOperations({
     clients: hosts,
     scope: "repo",
     context,
   })
-  const hookFiles = new Set(
-    hosts.map((host) => resolve(context.cwd, REPO_CAPTURE_HOOK[host])),
-  )
+  const upgradeOps = buildMemoryUpgradeOperations({ context })
+  const isHook = (op: Operation) => "path" in op && hookFiles.has(op.path)
+  const isRemoval = (op: Operation) => "path" in op && entryFiles.has(op.path)
   const operations = [
     ...buildMemoryArtifactOperations({ context }),
-    ...hookOps.filter((op) => !("path" in op && hookFiles.has(op.path))),
-    ...hookOps.filter((op) => "path" in op && hookFiles.has(op.path)),
-    ...buildMemoryUpgradeOperations({ context }),
+    ...hookOps.filter((op) => !isHook(op)),
+    ...upgradeOps.filter((op) => !isRemoval(op)),
+    ...hookOps.filter(isHook),
+    ...upgradeOps.filter(isRemoval),
   ].filter((op) => !("path" in op) || isInside(context.cwd, op.path))
   // A cloned repository can hold symlinks, and the upgrade reads patterns.md
   // and writes lessons-learned.md. So refuse each path that goes through a
