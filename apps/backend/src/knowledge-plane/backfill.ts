@@ -10,8 +10,10 @@ import { knowledgeProjection } from "../openworkflow/workflows/knowledge-project
 /**
  * The backfill of the knowledge plane of one org (CTX-1643): queue one
  * `knowledge-projection` run of the default branch for each Workspace that
- * has a tip but no ready head. A Workspace with no tip gets its run from its
- * first hydrate.
+ * has a tip but no ready head at that tip. A ready head at an earlier tip is
+ * stale: for example, the Workspace of an org that had the flag `off`
+ * after it was `on` got no run for its later commits. A Workspace with no
+ * tip gets its run from its first hydrate.
  *
  * Each deploy calls it, not only the first: thus the next deploy queues
  * again a Workspace whose first run failed. The runs have no
@@ -27,18 +29,25 @@ import { knowledgeProjection } from "../openworkflow/workflows/knowledge-project
  */
 export async function backfillKnowledgePlane(orgId: string): Promise<string[]> {
   const workspaceIds = await withOrgDbContext(orgId, async () => {
-    const withTip = (await listOrgWorkspaces(orgId))
-      .filter((workspace) => workspace.desiredSha)
+    const withTip = (await listOrgWorkspaces(orgId)).filter(
+      (workspace) => workspace.desiredSha,
+    )
+    const ready = await readyKnowledgeHeads(
+      orgId,
+      withTip.map((workspace) => workspace.id),
+    )
+    return withTip
+      .filter(
+        (workspace) => ready.get(workspace.id)?.sha !== workspace.desiredSha,
+      )
       .map((workspace) => workspace.id)
-    const ready = await readyKnowledgeHeads(orgId, withTip)
-    return withTip.filter((id) => !ready.has(id))
   })
   for (const workspaceId of workspaceIds)
     await enqueueWorkflow(knowledgeProjection.spec, { orgId, workspaceId })
   log.info({
     step: "knowledge_plane.backfill",
     message:
-      "queued the first knowledge projection of each Workspace that is not ready",
+      "queued the knowledge projection of each Workspace that is not ready at its tip",
     orgId,
     count: workspaceIds.length,
     workspaceIds,

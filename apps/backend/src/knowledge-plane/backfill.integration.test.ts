@@ -36,12 +36,12 @@ async function projectionRuns() {
   return result.rows.map((row) => row.input.workspaceId)
 }
 
-async function completeDefaultRun(workspaceId: string) {
+async function completeDefaultRun(workspaceId: string, tip = "a".repeat(40)) {
   const key = { orgId, workspaceId, branch: "main" }
   await beginKnowledgeRun({ ...key, isDefault: true })
   await completeKnowledgeRun({
     ...key,
-    tip: "a".repeat(40),
+    tip,
     treeVersion: 1,
     baseBranch: null,
     projectionVersion: "1:test-model",
@@ -119,5 +119,21 @@ describe("the knowledge plane backfill", () => {
     await completeDefaultRun(fresh)
     await expect(backfillKnowledgePlane(orgId)).resolves.toEqual([])
     expect(await projectionRuns()).toHaveLength(2)
+  })
+
+  it("queues a Workspace whose ready head is at an earlier tip, until a run applies the tip", async () => {
+    // A commit while the org had the flag `off`: no run applied it, and the
+    // head of the earlier tip stayed ready.
+    const tip = "b".repeat(40)
+    await withOrgDbContext(orgId, (db) =>
+      db
+        .update(workspaces)
+        .set({ desiredSha: tip })
+        .where(eq(workspaces.id, ready)),
+    )
+    await expect(backfillKnowledgePlane(orgId)).resolves.toEqual([ready])
+
+    await completeDefaultRun(ready, tip)
+    await expect(backfillKnowledgePlane(orgId)).resolves.toEqual([])
   })
 })
