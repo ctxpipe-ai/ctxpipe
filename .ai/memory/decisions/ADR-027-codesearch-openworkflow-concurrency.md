@@ -52,3 +52,11 @@ Railway has no Fargate-style committed memory in IaC (usage-billed). Capacity mu
 - **Horizontal codesearch replicas** — Rejected; shards and clone cache are single-volume, single-process. A second replica splits Zoekt hot pins and bypasses in-process admission.
 - **Per-workflow concurrency API** — OpenWorkflow does not expose one. Process-wide concurrency plus codesearch admission is the thinnest control.
 - **Postgres lease table for index pipelines** — Rejected; admission stays at the codesearch process boundary (existing lesson: durability in OW steps, memory at spawn/HTTP).
+
+## Revision 2026-11-26: a fair share of the worker slots by org (CTX-1707)
+
+- **Problem.** From 2026-11-22 to 2026-11-24, the runs of one org filled the worker queue for about 50 hours. The claim took the run that was available first, so the sync jobs of the other orgs waited behind that backlog.
+- **Decision.** The claim takes the next run from the org that runs the fewest runs now. It counts the runs with a live lease in all worker processes. The org of a run is the `orgId` of its input. The runs with no org are one group. In an org, the claim order stays first available, first claimed (CTX-1478). This is a ctxpipe patch of the OpenWorkflow claim statement.
+- **No fixed share.** The rule has no constant and no list of orgs. It applies to each org in the same way. When only one org has runs that wait, that org gets each free slot.
+- **The ingestion share stays.** The ingestion shards still use at most half of the slots of a process (ADR-052, worker share). The org order also applies in that share: a free place goes to the shard of the org that runs the fewest runs.
+- **Rejected: a fixed cap of the slots of an org.** With a cap of half the slots of a task, one org can still hold the whole ingestion share, because that share is also half.
