@@ -539,7 +539,7 @@ describe("a hedged Jev call", () => {
       const copies = [copy(), copy()]
       await vi.advanceTimersByTimeAsync(10)
       limit.abort()
-      for (const sent of copies) await expect(sent).rejects.toThrow()
+      for (const pending of copies) await expect(pending).rejects.toThrow()
       await calls.settle()
       expect(calls.end()).toMatchObject({
         jev: 0,
