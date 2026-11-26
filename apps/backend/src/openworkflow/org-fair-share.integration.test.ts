@@ -7,17 +7,21 @@ import { closeDb, initDb } from "../db/client.js"
 import { INGESTION_SHARD_WORKFLOW_NAME } from "../domain/ingestion/ingestion-run.js"
 import { connectOpenWorkflowBackend } from "./storable-backend.js"
 
-// The test setup gives this file its own OpenWorkflow namespace, so the
-// claims see only the runs of this file.
 const lease = { leaseDurationMs: 30_000 }
 const backends: BackendPostgres[] = []
 
-/** One worker process: a backend and the ids of its 4 slots. */
+/**
+ * One worker process: a backend and the ids of its 4 slots. Each test gets
+ * an OpenWorkflow namespace of its own, so its claims see only its runs.
+ */
 async function workerProcess() {
   const url = process.env.DATABASE_URL
   if (!url) throw new Error("DATABASE_URL is required")
   vi.stubEnv("OPENWORKFLOW_CONCURRENCY", "4")
-  const backend = await connectOpenWorkflowBackend(url)
+  const backend = await connectOpenWorkflowBackend(
+    url,
+    `org-fair-share-${randomUUID()}`,
+  )
   vi.unstubAllEnvs()
   backends.push(backend)
   const slots = Array.from({ length: 4 }, () => randomUUID())
@@ -38,7 +42,7 @@ async function workerProcess() {
 /** A run of `orgId` that waits for a worker since `secondsAgo`. */
 async function queue(
   backend: BackendPostgres,
-  input: { workflowName: string; orgId: string | null; secondsAgo: number },
+  input: { workflowName: string; orgId: string; secondsAgo: number },
 ) {
   const run = await backend.createWorkflowRun({
     workflowName: input.workflowName,
@@ -46,7 +50,7 @@ async function queue(
     idempotencyKey: null,
     config: {},
     context: null,
-    input: input.orgId === null ? {} : { orgId: input.orgId },
+    input: { orgId: input.orgId },
     parentStepAttemptNamespaceId: null,
     parentStepAttemptId: null,
     availableAt: new Date(Date.now() - input.secondsAgo * 1000),
@@ -104,15 +108,18 @@ it("gives the next free slot to the run of a second org while a first org has a 
 it("lets one org use each free slot when no other org waits", async () => {
   const worker = await workerProcess()
   const org = orgs()
+  const runs = [] as string[]
   for (let i = 0; i < 6; i++)
-    await queue(worker.backend, {
-      workflowName: "workspace-write-semantic-merge",
-      orgId: org.busy,
-      secondsAgo: 60 - i,
-    })
+    runs.push(
+      await queue(worker.backend, {
+        workflowName: "workspace-write-semantic-merge",
+        orgId: org.busy,
+        secondsAgo: 60 - i,
+      }),
+    )
 
   const claimed = (await worker.poll()).filter((run) => run !== null)
-  expect(claimed).toHaveLength(4)
+  expect(claimed.map((run) => run.id).sort()).toEqual(runs.slice(0, 4).sort())
 })
 
 it("gives the next ingestion place to the shard of a second org before the third shard of the first org", async () => {
