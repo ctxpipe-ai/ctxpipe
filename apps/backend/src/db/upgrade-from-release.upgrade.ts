@@ -35,6 +35,8 @@ import { workspaces, workspaceWriteJobs } from "./schema/workspaces.js"
 const urls = vi.hoisted(() => {
   // registerV1Routes loads the conversation graph, which builds its model at import time.
   vi.stubEnv("MODEL_PROVIDER_API_KEY", "test-key")
+  // A self-hosted install: no DEPLOYMENT_ENVIRONMENT (CTX-1712).
+  vi.stubEnv("DEPLOYMENT_ENVIRONMENT", "")
   const serverUrl = process.env.DATABASE_URL ?? ""
   const suffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
   const database = `ctxpipe_upgrade_from_release_${suffix}`
@@ -456,8 +458,8 @@ it("upgrades a database of the previous release and its Workspace with no manual
     { workspace_id: workspace.id, source_repository_id: WORKSPACE_REPO },
   ])
   // No operator step sets the knowledge plane flag: the org has no row
-  // (CTX-1712). This install sets no DEPLOYMENT_ENVIRONMENT, so it is a
-  // self-hosted install, and the flag reads `on` below.
+  // (CTX-1712). This install sets no DEPLOYMENT_ENVIRONMENT (the stub at
+  // the top), so it is a self-hosted install, and the flag reads `on` below.
   expect(
     await owner(
       async (db) =>

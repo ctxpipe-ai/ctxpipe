@@ -528,7 +528,9 @@ export type KnowledgeStore = {
  * A ClickHouse client for `url`. The client logs to the console, so its log
  * is off: each error goes to the caller instead. The migrations use it too.
  * When `CLICKHOUSE_PASSWORD_FILE` is set, the password of the user in `url`
- * comes from that file: Docker Compose generates it (CTX-1712).
+ * comes from that file: Docker Compose generates it (CTX-1712). It is read
+ * from `process.env`, not `parseEnv`, because the migrate job has no app env
+ * (`AUTH_SECRET`).
  */
 export function createClickHouseClient(url: string): ClickHouseClient {
   const file = process.env.CLICKHOUSE_PASSWORD_FILE?.trim()
