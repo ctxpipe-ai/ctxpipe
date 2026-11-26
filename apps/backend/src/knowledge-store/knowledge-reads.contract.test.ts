@@ -1049,6 +1049,16 @@ describe("document read", () => {
     }))
     expect(await store.readDocuments(orgA, refs)).toEqual([])
   })
+
+  it("counts the escapes of a key with quotes and backslashes (CTX-1688)", async () => {
+    // The client escapes each quote and backslash, and the URL encodes
+    // both characters: 1,500 such keys are about 290 KiB in the URL.
+    const refs = Array.from({ length: 1_500 }, (_, i) => ({
+      workspaceId: workspace,
+      docKey: `${String(i).padStart(4, "0")}-${"'\\".repeat(20)}.md`,
+    }))
+    expect(await store.readDocuments(orgA, refs)).toEqual([])
+  })
 })
 
 describe("evidence read", () => {

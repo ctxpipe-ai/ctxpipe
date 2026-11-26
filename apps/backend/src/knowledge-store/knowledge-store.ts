@@ -1486,7 +1486,42 @@ async function runSelectIn<T>(
   params: Record<string, unknown>,
 ): Promise<T[]> {
   try {
-    return await runQuery<T>(client, scope, query, params)
+    const result = await client.query({
+      query,
+      query_params: {
+        ...params,
+        orgId: scope.orgId,
+        workspaceIds: scope.heads.map((head) => head.workspaceId),
+        // The full tree of each Workspace: the base of an overlay, else the
+        // tree of the branch itself.
+        treeBranches: scope.heads.map(
+          (head) =>
+            new TupleParam([head.workspaceId, (head.base ?? head).branch]),
+        ),
+        treeVersions: new Map(
+          scope.heads.map((head) => [
+            head.workspaceId,
+            (head.base ?? head).treeVersion,
+          ]),
+        ),
+        overlayBranches: scope.heads.flatMap((head) =>
+          head.base ? [new TupleParam([head.workspaceId, head.branch])] : [],
+        ),
+        overlayVersions: new Map(
+          scope.heads.flatMap((head) =>
+            head.base ? [[head.workspaceId, head.treeVersion] as const] : [],
+          ),
+        ),
+      },
+      format: "JSONEachRow",
+      clickhouse_settings: {
+        [ORG_SETTING]: scope.orgId,
+        date_time_output_format: "iso",
+        // tuple(x AS name, …) gives a JSON object with these names.
+        enable_named_columns_in_function_tuple: 1,
+      },
+    })
+    return await result.json<T>()
   } catch (error) {
     throw asClickHouseError(error)
   }
@@ -1504,50 +1539,6 @@ function asClickHouseError(error: unknown): unknown {
     return error
   const code = /^(?:Poco::Exception\. )?Code: (\d+)\b/.exec(error.message)?.[1]
   return code ? new ClickHouseError({ message: error.message, code }) : error
-}
-
-async function runQuery<T>(
-  client: ClickHouseClient,
-  scope: KnowledgeReadScope,
-  query: string,
-  params: Record<string, unknown>,
-): Promise<T[]> {
-  const result = await client.query({
-    query,
-    query_params: {
-      ...params,
-      orgId: scope.orgId,
-      workspaceIds: scope.heads.map((head) => head.workspaceId),
-      // The full tree of each Workspace: the base of an overlay, else the
-      // tree of the branch itself.
-      treeBranches: scope.heads.map(
-        (head) =>
-          new TupleParam([head.workspaceId, (head.base ?? head).branch]),
-      ),
-      treeVersions: new Map(
-        scope.heads.map((head) => [
-          head.workspaceId,
-          (head.base ?? head).treeVersion,
-        ]),
-      ),
-      overlayBranches: scope.heads.flatMap((head) =>
-        head.base ? [new TupleParam([head.workspaceId, head.branch])] : [],
-      ),
-      overlayVersions: new Map(
-        scope.heads.flatMap((head) =>
-          head.base ? [[head.workspaceId, head.treeVersion] as const] : [],
-        ),
-      ),
-    },
-    format: "JSONEachRow",
-    clickhouse_settings: {
-      [ORG_SETTING]: scope.orgId,
-      date_time_output_format: "iso",
-      // tuple(x AS name, …) gives a JSON object with these names.
-      enable_named_columns_in_function_tuple: 1,
-    },
-  })
-  return result.json<T>()
 }
 
 function assertReadScope(scope: KnowledgeReadScope): void {
@@ -2596,8 +2587,9 @@ const missingDocument = (
  * document can be thousands of refs, and ClickHouse refuses a query
  * parameter of more than 128 KiB (`http_max_field_value_size`). Thus the
  * refs go in parallel queries of at most 64 KiB of refs each (CTX-1688),
- * by the length of the URL-encoded text: a key with characters outside
- * ASCII has more bytes than characters.
+ * by the length of the escaped and URL-encoded text: a key with
+ * characters outside ASCII, or with quotes, has more bytes than
+ * characters.
  */
 async function readDocuments(
   client: ClickHouseClient,
@@ -2605,14 +2597,17 @@ async function readDocuments(
   refs: DocumentRef[],
 ): Promise<{ workspaceId: string; document: KnowledgeDocument }[]> {
   assertReadScope(scope)
+  // The length of a string of a query parameter in the URL: the client
+  // escapes a backslash and a quote, then the URL encodes the text.
+  const urlLength = (value: string) =>
+    new URLSearchParams({ v: value.replace(/[\\']/g, "\\$&") }).toString()
+      .length - 2
   const batches: DocumentRef[][] = []
   let size = Number.POSITIVE_INFINITY
   for (const ref of refs) {
-    // The text of the tuple, with its quotes, comma and brackets.
-    const length =
-      encodeURIComponent(ref.workspaceId).length +
-      encodeURIComponent(ref.docKey).length +
-      8
+    // The text of the tuple in the URL: each string with its escapes,
+    // then the quotes, the comma and the brackets (3 characters each).
+    const length = urlLength(ref.workspaceId) + urlLength(ref.docKey) + 24
     if (size + length > 64 * 1024) {
       batches.push([])
       size = 0
@@ -2635,8 +2630,9 @@ async function readDocuments(
       ),
     ),
   )
-  // The order of one query: ORDER BY workspaceId, docKey (bytes).
-  const byBytes = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+  // The order of one query: ORDER BY workspaceId, docKey (UTF-8 bytes).
+  const byBytes = (a: string, b: string) =>
+    Buffer.compare(Buffer.from(a), Buffer.from(b))
   return rows
     .flat()
     .sort(
