@@ -9,7 +9,11 @@ import { tryEmitIndexEvent } from "../../observability/indexingLog.js"
 import { mergeScipShardFiles } from "../graph/scipProto.js"
 import { getIndexerProcessConcurrency } from "./capacityEnv.js"
 import type { ScipIndexerId } from "./detectLanguages.js"
-import { boundIndexerCache, withIndexerRunDir } from "./indexerCache.js"
+import {
+  boundIndexerCache,
+  indexerCacheEnv,
+  withIndexerRunDir,
+} from "./indexerCache.js"
 import { withIndexerGoLimits } from "./indexerChildEnv.js"
 import { withScipIndexerSlot } from "./indexerProcessSemaphore.js"
 import { errorFromIndexerExit } from "./memoryFitError.js"
@@ -181,8 +185,7 @@ async function runIndexerSubprocess(
         cwd: input.checkoutPath,
         env: {
           ...withIndexerGoLimits(input.env),
-          TMPDIR: input.tempDir,
-          GOTMPDIR: input.tempDir,
+          ...indexerCacheEnv(INDEXER_CACHE_DIR, input.tempDir),
           ...(input.heapMb
             ? { NODE_OPTIONS: `--max-old-space-size=${input.heapMb}` }
             : {}),

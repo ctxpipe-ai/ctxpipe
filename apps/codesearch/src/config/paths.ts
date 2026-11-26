@@ -19,7 +19,6 @@ export const REPO_CACHE_DIR =
 /**
  * Caches and per-run temp directories of the SCIP indexers: sibling
  * `indexer-cache` of the repository cache, so it is on the data volume.
- * The image points the Go caches into it (Dockerfile).
  */
 export const INDEXER_CACHE_DIR = join(dirname(REPO_CACHE_DIR), "indexer-cache")
 

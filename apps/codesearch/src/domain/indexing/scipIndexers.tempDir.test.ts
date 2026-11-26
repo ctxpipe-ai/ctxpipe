@@ -48,11 +48,18 @@ async function runGo() {
   })
 }
 
-it("gives the indexer its own temp directory and removes it after success", async () => {
+it("puts the caches and its own temp directory in the indexer cache, and removes the temp directory after success", async () => {
   const seen = stubSpawn(0)
   await runGo()
   expect(seen.env?.TMPDIR?.startsWith(runsDir)).toBe(true)
   expect(seen.env?.GOTMPDIR).toBe(seen.env?.TMPDIR)
+  const cacheDir = join(root, "indexer-cache")
+  expect(seen.env).toMatchObject({
+    GOMODCACHE: join(cacheDir, "go", "pkg", "mod"),
+    GOCACHE: join(cacheDir, "go-build"),
+    npm_config_cache: join(cacheDir, "npm"),
+    XDG_CACHE_HOME: join(cacheDir, "xdg"),
+  })
   expect(seen.existed).toBe(true)
   expect(await readdir(runsDir)).toEqual([])
 })

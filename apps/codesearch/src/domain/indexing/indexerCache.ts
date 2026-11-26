@@ -31,6 +31,25 @@ async function removeTree(path: string): Promise<void> {
   }
 }
 
+/**
+ * The cache and temp variables of an indexer child: all of them in the
+ * indexer cache, so that the size bound covers them.
+ */
+export function indexerCacheEnv(
+  cacheDir: string,
+  tempDir: string,
+): Record<string, string> {
+  return {
+    GOPATH: join(cacheDir, "go"),
+    GOMODCACHE: join(cacheDir, "go", "pkg", "mod"),
+    GOCACHE: join(cacheDir, "go-build"),
+    npm_config_cache: join(cacheDir, "npm"),
+    XDG_CACHE_HOME: join(cacheDir, "xdg"),
+    TMPDIR: tempDir,
+    GOTMPDIR: tempDir,
+  }
+}
+
 /** Run `fn` with a new, empty temp directory; remove it when `fn` ends. */
 export async function withIndexerRunDir<T>(
   cacheDir: string,
