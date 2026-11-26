@@ -38,9 +38,9 @@ export const ORCHESTRATOR_DEFAULTS = {
   /**
    * The time of one retrieval, from the first read to the last judge. 0: no
    * time budget. Only the evals use 0, so that a slow step does not hide
-   * what the loop finds (the CTO, 2026-11-22). The budget is 10 s because
-   * at 3 s, 15% of the searches of an org stopped at the time limit, and the
-   * old search stack already has a p95 of 5.3 s (the CTO, 2026-11-26).
+   * what the loop finds (the CTO, 2026-11-22). The budget is 10 s (the CTO,
+   * 2026-11-26). At 3 s, 15% of the searches of one organization stopped at
+   * the time limit. The old search stack has a 95th-percentile latency of 5.3 s.
    */
   timeBudgetMs: 10_000,
   /**

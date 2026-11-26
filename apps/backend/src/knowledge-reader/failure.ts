@@ -15,7 +15,7 @@ import type { ModelMeter } from "./orchestrator.js"
  *   when the endpoint gave one.
  * - `jev`: the Jev call failed. The code is the Jev error kind, with the
  *   HTTP status when there is one (`http_503`).
- * - `timeout`: the time budget of the read ended. The 3-second budget ends
+ * - `timeout`: the time budget of the read ended. The time budget (10 s) ends
  *   before the time limit of the ClickHouse client (30 s), so a timeout of
  *   the client itself is `unknown`.
  * - `tool`: the plane refused the call. The code is the tool error code.

@@ -50,6 +50,8 @@ import {
 } from "./knowledge-reader.js"
 import { ORCHESTRATOR_DEFAULTS } from "./orchestrator.js"
 
+const productBudgetMs = ORCHESTRATOR_DEFAULTS.timeBudgetMs
+
 /*
  * The knowledge reader seam behind the org flag (ADR-069 decision 9), through
  * the MCP tools: real Postgres, FalkorDB and ClickHouse; msw for Jev and the
@@ -74,7 +76,7 @@ const jevParts: unknown[] = []
 const disagreementRequests: string[][] = []
 /** Fail every Jev call, or only the calls of the disagreement step. */
 let jevFails: false | "all" | "disagreement" = false
-/** Answer this Jev call (from 1) after the 3-second budget, or none. */
+/** Answer this Jev call (from 1) after the 3-second budget of these tests, or none. */
 let slowJevCall: number | null = null
 let jevCalls = 0
 /**
@@ -82,7 +84,7 @@ let jevCalls = 0
  * it records nothing in the counters of a later test.
  */
 let jevTest = 0
-/** Answer the embedding of the plane after the 3-second budget. */
+/** Answer the embedding of the plane after the 3-second budget of these tests. */
 let slowEmbedding = false
 /** Answer the embedding of the plane with this HTTP status, or none. */
 let embeddingFailure: number | null = null
@@ -807,6 +809,9 @@ describe("the knowledge reader seam", () => {
   }, 240_000)
 
   beforeEach(() => {
+    // A budget of 3 s, so that a slow call of 5 s ends it. The product
+    // budget is longer than 5 s.
+    ORCHESTRATOR_DEFAULTS.timeBudgetMs = 3_000
     jevTest += 1
     jevFails = false
     slowJevCall = null
@@ -828,6 +833,7 @@ describe("the knowledge reader seam", () => {
   })
 
   afterAll(async () => {
+    ORCHESTRATOR_DEFAULTS.timeBudgetMs = productBudgetMs
     await search?.close()
     await related?.close()
     if (seed) {
@@ -1738,7 +1744,7 @@ describe("the knowledge reader seam", () => {
   it("on: with no time budget (0, the evals), get_related waits for a slow Jev call and returns the full ranking", async () => {
     await setFlag("on")
     // Call 3 judges layer 2 and answers after 5 s, more than the 3 s budget
-    // of the product.
+    // of these tests.
     slowJevCall = 3
     const before = ORCHESTRATOR_DEFAULTS.timeBudgetMs
     ORCHESTRATOR_DEFAULTS.timeBudgetMs = 0
