@@ -123,7 +123,7 @@ it("fails a projection run whose worker stopped in its step again and again, log
     ])
 
     // The next hydrate or push queues a new run, with its own count: its
-    // step runs (the org has no knowledge plane, so it projects nothing).
+    // step runs (the Workspace has no row, so it projects nothing).
     const next = await ow.runWorkflow(knowledgeProjection.spec, {
       orgId,
       workspaceId,

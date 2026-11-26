@@ -58,7 +58,6 @@ import {
 } from "../../domain/workspaces/workspace-format.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
 import { listOrgConnections } from "../../models/org-connections.js"
-import { getOrgFeature } from "../../models/org-features.js"
 import {
   loadKnowledgeProjectionSource,
   reingestedRepositories,
@@ -216,8 +215,6 @@ export function defineWorkspaceHydrateWorkflow() {
       // applies the tip that the Workspace wants when it starts).
       if (queueKnowledgeProjection)
         await step.run({ name: "enqueue-knowledge-projection" }, async () => {
-          if ((await getOrgFeature(input.orgId, "knowledge_plane")) === "off")
-            return false
           await enqueueWorkflow(knowledgeProjection.spec, {
             orgId: input.orgId,
             workspaceId: input.workspaceId,

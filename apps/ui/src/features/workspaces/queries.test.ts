@@ -66,7 +66,6 @@ function ws(id: string, slug: string): Workspace {
 describe("landingWorkspace", () => {
   it("returns null when the org has none", () => {
     const list: WorkspaceListResponse = {
-      knowledgePlane: "off",
       lastUsedWorkspaceId: null,
       items: [],
     }
@@ -78,7 +77,6 @@ describe("landingWorkspace", () => {
     const b = ws("ws_b", "beta")
     expect(
       landingWorkspace({
-        knowledgePlane: "off",
         lastUsedWorkspaceId: "ws_b",
         items: [a, b],
       })?.slug,
@@ -89,7 +87,6 @@ describe("landingWorkspace", () => {
     const a = ws("ws_a", "alpha")
     expect(
       landingWorkspace({
-        knowledgePlane: "off",
         lastUsedWorkspaceId: "ws_missing",
         items: [a],
       })?.slug,
@@ -104,7 +101,6 @@ describe("forgetDeletedWorkspace", () => {
   it("drops the Workspace from the list and the cached org activity", async () => {
     const client = new QueryClient()
     const list: WorkspaceListResponse = {
-      knowledgePlane: "off",
       lastUsedWorkspaceId: null,
       items: [ws("ws_a", "alpha"), ws("ws_b", "beta")],
     }

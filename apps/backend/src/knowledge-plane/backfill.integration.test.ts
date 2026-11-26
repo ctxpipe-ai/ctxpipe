@@ -1,18 +1,9 @@
 import { eq, sql } from "drizzle-orm"
 import { initLogger } from "evlog"
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest"
+import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 import { closeDb, getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
-import { orgFeatures } from "../db/schema/org_features.js"
 import { workspaces } from "../db/schema/workspaces.js"
 import { generateObjectId } from "../lib/id.js"
 import {
@@ -25,8 +16,7 @@ import { backfillKnowledgePlane } from "./backfill.js"
 /*
  * The backfill of an org that leaves `off` (CTX-1643), with a real Postgres
  * and the real OpenWorkflow tables. No worker runs here; the test reads the
- * queued runs. The org has no `org_features` row: hosted keeps it `off`,
- * and a self-hosted install gives it `on` (CTX-1712).
+ * queued runs. Each org gets the backfill (CTX-1712: no flag).
  */
 
 const orgId = generateObjectId("org")
@@ -103,26 +93,14 @@ afterAll(async () => {
   )
   await withOrgDbContext(orgId, async (db) => {
     await db.delete(workspaces).where(eq(workspaces.orgId, orgId))
-    await db.delete(orgFeatures).where(eq(orgFeatures.organizationId, orgId))
   })
   await getSystemDb().delete(organizations).where(eq(organizations.id, orgId))
   await closeOpenWorkflowClient()
   await closeDb()
 })
 
-afterEach(() => {
-  vi.unstubAllEnvs()
-})
-
 describe("the knowledge plane backfill", () => {
-  it("on a hosted deployment, queues nothing for an org with no flag row", async () => {
-    vi.stubEnv("DEPLOYMENT_ENVIRONMENT", "production")
-    await expect(backfillKnowledgePlane(orgId)).resolves.toEqual([])
-    expect(await projectionRuns()).toEqual([])
-  })
-
-  it("on a self-hosted install, queues one run for each Workspace with a tip and no ready head, on each call, until it is ready", async () => {
-    vi.stubEnv("DEPLOYMENT_ENVIRONMENT", "")
+  it("queues one run for each Workspace with a tip and no ready head, on each call, until it is ready", async () => {
     await expect(backfillKnowledgePlane(orgId)).resolves.toEqual([fresh])
     expect(await projectionRuns()).toEqual([fresh])
     const backfill = events.find(

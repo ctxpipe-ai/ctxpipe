@@ -16,7 +16,6 @@ import { parseEnv } from "../config/env.js"
 import { readIngestSkillBundle } from "../domain/ingestion/skill-bundle.js"
 import { reingestUpgradeKey } from "../domain/upgrades/reingest.js"
 import { WORKSPACE_FORMAT_PATH } from "../domain/workspaces/workspace-format.js"
-import { getOrgFeature } from "../models/org-features.js"
 import { getWorkspaceUpgradeRow } from "../models/workspace-upgrades.js"
 import { openWorkflowNamespaceId } from "../openworkflow/namespace.js"
 import {
@@ -35,8 +34,6 @@ import { workspaces, workspaceWriteJobs } from "./schema/workspaces.js"
 const urls = vi.hoisted(() => {
   // registerV1Routes loads the conversation graph, which builds its model at import time.
   vi.stubEnv("MODEL_PROVIDER_API_KEY", "test-key")
-  // A self-hosted install: no DEPLOYMENT_ENVIRONMENT (CTX-1712).
-  vi.stubEnv("DEPLOYMENT_ENVIRONMENT", "")
   const serverUrl = process.env.DATABASE_URL ?? ""
   const suffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
   const database = `ctxpipe_upgrade_from_release_${suffix}`
@@ -457,21 +454,6 @@ it("upgrades a database of the previous release and its Workspace with no manual
   expect(migrated.first).toEqual([
     { workspace_id: workspace.id, source_repository_id: WORKSPACE_REPO },
   ])
-  // No operator step sets the knowledge plane flag: the org has no row
-  // (CTX-1712). This install sets no DEPLOYMENT_ENVIRONMENT (the stub at
-  // the top), so it is a self-hosted install, and the flag reads `on` below.
-  expect(
-    await owner(
-      async (db) =>
-        (
-          await db.query(
-            `SELECT feature FROM org_features WHERE organization_id = $1`,
-            [ORG.id],
-          )
-        ).rows,
-    ),
-  ).toEqual([])
-
   // 3. The new code on the upgraded database, as the app role.
   vi.stubEnv("SANDBOX_PROVIDER", "docker")
   const opened: Array<{ head: string; base: string; body: string }> = []
@@ -795,11 +777,10 @@ it("upgrades a database of the previous release and its Workspace with no manual
             .where(eq(workspaces.id, workspace.id)),
         )
         expect(upgraded?.formatVersion).toBe(3)
-        // The org is on the knowledge plane with no operator step (CTX-1712),
-        // and the hydrate queued the first projection of the Workspace. The
-        // old stack answered the MCP search above, because the Workspace was
-        // not ready on the plane.
-        expect(await getOrgFeature(ORG.id, "knowledge_plane")).toBe("on")
+        // The org is on the knowledge plane with no flag and no operator
+        // step (CTX-1712): the hydrate queued the first projection of the
+        // Workspace. The old stack answered the MCP search above, because the
+        // Workspace was not ready on the plane.
         const projections = await owner(
           async (db) =>
             (

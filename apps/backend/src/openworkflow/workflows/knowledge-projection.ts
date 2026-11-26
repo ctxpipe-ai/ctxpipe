@@ -2,6 +2,7 @@ import { z } from "zod"
 
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
+import { organizationExists } from "../../domain/organization-admin.js"
 import {
   resolveRepositoryReadTip,
   workspaceGitRead,
@@ -9,6 +10,7 @@ import {
 import { workspaceRootPath } from "../../domain/workspaces/root-path.js"
 import { withSandboxLockIfFree } from "../../domain/workspaces/sandbox-lock-store.js"
 import { cleanUpKnowledgePlane } from "../../knowledge-plane/cleanup.js"
+import { planeModelsReachable } from "../../knowledge-plane/model-settings.js"
 import { projectKnowledgePlane } from "../../knowledge-plane/writer.js"
 import { createKnowledgeStore } from "../../knowledge-store/knowledge-store.js"
 import {
@@ -17,7 +19,6 @@ import {
   listBranchHeads,
   readyKnowledgeHeads,
 } from "../../models/knowledge-state.js"
-import { getOrgFeature } from "../../models/org-features.js"
 import { getWorkspaceById } from "../../models/workspaces.js"
 import { enqueueWorkflow } from "../client.js"
 import { StepCrashLoopError, withCrashLoopGuard } from "../crash-loop.js"
@@ -25,8 +26,8 @@ import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { knowledgeMaintenance } from "./knowledge-maintenance.js"
 
 /**
- * The ClickHouse projection of the knowledge plane (ADR-067), for an org
- * whose flag is not `off`. The hydrate queues one run after it releases the
+ * The ClickHouse projection of the knowledge plane (ADR-067), for each org
+ * (CTX-1712). The hydrate queues one run after it releases the
  * Workspace hydrate lock. Thus a ClickHouse outage does not stop the old
  * stack, and both stacks stay current (ADR-069 decision 9).
  *
@@ -106,11 +107,14 @@ export const knowledgeProjection = defineWorkflow(
         },
         withProjectionGuard(async () => {
           lockSignal.throwIfAborted()
-          // The flag is the gate before Workspace content goes to the
-          // embedding provider and to ClickHouse. A run can wait for a long
-          // time, so it reads the flag again at each attempt.
-          if ((await getOrgFeature(input.orgId, "knowledge_plane")) === "off")
-            return null
+          // The gates before Workspace content goes to the embedding
+          // provider and to ClickHouse. A run can wait for a long time, so it
+          // checks them again at each attempt.
+          if (!(await organizationExists(input.orgId))) return null
+          // Model settings that cannot serve the plane (CTX-1712): the
+          // Workspace must not become ready, because its reads could not
+          // embed the query. The worker logs this once at start.
+          if (!planeModelsReachable()) return null
           const env = parseEnv(process.env)
           const workspace = await withOrgDbContext(input.orgId, () =>
             getWorkspaceById(input.workspaceId, input.orgId),
@@ -202,6 +206,15 @@ export const knowledgeProjection = defineWorkflow(
         `knowledge-projection:${input.workspaceId}`,
         project,
       )
+    // The lease row needs the organization row (a foreign key). A run of a
+    // deleted org ends here and writes nothing: the Workspace rows of a
+    // deleted org stay (see `knowledgePurge`).
+    if (
+      !(await step.run({ name: "find-organization" }, () =>
+        organizationExists(input.orgId),
+      ))
+    )
+      return null
     let locked = await projectIfFree()
     for (let wait = 0; locked.busy; wait++) {
       await step.sleep(`await-knowledge-lease-${wait}`, "1 minute")

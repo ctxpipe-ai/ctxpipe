@@ -3,15 +3,7 @@ import { fileURLToPath } from "node:url"
 
 import { config } from "dotenv"
 import { eq } from "drizzle-orm"
-import {
-  afterAll,
-  beforeAll,
-  describe,
-  expect,
-  it,
-  onTestFinished,
-  vi,
-} from "vitest"
+import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 import {
   closeDb,
@@ -20,9 +12,7 @@ import {
   withOrgDbContext,
 } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
-import { orgFeatures } from "../../db/schema/org_features.js"
 import { workspaces } from "../../db/schema/workspaces.js"
-import { setOrgFeature } from "../../models/org-features.js"
 import { workspaceHttpApp } from "../../test/workspace-http-fixture.js"
 import { workspaceRoutes } from "./workspaces.js"
 
@@ -58,7 +48,6 @@ describe("Default branch in the Workspace list (Postgres)", () => {
   beforeAll(async () => {
     if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required")
     initDb(process.env.DATABASE_URL)
-    // setOrgFeature needs the org row.
     await getSystemDb().insert(organizations).values({
       id: org.id,
       slug: org.slug,
@@ -70,7 +59,6 @@ describe("Default branch in the Workspace list (Postgres)", () => {
   afterAll(async () => {
     await withOrgDbContext(org.id, async (db) => {
       await db.delete(workspaces).where(eq(workspaces.orgId, org.id))
-      await db.delete(orgFeatures).where(eq(orgFeatures.organizationId, org.id))
     })
     await getSystemDb()
       .delete(organizations)
@@ -95,25 +83,5 @@ describe("Default branch in the Workspace list (Postgres)", () => {
         body.items.map((item) => [item.slug, item.defaultBranch]),
       ),
     ).toEqual({ "trunk-based": "trunk", new: null })
-  })
-
-  // The base branch picker of the composer shows only when the org's
-  // knowledge_plane flag is not off.
-  it("carries the knowledge_plane flag of the org: off by default on hosted, then the value that an operator set", async () => {
-    vi.stubEnv("DEPLOYMENT_ENVIRONMENT", "production")
-    onTestFinished(() => {
-      vi.unstubAllEnvs()
-    })
-    const app = workspaceHttpApp(org, workspaceRoutes)
-    const flag = async () =>
-      (
-        (await (await app.request("/workspaces")).json()) as {
-          knowledgePlane: string
-        }
-      ).knowledgePlane
-
-    expect(await flag()).toBe("off")
-    await setOrgFeature(org.id, "knowledge_plane", "shadow")
-    expect(await flag()).toBe("shadow")
   })
 })

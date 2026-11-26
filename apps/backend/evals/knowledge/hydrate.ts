@@ -9,7 +9,6 @@ import { withOrgIdContext } from "../../src/auth/withAuth.js"
 import { parseEnv } from "../../src/config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../src/db/client.js"
 import { organizations } from "../../src/db/schema/auth.js"
-import { orgFeatures } from "../../src/db/schema/org_features.js"
 import { workspaces } from "../../src/db/schema/workspaces.js"
 import { resolveWorkspaceReadRevision } from "../../src/domain/workspaces/resolve-revision.js"
 import {
@@ -36,8 +35,7 @@ import type { Targets } from "./runner.js"
  * for each image) of the two writers.
  *
  * Each corpus gets one Workspace in the eval org, at the frozen SHA and the
- * root of the corpus, with the org flag `knowledge_plane` at `shadow`. A
- * second hydrate of the same SHA finds both stacks current.
+ * root of the corpus. A second hydrate of the same SHA finds both stacks current.
  */
 
 /** An org of the evals. Its ids are made up: the run folder holds them. */
@@ -80,19 +78,6 @@ export async function hydrateCorpora(input: {
     .insert(organizations)
     .values({ ...org, createdAt: new Date() })
     .onConflictDoNothing()
-  await withOrgDbContext(org.id, (db) =>
-    db
-      .insert(orgFeatures)
-      .values({
-        organizationId: org.id,
-        feature: "knowledge_plane",
-        value: "shadow",
-      })
-      .onConflictDoUpdate({
-        target: [orgFeatures.organizationId, orgFeatures.feature],
-        set: { value: "shadow", updatedAt: new Date() },
-      }),
-  )
   const backend = await connectOpenWorkflowBackend(input.databaseUrl)
   const runner = new OpenWorkflow({ backend })
   runner.implementWorkflow(workspaceHydrate.spec, workspaceHydrate.fn)

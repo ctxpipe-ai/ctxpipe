@@ -13,7 +13,6 @@ import { afterAll, beforeAll, beforeEach, expect, it, vi } from "vitest"
 
 import { closeDb, getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
-import { orgFeatures } from "../db/schema/org_features.js"
 import { workspaces } from "../db/schema/workspaces.js"
 import {
   createKnowledgeStore,
@@ -83,13 +82,6 @@ beforeAll(async () => {
       name: "Knowledge faults",
       createdAt: new Date(),
     })
-  await withOrgDbContext(orgId, (db) =>
-    db.insert(orgFeatures).values({
-      organizationId: orgId,
-      feature: "knowledge_plane",
-      value: "shadow",
-    }),
-  )
   msw.listen({ onUnhandledRequest: "bypass" })
   clickhouse = await startClickHouse()
   const adminUrl = await clickhouse.freshDatabase()
@@ -118,7 +110,9 @@ afterAll(async () => {
 
 beforeEach(() => {
   vi.stubEnv("MODEL_PROVIDER_API_KEY", "test-key")
-  vi.stubEnv("MODEL_PROVIDER", "openai-like")
+  // The plane needs settings that send its calls to OpenRouter
+  // (planeModelsReachable): the gateway at MODEL_URL stands for it.
+  vi.stubEnv("MODEL_PROVIDER", "openrouter")
   vi.stubEnv("MODEL_PROVIDER_URL", MODEL_URL)
   return () => vi.unstubAllEnvs()
 })

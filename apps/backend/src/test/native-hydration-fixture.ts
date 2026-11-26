@@ -24,7 +24,6 @@ import { parseEnv } from "../config/env.js"
 import { closeDb, getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
 import { connectionDirectory, connections } from "../db/schema/connections.js"
-import { orgFeatures } from "../db/schema/org_features.js"
 import { repositories } from "../db/schema/repositories.js"
 import { orgFirstWorkspaces, workspaces } from "../db/schema/workspaces.js"
 import { resolveWorkspaceReadRevision } from "../domain/workspaces/resolve-revision.js"
@@ -123,10 +122,11 @@ export type NativeHydrationOptions = {
   confluenceResponses?: Record<string, { status?: number; body: unknown }>
   embeddings?: "ready" | "failed" | "empty"
   /**
-   * Run the knowledge plane of ADR-067 too: the org flag `knowledge_plane`
-   * is `shadow`, and the worker writes to this ClickHouse URL. The fixture
-   * worker then uses the namespace of the file, where the hydrate queues the
-   * knowledge projection.
+   * Run the knowledge plane of ADR-067 too: the worker writes to this
+   * ClickHouse URL. The fixture worker then uses the namespace of the file,
+   * where the hydrate queues the knowledge projection. Without it, the
+   * hydrate still queues the projection, and no worker of the fixture runs
+   * it.
    */
   knowledgePlane?: { clickhouseUrl: string }
   missingTip?: boolean
@@ -192,7 +192,9 @@ async function createNativeHydrationFixture(
     ...(options.semanticMergeResolution
       ? { SANDBOX_PROVIDER: "unsandboxed" }
       : {}),
-    MODEL_PROVIDER: "openai-like",
+    // The knowledge plane needs settings that send its calls to OpenRouter
+    // (planeModelsReachable). Here the gateway at the fixture URL is it.
+    MODEL_PROVIDER: options.knowledgePlane ? "openrouter" : "openai-like",
     MODEL_PROVIDER_API_KEY: "fixture-only",
     MODEL_PROVIDER_URL: "https://hydrate-model.test/v1",
     ...(options.knowledgePlane
@@ -884,14 +886,6 @@ async function createNativeHydrationFixture(
       await getSystemDb()
         .insert(organizations)
         .values({ ...org, createdAt: new Date() })
-    if (options.knowledgePlane)
-      await withOrgDbContext(org.id, (db) =>
-        db.insert(orgFeatures).values({
-          organizationId: org.id,
-          feature: "knowledge_plane",
-          value: "shadow",
-        }),
-      )
     if (github && !adopt) {
       await withOrgDbContext(org.id, (db) =>
         db.insert(connections).values({

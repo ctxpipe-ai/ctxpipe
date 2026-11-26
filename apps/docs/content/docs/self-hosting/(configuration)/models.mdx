@@ -38,8 +38,9 @@ store only. These calls use `MODEL_PROVIDER_URL` and
 `openrouter`, or `openai-like` with a `MODEL_PROVIDER_URL` on `openrouter.ai`
 (the default), and a key.
 
-With `azure`, `bedrock`, or an `openai-like` URL of another API, the worker
-logs the error
+With `azure`, `bedrock`, an `openai-like` URL of another API, or no key, the
+worker does not index a Workspace in the new knowledge store, and it logs the
+error
 `knowledge_plane.model_settings` at start. No Workspace becomes ready in the
 new knowledge store, and the old knowledge store answers.
 

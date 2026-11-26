@@ -12,7 +12,6 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../../test/db.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { knowledgeBranchHeads } from "../../db/schema/knowledge_state.js"
-import { orgFeatures } from "../../db/schema/org_features.js"
 import {
   workspaceKnowledgeUnits,
   workspaces,
@@ -38,8 +37,7 @@ import { listFilesTool } from "./list-files.js"
 import { readFileTool } from "./read-file.js"
 
 /*
- * `read_file` and `list_files` behind the `knowledge_plane` flag (CTX-1409):
- * on the plane they read the Workspace Git at the SHA that the plane serves.
+ * `read_file` and `list_files` (CTX-1409): on the plane they read the Workspace Git at the SHA that the plane serves.
  * Real Postgres, FalkorDB, ClickHouse and a real Git repository.
  */
 
@@ -101,21 +99,6 @@ async function commit(files: Record<string, string>): Promise<string> {
   await git("add", "-A")
   await git("commit", "-q", "-m", "fixture")
   return git("rev-parse", "HEAD")
-}
-
-/** Set the org flag, and move the clock past the 30-second flag cache. */
-async function setFlag(value: "off" | "shadow" | "on") {
-  await withOrgDbContext(seed.orgId, (db) =>
-    db
-      .insert(orgFeatures)
-      .values({ organizationId: seed.orgId, feature: "knowledge_plane", value })
-      .onConflictDoUpdate({
-        target: [orgFeatures.organizationId, orgFeatures.feature],
-        set: { value },
-      }),
-  )
-  clock += 31_000
-  vi.setSystemTime(clock)
 }
 
 async function setReady(ready: boolean) {
@@ -309,35 +292,26 @@ describe("read_file and list_files on the knowledge plane", () => {
     vi.unstubAllEnvs()
   })
 
-  it.each([
-    ["off", true],
-    ["shadow", true],
-    ["on", false],
-  ] as const)(
-    "flag %s, ready %s: the old stack answers",
-    async (flag, ready) => {
-      await setFlag(flag)
-      await setReady(ready)
-      const read = await readFile({ ref: CHECKOUT })
-      expect(read.isError).toBeFalsy()
-      expect(structured(read)).toMatchObject({
-        served: { branch: "main", sha: legacySha },
-        content: "# Checkout service\n\nThe legacy body.",
-      })
-      const list = await listFiles({ path: "knowledge", depth: 1 })
-      expect(structured(list)).toMatchObject({
-        served: { sha: legacySha },
-        entries: [
-          { path: "knowledge/services", type: "dir", units: 1 },
-          { path: "knowledge/teams", type: "dir", units: 1 },
-        ],
-      })
-    },
-  )
+  it("a Workspace that is not ready: the old stack answers", async () => {
+    await setReady(false)
+    const read = await readFile({ ref: CHECKOUT })
+    expect(read.isError).toBeFalsy()
+    expect(structured(read)).toMatchObject({
+      served: { branch: "main", sha: legacySha },
+      content: "# Checkout service\n\nThe legacy body.",
+    })
+    const list = await listFiles({ path: "knowledge", depth: 1 })
+    expect(structured(list)).toMatchObject({
+      served: { sha: legacySha },
+      entries: [
+        { path: "knowledge/services", type: "dir", units: 1 },
+        { path: "knowledge/teams", type: "dir", units: 1 },
+      ],
+    })
+  })
 
-  describe("flag on, Workspace ready", () => {
+  describe("a ready Workspace", () => {
     beforeAll(async () => {
-      await setFlag("on")
       await setReady(true)
     })
 
@@ -551,7 +525,7 @@ describe("read_file and list_files on the knowledge plane", () => {
         read: structured(await readFile({ ref: CHECKOUT })),
         list: structured(await listFiles({ path: "knowledge", depth: 3 })),
       }
-      await setFlag("off")
+      await setReady(false)
       try {
         const legacy = {
           read: structured(await readFile({ ref: CHECKOUT })),
@@ -559,7 +533,7 @@ describe("read_file and list_files on the knowledge plane", () => {
         }
         expect(shapeOf(plane)).toEqual(shapeOf(legacy))
       } finally {
-        await setFlag("on")
+        await setReady(true)
       }
     })
   })

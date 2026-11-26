@@ -66,7 +66,7 @@ A probe in a task container (the `oracle` agent, with the network setup of a CTX
 
 ### The CTX arm reads only the knowledge plane (decision D5)
 
-Decision D5 of the plan allows only the knowledge plane (ClickHouse and Jev, the org flag `knowledge_plane` at `on`) in the CTX arm. A run that touches FalkorDB is not valid. The code gives this result for the seven MCP tools when the flag is `on`:
+Decision D5 of the plan allows only the knowledge plane (ClickHouse and Jev) in the CTX arm. A run that touches FalkorDB is not valid. The code gives this result for the seven MCP tools when each Workspace is ready on the plane (there is no flag since CTX-1712):
 
 | Tool | Can it reach FalkorDB? | The path |
 | --- | --- | --- |
@@ -89,7 +89,7 @@ Thus the CTX arm disallows `mcp__ctxpipe__get_related` (Claude Code `--disallowe
 The CTX arm needs a backend with the frozen corpus on the plane. Do these steps one time. All the paths that Docker mounts (the run folder, the corpus, the collector output) must be in a folder that the Docker VM shares. Colima shares only your home folder.
 
 1. Get the stores of the corpus. `../knowledge` `hydrate` writes the frozen context repo into Postgres, FalkorDB and ClickHouse (see `../knowledge/README.md`). The context repo is private, so a hydrate serves it from a local Git server. To reuse an earlier hydrate, copy its Postgres database (`CREATE DATABASE … TEMPLATE …`), migrate the copy, and copy the plane rows of the Workspace into a ClickHouse of your own (`SELECT … FORMAT Native` into `INSERT … FORMAT Native`, with the setting `SQL_ctxpipe_org_id`).
-2. In the copy, keep only the Workspace of the corpus, and set the flag `knowledge_plane` of the org to `on`. Serve the context repo with `src/test/git-http-server.ts`, and point the remote URL of the Workspace revision at it.
+2. In the copy, keep only the Workspace of the corpus. Serve the context repo with `src/test/git-http-server.ts`, and point the remote URL of the Workspace revision at it.
 3. Start an empty FalkorDB for the backend (`GRAPH_DB_URI`), and an OpenTelemetry collector that writes OTLP JSON lines to a file (the `file` exporter). Set `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` of the backend to it.
 4. Start the backend on port 3660 (`mcp-proxy.yaml` forwards to that port), and set `AUTH_BASE_URL` of the backend to `http://host.docker.internal:3660`. With a loopback base URL, `/mcp` refuses each request from the proxy (the DNS rebinding check of `rejectInvalidMcpOrigin`).
 5. Start the backend alone, with no worker: `bun --env-file=BENCH.env src/server.ts` from `apps/backend`. Do not use `pnpm dev`.

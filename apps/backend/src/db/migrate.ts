@@ -41,10 +41,10 @@ try {
       step: "migrate",
       message: "[migrate] CLICKHOUSE_URL is not set: no ClickHouse migrations",
     })
-  // Each deploy queues the knowledge plane backfill of each org whose flag
-  // is not `off` (CTX-1643). Thus a self-host needs no operator step. A
-  // failed backfill does not fail the deploy: it logs, and the next deploy
-  // or hydrate queues the run again.
+  // Each deploy queues the knowledge plane backfill of each org (CTX-1643,
+  // CTX-1712). Thus a self-host needs no operator step. A failed backfill
+  // does not fail the deploy: it logs, and the next deploy or hydrate queues
+  // the run again.
   await backfillAfterMigrate(connectionString)
   log.info({ step: "migrate", message: "[migrate] done" })
 } catch (error) {

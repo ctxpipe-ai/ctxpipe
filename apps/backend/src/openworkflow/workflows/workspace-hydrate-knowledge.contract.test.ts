@@ -4,10 +4,9 @@ import { join } from "node:path"
 
 import { eq, sql } from "drizzle-orm"
 import { http, passthrough } from "msw"
-import { afterAll, beforeAll, expect, it, onTestFinished, vi } from "vitest"
+import { afterAll, beforeAll, expect, it, vi } from "vitest"
 
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
-import { orgFeatures } from "../../db/schema/org_features.js"
 import {
   workspaceKnowledgeChunks,
   workspaceKnowledgeUnits,
@@ -31,8 +30,7 @@ import { workspaceHydrate } from "./workspace-hydrate.js"
 
 /*
  * The hydrate workflow queues the projection writer of the knowledge plane
- * after the old projections, only for an org whose flag is not `off`
- * (ADR-069 decision 9). The writer runs as its own workflow, outside the
+ * after the old projections, for each org (ADR-069 decision 9, CTX-1712). The writer runs as its own workflow, outside the
  * Workspace hydrate lock (ADR-067 decision 3).
  */
 
@@ -123,7 +121,7 @@ async function closedPortUrl(): Promise<string> {
 }
 
 it(
-  "with the flag `shadow`, the hydrate queues the knowledge projection, which writes the knowledge plane and queues the maintenance job",
+  "the hydrate queues the knowledge projection, which writes the knowledge plane and queues the maintenance job",
   { timeout: 120_000 },
   async () =>
     withNativeHydrationFixture(
@@ -286,35 +284,10 @@ it(
 )
 
 it(
-  "on a hosted deployment with no flag (`off`), the hydrate writes only the old stack",
+  "with no flag or setting (CTX-1712), the hydrate queues the knowledge projection",
   { timeout: 120_000 },
   async () =>
     withNativeHydrationFixture({ files }, async (f) => {
-      vi.stubEnv("DEPLOYMENT_ENVIRONMENT", "production")
-      onTestFinished(() => {
-        vi.unstubAllEnvs()
-      })
-      await f.publish()
-      expect(
-        await getKnowledgeState({
-          orgId: f.org.id,
-          workspaceId: f.workspaceId,
-        }),
-      ).toBeNull()
-      expect(await runsOf("knowledge-projection", f.workspaceId)).toEqual([])
-      expect(await runsOf("knowledge-maintenance", f.workspaceId)).toEqual([])
-    }),
-)
-
-it(
-  "on a self-hosted install with no flag (`on`, CTX-1712), the hydrate queues the knowledge projection",
-  { timeout: 120_000 },
-  async () =>
-    withNativeHydrationFixture({ files }, async (f) => {
-      vi.stubEnv("DEPLOYMENT_ENVIRONMENT", "")
-      onTestFinished(() => {
-        vi.unstubAllEnvs()
-      })
       await f.publish()
       // No worker of this fixture runs the projection: the run waits.
       expect(await runsOf("knowledge-projection", f.workspaceId)).toEqual([
@@ -330,39 +303,27 @@ it(
 )
 
 it(
-  "a queued knowledge projection of an org whose flag is now `off` writes nothing",
+  "with model settings that cannot serve the plane (an openai-like URL that is not OpenRouter), the projection writes nothing and the Workspace does not become ready",
   { timeout: 120_000 },
   async () =>
     withNativeHydrationFixture(
       { files, knowledgePlane: { clickhouseUrl: writerUrl } },
       async (f) => {
+        // The fixture puts back its own value at the end.
+        process.env.MODEL_PROVIDER = "openai-like"
         await f.publish()
-        await waitForKnowledgeState(f, { lastSha: f.sha })
-        f.git("checkout", "--", ".")
-        writeFileSync(join(f.directory, "d.md"), "# Delta\n")
-        f.git("add", "-A")
-        f.git("commit", "-q", "-m", "Add d")
-        f.git("push", "-q", f.remote, "HEAD:refs/heads/main")
-        await f.resolveRevision(true)
-        await withOrgDbContext(f.org.id, (db) =>
-          db
-            .update(orgFeatures)
-            .set({ value: "off" })
-            .where(eq(orgFeatures.organizationId, f.org.id)),
+        await vi.waitFor(
+          async () => {
+            const runs = await runsOf("knowledge-projection", f.workspaceId)
+            expect(runs.length).toBeGreaterThan(0)
+            expect(runs.every((run) => run.status === "completed")).toBe(true)
+          },
+          { timeout: 60_000, interval: 500 },
         )
-        const handle = await f.runner.runWorkflow(knowledgeProjection.spec, {
-          orgId: f.org.id,
-          workspaceId: f.workspaceId,
-        })
-        expect(await handle.result({ timeoutMs: 60_000 })).toBeNull()
-        expect(
-          await getKnowledgeState({
-            orgId: f.org.id,
-            workspaceId: f.workspaceId,
-          }),
-        ).toMatchObject({ lastSha: f.sha, runStatus: "completed" })
-        expect(await storedDocuments(f)).not.toHaveProperty(
-          servingIdForKnowledgePath(f.workspaceId, "d.md"),
+        const key = { orgId: f.org.id, workspaceId: f.workspaceId }
+        expect(await getKnowledgeState(key)).toBeNull()
+        expect(await readyKnowledgeHeads(f.org.id, [f.workspaceId])).toEqual(
+          new Map(),
         )
       },
     ),

@@ -9,7 +9,7 @@ import {
   removeMember,
   setMemberRole,
 } from "../../domain/organization-admin.js"
-import { setOrgFeature } from "../../models/org-features.js"
+import { isKnownOrgFeature, setOrgFeature } from "../../models/org-features.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 
 /*
@@ -175,15 +175,19 @@ export const adminDeleteOrganization = defineAdminWorkflow(
 )
 
 /**
- * The fast path to `off` of ADR-069 decision 9 (CTX-1646). The value holds
- * against the hosted config until the config names `off` too. The job sets
- * only `off`: a value that enables a feature goes through the reviewed config.
+ * The fast path to `off` of an org feature (ADR-069 decision 9, CTX-1646).
+ * The value holds against the hosted config until the config names `off`
+ * too. The job sets only `off`: a value that enables a feature goes through
+ * the reviewed config. The input refuses a feature that is not known: no
+ * feature is known now (CTX-1712).
  */
 export const adminSetOrgFeature = defineAdminWorkflow(
   "admin.set-org-feature",
   {
     organizationId: id,
-    feature: z.literal("knowledge_plane"),
+    feature: z.string().refine(isKnownOrgFeature, {
+      message: "is not a known feature",
+    }),
     value: z.literal("off"),
   },
   async ({ organizationId, feature, value }, run, request) => {
