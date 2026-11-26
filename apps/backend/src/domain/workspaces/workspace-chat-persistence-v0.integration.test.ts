@@ -1,10 +1,11 @@
+import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 
 import { chat, modelMessagesToUIMessages, type Tool } from "@tanstack/ai"
 import { reconstructChat, withPersistence } from "@tanstack/ai-persistence"
 import { fakeText } from "@tanstack/ai/testing"
 import { config } from "dotenv"
-import { eq } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 import { withOrgIdContext } from "../../auth/withAuth.js"
@@ -45,6 +46,16 @@ const pausedThread = `conv_${runKey}_paused`
 const pausedRun = `run_${runKey}_paused`
 const approvalId = `approval_${runKey}`
 const toolCallId = `call_${runKey}`
+const unboundId = `unbound_${runKey}`
+
+/** The migration that cancels the pending interrupts 1.x cannot resume. */
+const cancelUnbound = readFileSync(
+  resolve(
+    import.meta.dirname,
+    "../../../migrations/20261126233844_cancel_unbound_chat_interrupts/migration.sql",
+  ),
+  "utf8",
+)
 
 /**
  * A finished 0.63.0 turn: reasoning, a tool call, its result, an answer. The
@@ -183,14 +194,12 @@ beforeAll(async () => {
       "DATABASE_URL is required; run pnpm --filter @ctxpipe/backend test against a migrated Postgres",
     )
   initDb(databaseUrl)
-  await getSystemDb()
-    .insert(organizations)
-    .values({
-      id: org.id,
-      name: org.name,
-      slug: org.slug,
-      createdAt: new Date(),
-    })
+  await getSystemDb().insert(organizations).values({
+    id: org.id,
+    name: org.name,
+    slug: org.slug,
+    createdAt: new Date(),
+  })
   await withOrgDbContext(org.id, async (db) => {
     await db.insert(workspaces).values({
       id: workspaceId,
@@ -263,9 +272,17 @@ describe("a chat that TanStack AI 0.63.0 stored", () => {
     const loaded = await asOrg(() =>
       workspaceChatPersistence().stores.messages.loadThread(doneThread),
     )
-    expect(loaded).toEqual(doneTranscript)
+    // The store revives `createdAt` as a Date; the rest is the stored JSON.
+    expect(loaded[1]?.createdAt).toBeInstanceOf(Date)
+    expect(JSON.parse(JSON.stringify(loaded))).toEqual(doneTranscript)
+    // 0.63.0 gave the same messages and parts for these rows: an answer
+    // with its own id stays its own UI message.
     const ui = modelMessagesToUIMessages(loaded)
-    expect(ui.map((message) => message.role)).toEqual(["user", "assistant"])
+    expect(ui.map((message) => message.role)).toEqual([
+      "user",
+      "assistant",
+      "assistant",
+    ])
     expect(ui[1]?.parts).toEqual([
       expect.objectContaining({
         type: "thinking",
@@ -275,13 +292,15 @@ describe("a chat that TanStack AI 0.63.0 stored", () => {
         type: "tool-call",
         id: "call-read",
         name: "read_file",
-        input: { path: "README.md" },
+        state: "complete",
       }),
       expect.objectContaining({
         type: "tool-result",
         toolCallId: "call-read",
         content: '{"content":"# Title"}',
       }),
+    ])
+    expect(ui[2]?.parts).toEqual([
       expect.objectContaining({
         type: "text",
         content: "The README has one heading.",
@@ -354,5 +373,48 @@ describe("a chat that TanStack AI 0.63.0 stored", () => {
         { role: "assistant", content: "Published." },
       ])
     })
+  })
+
+  it("cancels only the pending interrupts that have no binding, once", async () => {
+    // An approval as a 0.x release before the binding wrote it.
+    const { "tanstack:interruptBinding": _binding, ...unboundMetadata } =
+      approvalPayload.metadata
+    await withOrgDbContext(org.id, async (db) => {
+      await db.insert(chatInterrupts).values({
+        interruptId: unboundId,
+        runId: pausedRun,
+        threadId: pausedThread,
+        orgId: org.id,
+        status: "pending",
+        requestedAt: 1795736482292,
+        payloadJson: {
+          ...approvalPayload,
+          id: unboundId,
+          metadata: unboundMetadata,
+        },
+      })
+    })
+    const statuses = () =>
+      withOrgDbContext(org.id, async (db) =>
+        Object.fromEntries(
+          (
+            await db
+              .select({
+                id: chatInterrupts.interruptId,
+                status: chatInterrupts.status,
+              })
+              .from(chatInterrupts)
+              .where(eq(chatInterrupts.threadId, pausedThread))
+          ).map((row) => [row.id, row.status]),
+        ),
+      )
+    const before = await statuses()
+    // The test role sees only this organization's rows, so the run changes
+    // no other test's rows.
+    await withOrgDbContext(org.id, (db) => db.execute(sql.raw(cancelUnbound)))
+    const after = await statuses()
+    expect(after).toEqual({ ...before, [unboundId]: "cancelled" })
+    await withOrgDbContext(org.id, (db) => db.execute(sql.raw(cancelUnbound)))
+    expect(await statuses()).toEqual(after)
   })
 })

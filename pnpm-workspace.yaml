@@ -67,6 +67,11 @@ patchedDependencies:
   # Upstream in 1.0, so no longer patched: assistant-only parts and the "pending" tool part (CTX-576), and the 1 s
   # teardown step (ticket 15, https://github.com/TanStack/ai/issues/1638, fixed in https://github.com/TanStack/ai/pull/1773).
   '@tanstack/ai-opencode@1.0.1': patches/@tanstack__ai-opencode@1.0.1.patch
+  # @tanstack/ai 1.x imports fast-json-patch. Its package ships index.ts beside index.js, without the src/ that
+  # index.ts imports, and tsx loads index.ts: every tsx run that reaches @tanstack/ai (src/db/migrate.ts in CI and
+  # db:migrate, the tests that spawn `--import tsx`) fails with "Cannot find module './src/core'". The patch
+  # deletes index.ts. Node and Bun load index.js and are not affected. Drop it when tsx or fast-json-patch fixes this.
+  'fast-json-patch@3.1.1': patches/fast-json-patch@3.1.1.patch
   # The checks run OpenCode from the root devDependency, and pnpm runs no
   # dependency build script. The launcher runs the binary of the platform
   # package that the lockfile installed, so the postinstall is not needed.
