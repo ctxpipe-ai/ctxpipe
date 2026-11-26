@@ -79,6 +79,7 @@ type Guards = Pick<
   | "relatedP95Ms"
   | "jevCallsPerQuestion"
   | "jevQuestionsPerQuestion"
+  | "hedged"
   | "errors"
 > & { costPerQuestionUsd: number }
 
@@ -168,6 +169,8 @@ export const keptRunSchema = z.object({
       relatedMs: z.number().nullable(),
       jevCalls: z.number(),
       jevQuestions: z.number(),
+      /** A kept report from before this count has none (0). */
+      hedged: z.number().default(0),
       costUsd: z.number(),
       error: z.string().optional(),
     }),
@@ -364,6 +367,7 @@ function compareWithKept(input: {
       jevCallsPerQuestion: row.jevCallsPerQuestion,
       jevQuestionsPerQuestion: row.jevQuestionsPerQuestion,
       costPerQuestionUsd: row.questions ? row.costUsd / row.questions : 0,
+      hedged: row.hedged,
       errors: row.errors,
     }
   }
@@ -512,11 +516,11 @@ export function renderMarkdown(report: Report): string {
       : []),
     `Time budget of the run: ${report.run.loop.timeBudgetMs ? ms(report.run.loop.timeBudgetMs) : "none"}.${report.run.productBudgetMs ? ` Over the product budget: the answers with a call that took longer than ${ms(report.run.productBudgetMs)}.` : ""}`,
     "",
-    "| Arm | Split | Questions | Search p50 | Search p95 | get_related p50 | get_related p95 | Jev calls / question | Jev questions / question | Embedding calls / question | Cost | Errors | Partial | Over the product budget |",
-    "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+    "| Arm | Split | Questions | Search p50 | Search p95 | get_related p50 | get_related p95 | Jev calls / question | Jev questions / question | Embedding calls / question | Hedged Jev calls | Cost | Errors | Partial | Over the product budget |",
+    "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ...report.operations.map(
       (row) =>
-        `| ${row.arm} | ${row.split} | ${row.questions} | ${ms(row.searchP50Ms)} | ${ms(row.searchP95Ms)} | ${ms(row.relatedP50Ms)} | ${ms(row.relatedP95Ms)} | ${row.jevCallsPerQuestion.toFixed(1)} | ${row.jevQuestionsPerQuestion.toFixed(1)} | ${row.embeddingCallsPerQuestion.toFixed(1)} | ${usd(row.costUsd)} | ${row.errors} | ${row.partial} | ${row.overProductBudget ?? "n/a"} |`,
+        `| ${row.arm} | ${row.split} | ${row.questions} | ${ms(row.searchP50Ms)} | ${ms(row.searchP95Ms)} | ${ms(row.relatedP50Ms)} | ${ms(row.relatedP95Ms)} | ${row.jevCallsPerQuestion.toFixed(1)} | ${row.jevQuestionsPerQuestion.toFixed(1)} | ${row.embeddingCallsPerQuestion.toFixed(1)} | ${row.hedged} | ${usd(row.costUsd)} | ${row.errors} | ${row.partial} | ${row.overProductBudget ?? "n/a"} |`,
     ),
     "",
     `Model cost: ${usd(report.costUsd)}${MODE_NOTES[report.run.mode].cost}.`,
@@ -553,7 +557,7 @@ export function renderMarkdown(report: Report): string {
       }
     lines.push(
       "",
-      "Guards (a higher value is worse; a replay gives no latency):",
+      "Guards (a higher value is worse; a replay gives no latency). A hedged Jev call is a provider stall, not an effect of the change: it adds latency and cost.",
       "",
       "| Split | Questions | Guard | Kept | Now | Change |",
       "| --- | ---: | --- | ---: | ---: | ---: |",
@@ -589,6 +593,7 @@ export function renderMarkdown(report: Report): string {
           now.costPerQuestionUsd,
           (n) => `$${n.toFixed(6)}`,
         ),
+        number("hedged Jev calls", kept.hedged, now.hedged, String),
         number("errors", kept.errors, now.errors, String),
       )
     }

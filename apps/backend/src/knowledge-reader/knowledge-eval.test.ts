@@ -255,6 +255,7 @@ describe('the retrieval metrics of a "no answer"', () => {
         missing: 0,
         failed: 0,
         unrecorded: 0,
+        hedged: 0,
       },
     })
     const report = buildReport({
@@ -450,7 +451,60 @@ describe("the spend cap", () => {
         missing: 0,
         failed: 0,
         unrecorded: 0,
+        hedged: 0,
       })
+    } finally {
+      restore()
+    }
+  })
+})
+
+describe("a hedged Jev call", () => {
+  const BASE = "https://openrouter.ai/api/v1"
+  const JEV = "https://openrouter.ai/api/alpha/decisions"
+  let sent = 0
+  useMswServer(
+    // The first copy is slow (a provider stall), so the client sends a
+    // second copy after 700 ms. The second copy answers at once.
+    http.post(JEV, async () => {
+      sent += 1
+      if (sent === 1) await delay(5_000)
+      return HttpResponse.json({
+        answers: { sky: { type: "noul", noul: 0.9 } },
+        usage: { cost: 0.0004 },
+      })
+    }),
+  )
+  afterEach(() => vi.unstubAllEnvs())
+
+  it("books the stopped copy at the cost of the copy that answered, and counts the hedge", async () => {
+    vi.stubEnv("MODEL_PROVIDER", "openrouter")
+    vi.stubEnv("MODEL_PROVIDER_URL", BASE)
+    vi.stubEnv("MODEL_PROVIDER_API_KEY", "test-key")
+    vi.stubEnv("MODEL_PROVIDER_ALLOWLIST", "openai,azure")
+    sent = 0
+    const calls = new ModelCalls(BASE, 1)
+    const restore = calls.install()
+    try {
+      calls.begin("plane", "question")
+      const answers = await decideNoul(
+        ["The sky is blue."],
+        { sky: { type: "noul", instructions: "Is the sky blue?" } },
+        { timeoutMs: 5_000, attributes: {} },
+      )
+      expect(answers.get("sky")).toBe(0.9)
+      await calls.settle()
+      expect(sent).toBe(2)
+      // The winner and the stopped copy, each at $0.0004: not the $0.002
+      // reservation of a Jev call.
+      expect(calls.end()).toMatchObject({
+        jev: 1,
+        hedged: 1,
+        failed: 0,
+        costUsd: 0.0008,
+      })
+      expect(calls.spentUsd).toBeCloseTo(0.0008)
+      expect(calls.records).toHaveLength(1)
     } finally {
       restore()
     }
@@ -795,7 +849,7 @@ describe("a run with a failed call", () => {
       search: failed
         ? { error: "Error", latencyMs: 10 }
         : { refs: [], scores: [], latencyMs: 10 },
-      calls: { ...calls, missing, failed: 0, unrecorded: 0 },
+      calls: { ...calls, missing, failed: 0, unrecorded: 0, hedged: 0 },
     })
     const report = buildReport({
       manifest: {
@@ -817,7 +871,7 @@ describe("a run with a failed call", () => {
         // a failed Jev call gives `judge_unavailable`: both are errors.
         {
           ...answer("legacy", third.id, false),
-          calls: { ...calls, missing: 0, failed: 1, unrecorded: 0 },
+          calls: { ...calls, missing: 0, failed: 1, unrecorded: 0, hedged: 0 },
         },
         {
           ...answer("plane", third.id, false),
@@ -866,7 +920,7 @@ describe("the product time budget", () => {
       question,
       search: { refs: [], scores: [], latencyMs: 900 },
       related: { refs: [], scores: [], latencyMs: relatedMs },
-      calls: { ...calls, missing: 0, failed: 0, unrecorded: 0 },
+      calls: { ...calls, missing: 0, failed: 0, unrecorded: 0, hedged: 0 },
     })
     const input = {
       manifest: {
@@ -941,13 +995,13 @@ describe("the comparison with the kept run", () => {
           arm: "legacy",
           question: id,
           search: { refs: [], scores: [], latencyMs: 10 },
-          calls: { ...calls, missing: 0, failed: 0, unrecorded: 0 },
+          calls: { ...calls, missing: 0, failed: 0, unrecorded: 0, hedged: 0 },
         },
         {
           arm: "plane",
           question: id,
           search: { error: "internal", latencyMs: 10 },
-          calls: { ...calls, missing: 0, failed: 0, unrecorded: 0 },
+          calls: { ...calls, missing: 0, failed: 0, unrecorded: 0, hedged: 0 },
         },
       ],
       kept: {
@@ -968,6 +1022,7 @@ describe("the comparison with the kept run", () => {
             relatedMs: null,
             jevCalls: 1,
             jevQuestions: 2,
+            hedged: 0,
             costUsd: 0.001,
           },
         ],

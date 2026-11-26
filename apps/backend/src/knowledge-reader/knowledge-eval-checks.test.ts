@@ -108,6 +108,7 @@ const answer = (
       missing: 0,
       failed: 0,
       unrecorded: 0,
+      hedged: 0,
     },
   }
 }
