@@ -7,6 +7,7 @@ import {
 import { planUnlinkRetraction } from "../../domain/ingestion/unlink-retraction.js"
 import { checkSourcePath } from "../../domain/workspace-sources/source-file.js"
 import { readSourcesTree } from "../../domain/workspace-sources/source-tree.js"
+import { githubMirrorPathsOf } from "../../domain/workspaces/github-mirror-paths.js"
 import { workspaceRevisionSchema } from "../../domain/workspaces/revision.js"
 import { packWorkspaceFormat } from "../../domain/workspaces/workspace-format-tree.js"
 import { sourcesHoldRepository } from "../../models/workspace-source-state.js"
@@ -54,6 +55,9 @@ export const workspaceUnlinkRetractionInputSchema = z
  *
  * - The plan reads the sources at the tip. When a source names the
  *   repository again, or a source file cannot be read, it retracts nothing.
+ * - The plan also deletes the GitHub pull request and issue mirror files of
+ *   the repository (`github/pulls/<owner>/<repo>/` and
+ *   `github/issues/<owner>/<repo>/`), also in an old mixed-case folder.
  * - Only ingestion v2 owns files that a retraction can remove (ADR-052
  *   section 3), so the plan retracts nothing on a tree below format 3
  *   (ADR-052 phase 4, G5). The plan reads the tree that the push lands on:
@@ -113,7 +117,17 @@ export function defineWorkspaceUnlinkRetractionWorkflow() {
               skipped: plan.skipped,
             },
           )
-        return plan
+        // The pull request and issue mirrors of the repository go in
+        // the same commit (CTX-1698).
+        const mirrors = await githubMirrorPathsOf({
+          pack,
+          read,
+          repositoryUrl: input.retractRepositoryUrl,
+        })
+        return {
+          ...plan,
+          deletePaths: [...plan.deletePaths, ...mirrors].sort(),
+        }
       })()
       // The list of skipped files can be long: the job keeps
       // it, not the step output (CTX-1239).

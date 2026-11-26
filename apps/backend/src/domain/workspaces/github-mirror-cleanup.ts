@@ -5,12 +5,11 @@ import type { GitFileChange } from "../../services/git/file-change.js"
 import {
   type GitPack,
   type GitRemoteRead,
-  listPackBlobs,
   readGitFiles,
-  withGitDirectory,
 } from "../../services/git/pack.js"
 import { unsafeMirrorPath } from "../workspace-sources/mirror-path.js"
 import { readSourcesTree } from "../workspace-sources/source-tree.js"
+import { listGithubMirrorFiles } from "./github-mirror-paths.js"
 import {
   resolveWorkspaceReadRevision,
   workspaceGitRead,
@@ -61,29 +60,7 @@ export async function planGithubMirrorCleanup(input: {
   pack: GitPack
   read: GitRemoteRead | null
 }): Promise<GithubMirrorCleanupPlan> {
-  const paths = (
-    await withGitDirectory(
-      input.pack.sha,
-      (directory) => listPackBlobs(directory, input.pack),
-      input.pack,
-      input.read,
-    )
-  ).flatMap(({ path }) => {
-    // `github/<pulls|issues>/<owner>/<repo>/<file>`: one mirror file.
-    const match = /^github\/(pulls|issues)\/([^/]+)\/([^/]+)\/([^/]+)$/.exec(
-      path,
-    )
-    if (!match) return []
-    const [, folder = "", owner = "", repo = "", name = ""] = match
-    const repository = `${owner}/${repo}`.toLowerCase()
-    return [
-      {
-        path,
-        repository,
-        lowercasePath: `github/${folder}/${repository}/${name}`,
-      },
-    ]
-  })
+  const paths = await listGithubMirrorFiles(input.pack, input.read)
   const counts: GithubMirrorCleanupCounts = {
     duplicates: 0,
     moves: 0,

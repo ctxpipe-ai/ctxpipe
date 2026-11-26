@@ -90,6 +90,15 @@ const areaBody = [
   "",
 ].join("\n")
 const ledgerBody = `# Ledger\n\nText.\n\n${HUMAN}`
+const UNLINKED_MIRRORS = [
+  "github/pulls/fixture/billing/1--11.md",
+  "github/pulls/Fixture/Billing/2--12.md",
+  "github/issues/fixture/billing/3.md",
+]
+const KEPT_MIRRORS = [
+  "github/pulls/fixture/ledger/4--14.md",
+  "github/issues/Fixture/Ledger/5.md",
+]
 
 // Two linked repositories, and the published ingestion v2 output of both,
 // below the Workspace root folder of a Workspace at format 3.
@@ -148,6 +157,12 @@ const published = [
       areaBody,
     )}\n${HUMAN}`,
   },
+  // The pull request and issue mirrors of both repositories (CTX-1698). A
+  // mirror from before 2026-10-20 has the mixed-case folder of GitHub.
+  ...[...UNLINKED_MIRRORS, ...KEPT_MIRRORS].map((path) => ({
+    path,
+    body: `# ${path}\n`,
+  })),
 ].map((file) => ({ ...file, path: `${ROOT}/${file.path}` }))
 
 type Fixture = Parameters<Parameters<typeof withNativeHydrationFixture>[1]>[0]
@@ -397,8 +412,11 @@ function expectRetraction(input: {
       `D\t${ROOT}/knowledge/services/billing.md`,
       `D\t${ROOT}/knowledge/services/invoices.md`,
       `M\t${ROOT}/knowledge/services/ledger.md`,
+      // Only the mirrors of the unlinked repository go.
+      ...UNLINKED_MIRRORS.map((path) => `D\t${ROOT}/${path}`),
     ].sort(),
   )
+  for (const path of KEPT_MIRRORS) expect(show(path)).toBe(`# ${path}`)
 
   const ledger = show("knowledge/services/ledger.md")
   const ledgerFront = parse(ledger.split("---\n")[1] ?? "")
@@ -547,6 +565,30 @@ it(
       ({ git }) => {
         expect(named).not.toBe("")
         expect(git("rev-parse", "refs/heads/main")).toBe(named)
+      },
+    )
+  },
+)
+
+it(
+  "retracts nothing when a source file at the tip cannot be read",
+  { timeout: 150_000 },
+  async () => {
+    let broken = ""
+    await mergeThenRetract(
+      {
+        // A source file with no front matter can name any repository.
+        afterUnlink: (f) => {
+          broken = humanPush(f, {
+            "sources/github/fixture/broken.md": "not a source\n",
+          })
+        },
+      },
+      ({ git, show }) => {
+        expect(broken).not.toBe("")
+        expect(git("rev-parse", "refs/heads/main")).toBe(broken)
+        for (const path of UNLINKED_MIRRORS)
+          expect(show(path)).toBe(`# ${path}`)
       },
     )
   },
