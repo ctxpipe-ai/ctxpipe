@@ -21,7 +21,8 @@ type KnowledgeUserPasswords = {
   reader?: string
   /**
    * The user of the worker (`ctxpipe_writer`): SELECT, INSERT and ALTER
-   * DELETE. KnowledgeStore never runs an UPDATE (ADR-066 decision 8).
+   * DELETE, and the part names of `system.parts` for the erase after a
+   * purge. KnowledgeStore never runs an UPDATE (ADR-066 decision 8).
    */
   writer?: string
 }

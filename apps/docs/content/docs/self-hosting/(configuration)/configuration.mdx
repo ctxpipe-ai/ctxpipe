@@ -120,7 +120,10 @@ Give each process its own ClickHouse user in `CLICKHOUSE_URL`:
   only.
 - **Backend:** `ctxpipe_reader`. It can only read the knowledge tables.
 - **Worker:** `ctxpipe_writer`. It can read, insert, and delete rows in the
-  knowledge tables. It cannot manage users, grants, or row policies.
+  knowledge tables. It can also read the names of the parts of the knowledge
+  tables in `system.parts`: after a deletion, it waits until ClickHouse
+  removed the parts that held the deleted rows. It cannot manage users, grants,
+  or row policies.
 
 The migrations create or update a user only when its password is set. Without
 the password, the user does not exist and cannot connect. The migrations refuse
