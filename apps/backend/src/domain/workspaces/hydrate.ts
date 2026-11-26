@@ -23,7 +23,11 @@ import {
 } from "./mirror-units.js"
 import { pullRequestChangedClaims } from "./pull-request-changes.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
-import { closingPullRequests, sourceTime } from "./source-time.js"
+import {
+  closingPullRequests,
+  sourceTime,
+  sourceUpdatedTime,
+} from "./source-time.js"
 
 export function servingIdForKnowledgePath(
   workspaceId: string,
@@ -91,7 +95,11 @@ export type HydrateUnit = {
    * means not merged.
    */
   merged?: boolean
-  /** ISO time of the last commit that changed the path, when known. */
+  /**
+   * ISO time of the last change: the source's own time of a mirror file
+   * (`sourceUpdatedTime`), else the time of the last commit that changed
+   * the path, when known.
+   */
   updatedAt: string | null
   /**
    * The source's own time of the file (`sourceTime`): the `valid_from` of
@@ -265,7 +273,10 @@ export function hydrateKnowledgeTree(input: {
       title: unitTitle(parsed.attributes.title, parsed.body),
       source: connectorMirrorRoot(path) ?? "authored",
       merged: parsed.attributes.merged === true,
-      updatedAt: file.lastCommitTimestamp ?? null,
+      updatedAt:
+        sourceUpdatedTime({ path, attributes: parsed.attributes }) ??
+        file.lastCommitTimestamp ??
+        null,
       sourceTime: sourceTime({
         path,
         attributes: parsed.attributes,

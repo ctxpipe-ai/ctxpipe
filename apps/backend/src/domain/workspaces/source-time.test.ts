@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest"
 
+import { toNotionMarkdownFile } from "../../services/notion/converter.js"
+import { toSlackThreadMarkdownFile } from "../../services/slack/converter.js"
 import { shopIssue } from "../../test/github-issue.js"
 import { linearIssueFile } from "../../test/linear-issue.js"
+import { diffHydrateUnits, hydrateUnitHash } from "./hydrate-delta.js"
 import { validFromPersistFiles } from "./hydrate-write-jobs.js"
 import {
   applyEffectiveValidFromToUnits,
@@ -249,5 +252,118 @@ describe("the old stack links an issue to the pull request that closed it from t
       to: pull.path,
       validFrom: "2026-03-10T12:00:00.000Z",
     })
+  })
+})
+
+describe("the old stack's updatedAt is the source's own time of the last change (CTX-1692)", () => {
+  // A mirror format change rewrote each mirror file in this commit.
+  const rewrite = "2026-11-24T03:00:00.000Z"
+
+  /** The updatedAt of one file, through the hydrate parse. */
+  function updatedAtOf(file: { path: string; content: string }) {
+    const { units } = hydrateKnowledgeTree({
+      workspaceId: "ws_source_updated_time",
+      files: [{ ...file, lastCommitTimestamp: rewrite }],
+    })
+    return units[0]?.updatedAt ?? null
+  }
+
+  it("is the updatedAt of a Linear issue mirror file", () => {
+    expect(updatedAtOf(linearIssueFile({ identifier: "ENG-7" }))).toBe(
+      "2026-01-02T00:00:00.000Z",
+    )
+  })
+
+  it("is the updatedAt of a GitHub issue mirror file", () => {
+    expect(
+      updatedAtOf(shopIssue({ title: "Flaky test", body: "Fails." })),
+    ).toBe("2026-09-01T00:00:00.000Z")
+  })
+
+  it("is the updatedAt of a GitHub pull request mirror file", () => {
+    expect(
+      updatedAtOf({
+        path: "github/pulls/acme/api/40.md",
+        content:
+          "---\nsource: github\ntype: pull_request\ncreatedAt: '2021-06-01T10:00:00Z'\nupdatedAt: '2021-06-05T10:00:00Z'\n---\n# Add cache\n",
+      }),
+    ).toBe("2021-06-05T10:00:00.000Z")
+  })
+
+  it("is the updated_at of a Plain or PagerDuty mirror file", () => {
+    for (const path of ["plain/threads/th_1.md", "pagerduty/incidents/P1.md"])
+      expect(
+        updatedAtOf({
+          path,
+          content:
+            '---\ncreated_at: "2021-04-05T06:07:08Z"\nupdated_at: "2021-04-06T00:00:00Z"\n---\n# A\n',
+        }),
+        path,
+      ).toBe("2021-04-06T00:00:00.000Z")
+  })
+
+  it("is the last_edited_time of a Notion page", () => {
+    const file = toNotionMarkdownFile({
+      resource: { externalId: "page-1", title: "Roadmap" },
+      page: { id: "page-1", last_edited_time: "2024-05-06T07:08:00.000Z" },
+      blocks: [],
+    })
+    expect(updatedAtOf(file)).toBe("2024-05-06T07:08:00.000Z")
+  })
+
+  it("is the time of the last reply of a Slack thread", () => {
+    const file = toSlackThreadMarkdownFile({
+      channelId: "C01",
+      channelName: "eng",
+      isPrivate: false,
+      threadTs: "1700000000.000100",
+      messages: [
+        { ts: "1700000000.000100", text: "The deploy is stuck." },
+        { ts: "1700003600.000200", text: "Fixed." },
+      ],
+    })
+    expect(updatedAtOf(file)).toBe("2023-11-14T23:13:20.000Z")
+  })
+
+  it("makes the next hydrate write again each row that has the commit time", () => {
+    // A row from before CTX-1692 has the commit time in its hash, so the
+    // next hydrate of a Workspace writes the source time to it.
+    const [unit] = hydrateKnowledgeTree({
+      workspaceId: "ws_source_updated_time",
+      files: [
+        {
+          ...linearIssueFile({ identifier: "ENG-7" }),
+          lastCommitTimestamp: rewrite,
+        },
+      ],
+    }).units
+    if (!unit) throw new Error("Expected a unit")
+    const stored = {
+      servingId: unit.servingId,
+      unitHash: hydrateUnitHash({ ...unit, updatedAt: rewrite }, "model"),
+    }
+    expect(diffHydrateUnits([stored], [unit], "model").changed).toEqual([unit])
+  })
+
+  it("is the commit time for a file with no time of its own", () => {
+    // An authored file, a Slack channel index, a Confluence page, and a
+    // mirror file with a value that is not a time.
+    for (const file of [
+      {
+        path: "knowledge/services/api.md",
+        content:
+          "---\nkind: Service\nupdatedAt: 2020-01-01T00:00:00Z\n---\n# API\n",
+      },
+      {
+        path: "slack/eng--C01/index.md",
+        content: '---\nsource: slack\nchannel_id: "C01"\n---\n# #eng\n',
+      },
+      { path: "confluence/ENG/runbook--1.md", content: "# Runbook\n" },
+      {
+        path: "github/issues/acme/api/13.md",
+        content: "---\nsource: github\nupdatedAt: soon\n---\n# Issue\n",
+      },
+    ])
+      expect(updatedAtOf(file), file.path).toBe(rewrite)
   })
 })
