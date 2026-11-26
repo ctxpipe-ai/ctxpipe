@@ -302,6 +302,19 @@ describe("decideNoul", () => {
         "provider.context_length",
       ],
       [
+        "a raw provider error with the code of invalid JSON",
+        {
+          error: {
+            message: "Provider returned error",
+            metadata: {
+              provider_name: "TypeSafe",
+              raw: { error: { code: "invalid_json" } },
+            },
+          },
+        },
+        "provider.invalid_json",
+      ],
+      [
         "a gateway error with a code that can hold content",
         {
           error: {

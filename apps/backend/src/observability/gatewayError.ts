@@ -52,7 +52,7 @@ const MESSAGE_KINDS: [string, RegExp][] = [
     /context[ _](length|window)|too[ _]many[ _]tokens|token[ _]limit|maximum .*tokens/i,
   ],
   ["too_large", /too[ _]large|payload|request[ _]entity/i],
-  ["invalid_json", /\bjson\b/i],
+  ["invalid_json", /(\b|_)json(\b|_)/i],
   [
     "invalid_request",
     /invalid|validation|required|expected|unrecognized|not[ _]allowed|must /i,
