@@ -15,9 +15,11 @@ has.
   `github/issues/<owner>/<repo>/`. The deletes go in the same host commit as
   the knowledge retraction. The merge of the source removal is the approval,
   as for the knowledge files.
-- **Same fence:** the mirrors stay when the job retracts nothing: a source
-  names the repository again, a source file cannot be read, a stored source
-  row still names the repository, or the tree is below format 3.
+- **Same fence:** the mirrors stay when the fence of the retraction holds: a
+  source names the repository again, a source file cannot be read, a stored
+  source row still names the repository, or the tree is below format 3. When
+  the fence lets the job continue, the mirrors go, also when no knowledge
+  file goes.
 - **Case:** the match of the owner and repository folders ignores case, so a
   mixed-case folder from before 2026-10-20 goes too.
 - **One listing:** the retraction and the one-time cleanup of
