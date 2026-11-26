@@ -28,10 +28,17 @@ Each tool has the read-only hint. The tools never change your data. The
 `intent` is one of `why`, `ownership`, `change`, `dependencies`, `structure`,
 `provenance`, or `general`.
 
-When your organization is on the knowledge plane, `get_related` also groups
-the top results into positions. Each position has a status: `current`,
-`superseded`, `disputed`, or `scoped`. Prefer a `current` position. Without
-positions, compare the `updatedAt` of the results and read the newest source.
+When your organization is on the knowledge plane, `get_related` also gives
+`claims`: what connects its top results. A claim is one of these:
+
+- A relation that a file states (`by: edge`), with its predicate, its
+  `source`, its `validFrom` and `validTo`, and its `confidence`. A
+  `SUPERSEDES` relation is a claim like each other relation.
+- A reading of the model (`by: reading`): `REPLACES`, `CONTRADICTS`, or
+  `PARTLY_CONTRADICTS`, with its `confidence`.
+
+ctxpipe does not decide which result is current. Your agent compares the
+claims, the `sourceType` of each result, and the times, and then decides.
 
 The server also gives each file as a resource, `ctxpipe://{org}/{workspace}/{ref}`.
 A client that supports resources lets you @-mention a file in your prompt.

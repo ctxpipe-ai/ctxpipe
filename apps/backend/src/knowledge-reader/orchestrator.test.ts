@@ -4,10 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { useMswServer } from "../../test/msw.js"
 import type { KnowledgeDocument } from "../knowledge-store/knowledge-store.js"
 import { JevError } from "../retrieval/jev/client.js"
-import {
-  decideDisagreements,
-  type EvidenceItem,
-} from "../retrieval/jev/disagreement.js"
+import { readDisagreements } from "../retrieval/jev/disagreement.js"
 import { BudgetSpentError } from "./failure.js"
 import {
   beforeDeadline,
@@ -77,71 +74,33 @@ describe("beforeDeadline", () => {
 
 describe("the default fact thresholds of the disagreement step", () => {
   const { sameAt, disagreeAt, replacesAt, scopedAt } = ORCHESTRATOR_DEFAULTS
-  const item = (id: string): EvidenceItem => ({
-    id,
-    passage: `The passage of ${id}.`,
-    meta: {
-      status: "active",
-      sourceType: "docs",
-      observedAt: "2026-10-01T00:00:00Z",
-      validFrom: null,
-      validTo: null,
-      confidence: 0.8,
-      documentKey: `doc/${id}.md`,
-    },
-  })
-  const decide = (facts: Record<string, number>) =>
-    decideDisagreements({
-      items: [item("a"), item("b")],
+  const read = (facts: Record<string, number>) =>
+    readDisagreements({
+      items: ["a", "b"].map((id) => ({ id, passage: `The passage of ${id}.` })),
       facts: new Map(Object.entries(facts)),
-      relations: [],
-      queryTime: new Date("2026-11-01T00:00:00Z"),
       thresholds: { sameAt, disagreeAt, replacesAt, scopedAt },
-    })
-
-  // Jev gives the scoped fact a p(yes) from 0.5 to 0.8 to many items, also
-  // to current ones, so only a p(yes) of 0.8 or more is "yes" (CTX-1684).
-  it.each([
-    [0.77, "current"],
-    [0.8, "scoped"],
-  ] as const)(
-    "gives a position with no rival and scoped p(yes) %s the status %s",
-    (p, status) => {
-      expect(
-        decide({ "same.1.2": 0.9, "scoped.1": p, "scoped.2": p }).positions,
-      ).toEqual([expect.objectContaining({ itemIds: ["a", "b"], status })])
-    },
-  )
+    }).map(({ from, to, predicate }) => ({ from, to, predicate }))
 
   // Jev gives "changes or replaces" a low p(yes) also to a record that
   // replaces the other, so a p(yes) from 0.35 is "yes" (CTX-1684).
   it.each([
-    [0.34, [{ itemIds: ["a", "b"], status: "current" }]],
-    [
-      0.35,
-      [
-        { itemIds: ["a"], status: "superseded" },
-        { itemIds: ["b"], status: "current" },
-      ],
-    ],
-  ] as const)(
-    "gives a pair with a replaces p(yes) %s the positions %j",
-    (p, positions) => {
-      expect(decide({ "same.1.2": 0.9, "replaces.2.1": p }).positions).toEqual(
-        positions.map((position) => expect.objectContaining(position)),
-      )
-    },
-  )
+    [0.34, []],
+    [0.35, [{ from: "b", to: "a", predicate: "REPLACES" }]],
+  ] as const)("gives a replaces p(yes) %s the readings %j", (p, readings) => {
+    expect(read({ "same.1.2": 0.9, "replaces.2.1": p })).toEqual(readings)
+  })
 
+  // Jev gives the scoped fact a p(yes) from 0.5 to 0.8 to many items, so
+  // only a p(yes) of 0.8 or more is "yes" (CTX-1684).
   it.each([
-    [0.77, "contradicts"],
-    [0.8, "partial"],
+    [0.77, { from: "a", to: "b", predicate: "CONTRADICTS" }],
+    [0.8, { from: "b", to: "a", predicate: "PARTLY_CONTRADICTS" }],
   ] as const)(
-    "labels a disagreeing pair with one scoped p(yes) %s as %s",
-    (p, label) => {
+    "reads a disagreeing pair with one scoped p(yes) %s as %j",
+    (p, reading) => {
       expect(
-        decide({ "same.1.2": 0.9, "disagree.1.2": 0.9, "scoped.2": p }).pairs,
-      ).toEqual([expect.objectContaining({ label })])
+        read({ "same.1.2": 0.9, "disagree.1.2": 0.9, "scoped.2": p }),
+      ).toEqual([reading])
     },
   )
 })

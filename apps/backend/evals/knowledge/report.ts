@@ -164,7 +164,18 @@ export const keptRunSchema = z.object({
     z.object({
       arm: z.enum(ARMS),
       question: z.string(),
-      metrics: z.record(z.enum(METRICS), z.number().nullable()),
+      /**
+       * A metric that the kept report does not have is null. A kept report
+       * from before CTX-1720 has `positions`, and no `disagreements`.
+       */
+      metrics: z
+        .record(z.string(), z.number().nullable())
+        .transform(
+          (values) =>
+            Object.fromEntries(
+              METRICS.map((metric) => [metric, values[metric] ?? null]),
+            ) as MetricValues,
+        ),
       searchMs: z.number(),
       relatedMs: z.number().nullable(),
       jevCalls: z.number(),
@@ -541,7 +552,7 @@ export function renderMarkdown(report: Report): string {
       "",
       ...(report.kept.timeBudgetMs !== (report.run.loop.timeBudgetMs ?? null)
         ? [
-            `**The kept run had ${budgetText(report.kept.timeBudgetMs)}, and this run has ${budgetText(report.run.loop.timeBudgetMs ?? null)}.** The latency, the partial answers and the positions also show that change, not only the setting of the run.`,
+            `**The kept run had ${budgetText(report.kept.timeBudgetMs)}, and this run has ${budgetText(report.run.loop.timeBudgetMs ?? null)}.** The latency, the partial answers and the claims also show that change, not only the setting of the run.`,
             "",
           ]
         : []),

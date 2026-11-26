@@ -267,7 +267,7 @@ export function knowledgeRows(input: {
       kind: node.kind,
       title,
       path: unit.path,
-      sourceType: sourceAuthority(unit),
+      sourceType: sourceTypeOf(unit),
       summary: node.summary ?? "",
       // The source's own time of the file (CTX-1516). The tree row takes
       // it before the time of the introducing commit.
@@ -318,7 +318,7 @@ export function fileRows(input: {
       kind: input.kind,
       title,
       path,
-      sourceType: sourceAuthority({ path }),
+      sourceType: sourceTypeOf({ path }),
       mime: input.mime,
       summary: input.summary ?? "",
     },
@@ -328,30 +328,17 @@ export function fileRows(input: {
 }
 
 /**
- * The source authority kinds, from the highest authority to the lowest. The
- * disagreement step ranks `source_type` in this order. The kind `other`
- * is not in the list, so it ranks below all of them.
+ * The source type of a file (`source_type`). It comes from the file alone:
+ * its path, its document kind, and the `merged` field of its front matter,
+ * which the pull request mirror converter writes. The connector folder
+ * stays in the path. `get_related` shows the type of each result, and Jev
+ * reads it with each candidate. No code ranks by it (ADR-068 decision 4).
  */
-export const SOURCE_AUTHORITY_ORDER = [
-  "adr",
-  "merged-pr",
-  "docs",
-  "issue",
-  "open-pr",
-  "chat",
-] as const
-
-/**
- * The source authority kind of a file. It comes from the file alone: its
- * path, its document kind, and the `merged` field of its front matter, which
- * the pull request mirror converter writes. The connector folder stays in
- * the path.
- */
-function sourceAuthority(file: {
+function sourceTypeOf(file: {
   path: string
   kind?: string | null
   merged?: boolean
-}): (typeof SOURCE_AUTHORITY_ORDER)[number] | "other" {
+}): "adr" | "merged-pr" | "docs" | "issue" | "open-pr" | "chat" | "other" {
   const [, folder] = file.path.split("/")
   switch (connectorMirrorRoot(file.path)) {
     case null: {

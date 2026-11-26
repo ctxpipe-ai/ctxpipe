@@ -5,7 +5,8 @@ import type { Arm, ArmAnswer } from "./runner.js"
  * The metrics of ADR-069 decision 6, from the kept answers only, so that a
  * run can be scored again with no new call:
  * - component: search recall@50, and the traversal recall of `get_related`;
- * - retrieval: recall@5, nDCG@10, a correct "no answer", correct positions;
+ * - retrieval: recall@5, nDCG@10, a correct "no answer", the disagreements
+ *   shown;
  * - operations: p50 and p95 latency, the model calls and the cost.
  * The gold set is binary: a document is relevant or it is not.
  */
@@ -16,7 +17,7 @@ export const METRICS = [
   "searchRecall50",
   "traversalRecall",
   "noAnswer",
-  "positions",
+  "disagreements",
 ] as const
 export type Metric = (typeof METRICS)[number]
 
@@ -26,7 +27,7 @@ export const METRIC_NAMES: Record<Metric, string> = {
   searchRecall50: "search recall@50",
   traversalRecall: "traversal recall",
   noAnswer: 'correct "no answer"',
-  positions: "positions correct",
+  disagreements: "disagreements shown",
 }
 
 /** Null when the metric does not apply to the question or to the arm. */
@@ -80,21 +81,54 @@ export function ndcgAt(
   return ideal === 0 ? 0 : dcg / ideal
 }
 
+/** The predicates of a claim that one document replaces another. */
+const REPLACE_PREDICATES = new Set(["SUPERSEDES", "REPLACES"])
+
+/** The predicates of a claim that two documents disagree. */
+const DISAGREE_PREDICATES = new Set([
+  ...REPLACE_PREDICATES,
+  "CONTRADICTS",
+  "PARTLY_CONTRADICTS",
+])
+
 /**
- * The share of the expected position refs that the arm puts in a position
- * with the expected status.
+ * The disagreements shown: the share of the pairs of expected refs in two
+ * different positions that the arm links by a claim that tells the
+ * disagreement, in either direction: a stored SUPERSEDES or a reading of
+ * the model. A claim that a ref of a `superseded` position replaces a ref
+ * of a `current` position tells the wrong direction, so it does not count.
+ * A ref that the claims do not hold makes each of its pairs not shown.
  */
-export function positionsCorrect(
+export function disagreementsShown(
   expected: NonNullable<Question["positions"]>,
-  given: readonly { refs: readonly string[]; status: string }[],
+  claims: readonly { from: string; to: string; predicate: string }[],
 ): number {
-  const statusOf = new Map<string, string>()
-  for (const position of given)
-    for (const ref of position.refs) statusOf.set(ref, position.status)
-  const refs = expected.flatMap((position) =>
-    position.refs.map((ref) => statusOf.get(ref) === position.status),
+  const statusOf = new Map(
+    expected.flatMap(({ refs, status }) => refs.map((ref) => [ref, status])),
   )
-  return refs.length === 0 ? 0 : refs.filter(Boolean).length / refs.length
+  const tells = (claim: (typeof claims)[number]) =>
+    DISAGREE_PREDICATES.has(claim.predicate) &&
+    !(
+      REPLACE_PREDICATES.has(claim.predicate) &&
+      statusOf.get(claim.from) === "superseded" &&
+      statusOf.get(claim.to) === "current"
+    )
+  const pairs = expected.flatMap((position, index) =>
+    expected
+      .slice(index + 1)
+      .flatMap((other) =>
+        position.refs.flatMap((a) => other.refs.map((b) => [a, b] as const)),
+      ),
+  )
+  const shown = pairs.filter(([a, b]) =>
+    claims.some(
+      (claim) =>
+        ((claim.from === a && claim.to === b) ||
+          (claim.from === b && claim.to === a)) &&
+        tells(claim),
+    ),
+  )
+  return pairs.length === 0 ? 0 : shown.length / pairs.length
 }
 
 /** Nearest-rank percentile of `values`, or null with no value. */
@@ -113,7 +147,7 @@ export function percentile(
  * The old stack has no such threshold, so it says "no answer" only with no
  * hit. A search that failed or gave a partial answer (the time budget or a
  * Jev failure) gets no credit for "no answer". Only the plane gives
- * positions.
+ * claims.
  */
 export function scoreAnswer(
   question: Question,
@@ -168,9 +202,9 @@ export function scoreAnswer(
           ? recallAt(related?.refs ?? [], targets, Number.POSITIVE_INFINITY)
           : null,
       noAnswer: noAnswer ? (saysNoAnswer ? 1 : 0) : null,
-      positions:
+      disagreements:
         question.positions && answer.arm === "plane"
-          ? positionsCorrect(question.positions, related?.positions ?? [])
+          ? disagreementsShown(question.positions, related?.claims ?? [])
           : null,
     },
     searchMs: answer.search.latencyMs,

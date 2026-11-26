@@ -15,7 +15,7 @@ import {
   activeProjectionSha,
   projectionFromWorkspace,
 } from "../../models/workspaces.js"
-import type { StatusRule } from "../../retrieval/jev/disagreement.js"
+import type { Reading } from "../../retrieval/jev/disagreement.js"
 import {
   defaultCaps,
   type ExpandedNode,
@@ -43,6 +43,11 @@ export type RelatedResult = {
   title: string | null
   kind: string | null
   source: string
+  /**
+   * The source type of the document, for example `adr`, `merged-pr`,
+   * `docs`, `issue`, `open-pr` or `chat`. Only the knowledge plane gives it.
+   */
+  sourceType?: string
   updatedAt: string
   summary?: string
   score: number
@@ -52,23 +57,28 @@ export type RelatedResult = {
 }
 
 /**
- * One position of the disagreement step (ADR-068 decision 4): the results
- * that agree, the status of their claim, the reason of the status, and the
- * positions (by index) that it contradicts or updates. Only the knowledge
- * plane gives positions.
+ * One claim between two top results (ADR-068 decision 4): a relation that
+ * the store holds (`edge`), or a reading of the model (`reading`). Code
+ * gives no verdict on a result: the calling agent reasons about the
+ * claims. Only the knowledge plane gives claims.
  */
-export type RelatedPosition = {
-  refs: string[]
-  status: "current" | "superseded" | "disputed" | "scoped"
-  /** The rule of the disagreement step that gave the status. */
-  reason: { by: "tie-break"; rule: StatusRule }
-  against: { position: number; label: "contradicts" | "updates" }[]
-}
+export type RelatedClaim =
+  | {
+      from: string
+      to: string
+      predicate: string
+      by: "edge"
+      source: string
+      validFrom: string | null
+      validTo: string | null
+      confidence: number
+    }
+  | (Reading & { by: "reading" })
 
 /** The ranking of one call, before paging. */
 export type Ranking = {
   results: RelatedResult[]
-  positions?: RelatedPosition[]
+  claims?: RelatedClaim[]
   explored: { nodes: number; edges: number }
   partial: boolean
   partialReason?: string

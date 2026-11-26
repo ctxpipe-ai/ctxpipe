@@ -189,7 +189,7 @@ export type JudgeInput = {
 type Judgment = { pAnswers: number; pExplore: number }
 
 /** The metadata of a document that Jev reads with its text. */
-export function jevMeta(document: KnowledgeDocument): CandidateMeta {
+function jevMeta(document: KnowledgeDocument): CandidateMeta {
   return {
     status: document.status,
     sourceType: document.sourceType,
@@ -295,8 +295,6 @@ export type WalkFilter = {
 type Traversal = {
   /** Each judged document, the seeds first, in the order of the layers. */
   nodes: TraversalNode[]
-  /** Each relation that the layers read. */
-  relations: KnowledgeRelation[]
   explored: { nodes: number; edges: number }
   partialReason?: "total_timeout"
   /** Frontier documents with more relations than `maxFanOut`. */
@@ -500,7 +498,6 @@ export async function traverse(input: {
   if (seedsJudged) nodes.unshift(...seeds)
   return {
     nodes,
-    relations: read,
     explored: { nodes: visited.size, edges: read.length },
     ...(partialReason ? { partialReason } : {}),
     cappedHubs,

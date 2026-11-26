@@ -17,7 +17,7 @@ import type { KnowledgeHit } from "../domain/workspaces/knowledge-search.js"
 import {
   RANKED_LIMIT,
   type Ranking,
-  type RelatedPosition,
+  type RelatedClaim,
   type RelatedResult,
   round,
   unknownRefError,
@@ -50,9 +50,9 @@ import {
   askDisagreementFacts,
   type DisagreementFacts,
   disagreementCalls,
+  disagreementReadings,
   type EvidenceItem,
   isValidAt,
-  resolveDisagreements,
 } from "../retrieval/jev/disagreement.js"
 import { BudgetSpentError, notePartial } from "./failure.js"
 import type {
@@ -66,7 +66,6 @@ import {
   callTimeLimitMs,
   evidenceText,
   isBudgetSpent,
-  jevMeta,
   judge,
   type ModelMeter,
   ORCHESTRATOR_DEFAULTS,
@@ -392,9 +391,10 @@ function claimsByDocument(
  * setting (a seed only with `includeSeeds`), or a step: a document on the
  * "why" path of such a result, or one with p(explore) of at least the
  * `exploreAt` setting (not a seed); p(answers) is its score. Then the
- * disagreement step gives the positions of the top results that answer
- * (ADR-068 decision 4). When the time budget ends, the result is partial,
- * with `total_timeout` and no positions. When Jev fails, the call fails
+ * claims between the top results that answer: the stored relations that the
+ * walk read, and the readings of the disagreement step (ADR-068 decision 4).
+ * When the time budget ends, the result is partial, with `total_timeout` and
+ * no claims. When Jev fails, the call fails
  * with `judge_unavailable`.
  */
 async function related(
@@ -479,16 +479,20 @@ async function related(
   if (unknown.length > 0) throw unknownRefError(unknown)
   let traversal: Awaited<ReturnType<typeof traverse>>
   let results: TraversalNode[]
-  let positions: RelatedPosition[] | undefined
+  let claims: RelatedClaim[] | undefined
   const keepsKind = kindFilter(input)
   // A document that can be a result: not a seed (unless `includeSeeds`),
   // and of a kind that the call keeps.
   const canAnswer = (node: TraversalNode) =>
     (node.depth > 0 || input.includeSeeds) && keepsKind(node)
   const { disagreementItems } = ORCHESTRATOR_DEFAULTS
-  // The facts of the disagreement step, asked with the judge of the last
-  // layer: see `onLastLayer` below.
+  // The facts of the disagreement step and the relations between the top
+  // results, asked with the judge of the last layer: see `onLastLayer`
+  // below.
   let earlyFacts: Promise<DisagreementFacts> | undefined
+  let earlyRelations: Promise<KnowledgeRelation[]> | undefined
+  const readRelations = (nodes: readonly TraversalNode[]) =>
+    relationsBetween(store, scope, nodes, walk.validAt, deadline)
   try {
     traversal = await traverse({
       store,
@@ -519,23 +523,24 @@ async function related(
           ...answerNodes(judged, canAnswer).slice(0, disagreementItems),
           ...pending.filter(canAnswer),
         ]
-        if (possible.length > 0 && possible.length <= disagreementItems)
+        if (possible.length > 0 && possible.length <= disagreementItems) {
           earlyFacts = askFacts(question, possible, deadline, meter)
+          earlyRelations = readRelations(possible)
+        }
       },
     })
     const answers = answerNodes(traversal.nodes, canAnswer)
     results = withSteps(answers, traversal.nodes, keepsKind)
     const top = answers.slice(0, disagreementItems)
     if (top.length > 0 && !traversal.partialReason)
-      positions = await disagreementPositions(
+      claims = await topClaims(
         question,
         top,
-        traversal.relations,
-        now,
         deadline,
         earlyFacts ?? askFacts(question, top, deadline, meter),
+        earlyRelations ?? readRelations(top),
       ).catch((error: unknown) => {
-        // The end of the budget gives the ranking with no positions.
+        // The end of the budget gives the ranking with no claims.
         if (!isBudgetSpent(error, deadline)) throw error
         notePartial(meter, error)
         traversal.partialReason = "total_timeout"
@@ -551,7 +556,7 @@ async function related(
   }
   return {
     results: results.map(relatedResult),
-    ...(positions ? { positions } : {}),
+    ...(claims ? { claims } : {}),
     explored: traversal.explored,
     partial: traversal.partialReason !== undefined,
     ...(traversal.partialReason
@@ -702,12 +707,8 @@ function byScore(a: TraversalNode, b: TraversalNode): number {
 }
 
 /** A judged document as an item of the disagreement step. */
-function evidenceItem({ ref, document, text }: TraversalNode): EvidenceItem {
-  return {
-    id: documentId(ref),
-    passage: text,
-    meta: { ...jevMeta(document), documentKey: document.docKey },
-  }
+function evidenceItem({ ref, text }: TraversalNode): EvidenceItem {
+  return { id: documentId(ref), passage: text }
 }
 
 /**
@@ -721,8 +722,9 @@ function askFacts(
   deadline: number,
   meter: ModelMeter,
 ): Promise<DisagreementFacts> {
-  meter.jevCalls += disagreementCalls(nodes.length)
-  meter.jevCandidates += nodes.length
+  const calls = disagreementCalls(nodes.length)
+  meter.jevCalls += calls
+  if (calls > 0) meter.jevCandidates += nodes.length
   const facts = beforeDeadline(deadline, () =>
     askDisagreementFacts({
       question,
@@ -735,54 +737,89 @@ function askFacts(
 }
 
 /**
- * The disagreement step of ADR-068 decision 4 on the top results: the
- * positions, each with its refs, its status, the reason of the status, and
- * the positions that it contradicts or updates. `facts` are the facts of a
- * set of documents that holds the top results (`askFacts`). A Jev failure
- * throws its `JevError`.
+ * The out-relations of `nodes`, valid at `validAt`, read before `deadline`.
+ * Each relation between two of the nodes is an out-relation of one of
+ * them. The caller awaits the result later, so a failure is not an
+ * unhandled rejection until then.
  */
-async function disagreementPositions(
+function relationsBetween(
+  store: KnowledgeStore,
+  scope: KnowledgeReadScope,
+  nodes: readonly TraversalNode[],
+  validAt: Date | null,
+  deadline: number,
+): Promise<KnowledgeRelation[]> {
+  const relations = beforeDeadline(deadline, () =>
+    store.readFrontier(
+      scope,
+      nodes.map(({ ref }) => ref),
+      validAt,
+      "out",
+    ),
+  ).then((read) => read.map(({ relation }) => relation))
+  relations.catch(() => {})
+  return relations
+}
+
+/**
+ * The claims between the `top` results (ADR-068 decision 4): each stored
+ * relation from one top result to another, then the readings of the
+ * disagreement step. `facts` are the facts, and `relations` the
+ * out-relations, of a set of documents that holds the top results
+ * (`askFacts`, `relationsBetween`). A Jev failure throws its `JevError`.
+ */
+async function topClaims(
   question: string,
   top: readonly TraversalNode[],
-  relations: readonly KnowledgeRelation[],
-  queryTime: Date,
   deadline: number,
   facts: Promise<DisagreementFacts>,
-): Promise<RelatedPosition[]> {
+  relations: Promise<readonly KnowledgeRelation[]>,
+): Promise<RelatedClaim[]> {
   const { sameAt, disagreeAt, replacesAt, scopedAt } = ORCHESTRATOR_DEFAULTS
   const items = top.map(evidenceItem)
   const pathOf = new Map(
     items.map((item, index) => [item.id, top[index]?.document.path ?? ""]),
   )
-  const resolution = await beforeDeadline(deadline, async () =>
-    resolveDisagreements({
+  const pathOfKey = new Map(
+    top.map(({ document }) => [document.docKey, document.path]),
+  )
+  // A frontier read can give one relation more than one time (one row for
+  // each chunk), so equal claims are kept once.
+  const edges = new Map<string, RelatedClaim>()
+  for (const relation of await beforeDeadline(deadline, () => relations)) {
+    const from = pathOfKey.get(relation.srcDoc)
+    const to = pathOfKey.get(relation.dstDoc)
+    if (from === undefined || to === undefined || from === to) continue
+    const claim: RelatedClaim = {
+      from,
+      to,
+      predicate: relation.predicate,
+      by: "edge",
+      source: relation.source,
+      validFrom: relation.validFrom?.toISOString() ?? null,
+      validTo: relation.validTo?.toISOString() ?? null,
+      confidence: round(relation.confidence),
+    }
+    edges.set(JSON.stringify(claim), claim)
+  }
+  const readings = await beforeDeadline(deadline, async () =>
+    disagreementReadings({
       question,
-      queryTime,
       thresholds: { sameAt, disagreeAt, replacesAt, scopedAt },
       items,
       facts: await facts,
-      relations,
     }),
   )
-  return resolution.positions.map((position, index) => ({
-    refs: position.itemIds.map((id) => pathOf.get(id) ?? ""),
-    status: position.status,
-    reason: position.reason,
-    against: resolution.pairs
-      .flatMap(({ positions: [a, b], label }) => {
-        if (label !== "contradicts" && label !== "updates") return []
-        if (a === index) return [{ position: b, label }]
-        if (b === index) return [{ position: a, label }]
-        return []
-      })
-      .filter(
-        (entry, at, all) =>
-          all.findIndex(
-            (other) =>
-              other.position === entry.position && other.label === entry.label,
-          ) === at,
-      ),
-  }))
+  return [
+    ...edges.values(),
+    ...readings.map((reading): RelatedClaim => ({
+      ...reading,
+      from: pathOf.get(reading.from) ?? "",
+      to: pathOf.get(reading.to) ?? "",
+      by: "reading",
+      confidence: round(reading.confidence),
+    })),
+  ]
 }
 
 /** One result, with its "why" path: the parent chain from a seed. */
@@ -801,6 +838,7 @@ function relatedResult(node: TraversalNode): RelatedResult {
     title: document.title || null,
     kind: document.kind || null,
     source: sourceOf(document),
+    ...(document.sourceType ? { sourceType: document.sourceType } : {}),
     updatedAt: document.observedAt.toISOString(),
     ...(document.summary
       ? { summary: truncateText(document.summary, 200) }
