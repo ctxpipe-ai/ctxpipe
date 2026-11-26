@@ -284,7 +284,7 @@ it(
 )
 
 it(
-  "with no flag or setting (CTX-1712), the hydrate queues the knowledge projection",
+  "with no worker of the plane, the hydrate still queues the knowledge projection",
   { timeout: 120_000 },
   async () =>
     withNativeHydrationFixture({ files }, async (f) => {

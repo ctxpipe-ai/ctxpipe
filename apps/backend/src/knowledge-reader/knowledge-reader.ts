@@ -28,7 +28,7 @@ import { planeKnowledgeReader } from "./plane-reader.js"
  * (`search_knowledge`, `get_related`, the chat search and graph tools) and
  * the graph route read knowledge only through `KnowledgeReader`. The
  * readiness of each Workspace on the plane picks the implementation for each
- * request (CTX-1712: the flag `knowledge_plane` is gone).
+ * request.
  */
 
 /** The stack that answers a read: the old stack, or the knowledge plane. */

@@ -14,9 +14,8 @@ import { closeOpenWorkflowClient } from "../openworkflow/client.js"
 import { backfillKnowledgePlane } from "./backfill.js"
 
 /*
- * The backfill of an org that leaves `off` (CTX-1643), with a real Postgres
- * and the real OpenWorkflow tables. No worker runs here; the test reads the
- * queued runs. Each org gets the backfill (CTX-1712: no flag).
+ * The backfill of an org (CTX-1643), with a real Postgres and the real
+ * OpenWorkflow tables. No worker runs here; the test reads the queued runs.
  */
 
 const orgId = generateObjectId("org")

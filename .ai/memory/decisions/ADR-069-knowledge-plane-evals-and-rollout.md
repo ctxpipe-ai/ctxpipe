@@ -91,7 +91,7 @@ The dataset must cover three shapes of customer: one large monorepo, an org with
    - the status lifecycle works;
    - each org isolation wall works on its own;
    - load, while a hydrate runs at the same time.
-9. **Rollout for one org at a time.**
+9. **Rollout for one org at a time.** The amendment of 2026-11-26 removes the flag of this decision: the plane serves every org, and the ready-head rule decides for each Workspace. The text below records the rollout until then.
    - **The flag.** A flag for each org has three values:
      - `off`: the old stack;
      - `shadow`: the old stack answers, and the new path runs and logs only its metrics;

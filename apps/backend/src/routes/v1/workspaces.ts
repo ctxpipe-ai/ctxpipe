@@ -184,8 +184,8 @@ function hydratePhasesView(state: ProjectionState): {
 }
 
 /**
- * The phases that the Workspace pane shows. With the `knowledge_plane` flag
- * `on` and a ready head of the plane, the graph route reads the plane
+ * The phases that the Workspace pane shows. With a ready head of the plane,
+ * the graph route reads the plane
  * (`selectKnowledgeReader`), so the graph is ready whatever the phase of the
  * FalkorDB graph. Else the pane shows the FalkorDB phase.
  */

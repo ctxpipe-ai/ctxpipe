@@ -28,8 +28,8 @@ initDb(databaseUrl)
 // Before the worker schedules or runs a job: the config throws, so the CLI
 // does not start the worker.
 await refuseVercelSandboxRows()
-// A self-hosted install is on the knowledge plane by default (CTX-1712).
-// Model settings that cannot reach Jev log one clear error here.
+// The plane serves each org. Model settings that cannot reach OpenRouter
+// (planeModelsReachable) log one error here.
 checkKnowledgePlaneModelSettings()
 // Queue depth for the dashboard (OTel). A hosted deployment sets
 // DEPLOYMENT_ENVIRONMENT and also gets the CloudWatch EMF line that its
