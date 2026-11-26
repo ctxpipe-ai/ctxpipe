@@ -1,7 +1,8 @@
 import { existsSync, readFileSync } from "node:fs"
 import { join, resolve } from "node:path"
 
-import { isObject } from "../mcp/json.js"
+import type { Client } from "../constants.js"
+import { isObject, parseJsonObject } from "../mcp/json.js"
 import type {
   Operation,
   OperationContext,
@@ -218,6 +219,31 @@ function pushRetiredSkillAndRuleRemovals(ops: Operation[], root: string): void {
   }
 }
 
+/** The files in which CLI 0.2.0 wrote memory MCP entries and hooks, with the host of each. */
+function legacyMemoryFiles({ cwd, homeDir }: OperationContext) {
+  const mcpFiles: Array<[string, Client | null]> = [
+    [resolve(cwd, ".cursor", "mcp.json"), "cursor"],
+    [join(homeDir, ".cursor", "mcp.json"), "cursor"],
+    [resolve(cwd, ".mcp.json"), "claude"],
+    [resolve(cwd, ".vscode", "mcp.json"), "vscode"],
+    [resolve(cwd, "opencode.json"), "opencode"],
+    [join(homeDir, ".config", "opencode", "opencode.json"), "opencode"],
+    [resolve(cwd, ".agents", "mcp.json"), null],
+    [resolve(cwd, ".ctxpipe", "config.json"), null],
+  ]
+  const claudeSettings = [
+    join(homeDir, ".claude", "settings.json"),
+    join(homeDir, ".claude", "settings.local.json"),
+    resolve(cwd, ".claude", "settings.json"),
+    resolve(cwd, ".claude", "settings.local.json"),
+  ]
+  const codexConfigs = [
+    resolve(cwd, ".codex", "config.toml"),
+    join(homeDir, ".codex", "config.toml"),
+  ]
+  return { mcpFiles, claudeSettings, codexConfigs }
+}
+
 /**
  * One-shot upgrade ops so re-init leaves no AgentMemory / ConKeeper dual layout.
  */
@@ -230,25 +256,15 @@ export function buildMemoryUpgradeOperations({
   const cwd = context.cwd
   const memoryRoot = resolve(cwd, ".ai", "memory")
 
+  const { mcpFiles, claudeSettings, codexConfigs } = legacyMemoryFiles(context)
+
   // MCP / config cleanup — only touch files that already exist (do not create empties).
-  for (const path of [
-    resolve(cwd, ".cursor", "mcp.json"),
-    resolve(cwd, ".agents", "mcp.json"),
-    resolve(cwd, ".mcp.json"),
-    resolve(cwd, ".vscode", "mcp.json"),
-    resolve(cwd, "opencode.json"),
-    join(context.homeDir, ".config", "opencode", "opencode.json"),
-    resolve(cwd, ".ctxpipe", "config.json"),
-    join(context.homeDir, ".cursor", "mcp.json"),
-  ]) {
+  for (const [path] of mcpFiles) {
     if (existsSync(path)) ops.push(stripMcpJsonOperation(path, context))
   }
 
   // Codex TOML (user + repo): strip ctxpipe-memory MCP tables from `codex mcp add`.
-  for (const path of [
-    resolve(cwd, ".codex", "config.toml"),
-    join(context.homeDir, ".codex", "config.toml"),
-  ]) {
+  for (const path of codexConfigs) {
     if (!existsSync(path)) continue
     ops.push({
       type: "write-text",
@@ -276,12 +292,7 @@ export function buildMemoryUpgradeOperations({
   }
 
   // Claude settings: strip retired memory hook commands (user + project).
-  for (const path of [
-    join(context.homeDir, ".claude", "settings.json"),
-    join(context.homeDir, ".claude", "settings.local.json"),
-    resolve(cwd, ".claude", "settings.json"),
-    resolve(cwd, ".claude", "settings.local.json"),
-  ]) {
+  for (const path of claudeSettings) {
     if (!existsSync(path)) continue
     ops.push({
       type: "write-json",
@@ -322,4 +333,50 @@ export function buildMemoryUpgradeOperations({
   })
 
   return ops
+}
+
+/**
+ * Finds the entries of CLI 0.2.0 (the `ctxpipe-memory` MCP server and the
+ * `memory hook` commands) in the files that the upgrade cleans. Returns null
+ * when there is no such entry. Else returns the hosts that hold one, so that
+ * a repair can write the current capture hooks for them.
+ */
+export function findLegacyMemoryHosts(
+  context: OperationContext,
+): Client[] | null {
+  const { mcpFiles, claudeSettings, codexConfigs } = legacyMemoryFiles(context)
+  const read = (path: string) =>
+    existsSync(path) ? readFileSync(path, "utf8") : null
+  const changes = (
+    path: string,
+    strip: (o: Record<string, unknown>) => Record<string, unknown>,
+  ) => {
+    const text = read(path)
+    if (text == null) return false
+    const existing = parseJsonObject(text)
+    return JSON.stringify(strip(existing)) !== JSON.stringify(existing)
+  }
+
+  let found = false
+  const hosts = new Set<Client>()
+  const mark = (host: Client | null) => {
+    found = true
+    if (host) hosts.add(host)
+  }
+  for (const [path, host] of mcpFiles) {
+    if (changes(path, stripLegacyMemoryMcp)) mark(host)
+  }
+  for (const path of claudeSettings) {
+    if (changes(path, stripLegacyClaudeHooks)) mark("claude")
+  }
+  for (const path of codexConfigs) {
+    if (
+      /^[ \t]*\[(?:mcp_servers|mcp\.servers)\.ctxpipe-memory\]/m.test(
+        read(path) ?? "",
+      )
+    ) {
+      mark("codex")
+    }
+  }
+  return found ? [...hosts] : null
 }

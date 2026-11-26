@@ -3,7 +3,10 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
+  renameSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs"
 import { dirname } from "node:path"
@@ -36,6 +39,28 @@ export function applyOperations(operations: Operation[]): ApplyResult {
   return { status: "ok", operations: results }
 }
 
+/**
+ * Write through a temp file and a rename. The memory repair can run in two
+ * processes at once (a session hook and an MCP server). A reader then sees the
+ * old or the new file, never a partial one that parses as an empty object.
+ * Writes go to the target of a symlink, so the link stays.
+ */
+function writeFileAtomic(path: string, content: string): void {
+  const target = existsSync(path) ? realpathSync(path) : path
+  mkdirSync(dirname(target), { recursive: true })
+  const temp = `${target}.${process.pid}.tmp`
+  try {
+    writeFileSync(temp, content, {
+      encoding: "utf8",
+      mode: existsSync(target) ? statSync(target).mode : 0o666,
+    })
+    renameSync(temp, target)
+  } catch (error) {
+    rmSync(temp, { force: true })
+    throw error
+  }
+}
+
 export function applyOperation(op: Operation): ApplyOperationResult {
   if (op.type === "write-json") {
     const existing = readJsonObject(op.path)
@@ -44,8 +69,7 @@ export function applyOperation(op: Operation): ApplyOperationResult {
     if (previous === next) {
       return { status: "unchanged", path: op.path }
     }
-    mkdirSync(dirname(op.path), { recursive: true })
-    writeFileSync(op.path, next, "utf8")
+    writeFileAtomic(op.path, next)
     return { status: "written", path: op.path }
   }
   if (op.type === "write-text") {
@@ -57,8 +81,7 @@ export function applyOperation(op: Operation): ApplyOperationResult {
     if (previous === next) {
       return { status: "unchanged", path: op.path }
     }
-    mkdirSync(dirname(op.path), { recursive: true })
-    writeFileSync(op.path, next, "utf8")
+    writeFileAtomic(op.path, next)
     return { status: "written", path: op.path }
   }
   if (op.type === "mkdir") {

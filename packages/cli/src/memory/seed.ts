@@ -1,7 +1,5 @@
 /** Seed content for `ctxpipe memory init` — Markdown-only layout (ADR-024). */
 
-import { pinnedCli } from "../version.js"
-
 export const MEMORY_README_SEED = `# Project memory (\`.ai/memory\`)
 
 Canonical durable knowledge for coding agents in this repo. Navigate via
@@ -224,9 +222,9 @@ After durable Markdown is written (or you reject the candidate), mark ids so the
 leave the pending/surfaced sets:
 
 \`\`\`bash
-${pinnedCli} memory capture promote <candidateId>
+npx -y ctxpipe memory capture promote <candidateId>
 # or
-${pinnedCli} memory capture dismiss <candidateId>
+npx -y ctxpipe memory capture dismiss <candidateId>
 \`\`\`
 
 Include the \`.ai/memory/\` change in the commit for the work it came from.

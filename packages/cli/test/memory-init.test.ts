@@ -4,6 +4,8 @@ import {
   mkdtempSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
+  rmSync,
   writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
@@ -631,22 +633,16 @@ enabled = true
   })
 })
 
-describe("memory init pins the CLI version", () => {
-  const version = (
-    JSON.parse(readFileSync(join(PKG_ROOT, "package.json"), "utf8")) as {
-      version: string
-    }
-  ).version
-  const pinned = `npx -y ctxpipe@${version} memory capture`
-  const unpinned = /npx -y ctxpipe memory/
+describe("generated memory hooks run the newest CLI", () => {
+  const unpinned = "npx -y ctxpipe memory capture"
 
-  it("writes the pinned command in the hooks of each host", () => {
-    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mem-pin-"))
-    runMemoryInit(cwd, [
-      "--agents",
-      "cursor,claude,codex,opencode,vscode",
-      "--non-interactive",
-    ])
+  it("writes the unpinned command in the hooks of each host", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mem-unpinned-"))
+    runMemoryInit(
+      cwd,
+      ["--agents", "cursor,claude,codex,opencode,vscode", "--non-interactive"],
+      mkdtempSync(join(tmpdir(), "ctxpipe-mem-unpinned-home-")),
+    )
 
     for (const rel of [
       ".cursor/hooks.json",
@@ -658,13 +654,13 @@ describe("memory init pins the CLI version", () => {
       "AGENTS.md",
     ]) {
       const text = readFileSync(join(cwd, rel), "utf8")
-      expect(text, rel).toContain(pinned)
-      expect(text, rel).not.toMatch(unpinned)
+      expect(text, rel).toContain(unpinned)
+      expect(text, rel).not.toMatch(/ctxpipe@/)
     }
   })
 
-  it("replaces an unpinned capture hook with the pinned one on re-init", () => {
-    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mem-pin-reinit-"))
+  it("replaces a version-pinned capture hook with the unpinned one on re-init", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mem-unpin-reinit-"))
     mkdirSync(join(cwd, ".claude"), { recursive: true })
     mkdirSync(join(cwd, ".cursor"), { recursive: true })
     writeFileSync(
@@ -677,7 +673,7 @@ describe("memory init pins the CLI version", () => {
                 {
                   type: "command",
                   command:
-                    "npx -y ctxpipe memory capture finalize --host claude --event Stop",
+                    "npx -y ctxpipe@0.5.2 memory capture finalize --host claude --event Stop",
                 },
               ],
             },
@@ -700,38 +696,223 @@ describe("memory init pins the CLI version", () => {
       }),
     )
 
-    runMemoryInit(cwd, ["--agents", "claude,cursor", "--non-interactive"])
+    runMemoryInit(
+      cwd,
+      ["--agents", "claude,cursor", "--non-interactive"],
+      mkdtempSync(join(tmpdir(), "ctxpipe-mem-unpin-home-")),
+    )
 
     const claude = JSON.parse(
       readFileSync(join(cwd, ".claude", "settings.json"), "utf8"),
     ) as { hooks: { Stop: Array<{ hooks: Array<{ command: string }> }> } }
     expect(
       claude.hooks.Stop.flatMap((g) => g.hooks.map((h) => h.command)),
-    ).toEqual([`${pinned} finalize --host claude --event Stop`])
+    ).toEqual([`${unpinned} finalize --host claude --event Stop`])
     const cursor = JSON.parse(
       readFileSync(join(cwd, ".cursor", "hooks.json"), "utf8"),
     ) as { hooks: { stop: Array<{ command: string }> } }
     expect(cursor.hooks.stop.map((h) => h.command)).toEqual([
-      `${pinned} finalize --host cursor --event stop`,
+      `${unpinned} finalize --host cursor --event stop`,
     ])
   })
+})
 
-  it.each([
-    ["mcp", []],
-    ["hook", ["claude-stop", "--host", "claude"]],
-  ])(
-    "the removed `memory %s` command tells the user to migrate and exits 0",
-    (name, args) => {
-      const result = spawnSync(
-        process.execPath,
-        [BIN, "memory", name, ...args],
-        { encoding: "utf8", input: '{"session_id":"s"}' },
+describe("the removed memory mcp and memory hook commands repair a 0.2.0 setup", () => {
+  const legacyServer = {
+    command: "npx",
+    args: ["-y", "ctxpipe", "memory", "mcp"],
+  }
+  const remote = { url: "https://app.ctxpipe.ai/mcp/acme" }
+  const userHook = { type: "command", command: "echo keep-me" }
+
+  /** A repository and a home directory as `memory init` of CLI 0.2.0 left them, for each host. */
+  function legacySetup(): { cwd: string; home: string } {
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mem-repair-"))
+    const home = mkdtempSync(join(tmpdir(), "ctxpipe-mem-repair-home-"))
+    const write = (path: string, content: unknown) => {
+      mkdirSync(dirname(path), { recursive: true })
+      writeFileSync(
+        path,
+        typeof content === "string"
+          ? content
+          : `${JSON.stringify(content, null, 2)}\n`,
       )
-      expect(result.status).toBe(0)
-      expect(result.stdout).toBe("")
-      expect(result.stderr.trim().split("\n")).toEqual([
-        `ctxpipe: \`memory ${name}\` was removed. Run \`npx ctxpipe memory init\` to migrate this repo's memory hooks.`,
+    }
+    write(join(cwd, ".ai", "memory", "README.md"), "# Project memory\n")
+    write(join(cwd, ".cursor", "mcp.json"), {
+      mcpServers: { ctxpipe: remote, "ctxpipe-memory": legacyServer },
+    })
+    write(join(cwd, ".mcp.json"), {
+      mcpServers: { ctxpipe: remote, "ctxpipe-memory": legacyServer },
+    })
+    write(join(cwd, ".vscode", "mcp.json"), {
+      servers: { "ctxpipe-memory": { type: "stdio", ...legacyServer } },
+    })
+    write(join(cwd, "opencode.json"), {
+      mcp: {
+        "ctxpipe-memory": {
+          type: "local",
+          command: ["npx", "-y", "ctxpipe", "memory", "mcp"],
+        },
+      },
+    })
+    write(join(home, ".claude", "settings.local.json"), {
+      hooks: {
+        SessionStart: [
+          {
+            hooks: [
+              {
+                type: "command",
+                command: "npx -y ctxpipe memory hook claude-session-start",
+              },
+            ],
+          },
+        ],
+        Stop: [
+          {
+            hooks: [
+              userHook,
+              {
+                type: "command",
+                command: "npx -y ctxpipe memory hook claude-stop",
+                async: true,
+              },
+            ],
+          },
+        ],
+      },
+    })
+    write(
+      join(home, ".codex", "config.toml"),
+      `model = "gpt"\n\n[mcp_servers.ctxpipe-memory]\ncommand = "npx"\nargs = ["-y", "ctxpipe", "memory", "mcp"]\n\n[mcp_servers.other]\ncommand = "other"\n`,
+    )
+    return { cwd, home }
+  }
+
+  function runRemoved(
+    cwd: string,
+    home: string,
+    command: "mcp" | "hook",
+  ): ReturnType<typeof spawnSync> & { stdout: string; stderr: string } {
+    const args = command === "hook" ? ["hook", "claude-session-start"] : ["mcp"]
+    const input =
+      command === "hook"
+        ? JSON.stringify({ session_id: "s", cwd })
+        : `${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize" })}\n`
+    return spawnSync(process.execPath, [BIN, "memory", ...args], {
+      cwd,
+      input,
+      encoding: "utf8",
+      timeout: 30_000,
+      env: { ...process.env, HOME: home, USERPROFILE: home },
+    })
+  }
+
+  /** Every file under the roots, by path, so that a test can see any change. */
+  function snapshot(...roots: string[]): Record<string, string> {
+    const files: Record<string, string> = {}
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const path = join(dir, entry.name)
+        if (entry.isDirectory()) walk(path)
+        else files[path] = readFileSync(path, "utf8")
+      }
+    }
+    for (const root of roots) walk(root)
+    return files
+  }
+
+  it.each(["hook", "mcp"] as const)(
+    "`memory %s` removes the 0.2.0 entries, writes the capture hooks of each host, and a second run changes nothing",
+    (command) => {
+      const { cwd, home } = legacySetup()
+
+      const first = runRemoved(cwd, home, command)
+
+      expect(first.status).toBe(0)
+      expect(first.stdout).toBe("")
+      expect(first.stderr.trim().split("\n")).toEqual([
+        `ctxpipe: \`memory ${command}\` was removed in 0.3.0. Removed the 0.2.0 memory entries and wrote the capture hooks for Cursor, Claude Code, VS Code / Copilot, OpenCode, Codex.`,
       ])
+      for (const [path, text] of Object.entries(snapshot(cwd, home))) {
+        expect(text, path).not.toMatch(/memory (mcp|hook)\b|ctxpipe-memory"?:/)
+      }
+      const json = (path: string) =>
+        JSON.parse(readFileSync(path, "utf8")) as Record<string, any>
+      expect(json(join(cwd, ".cursor", "mcp.json")).mcpServers).toEqual({
+        ctxpipe: remote,
+      })
+      expect(json(join(cwd, ".mcp.json")).mcpServers).toEqual({
+        ctxpipe: remote,
+      })
+      expect(json(join(home, ".claude", "settings.local.json")).hooks).toEqual({
+        SessionStart: [],
+        Stop: [{ hooks: [userHook] }],
+      })
+      expect(readFileSync(join(home, ".codex", "config.toml"), "utf8")).toBe(
+        `model = "gpt"\n\n[mcp_servers.other]\ncommand = "other"\n`,
+      )
+      for (const [rel, capture] of [
+        [".cursor/hooks.json", "memory capture finalize --host cursor"],
+        [".claude/settings.json", "memory capture finalize --host claude"],
+        [
+          ".github/hooks/ctxpipe-memory.json",
+          "memory capture finalize --host vscode",
+        ],
+        [".opencode/plugins/ctxpipe-memory.js", "memory capture"],
+        [".codex/config.toml", "memory capture finalize --host codex"],
+      ] as const) {
+        expect(readFileSync(join(cwd, rel), "utf8"), rel).toContain(
+          `npx -y ctxpipe ${capture}`,
+        )
+      }
+      expect(existsSync(join(cwd, ".ai", "memory", "index.md"))).toBe(true)
+
+      const before = snapshot(cwd, home)
+      const second = runRemoved(cwd, home, command === "hook" ? "mcp" : "hook")
+
+      expect(second.status).toBe(0)
+      expect(second.stdout).toBe("")
+      expect(second.stderr.trim().split("\n")).toHaveLength(1)
+      expect(second.stderr).toContain(
+        "This repository has no 0.2.0 memory entry to repair.",
+      )
+      expect(snapshot(cwd, home)).toEqual(before)
     },
   )
+
+  it("changes nothing in a directory that has no .ai/memory", () => {
+    const { cwd, home } = legacySetup()
+    rmSync(join(cwd, ".ai"), { recursive: true })
+    const before = snapshot(cwd, home)
+
+    const result = runRemoved(cwd, home, "hook")
+
+    expect(result.status).toBe(0)
+    expect(result.stdout).toBe("")
+    expect(result.stderr).toContain(
+      "This directory has no .ai/memory, so there is nothing to repair.",
+    )
+    expect(snapshot(cwd, home)).toEqual(before)
+  })
+
+  it("exits 0 with one stderr line when the repair cannot write a file", () => {
+    const { cwd, home } = legacySetup()
+    // A file where the hooks need the .claude directory: the write fails.
+    writeFileSync(join(cwd, ".claude"), "not a directory\n")
+
+    const result = runRemoved(cwd, home, "hook")
+
+    expect(result.status).toBe(0)
+    expect(result.stdout).toBe("")
+    const lines = result.stderr.trim().split("\n")
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatch(
+      /^ctxpipe: `memory hook` was removed in 0\.3\.0\. The repair of the memory setup failed \(.+\)\. Run `npx ctxpipe memory init`\.$/,
+    )
+    // The 0.2.0 entries stay, so the next run tries the repair again.
+    expect(readFileSync(join(cwd, ".mcp.json"), "utf8")).toContain(
+      "ctxpipe-memory",
+    )
+  })
 })
