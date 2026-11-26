@@ -288,6 +288,20 @@ describe("decideNoul", () => {
         "provider.context_length",
       ],
       [
+        "a provider refusal with only a structured code",
+        {
+          error: {
+            code: 400,
+            message: "Provider returned error",
+            metadata: {
+              provider_name: "TypeSafe",
+              raw: { error: { code: "context_length_exceeded" } },
+            },
+          },
+        },
+        "provider.context_length",
+      ],
+      [
         "a gateway error with a code that can hold content",
         {
           error: {

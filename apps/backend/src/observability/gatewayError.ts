@@ -42,19 +42,20 @@ export function gatewayRoutingError(
 
 /**
  * The kinds of an error text that the cause of a failed gateway answer can
- * name, in the order of the check. Only the label goes into the cause, never
- * the text.
+ * name, in the order of the check. Each pattern also matches the snake_case
+ * code of the same kind (for example `context_length_exceeded` in a raw
+ * provider error). Only the label goes into the cause, never the text.
  */
 const MESSAGE_KINDS: [string, RegExp][] = [
   [
     "context_length",
-    /context (length|window)|too many tokens|token limit|maximum .*tokens/i,
+    /context[ _](length|window)|too[ _]many[ _]tokens|token[ _]limit|maximum .*tokens/i,
   ],
-  ["too_large", /too large|payload|request entity/i],
+  ["too_large", /too[ _]large|payload|request[ _]entity/i],
   ["invalid_json", /\bjson\b/i],
   [
     "invalid_request",
-    /invalid|validation|required|expected|unrecognized|not allowed|must /i,
+    /invalid|validation|required|expected|unrecognized|not[ _]allowed|must /i,
   ],
 ]
 
