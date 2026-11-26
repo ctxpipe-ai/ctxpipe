@@ -26,7 +26,9 @@ if ! docker info >/dev/null 2>&1; then
   docker info >/dev/null 2>&1 || { log "dockerd did not start"; tail -20 /tmp/dockerd.log >&2; exit 1; }
 fi
 
-docker compose --profile infra up -d --wait postgres otel-collector
+# ClickHouse holds the knowledge (the knowledge plane); infra-host-ports gives it
+# the host port 8123.
+docker compose --profile infra up -d --wait postgres clickhouse infra-host-ports otel-collector
 
 ########################################################
 # 2. Dependencies
@@ -59,6 +61,8 @@ CODESEARCH_URL=http://127.0.0.1:3001
 EOF
   log "wrote $ENV_LOCAL"
 fi
+# The knowledge store (ClickHouse), from the infra profile above.
+grep -q '^CLICKHOUSE_URL=' "$ENV_LOCAL" || echo "CLICKHOUSE_URL=http://ctxpipe:ctxpipe@localhost:8123/ctxpipe" >>"$ENV_LOCAL"
 # Agent Vault (Docker chat sandboxes): a generated owner password per checkout.
 grep -q '^AGENT_VAULT_ADDR=' "$ENV_LOCAL" || echo "AGENT_VAULT_ADDR=http://localhost:14321" >>"$ENV_LOCAL"
 grep -q '^AGENT_VAULT_OWNER_PASSWORD=' "$ENV_LOCAL" || echo "AGENT_VAULT_OWNER_PASSWORD=$(openssl rand -hex 24)" >>"$ENV_LOCAL"
@@ -72,4 +76,4 @@ if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
   } >>"$CLAUDE_ENV_FILE"
 fi
 
-echo "Cloud dev env ready: postgres :5433, DATABASE_URL/AUTH_SECRET exported. Start the app with: bash scripts/dev-headless.sh (see AGENTS.md, Claude Code on the web)." >&3
+echo "Cloud dev env ready: postgres :5433, clickhouse :8123, DATABASE_URL/AUTH_SECRET exported. Start the app with: bash scripts/dev-headless.sh (see AGENTS.md, Claude Code on the web)." >&3

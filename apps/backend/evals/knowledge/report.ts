@@ -201,8 +201,9 @@ function changeOf(now: MetricValues, kept: MetricValues | null): Change {
 
 /**
  * Score the answers of a run and build its report. Only the questions with
- * a complete answer from both arms count, so that both arms are compared on
- * the same questions. `kept` is the kept run, or null when there is none.
+ * a complete answer from each arm of the run count, so that the arms are
+ * compared on the same questions. A run with no stored baseline has the
+ * plane only, and its baseline values are empty. `kept` is the kept run, or null when there is none.
  */
 export function buildReport(input: {
   manifest: Manifest
@@ -211,8 +212,11 @@ export function buildReport(input: {
   kept: KeptRun | null
 }): Report {
   const { manifest } = input
+  const arms = ARMS.filter((arm) =>
+    input.answers.some((answer) => answer.arm === arm),
+  )
   const complete = (id: string) =>
-    ARMS.every((arm) =>
+    arms.every((arm) =>
       input.answers.some(
         (answer) =>
           answer.arm === arm &&

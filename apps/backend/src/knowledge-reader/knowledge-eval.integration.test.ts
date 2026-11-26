@@ -634,6 +634,25 @@ describe("the knowledge eval harness", () => {
     )
   })
 
+  it("with no stored baseline, a run scores the plane alone, so that a new dataset can run", async () => {
+    const alone = await run("plane-only", { baseline: undefined })
+    expect(alone.status).toBe("complete")
+    expect(alone.run.baselineFrom).toBeUndefined()
+    const recorded = await readRun(join(folder, "plane-only"))
+    expect(new Set(recorded.answers.map((answer) => answer.arm))).toEqual(
+      new Set(["plane"]),
+    )
+    // The plane scores are the scores of a run with the stored baseline;
+    // the baseline values are empty.
+    expect(alone.comparison.map((row) => row.plane)).toEqual(
+      live.comparison.map((row) => row.plane),
+    )
+    for (const row of alone.comparison)
+      expect(Object.values(row.baseline).every((value) => value === null)).toBe(
+        true,
+      )
+  })
+
   it("--baseline-from: refuses another dataset version, other labels, another snapshot, or a missing answer", async () => {
     const stored = await readRun(join(folder, "live"))
     const before = { ...requests }

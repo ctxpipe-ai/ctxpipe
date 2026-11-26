@@ -50,7 +50,8 @@ import {
  * The two arms (a CTO decision): the baseline, which is the old stack, and
  * the knowledge plane. Only the plane has Jev's p(answers) as its score and
  * gives positions. The old stack is gone (CTX-1713): the baseline arm comes
- * only from the stored answers of an earlier run (`--baseline-from`).
+ * only from the stored answers of an earlier run (`--baseline-from`), and a
+ * run with none has the plane only.
  */
 export const ARMS = ["legacy", "plane"] as const
 export type Arm = (typeof ARMS)[number]
@@ -362,11 +363,11 @@ export async function highDegreeUnits(
 }
 
 /**
- * Run each question of `questions` through both arms, one after the other,
+ * Run each question of `questions` through the plane, one after the other,
  * so that each latency is the latency of one request. Stops at the spend
  * cap of `calls`; the answer that the cap stopped is not kept. The old
- * stack does not run: each question gets its stored answer of the old stack
- * from `baseline`.
+ * stack does not run: with `baseline`, each question gets its stored answer
+ * of the old stack.
  * Also gives the projection version of the plane store of each corpus, by
  * corpus id.
  */
@@ -379,7 +380,7 @@ export async function runEval(input: {
   /** The quiet time before the first call of each kind of each arm. */
   quietMs: number
   /** The stored answers of the old stack, by question id. */
-  baseline: ReadonlyMap<string, ArmAnswer>
+  baseline?: ReadonlyMap<string, ArmAnswer>
 }): Promise<{
   answers: ArmAnswer[]
   projectionVersions: Record<string, string>
@@ -397,10 +398,8 @@ export async function runEval(input: {
   for (const question of input.questions) {
     const target = workspaces.get(question.corpus)
     if (!target) throw new Error(`No Workspace for ${question.corpus}.`)
-    const stored = input.baseline.get(question.id)
-    if (!stored)
-      throw new Error(`No stored answer of the old stack to ${question.id}.`)
-    answers.push(stored)
+    const stored = input.baseline?.get(question.id)
+    if (stored) answers.push(stored)
     const reader = planeKnowledgeReader({
       heads: new Map([[target.workspace.id, target.head]]),
     })

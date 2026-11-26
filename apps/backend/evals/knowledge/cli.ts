@@ -7,7 +7,7 @@
  *   bun evals/knowledge/cli.ts hydrate --dataset FILE --out DIR [--cap-usd 5]
  *   bun evals/knowledge/cli.ts run --dataset FILE --targets FILE --out DIR \
  *     [--split dev|holdout] [--cap-usd 5] [--set NAME=VALUE] [--kept REPORT]
- *     --baseline-from RUN_DIR [--reuse-from RUN_DIR]
+ *     [--baseline-from RUN_DIR] [--reuse-from RUN_DIR]
  *   bun evals/knowledge/cli.ts rescore --from DIR --out DIR \
  *     [--set NAME=VALUE] [--kept REPORT] [--unrecorded-yes P]
  *   bun evals/knowledge/cli.ts draft --dataset FILE --corpus ID --repo DIR \
@@ -130,10 +130,11 @@ export async function executeRun(input: {
   quietMs: number
   /**
    * An earlier run folder (`--baseline-from`, or the `--from` folder of a
-   * rescore): the run reuses its answers of the old stack, and runs only the
-   * plane. The old stack is gone (CTX-1713).
+   * rescore): the run reuses its answers of the old stack. The old stack is
+   * gone (CTX-1713), so the run runs only the plane. With none, the report
+   * has the plane only.
    */
-  baseline: RunFolder
+  baseline?: RunFolder
   /**
    * An earlier run folder (`--reuse-from`): each model request of the run
    * that is the same as a recorded request of that folder (the same arm,
@@ -148,11 +149,12 @@ export async function executeRun(input: {
   )
   if (input.reuse)
     checkSameDataset("--reuse-from", input.dataset, input.reuse, questions)
-  const baseline = storedBaseline(input.dataset, input.baseline, questions)
+  const baseline =
+    input.baseline && storedBaseline(input.dataset, input.baseline, questions)
   // Both arms answer at the same query time. A reused request holds the
   // query time, so the run takes the one of the reused folder.
-  const times = [input.baseline, ...(input.reuse ? [input.reuse] : [])].map(
-    (folder) => folder.run.manifest.now,
+  const times = [input.baseline, input.reuse].flatMap((folder) =>
+    folder ? [folder.run.manifest.now] : [],
   )
   if (new Set(times).size > 1)
     throw new SetupError(
@@ -175,8 +177,8 @@ export async function executeRun(input: {
   // The folder keeps the calls of the reused answers, so that a replay of
   // this run has each call of both arms.
   calls.records.push(
-    ...input.baseline.run.calls.filter(
-      (call) => call.arm === "legacy" && baseline.has(call.question),
+    ...(input.baseline?.run.calls ?? []).filter(
+      (call) => call.arm === "legacy" && baseline?.has(call.question),
     ),
   )
   // An eval has no time budget, so that a slow step does not hide what the
@@ -192,7 +194,7 @@ export async function executeRun(input: {
       calls,
       now,
       quietMs: input.quietMs,
-      baseline,
+      ...(baseline ? { baseline } : {}),
     })
     const manifest: Manifest = {
       datasetVersion: input.dataset.version,
@@ -203,7 +205,7 @@ export async function executeRun(input: {
       productBudgetMs,
       quietMs: input.quietMs,
       mode: input.replay ? "replay" : input.reuse ? "reuse" : "live",
-      baselineFrom: input.baseline.folder,
+      ...(input.baseline ? { baselineFrom: input.baseline.folder } : {}),
       ...(input.reuse
         ? { reuse: { from: input.reuse.folder, ...calls.reuseSummary() } }
         : {}),
@@ -901,7 +903,10 @@ export async function main(argv: string[]): Promise<number> {
           ...(unrecordedYes === undefined ? {} : { unrecordedYes }),
         },
         quietMs: QUIET_MS,
-        baseline: { folder: values.from, run: recorded },
+        // The answers of the old stack of --from, when it has them.
+        ...(recorded.answers.some((answer) => answer.arm === "legacy")
+          ? { baseline: { folder: values.from, run: recorded } }
+          : {}),
       })
     } else {
       if (!dataset || !values.targets)
@@ -916,11 +921,6 @@ export async function main(argv: string[]): Promise<number> {
       if (values["unrecorded-yes"] !== undefined)
         throw new SetupError("--unrecorded-yes is for rescore only.")
       const baselineFrom = values["baseline-from"]
-      // The old stack is gone (CTX-1713): its answers come from a stored run.
-      if (!baselineFrom)
-        throw new SetupError(
-          "run needs --baseline-from: the answers of the old stack come from a stored run.",
-        )
       const reuseFrom = values["reuse-from"]
       // A folder that is not a run folder is a setup error.
       const runFolder = (flag: string, folder: string) =>
@@ -940,10 +940,14 @@ export async function main(argv: string[]): Promise<number> {
         out,
         kept,
         quietMs: QUIET_MS,
-        baseline: {
-          folder: baselineFrom,
-          run: await runFolder("--baseline-from", baselineFrom),
-        },
+        ...(baselineFrom
+          ? {
+              baseline: {
+                folder: baselineFrom,
+                run: await runFolder("--baseline-from", baselineFrom),
+              },
+            }
+          : {}),
         ...(reuseFrom
           ? {
               reuse: {

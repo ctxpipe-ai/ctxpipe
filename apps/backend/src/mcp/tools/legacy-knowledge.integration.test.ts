@@ -229,9 +229,11 @@ it(
             expect(search.isError).not.toBe(true)
             expect(search.structuredContent?.notices).toEqual(notices)
             expect(
-              (search.structuredContent?.hits as Array<{ title: string }>).map(
-                (hit) => hit.title,
-              ),
+              (
+                (search.structuredContent?.hits ?? []) as Array<{
+                  title: string
+                }>
+              ).map((hit) => hit.title),
             ).not.toContain("Tools CLI")
 
             const files = await callTool(

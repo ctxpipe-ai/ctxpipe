@@ -275,14 +275,11 @@ file of that Workspace names it.
 
 ### Knowledge from before Workspaces needs the re-ingestion
 
-The old knowledge stack serves the knowledge from before Workspaces from the
-database. It does this below format 3, and for each source repository that no
-re-ingestion did yet. The Workspace repository does not hold this knowledge.
-
-The knowledge store reads only the Workspace repository, so it does not serve
-this knowledge. A later release removes the old knowledge stack. After that
-release, MCP and chat do not find this knowledge. To keep it, do these steps
-for each Workspace before you deploy that release:
+The Workspace repository does not hold the knowledge from before Workspaces.
+The database keeps it below format 3, and for each source repository that no
+re-ingestion did yet. Since 4.0.0, the knowledge tools read only the knowledge
+store, which reads only the Workspace repository. So MCP and chat do not find
+this knowledge until you do these steps for each Workspace:
 
 1. Open the Workspace, then **Settings**. On the **Upgrades** card, a warning
    shows the count of knowledge files that are not in the repository.
@@ -295,8 +292,7 @@ the re-ingestion makes the knowledge of each source repository again. Then the
 Workspace repository holds the knowledge, and the warning goes away after the
 next hydrate.
 
-When the knowledge store serves a Workspace that still has such files, MCP
-tells the agent. `search_knowledge`, `list_files`, and `get_related` add a
+When a Workspace still has such files, MCP tells the agent. `search_knowledge`, `list_files`, and `get_related` add a
 `notices` entry with the count and the action. `read_file`, `list_files`, and `get_related` add the same text to an
 `unknown_ref` error.
 
