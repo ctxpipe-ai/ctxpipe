@@ -458,7 +458,7 @@ describe("the admin jobs", () => {
 })
 
 describe("the fast path to off (admin.set-org-feature)", () => {
-  it("refuses each feature (no feature is known since CTX-1712), and any value but off", async () => {
+  it("refuses each feature: no feature is known", async () => {
     for (const feature of ["knowledge_plane", "no_such_feature"])
       await expect(
         runAsConsole(
@@ -466,15 +466,5 @@ describe("the fast path to off (admin.set-org-feature)", () => {
           request({ organizationId: seed.orgId, feature, value: "off" }),
         ),
       ).rejects.toThrow(/is not a known feature/)
-    await expect(
-      runAsConsole(
-        "admin.set-org-feature",
-        request({
-          organizationId: seed.orgId,
-          feature: "knowledge_plane",
-          value: "on",
-        }),
-      ),
-    ).rejects.toThrow()
   })
 })

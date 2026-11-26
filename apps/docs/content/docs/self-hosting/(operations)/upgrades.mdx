@@ -303,6 +303,15 @@ On our hosted service, the first index run of a Workspace took about
 worker runs other jobs at the same time. A Workspace with no commit yet gets
 its index run after its first hydrate.
 
+The index runs and the searches send content to three models on OpenRouter:
+the text of each Workspace file to the embedding model
+`openai/text-embedding-3-large`, each image to the image model
+(`MODEL_VISION_NAME`), and the questions and candidate text to the decision
+model (Jev). Each call asks for an endpoint with zero data retention. On
+Docker Compose, set `MODEL_PROVIDER_ALLOWLIST` before the deploy to limit the
+upstream providers that OpenRouter can use (see
+[Model configuration](/docs/self-hosting/models)).
+
 Before you deploy, make sure that:
 
 - the model settings reach OpenRouter

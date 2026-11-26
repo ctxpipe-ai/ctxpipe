@@ -396,7 +396,7 @@ it(
 )
 
 it(
-  "the purge of an org whose row stays stops after its idle checks with org_kept, and deletes nothing",
+  "the purge of an org whose row stays stops after its idle checks with org_kept, deletes nothing, and keeps the run of the next day",
   { timeout: 180_000 },
   async () =>
     withNativeHydrationFixture(
@@ -409,15 +409,22 @@ it(
         // As an org delete whose hook queued the purge, and whose delete of
         // the org row then failed.
         await enqueueKnowledgePurge({ orgId: f.org.id, workspaceId: null })
-        await purged(f.org.id)
+        // The delete can still come: the run of the next day stays.
+        await vi.waitFor(
+          async () => {
+            await skipPurgeSleeps(f.org.id)
+            expect(
+              (await runsOf("knowledge-purge", f.org.id)).map(
+                (run) => run.status,
+              ),
+            ).toEqual(["completed", "pending"])
+          },
+          { timeout: 120_000, interval: 200 },
+        )
         const outputs = (await purgeChecks(f.org.id)).map((step) => step.output)
         expect(outputs.slice(0, -1)).toEqual(Array(IDLE_CHECKS).fill("org"))
         expect(outputs.at(-1)).toBeNull()
         expect((await purgeSteps(f.org.id)).at(-1)?.name).toBe("org-kept")
-        // The run ended with no error, so it canceled its next run.
-        expect(
-          (await runsOf("knowledge-purge", f.org.id)).map((run) => run.status),
-        ).toEqual(["completed", "canceled"])
         expect(await rowsOf(workspace)).toEqual(before)
         expect(await getKnowledgeState(workspace)).toMatchObject({
           lastSha: f.sha,

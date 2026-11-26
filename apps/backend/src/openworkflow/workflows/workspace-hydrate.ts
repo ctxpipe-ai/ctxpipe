@@ -219,7 +219,6 @@ export function defineWorkspaceHydrateWorkflow() {
             orgId: input.orgId,
             workspaceId: input.workspaceId,
           })
-          return true
         })
       // One event for each run: its outcome, and what it read and wrote. The
       // workflow logger emits a wide event only when it has a `step`.

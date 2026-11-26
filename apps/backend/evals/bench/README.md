@@ -66,7 +66,7 @@ A probe in a task container (the `oracle` agent, with the network setup of a CTX
 
 ### The CTX arm reads only the knowledge plane (decision D5)
 
-Decision D5 of the plan allows only the knowledge plane (ClickHouse and Jev) in the CTX arm. A run that touches FalkorDB is not valid. The code gives this result for the seven MCP tools when each Workspace is ready on the plane:
+Decision D5 of the plan allows only the knowledge plane (ClickHouse and Jev) in the CTX arm. A run that touches FalkorDB is not valid. The code gives this result for the seven MCP tools:
 
 | Tool | Can it reach FalkorDB? | The path |
 | --- | --- | --- |

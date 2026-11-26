@@ -93,11 +93,10 @@ export function knowledgeStore(): KnowledgeStore {
 
 /**
  * The plane reader of one request. `heads` is the served head of each
- * Workspace (ADR-071 decision 4). `meter` counts the model calls.
+ * Workspace (ADR-071 decision 4).
  */
 export function planeKnowledgeReader(input: {
   heads: ReadonlyMap<string, KnowledgeHead>
-  meter?: ModelMeter
 }): KnowledgeReader {
   /** The read scope of `workspaceIds`, with the head of each one. */
   const scopeOf = (
@@ -114,7 +113,9 @@ export function planeKnowledgeReader(input: {
       return { workspaceId, ...head }
     }),
   })
-  const meter = input.meter ?? {
+  // The orchestrator counts the model calls here; no caller reads them now
+  // (CTX-1713 removes the counters with the old stack).
+  const meter: ModelMeter = {
     jevCalls: 0,
     jevCandidates: 0,
     embeddingCalls: 0,

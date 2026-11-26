@@ -119,7 +119,12 @@ export const knowledgePurge = defineWorkflow(
       if (!wait) break
       if ((wait === "workspace" || wait === "org") && ++idle >= IDLE_CHECKS)
         return step.run({ name: `${wait}-kept` }, async () => {
-          await cancelQueuedPurges(input)
+          // A kept Workspace row means no delete. A kept organization row
+          // can be a slow delete (the hook purges codesearch and FalkorDB
+          // before Better Auth deletes the row), so the run of the next day
+          // stays: it purges after the delete, and it never deletes while
+          // the row is there.
+          if (wait === "workspace") await cancelQueuedPurges(input)
           getLogger().set({
             step: "knowledge-purge",
             knowledgePurge: { outcome: `${wait}_kept` },
