@@ -364,11 +364,50 @@ export const prerequisites = {
         "apps/backend/src/domain/workspaces/chat-runtime.ts",
         /"(ctxpipe-chat-sandbox:[^"]+)"/,
       )
+      // `--load` puts the image into the image store of the daemon. Without
+      // it, a builder of the docker-container driver keeps the image only in
+      // its own cache.
       step(
         "docker",
-        ["build", "-t", tag, "scripts/chat-sandbox"],
+        ["build", "--load", "-t", tag, "scripts/chat-sandbox"],
         "See scripts/chat-sandbox/README.md.",
       )
+      // The tests start the image after all prerequisites. On a shared host,
+      // the disk bound of another `factory check` removes each image that no
+      // container uses, also an image that this run built a moment ago
+      // (CTX-1723). Docker refuses to remove an image that a container uses
+      // (the bound uses no `--force`). Thus a created container, which never
+      // starts, holds the image until this process ends. It has the label of
+      // a test container: when this process is killed, the next test run
+      // removes it (scripts/ci/test-containers.mjs).
+      const holder = `ctxpipe-test-hold-chat-sandbox-${process.pid}`
+      quiet(
+        "docker",
+        [
+          "create",
+          "--pull",
+          "never",
+          "--name",
+          holder,
+          "--label",
+          `ai.ctxpipe.test=${process.env.CTXPIPE_TEST_OWNER || `${hostname()}/${process.pid}`}`,
+          tag,
+        ],
+        `The image ${tag} is not in the image store of the Docker daemon after its build. See scripts/chat-sandbox/README.md.`,
+      )
+      const release = () =>
+        spawnSync("docker", ["rm", "--force", "--volumes", holder], {
+          stdio: "ignore",
+        })
+      process.on("exit", release)
+      for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"])
+        process.once(signal, () => {
+          release()
+          // With no other listener, the signal ends the process, as it does
+          // without this listener.
+          if (process.listenerCount(signal) === 0)
+            process.kill(process.pid, signal)
+        })
     },
   },
   chromium: {
