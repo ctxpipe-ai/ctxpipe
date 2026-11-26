@@ -16,7 +16,7 @@ test("missing git is a failed prerequisite, never an optional test skip", () => 
   assert.match(result.stderr, /Required prerequisite git/)
 })
 
-test("chat sandbox builds even when its tag exists", async () => {
+test("chat sandbox builds even when its tag exists, loads the image and holds it while the process runs", async () => {
   const { mkdtempSync, writeFileSync, readFileSync, rmSync } =
     await import("node:fs")
   const { tmpdir } = await import("node:os")
@@ -34,14 +34,40 @@ test("chat sandbox builds even when its tag exists", async () => {
       ["scripts/checks/prerequisites.mjs", "chat-sandbox-image"],
       {
         encoding: "utf8",
-        env: { ...process.env, PATH: dir },
+        env: {
+          ...process.env,
+          PATH: dir,
+          CTXPIPE_TEST_OWNER: "test-host/7",
+        },
       },
     )
     assert.equal(result.status, 0, result.stderr)
+    const calls = readFileSync(log, "utf8").trim().split("\n")
+    // `--load`: a builder of the docker-container driver (the factory-check
+    // builder) keeps the image only in its own cache without it.
     assert.match(
-      readFileSync(log, "utf8"),
-      /build -t ctxpipe-chat-sandbox:.* scripts\/chat-sandbox/,
+      calls[1] ?? "",
+      /^build --load -t (ctxpipe-chat-sandbox:\S+) scripts\/chat-sandbox$/,
     )
+    const tag = calls[1].split(" ")[3]
+    // A created container holds the image while the prerequisite process
+    // runs: the disk bound of `factory check` does not remove an image that
+    // a container uses (CTX-1723).
+    const create = calls[2]?.split(" ") ?? []
+    assert.deepEqual(create.slice(0, 4), [
+      "create",
+      "--pull",
+      "never",
+      "--name",
+    ])
+    assert.match(create[4] ?? "", /^ctxpipe-test-hold-chat-sandbox-\d+$/)
+    assert.deepEqual(create.slice(5, 7), [
+      "--label",
+      "ai.ctxpipe.test=test-host/7",
+    ])
+    assert.equal(create.at(-1), tag)
+    // The holder goes when the process ends.
+    assert.equal(calls.at(-1), `rm --force --volumes ${create[4]}`)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
