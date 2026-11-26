@@ -158,6 +158,7 @@ The GitHub App therefore needs no variable.
 | Knowledge content | `clickhouse_data` | Yes, or rebuild it from the Workspace repositories |
 | Repository clone cache | `repo_cache` | No, codesearch clones again |
 | Zoekt indexes | `zoekt_index_deploy` | No, codesearch indexes again |
+| SCIP indexer caches | `indexer_cache` | No, codesearch fills it again |
 | Agent Vault passwords and data | `agent_vault_master`, `agent_vault_owner`, `agent_vault_data` | Keep them. New passwords do not match an existing Agent Vault. |
 | Sandboxes and TLS certificates | `sandbox_docker`, `sandbox_ca`, `sandbox_client_certs` | No |
 | Secrets | `.env`, or your secret store | Yes |
