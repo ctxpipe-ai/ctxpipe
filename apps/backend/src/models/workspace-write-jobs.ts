@@ -404,28 +404,41 @@ export async function discardWriteJobPreparedCommit(
   })
 }
 
-/** Resolve only this command's accepted native owner, including a lost admission reply. */
+/**
+ * Resolve only this command's accepted native owner, including a lost admission reply.
+ *
+ * Each lookup reads one run through an index, by its id or by its idempotency key (CTX-1708). Row-level security on
+ * `workflow_runs` lets Postgres use a condition in an index only when its functions are leakproof. `->>`, `||` and
+ * `replace` are not, also on a column of the job. So each value from the job that an index condition compares is in a
+ * scalar subquery of its own: Postgres computes it first and compares a parameter. With the value inline, each lookup
+ * read every run of the table. The two lookups cannot both find a run: the second runs only with no `workflowRunId`.
+ */
 function nativeWriteJobOwnerId() {
   const namespaceId = openWorkflowNamespaceId()
-  return sql<
-    string | null
-  >`(select scheduled.id from openworkflow.workflow_runs scheduled
-    where scheduled.input->>'orgId' = workspace_write_jobs.org_id
-      and scheduled.input->>'workspaceId' = workspace_write_jobs.workspace_id
-      and scheduled.input->>'jobId' = workspace_write_jobs.id
-      and scheduled.workflow_name = 'workspace-write-' || replace(workspace_write_jobs.kind, '_', '-')
+  const ofThisCommand = sql`scheduled.namespace_id = ${namespaceId}
+      and scheduled.workflow_name = (select 'workspace-write-' || replace(workspace_write_jobs.kind, '_', '-'))
       and scheduled.version is null
-      and scheduled.namespace_id = ${namespaceId}
-      and (scheduled.id = workspace_write_jobs.payload->>'workflowRunId'
-        or (workspace_write_jobs.payload->>'workflowRunId' is null
-          and scheduled.idempotency_key = workspace_write_jobs.id
-          and (scheduled.input->'revision' = workspace_write_jobs.payload->'revision'
-            or (workspace_write_jobs.kind = 'bootstrap' and scheduled.input->'bootstrapBinding' = workspace_write_jobs.payload->'bootstrapBinding'))))
-    order by scheduled.created_at, scheduled.id limit 1)`
+      and scheduled.input->>'orgId' = workspace_write_jobs.org_id
+      and scheduled.input->>'workspaceId' = workspace_write_jobs.workspace_id
+      and scheduled.input->>'jobId' = workspace_write_jobs.id`
+  return sql<string | null>`coalesce(
+    (select scheduled.id from openworkflow.workflow_runs scheduled
+      where scheduled.id = (select workspace_write_jobs.payload->>'workflowRunId')
+        and ${ofThisCommand}),
+    (select scheduled.id from openworkflow.workflow_runs scheduled
+      where workspace_write_jobs.payload->>'workflowRunId' is null
+        and scheduled.idempotency_key = workspace_write_jobs.id
+        and ${ofThisCommand}
+        and (scheduled.input->'revision' = workspace_write_jobs.payload->'revision'
+          or (workspace_write_jobs.kind = 'bootstrap' and scheduled.input->'bootstrapBinding' = workspace_write_jobs.payload->'bootstrapBinding'))
+      order by scheduled.created_at, scheduled.id limit 1))`
 }
 
-/** Set `failed` on a job whose owning run is terminal. */
-function failJobsWithEndedRun(...conditions: SQL[]) {
+/**
+ * Set `failed` on a job whose owning run is terminal. Exported for the plan
+ * test, which shows that each read of a run uses an index.
+ */
+export function failJobsWithEndedRun(...conditions: SQL[]) {
   // OpenWorkflow is the retry authority. Reconcile only a terminal owning run;
   // a failed step whose native retries are still pending must remain running.
   return getOrgDb()
@@ -438,12 +451,12 @@ function failJobsWithEndedRun(...conditions: SQL[]) {
     .where(
       and(
         ...conditions,
-        sql`exists (select 1 from openworkflow.workflow_runs owner
-        where owner.id = ${nativeWriteJobOwnerId()}
-          and owner.input->>'orgId' = ${workspaceWriteJobs.orgId}
-          and owner.input->>'workspaceId' = ${workspaceWriteJobs.workspaceId}
-          and owner.input->>'jobId' = ${workspaceWriteJobs.id}
-          and owner.status in ('failed', 'canceled'))`,
+        // The owner already matches the org, Workspace and job of this row. A
+        // scalar read by the primary key, not `exists`: Postgres made the
+        // `exists` a join that read every failed and canceled run.
+        sql`(select owner.status from openworkflow.workflow_runs owner
+          where owner.namespace_id = ${openWorkflowNamespaceId()}
+            and owner.id = (select ${nativeWriteJobOwnerId()})) in ('failed', 'canceled')`,
       ),
     )
 }

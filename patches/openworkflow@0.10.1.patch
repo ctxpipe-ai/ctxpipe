@@ -19,7 +19,7 @@ index e36a2cf55c73f2999d4aae31b12faf611c0fcc6b..7331c26ca0e53726f5c71118d8f6d49e
  export interface ExtendWorkflowRunLeaseParams {
      workflowRunId: string;
 diff --git a/dist/postgres/backend.js b/dist/postgres/backend.js
-index d2cdb79bdd2ecb511f95180767067cb6c0679f3c..1225ab5c95314f3f7476349129357f0592b5a5f2 100644
+index d2cdb79bdd2ecb511f95180767067cb6c0679f3c..cb8b9e1fce7919b4b4dee0df340fddc52284eb1c 100644
 --- a/dist/postgres/backend.js
 +++ b/dist/postgres/backend.js
 @@ -141,7 +141,27 @@ export class BackendPostgres {
@@ -94,16 +94,45 @@ index d2cdb79bdd2ecb511f95180767067cb6c0679f3c..1225ab5c95314f3f7476349129357f05
          const [claimed] = await this.pg `
        WITH expired AS (
          UPDATE ${workflowRunsTable}
-@@ -366,8 +405,11 @@ export class BackendPostgres {
+@@ -359,15 +398,39 @@ export class BackendPostgres {
+           AND "deadline_at" <= NOW()
+         RETURNING "id"
+       ),
++      -- ctxpipe patch (CTX-1707): the runs that each org runs now (a live
++      -- lease, in all workers). The org of a run is its input "orgId"; the
++      -- runs with no org are one group. MATERIALIZED counts them one time,
++      -- not one time for each run that waits.
++      org_runs AS MATERIALIZED (
++        SELECT "input"->>'orgId' AS "org_id", COUNT(*) AS "runs"
++        FROM ${workflowRunsTable}
++        WHERE "namespace_id" = ${this.namespaceId}
++          AND "status" = 'running'
++          AND "available_at" > NOW()
++        GROUP BY 1
++      ),
+       candidate AS (
+         SELECT "id"
+-        FROM ${workflowRunsTable}
++        FROM ${workflowRunsTable} run
+         WHERE "namespace_id" = ${this.namespaceId}
            AND "status" IN ('pending', 'running', 'sleeping')
            AND "available_at" <= NOW()
            AND ("deadline_at" IS NULL OR "deadline_at" > NOW())
 +          ${limitWorkflowSlots}
-+        -- ctxpipe patch (CTX-1478): first available, first claimed. A woken
-+        -- parent is 'running', so a 'pending'-first order let each newer
-+        -- pending run take the free slot before it.
++        -- ctxpipe patch (CTX-1707): a fair share by org. The next run comes
++        -- from the org that runs the fewest runs now, so the backlog of one
++        -- org does not hold back the runs of another org. One org alone
++        -- still gets each free slot.
++        -- ctxpipe patch (CTX-1478): in an org, first available, first
++        -- claimed. A woken parent is 'running', so a 'pending'-first order
++        -- let each newer pending run take the free slot before it.
          ORDER BY
 -          CASE WHEN "status" = 'pending' THEN 0 ELSE 1 END,
++          COALESCE((
++            SELECT org_runs."runs"
++            FROM org_runs
++            WHERE org_runs."org_id" IS NOT DISTINCT FROM run."input"->>'orgId'
++          ), 0),
            "available_at",
            "created_at"
          LIMIT 1

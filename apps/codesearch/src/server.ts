@@ -6,10 +6,12 @@ import { createApp } from "./app/app.js"
 import { parseEnv } from "./config/env.js"
 import {
   CACHE_LAYOUT_MARKER,
+  INDEXER_CACHE_DIR,
   REPO_CACHE_DIR,
   ZOEKT_INDEX_DIR,
   zoektStagingDirFromIndexDir,
 } from "./config/paths.js"
+import { removeIndexerRunDirs } from "./domain/indexing/indexerCache.js"
 import { resetCacheForLayout } from "./domain/repositories/layoutReset.js"
 import { isShardStoreReadOnly, shardStore } from "./domain/store/shardStore.js"
 import { flushEvlog, initEvlog } from "./observability/logger.js"
@@ -28,6 +30,8 @@ await rm(zoektStagingDirFromIndexDir(ZOEKT_INDEX_DIR), {
   recursive: true,
   force: true,
 })
+// A crash leaves the temp directories of its indexer runs behind.
+await removeIndexerRunDirs(INDEXER_CACHE_DIR)
 // Fails the start on a malformed CODESEARCH_SHARD_STORE or
 // CODESEARCH_SHARD_STORE_READ_ONLY.
 shardStore()

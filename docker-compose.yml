@@ -558,6 +558,7 @@ services:
     volumes:
       - zoekt_index_deploy:/data/zoekt-index
       - repo_cache:/data/repo-cache
+      - indexer_cache:/data/indexer-cache
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -591,6 +592,7 @@ volumes:
   sandbox_client_certs:
   zoekt_index_deploy:
   repo_cache:
+  indexer_cache:
   # The knowledge content. Derived from Git: a full hydrate rebuilds it.
   clickhouse_data:
   # The generated ClickHouse passwords, one for each user.

@@ -1,6 +1,32 @@
 # ADR-031: GitHub pull-request scoped mirror
 
-**Status:** Accepted (revised 2026-10-03, 2026-10-13, 2026-10-25) (sync repository and scope file superseded by [ADR-050](ADR-050-workspace-sources-config-file.md)) | **Date:** 2026-09-16 | **Tags:** connectors, github, git, graph, ingestion, workspaces
+**Status:** Accepted (revised 2026-10-03, 2026-10-13, 2026-10-25, 2026-11-26) (sync repository and scope file superseded by [ADR-050](ADR-050-workspace-sources-config-file.md)) | **Date:** 2026-09-16 | **Tags:** connectors, github, git, graph, ingestion, workspaces
+
+## Revision (2026-11-26): the unlink retraction deletes the mirrors
+
+This revision replaces "Mirrored files stay in git" in the 2026-10-03
+revision. Mirrors that stay after an unlink are stale context: a search
+returns pull requests and issues of a repository that the Workspace no longer
+has.
+
+- **Delete on unlink:** when a GitHub source leaves the Workspace, the
+  `unlink_retraction` host write job (ADR-052) also deletes the mirror files
+  of that repository under `github/pulls/<owner>/<repo>/` and
+  `github/issues/<owner>/<repo>/`. The deletes go in the same host commit as
+  the knowledge retraction. The merge of the source removal is the approval,
+  as for the knowledge files.
+- **Same fence:** the mirrors stay when the fence of the retraction holds: a
+  source names the repository again, a source file cannot be read, a stored
+  source row still names the repository, or the tree is below format 3. When
+  the fence lets the job continue, the mirrors go, also when no knowledge
+  file goes.
+- **Case:** the match of the owner and repository folders ignores case, so a
+  mixed-case folder from before 2026-10-20 goes too.
+- **One listing:** the retraction and the one-time cleanup of
+  [CTX-1693](https://linear.app/ctxpipe/issue/CTX-1693) use the same mirror
+  path listing (`github-mirror-paths.ts`).
+- **Known limit:** a repository that left the Workspace before this revision
+  keeps its mirrors. The one-time cleanup removes them.
 
 ## Revision (2026-10-25): issues follow linked repositories
 
@@ -77,8 +103,9 @@ connector-preselect consequence) are superseded:
   (`assertConnectorMirrorScope`) is the single unlink authority: a write lands
   only if the Workspace tree still declares the repository in
   `repositories/*.md`. A mirror captured just before an unlink fails at that
-  check instead of writing. Mirrored files stay in git. An operator can
-  remove them one time with the cleanup of
+  check instead of writing. The unlink retraction deletes the mirrored files
+  (revision 2026-11-26). An operator can remove older leftovers one time with
+  the cleanup of
   [CTX-1693](https://linear.app/ctxpipe/issue/CTX-1693)
   (`apps/backend/src/scripts/cleanupGithubMirrors.ts`): it deletes the
   mirrors of repositories that no source holds, and the mixed-case copies

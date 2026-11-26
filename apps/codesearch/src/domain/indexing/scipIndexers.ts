@@ -4,10 +4,16 @@ import { basename, dirname, join, relative, resolve } from "node:path"
 
 import { type Span, SpanStatusCode, trace } from "@opentelemetry/api"
 
+import { INDEXER_CACHE_DIR } from "../../config/paths.js"
 import { tryEmitIndexEvent } from "../../observability/indexingLog.js"
 import { mergeScipShardFiles } from "../graph/scipProto.js"
 import { getIndexerProcessConcurrency } from "./capacityEnv.js"
 import type { ScipIndexerId } from "./detectLanguages.js"
+import {
+  boundIndexerCache,
+  indexerCacheEnv,
+  withIndexerRunDir,
+} from "./indexerCache.js"
 import { withIndexerGoLimits } from "./indexerChildEnv.js"
 import { withScipIndexerSlot } from "./indexerProcessSemaphore.js"
 import { errorFromIndexerExit } from "./memoryFitError.js"
@@ -122,30 +128,55 @@ async function runIndexerProcess(input: {
   /** Node heap for Node-based indexers; set after the env allowlist. */
   heapMb?: number
 }): Promise<void> {
-  await withScipIndexerSlot(() =>
-    trace
-      .getTracer("codesearch")
-      .startActiveSpan(
-        "scip.indexer.process",
-        { attributes: { "scip.indexer": input.indexerId } },
-        async (span) => {
-          try {
-            await runIndexerSubprocess(input, span)
-          } catch (error) {
-            const message = errorMessage(error)
-            span.recordException(error instanceof Error ? error : message)
-            span.setStatus({ code: SpanStatusCode.ERROR, message })
-            throw error
-          } finally {
-            span.end()
-          }
-        },
-      ),
-  )
+  await withScipIndexerSlot(async () => {
+    await boundIndexerCacheBestEffort()
+    await withIndexerRunDir(INDEXER_CACHE_DIR, (tempDir) =>
+      trace
+        .getTracer("codesearch")
+        .startActiveSpan(
+          "scip.indexer.process",
+          { attributes: { "scip.indexer": input.indexerId } },
+          async (span) => {
+            try {
+              await runIndexerSubprocess({ ...input, tempDir }, span)
+            } catch (error) {
+              const message = errorMessage(error)
+              span.recordException(error instanceof Error ? error : message)
+              span.setStatus({ code: SpanStatusCode.ERROR, message })
+              throw error
+            } finally {
+              span.end()
+            }
+          },
+        ),
+    )
+  })
+}
+
+/**
+ * Empty the indexer caches above 20 GB, before an indexer starts. A failed
+ * check does not stop the index run.
+ */
+async function boundIndexerCacheBestEffort(): Promise<void> {
+  try {
+    const { bytes, emptied } = await boundIndexerCache(
+      INDEXER_CACHE_DIR,
+      20 * 1024 ** 3,
+    )
+    if (emptied) {
+      tryEmitIndexEvent("codesearch.index.scip.indexer_cache_emptied", {
+        bytes,
+      })
+    }
+  } catch (error) {
+    tryEmitIndexEvent("codesearch.index.scip.indexer_cache_bound_failed", {
+      error: errorMessage(error),
+    })
+  }
 }
 
 async function runIndexerSubprocess(
-  input: Parameters<typeof runIndexerProcess>[0],
+  input: Parameters<typeof runIndexerProcess>[0] & { tempDir: string },
   span: Span,
 ): Promise<void> {
   const subprocess = (() => {
@@ -154,6 +185,7 @@ async function runIndexerSubprocess(
         cwd: input.checkoutPath,
         env: {
           ...withIndexerGoLimits(input.env),
+          ...indexerCacheEnv(INDEXER_CACHE_DIR, input.tempDir),
           ...(input.heapMb
             ? { NODE_OPTIONS: `--max-old-space-size=${input.heapMb}` }
             : {}),

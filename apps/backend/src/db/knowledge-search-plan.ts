@@ -28,7 +28,7 @@ const planNode: z.ZodType<PlanNode> = z.lazy(() =>
 const explainJson = z.array(z.object({ Plan: planNode }))
 
 /** Every node of an EXPLAIN (FORMAT JSON) plan. */
-function planNodes(plan: unknown): PlanNode[] {
+export function planNodes(plan: unknown): PlanNode[] {
   const nodes: PlanNode[] = []
   const visit = (node: PlanNode) => {
     nodes.push(node)
