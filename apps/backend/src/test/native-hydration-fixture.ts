@@ -797,25 +797,34 @@ async function createNativeHydrationFixture(
         path: `document-${String(index).padStart(3, "0")}.md`,
         body: `# Document ${index}\nCommitted body ${index}.\n`,
       }))
-    for (const file of expected) {
-      mkdirSync(dirname(join(directory, file.path)), { recursive: true })
-      // `{{connectionId}}` stands for the fixture's GitHub connection id.
-      writeFileSync(
-        join(directory, file.path),
-        file.body.replaceAll("{{connectionId}}", connectionId),
-      )
-    }
+    // `{{connectionId}}` stands for the fixture's GitHub connection id.
+    const staged: Array<{ path: string; body: string; mode?: string }> =
+      expected.map((file) => ({
+        ...file,
+        body: file.body.replaceAll("{{connectionId}}", connectionId),
+      }))
     if (options.format !== undefined) {
       const formatFile = workspaceFormatFile(options.format)
-      mkdirSync(dirname(join(directory, formatFile.path)), { recursive: true })
-      writeFileSync(join(directory, formatFile.path), formatFile.content)
+      staged.push({ path: formatFile.path, body: formatFile.content })
     }
-    git("add", ".")
-    for (const file of options.files ?? []) {
-      if (file.mode) {
-        const blob = git("rev-parse", `:${file.path}`)
-        git("update-index", "--cacheinfo", `${file.mode},${blob},${file.path}`)
-      }
+    // The index gets each file from its body, not from the disk: a file
+    // system that ignores case (macOS) keeps one file for two paths that
+    // differ only in case.
+    git("config", "core.ignorecase", "false")
+    for (const file of staged) {
+      mkdirSync(dirname(join(directory, file.path)), { recursive: true })
+      writeFileSync(join(directory, file.path), file.body)
+      const blob = execFileSync("git", ["hash-object", "-w", "--stdin"], {
+        cwd: directory,
+        input: file.body,
+        encoding: "utf8",
+      }).trim()
+      git(
+        "update-index",
+        "--add",
+        "--cacheinfo",
+        `${file.mode ?? "100644"},${blob},${file.path}`,
+      )
     }
     execFileSync(
       "git",

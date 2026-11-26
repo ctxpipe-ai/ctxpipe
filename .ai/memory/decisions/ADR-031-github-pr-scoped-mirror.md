@@ -77,7 +77,12 @@ connector-preselect consequence) are superseded:
   (`assertConnectorMirrorScope`) is the single unlink authority: a write lands
   only if the Workspace tree still declares the repository in
   `repositories/*.md`. A mirror captured just before an unlink fails at that
-  check instead of writing. Mirrored files stay in git.
+  check instead of writing. Mirrored files stay in git. An operator can
+  remove them one time with the cleanup of
+  [CTX-1693](https://linear.app/ctxpipe/issue/CTX-1693)
+  (`apps/backend/src/scripts/cleanupGithubMirrors.ts`): it deletes the
+  mirrors of repositories that no source holds, and the mixed-case copies
+  from before 2026-10-20.
 - **Backfill trigger:** hydrate, before it records a revision's linked
   repositories, starts a backfill for each GitHub repository not yet in the
   Workspace's linked table (key `github-pr-backfill:<workspaceId>:<gitUrl>`).

@@ -36,7 +36,7 @@ import {
 import type { IngestPublishSource } from "./extraction-source.js"
 import { workspaceGitRead } from "./resolve-revision.js"
 import { sameWorkspaceRevision, type WorkspaceRevision } from "./revision.js"
-import { workspaceRootPath } from "./root-path.js"
+import { workspaceRevisionPack, workspaceRootPath } from "./root-path.js"
 import { resolveSemanticConflicts, type WriteOrigin } from "./semantic-merge.js"
 import { deleteWriteJobRefs, prepareRecordedCommit } from "./write-broker.js"
 import type { WorkspaceWriteJobKind } from "./write-jobs.js"
@@ -132,17 +132,10 @@ export async function acquireWorkspaceWriteRevision(
   )
     throw new Error("Workspace write binding changed")
   if (workspace.writeStatus !== "writable") return null
-  const root = workspaceRootPath(revision)
-  const pack: GitPack = {
-    sha: revision.sha,
-    objects: "",
-    shallow: "",
-    ...(root ? { root } : {}),
-    base: {
-      url: revision.remote.url,
-      shas: [revision.sha, ...(previousSha ? [previousSha] : [])],
-    },
-  }
+  const pack = workspaceRevisionPack(revision, [
+    revision.sha,
+    ...(previousSha ? [previousSha] : []),
+  ])
   if (input.mirror)
     await assertConnectorMirrorScope(
       input.mirror,

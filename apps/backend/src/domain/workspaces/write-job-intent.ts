@@ -105,6 +105,7 @@ const writeJobKindSchema = z.enum([
   "import_key_cleanup",
   "ownership_migration",
   "unlink_retraction",
+  "github_mirror_cleanup",
 ])
 
 /** Shared enqueue + workflow input. Kind-specific fields stay on the payload. */
