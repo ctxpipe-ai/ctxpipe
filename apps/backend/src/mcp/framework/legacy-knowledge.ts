@@ -35,7 +35,7 @@ function legacyKnowledgeMessage(
   workspace: Pick<CallWorkspace, "slug" | "legacyKnowledgeFiles">,
 ): string {
   const files = workspace.legacyKnowledgeFiles
-  return `Workspace "${workspace.slug}" has ${files} knowledge ${files === 1 ? "file" : "files"} from before Workspaces that ${files === 1 ? "is" : "are"} not in its repository, so ctxpipe does not serve ${files === 1 ? "it" : "them"}. An owner or admin of the org can add ${files === 1 ? "it" : "them"}: merge the format upgrade if the Workspace has one open, then start the re-ingestion (Workspace settings, Status).`
+  return `Workspace "${workspace.slug}" has ${files} knowledge ${files === 1 ? "file" : "files"} from before Workspaces that ${files === 1 ? "is" : "are"} not in its repository, so ctxpipe does not serve ${files === 1 ? "it" : "them"}. An owner or admin of the org can add ${files === 1 ? "it" : "them"}: merge the format upgrade if the Workspace has one open, then start the re-ingestion (Workspace settings, Upgrades).`
 }
 
 /**
