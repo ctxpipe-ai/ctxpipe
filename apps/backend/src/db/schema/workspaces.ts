@@ -70,6 +70,15 @@ export const workspaces = pgTable.withRLS(
      * reads the file; `-1` when the file is not valid.
      */
     formatVersion: integer("format_version"),
+    /**
+     * The count of main-era knowledge files that only the legacy overlay
+     * serves (ADR-053): the Workspace repository does not hold them. Hydrate
+     * writes the value again for each projection. The knowledge plane does
+     * not serve these files, so the UI and MCP tell the operator to merge
+     * the format upgrade and to start the re-ingestion (CTX-1715). Null
+     * before the first hydrate or backfill that counts them.
+     */
+    legacyKnowledgeFiles: integer("legacy_knowledge_files"),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
       .notNull()
       .defaultNow(),

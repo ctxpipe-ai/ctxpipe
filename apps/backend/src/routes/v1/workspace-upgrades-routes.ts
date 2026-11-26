@@ -212,6 +212,10 @@ const WorkspaceUpgradesSchema = z
       description:
         "The newest format that this ctxpipe version reads and writes.",
     }),
+    legacyKnowledgeFiles: z.number().int().nullable().openapi({
+      description:
+        "The count of knowledge files from before Workspaces that the Workspace repository does not hold (ADR-053). The knowledge plane does not serve them: merge the format upgrade, then run the re-ingestion. `null`: ctxpipe has not counted them yet.",
+    }),
     items: z.array(WorkspaceUpgradeItemSchema),
   })
   .openapi("WorkspaceUpgrades")
@@ -539,6 +543,7 @@ const routes = new OpenAPIHono<AppEnv>()
       {
         formatVersion: workspace.formatVersion,
         codeFormat: CODE_FORMAT,
+        legacyKnowledgeFiles: workspace.legacyKnowledgeFiles,
         items: rows.map(serializeUpgrade),
       },
       200,

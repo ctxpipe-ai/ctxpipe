@@ -1467,6 +1467,8 @@ export async function commitHydrateProjection(input: {
   displayName: string | null
   /** The cache value of the format file at the revision (`workspace-format.ts`). Null: no format yet. */
   formatVersion: number | null
+  /** The count of legacy overlay files of the revision (ADR-053, CTX-1715). */
+  legacyKnowledgeFiles: number
   units: readonly HydrateUnit[]
   skipped: readonly HydrateSkip[]
   /** Part of each chunk hash, so that a model change embeds again. */
@@ -1499,6 +1501,7 @@ export async function commitHydrateProjection(input: {
           hydrateStatus: "ready",
           hydrateError: null,
           formatVersion: input.formatVersion,
+          legacyKnowledgeFiles: input.legacyKnowledgeFiles,
           hydratePhases: sql`${JSON.stringify({
             ...initialHydratePhases({
               url: input.revision.remote.url,

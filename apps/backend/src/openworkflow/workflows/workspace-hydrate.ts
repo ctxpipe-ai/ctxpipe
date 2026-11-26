@@ -697,6 +697,11 @@ export function defineWorkspaceHydrateWorkflow() {
                 revision,
                 displayName,
                 formatVersion,
+                // The knowledge plane does not serve these units, so the UI
+                // and MCP tell the operator about them (CTX-1715).
+                legacyKnowledgeFiles: parsed.units.filter(
+                  (unit) => unit.source === LEGACY_UNIT_SOURCE,
+                ).length,
                 skipped: parsed.skipped,
                 embeddingModel: embeddingModelId(),
                 units: scrubbedUnits,

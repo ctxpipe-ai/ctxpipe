@@ -1,0 +1,1 @@
+ALTER TABLE "workspaces" ADD COLUMN "legacy_knowledge_files" integer;

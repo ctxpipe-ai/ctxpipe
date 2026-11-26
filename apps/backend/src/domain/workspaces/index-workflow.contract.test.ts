@@ -921,6 +921,7 @@ it.each(["pending", "failed"])(
             revision: next,
             displayName: null,
             formatVersion: 0,
+            legacyKnowledgeFiles: 0,
             units: [],
             skipped: [],
             embeddingModel: "fixture-embedding",

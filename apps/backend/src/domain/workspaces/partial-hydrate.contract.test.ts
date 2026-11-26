@@ -562,6 +562,7 @@ async function commitBase(f: NativeHydrationFixture) {
       revision: f.revision,
       displayName: null,
       formatVersion: null,
+      legacyKnowledgeFiles: 0,
       units: list,
       skipped: [],
       embeddingModel,

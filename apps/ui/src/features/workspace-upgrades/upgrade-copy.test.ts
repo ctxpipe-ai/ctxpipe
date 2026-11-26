@@ -6,6 +6,7 @@ import type { WorkspaceUpgradeItem } from "./queries"
 import {
   upgradesState,
   formatHealthLine,
+  legacyKnowledgeCopy,
   upgradeBlockedCopy,
   upgradeCanCancel,
   upgradeCanCheck,
@@ -484,5 +485,30 @@ describe("the Status group says if the user must act (CTX-980)", () => {
       upgradeHistoryLine([fixture({ updatedAt: "2026-10-21T23:30:00.000Z" })]),
     ).toBe("History · 1 applied, last on Oct 21")
     vi.unstubAllEnvs()
+  })
+})
+
+describe("legacyKnowledgeCopy", () => {
+  it("names the count and the action when the repository lacks main-era knowledge", () => {
+    expect(legacyKnowledgeCopy(12, 0)).toEqual({
+      title: "12 knowledge files are not in the repository",
+      body: expect.stringMatching(
+        /To add it to the repository, merge the format upgrade, then start the re-ingestion\.$/,
+      ),
+    })
+    expect(legacyKnowledgeCopy(1, null)?.title).toBe(
+      "1 knowledge file is not in the repository",
+    )
+  })
+
+  it("at format 3, where the format upgrade is merged, names only the re-ingestion", () => {
+    expect(legacyKnowledgeCopy(3, 3)?.body).toMatch(
+      /To add it to the repository, start the re-ingestion\.$/,
+    )
+  })
+
+  it("shows nothing when the Workspace has none, or before ctxpipe counts it", () => {
+    expect(legacyKnowledgeCopy(0, 0)).toBeNull()
+    expect(legacyKnowledgeCopy(null, 0)).toBeNull()
   })
 })
