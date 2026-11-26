@@ -75,7 +75,7 @@ let laterSha: string
 let workspaceId: string
 let readClient: Client
 let listClient: Client
-let clock = Date.now()
+const clock = Date.now()
 
 async function git(...args: string[]): Promise<string> {
   const { stdout } = await exec("git", ["-C", repository, ...args], {
