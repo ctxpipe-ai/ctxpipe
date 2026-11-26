@@ -111,8 +111,15 @@ describe("workspace chat runtime", () => {
     // the host name. useConfigOnly gives this host the same result.
     const globalConfig = join(home, ".gitconfig")
     writeFileSync(globalConfig, "[user]\n\tuseConfigOnly = true\n")
+    // Remove the host's Git identity variables: they win over the config
+    // that the checkout step writes.
+    const hostEnv = Object.fromEntries(
+      Object.entries(process.env).filter(
+        ([key]) => !/^GIT_(AUTHOR|COMMITTER)_/.test(key),
+      ),
+    )
     const env = {
-      ...process.env,
+      ...hostEnv,
       HOME: home,
       GIT_CONFIG_GLOBAL: globalConfig,
       GIT_CONFIG_NOSYSTEM: "1",
