@@ -13,6 +13,7 @@ export const WORKSPACE_WRITE_JOB_KINDS = [
   "import_key_cleanup",
   "ownership_migration",
   "unlink_retraction",
+  "github_mirror_cleanup",
 ] as const
 
 export type WorkspaceWriteJobKind = (typeof WORKSPACE_WRITE_JOB_KINDS)[number]

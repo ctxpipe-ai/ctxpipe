@@ -54,6 +54,7 @@ import {
   workspaceFileEdit,
   workspaceFileEditInputSchema,
 } from "./workflows/workspace-file-edit.js"
+import { workspaceGithubMirrorCleanup } from "./workflows/workspace-github-mirror-cleanup.js"
 import { workspaceImportKeyCleanup } from "./workflows/workspace-import-key-cleanup.js"
 import { workspaceOpsFolderList } from "./workflows/workspace-ops-folder-list.js"
 import { workspaceOwnershipMigration } from "./workflows/workspace-ownership-migration.js"
@@ -266,7 +267,9 @@ export async function enqueueWriteJob(
   const snapshotWriteWorkflows: Partial<
     Record<
       EnqueueWriteJobInput["kind"],
-      typeof workspaceClaimsUpgrade | typeof workspaceOwnershipMigration
+      | typeof workspaceClaimsUpgrade
+      | typeof workspaceOwnershipMigration
+      | typeof workspaceGithubMirrorCleanup
     >
   > = {
     claims_upgrade: workspaceClaimsUpgrade,
@@ -274,6 +277,7 @@ export async function enqueueWriteJob(
     import_key_cleanup: workspaceImportKeyCleanup,
     ownership_migration: workspaceOwnershipMigration,
     ops_folder_map: workspaceOpsFolderList,
+    github_mirror_cleanup: workspaceGithubMirrorCleanup,
   }
   const snapshotWorkflow = snapshotWriteWorkflows[input.kind]
   if (
