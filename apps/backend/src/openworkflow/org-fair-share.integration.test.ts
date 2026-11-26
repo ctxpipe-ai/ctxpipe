@@ -5,10 +5,12 @@ import { afterAll, beforeAll, expect, it, vi } from "vitest"
 
 import { closeDb, initDb } from "../db/client.js"
 import { INGESTION_SHARD_WORKFLOW_NAME } from "../domain/ingestion/ingestion-run.js"
+import { cancelOpenWorkflowRuns } from "../test/open-workflow-runs.js"
 import { connectOpenWorkflowBackend } from "./storable-backend.js"
 
 const lease = { leaseDurationMs: 30_000 }
 const backends: BackendPostgres[] = []
+const namespaces: string[] = []
 
 /**
  * One worker process: a backend and the ids of its 4 slots. Each test gets
@@ -18,10 +20,9 @@ async function workerProcess() {
   const url = process.env.DATABASE_URL
   if (!url) throw new Error("DATABASE_URL is required")
   vi.stubEnv("OPENWORKFLOW_CONCURRENCY", "4")
-  const backend = await connectOpenWorkflowBackend(
-    url,
-    `org-fair-share-${randomUUID()}`,
-  )
+  const namespace = `org-fair-share-${randomUUID()}`
+  namespaces.push(namespace)
+  const backend = await connectOpenWorkflowBackend(url, namespace)
   vi.unstubAllEnvs()
   backends.push(backend)
   const slots = Array.from({ length: 4 }, () => randomUUID())
@@ -72,6 +73,10 @@ beforeAll(() => {
 
 afterAll(async () => {
   await Promise.all(backends.map((backend) => backend.stop()))
+  const url = process.env.DATABASE_URL
+  if (url)
+    for (const namespace of namespaces)
+      await cancelOpenWorkflowRuns(url, namespace)
   await closeDb()
 })
 
