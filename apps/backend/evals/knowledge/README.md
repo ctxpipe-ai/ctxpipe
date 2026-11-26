@@ -158,6 +158,8 @@ bun --env-file=.env.local evals/knowledge/cli.ts run \
 
 Each Workspace must serve the frozen SHA of its corpus on both stacks: the published revision on the old stack, and the last complete knowledge run on the plane (`knowledge_state`). Both stacks must also serve the root of the corpus: a failed projection after a change of the root keeps the earlier projection of the same SHA. `hydrate` makes such Workspaces.
 
+The plane store of each Workspace must have the projection version of the code (`KNOWLEDGE_PROJECTION_CODE_VERSION`, ADR-067 decision 4). A store of another version does not hold the changes that need a new projection, so the run would mix them with the change that it measures. Before any model call, `run` and `rescore` refuse such a store (exit 2) and tell you to run `hydrate` with this code. The manifest of the run (`stores`) records the projection version of the store of each corpus.
+
 Write each run folder outside the checkout, as in these examples. The folder holds the org id of the targets file and the corpus text, and this repository is public.
 
 - Each model call of the readers scrubs its text with the file converter (CTX-1452), so `run` and `rescore` build it first, as `hydrate` does.

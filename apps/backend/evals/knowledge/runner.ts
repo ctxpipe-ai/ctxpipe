@@ -8,7 +8,10 @@ import { z } from "zod"
 import { withOrgDbContext } from "../../src/db/client.js"
 import { workspaceRevisionSchema } from "../../src/domain/workspaces/revision.js"
 import { workspaceRootPath } from "../../src/domain/workspaces/root-path.js"
-import { knowledgeProjectionRoot } from "../../src/knowledge-plane/change-set.js"
+import {
+  KNOWLEDGE_PROJECTION_CODE_VERSION,
+  parseKnowledgeProjectionVersion,
+} from "../../src/knowledge-plane/change-set.js"
 import type { KnowledgeReader } from "../../src/knowledge-reader/knowledge-reader.js"
 import { legacyKnowledgeReader } from "../../src/knowledge-reader/legacy-reader.js"
 import { ORCHESTRATOR_DEFAULTS } from "../../src/knowledge-reader/orchestrator.js"
@@ -57,6 +60,9 @@ export const ARM_NAMES: Record<Arm, string> = {
   legacy: "baseline: current stack (Postgres + FalkorDB)",
   plane: "knowledge plane (ClickHouse + Jev)",
 }
+
+/** A bad setup of a command: the command exits with 2, before any model call. */
+export class SetupError extends Error {}
 
 /** The Workspace of a corpus fixture id, in the database of the run. */
 export const targetsSchema = z.record(
@@ -218,6 +224,11 @@ const manifestSchema = z.object({
    * recorded call asked. Absent: such a call misses.
    */
   unrecordedYes: z.number().optional(),
+  /**
+   * The projection version of the plane store of each corpus, by corpus id
+   * (`knowledge_state`). Absent in a run from before CTX-1594.
+   */
+  stores: z.record(z.string(), z.string().nullable()).optional(),
   capUsd: z.number(),
   spentUsd: z.number(),
   stopped: z.boolean(),
@@ -244,6 +255,8 @@ type EvalTarget = {
   /** The high-degree units of the corpus (`highDegreeUnits`). */
   hubs: ReadonlySet<string>
   head: KnowledgeHead
+  /** The projection version of the plane store (`knowledge_state`). */
+  projectionVersion: string | null
 }
 
 /**
@@ -283,14 +296,22 @@ async function resolveWorkspaces(
       orgId: org.id,
       workspaceId: workspace.id,
     })
+    const projection = state?.projectionVersion
+      ? parseKnowledgeProjectionVersion(state.projectionVersion)
+      : null
+    // A store of another code version does not hold the changes that need
+    // a new projection, so the run would mix them with the change that it
+    // measures (CTX-1594).
+    if (projection && projection.code !== KNOWLEDGE_PROJECTION_CODE_VERSION)
+      throw new SetupError(
+        `The plane store of Workspace ${workspace.slug} (${corpus.id}) has projection version ${projection.code}, and the code has projection version ${KNOWLEDGE_PROJECTION_CODE_VERSION}. Run \`hydrate\` of the dataset with this code first: \`factory eval knowledge:hydrate\` or \`bun evals/knowledge/cli.ts hydrate --dataset DATASET.json --out DIR\`.`,
+      )
     const roots = {
       workspace: workspaceRootPath(record),
       old: workspaceRootPath(
         workspaceRevisionSchema.safeParse(record?.activeRevision).data,
       ),
-      plane: state?.projectionVersion
-        ? knowledgeProjectionRoot(state.projectionVersion)
-        : null,
+      plane: projection?.root ?? null,
     }
     if (Object.values(roots).some((served) => served !== root))
       throw new Error(
@@ -302,6 +323,7 @@ async function resolveWorkspaces(
       served: { branch: workspace.served.branch, sha },
       head,
       hubs: await highDegreeUnits(org.id, workspace.id),
+      projectionVersion: state?.projectionVersion ?? null,
     })
   }
   return resolved
@@ -339,7 +361,8 @@ export async function highDegreeUnits(
  * so that each latency is the latency of one request. Stops at the spend
  * cap of `calls`; the answer that the cap stopped is not kept. With
  * `baseline`, the old stack does not run: each question gets its stored
- * answer of the old stack.
+ * answer of the old stack. Also gives the projection version of the plane
+ * store of each corpus, by corpus id.
  */
 export async function runEval(input: {
   dataset: Dataset
@@ -351,9 +374,15 @@ export async function runEval(input: {
   quietMs: number
   /** The stored answers of the old stack, by question id. */
   baseline?: ReadonlyMap<string, ArmAnswer>
-}): Promise<ArmAnswer[]> {
+}): Promise<{ answers: ArmAnswer[]; stores: Record<string, string | null> }> {
   const { calls, now } = input
   const workspaces = await resolveWorkspaces(input.dataset, input.targets)
+  const stores = Object.fromEntries(
+    [...workspaces].map(([corpus, target]) => [
+      corpus,
+      target.projectionVersion,
+    ]),
+  )
   const quiet = quietTimer(input.quietMs)
   const answers: ArmAnswer[] = []
   for (const question of input.questions) {
@@ -375,7 +404,7 @@ export async function runEval(input: {
       const answer = await ask(reader, question, target, now, quiet)
       await calls.settle()
       const counts = calls.end()
-      if (calls.stopped) return answers
+      if (calls.stopped) return { answers, stores }
       answers.push({
         arm,
         question: question.id,
@@ -384,7 +413,7 @@ export async function runEval(input: {
       })
     }
   }
-  return answers
+  return { answers, stores }
 }
 
 /**

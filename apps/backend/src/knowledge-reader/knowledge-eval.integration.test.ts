@@ -10,12 +10,19 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { executeRun } from "../../evals/knowledge/cli.js"
 import { readDataset } from "../../evals/knowledge/dataset.js"
 import type { Report } from "../../evals/knowledge/report.js"
-import { readRun, type Targets } from "../../evals/knowledge/runner.js"
+import {
+  readRun,
+  SetupError,
+  type Targets,
+} from "../../evals/knowledge/runner.js"
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../test/db.js"
 import { withOrgDbContext } from "../db/client.js"
 import { workspaceKnowledgeUnits, workspaces } from "../db/schema/workspaces.js"
 import { servingIdForKnowledgePath } from "../domain/workspaces/hydrate.js"
-import { knowledgeProjectionVersion } from "../knowledge-plane/change-set.js"
+import {
+  KNOWLEDGE_PROJECTION_CODE_VERSION,
+  knowledgeProjectionVersion,
+} from "../knowledge-plane/change-set.js"
 import { createKnowledgeStore } from "../knowledge-store/knowledge-store.js"
 import { migrateKnowledgeStore } from "../knowledge-store/migrate.js"
 import {
@@ -173,8 +180,21 @@ const models = setupServer(
 const root = dataset.corpora[0]?.contextRepo.root ?? ""
 let seededWorkspace: string
 
-/** Record a complete plane run of the frozen SHA at the root `of`. */
-async function projectPlane(of: string) {
+/** The projection version of the plane store at the root `of`. */
+const projectionAt = (of: string) =>
+  knowledgeProjectionVersion({
+    embeddingModel: textEmbeddingConfig.model,
+    dimensions: textEmbeddingConfig.dimensions,
+    root: of,
+    converter: "fixture",
+    visionModel: "fixture",
+  })
+
+/**
+ * Record a complete plane run of the frozen SHA at the root `of`, with the
+ * projection version `version`.
+ */
+async function projectPlane(of: string, version = projectionAt(of)) {
   const key = { orgId: seed.orgId, workspaceId: seededWorkspace }
   await beginKnowledgeRun({ ...key, branch: "main", isDefault: true })
   await completeKnowledgeRun({
@@ -183,13 +203,7 @@ async function projectPlane(of: string) {
     branch: "main",
     treeVersion: 1,
     baseBranch: null,
-    projectionVersion: knowledgeProjectionVersion({
-      embeddingModel: textEmbeddingConfig.model,
-      dimensions: textEmbeddingConfig.dimensions,
-      root: of,
-      converter: "fixture",
-      visionModel: "fixture",
-    }),
+    projectionVersion: version,
     failedCount: 0,
   })
 }
@@ -405,6 +419,11 @@ describe("the knowledge eval harness", () => {
     // product to show the answers that would be over it.
     expect(live.run.loop.timeBudgetMs).toBe(0)
     expect(live.run.productBudgetMs).toBe(10_000)
+    // The manifest records the projection version of each store.
+    expect(live.run.stores).toEqual({ "ctxpipe-memory": projectionAt(root) })
+    expect((await readRun(join(folder, "live"))).manifest.stores).toEqual(
+      live.run.stores,
+    )
     // Jev agrees with the gold labels, so the plane is right each time. The
     // old stack ranks some gold documents lower, and it has no "no answer".
     expect(compact(live)).toEqual({
@@ -1053,6 +1072,24 @@ describe("the knowledge eval harness", () => {
       'Workspace memory must serve the root "" of ctxpipe-memory on both stacks. The Workspace has ".ai/memory", the old stack serves ".ai/memory", and the plane serves ".ai/memory".',
     )
     expect(requests).toEqual(before)
+  })
+
+  it("refuses a plane store of an older projection version before any model call, and names the hydrate", async () => {
+    // A store that the code before the last projection-version bump wrote.
+    const older: unknown[] = JSON.parse(projectionAt(root))
+    older[0] = KNOWLEDGE_PROJECTION_CODE_VERSION - 1
+    await projectPlane(root, JSON.stringify(older))
+    const before = { ...requests }
+    try {
+      const refused = run("older-store")
+      await expect(refused).rejects.toBeInstanceOf(SetupError)
+      await expect(refused).rejects.toThrow(
+        `The plane store of Workspace memory (ctxpipe-memory) has projection version ${KNOWLEDGE_PROJECTION_CODE_VERSION - 1}, and the code has projection version ${KNOWLEDGE_PROJECTION_CODE_VERSION}. Run \`hydrate\` of the dataset with this code first`,
+      )
+      expect(requests).toEqual(before)
+    } finally {
+      await projectPlane(root)
+    }
   })
 
   it("refuses a plane that serves another root of the frozen SHA", async () => {

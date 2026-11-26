@@ -92,6 +92,7 @@ import {
   readJson,
   readRun,
   runEval,
+  SetupError,
   type Settings,
   type RunFolder,
   type Targets,
@@ -186,7 +187,7 @@ export async function executeRun(input: {
   const restoreSettings = applySettings({ timeBudgetMs: 0, ...input.settings })
   const restoreFetch = calls.install()
   try {
-    const answers = await runEval({
+    const { answers, stores } = await runEval({
       dataset: input.dataset,
       questions,
       targets: input.targets,
@@ -209,6 +210,7 @@ export async function executeRun(input: {
         ? { reuse: { from: input.reuse.folder, ...calls.reuseSummary() } }
         : {}),
       ...(unrecordedYes === undefined ? {} : { unrecordedYes }),
+      stores,
       ...calls.summary(),
     }
     await writeRun(input.out, {
@@ -324,8 +326,6 @@ function storedBaseline(
  * the idle timeout of the Postgres pool (30 s, `src/db/client.ts`).
  */
 const QUIET_MS = 31_000
-
-class SetupError extends Error {}
 
 /** Build the file converter: the export of `factory eval` has no build of it. */
 function buildConverter() {
