@@ -50,8 +50,6 @@ import {
 } from "./knowledge-reader.js"
 import { ORCHESTRATOR_DEFAULTS } from "./orchestrator.js"
 
-const productBudgetMs = ORCHESTRATOR_DEFAULTS.timeBudgetMs
-
 /*
  * The knowledge reader seam behind the org flag (ADR-069 decision 9), through
  * the MCP tools: real Postgres, FalkorDB and ClickHouse; msw for Jev and the
@@ -833,7 +831,6 @@ describe("the knowledge reader seam", () => {
   })
 
   afterAll(async () => {
-    ORCHESTRATOR_DEFAULTS.timeBudgetMs = productBudgetMs
     await search?.close()
     await related?.close()
     if (seed) {
