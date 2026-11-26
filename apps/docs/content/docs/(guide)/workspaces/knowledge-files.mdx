@@ -70,8 +70,10 @@ claims:
 `API`, `Library`, `Decision`, `Pattern`, and so on). Without it, the unit
 appears as a generic knowledge unit.
 
-On the default reader, related results (`get_related`) give less weight to
-older facts only for the `change` intent. Search does not use the age of a fact.
+On the default reader, related results (`get_related`) give less confidence
+to older facts on every intent, through the half-life of their source. The
+`change` intent also ranks newer changes first. Search does not use the age of
+a fact.
 
 ## Skipped files
 
