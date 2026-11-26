@@ -34,7 +34,6 @@ import {
   type Span,
   type SpanProcessor,
 } from "@opentelemetry/sdk-trace-base"
-import { log } from "evlog"
 
 import {
   deploymentEnvironment,
@@ -384,11 +383,7 @@ export async function forceFlushOtel(): Promise<void> {
   try {
     await Promise.all([spanProcessor?.forceFlush(), metricReader?.forceFlush()])
   } catch (error) {
-    log.error({
-      step: "otel.flush",
-      message: error instanceof Error ? error.message : String(error),
-      error: error instanceof Error ? error.name : "Error",
-    })
+    reportOtelExportFailure(error)
   }
 }
 

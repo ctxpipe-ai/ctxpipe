@@ -131,7 +131,6 @@
   "apps/backend/src/observability/flushOnDemandMetricReader.ts": [
     "EXPORT_SUCCESS"
   ],
-  "apps/backend/src/observability/otel.ts": ["TRACE_SCOPE"],
   "apps/backend/src/openworkflow/codesearchCapacity.ts": [
     "DEFAULT_INDEX_PIPELINE_CONCURRENCY",
     "MAX_WORKER_CONCURRENCY"

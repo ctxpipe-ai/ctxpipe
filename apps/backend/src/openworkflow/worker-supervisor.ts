@@ -14,7 +14,7 @@ import { resolve } from "node:path"
 import process from "node:process"
 
 import { openworkflowWorkerStartArgs } from "./codesearchCapacity.js"
-import { SUPERVISOR_IPC_ENV, trackHeldRuns } from "./held-runs.js"
+import { trackHeldRuns } from "./held-runs.js"
 import {
   HEAP_SNAPSHOT_DIR,
   mib,
@@ -47,11 +47,7 @@ function startOpenworkflowWorker(backendRoot: string): ChildProcess {
   return spawn(resolve(backendRoot, "node_modules/.bin/openworkflow"), args, {
     cwd: backendRoot,
     stdio: ["inherit", "inherit", "inherit", "ipc"],
-    env: {
-      ...process.env,
-      NODE_OPTIONS: nodeOptions,
-      [SUPERVISOR_IPC_ENV]: "1",
-    },
+    env: { ...process.env, NODE_OPTIONS: nodeOptions },
   })
 }
 

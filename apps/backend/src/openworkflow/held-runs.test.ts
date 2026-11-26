@@ -4,7 +4,7 @@ import { resolve } from "node:path"
 
 import { expect, it } from "vitest"
 
-import { SUPERVISOR_IPC_ENV, trackHeldRuns } from "./held-runs.js"
+import { trackHeldRuns } from "./held-runs.js"
 
 const backendRoot = resolve(import.meta.dirname, "../..")
 
@@ -20,7 +20,7 @@ void holdRun("run-b", () => new Promise(() => {}))
 setTimeout(() => process.kill(process.pid, "SIGKILL"), 200)
 `
 
-function startWorker(env: NodeJS.ProcessEnv) {
+function startWorker() {
   // One process, as the `exec node` of the worker image: the tsx CLI would
   // run the code in a second child.
   return spawn(
@@ -29,13 +29,12 @@ function startWorker(env: NodeJS.ProcessEnv) {
     {
       cwd: backendRoot,
       stdio: ["ignore", "inherit", "inherit", "ipc"],
-      env: { ...process.env, ...env },
     },
   )
 }
 
 it("gives the supervisor the runs that a killed worker held", async () => {
-  const child = startWorker({ [SUPERVISOR_IPC_ENV]: "1" })
+  const child = startWorker()
   const heldRuns = trackHeldRuns(child)
 
   const [, signal] = await once(child, "exit")
@@ -44,11 +43,12 @@ it("gives the supervisor the runs that a killed worker held", async () => {
   expect(heldRuns()).toEqual(["run-a", "run-b"])
 }, 30_000)
 
-it("sends nothing when another parent owns the channel", async () => {
-  const child = startWorker({ [SUPERVISOR_IPC_ENV]: "" })
-  const heldRuns = trackHeldRuns(child)
+it("sends nothing to a parent that did not subscribe", async () => {
+  const child = startWorker()
+  const messages: unknown[] = []
+  child.on("message", (message) => messages.push(message))
 
   await once(child, "exit")
 
-  expect(heldRuns()).toEqual([])
+  expect(messages).toEqual([])
 }, 30_000)
