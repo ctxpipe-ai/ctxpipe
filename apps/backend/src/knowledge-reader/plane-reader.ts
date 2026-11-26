@@ -823,13 +823,11 @@ async function topClaims(
   })
   return [
     ...edges.values(),
-    ...readings.map(
-      (reading): RelatedClaim => ({
-        ...reading,
-        by: "reading",
-        confidence: round(reading.confidence),
-      }),
-    ),
+    ...readings.map((reading): RelatedClaim => ({
+      ...reading,
+      by: "reading",
+      confidence: round(reading.confidence),
+    })),
   ]
 }
 
