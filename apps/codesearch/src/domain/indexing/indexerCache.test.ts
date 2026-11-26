@@ -83,7 +83,7 @@ describe("boundIndexerCache", () => {
 
   it("creates a missing cache directory", async () => {
     const missing = join(cacheDir, "not-yet")
-    expect(await boundIndexerCache(missing, 1024)).toMatchObject({
+    expect(await boundIndexerCache(missing, 1024 * 1024)).toMatchObject({
       emptied: false,
     })
     expect(await readdir(missing)).toEqual([])
