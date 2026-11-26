@@ -498,10 +498,7 @@ export function buildMemoryHookOperations({
       const rulePath = join(claudeRoot, "rules", "ai-memory.md")
       ops.push(
         buildClaudeCaptureHooksOperation({
-          path:
-            s === "repo"
-              ? resolve(context.cwd, REPO_CAPTURE_HOOK.claude)
-              : join(claudeRoot, "settings.json"),
+          path: join(claudeRoot, "settings.json"),
           context,
         }),
         // Claude Code loads .claude/rules every session, whether it reads

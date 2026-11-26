@@ -149,13 +149,14 @@ The installed `memory-search` skill describes the full procedure.
   `lessons-learned.md`.
 - A repository that you set up with CLI 0.2.0 repairs itself at the next
   session. Its old hooks and MCP entries call `memory hook` and `memory mcp`.
-  These commands now do the same upgrade as `memory init` in the repository:
-  they write the current capture hooks for each host that had an old entry, and
-  remove the old entries of the repository. Like `memory init`, they also write
-  the memory rules and skills, the missing `.ai/memory` seed files, and the
-  `.gitignore` line for `.ai/memory/events`. They exit with code 0 and write
-  one line to stderr (the hook or MCP log). The repair changes only a
-  repository that has `.ai/memory`. It does not change a path that goes
-  through a symlink, or a JSON file that does not parse. Old entries in your home
-  directory stay, so that your other repositories repair themselves too. Run
-  `npx ctxpipe memory init` once to remove them.
+  These commands now apply the `memory init` upgrade in the repository. They
+  write the current capture hooks for each host that had an old entry. Then
+  they remove the old entries of the repository. They also write the memory
+  rules and skills, the missing `.ai/memory` seed files, and the `.gitignore`
+  line for `.ai/memory/events`. They exit with code 0 and write one line to
+  stderr (the hook or MCP log).
+- The repair changes only a repository that has `.ai/memory`. It does not
+  change a path that goes through a symlink, or a JSON file that does not
+  parse. Old entries in your home directory stay, so that your other
+  repositories repair themselves too. Run `npx ctxpipe memory init` one time
+  to remove them.
