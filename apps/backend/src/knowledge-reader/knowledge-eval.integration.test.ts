@@ -842,10 +842,9 @@ describe("the knowledge eval harness", () => {
     // Thus each plane search says "no answer", and the retrieval metrics
     // score it as an empty result (CTX-1562): each answerable question gets
     // worse, with recall@5 0. No answer has a claim, so the disagreements
-    // shown get worse too. A gold
-    // document of get_related stays a step, because Jev gave it a
-    // p(explore) of 0.9 (CTX-1534), so traversal recall stays. A no-answer
-    // stays correct.
+    // shown get worse too. A gold document of get_related stays a step,
+    // because Jev gave it a p(explore) of 0.9 (CTX-1534), so traversal
+    // recall stays. A no-answer stays correct.
     const answerable = rescored.questions.filter(
       (question) =>
         question.arm === "plane" && question.category !== "no-answer",
@@ -883,8 +882,8 @@ describe("the knowledge eval harness", () => {
       )?.metrics.noAnswer,
     ).toBe(1)
     // The keep-or-revert rule reads the plane against the kept run: the
-    // retrieval metrics and the disagreements shown of the hold-out set get worse, and
-    // a replay gives no latency guard.
+    // retrieval metrics and the disagreements shown of the hold-out set get
+    // worse, and a replay gives no latency guard.
     const round = (values: Record<string, number | null>) =>
       Object.fromEntries(
         Object.entries(values).map(([key, value]) => [

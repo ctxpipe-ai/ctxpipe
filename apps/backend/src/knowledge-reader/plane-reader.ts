@@ -50,9 +50,8 @@ import {
   askDisagreementFacts,
   type DisagreementFacts,
   disagreementCalls,
-  disagreementReadings,
   type EvidenceItem,
-  isValidAt,
+  readDisagreements,
 } from "../retrieval/jev/disagreement.js"
 import { BudgetSpentError, notePartial } from "./failure.js"
 import type {
@@ -69,6 +68,7 @@ import {
   judge,
   type ModelMeter,
   ORCHESTRATOR_DEFAULTS,
+  overlaps,
   retrievalDeadline,
   type TraversalNode,
   traverse,
@@ -385,20 +385,30 @@ function claimsByDocument(
   return claims
 }
 
+/** True when the span is valid at `at`. An unknown bound is open. */
+function isValidAt(
+  span: { validFrom: Date | null; validTo: Date | null },
+  at: Date,
+): boolean {
+  return (
+    (!span.validFrom || span.validFrom <= at) &&
+    (!span.validTo || at < span.validTo)
+  )
+}
+
 /**
  * `get_related`: layer 0 judges the seeds, then up to D layers of the loop.
  * A result is a judged document with p(answers) of at least the `keepAt`
  * setting (a seed only with `includeSeeds`), or a step: a document on the
  * "why" path of such a result, or one with p(explore) of at least the
  * `exploreAt` setting (not a seed); p(answers) is its score. Then the
- * claims between the top results that answer: the stored relations that the
- * walk read, and the readings of the disagreement step (ADR-068 decision 4).
- * When the time budget ends, the result is partial, with `total_timeout` and
- * no claims. When Jev fails, the call fails
- * with `judge_unavailable`.
+ * claims between the top results that answer: their stored relations, and
+ * the readings of the disagreement step (ADR-068 decision 4). When the time
+ * budget ends, the result is partial, with `total_timeout` and no claims.
+ * When Jev fails, the call fails with `judge_unavailable`.
  */
 async function related(
-  { workspace, input, now }: RelatedRequest,
+  { workspace, input }: RelatedRequest,
   scope: KnowledgeReadScope,
   embed: (orgId: string, text: string) => Promise<number[]>,
   meter: ModelMeter,
@@ -492,7 +502,7 @@ async function related(
   let earlyFacts: Promise<DisagreementFacts> | undefined
   let earlyRelations: Promise<KnowledgeRelation[]> | undefined
   const readRelations = (nodes: readonly TraversalNode[]) =>
-    relationsBetween(store, scope, nodes, walk.validAt, deadline)
+    relationsBetween(store, scope, nodes, walk, deadline)
   try {
     traversal = await traverse({
       store,
@@ -534,7 +544,6 @@ async function related(
     const top = answers.slice(0, disagreementItems)
     if (top.length > 0 && !traversal.partialReason)
       claims = await topClaims(
-        question,
         top,
         deadline,
         earlyFacts ?? askFacts(question, top, deadline, meter),
@@ -706,9 +715,12 @@ function byScore(a: TraversalNode, b: TraversalNode): number {
   )
 }
 
-/** A judged document as an item of the disagreement step. */
-function evidenceItem({ ref, text }: TraversalNode): EvidenceItem {
-  return { id: documentId(ref), passage: text }
+/**
+ * A judged document as an item of the disagreement step. Its path is its
+ * id: the documents of one call are in one Workspace.
+ */
+function evidenceItem({ document, text }: TraversalNode): EvidenceItem {
+  return { id: document.path, passage: text }
 }
 
 /**
@@ -737,18 +749,21 @@ function askFacts(
 }
 
 /**
- * The out-relations of `nodes`, valid at `validAt`, read before `deadline`.
- * Each relation between two of the nodes is an out-relation of one of
- * them. The caller awaits the result later, so a failure is not an
- * unhandled rejection until then.
+ * The out-relations of `nodes` that pass the time filter of the `walk`,
+ * read before `deadline`. Each relation between two of the nodes is an
+ * out-relation of one of them, so fewer than two nodes need no read. The
+ * caller awaits the result later, so a failure is not an unhandled
+ * rejection until then.
  */
 function relationsBetween(
   store: KnowledgeStore,
   scope: KnowledgeReadScope,
   nodes: readonly TraversalNode[],
-  validAt: Date | null,
+  walk: Pick<WalkFilter, "validAt" | "validBetween">,
   deadline: number,
 ): Promise<KnowledgeRelation[]> {
+  if (nodes.length < 2) return Promise.resolve([])
+  const { validAt, validBetween } = walk
   const relations = beforeDeadline(deadline, () =>
     store.readFrontier(
       scope,
@@ -756,7 +771,11 @@ function relationsBetween(
       validAt,
       "out",
     ),
-  ).then((read) => read.map(({ relation }) => relation))
+  ).then((read) =>
+    read
+      .map(({ relation }) => relation)
+      .filter((relation) => !validBetween || overlaps(relation, validBetween)),
+  )
   relations.catch(() => {})
   return relations
 }
@@ -769,26 +788,21 @@ function relationsBetween(
  * (`askFacts`, `relationsBetween`). A Jev failure throws its `JevError`.
  */
 async function topClaims(
-  question: string,
   top: readonly TraversalNode[],
   deadline: number,
   facts: Promise<DisagreementFacts>,
   relations: Promise<readonly KnowledgeRelation[]>,
 ): Promise<RelatedClaim[]> {
   const { sameAt, disagreeAt, replacesAt, scopedAt } = ORCHESTRATOR_DEFAULTS
-  const items = top.map(evidenceItem)
   const pathOf = new Map(
-    items.map((item, index) => [item.id, top[index]?.document.path ?? ""]),
-  )
-  const pathOfKey = new Map(
     top.map(({ document }) => [document.docKey, document.path]),
   )
   // A frontier read can give one relation more than one time (one row for
   // each chunk), so equal claims are kept once.
   const edges = new Map<string, RelatedClaim>()
   for (const relation of await beforeDeadline(deadline, () => relations)) {
-    const from = pathOfKey.get(relation.srcDoc)
-    const to = pathOfKey.get(relation.dstDoc)
+    const from = pathOf.get(relation.srcDoc)
+    const to = pathOf.get(relation.dstDoc)
     if (from === undefined || to === undefined || from === to) continue
     const claim: RelatedClaim = {
       from,
@@ -802,23 +816,20 @@ async function topClaims(
     }
     edges.set(JSON.stringify(claim), claim)
   }
-  const readings = await beforeDeadline(deadline, async () =>
-    disagreementReadings({
-      question,
-      thresholds: { sameAt, disagreeAt, replacesAt, scopedAt },
-      items,
-      facts: await facts,
-    }),
-  )
+  const readings = readDisagreements({
+    items: top.map(evidenceItem),
+    facts: await beforeDeadline(deadline, () => facts),
+    thresholds: { sameAt, disagreeAt, replacesAt, scopedAt },
+  })
   return [
     ...edges.values(),
-    ...readings.map((reading): RelatedClaim => ({
-      ...reading,
-      from: pathOf.get(reading.from) ?? "",
-      to: pathOf.get(reading.to) ?? "",
-      by: "reading",
-      confidence: round(reading.confidence),
-    })),
+    ...readings.map(
+      (reading): RelatedClaim => ({
+        ...reading,
+        by: "reading",
+        confidence: round(reading.confidence),
+      }),
+    ),
   ]
 }
 

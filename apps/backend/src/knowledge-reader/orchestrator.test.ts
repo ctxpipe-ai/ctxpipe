@@ -77,7 +77,7 @@ describe("the default fact thresholds of the disagreement step", () => {
   const read = (facts: Record<string, number>) =>
     readDisagreements({
       items: ["a", "b"].map((id) => ({ id, passage: `The passage of ${id}.` })),
-      facts: new Map(Object.entries(facts)),
+      facts: { itemIds: ["a", "b"], answers: new Map(Object.entries(facts)) },
       thresholds: { sameAt, disagreeAt, replacesAt, scopedAt },
     }).map(({ from, to, predicate }) => ({ from, to, predicate }))
 

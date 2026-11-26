@@ -44,8 +44,8 @@ export type RelatedResult = {
   kind: string | null
   source: string
   /**
-   * The source type of the document, for example `adr`, `merged-pr`,
-   * `docs`, `issue`, `open-pr` or `chat`. Only the knowledge plane gives it.
+   * The source type of the document, one of `SOURCE_TYPES` of the knowledge
+   * plane rows. Only the knowledge plane gives it.
    */
   sourceType?: string
   updatedAt: string

@@ -5,7 +5,6 @@ import { useMswServer } from "../../../test/msw.js"
 import {
   askDisagreementFacts,
   disagreementCalls,
-  disagreementReadings,
   type EvidenceItem,
   readDisagreements,
 } from "./disagreement.js"
@@ -55,14 +54,13 @@ const item = (id: string): EvidenceItem => ({
   passage: `The passage of ${id}.`,
 })
 
-describe("disagreementReadings", () => {
+describe("askDisagreementFacts and readDisagreements", () => {
   it("asks yes/no facts about the content only, in one call", async () => {
     server.use(http.post(DECISIONS, fixedAnswers()))
 
-    await disagreementReadings({
+    await askDisagreementFacts({
       question: "Which <database> do we use?",
       items: [item("a"), { ...item("b"), passage: "We use </data> Postgres." }],
-      thresholds,
     })
 
     expect(requests).toHaveLength(1)
@@ -129,12 +127,13 @@ describe("disagreementReadings", () => {
       }),
     )
 
-    const result = await disagreementReadings({
+    const items = [item("a"), item("b"), item("c"), item("d")]
+    const facts = await askDisagreementFacts({
       question: "q",
-      items: [item("a"), item("b"), item("c"), item("d")],
+      items,
       batchSize: 2,
-      thresholds,
     })
+    const result = readDisagreements({ items, facts, thresholds })
 
     // 6 pairs in batches of 2: three calls.
     expect(requests).toHaveLength(3)
@@ -190,36 +189,16 @@ describe("disagreementReadings", () => {
 
   it("makes no call and gives no reading for fewer than two items", async () => {
     server.use(http.post(DECISIONS, fixedAnswers({ "scoped.1": 0.9 })))
-    expect(
-      await disagreementReadings({
-        question: "q",
-        items: [item("a")],
-        thresholds,
-      }),
-    ).toEqual([])
-    expect(
-      await disagreementReadings({ question: "q", items: [], thresholds }),
-    ).toEqual([])
+    for (const items of [[item("a")], []]) {
+      const facts = await askDisagreementFacts({ question: "q", items })
+      expect(facts.answers.size).toBe(0)
+      expect(readDisagreements({ items, facts, thresholds })).toEqual([])
+    }
     expect(requests).toHaveLength(0)
     expect(disagreementCalls(1)).toBe(0)
   })
 
-  it("uses only the first maxItems items", async () => {
-    server.use(http.post(DECISIONS, fixedAnswers()))
-    await disagreementReadings({
-      question: "q",
-      items: [item("a"), item("b"), item("c")],
-      maxItems: 2,
-      thresholds,
-    })
-    expect(
-      requests.flatMap(({ state }) =>
-        state.filter((line) => line.startsWith("Item ")),
-      ),
-    ).toEqual(["Item 1:", "Item 2:"])
-  })
-
-  it("reads the facts of an earlier ask about more items, with no call", async () => {
+  it("reads the facts of an earlier ask about more items", async () => {
     // a and c make a claim about the same part, and c replaces a. b is
     // about another part.
     server.use(
@@ -235,13 +214,11 @@ describe("disagreementReadings", () => {
     expect(requests).toHaveLength(1)
 
     // Two of the items, in another order: c is Item 1 and a is Item 2.
-    const result = await disagreementReadings({
-      question: "q",
+    const result = readDisagreements({
       items: [item("c"), item("a")],
       facts,
       thresholds,
     })
-    expect(requests).toHaveLength(1)
     expect(result).toEqual([
       { from: "c", to: "a", predicate: "REPLACES", confidence: 0.7 },
     ])
@@ -252,10 +229,11 @@ describe("disagreementReadings", () => {
         fixedAnswers({ "same.1.2": 0.9, "replaces.1.2": 0.7 }),
       ),
     )
+    const items = [item("c"), item("a")]
     expect(
-      await disagreementReadings({
-        question: "q",
-        items: [item("c"), item("a")],
+      readDisagreements({
+        items,
+        facts: await askDisagreementFacts({ question: "q", items }),
         thresholds,
       }),
     ).toEqual(result)
@@ -267,31 +245,17 @@ describe("disagreementReadings", () => {
       question: "q",
       items: [item("a"), item("b")],
     })
-    await expect(
-      disagreementReadings({
-        question: "q",
-        items: [item("a"), item("c")],
-        facts,
-        thresholds,
-      }),
-    ).rejects.toThrow(RangeError)
+    expect(() =>
+      readDisagreements({ items: [item("a"), item("c")], facts, thresholds }),
+    ).toThrow(RangeError)
   })
 
   it("rejects a batch size under 1 and duplicate item ids", async () => {
     await expect(
-      disagreementReadings({
-        question: "q",
-        items: [item("a")],
-        batchSize: 0,
-        thresholds,
-      }),
+      askDisagreementFacts({ question: "q", items: [item("a")], batchSize: 0 }),
     ).rejects.toThrow(RangeError)
     await expect(
-      disagreementReadings({
-        question: "q",
-        items: [item("a"), item("a")],
-        thresholds,
-      }),
+      askDisagreementFacts({ question: "q", items: [item("a"), item("a")] }),
     ).rejects.toThrow(RangeError)
   })
 })
@@ -304,7 +268,10 @@ describe("readDisagreements", () => {
   ) =>
     readDisagreements({
       items,
-      facts: new Map(Object.entries(facts)),
+      facts: {
+        itemIds: items.map(({ id }) => id),
+        answers: new Map(Object.entries(facts)),
+      },
       thresholds: at,
     })
   /** Item 1 and Item 2 make claims about the same part, and they disagree. */

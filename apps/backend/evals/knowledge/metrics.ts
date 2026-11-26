@@ -1,3 +1,4 @@
+import { READINGS } from "../../src/retrieval/jev/disagreement.js"
 import type { Question } from "./dataset.js"
 import type { Arm, ArmAnswer } from "./runner.js"
 
@@ -81,16 +82,6 @@ export function ndcgAt(
   return ideal === 0 ? 0 : dcg / ideal
 }
 
-/** The predicates of a claim that one document replaces another. */
-const REPLACE_PREDICATES = new Set(["SUPERSEDES", "REPLACES"])
-
-/** The predicates of a claim that two documents disagree. */
-const DISAGREE_PREDICATES = new Set([
-  ...REPLACE_PREDICATES,
-  "CONTRADICTS",
-  "PARTLY_CONTRADICTS",
-])
-
 /**
  * The disagreements shown: the share of the pairs of expected refs in two
  * different positions that the arm links by a claim that tells the
@@ -106,10 +97,13 @@ export function disagreementsShown(
   const statusOf = new Map(
     expected.flatMap(({ refs, status }) => refs.map((ref) => [ref, status])),
   )
+  // The stored SUPERSEDES and the reading REPLACES tell a direction.
+  const replaces = new Set(["SUPERSEDES", "REPLACES"])
+  const disagrees = new Set(["SUPERSEDES", ...READINGS])
   const tells = (claim: (typeof claims)[number]) =>
-    DISAGREE_PREDICATES.has(claim.predicate) &&
+    disagrees.has(claim.predicate) &&
     !(
-      REPLACE_PREDICATES.has(claim.predicate) &&
+      replaces.has(claim.predicate) &&
       statusOf.get(claim.from) === "superseded" &&
       statusOf.get(claim.to) === "current"
     )

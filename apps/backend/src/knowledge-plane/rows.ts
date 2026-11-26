@@ -327,6 +327,17 @@ export function fileRows(input: {
   }
 }
 
+/** The source types of a document (`source_type`). */
+export const SOURCE_TYPES = [
+  "adr",
+  "merged-pr",
+  "docs",
+  "issue",
+  "open-pr",
+  "chat",
+  "other",
+] as const
+
 /**
  * The source type of a file (`source_type`). It comes from the file alone:
  * its path, its document kind, and the `merged` field of its front matter,
@@ -338,7 +349,7 @@ function sourceTypeOf(file: {
   path: string
   kind?: string | null
   merged?: boolean
-}): "adr" | "merged-pr" | "docs" | "issue" | "open-pr" | "chat" | "other" {
+}): (typeof SOURCE_TYPES)[number] {
   const [, folder] = file.path.split("/")
   switch (connectorMirrorRoot(file.path)) {
     case null: {

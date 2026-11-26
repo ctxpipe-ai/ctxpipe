@@ -1435,6 +1435,31 @@ describe("the knowledge reader seam", () => {
     ])
   })
 
+  it("on: with validBetween, get_related shows only the stored relations between top results that are valid in the window", async () => {
+    await setFlag("on")
+    const claimsIn = async (from: string, to: string) =>
+      (
+        structured(
+          await relatedCall({
+            workspace: "claims",
+            seeds: ["claims/seed.md"],
+            maxDepth: 1,
+            validBetween: { from, to },
+          }),
+        ).claims as { predicate: string; by: string }[]
+      ).map(({ predicate, by }) => ({ predicate, by }))
+    // The SUPERSEDES holds from March 2026.
+    expect(
+      await claimsIn("2026-01-01T00:00:00.000Z", "2026-02-01T00:00:00.000Z"),
+    ).toEqual([{ predicate: "REPLACES", by: "reading" }])
+    expect(
+      await claimsIn("2026-02-01T00:00:00.000Z", "2026-04-01T00:00:00.000Z"),
+    ).toEqual([
+      { predicate: "SUPERSEDES", by: "edge" },
+      { predicate: "REPLACES", by: "reading" },
+    ])
+  })
+
   it("on: Jev reads the relation that reached each candidate of get_related before its text", async () => {
     await setFlag("on")
     await relatedCall({ maxDepth: 1 })

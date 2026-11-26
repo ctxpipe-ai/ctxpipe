@@ -38,7 +38,8 @@ export type Reading = {
  * The yes/no questions to Jev. Each one asks for one judgment about the
  * content, and "yes" means that the condition is present. The row data
  * (dates, validity, source authority, stored relations, confidence) is not
- * in the state: code applies it. The evals of ADR-069 tune the wording.
+ * in the state: the client agent reads it with the readings. The evals of
+ * ADR-069 tune the wording.
  */
 const QUESTIONS = {
   same: (a: number, b: number) =>
@@ -85,31 +86,8 @@ type FactThresholds = {
   scopedAt: number
 }
 
-/** The time of a Date or an ISO 8601 string, or `ifUnknown` for null or a bad date. */
-function timeOr(value: Date | string | null, ifUnknown: number): number {
-  const time =
-    value === null
-      ? Number.NaN
-      : value instanceof Date
-        ? value.getTime()
-        : Date.parse(value)
-  return Number.isNaN(time) ? ifUnknown : time
-}
-
 /** The default number of pairs in one Jev call. */
 const BATCH_SIZE = 12
-
-/** True when the span is valid at `at`. An unknown bound is open. */
-export function isValidAt(
-  span: { validFrom: Date | string | null; validTo: Date | string | null },
-  at: Date,
-): boolean {
-  const now = at.getTime()
-  return (
-    timeOr(span.validFrom, -Infinity) <= now &&
-    now < timeOr(span.validTo, Infinity)
-  )
-}
 
 /**
  * The number of Jev calls that `askDisagreementFacts` makes for `items`
@@ -252,54 +230,11 @@ function factsOf(
 }
 
 /**
- * Read the disagreements between the evidence `items` for the `question`:
- * ask Jev the facts (`askDisagreementFacts`), then `readDisagreements`
- * gives the readings. With `facts` (an earlier ask about a set of items that
- * holds each of `items`), no call goes out.
- *
- * The `items` are in rank order, and only the first `maxItems` are used.
- * Their ids must be different. A Jev failure throws its `JevError`: this
- * function has no fallback.
- */
-export async function disagreementReadings({
-  question,
-  items,
-  facts,
-  thresholds,
-  maxItems = 10,
-  batchSize = BATCH_SIZE,
-  timeoutMs = 30_000,
-}: {
-  question: string
-  items: readonly EvidenceItem[]
-  facts?: DisagreementFacts
-  thresholds: FactThresholds
-  maxItems?: number
-  batchSize?: number
-  timeoutMs?: number
-}): Promise<Reading[]> {
-  const used = items.slice(0, maxItems)
-  const asked =
-    facts ??
-    (await askDisagreementFacts({
-      question,
-      items: used,
-      batchSize,
-      timeoutMs,
-    }))
-  if (used.length === 0) return []
-  return readDisagreements({
-    items: used,
-    facts: factsOf(asked, used),
-    thresholds,
-  })
-}
-
-/**
- * The readings between the `items` from the Jev `facts` (p(yes) for each
- * question key of `askDisagreementFacts`). It makes no call, so that the
- * evals can score a change of this logic or of a threshold again from the
- * recorded answers. A missing fact is "no".
+ * The readings between the `items` from the Jev `facts`: an earlier ask
+ * (`askDisagreementFacts`) about a set of items that holds each of `items`.
+ * The `items` are in rank order. It makes no call, so that the evals can
+ * score a change of this logic or of a threshold again from the recorded
+ * answers. A missing fact is "no".
  *
  * A pair whose claims are not about the same part of the question, or that
  * agree, has no reading. Else:
@@ -318,10 +253,11 @@ export function readDisagreements({
   thresholds,
 }: {
   items: readonly EvidenceItem[]
-  facts: ReadonlyMap<string, number>
+  facts: DisagreementFacts
   thresholds: FactThresholds
 }): Reading[] {
-  const p = (key: string) => facts.get(key) ?? 0
+  const answers = factsOf(facts, items)
+  const p = (key: string) => answers.get(key) ?? 0
   const yes = (key: string, at: number) => p(key) >= at
   const scoped = (n: number) => yes(KEYS.scoped(n), thresholds.scopedAt)
   const numbered = items.map((item, index) => ({ id: item.id, n: index + 1 }))

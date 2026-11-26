@@ -38,7 +38,8 @@ When your organization is on the knowledge plane, `get_related` also gives
   `PARTLY_CONTRADICTS`, with its `confidence`.
 
 ctxpipe does not decide which result is current. Your agent compares the
-claims, the `sourceType` of each result, and the times, and then decides.
+times of the results, and on the knowledge plane also the claims and the
+`sourceType` of each result. Then it decides.
 
 The server also gives each file as a resource, `ctxpipe://{org}/{workspace}/{ref}`.
 A client that supports resources lets you @-mention a file in your prompt.

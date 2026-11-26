@@ -71,7 +71,7 @@ The dataset must cover three shapes of customer: one large monorepo, an org with
      - search recall@50;
      - traversal recall;
      - the accuracy of Jev's p(answers);
-     - the disagreements shown: the share of the pairs of gold documents of two different expected positions that the output links by a claim that tells the disagreement ([CTX-1720](https://linear.app/ctxpipe/issue/CTX-1720): the output has no position status);
+     - the disagreements shown: the share of the pairs of gold documents of two different expected positions that the output links by a claim that tells the disagreement ([CTX-1720](https://linear.app/ctxpipe/issue/CTX-1720): the output has no position status). A rescore of the kept generation 12 runs (no model call) gives: corpora v1, dev 0.400 and hold-out 0.429; Backstage v1, dev 0.333 and hold-out 0.000. The other metrics of these runs do not change;
      - image recall.
    - **Retrieval:** recall@5, nDCG@10, a correct "no answer", and valid "why" paths.
    - **Agent tasks:** the with-and-without harness of [CTX-1117](https://linear.app/ctxpipe/issue/CTX-1117), and the MCP eval gate.
