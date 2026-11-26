@@ -1,6 +1,6 @@
 # ADR-063: The visual critic decides with Jev only
 
-**Status:** Accepted | **Date:** 2026-11-13 | **Tags:** visual-review, critics, factory, models
+**Status:** Accepted (amended 2026-11-26: the critic keeps its own Jev client, CTX-1721) | **Date:** 2026-11-13 | **Tags:** visual-review, critics, factory, models
 
 ## Context
 
@@ -231,3 +231,12 @@ Thus the critic was cheap and fast, and it missed nothing in the sample, but it 
 - **Keep the Jev severity split at 0.8** (`major` from 0.8 blocks, `minor` below is a nit). A block recall of 0.79, and the same false-block problem.
 - **GPT-6.1-Sol alone.** Recall 0.89, below the rule. It is a panel member, so its numbers can be too high. It costs about 25 times more and takes about 13 times longer.
 - **Elephant or Mammoth.** Recall 0.79.
+
+## Amendment 2026-11-26: the critic keeps its own Jev client ([CTX-1721](https://linear.app/ctxpipe/issue/CTX-1721))
+
+The knowledge plane calls its decision model through the `decide()` activity of TanStack AI ([ADR-068](ADR-068-knowledge-retrieval-jev-layers.md), amendment 2026-11-26). The visual critic does not. It keeps its own client of the OpenRouter Decisions API (`packages/visual-review/src/adapters/jev.ts`) for all its calls.
+
+- **Why:** the critic asks a Box question (`defect-box`) of Jev 1.14 in each call, and the box gives the region of each finding. `decide()` of `@tanstack/ai` 1.8.0 has only `choice`, `score` and `noul` questions: it drops the answer of a Box question, and the OpenRouter adapter refuses a response with a Box answer. The critic also sends images in the state and the `typesafe-danger-zone-images` header, which only an adapter patch could send.
+- **Decision:** "ok you can keep the critic without decide(). Keep it consistent across the critic though" (the CTO, 2026-11-26). Thus the whole critic stays on its own client. No call of the critic goes through `decide()`, so the critic has one request shape.
+- **Revisit** when `decide()` supports a Box question upstream.
+
