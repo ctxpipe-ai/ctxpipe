@@ -69,7 +69,7 @@ Compose gives each service its own ClickHouse user in `CLICKHOUSE_URL`:
 |---|---|---|---|
 | `migrate` | `CLICKHOUSE_USER` | `CLICKHOUSE_PASSWORD` | Admin. It makes the tables and the two other users. |
 | `backend` | `ctxpipe_reader` | `CLICKHOUSE_READER_PASSWORD` | Reads the knowledge tables only |
-| `worker` | `ctxpipe_writer` | `CLICKHOUSE_WRITER_PASSWORD` | Reads, inserts, and deletes rows in the knowledge tables. It cannot manage users or row policies. |
+| `worker` | `ctxpipe_writer` | `CLICKHOUSE_WRITER_PASSWORD` | Reads, inserts, and deletes rows in the knowledge tables, and reads the part names of these tables. It cannot manage users or row policies. |
 
 Set `CLICKHOUSE_READER_PASSWORD` and `CLICKHOUSE_WRITER_PASSWORD` before the
 first start. They have no default. Without them, `migrate` does not make the

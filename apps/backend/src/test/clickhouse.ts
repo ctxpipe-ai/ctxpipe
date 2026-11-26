@@ -33,10 +33,14 @@ export function userUrl(url: string, user: string, password: string): string {
   return withUser.toString()
 }
 
-/** The count of rows of `scope` in each knowledge table. */
+/**
+ * The count of rows of `scope` in each knowledge table. With `inParts`, the
+ * count also has the rows that a DELETE hid but that the parts still hold.
+ */
 export async function knowledgeRowCounts(
   client: ClickHouseClient,
   scope: KnowledgeScope,
+  { inParts = false } = {},
 ): Promise<PurgeCounts> {
   const counts = { ...NO_KNOWLEDGE_ROWS }
   for (const table of KNOWLEDGE_TABLES) {
@@ -45,7 +49,10 @@ export async function knowledgeRowCounts(
               WHERE org_id = {orgId:String} AND workspace_id = {workspaceId:String}`,
       query_params: scope,
       format: "JSONEachRow",
-      clickhouse_settings: { [ORG_SETTING]: scope.orgId },
+      clickhouse_settings: {
+        [ORG_SETTING]: scope.orgId,
+        apply_deleted_mask: inParts ? 0 : 1,
+      },
     })
     const [row] = await result.json<{ rows: string }>()
     counts[table] = Number(row?.rows)
@@ -57,7 +64,22 @@ export async function knowledgeRowCounts(
  * A ClickHouse server of the pinned image in Docker, for the contract tests of
  * KnowledgeStore. Call `stop` in `afterAll`.
  */
-export async function startClickHouse(): Promise<{
+export async function startClickHouse({
+  objectStorageCold = false,
+  fastPartCleanup = false,
+}: {
+  /**
+   * The disk cold is an object storage disk with its objects in a local
+   * folder (clickhouse-cold-object-storage.xml), as the S3 disk of the
+   * hosted node.
+   */
+  objectStorageCold?: boolean
+  /**
+   * The server removes a replaced part after one second, not 8 minutes
+   * (clickhouse-fast-part-cleanup.xml).
+   */
+  fastPartCleanup?: boolean
+} = {}): Promise<{
   serverUrl: string
   /** A new database with the migrated tables. Returns its URL. */
   freshDatabase(): Promise<string>
@@ -72,6 +94,8 @@ export async function startClickHouse(): Promise<{
    * port and the URLs stay. Returns when the server answers again.
    */
   restart(): Promise<void>
+  /** Whether the file `path` is in the container of the server. */
+  fileExists(path: string): Promise<boolean>
   stop(): Promise<void>
 }> {
   const container = `ctxpipe-knowledge-${randomUUID().slice(0, 8)}`
@@ -102,6 +126,23 @@ export async function startClickHouse(): Promise<{
     ),
     `${container}:/etc/clickhouse-server/config.d/storage.xml`,
   )
+  if (objectStorageCold)
+    await docker(
+      "cp",
+      fileURLToPath(
+        new URL("./clickhouse-cold-object-storage.xml", import.meta.url),
+      ),
+      // After storage.xml in the order of the names: it replaces the disk.
+      `${container}:/etc/clickhouse-server/config.d/zz-cold-object-storage.xml`,
+    )
+  if (fastPartCleanup)
+    await docker(
+      "cp",
+      fileURLToPath(
+        new URL("./clickhouse-fast-part-cleanup.xml", import.meta.url),
+      ),
+      `${container}:/etc/clickhouse-server/config.d/fast-part-cleanup.xml`,
+    )
   await docker("start", container)
   const clients: ClickHouseClient[] = []
   const stop = async () => {
@@ -151,6 +192,22 @@ export async function startClickHouse(): Promise<{
       async restart() {
         await docker("restart", "--time", "0", container)
         await waitUntilStarted()
+      },
+      async fileExists(path) {
+        // The answer comes from the output, so that each Docker failure
+        // throws and is no answer.
+        const answer = await docker(
+          "exec",
+          container,
+          "sh",
+          "-c",
+          'if test -e "$1"; then echo yes; else echo no; fi',
+          "sh",
+          path,
+        )
+        if (answer !== "yes" && answer !== "no")
+          throw new Error(`Unexpected answer of test -e: ${answer}`)
+        return answer === "yes"
       },
       stop,
     }

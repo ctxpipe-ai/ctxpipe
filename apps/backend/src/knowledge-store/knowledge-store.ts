@@ -48,6 +48,12 @@ export type PurgeScope = { orgId: string; workspaceId: string | null }
 /** The count of rows that a purge deleted from each knowledge table. */
 export type PurgeCounts = Record<(typeof KNOWLEDGE_TABLES)[number], number>
 
+/** A part of a knowledge table, by its name in `system.parts`. */
+export type PurgedPart = {
+  table: (typeof KNOWLEDGE_TABLES)[number]
+  part: string
+}
+
 /** The counts of a scope with no rows. */
 export const NO_KNOWLEDGE_ROWS: Readonly<PurgeCounts> = {
   documents: 0,
@@ -403,6 +409,33 @@ export type KnowledgeStore = {
    */
   purge(scope: PurgeScope): Promise<PurgeCounts>
   /**
+   * The active parts that hold rows of `scope`, also rows that a DELETE
+   * hid. Read them after {@link purge} and before {@link erasePurged}:
+   * {@link partsLeft} then tells when ClickHouse removed them (CTX-1672).
+   */
+  findPurgedParts(scope: PurgeScope): Promise<PurgedPart[]>
+  /**
+   * After {@link purge}: makes ClickHouse rewrite each part that holds a
+   * deleted row of `scope`, without its deleted rows (CTX-1672). A DELETE
+   * only hides a row, and its bytes stay in the part, also on the cold
+   * volume, until a merge rewrites the part. Each table gets one
+   * `APPLY DELETED MASK` for each month partition with rows of the scope,
+   * so that a part of another month stays as it is. The mutations run in
+   * the background. Returns the count of mutations.
+   */
+  erasePurged(scope: PurgeScope): Promise<number>
+  /**
+   * The count of rows of `scope` that the active parts of the knowledge
+   * tables hold, also the rows that a DELETE hid.
+   */
+  purgedRowsInParts(scope: PurgeScope): Promise<number>
+  /**
+   * The count of `parts` (from {@link findPurgedParts}) that are still on
+   * the disk, active or replaced. ClickHouse removes a replaced part some
+   * minutes after the mutation that replaced it.
+   */
+  partsLeft(parts: PurgedPart[]): Promise<number>
+  /**
    * The stored vector of each key of `embeddingKeys` that a chunk of a
    * document of `docKeys` has (any file version), in the Workspace of
    * `scope` only. The vector is the stored BFloat16 value, so a write of it
@@ -537,6 +570,10 @@ export function createKnowledgeStore(url: string | undefined): KnowledgeStore {
     cleanUp: (scope, input, counter) =>
       cleanUp(client, scope, input, counted(counter)),
     purge: (scope) => purge(client, scope),
+    findPurgedParts: (scope) => findPurgedParts(client, scope),
+    erasePurged: (scope) => erasePurged(client, scope),
+    purgedRowsInParts: (scope) => purgedRowsInParts(client, scope),
+    partsLeft: (parts) => partsLeft(client, parts),
     readEmbeddings: (scope, docKeys, embeddingKeys) =>
       readEmbeddings(client, scope, docKeys, embeddingKeys),
     readImageTexts: (scope, blobShas, model, promptVersion) =>
@@ -1151,16 +1188,7 @@ async function purge(
   client: ClickHouseClient,
   scope: PurgeScope,
 ): Promise<PurgeCounts> {
-  if (!scope.orgId) throw new Error("A knowledge purge needs an org")
-  if (scope.workspaceId !== null && !scope.workspaceId)
-    throw new Error("A knowledge purge of a Workspace needs a Workspace id")
-  const [where, params] =
-    scope.workspaceId === null
-      ? ["org_id = {orgId:String}", { orgId: scope.orgId }]
-      : [
-          "org_id = {orgId:String} AND workspace_id = {workspaceId:String}",
-          { orgId: scope.orgId, workspaceId: scope.workspaceId },
-        ]
+  const [where, params] = purgeWhere(scope)
   const settings = { [ORG_SETTING]: scope.orgId }
   const counts = { ...NO_KNOWLEDGE_ROWS }
   for (const table of KNOWLEDGE_TABLES) {
@@ -1182,6 +1210,128 @@ async function purge(
     })
   }
   return counts
+}
+
+/**
+ * The WHERE clause and its parameters of a purge: the org predicate, and
+ * the Workspace predicate when the scope has a Workspace.
+ */
+function purgeWhere(
+  scope: PurgeScope,
+): [string, { orgId: string; workspaceId?: string }] {
+  if (!scope.orgId) throw new Error("A knowledge purge needs an org")
+  if (scope.workspaceId !== null && !scope.workspaceId)
+    throw new Error("A knowledge purge of a Workspace needs a Workspace id")
+  return scope.workspaceId === null
+    ? ["org_id = {orgId:String}", { orgId: scope.orgId }]
+    : [
+        "org_id = {orgId:String} AND workspace_id = {workspaceId:String}",
+        { orgId: scope.orgId, workspaceId: scope.workspaceId },
+      ]
+}
+
+/**
+ * The active parts of `table` that hold rows of `scope`, also rows that a
+ * DELETE hid (`apply_deleted_mask = 0`), with their partition and the count
+ * of those rows.
+ */
+async function purgedParts(
+  client: ClickHouseClient,
+  table: (typeof KNOWLEDGE_TABLES)[number],
+  scope: PurgeScope,
+): Promise<{ partition: string; part: string; rows: number }[]> {
+  const [where, params] = purgeWhere(scope)
+  const result = await client.query({
+    query: `SELECT _partition_id AS partition, _part AS part, count() AS rows
+            FROM ${table} WHERE ${where} GROUP BY partition, part`,
+    query_params: params,
+    format: "JSONEachRow",
+    clickhouse_settings: { [ORG_SETTING]: scope.orgId, apply_deleted_mask: 0 },
+  })
+  return (
+    await result.json<{ partition: string; part: string; rows: string }>()
+  ).map((row) => ({ ...row, rows: Number(row.rows) }))
+}
+
+/** The parts of {@link KnowledgeStore.findPurgedParts}. */
+async function findPurgedParts(
+  client: ClickHouseClient,
+  scope: PurgeScope,
+): Promise<PurgedPart[]> {
+  const found: PurgedPart[] = []
+  for (const table of KNOWLEDGE_TABLES)
+    for (const { part } of await purgedParts(client, table, scope))
+      found.push({ table, part })
+  return found
+}
+
+/**
+ * The erase of {@link KnowledgeStore.erasePurged}. `APPLY DELETED MASK`
+ * removes only the rows that a DELETE hid, so it cannot remove a visible
+ * row of another scope. A partition with rows of the scope can also hold
+ * rows that the projection deleted: the mutation removes those too. A part
+ * keeps its volume: a cold part is read from the bucket and written to it
+ * again (ADR-066 decision 9).
+ */
+async function erasePurged(
+  client: ClickHouseClient,
+  scope: PurgeScope,
+): Promise<number> {
+  let mutations = 0
+  for (const table of KNOWLEDGE_TABLES) {
+    const parts = await purgedParts(client, table, scope)
+    for (const partition of new Set(parts.map((part) => part.partition))) {
+      // The id of a partition by toYYYYMM is digits only, and a table with
+      // no partition key (image_texts) has the one partition `all`. The
+      // statement takes no query parameter at this place.
+      if (!/^(\d+|all)$/.test(partition))
+        throw new Error(`Unexpected partition id of ${table}`)
+      await client.command({
+        query: `ALTER TABLE ${table} APPLY DELETED MASK IN PARTITION ID '${partition}'`,
+        // The mutation runs in the background. A rewrite of a large cold
+        // part can take longer than one HTTP request.
+        clickhouse_settings: { mutations_sync: "0" },
+      })
+      mutations += 1
+    }
+  }
+  return mutations
+}
+
+/** The count of {@link KnowledgeStore.purgedRowsInParts}. */
+async function purgedRowsInParts(
+  client: ClickHouseClient,
+  scope: PurgeScope,
+): Promise<number> {
+  let rows = 0
+  for (const table of KNOWLEDGE_TABLES)
+    for (const part of await purgedParts(client, table, scope))
+      rows += part.rows
+  return rows
+}
+
+/**
+ * The count of {@link KnowledgeStore.partsLeft}. system.parts also lists
+ * the replaced parts until ClickHouse removes them from the disk. The
+ * writer can read only the database, table and name columns of it.
+ */
+async function partsLeft(
+  client: ClickHouseClient,
+  parts: PurgedPart[],
+): Promise<number> {
+  if (parts.length === 0) return 0
+  const result = await client.query({
+    query: `SELECT count() AS parts FROM system.parts
+            WHERE database = currentDatabase()
+              AND concat(table, '/', name) IN {parts:Array(String)}`,
+    // A table name has no slash, so table/part names one part.
+    query_params: {
+      parts: parts.map(({ table, part }) => `${table}/${part}`),
+    },
+    format: "JSONEachRow",
+  })
+  const [row] = await result.json<{ parts: string }>()
+  return Number(row?.parts ?? 0)
 }
 
 /**
