@@ -4,6 +4,7 @@ import { z } from "zod"
 import type { Env } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { abortAfter } from "../../lib/abortAfter.js"
+import { oneShotThreadId } from "../../lib/oneShotThreadId.js"
 import { getOrganizationSlugByOrgId } from "../../models/organizations.js"
 import { getWorkspaceById } from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
@@ -167,6 +168,7 @@ export async function selectSlackMentionIntent(input: {
         outputName: "mention_intent",
         temperature: 0,
       }),
+      threadId: oneShotThreadId("slack.mention-intent"),
       systemPrompts: [SLACK_MENTION_SYSTEM_PROMPT],
       messages: [
         {

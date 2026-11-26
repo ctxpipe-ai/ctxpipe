@@ -60,11 +60,13 @@ patchedDependencies:
   # a union of statuses (publishWhenNoTurnRuns) checks against each response. Upstream 1.6 infers the
   # request and response schemas itself, so the older inference hunks and the zod-to-openapi patch are gone.
   '@hono/zod-openapi@1.6.3': patches/@hono__zod-openapi@1.6.3.patch
-  # Temporary (ADR-044). Ticket 01, upstream PR pending: assistant-only parts, SSE readiness and completion, abort on dispose.
-  # Ticket 15: a 1 s limit on each adapter teardown step; accepted 2026-10-06; upstream issue: https://github.com/TanStack/ai/issues/1638.
-  # CTX-576: open a tool call when its input is known, not at the empty "pending" state.
+  # Temporary (ADR-044). Ticket 01, upstream PR pending: SSE readiness and completion, abort on dispose.
   # CTX-1061: resolve a prompt only at the session idle after its reply, because a late message update can show the reply finished before its text.
-  '@tanstack/ai-opencode@0.4.14': patches/@tanstack__ai-opencode@0.4.14.patch
+  # CTX-1322: beforePrompt, the caller's setup that runs while the server starts, and its system prompts.
+  # OpenCode 1.x: permission.asked with its own reply route, and text and reasoning as message.part.delta events.
+  # Upstream in 1.0, so no longer patched: assistant-only parts and the "pending" tool part (CTX-576), and the 1 s
+  # teardown step (ticket 15, https://github.com/TanStack/ai/issues/1638, fixed in https://github.com/TanStack/ai/pull/1773).
+  '@tanstack/ai-opencode@1.0.1': patches/@tanstack__ai-opencode@1.0.1.patch
   # The checks run OpenCode from the root devDependency, and pnpm runs no
   # dependency build script. The launcher runs the binary of the platform
   # package that the lockfile installed, so the postinstall is not needed.

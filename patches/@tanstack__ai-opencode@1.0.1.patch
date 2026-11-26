@@ -1,5 +1,5 @@
 diff --git a/dist/esm/adapters/text.d.ts b/dist/esm/adapters/text.d.ts
-index 9e86b45ef4263dd0c26c1755314ee1effb257e34..5b8a27bbb0747e9c3ab6ec4fdfc7693fef59a673 100644
+index 51211d6a3fc57f02e2b238e115fe51bdb959c8f0..99974b034d44c14cd2181b3f2e5e6aa906b26e9c 100644
 --- a/dist/esm/adapters/text.d.ts
 +++ b/dist/esm/adapters/text.d.ts
 @@ -23,6 +23,12 @@ export interface OpencodeTextConfig {
@@ -13,13 +13,13 @@ index 9e86b45ef4263dd0c26c1755314ee1effb257e34..5b8a27bbb0747e9c3ab6ec4fdfc7693f
 +     */
 +    beforePrompt?: () => Promise<{ systemPrompts?: ReadonlyArray<string> } | void>;
  }
- export declare class OpencodeTextAdapter<TModel extends OpencodeModel> extends BaseTextAdapter<TModel, OpencodeTextProviderOptions, ReadonlyArray<Modality> & readonly ['text'], DefaultMessageMetadataByModality, ReadonlyArray<string>, unknown, never> {
-     readonly name: "opencode";
+ /** The reasoning levels of a model, for `chat({ reasoning })`. `never`: none. */
+ type ResolveReasoning<TModel extends string> = TModel extends keyof OpenCodeModelReasoningByName ? OpenCodeModelReasoningByName[TModel] : never;
 diff --git a/dist/esm/adapters/text.js b/dist/esm/adapters/text.js
-index d11df14ae2159d0558a0f928b72c3d24867b164a..0d37ad0aeb0e13a43a2219e375b5ffa19dfcd55d 100644
+index 4f026e08d8447498f642b88fc15df2a622d2ff01..ef43ad5e270235ca7b3cdb2c28b436e1139d8fad 100644
 --- a/dist/esm/adapters/text.js
 +++ b/dist/esm/adapters/text.js
-@@ -143,7 +143,17 @@ var OpencodeTextAdapter = class extends BaseTextAdapter {
+@@ -200,7 +200,17 @@ var OpencodeTextAdapter = class extends BaseTextAdapter {
  				kind: "session",
  				sessionId: session.sessionId
  			});
@@ -38,22 +38,6 @@ index d11df14ae2159d0558a0f928b72c3d24867b164a..0d37ad0aeb0e13a43a2219e375b5ffa1
  			if (options.outputSchema) promptText = appendOutputSchemaInstruction(promptText, options.outputSchema);
  			let lastAssistantText = "";
  			session.prompt(promptText).then(({ message, text }) => {
-@@ -223,9 +233,12 @@ var OpencodeTextAdapter = class extends BaseTextAdapter {
- 		} finally {
- 			if (externalSignal !== void 0 && onAbort !== void 0) externalSignal.removeEventListener("abort", onAbort);
- 			channel.close();
--			await handle?.dispose();
--			await server?.dispose();
--			await bridge?.close();
-+			// ctxpipe patch (ticket 15, upstream issue: to be opened): the engine
-+			// holds RUN_FINISHED until this generator returns, so each step gets 1s.
-+			const bounded = (step) => Promise.race([Promise.resolve().then(step).catch((error) => logger.errors("opencode teardown failed", { error, source: "opencode.chatStream" })), new Promise((resolve) => setTimeout(resolve, 1e3).unref())]);
-+			await bounded(() => handle?.dispose());
-+			await bounded(() => server?.dispose());
-+			await bounded(() => bridge?.close());
- 		}
- 	}
- 	structuredOutput(_options) {
 diff --git a/dist/esm/process/server.js b/dist/esm/process/server.js
 index c3f62754a7a2e2dbf6cc4482e188b4bf5d10b37d..b208f69b3c045b3c6cdb39f217885b481763acff 100644
 --- a/dist/esm/process/server.js
@@ -205,71 +189,46 @@ index c3f62754a7a2e2dbf6cc4482e188b4bf5d10b37d..b208f69b3c045b3c6cdb39f217885b48
  			}
  		};
 diff --git a/dist/esm/stream/translate.js b/dist/esm/stream/translate.js
-index a63df2314be1bf53f30f08bf21b6d56a6408122f..82de16155a6ae9c3a616a6a00460c661135c4dd0 100644
+index 9b9d5d352b9161d8a9d47446240138a76178de73..c901b40750917243608bb7080a77ebda37555984 100644
 --- a/dist/esm/stream/translate.js
 +++ b/dist/esm/stream/translate.js
-@@ -62,6 +62,14 @@ function messageError(message) {
- async function* translateOpencodeStream(events, ctx) {
- 	const { model, runId, threadId, genId } = ctx;
- 	const now = () => Date.now();
-+	// ctxpipe patch (upstream PR pending): OpenCode streams user and assistant
-+	// parts on one session stream; translate only parts of assistant messages.
-+	const messageRoles = new Map();
-+	const pendingParts = new Map();
+@@ -81,6 +81,10 @@ async function* translateOpencodeStream(events, ctx) {
+ 	const messageRoles = /* @__PURE__ */ new Map();
+ 	/** Parts held until their parent message role arrives. */
+ 	const pendingParts = /* @__PURE__ */ new Map();
 +	// ctxpipe patch (upstream issue: to be opened): OpenCode 1.x streams text
 +	// and reasoning as message.part.delta events. Keep each part by id so that
 +	// its deltas go out as they arrive, or wait with the part for the role.
-+	const streamedParts = new Map();
- 	let runStarted = false;
- 	/** Tool calls started but with no result yet, keyed by callID. */
- 	const unresolvedToolCalls = /* @__PURE__ */ new Set();
-@@ -229,6 +237,10 @@ async function* translateOpencodeStream(events, ctx) {
- 		unresolvedToolCalls.add(part.callID);
- 	}
- 	function* handleToolPart(part) {
-+		// ctxpipe patch (upstream PR pending): a "pending" tool part has an
-+		// empty input while the model streams the arguments. Open the call
-+		// when the input is known, so TOOL_CALL_ARGS carries it.
-+		if (part.state.status === "pending") return;
- 		yield* closeText();
- 		yield* closeReasoning();
- 		yield* openToolCall(part);
-@@ -249,11 +261,37 @@ async function* translateOpencodeStream(events, ctx) {
- 		};
- 	}
- 	function* handleEvent(event) {
--		if (event.type === "message.part.updated") {
-+		if (event.type === "message.updated") {
-+			const { id, role } = event.properties.info;
-+			messageRoles.set(id, role);
-+			const pending = pendingParts.get(id) ?? [];
-+			pendingParts.delete(id);
-+			for (const partEvent of pending) yield* handleEvent(partEvent);
-+		} else if (event.type === "message.part.updated") {
++	const streamedParts = /* @__PURE__ */ new Map();
+ 	/** Accumulated text per text-part id, for delta derivation. */
+ 	const textAccumulators = /* @__PURE__ */ new Map();
+ 	let openTextId = null;
+@@ -316,6 +320,7 @@ async function* translateOpencodeStream(events, ctx) {
+ 		if (event.type === "message.updated") yield* setMessageRole(event.properties.info.id, event.properties.info.role);
+ 		else if (event.type === "message.part.updated") {
  			const { part, delta } = event.properties;
-+			if (!part.messageID) return;
 +			streamedParts.set(part.id, part);
-+			const role = messageRoles.get(part.messageID);
-+			if (role === void 0) {
-+				pendingParts.set(part.messageID, [...pendingParts.get(part.messageID) ?? [], event]);
-+				return;
-+			}
-+			if (role !== "assistant") return;
- 			if (isTextPart(part)) yield* handleTextPart(part, delta);
- 			else if (isReasoningPart(part)) yield* handleReasoningPart(part, delta);
- 			else if (isToolPart(part)) yield* handleToolPart(part);
+ 			const role = messageRoles.get(part.messageID);
+ 			if (role === void 0) {
+ 				const parts = pendingParts.get(part.messageID) ?? [];
+@@ -327,6 +332,20 @@ async function* translateOpencodeStream(events, ctx) {
+ 				else parts[index] = { part };
+ 				pendingParts.set(part.messageID, parts);
+ 			} else if (role === "assistant") yield* handlePart(part, delta);
 +		} else if (event.type === "message.part.delta") {
 +			const { partID, field, delta } = event.properties;
 +			const part = streamedParts.get(partID);
 +			if (part === void 0 || field !== "text" || !delta) return;
++			if (!isTextPart(part) && !isReasoningPart(part)) return;
 +			const role = messageRoles.get(part.messageID);
 +			if (role === void 0) {
-+				pendingParts.set(part.messageID, [...pendingParts.get(part.messageID) ?? [], event]);
-+				return;
-+			}
-+			if (role !== "assistant") return;
-+			if (isTextPart(part)) yield* handleTextPart(part, delta);
-+			else if (isReasoningPart(part)) yield* handleReasoningPart(part, delta);
++				const parts = pendingParts.get(part.messageID) ?? [];
++				parts.push({
++					part,
++					delta
++				});
++				pendingParts.set(part.messageID, parts);
++			} else if (role === "assistant") yield* handlePart(part, delta);
  		} else if (event.type === "todo.updated") yield {
  			type: EventType.CUSTOM,
  			model,
