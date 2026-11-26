@@ -32,6 +32,8 @@ Time range first, then `DeploymentEnvironment`, then `ServiceName` or `TraceId`.
 
 One key per concept. Resource attributes: `service.name` (`backend`, `openworkflow`, `codesearch`, `ui`), `service.namespace=ctxpipe` on backend, codesearch, the UI server, and the UI relay, `deployment.environment`. Scope names are not `service.name`.
 
+On ECS, the backend and the worker (`openworkflow`) also have `service.instance.id`: the id of the ECS task, from the task metadata endpoint. It is on their traces, metrics, and logs, and it is the last part of the name of the task's CloudWatch log stream (for example `backend/backend/<id>`). Outside ECS it is not set.
+
 The UI server and the browser both send as `ui`. Use `telemetry.sdk.language` to tell them apart: `nodejs` is the UI server, `webjs` is the browser. The UI server writes one `SERVER` span for each request (`http.request.method`, `url.path`, `http.response.status_code`; none for the `/.otel` relay). For each `console.error`, such as an SSR render error, it sets that span to Error, adds an `exception` event, and writes a log with severity ERROR in the same trace. Of the error text, only an approved head is exported: an HTTP reason such as `Unauthorized`, a network code such as `ECONNRESET`, `Request failed (<status>)`, or a React error number. Other text is `{redacted}`, and the stack frames show where the error came from.
 
 `deployment.environment` on backend traces, metrics, and logs, the Langfuse environment tag, codesearch, the UI server, and the UI relay is `DEPLOYMENT_ENVIRONMENT` when that is set (`RAILWAY_ENVIRONMENT_NAME` is the fallback while Railway previews exist), otherwise `deployment.environment` from `OTEL_RESOURCE_ATTRIBUTES`, otherwise `production` when `NODE_ENV=production`, otherwise `development`.
@@ -73,9 +75,13 @@ Logs go through evlog (`getLogger()` or `log` from `observability/logger.ts`). W
 
 Metrics: a gauge for a current level, a counter for a cumulative count.
 
+The backend and the worker report the gauge `process.memory.usage` (bytes, unit `By`): the resident memory (RSS) of the process at each metric export. The container memory limit counts this memory, not the V8 heap (`v8js.memory.*`, worker only). Group by `service.instance.id` to see one task.
+
+When the worker process exits, the worker supervisor logs `openworkflow.worker-exited` to stderr with `code`, `signal`, and `workflowRunIds`: the workflow runs that the worker executed at that time, comma-separated. A worker that the kernel killed (out of memory) writes no log of its own, so use this line to find the runs that it held.
+
 The worker (`service.name=openworkflow`) samples the queue depth of its namespace (runs that wait for a worker) once a minute and reports it as the gauge `openworkflow.queue.depth`, for the dashboard. Each worker task reports the same value, so take the maximum over tasks, not the sum. A hosted deployment (`DEPLOYMENT_ENVIRONMENT` set) also writes each sample as a CloudWatch EMF line on stdout (`ctxpipe` / `WorkerQueueDepth`, no dimensions). The worker autoscaling reads that metric.
 
-Export stays off the request and job path. evlog logs go through `createDrainPipeline` (backend and codesearch), spans through the batch processor, metrics through the periodic reader. Never await a collector call in a handler, middleware, or job; a telemetry relay gets a short upstream timeout. Flush only on shutdown or before a script exits (`flushEvlog()`).
+Export stays off the request and job path. evlog logs go through `createDrainPipeline` (backend and codesearch), spans through the batch processor, metrics through the periodic reader. Never await a collector call in a handler, middleware, or job; a telemetry relay gets a short upstream timeout. Flush only on shutdown or before a script exits (`flushEvlog()`). An export failure never throws and never stops the process, also during the shutdown flush. The backend and the worker log it as `otlp.export-failed` with `signal` (`logs` or `traces and metrics`) and `code` (for example `ECONNREFUSED`), at most once a minute for each signal. For logs, `droppedEvents` is the count of log events dropped since the last line; the log pipeline tries each batch three times before it drops it.
 
 A deployment name (`DEPLOYMENT_ENVIRONMENT`, else `RAILWAY_ENVIRONMENT_NAME`) that matches `pr-<digits>` uses flush-on-demand and `forceFlushOtel()` after the response or job. Production uses a 60s reader.
 

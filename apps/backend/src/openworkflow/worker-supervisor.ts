@@ -14,6 +14,7 @@ import { resolve } from "node:path"
 import process from "node:process"
 
 import { openworkflowWorkerStartArgs } from "./codesearchCapacity.js"
+import { SUPERVISOR_IPC_ENV, trackHeldRuns } from "./held-runs.js"
 import {
   HEAP_SNAPSHOT_DIR,
   mib,
@@ -42,18 +43,28 @@ function startOpenworkflowWorker(backendRoot: string): ChildProcess {
       timestamp: new Date().toISOString(),
     })}\n`,
   )
+  // The IPC channel carries the runs that the worker holds (`held-runs.ts`).
   return spawn(resolve(backendRoot, "node_modules/.bin/openworkflow"), args, {
     cwd: backendRoot,
-    stdio: "inherit",
-    env: { ...process.env, NODE_OPTIONS: nodeOptions },
+    stdio: ["inherit", "inherit", "inherit", "ipc"],
+    env: {
+      ...process.env,
+      NODE_OPTIONS: nodeOptions,
+      [SUPERVISOR_IPC_ENV]: "1",
+    },
   })
 }
 
 /**
- * One JSON line for each worker exit. (The restart saved search counts the
- * `openworkflow.config-loaded` lines of each worker start, not these.)
+ * One JSON line for each worker exit, with the workflow runs that the worker
+ * held (`workflowRunIds`, comma-separated). (The restart saved search counts
+ * the `openworkflow.config-loaded` lines of each worker start, not these.)
  */
-function logWorkerExit(code: number | null, signal: NodeJS.Signals | null) {
+function logWorkerExit(
+  code: number | null,
+  signal: NodeJS.Signals | null,
+  heldRunIds: string[],
+) {
   process.stderr.write(
     `${JSON.stringify({
       level: code === 0 || signal === "SIGTERM" ? "info" : "error",
@@ -61,6 +72,7 @@ function logWorkerExit(code: number | null, signal: NodeJS.Signals | null) {
       message: `worker exited with ${code} ${signal ?? ""}`.trim(),
       code,
       signal,
+      workflowRunIds: heldRunIds.join(","),
       timestamp: new Date().toISOString(),
     })}\n`,
   )
@@ -90,10 +102,11 @@ function forwardStopSignals(child: ChildProcess): () => boolean {
 async function main() {
   const child = startOpenworkflowWorker(process.cwd())
   const stopping = forwardStopSignals(child)
+  const heldRuns = trackHeldRuns(child)
   await new Promise<void>((resolvePromise, reject) => {
     child.on("error", reject)
     child.on("exit", (code, signal) => {
-      logWorkerExit(code, signal)
+      logWorkerExit(code, signal, heldRuns())
       if (stopping() || code === 0 || signal === "SIGTERM") resolvePromise()
       else reject(new Error(`worker exited with ${code} ${signal ?? ""}`))
     })
