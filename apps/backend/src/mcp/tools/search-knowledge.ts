@@ -106,7 +106,7 @@ export function searchKnowledgePage(input: {
     }
   })
   const { skipped } = input
-  const extra = {
+  const annotations = {
     ...(input.partialReason
       ? { partial: true, partialReason: input.partialReason }
       : {}),
@@ -116,13 +116,13 @@ export function searchKnowledgePage(input: {
     offset: input.offset,
     limit: input.limit,
     maxTokens: 4_000,
-    result: (fitted) => ({ hits: fitted, skipped, ...extra }),
+    result: (fitted) => ({ hits: fitted, skipped, ...annotations }),
   })
   return {
     page: {
       hits: page,
       skipped,
-      ...extra,
+      ...annotations,
       ...(truncated ? { truncated } : {}),
     },
     nextOffset,

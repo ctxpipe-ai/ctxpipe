@@ -743,8 +743,11 @@ function FormatNote(props: {
  * not hold: the knowledge search does not find it until the format upgrade
  * and the re-ingestion add it (CTX-1715).
  */
-function LegacyKnowledgeNotice(props: { files: number | null }) {
-  const copy = legacyKnowledgeCopy(props.files)
+function LegacyKnowledgeNotice(props: {
+  files: number | null
+  formatVersion: number | null
+}) {
+  const copy = legacyKnowledgeCopy(props.files, props.formatVersion)
   if (!copy) return null
   return (
     <div className="px-5 py-3">
@@ -972,7 +975,10 @@ export function WorkspaceUpgrades(props: {
       ) : data ? (
         // Full-width hairlines between the parts, not boxes.
         <div className="-mx-5 -mb-4 divide-y divide-white/[0.06] border-t border-white/[0.06]">
-          <LegacyKnowledgeNotice files={data.legacyKnowledgeFiles} />
+          <LegacyKnowledgeNotice
+            files={data.legacyKnowledgeFiles}
+            formatVersion={data.formatVersion}
+          />
           {lists.needs_you.length ? (
             <ul className="divide-y divide-white/[0.06]" aria-label="Needs you">
               {lists.needs_you.map(row)}

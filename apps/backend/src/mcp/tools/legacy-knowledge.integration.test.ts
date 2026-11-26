@@ -312,11 +312,10 @@ it(
             )
             const { client } = mainEra
             const args = { org: f.org.slug, workspace: "knowledge" }
-            const message = `Workspace "knowledge" has 2 knowledge files from before Workspaces that are not in its repository, so ctxpipe does not serve them. An owner or admin of the org can add them: merge the format upgrade, then start the re-ingestion (Workspace settings, Status).`
+            const message = `Workspace "knowledge" has 2 knowledge files from before Workspaces that are not in its repository, so ctxpipe does not serve them. An owner or admin of the org can add them: merge the format upgrade if the Workspace has one open, then start the re-ingestion (Workspace settings, Status).`
             const notices = [
               {
                 workspace: "knowledge",
-                reason: "needs_reingestion",
                 files: 2,
                 message,
               },
