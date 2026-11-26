@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest"
 
+import { renderGithubPullRequest } from "../../services/github/pull-request-mirror/converter.js"
+import { toNotionMarkdownFile } from "../../services/notion/converter.js"
+import { pagerdutyIncidentMirrorFiles } from "../../services/pagerduty/converter.js"
+import { plainThreadFile } from "../../services/plain/converter.js"
+import { toSlackThreadMarkdownFile } from "../../services/slack/converter.js"
 import { shopIssue } from "../../test/github-issue.js"
 import { linearIssueFile } from "../../test/linear-issue.js"
+import { diffHydrateUnits, hydrateUnitHash } from "./hydrate-delta.js"
 import { validFromPersistFiles } from "./hydrate-write-jobs.js"
 import {
   applyEffectiveValidFromToUnits,
@@ -249,5 +255,166 @@ describe("the old stack links an issue to the pull request that closed it from t
       to: pull.path,
       validFrom: "2026-03-10T12:00:00.000Z",
     })
+  })
+})
+
+describe("the old stack's updatedAt is the source's own time of the last change (CTX-1692)", () => {
+  // A mirror format change rewrote each mirror file in this commit.
+  const rewrite = "2026-11-24T03:00:00.000Z"
+
+  /** The updatedAt of one file, through the hydrate parse. */
+  function updatedAtOf(file: { path: string; content: string }) {
+    const { units } = hydrateKnowledgeTree({
+      workspaceId: "ws_source_updated_time",
+      files: [{ ...file, lastCommitTimestamp: rewrite }],
+    })
+    return units[0]?.updatedAt ?? null
+  }
+
+  it("is the updatedAt of a Linear issue mirror file", () => {
+    expect(updatedAtOf(linearIssueFile({ identifier: "ENG-7" }))).toBe(
+      "2026-01-02T00:00:00.000Z",
+    )
+  })
+
+  it("is the updatedAt of a GitHub issue mirror file", () => {
+    expect(
+      updatedAtOf(shopIssue({ title: "Flaky test", body: "Fails." })),
+    ).toBe("2026-09-01T00:00:00.000Z")
+  })
+
+  it("is the updatedAt of a GitHub pull request mirror file", () => {
+    const file = renderGithubPullRequest({
+      id: 40,
+      number: 40,
+      repository: "acme/api",
+      url: "https://github.com/acme/api/pull/40",
+      title: "Add cache",
+      body: "",
+      state: "closed",
+      merged: true,
+      mergedAt: "2021-06-03T10:00:00Z",
+      draft: false,
+      author: { login: "dev", type: "human" },
+      base: { ref: "main", sha: "a".repeat(40) },
+      head: { ref: "cache", sha: "b".repeat(40) },
+      reviewDecision: null,
+      labels: [],
+      requestedReviewers: [],
+      createdAt: "2021-06-01T10:00:00Z",
+      updatedAt: "2021-06-05T10:00:00Z",
+      files: [],
+      reviews: [],
+      comments: [],
+      requiredChecks: [],
+    })
+    expect(updatedAtOf(file)).toBe("2021-06-05T10:00:00.000Z")
+  })
+
+  it("is the updated_at of a Plain thread", () => {
+    const file = plainThreadFile({
+      labelTypeId: "lt_1",
+      thread: {
+        id: "th_1",
+        ref: "T-1",
+        title: "Login fails",
+        status: "DONE",
+        priority: 2,
+        customerName: null,
+        labels: [],
+        createdAt: "2021-04-05T06:07:08Z",
+        updatedAt: "2021-04-06T00:00:00Z",
+        messages: [],
+        moreMessages: false,
+      },
+    })
+    expect(updatedAtOf(file)).toBe("2021-04-06T00:00:00.000Z")
+  })
+
+  it("is the updated_at of a PagerDuty incident", () => {
+    const [file] = pagerdutyIncidentMirrorFiles({
+      id: "P1",
+      number: 1,
+      title: "API down",
+      htmlUrl: "https://acme.pagerduty.com/incidents/P1",
+      status: "resolved",
+      createdAt: "2021-04-05T06:07:08Z",
+      updatedAt: "2021-04-07T00:00:00Z",
+      serviceId: "S1",
+      alerts: [],
+      notes: [],
+    })
+    if (!file) throw new Error("Expected a file")
+    expect(updatedAtOf(file)).toBe("2021-04-07T00:00:00.000Z")
+  })
+
+  it("is the last_edited_time of a Notion page", () => {
+    const file = toNotionMarkdownFile({
+      resource: { externalId: "page-1", title: "Roadmap" },
+      page: { id: "page-1", last_edited_time: "2024-05-06T07:08:00.000Z" },
+      blocks: [],
+    })
+    expect(updatedAtOf(file)).toBe("2024-05-06T07:08:00.000Z")
+  })
+
+  it("is the time of the last reply of a Slack thread", () => {
+    const file = toSlackThreadMarkdownFile({
+      channelId: "C01",
+      channelName: "eng",
+      isPrivate: false,
+      threadTs: "1700000000.000100",
+      messages: [
+        { ts: "1700000000.000100", text: "The deploy is stuck." },
+        { ts: "1700003600.000200", text: "Fixed." },
+      ],
+    })
+    expect(updatedAtOf(file)).toBe("2023-11-14T23:13:20.000Z")
+  })
+
+  it("makes the next hydrate write again each row that has the commit time", () => {
+    // A row from before CTX-1692 has the commit time in its hash, so the
+    // next hydrate of a Workspace writes the source time to it.
+    const [unit] = hydrateKnowledgeTree({
+      workspaceId: "ws_source_updated_time",
+      files: [
+        {
+          ...linearIssueFile({ identifier: "ENG-7" }),
+          lastCommitTimestamp: rewrite,
+        },
+      ],
+    }).units
+    if (!unit) throw new Error("Expected a unit")
+    const stored = {
+      servingId: unit.servingId,
+      unitHash: hydrateUnitHash({ ...unit, updatedAt: rewrite }, "model"),
+    }
+    expect(diffHydrateUnits([stored], [unit], "model").changed).toEqual([unit])
+  })
+
+  it("is the commit time for a file with no time of its own", () => {
+    // An authored file, a Slack channel index, a Confluence page, and
+    // mirror files with a value that is not a time.
+    for (const file of [
+      {
+        path: "knowledge/services/api.md",
+        content:
+          "---\nkind: Service\nupdatedAt: 2020-01-01T00:00:00Z\n---\n# API\n",
+      },
+      {
+        path: "slack/eng--C01/index.md",
+        content: '---\nsource: slack\nchannel_id: "C01"\n---\n# #eng\n',
+      },
+      { path: "confluence/ENG/runbook--1.md", content: "# Runbook\n" },
+      {
+        path: "github/issues/acme/api/13.md",
+        content: "---\nsource: github\nupdatedAt: soon\n---\n# Issue\n",
+      },
+      {
+        path: "slack/eng--C01/threads/1700000000.000100/thread.md",
+        content:
+          '---\nsource: slack\nthread_ts: "1700000000.000100"\nlatest: "1e20"\n---\n# Thread\n',
+      },
+    ])
+      expect(updatedAtOf(file), file.path).toBe(rewrite)
   })
 })

@@ -14,6 +14,8 @@ import {
   seedKnowledgeUnits,
   seedKnowledgeWorkspace,
 } from "../../test/knowledge-search-fixture.js"
+import { linearIssueFile } from "../../test/linear-issue.js"
+import { hydrateKnowledgeTree } from "./hydrate.js"
 import { searchKnowledge } from "./knowledge-search.js"
 import { WORKSPACE_CHAT_TOOLS } from "./workspace-chat-tools.js"
 
@@ -28,6 +30,7 @@ const main = `ws_ksearch_main_${suffix}`
 const second = `ws_ksearch_second_${suffix}`
 const ties = `ws_ksearch_ties_${suffix}`
 const foreign = `ws_ksearch_foreign_${suffix}`
+const mirrors = `ws_ksearch_mirrors_${suffix}`
 const sha = "a".repeat(40)
 
 const embeddingRequests: string[] = []
@@ -184,6 +187,9 @@ const units: SeedUnit[] = [
   },
 ]
 
+// A mirror format change rewrote each mirror file in this commit (CTX-1692).
+const rewrite = "2026-11-24T03:00:00.000Z"
+
 const tieId = (index: number) =>
   `unit_tie_${String(index).padStart(3, "0")}_${suffix}`
 
@@ -208,10 +214,34 @@ describe("searchKnowledge (Postgres)", () => {
     vi.stubEnv("MODEL_PROVIDER_API_KEY", "fixture-only")
     vi.stubEnv("MODEL_PROVIDER_URL", "https://search-model.test/v1")
     initDb(connectionString)
-    for (const id of [main, second, ties])
+    for (const id of [main, second, ties, mirrors])
       await seedKnowledgeWorkspace(orgId, id, sha)
     await seedKnowledgeWorkspace(otherOrgId, foreign, sha)
     await seedKnowledgeUnits(orgId, sha, units)
+    // The files as hydrate parses them after the rewrite. The Linear issue
+    // changed on 2026-01-02; the authored note changed in the rewrite.
+    await seedKnowledgeUnits(
+      orgId,
+      sha,
+      hydrateKnowledgeTree({
+        workspaceId: mirrors,
+        files: [
+          linearIssueFile({ identifier: "ENG-7" }),
+          { path: "notes/rollout.md", content: "# Rollout\n\nRollout plan.\n" },
+        ].map((file) => ({ ...file, lastCommitTimestamp: rewrite })),
+      }).units.map((unit) => {
+        if (!unit.updatedAt) throw new Error(`No update time: ${unit.path}`)
+        return {
+          id: unit.servingId,
+          workspaceId: mirrors,
+          path: unit.path,
+          title: unit.title ?? unit.path,
+          source: unit.source,
+          updatedAt: unit.updatedAt,
+          body: unit.body,
+        }
+      }),
+    )
     // 130 units with the same text, so every rank ties. They go in against
     // the id order, so the row order differs from the order the ranks must give.
     await seedKnowledgeUnits(
@@ -240,7 +270,9 @@ describe("searchKnowledge (Postgres)", () => {
 
   afterAll(async () => {
     await withOrgDbContext(orgId, (db) =>
-      db.delete(workspaces).where(inArray(workspaces.id, [main, second, ties])),
+      db
+        .delete(workspaces)
+        .where(inArray(workspaces.id, [main, second, ties, mirrors])),
     )
     await withOrgDbContext(otherOrgId, (db) =>
       db.delete(workspaces).where(inArray(workspaces.id, [foreign])),
@@ -333,6 +365,25 @@ describe("searchKnowledge (Postgres)", () => {
         }),
       ),
     ).toEqual([`unit_ticket_${suffix}`, `unit_zebra_${suffix}`].sort())
+  })
+
+  it("serves and filters the update time of a mirror file from the source, not the commit (CTX-1692)", async () => {
+    const all = await search({
+      query: "rollout issue",
+      workspaceIds: [mirrors],
+    })
+    expect(
+      all.map((hit) => [hit.source, hit.updatedAt.toISOString()]).sort(),
+    ).toEqual([
+      ["authored", rewrite],
+      ["linear", "2026-01-02T00:00:00.000Z"],
+    ])
+    const recent = await search({
+      query: "rollout issue",
+      workspaceIds: [mirrors],
+      updatedAfter: new Date("2026-11-01T00:00:00Z"),
+    })
+    expect(recent.map((hit) => hit.path)).toEqual(["notes/rollout.md"])
   })
 
   it("filters by validity: a unit with no windowed claim always matches", async () => {

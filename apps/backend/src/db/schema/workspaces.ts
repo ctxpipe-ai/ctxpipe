@@ -137,7 +137,11 @@ export const workspaceKnowledgeUnits = pgTable.withRLS(
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
       .notNull()
       .defaultNow(),
-    /** Last commit time of the path; the hydrate time when Git gives none. */
+    /**
+     * The source's own time of the last change of a mirror file
+     * (`sourceUpdatedTime`), else the last commit time of the path; the
+     * hydrate time when Git gives none.
+     */
     updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
       .notNull()
       .defaultNow(),

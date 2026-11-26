@@ -29,12 +29,7 @@ export function sourceTime(file: {
 }): string | null {
   const { attributes } = file
   const root = connectorMirrorRoot(file.path)
-  if (root === "slack") {
-    const seconds = Number(attributes.thread_ts)
-    return Number.isFinite(seconds) && seconds > 0
-      ? new Date(seconds * 1000).toISOString()
-      : null
-  }
+  if (root === "slack") return slackTime(attributes.thread_ts)
   if (root !== null)
     return timeOf(attributes.createdAt) ?? timeOf(attributes.created_at)
   const name = file.path.slice(file.path.lastIndexOf("/") + 1)
@@ -46,6 +41,36 @@ export function sourceTime(file: {
     timeOf(
       /(?:\*\*Date:\*\*|^Date:)[ \t]*(\d{4}-\d{2}-\d{2})/m.exec(file.body)?.[1],
     )
+  )
+}
+
+/**
+ * The source's own time of the last change to a connector mirror file, as
+ * an ISO time, or null (CTX-1692). The old stack serves it as `updatedAt`
+ * and filters `updatedAfter` on it. A file with no such time takes the time
+ * of its last commit. A mirror format change rewrites each mirror file, so
+ * the commit time does not show when the source changed.
+ *
+ * - a GitHub issue or pull request, or a Linear issue: its `updatedAt`;
+ * - a Plain or PagerDuty file: its `updated_at`;
+ * - a Notion page: its `last_edited_time`;
+ * - a Slack thread: the `latest` ts, which is the time of the last reply.
+ *
+ * An authored file and a Confluence page give no such time.
+ */
+export function sourceUpdatedTime(file: {
+  path: string
+  /** The front matter of the file. */
+  attributes: Record<string, unknown>
+}): string | null {
+  const { attributes } = file
+  const root = connectorMirrorRoot(file.path)
+  if (root === null) return null
+  if (root === "slack") return slackTime(attributes.latest)
+  return (
+    timeOf(attributes.updatedAt) ??
+    timeOf(attributes.updated_at) ??
+    timeOf(attributes.last_edited_time)
   )
 }
 
@@ -90,4 +115,15 @@ export function closingPullRequests(
  */
 function timeOf(value: unknown): string | null {
   return typeof value === "string" ? normalizeValidityBound(value) : null
+}
+
+/**
+ * A Slack ts (seconds since the epoch) as an ISO time, or null. A value out
+ * of the range of a date gives null, so a bad file does not stop a hydrate.
+ */
+function slackTime(value: unknown): string | null {
+  const seconds = Number(value)
+  if (!Number.isFinite(seconds) || seconds <= 0) return null
+  const time = new Date(seconds * 1000)
+  return Number.isNaN(time.getTime()) ? null : time.toISOString()
 }
