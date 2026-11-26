@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { delay, HttpResponse, http } from "msw"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { main } from "../../evals/knowledge/cli.js"
 import {
@@ -255,6 +255,7 @@ describe('the retrieval metrics of a "no answer"', () => {
         missing: 0,
         failed: 0,
         unrecorded: 0,
+        hedged: 0,
       },
     })
     const report = buildReport({
@@ -450,6 +451,101 @@ describe("the spend cap", () => {
         missing: 0,
         failed: 0,
         unrecorded: 0,
+        hedged: 0,
+      })
+    } finally {
+      restore()
+    }
+  })
+})
+
+describe("a hedged Jev call", () => {
+  const BASE = "https://openrouter.ai/api/v1"
+  const JEV = "https://openrouter.ai/api/alpha/decisions"
+  let sent = 0
+  useMswServer(
+    // The first copy is slow (a provider stall), so the client sends a
+    // second copy after 700 ms. The second copy answers at once. A request
+    // with "stall" in its body does not answer before the time limit.
+    http.post(JEV, async ({ request }) => {
+      sent += 1
+      if (sent === 1 || (await request.text()).includes("stall"))
+        await delay(5_000)
+      return HttpResponse.json({
+        answers: { sky: { type: "noul", noul: 0.9 } },
+        usage: { cost: 0.0004 },
+      })
+    }),
+  )
+  // Only the timers of the hedge and of msw.
+  beforeEach(() => {
+    sent = 0
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+  })
+  afterEach(async () => {
+    await vi.runOnlyPendingTimersAsync()
+    vi.useRealTimers()
+    vi.unstubAllEnvs()
+  })
+
+  it("books the stopped copy at the cost of the copy that answered, and counts the hedge", async () => {
+    vi.stubEnv("MODEL_PROVIDER", "openrouter")
+    vi.stubEnv("MODEL_PROVIDER_URL", BASE)
+    vi.stubEnv("MODEL_PROVIDER_API_KEY", "test-key")
+    vi.stubEnv("MODEL_PROVIDER_ALLOWLIST", "openai,azure")
+    const calls = new ModelCalls(BASE, 1)
+    const restore = calls.install()
+    try {
+      calls.begin("plane", "question")
+      const call = decideNoul(
+        ["The sky is blue."],
+        { sky: { type: "noul", instructions: "Is the sky blue?" } },
+        { timeoutMs: 5_000, attributes: {} },
+      )
+      // The client starts the hedge timer when the first copy goes out.
+      while (sent < 1) await new Promise((wake) => setImmediate(wake))
+      await vi.advanceTimersByTimeAsync(700)
+      expect((await call).get("sky")).toBe(0.9)
+      await calls.settle()
+      expect(sent).toBe(2)
+      // The winner and the stopped copy, each at $0.0004: not the $0.002
+      // reservation of a Jev call.
+      expect(calls.end()).toMatchObject({
+        jev: 1,
+        hedged: 1,
+        failed: 0,
+        costUsd: 0.0008,
+      })
+      expect(calls.spentUsd).toBeCloseTo(0.0008)
+      expect(calls.records).toHaveLength(1)
+    } finally {
+      restore()
+    }
+  })
+
+  it("counts the hedge, and books the reservation, when both copies stop at the time limit", async () => {
+    const calls = new ModelCalls(BASE, 1)
+    const restore = calls.install()
+    try {
+      calls.begin("plane", "question")
+      // The two copies of the Jev client: the same body and one signal.
+      const limit = new AbortController()
+      const copy = () =>
+        fetch(JEV, {
+          method: "POST",
+          body: JSON.stringify({ questions: { stall: {} } }),
+          signal: limit.signal,
+        })
+      const copies = [copy(), copy()]
+      await vi.advanceTimersByTimeAsync(10)
+      limit.abort()
+      for (const pending of copies) await expect(pending).rejects.toThrow()
+      await calls.settle()
+      expect(calls.end()).toMatchObject({
+        jev: 0,
+        hedged: 1,
+        failed: 0,
+        costUsd: 0.004,
       })
     } finally {
       restore()
@@ -795,7 +891,7 @@ describe("a run with a failed call", () => {
       search: failed
         ? { error: "Error", latencyMs: 10 }
         : { refs: [], scores: [], latencyMs: 10 },
-      calls: { ...calls, missing, failed: 0, unrecorded: 0 },
+      calls: { ...calls, missing, failed: 0, unrecorded: 0, hedged: 0 },
     })
     const report = buildReport({
       manifest: {
@@ -817,7 +913,7 @@ describe("a run with a failed call", () => {
         // a failed Jev call gives `judge_unavailable`: both are errors.
         {
           ...answer("legacy", third.id, false),
-          calls: { ...calls, missing: 0, failed: 1, unrecorded: 0 },
+          calls: { ...calls, missing: 0, failed: 1, unrecorded: 0, hedged: 0 },
         },
         {
           ...answer("plane", third.id, false),
@@ -866,7 +962,7 @@ describe("the product time budget", () => {
       question,
       search: { refs: [], scores: [], latencyMs: 900 },
       related: { refs: [], scores: [], latencyMs: relatedMs },
-      calls: { ...calls, missing: 0, failed: 0, unrecorded: 0 },
+      calls: { ...calls, missing: 0, failed: 0, unrecorded: 0, hedged: 0 },
     })
     const input = {
       manifest: {
@@ -941,13 +1037,13 @@ describe("the comparison with the kept run", () => {
           arm: "legacy",
           question: id,
           search: { refs: [], scores: [], latencyMs: 10 },
-          calls: { ...calls, missing: 0, failed: 0, unrecorded: 0 },
+          calls: { ...calls, missing: 0, failed: 0, unrecorded: 0, hedged: 0 },
         },
         {
           arm: "plane",
           question: id,
           search: { error: "internal", latencyMs: 10 },
-          calls: { ...calls, missing: 0, failed: 0, unrecorded: 0 },
+          calls: { ...calls, missing: 0, failed: 0, unrecorded: 0, hedged: 0 },
         },
       ],
       kept: {
@@ -968,6 +1064,7 @@ describe("the comparison with the kept run", () => {
             relatedMs: null,
             jevCalls: 1,
             jevQuestions: 2,
+            hedged: 0,
             costUsd: 0.001,
           },
         ],

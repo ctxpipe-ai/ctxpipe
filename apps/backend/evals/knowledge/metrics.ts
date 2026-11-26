@@ -43,6 +43,8 @@ export type QuestionScore = {
   jevCalls: number
   jevQuestions: number
   embeddingCalls: number
+  /** The Jev calls that the client sent twice, because the provider was slow. */
+  hedged: number
   costUsd: number
   /**
    * The failure of the search or of `get_related`, a Jev failure of the
@@ -176,6 +178,7 @@ export function scoreAnswer(
     jevCalls: answer.calls.jev,
     jevQuestions: answer.calls.jevQuestions,
     embeddingCalls: answer.calls.embedding,
+    hedged: answer.calls.hedged,
     costUsd: answer.calls.costUsd,
     ...(errors.length ? { error: errors.join("; ") } : {}),
     partial: Boolean(search?.partialReason || related?.partialReason),
@@ -242,6 +245,8 @@ export function operations(
       sum((score) => score.embeddingCalls),
     ),
     costUsd: sum((score) => score.costUsd),
+    /** The Jev calls that the client sent twice (provider stalls). */
+    hedged: sum((score) => score.hedged),
     errors: scores.filter((score) => score.error).length,
     partial: scores.filter((score) => score.partial).length,
     /** The answers with a call that took longer than the product budget. */

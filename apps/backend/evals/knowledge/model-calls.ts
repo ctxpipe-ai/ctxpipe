@@ -69,6 +69,13 @@ export const callCountsSchema = z.object({
    * (0).
    */
   unrecorded: z.number().default(0),
+  /**
+   * The copies of a request that went out while a copy of the same request
+   * was in flight: the hedge of the Jev client, which sends a second copy
+   * of a slow call. Each one shows a provider stall. A run folder from
+   * before this count has none (0).
+   */
+  hedged: z.number().default(0),
 })
 export type CallCounts = z.infer<typeof callCountsSchema>
 
@@ -122,6 +129,7 @@ const emptyCounts = (): CallCounts => ({
   missing: 0,
   failed: 0,
   unrecorded: 0,
+  hedged: 0,
 })
 
 /**
@@ -278,6 +286,18 @@ export class ModelCalls {
   private readonly jevCalls: RecordedCall[] = []
   /** The recorded calls that a composed answer used, kept in `records`. */
   private readonly composedFrom = new Set<RecordedCall>()
+  /**
+   * The copies of each request (`replayKeyOf`) of an arm and question that
+   * are in flight, and the cost of a copy that answered while they were in
+   * flight. The Jev client
+   * sends a second copy of a slow request, and stops the copy that did not
+   * answer first after the answer. The stopped copy then costs about the
+   * same as its sibling, not the reservation.
+   */
+  private readonly copies = new Map<
+    string,
+    { inFlight: number; answeredUsd?: number }
+  >()
 
   /**
    * `baseUrl` is `MODEL_PROVIDER_URL`. `capUsd` is the spend cap of the run.
@@ -425,6 +445,11 @@ export class ModelCalls {
     // Only a call that goes out counts as live.
     if (this.replay) this.reuse.live += 1
     this.reservedUsd += reserved
+    const copiesKey = this.replayKey(owner.arm, owner.question, key)
+    const copies = this.copies.get(copiesKey) ?? { inFlight: 0 }
+    if (copies.inFlight > 0) owner.counts.hedged += 1
+    copies.inFlight += 1
+    this.copies.set(copiesKey, copies)
     const started = performance.now()
     let response: Response
     let text: string
@@ -432,19 +457,26 @@ export class ModelCalls {
       response = await next(request)
       text = await response.text()
     } catch (error) {
-      // The provider can charge a call that failed on the way back.
-      this.spentUsd += reserved
-      owner.counts.costUsd += reserved
+      // The provider can charge a call that failed on the way back. A copy
+      // that the Jev client stopped because its sibling answered costs what
+      // the sibling cost.
+      const siblingUsd = request.signal.aborted ? copies.answeredUsd : undefined
+      const costUsd = siblingUsd ?? reserved
+      this.spentUsd += costUsd
+      owner.counts.costUsd += costUsd
       if (!request.signal.aborted) owner.counts.failed += 1
       throw error
     } finally {
       this.reservedUsd -= reserved
+      copies.inFlight -= 1
+      if (copies.inFlight === 0) this.copies.delete(copiesKey)
     }
     const latencyMs = performance.now() - started
     const known = gatewayCost(
       answerSchema.safeParse(parseOr(text, {})).data?.usage,
     )
     const costUsd = known ?? reserved
+    copies.answeredUsd = costUsd
     this.spentUsd += costUsd
     owner.counts.costUsd += costUsd
     // A chat reply is no retrieval answer, so the counts of a question leave

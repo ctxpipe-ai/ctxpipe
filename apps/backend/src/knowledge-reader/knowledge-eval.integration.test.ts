@@ -927,6 +927,7 @@ describe("the knowledge eval harness", () => {
           jevCallsPerQuestion: 2.25,
           jevQuestionsPerQuestion: 36.75,
           costPerQuestionUsd: 0.003,
+          hedged: 0,
           errors: 0,
         },
         now: {
@@ -935,6 +936,7 @@ describe("the knowledge eval harness", () => {
           jevCallsPerQuestion: 2,
           jevQuestionsPerQuestion: 32.5,
           costPerQuestionUsd: 0.002,
+          hedged: 0,
           errors: 0,
         },
       },
@@ -946,6 +948,7 @@ describe("the knowledge eval harness", () => {
           jevCallsPerQuestion: 3,
           jevQuestionsPerQuestion: 49,
           costPerQuestionUsd: 0.004,
+          hedged: 0,
           errors: 0,
         },
         now: {
@@ -954,6 +957,7 @@ describe("the knowledge eval harness", () => {
           jevCallsPerQuestion: 3,
           jevQuestionsPerQuestion: 35.75,
           costPerQuestionUsd: 0.003,
+          hedged: 0,
           errors: 0,
         },
       },
