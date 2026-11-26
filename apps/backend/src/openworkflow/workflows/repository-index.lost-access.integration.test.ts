@@ -29,6 +29,7 @@ import {
 } from "../../models/github-installation.js"
 import { processGithubWebhookPayload } from "../../routes/webhooks/github/github.js"
 import { GIT_REMOTE_ACCESS_MESSAGES } from "../../services/git/clone-tree.js"
+import { usePlainGitNetwork } from "../../services/git/plain-git-remote.js"
 import { openWorkflowNamespaceId } from "../namespace.js"
 import { repositoryIndex } from "./repository-index.js"
 
@@ -39,6 +40,8 @@ describeWithDatabase("repository-index after a lost GitHub access", () => {
   const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`
   const orgId = generateObjectId("org")
   const repositoryId = generateObjectId("repo")
+  // A private GitHub repository with no connection (its connection is gone).
+  const unconnectedRepositoryId = generateObjectId("repo")
   const namespace = `index_lost_access_${suffix}`
   // Unique for each run: the webhook finds connections by this id.
   const installationId = 900_000_000 + Math.floor(Math.random() * 99_999_999)
@@ -81,7 +84,17 @@ describeWithDatabase("repository-index after a lost GitHub access", () => {
     ),
     http.post(
       `${CODESEARCH}/:repositoryId/index/clone-checkout`,
-      async ({ request }) => {
+      async ({ request, params }) => {
+        // What codesearch answers when git clones a private repository with
+        // no credential.
+        if (params.repositoryId === unconnectedRepositoryId)
+          return HttpResponse.json(
+            {
+              error:
+                "Command failed with exit code 128\nstderr: Cloning into bare repository 'shared.git'...\nfatal: could not read Username for 'https://github.com': terminal prompts disabled",
+            },
+            { status: 500 },
+          )
         if (cloneFails)
           return HttpResponse.json(
             { error: "codesearch unavailable" },
@@ -115,8 +128,9 @@ describeWithDatabase("repository-index after a lost GitHub access", () => {
   let backend: BackendPostgres | undefined
   let worker: ReturnType<OpenWorkflow["newWorker"]> | undefined
   let runner: OpenWorkflow | undefined
+  let restorePlainGitNetwork: (() => void) | undefined
 
-  const repositoryState = async () => {
+  const repositoryState = async (id = repositoryId) => {
     const [row] = await withOrgDbContext(orgId, (db) =>
       db
         .select({
@@ -126,15 +140,15 @@ describeWithDatabase("repository-index after a lost GitHub access", () => {
           lastIngestedHash: repositories.lastIngestedHash,
         })
         .from(repositories)
-        .where(eq(repositories.id, repositoryId)),
+        .where(eq(repositories.id, id)),
     )
     return row
   }
-  const rebuild = () => {
+  const rebuild = (id = repositoryId) => {
     if (!runner) throw new Error("OpenWorkflow runner missing")
     return runner.runWorkflow(repositoryIndex.spec, {
       orgId,
-      repositoryId,
+      repositoryId: id,
       targetHash: SHA,
       ingestionV2: true,
       rebuild: true,
@@ -165,6 +179,9 @@ describeWithDatabase("repository-index after a lost GitHub access", () => {
       }).privateKey,
     )
     server.listen({ onUnhandledRequest: "error" })
+    restorePlainGitNetwork = usePlainGitNetwork({
+      lookup: async () => [{ address: "140.82.112.3" }],
+    })
     initDb(databaseUrl)
     await getSystemDb()
       .insert(organizations)
@@ -192,6 +209,18 @@ describeWithDatabase("repository-index after a lost GitHub access", () => {
         lastIngestedHash: SHA,
       }),
     )
+    await withOrgDbContext(orgId, (db) =>
+      db.insert(repositories).values({
+        id: unconnectedRepositoryId,
+        orgId,
+        name: `${repoName}-unconnected`,
+        gitUrl: `https://github.com/${fullName}-unconnected.git`,
+        githubConnectionId: null,
+        indexReady: true,
+        indexingStatus: "ready",
+        lastIngestedHash: SHA,
+      }),
+    )
     backend = await BackendPostgres.connect(databaseUrl, {
       runMigrations: false,
       namespaceId: namespace,
@@ -206,6 +235,7 @@ describeWithDatabase("repository-index after a lost GitHub access", () => {
     await worker?.stop()
     await backend?.stop()
     server.close()
+    restorePlainGitNetwork?.()
     vi.unstubAllEnvs()
     if (!process.env.DATABASE_URL) return
     await getSystemDb().execute(
@@ -334,6 +364,31 @@ describeWithDatabase("repository-index after a lost GitHub access", () => {
         indexingError: null,
         lastIngestedHash: SHA,
       })
+    },
+  )
+
+  it(
+    "stops the hourly rebuild of a private GitHub repository that has no connection",
+    { timeout: 120_000 },
+    async () => {
+      expect(
+        (await sweepRepositoryDisk(orgId, unconnectedRepositoryId, [])).rebuild,
+      ).toEqual({ orgId, repositoryId: unconnectedRepositoryId, sha: SHA })
+
+      // Git asks for a username: the repository needs a credential.
+      await expect(
+        (await rebuild(unconnectedRepositoryId)).result({ timeoutMs: 30_000 }),
+      ).rejects.toThrow(GIT_REMOTE_ACCESS_MESSAGES.noCredential)
+      expect(await repositoryState(unconnectedRepositoryId)).toEqual({
+        indexReady: true,
+        indexingStatus: "failed",
+        indexingError: GIT_REMOTE_ACCESS_MESSAGES.noCredential,
+        lastIngestedHash: SHA,
+      })
+      // The sweep does not queue the run again in the next hours.
+      expect(
+        (await sweepRepositoryDisk(orgId, unconnectedRepositoryId, [])).rebuild,
+      ).toBeUndefined()
     },
   )
 })

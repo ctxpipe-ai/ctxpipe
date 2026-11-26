@@ -29,7 +29,10 @@ import {
   captureRepositoryIngestionRequest,
 } from "../../models/repository-ingestion-requests.js"
 import { flushWorkflowLog, getLogger } from "../../observability/logger.js"
-import { GitRemoteAccessError } from "../../services/git/clone-tree.js"
+import {
+  GitRemoteAccessError,
+  gitRemoteAccessError,
+} from "../../services/git/clone-tree.js"
 import { checkedPlainGitRemote } from "../../services/git/plain-git-remote.js"
 import { parseIndexerConcurrency } from "../codesearchCapacity.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
@@ -331,25 +334,49 @@ export const repositoryIndex = defineWorkflow(
       }
     })
 
-    const checkout = await runIndexPhaseWithAdmissionRetry(
+    const cloned = await runIndexPhaseWithAdmissionRetry(
       indexStep,
       wls,
       "clone-checkout",
-      async () =>
-        codesearchIndexCloneCheckout(auth, {
-          ...(githubToken
-            ? { githubToken }
-            : // With no GitHub token, codesearch reads the repository
-              // only through the plain git remote that this attempt
-              // checks: the stored URL must obey the plain git rules of
-              // the deployment mode (CTX-815). A refused URL fails the
-              // index with the rule.
-              { plainGit: await checkedPlainGitRemote(repository.gitUrl) }),
-          targetHash: input.targetHash,
-          fromHash: input.fromHash,
-        }),
+      async () => {
+        try {
+          return {
+            checkout: await codesearchIndexCloneCheckout(auth, {
+              ...(githubToken
+                ? { githubToken }
+                : // With no GitHub token, codesearch reads the repository
+                  // only through the plain git remote that this attempt
+                  // checks: the stored URL must obey the plain git rules of
+                  // the deployment mode (CTX-815). A refused URL fails the
+                  // index with the rule.
+                  { plainGit: await checkedPlainGitRemote(repository.gitUrl) }),
+              targetHash: input.targetHash,
+              fromHash: input.fromHash,
+            }),
+          }
+        } catch (error) {
+          if (isCodesearchAdmissionBusyError(error)) throw error
+          // Codesearch gives the git stderr. A refused read (for example a
+          // private repository with no connection, CTX-1717) does not
+          // retry, and is recorded as the token refusal above is.
+          const refused = gitRemoteAccessError({
+            hasCredential: Boolean(githubToken),
+            stderr: error instanceof Error ? error.message : String(error),
+          })
+          if (!refused) throw error
+          if (!requestId)
+            await markRepositoryLostAccess({
+              orgId: input.orgId,
+              repositoryId: input.repositoryId,
+              error: refused,
+            })
+          return { refused: refused.message }
+        }
+      },
       indexRetryPolicy,
     )
+    if ("refused" in cloned) throw new Error(cloned.refused)
+    const { checkout } = cloned
 
     logMilestone("repository-index.clone-checkout.done", {
       repositoryId: input.repositoryId,

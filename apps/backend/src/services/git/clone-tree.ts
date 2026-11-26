@@ -176,6 +176,21 @@ export class GitRemoteAccessError extends Error {
 }
 
 /**
+ * The access error that the git stderr `stderr` tells: the remote refused
+ * the read credential, or the read needs one and has none. Else undefined.
+ */
+export function gitRemoteAccessError(input: {
+  hasCredential: boolean
+  stderr: string
+}): GitRemoteAccessError | undefined {
+  return /could not read (?:Username|Password)|Authentication failed|Repository not found|returned error: 40[134]/i.test(
+    input.stderr,
+  )
+    ? new GitRemoteAccessError(input)
+    : undefined
+}
+
+/**
  * Resolve a branch or a tag once; subsequent reads fetch the returned
  * immutable SHA. A branch wins over a tag of the same name, and an annotated
  * tag resolves to its commit.
@@ -227,17 +242,12 @@ async function lsRemote(
     timeout: timeoutMs,
     env: input.env ?? gitRemoteEnvironment(input),
   }).catch((error: unknown) => {
-    const stderr = String((error as { stderr?: unknown }).stderr ?? "")
-    if (
-      /could not read (?:Username|Password)|Authentication failed|Repository not found|returned error: 40[134]/i.test(
-        stderr,
-      )
-    )
-      throw new GitRemoteAccessError({
+    throw (
+      gitRemoteAccessError({
         hasCredential: Boolean(input.token),
-        stderr,
-      })
-    throw error
+        stderr: String((error as { stderr?: unknown }).stderr ?? ""),
+      }) ?? error
+    )
   })
   return stdout.toString("utf8").trim().split("\n")
 }
