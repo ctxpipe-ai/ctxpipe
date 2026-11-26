@@ -4,8 +4,8 @@ import { fileURLToPath } from "node:url"
 import { config } from "dotenv"
 import { eq, inArray, type SQL, sql } from "drizzle-orm"
 import pg from "pg"
-import { z } from "zod"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { z } from "zod"
 
 import { closeDb, initDb, withOrgDbContext } from "../db/client.js"
 import { ownerUrlForMigrate } from "../db/owner-migrate-url.js"
@@ -126,5 +126,4 @@ describe("index plans of the worker's frequent reads (CTX-1708)", () => {
         ]),
       })
   })
-
 })

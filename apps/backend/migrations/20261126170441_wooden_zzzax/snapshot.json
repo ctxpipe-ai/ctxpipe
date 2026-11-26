@@ -2,9 +2,7 @@
   "version": "8",
   "dialect": "postgres",
   "id": "dbf6358f-66e4-47f2-a634-e567c2f04d7c",
-  "prevIds": [
-    "c9862129-ef10-4cbb-96e6-0a9c4a0241e4"
-  ],
+  "prevIds": ["c9862129-ef10-4cbb-96e6-0a9c4a0241e4"],
   "ddl": [
     {
       "values": [
@@ -9941,14 +9939,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "user_id"
-      ],
+      "columns": ["user_id"],
       "schemaTo": "public",
       "tableTo": "users",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "accounts_user_id_users_id_fkey",
@@ -9958,14 +9952,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "organization_id"
-      ],
+      "columns": ["organization_id"],
       "schemaTo": "public",
       "tableTo": "organizations",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "invitations_organization_id_organizations_id_fkey",
@@ -9975,14 +9965,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "inviter_id"
-      ],
+      "columns": ["inviter_id"],
       "schemaTo": "public",
       "tableTo": "users",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "invitations_inviter_id_users_id_fkey",
@@ -9992,14 +9978,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "organization_id"
-      ],
+      "columns": ["organization_id"],
       "schemaTo": "public",
       "tableTo": "organizations",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "members_organization_id_organizations_id_fkey",
@@ -10009,14 +9991,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "user_id"
-      ],
+      "columns": ["user_id"],
       "schemaTo": "public",
       "tableTo": "users",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "members_user_id_users_id_fkey",
@@ -10026,14 +10004,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "client_id"
-      ],
+      "columns": ["client_id"],
       "schemaTo": "public",
       "tableTo": "oauth_clients",
-      "columnsTo": [
-        "client_id"
-      ],
+      "columnsTo": ["client_id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "oauth_access_tokens_client_id_oauth_clients_client_id_fkey",
@@ -10043,14 +10017,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "session_id"
-      ],
+      "columns": ["session_id"],
       "schemaTo": "public",
       "tableTo": "sessions",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "SET NULL",
       "name": "oauth_access_tokens_session_id_sessions_id_fkey",
@@ -10060,14 +10030,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "user_id"
-      ],
+      "columns": ["user_id"],
       "schemaTo": "public",
       "tableTo": "users",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "oauth_access_tokens_user_id_users_id_fkey",
@@ -10077,14 +10043,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "refresh_id"
-      ],
+      "columns": ["refresh_id"],
       "schemaTo": "public",
       "tableTo": "oauth_refresh_tokens",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "oauth_access_tokens_refresh_id_oauth_refresh_tokens_id_fkey",
@@ -10094,14 +10056,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "client_id"
-      ],
+      "columns": ["client_id"],
       "schemaTo": "public",
       "tableTo": "oauth_clients",
-      "columnsTo": [
-        "client_id"
-      ],
+      "columnsTo": ["client_id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "oauth_client_resources_client_id_oauth_clients_client_id_fkey",
@@ -10111,14 +10069,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "resource_id"
-      ],
+      "columns": ["resource_id"],
       "schemaTo": "public",
       "tableTo": "oauth_resources",
-      "columnsTo": [
-        "identifier"
-      ],
+      "columnsTo": ["identifier"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "oauth_client_resources_CxFm94nYigrM_fkey",
@@ -10128,14 +10082,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "user_id"
-      ],
+      "columns": ["user_id"],
       "schemaTo": "public",
       "tableTo": "users",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "oauth_clients_user_id_users_id_fkey",
@@ -10145,14 +10095,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "client_id"
-      ],
+      "columns": ["client_id"],
       "schemaTo": "public",
       "tableTo": "oauth_clients",
-      "columnsTo": [
-        "client_id"
-      ],
+      "columnsTo": ["client_id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "oauth_consents_client_id_oauth_clients_client_id_fkey",
@@ -10162,14 +10108,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "user_id"
-      ],
+      "columns": ["user_id"],
       "schemaTo": "public",
       "tableTo": "users",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "oauth_consents_user_id_users_id_fkey",
@@ -10179,14 +10121,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "client_id"
-      ],
+      "columns": ["client_id"],
       "schemaTo": "public",
       "tableTo": "oauth_clients",
-      "columnsTo": [
-        "client_id"
-      ],
+      "columnsTo": ["client_id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "oauth_refresh_tokens_client_id_oauth_clients_client_id_fkey",
@@ -10196,14 +10134,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "session_id"
-      ],
+      "columns": ["session_id"],
       "schemaTo": "public",
       "tableTo": "sessions",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "SET NULL",
       "name": "oauth_refresh_tokens_session_id_sessions_id_fkey",
@@ -10213,14 +10147,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "user_id"
-      ],
+      "columns": ["user_id"],
       "schemaTo": "public",
       "tableTo": "users",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "oauth_refresh_tokens_user_id_users_id_fkey",
@@ -10230,14 +10160,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "user_id"
-      ],
+      "columns": ["user_id"],
       "schemaTo": "public",
       "tableTo": "users",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "passkeys_user_id_users_id_fkey",
@@ -10247,14 +10173,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "user_id"
-      ],
+      "columns": ["user_id"],
       "schemaTo": "public",
       "tableTo": "users",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "sessions_user_id_users_id_fkey",
@@ -10264,14 +10186,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "user_id"
-      ],
+      "columns": ["user_id"],
       "schemaTo": "public",
       "tableTo": "users",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "two_factors_user_id_users_id_fkey",
@@ -10281,14 +10199,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "thread_id"
-      ],
+      "columns": ["thread_id"],
       "schemaTo": "public",
       "tableTo": "conversations",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "chat_interrupts_thread_id_conversations_id_fkey",
@@ -10298,14 +10212,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "thread_id"
-      ],
+      "columns": ["thread_id"],
       "schemaTo": "public",
       "tableTo": "conversations",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "chat_runs_thread_id_conversations_id_fkey",
@@ -10315,14 +10225,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "thread_id"
-      ],
+      "columns": ["thread_id"],
       "schemaTo": "public",
       "tableTo": "conversations",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "chat_threads_thread_id_conversations_id_fkey",
@@ -10332,14 +10238,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "claim_id"
-      ],
+      "columns": ["claim_id"],
       "schemaTo": "public",
       "tableTo": "claims",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "claim_evidence_claim_id_claims_id_fkey",
@@ -10349,14 +10251,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "connection_id"
-      ],
+      "columns": ["connection_id"],
       "schemaTo": "public",
       "tableTo": "connections",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "confluence_spaces_connection_id_connections_id_fkey",
@@ -10366,14 +10264,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "org_id"
-      ],
+      "columns": ["org_id"],
       "schemaTo": "public",
       "tableTo": "organizations",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "confluence_sync_targets_org_id_organizations_id_fkey",
@@ -10383,14 +10277,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "connection_id"
-      ],
+      "columns": ["connection_id"],
       "schemaTo": "public",
       "tableTo": "connections",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "confluence_sync_targets_connection_id_connections_id_fkey",
@@ -10400,14 +10290,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "repository_id"
-      ],
+      "columns": ["repository_id"],
       "schemaTo": "public",
       "tableTo": "repositories",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
       "name": "confluence_sync_targets_repository_id_repositories_id_fkey",
@@ -10417,14 +10303,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "user_id"
-      ],
+      "columns": ["user_id"],
       "schemaTo": "public",
       "tableTo": "users",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "crm_intake_outbox_user_id_users_id_fkey",
@@ -10434,14 +10316,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "org_id"
-      ],
+      "columns": ["org_id"],
       "schemaTo": "public",
       "tableTo": "organizations",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "connections_org_id_organizations_id_fkey",
@@ -10451,14 +10329,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "conversation_id"
-      ],
+      "columns": ["conversation_id"],
       "schemaTo": "public",
       "tableTo": "conversations",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "conversation_messages_conversation_id_conversations_id_fkey",
@@ -10468,14 +10342,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "org_id"
-      ],
+      "columns": ["org_id"],
       "schemaTo": "public",
       "tableTo": "organizations",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "ingest_model_costs_org_id_organizations_id_fkey",
@@ -10485,14 +10355,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "workspace_id"
-      ],
+      "columns": ["workspace_id"],
       "schemaTo": "public",
       "tableTo": "workspaces",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "knowledge_branch_heads_workspace_id_workspaces_id_fkey",
@@ -10502,14 +10368,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "workspace_id"
-      ],
+      "columns": ["workspace_id"],
       "schemaTo": "public",
       "tableTo": "workspaces",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "knowledge_state_workspace_id_workspaces_id_fkey",
@@ -10519,14 +10381,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "api_key_id"
-      ],
+      "columns": ["api_key_id"],
       "schemaTo": "public",
       "tableTo": "apikeys",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "oauth_grant_organizations_api_key_id_apikeys_id_fkey",
@@ -10536,14 +10394,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "organization_id"
-      ],
+      "columns": ["organization_id"],
       "schemaTo": "public",
       "tableTo": "organizations",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "oauth_grant_organizations_organization_id_organizations_id_fkey",
@@ -10553,14 +10407,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "api_key_id"
-      ],
+      "columns": ["api_key_id"],
       "schemaTo": "public",
       "tableTo": "apikeys",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "org_api_key_creators_api_key_id_apikeys_id_fkey",
@@ -10570,14 +10420,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "user_id"
-      ],
+      "columns": ["user_id"],
       "schemaTo": "public",
       "tableTo": "users",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "org_api_key_creators_user_id_users_id_fkey",
@@ -10587,14 +10433,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "organization_id"
-      ],
+      "columns": ["organization_id"],
       "schemaTo": "public",
       "tableTo": "organizations",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "org_features_organization_id_organizations_id_fkey",
@@ -10604,14 +10446,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "organization_id"
-      ],
+      "columns": ["organization_id"],
       "schemaTo": "public",
       "tableTo": "organizations",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "org_onboarding_organization_id_organizations_id_fkey",
@@ -10621,14 +10459,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "completed_by_user_id"
-      ],
+      "columns": ["completed_by_user_id"],
       "schemaTo": "public",
       "tableTo": "users",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "SET NULL",
       "name": "org_onboarding_completed_by_user_id_users_id_fkey",
@@ -10638,14 +10472,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "user_id"
-      ],
+      "columns": ["user_id"],
       "schemaTo": "public",
       "tableTo": "users",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "pending_accounts_user_id_users_id_fkey",
@@ -10655,14 +10485,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "github_connection_id"
-      ],
+      "columns": ["github_connection_id"],
       "schemaTo": "public",
       "tableTo": "connections",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "SET NULL",
       "name": "repositories_github_connection_id_connections_id_fkey",
@@ -10672,14 +10498,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "repository_id"
-      ],
+      "columns": ["repository_id"],
       "schemaTo": "public",
       "tableTo": "repositories",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "repository_ingestion_requests_ZwLAikCC14ZA_fkey",
@@ -10689,14 +10511,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "repository_id"
-      ],
+      "columns": ["repository_id"],
       "schemaTo": "public",
       "tableTo": "repositories",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "repository_checkouts_repository_id_repositories_id_fkey",
@@ -10706,14 +10524,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "repository_id"
-      ],
+      "columns": ["repository_id"],
       "schemaTo": "public",
       "tableTo": "repositories",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "repository_extraction_captures_64ScVXTtwZsy_fkey",
@@ -10723,14 +10537,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "org_id"
-      ],
+      "columns": ["org_id"],
       "schemaTo": "public",
       "tableTo": "organizations",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "sandbox_locks_org_id_organizations_id_fkey",
@@ -10740,14 +10550,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "org_id"
-      ],
+      "columns": ["org_id"],
       "schemaTo": "public",
       "tableTo": "organizations",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "workspace_merge_waiters_org_id_organizations_id_fkey",
@@ -10757,14 +10563,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "user_id"
-      ],
+      "columns": ["user_id"],
       "schemaTo": "public",
       "tableTo": "users",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "user_token_cutoffs_user_id_users_id_fkey",
@@ -10774,14 +10576,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "connection_id"
-      ],
+      "columns": ["connection_id"],
       "schemaTo": "public",
       "tableTo": "connections",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "source_sync_events_connection_id_connections_id_fkey",
@@ -10791,14 +10589,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "workspace_id"
-      ],
+      "columns": ["workspace_id"],
       "schemaTo": "public",
       "tableTo": "workspaces",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "workspace_sources_workspace_id_workspaces_id_fkey",
@@ -10808,14 +10602,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "workspace_id"
-      ],
+      "columns": ["workspace_id"],
       "schemaTo": "public",
       "tableTo": "workspaces",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
       "name": "org_first_workspaces_workspace_id_workspaces_id_fkey",
@@ -10825,14 +10615,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "last_used_workspace_id"
-      ],
+      "columns": ["last_used_workspace_id"],
       "schemaTo": "public",
       "tableTo": "workspaces",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "SET NULL",
       "name": "org_member_preferences_gzcoBbyuxOLm_fkey",
@@ -10842,14 +10628,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "workspace_id"
-      ],
+      "columns": ["workspace_id"],
       "schemaTo": "public",
       "tableTo": "workspaces",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "workspace_commit_projections_workspace_id_workspaces_id_fkey",
@@ -10859,14 +10641,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "workspace_id"
-      ],
+      "columns": ["workspace_id"],
       "schemaTo": "public",
       "tableTo": "workspaces",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "workspace_knowledge_path_state_workspace_id_workspaces_id_fkey",
@@ -10876,14 +10654,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "workspace_id"
-      ],
+      "columns": ["workspace_id"],
       "schemaTo": "public",
       "tableTo": "workspaces",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "workspace_knowledge_units_workspace_id_workspaces_id_fkey",
@@ -10893,14 +10667,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "workspace_id"
-      ],
+      "columns": ["workspace_id"],
       "schemaTo": "public",
       "tableTo": "workspaces",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "workspace_repository_commits_workspace_id_workspaces_id_fkey",
@@ -10910,14 +10680,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "workspace_id"
-      ],
+      "columns": ["workspace_id"],
       "schemaTo": "public",
       "tableTo": "workspaces",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "workspace_sandbox_instances_workspace_id_workspaces_id_fkey",
@@ -10927,14 +10693,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "workspace_id"
-      ],
+      "columns": ["workspace_id"],
       "schemaTo": "public",
       "tableTo": "workspaces",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "workspace_write_jobs_workspace_id_workspaces_id_fkey",
@@ -10944,14 +10706,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "github_connection_id"
-      ],
+      "columns": ["github_connection_id"],
       "schemaTo": "public",
       "tableTo": "connections",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "SET NULL",
       "name": "workspaces_github_connection_id_connections_id_fkey",
@@ -10960,10 +10718,7 @@
       "table": "workspaces"
     },
     {
-      "columns": [
-        "namespace",
-        "key"
-      ],
+      "columns": ["namespace", "key"],
       "nameExplicit": false,
       "name": "chat_metadata_pkey",
       "entityType": "pks",
@@ -10971,12 +10726,7 @@
       "table": "chat_metadata"
     },
     {
-      "columns": [
-        "org_id",
-        "run_id",
-        "shard",
-        "step"
-      ],
+      "columns": ["org_id", "run_id", "shard", "step"],
       "nameExplicit": false,
       "name": "ingest_model_costs_pkey",
       "entityType": "pks",
@@ -10984,10 +10734,7 @@
       "table": "ingest_model_costs"
     },
     {
-      "columns": [
-        "workspace_id",
-        "branch"
-      ],
+      "columns": ["workspace_id", "branch"],
       "nameExplicit": false,
       "name": "knowledge_branch_heads_pkey",
       "entityType": "pks",
@@ -10995,10 +10742,7 @@
       "table": "knowledge_branch_heads"
     },
     {
-      "columns": [
-        "organization_id",
-        "feature"
-      ],
+      "columns": ["organization_id", "feature"],
       "nameExplicit": false,
       "name": "org_features_pkey",
       "entityType": "pks",
@@ -11020,10 +10764,7 @@
       "table": "repository_extraction_captures"
     },
     {
-      "columns": [
-        "org_id",
-        "key"
-      ],
+      "columns": ["org_id", "key"],
       "nameExplicit": false,
       "name": "sandbox_locks_pkey",
       "entityType": "pks",
@@ -11031,10 +10772,7 @@
       "table": "sandbox_locks"
     },
     {
-      "columns": [
-        "org_id",
-        "run_id"
-      ],
+      "columns": ["org_id", "run_id"],
       "nameExplicit": false,
       "name": "workspace_merge_waiters_pkey",
       "entityType": "pks",
@@ -11042,10 +10780,7 @@
       "table": "workspace_merge_waiters"
     },
     {
-      "columns": [
-        "user_id",
-        "org_id"
-      ],
+      "columns": ["user_id", "org_id"],
       "nameExplicit": false,
       "name": "org_member_preferences_pkey",
       "entityType": "pks",
@@ -11053,10 +10788,7 @@
       "table": "org_member_preferences"
     },
     {
-      "columns": [
-        "workspace_id",
-        "sha"
-      ],
+      "columns": ["workspace_id", "sha"],
       "nameExplicit": false,
       "name": "workspace_repository_commits_pkey",
       "entityType": "pks",
@@ -11064,9 +10796,7 @@
       "table": "workspace_repository_commits"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "accounts_pkey",
       "schema": "public",
@@ -11074,9 +10804,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "apikeys_pkey",
       "schema": "public",
@@ -11084,9 +10812,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "device_codes_pkey",
       "schema": "public",
@@ -11094,9 +10820,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "invitations_pkey",
       "schema": "public",
@@ -11104,9 +10828,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "jwkss_pkey",
       "schema": "public",
@@ -11114,9 +10836,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "members_pkey",
       "schema": "public",
@@ -11124,9 +10844,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "oauth_access_tokens_pkey",
       "schema": "public",
@@ -11134,9 +10852,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "oauth_client_assertions_pkey",
       "schema": "public",
@@ -11144,9 +10860,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "oauth_client_resources_pkey",
       "schema": "public",
@@ -11154,9 +10868,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "oauth_clients_pkey",
       "schema": "public",
@@ -11164,9 +10876,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "oauth_consents_pkey",
       "schema": "public",
@@ -11174,9 +10884,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "oauth_refresh_tokens_pkey",
       "schema": "public",
@@ -11184,9 +10892,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "oauth_resources_pkey",
       "schema": "public",
@@ -11194,9 +10900,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "organizations_pkey",
       "schema": "public",
@@ -11204,9 +10908,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "passkeys_pkey",
       "schema": "public",
@@ -11214,9 +10916,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "sessions_pkey",
       "schema": "public",
@@ -11224,9 +10924,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "two_factors_pkey",
       "schema": "public",
@@ -11234,9 +10932,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "users_pkey",
       "schema": "public",
@@ -11244,9 +10940,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "verifications_pkey",
       "schema": "public",
@@ -11254,9 +10948,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "interrupt_id"
-      ],
+      "columns": ["interrupt_id"],
       "nameExplicit": false,
       "name": "chat_interrupts_pkey",
       "schema": "public",
@@ -11264,9 +10956,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "run_id"
-      ],
+      "columns": ["run_id"],
       "nameExplicit": false,
       "name": "chat_runs_pkey",
       "schema": "public",
@@ -11274,9 +10964,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "thread_id"
-      ],
+      "columns": ["thread_id"],
       "nameExplicit": false,
       "name": "chat_threads_pkey",
       "schema": "public",
@@ -11284,9 +10972,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "claim_evidence_pkey",
       "schema": "public",
@@ -11294,9 +10980,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "claims_pkey",
       "schema": "public",
@@ -11304,9 +10988,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "confluence_spaces_pkey",
       "schema": "public",
@@ -11314,9 +10996,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "confluence_sync_targets_pkey",
       "schema": "public",
@@ -11324,9 +11004,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "crm_intake_outbox_pkey",
       "schema": "public",
@@ -11334,9 +11012,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "connection_id"
-      ],
+      "columns": ["connection_id"],
       "nameExplicit": false,
       "name": "connection_directory_pkey",
       "schema": "public",
@@ -11344,9 +11020,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "connections_pkey",
       "schema": "public",
@@ -11354,9 +11028,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "conversation_messages_pkey",
       "schema": "public",
@@ -11364,9 +11036,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "conversations_pkey",
       "schema": "public",
@@ -11374,9 +11044,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "workspace_id"
-      ],
+      "columns": ["workspace_id"],
       "nameExplicit": false,
       "name": "knowledge_state_pkey",
       "schema": "public",
@@ -11384,9 +11052,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "api_key_id"
-      ],
+      "columns": ["api_key_id"],
       "nameExplicit": false,
       "name": "org_api_key_creators_pkey",
       "schema": "public",
@@ -11394,9 +11060,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "objects_pkey",
       "schema": "public",
@@ -11404,9 +11068,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "organization_id"
-      ],
+      "columns": ["organization_id"],
       "nameExplicit": false,
       "name": "org_onboarding_pkey",
       "schema": "public",
@@ -11414,9 +11076,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "pending_accounts_pkey",
       "schema": "public",
@@ -11424,9 +11084,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "repositories_pkey",
       "schema": "public",
@@ -11434,9 +11092,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "repository_id"
-      ],
+      "columns": ["repository_id"],
       "nameExplicit": false,
       "name": "repository_ingestion_requests_pkey",
       "schema": "public",
@@ -11444,9 +11100,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "repository_checkouts_pkey",
       "schema": "public",
@@ -11454,9 +11108,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "user_id"
-      ],
+      "columns": ["user_id"],
       "nameExplicit": false,
       "name": "user_token_cutoffs_pkey",
       "schema": "public",
@@ -11464,9 +11116,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "source_sync_events_pkey",
       "schema": "public",
@@ -11474,9 +11124,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "workspace_sources_pkey",
       "schema": "public",
@@ -11484,9 +11132,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "org_id"
-      ],
+      "columns": ["org_id"],
       "nameExplicit": false,
       "name": "org_first_workspaces_pkey",
       "schema": "public",
@@ -11494,9 +11140,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "workspace_id"
-      ],
+      "columns": ["workspace_id"],
       "nameExplicit": false,
       "name": "workspace_commit_projections_pkey",
       "schema": "public",
@@ -11504,9 +11148,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "workspace_id"
-      ],
+      "columns": ["workspace_id"],
       "nameExplicit": false,
       "name": "workspace_knowledge_path_state_pkey",
       "schema": "public",
@@ -11514,9 +11156,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "serving_id"
-      ],
+      "columns": ["serving_id"],
       "nameExplicit": false,
       "name": "workspace_knowledge_units_pkey",
       "schema": "public",
@@ -11524,9 +11164,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "sandbox_id"
-      ],
+      "columns": ["sandbox_id"],
       "nameExplicit": false,
       "name": "workspace_sandbox_git_tokens_pkey",
       "schema": "public",
@@ -11534,9 +11172,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "workspace_sandbox_instances_pkey",
       "schema": "public",
@@ -11544,9 +11180,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "workspace_write_jobs_pkey",
       "schema": "public",
@@ -11554,9 +11188,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "workspaces_pkey",
       "schema": "public",
@@ -11565,10 +11197,7 @@
     },
     {
       "nameExplicit": true,
-      "columns": [
-        "connection_id",
-        "space_key"
-      ],
+      "columns": ["connection_id", "space_key"],
       "nullsNotDistinct": false,
       "name": "confluence_spaces_connection_space_key_uq",
       "entityType": "uniques",
@@ -11577,10 +11206,7 @@
     },
     {
       "nameExplicit": true,
-      "columns": [
-        "conversation_id",
-        "seq"
-      ],
+      "columns": ["conversation_id", "seq"],
       "nullsNotDistinct": false,
       "name": "conversation_messages_conversation_id_seq_uidx",
       "entityType": "uniques",
@@ -11589,10 +11215,7 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "name",
-        "org_id"
-      ],
+      "columns": ["name", "org_id"],
       "nullsNotDistinct": false,
       "name": "repositories_name_org_id_unique",
       "entityType": "uniques",
@@ -11601,10 +11224,7 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "git_url",
-        "org_id"
-      ],
+      "columns": ["git_url", "org_id"],
       "nullsNotDistinct": false,
       "name": "repositories_git_url_org_id_unique",
       "entityType": "uniques",
@@ -11613,10 +11233,7 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "repository_id",
-        "checkout_key"
-      ],
+      "columns": ["repository_id", "checkout_key"],
       "nullsNotDistinct": false,
       "name": "repository_checkouts_repository_id_checkout_key_unique",
       "entityType": "uniques",
@@ -11625,10 +11242,7 @@
     },
     {
       "nameExplicit": true,
-      "columns": [
-        "workspace_id",
-        "source_key"
-      ],
+      "columns": ["workspace_id", "source_key"],
       "nullsNotDistinct": false,
       "name": "workspace_sources_workspace_id_source_key_uidx",
       "entityType": "uniques",
@@ -11637,10 +11251,7 @@
     },
     {
       "nameExplicit": true,
-      "columns": [
-        "workspace_id",
-        "path"
-      ],
+      "columns": ["workspace_id", "path"],
       "nullsNotDistinct": false,
       "name": "workspace_knowledge_units_workspace_id_path_uidx",
       "entityType": "uniques",
@@ -11649,10 +11260,7 @@
     },
     {
       "nameExplicit": true,
-      "columns": [
-        "org_id",
-        "workspace_repository_url"
-      ],
+      "columns": ["org_id", "workspace_repository_url"],
       "nullsNotDistinct": false,
       "name": "workspaces_org_id_repository_url_uidx",
       "entityType": "uniques",
@@ -11661,9 +11269,7 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "token"
-      ],
+      "columns": ["token"],
       "nullsNotDistinct": false,
       "name": "oauth_access_tokens_token_key",
       "schema": "public",
@@ -11672,9 +11278,7 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "client_id"
-      ],
+      "columns": ["client_id"],
       "nullsNotDistinct": false,
       "name": "oauth_clients_client_id_key",
       "schema": "public",
@@ -11683,9 +11287,7 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "identifier"
-      ],
+      "columns": ["identifier"],
       "nullsNotDistinct": false,
       "name": "oauth_resources_identifier_key",
       "schema": "public",
@@ -11694,9 +11296,7 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "slug"
-      ],
+      "columns": ["slug"],
       "nullsNotDistinct": false,
       "name": "organizations_slug_key",
       "schema": "public",
@@ -11705,9 +11305,7 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "token"
-      ],
+      "columns": ["token"],
       "nullsNotDistinct": false,
       "name": "sessions_token_key",
       "schema": "public",
@@ -11716,9 +11314,7 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "email"
-      ],
+      "columns": ["email"],
       "nullsNotDistinct": false,
       "name": "users_email_key",
       "schema": "public",
@@ -11727,9 +11323,7 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "user_id"
-      ],
+      "columns": ["user_id"],
       "nullsNotDistinct": false,
       "name": "crm_intake_outbox_user_id_key",
       "schema": "public",
@@ -11738,9 +11332,7 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "zoekt_repo_id"
-      ],
+      "columns": ["zoekt_repo_id"],
       "nullsNotDistinct": false,
       "name": "repository_checkouts_zoekt_repo_id_key",
       "schema": "public",
@@ -11757,9 +11349,7 @@
     {
       "as": "PERMISSIVE",
       "for": "ALL",
-      "roles": [
-        "public"
-      ],
+      "roles": ["public"],
       "using": "\"chat_interrupts\".\"org_id\" = current_setting('app.organization_id', true)",
       "withCheck": "\"chat_interrupts\".\"org_id\" = current_setting('app.organization_id', true)",
       "name": "org_isolation",
@@ -11770,9 +11360,7 @@
     {
       "as": "PERMISSIVE",
       "for": "ALL",
-      "roles": [
-        "public"
-      ],
+      "roles": ["public"],
       "using": "\"chat_metadata\".\"org_id\" = current_setting('app.organization_id', true)",
       "withCheck": "\"chat_metadata\".\"org_id\" = current_setting('app.organization_id', true)",
       "name": "org_isolation",
@@ -11783,9 +11371,7 @@
     {
       "as": "PERMISSIVE",
       "for": "ALL",
-      "roles": [
-        "public"
-      ],
+      "roles": ["public"],
       "using": "\"chat_runs\".\"org_id\" = current_setting('app.organization_id', true)",
       "withCheck": "\"chat_runs\".\"org_id\" = current_setting('app.organization_id', true)",
       "name": "org_isolation",
@@ -11796,9 +11382,7 @@
     {
       "as": "PERMISSIVE",
       "for": "ALL",
-      "roles": [
-        "public"
-      ],
+      "roles": ["public"],
       "using": "\"chat_threads\".\"org_id\" = current_setting('app.organization_id', true)",
       "withCheck": "\"chat_threads\".\"org_id\" = current_setting('app.organization_id', true)",
       "name": "org_isolation",
@@ -11809,9 +11393,7 @@
     {
       "as": "PERMISSIVE",
       "for": "ALL",
-      "roles": [
-        "public"
-      ],
+      "roles": ["public"],
       "using": "\"claim_evidence\".\"org_id\" = current_setting('app.organization_id', true)",
       "withCheck": "\"claim_evidence\".\"org_id\" = current_setting('app.organization_id', true)",
       "name": "org_isolation",
@@ -11822,9 +11404,7 @@
     {
       "as": "PERMISSIVE",
       "for": "ALL",
-      "roles": [
-        "public"
-      ],
+      "roles": ["public"],
       "using": "\"claims\".\"org_id\" = current_setting('app.organization_id', true)",
       "withCheck": "\"claims\".\"org_id\" = current_setting('app.organization_id', true)",
       "name": "org_isolation",
@@ -11835,9 +11415,7 @@
     {
       "as": "PERMISSIVE",
       "for": "ALL",
-      "roles": [
-        "public"
-      ],
+      "roles": ["public"],
       "using": "\"confluence_spaces\".\"org_id\" = current_setting('app.organization_id', true)",
       "withCheck": "\"confluence_spaces\".\"org_id\" = current_setting('app.organization_id', true)",
       "name": "org_isolation",
@@ -11848,9 +11426,7 @@
     {
       "as": "PERMISSIVE",
       "for": "ALL",
-      "roles": [
-        "public"
-      ],
+      "roles": ["public"],
       "using": "\"confluence_sync_targets\".\"org_id\" = current_setting('app.organization_id', true)",
       "withCheck": "\"confluence_sync_targets\".\"org_id\" = current_setting('app.organization_id', true)",
       "name": "org_isolation",
@@ -11861,9 +11437,7 @@
     {
       "as": "PERMISSIVE",
       "for": "ALL",
-      "roles": [
-        "public"
-      ],
+      "roles": ["public"],
       "using": "\"connections\".\"org_id\" = current_setting('app.organization_id', true)",
       "withCheck": "\"connections\".\"org_id\" = current_setting('app.organization_id', true)",
       "name": "org_isolation",
@@ -11874,9 +11448,7 @@
     {
       "as": "PERMISSIVE",
       "for": "ALL",
-      "roles": [
-        "public"
-      ],
+      "roles": ["public"],
       "using": "\"conversation_messages\".\"org_id\" = current_setting('app.organization_id', true)",
       "withCheck": "\"conversation_messages\".\"org_id\" = current_setting('app.organization_id', true)",
       "name": "org_isolation",
@@ -11887,9 +11459,7 @@
     {
       "as": "PERMISSIVE",
       "for": "ALL",
-      "roles": [
-        "public"
-      ],
+      "roles": ["public"],
       "using": "\"conversations\".\"org_id\" = current_setting('app.organization_id', true)",
       "withCheck": "\"conversations\".\"org_id\" = current_setting('app.organization_id', true)",
       "name": "org_isolation",
@@ -11900,9 +11470,7 @@
     {
       "as": "PERMISSIVE",
       "for": "ALL",
-      "roles": [
-        "public"
-      ],
+      "roles": ["public"],
       "using": "\"ingest_model_costs\".\"org_id\" = current_setting('app.organization_id', true)",
       "withCheck": "\"ingest_model_costs\".\"org_id\" = current_setting('app.organization_id', true)",
       "name": "org_isolation",
@@ -11913,9 +11481,7 @@
     {
       "as": "PERMISSIVE",
       "for": "ALL",
-      "roles": [
-        "public"
-      ],
+      "roles": ["public"],
       "using": "\"knowledge_branch_heads\".\"organization_id\" = current_setting('app.organization_id', true)",
       "withCheck": "\"knowledge_branch_heads\".\"organization_id\" = current_setting('app.organization_id', true)",
       "name": "org_isolation",
@@ -11926,9 +11492,7 @@
     {
       "as": "PERMISSIVE",
       "for": "ALL",
-      "roles": [
-        "public"
-      ],
+      "roles": ["public"],
       "using": "\"knowledge_state\".\"organization_id\" = current_setting('app.organization_id', true)",
       "withCheck": "\"knowledge_state\".\"organization_id\" = current_setting('app.organization_id', true)",
       "name": "org_isolation",
@@ -11939,9 +11503,7 @@
     {
       "as": "PERMISSIVE",
       "for": "ALL",
-      "roles": [
-        "public"
-      ],
+      "roles": ["public"],
       "using": "\"objects\".\"org_id\" = current_setting('app.organization_id', true)",
       "withCheck": "\"objects\".\"org_id\" = current_setting('app.organization_id', true)",
       "name": "org_isolation",
@@ -11952,9 +11514,7 @@
     {
       "as": "PERMISSIVE",
       "for": "ALL",
-      "roles": [
-        "public"
-      ],
+      "roles": ["public"],
       "using": "\"org_features\".\"organization_id\" = current_setting('app.organization_id', true)",
       "withCheck": "\"org_features\".\"organization_id\" = current_setting('app.organization_id', true)",
       "name": "org_isolation",
@@ -11965,9 +11525,7 @@
     {
       "as": "PERMISSIVE",
       "for": "ALL",
-      "roles": [
-        "public"
-      ],
+      "roles": ["public"],
       "using": "\"org_onboarding\".\"organization_id\" = current_setting('app.organization_id', true)",
       "withCheck": "\"org_onboarding\".\"organization_id\" = current_setting('app.organization_id', true)",
       "name": "org_isolation",
@@ -11978,9 +11536,7 @@
     {
       "as": "PERMISSIVE",
       "for": "ALL",
-      "roles": [
-        "public"
-      ],
+      "roles": ["public"],
       "using": "\"repositories\".\"org_id\" = current_setting('app.organization_id', true)",
       "withCheck": "\"repositories\".\"org_id\" = current_setting('app.organization_id', true)",
       "name": "org_isolation",
@@ -11991,9 +11547,7 @@
     {
       "as": "PERMISSIVE",
       "for": "ALL",
-      "roles": [
-        "public"
-      ],
+      "roles": ["public"],
       "using": "\"repository_ingestion_requests\".\"org_id\" = current_setting('app.organization_id', true)",
       "withCheck": "\"repository_ingestion_requests\".\"org_id\" = current_setting('app.organization_id', true)",
       "name": "org_isolation",
@@ -12004,9 +11558,7 @@
     {
       "as": "PERMISSIVE",
       "for": "ALL",
-      "roles": [
-        "public"
-      ],
+      "roles": ["public"],
       "using": "\"repository_checkouts\".\"org_id\" = current_setting('app.organization_id', true)",
       "withCheck": "\"repository_checkouts\".\"org_id\" = current_setting('app.organization_id', true)",
       "name": "org_isolation",
@@ -12017,9 +11569,7 @@
     {
       "as": "PERMISSIVE",
       "for": "ALL",
-      "roles": [
-        "public"
-      ],
+      "roles": ["public"],
       "using": "\"repository_extraction_captures\".\"org_id\" = current_setting('app.organization_id', true)",
       "withCheck": "\"repository_extraction_captures\".\"org_id\" = current_setting('app.organization_id', true)",
       "name": "org_isolation",
@@ -12030,9 +11580,7 @@
     {
       "as": "PERMISSIVE",
       "for": "ALL",
-      "roles": [
-        "public"
-      ],
+      "roles": ["public"],
       "using": "\"sandbox_locks\".\"org_id\" = current_setting('app.organization_id', true)",
       "withCheck": "\"sandbox_locks\".\"org_id\" = current_setting('app.organization_id', true)",
       "name": "org_isolation",
@@ -12043,9 +11591,7 @@
     {
       "as": "PERMISSIVE",
       "for": "ALL",
-      "roles": [
-        "public"
-      ],
+      "roles": ["public"],
       "using": "\"workspace_merge_waiters\".\"org_id\" = current_setting('app.organization_id', true)",
       "withCheck": "\"workspace_merge_waiters\".\"org_id\" = current_setting('app.organization_id', true)",
       "name": "org_isolation",
@@ -12056,9 +11602,7 @@
     {
       "as": "PERMISSIVE",
       "for": "ALL",
-      "roles": [
-        "public"
-      ],
+      "roles": ["public"],
       "using": "\"source_sync_events\".\"org_id\" = current_setting('app.organization_id', true)",
       "withCheck": "\"source_sync_events\".\"org_id\" = current_setting('app.organization_id', true)",
       "name": "org_isolation",
@@ -12069,9 +11613,7 @@
     {
       "as": "PERMISSIVE",
       "for": "ALL",
-      "roles": [
-        "public"
-      ],
+      "roles": ["public"],
       "using": "\"workspace_sources\".\"org_id\" = current_setting('app.organization_id', true)",
       "withCheck": "\"workspace_sources\".\"org_id\" = current_setting('app.organization_id', true)",
       "name": "org_isolation",
@@ -12082,9 +11624,7 @@
     {
       "as": "PERMISSIVE",
       "for": "ALL",
-      "roles": [
-        "public"
-      ],
+      "roles": ["public"],
       "using": "\"org_first_workspaces\".\"org_id\" = current_setting('app.organization_id', true)",
       "withCheck": "\"org_first_workspaces\".\"org_id\" = current_setting('app.organization_id', true)",
       "name": "org_isolation",
@@ -12095,9 +11635,7 @@
     {
       "as": "PERMISSIVE",
       "for": "ALL",
-      "roles": [
-        "public"
-      ],
+      "roles": ["public"],
       "using": "\"org_member_preferences\".\"org_id\" = current_setting('app.organization_id', true)",
       "withCheck": "\"org_member_preferences\".\"org_id\" = current_setting('app.organization_id', true)",
       "name": "org_isolation",
@@ -12108,9 +11646,7 @@
     {
       "as": "PERMISSIVE",
       "for": "ALL",
-      "roles": [
-        "public"
-      ],
+      "roles": ["public"],
       "using": "\"workspace_commit_projections\".\"org_id\" = current_setting('app.organization_id', true)",
       "withCheck": "\"workspace_commit_projections\".\"org_id\" = current_setting('app.organization_id', true)",
       "name": "org_isolation",
@@ -12121,9 +11657,7 @@
     {
       "as": "PERMISSIVE",
       "for": "ALL",
-      "roles": [
-        "public"
-      ],
+      "roles": ["public"],
       "using": "\"workspace_knowledge_path_state\".\"org_id\" = current_setting('app.organization_id', true)",
       "withCheck": "\"workspace_knowledge_path_state\".\"org_id\" = current_setting('app.organization_id', true)",
       "name": "org_isolation",
@@ -12134,9 +11668,7 @@
     {
       "as": "PERMISSIVE",
       "for": "ALL",
-      "roles": [
-        "public"
-      ],
+      "roles": ["public"],
       "using": "\"workspace_knowledge_units\".\"org_id\" = current_setting('app.organization_id', true)",
       "withCheck": "\"workspace_knowledge_units\".\"org_id\" = current_setting('app.organization_id', true)",
       "name": "org_isolation",
@@ -12147,9 +11679,7 @@
     {
       "as": "PERMISSIVE",
       "for": "ALL",
-      "roles": [
-        "public"
-      ],
+      "roles": ["public"],
       "using": "\"workspace_repository_commits\".\"org_id\" = current_setting('app.organization_id', true)",
       "withCheck": "\"workspace_repository_commits\".\"org_id\" = current_setting('app.organization_id', true)",
       "name": "org_isolation",
@@ -12160,9 +11690,7 @@
     {
       "as": "PERMISSIVE",
       "for": "ALL",
-      "roles": [
-        "public"
-      ],
+      "roles": ["public"],
       "using": "\"workspace_sandbox_git_tokens\".\"org_id\" = current_setting('app.organization_id', true)",
       "withCheck": "\"workspace_sandbox_git_tokens\".\"org_id\" = current_setting('app.organization_id', true)",
       "name": "org_isolation",
@@ -12173,9 +11701,7 @@
     {
       "as": "PERMISSIVE",
       "for": "ALL",
-      "roles": [
-        "public"
-      ],
+      "roles": ["public"],
       "using": "\"workspace_sandbox_instances\".\"org_id\" = current_setting('app.organization_id', true)",
       "withCheck": "\"workspace_sandbox_instances\".\"org_id\" = current_setting('app.organization_id', true)",
       "name": "org_isolation",
@@ -12186,9 +11712,7 @@
     {
       "as": "PERMISSIVE",
       "for": "ALL",
-      "roles": [
-        "public"
-      ],
+      "roles": ["public"],
       "using": "\"workspace_write_jobs\".\"org_id\" = current_setting('app.organization_id', true)",
       "withCheck": "\"workspace_write_jobs\".\"org_id\" = current_setting('app.organization_id', true)",
       "name": "org_isolation",
@@ -12199,9 +11723,7 @@
     {
       "as": "PERMISSIVE",
       "for": "ALL",
-      "roles": [
-        "public"
-      ],
+      "roles": ["public"],
       "using": "\"workspaces\".\"org_id\" = current_setting('app.organization_id', true)",
       "withCheck": "\"workspaces\".\"org_id\" = current_setting('app.organization_id', true)",
       "name": "org_isolation",
