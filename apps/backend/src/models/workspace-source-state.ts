@@ -7,6 +7,8 @@ import { z } from "zod"
 import type { Db } from "../db/client.js"
 import { workspaceSources } from "../db/schema/workspace_sources.js"
 import { linkingOrder } from "../domain/workspace-sources/github-sources.js"
+import { sourcesHaveNoRepository } from "../domain/workspace-sources/projection-plan.js"
+import type { SourceFileBlob } from "../domain/workspace-sources/projection-plan.js"
 import {
   gitSourceScopeUrl,
   sourceRepositoryUrls,
@@ -212,6 +214,26 @@ export function sourceRowsNameRepository(
       )
     )
   })
+}
+
+/**
+ * The fence of a delete of the files of one repository (CTX-710): true when
+ * the sources at the tree can hold the repository, or a stored row names it.
+ * A source entry that names the repository holds it, also when the entry is
+ * invalid for now. A source file that cannot be read holds every repository.
+ * The tip text gives an invalid entry no scope, so the stored rows count too.
+ */
+export async function sourcesHoldRepository(
+  sources: { sourcesFile: string | null; sourceFiles: SourceFileBlob[] },
+  rows: readonly SourceTargetRow[],
+  gitUrl: string,
+): Promise<boolean> {
+  return (
+    !(await sourcesHaveNoRepository(
+      { text: sources.sourcesFile, sourceFiles: sources.sourceFiles },
+      gitUrl,
+    )) || sourceRowsNameRepository(rows, gitUrl)
+  )
 }
 
 /** A pinned state with `repositories` that keeps the target of `row`. */

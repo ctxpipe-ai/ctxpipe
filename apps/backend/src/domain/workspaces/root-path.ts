@@ -2,7 +2,7 @@ import { posix } from "node:path"
 
 import { z } from "@hono/zod-openapi"
 
-import { nativeGit } from "../../services/git/pack.js"
+import { type GitPack, nativeGit } from "../../services/git/pack.js"
 import { isInsideWorkspaceRoot } from "../../services/git/root-folder.js"
 
 export {
@@ -46,6 +46,28 @@ export function workspaceRootPath(
   source: { rootPath?: string | null } | null | undefined,
 ): string {
   return workspaceRootPathSchema.parse(source?.rootPath ?? "")
+}
+
+/**
+ * The pack of a revision with no captured objects: each read fetches the
+ * commits `shas` (the revision first) from the remote, below the root folder.
+ */
+export function workspaceRevisionPack(
+  revision: {
+    sha: string
+    rootPath?: string | null
+    remote: { url: string }
+  },
+  shas: readonly string[] = [revision.sha],
+): GitPack {
+  const root = workspaceRootPath(revision)
+  return {
+    sha: revision.sha,
+    objects: "",
+    shallow: "",
+    ...(root ? { root } : {}),
+    base: { url: revision.remote.url, shas: [...shas] },
+  }
 }
 
 type WorkspaceRootViolation = {

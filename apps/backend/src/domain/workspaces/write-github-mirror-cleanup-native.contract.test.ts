@@ -1,3 +1,6 @@
+import { execFileSync } from "node:child_process"
+import { join } from "node:path"
+
 import { expect, it } from "vitest"
 
 import { withOrgIdContext } from "../../auth/withAuth.js"
@@ -201,6 +204,53 @@ it(
         })
         await runCleanup(f, `wjob_${f.id}_mirror_cleanup_fenced`)
         expect(mainSha(f)).toBe(f.sha)
+      },
+    )
+  },
+)
+
+/** Push one commit that adds `file` to the remote, after the fixture stored its tip. */
+function pushFile(
+  f: NativeHydrationFixture,
+  file: { path: string; body: string },
+) {
+  const index = join(f.remote, "cleanup-test-index")
+  const git = (args: string[], input?: string) =>
+    execFileSync("git", ["--git-dir", f.remote, ...args], {
+      encoding: "utf8",
+      input,
+      env: {
+        ...process.env,
+        GIT_INDEX_FILE: index,
+        GIT_AUTHOR_NAME: "Contract",
+        GIT_AUTHOR_EMAIL: "contract@example.test",
+        GIT_COMMITTER_NAME: "Contract",
+        GIT_COMMITTER_EMAIL: "contract@example.test",
+      },
+    }).trim()
+  git(["read-tree", "refs/heads/main"])
+  const blob = git(["hash-object", "-w", "--stdin"], file.body)
+  git(["update-index", "--add", "--cacheinfo", `100644,${blob},${file.path}`])
+  const commit = git([
+    "commit-tree",
+    git(["write-tree"]),
+    "-p",
+    "refs/heads/main",
+    "-m",
+    "A later mirror commit",
+  ])
+  git(["update-ref", "refs/heads/main", commit])
+}
+
+it(
+  "counts the live tip of the default branch in the dry run",
+  { timeout: 60_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      fixture([source, mirror("github/pulls/acme/billing/1--11.md")]),
+      async (f) => {
+        pushFile(f, mirror("github/pulls/Acme/Billing/1--11.md"))
+        expect(await dryRun(f)).toMatchObject({ duplicates: 1, moves: 0 })
       },
     )
   },

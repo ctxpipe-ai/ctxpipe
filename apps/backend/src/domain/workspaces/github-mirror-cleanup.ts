@@ -1,5 +1,5 @@
 import type { Env } from "../../config/env.js"
-import { sourceRowsNameRepository } from "../../models/workspace-source-state.js"
+import { sourcesHoldRepository } from "../../models/workspace-source-state.js"
 import { listWorkspaceSourceRows } from "../../models/workspace-sources.js"
 import type { GitFileChange } from "../../services/git/file-change.js"
 import {
@@ -10,20 +10,16 @@ import {
   withGitDirectory,
 } from "../../services/git/pack.js"
 import { unsafeMirrorPath } from "../workspace-sources/mirror-path.js"
-import { sourcesHaveNoRepository } from "../workspace-sources/projection-plan.js"
 import { readSourcesTree } from "../workspace-sources/source-tree.js"
 import {
   resolveWorkspaceReadRevision,
   workspaceGitRead,
 } from "./resolve-revision.js"
-import { workspaceRootPath } from "./root-path.js"
+import { workspaceRevisionPack } from "./root-path.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
 
-/** `github/<pulls|issues>/<owner>/<repo>/<file>`: one mirror file. */
-const MIRROR_FILE = /^github\/(pulls|issues)\/([^/]+)\/([^/]+)\/([^/]+)$/
-
 /** Counts only: the plan names no repository and no file. */
-export type GithubMirrorCleanupCounts = {
+type GithubMirrorCleanupCounts = {
   /** Mixed-case copies that the plan deletes, because a lowercase copy exists. */
   duplicates: number
   /** Mixed-case files that the plan moves to the lowercase path. */
@@ -36,7 +32,7 @@ export type GithubMirrorCleanupCounts = {
   skipped: number
 }
 
-export type GithubMirrorCleanupPlan = {
+type GithubMirrorCleanupPlan = {
   files: GitFileChange[]
   deletePaths: string[]
   counts: GithubMirrorCleanupCounts
@@ -73,7 +69,10 @@ export async function planGithubMirrorCleanup(input: {
       input.read,
     )
   ).flatMap(({ path }) => {
-    const match = MIRROR_FILE.exec(path)
+    // `github/<pulls|issues>/<owner>/<repo>/<file>`: one mirror file.
+    const match = /^github\/(pulls|issues)\/([^/]+)\/([^/]+)\/([^/]+)$/.exec(
+      path,
+    )
     if (!match) return []
     const [, folder = "", owner = "", repo = "", name = ""] = match
     const repository = `${owner}/${repo}`.toLowerCase()
@@ -94,24 +93,18 @@ export async function planGithubMirrorCleanup(input: {
   }
   if (paths.length === 0) return { files: [], deletePaths: [], counts }
 
-  const { sourcesFile, sourceFiles } = await readSourcesTree(
-    input.pack,
-    input.read,
-  )
+  const sources = await readSourcesTree(input.pack, input.read)
   const rows = await listWorkspaceSourceRows(input)
   const held = new Map<string, boolean>()
-  for (const repository of new Set(paths.map((file) => file.repository))) {
-    const gitUrl = normalizeWorkspaceRepositoryUrl(
-      `https://github.com/${repository}`,
-    )
+  for (const repository of new Set(paths.map((file) => file.repository)))
     held.set(
       repository,
-      !(await sourcesHaveNoRepository(
-        { text: sourcesFile, sourceFiles },
-        gitUrl,
-      )) || sourceRowsNameRepository(rows, gitUrl),
+      await sourcesHoldRepository(
+        sources,
+        rows,
+        normalizeWorkspaceRepositoryUrl(`https://github.com/${repository}`),
+      ),
     )
-  }
 
   const deletePaths: string[] = []
   const removedFolders = new Set<string>()
@@ -141,12 +134,12 @@ export async function planGithubMirrorCleanup(input: {
   }
   counts.removedSourceFolders = removedFolders.size
 
-  const sources = new Set(moves.values())
+  const movedFrom = new Set(moves.values())
   const moved = new Map(
     (
       await readGitFiles(
         input.pack,
-        (path) => sources.has(path),
+        (path) => movedFrom.has(path),
         undefined,
         input.read,
       )
@@ -162,29 +155,25 @@ export async function planGithubMirrorCleanup(input: {
 }
 
 /**
- * The dry run of the cleanup: the counts of the plan at the current tip of
- * the default branch. It writes nothing. The job plans again on the tip that
- * it pushes on, so its counts can differ when the tip moves.
+ * The dry run of the cleanup: the counts of the plan at the live tip of the
+ * default branch. It writes nothing. The job plans again on the tip that it
+ * pushes on, so its counts can differ when the tip moves after the dry run.
  */
 export async function dryRunGithubMirrorCleanup(input: {
   orgId: string
   workspaceId: string
   env: Env
 }): Promise<GithubMirrorCleanupCounts> {
-  const resolved = await resolveWorkspaceReadRevision(input)
+  const resolved = await resolveWorkspaceReadRevision({
+    ...input,
+    refresh: true,
+  })
   if (!resolved) throw new Error("The Workspace has no revision to read")
   const { revision } = resolved
-  const root = workspaceRootPath(revision)
   const plan = await planGithubMirrorCleanup({
     orgId: input.orgId,
     workspaceId: input.workspaceId,
-    pack: {
-      sha: revision.sha,
-      objects: "",
-      shallow: "",
-      ...(root ? { root } : {}),
-      base: { url: revision.remote.url, shas: [revision.sha] },
-    },
+    pack: workspaceRevisionPack(revision),
     read: workspaceGitRead({ ...input, remote: revision.remote }),
   })
   return plan.counts

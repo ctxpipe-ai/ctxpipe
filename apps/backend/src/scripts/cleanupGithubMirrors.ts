@@ -9,10 +9,27 @@
  * job `github_mirror_cleanup`. The worker plans again on the tip, and makes
  * one direct commit through the write broker.
  *
- * A run of this script in production is an ops action that a human approves:
- * first the dry run, then the apply, each one a reviewed command.
+ * Usage, from `apps/backend`:
  *
  *   bun run src/scripts/cleanupGithubMirrors.ts --org <orgId> --workspace <workspaceId> [--apply]
+ *
+ * Production: a run is an ops action that a human approves. The hosted stack
+ * (factory `machines/hosted`) runs it as a one-off task (`OneOffTask`), as it
+ * runs `src/db/set-org-feature.ts`. The ids are in the private hosted config,
+ * never in this repository, and the reviewed config change is the audit
+ * trail. The task uses the backend image, the environment and the secrets of
+ * the backend service, because the dry run reads the Workspace repository
+ * through the GitHub App, and the apply checks the write access:
+ *
+ * 1. The dry run: the command `bun run apps/backend/src/scripts/cleanupGithubMirrors.ts
+ *    --org <orgId> --workspace <workspaceId>`. Read the counts in the log
+ *    entry `github_mirror_cleanup.dry_run` (HyperDX, `DeploymentEnvironment`
+ *    `production`). Show the counts to the CTO.
+ * 2. The apply, after the CTO approves the counts: the same command with
+ *    `--apply`. The log entry `github_mirror_cleanup.apply` gives the job id.
+ *    The worker logs the counts of its plan in `github_mirror_cleanup.plan`,
+ *    and the job row gets the commit.
+ * 3. Remove the task from the hosted config, so that no deploy runs it again.
  */
 import { parseArgs } from "node:util"
 

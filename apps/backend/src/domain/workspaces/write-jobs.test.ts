@@ -31,6 +31,7 @@ describe("workspace write job kinds", () => {
       "import_key_cleanup",
       "ownership_migration",
       "unlink_retraction",
+      "github_mirror_cleanup",
     ])
     expect(isWorkspaceWriteJobKind("bootstrap")).toBe(true)
     expect(isWorkspaceWriteJobKind("maintenance")).toBe(false)
