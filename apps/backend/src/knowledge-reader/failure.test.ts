@@ -23,16 +23,6 @@ describe("failureOf", () => {
       { kind: "clickhouse", code: "241" },
     ],
     [
-      // The HTTP handler refused the request before the query ran, so the
-      // client finds no `DB::Exception` in the body and throws an `Error`
-      // with the text of the body (CTX-1688).
-      "a ClickHouse error that the client does not parse",
-      new Error(
-        "Poco::Exception. Code: 1000, e.code() = 0, HTML Form Exception: Field value too long, Stack trace (when copying this message, always include the lines below):\n\n0. DB::HTMLForm::readQuery(DB::ReadBuffer&)",
-      ),
-      { kind: "clickhouse", code: "1000" },
-    ],
-    [
       "a refused connection",
       Object.assign(new Error(`connect ${secret}`), { code: "ECONNREFUSED" }),
       { kind: "network", code: "ECONNREFUSED" },

@@ -1,4 +1,4 @@
-import type { ClickHouseClient } from "@clickhouse/client"
+import { type ClickHouseClient, ClickHouseError } from "@clickhouse/client"
 import { trace } from "@opentelemetry/api"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
@@ -820,6 +820,20 @@ describe("search", () => {
   })
 })
 
+describe("refused request (CTX-1688)", () => {
+  it("gives a ClickHouseError with the code when ClickHouse refuses the request before the query runs", async () => {
+    // A query parameter of more than 128 KiB: the HTTP handler of
+    // ClickHouse refuses it with a Poco exception, not a DB::Exception.
+    const refs = Array.from({ length: 3_000 }, (_, i) => ({
+      workspaceId: workspace,
+      docKey: `missing/${String(i).padStart(4, "0")}-${"x".repeat(40)}.md`,
+    }))
+    const error = await store.readFrontier(orgA, refs).catch((e) => e)
+    expect(error).toBeInstanceOf(ClickHouseError)
+    expect(error).toMatchObject({ code: "1000" })
+  })
+})
+
 describe("read spans (CTX-1688)", () => {
   it("gives each ClickHouse read of a request a span with the name of its statement", async () => {
     await trace
@@ -1024,6 +1038,16 @@ describe("document read", () => {
     expect(documents.map(({ document }) => document.docKey)).toEqual([
       "vector.md",
     ])
+  })
+
+  it("counts the bytes of a key with characters outside ASCII (CTX-1688)", async () => {
+    // 3 bytes in UTF-8 for each character: 1,500 keys of 40 characters
+    // are about 180 KiB, but less than 64 K characters.
+    const refs = Array.from({ length: 1_500 }, (_, i) => ({
+      workspaceId: workspace,
+      docKey: `${String(i).padStart(4, "0")}-${"文".repeat(40)}.md`,
+    }))
+    expect(await store.readDocuments(orgA, refs)).toEqual([])
   })
 })
 

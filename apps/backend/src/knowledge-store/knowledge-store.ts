@@ -1485,6 +1485,33 @@ async function runSelectIn<T>(
   query: string,
   params: Record<string, unknown>,
 ): Promise<T[]> {
+  try {
+    return await runQuery<T>(client, scope, query, params)
+  } catch (error) {
+    throw asClickHouseError(error)
+  }
+}
+
+/**
+ * An error of the ClickHouse server that the client cannot parse, as a
+ * `ClickHouseError` with its code. Such an error has no `DB::Exception`,
+ * for example when the HTTP handler refuses the request before the query
+ * runs ("Poco::Exception. Code: 1000, …"). Then the shadow log and the span
+ * give its code (CTX-1688).
+ */
+function asClickHouseError(error: unknown): unknown {
+  if (!(error instanceof Error) || error instanceof ClickHouseError)
+    return error
+  const code = /^(?:Poco::Exception\. )?Code: (\d+)\b/.exec(error.message)?.[1]
+  return code ? new ClickHouseError({ message: error.message, code }) : error
+}
+
+async function runQuery<T>(
+  client: ClickHouseClient,
+  scope: KnowledgeReadScope,
+  query: string,
+  params: Record<string, unknown>,
+): Promise<T[]> {
   const result = await client.query({
     query,
     query_params: {
@@ -2267,9 +2294,10 @@ const resolvedTarget = (alias: string) =>
  * The mentions of one target by one file give one relation, with the
  * chunk and the confidence of the strongest.
  *
- * With `direction` `out`, the query reads no in-relations (CTX-1688): the
- * claims of the search hits are out-relations only, and the in-relations
- * of a hub document can be most of the time and the rows of the read.
+ * With `direction` `out`, the query reads no in-relations (CTX-1688). The
+ * claims of the search hits are out-relations only. For a hub document,
+ * the in-relations can use most of the time of the read and give most of
+ * its rows.
  */
 async function readFrontier(
   client: ClickHouseClient,
@@ -2567,7 +2595,9 @@ const missingDocument = (
  * The document of each of `refs` that the view has. The neighbors of a hub
  * document can be thousands of refs, and ClickHouse refuses a query
  * parameter of more than 128 KiB (`http_max_field_value_size`). Thus the
- * refs go in parallel queries of at most 64 KiB of refs each (CTX-1688).
+ * refs go in parallel queries of at most 64 KiB of refs each (CTX-1688),
+ * by the length of the URL-encoded text: a key with characters outside
+ * ASCII has more bytes than characters.
  */
 async function readDocuments(
   client: ClickHouseClient,
@@ -2579,7 +2609,10 @@ async function readDocuments(
   let size = Number.POSITIVE_INFINITY
   for (const ref of refs) {
     // The text of the tuple, with its quotes, comma and brackets.
-    const length = ref.workspaceId.length + ref.docKey.length + 8
+    const length =
+      encodeURIComponent(ref.workspaceId).length +
+      encodeURIComponent(ref.docKey).length +
+      8
     if (size + length > 64 * 1024) {
       batches.push([])
       size = 0

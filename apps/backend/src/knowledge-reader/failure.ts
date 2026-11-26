@@ -8,7 +8,7 @@ import type { ModelMeter } from "./orchestrator.js"
 /**
  * The source of an error of the plane read (CTX-1645):
  * - `clickhouse`: the ClickHouse server answered with an error. The code is
- *   the ClickHouse error code, also when the client cannot parse the error.
+ *   the ClickHouse error code.
  * - `network`: a connection failed (in the plane read, to ClickHouse). The
  *   code is the system error code, for example `ECONNREFUSED`.
  * - `embedding`: the query embedding failed. The code is the HTTP status,
@@ -74,13 +74,6 @@ export function failureOf(error: unknown): Failure {
           : `${error.kind}_${error.status}`,
     }
   if (!(error instanceof Error)) return { kind: "unknown" }
-  // A ClickHouse error with no `DB::Exception`, for example the HTTP
-  // handler that refuses a request: the client throws an `Error` with the
-  // text of the body (CTX-1688).
-  const clickHouseCode = /^(?:Poco::Exception\. )?Code: (\d+)\b/.exec(
-    error.message,
-  )?.[1]
-  if (clickHouseCode) return { kind: "clickhouse", code: clickHouseCode }
   // A Node.js system error, for example a refused connection.
   if ("code" in error && typeof error.code === "string")
     if (/^E[A-Z_]+$/.test(error.code))
