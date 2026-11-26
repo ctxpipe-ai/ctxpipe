@@ -171,7 +171,9 @@ ${CODEX_HOOKS_MARKER_END}
 
 /** Matches our capture command, pinned (`ctxpipe@1.2.3`) or not (before the pin). */
 function commandIsCtxpipeCapture(cmd: unknown): boolean {
-  return typeof cmd === "string" && /\bctxpipe(@\S+)? memory capture\b/.test(cmd)
+  return (
+    typeof cmd === "string" && /\bctxpipe(@\S+)? memory capture\b/.test(cmd)
+  )
 }
 
 /** Strip our capture hooks from a matcher group; keep sibling handlers. */

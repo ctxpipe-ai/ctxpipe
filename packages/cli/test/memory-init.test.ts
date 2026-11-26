@@ -705,10 +705,9 @@ describe("memory init pins the CLI version", () => {
     const claude = JSON.parse(
       readFileSync(join(cwd, ".claude", "settings.json"), "utf8"),
     ) as { hooks: { Stop: Array<{ hooks: Array<{ command: string }> }> } }
-    expect(claude.hooks.Stop.flatMap((g) => g.hooks.map((h) => h.command)))
-      .toEqual([
-        `${pinned} finalize --host claude --event Stop`,
-      ])
+    expect(
+      claude.hooks.Stop.flatMap((g) => g.hooks.map((h) => h.command)),
+    ).toEqual([`${pinned} finalize --host claude --event Stop`])
     const cursor = JSON.parse(
       readFileSync(join(cwd, ".cursor", "hooks.json"), "utf8"),
     ) as { hooks: { stop: Array<{ command: string }> } }
@@ -720,16 +719,19 @@ describe("memory init pins the CLI version", () => {
   it.each([
     ["mcp", []],
     ["hook", ["claude-stop", "--host", "claude"]],
-  ])("the removed `memory %s` command tells the user to migrate and exits 0", (name, args) => {
-    const result = spawnSync(
-      process.execPath,
-      [BIN, "memory", name, ...args],
-      { encoding: "utf8", input: '{"session_id":"s"}' },
-    )
-    expect(result.status).toBe(0)
-    expect(result.stdout).toBe("")
-    expect(result.stderr.trim().split("\n")).toEqual([
-      `ctxpipe: \`memory ${name}\` was removed. Run \`npx ctxpipe memory init\` to migrate this repo's memory hooks.`,
-    ])
-  })
+  ])(
+    "the removed `memory %s` command tells the user to migrate and exits 0",
+    (name, args) => {
+      const result = spawnSync(
+        process.execPath,
+        [BIN, "memory", name, ...args],
+        { encoding: "utf8", input: '{"session_id":"s"}' },
+      )
+      expect(result.status).toBe(0)
+      expect(result.stdout).toBe("")
+      expect(result.stderr.trim().split("\n")).toEqual([
+        `ctxpipe: \`memory ${name}\` was removed. Run \`npx ctxpipe memory init\` to migrate this repo's memory hooks.`,
+      ])
+    },
+  )
 })
