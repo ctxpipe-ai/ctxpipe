@@ -187,25 +187,8 @@ const units: SeedUnit[] = [
   },
 ]
 
-// The mirror files as hydrate parses them, after a mirror format change
-// rewrote each file in one commit (CTX-1692). The Linear issue changed on
-// 2026-01-02; the authored note changed in the rewrite commit.
+// A mirror format change rewrote each mirror file in this commit (CTX-1692).
 const rewrite = "2026-11-24T03:00:00.000Z"
-const mirrorUnits: SeedUnit[] = hydrateKnowledgeTree({
-  workspaceId: mirrors,
-  files: [
-    linearIssueFile({ identifier: "ENG-7" }),
-    { path: "notes/rollout.md", content: "# Rollout\n\nHandbook entry.\n" },
-  ].map((file) => ({ ...file, lastCommitTimestamp: rewrite })),
-}).units.map((unit) => ({
-  id: unit.servingId,
-  workspaceId: mirrors,
-  path: unit.path,
-  title: unit.title ?? unit.path,
-  source: unit.source,
-  updatedAt: unit.updatedAt ?? "",
-  body: `${unit.body}\nHandbook entry.`,
-}))
 
 const tieId = (index: number) =>
   `unit_tie_${String(index).padStart(3, "0")}_${suffix}`
@@ -235,7 +218,30 @@ describe("searchKnowledge (Postgres)", () => {
       await seedKnowledgeWorkspace(orgId, id, sha)
     await seedKnowledgeWorkspace(otherOrgId, foreign, sha)
     await seedKnowledgeUnits(orgId, sha, units)
-    await seedKnowledgeUnits(orgId, sha, mirrorUnits)
+    // The files as hydrate parses them after the rewrite. The Linear issue
+    // changed on 2026-01-02; the authored note changed in the rewrite.
+    await seedKnowledgeUnits(
+      orgId,
+      sha,
+      hydrateKnowledgeTree({
+        workspaceId: mirrors,
+        files: [
+          linearIssueFile({ identifier: "ENG-7" }),
+          { path: "notes/rollout.md", content: "# Rollout\n\nRollout plan.\n" },
+        ].map((file) => ({ ...file, lastCommitTimestamp: rewrite })),
+      }).units.map((unit) => {
+        if (!unit.updatedAt) throw new Error(`No update time: ${unit.path}`)
+        return {
+          id: unit.servingId,
+          workspaceId: mirrors,
+          path: unit.path,
+          title: unit.title ?? unit.path,
+          source: unit.source,
+          updatedAt: unit.updatedAt,
+          body: unit.body,
+        }
+      }),
+    )
     // 130 units with the same text, so every rank ties. They go in against
     // the id order, so the row order differs from the order the ranks must give.
     await seedKnowledgeUnits(
@@ -362,7 +368,10 @@ describe("searchKnowledge (Postgres)", () => {
   })
 
   it("serves and filters the update time of a mirror file from the source, not the commit (CTX-1692)", async () => {
-    const all = await search({ query: "handbook", workspaceIds: [mirrors] })
+    const all = await search({
+      query: "rollout issue",
+      workspaceIds: [mirrors],
+    })
     expect(
       all.map((hit) => [hit.source, hit.updatedAt.toISOString()]).sort(),
     ).toEqual([
@@ -370,7 +379,7 @@ describe("searchKnowledge (Postgres)", () => {
       ["linear", "2026-01-02T00:00:00.000Z"],
     ])
     const recent = await search({
-      query: "handbook",
+      query: "rollout issue",
       workspaceIds: [mirrors],
       updatedAfter: new Date("2026-11-01T00:00:00Z"),
     })

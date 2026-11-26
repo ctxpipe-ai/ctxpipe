@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest"
 
+import { renderGithubPullRequest } from "../../services/github/pull-request-mirror/converter.js"
 import { toNotionMarkdownFile } from "../../services/notion/converter.js"
+import { pagerdutyIncidentMirrorFiles } from "../../services/pagerduty/converter.js"
+import { plainThreadFile } from "../../services/plain/converter.js"
 import { toSlackThreadMarkdownFile } from "../../services/slack/converter.js"
 import { shopIssue } from "../../test/github-issue.js"
 import { linearIssueFile } from "../../test/linear-issue.js"
@@ -281,25 +284,68 @@ describe("the old stack's updatedAt is the source's own time of the last change 
   })
 
   it("is the updatedAt of a GitHub pull request mirror file", () => {
-    expect(
-      updatedAtOf({
-        path: "github/pulls/acme/api/40.md",
-        content:
-          "---\nsource: github\ntype: pull_request\ncreatedAt: '2021-06-01T10:00:00Z'\nupdatedAt: '2021-06-05T10:00:00Z'\n---\n# Add cache\n",
-      }),
-    ).toBe("2021-06-05T10:00:00.000Z")
+    const file = renderGithubPullRequest({
+      id: 40,
+      number: 40,
+      repository: "acme/api",
+      url: "https://github.com/acme/api/pull/40",
+      title: "Add cache",
+      body: "",
+      state: "closed",
+      merged: true,
+      mergedAt: "2021-06-03T10:00:00Z",
+      draft: false,
+      author: { login: "dev", type: "human" },
+      base: { ref: "main", sha: "a".repeat(40) },
+      head: { ref: "cache", sha: "b".repeat(40) },
+      reviewDecision: null,
+      labels: [],
+      requestedReviewers: [],
+      createdAt: "2021-06-01T10:00:00Z",
+      updatedAt: "2021-06-05T10:00:00Z",
+      files: [],
+      reviews: [],
+      comments: [],
+      requiredChecks: [],
+    })
+    expect(updatedAtOf(file)).toBe("2021-06-05T10:00:00.000Z")
   })
 
-  it("is the updated_at of a Plain or PagerDuty mirror file", () => {
-    for (const path of ["plain/threads/th_1.md", "pagerduty/incidents/P1.md"])
-      expect(
-        updatedAtOf({
-          path,
-          content:
-            '---\ncreated_at: "2021-04-05T06:07:08Z"\nupdated_at: "2021-04-06T00:00:00Z"\n---\n# A\n',
-        }),
-        path,
-      ).toBe("2021-04-06T00:00:00.000Z")
+  it("is the updated_at of a Plain thread", () => {
+    const file = plainThreadFile({
+      labelTypeId: "lt_1",
+      thread: {
+        id: "th_1",
+        ref: "T-1",
+        title: "Login fails",
+        status: "DONE",
+        priority: 2,
+        customerName: null,
+        labels: [],
+        createdAt: "2021-04-05T06:07:08Z",
+        updatedAt: "2021-04-06T00:00:00Z",
+        messages: [],
+        moreMessages: false,
+      },
+    })
+    expect(updatedAtOf(file)).toBe("2021-04-06T00:00:00.000Z")
+  })
+
+  it("is the updated_at of a PagerDuty incident", () => {
+    const [file] = pagerdutyIncidentMirrorFiles({
+      id: "P1",
+      number: 1,
+      title: "API down",
+      htmlUrl: "https://acme.pagerduty.com/incidents/P1",
+      status: "resolved",
+      createdAt: "2021-04-05T06:07:08Z",
+      updatedAt: "2021-04-07T00:00:00Z",
+      serviceId: "S1",
+      alerts: [],
+      notes: [],
+    })
+    if (!file) throw new Error("Expected a file")
+    expect(updatedAtOf(file)).toBe("2021-04-07T00:00:00.000Z")
   })
 
   it("is the last_edited_time of a Notion page", () => {
@@ -346,8 +392,8 @@ describe("the old stack's updatedAt is the source's own time of the last change 
   })
 
   it("is the commit time for a file with no time of its own", () => {
-    // An authored file, a Slack channel index, a Confluence page, and a
-    // mirror file with a value that is not a time.
+    // An authored file, a Slack channel index, a Confluence page, and
+    // mirror files with a value that is not a time.
     for (const file of [
       {
         path: "knowledge/services/api.md",
@@ -362,6 +408,11 @@ describe("the old stack's updatedAt is the source's own time of the last change 
       {
         path: "github/issues/acme/api/13.md",
         content: "---\nsource: github\nupdatedAt: soon\n---\n# Issue\n",
+      },
+      {
+        path: "slack/eng--C01/threads/1700000000.000100/thread.md",
+        content:
+          '---\nsource: slack\nthread_ts: "1700000000.000100"\nlatest: "1e20"\n---\n# Thread\n',
       },
     ])
       expect(updatedAtOf(file), file.path).toBe(rewrite)

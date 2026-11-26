@@ -117,10 +117,13 @@ function timeOf(value: unknown): string | null {
   return typeof value === "string" ? normalizeValidityBound(value) : null
 }
 
-/** A Slack ts (seconds since the epoch) as an ISO time, or null. */
+/**
+ * A Slack ts (seconds since the epoch) as an ISO time, or null. A value out
+ * of the range of a date gives null, so a bad file does not stop a hydrate.
+ */
 function slackTime(value: unknown): string | null {
   const seconds = Number(value)
-  return Number.isFinite(seconds) && seconds > 0
-    ? new Date(seconds * 1000).toISOString()
-    : null
+  if (!Number.isFinite(seconds) || seconds <= 0) return null
+  const time = new Date(seconds * 1000)
+  return Number.isNaN(time.getTime()) ? null : time.toISOString()
 }
