@@ -67,20 +67,6 @@ export class NetworkingConstruct extends Construct {
       "Allow PostgreSQL from ECS services",
     )
 
-    const neptuneSecurityGroup = new ec2.SecurityGroup(
-      this,
-      "NeptuneSecurityGroup",
-      {
-        vpc,
-        allowAllOutbound: true,
-      },
-    )
-    neptuneSecurityGroup.addIngressRule(
-      appSecurityGroup,
-      ec2.Port.tcp(8182),
-      "Allow Neptune from ECS services",
-    )
-
     const efsSecurityGroup = new ec2.SecurityGroup(this, "EfsSecurityGroup", {
       vpc,
       allowAllOutbound: true,
@@ -115,7 +101,6 @@ export class NetworkingConstruct extends Construct {
       vpc,
       appSecurityGroup,
       dbSecurityGroup,
-      neptuneSecurityGroup,
       efsSecurityGroup,
       cluster,
       alb,

@@ -8,7 +8,6 @@ import { organizations } from "../../db/schema/auth.js"
 import {
   getWorkspaceById,
   getWorkspaceProjection,
-  persistWorkspaceGraphResult,
   persistWorkspaceIndexResult,
 } from "../../models/workspaces.js"
 import {
@@ -37,16 +36,13 @@ async function activeProjection(f: NativeHydrationFixture) {
   return active
 }
 
-/** The stored first failure of a phase of the active revision. */
-async function phaseFailure(
-  f: NativeHydrationFixture,
-  phase: "graph" | "index",
-) {
+/** The stored first failure of the index phase of the active revision. */
+async function indexFailure(f: NativeHydrationFixture) {
   const row = await withOrgIdContext(f.org, () =>
     getWorkspaceById(f.workspaceId),
   )
-  const failure = row?.hydratePhases?.[phase]?.failure
-  if (!failure) throw new Error(`Expected a stored ${phase} failure`)
+  const failure = row?.hydratePhases?.index?.failure
+  if (!failure) throw new Error("Expected a stored index failure")
   return failure
 }
 
@@ -69,53 +65,6 @@ async function workspaceRuns(f: NativeHydrationFixture, workflowName: string) {
 }
 
 it(
-  "the tip check builds a failed graph again, with no new commit, and shows it as building meanwhile",
-  { timeout: 90_000 },
-  async () => {
-    await withNativeHydrationFixture({ namespaceId }, async (f) => {
-      await f.publish()
-      const { revision } = await activeProjection(f)
-      await withOrgIdContext(f.org, () =>
-        persistWorkspaceGraphResult({
-          revision,
-          result: { kind: "failed", message: "Socket closed unexpectedly" },
-        }),
-      )
-
-      // The first retry is in the check of the next hour.
-      await runTipCheck(f, hourAfter((await phaseFailure(f, "graph")).at, 1))
-
-      await vi.waitFor(
-        async () =>
-          expect((await activeProjection(f)).stores.graph.kind).toBe("ready"),
-        { timeout: 30_000, interval: 100 },
-      )
-      const [retry, ...others] = (
-        await workspaceRuns(f, workspaceHydrate.spec.name)
-      ).filter((run) =>
-        run.idempotencyKey?.startsWith("workspace-tip-hydrate:"),
-      )
-      expect(others).toEqual([])
-      if (!retry) throw new Error("Expected a tip hydrate")
-      expect((retry.input as { revision: { sha: string } }).revision.sha).toBe(
-        f.sha,
-      )
-      // Before it built the graph, the retry set the phase back to pending,
-      // which the Workspace pane shows as "Building graph".
-      const steps = await f.backend.listStepAttempts({
-        workflowRunId: retry.id,
-      })
-      expect(steps.data).toContainEqual(
-        expect.objectContaining({
-          stepName: "persist-graph-retry",
-          status: "completed",
-        }),
-      )
-    })
-  },
-)
-
-it(
   "the tip check builds a failed index again, with no new commit",
   { timeout: 90_000 },
   async () => {
@@ -130,7 +79,7 @@ it(
         }),
       )
 
-      await runTipCheck(f, hourAfter((await phaseFailure(f, "index")).at, 1))
+      await runTipCheck(f, hourAfter((await indexFailure(f)).at, 1))
 
       await vi.waitFor(
         async () => {
@@ -161,9 +110,9 @@ it(
       await f.publish()
       const { revision } = await activeProjection(f)
       await withOrgIdContext(f.org, () =>
-        persistWorkspaceGraphResult({
+        persistWorkspaceIndexResult({
           revision,
-          result: { kind: "failed", message: "Socket closed unexpectedly" },
+          result: { kind: "failed", message: "codesearch is not reachable" },
         }),
       )
       // A hydrate of the same SHA that is queued and not due yet.
@@ -173,19 +122,19 @@ it(
         { availableAt: new Date(Date.now() + 86_400_000) },
       )
 
-      await runTipCheck(f, hourAfter((await phaseFailure(f, "graph")).at, 1))
+      await runTipCheck(f, hourAfter((await indexFailure(f)).at, 1))
 
       const hydrates = (
         await workspaceRuns(f, workspaceHydrate.spec.name)
       ).filter((run) => run.id !== f.handle.workflowRun.id)
       expect(hydrates.map((run) => run.id)).toEqual([unfinished.workflowRun.id])
-      expect((await activeProjection(f)).stores.graph.kind).toBe("failed")
+      expect((await activeProjection(f)).stores.index.kind).toBe("failed")
     })
   },
 )
 
 it(
-  "a failed graph waits 1, 2, 4, 8 and 16 hours, then 24 hours, and a retry keeps the first failure",
+  "a failed index waits 1, 2, 4, 8 and 16 hours, then 24 hours, and a retry keeps the first failure",
   { timeout: 90_000 },
   async () => {
     await withNativeHydrationFixture({ namespaceId }, async (f) => {
@@ -193,21 +142,21 @@ it(
       const { revision } = await activeProjection(f)
       const fail = (message: string) =>
         withOrgIdContext(f.org, () =>
-          persistWorkspaceGraphResult({
+          persistWorkspaceIndexResult({
             revision,
             result: { kind: "failed", message },
           }),
         )
-      await fail("Socket closed unexpectedly")
-      const first = await phaseFailure(f, "graph")
+      await fail("codesearch is not reachable")
+      const first = await indexFailure(f)
       // A retry sets the phase to pending and keeps the failure, so a crash
       // in the retry loses neither its message nor its time.
       await withOrgIdContext(f.org, () =>
-        persistWorkspaceGraphResult({ revision, result: { kind: "pending" } }),
+        persistWorkspaceIndexResult({ revision, result: { kind: "pending" } }),
       )
-      expect(await phaseFailure(f, "graph")).toEqual(first)
+      expect(await indexFailure(f)).toEqual(first)
       await fail("Connection refused")
-      expect(await phaseFailure(f, "graph")).toEqual({
+      expect(await indexFailure(f)).toEqual({
         message: "Connection refused",
         at: first.at,
       })
@@ -221,7 +170,7 @@ it(
         run.idempotencyKey?.startsWith("workspace-tip-hydrate:"),
       )
       expect(hydrates).toEqual([])
-      expect((await activeProjection(f)).stores.graph.kind).toBe("failed")
+      expect((await activeProjection(f)).stores.index.kind).toBe("failed")
     })
   },
 )

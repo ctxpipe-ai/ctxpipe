@@ -12,7 +12,6 @@
     "test:vitest": "node scripts/run-vitest-contracts.mjs",
     "cutover:export-indexes": "bun src/cutover/exportIndexes.ts",
     "cutover:import-indexes": "bun src/cutover/importIndexes.ts",
-    "cutover:verify-graph": "bun src/cutover/verifyGraph.ts",
     "cutover:seed-shard-store": "bun src/cutover/seedShardStore.ts",
     "cutover:reset-indexes": "bun src/cutover/resetIndexes.ts"
   },

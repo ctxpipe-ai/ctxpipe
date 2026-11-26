@@ -47,7 +47,7 @@ The threat is the threat of this ADR: a fault, or an agent that wants its PR to 
 - **A data file of one check is a lane input.** Examples are `module-scope-values-baseline.json` and `page-story-exemptions.json`. Only the script of its own check reads it, and the key of that check holds it. `gate.mjs` names these files, so a new data file is a gate input until a person adds it.
 - **Some `ci.yaml` steps of jobs without checks keep the selector.** No pull_request runs the nightly, trace, Results writer and layer cache jobs, so no PR run proves their steps. Each PR run runs the steps of Migrations in the same way. A change to another key of these jobs, such as `if:`, gives the full run.
 - **These inputs keep the full run.**
-  - `run.mjs`, `families.mjs`, `scripts/checks/prerequisites.mjs`, `scripts/ci/vitest-launch.mjs`, `scripts/ci/graph-ready.mjs` and `scripts/ci/prerequisites.mjs` run the checks of every family. A project key does not hold them.
+  - `run.mjs`, `families.mjs`, `scripts/checks/prerequisites.mjs`, `scripts/ci/vitest-launch.mjs` and `scripts/ci/prerequisites.mjs` run the checks of every family. A project key does not hold them.
   - Each check that runs in CI runs through `selected.mjs` and `rerun-failed.mjs`.
   - The record of `toolchain.mjs` is part of each key.
   - The manifest job installs with `.npmrc` and `patches/` before it lists.
@@ -68,7 +68,7 @@ The CTO decided this on 2026-11-23 ([CTX-1556](https://linear.app/ctxpipe/issue/
 - **The runner files run the selector.** They are `run.mjs`, `selected.mjs`, `rerun-failed.mjs` and `scripts/ci/prerequisites.mjs`. No code that lists checks imports them, and a test keeps this true. Thus a runner change cannot change which checks exist or the entry of a check, and the base listing does not need to compare it.
 - **The LLM stage decides.** The selector selects each check whose key holds the changed file, and the LLM stage keeps only the checks that the change can break.
 - **A floor that the LLM stage cannot drop.** The plan runs every test of the CI scripts, which test the runner. Each job that runs checks through the runner must run at least one check. A job without one gets a canary: its check with the fewest seconds in the trace. A canary accepts no stored pass, so CI runs it with the runner of the PR.
-- **These inputs keep the full run.** `families.mjs`, `scripts/checks/prerequisites.mjs`, `scripts/ci/vitest-launch.mjs` and `scripts/ci/graph-ready.mjs` run checks, but the listing imports them too. `toolchain.mjs` is part of each key.
+- **These inputs keep the full run.** `families.mjs`, `scripts/checks/prerequisites.mjs` and `scripts/ci/vitest-launch.mjs` run checks, but the listing imports them too. `toolchain.mjs` is part of each key.
 
 ### Consequences of the runner revision
 

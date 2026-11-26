@@ -1,7 +1,6 @@
 import * as cdk from "aws-cdk-lib"
 import * as ec2 from "aws-cdk-lib/aws-ec2"
 import * as efs from "aws-cdk-lib/aws-efs"
-import * as neptune from "aws-cdk-lib/aws-neptune"
 import * as rds from "aws-cdk-lib/aws-rds"
 import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager"
 import { Construct } from "constructs"
@@ -59,32 +58,6 @@ export class DataPlaneConstruct extends Construct {
       removalPolicy: cdk.RemovalPolicy.SNAPSHOT,
     })
 
-    const neptuneSubnetGroup = new neptune.CfnDBSubnetGroup(
-      this,
-      "NeptuneSubnetGroup",
-      {
-        dbSubnetGroupDescription: "Private subnets for ctxpipe neptune",
-        subnetIds: props.networking.vpc.selectSubnets({
-          subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
-        }).subnetIds,
-      },
-    )
-
-    const neptuneCluster = new neptune.CfnDBCluster(this, "Neptune", {
-      dbSubnetGroupName: neptuneSubnetGroup.ref,
-      vpcSecurityGroupIds: [
-        props.networking.neptuneSecurityGroup.securityGroupId,
-      ],
-      backupRetentionPeriod: props.defaults.backupRetentionDays,
-      storageEncrypted: true,
-      iamAuthEnabled: false,
-    })
-    neptuneCluster.applyRemovalPolicy(cdk.RemovalPolicy.SNAPSHOT)
-    const neptuneInstance = new neptune.CfnDBInstance(this, "NeptuneInstance", {
-      dbClusterIdentifier: neptuneCluster.ref,
-      dbInstanceClass: props.sizeProfile.database.neptuneInstanceClass,
-    })
-
     const codesearchFileSystem = new efs.FileSystem(this, "CodesearchEfs", {
       vpc: props.networking.vpc,
       encrypted: true,
@@ -111,20 +84,11 @@ export class DataPlaneConstruct extends Construct {
       },
     )
 
-    const graphDbUri = cdk.Fn.join("", [
-      "bolt+s://",
-      neptuneCluster.attrEndpoint,
-      ":8182",
-    ])
-
     this.resources = {
       dbCluster,
       dbCredentialsSecret,
-      neptuneCluster,
-      neptuneInstance,
       codesearchFileSystem,
       codesearchAccessPoint,
-      graphDbUri,
     }
   }
 }

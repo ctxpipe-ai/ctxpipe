@@ -6,7 +6,6 @@ import type * as ec2 from "aws-cdk-lib/aws-ec2"
 import type * as ecs from "aws-cdk-lib/aws-ecs"
 import type * as efs from "aws-cdk-lib/aws-efs"
 import type * as elbv2 from "aws-cdk-lib/aws-elasticloadbalancingv2"
-import type * as neptune from "aws-cdk-lib/aws-neptune"
 import type * as rds from "aws-cdk-lib/aws-rds"
 import type * as route53 from "aws-cdk-lib/aws-route53"
 import type * as secretsmanager from "aws-cdk-lib/aws-secretsmanager"
@@ -54,7 +53,6 @@ export interface CtxPipeSizeProfile {
   readonly database: {
     readonly auroraInstanceClass: ec2.InstanceClass
     readonly auroraInstanceSize: ec2.InstanceSize
-    readonly neptuneInstanceClass: string
   }
   readonly tasks: {
     readonly backend: CtxPipeTaskSize
@@ -92,7 +90,6 @@ export interface NetworkingResources {
   readonly vpc: ec2.Vpc
   readonly appSecurityGroup: ec2.SecurityGroup
   readonly dbSecurityGroup: ec2.SecurityGroup
-  readonly neptuneSecurityGroup: ec2.SecurityGroup
   readonly efsSecurityGroup: ec2.SecurityGroup
   readonly cluster: ecs.Cluster
   readonly alb: elbv2.ApplicationLoadBalancer
@@ -102,11 +99,8 @@ export interface NetworkingResources {
 export interface DataPlaneResources {
   readonly dbCluster: rds.DatabaseCluster
   readonly dbCredentialsSecret: secretsmanager.Secret
-  readonly neptuneCluster: neptune.CfnDBCluster
-  readonly neptuneInstance: neptune.CfnDBInstance
   readonly codesearchFileSystem: efs.FileSystem
   readonly codesearchAccessPoint: efs.IAccessPoint
-  readonly graphDbUri: string
 }
 
 export interface SecretsResources {
@@ -231,7 +225,6 @@ export interface SandboxHostConstructProps extends CtxPipeSandboxHostProfile {
 }
 
 export interface TaskDefinitionsConstructProps {
-  readonly orgSlug: string
   readonly networking: NetworkingResources
   readonly dataPlane: DataPlaneResources
   readonly secrets: SecretsResources

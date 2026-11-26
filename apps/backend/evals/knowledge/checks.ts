@@ -106,7 +106,7 @@ export function itemKey(ref: string): string {
 
 /**
  * The section lines of a snippet. A chunk text starts with the title and
- * the heading path on one line, then a blank line (`knowledgeChunkRows`).
+ * the heading path on one line, then a blank line (`documentChunks`).
  */
 function sectionLines(snippet: string) {
   const lines = markdownLines(snippet)

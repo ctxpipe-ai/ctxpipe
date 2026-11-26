@@ -11,7 +11,6 @@ import {
 } from "@tabler/icons-react"
 import {
   type QueryClient,
-  useMutation,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
@@ -22,9 +21,7 @@ import { type Key, Tab, TabList, TabPanel, Tabs } from "react-aria-components"
 
 import { OverlayNavMenuButton } from "@/components/OverlayNavButton"
 import { Button } from "@/components/ui/Button"
-import { InlineAlert } from "@/components/ui/InlineAlert"
 import { SkeletonSuspense } from "@/components/ui/Skeleton"
-import { TechnicalDetail } from "@/components/ui/TechnicalDetail"
 import {
   Tooltip,
   TooltipContent,
@@ -44,13 +41,11 @@ import {
   conversationGitBlobOptions,
   conversationGitDiffOptions,
   conversationGitTreeOptions,
-  rebuildWorkspaceGraph,
   workspaceChatPrepareOptions,
   workspaceGitBlobOptions,
   workspaceGitTreeOptions,
   workspaceGraphBuilding,
   workspaceGraphOptions,
-  workspaceKeys,
 } from "./queries"
 import type { WorkspaceDetail, WorkspaceStorePhase } from "./types"
 import {
@@ -495,18 +490,6 @@ function WorkspaceGraphPaneBody(props: {
     ...workspaceGraphOptions(props.orgSlug, props.workspace.slug),
     enabled: graphReadable(phase),
   })
-  const queryClient = useQueryClient()
-  // The server can refuse the rebuild, for example a second one in the same
-  // UTC hour. The alert then shows its reason. Both answers read the
-  // Workspace again to show its phase.
-  const rebuild = useMutation({
-    mutationFn: () =>
-      rebuildWorkspaceGraph(props.orgSlug, props.workspace.slug),
-    onSettled: () =>
-      queryClient.invalidateQueries({
-        queryKey: workspaceKeys.detail(props.orgSlug, props.workspace.slug),
-      }),
-  })
   if (phase === "pending" || workspaceGraphBuilding(query.data))
     return (
       <div className="flex h-full min-h-0 flex-1 items-center justify-center p-6">
@@ -515,37 +498,6 @@ function WorkspaceGraphPaneBody(props: {
           detail="The graph opens when ctxpipe finishes reading this Workspace."
           status="Building graph"
         />
-      </div>
-    )
-  // The failure message can name internal hosts, so the UI shows plain copy.
-  if (phase === "failed")
-    return (
-      <div className="flex h-full min-h-0 flex-1 items-center justify-center p-6">
-        <div className="w-full max-w-md">
-          <InlineAlert
-            variant="error"
-            title="Could not build graph"
-            actions={
-              <Button
-                variant="primary"
-                isPending={rebuild.isPending}
-                onPress={() => rebuild.mutate()}
-              >
-                Try again
-              </Button>
-            }
-          >
-            <p>
-              ctxpipe rebuilds the graph automatically. You can also try again
-              now.
-            </p>
-            {rebuild.error ? (
-              <TechnicalDetail tone="error" className="mt-2">
-                {rebuild.error.message}
-              </TechnicalDetail>
-            ) : null}
-          </InlineAlert>
-        </div>
       </div>
     )
   return (
@@ -564,7 +516,7 @@ function WorkspaceGraphPaneBody(props: {
 }
 
 function graphReadable(phase: WorkspaceStorePhase["kind"] | undefined) {
-  return phase !== "pending" && phase !== "failed"
+  return phase !== "pending"
 }
 
 function prefetchWorkspacePane(

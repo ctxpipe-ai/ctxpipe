@@ -34,12 +34,6 @@ export function requireCurrentOrgId(): string {
   return orgId
 }
 
-export function requireCurrentOrgSlug(): string {
-  const orgSlug = orgIdStorage.getStore()?.slug ?? requestOrg().slug
-  if (!orgSlug) throw new Error("Missing org context")
-  return orgSlug
-}
-
 export function requireCurrentUserId(): string {
   try {
     const fromRequest = getContext<AppEnv>().var.user?.id

@@ -1,3 +1,5 @@
+import { rmSync } from "node:fs"
+
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
@@ -5,7 +7,7 @@ import { eq } from "drizzle-orm"
 import { evlog } from "evlog/hono"
 import { Hono } from "hono"
 import { contextStorage } from "hono/context-storage"
-import { HttpResponse, http } from "msw"
+import { HttpResponse, http, passthrough } from "msw"
 import {
   afterAll,
   afterEach,
@@ -26,15 +28,20 @@ import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
-import {
-  workspaceKnowledgeChunks,
-  workspaceKnowledgeUnits,
-  workspaces,
-} from "../../db/schema/workspaces.js"
-import { knowledgeChunkRows } from "../../domain/workspaces/knowledge-chunks.js"
+import { workspaces } from "../../db/schema/workspaces.js"
+import { servingIdForKnowledgePath } from "../../domain/workspaces/hydrate.js"
+import type { WorkspaceRevision } from "../../domain/workspaces/revision.js"
+import { createKnowledgeStore } from "../../knowledge-store/knowledge-store.js"
+import { migrateKnowledgeStore } from "../../knowledge-store/migrate.js"
 import { generateObjectId } from "../../lib/id.js"
 import { registerMcpRoutes } from "../../routes/mcp.js"
+import { startClickHouse, userUrl } from "../../test/clickhouse.js"
 import { withTestRequestLogger } from "../../test/hono-test-logger.js"
+import {
+  writePlaneDocuments,
+  servePlaneHead,
+  gitRepository as planeGitRepository,
+} from "../../test/knowledge-plane.js"
 import { insertLinkedRepositoryRows } from "../../test/workspace-links-fixture.js"
 import { HARD_CAP_CHARS } from "../framework/budget.js"
 import { registerMcpReadTools } from "../framework/tool-registry.js"
@@ -42,11 +49,13 @@ import { TOOL_ERROR_META_KEY } from "../framework/tool-result.js"
 import { listFilesTool } from "./list-files.js"
 import { readFileTool } from "./read-file.js"
 
-const server = useMswServer()
+// The ClickHouse server of the knowledge plane is a real server.
+const server = useMswServer(
+  http.all(/^http:\/\/127\.0\.0\.1:\d+\//, () => passthrough()),
+)
 const CODESEARCH = "http://codesearch.test"
 
 const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
-const sha1 = "a".repeat(40)
 const sha2 = "b".repeat(40)
 const spans = recordSpans()
 const owner = `ex${suffix}`
@@ -60,6 +69,7 @@ const foreignOrg = {
 const paymentsId = generateObjectId("ws")
 const platformId = generateObjectId("ws")
 const pagingId = generateObjectId("ws")
+const sizesId = generateObjectId("ws")
 const foreignWorkspaceId = generateObjectId("ws")
 
 const BIG_LINES = Array.from(
@@ -91,11 +101,43 @@ const WIDE = Array.from(
   (_, index) =>
     `knowledge/wide/${String(index).padStart(3, "0")}-${"n".repeat(33)}.md`,
 )
-/** A unit with three lines of front matter; its body starts at file line 4. */
+/** A unit with five lines of front matter; its body starts at file line 6. */
 const FRONT_MATTER_UNIT = {
   path: "knowledge/front-matter.md",
+  frontMatter:
+    "---\nkind: Standard\nclaims:\n  - { to: services/gateway.md, predicate: APPLIES_TO, confidence: 0.9 }\n---\n",
   body: "# Rate limits\n\nThe gateway allows 100 calls.\n",
-  bodyStartLine: 4,
+  bodyStartLine: 6,
+}
+/** The time that the knowledge plane holds for the front matter unit. */
+const FRONT_MATTER_OBSERVED_AT = new Date("2026-09-01T00:00:00Z")
+
+/** A unit with a long title and long claim strings in its front matter. */
+function longFrontMatterFile(body: string, claimCount: number): string {
+  const claims = Array.from(
+    { length: claimCount },
+    (_, index) =>
+      `  - to: ${"t".repeat(5_000)}-${index}.md\n    predicate: APPLIES_TO\n    confidence: 0.9\n    source: ${"s".repeat(5_000)}\n`,
+  ).join("")
+  return `---\nkind: Standard\ntitle: ${"T".repeat(5_000)}\nclaims:\n${claims}---\n${body}`
+}
+
+const directories: string[] = []
+
+/** A Git repository with `files` in one commit, removed after the tests. */
+function gitRepository(files: Record<string, string>) {
+  const repository = planeGitRepository(files)
+  directories.push(repository.url)
+  return repository
+}
+
+/** The SHA that the knowledge plane serves for each Workspace. */
+const served: Record<string, string> = {}
+let clickHouse: Awaited<ReturnType<typeof startClickHouse>>
+
+/** Complete a knowledge run of `tip` on the default branch of a Workspace. */
+async function completeRun(workspaceId: string, tip: string, treeVersion = 1) {
+  await servePlaneHead({ orgId: seed.orgId, workspaceId, tip, treeVersion })
 }
 
 /** Repository name → repository id (after the seed). */
@@ -262,7 +304,7 @@ function errorCode(result: ToolResult): unknown {
   return (result._meta?.[TOOL_ERROR_META_KEY] as { code?: string })?.code
 }
 
-describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)", () => {
+describe("read_file and list_files (Postgres + ClickHouse + Git + msw codesearch + MCP SDK Client)", () => {
   beforeAll(async () => {
     if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required")
     seed = await seedOrg()
@@ -272,110 +314,69 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
       slug: foreignOrg.slug,
       createdAt: new Date(),
     })
+    clickHouse = await startClickHouse()
+    const knowledgeUrl = await clickHouse.freshDatabase()
+    await migrateKnowledgeStore(knowledgeUrl, {
+      reader: "reader-test",
+      writer: "writer-test",
+    })
+    // The backend reads as the reader user, with SELECT only.
+    vi.stubEnv(
+      "CLICKHOUSE_URL",
+      userUrl(knowledgeUrl, "ctxpipe_reader", "reader-test"),
+    )
+    const repositoriesOfWorkspaces = {
+      [paymentsId]: gitRepository({
+        ...UNITS,
+        [FRONT_MATTER_UNIT.path]: `${FRONT_MATTER_UNIT.frontMatter}${FRONT_MATTER_UNIT.body}`,
+      }),
+      [pagingId]: gitRepository(
+        Object.fromEntries([...MANY, ...WIDE].map((path) => [path, "x\n"])),
+      ),
+      [sizesId]: gitRepository({
+        "knowledge/long-title.md": longFrontMatterFile("Body.\n", 3),
+        "knowledge/huge-front-matter.md": longFrontMatterFile(
+          Array.from(
+            { length: 40 },
+            (_, index) => `${index} ${"w".repeat(2_000)}`,
+          ).join("\n"),
+          20,
+        ),
+      }),
+    }
     await withOrgDbContext(seed.orgId, async (db) => {
       await db.insert(workspaces).values(
-        [
-          [paymentsId, "payments", sha1],
-          [platformId, "platform", null],
-          [pagingId, "paging", sha1],
-        ].map(([id, slug, sha]) => ({
-          id: id as string,
-          orgId: seed.orgId,
-          slug: slug as string,
-          displayName: slug as string,
-          workspaceRepositoryUrl: `/tmp/files-${suffix}-${slug}`,
-          desiredDefaultBranch: "main",
-          activeProjectionSha: sha,
-        })),
-      )
-      await db.insert(workspaceKnowledgeUnits).values([
-        ...Object.entries(UNITS).map(([path, body]) => ({
-          servingId: generateObjectId("wku"),
-          orgId: seed.orgId,
-          workspaceId: paymentsId,
-          path,
-          body,
-          projectionSha: sha1,
-        })),
-        ...[...MANY, ...WIDE].map((path) => ({
-          servingId: generateObjectId("wku"),
-          orgId: seed.orgId,
-          workspaceId: pagingId,
-          path,
-          body: "x\n",
-          projectionSha: sha1,
-        })),
-      ])
-      // The row of this unit holds another SHA than the Workspace serves, and
-      // its chunks hold file lines that count the front matter.
-      const frontMatterId = generateObjectId("wku")
-      await db.insert(workspaceKnowledgeUnits).values({
-        servingId: frontMatterId,
-        orgId: seed.orgId,
-        workspaceId: paymentsId,
-        path: FRONT_MATTER_UNIT.path,
-        body: FRONT_MATTER_UNIT.body,
-        projectionSha: sha2,
-        kind: "Standard",
-        title: "Rate limits",
-        source: "authored",
-        updatedAt: new Date("2026-09-01T00:00:00Z"),
-        claims: [
-          {
-            to: "knowledge/services/gateway.md",
-            predicate: "APPLIES_TO",
-            confidence: 0.9,
-            validFrom: null,
-            validTo: null,
-            source: null,
-          },
-        ],
-      })
-      await db.insert(workspaceKnowledgeChunks).values(
-        knowledgeChunkRows(
+        (
           [
-            {
-              servingId: frontMatterId,
-              body: FRONT_MATTER_UNIT.body,
-              title: "Rate limits",
-              bodyStartLine: FRONT_MATTER_UNIT.bodyStartLine,
-            },
-          ],
-          "test-model",
-        ).map((row) => ({
-          ...row,
-          orgId: seed.orgId,
-          workspaceId: paymentsId,
-        })),
-      )
-      // CTX-1133: a unit that hydrate has not projected again keeps the
-      // chunks of the old rule, with a chunk for the heading-only section.
-      const staleId = generateObjectId("wku")
-      await db.insert(workspaceKnowledgeUnits).values({
-        servingId: staleId,
-        orgId: seed.orgId,
-        workspaceId: paymentsId,
-        path: "knowledge/stale-chunks.md",
-        body: "# Plan\n\n## Phase 4\n\nRun the evals.\n",
-        projectionSha: sha1,
-      })
-      await db.insert(workspaceKnowledgeChunks).values(
-        [
-          { startLine: 4, endLine: 4, text: "Plan\n\n# Plan" },
-          {
-            startLine: 6,
-            endLine: 8,
-            text: "Plan > Phase 4\n\n## Phase 4\n\nRun the evals.",
-          },
-        ].map((chunk, ordinal) => ({
-          ...chunk,
-          unitId: staleId,
-          chunkHash: `stale-${ordinal}`,
-          occurrence: 0,
-          ordinal,
-          orgId: seed.orgId,
-          workspaceId: paymentsId,
-        })),
+            [paymentsId, "payments"],
+            [platformId, "platform"],
+            [pagingId, "paging"],
+            [sizesId, "sizes"],
+          ] as const
+        ).map(([id, slug]) => {
+          const repository = repositoriesOfWorkspaces[id]
+          const url = repository?.url ?? `/tmp/files-${suffix}-${slug}`
+          const revision: WorkspaceRevision | null = repository
+            ? {
+                workspaceId: id,
+                generation: 1,
+                remote: { url, connectionId: null },
+                defaultBranch: "main",
+                sha: repository.sha,
+                access: "read",
+              }
+            : null
+          return {
+            id,
+            orgId: seed.orgId,
+            slug,
+            displayName: slug,
+            workspaceRepositoryUrl: url,
+            desiredDefaultBranch: "main",
+            activeProjectionSha: repository?.sha ?? null,
+            activeRevision: revision,
+          }
+        }),
       )
       await insertLinkedRepositoryRows(db, [
         ...["payments-api", "ledger", "unindexed", "huge-api"].map((short) => ({
@@ -410,28 +411,58 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
         seeded.set(short, id)
       }
     })
-    // Another org with a Workspace of the same slug and a unit that the
-    // first org must never read.
-    await withOrgDbContext(foreignOrg.id, async (db) => {
-      await db.insert(workspaces).values({
+    // The knowledge plane serves each Workspace with a repository.
+    for (const [id, repository] of Object.entries(repositoriesOfWorkspaces)) {
+      served[id] = repository.sha
+      await completeRun(id, repository.sha)
+    }
+    // The plane holds the time of the front matter unit.
+    const writer = createKnowledgeStore(knowledgeUrl)
+    try {
+      await writePlaneDocuments(
+        writer,
+        { orgId: seed.orgId, workspaceId: paymentsId },
+        [
+          {
+            document: {
+              docKey: servingIdForKnowledgePath(
+                paymentsId,
+                FRONT_MATTER_UNIT.path,
+              ),
+              kind: "Standard",
+              title: "Rate limits",
+              path: FRONT_MATTER_UNIT.path,
+              sourceType: "docs",
+              source: "",
+              summary: "",
+              mime: "",
+              validFrom: null,
+              validTo: null,
+              observedAt: FRONT_MATTER_OBSERVED_AT,
+            },
+            chunks: [],
+            relations: [],
+          },
+        ],
+      )
+    } finally {
+      await writer.close()
+    }
+    // Another org with a Workspace of another slug that the first org must
+    // never read.
+    const foreign = gitRepository({ "knowledge/secret.md": "foreign secret\n" })
+    await withOrgDbContext(foreignOrg.id, (db) =>
+      db.insert(workspaces).values({
         id: foreignWorkspaceId,
         orgId: foreignOrg.id,
         slug: "foreign-only",
         displayName: "Foreign",
-        workspaceRepositoryUrl: `/tmp/files-${suffix}-foreign`,
+        workspaceRepositoryUrl: foreign.url,
         desiredDefaultBranch: "main",
-        activeProjectionSha: sha1,
-      })
-      await db.insert(workspaceKnowledgeUnits).values({
-        servingId: generateObjectId("wku"),
-        orgId: foreignOrg.id,
-        workspaceId: foreignWorkspaceId,
-        path: "knowledge/secret.md",
-        body: "foreign secret\n",
-        projectionSha: sha1,
-      })
-    })
-  })
+        activeProjectionSha: foreign.sha,
+      }),
+    )
+  }, 240_000)
 
   beforeEach(async () => {
     captured = []
@@ -442,7 +473,6 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
 
   afterEach(async () => {
     await client.close()
-    vi.unstubAllEnvs()
   })
 
   afterAll(async () => {
@@ -457,6 +487,10 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
       .delete(organizations)
       .where(eq(organizations.id, foreignOrg.id))
     await cleanupSeededOrg(seed)
+    await clickHouse?.stop()
+    for (const directory of directories)
+      rmSync(directory, { recursive: true, force: true })
+    vi.unstubAllEnvs()
   })
 
   describe("read_file", () => {
@@ -467,8 +501,12 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
       expect(result.isError).toBeFalsy()
       expect(result.structuredContent).toEqual({
         ref: "knowledge/services/payments-api.md",
-        served: { branch: "main", sha: sha1 },
-        frontMatter: { source: "authored", updatedAt: expect.any(String) },
+        served: { branch: "main", sha: served[paymentsId] },
+        frontMatter: {
+          title: "Payments API",
+          source: "authored",
+          updatedAt: expect.any(String),
+        },
         content: "# Payments API\n\nOwns card charges.\nCalls the ledger.",
         startLine: 1,
         endLine: 4,
@@ -646,69 +684,41 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
       },
     )
 
-    it("counts the front matter of a unit whose chunks follow an older chunk rule", async () => {
-      const result = await call("read_file", {
-        ref: "knowledge/stale-chunks.md",
-        startLine: 6,
-        endLine: 6,
-      })
-      expect(result.structuredContent).toMatchObject({
-        content: "## Phase 4",
-        startLine: 6,
-        endLine: 6,
-      })
-    })
-
     it("counts the front matter in the lines of a unit, as search_knowledge does", async () => {
-      const [chunk] = knowledgeChunkRows(
-        [
-          {
-            servingId: "unit",
-            body: FRONT_MATTER_UNIT.body,
-            title: "Rate limits",
-            bodyStartLine: FRONT_MATTER_UNIT.bodyStartLine,
-          },
-        ],
-        "test-model",
-      )
       const result = await call("read_file", { ref: FRONT_MATTER_UNIT.path })
       expect(result.structuredContent).toEqual({
         ref: FRONT_MATTER_UNIT.path,
-        // The Workspace's active projection states the revision. The row
-        // holds another SHA, as an unchanged row does after a partial
-        // hydrate.
-        served: { branch: "main", sha: sha1 },
+        served: { branch: "main", sha: served[paymentsId] },
         // The front matter is its own field, not lines of content.
         frontMatter: {
           kind: "Standard",
           title: "Rate limits",
           source: "authored",
-          updatedAt: "2026-09-01T00:00:00.000Z",
+          updatedAt: FRONT_MATTER_OBSERVED_AT.toISOString(),
           claims: [
             {
-              to: "knowledge/services/gateway.md",
+              to: "services/gateway.md",
               predicate: "APPLIES_TO",
               confidence: 0.9,
             },
           ],
         },
         content: "# Rate limits\n\nThe gateway allows 100 calls.",
-        startLine: chunk?.startLine,
-        endLine: 6,
-        totalLines: 6,
+        startLine: FRONT_MATTER_UNIT.bodyStartLine,
+        endLine: 8,
+        totalLines: 8,
         nextStartLine: null,
         truncated: false,
       })
-      expect(chunk?.startLine).toBe(4)
       const range = await call("read_file", {
         ref: FRONT_MATTER_UNIT.path,
-        startLine: 6,
-        endLine: 6,
+        startLine: 8,
+        endLine: 8,
       })
       expect(range.structuredContent).toMatchObject({
         content: "The gateway allows 100 calls.",
-        startLine: 6,
-        endLine: 6,
+        startLine: 8,
+        endLine: 8,
       })
       // A later page does not repeat the front matter.
       expect(range.structuredContent).not.toHaveProperty("frontMatter")
@@ -724,105 +734,56 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
     })
 
     describe("front matter size", () => {
-      const insertUnit = async (
-        path: string,
-        body: string,
-        claimCount: number,
-      ) => {
-        const servingId = generateObjectId("wku")
-        await withOrgDbContext(seed.orgId, (db) =>
-          db.insert(workspaceKnowledgeUnits).values({
-            servingId,
-            orgId: seed.orgId,
-            workspaceId: paymentsId,
-            path,
-            body,
-            projectionSha: sha2,
-            kind: "Standard",
-            title: "T".repeat(5_000),
-            source: "authored",
-            updatedAt: new Date("2026-09-01T00:00:00Z"),
-            claims: Array.from({ length: claimCount }, (_, index) => ({
-              to: `knowledge/${"t".repeat(5_000)}-${index}.md`,
-              predicate: "APPLIES_TO",
-              confidence: 0.9,
-              validFrom: null,
-              validTo: null,
-              source: "s".repeat(5_000),
-            })),
-          }),
-        )
-        return servingId
-      }
-      const remove = (servingId: string) =>
-        withOrgDbContext(seed.orgId, (db) =>
-          db
-            .delete(workspaceKnowledgeUnits)
-            .where(eq(workspaceKnowledgeUnits.servingId, servingId)),
-        )
-
       it("cuts a long title and long claim strings, and keeps the front matter", async () => {
-        const id = await insertUnit("knowledge/long-title.md", "Body.\n", 3)
-        try {
-          const result = await call("read_file", {
-            ref: "knowledge/long-title.md",
-          })
-          const frontMatter = result.structuredContent?.frontMatter as {
-            title: string
-            claims: Array<{ to: string; source: string }>
-          }
-          expect(frontMatter.title).toHaveLength(200)
-          expect(frontMatter.claims).toHaveLength(3)
-          for (const claim of frontMatter.claims) {
-            expect(claim.to.length).toBeLessThanOrEqual(200)
-            expect(claim.source.length).toBeLessThanOrEqual(200)
-          }
-          expect(result.structuredContent?.content).toBe("Body.")
-        } finally {
-          await remove(id)
+        const result = await call("read_file", {
+          workspace: "sizes",
+          ref: "knowledge/long-title.md",
+        })
+        const frontMatter = result.structuredContent?.frontMatter as {
+          title: string
+          claims: Array<{ to: string; source: string }>
         }
+        expect(frontMatter.title).toHaveLength(200)
+        expect(frontMatter.claims).toHaveLength(3)
+        for (const claim of frontMatter.claims) {
+          expect(claim.to.length).toBeLessThanOrEqual(200)
+          expect(claim.source.length).toBeLessThanOrEqual(200)
+        }
+        expect(result.structuredContent?.content).toBe("Body.")
       })
 
       it("leaves out front matter that is still too large, and a page walk moves forward", async () => {
-        const body = Array.from(
-          { length: 40 },
-          (_, index) => `${index} ${"w".repeat(2_000)}`,
-        ).join("\n")
-        const id = await insertUnit("knowledge/huge-front-matter.md", body, 20)
-        try {
-          let startLine: number | null = 1
-          let pages = 0
-          const seen: number[] = []
-          while (startLine !== null) {
-            const result = await call("read_file", {
-              ref: "knowledge/huge-front-matter.md",
-              startLine,
-            })
-            expect(result.isError).toBeFalsy()
-            const page = result.structuredContent as {
-              content: string
-              startLine: number
-              nextStartLine: number | null
-              frontMatterOmitted?: boolean
-            }
-            if (pages === 0) {
-              expect(page.frontMatterOmitted).toBe(true)
-              expect(page).not.toHaveProperty("frontMatter")
-            }
-            expect(page.content.length).toBeGreaterThan(0)
-            if (page.nextStartLine !== null) {
-              expect(page.nextStartLine).toBeGreaterThan(startLine)
-            }
-            seen.push(page.startLine)
-            startLine = page.nextStartLine
-            pages += 1
-            expect(pages).toBeLessThan(50)
+        let startLine: number | null = 1
+        let pages = 0
+        const seen: number[] = []
+        while (startLine !== null) {
+          const result = await call("read_file", {
+            workspace: "sizes",
+            ref: "knowledge/huge-front-matter.md",
+            startLine,
+          })
+          expect(result.isError).toBeFalsy()
+          const page = result.structuredContent as {
+            content: string
+            startLine: number
+            nextStartLine: number | null
+            frontMatterOmitted?: boolean
           }
-          expect(pages).toBeGreaterThan(1)
-          expect(new Set(seen).size).toBe(seen.length)
-        } finally {
-          await remove(id)
+          if (pages === 0) {
+            expect(page.frontMatterOmitted).toBe(true)
+            expect(page).not.toHaveProperty("frontMatter")
+          }
+          expect(page.content.length).toBeGreaterThan(0)
+          if (page.nextStartLine !== null) {
+            expect(page.nextStartLine).toBeGreaterThan(startLine)
+          }
+          seen.push(page.startLine)
+          startLine = page.nextStartLine
+          pages += 1
+          expect(pages).toBeLessThan(50)
         }
+        expect(pages).toBeGreaterThan(1)
+        expect(new Set(seen).size).toBe(seen.length)
       })
     })
 
@@ -947,9 +908,9 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
       expect(root.structuredContent).toEqual({
         repository: null,
         path: "",
-        served: { branch: "main", sha: sha1 },
+        served: { branch: "main", sha: served[paymentsId] },
         entries: [
-          { path: "knowledge", type: "dir", units: 7 },
+          { path: "knowledge", type: "dir", units: 6 },
           {
             path: "knowledge/big.md",
             type: "file",
@@ -976,12 +937,6 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
           },
           { path: "knowledge/runbooks", type: "dir", units: 1 },
           { path: "knowledge/services", type: "dir", units: 1 },
-          {
-            path: "knowledge/stale-chunks.md",
-            type: "file",
-            ref: "knowledge/stale-chunks.md",
-            size: Buffer.byteLength("# Plan\n\n## Phase 4\n\nRun the evals.\n"),
-          },
           { path: "slack", type: "dir", units: 1 },
           { path: "slack/threads", type: "dir", units: 1 },
         ],
@@ -999,7 +954,6 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
           { path: "knowledge/quotes.md", type: "file" },
           { path: "knowledge/runbooks", type: "dir", units: 1 },
           { path: "knowledge/services", type: "dir", units: 1 },
-          { path: "knowledge/stale-chunks.md", type: "file" },
         ],
       })
       const runbooks = await call("list_files", {
@@ -1155,35 +1109,21 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
       expect(captured).toEqual([])
     })
 
-    it("gives stale_cursor after a new projection", async () => {
+    it("gives stale_cursor after a new knowledge run", async () => {
       const first = await call("list_files", {
         workspace: "paging",
         path: "knowledge/many",
         limit: 10,
       })
       const cursor = (first.structuredContent as { cursor: string }).cursor
-      await withOrgDbContext(seed.orgId, (db) =>
-        db
-          .update(workspaces)
-          .set({ activeProjectionSha: sha2 })
-          .where(eq(workspaces.id, pagingId)),
-      )
-      try {
-        const result = await call("list_files", {
-          workspace: "paging",
-          path: "knowledge/many",
-          limit: 10,
-          cursor,
-        })
-        expect(errorCode(result)).toBe("stale_cursor")
-      } finally {
-        await withOrgDbContext(seed.orgId, (db) =>
-          db
-            .update(workspaces)
-            .set({ activeProjectionSha: sha1 })
-            .where(eq(workspaces.id, pagingId)),
-        )
-      }
+      await completeRun(pagingId, served[pagingId] as string, 2)
+      const result = await call("list_files", {
+        workspace: "paging",
+        path: "knowledge/many",
+        limit: 10,
+        cursor,
+      })
+      expect(errorCode(result)).toBe("stale_cursor")
     })
 
     it("refuses an excluded repository before it calls codesearch", async () => {

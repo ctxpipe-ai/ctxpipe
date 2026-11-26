@@ -16,8 +16,11 @@ import { parseEnv } from "../config/env.js"
 import { readIngestSkillBundle } from "../domain/ingestion/skill-bundle.js"
 import { reingestUpgradeKey } from "../domain/upgrades/reingest.js"
 import { WORKSPACE_FORMAT_PATH } from "../domain/workspaces/workspace-format.js"
+import { migrateKnowledgeStore } from "../knowledge-store/migrate.js"
+import { readyKnowledgeHeads } from "../models/knowledge-state.js"
 import { getWorkspaceUpgradeRow } from "../models/workspace-upgrades.js"
 import { openWorkflowNamespaceId } from "../openworkflow/namespace.js"
+import { startClickHouse, userUrl } from "../test/clickhouse.js"
 import {
   contextStorage,
   withTestRequestLogger,
@@ -58,8 +61,10 @@ const urls = vi.hoisted(() => {
 })
 
 /*
- * The minor upgrade from the previous release, end to end (CTX-748). An
- * operator on the previous release (the CI job pins it) deploys this release and changes nothing else:
+ * The upgrade from the previous release, end to end (CTX-748). An operator
+ * on the previous release (the CI job pins it) deploys this release and changes nothing else.
+ * This release is a major (CTX-1713): its migration drops the knowledge chunk tables of the
+ * old knowledge read stack, the contract step of ADR-053.
  *
  * 1. The migrate command of the previous release makes its schema, and SQL seeds an org
  *    as the previous release kept it: GitHub, a Linear connector that synced to a context
@@ -72,7 +77,8 @@ const urls = vi.hoisted(() => {
  *    upgrade through the API; it opens one pull request. After the merge,
  *    hydrate records format 3 with no direct write, and the re-ingestion is
  *    ready.
- * 4. Rollback: the previous release's code reads the upgraded database.
+ * 4. Rollback: the previous release's code reads the tables that this release keeps. The
+ *    major drops only the tables of the old knowledge read stack.
  * 5. Rollback window: the previous release's code adds a connection and deletes one, and the
  *    next migrate brings the webhook directory back in line.
  *
@@ -116,6 +122,8 @@ const phase = (name: string) =>
   process.stderr.write(
     `[upgrade-from-release] +${Math.round((Date.now() - testStart) / 1000)}s ${name}\n`,
   )
+let clickhouse: Awaited<ReturnType<typeof startClickHouse>> | undefined
+let clickhouseWriterUrl = ""
 let releaseTree = ""
 
 /**
@@ -353,11 +361,25 @@ beforeAll(async () => {
   admin = new pg.Client({ connectionString: serverUrl })
   await admin.connect()
   await admin.query(`CREATE DATABASE "${database}"`)
-}, 60_000)
+  // The knowledge plane is the only knowledge reader (CTX-1713): the MCP
+  // reads of this release need ClickHouse.
+  clickhouse = await startClickHouse()
+  const clickhouseAdmin = await clickhouse.freshDatabase()
+  await migrateKnowledgeStore(clickhouseAdmin, {
+    reader: "reader-test",
+    writer: "writer-test",
+  })
+  clickhouseWriterUrl = userUrl(
+    clickhouseAdmin,
+    "ctxpipe_writer",
+    "writer-test",
+  )
+}, 240_000)
 
 afterAll(async () => {
   await admin?.query(`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`)
   await admin?.end()
+  await clickhouse?.stop()
 })
 
 it("upgrades a database of the previous release and its Workspace with no manual step, and the previous release still reads the result", async () => {
@@ -469,6 +491,7 @@ it("upgrades a database of the previous release and its Workspace with no manual
       },
       github: true,
       githubWriteView: "writable",
+      knowledgePlane: { clickhouseUrl: clickhouseWriterUrl },
       githubContentFiles: { "linear/config.yaml": LINEAR_CONFIG },
       // The context repository in the previous release's layout: no format file (format 0).
       files: [
@@ -659,15 +682,25 @@ it("upgrades a database of the previous release and its Workspace with no manual
           ]),
         )
 
-        // Below format 3 no ingestion runs. The old knowledge stack still
-        // serves the knowledge of the previous release from Postgres, so the
-        // search finds it and gives no notice. The knowledge plane does not
-        // serve it, and this ends with the old stack (ADR-053, revision
-        // 2026-11-26): the count above tells the operator what to do.
-        phase("search the knowledge of the previous release through MCP")
+        // Below format 3 no ingestion runs. MCP serves the knowledge plane,
+        // which projects the Git files of the Workspace. The knowledge of the
+        // previous release is not in the Workspace repository, so the search
+        // does not find it, and it gives the notice with the action: merge
+        // the format upgrade, then start the re-ingestion (CTX-1715).
+        phase("search the Workspace through MCP after the upgrade")
+        // The first hydrate queued the first projection of the Workspace.
+        await expect
+          .poll(
+            async () =>
+              (await readyKnowledgeHeads(ORG.id, [workspace.id])).has(
+                workspace.id,
+              ),
+            { timeout: 120_000 },
+          )
+          .toBe(true)
         const { getAuth } = await import("../auth/config.js")
         const { callTool, connectToolClient } =
-          await import("../test/related-fixture.js")
+          await import("../test/mcp-tool-client.js")
         const { searchKnowledgeTool } =
           await import("../mcp/tools/search-knowledge.js")
         const orgKey = await getAuth().api.createApiKey({
@@ -688,13 +721,21 @@ it("upgrades a database of the previous release and its Workspace with no manual
             workspaces: [workspace.slug],
             query: "release tools",
           })
+          // The plane serves the Workspace: the call skips no Workspace.
           expect(found.isError).not.toBe(true)
-          expect(found.structuredContent?.hits).toEqual(
+          expect(found.structuredContent?.skipped).toEqual([])
+          expect(found.structuredContent?.hits).not.toEqual(
             expect.arrayContaining([
               expect.objectContaining({ title: "Tools CLI" }),
             ]),
           )
-          expect(found.structuredContent?.notices).toBeUndefined()
+          expect(found.structuredContent?.notices).toEqual([
+            expect.objectContaining({
+              workspace: workspace.slug,
+              files: 3,
+              message: expect.stringContaining("re-ingestion"),
+            }),
+          ])
         } finally {
           await mcp.close()
         }
@@ -851,8 +892,19 @@ it("upgrades a database of the previous release and its Workspace with no manual
   )
 
   phase("read with the previous release after the upgrade")
-  // 4. Rollback: the code of the previous release reads the upgraded database as it read
-  // the database of the previous release.
+  // The contract step of the major: the knowledge chunk tables of the old stack are gone.
+  expect(
+    await owner(
+      async (db) =>
+        (
+          await db.query(
+            `SELECT to_regclass('workspace_knowledge_chunks') AS chunks, to_regclass('workspace_knowledge_chunk_search') AS search`,
+          )
+        ).rows,
+    ),
+  ).toEqual([{ chunks: null, search: null }])
+  // 4. Rollback: the code of the previous release reads the tables that the major keeps as it
+  // read the database of the previous release.
   expect(await readWithRelease()).toEqual(releaseRead)
 
   // 5. In the rollback window the previous release adds one connection and deletes one. The

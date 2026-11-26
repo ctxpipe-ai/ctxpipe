@@ -6,7 +6,6 @@
   },
   "context": {
     "stackName": "CtxpipeSelfHostE2E",
-    "orgSlug": "testing-4mh",
     "domainName": "app.aws.ctxpipe.ai",
     "hostedZoneId": "Z04070671OM1ZF7XNWJ7X",
     "size": "small",

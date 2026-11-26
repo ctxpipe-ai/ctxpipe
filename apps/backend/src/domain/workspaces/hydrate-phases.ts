@@ -6,11 +6,8 @@ export type HydratePhaseRecord = {
   sha: string
   /** Committed files that this projection skipped. Each hydrate commit replaces the list. */
   skipped?: HydrateSkip[]
-  embeddings: boolean
-  embeddingError?: string
   revision?: WorkspaceRevision
   publishedIndex?: WorkspaceRevision | null
-  graph?: DerivedPhaseRecord
   index?: DerivedPhaseRecord
 }
 
@@ -74,7 +71,6 @@ export function initialHydratePhases(input: {
   return {
     url: input.url,
     sha: input.sha,
-    embeddings: false,
     ...(input.revision ? { revision: input.revision } : {}),
   }
 }

@@ -2,35 +2,27 @@ import { randomBytes } from "node:crypto"
 import { mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 
-import { asc, eq, sql } from "drizzle-orm"
+import { asc, eq } from "drizzle-orm"
 import { initLogger } from "evlog"
-import { FalkorDB } from "falkordb"
-import { expect, it, vi } from "vitest"
+import { expect, it } from "vitest"
 
 import { madeUpPrivateKey } from "../../../test/made-up-key.js"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import {
-  workspaceKnowledgeChunks,
   workspaceKnowledgeUnits,
   workspaces,
 } from "../../db/schema/workspaces.js"
 import {
   commitHydrateProjection,
-  embedKnowledgeChunks,
   getWorkspaceProjection,
   persistWorkspaceIndexResult,
 } from "../../models/workspaces.js"
 import { workspaceHydrate } from "../../openworkflow/workflows/workspace-hydrate.js"
-import { closeGraphDb } from "../../platform/graph/client.js"
 import {
   type NativeHydrationFixture,
   withNativeHydrationFixture,
 } from "../../test/native-hydration-fixture.js"
-import {
-  withCompleteWorkspaceGraph,
-  workspaceGraphKey,
-} from "./graph-projection.js"
 import { hydrateKnowledgeTree } from "./hydrate.js"
 import type { WorkspaceRevision } from "./revision.js"
 import { workspaceFormatFile } from "./workspace-format.js"
@@ -87,22 +79,10 @@ async function hydrate(
   return (await handle.result({ timeoutMs: 60_000 })) as HydrateResult
 }
 
-/** Count the texts that go to the embedding model. */
-function countEmbeddings(f: NativeHydrationFixture) {
-  const texts: string[] = []
-  f.server.events.on("request:start", async ({ request }) => {
-    if (!request.url.endsWith("/v1/embeddings")) return
-    const body = (await request.clone().json()) as { input: string[] }
-    texts.push(...body.input)
-  })
-  return texts
-}
-
 /**
  * Everything that a hydrate writes for the active projection: the unit
- * rows, the chunk rows with their embeddings, and the graph with its marker.
- * `created_at` and the SHA of each row are not part of it (a partial write
- * keeps both on an unchanged row).
+ * rows. `created_at` and the SHA of each row are not part of it (a partial
+ * write keeps both on an unchanged row).
  */
 async function projected(f: NativeHydrationFixture) {
   const revision = await withOrgIdContext(f.org, async () => {
@@ -110,8 +90,8 @@ async function projected(f: NativeHydrationFixture) {
     if (projection.kind !== "active") throw new Error("Expected a projection")
     return projection.revision
   })
-  const { units, chunks } = await withOrgDbContext(f.org.id, async (db) => ({
-    units: await db
+  const units = await withOrgDbContext(f.org.id, (db) =>
+    db
       .select({
         servingId: workspaceKnowledgeUnits.servingId,
         path: workspaceKnowledgeUnits.path,
@@ -127,61 +107,8 @@ async function projected(f: NativeHydrationFixture) {
       .from(workspaceKnowledgeUnits)
       .where(eq(workspaceKnowledgeUnits.workspaceId, f.workspaceId))
       .orderBy(asc(workspaceKnowledgeUnits.path)),
-    chunks: await db
-      .select({
-        unitId: workspaceKnowledgeChunks.unitId,
-        chunkHash: workspaceKnowledgeChunks.chunkHash,
-        occurrence: workspaceKnowledgeChunks.occurrence,
-        ordinal: workspaceKnowledgeChunks.ordinal,
-        startLine: workspaceKnowledgeChunks.startLine,
-        endLine: workspaceKnowledgeChunks.endLine,
-        text: workspaceKnowledgeChunks.text,
-        embedding: sql<
-          string | null
-        >`${workspaceKnowledgeChunks.embedding}::text`,
-      })
-      .from(workspaceKnowledgeChunks)
-      .where(eq(workspaceKnowledgeChunks.workspaceId, f.workspaceId))
-      .orderBy(
-        asc(workspaceKnowledgeChunks.unitId),
-        asc(workspaceKnowledgeChunks.ordinal),
-      ),
-  }))
-  return { revision, units, chunks, graph: await graphOf(f, revision) }
-}
-
-async function graphOf(f: NativeHydrationFixture, revision: WorkspaceRevision) {
-  const falkor = await FalkorDB.connect({ url: process.env.GRAPH_DB_URI })
-  try {
-    const graph = falkor.selectGraph(f.org.id)
-    const params = { key: workspaceGraphKey(revision) }
-    const [nodes, edges, marker] = await Promise.all([
-      graph.query(
-        `MATCH (n:WorkspaceKnowledgeUnit {projectionKey: $key})
-        RETURN n.id AS id, n.workspaceId AS workspaceId, n.kind AS kind, n.name AS name, n.summary AS summary, n.path AS path,
-          n.outDegree AS outDegree, n.inDegree AS inDegree, n.degree AS degree ORDER BY n.id`,
-        { params },
-      ),
-      graph.query(
-        `MATCH (s:WorkspaceKnowledgeUnit {projectionKey: $key})-[r:WorkspaceSignal {projectionKey: $key}]->(t:WorkspaceKnowledgeUnit {projectionKey: $key})
-        RETURN r.id AS id, s.id AS subject, t.id AS object, r.predicate AS predicate, r.confidence AS confidence,
-          r.validFrom AS validFrom, r.validTo AS validTo, r.source AS source, r.lastObservedAt AS lastObservedAt ORDER BY r.id`,
-        { params },
-      ),
-      graph.query(
-        `MATCH (p:WorkspaceProjection {projectionKey: $key})
-        RETURN p.revision AS revision, p.nodeCount AS nodeCount, p.claimCount AS claimCount, p.completedAt IS NOT NULL AS complete`,
-        { params },
-      ),
-    ])
-    return {
-      nodes: nodes.data ?? [],
-      edges: edges.data ?? [],
-      marker: marker.data ?? [],
-    }
-  } finally {
-    await falkor.close()
-  }
+  )
+  return { revision, units }
 }
 
 /** Set the index of the active projection ready, as `f.publish` does. */
@@ -203,32 +130,20 @@ async function settleIndex(f: NativeHydrationFixture) {
 async function expectPartialEqualsFull(
   f: NativeHydrationFixture,
   partial: HydrateResult,
-  graphMode: "partial" | "full" = "partial",
 ) {
   expect(partial).toMatchObject({
     hydrated: true,
-    writes: { mode: "partial", graphMode },
+    writes: { mode: "partial" },
   })
   const afterPartial = await projected(f)
   const full = await hydrate(f, { reproject: true })
   expect(full).toMatchObject({
     hydrated: true,
-    writes: { mode: "full", fullReason: "reproject", graphMode: "full" },
+    writes: { mode: "full", fullReason: "reproject" },
   })
   const afterFull = await projected(f)
   expect(afterPartial.revision.sha).toBe(f.git("rev-parse", "HEAD"))
   expect(afterPartial).toEqual(afterFull)
-  expect(afterPartial.graph.marker).toMatchObject([
-    {
-      nodeCount: afterPartial.graph.nodes.length,
-      claimCount: afterPartial.graph.edges.length,
-      complete: true,
-    },
-  ])
-  // Each chunk keeps or copies an embedding.
-  expect(afterPartial.chunks.every((chunk) => chunk.embedding !== null)).toBe(
-    true,
-  )
   return afterPartial
 }
 
@@ -279,20 +194,15 @@ it.each(changes)(
           fullReason: "no_base",
           filesParsed: 24,
           unitRowsWritten: 24,
-          graphMode: "full",
         },
       })
-      const embedded = countEmbeddings(f)
       await commit(f, change)
       await f.resolveRevision(true)
       const partial = await hydrate(f)
       expect(partial.writes).toMatchObject({
         unitRowsWritten: written,
         unitRowsDeleted: change.remove?.length ?? 0,
-        embeddingTexts: embedded.length,
       })
-      // Only the texts of the changed file go to the model.
-      expect(embedded.length).toBeLessThanOrEqual(written * 2)
       await expectPartialEqualsFull(f, partial)
     }),
 )
@@ -392,7 +302,6 @@ it(
         mode: "partial",
         filesParsed: 24,
         unitRowsWritten: 1,
-        graphMode: "partial",
       },
       { reason: "noop" },
     ])
@@ -410,79 +319,11 @@ it(
       await f.resolveRevision(true)
       expect(await hydrate(f)).toMatchObject({ hydrated: true })
       await settleIndex(f)
-      const embedded = countEmbeddings(f)
       expect(await hydrate(f, { revision: older })).toEqual({
         hydrated: false,
         reason: "noop",
       })
       expect(await hydrate(f)).toEqual({ hydrated: false, reason: "noop" })
-      expect(embedded).toEqual([])
-    }),
-)
-
-it(
-  "a failed graph write leaves the graph base unchanged, and the next run gives the projection of a full hydrate",
-  { timeout: 180_000 },
-  async () =>
-    withNativeHydrationFixture({ files }, async (f) => {
-      await f.publish()
-      const base = (await projected(f)).graph.marker
-      await commit(f, { write: { "doc-02.md": "# Doc 2\nChanged.\n" } })
-      await f.resolveRevision(true)
-      // The graph store refuses each connection during this run.
-      vi.stubEnv("GRAPH_DB_URI", "redis://127.0.0.1:1")
-      await closeGraphDb()
-      let failed: HydrateResult
-      try {
-        failed = await hydrate(f)
-      } finally {
-        vi.unstubAllEnvs()
-        await closeGraphDb()
-      }
-      expect(failed).toMatchObject({
-        hydrated: true,
-        writes: { mode: "partial", graphMode: "none" },
-      })
-      const after = await projected(f)
-      // Postgres has the new tip. The graph still holds the old base.
-      expect(after.revision.sha).toBe(f.git("rev-parse", "HEAD"))
-      expect(after.graph.marker).toEqual(base)
-      await commit(f, { write: { "doc-03.md": "# Doc 3\nChanged too.\n" } })
-      await f.resolveRevision(true)
-      const next = await hydrate(f)
-      // The graph base is not the last Postgres SHA, so the graph is
-      // written in full.
-      expect(next.writes).toMatchObject({
-        graphFullReason: "graph_base_mismatch",
-      })
-      await expectPartialEqualsFull(f, next, "full")
-    }),
-)
-
-it(
-  "a graph that does not hold the base revision is written in full",
-  { timeout: 180_000 },
-  async () =>
-    withNativeHydrationFixture({ files }, async (f) => {
-      await f.publish()
-      const falkor = await FalkorDB.connect({ url: process.env.GRAPH_DB_URI })
-      try {
-        await falkor
-          .selectGraph(f.org.id)
-          .query(
-            "MATCH (p:WorkspaceProjection {projectionKey: $key}) SET p.revision = 'another'",
-            { params: { key: workspaceGraphKey(f.revision) } },
-          )
-      } finally {
-        await falkor.close()
-      }
-      await commit(f, { write: { "doc-02.md": "# Doc 2\nChanged.\n" } })
-      await f.resolveRevision(true)
-      const partial = await hydrate(f)
-      expect(partial.writes).toMatchObject({
-        graphFullReason: "graph_base_mismatch",
-      })
-      await expectPartialEqualsFull(f, partial, "full")
     }),
 )
 
@@ -503,18 +344,6 @@ it.each([
     prepare: async (f: NativeHydrationFixture) => {
       const format = workspaceFormatFile(2)
       await commit(f, { write: { [format.path]: format.content } })
-      await f.resolveRevision(true)
-    },
-  },
-  {
-    reason: "chunks_missing",
-    prepare: async (f: NativeHydrationFixture) => {
-      await withOrgDbContext(f.org.id, (db) =>
-        db
-          .delete(workspaceKnowledgeChunks)
-          .where(eq(workspaceKnowledgeChunks.workspaceId, f.workspaceId)),
-      )
-      await commit(f, { write: { "doc-02.md": "# Doc 2\nChanged.\n" } })
       await f.resolveRevision(true)
     },
   },
@@ -541,7 +370,7 @@ it.each([
       await prepare(f)
       expect(await hydrate(f)).toMatchObject({
         hydrated: true,
-        writes: { mode: "full", fullReason: reason, graphMode: "full" },
+        writes: { mode: "full", fullReason: reason },
       })
     }),
 )
@@ -555,7 +384,6 @@ async function commitBase(f: NativeHydrationFixture) {
   const commitWith = (
     list: typeof units,
     base?: { revision: WorkspaceRevision },
-    embeddingModel = "fixture-embedding",
   ) =>
     commitHydrateProjection({
       orgId: f.org.id,
@@ -565,7 +393,6 @@ async function commitBase(f: NativeHydrationFixture) {
       legacyKnowledgeFiles: 0,
       units: list,
       skipped: [],
-      embeddingModel,
       ...(base ? { base } : {}),
     })
   expect(await commitWith(units)).toMatchObject({
@@ -601,23 +428,12 @@ it(
 )
 
 it(
-  "a partial commit sends only the chunks of the changed unit to the embed callback",
+  "a partial commit writes only the changed unit",
   { timeout: 120_000 },
   async () =>
     withNativeHydrationFixture({ files }, async (f) => {
       await withOrgIdContext(f.org, async () => {
         const { units, commitWith } = await commitBase(f)
-        const calls: string[][] = []
-        const embed = async (texts: string[]) => {
-          calls.push(texts)
-          return texts.map(() => Array(2000).fill(0.02))
-        }
-        const all = await embedKnowledgeChunks({
-          workspaceId: f.workspaceId,
-          embed,
-        })
-        expect(all).toBeGreaterThan(24)
-        calls.length = 0
         const [first, ...rest] = units
         if (!first) throw new Error("Expected units")
         expect(
@@ -628,135 +444,21 @@ it(
             ],
             { revision: f.revision },
           ),
-        ).toMatchObject({
+        ).toEqual({ mode: "partial", unitRowsWritten: 1, unitRowsDeleted: 0 })
+        expect(await commitWith(rest, { revision: f.revision })).toEqual({
           mode: "partial",
-          unitRowsWritten: 1,
-          changedUnitIds: [first.servingId],
-          removedUnitIds: [],
+          unitRowsWritten: 0,
+          unitRowsDeleted: 1,
         })
-        const sent = await embedKnowledgeChunks({
-          workspaceId: f.workspaceId,
-          embed,
-        })
-        expect(calls).toEqual([[expect.stringContaining("A new section")]])
-        expect(sent).toBe(1)
       })
     }),
 )
 
 it(
-  "a commit after a change of the embedding model writes all units and embeds all chunks again, as a full write does",
-  { timeout: 120_000 },
-  async () =>
-    withNativeHydrationFixture({ files }, async (f) => {
-      await withOrgIdContext(f.org, async () => {
-        const { units, commitWith } = await commitBase(f)
-        const embed = async (texts: string[]) =>
-          texts.map(() => Array(2000).fill(0.02))
-        const all = await embedKnowledgeChunks({
-          workspaceId: f.workspaceId,
-          embed,
-        })
-        // The model changes; the units do not.
-        expect(
-          await commitWith(units, { revision: f.revision }, "next-embedding"),
-        ).toMatchObject({ mode: "full", fullReason: "unit_bound" })
-        const afterModelChange = await chunkKeys(f)
-        expect(
-          await embedKnowledgeChunks({ workspaceId: f.workspaceId, embed }),
-        ).toBe(all)
-        await commitWith(units, undefined, "next-embedding")
-        expect(await chunkKeys(f)).toEqual(afterModelChange)
-      })
-    }),
-)
-
-async function chunkKeys(f: NativeHydrationFixture) {
-  return withOrgDbContext(f.org.id, (db) =>
-    db
-      .select({
-        unitId: workspaceKnowledgeChunks.unitId,
-        chunkHash: workspaceKnowledgeChunks.chunkHash,
-      })
-      .from(workspaceKnowledgeChunks)
-      .where(eq(workspaceKnowledgeChunks.workspaceId, f.workspaceId))
-      .orderBy(
-        asc(workspaceKnowledgeChunks.unitId),
-        asc(workspaceKnowledgeChunks.ordinal),
-      ),
-  )
-}
-
-it(
-  "a graph read that a delta overlaps reads again, and gives nodes and edges of one revision",
-  { timeout: 180_000 },
-  async () =>
-    withNativeHydrationFixture({ files }, async (f) => {
-      await f.publish()
-      const projection = await withOrgIdContext(f.org, () =>
-        getWorkspaceProjection(f.workspaceId),
-      )
-      if (projection.kind !== "active") throw new Error("Expected a projection")
-      // The change removes the edge doc-03 -> doc-05 and adds doc-05 -> doc-07.
-      await commit(f, {
-        write: {
-          "doc-03.md": "# Doc 3\nNo links.\n",
-          "doc-05.md":
-            "---\nclaims:\n  - to: doc-07.md\n    predicate: SUPERSEDES\n---\n# Doc 5\nNew text.\n",
-        },
-      })
-      await f.resolveRevision(true)
-      let runs = 0
-      const read = await withCompleteWorkspaceGraph(
-        { orgId: f.org.id, orgSlug: f.org.slug, projection },
-        async ({ client, projectionKey }) => {
-          runs += 1
-          const nodes = await client.executeQuery(
-            "MATCH (n:WorkspaceKnowledgeUnit {projectionKey: $projectionKey}) RETURN n.id AS id, n.summary AS summary ORDER BY n.id",
-            { projectionKey },
-          )
-          // The delta of the next revision runs between the two reads.
-          if (runs === 1)
-            expect(await hydrate(f)).toMatchObject({
-              writes: { mode: "partial", graphMode: "partial" },
-            })
-          const edges = await client.executeQuery(
-            "MATCH (s:WorkspaceKnowledgeUnit {projectionKey: $projectionKey})-[r:WorkspaceSignal {projectionKey: $projectionKey}]->(t) RETURN r.id AS id, s.id AS subject, t.id AS object ORDER BY r.id",
-            { projectionKey },
-          )
-          const rows = (result: typeof nodes, keys: string[]) =>
-            result.records.map((row) =>
-              Object.fromEntries(keys.map((key) => [key, row.get(key)])),
-            )
-          return {
-            nodes: rows(nodes, ["id", "summary"]),
-            edges: rows(edges, ["id", "subject", "object"]),
-          }
-        },
-      )
-      expect(runs).toBe(2)
-      const graph = (await projected(f)).graph
-      expect(read.nodes).toEqual(
-        graph.nodes.map((node) => ({
-          id: (node as { id: string }).id,
-          summary: (node as { summary: string | null }).summary,
-        })),
-      )
-      expect(read.edges).toEqual(
-        graph.edges.map((edge) => {
-          const { id, subject, object } = edge as Record<string, unknown>
-          return { id, subject, object }
-        }),
-      )
-    }),
-)
-
-it(
-  "the hydrate scrubs each unit before the chunker cuts it: a private key across a chunk boundary is in no stored unit, chunk or graph node",
+  "the hydrate scrubs each unit: a private key is in no stored unit, and a partial hydrate writes a token as a full hydrate does",
   { timeout: 180_000 },
   async () => {
-    // A made-up 4096-bit key (about 3.2 KB) in one section, longer than a
-    // chunk, so the chunker would cut the key without the scrub.
+    // A made-up 4096-bit key (about 3.2 KB) in one section.
     const key = madeUpPrivateKey(4096)
     const secretFiles = [
       {
@@ -769,24 +471,19 @@ it(
       await f.publish()
       expect(await f.handle.result()).toMatchObject({ hydrated: true })
       const stored = await withOrgDbContext(f.org.id, async (db) =>
-        JSON.stringify([
+        JSON.stringify(
           await db
             .select({ body: workspaceKnowledgeUnits.body })
             .from(workspaceKnowledgeUnits)
             .where(eq(workspaceKnowledgeUnits.workspaceId, f.workspaceId)),
-          await db
-            .select({ text: workspaceKnowledgeChunks.text })
-            .from(workspaceKnowledgeChunks)
-            .where(eq(workspaceKnowledgeChunks.workspaceId, f.workspaceId)),
-        ]),
+        ),
       )
       expect(key.length).toBeGreaterThan(2048)
       for (const line of key.split("\n").slice(1, -1))
         expect(stored).not.toContain(line)
       expect(stored).toContain("[REDACTED:betterleaks.private-key]")
-      // A partial hydrate writes the graph from the same scrubbed units as
-      // Postgres: a token on the first line, which goes into the summary of
-      // the graph node, gives the projection of a full hydrate.
+      // A token in a new file: a partial hydrate scrubs it as a full
+      // hydrate does.
       const token = `ghp_${randomBytes(36)
         .toString("base64")
         .replace(/[^A-Za-z0-9]/g, "a")

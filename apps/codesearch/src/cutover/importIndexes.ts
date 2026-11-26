@@ -1,7 +1,5 @@
-import { createWriteStream } from "node:fs"
-import { mkdir, readdir, rename, rm, stat } from "node:fs/promises"
-import { dirname, join } from "node:path"
-import { finished } from "node:stream/promises"
+import { mkdir, readdir, rm } from "node:fs/promises"
+import { join } from "node:path"
 import { parseArgs } from "node:util"
 
 import { REPO_CACHE_DIR, ZOEKT_INDEX_DIR } from "../config/paths.js"
@@ -20,20 +18,17 @@ import {
 
 /*
  * import-indexes (CTX-1217): on the AWS stateful host, as a one-off task of
- * the codesearch image with the codesearch volume and the FalkorDB data
- * volume mounted, while FalkorDB and codesearch are stopped. It checks the
- * sha256 of each object and the file and shard counts of the manifest.
+ * the codesearch image with the codesearch volume mounted, while codesearch
+ * is stopped. It checks the sha256 of each object and the file and shard
+ * counts of the manifest.
  *
- *   bun run cutover:import-indexes --from s3://<bucket>/<prefix>/<run-id> \
- *     --falkordb-data-file /var/lib/falkordb/data/dump.rdb
+ *   bun run cutover:import-indexes --from s3://<bucket>/<prefix>/<run-id>
  */
 
 type Options = {
   from: string
   zoektIndexDir: string
   repoCacheDir: string
-  /** Where FalkorDB reads its RDB at start. */
-  falkordbDataFile: string
   /** Deletes the contents of a target that is not empty. */
   force: boolean
 }
@@ -48,10 +43,8 @@ export async function importIndexes(options: Options) {
   // Check each target before the first download.
   await emptyTarget(options.zoektIndexDir, options.force)
   await emptyTarget(options.repoCacheDir, options.force)
-  await freeDataFile(options.falkordbDataFile, options.force)
   const start = Date.now()
-  const [falkordbMs, zoektIndex, repoCache] = await Promise.all([
-    writeDataFile(transfer, manifest.falkordb.rdb, options.falkordbDataFile),
+  const [zoektIndex, repoCache] = await Promise.all([
     extract(transfer, manifest.zoektIndex, options.zoektIndexDir),
     extract(transfer, manifest.repoCache, options.repoCacheDir),
   ])
@@ -73,7 +66,6 @@ export async function importIndexes(options: Options) {
     problems,
     export: manifestSummary(manifest),
     import: {
-      falkordbMs,
       zoektIndexMs: zoektIndex.ms,
       repoCacheMs: repoCache.ms,
       ms: Date.now() - start,
@@ -92,46 +84,6 @@ async function emptyTarget(dir: string, force: boolean): Promise<void> {
     )
   for (const name of names)
     await rm(join(dir, name), { recursive: true, force: true })
-}
-
-/** Refuses an RDB that is there already, unless `force`. */
-async function freeDataFile(path: string, force: boolean): Promise<void> {
-  const size = await stat(path).then(
-    (info) => info.size,
-    () => 0,
-  )
-  if (size > 0 && !force)
-    throw new Error(
-      `${path} is there already. Delete it, or give --force to replace it.`,
-    )
-  await mkdir(dirname(path), { recursive: true })
-}
-
-/** Writes the RDB beside the data file, checks it, then renames it over the data file. */
-async function writeDataFile(
-  transfer: Transfer,
-  rdb: TransferObject,
-  path: string,
-): Promise<number> {
-  const start = Date.now()
-  const temporary = `${path}.import`
-  const file = createWriteStream(temporary)
-  // `closed` also takes a write error, so that the error is not unhandled.
-  const closed = finished(file)
-  closed.catch(() => undefined)
-  try {
-    await downloadChecked(transfer, rdb, file, closed)
-    file.end()
-    await closed
-    await rename(temporary, path)
-  } catch (error) {
-    file.end()
-    await closed.catch(() => undefined)
-    await rm(temporary, { force: true })
-    throw error
-  }
-  log.info({ step: "codesearch.cutover.import.falkordb", bytes: rdb.size })
-  return Date.now() - start
 }
 
 /** Extracts an archive into `dir`, and counts its files and shards. */
@@ -166,21 +118,18 @@ if (import.meta.main) {
   const { values } = parseArgs({
     options: {
       from: { type: "string" },
-      "falkordb-data-file": { type: "string" },
       "zoekt-index-dir": { type: "string", default: ZOEKT_INDEX_DIR },
       "repo-cache-dir": { type: "string", default: REPO_CACHE_DIR },
       force: { type: "boolean", default: false },
     },
   })
   runCli(async () => {
-    const dataFile = values["falkordb-data-file"]
-    if (!values.from || !dataFile)
+    if (!values.from)
       throw new Error(
-        "Usage: import-indexes --from s3://bucket/prefix/run-id --falkordb-data-file … [--zoekt-index-dir …] [--repo-cache-dir …] [--force]",
+        "Usage: import-indexes --from s3://bucket/prefix/run-id [--zoekt-index-dir …] [--repo-cache-dir …] [--force]",
       )
     return importIndexes({
       from: values.from,
-      falkordbDataFile: dataFile,
       zoektIndexDir: values["zoekt-index-dir"],
       repoCacheDir: values["repo-cache-dir"],
       force: values.force,

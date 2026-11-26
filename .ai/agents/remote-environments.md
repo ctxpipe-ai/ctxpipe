@@ -19,7 +19,6 @@ Create `apps/backend/.env.local` with these values:
 
 ```bash
 DATABASE_URL=postgresql://ctxpipe_app:ctxpipe@localhost:5433/ctxpipe
-GRAPH_DB_URI=redis://localhost:6379
 AUTH_SECRET=<a random string of 32 or more characters>
 AUTH_BASE_URL=http://localhost:3000
 UI_PROXY_URL=http://localhost:3002
@@ -54,17 +53,17 @@ Notes:
 Cursor is not in use now. Use this section only when Cursor Cloud runs again. Follow the shared runbook above for the dev servers.
 
 - [`.cursor/environment.json`](../../.cursor/environment.json) sets the environment. It builds from [`.cursor/Dockerfile`](../../.cursor/Dockerfile) (Docker CE, Node.js, pnpm, Bun) and runs `pnpm install` after boot.
-- [`.cursor/start.sh`](../../.cursor/start.sh) starts Docker and waits for `docker info`. It also writes `apps/backend/.env.local` from the Cursor secrets `AUTH_SECRET`, `DATABASE_URL`, and `GRAPH_DB_URI` when the file is missing. It uses the values in the shared runbook.
-- Set the secrets in the Cursor dashboard under Cloud Agents. `AUTH_SECRET` (32 or more characters) is required. `DATABASE_URL` and `GRAPH_DB_URI` are optional.
+- [`.cursor/start.sh`](../../.cursor/start.sh) starts Docker and waits for `docker info`. It also writes `apps/backend/.env.local` from the Cursor secrets `AUTH_SECRET` and `DATABASE_URL` when the file is missing. It uses the values in the shared runbook.
+- Set the secrets in the Cursor dashboard under Cloud Agents. `AUTH_SECRET` (32 or more characters) is required. `DATABASE_URL` is optional.
 - A personal dashboard environment can override the committed `environment.json`. If agents boot without Docker or Bun, remove the override or save a personal install that includes them.
 - Cursor applies `environment.json` only when it builds the image. If `docker` is missing on the VM, rebuild at [cursor.com/onboard](https://cursor.com/onboard).
 - CI and Changeset Guard run on `pull_request`. CI also runs on `push` to `main`.
 
 ## Claude Code on the web
 
-[`.claude/hooks/session-start.sh`](../../.claude/hooks/session-start.sh) runs on every cloud session (no-op locally): starts `dockerd` with the `mirror.gcr.io` Docker Hub mirror, brings up Compose **`infra`**, runs `pnpm install`, stamps the `@ctxpipe/aws-cdk` image tag, installs Zoekt with `go install`, writes `apps/backend/.env.local`, migrates, and exports `DATABASE_URL` / `AUTH_SECRET` / `GRAPH_DB_URI` to the shell. Agents read the component docs with `storybook tools` and need no running Storybook.
+[`.claude/hooks/session-start.sh`](../../.claude/hooks/session-start.sh) runs on every cloud session (no-op locally): starts `dockerd` with the `mirror.gcr.io` Docker Hub mirror, brings up Compose **`infra`**, runs `pnpm install`, stamps the `@ctxpipe/aws-cdk` image tag, installs Zoekt with `go install`, writes `apps/backend/.env.local`, migrates, and exports `DATABASE_URL` / `AUTH_SECRET` to the shell. Agents read the component docs with `storybook tools` and need no running Storybook.
 
 - **Tests:** when `factory` is installed, run `factory check`. When it is not installed, run them as in CI; no extra env needed (`pnpm --filter @ctxpipe/backend test`, `@ctxpipe/ui`, `ctxpipe`, `@ctxpipe/aws-cdk`). For codesearch use `pnpm --filter @ctxpipe/codesearch test:vitest`; `test` builds the Docker image, which cannot build here.
 - **App:** `bash scripts/dev-headless.sh` runs codesearch (host, [`scripts/codesearch-host-dev.sh`](../../scripts/codesearch-host-dev.sh)), backend, worker, and UI; browse `http://localhost:3000`. The backend will not boot without `MODEL_PROVIDER_API_KEY`.
-- **Sandbox quirks:** no IPv6, so the hook writes a gitignored `docker-compose.override.yml` that turns off FalkorDB's Bolt listener, which the backend never uses. Container egress is TLS-intercepted, so Docker image builds that download over HTTPS fail. Hosts the environment's network policy blocks fail with `403` on CONNECT; `curl -sS "$HTTPS_PROXY/__agentproxy/status"` lists them.
+- **Sandbox quirks:** Container egress is TLS-intercepted, so Docker image builds that download over HTTPS fail. Hosts the environment's network policy blocks fail with `403` on CONNECT; `curl -sS "$HTTPS_PROXY/__agentproxy/status"` lists them.
 - **MCP:** [`.mcp.json`](../../.mcp.json) reads API keys from environment variables, so it works with no browser. [`mcp-servers.md`](mcp-servers.md) lists the variables. A claude.ai HyperDX connector, if connected, exposes the same tools as `mcp__HyperDX__*`; the repo server works for every account.

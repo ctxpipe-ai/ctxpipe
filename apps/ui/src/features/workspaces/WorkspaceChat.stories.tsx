@@ -1,4 +1,3 @@
-import { useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { HttpResponse, http } from "msw"
 import { StrictMode, useState } from "react"
@@ -58,82 +57,6 @@ const meta = preview.meta({
 export const ComposeEmpty = meta.story({
   beforeEach: ({ msw }) => {
     msw.use(...workspaceShellHandlers())
-  },
-})
-
-/**
- * Chat panel of a Workspace in an org with the knowledge_plane flag off: the
- * composer of a new conversation has no base branch picker, so the
- * conversation starts from the default branch. The send button keeps its
- * place at the bottom right.
- */
-export const ComposeWithoutBaseBranchPicker = meta.story({
-  beforeEach: ({ msw }) => {
-    msw.use(...workspaceShellHandlers({ knowledgePlane: "off" }))
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await canvas.findByRole("button", { name: "Find unused files" })
-    expect(canvas.queryByRole("button", { name: /main/ })).toBeNull()
-  },
-})
-
-const stalePickPrepares: { conversationId: string; baseBranch?: string }[] = []
-
-/**
- * The member picked a base branch in this composer, and then the
- * knowledge_plane flag of the org went off. The kept pick does not reach the
- * server: the composer starts a new conversation, which the server prepares
- * on the default branch.
- */
-export const ComposeIgnoresPickWhenFlagIsOff = meta.story({
-  render: function Render(args) {
-    const queryClient = useQueryClient()
-    // The compose target that an earlier visit with the picker left.
-    useState(() =>
-      queryClient.setQueryData(
-        ["workspace-compose-conversation", args.orgSlug, args.workspace.id],
-        { conversationId: "conv_kept_pick", baseBranch: "release/2026-11" },
-      ),
-    )
-    return <WorkspaceChat {...args} />
-  },
-  parameters: {
-    visual: {
-      skip: "Behavior test: it ends in the same state as ComposeWithoutBaseBranchPicker.",
-    },
-  },
-  beforeEach: ({ msw }) => {
-    stalePickPrepares.length = 0
-    msw.use(
-      http.post(
-        ({ request }) =>
-          /\/api\/v1\/conversations\/[^/]+\/prepare$/.test(
-            new URL(request.url).pathname,
-          ),
-        async ({ request }) => {
-          const body = (await request.json()) as { baseBranch?: string }
-          stalePickPrepares.push({
-            conversationId:
-              new URL(request.url).pathname.split("/").at(-2) ?? "",
-            baseBranch: body.baseBranch,
-          })
-          return new HttpResponse(null, { status: 204 })
-        },
-      ),
-      ...workspaceShellHandlers({ knowledgePlane: "off" }),
-    )
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await canvas.findByRole("button", { name: "Find unused files" })
-    await waitFor(() => expect(stalePickPrepares.length).toBeGreaterThan(0))
-    // No prepare goes to the conversation of the kept pick, or names its branch.
-    for (const prepare of stalePickPrepares) {
-      expect(prepare.conversationId).not.toBe("conv_kept_pick")
-      expect(prepare.baseBranch).toBeUndefined()
-    }
-    expect(canvas.queryByRole("button", { name: /release/ })).toBeNull()
   },
 })
 

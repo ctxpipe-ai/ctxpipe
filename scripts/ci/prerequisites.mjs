@@ -1,7 +1,6 @@
 import { execFileSync } from "node:child_process"
 import { readFileSync } from "node:fs"
 import { createRequire } from "node:module"
-import { graphReady } from "./graph-ready.mjs"
 
 try {
   const { engines } = JSON.parse(
@@ -102,12 +101,6 @@ try {
   } finally {
     await pool.end()
   }
-  if (!process.env.GRAPH_DB_URI)
-    throw new Error(
-      "GRAPH_DB_URI for the required native FalkorDB proof is required",
-    )
-  await graphReady(process.env.GRAPH_DB_URI)
-  process.stdout.write("Native FalkorDB graph prerequisite ready\n")
 } catch (error) {
   process.stderr.write(`${error.message}\n`)
   process.exitCode = 1

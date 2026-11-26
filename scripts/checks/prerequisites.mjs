@@ -1,12 +1,9 @@
 import { execFileSync, spawnSync } from "node:child_process"
 import { existsSync, readFileSync } from "node:fs"
 import { createRequire } from "node:module"
-import { connect } from "node:net"
 import { hostname } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
-
-import { graphReady } from "../ci/graph-ready.mjs"
 
 // The named prerequisites of checks (the `prerequisites` of a manifest
 // record). Each one makes a thing or verifies it, and throws an error with
@@ -74,40 +71,6 @@ const pgQuery = async (sql) => {
 const pins = JSON.parse(
   readFileSync(join(root, "scripts/ci/service-pins.json"), "utf8"),
 )
-// Asks FalkorDB for the version of its graph module through the Redis
-// protocol (MODULE LIST), so no client library is needed.
-export const falkordbModuleVersion = (uri) =>
-  new Promise((resolve, reject) => {
-    const url = new URL(uri)
-    const bulk = (value) => `$${Buffer.byteLength(value)}\r\n${value}\r\n`
-    const socket = connect({
-      host: url.hostname,
-      port: Number(url.port || 6379),
-    })
-    let reply = ""
-    const timer = setTimeout(
-      () => socket.destroy(new Error("no reply")),
-      10_000,
-    )
-    socket.setEncoding("utf8")
-    socket.on("connect", () => {
-      if (url.password)
-        socket.write(
-          `*2\r\n${bulk("AUTH")}${bulk(decodeURIComponent(url.password))}`,
-        )
-      socket.write(`*2\r\n${bulk("MODULE")}${bulk("LIST")}`)
-    })
-    socket.on("data", (chunk) => {
-      reply += chunk
-      const found = reply.match(/\$5\r\ngraph\r\n\$3\r\nver\r\n:(\d+)\r\n/)
-      if (!found) return
-      socket.destroy()
-      resolve(Number(found[1]))
-    })
-    socket.on("close", () => reject(new Error("no graph module in the reply")))
-    socket.on("error", reject)
-    socket.on("close", () => clearTimeout(timer))
-  })
 // Each entry: `needs` (other prerequisites, made first) and `prepare` (makes
 // or verifies). Keep this a small map; it is not a build system.
 export const prerequisites = {
@@ -211,20 +174,6 @@ export const prerequisites = {
       if (!row?.workspaces || !row.workflows)
         throw new Error(
           "The database at DATABASE_URL has no migrations. Run pnpm db:migrate.",
-        )
-    },
-  },
-  falkordb: {
-    prepare: async () => {
-      const uri = required(
-        "GRAPH_DB_URI",
-        "Start FalkorDB (pnpm dev:infra) and set GRAPH_DB_URI.",
-      )
-      await graphReady(uri)
-      const found = await falkordbModuleVersion(uri)
-      if (found !== pins.falkordb.moduleVersion)
-        throw new Error(
-          `FalkorDB module version must be ${pins.falkordb.moduleVersion}; found ${found}. Run: docker compose pull falkordb && pnpm dev:infra`,
         )
     },
   },
@@ -582,7 +531,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
           ? `failed ${name}: ${failed.get(name)}\n`
           : `ready ${name}\n`,
       )
-    // A socket (FalkorDB, Postgres) can keep the event loop alive, so exit
+    // A socket (Postgres) can keep the event loop alive, so exit
     // once stdout has the lines.
     process.stdout.write("", () => process.exit(failed.size ? 1 : 0))
   }

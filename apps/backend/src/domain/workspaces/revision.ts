@@ -60,8 +60,6 @@ export type DerivedStoreResult =
   | { kind: "failed"; message: string }
 
 export type StoreFreshness = {
-  embeddings: DerivedStoreResult
-  graph: DerivedStoreResult
   index: DerivedStoreResult & { published?: WorkspaceRevision | null }
 }
 

@@ -23,9 +23,8 @@ import { flushEvlog, initEvlog, log } from "../observability/logger.js"
 
 /*
  * The transfer prefix of the cutover index copy (CTX-1217): `export-indexes`
- * writes the FalkorDB RDB and the codesearch volume archives to
- * `s3://<bucket>/<prefix>/`, and `manifest.json` last. `import-indexes` and
- * `verify-graph` read them.
+ * writes the codesearch volume archives to `s3://<bucket>/<prefix>/`, and
+ * `manifest.json` last. `import-indexes` reads them.
  */
 
 export type Transfer = { client: S3Client; bucket: string; prefix: string }
@@ -57,19 +56,6 @@ const archiveSchema = objectSchema.extend({
 const manifestSchema = z.object({
   version: z.literal(1),
   createdAt: z.string(),
-  falkordb: z.object({
-    redisVersion: z.string(),
-    moduleVersion: z.number().int(),
-    graphs: z.array(
-      z.object({
-        name: z.string(),
-        nodes: z.number().int(),
-        edges: z.number().int(),
-      }),
-    ),
-    rdb: objectSchema,
-    ms: z.number(),
-  }),
   zoektIndex: archiveSchema.extend({
     /** The `.zoekt` shard files (no `.meta` sidecars). */
     shards: z.number().int().nonnegative(),
@@ -296,19 +282,11 @@ export function startTar(
 }
 
 /**
- * The counts and times of a manifest, without graph names: an operator can
- * paste it into the ticket.
+ * The counts and times of a manifest: an operator can paste it into the
+ * ticket.
  */
 export function manifestSummary(manifest: TransferManifest) {
-  const graph = manifest.falkordb
   return {
-    falkordb: {
-      redisVersion: graph.redisVersion,
-      moduleVersion: graph.moduleVersion,
-      ...graphTotals(graph.graphs),
-      bytes: graph.rdb.size,
-      ms: graph.ms,
-    },
     zoektIndex: {
       bytes: manifest.zoektIndex.size,
       files: manifest.zoektIndex.files,
@@ -320,15 +298,6 @@ export function manifestSummary(manifest: TransferManifest) {
       files: manifest.repoCache.files,
       ms: manifest.repoCache.ms,
     },
-  }
-}
-
-/** The number of graphs, and their total nodes and edges. */
-export function graphTotals(graphs: { nodes: number; edges: number }[]) {
-  return {
-    graphs: graphs.length,
-    nodes: graphs.reduce((sum, graph) => sum + graph.nodes, 0),
-    edges: graphs.reduce((sum, graph) => sum + graph.edges, 0),
   }
 }
 

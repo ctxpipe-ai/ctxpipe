@@ -1,13 +1,10 @@
-import { and, eq, sql } from "drizzle-orm"
 import { z } from "zod"
 
-import { withOrgDbContext } from "../../db/client.js"
-import { workspaceKnowledgeUnits } from "../../db/schema/workspaces.js"
 import {
   CodesearchCheckoutError,
   globCheckoutFiles,
 } from "../../domain/codeIngestion/codesearchClient.js"
-import { selectKnowledgeReader } from "../../knowledge-reader/knowledge-reader.js"
+import { servedKnowledgeHead } from "../../knowledge-reader/knowledge-reader.js"
 import {
   listPlaneUnitFiles,
   type UnitFile,
@@ -70,30 +67,6 @@ function folderNotFound(path: string): McpToolError {
 function sortEntries(entries: Entry[]): Entry[] {
   return entries.sort((a, b) =>
     a.path < b.path ? -1 : a.path > b.path ? 1 : 0,
-  )
-}
-
-/** The unit paths below `folder` in the projection, with the size of each body. */
-async function listUnitRows(
-  orgId: string,
-  workspaceId: string,
-  folder: string,
-): Promise<UnitFile[]> {
-  const prefix = folder ? `${folder}/` : ""
-  return withOrgDbContext(orgId, (db) =>
-    db
-      .select({
-        path: workspaceKnowledgeUnits.path,
-        size: sql<number>`octet_length(${workspaceKnowledgeUnits.body})`,
-      })
-      .from(workspaceKnowledgeUnits)
-      .where(
-        and(
-          eq(workspaceKnowledgeUnits.orgId, orgId),
-          eq(workspaceKnowledgeUnits.workspaceId, workspaceId),
-          sql`starts_with(${workspaceKnowledgeUnits.path}, ${prefix})`,
-        ),
-      ),
   )
 }
 
@@ -235,29 +208,20 @@ export const listFilesTool = defineMcpReadTool({
     // The main-era knowledge that the plane does not list (CTX-1715).
     let notices: KnowledgeNotice[] = []
     if (input.repository === undefined) {
-      const { planeHeads } = await selectKnowledgeReader(
-        org.id,
-        [workspace.id],
-        input.branch,
-      )
-      const planeHead = planeHeads.get(workspace.id)
-      notices = legacyKnowledgeNotices([workspace], planeHeads)
-      if (planeHead) {
-        viewKey = knowledgeViewKey(planeHead)
-        served = {
-          branch: input.branch ?? workspaceServed.branch,
-          sha: planeHead.sha,
-        }
+      const head = await servedKnowledgeHead(org.id, workspace.id, input.branch)
+      notices = legacyKnowledgeNotices([workspace])
+      viewKey = knowledgeViewKey(head)
+      served = {
+        branch: input.branch ?? workspaceServed.branch,
+        sha: head.sha,
       }
       entries = folderEntries(
-        planeHead
-          ? await listPlaneUnitFiles({
-              orgId: org.id,
-              workspaceId: workspace.id,
-              head: planeHead,
-              folder,
-            })
-          : await listUnitRows(org.id, workspace.id, folder),
+        await listPlaneUnitFiles({
+          orgId: org.id,
+          workspaceId: workspace.id,
+          head,
+          folder,
+        }),
         folder,
         input.depth,
       )

@@ -1,6 +1,6 @@
 # ADR-051: MCP read surface: small read tools, slugs, scopes, and an org set per grant
 
-**Status:** Accepted | **Date:** 2026-10-13 | **Tags:** mcp, oauth, multi-tenant, graph, search, observability
+**Status:** Accepted (amended 2026-11-26 by [CTX-1713](https://linear.app/ctxpipe/issue/CTX-1713): the knowledge plane of [ADR-066](ADR-066-knowledge-content-in-clickhouse.md) and [ADR-068](ADR-068-knowledge-retrieval-jev-layers.md) answers `search_knowledge` and `get_related`; the Postgres search, the FalkorDB walk, the PageRank ranking, its tuning parameters of `get_related` (`predicateWeights`, `recencyHalfLifeDays`, `restart`, `queryWeight`, `hubPenalty`, `diversity`, `maxPerKind`), the result field `queryMatch`, and the `test:latency` check of `get_related` in section 6 are removed) | **Date:** 2026-10-13 | **Tags:** mcp, oauth, multi-tenant, graph, search, observability
 
 ## Context
 

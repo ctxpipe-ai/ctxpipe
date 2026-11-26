@@ -14,6 +14,7 @@ import {
 import { explorerBlobFromGitFile } from "../../domain/workspaces/git-explorer.js"
 import { parseSimpleFrontMatter } from "../../domain/workspaces/layout.js"
 import { publishedProjection } from "../../domain/workspaces/revision.js"
+import { readyKnowledgeHeads } from "../../models/knowledge-state.js"
 import {
   activeProjectionSha,
   projectionFromWorkspace,
@@ -271,12 +272,18 @@ export const listWorkspaces = defineMcpReadTool({
         const key = kind ?? "unit"
         units[key] = (units[key] ?? 0) + total
       }
-      const storeKind = (store: "embeddings" | "graph" | "index") =>
+      const indexKind =
         projection?.kind === "active"
-          ? projection.stores[store].kind
+          ? projection.stores.index.kind
           : projection
             ? "unknown"
             : "pending"
+      // The knowledge plane holds the embeddings and the graph.
+      const planeKind = (await readyKnowledgeHeads(org.id, [resolved.id])).has(
+        resolved.id,
+      )
+        ? "ready"
+        : "pending"
       // The first page holds the whole detail. A next page holds only the
       // repositories after the cursor.
       const header = cursor
@@ -289,9 +296,9 @@ export const listWorkspaces = defineMcpReadTool({
             served: resolved.served,
             readiness: {
               knowledge: projection ? "ready" : "pending",
-              embeddings: storeKind("embeddings"),
-              graph: storeKind("graph"),
-              index: storeKind("index"),
+              embeddings: planeKind,
+              graph: planeKind,
+              index: indexKind,
             },
             units: Object.fromEntries(
               Object.entries(units).slice(0, MAX_HEADER_ITEMS),
@@ -353,6 +360,10 @@ export const listWorkspaces = defineMcpReadTool({
         listOrgRepositoryLinks(allowed),
       ])
       const handles = RepositoryHandles.from(links.map((link) => link.gitUrl))
+      const heads = await readyKnowledgeHeads(
+        allowed.id,
+        rows.map((row) => row.id),
+      )
       if (rows.length === 0) {
         items.push({ org: allowed.slug, workspace: null, skipped: null })
       }
@@ -373,9 +384,8 @@ export const listWorkspaces = defineMcpReadTool({
             repositories: linked.size,
             ready:
               projection?.kind === "active" &&
-              Object.values(projection.stores).every(
-                (store) => store.kind === "ready",
-              ),
+              projection.stores.index.kind === "ready" &&
+              heads.has(row.id),
           },
           skipped: invalid
             ? { workspace: row.slug, reason: "invalid_url" }

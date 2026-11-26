@@ -33,9 +33,8 @@ change, so new content can take a few minutes to show in answers.
 
 ## Changes and full rebuilds
 
-ctxpipe moves the search and graph data of each organization to a new
-knowledge store, one organization at a time. On the new knowledge store, an
-index run of the Workspace repository applies only the files that changed
+ctxpipe keeps the search and graph data of each Workspace in the knowledge
+store. An index run of the Workspace repository applies only the files that changed
 after the last indexed commit. A file that you remove from the repository
 leaves the index.
 

@@ -386,9 +386,9 @@ describe("the old stack's updatedAt is the source's own time of the last change 
     if (!unit) throw new Error("Expected a unit")
     const stored = {
       servingId: unit.servingId,
-      unitHash: hydrateUnitHash({ ...unit, updatedAt: rewrite }, "model"),
+      unitHash: hydrateUnitHash({ ...unit, updatedAt: rewrite }),
     }
-    expect(diffHydrateUnits([stored], [unit], "model").changed).toEqual([unit])
+    expect(diffHydrateUnits([stored], [unit]).changed).toEqual([unit])
   })
 
   it("is the commit time for a file with no time of its own", () => {

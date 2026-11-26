@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto"
-
 /**
  * Chunk rule (ADR-051): one chunk per Markdown heading section. A section that
  * holds only its heading line joins the next section, so that the heading
@@ -163,56 +161,35 @@ function splitByLength(chunk: KnowledgeChunk): KnowledgeChunk[] {
   return out
 }
 
-export type KnowledgeChunkRow = {
-  unitId: string
-  /** SHA-256 of the embedding model id and `text`. */
-  chunkHash: string
-  /** Index among the chunks of the unit with the same hash. */
-  occurrence: number
+/**
+ * The chunks of one document for the knowledge plane, in body order: the
+ * title and the heading path, then the section text, with the 1-based lines
+ * of the file (inclusive).
+ */
+export function documentChunks(unit: {
+  body: string
+  title: string | null
+  /** The file line of the first body line (after front matter). */
+  bodyStartLine?: number
+}): Array<{
   ordinal: number
-  /** The indexed and embedded text: title and heading path, then the section. */
   text: string
-  /** 1-based lines of the file, inclusive. */
   startLine: number
   endLine: number
-}
-
-/** The chunk rows of a projection's units, in unit order. */
-export function knowledgeChunkRows(
-  units: ReadonlyArray<{
-    servingId: string
-    body: string
-    title: string | null
-    /** The file line of the first body line (after front matter). */
-    bodyStartLine?: number
-  }>,
-  embeddingModel: string,
-): KnowledgeChunkRow[] {
-  return units.flatMap((unit) => {
-    const seen = new Map<string, number>()
-    const offset = (unit.bodyStartLine ?? 1) - 1
-    return chunkKnowledgeBody(unit.body).map((chunk, ordinal) => {
-      const context = [unit.title, ...chunk.headingPath].filter(
-        (part, index, parts): part is string =>
-          Boolean(part) && part !== parts[index - 1],
-      )
-      const text = context.length
+}> {
+  const offset = (unit.bodyStartLine ?? 1) - 1
+  return chunkKnowledgeBody(unit.body).map((chunk, ordinal) => {
+    const context = [unit.title, ...chunk.headingPath].filter(
+      (part, index, parts): part is string =>
+        Boolean(part) && part !== parts[index - 1],
+    )
+    return {
+      ordinal,
+      text: context.length
         ? `${context.join(" > ")}\n\n${chunk.text}`
-        : chunk.text
-      const chunkHash = createHash("sha256")
-        .update(`${embeddingModel}\0${text}`)
-        .digest("hex")
-      const occurrence = seen.get(chunkHash) ?? 0
-      seen.set(chunkHash, occurrence + 1)
-      return {
-        unitId: unit.servingId,
-        chunkHash,
-        occurrence,
-        ordinal,
-        text,
-        startLine: chunk.startLine + offset,
-        endLine: chunk.endLine + offset,
-      }
-    })
+        : chunk.text,
+      startLine: chunk.startLine + offset,
+      endLine: chunk.endLine + offset,
+    }
   })
 }

@@ -52,16 +52,15 @@ at build time. After you change it, build the images again with
 | `worker` | The background jobs for ingestion and connectors |
 | `codesearch` | The repository clone cache and the Zoekt indexes. Keep one replica. |
 | `postgres` | The application database |
-| `falkordb` | The default graph database |
-| `clickhouse` | The knowledge content |
+| `clickhouse` | The knowledge store: knowledge search, related items, and the graph |
 | `dind` | The Docker daemon for chat and ingestion sandboxes |
 | `chat-sandbox-image` | One-shot: builds the sandbox image inside `dind` |
 | `agent-vault` | Adds credentials to sandbox requests. It is the only address that sandboxes can reach. |
 | `agent-vault-secrets` | One-shot: generates the Agent Vault passwords |
 
 The backend is the only service on a public host port (`3000`). Compose binds
-`codesearch` (`3001`) and `ui` (`3002`) to `127.0.0.1` only. Postgres,
-FalkorDB, and ClickHouse have no host port.
+`codesearch` (`3001`) and `ui` (`3002`) to `127.0.0.1` only. Postgres and
+ClickHouse have no host port.
 
 Compose gives each service its own ClickHouse user in `CLICKHOUSE_URL`:
 
@@ -95,9 +94,7 @@ a `docker-compose.override.yml`. This applies to:
 - email: `SMTP_CONNECTION_URL` and `EMAIL_FROM_ADDRESS`. Without them, ctxpipe
   sends no verification, password reset, or invitation email;
 - social sign-in: `GITHUB_CLIENT_ID`, `GOOGLE_*`, and `MICROSOFT_*`;
-- Atlassian OAuth: `ATLASSIAN_CLIENT_ID` and `ATLASSIAN_CLIENT_SECRET`;
-- an external graph database: `GRAPH_DB_URI`, `GRAPH_DB_PROVIDER`,
-  `GRAPH_DB_USER`, and `GRAPH_DB_PASSWORD`.
+- Atlassian OAuth: `ATLASSIAN_CLIENT_ID` and `ATLASSIAN_CLIENT_SECRET`.
 
 ```yaml
 services:
@@ -120,18 +117,12 @@ The GitHub App therefore needs no variable.
 
 ## Persistent state
 
-<Callout type="warn" title="Keep the database data on named volumes">
-  The deploy profile mounts no named volume for `postgres` or `falkordb`:
+<Callout type="warn" title="Keep the database data on a named volume">
+  The deploy profile mounts no named volume for `postgres`. Postgres keeps its
+  data in an anonymous Docker volume. `docker compose down -v` deletes it.
+  After `docker compose down`, the new container does not use the old volume.
 
-  - Postgres keeps its data in an anonymous Docker volume. `docker compose down
-    -v` deletes it. After `docker compose down`, the new container does not use
-    the old volume.
-  - The FalkorDB image declares no volume, so FalkorDB keeps its data in the
-    writable layer of the container. Each time Compose creates the container
-    again, you lose the graph data. This happens, for example, after `down`, an
-    image update, or a configuration change.
-
-  Before people depend on the deployment, mount named volumes in
+  Before people depend on the deployment, mount a named volume in
   `docker-compose.override.yml`:
 
   ```yaml
@@ -139,23 +130,18 @@ The GitHub App therefore needs no variable.
     postgres:
       volumes:
         - postgres_data:/var/lib/postgresql/data
-    falkordb:
-      volumes:
-        - falkordb_data:/var/lib/falkordb/data
   volumes:
     postgres_data:
-    falkordb_data:
   ```
 
   Do this before the first start. On a running deployment, first back up the
-  data. Then restore it into the new volumes.
+  data. Then restore it into the new volume.
 </Callout>
 
 | State | Where it is | Back it up |
 |---|---|---|
 | Postgres data | An anonymous volume of the `postgres` container, or your named volume | Yes |
-| Graph data | The `falkordb` container, or your named volume | Yes, or rebuild it from the Workspace repositories |
-| Knowledge content | `clickhouse_data` | Yes, or rebuild it from the Workspace repositories |
+| Knowledge content and graph | `clickhouse_data` | Yes, or rebuild it from the Workspace repositories |
 | Repository clone cache | `repo_cache` | No, codesearch clones again |
 | Zoekt indexes | `zoekt_index_deploy` | No, codesearch indexes again |
 | SCIP indexer caches | `indexer_cache` | No, codesearch fills it again |

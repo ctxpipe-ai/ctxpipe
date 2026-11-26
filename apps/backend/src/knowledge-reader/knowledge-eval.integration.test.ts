@@ -2,22 +2,25 @@ import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { and, eq } from "drizzle-orm"
+import { eq } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
 import { executeRun } from "../../evals/knowledge/cli.js"
-import { readDataset } from "../../evals/knowledge/dataset.js"
+import { type Dataset, readDataset } from "../../evals/knowledge/dataset.js"
 import type { Report } from "../../evals/knowledge/report.js"
 import {
+  type ArmAnswer,
   readRun,
+  type RunFolder,
   SetupError,
   type Targets,
+  writeRun,
 } from "../../evals/knowledge/runner.js"
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../test/db.js"
 import { withOrgDbContext } from "../db/client.js"
-import { workspaceKnowledgeUnits, workspaces } from "../db/schema/workspaces.js"
+import { workspaces } from "../db/schema/workspaces.js"
 import { servingIdForKnowledgePath } from "../domain/workspaces/hydrate.js"
 import {
   KNOWLEDGE_PROJECTION_CODE_VERSION,
@@ -35,13 +38,16 @@ import {
   type PlaneDocument,
   writePlaneDocuments,
 } from "../test/knowledge-plane.js"
-import { embedText, planeVector } from "../test/knowledge-search-fixture.js"
-import { dropOrgGraph, seedRelatedWorkspace } from "../test/related-fixture.js"
+import {
+  embedText,
+  seedServedWorkspace,
+} from "../test/knowledge-search-fixture.js"
 
 /*
  * The knowledge eval harness of ADR-069, end to end: the example questions
- * over one Workspace on both stacks (real Postgres, FalkorDB and ClickHouse),
- * with fixed model replies through msw. Then a rescore of the run with a new
+ * over one Workspace on the knowledge plane (real Postgres and ClickHouse),
+ * with fixed model replies through msw. The old stack is gone (CTX-1713):
+ * the baseline arm is a stored run. Then a rescore of the run with a new
  * threshold, from the kept calls only, and a run that the spend cap stops.
  */
 
@@ -53,7 +59,7 @@ const dataset = await readDataset(
     import.meta.url,
   ).pathname,
 )
-/** Both stacks serve the frozen SHA of the corpus. */
+/** The Workspace and the plane serve the frozen SHA of the corpus. */
 const frozenSha = dataset.corpora[0]?.contextRepo.sha ?? ""
 
 type Unit = {
@@ -83,13 +89,13 @@ const claimsOf = (unit: Unit) =>
     validTo: unit.validTo ?? null,
   }))
 
-/** The text of a unit, as both stacks index it. */
+/** The text of a unit, as the plane indexes it. */
 const unitText = (unit: Unit) => `${unit.title}\n\n${unit.body}`
 
 /** The model requests that reached msw, by kind. */
 const requests = { jev: 0, embedding: 0 }
-/** The embedding requests of the old stack (its own dimension). */
-let legacyEmbeddings = 0
+/** The embedding requests with another dimension than the plane asks for. */
+let otherEmbeddings = 0
 
 /**
  * The fixed Jev replies. The layer judge gives a high p(answers) and
@@ -154,13 +160,11 @@ const models = setupServer(
       input: string[]
       dimensions?: number
     }
-    // Both stacks use one model; the plane asks for its own dimension.
-    const plane = body.dimensions === textEmbeddingConfig.dimensions
-    if (!plane) legacyEmbeddings += 1
+    if (body.dimensions !== textEmbeddingConfig.dimensions) otherEmbeddings += 1
     return HttpResponse.json({
       data: body.input.map((input, index) => ({
         index,
-        embedding: plane ? planeVector(input) : embedText(input),
+        embedding: embedText(input),
       })),
     })
   }),
@@ -239,7 +243,7 @@ function planeRows(workspaceId: string): PlaneDocument[] {
         text: unitText(unit),
         startLine: 1,
         endLine: 3,
-        embedding: planeVector(`${unit.title} ${unit.body}`),
+        embedding: embedText(`${unit.title} ${unit.body}`),
       },
     ],
     relations: claimsOf(unit).map((claim) => ({
@@ -256,6 +260,60 @@ function planeRows(workspaceId: string): PlaneDocument[] {
   }))
 }
 
+/**
+ * A stored run of the old stack for `of`: its answer to each question gives
+ * a document that is not gold first, then the gold documents in the order
+ * of the labels, with no model call. Thus it ranks the gold documents lower
+ * than the plane, and it has no "no answer". The old stack cannot run any
+ * more, so each run of the harness takes its baseline answers from a stored
+ * run (`--baseline-from`).
+ */
+async function storedOldStack(of: Dataset): Promise<RunFolder> {
+  const out = await mkdtemp(join(folder, "old-stack-"))
+  const ranked = (refs: string[]) => ({
+    refs,
+    scores: refs.map((_, index) => 1 - index / 100),
+    latencyMs: 50,
+  })
+  const answers: ArmAnswer[] = of.questions.map((question) => ({
+    arm: "legacy",
+    question: question.id,
+    search: ranked(["notes/unrelated.md", ...question.gold]),
+    ...(question.seeds
+      ? { related: ranked(["notes/unrelated.md", ...question.gold]) }
+      : {}),
+    calls: {
+      jev: 0,
+      jevQuestions: 0,
+      embedding: 1,
+      costUsd: 0,
+      missing: 0,
+      failed: 0,
+      unrecorded: 0,
+    },
+  })) as ArmAnswer[]
+  await writeRun(out, {
+    manifest: {
+      datasetVersion: of.version,
+      splits: ["dev", "holdout"],
+      now: now.toISOString(),
+      settings: {},
+      loop: { keepAt: 0.5 },
+      mode: "live",
+      capUsd: 5,
+      spentUsd: 0,
+      stopped: false,
+    },
+    dataset: of,
+    targets,
+    answers,
+    calls: [],
+  })
+  return { folder: out, run: await readRun(out) }
+}
+
+let baseline: RunFolder
+
 const run = async (
   name: string,
   options: Partial<Parameters<typeof executeRun>[0]> = {},
@@ -271,6 +329,10 @@ const run = async (
     kept: null,
     // Short, so that the test is fast. The command waits 31 s.
     quietMs: 200,
+    baseline:
+      options.dataset && options.dataset !== dataset
+        ? await storedOldStack(options.dataset)
+        : baseline,
     ...options,
   })
 
@@ -281,7 +343,7 @@ describe("the knowledge eval harness", () => {
     vi.stubEnv("MODEL_PROVIDER", "openrouter")
     vi.stubEnv("MODEL_PROVIDER_API_KEY", "fixture-only")
     vi.stubEnv("MODEL_PROVIDER_URL", MODEL_URL)
-    // ClickHouse and FalkorDB are real servers.
+    // ClickHouse is a real server.
     models.listen({ onUnhandledRequest: "bypass" })
     folder = await mkdtemp(join(tmpdir(), "knowledge-eval-"))
     const titleOf = new Map(units.map((unit) => [unit.path, unit.title]))
@@ -300,24 +362,14 @@ describe("the knowledge eval harness", () => {
     // The backend reads as the reader user, with SELECT only.
     vi.stubEnv("CLICKHOUSE_URL", userUrl(url, "ctxpipe_reader", "reader-test"))
     seed = await seedOrg()
-    const { workspaceId, revision } = await seedRelatedWorkspace({
+    const { workspaceId, revision } = await seedServedWorkspace({
       seed,
       slug: "memory",
       sha: frozenSha,
-      units: units.map((unit) => ({
-        ...unit,
-        body: `# ${unit.title}\n\n${unit.body}`,
-        claims: claimsOf(unit).map((claim) => ({
-          ...claim,
-          validFrom: claim.validFrom ?? undefined,
-          validTo: claim.validTo ?? undefined,
-        })),
-      })),
-      chunks: true,
     })
     seededWorkspace = workspaceId
-    // The gold paths are relative to the root of the corpus, and the old
-    // stack serves that root.
+    // The gold paths are relative to the root of the corpus, and the
+    // Workspace serves that root.
     await withOrgDbContext(seed.orgId, (db) =>
       db
         .update(workspaces)
@@ -327,21 +379,6 @@ describe("the knowledge eval harness", () => {
         })
         .where(eq(workspaces.id, workspaceId)),
     )
-    // The search of the old stack reads the claims of a unit for `validAt`.
-    await withOrgDbContext(seed.orgId, async (db) => {
-      for (const unit of units)
-        await db
-          .update(workspaceKnowledgeUnits)
-          .set({
-            claims: claimsOf(unit).map((claim) => ({ ...claim, source: null })),
-          })
-          .where(
-            and(
-              eq(workspaceKnowledgeUnits.workspaceId, workspaceId),
-              eq(workspaceKnowledgeUnits.path, unit.path),
-            ),
-          )
-    })
     const writer = createKnowledgeStore(url)
     try {
       await writePlaneDocuments(
@@ -360,6 +397,7 @@ describe("the knowledge eval harness", () => {
         workspace: "memory",
       },
     }
+    baseline = await storedOldStack(dataset)
   }, 240_000)
 
   afterAll(async () => {
@@ -367,7 +405,6 @@ describe("the knowledge eval harness", () => {
       await withOrgDbContext(seed.orgId, (db) =>
         db.delete(workspaces).where(eq(workspaces.orgId, seed.orgId)),
       )
-      await dropOrgGraph(seed.orgId)
       await cleanupSeededOrg(seed)
     }
     await clickHouse?.stop()
@@ -412,7 +449,7 @@ describe("the knowledge eval harness", () => {
     costUsd: Number(report.costUsd.toFixed(4)),
   })
 
-  it("runs each question through both arms and writes the run folder and the report", async () => {
+  it("runs each question through the plane, keeps the stored answers of the old stack, and writes the run folder and the report", async () => {
     live = await run("live")
     expect(live.status).toBe("complete")
     // An eval runs with no time budget, and it keeps the budget of the
@@ -427,13 +464,14 @@ describe("the knowledge eval harness", () => {
       (await readRun(join(folder, "live"))).manifest.projectionVersions,
     ).toEqual(live.run.projectionVersions)
     // Jev agrees with the gold labels, so the plane is right each time. The
-    // old stack ranks some gold documents lower, and it has no "no answer".
+    // stored old stack ranks the gold documents lower, and it has no "no
+    // answer".
     expect(compact(live)).toEqual({
       comparison: {
         dev: {
           legacy: {
             recall5: 1,
-            ndcg10: 0.979,
+            ndcg10: 0.667,
             searchRecall50: 1,
             traversalRecall: 1,
             noAnswer: 0,
@@ -451,7 +489,7 @@ describe("the knowledge eval harness", () => {
         holdout: {
           legacy: {
             recall5: 1,
-            ndcg10: 0.839,
+            ndcg10: 0.686,
             searchRecall50: 1,
             traversalRecall: 1,
             noAnswer: 0,
@@ -468,8 +506,8 @@ describe("the knowledge eval harness", () => {
         },
       },
       // Jev: 1 call for a search; 4 or 5 for get_related (the layers, and
-      // one call for the disagreement facts). Embeddings of the old stack:
-      // 1 for a search, 1 for get_related. The plane keeps the vector of the
+      // one call for the disagreement facts). The stored answers of the old
+      // stack count 1 embedding each. The plane keeps the vector of the
       // search, and get_related asks the same text: 1 for each question.
       calls: [
         {
@@ -477,7 +515,7 @@ describe("the knowledge eval harness", () => {
           split: "dev",
           jev: 0,
           jevQuestions: 0,
-          embedding: 1.375,
+          embedding: 1,
           errors: 0,
           partial: 0,
         },
@@ -486,7 +524,7 @@ describe("the knowledge eval harness", () => {
           split: "holdout",
           jev: 0,
           jevQuestions: 0,
-          embedding: 1.5,
+          embedding: 1,
           errors: 0,
           partial: 0,
         },
@@ -509,14 +547,14 @@ describe("the knowledge eval harness", () => {
           partial: 0,
         },
       ],
-      // 30 Jev calls at $0.001, and 29 embedding calls with no cost in the
-      // answer, at the upper estimate of $0.001.
-      costUsd: 0.059,
+      // 30 Jev calls at $0.001, and 12 embedding calls of the plane with no
+      // cost in the answer, at the upper estimate of $0.001.
+      costUsd: 0.042,
     })
     const markdown = await readFile(join(folder, "live", "report.md"), "utf8")
     const firstTable = markdown.slice(markdown.indexOf("\n## "))
     expect(firstTable).toMatch(
-      /^\n## Comparison with the baseline: current stack \(Postgres \+ FalkorDB\)/,
+      /^\n## Comparison with the baseline: old stack \(Postgres \+ FalkorDB\), stored answers/,
     )
     expect(markdown).toContain(
       '| holdout | no-answer | 1 | correct "no answer" | 0.000 | 1.000 | +1.000 |',
@@ -525,37 +563,41 @@ describe("the knowledge eval harness", () => {
     // the get_related results and the latency of the first calls. The
     // example has no GitHub hit and no stale label.
     expect(markdown).toContain("## Regression checks")
-    for (const arm of ["legacy", "plane"] as const)
-      expect(live.checks[arm]).toEqual({
-        duplicateSlots: expect.any(Number),
-        headingOnlyHits: expect.any(Number),
-        botBestChunk: null,
-        hubSlots: expect.any(Number),
-        liveFirst: null,
-        noAnswerSeparation: expect.any(Number),
-        coldSearchMs: expect.any(Number),
-        coldRelatedMs: expect.any(Number),
-        pageBytes: expect.any(Number),
-      })
+    expect(live.checks.plane).toEqual({
+      duplicateSlots: expect.any(Number),
+      headingOnlyHits: expect.any(Number),
+      botBestChunk: null,
+      hubSlots: expect.any(Number),
+      liveFirst: null,
+      noAnswerSeparation: expect.any(Number),
+      coldSearchMs: expect.any(Number),
+      coldRelatedMs: expect.any(Number),
+      pageBytes: expect.any(Number),
+    })
+    // The stored answers of the old stack have no search page and no quiet
+    // time, so they give no check.
+    expect(Object.values(live.checks.legacy)).toEqual(
+      Array(Object.keys(live.checks.plane).length).fill(null),
+    )
     const kept = await readRun(join(folder, "live"))
     expect(kept.answers).toHaveLength(24)
     // The run waited the quiet time before the first search and the first
-    // get_related of each arm, and only before them.
+    // get_related of the plane, and only before them.
     const quiet = kept.answers.flatMap((answer) =>
       [answer.search, answer.related].flatMap((call) =>
         call?.quietMs === undefined ? [] : [call.quietMs],
       ),
     )
-    expect(quiet).toHaveLength(4)
+    expect(quiet).toHaveLength(2)
     for (const ms of quiet) expect(ms).toBeGreaterThanOrEqual(200)
     // The raw Jev answers and the vectors are in the run folder.
     const jev = kept.calls.filter((call) => call.kind === "jev")
     expect(jev).toHaveLength(30)
     expect(JSON.parse(jev[0]?.response ?? "{}")).toHaveProperty("answers")
     expect(kept.calls.filter((call) => call.kind === "embedding")).toHaveLength(
-      29,
+      12,
     )
-    // Each client of both arms sent the provider block (ADR-070).
+    // Each client sent the provider block (ADR-070).
     for (const call of kept.calls)
       expect(call.request).toMatchObject({
         provider: { data_collection: "deny", zdr: true },
@@ -564,14 +606,14 @@ describe("the knowledge eval harness", () => {
 
   it("--baseline-from: reuses the stored answers of the old stack, and runs only the plane", async () => {
     const stored = await readRun(join(folder, "live"))
-    const before = legacyEmbeddings
     const candidate = await run("candidate", {
       // Another clock: the run takes the query time of the stored run.
       now: new Date("2027-01-01T00:00:00.000Z"),
       baseline: { folder: join(folder, "live"), run: stored },
     })
-    // The old stack made no call.
-    expect(legacyEmbeddings).toBe(before)
+    // The old stack made no call: each embedding request has the dimension
+    // of the plane.
+    expect(otherEmbeddings).toBe(0)
     expect(candidate.status).toBe("complete")
     expect(candidate.run.now).toBe(stored.manifest.now)
     expect(candidate.run.baselineFrom).toBe(join(folder, "live"))
@@ -713,7 +755,7 @@ describe("the knowledge eval harness", () => {
     const stored = await readRun(join(folder, "live"))
     const before = { ...requests }
     // Less evidence text changes the state of each layer-judge request, and
-    // no query text: the Jev calls go out, the embeddings are reused.
+    // no query text: the Jev calls go out, and no embedding goes out.
     const changed = await run("reuse-changed", {
       settings: { evidenceChars: 200 },
       reuse: { folder: join(folder, "live"), run: stored },
@@ -722,7 +764,6 @@ describe("the knowledge eval harness", () => {
     expect(requests.embedding).toBe(before.embedding)
     expect(requests.jev).toBeGreaterThan(before.jev)
     expect(changed.run.reuse?.live).toBe(requests.jev - before.jev)
-    expect(changed.run.reuse?.reused).toBeGreaterThan(0)
     expect(changed.run.spentUsd).toBeGreaterThan(0)
     // The folder holds each call of the run, so a rescore of it replays.
     const recorded = await readRun(join(folder, "reuse-changed"))
@@ -823,11 +864,11 @@ describe("the knowledge eval harness", () => {
     // A rescore gives each regression check from the same stores. keepAt
     // does not change the old stack or the search page of the plane. Check
     // 7 holds only the time of the stores in a replay.
-    const cold = {
-      coldSearchMs: expect.any(Number),
-      coldRelatedMs: expect.any(Number),
-    }
-    expect(rescored.checks.legacy).toEqual({ ...live.checks.legacy, ...cold })
+    expect(rescored.checks.legacy).toMatchObject({
+      ...live.checks.legacy,
+      coldSearchMs: null,
+      coldRelatedMs: null,
+    })
     const page = ({
       duplicateSlots,
       headingOnlyHits,
@@ -1071,7 +1112,7 @@ describe("the knowledge eval harness", () => {
         },
       }),
     ).rejects.toThrow(
-      'Workspace memory must serve the root "" of ctxpipe-memory on both stacks. The Workspace has ".ai/memory", the old stack serves ".ai/memory", and the plane serves ".ai/memory".',
+      'Workspace memory must serve the root "" of ctxpipe-memory. The Workspace has ".ai/memory", the hydrate publishes ".ai/memory", and the plane serves ".ai/memory".',
     )
     expect(requests).toEqual(before)
   })
@@ -1112,7 +1153,7 @@ describe("the knowledge eval harness", () => {
     await projectPlane("")
     try {
       await expect(run("plane-root")).rejects.toThrow(
-        'the old stack serves ".ai/memory", and the plane serves "".',
+        'the hydrate publishes ".ai/memory", and the plane serves "".',
       )
     } finally {
       await projectPlane(root)

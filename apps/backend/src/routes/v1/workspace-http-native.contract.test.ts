@@ -5,6 +5,7 @@ import { expect, it, vi } from "vitest"
 
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
+import { knowledgeBranchHeads } from "../../db/schema/knowledge_state.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import { WRITE_STATUS_REASONS } from "../../domain/workspaces/write-status.js"
@@ -467,7 +468,7 @@ it(
 )
 
 it(
-  "reports a legacy projection graph as ready so the graph route decides",
+  "reports the graph of a legacy projection ready only when the knowledge plane serves the Workspace",
   { timeout: 45_000 },
   async () => {
     await withNativeHydrationFixture({}, async (f) => {
@@ -489,6 +490,19 @@ it(
           .update(workspaces)
           .set({ ...legacy, hydrateStatus: "ready" })
           .where(eq(workspaces.id, f.workspaceId)),
+      )
+      expect(await phases()).toEqual({ kind: "pending" })
+      // A knowledge run applied a commit of the default branch in full.
+      await withOrgDbContext(f.org.id, (db) =>
+        db.insert(knowledgeBranchHeads).values({
+          workspaceId: f.workspaceId,
+          organizationId: f.org.id,
+          branch: "main",
+          lastSha: legacy.activeProjectionSha,
+          treeVersion: 1,
+          runStatus: "completed",
+          defaultAt: new Date(),
+        }),
       )
       expect(await phases()).toEqual({ kind: "ready" })
       await withOrgDbContext(f.org.id, (db) =>

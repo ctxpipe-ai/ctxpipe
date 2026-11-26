@@ -11,7 +11,6 @@ import { organizations } from "../db/schema/auth.js"
 import { claims } from "../db/schema/claims.js"
 import { conversations } from "../db/schema/conversations.js"
 import { objects } from "../db/schema/objects.js"
-import { orgFeatures } from "../db/schema/org_features.js"
 import { repositories } from "../db/schema/repositories.js"
 import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
 import { formatUnknownError } from "../db/transientDbRetry.js"
@@ -26,10 +25,7 @@ import { clearPagerdutySyncBindingsForRepository } from "../models/pagerduty-con
 import { DEFAULT_CHECKOUT_KEY } from "../models/repositories.js"
 import { clearSlackSyncBindingsForRepository } from "../models/slack-connector.js"
 import { log } from "../observability/logger.js"
-import { getGraphClient, withGraphClient } from "../platform/graph/client.js"
 import {
-  applyIngestionRetractionGraphEffects,
-  type IngestionRetractionGraphEffects,
   purgeRepositoryEvidencePg,
   type RetractionStats,
 } from "../retrieval/services/ingestionRetraction.js"
@@ -130,32 +126,11 @@ export async function notifyCodesearchRepositoryDeleted(params: {
   }
 }
 
-/**
- * Drops the entire org graph from FalkorDB. Must be called inside
- * {@link withGraphClient} — the auth hook sets that up. FalkorDB uses
- * a separate graph per org (`selectGraph(orgId)`) so no property filter
- * is needed; `MATCH (n) DETACH DELETE n` wipes the whole tenant graph.
- */
-async function dropFalkorOrgGraph(orgId: string): Promise<void> {
-  try {
-    const driver = getGraphClient()
-    await driver.executeQuery("MATCH (n) DETACH DELETE n")
-  } catch (e) {
-    log.error({
-      step: "repositoryDeletion.falkor_purge",
-      message: "repositoryDeletion: Falkor purge failed",
-      orgId,
-      error: formatUnknownError(e),
-    })
-  }
-}
-
 type RepositoryDeletionPrepareResult = {
   found: boolean
   name: string | null
   zoektRepoId: number | null
   stats: RetractionStats
-  graphEffects: IngestionRetractionGraphEffects
 }
 
 type RepositoryPostgresPurgeResult = {
@@ -164,7 +139,6 @@ type RepositoryPostgresPurgeResult = {
   name: string | null
   zoektRepoId: number | null
   stats: RetractionStats
-  graphEffects: IngestionRetractionGraphEffects
 }
 
 function emptyStats(): RetractionStats {
@@ -174,24 +148,13 @@ function emptyStats(): RetractionStats {
     claimsUpdated: 0,
     claimsDeleted: 0,
     orphanObjectsDeleted: 0,
-    graphEdgesDeleted: 0,
-    graphClaimsRefreshed: 0,
-    graphOrphanObjectsDeleted: 0,
-  }
-}
-
-function emptyGraphEffects(): IngestionRetractionGraphEffects {
-  return {
-    deletedClaimIds: [],
-    refreshedClaimIds: [],
-    deletedObjectIds: [],
   }
 }
 
 /**
  * Lookup + evidence reconciliation only (no repository row delete).
  * Must run inside {@link withOrgDbContext}. Kept separate from row delete so
- * OpenWorkflow can persist `graphEffects` before the row is removed.
+ * OpenWorkflow can persist the lookup before the row is removed.
  */
 export async function prepareRepositoryDeletionPostgres(params: {
   orgId: string
@@ -233,7 +196,6 @@ export async function prepareRepositoryDeletionPostgres(params: {
       name: null,
       zoektRepoId: null,
       stats: emptyStats(),
-      graphEffects: emptyGraphEffects(),
     }
   }
 
@@ -243,7 +205,7 @@ export async function prepareRepositoryDeletionPostgres(params: {
   })
 
   const evidenceStarted = Date.now()
-  const { stats, graphEffects } = await purgeRepositoryEvidencePg(db, {
+  const { stats } = await purgeRepositoryEvidencePg(db, {
     orgId: params.orgId,
     repositoryId: params.repositoryId,
   })
@@ -258,7 +220,6 @@ export async function prepareRepositoryDeletionPostgres(params: {
     name: row.name,
     zoektRepoId: row.zoektRepoId,
     stats,
-    graphEffects,
   }
 }
 
@@ -300,7 +261,7 @@ export async function deleteRepositoryRowPostgres(params: {
 
 /**
  * Postgres-only repository purge: evidence reconciliation + delete repo row.
- * Must run inside {@link withOrgDbContext}. Does not touch Falkor or codesearch.
+ * Must run inside {@link withOrgDbContext}. Does not touch codesearch.
  */
 export async function purgeRepositoryPostgres(params: {
   orgId: string
@@ -314,7 +275,6 @@ export async function purgeRepositoryPostgres(params: {
       name: null,
       zoektRepoId: null,
       stats: prepared.stats,
-      graphEffects: prepared.graphEffects,
     }
   }
 
@@ -325,54 +285,17 @@ export async function purgeRepositoryPostgres(params: {
     name: prepared.name,
     zoektRepoId: prepared.zoektRepoId,
     stats: prepared.stats,
-    graphEffects: prepared.graphEffects,
   }
 }
 
 /**
- * Best-effort Falkor cleanup after Postgres purge. Must run inside
- * {@link withGraphClient} and must not hold an org Postgres transaction.
- */
-export async function applyRepositoryDeletionGraphCleanup(params: {
-  repositoryId: string
-  graphEffects: IngestionRetractionGraphEffects
-}): Promise<void> {
-  const graphSyncStarted = Date.now()
-  await applyIngestionRetractionGraphEffects(params.graphEffects)
-  logDeletionPhase("repositoryDeletion.graph_sync", graphSyncStarted, {
-    repositoryId: params.repositoryId,
-    deletedClaimIds: params.graphEffects.deletedClaimIds.length,
-    refreshedClaimIds: params.graphEffects.refreshedClaimIds.length,
-    deletedObjectIds: params.graphEffects.deletedObjectIds.length,
-  })
-
-  const falkorRepoStarted = Date.now()
-  try {
-    const driver = getGraphClient()
-    await driver.executeQuery(`MATCH (n { id: $repoId }) DETACH DELETE n`, {
-      repoId: params.repositoryId,
-    })
-    logDeletionPhase("repositoryDeletion.falkor_repo_node", falkorRepoStarted, {
-      repositoryId: params.repositoryId,
-    })
-  } catch (e) {
-    log.error({
-      step: "repositoryDeletion.falkor_repo_node",
-      message: "repositoryDeletion: failed to delete repo node from graph",
-      repositoryId: params.repositoryId,
-      error: formatUnknownError(e),
-    })
-  }
-}
-
-/**
- * Wipes all org-scoped product data before Better Auth removes the organization row.
+ * Wipes all org-scoped product data before Better Auth removes the organization
+ * row.
  *
  * Call it outside an org SQL transaction: it opens its own
  * ({@link withOrgDbContext}, with {@link getOrgDb} for all queries and
- * deletes), and then queues a workflow and calls codesearch.
- * External side-effects (codesearch disk cleanup, FalkorDB graph drop) are
- * best-effort and run after the Postgres deletes. The worker deletes the
+ * deletes), and then queues a workflow and calls codesearch. The codesearch disk cleanup is
+ * best-effort and runs after the Postgres deletes. The worker deletes the
  * ClickHouse rows of the knowledge plane (`knowledge-purge`): this function
  * queues that purge after the Postgres deletes.
  */
@@ -386,8 +309,7 @@ export async function purgeOrgDataBeforeAuthDelete(
       .from(organizations)
       .where(eq(organizations.id, orgId))
       .limit(1)
-    const orgSlug = orgRow?.slug
-    if (!orgSlug) return null
+    if (!orgRow) return null
 
     const repoRows = await db
       .select({
@@ -409,19 +331,7 @@ export async function purgeOrgDataBeforeAuthDelete(
     await db.delete(objects).where(eq(objects.orgId, orgId))
     await db.delete(conversations).where(eq(conversations.orgId, orgId))
     await db.delete(repositories).where(eq(repositories.orgId, orgId))
-    // The knowledge plane (CTX-1642). With no flag, the org is `off`, so a
-    // projection run that starts after this commit writes nothing, also
-    // when the delete of the organization row fails after this hook. The
-    // purge deletes the knowledge state and the ClickHouse rows.
-    await db
-      .delete(orgFeatures)
-      .where(
-        and(
-          eq(orgFeatures.organizationId, orgId),
-          eq(orgFeatures.feature, "knowledge_plane"),
-        ),
-      )
-    return { orgSlug, repoRows }
+    return { repoRows }
   })
 
   if (!prepared) {
@@ -448,8 +358,4 @@ export async function purgeOrgDataBeforeAuthDelete(
       zoektRepoId: r.zoektRepoId,
     })
   }
-
-  await withGraphClient({ orgId, orgSlug: prepared.orgSlug }, () =>
-    dropFalkorOrgGraph(orgId),
-  )
 }

@@ -12,11 +12,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../../test/db.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { knowledgeBranchHeads } from "../../db/schema/knowledge_state.js"
-import { orgFeatures } from "../../db/schema/org_features.js"
-import {
-  workspaceKnowledgeUnits,
-  workspaces,
-} from "../../db/schema/workspaces.js"
+import { workspaces } from "../../db/schema/workspaces.js"
 import { servingIdForKnowledgePath } from "../../domain/workspaces/hydrate.js"
 import type { WorkspaceRevision } from "../../domain/workspaces/revision.js"
 import { createKnowledgeStore } from "../../knowledge-store/knowledge-store.js"
@@ -26,25 +22,24 @@ import {
   completeKnowledgeRun,
 } from "../../models/knowledge-state.js"
 import { startClickHouse, userUrl } from "../../test/clickhouse.js"
-import { writePlaneDocuments } from "../../test/knowledge-plane.js"
 import {
-  callTool,
-  connectToolClient,
-  dropOrgGraph,
-  seedRelatedWorkspace,
-} from "../../test/related-fixture.js"
+  writePlaneDocuments,
+  servePlaneHead,
+} from "../../test/knowledge-plane.js"
+import { seedServedWorkspace } from "../../test/knowledge-search-fixture.js"
+import { callTool, connectToolClient } from "../../test/mcp-tool-client.js"
 import { TOOL_ERROR_META_KEY } from "../framework/tool-result.js"
 import { listFilesTool } from "./list-files.js"
 import { readFileTool } from "./read-file.js"
 
 /*
- * `read_file` and `list_files` behind the `knowledge_plane` flag (CTX-1409):
- * on the plane they read the Workspace Git at the SHA that the plane serves.
- * Real Postgres, FalkorDB, ClickHouse and a real Git repository.
+ * `read_file` and `list_files` on the knowledge plane (CTX-1409): they read
+ * the Workspace Git at the SHA that the plane serves. Real Postgres,
+ * ClickHouse and a real Git repository.
  */
 
 const exec = promisify(execFile)
-const legacySha = "a".repeat(40)
+const publishedSha = "a".repeat(40)
 const CHECKOUT = "knowledge/services/checkout.md"
 const PAYMENTS = "knowledge/teams/payments.md"
 /** Six lines of front matter: the body starts at file line 7. */
@@ -77,7 +72,7 @@ let laterSha: string
 let workspaceId: string
 let readClient: Client
 let listClient: Client
-let clock = Date.now()
+const clock = Date.now()
 
 async function git(...args: string[]): Promise<string> {
   const { stdout } = await exec("git", ["-C", repository, ...args], {
@@ -103,21 +98,6 @@ async function commit(files: Record<string, string>): Promise<string> {
   return git("rev-parse", "HEAD")
 }
 
-/** Set the org flag, and move the clock past the 30-second flag cache. */
-async function setFlag(value: "off" | "shadow" | "on") {
-  await withOrgDbContext(seed.orgId, (db) =>
-    db
-      .insert(orgFeatures)
-      .values({ organizationId: seed.orgId, feature: "knowledge_plane", value })
-      .onConflictDoUpdate({
-        target: [orgFeatures.organizationId, orgFeatures.feature],
-        set: { value },
-      }),
-  )
-  clock += 31_000
-  vi.setSystemTime(clock)
-}
-
 async function setReady(ready: boolean) {
   // The reader reads only the heads (ADR-071 decision 4).
   await withOrgDbContext(seed.orgId, (db) =>
@@ -131,22 +111,7 @@ async function setReady(ready: boolean) {
       ),
   )
   if (!ready) return
-  await beginKnowledgeRun({
-    orgId: seed.orgId,
-    workspaceId,
-    branch: "main",
-    isDefault: true,
-  })
-  await completeKnowledgeRun({
-    orgId: seed.orgId,
-    workspaceId,
-    tip: servedSha,
-    branch: "main",
-    treeVersion: 1,
-    baseBranch: null,
-    projectionVersion: "test",
-    failedCount: 0,
-  })
+  await servePlaneHead({ orgId: seed.orgId, workspaceId, tip: servedSha })
 }
 
 const structured = (result: CallToolResult) =>
@@ -167,25 +132,6 @@ const listFiles = (args: Record<string, unknown> = {}) =>
     workspace: "plane-files",
     ...args,
   })
-
-/** The keys and the types of a value, with the union of the keys of array items. */
-function shapeOf(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    const merged: Record<string, unknown> = {}
-    for (const item of value.map(shapeOf))
-      if (item && typeof item === "object") Object.assign(merged, item)
-    return value.length === 0
-      ? []
-      : [typeof value[0] === "object" ? merged : shapeOf(value[0])]
-  }
-  if (value && typeof value === "object")
-    return Object.fromEntries(
-      Object.entries(value)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([key, item]) => [key, shapeOf(item)]),
-    )
-  return typeof value
-}
 
 describe("read_file and list_files on the knowledge plane", () => {
   beforeAll(async () => {
@@ -215,20 +161,10 @@ describe("read_file and list_files on the knowledge plane", () => {
     })
 
     seed = await seedOrg()
-    const seeded = await seedRelatedWorkspace({
+    const seeded = await seedServedWorkspace({
       seed,
       slug: "plane-files",
-      sha: legacySha,
-      units: [
-        {
-          path: CHECKOUT,
-          kind: "Service",
-          title: "Checkout service",
-          body: "# Checkout service\n\nThe legacy body.\n",
-        },
-        { path: PAYMENTS, kind: "Team", title: "Payments team" },
-      ],
-      chunks: true,
+      sha: publishedSha,
     })
     workspaceId = seeded.workspaceId
     // The Workspace repository is the Git repository of the test.
@@ -236,32 +172,12 @@ describe("read_file and list_files on the knowledge plane", () => {
       ...seeded.revision,
       remote: { url: repository, connectionId: null },
     }
-    await withOrgDbContext(seed.orgId, async (db) => {
-      await db
+    await withOrgDbContext(seed.orgId, (db) =>
+      db
         .update(workspaces)
         .set({ activeRevision: revision, workspaceRepositoryUrl: repository })
-        .where(eq(workspaces.id, workspaceId))
-      await db
-        .update(workspaceKnowledgeUnits)
-        .set({
-          claims: [
-            {
-              to: "../teams/payments.md",
-              predicate: "OWNED_BY",
-              confidence: 0.9,
-              validFrom: null,
-              validTo: null,
-              source: null,
-            },
-          ],
-        })
-        .where(
-          and(
-            eq(workspaceKnowledgeUnits.workspaceId, workspaceId),
-            eq(workspaceKnowledgeUnits.path, CHECKOUT),
-          ),
-        )
-    })
+        .where(eq(workspaces.id, workspaceId)),
+    )
     const writer = createKnowledgeStore(url)
     try {
       // The payments unit has no document row on the plane.
@@ -300,7 +216,6 @@ describe("read_file and list_files on the knowledge plane", () => {
       await withOrgDbContext(seed.orgId, (db) =>
         db.delete(workspaces).where(eq(workspaces.orgId, seed.orgId)),
       )
-      await dropOrgGraph(seed.orgId)
       await cleanupSeededOrg(seed)
     }
     await clickHouse?.stop()
@@ -309,35 +224,26 @@ describe("read_file and list_files on the knowledge plane", () => {
     vi.unstubAllEnvs()
   })
 
-  it.each([
-    ["off", true],
-    ["shadow", true],
-    ["on", false],
-  ] as const)(
-    "flag %s, ready %s: the old stack answers",
-    async (flag, ready) => {
-      await setFlag(flag)
-      await setReady(ready)
-      const read = await readFile({ ref: CHECKOUT })
-      expect(read.isError).toBeFalsy()
-      expect(structured(read)).toMatchObject({
-        served: { branch: "main", sha: legacySha },
-        content: "# Checkout service\n\nThe legacy body.",
-      })
-      const list = await listFiles({ path: "knowledge", depth: 1 })
-      expect(structured(list)).toMatchObject({
-        served: { sha: legacySha },
-        entries: [
-          { path: "knowledge/services", type: "dir", units: 1 },
-          { path: "knowledge/teams", type: "dir", units: 1 },
-        ],
-      })
-    },
-  )
+  it("a Workspace that the plane does not serve yet gives workspace_not_ready on both tools", async () => {
+    await setReady(false)
+    try {
+      expect(errorCode(await readFile({ ref: CHECKOUT }))).toBe(
+        "workspace_not_ready",
+      )
+      expect(errorCode(await listFiles({ path: "knowledge" }))).toBe(
+        "workspace_not_ready",
+      )
+      // A named branch with no projection is an argument error.
+      expect(errorCode(await readFile({ ref: CHECKOUT, branch: "nope" }))).toBe(
+        "invalid_argument",
+      )
+    } finally {
+      await setReady(true)
+    }
+  })
 
-  describe("flag on, Workspace ready", () => {
+  describe("Workspace ready", () => {
     beforeAll(async () => {
-      await setFlag("on")
       await setReady(true)
     })
 
@@ -370,7 +276,7 @@ describe("read_file and list_files on the knowledge plane", () => {
       expect(laterSha).not.toBe(servedSha)
     })
 
-    it("read_file keeps file lines and the cursor of the old stack", async () => {
+    it("read_file gives file lines, and refuses the lines of the front matter", async () => {
       const first = structured(
         await readFile({ ref: CHECKOUT, startLine: 7, endLine: 7 }),
       )
@@ -448,7 +354,7 @@ describe("read_file and list_files on the knowledge plane", () => {
           path: CHECKOUT,
           type: "file",
           ref: CHECKOUT,
-          // The body without front matter, as on the old stack.
+          // The body without front matter.
           size: Buffer.byteLength(
             "# Checkout service\n\nVersion A of the checkout service.\n",
           ),
@@ -544,23 +450,6 @@ describe("read_file and list_files on the knowledge plane", () => {
           .filter((entry) => entry.type === "file")
           .map((entry) => entry.path),
       ).toEqual(["knowledge/branch.md", CHECKOUT, PAYMENTS])
-    })
-
-    it("both tools give the output shape of the old stack", async () => {
-      const plane = {
-        read: structured(await readFile({ ref: CHECKOUT })),
-        list: structured(await listFiles({ path: "knowledge", depth: 3 })),
-      }
-      await setFlag("off")
-      try {
-        const legacy = {
-          read: structured(await readFile({ ref: CHECKOUT })),
-          list: structured(await listFiles({ path: "knowledge", depth: 3 })),
-        }
-        expect(shapeOf(plane)).toEqual(shapeOf(legacy))
-      } finally {
-        await setFlag("on")
-      }
     })
   })
 })

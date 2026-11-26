@@ -164,7 +164,7 @@ test("the manifest matches its schema and lists each check of each family", asyn
     )
   assert.equal(count("lint"), 3)
   assert.ok(count("policy") >= 8)
-  assert.equal(count("vitest", "latency"), 2)
+  assert.equal(count("vitest", "latency"), 1)
   assert.equal(count("vitest", "upgrade"), 1)
   assert.ok(count("storybook", "required") > 0)
   assert.ok(count("storybook", "plays") > 0)

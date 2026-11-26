@@ -15,10 +15,6 @@ import {
   splitSourcesTree,
 } from "../../domain/workspace-sources/source-tree.js"
 import { nativeFolderSetChanged } from "../../domain/workspaces/folder-list.js"
-import {
-  projectWorkspaceGraph,
-  type WorkspaceGraphWrite,
-} from "../../domain/workspaces/graph-projection.js"
 import { hydrateCommitBase } from "../../domain/workspaces/hydrate-delta.js"
 import { planHydrateWrites } from "../../domain/workspaces/hydrate-write-planner.js"
 import {
@@ -58,7 +54,6 @@ import {
 } from "../../domain/workspaces/workspace-format.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
 import { listOrgConnections } from "../../models/org-connections.js"
-import { getOrgFeature } from "../../models/org-features.js"
 import {
   loadKnowledgeProjectionSource,
   reingestedRepositories,
@@ -68,24 +63,16 @@ import { reserveHydrateWrites } from "../../models/workspace-write-planning.js"
 import {
   commitHydrateProjection,
   scrubHydrateUnits,
-  embedKnowledgeChunks,
   getLinkedReadBinding,
   getDesiredWorkspaceRevision,
   type HydrateCommit,
   countWorkspaceProjectionUnits,
   getWorkspaceProjectionState,
   listLinkedRepositories,
-  markKnowledgeEmbeddingsReady,
-  persistEmbeddingFailure,
   persistHydrateFailure,
   persistHydrateNoopReady,
-  persistWorkspaceGraphResult,
 } from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
-import {
-  embeddingModelId,
-  generateEmbeddings,
-} from "../../retrieval/services/modelProvider.js"
 import { listMarkdownFilesAtGitSha } from "../../services/git/clone-tree.js"
 import { readGitFiles, readGitPackFromRemote } from "../../services/git/pack.js"
 import { enqueueWorkflow } from "../client.js"
@@ -200,24 +187,22 @@ export function defineWorkspaceHydrateWorkflow() {
           // repository ingestion, where a lease would replace a step boundary
           // or a capacity queue. This lease does neither: each step stays
           // durable, and correctness does not depend on the lease (the commit
-          // locks the Workspace row and checks its base, and the graph delta
-          // is a compare-and-set). The lease only stops two runs of one
-          // Workspace from doing the same work at once. When a worker stops,
-          // the lease expires in 30 seconds and the retry takes it again.
+          // locks the Workspace row and checks its base). The lease only stops
+          // two runs of one Workspace from doing the same work at once. When a
+          // worker stops, the lease expires in 30 seconds and the retry takes
+          // it again.
           postgresSandboxLocks(input.orgId).withLock(
             `workspace-hydrate:${input.workspaceId}`,
             (lockSignal) => hydrateUnderLock(lockSignal),
           ),
       )
-      // After the old projections and outside the lock: the knowledge plane
-      // (ADR-067) runs as its own workflow. A failure or a ClickHouse outage
-      // does not mark the old projections failed, and does not delay them.
+      // After the Postgres projection and outside the lock: the knowledge
+      // plane (ADR-067) runs as its own workflow. A failure or a ClickHouse
+      // outage does not mark the hydrate failed, and does not delay it.
       // Each hydrate queues one run, and the queued runs merge (the run
       // applies the tip that the Workspace wants when it starts).
       if (queueKnowledgeProjection)
         await step.run({ name: "enqueue-knowledge-projection" }, async () => {
-          if ((await getOrgFeature(input.orgId, "knowledge_plane")) === "off")
-            return false
           await enqueueWorkflow(knowledgeProjection.spec, {
             orgId: input.orgId,
             workspaceId: input.workspaceId,
@@ -308,20 +293,15 @@ export function defineWorkspaceHydrateWorkflow() {
           // projection (below) reads them. A no-op, an index lag and a new revision do not.
           const snapshot = await getWorkspaceProjectionState(workspace.id)
           const projection = publishedProjection(snapshot.projection)
-          // A projection made before knowledge chunks existed is
-          // published again, once, so that it gets its chunks.
           const active =
             projection?.kind === "active" &&
             sameWorkspaceRevision(projection.revision, revision) &&
-            !snapshot.chunksMissing &&
             !input.reproject
               ? projection
               : null
           const pending = {
             postgres: !active,
-            embeddings: !active || active.stores.embeddings.kind !== "ready",
             index: !active || active.stores.index.kind !== "ready",
-            graph: !active || active.stores.graph.kind !== "ready",
           }
           const planning = await step.run(
             { name: "capture-planning-target" },
@@ -481,13 +461,11 @@ export function defineWorkspaceHydrateWorkflow() {
               })
             }
           }
-          if (
-            !pending.postgres &&
-            !pending.embeddings &&
-            !pending.index &&
-            !pending.graph
-          ) {
-            if (planning.needed) await enqueueRecordedBackfills()
+          // `planning.needed` is memoized: a retry after the commit made the
+          // revision active still runs the steps after the commit (the
+          // source projection, its follow-ups and the backfills). Each step
+          // that ended returns its kept output.
+          if (!pending.postgres && !planning.needed && !pending.index) {
             await enqueueRemainingWrites()
             // A retry of a published revision set the Workspace to pending.
             // No projection is written, so set it ready here.
@@ -496,13 +474,7 @@ export function defineWorkspaceHydrateWorkflow() {
             )
             return { hydrated: false, reason: "noop" as const }
           }
-          if (
-            pending.index &&
-            !pending.postgres &&
-            !pending.embeddings &&
-            !pending.graph
-          ) {
-            if (planning.needed) await enqueueRecordedBackfills()
+          if (pending.index && !pending.postgres && !planning.needed) {
             await enqueueLaggingIndex({
               orgId: input.orgId,
               revision,
@@ -685,8 +657,8 @@ export function defineWorkspaceHydrateWorkflow() {
                 ),
               )
             : []
-          // The units as Postgres and the graph store them: scrubbed before
-          // the org transaction and before the chunker (ADR-072).
+          // The units as Postgres stores them: scrubbed before the org
+          // transaction (ADR-072).
           const scrubbedUnits = await scrubHydrateUnits(committedUnits)
           if (pending.postgres) {
             const formatVersion = workspaceFormatCache({
@@ -707,7 +679,6 @@ export function defineWorkspaceHydrateWorkflow() {
                   (unit) => unit.source === LEGACY_UNIT_SOURCE,
                 ).length,
                 skipped: parsed.skipped,
-                embeddingModel: embeddingModelId(),
                 units: scrubbedUnits,
                 // The commit diffs the new units against the stored rows of
                 // the active projection (a partial write), or writes all
@@ -716,7 +687,6 @@ export function defineWorkspaceHydrateWorkflow() {
                   revision,
                   projection,
                   reproject: input.reproject === true,
-                  chunksMissing: snapshot.chunksMissing,
                   formatChanged: formatVersion !== workspace.formatVersion,
                 }),
               }),
@@ -799,85 +769,6 @@ export function defineWorkspaceHydrateWorkflow() {
           // enqueues.
           if (newGithubLinks.length) await enqueueBackfills(newGithubLinks)
 
-          let graphWrite: WorkspaceGraphWrite | null = null
-          if (activated && pending.graph) {
-            // A retry of a failed graph sets the phase back to pending, so
-            // that readers show the graph as building, not as failed. The
-            // phase keeps its first failure, so a crash in the retry loses
-            // neither its message nor its time, and the tip check spaces out
-            // the next retries from that time. The next tip check retries a
-            // phase that stays pending.
-            if (active?.stores.graph.kind === "failed")
-              await step.run({ name: "persist-graph-retry" }, () =>
-                persistWorkspaceGraphResult({
-                  revision,
-                  result: { kind: "pending" },
-                }),
-              )
-            try {
-              lockSignal.throwIfAborted()
-              graphWrite = await projectWorkspaceGraph(
-                revision,
-                committed?.mode === "partial"
-                  ? {
-                      base: committed.base,
-                      // The units as Postgres stores them: a full graph
-                      // write reads these values from Postgres.
-                      units: scrubbedUnits.map((unit) => ({
-                        servingId: unit.servingId,
-                        path: unit.path,
-                        kind: unit.kind ?? null,
-                        title: unit.title ?? null,
-                        source: unit.source ?? "authored",
-                        body: unit.body,
-                        links: unit.links,
-                        claims: unit.claims,
-                        updatedAt: unit.updatedAt,
-                      })),
-                      changedUnitIds: committed.changedUnitIds,
-                      removedUnitIds: committed.removedUnitIds,
-                    }
-                  : undefined,
-              )
-            } catch (error) {
-              log.error(
-                error instanceof Error ? error : new Error(String(error)),
-              )
-              // A step so that a failed write retries and the graph phase leaves `pending`.
-              await step.run({ name: "persist-graph-failure" }, () =>
-                persistWorkspaceGraphResult({
-                  revision,
-                  result: {
-                    kind: "failed",
-                    message:
-                      error instanceof Error ? error.message : String(error),
-                  },
-                }),
-              )
-            }
-          }
-
-          let embeddingTexts = 0
-          if (activated && pending.embeddings) {
-            try {
-              embeddingTexts = await embedKnowledgeChunks({
-                workspaceId: workspace.id,
-                embed: generateEmbeddings,
-              })
-              await markKnowledgeEmbeddingsReady({ revision })
-            } catch (error) {
-              log.error(
-                error instanceof Error
-                  ? error
-                  : new Error("hydrate embeddings failed"),
-              )
-              await persistEmbeddingFailure({
-                revision,
-                message: error instanceof Error ? error.message : String(error),
-              })
-            }
-          }
-
           if (pending.index) {
             await enqueueLaggingIndex({
               orgId: input.orgId,
@@ -897,15 +788,6 @@ export function defineWorkspaceHydrateWorkflow() {
               : 0,
             unitRowsWritten: committed?.unitRowsWritten ?? 0,
             unitRowsDeleted: committed?.unitRowsDeleted ?? 0,
-            chunkRowsInserted: committed?.chunkRowsInserted ?? 0,
-            chunkRowsDeleted: committed?.chunkRowsDeleted ?? 0,
-            graphMode: graphWrite?.mode ?? "none",
-            ...(graphWrite?.fullReason
-              ? { graphFullReason: graphWrite.fullReason }
-              : {}),
-            graphNodesWritten: graphWrite?.nodesWritten ?? 0,
-            graphEdgesWritten: graphWrite?.edgesWritten ?? 0,
-            embeddingTexts,
           }
           return {
             writes,

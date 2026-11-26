@@ -9,8 +9,8 @@ import {
 import { datasetSchema, type Question } from "../../evals/knowledge/dataset.js"
 import { buildReport, renderMarkdown } from "../../evals/knowledge/report.js"
 import type { Arm, ArmAnswer, Manifest } from "../../evals/knowledge/runner.js"
-import type { KnowledgeHit } from "../domain/workspaces/knowledge-search.js"
 import { searchKnowledgePage } from "../mcp/tools/search-knowledge.js"
+import type { KnowledgeHit } from "./knowledge-reader.js"
 
 /*
  * The regression checks of CTX-1518. Each check gets a small result with the

@@ -15,8 +15,6 @@ function mockEnv(baseUrl: string): Env {
     NODE_ENV: "test",
     PORT: 3000,
     UI_PROXY_URL: "http://localhost:3002",
-    GRAPH_DB_URI: "redis://localhost:6379",
-    GRAPH_DB_PROVIDER: "falkordb",
   } as Env
 }
 

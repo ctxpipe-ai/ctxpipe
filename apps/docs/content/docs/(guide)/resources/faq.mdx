@@ -105,9 +105,10 @@ Docker Compose: `pnpm start` runs the `deploy` profile. See
 
 ### Which databases does ctxpipe need?
 
-PostgreSQL with pgvector, and a graph database. FalkorDB is the default. Neo4j,
-Memgraph, and Amazon Neptune also work. See
-[Graph databases](/docs/self-hosting/graph-databases).
+PostgreSQL with pgvector, and ClickHouse. ClickHouse is the knowledge store:
+knowledge search, related items, and the graph read from it. ctxpipe needs no
+separate graph database. See
+[Knowledge store](/docs/self-hosting/configuration#knowledge-store).
 
 ### Which model providers work?
 

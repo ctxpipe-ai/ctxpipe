@@ -1,49 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { describe, expect, it } from "vitest"
 
 import type { Db } from "../../db/client.js"
-
-const retractClaimsFromGraphMock = vi.hoisted(() => vi.fn())
-const refreshClaimProjectionsMock = vi.hoisted(() => vi.fn())
-const deleteObjectsFromGraphMock = vi.hoisted(() => vi.fn())
-
-vi.mock("./graphProjection.js", () => ({
-  retractClaimsFromGraph: retractClaimsFromGraphMock,
-  refreshClaimProjections: refreshClaimProjectionsMock,
-  deleteObjectsFromGraph: deleteObjectsFromGraphMock,
-}))
-
-import {
-  applyIngestionRetractionGraphEffects,
-  purgeRepositoryEvidencePg,
-} from "./ingestionRetraction.js"
-
-describe("applyIngestionRetractionGraphEffects", () => {
-  beforeEach(() => {
-    retractClaimsFromGraphMock.mockReset().mockResolvedValue(undefined)
-    refreshClaimProjectionsMock.mockReset().mockResolvedValue(2)
-    deleteObjectsFromGraphMock.mockReset().mockResolvedValue(undefined)
-  })
-
-  it("batches retract, refresh, and delete instead of per-id loops", async () => {
-    const stats = await applyIngestionRetractionGraphEffects({
-      deletedClaimIds: ["c1", "c2", "c1"],
-      refreshedClaimIds: ["c3", "c4"],
-      deletedObjectIds: ["o1"],
-    })
-
-    expect(retractClaimsFromGraphMock).toHaveBeenCalledTimes(1)
-    expect(retractClaimsFromGraphMock).toHaveBeenCalledWith(["c1", "c2"])
-    expect(refreshClaimProjectionsMock).toHaveBeenCalledTimes(1)
-    expect(refreshClaimProjectionsMock).toHaveBeenCalledWith(["c3", "c4"])
-    expect(deleteObjectsFromGraphMock).toHaveBeenCalledTimes(1)
-    expect(deleteObjectsFromGraphMock).toHaveBeenCalledWith(["o1"])
-    expect(stats).toEqual({
-      graphEdgesDeleted: 2,
-      graphClaimsRefreshed: 2,
-      graphOrphanObjectsDeleted: 1,
-    })
-  })
-})
+import { purgeRepositoryEvidencePg } from "./ingestionRetraction.js"
 
 describe("purgeRepositoryEvidencePg (set-based)", () => {
   it("bulk-deletes fully-owned claims without per-claim reconcile updates", async () => {
@@ -110,7 +68,7 @@ describe("purgeRepositoryEvidencePg (set-based)", () => {
       },
     } as unknown as Db
 
-    const { stats, graphEffects } = await purgeRepositoryEvidencePg(db, {
+    const { stats } = await purgeRepositoryEvidencePg(db, {
       orgId: "org_1",
       repositoryId: "repo_1",
     })
@@ -119,8 +77,6 @@ describe("purgeRepositoryEvidencePg (set-based)", () => {
     expect(stats.claimsDeleted).toBe(3)
     expect(stats.claimsUpdated).toBe(0)
     expect(stats.orphanObjectsDeleted).toBe(6)
-    expect(graphEffects.deletedClaimIds).toEqual(claimIds)
-    expect(graphEffects.refreshedClaimIds).toEqual([])
     expect(ops.filter((o) => o === "update-claim")).toHaveLength(0)
     // One evidence delete + one claims delete + one objects delete (chunked once each)
     expect(ops.filter((o) => o === "delete").length).toBeGreaterThanOrEqual(3)
@@ -201,7 +157,7 @@ describe("purgeRepositoryEvidencePg (set-based)", () => {
       },
     } as unknown as Db
 
-    const { stats, graphEffects } = await purgeRepositoryEvidencePg(db, {
+    const { stats } = await purgeRepositoryEvidencePg(db, {
       orgId: "org_1",
       repositoryId: "repo_1",
     })
@@ -209,8 +165,6 @@ describe("purgeRepositoryEvidencePg (set-based)", () => {
     expect(stats.deletedEvidenceRows).toBe(2)
     expect(stats.claimsDeleted).toBe(1)
     expect(stats.claimsUpdated).toBe(1)
-    expect(graphEffects.deletedClaimIds).toEqual(["clm_only"])
-    expect(graphEffects.refreshedClaimIds).toEqual(["clm_multi"])
     expect(ops.filter((o) => o === "update-claim")).toHaveLength(0)
     expect(ops.filter((o) => o === "update-claim-batch")).toHaveLength(1)
   })

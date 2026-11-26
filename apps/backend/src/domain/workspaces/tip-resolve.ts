@@ -41,22 +41,19 @@ export function isDefaultBranchPush(
 export function shouldEnqueueCronHydrate(input: {
   projection: ProjectionState
   /**
-   * The UTC hour of the check and the first failure time of each failed
-   * phase. With it, a failed graph or index is built again only when
+   * The UTC hour of the check and the first failure time of the failed
+   * index. With it, a failed index is built again only when
    * `failedPhaseRetryDue` says so.
    */
-  retry?: { hour: string; failedAt: { graph?: string; index?: string } }
+  retry?: { hour: string; failedAt?: string }
 }): boolean {
   const projection = input.projection
   if (!desiredProjectionRevision(projection)) return false
   if (projection.kind !== "active") return true
-  if (projection.stores.embeddings.kind !== "ready") return true
+  const kind = projection.stores.index.kind
+  if (kind !== "failed") return kind !== "ready"
   const retry = input.retry
-  return (["graph", "index"] as const).some((phase) => {
-    const kind = projection.stores[phase].kind
-    if (kind !== "failed") return kind !== "ready"
-    return !retry || failedPhaseRetryDue(retry.failedAt[phase], retry.hour)
-  })
+  return !retry || failedPhaseRetryDue(retry.failedAt, retry.hour)
 }
 
 /**

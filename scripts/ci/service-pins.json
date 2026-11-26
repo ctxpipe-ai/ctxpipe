@@ -1,10 +1,4 @@
 {
-  "falkordb": {
-    "image": "falkordb/falkordb",
-    "tag": "v4.20.7",
-    "digest": "sha256:13996aa523f0dd283f6bd6df6620b094dcea525452417c4d6ef9bef15dc9998d",
-    "moduleVersion": 42007
-  },
   "postgres": {
     "image": "pgvector/pgvector",
     "tag": "0.8.7-pg17-bookworm",

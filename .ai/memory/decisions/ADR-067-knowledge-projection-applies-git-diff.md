@@ -1,6 +1,6 @@
 # ADR-067: The knowledge projection applies the Git diff, with eventual consistency
 
-**Status:** Accepted (the CTO, 2026-11-19; the writer, the state and the maintenance job are built) | **Date:** 2026-11-19 (revised 2026-11-20: the projection runs as its own workflow, outside the hydrate lock; amended 2026-11-21 by [ADR-071](ADR-071-knowledge-plane-branches.md): one projection for each branch; amended 2026-11-22 by [CTX-1519](https://linear.app/ctxpipe/issue/CTX-1519): the rebuild from Git after lost rows) | **Tags:** knowledge, clickhouse, hydrate, consistency, git
+**Status:** Accepted (the CTO, 2026-11-19; the writer, the state and the maintenance job are built) | **Date:** 2026-11-19 (revised 2026-11-20: the projection runs as its own workflow, outside the hydrate lock; amended 2026-11-21 by [ADR-071](ADR-071-knowledge-plane-branches.md): one projection for each branch; amended 2026-11-22 by [CTX-1519](https://linear.app/ctxpipe/issue/CTX-1519): the rebuild from Git after lost rows; amended 2026-11-26 by [CTX-1713](https://linear.app/ctxpipe/issue/CTX-1713): the old stack is removed) | **Tags:** knowledge, clickhouse, hydrate, consistency, git
 
 ## Context
 
@@ -28,6 +28,7 @@ Since [CTX-1369](https://linear.app/ctxpipe/issue/CTX-1369), a hydrate writes on
    - **Amended by [ADR-071](ADR-071-knowledge-plane-branches.md):** there is one row for each (Workspace, branch). It also holds the tree version of the head and, for a branch that is not the default branch, its merge base with the default branch. `attempt_shas` goes (decision 4).
 3. **The queue.** Each commit or webhook queues a hydrate run. After the hydrate releases the Workspace hydrate lock, it queues one `knowledge-projection` run. One projection run for each Workspace runs at a time, under its own lease. The queued runs for a Workspace merge, because each run goes to the current tip (the ADR-046 rule): the run reads the tip that the Workspace wants when it starts, not the SHA of its trigger.
    - The projection does not run inside the hydrate lock. Thus a ClickHouse outage or a slow embedding API does not delay the old stack ([ADR-069](ADR-069-knowledge-plane-evals-and-rollout.md) decision 9).
+   - **Amended 2026-11-26 by [CTX-1713](https://linear.app/ctxpipe/issue/CTX-1713):** the old stack is removed, and the hydrate has no embedding step and no graph step. The projection stays outside the hydrate lock. Thus a ClickHouse outage or a slow embedding API does not delay the hydrate of the Workspace repository and the codesearch indexes.
    - A run that finds the lease busy sleeps and tries again. A sleeping run holds no worker slot.
    - The projection run retries by itself, for about 5 minutes. When an outage is longer, the run fails, and the next hydrate of the Workspace queues a new run. Until then, the lag metric (decision 11) shows it.
    - **Amended by [ADR-071](ADR-071-knowledge-plane-branches.md):** each push to any branch queues a run for that (Workspace, branch), and the lease is for each (Workspace, branch). The tip rule is the same on each branch.

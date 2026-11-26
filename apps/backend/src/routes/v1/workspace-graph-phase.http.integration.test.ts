@@ -13,65 +13,50 @@ import {
 } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
 import { knowledgeBranchHeads } from "../../db/schema/knowledge_state.js"
-import { orgFeatures } from "../../db/schema/org_features.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import type { WorkspaceRevision } from "../../domain/workspaces/revision.js"
 import { workspaceHttpApp } from "../../test/workspace-http-fixture.js"
 import { workspaceRoutes } from "./workspaces.js"
 
 /*
- * The graph phase of the Workspace pane (CTX-1519). With the flag `on`, the
- * graph route reads the knowledge plane. So a FalkorDB graph that stays
- * `pending` (CTX-1007) must not keep the pane at "Building graph" when the
- * plane has a ready head.
+ * The graph phase of the Workspace pane (CTX-1519). The knowledge plane
+ * holds the graph. The phase is ready when the plane has a ready head of the
+ * Workspace, and the graph route answers "building" until then.
  */
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url))
 config({ path: resolve(__dirname, "../../../.env.local"), quiet: true })
 
 const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
-const orgOf = (flag: "on" | "shadow") => ({
-  id: `org_test_graph_phase_${flag}_${suffix}`,
-  slug: `graph-phase-${flag}-${suffix}`,
-  name: `Graph phase ${flag}`,
-})
-const orgs = { on: orgOf("on"), shadow: orgOf("shadow") }
+const org = {
+  id: `org_test_graph_phase_${suffix}`,
+  slug: `graph-phase-${suffix}`,
+  name: "Graph phase",
+}
 
 beforeAll(async () => {
   if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required")
   initDb(process.env.DATABASE_URL)
-  for (const [flag, org] of Object.entries(orgs)) {
-    await getSystemDb()
-      .insert(organizations)
-      .values({ ...org, createdAt: new Date() })
-    await withOrgDbContext(org.id, (db) =>
-      db.insert(orgFeatures).values({
-        organizationId: org.id,
-        feature: "knowledge_plane",
-        value: flag,
-      }),
-    )
-  }
+  await getSystemDb()
+    .insert(organizations)
+    .values({ ...org, createdAt: new Date() })
 })
 
 afterAll(async () => {
-  const ids = Object.values(orgs).map((org) => org.id)
-  for (const id of ids)
-    await withOrgDbContext(id, (db) =>
-      db.delete(workspaces).where(inArray(workspaces.orgId, [id])),
-    )
+  await withOrgDbContext(org.id, (db) =>
+    db.delete(workspaces).where(inArray(workspaces.orgId, [org.id])),
+  )
   await getSystemDb()
     .delete(organizations)
-    .where(inArray(organizations.id, ids))
+    .where(inArray(organizations.id, [org.id]))
   await closeDb()
 })
 
 /**
- * A Workspace whose FalkorDB graph of the active revision is `pending`,
- * with a ready head of the knowledge plane when `planeHead` is true.
+ * A Workspace with a ready projection and index, with a ready head of the
+ * knowledge plane when `planeHead` is true.
  */
 async function seedWorkspace(
-  org: { id: string },
   name: string,
   planeHead: boolean,
 ): Promise<string> {
@@ -107,8 +92,6 @@ async function seedWorkspace(
         url,
         sha,
         revision,
-        embeddings: true,
-        graph: { revision, result: { kind: "pending" } },
         index: { revision, result: { kind: "ready" } },
       },
     })
@@ -126,10 +109,7 @@ async function seedWorkspace(
   return name
 }
 
-async function graphPhase(
-  org: { id: string; slug: string; name: string },
-  slug: string,
-) {
+async function graphPhase(slug: string) {
   const response = await workspaceHttpApp(org, workspaceRoutes).request(
     `/workspaces/${slug}`,
   )
@@ -140,23 +120,16 @@ async function graphPhase(
   return body.hydratePhases.graph.kind
 }
 
-it("with the flag `on` and a ready plane head, the graph is ready while the FalkorDB graph is pending", async () => {
-  expect(
-    await graphPhase(orgs.on, await seedWorkspace(orgs.on, "plane", true)),
-  ).toBe("ready")
+it("with a ready plane head, the graph phase is ready", async () => {
+  expect(await graphPhase(await seedWorkspace("plane", true))).toBe("ready")
 })
 
-it("with the flag `on` and no plane head, the pane shows the FalkorDB phase", async () => {
-  expect(
-    await graphPhase(orgs.on, await seedWorkspace(orgs.on, "no-plane", false)),
-  ).toBe("pending")
-})
-
-it("with the flag `shadow`, the pane shows the FalkorDB phase, also with a plane head", async () => {
-  expect(
-    await graphPhase(
-      orgs.shadow,
-      await seedWorkspace(orgs.shadow, "shadow", true),
-    ),
-  ).toBe("pending")
+it("with no plane head, the graph phase is pending, and the graph route answers 202 building", async () => {
+  const slug = await seedWorkspace("no-plane", false)
+  expect(await graphPhase(slug)).toBe("pending")
+  const response = await workspaceHttpApp(org, workspaceRoutes).request(
+    `/workspaces/${slug}/graph`,
+  )
+  expect(response.status).toBe(202)
+  expect(await response.json()).toEqual({ building: true })
 })

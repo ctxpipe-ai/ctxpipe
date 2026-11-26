@@ -22,8 +22,6 @@ import {
   countWorkspaceProjectionUnits,
   getWorkspaceProjectionState,
   listWorkspaceKnowledgeUnits,
-  markKnowledgeEmbeddingsReady,
-  persistEmbeddingFailure,
   persistHydrateFailure,
   persistHydrateRetry,
 } from "../../models/workspaces.js"
@@ -330,26 +328,7 @@ it(
         expect(await getWorkspaceProjection(workspaceId)).toMatchObject({
           kind: "active",
           revision: { generation: 1, sha },
-          stores: {
-            embeddings: { kind: "ready" },
-            index: { kind: "failed" },
-          },
-        })
-      })
-    }),
-)
-
-it(
-  "marks an incomplete embedding response failed without losing the projection",
-  { timeout: 60_000 },
-  async () =>
-    withNativeHydrationFixture({ embeddings: "empty" }, async (f) => {
-      const { org, workspaceId } = f
-      await f.publish()
-      await withOrgIdContext(org, async () => {
-        expect(await getWorkspaceProjection(workspaceId)).toMatchObject({
-          kind: "active",
-          stores: { embeddings: { kind: "failed" } },
+          stores: { index: { kind: "failed" } },
         })
       })
     }),
@@ -452,7 +431,7 @@ it(
 )
 
 it(
-  "preserves independent store failure and retry results",
+  "an index failure keeps the published units",
   { timeout: 60_000 },
   async () =>
     withNativeHydrationFixture({}, async (f) => {
@@ -474,76 +453,11 @@ it(
             projection: {
               kind: "active",
               revision: { generation: 1, sha },
-              stores: {
-                embeddings: { kind: "ready" },
-                index: { kind: "failed" },
-              },
+              stores: { index: { kind: "failed" } },
             },
             units: expected,
           },
         )
-        const active = await getWorkspaceProjection(workspaceId)
-        if (active.kind !== "active")
-          throw new Error("Expected active revision")
-        await persistEmbeddingFailure({
-          revision: active.revision,
-          message: "Concurrent embedding refresh failed",
-        })
-        expect(await getWorkspaceProjection(workspaceId)).toMatchObject({
-          kind: "active",
-          stores: {
-            embeddings: { kind: "failed" },
-            index: { kind: "failed" },
-          },
-        })
-        await markKnowledgeEmbeddingsReady({ revision: active.revision })
-        expect(await getWorkspaceProjection(workspaceId)).toMatchObject({
-          kind: "active",
-          stores: {
-            embeddings: { kind: "ready" },
-            index: { kind: "failed" },
-          },
-        })
-      })
-    }),
-)
-
-it(
-  "retries embeddings from PostgreSQL after the Git remote disappears",
-  { timeout: 60_000 },
-  async () =>
-    withNativeHydrationFixture({ embeddings: "failed" }, async (f) => {
-      const { org, workspaceId, sha, remote, runner, expected } = f
-      await f.publish()
-      await withOrgIdContext(org, async () => {
-        expect(await getWorkspaceProjection(workspaceId)).toMatchObject({
-          kind: "active",
-          revision: { generation: 1, sha },
-          stores: { embeddings: { kind: "failed" } },
-        })
-      })
-      rmSync(remote, { recursive: true, force: true })
-      f.repairEmbeddings()
-      const retry = await runner.runWorkflow(workspaceHydrate.spec, {
-        orgId: org.id,
-        workspaceId,
-        revision: await f.resolveRevision(),
-      })
-      expect(await retry.result({ timeoutMs: 30_000 })).toMatchObject({
-        hydrated: true,
-        units: 1,
-      })
-      await withOrgIdContext(org, async () => {
-        expect(await getWorkspaceProjection(workspaceId)).toMatchObject({
-          kind: "active",
-          revision: { generation: 1, sha },
-          stores: { embeddings: { kind: "ready" } },
-        })
-        expect(
-          (await listWorkspaceKnowledgeUnits(workspaceId)).units.map(
-            ({ path, body }) => ({ path, body }),
-          ),
-        ).toEqual(expected)
       })
     }),
 )
@@ -657,7 +571,7 @@ it(
           body: "# Replacement\nNew committed content.\n",
         },
       ])
-      // Later phase writes (embeddings, index) merge into the record and keep the list.
+      // A later write of the index phase merges into the record and keeps the list.
       const indexRun = await runner.runWorkflow(workspaceIndex.spec, {
         orgId: org.id,
         revision: nextRevision,
@@ -789,7 +703,6 @@ it(
             legacyKnowledgeFiles: 0,
             units: [duplicate, duplicate],
             skipped: [],
-            embeddingModel: "fixture-embedding",
           }),
         ),
       ).rejects.toMatchObject({ cause: { code: "23505" } })
@@ -972,26 +885,6 @@ it(
       } finally {
         await indexQueue.stop()
       }
-    }),
-)
-
-it(
-  "discards embedding results from a superseded generation",
-  { timeout: 60_000 },
-  async () =>
-    withNativeHydrationFixture({}, async (f) => {
-      const { org, workspaceId } = f
-      await f.publish()
-      const { revision } = await replaceGeneration(f)
-      await withOrgIdContext(org, async () => {
-        const [unit] = (await getWorkspaceProjectionSnapshot(workspaceId)).units
-        if (!unit) throw new Error("Expected the active knowledge unit")
-        expect(await markKnowledgeEmbeddingsReady({ revision })).toBe(false)
-        expect(
-          (await getWorkspaceProjectionSnapshot(workspaceId)).units[0]
-            ?.embedded,
-        ).toBe(true)
-      })
     }),
 )
 

@@ -8,11 +8,6 @@ import { objects } from "../../db/schema/objects.js"
 import { log } from "../../observability/logger.js"
 import type { ExtractionMethod, SourceType } from "../schema/claims.js"
 import { aggregateConfidence } from "./confidenceAggregation.js"
-import {
-  deleteObjectsFromGraph,
-  refreshClaimProjections,
-  retractClaimsFromGraph,
-} from "./graphProjection.js"
 
 /** Keep deletes under Postgres parameter limits and log progress on large purges. */
 const EVIDENCE_DELETE_CHUNK_SIZE = 500
@@ -20,45 +15,18 @@ const EVIDENCE_DELETE_CHUNK_SIZE = 500
 type SourceTypeValue = z.infer<typeof SourceType>
 type ExtractionMethodValue = z.infer<typeof ExtractionMethod>
 
-/**
- * Counters for partial-ingest retraction. Evidence/claim/orphan-object mutations are
- * recorded inside {@link retractIngestionForDiffPg} (Postgres transaction). Graph-side
- * deletes/refreshes run later via {@link applyIngestionRetractionGraphEffects} (Falkor);
- * `graph*` fields stay 0 until that step merges them into this snapshot.
- */
+/** Counters of a retraction of claim evidence, in one Postgres transaction. */
 export type RetractionStats = {
-  /** Postgres: `claim_evidence` rows updated for path renames (within the PG transaction). */
+  /** `claim_evidence` rows updated for path renames. */
   renamedEvidenceRows: number
-  /** Postgres: `claim_evidence` rows deleted for changed/removed paths (within the PG transaction). */
+  /** `claim_evidence` rows deleted for changed/removed paths. */
   deletedEvidenceRows: number
-  /** Postgres: claims reconciled (aggregate refresh) after evidence changes. */
+  /** Claims reconciled (aggregate refresh) after evidence changes. */
   claimsUpdated: number
-  /** Postgres: claims deleted after all evidence for a claim was removed. */
+  /** Claims deleted after all evidence for a claim was removed. */
   claimsDeleted: number
-  /** Postgres: `objects` rows removed after orphan claim deletion (within the PG transaction). */
+  /** `objects` rows removed after orphan claim deletion. */
   orphanObjectsDeleted: number
-  /**
-   * Falkor: claim edges removed by {@link applyIngestionRetractionGraphEffects}. Filled when
-   * the workflow merges that step's return value into stats; 0 before graph sync.
-   */
-  graphEdgesDeleted: number
-  /**
-   * Falkor: claim projections refreshed after evidence updates. Filled after graph sync;
-   * 0 in {@link retractIngestionForDiffPg} results until merged.
-   */
-  graphClaimsRefreshed: number
-  /**
-   * Falkor: orphan object nodes deleted after Postgres orphan removal. Filled after graph
-   * sync; 0 before merge.
-   */
-  graphOrphanObjectsDeleted: number
-}
-
-export type IngestionRetractionGraphEffects = {
-  deletedClaimIds: string[]
-  refreshedClaimIds: string[]
-  /** Object ids removed in Postgres; Falkor nodes deleted in the graph sync step. */
-  deletedObjectIds: string[]
 }
 
 function emptyStats(): RetractionStats {
@@ -68,9 +36,6 @@ function emptyStats(): RetractionStats {
     claimsUpdated: 0,
     claimsDeleted: 0,
     orphanObjectsDeleted: 0,
-    graphEdgesDeleted: 0,
-    graphClaimsRefreshed: 0,
-    graphOrphanObjectsDeleted: 0,
   }
 }
 
@@ -85,34 +50,6 @@ function repoEvidenceFilter(repositoryId: string) {
     sql`strpos(${claimEvidence.logicalSourceKey}::text, ${needle}) > 0`,
     sql`strpos(${claimEvidence.sourceId}::text, ${needle}) > 0`,
   )
-}
-
-/**
- * Falkor-only follow-up for {@link retractIngestionForDiffPg}. Call only after the org
- * Postgres transaction that performed evidence/claim updates has committed (e.g. from a
- * workflow step after `withOrgDbContext`). Workflows that track {@link RetractionStats}
- * should merge the returned counts into the same stats object (see repository-ingestion).
- */
-export async function applyIngestionRetractionGraphEffects(
-  effects: IngestionRetractionGraphEffects,
-): Promise<{
-  graphEdgesDeleted: number
-  graphClaimsRefreshed: number
-  graphOrphanObjectsDeleted: number
-}> {
-  const deletedClaimIds = [...new Set(effects.deletedClaimIds)]
-  const refreshedClaimIds = [...new Set(effects.refreshedClaimIds)]
-  const deletedObjectIds = [...new Set(effects.deletedObjectIds)]
-
-  await retractClaimsFromGraph(deletedClaimIds)
-  await refreshClaimProjections(refreshedClaimIds)
-  await deleteObjectsFromGraph(deletedObjectIds)
-
-  return {
-    graphEdgesDeleted: deletedClaimIds.length,
-    graphClaimsRefreshed: refreshedClaimIds.length,
-    graphOrphanObjectsDeleted: deletedObjectIds.length,
-  }
 }
 
 async function chunkedInArraySelect<T>(
@@ -312,7 +249,7 @@ async function retractEvidenceRowsInTx(
 
 /**
  * Removes all claim evidence tied to a repository (any path), reconciles affected
- * claims (recompute confidence or delete), and returns Falkor follow-up work.
+ * claims (recompute confidence or delete).
  * Use when a repository is deleted: multi-source facts keep remaining proofs.
  *
  * Hot path is set-based: fully-repo-owned claims are bulk-deleted; only claims
@@ -321,16 +258,11 @@ async function retractEvidenceRowsInTx(
 export async function purgeRepositoryEvidencePg(
   db: Db,
   params: { orgId: string; repositoryId: string },
-): Promise<{
-  stats: RetractionStats
-  graphEffects: IngestionRetractionGraphEffects
-}> {
+): Promise<{ stats: RetractionStats }> {
   const { orgId, repositoryId } = params
   const stats = emptyStats()
   const now = new Date()
   const deletedObjectIds = new Set<string>()
-  let graphDeletedClaimIds: string[] = []
-  let graphUpdatedClaimIds: string[] = []
 
   await db.transaction(async (tx) => {
     const started = Date.now()
@@ -340,11 +272,7 @@ export async function purgeRepositoryEvidencePg(
       .innerJoin(claims, eq(claimEvidence.claimId, claims.id))
       .where(and(eq(claims.orgId, orgId), repoEvidenceFilter(repositoryId)))
 
-    if (rows.length === 0) {
-      graphDeletedClaimIds = []
-      graphUpdatedClaimIds = []
-      return
-    }
+    if (rows.length === 0) return
 
     const outcome = await retractEvidenceRowsInTx(tx, {
       orgId,
@@ -353,8 +281,6 @@ export async function purgeRepositoryEvidencePg(
       stats,
       deletedObjectIds,
     })
-    graphDeletedClaimIds = outcome.deletedClaimIds
-    graphUpdatedClaimIds = outcome.updatedClaimIds
 
     log.info({
       step: "repositoryDeletion.evidence_purge.progress",
@@ -372,12 +298,5 @@ export async function purgeRepositoryEvidencePg(
 
   stats.orphanObjectsDeleted = deletedObjectIds.size
 
-  return {
-    stats,
-    graphEffects: {
-      deletedClaimIds: graphDeletedClaimIds,
-      refreshedClaimIds: graphUpdatedClaimIds,
-      deletedObjectIds: [...deletedObjectIds],
-    },
-  }
+  return { stats }
 }

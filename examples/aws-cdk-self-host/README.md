@@ -11,7 +11,7 @@ One CloudFormation stack whose resources are defined entirely by `CtxPipe`. See 
 ## Prerequisites
 
 1. **AWS credentials** for a sandbox account with permissions to create the resources listed in the package README.
-2. **Region**: use one that supports Neptune and SES (for example `us-east-1`).
+2. **Region**: use one that supports SES (for example `us-east-1`).
 3. **Tooling**: Node.js 24+, pnpm 11, AWS CLI for the same account.
 4. From the repo root:
 
@@ -29,13 +29,12 @@ One CloudFormation stack whose resources are defined entirely by `CtxPipe`. See 
 
 ## Configuration
 
-The entrypoint [`bin/app.ts`](./bin/app.ts) reads CDK context and passes **`CtxPipeProps`**: `orgSlug`, optional `size`, `modelProvider`, and `customDomain`. Service image tag selection is internal to `@ctxpipe/aws-cdk` and release-managed. **Validation is performed inside `CtxPipe`**, not in this example.
+The entrypoint [`bin/app.ts`](./bin/app.ts) reads CDK context and passes **`CtxPipeProps`**: optional `size`, `modelProvider`, and `customDomain`. Service image tag selection is internal to `@ctxpipe/aws-cdk` and release-managed. **Validation is performed inside `CtxPipe`**, not in this example.
 
-At deploy time you can override values with CLI `-c` or by editing [`cdk.json`](./cdk.json). Defaults in `cdk.json` match the ctxpipe AWS sandbox (`testing-4mh`, `app.aws.ctxpipe.ai`) so `cdk bootstrap` and `cdk synth` work without extra flags.
+At deploy time you can override values with CLI `-c` or by editing [`cdk.json`](./cdk.json). Defaults in `cdk.json` match the ctxpipe AWS sandbox (`app.aws.ctxpipe.ai`) so `cdk bootstrap` and `cdk synth` work without extra flags.
 
 | Context key      | Maps to                                                   |
 | ---------------- | --------------------------------------------------------- |
-| `orgSlug`        | `orgSlug`                                                 |
 | `domainName`     | `customDomain.domainName`                                 |
 | `hostedZoneId`   | `customDomain.hostedZoneId`                               |
 | `modelFast`      | `modelProvider.models.fast` → `MODEL_FAST_NAME`           |
@@ -59,7 +58,6 @@ Deploy → smoke (`/health`) → destroy:
 
 ```bash
 pnpm --filter @ctxpipe/aws-cdk-self-host e2e \
-  -c orgSlug="acme" \
   -c size="small" \
   -c domainName="app.example.com" \
   -c hostedZoneId="Z0123456789ABCDEF"
@@ -69,7 +67,7 @@ Keep the stack for debugging:
 
 ```bash
 pnpm --filter @ctxpipe/aws-cdk-self-host e2e:keep \
-  -c orgSlug=... -c size=small -c domainName=... -c hostedZoneId=...
+  -c size=small -c domainName=... -c hostedZoneId=...
 ```
 
 Tear down later (stack only):
@@ -119,7 +117,7 @@ pnpm --filter @ctxpipe/aws-cdk-self-host cdk deploy
 
 ### Expected runtime
 
-- `cdk deploy`: roughly 25–30 minutes on first run (Aurora, Neptune, SES custom resource).
+- `cdk deploy`: roughly 25–30 minutes on first run (Aurora, the ClickHouse knowledge store, SES custom resource).
 - `smoke`: polls every 15s for up to ~20 minutes (ECS and migrations).
 - `cdk destroy` / `teardown`: roughly 10–15 minutes for the stack delete, plus a short orphan-purge pass.
 
@@ -131,8 +129,8 @@ pnpm --filter @ctxpipe/aws-cdk-self-host cdk deploy
 
 ## Cost note
 
-While the stack runs: NAT gateway, Aurora, Neptune, ALB, and Fargate are billed continuously—often on the order of a few dollars per hour in `us-east-1`. Destroy when finished. Prefer `pnpm teardown` so retained EFS and final DB snapshots do not keep accruing storage cost after destroy.
+While the stack runs: NAT gateway, Aurora, the ClickHouse knowledge store host, ALB, and Fargate are billed continuously—often on the order of a few dollars per hour in `us-east-1`. Destroy when finished. Prefer `pnpm teardown` so retained EFS and final DB snapshots do not keep accruing storage cost after destroy.
 
 ## Cleanup caveats
 
-The construct uses conservative removal policies: Aurora and Neptune take final snapshots (`RemovalPolicy.SNAPSHOT`); codesearch EFS is retained (`RemovalPolicy.RETAIN`); Secrets Manager may sit in a recovery window; SES identity may remain. Use `pnpm teardown` instead of the console for those leftovers.
+The construct uses conservative removal policies: Aurora takes a final snapshot (`RemovalPolicy.SNAPSHOT`); codesearch EFS is retained (`RemovalPolicy.RETAIN`); Secrets Manager may sit in a recovery window; SES identity may remain. Use `pnpm teardown` instead of the console for those leftovers. `pnpm teardown` also deletes the final Neptune snapshot that a stack of a version before 4.0.0 left.

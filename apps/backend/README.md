@@ -72,7 +72,7 @@ For **local development**, GitHub cannot deliver webhooks to `localhost`; use an
 
 ## Contract tests
 
-Run `pnpm test:contracts` with `DATABASE_URL`, `AUTH_SECRET`, and `GRAPH_DB_URI` pointing to disposable development services. The lane checks PostgreSQL, a writable FalkorDB graph, Git, Bun, OpenCode, Zoekt and ast-grep before executing contracts; missing prerequisites fail the run. CI provisions PostgreSQL and a pinned FalkorDB image. Native graph contracts create scoped ACL users and delete their own tenant graphs, so their FalkorDB test connection needs ACL administration permissions.
+Run `pnpm test:contracts` with `DATABASE_URL`, `AUTH_SECRET`, and `CLICKHOUSE_URL` pointing to disposable development services. The lane checks PostgreSQL, ClickHouse, Git, Bun, OpenCode, Zoekt and ast-grep before executing contracts; missing prerequisites fail the run. The ClickHouse user in `CLICKHOUSE_URL` must have SQL access management, because the knowledge store contracts make their own users.
 
 ## Scripts (this package)
 

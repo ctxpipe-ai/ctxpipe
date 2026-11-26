@@ -131,7 +131,6 @@ const baseTestEnv = {
   NODE_ENV: "test",
   DATABASE_URL: "postgresql://ctxpipe:ctxpipe@localhost:5433/ctxpipe", // pragma: allowlist secret
   AUTH_SECRET: "01234567890123456789012345678901",
-  GRAPH_DB_URI: "redis://localhost:6379", // pragma: allowlist secret
 } as const
 
 const testEnv = parseEnv({ ...baseTestEnv })

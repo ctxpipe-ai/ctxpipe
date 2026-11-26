@@ -6,9 +6,7 @@ const getSystemDbMock = vi.hoisted(() => vi.fn())
 const withOrgDbContextMock = vi.hoisted(() =>
   vi.fn((_orgId: string, fn: () => unknown) => fn()),
 )
-const withGraphClientMock = vi.hoisted(() => vi.fn())
 const purgeRepositoryPostgresMock = vi.hoisted(() => vi.fn())
-const applyRepositoryDeletionGraphCleanupMock = vi.hoisted(() => vi.fn())
 const notifyCodesearchRepositoryDeletedMock = vi.hoisted(() => vi.fn())
 const enqueueDeletionMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue({ jobId: "run_1", status: "queued" }),
@@ -28,13 +26,8 @@ vi.mock("../db/client.js", () => ({
   withOrgDbContext: withOrgDbContextMock,
 }))
 
-vi.mock("../platform/graph/client.js", () => ({
-  withGraphClient: withGraphClientMock,
-}))
-
 vi.mock("../domain/repositoryDeletion.js", () => ({
   purgeRepositoryPostgres: purgeRepositoryPostgresMock,
-  applyRepositoryDeletionGraphCleanup: applyRepositoryDeletionGraphCleanupMock,
   notifyCodesearchRepositoryDeleted: notifyCodesearchRepositoryDeletedMock,
 }))
 
@@ -50,7 +43,6 @@ import {
 
 const orgId = "org_1"
 const githubConnectionId = "con_github"
-const orgSlug = "acme"
 const repositoryId = "repo_AAAAAAAAAAAAAAAAAAAAAAAAAA"
 
 describe("pruneGithubConnectionRepositoriesNotInGitUrls", () => {
@@ -112,7 +104,6 @@ describe("pruneGithubConnectionRepositoriesNotInGitUrls", () => {
       },
       expect.any(Object),
     )
-    expect(withGraphClientMock).not.toHaveBeenCalled()
   })
 
   it("does not enqueue when all linked gitUrls are allowed", async () => {
@@ -152,27 +143,18 @@ describe("deleteRepository", () => {
     withOrgDbContextMock.mockImplementation(
       (_orgId: string, fn: () => unknown) => fn(),
     )
-    withGraphClientMock.mockImplementation(
-      (_ctx: unknown, fn: () => Promise<unknown>) => fn(),
-    )
     purgeRepositoryPostgresMock.mockResolvedValue({
       deleted: true,
       alreadyGone: false,
       name: "ctxpipe",
       zoektRepoId: 9,
       stats: {},
-      graphEffects: {
-        deletedClaimIds: ["c1"],
-        refreshedClaimIds: [],
-        deletedObjectIds: [],
-      },
     })
-    applyRepositoryDeletionGraphCleanupMock.mockResolvedValue(undefined)
     notifyCodesearchRepositoryDeletedMock.mockResolvedValue(undefined)
   })
 
-  it("runs Postgres purge inside withOrgDbContext and graph/codesearch after", async () => {
-    await deleteRepository({ orgId, orgSlug, repositoryId })
+  it("runs the Postgres purge inside withOrgDbContext, then tells codesearch", async () => {
+    await deleteRepository({ orgId, repositoryId })
 
     expect(withOrgDbContextMock).toHaveBeenCalledWith(
       orgId,
@@ -182,51 +164,32 @@ describe("deleteRepository", () => {
       orgId,
       repositoryId,
     })
-    expect(withGraphClientMock).toHaveBeenCalledWith(
-      { orgId, orgSlug },
-      expect.any(Function),
-    )
-    expect(applyRepositoryDeletionGraphCleanupMock).toHaveBeenCalledWith({
-      repositoryId,
-      graphEffects: {
-        deletedClaimIds: ["c1"],
-        refreshedClaimIds: [],
-        deletedObjectIds: [],
-      },
-    })
     expect(notifyCodesearchRepositoryDeletedMock).toHaveBeenCalledWith({
       orgId,
       repositoryId,
       repoName: "ctxpipe",
       zoektRepoId: 9,
     })
-    const graphCallOrder = withGraphClientMock.mock.invocationCallOrder[0]
-    if (graphCallOrder === undefined)
-      throw new Error("Graph cleanup was not called")
+    const codesearchCallOrder =
+      notifyCodesearchRepositoryDeletedMock.mock.invocationCallOrder[0]
+    if (codesearchCallOrder === undefined)
+      throw new Error("Codesearch was not told")
     expect(withOrgDbContextMock.mock.invocationCallOrder[0]).toBeLessThan(
-      graphCallOrder,
+      codesearchCallOrder,
     )
   })
 
-  it("skips graph/codesearch when the repository is already gone", async () => {
+  it("skips codesearch when the repository is already gone", async () => {
     purgeRepositoryPostgresMock.mockResolvedValue({
       deleted: false,
       alreadyGone: true,
       name: null,
       zoektRepoId: null,
       stats: {},
-      graphEffects: {
-        deletedClaimIds: [],
-        refreshedClaimIds: [],
-        deletedObjectIds: [],
-      },
     })
 
-    await expect(
-      deleteRepository({ orgId, orgSlug, repositoryId }),
-    ).resolves.toBe(false)
+    await expect(deleteRepository({ orgId, repositoryId })).resolves.toBe(false)
 
-    expect(withGraphClientMock).not.toHaveBeenCalled()
     expect(notifyCodesearchRepositoryDeletedMock).not.toHaveBeenCalled()
   })
 })

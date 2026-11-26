@@ -9,8 +9,6 @@ import { backfillLegacyKnowledgeFiles } from "./backfill-legacy-knowledge-files.
 import { backfillNullOrgIds } from "./backfill-null-org-ids.js"
 import { backfillRepositoryIngestionRequests } from "./backfill-repository-ingestion-requests.js"
 import { clearRetiredWriteStepOutputs } from "./clear-retired-write-step-outputs.js"
-import { buildKnowledgeIndexes } from "./knowledge-indexes.js"
-import { checkKnowledgeSearchPlan } from "./knowledge-search-plan.js"
 import { migrateOpenWorkflow } from "./migrate-openworkflow.js"
 import { APP_ROLE_NAME, provisionAppRole } from "./provision-app-role.js"
 import { provisionConsoleRole } from "./provision-console-role.js"
@@ -18,9 +16,8 @@ import { reconcileConnectionDirectory } from "./reconcile-connection-directory.j
 
 /**
  * The one migrate sequence for hosted, Compose, CDK and local dev. Run it as the
- * table owner. Steps: app role, Drizzle, OpenWorkflow, the concurrent builds of the
- * knowledge chunks' indexes, every backfill, grants, the console role,
- * the plan of the knowledge search's full-text match as the app role.
+ * table owner. Steps: app role, Drizzle, OpenWorkflow, every backfill, grants, the
+ * console role.
  * Each step is idempotent, so a second run changes nothing.
  */
 export async function runMigrations(options: {
@@ -81,8 +78,6 @@ export async function runMigrations(options: {
         fileURLToPath(new URL("../../migrations", import.meta.url)),
     )
     await migrateOpenWorkflow(options.connectionString)
-    // Outside Drizzle's transaction: a concurrent index build cannot run in one.
-    await buildKnowledgeIndexes(options.connectionString)
 
     await backfillNullOrgIds(pool)
     await backfillRepositoryIngestionRequests(pool)
@@ -99,7 +94,6 @@ export async function runMigrations(options: {
     await provisionAppRole(pool, undefined, roleName)
     // After OpenWorkflow's migrations: it limits access to their runs table.
     await provisionConsoleRole(pool)
-    await checkKnowledgeSearchPlan(pool, roleName)
   } catch (error) {
     if (!(error instanceof LockRetriesExhaustedError) && isLockTimeout(error))
       throw new Error(

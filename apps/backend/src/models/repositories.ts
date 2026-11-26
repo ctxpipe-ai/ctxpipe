@@ -24,7 +24,6 @@ import {
   resolveIndexingStep,
 } from "../domain/indexingSteps.js"
 import {
-  applyRepositoryDeletionGraphCleanup,
   notifyCodesearchRepositoryDeleted,
   purgeRepositoryPostgres,
 } from "../domain/repositoryDeletion.js"
@@ -35,7 +34,6 @@ import {
 import { generateObjectId } from "../lib/id.js"
 import { userFacingIndexingError } from "../lib/memoryFitError.js"
 import { log } from "../observability/logger.js"
-import { withGraphClient } from "../platform/graph/client.js"
 import {
   GIT_REMOTE_ACCESS_MESSAGES,
   type GitRemoteAccessError,
@@ -1064,14 +1062,13 @@ export const bulkCreateRepositoriesForOrg = async (
 /**
  * Synchronous phased delete (tests / scripts). Prefer
  * {@link enqueueRepositoryDeletionWorkflow} for API/prune paths so cleanup
- * survives process restarts and does not hold a PG txn across Falkor/HTTP.
+ * survives process restarts and does not hold a PG txn across HTTP.
  *
- * Postgres purge runs in a short `withOrgDbContext`; graph + codesearch run
- * after that transaction commits.
+ * Postgres purge runs in a short `withOrgDbContext`; codesearch runs after
+ * that transaction commits.
  */
 export async function deleteRepository(params: {
   orgId: string
-  orgSlug: string
   repositoryId: string
 }): Promise<boolean> {
   const pg = await withOrgDbContext(params.orgId, () =>
@@ -1081,13 +1078,6 @@ export async function deleteRepository(params: {
     }),
   )
   if (pg.alreadyGone) return false
-
-  await withGraphClient({ orgId: params.orgId, orgSlug: params.orgSlug }, () =>
-    applyRepositoryDeletionGraphCleanup({
-      repositoryId: params.repositoryId,
-      graphEffects: pg.graphEffects,
-    }),
-  )
 
   if (pg.name != null && pg.zoektRepoId != null && pg.zoektRepoId > 0) {
     await notifyCodesearchRepositoryDeleted({

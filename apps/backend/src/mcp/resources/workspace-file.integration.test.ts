@@ -1,3 +1,5 @@
+import { rmSync } from "node:fs"
+
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
@@ -5,7 +7,7 @@ import { eq } from "drizzle-orm"
 import { evlog } from "evlog/hono"
 import { Hono } from "hono"
 import { contextStorage } from "hono/context-storage"
-import { HttpResponse, http } from "msw"
+import { HttpResponse, http, passthrough } from "msw"
 import {
   afterAll,
   afterEach,
@@ -25,13 +27,17 @@ import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
-import {
-  workspaceKnowledgeUnits,
-  workspaces,
-} from "../../db/schema/workspaces.js"
+import { workspaces } from "../../db/schema/workspaces.js"
+import type { WorkspaceRevision } from "../../domain/workspaces/revision.js"
+import { migrateKnowledgeStore } from "../../knowledge-store/migrate.js"
 import { generateObjectId } from "../../lib/id.js"
 import { registerMcpRoutes } from "../../routes/mcp.js"
+import { startClickHouse, userUrl } from "../../test/clickhouse.js"
 import { withTestRequestLogger } from "../../test/hono-test-logger.js"
+import {
+  servePlaneHead,
+  gitRepository as planeGitRepository,
+} from "../../test/knowledge-plane.js"
 import { insertLinkedRepositoryRows } from "../../test/workspace-links-fixture.js"
 import { registerWorkspaceFileResource } from "./workspace-file.js"
 
@@ -43,7 +49,10 @@ function workspaceFileUri(org: string, workspace: string, ref: string): string {
   return `ctxpipe://${org}/${workspace}/${encoded}`
 }
 
-const server = useMswServer()
+// The ClickHouse server of the knowledge plane is a real server.
+const server = useMswServer(
+  http.all(/^http:\/\/127\.0\.0\.1:\d+\//, () => passthrough()),
+)
 const CODESEARCH = "http://codesearch.test"
 
 const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
@@ -57,6 +66,19 @@ const foreignOrg = {
 let seed: SeededOrg
 let repositoryId = ""
 let client: Client
+let clickHouse: Awaited<ReturnType<typeof startClickHouse>> | undefined
+let readerUrl = ""
+const directories: string[] = []
+
+/** A Git repository with `files` in one commit, removed after the tests. */
+function gitRepository(files: Record<string, string>) {
+  const repository = planeGitRepository(files)
+  directories.push(repository.url)
+  return repository
+}
+
+/** The Git repository of the Workspace `payments`, which the plane serves. */
+let payments = { url: "", sha: "" }
 
 function createApp() {
   const app = new Hono<AppEnv>()
@@ -102,7 +124,7 @@ async function failure(uri: string): Promise<{ code: number; data: unknown }> {
   return { code: error.code, data: error.data }
 }
 
-describe("ctxpipe:// resource template (Postgres + msw codesearch + MCP SDK Client)", () => {
+describe("ctxpipe:// resource template (Postgres + ClickHouse + Git + msw codesearch + MCP SDK Client)", () => {
   beforeAll(async () => {
     if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required")
     seed = await seedOrg()
@@ -112,24 +134,37 @@ describe("ctxpipe:// resource template (Postgres + msw codesearch + MCP SDK Clie
       slug: foreignOrg.slug,
       createdAt: new Date(),
     })
+    clickHouse = await startClickHouse()
+    const knowledgeUrl = await clickHouse.freshDatabase()
+    await migrateKnowledgeStore(knowledgeUrl, {
+      reader: "reader-test",
+      writer: "writer-test",
+    })
+    // The backend reads as the reader user, with SELECT only.
+    readerUrl = userUrl(knowledgeUrl, "ctxpipe_reader", "reader-test")
+    payments = gitRepository({
+      "knowledge/services/payments-api.md":
+        "# Payments API\n\nOwns card charges.\n",
+    })
     const workspaceId = generateObjectId("ws")
+    const revision: WorkspaceRevision = {
+      workspaceId,
+      generation: 1,
+      remote: { url: payments.url, connectionId: null },
+      defaultBranch: "main",
+      sha: payments.sha,
+      access: "read",
+    }
     await withOrgDbContext(seed.orgId, async (db) => {
       await db.insert(workspaces).values({
         id: workspaceId,
         orgId: seed.orgId,
         slug: "payments",
         displayName: "Payments",
-        workspaceRepositoryUrl: `/tmp/res-${suffix}`,
+        workspaceRepositoryUrl: payments.url,
         desiredDefaultBranch: "main",
-        activeProjectionSha: sha1,
-      })
-      await db.insert(workspaceKnowledgeUnits).values({
-        servingId: generateObjectId("wku"),
-        orgId: seed.orgId,
-        workspaceId,
-        path: "knowledge/services/payments-api.md",
-        body: "# Payments API\n\nOwns card charges.\n",
-        projectionSha: sha1,
+        activeProjectionSha: payments.sha,
+        activeRevision: revision,
       })
       await insertLinkedRepositoryRows(db, {
         id: generateObjectId("wlr"),
@@ -153,31 +188,25 @@ describe("ctxpipe:// resource template (Postgres + msw codesearch + MCP SDK Clie
         commitSha: sha1,
       })
     })
-    // A Workspace of another org, with a unit that this org must never read.
-    await withOrgDbContext(foreignOrg.id, async (db) => {
-      const foreignWorkspaceId = generateObjectId("ws")
-      await db.insert(workspaces).values({
-        id: foreignWorkspaceId,
+    // The plane serves the commit of the Workspace on its default branch.
+    await servePlaneHead({ orgId: seed.orgId, workspaceId, tip: payments.sha })
+    // A Workspace of another org, which this org must never read.
+    await withOrgDbContext(foreignOrg.id, (db) =>
+      db.insert(workspaces).values({
+        id: generateObjectId("ws"),
         orgId: foreignOrg.id,
         slug: "foreign-only",
         displayName: "Foreign",
         workspaceRepositoryUrl: `/tmp/res-${suffix}-foreign`,
         desiredDefaultBranch: "main",
         activeProjectionSha: sha1,
-      })
-      await db.insert(workspaceKnowledgeUnits).values({
-        servingId: generateObjectId("wku"),
-        orgId: foreignOrg.id,
-        workspaceId: foreignWorkspaceId,
-        path: "knowledge/secret.md",
-        body: "foreign secret\n",
-        projectionSha: sha1,
-      })
-    })
-  })
+      }),
+    )
+  }, 240_000)
 
   beforeEach(async () => {
     vi.stubEnv("CODESEARCH_URL", CODESEARCH)
+    vi.stubEnv("CLICKHOUSE_URL", readerUrl)
     server.use(
       http.post(`${CODESEARCH}/:repoId/files-query`, async ({ request }) => {
         const body = (await request.json()) as { paths: string[] }
@@ -213,6 +242,9 @@ describe("ctxpipe:// resource template (Postgres + msw codesearch + MCP SDK Clie
       .delete(organizations)
       .where(eq(organizations.id, foreignOrg.id))
     await cleanupSeededOrg(seed)
+    await clickHouse?.stop()
+    for (const directory of directories)
+      rmSync(directory, { recursive: true, force: true })
   })
 
   it("lists the template", async () => {
@@ -235,7 +267,7 @@ describe("ctxpipe:// resource template (Postgres + msw codesearch + MCP SDK Clie
         mimeType: "text/markdown",
         text: "# Payments API\n\nOwns card charges.",
         _meta: {
-          served: { branch: "main", sha: sha1 },
+          served: { branch: "main", sha: payments.sha },
           startLine: 1,
           endLine: 3,
           totalLines: 3,

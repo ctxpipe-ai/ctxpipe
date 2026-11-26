@@ -39,8 +39,8 @@ What to fake: [root AGENTS.md → Testing](../../AGENTS.md#testing). Name Postgr
 ## Local development
 
 - **Host dev**: follow the runbook in root [AGENTS.md](../../AGENTS.md#local-development), from the repo root. `pnpm db:migrate` runs [`scripts/db-migrate.sh`](../../scripts/db-migrate.sh): it migrates as the owner, then GRANTs `ctxpipe_app`. The backend proxies unmatched routes to `UI_PROXY_URL` ([`src/routes/ui.ts`](src/routes/ui.ts)).
-- **Env**: `DATABASE_URL` in `apps/backend/.env.local` uses `ctxpipe_app` on the database that migrate uses (one database per linked worktree). `GRAPH_DB_URI` is FalkorDB / OpenCypher. See `src/config/env.ts` and [Graph databases (docs)](../docs/content/docs/self-hosting/(configuration)/graph-databases.mdx).
-- **Backend alone**: start `docker compose up -d postgres falkordb`, then run root `pnpm dev:backend`. Or run `pnpm dev` from `apps/backend` with env that points at the host ports.
+- **Env**: `DATABASE_URL` in `apps/backend/.env.local` uses `ctxpipe_app` on the database that migrate uses (one database per linked worktree). `CLICKHOUSE_URL` points at the knowledge store (ClickHouse). See `src/config/env.ts` and [Knowledge store (docs)](../docs/content/docs/self-hosting/(configuration)/configuration.mdx).
+- **Backend alone**: start `docker compose up -d infra-host-ports` (it starts Postgres and ClickHouse on host ports), then run root `pnpm dev:backend`. Or run `pnpm dev` from `apps/backend` with env that points at the host ports.
 - **Public URL**: with portless or a non-default port, set `AUTH_BASE_URL` and `AUTH_ALLOWED_ORIGINS` to the browser origin (`PORTLESS_URL` when it applies).
 - **MCP URLs**: this app serves the HTTP MCP (see **MCP (product)**). The base URL and the org slug follow your dev env: see root [AGENTS.md](../../AGENTS.md) and [`.env.example`](.env.example).
 - **MCP OAuth**: the OAuth provider issues JWT access tokens (`oauthProvider` in [`src/auth/config.ts`](src/auth/config.ts)). They live 4h, but **MCP clients must refresh** before expiry. A stale Bearer token gets **401** on `/mcp`.

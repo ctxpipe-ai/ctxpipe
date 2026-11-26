@@ -1,13 +1,13 @@
 /**
  * The knowledge-plane evals (ADR-069 decisions 5 to 7). Run from
  * `apps/backend`, with the backend environment of the database that holds
- * the eval Workspaces (`DATABASE_URL`, `AUTH_SECRET`, `GRAPH_DB_URI`,
- * `CLICKHOUSE_URL`, and the model settings `MODEL_PROVIDER_*`):
+ * the eval Workspaces (`DATABASE_URL`, `AUTH_SECRET`, `CLICKHOUSE_URL`,
+ * and the model settings `MODEL_PROVIDER_*`):
  *
  *   bun evals/knowledge/cli.ts hydrate --dataset FILE --out DIR [--cap-usd 5]
  *   bun evals/knowledge/cli.ts run --dataset FILE --targets FILE --out DIR \
  *     [--split dev|holdout] [--cap-usd 5] [--set NAME=VALUE] [--kept REPORT]
- *     [--baseline-from RUN_DIR] [--reuse-from RUN_DIR]
+ *     --baseline-from RUN_DIR [--reuse-from RUN_DIR]
  *   bun evals/knowledge/cli.ts rescore --from DIR --out DIR \
  *     [--set NAME=VALUE] [--kept REPORT] [--unrecorded-yes P]
  *   bun evals/knowledge/cli.ts draft --dataset FILE --corpus ID --repo DIR \
@@ -42,7 +42,6 @@ import { z } from "zod"
 import { closeDb, initDb } from "../../src/db/client.js"
 import { ORCHESTRATOR_DEFAULTS } from "../../src/knowledge-reader/orchestrator.js"
 import { initEvlog } from "../../src/observability/logger.js"
-import { closeGraphDb } from "../../src/platform/graph/client.js"
 import {
   allowlistSettingsProblem,
   DEFAULT_OPENROUTER_BASE,
@@ -130,10 +129,11 @@ export async function executeRun(input: {
   /** The quiet time before the first calls of each arm (check 7). */
   quietMs: number
   /**
-   * An earlier run folder (`--baseline-from`): the run reuses its answers of
-   * the old stack, and runs only the plane.
+   * An earlier run folder (`--baseline-from`, or the `--from` folder of a
+   * rescore): the run reuses its answers of the old stack, and runs only the
+   * plane. The old stack is gone (CTX-1713).
    */
-  baseline?: RunFolder
+  baseline: RunFolder
   /**
    * An earlier run folder (`--reuse-from`): each model request of the run
    * that is the same as a recorded request of that folder (the same arm,
@@ -148,12 +148,11 @@ export async function executeRun(input: {
   )
   if (input.reuse)
     checkSameDataset("--reuse-from", input.dataset, input.reuse, questions)
-  const baseline =
-    input.baseline && storedBaseline(input.dataset, input.baseline, questions)
+  const baseline = storedBaseline(input.dataset, input.baseline, questions)
   // Both arms answer at the same query time. A reused request holds the
   // query time, so the run takes the one of the reused folder.
-  const times = [input.baseline, input.reuse].flatMap((folder) =>
-    folder ? [folder.run.manifest.now] : [],
+  const times = [input.baseline, ...(input.reuse ? [input.reuse] : [])].map(
+    (folder) => folder.run.manifest.now,
   )
   if (new Set(times).size > 1)
     throw new SetupError(
@@ -175,12 +174,11 @@ export async function executeRun(input: {
   )
   // The folder keeps the calls of the reused answers, so that a replay of
   // this run has each call of both arms.
-  if (baseline)
-    calls.records.push(
-      ...(input.baseline?.run.calls ?? []).filter(
-        (call) => call.arm === "legacy" && baseline.has(call.question),
-      ),
-    )
+  calls.records.push(
+    ...input.baseline.run.calls.filter(
+      (call) => call.arm === "legacy" && baseline.has(call.question),
+    ),
+  )
   // An eval has no time budget, so that a slow step does not hide what the
   // loop finds (the CTO, 2026-11-22). `--set timeBudgetMs=…` sets one.
   const productBudgetMs = ORCHESTRATOR_DEFAULTS.timeBudgetMs
@@ -194,7 +192,7 @@ export async function executeRun(input: {
       calls,
       now,
       quietMs: input.quietMs,
-      ...(baseline ? { baseline } : {}),
+      baseline,
     })
     const manifest: Manifest = {
       datasetVersion: input.dataset.version,
@@ -205,7 +203,7 @@ export async function executeRun(input: {
       productBudgetMs,
       quietMs: input.quietMs,
       mode: input.replay ? "replay" : input.reuse ? "reuse" : "live",
-      ...(input.baseline ? { baselineFrom: input.baseline.folder } : {}),
+      baselineFrom: input.baseline.folder,
       ...(input.reuse
         ? { reuse: { from: input.reuse.folder, ...calls.reuseSummary() } }
         : {}),
@@ -346,7 +344,7 @@ function buildConverter() {
 }
 
 /**
- * Hydrate each corpus into both stacks in `org` (`hydrate.ts`), and write the
+ * Hydrate each corpus into the plane in `org` (`hydrate.ts`), and write the
  * targets of `run` (`targets.json`) to `out`. It writes the spend and the
  * failed documents of the plane (`hydrate.json`) also when the hydrate
  * fails. Returns the exit code: 3 when the spend cap stopped a call. Then it
@@ -863,7 +861,6 @@ export async function main(argv: string[]): Promise<number> {
         capUsd,
       })
     } finally {
-      await closeGraphDb()
       await closeDb()
     }
   }
@@ -878,7 +875,7 @@ export async function main(argv: string[]): Promise<number> {
       if (!values.from) throw new SetupError("rescore needs --from.")
       if (values["baseline-from"] || values["reuse-from"])
         throw new SetupError(
-          "rescore takes no --baseline-from and no --reuse-from: it replays both arms of --from.",
+          "rescore takes no --baseline-from and no --reuse-from: it replays the plane of --from, and keeps its answers of the old stack.",
         )
       const fill = values["unrecorded-yes"]
       const unrecordedYes = fill === undefined ? undefined : Number(fill)
@@ -904,6 +901,7 @@ export async function main(argv: string[]): Promise<number> {
           ...(unrecordedYes === undefined ? {} : { unrecordedYes }),
         },
         quietMs: QUIET_MS,
+        baseline: { folder: values.from, run: recorded },
       })
     } else {
       if (!dataset || !values.targets)
@@ -918,6 +916,11 @@ export async function main(argv: string[]): Promise<number> {
       if (values["unrecorded-yes"] !== undefined)
         throw new SetupError("--unrecorded-yes is for rescore only.")
       const baselineFrom = values["baseline-from"]
+      // The old stack is gone (CTX-1713): its answers come from a stored run.
+      if (!baselineFrom)
+        throw new SetupError(
+          "run needs --baseline-from: the answers of the old stack come from a stored run.",
+        )
       const reuseFrom = values["reuse-from"]
       // A folder that is not a run folder is a setup error.
       const runFolder = (flag: string, folder: string) =>
@@ -937,14 +940,10 @@ export async function main(argv: string[]): Promise<number> {
         out,
         kept,
         quietMs: QUIET_MS,
-        ...(baselineFrom
-          ? {
-              baseline: {
-                folder: baselineFrom,
-                run: await runFolder("--baseline-from", baselineFrom),
-              },
-            }
-          : {}),
+        baseline: {
+          folder: baselineFrom,
+          run: await runFolder("--baseline-from", baselineFrom),
+        },
         ...(reuseFrom
           ? {
               reuse: {
@@ -965,7 +964,6 @@ export async function main(argv: string[]): Promise<number> {
     }
     return 0
   } finally {
-    await closeGraphDb()
     await closeDb()
   }
 }

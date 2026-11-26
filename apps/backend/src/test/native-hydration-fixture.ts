@@ -13,7 +13,6 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 
 import { eq, sql } from "drizzle-orm"
-import { FalkorDB } from "falkordb"
 import { HttpResponse, http, passthrough } from "msw"
 import { setupServer } from "msw/node"
 import { OpenWorkflow } from "openworkflow"
@@ -24,7 +23,6 @@ import { parseEnv } from "../config/env.js"
 import { closeDb, getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
 import { connectionDirectory, connections } from "../db/schema/connections.js"
-import { orgFeatures } from "../db/schema/org_features.js"
 import { repositories } from "../db/schema/repositories.js"
 import { orgFirstWorkspaces, workspaces } from "../db/schema/workspaces.js"
 import { resolveWorkspaceReadRevision } from "../domain/workspaces/resolve-revision.js"
@@ -43,11 +41,10 @@ import { repositoryIndex } from "../openworkflow/workflows/repository-index.js"
 import { workspaceHydrate } from "../openworkflow/workflows/workspace-hydrate.js"
 import { workspaceIndex } from "../openworkflow/workflows/workspace-index.js"
 import { workspaceTipCheck } from "../openworkflow/workflows/workspace-tip-check.js"
-import { closeGraphDb } from "../platform/graph/client.js"
 import { listenWithDockerOutsideMsw } from "./docker-outside-msw.js"
 import { expectSmallWriteStepOutputs } from "./write-step-outputs.js"
 
-export type NativeHydrationOptions = {
+type NativeHydrationOptions = {
   namespaceId?: string
   files?: Array<{ path: string; body: string; mode?: "100755" | "120000" }>
   initialCommitDate?: string
@@ -121,12 +118,10 @@ export type NativeHydrationOptions = {
   onSlackRequest?: (method: string, body: unknown) => void
   pagerdutyResponses?: Record<string, { status?: number; body?: unknown }>
   confluenceResponses?: Record<string, { status?: number; body: unknown }>
-  embeddings?: "ready" | "failed" | "empty"
   /**
-   * Run the knowledge plane of ADR-067 too: the org flag `knowledge_plane`
-   * is `shadow`, and the worker writes to this ClickHouse URL. The fixture
-   * worker then uses the namespace of the file, where the hydrate queues the
-   * knowledge projection.
+   * Run the knowledge plane of ADR-067 too: the worker writes to this
+   * ClickHouse URL. The fixture worker then uses the namespace of the file,
+   * where the hydrate queues the knowledge projection.
    */
   knowledgePlane?: { clickhouseUrl: string }
   missingTip?: boolean
@@ -159,8 +154,6 @@ async function createNativeHydrationFixture(
     options.files?.filter((file) => file.mode !== "120000").length ??
     options.count ??
     1
-  const embeddingFailure = options.embeddings === "failed"
-  const incompleteEmbeddings = options.embeddings === "empty"
   const databaseUrl = process.env.DATABASE_URL
   if (!databaseUrl)
     throw new Error("DATABASE_URL is required for hydration proof")
@@ -202,7 +195,6 @@ async function createNativeHydrationFixture(
   const semanticRequests: unknown[] = []
   const tokenRequests: unknown[] = []
   const appPermissionRequests: { usesAppAuth: boolean }[] = []
-  let failEmbeddings = embeddingFailure === true
   let failGithubTokens: number | false = false
   let githubWriteView = options.githubWriteView
   // GitHub gives each repository a numeric id. A repository-scoped token mint
@@ -693,11 +685,6 @@ async function createNativeHydrationFixture(
     http.post(
       "https://hydrate-model.test/v1/embeddings",
       async ({ request }) => {
-        if (failEmbeddings)
-          return HttpResponse.json(
-            { error: { message: "Embedding fixture unavailable" } },
-            { status: 400 },
-          )
         const body = (await request.json()) as {
           input: unknown[]
           dimensions?: number
@@ -705,9 +692,7 @@ async function createNativeHydrationFixture(
         return HttpResponse.json({
           data: body.input.map((_, index) => ({
             index,
-            embedding: incompleteEmbeddings
-              ? []
-              : Array(body.dimensions ?? 2000).fill(0.01),
+            embedding: Array(body.dimensions ?? 1024).fill(0.01),
           })),
         })
       },
@@ -763,18 +748,6 @@ async function createNativeHydrationFixture(
           .delete(organizations)
           .where(eq(organizations.id, org.id))
       } finally {
-        await closeGraphDb()
-        if (process.env.GRAPH_DB_URI) {
-          const graphDb = await FalkorDB.connect({
-            url: process.env.GRAPH_DB_URI,
-          })
-          try {
-            if ((await graphDb.list()).includes(org.id))
-              await graphDb.selectGraph(org.id).delete()
-          } finally {
-            await graphDb.close()
-          }
-        }
         await closeDb()
         invalidateGithubAppCacheForConnection(connectionId)
         server.close()
@@ -884,14 +857,6 @@ async function createNativeHydrationFixture(
       await getSystemDb()
         .insert(organizations)
         .values({ ...org, createdAt: new Date() })
-    if (options.knowledgePlane)
-      await withOrgDbContext(org.id, (db) =>
-        db.insert(orgFeatures).values({
-          organizationId: org.id,
-          feature: "knowledge_plane",
-          value: "shadow",
-        }),
-      )
     if (github && !adopt) {
       await withOrgDbContext(org.id, (db) =>
         db.insert(connections).values({
@@ -1023,9 +988,6 @@ async function createNativeHydrationFixture(
       },
       loseWriteAccess: () => {
         githubWriteView = "missing"
-      },
-      repairEmbeddings: () => {
-        failEmbeddings = false
       },
       publish: async () => {
         await worker.start()

@@ -7,9 +7,7 @@ import { http, passthrough } from "msw"
 import { afterAll, beforeAll, expect, it, vi } from "vitest"
 
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
-import { orgFeatures } from "../../db/schema/org_features.js"
 import {
-  workspaceKnowledgeChunks,
   workspaceKnowledgeUnits,
   workspaces,
 } from "../../db/schema/workspaces.js"
@@ -31,9 +29,8 @@ import { workspaceHydrate } from "./workspace-hydrate.js"
 
 /*
  * The hydrate workflow queues the projection writer of the knowledge plane
- * after the old projections, only for an org whose flag is not `off`
- * (ADR-069 decision 9). The writer runs as its own workflow, outside the
- * Workspace hydrate lock (ADR-067 decision 3).
+ * after the Postgres projection (ADR-069 decision 9). The writer runs as its
+ * own workflow, outside the Workspace hydrate lock (ADR-067 decision 3).
  */
 
 let clickhouse: Awaited<ReturnType<typeof startClickHouse>> | undefined
@@ -123,7 +120,7 @@ async function closedPortUrl(): Promise<string> {
 }
 
 it(
-  "with the flag `shadow`, the hydrate queues the knowledge projection, which writes the knowledge plane and queues the maintenance job",
+  "the hydrate queues the knowledge projection, which writes the knowledge plane and queues the maintenance job",
   { timeout: 120_000 },
   async () =>
     withNativeHydrationFixture(
@@ -176,33 +173,18 @@ it(
       async (f) => {
         await f.publish()
         const servingId = servingIdForKnowledgePath(f.workspaceId, path)
-        const { unit, chunks } = await withOrgDbContext(
-          f.org.id,
-          async (db) => ({
-            unit: (
-              await db
-                .select({
-                  title: workspaceKnowledgeUnits.title,
-                  body: workspaceKnowledgeUnits.body,
-                })
-                .from(workspaceKnowledgeUnits)
-                .where(eq(workspaceKnowledgeUnits.servingId, servingId))
-            )[0],
-            chunks: await db
-              .select({ text: workspaceKnowledgeChunks.text })
-              .from(workspaceKnowledgeChunks)
-              .where(eq(workspaceKnowledgeChunks.unitId, servingId)),
-          }),
+        const [unit] = await withOrgDbContext(f.org.id, (db) =>
+          db
+            .select({
+              title: workspaceKnowledgeUnits.title,
+              body: workspaceKnowledgeUnits.body,
+            })
+            .from(workspaceKnowledgeUnits)
+            .where(eq(workspaceKnowledgeUnits.servingId, servingId)),
         )
         expect(unit?.title).toBe("Push fails with a protocol error")
         expect(unit?.body).toContain(quote.replaceAll("\u0000", ""))
         expect(unit?.body).not.toContain("\u0000")
-        expect(chunks.map((chunk) => chunk.text).join("\n")).toContain(
-          "capabilities^{}report-status",
-        )
-        expect(chunks.some((chunk) => chunk.text.includes("\u0000"))).toBe(
-          false,
-        )
         await waitForKnowledgeState(f, {
           lastSha: f.sha,
           runStatus: "completed",
@@ -247,8 +229,8 @@ it(
         // The fixture cleanup restores the variable, also after a failure.
         process.env.CLICKHOUSE_URL = down
 
-        // The old stack does not wait for the knowledge plane: the hydrate
-        // completes in much less time than the retries of the writer.
+        // The hydrate does not wait for the knowledge plane: it completes in
+        // much less time than the retries of the writer.
         const handle = await f.runner.runWorkflow(workspaceHydrate.spec, {
           orgId: f.org.id,
           workspaceId: f.workspaceId,
@@ -281,62 +263,6 @@ it(
         expect(await storedDocuments(f)).toMatchObject({
           [servingIdForKnowledgePath(f.workspaceId, "d.md")]: "active",
         })
-      },
-    ),
-)
-
-it(
-  "with no flag (`off`), the hydrate writes only the old stack",
-  { timeout: 120_000 },
-  async () =>
-    withNativeHydrationFixture({ files }, async (f) => {
-      await f.publish()
-      expect(
-        await getKnowledgeState({
-          orgId: f.org.id,
-          workspaceId: f.workspaceId,
-        }),
-      ).toBeNull()
-      expect(await runsOf("knowledge-projection", f.workspaceId)).toEqual([])
-      expect(await runsOf("knowledge-maintenance", f.workspaceId)).toEqual([])
-    }),
-)
-
-it(
-  "a queued knowledge projection of an org whose flag is now `off` writes nothing",
-  { timeout: 120_000 },
-  async () =>
-    withNativeHydrationFixture(
-      { files, knowledgePlane: { clickhouseUrl: writerUrl } },
-      async (f) => {
-        await f.publish()
-        await waitForKnowledgeState(f, { lastSha: f.sha })
-        f.git("checkout", "--", ".")
-        writeFileSync(join(f.directory, "d.md"), "# Delta\n")
-        f.git("add", "-A")
-        f.git("commit", "-q", "-m", "Add d")
-        f.git("push", "-q", f.remote, "HEAD:refs/heads/main")
-        await f.resolveRevision(true)
-        await withOrgDbContext(f.org.id, (db) =>
-          db
-            .update(orgFeatures)
-            .set({ value: "off" })
-            .where(eq(orgFeatures.organizationId, f.org.id)),
-        )
-        const handle = await f.runner.runWorkflow(knowledgeProjection.spec, {
-          orgId: f.org.id,
-          workspaceId: f.workspaceId,
-        })
-        expect(await handle.result({ timeoutMs: 60_000 })).toBeNull()
-        expect(
-          await getKnowledgeState({
-            orgId: f.org.id,
-            workspaceId: f.workspaceId,
-          }),
-        ).toMatchObject({ lastSha: f.sha, runStatus: "completed" })
-        expect(await storedDocuments(f)).not.toHaveProperty(
-          servingIdForKnowledgePath(f.workspaceId, "d.md"),
-        )
       },
     ),
 )

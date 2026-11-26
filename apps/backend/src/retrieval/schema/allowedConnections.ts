@@ -267,10 +267,3 @@ export function getGraphEdgeTypes(): string[] {
 export function getGraphNodeKinds(): string[] {
   return [...GRAPH_NODE_KINDS]
 }
-
-/**
- * Returns true if the predicate is a valid graph edge type.
- */
-export function isValidGraphEdgeType(predicate: string): boolean {
-  return GRAPH_EDGE_TYPES.has(predicate)
-}

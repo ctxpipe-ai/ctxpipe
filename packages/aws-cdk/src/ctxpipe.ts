@@ -30,7 +30,6 @@ import { PINNED_SERVICE_IMAGE_TAG } from "./pinned-service-image-tag"
 import type { CtxPipeProps, CtxPipeSize } from "./types"
 
 const DEFAULT_BACKUP_RETENTION_DAYS = 7
-const ORG_SLUG_PATTERN = /^[a-z0-9-]+$/
 const DEFAULT_SIZE: CtxPipeSize = "small"
 
 const SIZE_PROFILES: Record<CtxPipeSize, CtxPipeSizeProfile> = {
@@ -43,7 +42,6 @@ const SIZE_PROFILES: Record<CtxPipeSize, CtxPipeSizeProfile> = {
     database: {
       auroraInstanceClass: ec2.InstanceClass.T4G,
       auroraInstanceSize: ec2.InstanceSize.MEDIUM,
-      neptuneInstanceClass: "db.t4g.medium",
     },
     tasks: {
       backend: { cpu: 256, memoryLimitMiB: 512 },
@@ -88,7 +86,6 @@ const SIZE_PROFILES: Record<CtxPipeSize, CtxPipeSizeProfile> = {
     database: {
       auroraInstanceClass: ec2.InstanceClass.T4G,
       auroraInstanceSize: ec2.InstanceSize.LARGE,
-      neptuneInstanceClass: "db.r6g.large",
     },
     tasks: {
       backend: { cpu: 512, memoryLimitMiB: 1024 },
@@ -133,7 +130,6 @@ const SIZE_PROFILES: Record<CtxPipeSize, CtxPipeSizeProfile> = {
     database: {
       auroraInstanceClass: ec2.InstanceClass.R6G,
       auroraInstanceSize: ec2.InstanceSize.XLARGE,
-      neptuneInstanceClass: "db.r6g.xlarge",
     },
     tasks: {
       backend: { cpu: 1024, memoryLimitMiB: 2048 },
@@ -191,7 +187,6 @@ export class CtxPipe extends Construct {
   public constructor(scope: Construct, id: string, props: CtxPipeProps) {
     super(scope, id)
 
-    this.validateOrgSlug(props)
     validateModelProvider(props.modelProvider)
     const resolvedModel = resolveModelProvider(
       props.modelProvider,
@@ -247,7 +242,6 @@ export class CtxPipe extends Construct {
       this,
       "TaskDefinitions",
       {
-        orgSlug: props.orgSlug,
         networking: networking.resources,
         dataPlane: dataPlane.resources,
         secrets: secrets.resources,
@@ -306,18 +300,6 @@ export class CtxPipe extends Construct {
       knowledgeStoreAutoScalingGroupName:
         knowledgeStore.resources.autoScalingGroup.autoScalingGroupName,
     })
-  }
-
-  private validateOrgSlug(props: CtxPipeProps): void {
-    const orgSlug = props.orgSlug.trim()
-    if (orgSlug.length === 0) {
-      throw new Error("orgSlug is required")
-    }
-    if (!ORG_SLUG_PATTERN.test(orgSlug)) {
-      throw new Error(
-        "orgSlug must contain only lowercase letters, numbers, or hyphens",
-      )
-    }
   }
 
   private resolveDefaults(

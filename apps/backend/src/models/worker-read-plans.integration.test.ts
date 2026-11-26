@@ -4,19 +4,15 @@ import { fileURLToPath } from "node:url"
 import { config } from "dotenv"
 import { eq, inArray, type SQL, sql } from "drizzle-orm"
 import pg from "pg"
+import { z } from "zod"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 import { closeDb, initDb, withOrgDbContext } from "../db/client.js"
-import { planNodes } from "../db/knowledge-search-plan.js"
 import { ownerUrlForMigrate } from "../db/owner-migrate-url.js"
-import {
-  KNOWLEDGE_UNIT_INDEX,
-  workspaceWriteJobs,
-} from "../db/schema/workspaces.js"
+import { workspaceWriteJobs } from "../db/schema/workspaces.js"
 import { openWorkflowNamespaceId } from "../openworkflow/namespace.js"
 import { analyzeAsOwner } from "../test/analyze-as-owner.js"
 import { failJobsWithEndedRun } from "./workspace-write-jobs.js"
-import { unitWithoutChunks } from "./workspaces.js"
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url))
 config({ path: resolve(__dirname, "../../.env.local") })
@@ -25,6 +21,34 @@ const connectionString = process.env.DATABASE_URL
 const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`
 const orgId = `org_test_read_plans_${suffix}`
 const workspaceId = `ws_test_read_plans_${suffix}`
+
+type PlanNode = {
+  "Node Type": string
+  "Relation Name"?: string
+  "Index Name"?: string
+  Plans?: PlanNode[]
+}
+
+const planNode: z.ZodType<PlanNode> = z.lazy(() =>
+  z.object({
+    "Node Type": z.string(),
+    "Relation Name": z.string().optional(),
+    "Index Name": z.string().optional(),
+    Plans: z.array(planNode).optional(),
+  }),
+)
+
+/** Every node of an EXPLAIN (FORMAT JSON) plan. */
+function planNodes(plan: unknown): PlanNode[] {
+  const nodes: PlanNode[] = []
+  const visit = (node: PlanNode) => {
+    nodes.push(node)
+    for (const child of node.Plans ?? []) visit(child)
+  }
+  for (const root of z.array(z.object({ Plan: planNode })).parse(plan))
+    visit(root.Plan)
+  return nodes
+}
 
 /** Each scan of `relation` in a JSON plan, with its node type and index. */
 function scansOf(plan: unknown, relation: string) {
@@ -103,47 +127,4 @@ describe("index plans of the worker's frequent reads (CTX-1708)", () => {
       })
   })
 
-  it("tests whether each unit has chunks in the unit index only, not in the rows of the chunks", async () => {
-    // An index-only scan needs pages that vacuum marked all-visible, as in
-    // production. On a new table, Postgres would read each row either way.
-    await owner.query(
-      `INSERT INTO workspaces (id, org_id, slug, display_name, workspace_repository_url)
-       VALUES ($1, $2, $1, $1, 'https://example.invalid/read-plans.git')`,
-      [workspaceId, orgId],
-    )
-    await owner.query(
-      `INSERT INTO workspace_knowledge_units (serving_id, org_id, workspace_id, path, body, projection_sha)
-       SELECT $1 || '_' || g, $2, $1, 'u/' || g || '.md', 'Text of unit ' || g, 'sha'
-       FROM generate_series(1, 200) g`,
-      [workspaceId, orgId],
-    )
-    await owner.query(
-      `INSERT INTO workspace_knowledge_chunks
-         (workspace_id, unit_id, chunk_hash, occurrence, org_id, ordinal, start_line, end_line, text)
-       SELECT $1, $1 || '_' || g, md5(g::text || c), 0, $2, c, 1, 2, 'Chunk ' || c || ' of unit ' || g
-       FROM generate_series(1, 200) g, generate_series(1, 2) c`,
-      [workspaceId, orgId],
-    )
-    await owner.query(
-      "VACUUM workspace_knowledge_units, workspace_knowledge_chunks",
-    )
-    await analyzeAsOwner(connectionString ?? "", [
-      "workspace_knowledge_units",
-      "workspace_knowledge_chunks",
-    ])
-    const plan = await explain(
-      () => sql`SELECT exists (
-      SELECT 1 FROM workspace_knowledge_units AS u
-      WHERE u.workspace_id = ${workspaceId}
-        AND ${unitWithoutChunks(sql`u.workspace_id`, sql`u.serving_id`, sql`u.body`)}
-    )`,
-    )
-    const scans = scansOf(plan, "workspace_knowledge_chunks")
-    expect(scans.length).toBeGreaterThan(0)
-    for (const scan of scans)
-      expect(scan).toEqual({
-        type: "Index Only Scan",
-        index: KNOWLEDGE_UNIT_INDEX,
-      })
-  })
 })

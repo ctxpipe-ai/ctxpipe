@@ -3,10 +3,8 @@
 A record holds the reward, the tokens, the cost, the wall time, the turns and
 the MCP tool calls of the transcript, and the MCP server spans of the run,
 joined by `x-ctxpipe-conversation-id` (the span attribute
-`ctxpipe.mcp.conversation.id`). It also holds the proof of decision D5 of the
-plan: the FalkorDB graph commands during the run (the `INFO commandstats` of
-the FalkorDB of the backend), the `falkordb` spans in the traces of the run,
-and the `knowledge_plane.fallback` logs.
+`ctxpipe.mcp.conversation.id`). The Jev calls in the traces of the run show
+that the knowledge plane answered (decision D5 of the plan).
 
   python record.py RUN_FOLDER   writes report.md from RUN_FOLDER/runs.jsonl
 """
@@ -14,24 +12,10 @@ and the `knowledge_plane.fallback` logs.
 import collections
 import json
 import os
-import subprocess
 import sys
 import time
 import urllib.request
 from pathlib import Path
-
-
-def falkor_graph_calls(container):
-    """The count of GRAPH.* commands that the FalkorDB server answered."""
-    out = subprocess.run(
-        ["docker", "exec", container, "redis-cli", "INFO", "commandstats"],
-        capture_output=True, text=True, check=True,
-    ).stdout
-    calls = 0
-    for line in out.splitlines():
-        if line.lower().startswith("cmdstat_graph."):
-            calls += int(line.split("calls=")[1].split(",")[0])
-    return calls
 
 
 def openrouter_key_status():
@@ -101,7 +85,7 @@ def attributes(item):
 
 def server_spans(otlp_path, conversation_id, started):
     """The MCP server spans of one conversation and the spans of their traces."""
-    spans, fallback_logs = [], 0
+    spans = []
     since = int(started * 1e9)
     if otlp_path.is_file():
         for line in otlp_path.read_text().splitlines():
@@ -109,11 +93,6 @@ def server_spans(otlp_path, conversation_id, started):
             for resource in batch.get("resourceSpans", []):
                 for scope in resource["scopeSpans"]:
                     spans += [(s, attributes(s)) for s in scope["spans"]]
-            for resource in batch.get("resourceLogs", []):
-                for scope in resource["scopeLogs"]:
-                    for log in scope["logRecords"]:
-                        if int(log.get("timeUnixNano", 0)) >= since and "knowledge_plane.fallback" in json.dumps(log):
-                            fallback_logs += 1
     # Child spans carry the attribution of the call too, so only the
     # `mcp.tool` span counts as the call.
     tool_spans = [
@@ -135,12 +114,10 @@ def server_spans(otlp_path, conversation_id, started):
         "backendCostUsd": round(sum(
             float(a.get("gen_ai.usage.cost", 0)) for s, a in spans if int(s.get("startTimeUnixNano", 0)) >= since
         ), 6),
-        "falkorSpans": sum(a.get("db.system.name") == "falkordb" for _, a in in_traces),
-        "planeFallbackLogs": fallback_logs,
     }
 
 
-def record_run(*, out, run_id, model, arm, task, cap_usd, otlp, started, ended, falkor_commands):
+def record_run(*, out, run_id, model, arm, task, cap_usd, otlp, started, ended):
     trials = sorted((out / "jobs" / run_id).glob("*/agent"))
     trial = trials[0].parent if trials else out / "jobs" / run_id
     result, tools, failed = transcript(trial / "agent" / "claude-code.txt")
@@ -177,7 +154,6 @@ def record_run(*, out, run_id, model, arm, task, cap_usd, otlp, started, ended, 
         "mcpCalls": sum(n for name, n in tools.items() if name.startswith("mcp__")),
         "mcpFailedCalls": dict(failed),
         "server": server_spans(otlp, run_id, started),
-        "falkorGraphCommands": falkor_commands,
         "error": (trial_result.get("exception_info") or {}).get("exception_type")
         or (None if result else "no result event")
         or (None if reward_path.is_file() else "no reward"),
@@ -202,7 +178,7 @@ def run_cost(run):
 
 def write_report(out, runs):
     lines = [
-        "| Model | Arm | Task | Score | $ Claude Code | $ server | Input | Output | Cache read | Cache write | Turns | Agent s | Wall s | MCP calls | Falkor cmds | Error |",
+        "| Model | Arm | Task | Score | $ Claude Code | $ server | Input | Output | Cache read | Cache write | Turns | Agent s | Wall s | MCP calls | Jev calls | Error |",
         "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for r in runs:
@@ -212,7 +188,7 @@ def write_report(out, runs):
             f"| {r['model']} | {r['arm']} | {r['task']} | {r['reward']} | "
             f"{cost} | {r['server']['modelCostUsd']:.4f} | "
             f"{t['input']} | {t['output']} | {t['cacheRead']} | {t['cacheWrite']} | {r['turns']} | "
-            f"{r['agentSeconds']} | {r['wallSeconds']} | {r['mcpCalls']} | {r['falkorGraphCommands']} | {r['error'] or ''} |"
+            f"{r['agentSeconds']} | {r['wallSeconds']} | {r['mcpCalls']} | {r['server'].get('jevCalls', '-')} | {r['error'] or ''} |"
         )
     lines.append("")
     lines.append(f"Total spend: ${sum(run_cost(r) for r in runs):.4f}")

@@ -1,7 +1,7 @@
 # The MCP proxy of the CTX arm (run.py adds this file to the Harbor job).
 # The egress allowlist of the agent phase holds only the model gateway and
 # ctxpipe-mcp-proxy, never host.docker.internal. Thus the agent cannot reach
-# the other ports of the host (FalkorDB, ClickHouse, Postgres). Each trial has
+# the other ports of the host (ClickHouse, Postgres). Each trial has
 # its own proxy, so its limits apply to one run (README.md).
 services:
   ctxpipe-mcp-proxy:
@@ -19,7 +19,8 @@ configs:
     content: |
       # Forward only /mcp to the bench backend, with these limits:
       # - only the tools that the CTX arm allows (arms.json): Bash can send a
-      #   request, so the proxy also refuses get_related (FalkorDB, D5),
+      #   request, so the proxy also refuses get_related (not in the tool
+      #   allowlist of the CTX arm),
       # - at most MAX_TOOL_CALLS tool calls (the count of the server reserve
       #   of the CTX arm in arms.json),
       # - one JSON-RPC message for each request (no batch), and a small body,

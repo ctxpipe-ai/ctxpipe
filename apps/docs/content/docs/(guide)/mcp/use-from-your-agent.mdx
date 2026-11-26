@@ -6,8 +6,7 @@ description: The seven read-only ctxpipe MCP tools, how an agent calls them, and
 The ctxpipe MCP gives a coding agent seven read-only tools. The agent does the
 reasoning and drives the search. ctxpipe returns facts with stable refs. It
 does not write an answer. `search_knowledge` and `get_related` use an embedding
-model to find matches, and on the knowledge plane a model also ranks the
-results. See [How ctxpipe uses models](/docs/resources/data-processing#how-ctxpipe-uses-models).
+model to find matches, and a model also ranks the results. See [How ctxpipe uses models](/docs/resources/data-processing#how-ctxpipe-uses-models).
 To connect a client, see
 [Connect your agent](/docs/mcp/mcp-docs).
 
@@ -28,8 +27,7 @@ Each tool has the read-only hint. The tools never change your data. The
 `intent` is one of `why`, `ownership`, `change`, `dependencies`, `structure`,
 `provenance`, or `general`.
 
-When your organization is on the knowledge plane, `get_related` also groups
-the top results into positions. Each position has a status: `current`,
+`get_related` also groups the top results into positions. Each position has a status: `current`,
 `superseded`, `disputed`, or `scoped`. Prefer a `current` position. Without
 positions, compare the `updatedAt` of the results and read the newest source.
 

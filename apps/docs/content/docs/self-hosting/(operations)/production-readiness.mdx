@@ -32,7 +32,6 @@ reason to expose other services.
 | `worker` | Private |
 | `codesearch` | Private |
 | `postgres` | Private |
-| `falkordb` or graph database | Private |
 | `clickhouse` | Private |
 | `dind` (Docker Compose) or the AWS sandbox host | Private. Do not publish the Docker API or other unauthenticated services on a host that runs chat sandboxes. |
 
@@ -74,13 +73,12 @@ Register callback and webhook URLs against your public origin.
 ## Persistence
 
 Do not treat the reference Compose volumes as disposable in production. On
-Compose, mount named volumes for Postgres and FalkorDB before the first start.
+Compose, mount a named volume for Postgres before the first start.
 See [Docker: Persistent state](/docs/self-hosting/deployment/docker#persistent-state).
 
 | State | Production expectation |
 |---|---|
 | Postgres | Managed backups, restore test, monitoring, and storage alerts |
-| Graph database | Backup or snapshot according to provider guidance |
 | ClickHouse (`clickhouse_data` on Compose) | Backup for fast recovery, or a full rebuild from the Workspace repositories (see [Recover the knowledge store](/docs/self-hosting/configuration#recover-the-knowledge-store)). Disk alerts. |
 | `repo_cache` | Persistent volume if recloning large repositories is expensive |
 | `zoekt_index_deploy` | Persistent volume if rebuilding indexes is expensive |
@@ -193,7 +191,7 @@ Before inviting users:
   `unsandboxed`. See [Operations](/docs/self-hosting/operations) for the
   sandbox checks.
 - Backend, worker, and codesearch logs are collected.
-- Postgres and graph database backups are configured.
+- Postgres backups are configured.
 - Upgrade and rollback steps are written down for the current deployment shape.
 
 ## Related pages

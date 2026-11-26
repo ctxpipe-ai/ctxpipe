@@ -21,7 +21,6 @@ import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
 import {
   orgFirstWorkspaces,
   orgMemberPreferences,
-  workspaceKnowledgeChunks,
   workspaceKnowledgeUnits,
   workspaces,
 } from "../db/schema/workspaces.js"
@@ -40,10 +39,6 @@ import {
   type HydrateUnit,
   LEGACY_UNIT_SOURCE,
 } from "../domain/workspaces/hydrate.js"
-import {
-  type KnowledgeChunkRow,
-  knowledgeChunkRows,
-} from "../domain/workspaces/knowledge-chunks.js"
 import { nextRelinkFields } from "../domain/workspaces/relink.js"
 import {
   type DerivedStoreResult,
@@ -256,18 +251,6 @@ export function projectionFromWorkspace(row: WorkspaceRecord): ProjectionState {
         kind: "active",
         revision: active,
         stores: {
-          embeddings: sameWorkspaceRevision(row.hydratePhases?.revision, active)
-            ? row.hydratePhases?.embeddings
-              ? { kind: "ready" }
-              : row.hydratePhases?.embeddingError
-                ? { kind: "failed", message: row.hydratePhases.embeddingError }
-                : { kind: "pending" }
-            : { kind: "pending" },
-          graph:
-            row.hydratePhases?.graph &&
-            sameWorkspaceRevision(row.hydratePhases.graph.revision, active)
-              ? row.hydratePhases.graph.result
-              : { kind: "pending" },
           index: {
             ...(index && sameWorkspaceRevision(index.revision, active)
               ? index.result
@@ -391,15 +374,7 @@ export type WorkspaceProjectionSnapshot = {
     sha: string
     checkoutKey: string
   }>
-  units: Array<
-    HydrateUnit & {
-      projectionSha: string
-      /** The unit has chunks, and each chunk has an embedding. */
-      embedded: boolean
-    }
-  >
-  /** A unit of the active projection with text has no chunk rows (made before chunks existed). */
-  chunksMissing: boolean
+  units: Array<HydrateUnit & { projectionSha: string }>
 }
 
 /**
@@ -452,7 +427,7 @@ export async function countWorkspaceProjectionUnits(
   })
 }
 
-/** Metadata, units, vectors and repository membership share one SQL snapshot. */
+/** Metadata, units and repository membership share one SQL snapshot. */
 export async function getWorkspaceProjectionSnapshot(
   workspaceId: string,
 ): Promise<WorkspaceProjectionSnapshot> {
@@ -484,27 +459,12 @@ async function readWorkspaceProjectionSnapshot(
             'body', ${qualified(workspaceKnowledgeUnits.body)},
             'links', ${qualified(workspaceKnowledgeUnits.links)},
             'claims', ${qualified(workspaceKnowledgeUnits.claims)},
-            'projectionSha', ${qualified(workspaceKnowledgeUnits.projectionSha)},
-            'embedded', exists (
-              select 1 from ${workspaceKnowledgeChunks} as c
-              where c.workspace_id = ${qualified(workspaceKnowledgeUnits.workspaceId)}
-                and c.unit_id = ${qualified(workspaceKnowledgeUnits.servingId)}
-            ) and not exists (
-              select 1 from ${workspaceKnowledgeChunks} as c
-              where c.workspace_id = ${qualified(workspaceKnowledgeUnits.workspaceId)}
-                and c.unit_id = ${qualified(workspaceKnowledgeUnits.servingId)}
-                and c.embedding is null
-            )
+            'projectionSha', ${qualified(workspaceKnowledgeUnits.projectionSha)}
           ) order by ${qualified(workspaceKnowledgeUnits.path)})
           from ${workspaceKnowledgeUnits}
           where ${qualified(workspaceKnowledgeUnits.workspaceId)} = ${qualified(workspaces.id)}
         ), '[]'::jsonb)`
           : sql<WorkspaceProjectionSnapshot["units"]>`'[]'::jsonb`,
-        chunksMissing: sql<boolean>`exists (
-          select 1 from ${workspaceKnowledgeUnits}
-          where ${qualified(workspaceKnowledgeUnits.workspaceId)} = ${qualified(workspaces.id)}
-          and ${unitWithoutChunks(qualified(workspaceKnowledgeUnits.workspaceId), qualified(workspaceKnowledgeUnits.servingId), qualified(workspaceKnowledgeUnits.body))}
-        )`,
         linkedSources: servedSourceStatesSql(qualified(workspaces.id)),
         indexedRepositories: sql<
           Array<{
@@ -550,7 +510,6 @@ async function readWorkspaceProjectionSnapshot(
     return {
       projection,
       units: first?.units ?? [],
-      chunksMissing: first?.chunksMissing ?? false,
       repositories: (first?.indexedRepositories ?? []).flatMap(
         ({ repository, checkout }) => {
           if (!repository || !checkout) return []
@@ -1062,16 +1021,6 @@ export async function listOrgWorkspaces(
   return rows.map(withFormatWriteGate)
 }
 
-/** The projection state of every Workspace of the org, read in one query. */
-export async function listOrgWorkspaceProjections(
-  orgId: string,
-): Promise<ProjectionState[]> {
-  const rows = await orgSql(() =>
-    getOrgDb().select().from(workspaces).where(eq(workspaces.orgId, orgId)),
-  )
-  return rows.map(projectionFromWorkspace)
-}
-
 /**
  * The index jobs that read `repositoryId`: the desired revision of each
  * Workspace whose own repository it is, and the read binding of each link to
@@ -1407,33 +1356,17 @@ export async function getBindingWorkspaceFormat(
 export type HydrateCommit = {
   unitRowsWritten: number
   unitRowsDeleted: number
-  chunkRowsInserted: number
-  chunkRowsDeleted: number
-} & (
-  | {
-      mode: "partial"
-      /** The active projection that the commit diffed against. */
-      base: WorkspaceRevision
-      /** The serving ids of the new and changed units. */
-      changedUnitIds: string[]
-      /** The serving ids of the units that the commit removed. */
-      removedUnitIds: string[]
-    }
-  | { mode: "full"; fullReason: HydrateFullReason }
-)
+} & ({ mode: "partial" } | { mode: "full"; fullReason: HydrateFullReason })
 
 /**
  * Each unit with its title and its body scrubbed whole (ADR-072), for
- * `commitHydrateProjection`: its chunker cuts the body, and a cut can split a
- * secret, so that no rule finds it. Thus the stored units and chunks hold the
- * scrubbed text. The unit hash covers the body, so a stored unit with a
- * secret changes, and the next hydrate of its Workspace writes it again.
- * The units are also storable: a mirror file can hold a NUL character (for
- * example an issue body that quotes a Git protocol error), which Postgres
- * refuses, and the whole commit failed (CTX-1521). Postgres and a partial
- * graph write get these units, so both hold the same text.
- * One scrubber request for each unit, a few in flight: no request holds a
- * whole Workspace. It runs outside the org database context, so that no
+ * `commitHydrateProjection`. Thus the stored units hold the scrubbed text. The
+ * unit hash covers the body, so a stored unit with a secret changes, and the
+ * next hydrate of its Workspace writes it again. The units are also storable: a
+ * mirror file can hold a NUL character (for example an issue body that quotes a
+ * Git protocol error), which Postgres refuses, and the whole commit failed
+ * (CTX-1521). One scrubber request for each unit, a few in flight: no request
+ * holds a whole Workspace. It runs outside the org database context, so that no
  * transaction stays open while the scrubber works.
  */
 export async function scrubHydrateUnits(
@@ -1471,8 +1404,6 @@ export async function commitHydrateProjection(input: {
   legacyKnowledgeFiles: number
   units: readonly HydrateUnit[]
   skipped: readonly HydrateSkip[]
-  /** Part of each chunk hash, so that a model change embeds again. */
-  embeddingModel: string
   /**
    * The active projection that the caller read, for a partial write, or the
    * reason for a full write (`hydrateCommitBase`). Absent: a full write
@@ -1546,7 +1477,7 @@ export async function commitHydrateProjection(input: {
         source: unit.source ?? null,
         body: unit.body,
         projectionSha: input.revision.sha,
-        unitHash: hydrateUnitHash(unit, input.embeddingModel),
+        unitHash: hydrateUnitHash(unit),
         links: unit.links,
         claims: unit.claims,
         createdAt: now,
@@ -1557,9 +1488,7 @@ export async function commitHydrateProjection(input: {
       // shows whether another hydrate moved the base.
       let fullReason: HydrateFullReason =
         "fullReason" in base ? base.fullReason : "base_moved"
-      let delta:
-        | { base: WorkspaceRevision; changed: HydrateUnit[]; removed: string[] }
-        | undefined
+      let delta: { changed: HydrateUnit[]; removed: string[] } | undefined
       if (
         "revision" in base &&
         sameWorkspaceRevision(current?.activeRevision, base.revision)
@@ -1573,10 +1502,7 @@ export async function commitHydrateProjection(input: {
           .where(
             eq(workspaceKnowledgeUnits.workspaceId, input.revision.workspaceId),
           )
-        delta = {
-          base: base.revision,
-          ...diffHydrateUnits(stored, input.units, input.embeddingModel),
-        }
+        delta = diffHydrateUnits(stored, input.units)
         if (
           delta.changed.length + delta.removed.length >
           partialUnitBound(stored.length)
@@ -1625,24 +1551,10 @@ export async function commitHydrateProjection(input: {
               },
             })
         }
-        const chunks = await replaceKnowledgeChunks(tx, {
-          orgId: input.orgId,
-          workspaceId: input.revision.workspaceId,
-          rows: knowledgeChunkRows(delta.changed, input.embeddingModel),
-          unitIds: [
-            ...delta.changed.map((unit) => unit.servingId),
-            ...delta.removed,
-          ],
-        })
         return {
           mode: "partial" as const,
-          base: delta.base,
           unitRowsWritten: delta.changed.length,
           unitRowsDeleted,
-          chunkRowsInserted: chunks.inserted,
-          chunkRowsDeleted: chunks.deleted,
-          changedUnitIds: delta.changed.map((unit) => unit.servingId),
-          removedUnitIds: delta.removed,
         }
       }
 
@@ -1657,18 +1569,11 @@ export async function commitHydrateProjection(input: {
           .insert(workspaceKnowledgeUnits)
           .values(input.units.slice(start, start + 500).map(row))
       }
-      const chunks = await replaceKnowledgeChunks(tx, {
-        orgId: input.orgId,
-        workspaceId: input.revision.workspaceId,
-        rows: knowledgeChunkRows(input.units, input.embeddingModel),
-      })
       return {
         mode: "full" as const,
         fullReason,
         unitRowsWritten: input.units.length,
         unitRowsDeleted: deleted.rowCount ?? 0,
-        chunkRowsInserted: chunks.inserted,
-        chunkRowsDeleted: chunks.deleted,
       }
     })
   })
@@ -2123,18 +2028,18 @@ export async function persistWriteStatus(
 }
 
 /**
- * The new record of a derived phase. A failure keeps the time of the first
+ * The new record of the index phase. A failure keeps the time of the first
  * failure of the same revision, and a retry (`pending`) keeps the whole
  * failure, so that a crash in the retry loses neither. A success clears it.
  */
-function derivedPhaseSql(
-  key: "graph" | "index",
-  input: { revision: WorkspaceRevision; result: DerivedStoreResult },
-) {
+function derivedPhaseSql(input: {
+  revision: WorkspaceRevision
+  result: DerivedStoreResult
+}) {
   const revision = JSON.stringify(input.revision)
   const record = sql`jsonb_build_object('revision', ${revision}::jsonb, 'result', ${JSON.stringify(input.result)}::jsonb)`
   if (input.result.kind === "ready") return record
-  const phase = sql`${workspaces.hydratePhases}->${sql.raw(`'${key}'`)}`
+  const phase = sql`${workspaces.hydratePhases}->'index'`
   const prior = sql`case when ${phase}->'revision' = ${revision}::jsonb then ${phase}->'failure' end`
   const failure =
     input.result.kind === "failed"
@@ -2155,7 +2060,7 @@ export async function persistWorkspaceIndexResult(input: {
         ...(input.result.kind === "ready"
           ? { indexedSha: input.revision.sha }
           : {}),
-        hydratePhases: sql`coalesce(${workspaces.hydratePhases}, '{}'::jsonb) || jsonb_build_object('index', ${derivedPhaseSql("index", input)}) || ${JSON.stringify(
+        hydratePhases: sql`coalesce(${workspaces.hydratePhases}, '{}'::jsonb) || jsonb_build_object('index', ${derivedPhaseSql(input)}) || ${JSON.stringify(
           input.result.kind === "ready"
             ? { publishedIndex: input.revision }
             : {},
@@ -2173,366 +2078,5 @@ export async function persistWorkspaceIndexResult(input: {
   })
 }
 
-/** Record an embedding error only for the projection that requested those vectors. */
-export async function persistEmbeddingFailure(input: {
-  revision: WorkspaceRevision
-  message: string
-}): Promise<void> {
-  await orgSql(() =>
-    getOrgDb()
-      .update(workspaces)
-      .set({
-        hydratePhases: sql`coalesce(${workspaces.hydratePhases}, '{}'::jsonb) || ${JSON.stringify(
-          {
-            ...initialHydratePhases({
-              url: input.revision.remote.url,
-              sha: input.revision.sha,
-              revision: input.revision,
-            }),
-            embeddingError: input.message,
-          },
-        )}::jsonb`,
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(workspaces.id, input.revision.workspaceId),
-          sql`${workspaces.activeRevision} = ${JSON.stringify(input.revision)}::jsonb`,
-        ),
-      )
-      .then(() => undefined),
-  )
-}
-
-/** SQL: the unit has text but no chunk row. Exported for the plan test of `KNOWLEDGE_UNIT_INDEX`. */
-// The chunks first: a CASE fixes the order, so the body (TOAST, the heaviest column) is read only for a unit without
-// chunks, not for every unit (with `and`, Postgres may test the cheaper-looking btrim first).
-export function unitWithoutChunks(workspaceId: SQL, servingId: SQL, body: SQL) {
-  return sql`case when exists (
-    select 1 from workspace_knowledge_chunks as c
-    where c.workspace_id = ${workspaceId} and c.unit_id = ${servingId}
-  ) then false else btrim(${body}, E' \t\r\n') <> '' end`
-}
-
-type OrgTransaction = Parameters<
-  Parameters<ReturnType<typeof getOrgDb>["transaction"]>[0]
->[0]
-
-/**
- * Make the Workspace's chunk rows match one projection, in the transaction
- * that activates it. Unchanged chunks get no write. A changed position gets an
- * update of its line columns only. A new chunk copies the embedding of a chunk
- * with the same hash before gone chunks are deleted, so hydrate never embeds
- * an unchanged chunk again. With `unitIds`, only the chunks of those units
- * change, and `rows` holds the new chunks of those units.
- */
-async function replaceKnowledgeChunks(
-  tx: OrgTransaction,
-  input: {
-    orgId: string
-    workspaceId: string
-    rows: KnowledgeChunkRow[]
-    unitIds?: readonly string[]
-  },
-): Promise<{ inserted: number; deleted: number }> {
-  const chunks = workspaceKnowledgeChunks
-  const key = (row: {
-    unitId: string
-    chunkHash: string
-    occurrence: number
-  }) => `${row.unitId}\0${row.chunkHash}\0${row.occurrence}`
-  const columns = {
-    unitId: chunks.unitId,
-    chunkHash: chunks.chunkHash,
-    occurrence: chunks.occurrence,
-    ordinal: chunks.ordinal,
-    startLine: chunks.startLine,
-    endLine: chunks.endLine,
-  }
-  const existingRows = []
-  if (!input.unitIds)
-    existingRows.push(
-      ...(await tx
-        .select(columns)
-        .from(chunks)
-        .where(eq(chunks.workspaceId, input.workspaceId))),
-    )
-  else
-    for (let start = 0; start < input.unitIds.length; start += 1000)
-      existingRows.push(
-        ...(await tx
-          .select(columns)
-          .from(chunks)
-          .where(
-            and(
-              eq(chunks.workspaceId, input.workspaceId),
-              inArray(chunks.unitId, input.unitIds.slice(start, start + 1000)),
-            ),
-          )),
-      )
-  const existing = new Map(existingRows.map((row) => [key(row), row]))
-  const added: KnowledgeChunkRow[] = []
-  const moved: KnowledgeChunkRow[] = []
-  for (const row of input.rows) {
-    const old = existing.get(key(row))
-    existing.delete(key(row))
-    if (!old) added.push(row)
-    else if (
-      old.ordinal !== row.ordinal ||
-      old.startLine !== row.startLine ||
-      old.endLine !== row.endLine
-    )
-      moved.push(row)
-  }
-  const gone = [...existing.values()]
-  const keyTuple = (row: {
-    unitId: string
-    chunkHash: string
-    occurrence: number
-  }) => sql`(${row.unitId}, ${row.chunkHash}, ${row.occurrence}::integer)`
-
-  // Nine bind parameters per row; chunk text is at most a few kilobytes.
-  for (let start = 0; start < added.length; start += 1000) {
-    await tx.insert(chunks).values(
-      added.slice(start, start + 1000).map((row) => ({
-        ...row,
-        orgId: input.orgId,
-        workspaceId: input.workspaceId,
-      })),
-    )
-  }
-  if (added.length > 0)
-    await tx.execute(sql`
-      UPDATE workspace_knowledge_chunks AS n
-      SET embedding = o.embedding
-      FROM workspace_knowledge_chunks AS o
-      WHERE n.workspace_id = ${input.workspaceId}
-        AND n.embedding IS NULL
-        AND o.workspace_id = ${input.workspaceId}
-        AND o.chunk_hash = n.chunk_hash
-        AND o.embedding IS NOT NULL
-    `)
-  for (let start = 0; start < moved.length; start += 1000) {
-    const values = moved
-      .slice(start, start + 1000)
-      .map(
-        (row) =>
-          sql`(${row.unitId}, ${row.chunkHash}, ${row.occurrence}::integer, ${row.ordinal}::integer, ${row.startLine}::integer, ${row.endLine}::integer)`,
-      )
-    await tx.execute(sql`
-      UPDATE workspace_knowledge_chunks AS c
-      SET ordinal = v.ordinal, start_line = v.start_line, end_line = v.end_line
-      FROM (VALUES ${sql.join(values, sql`, `)})
-        AS v(unit_id, chunk_hash, occurrence, ordinal, start_line, end_line)
-      WHERE c.workspace_id = ${input.workspaceId}
-        AND c.unit_id = v.unit_id
-        AND c.chunk_hash = v.chunk_hash
-        AND c.occurrence = v.occurrence
-    `)
-  }
-  for (let start = 0; start < gone.length; start += 1000) {
-    await tx.execute(sql`
-      DELETE FROM workspace_knowledge_chunks
-      WHERE workspace_id = ${input.workspaceId}
-        AND (unit_id, chunk_hash, occurrence) IN (${sql.join(
-          gone.slice(start, start + 1000).map(keyTuple),
-          sql`, `,
-        )})
-    `)
-  }
-  return { inserted: added.length, deleted: gone.length }
-}
-
-/**
- * Embed the Workspace's chunks that have no embedding, one batch of distinct
- * hashes at a time. The model call runs outside the org database context.
- * Returns the number of texts that went to the model.
- */
-export async function embedKnowledgeChunks(input: {
-  workspaceId: string
-  embed: (texts: string[]) => Promise<number[][]>
-}): Promise<number> {
-  const chunks = workspaceKnowledgeChunks
-  let sent = 0
-  for (;;) {
-    const pending = await orgSql(() =>
-      getOrgDb()
-        .selectDistinctOn([chunks.chunkHash], {
-          chunkHash: chunks.chunkHash,
-          text: chunks.text,
-        })
-        .from(chunks)
-        .where(
-          and(
-            eq(chunks.workspaceId, input.workspaceId),
-            sql`${chunks.embedding} is null`,
-          ),
-        )
-        .orderBy(chunks.chunkHash)
-        .limit(64),
-    )
-    if (pending.length === 0) return sent
-    const vectors = await input.embed(pending.map((chunk) => chunk.text))
-    sent += pending.length
-    if (vectors.length !== pending.length)
-      throw new Error(
-        `Expected ${pending.length} embeddings, got ${vectors.length}`,
-      )
-    const updated = await orgSql(() =>
-      getOrgDb().execute(sql`
-        UPDATE workspace_knowledge_chunks AS c
-        SET embedding = v.embedding::vector
-        FROM jsonb_to_recordset(${JSON.stringify(
-          pending.map((chunk, index) => ({
-            chunk_hash: chunk.chunkHash,
-            embedding: JSON.stringify(vectors[index]),
-          })),
-        )}::jsonb) AS v(chunk_hash text, embedding text)
-        WHERE c.workspace_id = ${input.workspaceId}
-          AND c.chunk_hash = v.chunk_hash
-          AND c.embedding IS NULL
-      `),
-    )
-    // Another activation replaced these chunks. Stop, so that the loop cannot
-    // pay for the same texts again.
-    if (!updated.rowCount)
-      throw new Error("Knowledge chunks changed during embedding")
-  }
-}
-
-/**
- * Mark the embeddings of the active revision ready. Refuses while a chunk has
- * no embedding or a unit with text has no chunk.
- */
-export async function markKnowledgeEmbeddingsReady(input: {
-  revision: WorkspaceRevision
-}): Promise<boolean> {
-  return orgSql(() =>
-    getOrgDb().transaction(async (tx) => {
-      const [workspace] = await tx
-        .select({ activeRevision: workspaces.activeRevision })
-        .from(workspaces)
-        .where(eq(workspaces.id, input.revision.workspaceId))
-        .for("update")
-      if (!sameWorkspaceRevision(workspace?.activeRevision, input.revision))
-        return false
-      const [incomplete] = (
-        await tx.execute<{ incomplete: boolean }>(sql`
-          SELECT exists (
-            SELECT 1 FROM workspace_knowledge_chunks
-            WHERE workspace_id = ${input.revision.workspaceId}
-              AND embedding IS NULL
-          ) OR exists (
-            SELECT 1 FROM workspace_knowledge_units AS u
-            WHERE u.workspace_id = ${input.revision.workspaceId}
-              AND ${unitWithoutChunks(sql`u.workspace_id`, sql`u.serving_id`, sql`u.body`)}
-          ) AS incomplete
-        `)
-      ).rows
-      if (incomplete?.incomplete)
-        throw new Error("Knowledge chunks are not all embedded")
-      await tx
-        .update(workspaces)
-        .set({
-          hydratePhases: sql`(coalesce(${workspaces.hydratePhases}, '{}'::jsonb) - 'embeddingError') || ${JSON.stringify(
-            {
-              ...initialHydratePhases({
-                url: input.revision.remote.url,
-                sha: input.revision.sha,
-                revision: input.revision,
-              }),
-              embeddings: true,
-            },
-          )}::jsonb`,
-          updatedAt: new Date(),
-        })
-        .where(eq(workspaces.id, input.revision.workspaceId))
-      return true
-    }),
-  )
-}
-
 export * from "./workspace-sandboxes.js"
 export * from "./workspace-write-jobs.js"
-
-/** Publish derived graph freshness only for the complete active revision. */
-/**
- * Set a ready graph phase back to pending when the graph store lost that graph.
- * Only one caller wins for each loss, so only that caller starts the rebuild.
- * Returns the time of the change, or null when another caller already won.
- */
-export async function markWorkspaceGraphLost(
-  revision: WorkspaceRevision,
-): Promise<Date | null> {
-  return orgSql(async () => {
-    const [updated] = await getOrgDb()
-      .update(workspaces)
-      .set({
-        hydratePhases: sql`coalesce(${workspaces.hydratePhases}, '{}'::jsonb) || ${JSON.stringify({ graph: { revision, result: { kind: "pending" } } })}::jsonb`,
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(workspaces.id, revision.workspaceId),
-          sql`${workspaces.activeRevision} = ${JSON.stringify(revision)}::jsonb`,
-          sql`${workspaces.hydratePhases}->'graph'->'revision' = ${JSON.stringify(revision)}::jsonb`,
-          sql`${workspaces.hydratePhases}->'graph'->'result'->>'kind' = 'ready'`,
-        ),
-      )
-      .returning({ updatedAt: workspaces.updatedAt })
-    return updated?.updatedAt ?? null
-  })
-}
-
-/**
- * Set a failed graph phase of the active revision back to pending for a
- * manual rebuild. The phase keeps its first failure, so the tip check spaces
- * out its retries from that time. The queued run can start and fail again
- * before this write, so the write occurs only when the row is the row that
- * the caller read at `readAt`.
- */
-export async function markWorkspaceGraphRetry(
-  revision: WorkspaceRevision,
-  readAt: Date,
-): Promise<void> {
-  await orgSql(() =>
-    getOrgDb()
-      .update(workspaces)
-      .set({
-        hydratePhases: sql`coalesce(${workspaces.hydratePhases}, '{}'::jsonb) || jsonb_build_object('graph', ${derivedPhaseSql("graph", { revision, result: { kind: "pending" } })})`,
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(workspaces.id, revision.workspaceId),
-          sql`${workspaces.activeRevision} = ${JSON.stringify(revision)}::jsonb`,
-          sql`${workspaces.hydratePhases}->'graph'->'revision' = ${JSON.stringify(revision)}::jsonb`,
-          sql`${workspaces.hydratePhases}->'graph'->'result'->>'kind' = 'failed'`,
-          // A JavaScript date has milliseconds; the column has microseconds.
-          sql`date_trunc('milliseconds', ${workspaces.updatedAt}) = ${readAt.toISOString()}::timestamptz`,
-        ),
-      ),
-  )
-}
-
-export async function persistWorkspaceGraphResult(input: {
-  revision: WorkspaceRevision
-  result: DerivedStoreResult
-}): Promise<boolean> {
-  return orgSql(async () => {
-    const [updated] = await getOrgDb()
-      .update(workspaces)
-      .set({
-        hydratePhases: sql`coalesce(${workspaces.hydratePhases}, '{}'::jsonb) || jsonb_build_object('graph', ${derivedPhaseSql("graph", input)})`,
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(workspaces.id, input.revision.workspaceId),
-          sql`${workspaces.activeRevision} = ${JSON.stringify(input.revision)}::jsonb`,
-        ),
-      )
-      .returning({ id: workspaces.id })
-    return updated != null
-  })
-}

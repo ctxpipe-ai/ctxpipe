@@ -127,23 +127,6 @@ function numberPort(port: number | string | undefined): number | undefined {
   return parsed
 }
 
-export function serverAddressFromUrl(uri: string | undefined): {
-  address?: string
-  port?: number
-} {
-  if (!uri) return {}
-  try {
-    const url = new URL(uri)
-    const port = numberPort(url.port)
-    return {
-      ...(url.hostname ? { address: url.hostname } : {}),
-      ...(port !== undefined ? { port } : {}),
-    }
-  } catch {
-    return {}
-  }
-}
-
 function endpoint(client: TraceablePgClient): {
   host?: string
   port?: number | string
@@ -288,72 +271,4 @@ export function instrumentPgPool(
       return client
     })
   }) as Pool["connect"]
-}
-
-function describeCypher(query: string): {
-  operation: string
-  collection?: string
-} {
-  const statement = query.trim()
-  const operation = (
-    statement.match(/^([A-Za-z]+)/)?.[1] ?? "QUERY"
-  ).toUpperCase()
-  const label = statement.match(/\(\s*[A-Za-z0-9_]*\s*:\s*([A-Za-z_][\w]*)/)
-  const collection = label?.[1]
-  return {
-    operation,
-    ...(collection && collection.length <= 128 ? { collection } : {}),
-  }
-}
-
-/** CLIENT span for one graph query. Skipped when no request or job span is active. */
-export function traceGraphQuery<T>(
-  input: {
-    system: string
-    query: string
-    namespace?: string
-    serverAddress?: string
-    serverPort?: number
-    tracerName?: string
-  },
-  run: () => Promise<T>,
-): Promise<T> {
-  if (!trace.getActiveSpan()) return run()
-  const described = describeCypher(input.query)
-  const attributes: Record<string, string | number> = {
-    "db.system.name": input.system,
-    "db.operation.name": described.operation,
-    "db.query.text": capQueryText(input.query),
-  }
-  if (described.collection) {
-    attributes["db.collection.name"] = described.collection
-  }
-  if (input.namespace && !input.namespace.includes("://")) {
-    attributes["db.namespace"] = input.namespace
-  }
-  if (input.serverAddress) attributes["server.address"] = input.serverAddress
-  if (input.serverPort !== undefined) {
-    attributes["server.port"] = input.serverPort
-  }
-  return trace
-    .getTracer(input.tracerName ?? "ctxpipe-backend")
-    .startActiveSpan(
-      querySpanName(described.operation, described.collection),
-      { kind: SpanKind.CLIENT, attributes },
-      async (span) => {
-        try {
-          return await run()
-        } catch (error) {
-          // FalkorDB has no CREATE INDEX IF NOT EXISTS; this answer means
-          // the index is there, so the caller ignores it.
-          const indexExists =
-            /^\s*CREATE\s+INDEX\b/i.test(input.query) &&
-            /already indexed/i.test(String(error))
-          if (!indexExists) recordDbFailure(span, error)
-          throw error
-        } finally {
-          span.end()
-        }
-      },
-    )
 }
