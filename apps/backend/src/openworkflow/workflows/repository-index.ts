@@ -10,8 +10,8 @@ import {
   codesearchIndexZoekt,
   isCodesearchAdmissionBusyError,
 } from "../../domain/codeIngestion/codesearchIndexPhases.js"
-import type { IndexingStepKey } from "../../domain/indexingSteps.js"
 import { isRepositoryGoneError } from "../../domain/codeIngestion/repositoryGone.js"
+import type { IndexingStepKey } from "../../domain/indexingSteps.js"
 import { resolveRepositoryReadCredential } from "../../domain/workspaces/resolve-revision.js"
 import {
   isMemoryFitFailure,
