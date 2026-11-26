@@ -222,7 +222,11 @@ describe("decideNoul", () => {
       status: 404,
       message:
         "Jev answered HTTP 404: No endpoints found matching your data policy.",
+      reason: "gateway.routing",
     })
+    expect(spans.spanNamed("jev.decide")?.attributes["jev.error_cause"]).toBe(
+      "gateway.routing",
+    )
 
     server.use(
       http.post(DECISIONS, () =>
@@ -240,7 +244,7 @@ describe("decideNoul", () => {
   describe("the content-free cause of a refused request (CTX-1690)", () => {
     /** Text of the state that an error body can quote. */
     const quoted = "The private state."
-    const refuse = (body: unknown, status = 400) =>
+    const refuse = (body: string | Record<string, unknown>, status = 400) =>
       server.use(
         http.post(DECISIONS, () =>
           typeof body === "string"
@@ -268,18 +272,29 @@ describe("decideNoul", () => {
         "provider.context_length",
       ],
       [
-        "a gateway error with a code identifier",
+        "a provider refusal behind the generic message of OpenRouter",
         {
           error: {
-            code: "invalid_state_item",
-            message: `State item 1 is not valid: ${quoted}`,
+            code: 400,
+            message: "Provider returned error",
+            metadata: {
+              provider_name: "TypeSafe",
+              raw: JSON.stringify({
+                error: { message: `Too many tokens: ${quoted}` },
+              }),
+            },
           },
         },
-        "gateway.invalid_state_item",
+        "provider.context_length",
       ],
       [
-        "a gateway error with a code that is not an identifier",
-        { error: { code: quoted, message: `Invalid request: ${quoted}` } },
+        "a gateway error with a code that can hold content",
+        {
+          error: {
+            code: "private_customer_word",
+            message: `Invalid request: ${quoted}`,
+          },
+        },
         "gateway.invalid_request",
       ],
       [
@@ -306,6 +321,9 @@ describe("decideNoul", () => {
         expect(span?.attributes["jev.error_cause"]).toBe(reason)
         expect(JSON.stringify(span?.attributes)).not.toContain("private")
         expect(span?.status.message).not.toContain("private")
+        expect(error).toMatchObject({
+          message: expect.not.stringContaining("private"),
+        })
       },
     )
 

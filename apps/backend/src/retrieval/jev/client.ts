@@ -34,9 +34,10 @@ export type JevQuestion = { type: "noul"; instructions: string }
 /**
  * The failure of one Jev call. The message holds no request or response
  * text, because that can be customer content. The one exception is a fixed
- * routing message of the gateway (`gatewayRoutingError`). Each other error
- * status has a `reason`: the content-free cause of the error body
- * (`gatewayErrorCause`), for example `provider.context_length`.
+ * routing message of the gateway (`gatewayRoutingError`). An error status
+ * has a `reason`: `gateway.routing` for a routing message, else the
+ * content-free cause of the error body (`gatewayErrorCause`), for example
+ * `provider.context_length`.
  * - `config`: the backend model settings cannot reach OpenRouter.
  * - `network`: the request did not get an answer (DNS, connection, TLS).
  * - `timeout`: no full answer within the time limit.
@@ -193,17 +194,13 @@ export async function decideNoul(
           // Only a fixed routing message of the gateway, or the cause with
           // no text: other error text can echo the state.
           const routing = gatewayRoutingError(body, JEV_MODEL)
-          if (routing)
-            throw new JevError(
-              "http",
-              `Jev answered HTTP ${status}: ${routing}`,
-              status,
-            )
-          const reason = gatewayErrorCause(body)
+          const reason = routing ? "gateway.routing" : gatewayErrorCause(body)
           span.setAttribute("jev.error_cause", reason)
           throw new JevError(
             "http",
-            `Jev answered HTTP ${status} (${reason}).`,
+            routing
+              ? `Jev answered HTTP ${status}: ${routing}`
+              : `Jev answered HTTP ${status} (${reason}).`,
             status,
             reason,
           )

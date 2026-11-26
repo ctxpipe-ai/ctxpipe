@@ -41,9 +41,9 @@ export function gatewayRoutingError(
 }
 
 /**
- * The kinds of an error message that the cause of a failed gateway answer
- * can name, in the order of the check. Only the label goes into the cause,
- * never the text of the message.
+ * The kinds of an error text that the cause of a failed gateway answer can
+ * name, in the order of the check. Only the label goes into the cause, never
+ * the text.
  */
 const MESSAGE_KINDS: [string, RegExp][] = [
   [
@@ -58,11 +58,23 @@ const MESSAGE_KINDS: [string, RegExp][] = [
   ],
 ]
 
+const text = z.string().optional().catch(undefined)
 const causeBody = z.object({
   error: z.object({
-    code: z.unknown().optional(),
-    message: z.unknown().optional(),
-    metadata: z.object({ provider_name: z.unknown().optional() }).optional(),
+    message: text,
+    metadata: z
+      .object({
+        provider_name: text,
+        // The error body of the provider, as text or as JSON.
+        raw: z
+          .unknown()
+          .transform((raw) =>
+            typeof raw === "string" ? raw : JSON.stringify(raw),
+          )
+          .optional(),
+      })
+      .optional()
+      .catch(undefined),
   }),
 })
 
@@ -72,9 +84,12 @@ const causeBody = z.object({
  * `<source>.<kind>`:
  * - `source`: `provider` when the body names the provider that answered,
  *   else `gateway`. The cause keeps no name.
- * - `kind`: the error code of the body when it is a snake_case identifier,
- *   else the kind of the message (`MESSAGE_KINDS`), else `unknown`. A body
- *   that is not JSON gives `not_json`.
+ * - `kind`: the first `MESSAGE_KINDS` label that the message matches, else
+ *   the first that the raw error of the provider (`metadata.raw`) matches,
+ *   else `unknown`. OpenRouter gives a generic message ("Provider returned
+ *   error") when the provider refused, and puts the refusal in the raw
+ *   error. A body that is not JSON gives `not_json`. No code of the body
+ *   goes into the cause: a code can also hold content.
  */
 export function gatewayErrorCause(body: string): string {
   let json: unknown
@@ -84,15 +99,11 @@ export function gatewayErrorCause(body: string): string {
     return "gateway.not_json"
   }
   const error = causeBody.safeParse(json).data?.error
-  const provider = error?.metadata?.provider_name
-  const source =
-    typeof provider === "string" && provider ? "provider" : "gateway"
-  const { code, message } = error ?? {}
-  const kind =
-    typeof code === "string" && /^[a-z][a-z0-9_]{0,47}$/.test(code)
-      ? code
-      : typeof message === "string"
-        ? MESSAGE_KINDS.find(([, pattern]) => pattern.test(message))?.[0]
-        : undefined
+  const source = error?.metadata?.provider_name ? "provider" : "gateway"
+  const kindOf = (value: string | undefined) =>
+    value === undefined
+      ? undefined
+      : MESSAGE_KINDS.find(([, pattern]) => pattern.test(value))?.[0]
+  const kind = kindOf(error?.message) ?? kindOf(error?.metadata?.raw)
   return `${source}.${kind ?? "unknown"}`
 }
