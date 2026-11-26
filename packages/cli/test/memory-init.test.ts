@@ -908,18 +908,43 @@ describe("the removed memory mcp and memory hook commands repair a 0.2.0 setup",
   })
 
   it.each([
-    [".claude/rules", "a directory of hook files"],
-    [".ai/memory/patterns.md", "a migration input"],
-  ])(
-    "refuses the repair when %s (%s) is a symlink out of the repository",
-    (rel) => {
+    [
+      ".claude/rules",
+      "outside",
+      "a directory of hook files out of the repository",
+    ],
+    [
+      ".ai/memory/patterns.md",
+      "outside",
+      "a migration input out of the repository",
+    ],
+    [
+      ".ai/memory/lessons-learned.md",
+      "inside",
+      "a migration output to .git/config",
+    ],
+  ] as const)(
+    "refuses the repair when %s is a symlink (%s: %s)",
+    (rel, where, _why) => {
       const { cwd, home } = legacySetup()
       const outside = mkdtempSync(join(tmpdir(), "ctxpipe-mem-repair-outside-"))
       writeFileSync(join(outside, "secret"), "do not copy\n")
-      mkdirSync(dirname(join(cwd, rel)), { recursive: true })
+      mkdirSync(join(cwd, ".git"))
+      writeFileSync(join(cwd, ".git", "config"), "[core]\n")
+      writeFileSync(
+        join(cwd, ".ai", "memory", "patterns.md"),
+        "[core]\n\tfsmonitor = ./payload\n",
+      )
+      const path = join(cwd, rel)
+      mkdirSync(dirname(path), { recursive: true })
+      rmSync(path, { force: true })
       symlinkSync(
-        rel.endsWith(".md") ? join(outside, "secret") : outside,
-        join(cwd, rel),
+        where === "inside"
+          ? join(cwd, ".git", "config")
+          : rel.endsWith(".md")
+            ? join(outside, "secret")
+            : outside,
+        path,
       )
       const before = snapshot(cwd, home, outside)
 
@@ -928,13 +953,28 @@ describe("the removed memory mcp and memory hook commands repair a 0.2.0 setup",
       expect(result.status).toBe(0)
       expect(result.stdout).toBe("")
       expect(result.stderr.trim().split("\n")).toEqual([
-        expect.stringContaining(
-          "resolves to a path outside the repository). Run `npx ctxpipe memory init`.",
-        ),
+        `ctxpipe: \`memory mcp\` was removed in 0.3.0. The repair of the memory setup failed (${rel === ".claude/rules" ? ".claude/rules/ai-memory.md" : rel} goes through a symlink). Run \`npx ctxpipe memory init\`.`,
       ])
       expect(snapshot(cwd, home, outside)).toEqual(before)
     },
   )
+
+  it("refuses the repair when a JSON file that it changes does not parse", () => {
+    const { cwd, home } = legacySetup()
+    writeFileSync(
+      join(cwd, ".mcp.json"),
+      '{\n  // a comment\n  "mcpServers": {}\n}\n',
+    )
+    const before = snapshot(cwd, home)
+
+    const result = runRemoved(cwd, home, "mcp")
+
+    expect(result.status).toBe(0)
+    expect(result.stderr.trim().split("\n")).toEqual([
+      "ctxpipe: `memory mcp` was removed in 0.3.0. The repair of the memory setup failed (.mcp.json is not a JSON object). Run `npx ctxpipe memory init`.",
+    ])
+    expect(snapshot(cwd, home)).toEqual(before)
+  })
 
   it("changes nothing in a directory that has no .ai/memory", () => {
     const { cwd, home } = legacySetup()

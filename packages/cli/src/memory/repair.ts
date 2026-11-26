@@ -1,4 +1,4 @@
-import { existsSync, realpathSync } from "node:fs"
+import { existsSync, readFileSync, realpathSync } from "node:fs"
 import {
   basename,
   dirname,
@@ -8,7 +8,6 @@ import {
   resolve,
 } from "node:path"
 
-import type { Client } from "../constants.js"
 import { CLIENT_LABELS } from "../constants.js"
 import { applyOperations } from "../fs-operations.js"
 import {
@@ -17,7 +16,7 @@ import {
 } from "../mcp/mcp-operations.js"
 import { extractWorkspaceCwd, readStdinJson } from "./capture.js"
 import { hasCaptureHook } from "./harness.js"
-import { buildMemoryHookOperations } from "./hooks.js"
+import { buildMemoryHookOperations, REPO_CAPTURE_HOOK } from "./hooks.js"
 import {
   buildMemoryUpgradeOperations,
   findLegacyMemoryEntries,
@@ -77,17 +76,10 @@ function repair(cwd: string): string {
   }
   // A home entry stays after the repair, so its host counts only while the
   // repository has no capture hook for it. Else each run would repair again.
-  const captureHook: Record<Client, string> = {
-    cursor: ".cursor/hooks.json",
-    claude: ".claude/settings.json",
-    codex: ".codex/config.toml",
-    vscode: ".github/hooks/ctxpipe-memory.json",
-    opencode: ".opencode/plugins/ctxpipe-memory.js",
-  }
   const pending = entries.filter(
     ({ path, host }) =>
       isInside(context.cwd, path) ||
-      (host && !hasCaptureHook(resolve(context.cwd, captureHook[host]))),
+      (host && !hasCaptureHook(resolve(context.cwd, REPO_CAPTURE_HOOK[host]))),
   )
   if (pending.length === 0) {
     return "The memory setup of this repository is already current."
@@ -103,17 +95,24 @@ function repair(cwd: string): string {
     ...buildMemoryHookOperations({ clients: hosts, scope: "repo", context }),
     ...buildMemoryUpgradeOperations({ context }),
   ].filter((op) => !("path" in op) || isInside(context.cwd, op.path))
-  // The upgrade also reads patterns.md, and the writes follow symlinks. A
-  // cloned repository must not make the repair read or write outside it.
+  // A cloned repository can hold symlinks, and the upgrade reads patterns.md
+  // and writes lessons-learned.md. So refuse each path that goes through a
+  // symlink, also to a target in the repository (for example .git/config).
+  // Refuse a JSON file that does not parse too: the write would replace it
+  // with an empty object.
   const root = realpathSync(context.cwd)
-  const escape = [
+  for (const path of [
     resolve(context.cwd, ".ai", "memory", "patterns.md"),
     ...operations.flatMap((op) => ("path" in op ? [op.path] : [])),
-  ].find((path) => !isInside(root, realTarget(path)))
-  if (escape) {
-    throw new Error(
-      `${relative(context.cwd, escape)} resolves to a path outside the repository`,
-    )
+  ]) {
+    if (realTarget(path) !== join(root, relative(context.cwd, path))) {
+      throw new Error(`${relative(context.cwd, path)} goes through a symlink`)
+    }
+  }
+  for (const op of operations) {
+    if (op.type === "write-json" && existsSync(op.path)) {
+      assertJsonObject(op.path, context.cwd)
+    }
   }
 
   applyOperations(operations)
@@ -121,6 +120,18 @@ function repair(cwd: string): string {
   return hosts.length > 0
     ? `Removed the 0.2.0 memory entries of this repository and wrote the capture hooks for ${labels}.`
     : "Removed the 0.2.0 memory entries of this repository."
+}
+
+function assertJsonObject(path: string, cwd: string): void {
+  let value: unknown
+  try {
+    value = JSON.parse(readFileSync(path, "utf8"))
+  } catch {
+    value = null
+  }
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(`${relative(cwd, path)} is not a JSON object`)
+  }
 }
 
 function isInside(root: string, path: string): boolean {
