@@ -920,6 +920,14 @@ describe("frontier relations", () => {
     })
   })
 
+  it("out: returns only the out-relations, the same as the out-relations of a read in both directions (CTX-1688)", async () => {
+    const refs = [{ workspaceId: workspace, docKey: "vector.md" }]
+    const both = await store.readFrontier(orgA, refs)
+    const out = await store.readFrontier(orgA, refs, null, "out")
+    expect(out.length).toBeGreaterThan(0)
+    expect(out).toEqual(both.filter((row) => row.direction === "out"))
+  })
+
   it("validAt: leaves out a relation or a neighbor that is not valid at that time", async () => {
     const in2026 = await frontier(new Date("2026-06-01"))
     expect(in2026.map((row) => row.relation.srcDoc)).toEqual([
@@ -952,6 +960,22 @@ describe("document read", () => {
         document.status,
       ]),
     ).toEqual([[workspace, "vector.md", "active"]])
+  })
+
+  it("reads the documents of more refs than one query parameter can hold (CTX-1688)", async () => {
+    // ClickHouse refuses a query parameter of more than 128 KiB
+    // (`http_max_field_value_size`): 3,000 refs are about 230 KiB.
+    const refs = [
+      { workspaceId: workspace, docKey: "vector.md" },
+      ...Array.from({ length: 3_000 }, (_, i) => ({
+        workspaceId: workspace,
+        docKey: `missing/${String(i).padStart(4, "0")}-${"x".repeat(40)}.md`,
+      })),
+    ]
+    const documents = await store.readDocuments(orgA, refs)
+    expect(documents.map(({ document }) => document.docKey)).toEqual([
+      "vector.md",
+    ])
   })
 })
 

@@ -478,11 +478,15 @@ export type KnowledgeStore = {
   ): Promise<{ srcDoc: string; dstDoc: string }[]>
   /** The hybrid search of ADR-068 decision 1. */
   search(scope: KnowledgeReadScope, query: SearchQuery): Promise<SearchHit[]>
-  /** The out-relations and in-relations of the documents `refs`. */
+  /**
+   * The out-relations and in-relations of the documents `refs`. With
+   * `direction` `out`, only the out-relations.
+   */
   readFrontier(
     scope: KnowledgeReadScope,
     refs: DocumentRef[],
     validAt?: Date | null,
+    direction?: "out" | "both",
   ): Promise<FrontierRelation[]>
   /**
    * The path of each file of the view whose path starts with `prefix`, with
@@ -583,8 +587,8 @@ export function createKnowledgeStore(url: string | undefined): KnowledgeStore {
     listUnresolvedReferences: (scope) =>
       listUnresolvedReferences(client, scope),
     search: (scope, query) => search(client, scope, query),
-    readFrontier: (scope, refs, validAt) =>
-      readFrontier(client, scope, refs, validAt),
+    readFrontier: (scope, refs, validAt, direction) =>
+      readFrontier(client, scope, refs, validAt, direction),
     readDocuments: (scope, refs) => readDocuments(client, scope, refs),
     listViewFiles: (scope, prefix) =>
       selectIn<{ workspaceId: string; path: string; branch: string }>(
@@ -2206,12 +2210,17 @@ const resolvedTarget = (alias: string) =>
  * a key that many files mention (the name of the whole project) is weak.
  * The mentions of one target by one file give one relation, with the
  * chunk and the confidence of the strongest.
+ *
+ * With `direction` `out`, the query reads no in-relations (CTX-1688): the
+ * claims of the search hits are out-relations only, and the in-relations
+ * of a hub document can be most of the time and the rows of the read.
  */
 async function readFrontier(
   client: ClickHouseClient,
   scope: KnowledgeReadScope,
   refs: DocumentRef[],
   validAtTime: Date | null = null,
+  direction: "out" | "both" = "both",
 ): Promise<FrontierRelation[]> {
   assertReadScope(scope)
   if (refs.length === 0) return []
@@ -2220,6 +2229,31 @@ async function readFrontier(
   const isKey = (column: string) => `startsWith(${column}, {prefix:String})`
   const inRefs = (columns: string) =>
     `(${columns}) IN {refs:Array(Tuple(String, String))}`
+  // The in-relations: to a frontier document, or to a key of it.
+  const inCtes = `own_keys AS (
+       SELECT workspace_id, concat({prefix:String}, ref_key) AS target, doc_key
+       FROM doc_refs
+       WHERE ${inWorkspaces} AND (workspace_id, doc_key, version) IN (
+         SELECT workspace_id, doc_key, version FROM frontier)
+     ),
+     in_edges AS (
+       SELECT * FROM (
+         ${relationsOf("relations_in", viewFiles)}
+           AND (${inRefs("r.workspace_id, r.dst_doc")}
+             OR (r.workspace_id, r.dst_doc) IN (
+               SELECT workspace_id, target FROM own_keys))
+       ) WHERE ${validDuring()}
+     ),`
+  const inBranches = `UNION ALL
+       SELECT 'in', src_doc, '', ${edgeColumns}
+       FROM in_edges WHERE ${inRefs("workspace_id, dst_doc")}
+       UNION ALL
+       SELECT 'in', i.src_doc, ${mentionKey("i")}, i.workspace_id, i.src_doc,
+         i.src_chunk, i.predicate, k.doc_key, i.confidence, i.valid_from,
+         i.valid_to, i.source, i.alt_text, i.observed_at
+       FROM in_edges AS i
+       INNER JOIN own_keys AS k
+         ON k.workspace_id = i.workspace_id AND k.target = i.dst_doc`
   const rows = await selectIn<
     RelationRecord & {
       direction: "out" | "in"
@@ -2240,21 +2274,7 @@ async function readFrontier(
            AND ${inRefs("r.workspace_id, r.src_doc")}
        ) WHERE ${validDuring()}
      ),
-     own_keys AS (
-       SELECT workspace_id, concat({prefix:String}, ref_key) AS target, doc_key
-       FROM doc_refs
-       WHERE ${inWorkspaces} AND (workspace_id, doc_key, version) IN (
-         SELECT workspace_id, doc_key, version FROM frontier)
-     ),
-     in_edges AS (
-       SELECT * FROM (
-         ${relationsOf("relations_in", viewFiles)}
-           AND (${inRefs("r.workspace_id, r.dst_doc")}
-             OR (r.workspace_id, r.dst_doc) IN (
-               SELECT workspace_id, target FROM own_keys))
-       ) WHERE ${validDuring()}
-     ),
-     edges AS (
+${direction === "out" ? "" : inCtes}     edges AS (
        SELECT 'out' AS direction, dst_doc AS neighbor_doc, '' AS via_key,
          ${edgeColumns}
        FROM out_edges WHERE NOT ${isKey("dst_doc")}
@@ -2272,16 +2292,7 @@ async function readFrontier(
          ON keys.workspace_id = o.workspace_id AND keys.target = o.dst_doc
        WHERE ${isKey("o.dst_doc")}
          AND NOT (o.predicate = 'MENTIONS' AND empty(keys.doc_key))
-       UNION ALL
-       SELECT 'in', src_doc, '', ${edgeColumns}
-       FROM in_edges WHERE ${inRefs("workspace_id, dst_doc")}
-       UNION ALL
-       SELECT 'in', i.src_doc, ${mentionKey("i")}, i.workspace_id, i.src_doc,
-         i.src_chunk, i.predicate, k.doc_key, i.confidence, i.valid_from,
-         i.valid_to, i.source, i.alt_text, i.observed_at
-       FROM in_edges AS i
-       INNER JOIN own_keys AS k
-         ON k.workspace_id = i.workspace_id AND k.target = i.dst_doc
+${direction === "out" ? "" : inBranches}
      )
      SELECT DISTINCT direction, via_key AS viaKey,
        workspace_id AS workspaceId, neighbor_doc AS neighborDoc,
@@ -2494,29 +2505,56 @@ const missingDocument = (
   observedAt,
 })
 
-/** The document of each of `refs` that the view has, in one query. */
+/**
+ * The document of each of `refs` that the view has. The neighbors of a hub
+ * document can be thousands of refs, and ClickHouse refuses a query
+ * parameter of more than 128 KiB (`http_max_field_value_size`). Thus the
+ * refs go in parallel queries of at most 64 KiB of refs each (CTX-1688).
+ */
 async function readDocuments(
   client: ClickHouseClient,
   scope: KnowledgeReadScope,
   refs: DocumentRef[],
 ): Promise<{ workspaceId: string; document: KnowledgeDocument }[]> {
   assertReadScope(scope)
-  if (refs.length === 0) return []
-  const rows = await selectIn<DocumentRecord & { workspaceId: string }>(
-    client,
-    scope,
-    `WITH tree_view AS (${treeView})
-     SELECT v.workspace_id AS workspaceId, ${viewDocumentColumns}
-     FROM ${viewDocumentsFrom(
-       "(workspace_id, doc_key) IN {refs:Array(Tuple(String, String))}",
-     )}
-     ORDER BY workspaceId, docKey`,
-    { refs: refTuples(refs) },
+  const batches: DocumentRef[][] = []
+  let size = Number.POSITIVE_INFINITY
+  for (const ref of refs) {
+    // The text of the tuple, with its quotes, comma and brackets.
+    const length = ref.workspaceId.length + ref.docKey.length + 8
+    if (size + length > 64 * 1024) {
+      batches.push([])
+      size = 0
+    }
+    batches.at(-1)?.push(ref)
+    size += length
+  }
+  const rows = await Promise.all(
+    batches.map((batch) =>
+      selectIn<DocumentRecord & { workspaceId: string }>(
+        client,
+        scope,
+        `WITH tree_view AS (${treeView})
+         SELECT v.workspace_id AS workspaceId, ${viewDocumentColumns}
+         FROM ${viewDocumentsFrom(
+           "(workspace_id, doc_key) IN {refs:Array(Tuple(String, String))}",
+         )}`,
+        { refs: refTuples(batch) },
+      ),
+    ),
   )
-  return rows.map(({ workspaceId, ...record }) => ({
-    workspaceId,
-    document: toDocument(record),
-  }))
+  // The order of one query: ORDER BY workspaceId, docKey (bytes).
+  const byBytes = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+  return rows
+    .flat()
+    .sort(
+      (a, b) =>
+        byBytes(a.workspaceId, b.workspaceId) || byBytes(a.docKey, b.docKey),
+    )
+    .map(({ workspaceId, ...record }) => ({
+      workspaceId,
+      document: toDocument(record),
+    }))
 }
 
 /**
