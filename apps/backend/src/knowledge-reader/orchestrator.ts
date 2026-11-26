@@ -95,9 +95,6 @@ export const ORCHESTRATOR_DEFAULTS = {
   scopedAt: 0.8,
 }
 
-/** The candidates that one Jev call takes (the `judgeLayer` default). */
-const JEV_BATCH = 25
-
 /**
  * The `performance.now()` time at which a retrieval that starts now must
  * end, from `timeBudgetMs`. With no time budget, `Infinity`.
@@ -213,7 +210,8 @@ export async function judge(
       question,
       intent,
       timeoutMs: callTimeLimitMs(deadline),
-      batchSize: JEV_BATCH,
+      // The candidates that one Jev call takes (the `judgeLayer` default).
+      batchSize: 25,
       candidates: inputs.map((input) => ({
         id: idOf(input),
         text: input.text,
