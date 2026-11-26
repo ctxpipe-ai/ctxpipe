@@ -197,8 +197,9 @@ describe("ConversationThread with AG-UI chunks", () => {
       timestamp: now,
     })
     processor.processChunk({
-      type: EventType.STEP_STARTED,
-      stepName: "step_1",
+      type: EventType.REASONING_MESSAGE_START,
+      messageId: "reason_1",
+      role: "reasoning",
       timestamp: now,
     })
     processor.processChunk({
@@ -208,8 +209,9 @@ describe("ConversationThread with AG-UI chunks", () => {
       timestamp: now,
     })
     processor.processChunk({
-      type: EventType.STEP_STARTED,
-      stepName: "step_2",
+      type: EventType.REASONING_MESSAGE_START,
+      messageId: "reason_2",
+      role: "reasoning",
       timestamp: now,
     })
     processor.processChunk({
