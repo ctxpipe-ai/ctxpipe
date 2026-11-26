@@ -240,3 +240,35 @@ url: https://git.example.org/team/tools.git
 ---
 ```
 
+
+## Revision 2026-11-26: a plain git source can pin a commit (CTX-1661)
+
+### Context
+
+OrgBench ([ADR-075](ADR-075-orgbench-org-scale-agent-benchmark.md)) freezes a public org at a snapshot date T. Its Workspace must read each public repository at its last commit up to T. A plain git source read the default branch only, so the earlier plan copied each public repository into a private snapshot repository. The CTO rejected these copies: the bench has one context repo, and its sources name the public repositories.
+
+### Decision
+
+1. **The key `commit`.** A plain git source file can have `commit`: a full commit SHA (40 lowercase hex digits). A short SHA, a branch, or a tag makes the row `invalid`. Without `commit`, the source follows the default branch, as before.
+2. **Each ingestion of a pinned repository reads the pinned commit.** The org has one index of each repository. `resolveRepositoryRef` gives the pinned commit and asks codesearch for no branch tip. Thus the first ingestion, a follow-up, a reindex and a re-ingestion stay at the pin. The codesearch index and ingestion v2 fetch the commit by its SHA.
+3. **All sources of the org must agree.** The pin applies only to a repository that no GitHub connection reads, and only when each `ok` plain git source of the org that names the repository has the same `commit`. When the sources do not agree (two commits, or a pin and no pin), the repository follows its default branch, and the backend logs `workspace_sources.git.pin_conflict`.
+4. **A pin change starts an ingestion.** When the projection links a pinned source and the last org ingestion published another commit, it starts an ingestion of the repository. When no pin applies, and the last org ingestion published a commit that a source pins (or that the previous version of the file pinned), the projection starts an ingestion, which reads the default branch. Thus a removed `commit`, and sources that no longer agree, take the repository back to its branch. The same URL with another `commit` is the same source, so the file keeps its row.
+
+| Key | Type | Rule |
+| --- | --- | --- |
+| `commit` | string | Optional. A full commit SHA of the repository. |
+
+```markdown
+---
+provider: git
+url: https://github.com/zulip/zulip
+commit: c803cca1ceac58fed390846d4aae5be40e06132d
+---
+```
+
+### Consequences
+
+- A benchmark or an audit can read a public repository at a fixed commit with no copy and no GitHub App.
+- A pinned repository gets no new commits until a person changes or removes `commit`.
+- The pin is a property of the org index. Two Workspaces of one org cannot read the same repository at two commits.
+- A removed source file starts no ingestion. When another Workspace of the org names the repository with no pin, the repository stays at the old commit until its next ingestion (for example a reindex), which reads the branch.

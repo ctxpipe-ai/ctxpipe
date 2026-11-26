@@ -30,6 +30,7 @@ import {
   cancelIngestionRun,
   stopOrphanedReingestRuns,
 } from "../../domain/upgrades/stop-orphans.js"
+import { plainGitPins } from "../../domain/workspace-sources/plain-git-pin.js"
 import { resolveRepositoryReadTip } from "../../domain/workspaces/resolve-revision.js"
 import { CODE_FORMAT } from "../../domain/workspaces/workspace-format.js"
 import { withWorkspaceWriteContext } from "../../domain/workspaces/write-command.js"
@@ -414,7 +415,12 @@ async function planReingest(input: {
               connectionId: source.githubConnectionId,
             },
           })
-        : resolvePlainGitTip(source.url)
+        : // The binding of the org repository decides the pin: read it.
+          plainGitPins({ orgId: input.orgId, gitUrl: source.url }).then(
+            ({ pin }) =>
+              // A pinned plain git repository keeps its commit (CTX-1661).
+              pin ? { sha: pin } : resolvePlainGitTip(source.url),
+          )
     ).catch((error: unknown) => {
       tipError = tipErrorText(error)
       return null

@@ -6,7 +6,8 @@ import type { Octokit } from "octokit"
 import { z } from "zod"
 
 import { runGit } from "../../src/domain/ingestion/run-git.js"
-import { githubSourcePath } from "../../src/domain/workspace-sources/source-file.js"
+import { renderSourceFile } from "../../src/domain/workspace-sources/source-file-text.js"
+import { gitSourcePath } from "../../src/domain/workspace-sources/source-file.js"
 import { stampMirrorFiles } from "../../src/domain/workspace-sources/stamp-sources.js"
 import { gitRemoteEnvironment } from "../../src/services/git/clone-tree.js"
 import { bodiesEditedAfter } from "../../src/services/github/github-mirror.js"
@@ -28,11 +29,12 @@ import {
 /*
  * The public corpora of ADR-069 decision 2. A plan names the slice of each
  * source: the public repositories at fixed SHAs and the issue cut-off date.
- * The steps:
+ * Each corpus has one context repo, and no copy of the public repositories
+ * (CTX-1661). The steps:
  *
- * 1. `snapshot`: copy the tree of each repository at its SHA into a private
- *    snapshot repository, as one commit with no history and no personal
- *    data. The product ingests the snapshot, so the ingest reads a fixed SHA.
+ * 1. `sources`: write one plain git source file for each repository into
+ *    the context repo. The file names the public URL and pins the SHA, so
+ *    the product ingests the public repository at that SHA.
  * 2. `issues`: write the issue and pull request mirror files of each
  *    repository into the context repo of the corpus, with the production
  *    converters, and the public chat of the corpus (`zulip-chat.ts`).
@@ -42,24 +44,31 @@ import {
 
 const id = z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/)
 
-/** The name of the private snapshot repository of a source. */
-function snapshotName(prefix: string, corpus: string, source: string) {
-  return `${prefix}${corpus}-${source.split("/")[1]?.toLowerCase()}`
-}
-
 /** The name of the private context repo of a corpus. */
 function contextName(prefix: string, corpus: string) {
   return `${prefix}${corpus}-context`
 }
 
+/** The public URL of a repository of a plan, `owner/name`. */
+function publicUrl(source: string) {
+  return `https://github.com/${source}`
+}
+
+/** The path of the plain git source file of a repository of a plan. */
+function sourcePath(source: string): string {
+  const path = gitSourcePath(publicUrl(source))
+  if (!path) throw new Error(`${source} gives no plain git URL.`)
+  return path
+}
+
 export const planSchema = z
   .strictObject({
     version: z.string().min(1),
-    /** The issue cut-off date. The snapshot commits also carry this date. */
+    /** The issue cut-off date. */
     cutoff: z.iso.datetime({ offset: true }),
-    /** The GitHub org of the snapshot repositories and the context repos. */
+    /** The GitHub org of the context repos. */
     owner: z.string().regex(/^[A-Za-z0-9-]+$/),
-    /** The name prefix of each repository that the plan makes. */
+    /** The name prefix of each context repo. */
     prefix: z.string().regex(/^[a-z0-9-]+$/),
     corpora: z
       .array(
@@ -90,19 +99,24 @@ export const planSchema = z
       .min(1),
   })
   .superRefine((plan, context) => {
-    // Each repository that the plan makes has its own name.
-    const names = plan.corpora.flatMap((corpus) => [
-      contextName(plan.prefix, corpus.id),
-      ...corpus.repositories.map((repository) =>
-        snapshotName(plan.prefix, corpus.id, repository.source),
-      ),
-    ])
-    for (const name of new Set(names))
-      if (names.filter((other) => other === name).length > 1)
-        context.addIssue({
-          code: "custom",
-          message: `Two repositories of the plan are named ${name}.`,
-        })
+    // Each context repo and each source file of a corpus has its own name.
+    const unique = (names: string[], what: string) => {
+      for (const name of new Set(names))
+        if (names.filter((other) => other === name).length > 1)
+          context.addIssue({
+            code: "custom",
+            message: `Two ${what} of the plan are named ${name}.`,
+          })
+    }
+    unique(
+      plan.corpora.map((corpus) => contextName(plan.prefix, corpus.id)),
+      "context repos",
+    )
+    for (const corpus of plan.corpora)
+      unique(
+        corpus.repositories.map((repository) => sourcePath(repository.source)),
+        "source files",
+      )
   })
 
 export type Plan = z.infer<typeof planSchema>
@@ -110,7 +124,7 @@ export type Plan = z.infer<typeof planSchema>
 /** Where the repositories are. Tests give a `file://` base. */
 export type GithubAccess = {
   octokit: Octokit
-  /** Pushes to the snapshot and context repos. Never printed. */
+  /** Pushes to the context repos. Never printed. */
   token?: string
   gitBase: string
 }
@@ -163,66 +177,27 @@ async function remoteRefs(
   )
 }
 
-/**
- * Make the private repository when it is not there, and turn GitHub Actions
- * off in it. A snapshot holds the tree of another project, so no workflow
- * of that project may run in our org.
- */
-async function ensureSnapshotRepository(
-  access: GithubAccess,
-  owner: string,
-  name: string,
-): Promise<void> {
-  try {
-    const { data } = await access.octokit.rest.repos.get({ owner, repo: name })
-    if (!data.private)
-      throw new Error(`${owner}/${name} is not private. Use a new prefix.`)
-  } catch (error) {
-    if ((error as { status?: number }).status !== 404) throw error
-    await access.octokit.rest.repos.createInOrg({
-      org: owner,
-      name,
-      private: true,
-    })
-  }
-  await access.octokit.rest.actions.setGithubActionsPermissionsRepository({
-    owner,
-    repo: name,
-    enabled: false,
-  })
-  const { data } =
-    await access.octokit.rest.actions.getGithubActionsPermissionsRepository({
-      owner,
-      repo: name,
-    })
-  if (data.enabled)
-    throw new Error(`GitHub Actions are still on in ${owner}/${name}.`)
-}
-
-export type Snapshot = {
-  corpus: string
-  source: string
-  sha: string
-  repository: string
-  snapshotSha: string
-}
+/** The main branch SHA of the context repo of a corpus. */
+type CorpusContext = { corpus: string; sha: string }
 
 /**
- * Push the tree of each repository at its SHA to its private snapshot
- * repository, as one commit with no history. The tree leaves out the
- * workflows and the Dependabot and Renovate configs. The commit is the same for the same plan, so a second
- * run pushes nothing. A snapshot repository with any other branch, tag or
- * commit is refused.
+ * Write one plain git source file for each repository of each corpus into
+ * the context repo of the corpus, in one commit. The file names the public
+ * URL and pins the SHA of the plan (ADR-050, revision 2026-11-26), so the
+ * product reads the public repository at that SHA with no credential and
+ * no copy. A repository that is not public is refused. A second run with
+ * the same plan pushes nothing. Returns the main branch SHA of each context
+ * repo after the step.
  */
-export async function snapshotRepositories(
+export async function writeCorpusSources(
   plan: Plan,
   access: GithubAccess,
   log: (line: string) => void,
-): Promise<Snapshot[]> {
-  const snapshots: Snapshot[] = []
-  for (const corpus of plan.corpora)
+): Promise<CorpusContext[]> {
+  const contexts: CorpusContext[] = []
+  for (const corpus of plan.corpora) {
+    const files: ChatFile[] = []
     for (const repository of corpus.repositories) {
-      const name = snapshotName(plan.prefix, corpus.id, repository.source)
       const [owner = "", repo = ""] = repository.source.split("/")
       const { data: upstream } = await access.octokit.rest.repos.get({
         owner,
@@ -230,93 +205,34 @@ export async function snapshotRepositories(
       })
       if (upstream.private || upstream.visibility !== "public")
         throw new Error(`${repository.source} is not a public repository`)
-      await ensureSnapshotRepository(access, plan.owner, name)
-      const work = await mkdtemp(join(tmpdir(), "eval-snapshot-"))
-      try {
-        // The local steps use no remote.
-        const env = { ...process.env, GIT_TERMINAL_PROMPT: "0" }
-        await git(work, ["init", "-q"], env)
-        const source = remote(access, repository.source)
-        // The public repository is read with no token.
-        await git(
-          work,
-          [
-            "fetch",
-            "-q",
-            "--depth",
-            "1",
-            "--no-tags",
-            source.url,
-            repository.sha,
-          ],
-          gitRemoteEnvironment({ url: source.url }),
-        )
-        await git(work, ["read-tree", repository.sha], env)
-        await git(
-          work,
-          [
-            "rm",
-            "-r",
-            "-q",
-            "--cached",
-            "--ignore-unmatch",
-            "--",
-            // The files that make GitHub or a bot act on a repository.
-            ".github/workflows",
-            ".github/dependabot.yml",
-            ".github/dependabot.yaml",
-            ".github/renovate.json",
-            ".github/renovate.json5",
-            "renovate.json",
-            "renovate.json5",
-            ".renovaterc",
-            ".renovaterc.json",
-            ".renovaterc.json5",
-          ],
-          env,
-        )
-        const tree = await git(work, ["write-tree"], env)
-        const commit = await git(
-          work,
-          [
-            "commit-tree",
-            tree,
-            "-m",
-            `${repository.source} at ${repository.sha}`,
-          ],
-          { ...env, ...author(plan.cutoff) },
-        )
-        const target = remote(access, `${plan.owner}/${name}`)
-        const refs = await remoteRefs(work, target)
-        const other = [...refs].find(
-          ([ref, sha]) =>
-            !((ref === "refs/heads/main" || ref === "HEAD") && sha === commit),
-        )
-        if (other)
-          throw new Error(
-            `${plan.owner}/${name} holds another snapshot (${other[0]}). Use a new prefix.`,
-          )
-        if (!refs.has("refs/heads/main"))
-          await git(
-            work,
-            ["push", "-q", target.url, `${commit}:refs/heads/main`],
-            target.env,
-          )
-        log(
-          `${repository.source}@${repository.sha} -> ${plan.owner}/${name}@${commit}`,
-        )
-        snapshots.push({
-          corpus: corpus.id,
-          source: repository.source,
-          sha: repository.sha,
-          repository: `${plan.owner}/${name}`,
-          snapshotSha: commit,
-        })
-      } finally {
-        await rm(work, { recursive: true, force: true })
-      }
+      const path = sourcePath(repository.source)
+      files.push({
+        path,
+        content: renderSourceFile(
+          {
+            path,
+            provider: "git",
+            connectionId: null,
+            scope: {
+              url: publicUrl(repository.source),
+              commit: repository.sha,
+            },
+          },
+          `The public repository ${repository.source} at ${repository.sha}, its last commit up to ${plan.cutoff}.\n`,
+        ),
+      })
+      log(`${repository.source}@${repository.sha} -> ${path}`)
     }
-  return snapshots
+    const sha = await commitToContext(
+      plan,
+      access,
+      corpus.id,
+      files,
+      `Add the public repositories at ${plan.cutoff} as pinned sources`,
+    )
+    contexts.push({ corpus: corpus.id, sha })
+  }
+  return contexts
 }
 
 /** What the `issues` step wrote for one repository. */
@@ -341,8 +257,8 @@ type MirrorCount = {
 /**
  * Write the mirror files of each corpus into its context repo, and push one
  * commit: the issue and pull request files of each repository, as the
- * production mirrors write them for the snapshot repository (the converter
- * output, with the source file of the snapshot repository in `sources`),
+ * production mirrors write them (the converter output, with the plain git
+ * source file of the repository in `sources`),
  * and the chat files of the corpus. Each person of a corpus gets one
  * pseudonym for each account (`pseudonyms.ts`), and the text of each file
  * loses the known names and logins. The product makes the context repo
@@ -381,10 +297,7 @@ export async function importCorpusMirrors(
         : people.add(`github:${login.toLowerCase()}`, [login])
     const github: ChatFile[] = []
     for (const repository of repositories) {
-      const sourcePath = githubSourcePath(
-        plan.owner,
-        snapshotName(plan.prefix, corpus.id, repository.source),
-      )
+      const stamp = sourcePath(repository.source)
       const read = { octokit: access.octokit, repository: repository.source }
       const kinds = {
         issues:
@@ -412,7 +325,7 @@ export async function importCorpusMirrors(
         [keyof typeof kinds, (typeof kinds)[keyof typeof kinds]]
       >)
         for await (const file of files) {
-          github.push(...stampMirrorFiles([file], sourcePath, []))
+          github.push(...stampMirrorFiles([file], stamp, []))
           numbers.push(file.number)
           count[kind] += 1
         }
@@ -449,18 +362,30 @@ export async function importCorpusMirrors(
       ...(chat?.files ?? []),
     ]
     if (chat) manifests.push(chat.manifest)
-    if (files.length > 0) await commitToContext(plan, access, corpus.id, files)
+    if (files.length > 0)
+      await commitToContext(
+        plan,
+        access,
+        corpus.id,
+        files,
+        `Mirror the issues, pull requests and chat up to ${plan.cutoff}`,
+      )
   }
   return { repositories: counts, chat: manifests }
 }
 
-/** Add `files` to the main branch of the context repo of `corpus` in one commit. */
+/**
+ * Add `files` to the main branch of the context repo of `corpus` in one
+ * commit, and return the SHA of the main branch. When the files change
+ * nothing, it pushes nothing.
+ */
 async function commitToContext(
   plan: Plan,
   access: GithubAccess,
   corpus: string,
   files: ChatFile[],
-): Promise<void> {
+  message: string,
+): Promise<string> {
   const target = remote(
     access,
     `${plan.owner}/${contextName(plan.prefix, corpus)}`,
@@ -495,17 +420,10 @@ async function commitToContext(
     )
     const tree = await git(work, ["write-tree"], env)
     if (tree === (await git(work, ["rev-parse", `${parent}^{tree}`], env)))
-      return
+      return parent
     const commit = await git(
       work,
-      [
-        "commit-tree",
-        tree,
-        "-p",
-        parent,
-        "-m",
-        `Mirror the issues, pull requests and chat up to ${plan.cutoff}`,
-      ],
+      ["commit-tree", tree, "-p", parent, "-m", message],
       { ...env, ...author(new Date().toISOString()) },
     )
     await git(
@@ -513,6 +431,7 @@ async function commitToContext(
       ["push", "-q", target.url, `${commit}:refs/heads/main`],
       env,
     )
+    return commit
   } finally {
     await rm(work, { recursive: true, force: true })
   }

@@ -223,15 +223,29 @@ export const plainGitUrlSchema = z.string().superRefine((value, ctx) => {
   if (!checked.ok) ctx.addIssue({ code: "custom", message: checked.reason })
 })
 
-/** The scope of a plain git source file: one plain git URL. */
-const gitFileScopeSchema = z.strictObject({ url: plainGitUrlSchema })
+/**
+ * The scope of a plain git source file: one plain git URL, and an optional
+ * full commit SHA that pins the repository at that commit (CTX-1661). Each
+ * ingestion of a pinned repository reads that commit, not the tip of a
+ * branch.
+ */
+const gitFileScopeSchema = z.strictObject({
+  url: plainGitUrlSchema,
+  commit: z
+    .string()
+    .regex(/^[0-9a-f]{40}$/, "Use a full commit SHA (40 lowercase hex digits)")
+    .optional(),
+})
 
 /** The scope of a plain git source file under `sources/git/`. */
 export const gitSourceScope: SourceScopeDefinition = {
   connectionType: null,
   label: "Git",
   schema: gitFileScopeSchema,
-  summarize: (scope) => gitFileScopeSchema.parse(scope).url,
+  summarize: (scope) => {
+    const { url, commit } = gitFileScopeSchema.parse(scope)
+    return commit ? `${url} at ${commit.slice(0, 12)}` : url
+  },
 }
 
 /**
@@ -244,6 +258,12 @@ export function gitSourceScopeUrl(scope: unknown): string | null {
   if (!parsed.success) return null
   const checked = checkPlainGitUrl(parsed.data.url)
   return checked.ok ? checked.url : null
+}
+
+/** The pinned commit of a plain git source scope, or null when it has none. */
+export function gitSourceScopeCommit(scope: unknown): string | null {
+  const parsed = gitFileScopeSchema.safeParse(scope)
+  return parsed.success ? (parsed.data.commit ?? null) : null
 }
 
 /**

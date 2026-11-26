@@ -21,6 +21,10 @@ export async function ensureOrgRepositoryForGitUrl(input: {
   created: boolean
   /** True when an org ingestion published a revision of the repository. */
   ingested: boolean
+  /** The commit that the last org ingestion published, or null. */
+  lastIngestedHash: string | null
+  /** The GitHub connection that reads the repository, or null. */
+  githubConnectionId: string | null
   /** What GitHub said about the requested connection's read access. */
   coverage: "covers" | "foreign" | "unknown"
 } | null> {
@@ -41,13 +45,13 @@ export async function ensureOrgRepositoryForGitUrl(input: {
   /**
    * Bind a covering connection. Clear a binding only when it is the requested
    * connection and GitHub confirms that it cannot read the repository. A
-   * binding that belongs to another connection stays.
+   * binding that belongs to another connection stays. Returns the binding.
    */
   const reconcileBinding = async (repository: {
     id: string
     githubConnectionId: string | null
-  }) => {
-    if (!requestedConnectionId) return
+  }): Promise<string | null> => {
+    if (!requestedConnectionId) return repository.githubConnectionId
     const target =
       coverage === "covers"
         ? requestedConnectionId
@@ -55,21 +59,24 @@ export async function ensureOrgRepositoryForGitUrl(input: {
             repository.githubConnectionId === requestedConnectionId
           ? null
           : repository.githubConnectionId
-    if (target === repository.githubConnectionId) return
+    if (target === repository.githubConnectionId) return target
     // The read does not lock the row. Write only if the binding did not change after the read.
     await setRepositoryGithubConnectionId({
       repositoryId: repository.id,
       githubConnectionId: target,
       expectedGithubConnectionId: repository.githubConnectionId,
     })
+    return target
   }
 
   if (existing[0]) {
-    await reconcileBinding(existing[0])
+    const githubConnectionId = await reconcileBinding(existing[0])
     return {
       id: existing[0].id,
       created: false,
       ingested: existing[0].lastIngestedHash !== null,
+      lastIngestedHash: existing[0].lastIngestedHash,
+      githubConnectionId,
       coverage,
     }
   }
@@ -82,15 +89,24 @@ export async function ensureOrgRepositoryForGitUrl(input: {
       : undefined,
   )
   if (created[0])
-    return { id: created[0].id, created: true, ingested: false, coverage }
+    return {
+      id: created[0].id,
+      created: true,
+      ingested: false,
+      lastIngestedHash: null,
+      githubConnectionId: created[0].githubConnectionId,
+      coverage,
+    }
 
   const raced = await findRepositoriesByNormalizedGitUrls([gitUrl])
   if (!raced[0]) return null
-  await reconcileBinding(raced[0])
+  const githubConnectionId = await reconcileBinding(raced[0])
   return {
     id: raced[0].id,
     created: false,
     ingested: raced[0].lastIngestedHash !== null,
+    lastIngestedHash: raced[0].lastIngestedHash,
+    githubConnectionId,
     coverage,
   }
 }

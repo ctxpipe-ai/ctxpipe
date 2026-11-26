@@ -71,6 +71,34 @@ describe("the Zulip chat of an org twin", () => {
     }
   })
 
+  it("keeps the newest messages of each channel up to its share of maxMessages, and asks for no more", async () => {
+    const requests = serveZulip(server, REALM, [
+      ...Array.from({ length: 120 }, (_, index) =>
+        message(100 + index, "2026-10-10T00:00:00Z"),
+      ),
+      ...Array.from({ length: 30 }, (_, index) =>
+        message(300 + index, "2026-10-11T00:00:00Z", { stream_id: 3 }),
+      ),
+    ])
+
+    const read = await withFakeClock(() =>
+      readZulipChat(
+        { ...chat, channels: [7, 3], maxMessages: 50 },
+        until,
+        quiet,
+      ),
+    )
+
+    expect(read.map((item) => item.id)).toEqual([
+      ...Array.from({ length: 25 }, (_, index) => 195 + index),
+      ...Array.from({ length: 25 }, (_, index) => 305 + index),
+    ])
+    for (const url of requests.filter((item) =>
+      item.searchParams.get("narrow")?.includes('"channel"'),
+    ))
+      expect(Number(url.searchParams.get("num_before"))).toBeLessThanOrEqual(25)
+  })
+
   it("refuses a page that is not a list of messages", async () => {
     serveZulip(server, REALM, [
       { ...message(8, "2026-10-02T00:00:00Z"), stream_id: "../../x" as never },

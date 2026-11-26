@@ -101,6 +101,13 @@ export async function projectWorkspaceSources(input: {
   // finds the source path.
   for (const row of rows)
     if (row.provider === "git" && row.status === "ok")
-      await linkPlainGitSource({ orgId: input.orgId, scope: row.scope })
+      await linkPlainGitSource({
+        orgId: input.orgId,
+        scope: row.scope,
+        previousScope: previous.find(
+          (before) =>
+            before.sourceKey === row.sourceKey && before.provider === "git",
+        )?.scope,
+      })
   return projected
 }
