@@ -11,6 +11,7 @@ import {
   isCodesearchAdmissionBusyError,
 } from "../../domain/codeIngestion/codesearchIndexPhases.js"
 import type { IndexingStepKey } from "../../domain/indexingSteps.js"
+import { isRepositoryGoneError } from "../../domain/codeIngestion/repositoryGone.js"
 import { resolveRepositoryReadCredential } from "../../domain/workspaces/resolve-revision.js"
 import {
   isMemoryFitFailure,
@@ -31,7 +32,7 @@ import {
 import { flushWorkflowLog, getLogger } from "../../observability/logger.js"
 import {
   GitRemoteAccessError,
-  gitRemoteAccessError,
+  gitRemoteAccessErrorFromStderr,
 } from "../../services/git/clone-tree.js"
 import { checkedPlainGitRemote } from "../../services/git/plain-git-remote.js"
 import { parseIndexerConcurrency } from "../codesearchCapacity.js"
@@ -299,6 +300,19 @@ export const repositoryIndex = defineWorkflow(
       }
     }
 
+    // A run with a request leaves the failure to its ingestion. A run with
+    // no request records a refusal, which stays until the access is back:
+    // the hourly sweep then stops its rebuilds, and the UI tells the user
+    // what to fix.
+    const recordRefusal = async (error: GitRemoteAccessError) => {
+      if (!requestId)
+        await markRepositoryLostAccess({
+          orgId: input.orgId,
+          repositoryId: input.repositoryId,
+          error,
+        })
+    }
+
     const env = parseEnv(process.env as Record<string, string | undefined>)
     const githubToken = await wls("resolve-github-token", async () => {
       try {
@@ -320,63 +334,51 @@ export const repositoryIndex = defineWorkflow(
           })
         return token
       } catch (error) {
-        // A run with a request leaves the failure to its ingestion. A run
-        // with no request records a refusal, which stays until the
-        // installation gets the repository back: the hourly sweep then
-        // stops its rebuilds, and the UI tells the user what to fix.
-        if (!requestId && error instanceof GitRemoteAccessError)
-          await markRepositoryLostAccess({
-            orgId: input.orgId,
-            repositoryId: input.repositoryId,
-            error,
-          })
+        if (error instanceof GitRemoteAccessError) await recordRefusal(error)
         throw error
       }
     })
 
-    const cloned = await runIndexPhaseWithAdmissionRetry(
+    const checkout = await runIndexPhaseWithAdmissionRetry(
       indexStep,
       wls,
       "clone-checkout",
       async () => {
         try {
-          return {
-            checkout: await codesearchIndexCloneCheckout(auth, {
-              ...(githubToken
-                ? { githubToken }
-                : // With no GitHub token, codesearch reads the repository
-                  // only through the plain git remote that this attempt
-                  // checks: the stored URL must obey the plain git rules of
-                  // the deployment mode (CTX-815). A refused URL fails the
-                  // index with the rule.
-                  { plainGit: await checkedPlainGitRemote(repository.gitUrl) }),
-              targetHash: input.targetHash,
-              fromHash: input.fromHash,
-            }),
-          }
-        } catch (error) {
-          if (isCodesearchAdmissionBusyError(error)) throw error
-          // Codesearch gives the git stderr. A refused read (for example a
-          // private repository with no connection, CTX-1717) does not
-          // retry, and is recorded as the token refusal above is.
-          const refused = gitRemoteAccessError({
-            hasCredential: Boolean(githubToken),
-            stderr: error instanceof Error ? error.message : String(error),
+          return await codesearchIndexCloneCheckout(auth, {
+            ...(githubToken
+              ? { githubToken }
+              : // With no GitHub token, codesearch reads the repository
+                // only through the plain git remote that this attempt
+                // checks: the stored URL must obey the plain git rules of
+                // the deployment mode (CTX-815). A refused URL fails the
+                // index with the rule.
+                { plainGit: await checkedPlainGitRemote(repository.gitUrl) }),
+            targetHash: input.targetHash,
+            fromHash: input.fromHash,
           })
+        } catch (error) {
+          // With no token, codesearch gives the git stderr of the clone. Git
+          // that asks for a credential (a private repository with no
+          // connection, CTX-1717) is a lasting refusal: record it and do
+          // not retry. A run with a token got its refusal from GitHub above.
+          const refused =
+            githubToken || isRepositoryGoneError(error)
+              ? undefined
+              : gitRemoteAccessErrorFromStderr({
+                  hasCredential: false,
+                  stderr: error instanceof Error ? error.message : "",
+                })
           if (!refused) throw error
-          if (!requestId)
-            await markRepositoryLostAccess({
-              orgId: input.orgId,
-              repositoryId: input.repositoryId,
-              error: refused,
-            })
+          await recordRefusal(refused)
           return { refused: refused.message }
         }
       },
       indexRetryPolicy,
-    )
-    if ("refused" in cloned) throw new Error(cloned.refused)
-    const { checkout } = cloned
+    ).then((result) => {
+      if ("refused" in result) throw new Error(result.refused)
+      return result
+    })
 
     logMilestone("repository-index.clone-checkout.done", {
       repositoryId: input.repositoryId,

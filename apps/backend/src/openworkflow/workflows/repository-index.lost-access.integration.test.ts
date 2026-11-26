@@ -51,6 +51,7 @@ describeWithDatabase("repository-index after a lost GitHub access", () => {
   let github: "refused" | "unavailable" | "granted" = "refused"
   let connectionId = ""
   let cloneFails = false
+  let unconnectedClones = 0
   const server = setupServer(
     http.post(
       `https://api.github.com/app/installations/${installationId}/access_tokens`,
@@ -87,7 +88,8 @@ describeWithDatabase("repository-index after a lost GitHub access", () => {
       async ({ request, params }) => {
         // What codesearch answers when git clones a private repository with
         // no credential.
-        if (params.repositoryId === unconnectedRepositoryId)
+        if (params.repositoryId === unconnectedRepositoryId) {
+          unconnectedClones += 1
           return HttpResponse.json(
             {
               error:
@@ -95,6 +97,7 @@ describeWithDatabase("repository-index after a lost GitHub access", () => {
             },
             { status: 500 },
           )
+        }
         if (cloneFails)
           return HttpResponse.json(
             { error: "codesearch unavailable" },
@@ -375,10 +378,12 @@ describeWithDatabase("repository-index after a lost GitHub access", () => {
         (await sweepRepositoryDisk(orgId, unconnectedRepositoryId, [])).rebuild,
       ).toEqual({ orgId, repositoryId: unconnectedRepositoryId, sha: SHA })
 
-      // Git asks for a username: the repository needs a credential.
+      // Git asks for a username: the repository needs a credential. The
+      // run does not try the clone again.
       await expect(
-        (await rebuild(unconnectedRepositoryId)).result({ timeoutMs: 30_000 }),
+        (await rebuild(unconnectedRepositoryId)).result({ timeoutMs: 15_000 }),
       ).rejects.toThrow(GIT_REMOTE_ACCESS_MESSAGES.noCredential)
+      expect(unconnectedClones).toBe(1)
       expect(await repositoryState(unconnectedRepositoryId)).toEqual({
         indexReady: true,
         indexingStatus: "failed",

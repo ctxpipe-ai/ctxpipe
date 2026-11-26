@@ -179,7 +179,7 @@ export class GitRemoteAccessError extends Error {
  * The access error that the git stderr `stderr` tells: the remote refused
  * the read credential, or the read needs one and has none. Else undefined.
  */
-export function gitRemoteAccessError(input: {
+export function gitRemoteAccessErrorFromStderr(input: {
   hasCredential: boolean
   stderr: string
 }): GitRemoteAccessError | undefined {
@@ -243,7 +243,7 @@ async function lsRemote(
     env: input.env ?? gitRemoteEnvironment(input),
   }).catch((error: unknown) => {
     throw (
-      gitRemoteAccessError({
+      gitRemoteAccessErrorFromStderr({
         hasCredential: Boolean(input.token),
         stderr: String((error as { stderr?: unknown }).stderr ?? ""),
       }) ?? error
