@@ -14,7 +14,8 @@ import type { ModelMeter } from "./orchestrator.js"
  * - `embedding`: the query embedding failed. The code is the HTTP status,
  *   when the endpoint gave one.
  * - `jev`: the Jev call failed. The code is the Jev error kind, with the
- *   HTTP status when there is one (`http_503`).
+ *   HTTP status when there is one (`http_503`), and the content-free cause
+ *   of the error body when there is one (`http_400.provider.context_length`).
  * - `timeout`: the time budget of the read ended. The time budget (10 s) ends
  *   before the time limit of the ClickHouse client (30 s), so a timeout of
  *   the client itself is `unknown`.
@@ -68,10 +69,12 @@ export function failureOf(error: unknown): Failure {
   if (error instanceof JevError)
     return {
       kind: "jev",
-      code:
+      code: [
         error.status === undefined
           ? error.kind
           : `${error.kind}_${error.status}`,
+        ...(error.reason === undefined ? [] : [error.reason]),
+      ].join("."),
     }
   if (!(error instanceof Error)) return { kind: "unknown" }
   // A Node.js system error, for example a refused connection.

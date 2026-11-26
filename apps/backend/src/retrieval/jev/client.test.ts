@@ -233,7 +233,99 @@ describe("decideNoul", () => {
       ),
     )
     await expect(decide()).rejects.toMatchObject({
-      message: "Jev answered HTTP 400.",
+      message: "Jev answered HTTP 400 (gateway.unknown).",
+    })
+  })
+
+  describe("the content-free cause of a refused request (CTX-1690)", () => {
+    /** Text of the state that an error body can quote. */
+    const quoted = "The private state."
+    const refuse = (body: unknown, status = 400) =>
+      server.use(
+        http.post(DECISIONS, () =>
+          typeof body === "string"
+            ? new HttpResponse(body, { status })
+            : HttpResponse.json(body, { status }),
+        ),
+      )
+    const decide = () =>
+      decideNoul(
+        [quoted],
+        { sky: question },
+        { timeoutMs: 5_000, attributes: {} },
+      )
+
+    it.each([
+      [
+        "a provider that refuses the size of the request",
+        {
+          error: {
+            code: 400,
+            message: `This model's maximum context length is 262144 tokens. ${quoted}`,
+            metadata: { provider_name: "TypeSafe", raw: quoted },
+          },
+        },
+        "provider.context_length",
+      ],
+      [
+        "a gateway error with a code identifier",
+        {
+          error: {
+            code: "invalid_state_item",
+            message: `State item 1 is not valid: ${quoted}`,
+          },
+        },
+        "gateway.invalid_state_item",
+      ],
+      [
+        "a gateway error with a code that is not an identifier",
+        { error: { code: quoted, message: `Invalid request: ${quoted}` } },
+        "gateway.invalid_request",
+      ],
+      [
+        "a gateway error about the JSON of the request",
+        { error: { message: `Request body is not valid JSON: ${quoted}` } },
+        "gateway.invalid_json",
+      ],
+      ["a body that is not JSON", `<html>${quoted}</html>`, "gateway.not_json"],
+    ])(
+      "keeps %s as a fixed cause, with no text of the body",
+      async (_, body, reason) => {
+        refuse(body)
+
+        const error = await decide().catch((error: unknown) => error)
+
+        expect(error).toMatchObject({
+          name: "JevError",
+          kind: "http",
+          status: 400,
+          reason,
+          message: `Jev answered HTTP 400 (${reason}).`,
+        })
+        const span = spans.spanNamed("jev.decide")
+        expect(span?.attributes["jev.error_cause"]).toBe(reason)
+        expect(JSON.stringify(span?.attributes)).not.toContain("private")
+        expect(span?.status.message).not.toContain("private")
+      },
+    )
+
+    it("puts the size of the request body on the span", async () => {
+      let bytes = 0
+      server.use(
+        http.post(DECISIONS, async ({ request }) => {
+          bytes = (await request.arrayBuffer()).byteLength
+          return HttpResponse.json({
+            answers: { sky: { type: "noul", noul: 0.5 } },
+          })
+        }),
+      )
+
+      await decide()
+
+      expect(bytes).toBeGreaterThan(0)
+      expect(
+        spans.spanNamed("jev.decide")?.attributes["jev.request_bytes"],
+      ).toBe(bytes)
     })
   })
 })

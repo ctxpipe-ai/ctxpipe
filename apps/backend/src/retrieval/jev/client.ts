@@ -11,7 +11,10 @@ import { z } from "zod"
 
 import { assertNotInOrgDbContext } from "../../db/client.js"
 import { gatewayCost } from "../../observability/gatewayCost.js"
-import { gatewayRoutingError } from "../../observability/gatewayError.js"
+import {
+  gatewayErrorCause,
+  gatewayRoutingError,
+} from "../../observability/gatewayError.js"
 import { openRouterSettings } from "../services/modelProvider.js"
 import { openRouterProvider } from "../services/openRouterProvider.js"
 import { scrubForModel } from "../services/scrubForModel.js"
@@ -31,7 +34,9 @@ export type JevQuestion = { type: "noul"; instructions: string }
 /**
  * The failure of one Jev call. The message holds no request or response
  * text, because that can be customer content. The one exception is a fixed
- * routing message of the gateway (`gatewayRoutingError`).
+ * routing message of the gateway (`gatewayRoutingError`). Each other error
+ * status has a `reason`: the content-free cause of the error body
+ * (`gatewayErrorCause`), for example `provider.context_length`.
  * - `config`: the backend model settings cannot reach OpenRouter.
  * - `network`: the request did not get an answer (DNS, connection, TLS).
  * - `timeout`: no full answer within the time limit.
@@ -45,6 +50,7 @@ export class JevError extends Error {
     readonly kind: "config" | "network" | "timeout" | "http" | "invalid-answer",
     message: string,
     readonly status?: number,
+    readonly reason?: string,
   ) {
     super(message)
   }
@@ -72,10 +78,11 @@ type DecideOptions = { timeoutMs: number; attributes: Record<string, number> }
  * the result. The time limit applies to both copies.
  *
  * The call has one span (`jev.decide`) with the model, the cost
- * (`gen_ai.usage.cost`), the latency, `jev.hedged` (the second copy went
- * out), `jev.hedge_won` (the second copy ended first) and the `attributes`
- * of the caller. The span holds no prompt text: the state is customer
- * content.
+ * (`gen_ai.usage.cost`), the latency, the size of the request body
+ * (`jev.request_bytes`), `jev.hedged` (the second copy went out),
+ * `jev.hedge_won` (the second copy ended first), the cause of an error
+ * status (`jev.error_cause`) and the `attributes` of the caller. The span
+ * holds no prompt text: the state is customer content.
  */
 export async function decideNoul(
   state: JevState,
@@ -118,6 +125,7 @@ export async function decideNoul(
           `${base.replace(/\/+$/, "")}/`,
         )
         const payload = JSON.stringify(request)
+        span.setAttribute("jev.request_bytes", Buffer.byteLength(payload))
         // Each copy of the request stops at the time limit, or when the
         // first copy ends.
         const done = new AbortController()
@@ -182,15 +190,22 @@ export async function decideNoul(
         }
         const { status, body } = answer
         if (status < 200 || status > 299) {
-          // Only a fixed routing message of the gateway: other error text
-          // can echo the state.
+          // Only a fixed routing message of the gateway, or the cause with
+          // no text: other error text can echo the state.
           const routing = gatewayRoutingError(body, JEV_MODEL)
+          if (routing)
+            throw new JevError(
+              "http",
+              `Jev answered HTTP ${status}: ${routing}`,
+              status,
+            )
+          const reason = gatewayErrorCause(body)
+          span.setAttribute("jev.error_cause", reason)
           throw new JevError(
             "http",
-            routing
-              ? `Jev answered HTTP ${status}: ${routing}`
-              : `Jev answered HTTP ${status}.`,
+            `Jev answered HTTP ${status} (${reason}).`,
             status,
+            reason,
           )
         }
         let json: unknown

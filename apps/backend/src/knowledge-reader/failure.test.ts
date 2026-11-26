@@ -43,6 +43,11 @@ describe("failureOf", () => {
       { kind: "jev", code: "http_503" },
     ],
     [
+      "a Jev error with the cause of the refusal",
+      new JevError("http", secret, 400, "provider.context_length"),
+      { kind: "jev", code: "http_400.provider.context_length" },
+    ],
+    [
       "a Jev error behind a tool error",
       new McpToolError("judge_unavailable", "The judge did not answer.", {
         cause: new JevError("timeout", secret),

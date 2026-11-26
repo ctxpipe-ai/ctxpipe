@@ -39,3 +39,60 @@ export function gatewayRoutingError(
     ? message
     : undefined
 }
+
+/**
+ * The kinds of an error message that the cause of a failed gateway answer
+ * can name, in the order of the check. Only the label goes into the cause,
+ * never the text of the message.
+ */
+const MESSAGE_KINDS: [string, RegExp][] = [
+  [
+    "context_length",
+    /context (length|window)|too many tokens|token limit|maximum .*tokens/i,
+  ],
+  ["too_large", /too large|payload|request entity/i],
+  ["invalid_json", /\bjson\b/i],
+  [
+    "invalid_request",
+    /invalid|validation|required|expected|unrecognized|not allowed|must /i,
+  ],
+]
+
+const causeBody = z.object({
+  error: z.object({
+    code: z.unknown().optional(),
+    message: z.unknown().optional(),
+    metadata: z.object({ provider_name: z.unknown().optional() }).optional(),
+  }),
+})
+
+/**
+ * The cause of a failed gateway answer, with no text of the answer: an error
+ * body can quote the input (customer content). The cause is
+ * `<source>.<kind>`:
+ * - `source`: `provider` when the body names the provider that answered,
+ *   else `gateway`. The cause keeps no name.
+ * - `kind`: the error code of the body when it is a snake_case identifier,
+ *   else the kind of the message (`MESSAGE_KINDS`), else `unknown`. A body
+ *   that is not JSON gives `not_json`.
+ */
+export function gatewayErrorCause(body: string): string {
+  let json: unknown
+  try {
+    json = JSON.parse(body)
+  } catch {
+    return "gateway.not_json"
+  }
+  const error = causeBody.safeParse(json).data?.error
+  const provider = error?.metadata?.provider_name
+  const source =
+    typeof provider === "string" && provider ? "provider" : "gateway"
+  const { code, message } = error ?? {}
+  const kind =
+    typeof code === "string" && /^[a-z][a-z0-9_]{0,47}$/.test(code)
+      ? code
+      : typeof message === "string"
+        ? MESSAGE_KINDS.find(([, pattern]) => pattern.test(message))?.[0]
+        : undefined
+  return `${source}.${kind ?? "unknown"}`
+}

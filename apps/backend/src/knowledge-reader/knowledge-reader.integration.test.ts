@@ -1973,7 +1973,7 @@ describe("the knowledge reader seam", () => {
         jevFails = "all"
       },
       "judge_unavailable",
-      { kind: "jev", code: "http_503" },
+      { kind: "jev", code: "http_503.gateway.unknown" },
     ],
     [
       "the end of the time budget",
@@ -2016,7 +2016,7 @@ describe("the knowledge reader seam", () => {
     })
     expect(result.isError).toBeFalsy()
     expect(await shadowEvent()).toMatchObject({
-      plane: { failure: "jev", failureCode: "http_503" },
+      plane: { failure: "jev", failureCode: "http_503.gateway.unknown" },
     })
   })
 
