@@ -123,6 +123,28 @@ describe("runMigrations", () => {
       owner.release()
     }
 
+    // A Workspace with two main-era units and one unit from git, and a
+    // Workspace with no projection: the legacy count is not known yet.
+    await pool.query(
+      `INSERT INTO "workspaces" ("id", "org_id", "slug", "display_name", "workspace_repository_url", "active_projection_sha") VALUES
+        ('ws_run_migrations_legacy', 'org_run_migrations', 'legacy', 'Legacy', 'https://github.com/acme/legacy', 'sha_legacy'),
+        ('ws_run_migrations_new', 'org_run_migrations', 'new', 'New', 'https://github.com/acme/new', null)`,
+    )
+    await pool.query(
+      `INSERT INTO "workspace_knowledge_units" ("serving_id", "org_id", "workspace_id", "path", "source", "body", "projection_sha") VALUES
+        ('unit_run_migrations_1', 'org_run_migrations', 'ws_run_migrations_legacy', 'knowledge/a.md', 'legacy', 'A', 'sha_legacy'),
+        ('unit_run_migrations_2', 'org_run_migrations', 'ws_run_migrations_legacy', 'knowledge/b.md', 'legacy', 'B', 'sha_legacy'),
+        ('unit_run_migrations_3', 'org_run_migrations', 'ws_run_migrations_legacy', 'knowledge/c.md', null, 'C', 'sha_legacy')`,
+    )
+    const legacyCounts = async () =>
+      Object.fromEntries(
+        (
+          await pool.query<{ id: string; files: number | null }>(
+            `SELECT "id", "legacy_knowledge_files" AS files FROM "workspaces" WHERE "org_id" = 'org_run_migrations' ORDER BY "id"`,
+          )
+        ).rows.map((row) => [row.id, row.files]),
+      )
+
     await runMigrations({
       connectionString: databaseUrl,
       appRolePassword: undefined,
@@ -134,6 +156,23 @@ describe("runMigrations", () => {
       `SELECT "org_id" FROM "repository_checkouts" WHERE "id" = 'checkout_null_org'`,
     )
     expect(checkout.rows[0]?.org_id).toBe("org_run_migrations")
+    expect(await legacyCounts()).toEqual({
+      ws_run_migrations_legacy: 2,
+      ws_run_migrations_new: null,
+    })
+    // A count that the hydrate wrote stays: the backfill fills only a gap.
+    await pool.query(
+      `UPDATE "workspaces" SET "legacy_knowledge_files" = 0 WHERE "id" = 'ws_run_migrations_legacy'`,
+    )
+    await runMigrations({
+      connectionString: databaseUrl,
+      appRolePassword: undefined,
+      roleName,
+    })
+    expect(await legacyCounts()).toEqual({
+      ws_run_migrations_legacy: 0,
+      ws_run_migrations_new: null,
+    })
     await readAsRole()
   })
 
