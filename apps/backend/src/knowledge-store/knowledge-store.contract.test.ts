@@ -20,6 +20,7 @@ import {
   userUrl as databaseUserUrl,
 } from "../test/clickhouse.js"
 import {
+  createClickHouseClient,
   createKnowledgeStore,
   type DocumentRows,
   type KnowledgeReadScope,
@@ -935,6 +936,31 @@ describe("users and mutations", () => {
       vi.unstubAllEnvs()
       await without.close()
       await withFile.close()
+      rmSync(directory, { recursive: true })
+    }
+  })
+
+  it("a password file may hold URL characters such as % @ : /", async () => {
+    const password = "p%w@d:x/y"
+    const admin = rawClient(adminUrl)
+    await admin.command({
+      query: `CREATE USER OR REPLACE ctxpipe_password_file IDENTIFIED WITH sha256_password BY '${password}'`,
+    })
+    const directory = mkdtempSync(join(tmpdir(), "clickhouse-password-"))
+    const file = join(directory, "password")
+    writeFileSync(file, password)
+    vi.stubEnv("CLICKHOUSE_PASSWORD_FILE", file)
+    const client = createClickHouseClient(userUrl("ctxpipe_password_file", ""))
+    try {
+      const result = await client.query({
+        query: "SELECT currentUser() AS user",
+        format: "JSONEachRow",
+      })
+      expect(await result.json()).toEqual([{ user: "ctxpipe_password_file" }])
+    } finally {
+      vi.unstubAllEnvs()
+      await client.close()
+      await admin.command({ query: "DROP USER ctxpipe_password_file" })
       rmSync(directory, { recursive: true })
     }
   })

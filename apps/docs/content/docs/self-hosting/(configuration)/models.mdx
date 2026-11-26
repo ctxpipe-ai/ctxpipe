@@ -30,8 +30,10 @@ For Vertex and other gateways that expect Bearer and a base URL, use **`openai-l
 
 The [new knowledge store](/docs/self-hosting/configuration#knowledge-store)
 calls three models that are only on OpenRouter: the decision model (Jev), the
-embedding model (`MODEL_EMBEDDING_NAME`), and the image model
-(`MODEL_VISION_NAME`). These calls use `MODEL_PROVIDER_URL` and
+embedding model `openai/text-embedding-3-large`, and the image model
+(`MODEL_VISION_NAME`). You cannot change the embedding model of the knowledge
+store: `MODEL_EMBEDDING_NAME` sets the embedding model of the old knowledge
+store only. These calls use `MODEL_PROVIDER_URL` and
 `MODEL_PROVIDER_API_KEY`. Thus the knowledge store needs `MODEL_PROVIDER`
 `openrouter`, or `openai-like` with a `MODEL_PROVIDER_URL` on `openrouter.ai`
 (the default), and a key.
