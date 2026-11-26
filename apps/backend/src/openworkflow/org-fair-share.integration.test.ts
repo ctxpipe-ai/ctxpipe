@@ -71,32 +71,34 @@ afterAll(async () => {
   await closeDb()
 })
 
-it("gives slots to the runs of a second org while a first org has a large backlog", async () => {
+it("gives the next free slot to the run of a second org while a first org has a large backlog", async () => {
   const worker = await workerProcess()
   const org = orgs()
-  // The first org queued 20 runs before the second org queued its 2 runs.
-  for (let i = 0; i < 20; i++)
+  // The first org has 24 runs in the queue, and its runs fill each slot.
+  for (let i = 0; i < 24; i++)
     await queue(worker.backend, {
       workflowName: "workspace-write-semantic-merge",
       orgId: org.busy,
       secondsAgo: 100 - i,
     })
-  const other = [
-    await queue(worker.backend, {
-      workflowName: "workspace-sources-sync",
-      orgId: org.other,
-      secondsAgo: 10,
-    }),
-    await queue(worker.backend, {
-      workflowName: "github-sync-pull-request",
-      orgId: org.other,
-      secondsAgo: 5,
-    }),
-  ]
+  const busy = (await worker.poll()).filter((run) => run !== null)
+  expect(busy).toHaveLength(4)
 
-  const claimed = (await worker.poll()).filter((run) => run !== null)
-  expect(claimed).toHaveLength(4)
-  expect(claimed.map((run) => run.id)).toEqual(expect.arrayContaining(other))
+  // The second org queues one run after the 20 runs that still wait.
+  const other = await queue(worker.backend, {
+    workflowName: "workspace-sources-sync",
+    orgId: org.other,
+    secondsAgo: 1,
+  })
+  const ended = busy[0]
+  if (!ended) throw new Error("No run was claimed")
+  await worker.backend.completeWorkflowRun({
+    workflowRunId: ended.id,
+    workerId: ended.workerId,
+    output: null,
+  })
+  const [next] = await worker.poll([ended.workerId])
+  expect(next?.id).toBe(other)
 })
 
 it("lets one org use each free slot when no other org waits", async () => {
@@ -113,7 +115,7 @@ it("lets one org use each free slot when no other org waits", async () => {
   expect(claimed).toHaveLength(4)
 })
 
-it("gives a free ingestion place to the shard of an org that runs no shard", async () => {
+it("gives the next ingestion place to the shard of a second org before the third shard of the first org", async () => {
   const worker = await workerProcess()
   const org = orgs()
   const [a, b, c] = worker.slots
