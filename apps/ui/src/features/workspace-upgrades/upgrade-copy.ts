@@ -409,3 +409,23 @@ export function upgradeHistoryLine(
   })
   return `History · ${applied.length} applied, last on ${date}`
 }
+
+/**
+ * The notice of a Workspace that has knowledge from before Workspaces, which
+ * its repository does not hold (ADR-053, CTX-1715). The knowledge search of
+ * ctxpipe reads only the repository, so the format upgrade and the
+ * re-ingestion must add it. Null when the Workspace has none, or when
+ * ctxpipe has not counted it yet.
+ */
+export function legacyKnowledgeCopy(
+  files: number | null,
+): { title: string; body: string } | null {
+  if (!files || files < 1) return null
+  return {
+    title:
+      files === 1
+        ? "1 knowledge file is not in the repository"
+        : `${files} knowledge files are not in the repository`,
+    body: "This knowledge comes from before Workspaces, and ctxpipe shows it from its database. The knowledge search reads only the Workspace repository, so agents can miss it. To add it to the repository, merge the format upgrade, then start the re-ingestion.",
+  }
+}

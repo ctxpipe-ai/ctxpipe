@@ -69,7 +69,13 @@ export function upgradesFixture(
   items: WorkspaceUpgradeItem[],
   overrides: Partial<Omit<WorkspaceUpgrades, "items">> = {},
 ): WorkspaceUpgrades {
-  return { formatVersion: 0, codeFormat: 3, items, ...overrides }
+  return {
+    formatVersion: 0,
+    codeFormat: 3,
+    legacyKnowledgeFiles: 0,
+    items,
+    ...overrides,
+  }
 }
 
 /**

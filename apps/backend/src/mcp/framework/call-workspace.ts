@@ -18,6 +18,11 @@ export type CallWorkspace = {
   title: string
   /** Null until the first projection is published. */
   served: Served | null
+  /**
+   * The main-era knowledge files that only the old stack serves (ADR-053,
+   * CTX-1715). 0 when ctxpipe has not counted them.
+   */
+  legacyKnowledgeFiles: number
 }
 
 /**
@@ -40,6 +45,7 @@ export async function resolveCallWorkspace(
         activeRevision: workspaces.activeRevision,
         activeProjectionSha: workspaces.activeProjectionSha,
         desiredDefaultBranch: workspaces.desiredDefaultBranch,
+        legacyKnowledgeFiles: workspaces.legacyKnowledgeFiles,
       })
       .from(workspaces)
       .where(
@@ -57,7 +63,13 @@ export async function resolveCallWorkspace(
     : row.activeProjectionSha && row.desiredDefaultBranch
       ? { branch: row.desiredDefaultBranch, sha: row.activeProjectionSha }
       : null
-  return { id: row.id, slug: row.slug, title: row.displayName, served }
+  return {
+    id: row.id,
+    slug: row.slug,
+    title: row.displayName,
+    served,
+    legacyKnowledgeFiles: row.legacyKnowledgeFiles ?? 0,
+  }
 }
 
 /** The served revision, or `workspace_not_ready` (retryable) before the first one. */

@@ -258,6 +258,33 @@ Below format 3, the Workspace serves the knowledge from before Workspaces as
 read-only units from the database (source `legacy`). After the re-ingestion of a
 repository, the fresh knowledge replaces the old knowledge of that repository.
 
+### Knowledge from before Workspaces needs the re-ingestion
+
+The old knowledge stack serves the knowledge from before Workspaces from the
+database. It does this below format 3, and for each source repository that no
+re-ingestion did yet. The Workspace repository does not hold this knowledge.
+
+The knowledge store reads only the Workspace repository, so it does not serve
+this knowledge. A later release removes the old knowledge stack. After that
+release, MCP and chat do not find this knowledge. To keep it, do these steps
+for each Workspace before you deploy that release:
+
+1. Open the Workspace, then **Settings**. In the **Status** group, a warning
+   shows the count of knowledge files that are not in the repository.
+2. Start the format upgrade. Then merge its pull request.
+3. Start the re-ingestion.
+
+The format upgrade exports the knowledge that ingestion cannot make again, and
+the re-ingestion makes the knowledge of each source repository again. Then the
+Workspace repository holds the knowledge, and the warning goes away after the
+next hydrate.
+
+When the knowledge store serves a Workspace that still has such files, MCP
+tells the agent. `search_knowledge`, `list_files`, and `get_related` add a
+`notices` entry with the reason `needs_reingestion`, the count, and the
+action. `read_file` and `get_related` add the same text to an `unknown_ref`
+error.
+
 #### Index a repository with the REST API
 
 The repository API is from before Workspaces. It indexes a repository for the

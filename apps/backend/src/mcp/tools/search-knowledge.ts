@@ -11,6 +11,11 @@ import {
 } from "../framework/call-workspace.js"
 import { decodeCursor, encodeCursor } from "../framework/cursor.js"
 import {
+  type KnowledgeNotice,
+  knowledgeNoticesSchema,
+  legacyKnowledgeNotices,
+} from "../framework/legacy-knowledge.js"
+import {
   branchArgument,
   type Skipped,
   servedSchema,
@@ -76,6 +81,8 @@ export function searchKnowledgePage(input: {
   }[]
   skipped: Skipped[]
   partialReason?: string
+  /** The Workspaces whose main-era knowledge the hits do not include. */
+  notices?: KnowledgeNotice[]
   offset: number
   limit: number
 }) {
@@ -99,20 +106,23 @@ export function searchKnowledgePage(input: {
     }
   })
   const { skipped } = input
-  const partial = input.partialReason
-    ? { partial: true, partialReason: input.partialReason }
-    : {}
+  const extra = {
+    ...(input.partialReason
+      ? { partial: true, partialReason: input.partialReason }
+      : {}),
+    ...(input.notices?.length ? { notices: input.notices } : {}),
+  }
   const { page, nextOffset, truncated } = fitPage(items, {
     offset: input.offset,
     limit: input.limit,
     maxTokens: 4_000,
-    result: (fitted) => ({ hits: fitted, skipped, ...partial }),
+    result: (fitted) => ({ hits: fitted, skipped, ...extra }),
   })
   return {
     page: {
       hits: page,
       skipped,
-      ...partial,
+      ...extra,
       ...(truncated ? { truncated } : {}),
     },
     nextOffset,
@@ -183,6 +193,7 @@ export const searchKnowledgeTool = defineMcpReadTool({
       .optional()
       .describe("True when the hits are in the search order only."),
     partialReason: z.string().optional(),
+    notices: knowledgeNoticesSchema,
   }),
   describeResult: ({ hits }) => scoredResult(hits),
   async run(input, { org }) {
@@ -267,6 +278,7 @@ export const searchKnowledgeTool = defineMcpReadTool({
       workspaces,
       skipped,
       partialReason,
+      notices: legacyKnowledgeNotices(workspaces, planeHeads),
       offset,
       limit: input.limit,
     })

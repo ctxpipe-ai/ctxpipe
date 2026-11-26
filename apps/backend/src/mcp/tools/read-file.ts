@@ -24,6 +24,11 @@ import {
   resolveCallWorkspace,
 } from "../framework/call-workspace.js"
 import {
+  type KnowledgeNotice,
+  legacyKnowledgeNotices,
+  withNotices,
+} from "../framework/legacy-knowledge.js"
+import {
   type CodeRepository,
   requireLinkedRepository,
 } from "../framework/org-code.js"
@@ -330,6 +335,8 @@ export async function readFileByRef(
   let frontMatter: FrontMatter | undefined
   let lineOffset = 0
   let served: z.infer<typeof servedSchema>
+  // The main-era knowledge that the plane does not serve (CTX-1715).
+  let notices: KnowledgeNotice[] = []
   if (ref.kind === "unit") {
     if (!workspace) throw new Error("A unit ref has a Workspace")
     const workspaceServed = requireServed(workspace)
@@ -339,6 +346,7 @@ export async function readFileByRef(
       input.branch,
     )
     const planeHead = planeHeads.get(workspace.id)
+    notices = legacyKnowledgeNotices([workspace], planeHeads)
     const unit = planeHead
       ? await readPlaneUnitFile(org, workspace, planeHead, ref.path)
       : await readUnit(org, workspace, ref.path)
@@ -360,9 +368,12 @@ export async function readFileByRef(
     served = { branch: repository.branch, sha: repository.sha }
   }
   if (text === null) {
-    throw new McpToolError(
-      "unknown_ref",
-      `No file "${input.ref.slice(0, 200)}". Use a ref from a result or from list_files.`,
+    throw withNotices(
+      new McpToolError(
+        "unknown_ref",
+        `No file "${input.ref.slice(0, 200)}". Use a ref from a result or from list_files.`,
+      ),
+      notices,
     )
   }
   // File lines: the first line of the text is line `lineOffset + 1`. Lines

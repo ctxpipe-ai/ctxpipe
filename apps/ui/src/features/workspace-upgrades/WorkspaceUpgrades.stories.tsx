@@ -165,6 +165,33 @@ export const UpToDate = meta.story({
 })
 
 /**
+ * Upgrades section of a Workspace with knowledge from before Workspaces that
+ * its repository does not hold: a warning above the rows names the count and
+ * the action, merge the format upgrade and start the re-ingestion (CTX-1715).
+ */
+export const KnowledgeNotInRepository = meta.story({
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() =>
+      expect(
+        canvas.getByText("12 knowledge files are not in the repository"),
+      ).toBeVisible(),
+    )
+    expect(
+      canvas.getByText(/merge the format upgrade, then start the re-ingestion/),
+    ).toBeVisible()
+    await expectGroup(canvas, "Needs you", 1)
+  },
+  beforeEach: ({ msw }) => {
+    msw.use(
+      workspaceUpgradesHandler(
+        upgradesFixture([upgradeItemFixture()], { legacyKnowledgeFiles: 12 }),
+      ),
+    )
+  },
+})
+
+/**
  * Upgrades section of a Workspace: one format upgrade waits in the Needs you
  * list with its Start button. The Start button says that the item is ready, so
  * the item has no "Ready to start" tag.

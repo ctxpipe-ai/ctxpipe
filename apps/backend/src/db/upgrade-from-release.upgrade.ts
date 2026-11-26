@@ -632,7 +632,15 @@ it("upgrades a database of the previous release and its Workspace with no manual
         phase("list upgrades through the API")
         const listed = await api("GET", "/upgrades")
         expect(listed.status).toBe(200)
-        const items = ((await listed.json()) as { items: unknown[] }).items
+        const upgrades = (await listed.json()) as {
+          items: unknown[]
+          legacyKnowledgeFiles: number | null
+        }
+        const { items } = upgrades
+        // The knowledge of the previous release is not in the Workspace
+        // repository. The Upgrades card shows its count, with the action:
+        // merge the format upgrade, then start the re-ingestion (CTX-1715).
+        expect(upgrades.legacyKnowledgeFiles).toBe(3)
         expect(items).toEqual(
           expect.arrayContaining([
             expect.objectContaining({
@@ -651,8 +659,11 @@ it("upgrades a database of the previous release and its Workspace with no manual
           ]),
         )
 
-        // Below format 3 no ingestion runs, and MCP still serves the
-        // knowledge of the previous release from Postgres.
+        // Below format 3 no ingestion runs. The old knowledge stack still
+        // serves the knowledge of the previous release from Postgres, so the
+        // search finds it and gives no notice. The knowledge plane does not
+        // serve it, and this ends with the old stack (ADR-053, revision
+        // 2026-11-26): the count above tells the operator what to do.
         phase("search the knowledge of the previous release through MCP")
         const { getAuth } = await import("../auth/config.js")
         const { callTool, connectToolClient } =
@@ -683,6 +694,7 @@ it("upgrades a database of the previous release and its Workspace with no manual
               expect.objectContaining({ title: "Tools CLI" }),
             ]),
           )
+          expect(found.structuredContent?.notices).toBeUndefined()
         } finally {
           await mcp.close()
         }
@@ -823,6 +835,14 @@ it("upgrades a database of the previous release and its Workspace with no manual
             (entry) => entry.repository,
           ),
         ).toEqual(["gitlab.com/team-c/tools", "team-a/api"])
+        // At format 3, the knowledge of the source repositories is still not
+        // in the Workspace repository: the re-ingestion makes it again, so
+        // the Upgrades card still shows the count until it runs.
+        const afterMerge = await api("GET", "/upgrades")
+        expect(
+          ((await afterMerge.json()) as { legacyKnowledgeFiles: number | null })
+            .legacyKnowledgeFiles,
+        ).toBe(3)
       } finally {
         await worker.stop()
         await backend.stop()
