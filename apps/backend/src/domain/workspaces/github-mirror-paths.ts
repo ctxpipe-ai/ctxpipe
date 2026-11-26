@@ -4,7 +4,7 @@ import {
   listPackBlobs,
   withGitDirectory,
 } from "../../services/git/pack.js"
-import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
+import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 
 /**
  * The GitHub pull request and issue mirror files at the commit of `pack`.
@@ -53,10 +53,8 @@ export async function githubMirrorPathsOf(input: {
   read: GitRemoteRead | null
   repositoryUrl: string
 }): Promise<string[]> {
-  const prefix = "https://github.com/"
-  const url = normalizeWorkspaceRepositoryUrl(input.repositoryUrl)
-  if (!url.startsWith(prefix)) return []
-  const repository = url.slice(prefix.length)
+  const repository = githubRepoFullNameFromWorkspaceUrl(input.repositoryUrl)
+  if (repository === null) return []
   return (await listGithubMirrorFiles(input.pack, input.read))
     .filter((file) => file.repository === repository)
     .map((file) => file.path)
