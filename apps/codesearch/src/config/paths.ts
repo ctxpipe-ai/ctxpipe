@@ -17,6 +17,13 @@ export const REPO_CACHE_DIR =
   process.env["REPO_CACHE_DIR"] ?? "/data/repo-cache"
 
 /**
+ * Caches and per-run temp directories of the SCIP indexers: sibling
+ * `indexer-cache` of the repository cache, so it is on the data volume.
+ * The image points the Go caches into it (Dockerfile).
+ */
+export const INDEXER_CACHE_DIR = join(dirname(REPO_CACHE_DIR), "indexer-cache")
+
+/**
  * The cache layout version file, in the repository cache: Docker Compose
  * mounts that directory as its own volume, so the file stays with the cache.
  * No org id starts with `.`, so no repository path uses this name.

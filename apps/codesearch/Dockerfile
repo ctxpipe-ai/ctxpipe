@@ -154,6 +154,9 @@ COPY --from=java-tools /opt/java/openjdk /opt/java/openjdk
 COPY --from=java-tools /usr/share/maven /usr/share/maven
 COPY --from=release-tools /out/ /usr/local/bin/
 
+# The Go caches are in the indexer cache on the data volume, not in the
+# container layer. Codesearch empties that directory above its size bound
+# (src/domain/indexing/indexerCache.ts).
 ENV CARGO_HOME=/usr/local/cargo \
     COMPOSER_ALLOW_SUPERUSER=1 \
     COMPOSER_HOME=/opt/composer \
@@ -161,9 +164,9 @@ ENV CARGO_HOME=/usr/local/cargo \
     JAVA_HOME=/opt/java/openjdk \
     PUB_CACHE=/opt/pub-cache \
     RUSTUP_HOME=/usr/local/rustup \
-    GOPATH=/tmp/ctxpipe-go \
-    GOMODCACHE=/tmp/ctxpipe-go/pkg/mod \
-    GOCACHE=/tmp/ctxpipe-go/cache \
+    GOPATH=/data/indexer-cache/go \
+    GOMODCACHE=/data/indexer-cache/go/pkg/mod \
+    GOCACHE=/data/indexer-cache/go-build \
     PATH="/opt/java/openjdk/bin:/usr/local/go/bin:/usr/local/cargo/bin:/opt/dotnet-tools:/opt/pub-cache/bin:${PATH}"
 
 ARG SCIP_PHP_VERSION=0.0.2
