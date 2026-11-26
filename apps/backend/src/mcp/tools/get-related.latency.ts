@@ -67,7 +67,7 @@ describe("get_related latency on a 50,000-edge graph", () => {
     })
     // A new bulk load has no planner statistics until autovacuum analyzes
     // it, about 30 s later. Until then, each call with a query used the whole
-    // 3 s budget; with statistics it takes about 100 ms. A served Workspace
+    // time budget; with statistics it takes about 100 ms. A served Workspace
     // has statistics. Only the table owner can analyze.
     await analyzeAsOwner(databaseUrl, [
       "workspace_knowledge_units",
