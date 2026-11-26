@@ -145,7 +145,7 @@ ${MEMORY_INSTRUCTION_MARKER_END}
 `
 }
 
-const CODEX_HOOKS_MARKER_START = "# BEGIN ctxpipe-memory-capture"
+export const CODEX_HOOKS_MARKER_START = "# BEGIN ctxpipe-memory-capture"
 const CODEX_HOOKS_MARKER_END = "# END ctxpipe-memory-capture"
 
 function codexHooksToml(): string {

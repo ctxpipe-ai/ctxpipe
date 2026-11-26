@@ -2,7 +2,8 @@ import { existsSync, readFileSync } from "node:fs"
 import { join, resolve } from "node:path"
 
 import type { Client } from "../constants.js"
-import { isObject, parseJsonObject } from "../mcp/json.js"
+import { readJsonObject } from "../fs-operations.js"
+import { isObject } from "../mcp/json.js"
 import type {
   Operation,
   OperationContext,
@@ -11,6 +12,7 @@ import type {
 } from "../mcp/mcp-operations.js"
 import { createOperationContext } from "../mcp/mcp-operations.js"
 import { relativePath } from "../mcp/paths.js"
+import { CODEX_HOOKS_MARKER_START } from "./hooks.js"
 import { LESSONS_SEED, MEMORY_README_SEED } from "./seed.js"
 
 /** Legacy AgentMemory / ConKeeper guidance that must not survive re-init. */
@@ -56,8 +58,10 @@ function isLegacyMemoryDoc(text: string): boolean {
  * table header or to the start of the managed capture-hook block. The repair
  * writes that block before it removes the table, so the strip must keep it.
  */
-const LEGACY_CODEX_MEMORY_TABLE =
-  /^[ \t]*\[(?:mcp_servers|mcp\.servers)\.ctxpipe-memory\][^\n]*(?:\n(?![ \t]*\[|# BEGIN ctxpipe-memory-capture)[^\n]*)*/gm
+const LEGACY_CODEX_MEMORY_TABLE = new RegExp(
+  String.raw`^[ \t]*\[(?:mcp_servers|mcp\.servers)\.ctxpipe-memory\][^\n]*(?:\n(?![ \t]*\[|${CODEX_HOOKS_MARKER_START})[^\n]*)*`,
+  "gm",
+)
 
 /** Strip retired local-memory MCP tables from Codex config.toml. */
 function stripLegacyCodexMemoryToml(existing: string): string {
@@ -346,27 +350,25 @@ export function findLegacyMemoryEntries(
   context: OperationContext,
 ): Array<{ path: string; host: Client | null }> {
   const { mcpFiles, claudeSettings, codexConfigs } = legacyMemoryFiles(context)
-  const read = (path: string) =>
-    existsSync(path) ? readFileSync(path, "utf8") : null
-  const changes = (
+  const hasLegacyEntry = (
     path: string,
     strip: (o: Record<string, unknown>) => Record<string, unknown>,
   ) => {
-    const text = read(path)
-    if (text == null) return false
-    const existing = parseJsonObject(text)
+    const existing = readJsonObject(path)
     return JSON.stringify(strip(existing)) !== JSON.stringify(existing)
   }
 
   return [
-    ...mcpFiles.filter(([path]) => changes(path, stripLegacyMemoryMcp)),
+    ...mcpFiles.filter(([path]) => hasLegacyEntry(path, stripLegacyMemoryMcp)),
     ...claudeSettings
-      .filter((path) => changes(path, stripLegacyClaudeHooks))
+      .filter((path) => hasLegacyEntry(path, stripLegacyClaudeHooks))
       .map((path): [string, Client] => [path, "claude"]),
     // `search` ignores the lastIndex of a /g regex; `test` does not.
     ...codexConfigs
       .filter(
-        (path) => (read(path) ?? "").search(LEGACY_CODEX_MEMORY_TABLE) >= 0,
+        (path) =>
+          existsSync(path) &&
+          readFileSync(path, "utf8").search(LEGACY_CODEX_MEMORY_TABLE) >= 0,
       )
       .map((path): [string, Client] => [path, "codex"]),
   ].map(([path, host]) => ({ path, host }))

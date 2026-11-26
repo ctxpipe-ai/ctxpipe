@@ -959,6 +959,39 @@ describe("the removed memory mcp and memory hook commands repair a 0.2.0 setup",
     },
   )
 
+  it("tries again after a partial failure when the only 0.2.0 entry is in the home directory", () => {
+    const { cwd, home } = legacySetup()
+    for (const rel of [
+      ".cursor/mcp.json",
+      ".mcp.json",
+      ".vscode/mcp.json",
+      "opencode.json",
+      ".codex/config.toml",
+    ]) {
+      rmSync(join(cwd, rel))
+    }
+    rmSync(join(home, ".codex"), { recursive: true })
+    // A file where the Claude rule needs a directory: that write fails.
+    mkdirSync(join(cwd, ".claude"))
+    writeFileSync(join(cwd, ".claude", "rules"), "not a directory\n")
+
+    const failed = runRemoved(cwd, home, "hook")
+
+    expect(failed.stderr).toContain("The repair of the memory setup failed")
+    expect(existsSync(join(cwd, ".claude", "settings.json"))).toBe(false)
+
+    rmSync(join(cwd, ".claude", "rules"))
+    const retried = runRemoved(cwd, home, "hook")
+
+    expect(retried.stderr.trim()).toBe(
+      "ctxpipe: `memory hook` was removed in 0.3.0. Removed the 0.2.0 memory entries of this repository and wrote the capture hooks for Claude Code.",
+    )
+    expect(
+      readFileSync(join(cwd, ".claude", "settings.json"), "utf8"),
+    ).toContain("npx -y ctxpipe memory capture finalize --host claude")
+    expect(existsSync(join(cwd, ".claude", "rules", "ai-memory.md"))).toBe(true)
+  })
+
   it("refuses the repair when a JSON file that it changes does not parse", () => {
     const { cwd, home } = legacySetup()
     writeFileSync(

@@ -10,6 +10,7 @@ import {
 
 import { CLIENT_LABELS } from "../constants.js"
 import { applyOperations } from "../fs-operations.js"
+import { isObject } from "../mcp/json.js"
 import {
   buildMemoryArtifactOperations,
   createOperationContext,
@@ -68,7 +69,7 @@ function repair(cwd: string): string {
   const context = createOperationContext({ cwd })
   // Repair only a repository that has memory; never seed memory in another directory.
   if (!existsSync(resolve(context.cwd, ".ai", "memory"))) {
-    return "This directory has no .ai/memory, so there is nothing to repair."
+    return "This directory has no .ai/memory, so there is nothing to repair. To repair a repository, run `npx ctxpipe memory init` in it."
   }
   const entries = findLegacyMemoryEntries(context)
   if (entries.length === 0) {
@@ -88,11 +89,21 @@ function repair(cwd: string): string {
     ...new Set(pending.flatMap(({ host }) => (host ? [host] : []))),
   ]
 
-  // Write the new hooks first and remove the 0.2.0 entries last. If a write
-  // fails, the 0.2.0 entries stay, and the next run tries the repair again.
+  // Write the capture-hook files after the other new files, and remove the
+  // 0.2.0 entries last. If a write fails, the next run still sees a host with
+  // no capture hook or a 0.2.0 entry, and tries the repair again.
+  const hookOps = buildMemoryHookOperations({
+    clients: hosts,
+    scope: "repo",
+    context,
+  })
+  const hookFiles = new Set(
+    hosts.map((host) => resolve(context.cwd, REPO_CAPTURE_HOOK[host])),
+  )
   const operations = [
     ...buildMemoryArtifactOperations({ context }),
-    ...buildMemoryHookOperations({ clients: hosts, scope: "repo", context }),
+    ...hookOps.filter((op) => !("path" in op && hookFiles.has(op.path))),
+    ...hookOps.filter((op) => "path" in op && hookFiles.has(op.path)),
     ...buildMemoryUpgradeOperations({ context }),
   ].filter((op) => !("path" in op) || isInside(context.cwd, op.path))
   // A cloned repository can hold symlinks, and the upgrade reads patterns.md
@@ -129,7 +140,7 @@ function assertJsonObject(path: string, cwd: string): void {
   } catch {
     value = null
   }
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  if (!isObject(value)) {
     throw new Error(`${relative(cwd, path)} is not a JSON object`)
   }
 }
