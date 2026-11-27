@@ -1,4 +1,12 @@
 import { spawnSync } from "node:child_process"
+import {
+  accessSync,
+  constants,
+  existsSync,
+  realpathSync,
+  statSync,
+} from "node:fs"
+import { delimiter, dirname, isAbsolute, join, relative, sep } from "node:path"
 
 export function commandExists(command: string): boolean {
   if (!command) return false
@@ -26,4 +34,56 @@ export function openBrowser(url: string): boolean {
 
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/**
+ * PATH with no folder that a repository can control: no relative folder, no
+ * `node_modules` folder (`npx` puts `node_modules/.bin` on PATH), and no
+ * folder in the repository of `cwd`. The repository root is the nearest
+ * folder that has `.git`, found with no command run (a planted `git` cannot
+ * change it). The result can be empty: then no folder is trusted.
+ */
+export function trustedPath(
+  cwd: string,
+  path = process.env.PATH ?? "",
+): string {
+  let root = realpathSync(cwd)
+  for (let dir = root; ; dir = dirname(dir)) {
+    if (existsSync(join(dir, ".git"))) {
+      root = dir
+      break
+    }
+    if (dirname(dir) === dir) break
+  }
+  return path
+    .split(delimiter)
+    .filter((dir) => {
+      if (!isAbsolute(dir) || dir.split(sep).includes("node_modules")) {
+        return false
+      }
+      if (!existsSync(dir)) return false
+      return !isInside(root, realpathSync(dir))
+    })
+    .join(delimiter)
+}
+
+/** The absolute path of `name` in the trusted PATH of `cwd` (see trustedPath), or null. */
+export function trustedCommand(name: string, cwd: string): string | null {
+  // An empty PATH entry means the current folder: never look there.
+  for (const dir of trustedPath(cwd).split(delimiter).filter(Boolean)) {
+    const file = join(dir, name)
+    try {
+      accessSync(file, constants.X_OK)
+      if (statSync(file).isFile()) return file
+    } catch {
+      // not in this folder
+    }
+  }
+  return null
+}
+
+/** True when `path` is `root` or below it. A name such as `..tools` is below it. */
+export function isInside(root: string, path: string): boolean {
+  const rel = relative(root, path)
+  return !(rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel))
 }
