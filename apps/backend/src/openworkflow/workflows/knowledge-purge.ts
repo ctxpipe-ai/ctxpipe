@@ -227,6 +227,26 @@ export const knowledgePurge = knowledgePurgeWorkflow("2")
 export const knowledgePurgeUnversioned = knowledgePurgeWorkflow(undefined)
 
 /**
+ * True when a delete of the org queued its purge. Each version of the
+ * delete hook queues one before the delete of the organization row, and
+ * an org id is never used again. The projection checks it at each attempt
+ * (CTX-1712), so that no run writes the content of a deleted org again
+ * after the purge: also when a worker of an earlier version ran the purge
+ * before the organization row was gone, with no wait for it.
+ */
+export async function orgPurgeQueued(orgId: string): Promise<boolean> {
+  const result = await getSystemDb().execute<{ found: number }>(sql`
+    select 1 as found from openworkflow.workflow_runs
+    where namespace_id = ${openWorkflowNamespaceId()}
+      and workflow_name = 'knowledge-purge'
+      and input->>'orgId' = ${orgId}
+      and input->'workspaceId' = 'null'::jsonb
+    limit 1
+  `)
+  return result.rows.length > 0
+}
+
+/**
  * Cancels the purge runs of `scope` that wait for their start time: the
  * next runs that this run, and a run before it, queued.
  */

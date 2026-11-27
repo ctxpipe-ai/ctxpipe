@@ -29,10 +29,11 @@ import {
   withNativeHydrationFixture,
 } from "../../test/native-hydration-fixture.js"
 import { workspaceHttpApp } from "../../test/workspace-http-fixture.js"
+import { enqueueWorkflow } from "../client.js"
 import { enqueueKnowledgePurge } from "../enqueue-knowledge-purge.js"
 import { openWorkflowNamespaceId } from "../namespace.js"
 import { knowledgeProjection } from "./knowledge-projection.js"
-import { IDLE_CHECKS } from "./knowledge-purge.js"
+import { IDLE_CHECKS, knowledgePurgeUnversioned } from "./knowledge-purge.js"
 
 /*
  * CTX-1642: the deletion of an org or a Workspace deletes its rows of the
@@ -429,6 +430,30 @@ it(
         expect(await getKnowledgeState(workspace)).toMatchObject({
           lastSha: f.sha,
         })
+      },
+    ),
+)
+
+it(
+  "during a rolling deploy, an org delete through a backend of an earlier version (an org purge with no version) stops each later projection run, also while the org row is there",
+  { timeout: 180_000 },
+  async () =>
+    withNativeHydrationFixture(
+      { files, knowledgePlane: { clickhouseUrl: writerUrl } },
+      async (f) => {
+        await projected(f)
+        // A run of the applied tip returns `current` while the org is live.
+        expect(await projectAgain(f)).toMatchObject({
+          summary: { mode: "current" },
+        })
+        // The old hook queues its purge before Better Auth deletes the org
+        // row, and an old worker can run that purge with no wait for the
+        // delete.
+        await enqueueWorkflow(knowledgePurgeUnversioned.spec, {
+          orgId: f.org.id,
+          workspaceId: null,
+        })
+        expect(await projectAgain(f)).toBeNull()
       },
     ),
 )

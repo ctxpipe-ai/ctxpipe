@@ -24,6 +24,7 @@ import { enqueueWorkflow } from "../client.js"
 import { StepCrashLoopError, withCrashLoopGuard } from "../crash-loop.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { knowledgeMaintenance } from "./knowledge-maintenance.js"
+import { orgPurgeQueued } from "./knowledge-purge.js"
 
 /**
  * The ClickHouse projection of the knowledge plane (ADR-067), for each org
@@ -112,7 +113,7 @@ const knowledgeProjectionWorkflow = (version: string | undefined) =>
             // The gates before Workspace content goes to the embedding
             // provider and to ClickHouse. A run can wait for a long time, so it
             // checks them again at each attempt.
-            if (!(await organizationExists(input.orgId))) return null
+            if (!(await orgIsLive(input.orgId))) return null
             // Model settings that cannot serve the plane (CTX-1712): the
             // Workspace must not become ready, because its reads could not
             // embed the query. The worker logs this once at start.
@@ -217,7 +218,7 @@ const knowledgeProjectionWorkflow = (version: string | undefined) =>
       // deleted org stay (see `knowledgePurge`).
       if (
         !(await step.run({ name: "find-organization" }, () =>
-          organizationExists(input.orgId),
+          orgIsLive(input.orgId),
         ))
       )
         return null
@@ -262,6 +263,14 @@ const knowledgeProjectionWorkflow = (version: string | undefined) =>
       return applied
     },
   )
+
+/**
+ * True while the org can get knowledge plane content: its organization row
+ * is there, and no delete of the org queued its purge (`orgPurgeQueued`).
+ */
+async function orgIsLive(orgId: string): Promise<boolean> {
+  return (await organizationExists(orgId)) && !(await orgPurgeQueued(orgId))
+}
 
 /**
  * The version of the plane with no flag (CTX-1712). A worker of an earlier
