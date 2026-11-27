@@ -791,6 +791,15 @@ async function createNativeHydrationFixture(
     })())
   try {
     git("init", "-b", "main")
+    // The bare remote and the git config of the fixture live in this work
+    // tree. Without the exclude, each `git add -A` of a test walks the bare
+    // remote, and commits its object files. A push to the remote can start a
+    // detached `git gc --auto`, which deletes loose objects while such a walk
+    // runs ("unable to stat 'remote.git/objects/...'").
+    writeFileSync(
+      join(directory, ".git", "info", "exclude"),
+      "/remote.git/\n/fixture-git-config\n",
+    )
     git("config", "user.name", "Contract")
     git("config", "user.email", "contract@example.test")
     const expected =
