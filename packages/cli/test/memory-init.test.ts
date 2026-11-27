@@ -818,6 +818,7 @@ const path = require("node:path")
 const args = process.argv.slice(2)
 if (args[0] === "--version") process.exit(0)
 fs.appendFileSync(${JSON.stringify(claudeLog)}, args.join(" ") + "\\n")
+if (fs.existsSync(${JSON.stringify(join(fakeClaude, "fail"))})) process.exit(1)
 if (args[0] === "mcp" && args[1] === "remove") {
   const file = path.join(process.env.HOME, ".claude.json")
   const config = JSON.parse(fs.readFileSync(file, "utf8"))
@@ -1252,6 +1253,32 @@ if (args[0] === "mcp" && args[1] === "remove") {
     expect(existsSync(join(cwd, "planted-ran"))).toBe(false)
     expect(result.stderr).toContain(
       "Not removed: The claude command is not available.",
+    )
+  })
+
+  it("keeps each 0.2.0 entry for a retry when claude mcp remove fails", () => {
+    const { cwd, home } = legacySetup()
+    writeFileSync(join(fakeClaude, "fail"), "")
+    try {
+      const failed = runRemoved(cwd, home, "mcp")
+
+      expect(failed.status).toBe(0)
+      expect(failed.stderr).toContain("The repair of the memory setup failed")
+      expect(readFileSync(join(cwd, ".mcp.json"), "utf8")).toContain(
+        "ctxpipe-memory",
+      )
+      expect(
+        readFileSync(join(home, ".claude", "settings.local.json"), "utf8"),
+      ).toContain("memory hook claude-stop")
+    } finally {
+      rmSync(join(fakeClaude, "fail"))
+    }
+
+    const retried = runRemoved(cwd, home, "mcp")
+
+    expect(retried.stderr).toContain("Removed the 0.2.0 memory entries")
+    expect(readFileSync(join(home, ".claude.json"), "utf8")).not.toContain(
+      "ctxpipe-memory",
     )
   })
 

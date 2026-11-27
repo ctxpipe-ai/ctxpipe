@@ -118,7 +118,10 @@ function repair(cwd: string): string {
     ...(repairRepo ? buildMemoryArtifactOperations({ context }) : []),
     ...buildMemoryHookOperations({ clients: hosts, scope: "repo", context }),
     ...upgradeOps.filter((op) => !isRemoval(op)),
-    ...upgradeOps.filter(isRemoval),
+    // The `claude mcp remove` command first: it can fail, and then each file
+    // entry stays for the retry.
+    ...upgradeOps.filter((op) => op.type === "run"),
+    ...upgradeOps.filter((op) => isRemoval(op) && op.type !== "run"),
   ]
   // A cloned repository can hold symlinks. So refuse each path that goes
   // through a symlink, also to a target in the repository (for example
