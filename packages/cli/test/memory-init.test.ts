@@ -1137,6 +1137,68 @@ if (args[0] === "mcp" && args[1] === "remove") {
     )
   })
 
+  it("does not run a claude command from a folder of the repository above the session directory", () => {
+    const { cwd, home } = legacySetup()
+    rmSync(claudeLog, { force: true })
+    mkdirSync(join(cwd, ".git"))
+    const session = join(cwd, "packages", "app")
+    mkdirSync(session, { recursive: true })
+    const planted = join(cwd, "scripts")
+    mkdirSync(planted)
+    writeFileSync(
+      join(planted, "claude"),
+      `#!/bin/sh\ntouch ${JSON.stringify(join(cwd, "planted-ran"))}\n`,
+      { mode: 0o755 },
+    )
+
+    const result = runRemoved(
+      session,
+      home,
+      "mcp",
+      `${planted}:${fakeClaude}:${process.env.PATH ?? ""}`,
+    )
+
+    expect(result.stderr).toContain("Removed the 0.2.0 memory entries")
+    expect(existsSync(join(cwd, "planted-ran"))).toBe(false)
+    expect(readFileSync(claudeLog, "utf8")).toBe(
+      "mcp remove ctxpipe-memory --scope user\n",
+    )
+  })
+
+  it("memory init does not run a claude command from the repository either", () => {
+    const { cwd, home } = legacySetup()
+    rmSync(claudeLog, { force: true })
+    const planted = join(cwd, "node_modules", ".bin")
+    mkdirSync(planted, { recursive: true })
+    writeFileSync(
+      join(planted, "claude"),
+      `#!/bin/sh\ntouch ${JSON.stringify(join(cwd, "planted-ran"))}\n`,
+      { mode: 0o755 },
+    )
+
+    execFileSync(
+      process.execPath,
+      [BIN, "memory", "init", "--agents", "claude", "--non-interactive"],
+      {
+        cwd,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          HOME: home,
+          USERPROFILE: home,
+          PATH: `${planted}:${fakeClaude}:${process.env.PATH ?? ""}`,
+          CTXPIPE_ORG_SLUG: "",
+          CTXPIPE_ORG: "",
+        },
+      },
+    )
+
+    expect(existsSync(join(cwd, "planted-ran"))).toBe(false)
+    expect(readFileSync(claudeLog, "utf8")).toBe(
+      "mcp remove ctxpipe-memory --scope user\n",
+    )
+  })
+
   it("keeps ~/.claude.json and names the manual step when there is no claude command", () => {
     const { cwd, home } = legacySetup()
     const before = readFileSync(join(home, ".claude.json"), "utf8")

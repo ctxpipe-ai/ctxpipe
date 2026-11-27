@@ -12,6 +12,7 @@ import type {
 } from "../mcp/mcp-operations.js"
 import { createOperationContext } from "../mcp/mcp-operations.js"
 import { relativePath } from "../mcp/paths.js"
+import { trustedCommand } from "../system.js"
 import { CODEX_HOOKS_MARKER_START } from "./hooks.js"
 import { LESSONS_SEED, MEMORY_README_SEED } from "./seed.js"
 
@@ -361,20 +362,19 @@ export function buildMemoryUpgradeOperations({
 
   // Claude user MCP servers (`claude mcp add ctxpipe-memory --scope user`).
   const claudeServers = legacyClaudeUserServers(claudeUserConfig.path)
-  const hasClaude = claudeServers.length > 0 && context.commandExists("claude")
+  // Only a `claude` from the trusted PATH, so that a repository cannot plant one.
+  const claude =
+    claudeServers.length > 0 ? trustedCommand("claude", context.cwd) : null
   for (const key of claudeServers) {
-    const command = ["claude", "mcp", "remove", key, "--scope", "user"]
+    const args = ["mcp", "remove", key, "--scope", "user"]
+    const description = `remove the legacy ${key} MCP server from Claude Code (user scope)`
     ops.push(
-      hasClaude
-        ? {
-            type: "run",
-            command,
-            description: `remove the legacy ${key} MCP server from Claude Code (user scope)`,
-          }
+      claude
+        ? { type: "run", command: [claude, ...args], description }
         : {
             type: "manual",
-            description: `remove the legacy ${key} MCP server from Claude Code (user scope)`,
-            detail: `The claude command is not available. Run: ${command.join(" ")}`,
+            description,
+            detail: `The claude command is not available. Run: claude ${args.join(" ")}`,
           },
     )
   }

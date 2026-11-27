@@ -1,13 +1,11 @@
 import { existsSync, readFileSync, realpathSync } from "node:fs"
 import {
   basename,
-  delimiter,
   dirname,
   isAbsolute,
   join,
   relative,
   resolve,
-  sep,
 } from "node:path"
 
 import { CLIENT_LABELS } from "../constants.js"
@@ -18,7 +16,7 @@ import {
   buildMemoryArtifactOperations,
   createOperationContext,
 } from "../mcp/mcp-operations.js"
-import { commandExists } from "../system.js"
+import { trustedPath } from "../system.js"
 import { extractWorkspaceCwd, readStdinJson } from "./capture.js"
 import { buildMemoryHookOperations } from "./hooks.js"
 import {
@@ -75,8 +73,8 @@ function repair(cwd: string): string {
   // `npx` puts the `node_modules/.bin` folders of the repository on PATH, so
   // a cloned repository could plant a `git` or `claude` command. The repair
   // starts commands only from the other PATH folders.
-  process.env.PATH = trustedPath(process.env.PATH ?? "", cwd)
-  const context = createOperationContext({ cwd, commandExists })
+  process.env.PATH = trustedPath(cwd)
+  const context = createOperationContext({ cwd })
   const entries = findLegacyMemoryEntries(context)
   if (entries.length === 0) {
     return "This setup has no 0.2.0 memory entry to repair."
@@ -179,20 +177,6 @@ function assertJsonObject(path: string, context: OperationContext): void {
   if (!isObject(value)) {
     throw new Error(`${displayPath(path, context)} is not a JSON object`)
   }
-}
-
-/** PATH with no relative folder, no `node_modules` folder, and no folder in the repository. */
-function trustedPath(path: string, cwd: string): string {
-  const repo = realTarget(resolve(cwd))
-  return path
-    .split(delimiter)
-    .filter(
-      (dir) =>
-        isAbsolute(dir) &&
-        !dir.split(sep).includes("node_modules") &&
-        !isInside(repo, realTarget(dir)),
-    )
-    .join(delimiter)
 }
 
 function isInside(root: string, path: string): boolean {
