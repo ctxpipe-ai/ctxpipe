@@ -73,7 +73,11 @@ function repair(cwd: string): string {
   // `npx` puts the `node_modules/.bin` folders of the repository on PATH, so
   // a cloned repository could plant a `git` or `claude` command. The repair
   // starts commands only from the other PATH folders.
-  process.env.PATH = trustedPath(cwd)
+  // An empty PATH makes a command lookup use the current folder, so fall back
+  // to the system folders, and stop when none is trusted.
+  const path = trustedPath(cwd) || trustedPath(cwd, "/usr/bin:/bin")
+  if (!path) throw new Error("no PATH folder outside the repository")
+  process.env.PATH = path
   const context = createOperationContext({ cwd })
   const entries = findLegacyMemoryEntries(context)
   if (entries.length === 0) {

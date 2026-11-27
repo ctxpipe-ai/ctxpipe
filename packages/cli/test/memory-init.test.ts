@@ -1117,11 +1117,14 @@ if (args[0] === "mcp" && args[1] === "remove") {
     rmSync(claudeLog, { force: true })
     const planted = join(cwd, "node_modules", ".bin")
     mkdirSync(planted, { recursive: true })
-    writeFileSync(
-      join(planted, "claude"),
-      `#!/bin/sh\ntouch ${JSON.stringify(join(cwd, "planted-ran"))}\n`,
-      { mode: 0o755 },
-    )
+    // A planted claude, and a planted node for the `env node` line of the real one.
+    for (const name of ["claude", "node", "git"]) {
+      writeFileSync(
+        join(planted, name),
+        `#!/bin/sh\ntouch ${JSON.stringify(join(cwd, "planted-ran"))}\n`,
+        { mode: 0o755 },
+      )
+    }
 
     const result = runRemoved(
       cwd,
@@ -1170,11 +1173,14 @@ if (args[0] === "mcp" && args[1] === "remove") {
     rmSync(claudeLog, { force: true })
     const planted = join(cwd, "node_modules", ".bin")
     mkdirSync(planted, { recursive: true })
-    writeFileSync(
-      join(planted, "claude"),
-      `#!/bin/sh\ntouch ${JSON.stringify(join(cwd, "planted-ran"))}\n`,
-      { mode: 0o755 },
-    )
+    // A planted claude, and a planted node for the `env node` line of the real one.
+    for (const name of ["claude", "node"]) {
+      writeFileSync(
+        join(planted, name),
+        `#!/bin/sh\ntouch ${JSON.stringify(join(cwd, "planted-ran"))}\n`,
+        { mode: 0o755 },
+      )
+    }
 
     execFileSync(
       process.execPath,
@@ -1196,6 +1202,28 @@ if (args[0] === "mcp" && args[1] === "remove") {
     expect(existsSync(join(cwd, "planted-ran"))).toBe(false)
     expect(readFileSync(claudeLog, "utf8")).toBe(
       "mcp remove ctxpipe-memory --scope user\n",
+    )
+  })
+
+  it("fails closed when PATH has only folders of the repository", () => {
+    const { cwd, home } = legacySetup()
+    const planted = join(cwd, "bin")
+    mkdirSync(planted)
+    for (const name of ["claude", "git"]) {
+      writeFileSync(
+        join(planted, name),
+        `#!/bin/sh\ntouch ${JSON.stringify(join(cwd, "planted-ran"))}\n`,
+        { mode: 0o755 },
+      )
+    }
+
+    const result = runRemoved(cwd, home, "mcp", planted)
+
+    expect(result.status).toBe(0)
+    expect(result.stdout).toBe("")
+    expect(existsSync(join(cwd, "planted-ran"))).toBe(false)
+    expect(result.stderr).toContain(
+      "Not removed: The claude command is not available.",
     )
   })
 

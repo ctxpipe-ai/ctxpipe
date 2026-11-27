@@ -12,7 +12,7 @@ import type {
 } from "../mcp/mcp-operations.js"
 import { createOperationContext } from "../mcp/mcp-operations.js"
 import { relativePath } from "../mcp/paths.js"
-import { trustedCommand } from "../system.js"
+import { trustedCommand, trustedPath } from "../system.js"
 import { CODEX_HOOKS_MARKER_START } from "./hooks.js"
 import { LESSONS_SEED, MEMORY_README_SEED } from "./seed.js"
 
@@ -370,7 +370,13 @@ export function buildMemoryUpgradeOperations({
     const description = `remove the legacy ${key} MCP server from Claude Code (user scope)`
     ops.push(
       claude
-        ? { type: "run", command: [claude, ...args], description }
+        ? {
+            type: "run",
+            command: [claude, ...args],
+            // The trusted PATH also for the interpreter of `claude` (`env node`).
+            env: { PATH: trustedPath(context.cwd) },
+            description,
+          }
         : {
             type: "manual",
             description,

@@ -108,6 +108,7 @@ export function applyOperation(op: Operation): ApplyOperationResult {
     const result = spawnSync(command, op.command.slice(1), {
       encoding: "utf8",
       stdio: "pipe",
+      env: op.env ? { ...process.env, ...op.env } : undefined,
     })
     if (result.status !== 0) {
       throw new Error(

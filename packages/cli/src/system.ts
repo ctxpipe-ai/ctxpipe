@@ -41,7 +41,7 @@ export function sleep(ms: number): Promise<void> {
  * `node_modules` folder (`npx` puts `node_modules/.bin` on PATH), and no
  * folder in the repository of `cwd`. The repository root is the nearest
  * folder that has `.git`, found with no command run (a planted `git` cannot
- * change it).
+ * change it). The result can be empty: then no folder is trusted.
  */
 export function trustedPath(
   cwd: string,
@@ -70,7 +70,8 @@ export function trustedPath(
 
 /** The absolute path of `name` in the trusted PATH of `cwd` (see trustedPath), or null. */
 export function trustedCommand(name: string, cwd: string): string | null {
-  for (const dir of trustedPath(cwd).split(delimiter)) {
+  // An empty PATH entry means the current folder: never look there.
+  for (const dir of trustedPath(cwd).split(delimiter).filter(Boolean)) {
     const file = join(dir, name)
     try {
       accessSync(file, constants.X_OK)
