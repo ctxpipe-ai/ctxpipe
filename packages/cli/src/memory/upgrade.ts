@@ -251,6 +251,18 @@ function legacyMemoryFiles({ cwd, homeDir }: OperationContext) {
   return { mcpFiles, claudeSettings, codexConfigs, claudeUserConfig }
 }
 
+/** Each file in which CLI 0.2.0 can have written a memory MCP entry or hook. */
+export function legacyMemoryFilePaths(context: OperationContext): Set<string> {
+  const { mcpFiles, claudeSettings, codexConfigs, claudeUserConfig } =
+    legacyMemoryFiles(context)
+  return new Set([
+    ...mcpFiles.map(([path]) => path),
+    ...claudeSettings,
+    ...codexConfigs,
+    claudeUserConfig,
+  ])
+}
+
 /**
  * The keys of the 0.2.0 memory servers in the top-level `mcpServers` of
  * `~/.claude.json`. Claude Code writes that file while it runs, so only the

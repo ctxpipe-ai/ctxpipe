@@ -22,6 +22,7 @@ import { buildMemoryHookOperations } from "./hooks.js"
 import {
   buildMemoryUpgradeOperations,
   findLegacyMemoryEntries,
+  legacyMemoryFilePaths,
 } from "./upgrade.js"
 
 /**
@@ -96,10 +97,17 @@ function repair(cwd: string): string {
     op.type === "run" ||
     op.type === "manual" ||
     ("path" in op && entryFiles.has(op.path))
+  // Change a file that can hold a 0.2.0 entry only when it holds one, so
+  // that a file with no entry (for example a JSONC .vscode/mcp.json) does not
+  // stop the repair.
+  const legacyFiles = legacyMemoryFilePaths(context)
   const upgradeOps = buildMemoryUpgradeOperations({ context }).filter(
     (op) =>
       isRemoval(op) ||
-      (hasMemory && "path" in op && isInside(context.cwd, op.path)),
+      (hasMemory &&
+        "path" in op &&
+        isInside(context.cwd, op.path) &&
+        !legacyFiles.has(op.path)),
   )
   const operations = [
     ...(hasMemory ? buildMemoryArtifactOperations({ context }) : []),

@@ -1092,8 +1092,10 @@ if (args[0] === "mcp" && args[1] === "remove") {
   it("keeps ~/.claude.json and names the manual step when there is no claude command", () => {
     const { cwd, home } = legacySetup()
     const before = readFileSync(join(home, ".claude.json"), "utf8")
+    // An empty PATH: no claude command. The test starts node by its full path.
+    const noCommands = mkdtempSync(join(tmpdir(), "ctxpipe-mem-no-path-"))
 
-    const result = runRemoved(cwd, home, "mcp", dirname(process.execPath))
+    const result = runRemoved(cwd, home, "mcp", noCommands)
 
     expect(result.status).toBe(0)
     expect(result.stdout).toBe("")
@@ -1105,7 +1107,7 @@ if (args[0] === "mcp" && args[1] === "remove") {
       "ctxpipe-memory",
     )
 
-    const again = runRemoved(cwd, home, "mcp", dirname(process.execPath))
+    const again = runRemoved(cwd, home, "mcp", noCommands)
 
     expect(again.stderr.trim()).toBe(
       "ctxpipe: `memory mcp` was removed in 0.3.0. Not removed: The claude command is not available. Run: claude mcp remove ctxpipe-memory --scope user",
@@ -1138,11 +1140,27 @@ if (args[0] === "mcp" && args[1] === "remove") {
     )
   })
 
+  it("repairs beside a JSONC MCP file that holds no 0.2.0 entry", () => {
+    const { cwd, home } = legacySetup()
+    const jsonc = '{\n  // a comment\n  "servers": {}\n}\n'
+    writeFileSync(join(cwd, ".vscode", "mcp.json"), jsonc)
+
+    const result = runRemoved(cwd, home, "mcp")
+
+    expect(result.stderr).toContain("Removed the 0.2.0 memory entries")
+    expect(readFileSync(join(cwd, ".vscode", "mcp.json"), "utf8")).toBe(jsonc)
+    expect(readFileSync(join(cwd, ".mcp.json"), "utf8")).not.toContain(
+      "ctxpipe-memory",
+    )
+  })
+
   it("refuses the repair when a JSON file that it changes does not parse", () => {
     const { cwd, home } = legacySetup()
+    // The repair writes the Claude capture hook into this file.
+    mkdirSync(join(cwd, ".claude"))
     writeFileSync(
-      join(cwd, ".mcp.json"),
-      '{\n  // a comment\n  "mcpServers": {}\n}\n',
+      join(cwd, ".claude", "settings.json"),
+      '{\n  // a comment\n  "hooks": {}\n}\n',
     )
     const before = snapshot(cwd, home)
 
@@ -1150,7 +1168,7 @@ if (args[0] === "mcp" && args[1] === "remove") {
 
     expect(result.status).toBe(0)
     expect(result.stderr.trim().split("\n")).toEqual([
-      "ctxpipe: `memory mcp` was removed in 0.3.0. The repair of the memory setup failed (.mcp.json is not a JSON object). Run `npx ctxpipe memory init`.",
+      "ctxpipe: `memory mcp` was removed in 0.3.0. The repair of the memory setup failed (.claude/settings.json is not a JSON object). Run `npx ctxpipe memory init`.",
     ])
     expect(snapshot(cwd, home)).toEqual(before)
   })
