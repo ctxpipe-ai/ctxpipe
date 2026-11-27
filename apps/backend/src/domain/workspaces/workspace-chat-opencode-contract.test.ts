@@ -10,7 +10,7 @@ import {
   WORKSPACE_CHAT_OPENCODE_CLI,
   WORKSPACE_CHAT_OPENCODE_HOME_SLUG_MAX_LENGTH,
   WORKSPACE_CHAT_OPENCODE_START_ENV,
-  workspaceChatLocalProcessScrubEnv,
+  workspaceChatLocalProcessPassEnv,
   workspaceChatOpenCodeConfig,
   workspaceChatOpenCodeConfigPath,
   workspaceChatOpenCodeContract,
@@ -244,12 +244,19 @@ describe("workspaceChatOpenCodeContract", () => {
 
   it("keeps the OpenCode start settings of an unsandboxed run (CTX-848)", () => {
     expect(
-      workspaceChatLocalProcessScrubEnv({
+      workspaceChatLocalProcessPassEnv({
         OPENCODE_DISABLE_FFF: "1",
         OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER: "1",
+        GIT_CONFIG_GLOBAL: "/tmp/gitconfig",
+        LC_CTYPE: "C.UTF-8",
         DATABASE_URL: "postgres://secret",
       }),
-    ).toEqual(["DATABASE_URL"])
+    ).toEqual([
+      "OPENCODE_DISABLE_FFF",
+      "OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER",
+      "GIT_CONFIG_GLOBAL",
+      "LC_CTYPE",
+    ])
     expect(workspaceChatOpenCodeHomeEnv("conv_1")).toMatchObject(
       WORKSPACE_CHAT_OPENCODE_START_ENV,
     )

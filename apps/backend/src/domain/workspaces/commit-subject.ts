@@ -1,5 +1,6 @@
 import { chat } from "@tanstack/ai"
 
+import { oneShotThreadId } from "../../lib/oneShotThreadId.js"
 import { fallbackCommitSubject } from "./write-jobs.js"
 
 /** Small model, chosen in code — not an operator env. */
@@ -45,12 +46,14 @@ export async function invokeCommitSubjectModel(
     15_000,
   )
   try {
-    return await chat({
+    const { text } = await chat({
       adapter: model,
+      threadId: oneShotThreadId("workspace.commit-subject"),
       messages: [{ role: "user", content: prompt }],
       abortController: cancellation,
       stream: false,
     })
+    return text
   } finally {
     clearTimeout(deadline)
   }

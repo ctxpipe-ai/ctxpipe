@@ -70,6 +70,15 @@ export const workspaces = pgTable.withRLS(
      * reads the file; `-1` when the file is not valid.
      */
     formatVersion: integer("format_version"),
+    /**
+     * The count of main-era knowledge files that only the legacy overlay
+     * serves (ADR-053): the Workspace repository does not hold them. Hydrate
+     * writes the value again for each projection. The knowledge plane does
+     * not serve these files, so the UI and MCP tell the operator to merge
+     * the format upgrade and to start the re-ingestion (CTX-1715). Null
+     * before the first hydrate or backfill that counts them.
+     */
+    legacyKnowledgeFiles: integer("legacy_knowledge_files"),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
       .notNull()
       .defaultNow(),
@@ -178,6 +187,14 @@ export const KNOWLEDGE_SEARCH_INDEX = "workspace_knowledge_chunks_search_ws_idx"
  * `COLLATE "C"`, which no btree index holds, and the tsvector.
  */
 export const KNOWLEDGE_SEARCH_INDEX_COLUMNS = `("org_id" COLLATE "C"), ("workspace_id" COLLATE "C"), "search"`
+/**
+ * The btree index of the chunks by org, Workspace and unit. Row-level security adds the org condition to each read of
+ * the chunks as the app role. With the org in the same index as the unit, a test "does this unit have chunks" is an
+ * index-only scan. Without the org there, each test also read the row of the chunk in the table (CTX-1708).
+ */
+export const KNOWLEDGE_UNIT_INDEX = "workspace_knowledge_chunks_org_unit_idx"
+/** Its columns (the schema here, and the concurrent build in runMigrations). */
+export const KNOWLEDGE_UNIT_INDEX_COLUMNS = `"org_id", "workspace_id", "unit_id"`
 
 /**
  * Search chunks of the active projection's knowledge units (ADR-051). A row
@@ -219,7 +236,11 @@ export const workspaceKnowledgeChunks = pgTable.withRLS(
       t.workspaceId,
       t.chunkHash,
     ),
-    index("workspace_knowledge_chunks_org_id_idx").on(t.orgId),
+    // Also serves each read of the chunks by org only, as the old index on the org did.
+    index(KNOWLEDGE_UNIT_INDEX).using(
+      "btree",
+      sql.raw(KNOWLEDGE_UNIT_INDEX_COLUMNS),
+    ),
     // The org and the Workspace under `COLLATE "C"` (btree_gin) and the
     // tsvector: the full-text match of workspaceKnowledgeChunkSearch, one
     // Workspace at a time. No other index has them under that collation, so

@@ -5,10 +5,12 @@ import {
   HALF_EMBEDDING_INDEX,
   KNOWLEDGE_SEARCH_INDEX,
   KNOWLEDGE_SEARCH_INDEX_COLUMNS,
+  KNOWLEDGE_UNIT_INDEX,
+  KNOWLEDGE_UNIT_INDEX_COLUMNS,
   KNOWLEDGE_VECTOR_INDEX,
 } from "./schema/workspaces.js"
 
-/** The indexes of the chunks that runMigrations builds concurrently, each with the one that it replaces (CTX-1380). */
+/** The indexes of the chunks that runMigrations builds concurrently, each with the one that it replaces (CTX-1380, CTX-1708). */
 const INDEXES = [
   {
     name: KNOWLEDGE_VECTOR_INDEX,
@@ -19,6 +21,11 @@ const INDEXES = [
     name: KNOWLEDGE_SEARCH_INDEX,
     using: `gin (${KNOWLEDGE_SEARCH_INDEX_COLUMNS})`,
     replaces: "workspace_knowledge_chunks_search_idx",
+  },
+  {
+    name: KNOWLEDGE_UNIT_INDEX,
+    using: `btree (${KNOWLEDGE_UNIT_INDEX_COLUMNS})`,
+    replaces: "workspace_knowledge_chunks_org_id_idx",
   },
 ]
 

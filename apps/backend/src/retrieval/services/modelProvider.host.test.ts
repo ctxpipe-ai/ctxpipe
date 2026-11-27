@@ -87,11 +87,12 @@ it.each(["openrouter", "openai-like", "azure", "bedrock"] as const)(
       ),
     )
     const result = await chat({
+      threadId: "test-thread",
       adapter: getModel("fast", { temperature: 0.2 }),
       messages: [{ role: "user", content: "Write a subject" }],
       stream: false,
     })
-    expect(result).toBe("Updated knowledge")
+    expect(result.text).toBe("Updated knowledge")
     if (provider === "bedrock")
       expect(body).toMatchObject({
         inferenceConfig: { temperature: 0.2, maxTokens: 100, topP: 0.8 },
@@ -212,6 +213,7 @@ it.each(["openrouter", "azure", "bedrock"] as const)(
     )
     const call = () =>
       chat({
+        threadId: "test-thread",
         adapter: getModel("fast"),
         messages: [{ role: "user", content: "Classify the collision" }],
         outputSchema: z.object({ decision: z.enum(["merge", "new_name"]) }),
@@ -257,6 +259,7 @@ it("records each host call as one named generation span with usage", async () =>
     ),
   )
   await chat({
+    threadId: "test-thread",
     adapter: getModel("fast", { name: "workspace.commit-subject" }),
     messages: [{ role: "user", content: "Write a subject" }],
     stream: false,
@@ -290,6 +293,7 @@ it("marks the generation as an error when the provider rejects the request", asy
   )
   await expect(
     chat({
+      threadId: "test-thread",
       adapter: getModel("fast"),
       messages: [{ role: "user", content: "Write a subject" }],
       stream: false,
@@ -346,6 +350,7 @@ it.each(["openai-like", "bedrock"] as const)(
     )
     await expect(
       chat({
+        threadId: "test-thread",
         adapter: getModel("fast"),
         messages: [{ role: "user", content: "Classify" }],
         outputSchema: z.object({ decision: z.string() }),
@@ -381,6 +386,7 @@ it.each(["openai-like", "bedrock"] as const)(
     )
     const cancellation = abortAfter(10_000)
     const call = chat({
+      threadId: "test-thread",
       adapter: getModel("fast"),
       messages: [{ role: "user", content: "Write a subject" }],
       abortController: cancellation,
@@ -410,11 +416,12 @@ it.each([429, 503])("retries a transient HTTP %s response", async (status) => {
   )
   await expect(
     chat({
+      threadId: "test-thread",
       adapter: getModel("fast"),
       messages: [{ role: "user", content: "Write a subject" }],
       stream: false,
     }),
-  ).resolves.toBe("Recovered")
+  ).resolves.toMatchObject({ text: "Recovered" })
   expect(attempts).toBe(2)
 })
 
@@ -478,6 +485,7 @@ it.each(["openai-like", "bedrock"] as const)(
     )
     await expect(
       chat({
+        threadId: "test-thread",
         adapter: getModel("fast"),
         messages: [{ role: "user", content: "Classify" }],
         outputSchema: z.object({ decision: z.enum(["merge", "new_name"]) }),
@@ -503,6 +511,7 @@ it("cancels during retry backoff without another model request", async () => {
     }),
   )
   const call = chat({
+    threadId: "test-thread",
     adapter: getModel("fast"),
     messages: [{ role: "user", content: "Write a subject" }],
     abortController: cancellation,

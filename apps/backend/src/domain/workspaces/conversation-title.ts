@@ -1,5 +1,6 @@
 import { chat } from "@tanstack/ai"
 
+import { oneShotThreadId } from "../../lib/oneShotThreadId.js"
 import {
   getConversation,
   nameUnnamedConversation,
@@ -80,8 +81,9 @@ export async function nameConversationIfUnnamed(input: {
         temperature: 0.5,
         name: "workspace.conversation-title",
       })
-      raw = await chat({
+      const reply = await chat({
         adapter: model,
+        threadId: oneShotThreadId("workspace.conversation-title"),
         messages: [
           {
             role: "user",
@@ -90,6 +92,7 @@ export async function nameConversationIfUnnamed(input: {
         ],
         stream: false,
       })
+      raw = reply.text
     }
   } catch {
     raw = ""

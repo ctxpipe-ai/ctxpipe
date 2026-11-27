@@ -123,6 +123,7 @@ export function workspaceChatToolBridgeProvisioner(
       return startHostToolBridge(tools, {
         hostForSandbox: callbackHost,
         bindAddress,
+        threadId: options.threadId,
         ...(options.context !== undefined ? { context: options.context } : {}),
         ...(options.signal !== undefined ? { signal: options.signal } : {}),
         ...(options.emitCustomEvent !== undefined

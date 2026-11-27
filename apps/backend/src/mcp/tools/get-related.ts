@@ -14,6 +14,11 @@ import {
 } from "../framework/call-workspace.js"
 import { decodeCursorWithAnchor, encodeCursor } from "../framework/cursor.js"
 import {
+  knowledgeNoticesSchema,
+  legacyKnowledgeNotices,
+  withNotices,
+} from "../framework/legacy-knowledge.js"
+import {
   branchArgument,
   servedSchema,
   workspaceArgument,
@@ -286,6 +291,7 @@ export const getRelatedTool = defineMcpReadTool({
       .describe("The disagreement positions of the top results."),
     cursor: z.string().optional(),
     truncated: z.boolean().optional(),
+    notices: knowledgeNoticesSchema,
   }),
   describeResult: ({ results }) => scoredResult(results),
   async run(input, { org }) {
@@ -309,6 +315,8 @@ export const getRelatedTool = defineMcpReadTool({
       sha: planeHead?.sha ?? legacyServed.sha,
     }
     const viewKey = planeHead ? knowledgeViewKey(planeHead) : served.sha
+    // The main-era knowledge that the plane does not rank (CTX-1715).
+    const notices = legacyKnowledgeNotices([workspace], planeHeads)
     const { cursor, ...parameters } = input
     const { limit, maxTokens, explain, ...rankParameters } = parameters
     const binding = {
@@ -336,13 +344,20 @@ export const getRelatedTool = defineMcpReadTool({
       .digest("hex")
     let ranking = cachedRanking(key)
     if (!ranking) {
-      ranking = await reader.related({
-        org,
-        workspace,
-        sha: served.sha,
-        input,
-        now: new Date(now),
-      })
+      try {
+        ranking = await reader.related({
+          org,
+          workspace,
+          sha: served.sha,
+          input,
+          now: new Date(now),
+        })
+      } catch (error) {
+        // A seed can be a main-era unit that the plane does not hold.
+        throw error instanceof McpToolError && error.code === "unknown_ref"
+          ? withNotices(error, notices)
+          : error
+      }
       cacheRanking(key, ranking)
     }
     const { results, ...header } = ranking
@@ -358,6 +373,7 @@ export const getRelatedTool = defineMcpReadTool({
       ...(header.cappedHubs.length ? { cappedHubs: header.cappedHubs } : {}),
       results: page,
       ...(header.positions ? { positions: header.positions } : {}),
+      ...(notices.length ? { notices } : {}),
     })
     const { page, nextOffset, truncated } = fitPage(items, {
       offset,

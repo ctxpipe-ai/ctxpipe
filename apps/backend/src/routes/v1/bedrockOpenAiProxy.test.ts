@@ -341,6 +341,7 @@ it("merges consecutive roles through the host provider", async () => {
   })
   expect(
     await chat({
+      threadId: "test-thread",
       adapter,
       stream: false,
       systemPrompts: ["Be brief."],
@@ -351,7 +352,7 @@ it("merges consecutive roles through the host provider", async () => {
         { role: "assistant", content: "more" },
       ],
     }),
-  ).toBe("ok")
+  ).toMatchObject({ text: "ok" })
   expect(sent).toMatchObject({
     system: [{ text: "Be brief." }],
     messages: [

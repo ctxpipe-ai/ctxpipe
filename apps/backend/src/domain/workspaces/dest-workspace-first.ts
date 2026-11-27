@@ -1,6 +1,7 @@
 import { chat } from "@tanstack/ai"
 import { z } from "zod"
 
+import { oneShotThreadId } from "../../lib/oneShotThreadId.js"
 import { scrubForModel } from "../../retrieval/services/scrubForModel.js"
 import { greenfieldKnowledgePath } from "./layout.js"
 
@@ -84,6 +85,7 @@ async function invokeUnkeyedCollisionModel(prompt: string): Promise<string> {
   const { getModel } = await import("../../retrieval/services/modelProvider.js")
   const { decision } = await chat({
     adapter: getModel("fast", { name: "workspace.unkeyed-collision" }),
+    threadId: oneShotThreadId("workspace.unkeyed-collision"),
     messages: [{ role: "user", content: prompt }],
     outputSchema: z.object({ decision: z.enum(["merge", "new_name"]) }),
     stream: false,

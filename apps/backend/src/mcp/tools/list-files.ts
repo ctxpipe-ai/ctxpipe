@@ -21,6 +21,12 @@ import {
 } from "../framework/call-workspace.js"
 import { decodeCursor, encodeCursor } from "../framework/cursor.js"
 import {
+  type KnowledgeNotice,
+  knowledgeNoticesSchema,
+  legacyKnowledgeNotices,
+  withNotices,
+} from "../framework/legacy-knowledge.js"
+import {
   pathGlobRegex,
   requireLinkedRepository,
 } from "../framework/org-code.js"
@@ -206,6 +212,7 @@ export const listFilesTool = defineMcpReadTool({
         "The folder has more entries than one listing holds, an entry was cut, or with glob, files may lie deeper than depth.",
       ),
     cursor: z.string().optional(),
+    notices: knowledgeNoticesSchema,
   }),
   describeResult: ({ entries }) => ({ count: entries.length }),
   async run(input, { org }) {
@@ -225,6 +232,8 @@ export const listFilesTool = defineMcpReadTool({
     let viewKey = workspaceServed.sha
     let entries: Entry[]
     let listTruncated = false
+    // The main-era knowledge that the plane does not list (CTX-1715).
+    let notices: KnowledgeNotice[] = []
     if (input.repository === undefined) {
       const { planeHeads } = await selectKnowledgeReader(
         org.id,
@@ -232,6 +241,7 @@ export const listFilesTool = defineMcpReadTool({
         input.branch,
       )
       const planeHead = planeHeads.get(workspace.id)
+      notices = legacyKnowledgeNotices([workspace], planeHeads)
       if (planeHead) {
         viewKey = knowledgeViewKey(planeHead)
         served = {
@@ -298,7 +308,8 @@ export const listFilesTool = defineMcpReadTool({
         )
       }
     }
-    if (entries.length === 0 && folder !== "") throw folderNotFound(folder)
+    if (entries.length === 0 && folder !== "")
+      throw withNotices(folderNotFound(folder), notices)
     if (input.glob) {
       const match = new RegExp(pathGlobRegex(input.glob))
       const prefix = folder ? `${folder}/` : ""
@@ -342,6 +353,7 @@ export const listFilesTool = defineMcpReadTool({
         served,
         entries: fitted,
         truncated: true,
+        ...(notices.length ? { notices } : {}),
       }),
     })
     const truncated = listTruncated || page.cut
@@ -354,6 +366,7 @@ export const listFilesTool = defineMcpReadTool({
       ...(page.nextOffset === null
         ? {}
         : { cursor: encodeCursor({ ...binding, offset: page.nextOffset }) }),
+      ...(notices.length ? { notices } : {}),
     }
   },
 })

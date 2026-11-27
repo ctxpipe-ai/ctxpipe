@@ -45,6 +45,13 @@ this card.
 An owner or admin chooses **Start** on a row. A member sees **Ask an admin** in
 place of the button.
 
+A warning at the top of the card shows the count of knowledge files from before
+Workspaces that are not in the Workspace repository. The knowledge search reads
+only the repository, so agents can miss these files. To add them, merge the
+format upgrade if the Workspace is below format 3, then start the
+re-ingestion. See
+[Knowledge from before Workspaces needs the re-ingestion](/docs/self-hosting/upgrades#knowledge-from-before-workspaces-needs-the-re-ingestion).
+
 To stop a re-ingestion that is queued or runs, an owner or admin chooses
 **Cancel** on its row, then confirms. ctxpipe stops the run and each ingestion
 run of it. The run makes no more model calls and publishes nothing more. A

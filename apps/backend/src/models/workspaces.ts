@@ -1467,6 +1467,8 @@ export async function commitHydrateProjection(input: {
   displayName: string | null
   /** The cache value of the format file at the revision (`workspace-format.ts`). Null: no format yet. */
   formatVersion: number | null
+  /** The count of legacy overlay files of the revision (ADR-053, CTX-1715). */
+  legacyKnowledgeFiles: number
   units: readonly HydrateUnit[]
   skipped: readonly HydrateSkip[]
   /** Part of each chunk hash, so that a model change embeds again. */
@@ -1499,6 +1501,7 @@ export async function commitHydrateProjection(input: {
           hydrateStatus: "ready",
           hydrateError: null,
           formatVersion: input.formatVersion,
+          legacyKnowledgeFiles: input.legacyKnowledgeFiles,
           hydratePhases: sql`${JSON.stringify({
             ...initialHydratePhases({
               url: input.revision.remote.url,
@@ -2201,10 +2204,10 @@ export async function persistEmbeddingFailure(input: {
   )
 }
 
-/** SQL: the unit has text but no chunk row. */
+/** SQL: the unit has text but no chunk row. Exported for the plan test of `KNOWLEDGE_UNIT_INDEX`. */
 // The chunks first: a CASE fixes the order, so the body (TOAST, the heaviest column) is read only for a unit without
 // chunks, not for every unit (with `and`, Postgres may test the cheaper-looking btrim first).
-function unitWithoutChunks(workspaceId: SQL, servingId: SQL, body: SQL) {
+export function unitWithoutChunks(workspaceId: SQL, servingId: SQL, body: SQL) {
   return sql`case when exists (
     select 1 from workspace_knowledge_chunks as c
     where c.workspace_id = ${workspaceId} and c.unit_id = ${servingId}

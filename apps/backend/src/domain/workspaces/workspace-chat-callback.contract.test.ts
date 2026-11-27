@@ -44,7 +44,7 @@ describe("workspace chat callback routing", () => {
     }
     const bridge = await workspaceChatToolBridgeProvisioner(
       "127.0.0.1",
-    ).provision([tool], { provider: "docker" })
+    ).provision([tool], { provider: "docker", threadId: "callback-contract" })
     let bridgeClosed = false
 
     try {

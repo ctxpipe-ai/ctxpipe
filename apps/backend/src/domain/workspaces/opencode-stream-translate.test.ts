@@ -5,44 +5,38 @@ import {
 } from "@tanstack/ai-opencode"
 import { expect, it } from "vitest"
 
-it("streams each text delta once when a part arrives before its message role", async () => {
-  // OpenCode can send a part, and deltas for it, before the
-  // message.updated event that tells the role of its message.
-  const part = (text: string) => ({
-    type: "message.part.updated",
-    properties: {
-      part: {
-        id: "prt_1",
-        messageID: "msg_1",
-        sessionID: "ses_1",
-        type: "text",
-        text,
-      },
-    },
-  })
-  const delta = (text: string) => ({
-    type: "message.part.delta",
-    properties: {
-      sessionID: "ses_1",
+// OpenCode can send a part, and deltas for it, before the message.updated
+// event that tells the role of its message.
+const part = (text: string) => ({
+  type: "message.part.updated",
+  properties: {
+    part: {
+      id: "prt_1",
       messageID: "msg_1",
-      partID: "prt_1",
-      field: "text",
-      delta: text,
+      sessionID: "ses_1",
+      type: "text",
+      text,
     },
-  })
-  const events = [
-    part(""),
-    delta("A"),
-    delta("B"),
-    {
-      type: "message.updated",
-      properties: {
-        info: { id: "msg_1", sessionID: "ses_1", role: "assistant" },
-      },
-    },
-    delta("C"),
-    part("ABC"),
-  ]
+  },
+})
+const delta = (text: string) => ({
+  type: "message.part.delta",
+  properties: {
+    sessionID: "ses_1",
+    messageID: "msg_1",
+    partID: "prt_1",
+    field: "text",
+    delta: text,
+  },
+})
+const assistantRole = {
+  type: "message.updated",
+  properties: {
+    info: { id: "msg_1", sessionID: "ses_1", role: "assistant" },
+  },
+}
+
+async function textDeltas(events: unknown[]): Promise<string[]> {
   async function* replay(): AsyncGenerator<OpencodeStreamEvent> {
     for (const event of events)
       yield { kind: "event", event } as unknown as OpencodeStreamEvent
@@ -56,12 +50,28 @@ it("streams each text delta once when a part arrives before its message role", a
     genId: () => `gen-${id++}`,
   }))
     chunks.push(chunk)
+  return chunks.flatMap((chunk) =>
+    chunk.type === "TEXT_MESSAGE_CONTENT" ? [chunk.delta] : [],
+  )
+}
 
+it("streams each text delta once when a part arrives before its message role", async () => {
   expect(
-    chunks.flatMap((chunk) =>
-      chunk.type === "TEXT_MESSAGE_CONTENT" ? [chunk.delta] : [],
-    ),
+    await textDeltas([
+      part(""),
+      delta("A"),
+      delta("B"),
+      assistantRole,
+      delta("C"),
+      part("ABC"),
+    ]),
   ).toEqual(["A", "B", "C"])
+})
+
+it("sends the text once when a snapshot replaces deltas held for the role", async () => {
+  expect(
+    await textDeltas([part(""), delta("Hello"), part("Hello"), assistantRole]),
+  ).toEqual(["Hello"])
 })
 
 it("opens a tool call with its input, not with the empty pending input", async () => {
