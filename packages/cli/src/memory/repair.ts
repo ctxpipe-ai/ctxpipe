@@ -1,11 +1,13 @@
 import { existsSync, readFileSync, realpathSync } from "node:fs"
 import {
   basename,
+  delimiter,
   dirname,
   isAbsolute,
   join,
   relative,
   resolve,
+  sep,
 } from "node:path"
 
 import { CLIENT_LABELS } from "../constants.js"
@@ -70,32 +72,31 @@ async function sessionCwd(command: "mcp" | "hook"): Promise<string> {
 }
 
 function repair(cwd: string): string {
+  // `npx` puts the `node_modules/.bin` folders of the repository on PATH, so
+  // a cloned repository could plant a `git` or `claude` command. The repair
+  // starts commands only from the other PATH folders.
+  process.env.PATH = trustedPath(process.env.PATH ?? "", cwd)
   const context = createOperationContext({ cwd, commandExists })
   const entries = findLegacyMemoryEntries(context)
   if (entries.length === 0) {
     return "This setup has no 0.2.0 memory entry to repair."
   }
-  // A repo 0.2.0 entry becomes the repo capture hook of its host. A home
-  // entry is only removed. Only a repository with memory gets new files;
-  // in another directory, the repair only removes the 0.2.0 entries.
-  const hasMemory = existsSync(resolve(context.cwd, ".ai", "memory"))
-  // A file that is also a home file (the repository is the home directory)
-  // counts as a home file.
+  // A repo 0.2.0 entry becomes the repo capture hook of its host, and it
+  // starts the `memory init` steps in a repository with memory. A home entry
+  // is only removed. A file that is also a home file (the repository is the
+  // home directory) counts as a home file.
   const userFiles = new Set(
     entries
       .filter(({ scope }) => scope === "user")
       .map(({ path }) => realTarget(path)),
   )
-  const hosts = hasMemory
-    ? [
-        ...new Set(
-          entries.flatMap(({ path, host, scope }) =>
-            host && scope === "repo" && !userFiles.has(realTarget(path))
-              ? [host]
-              : [],
-          ),
-        ),
-      ]
+  const repoEntries = entries.filter(
+    ({ path, scope }) => scope === "repo" && !userFiles.has(realTarget(path)),
+  )
+  const repairRepo =
+    repoEntries.length > 0 && existsSync(resolve(context.cwd, ".ai", "memory"))
+  const hosts = repairRepo
+    ? [...new Set(repoEntries.flatMap(({ host }) => (host ? [host] : [])))]
     : []
 
   // Remove the 0.2.0 entries last. If a step fails, the entries stay, and the
@@ -113,13 +114,13 @@ function repair(cwd: string): string {
   const upgradeOps = buildMemoryUpgradeOperations({ context }).filter(
     (op) =>
       isRemoval(op) ||
-      (hasMemory &&
+      (repairRepo &&
         "path" in op &&
         isInside(context.cwd, op.path) &&
         !legacyFiles.has(op.path)),
   )
   const operations = [
-    ...(hasMemory ? buildMemoryArtifactOperations({ context }) : []),
+    ...(repairRepo ? buildMemoryArtifactOperations({ context }) : []),
     ...buildMemoryHookOperations({ clients: hosts, scope: "repo", context }),
     ...upgradeOps.filter((op) => !isRemoval(op)),
     ...upgradeOps.filter(isRemoval),
@@ -178,6 +179,20 @@ function assertJsonObject(path: string, context: OperationContext): void {
   if (!isObject(value)) {
     throw new Error(`${displayPath(path, context)} is not a JSON object`)
   }
+}
+
+/** PATH with no relative folder, no `node_modules` folder, and no folder in the repository. */
+function trustedPath(path: string, cwd: string): string {
+  const repo = realTarget(resolve(cwd))
+  return path
+    .split(delimiter)
+    .filter(
+      (dir) =>
+        isAbsolute(dir) &&
+        !dir.split(sep).includes("node_modules") &&
+        !isInside(repo, realTarget(dir)),
+    )
+    .join(delimiter)
 }
 
 function isInside(root: string, path: string): boolean {

@@ -1087,6 +1087,9 @@ if (args[0] === "mcp" && args[1] === "remove") {
     ).not.toContain("memory hook")
     expect(existsSync(join(cwd, ".claude", "settings.json"))).toBe(false)
     expect(existsSync(join(home, ".claude", "settings.json"))).toBe(false)
+    // A home entry does not start the `memory init` steps in the repository.
+    expect(existsSync(join(cwd, ".ai", "memory", "index.md"))).toBe(false)
+    expect(existsSync(join(cwd, ".gitignore"))).toBe(false)
   })
 
   it("treats a 0.2.0 entry in the home directory as a home entry when the repository is the home directory", () => {
@@ -1107,6 +1110,31 @@ if (args[0] === "mcp" && args[1] === "remove") {
     expect(
       readFileSync(join(home, ".cursor", "mcp.json"), "utf8"),
     ).not.toContain("ctxpipe-memory")
+  })
+
+  it("does not run a claude command from the repository", () => {
+    const { cwd, home } = legacySetup()
+    rmSync(claudeLog, { force: true })
+    const planted = join(cwd, "node_modules", ".bin")
+    mkdirSync(planted, { recursive: true })
+    writeFileSync(
+      join(planted, "claude"),
+      `#!/bin/sh\ntouch ${JSON.stringify(join(cwd, "planted-ran"))}\n`,
+      { mode: 0o755 },
+    )
+
+    const result = runRemoved(
+      cwd,
+      home,
+      "mcp",
+      `${planted}:${fakeClaude}:${process.env.PATH ?? ""}`,
+    )
+
+    expect(result.stderr).toContain("Removed the 0.2.0 memory entries")
+    expect(existsSync(join(cwd, "planted-ran"))).toBe(false)
+    expect(readFileSync(claudeLog, "utf8")).toBe(
+      "mcp remove ctxpipe-memory --scope user\n",
+    )
   })
 
   it("keeps ~/.claude.json and names the manual step when there is no claude command", () => {

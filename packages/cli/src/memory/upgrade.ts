@@ -230,7 +230,7 @@ function pushRetiredSkillAndRuleRemovals(ops: Operation[], root: string): void {
  * comes from this table, not from the path, because the repository can be
  * the home directory.
  */
-export type LegacyMemoryFile = {
+type LegacyMemoryFile = {
   path: string
   host: Client | null
   scope: "repo" | "user"
