@@ -574,6 +574,7 @@ describe("the model clients", () => {
     const text = all.map(({ value }) => `key ${value}`).join("\n")
 
     await chat({
+      threadId: "test-thread",
       adapter: getModel("fast"),
       systemPrompts: [text],
       messages: [{ role: "user", content: text }],
@@ -592,6 +593,7 @@ describe("the model clients", () => {
     // A structured call sends its output schema too. The provider gives no
     // tool call, so the call fails after its request.
     await chat({
+      threadId: "test-thread",
       adapter: getModel("fast"),
       messages: [{ role: "user", content: text }],
       outputSchema: z.object({ answer: z.string().describe(text) }),
@@ -614,6 +616,7 @@ describe("the model clients", () => {
     const sent = provider()
     const value = secretOf("betterleaks.github-pat")
     await chat({
+      threadId: "test-thread",
       adapter: getModel("fast"),
       messages: [
         {
@@ -638,6 +641,7 @@ describe("the model clients", () => {
     const half = Math.floor(key.length / 2)
     await expect(
       chat({
+        threadId: "test-thread",
         adapter: getModel("fast"),
         messages: [
           { role: "user", content: key.slice(0, half) },

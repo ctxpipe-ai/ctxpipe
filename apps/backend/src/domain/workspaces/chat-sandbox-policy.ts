@@ -1,6 +1,7 @@
 import { chat } from "@tanstack/ai"
 import type { PermissionHandler } from "@tanstack/ai-opencode"
 
+import { oneShotThreadId } from "../../lib/oneShotThreadId.js"
 import { scrubForModel } from "../../retrieval/services/scrubForModel.js"
 import { WRITE_STATUS_REASONS } from "./write-status.js"
 
@@ -363,8 +364,9 @@ export async function judgeChatToolWithFastModel(
     // The handler stops waiting after 10 s. This abort also stops the call.
     const cancellation = new AbortController()
     deadline = setTimeout(() => cancellation.abort(), 10_000)
-    const text = await chat({
+    const { text } = await chat({
       adapter: model,
+      threadId: oneShotThreadId("workspace.chat-tool-judge"),
       messages: [
         {
           role: "user",

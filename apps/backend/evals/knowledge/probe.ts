@@ -9,6 +9,7 @@ import {
   imageTextModel,
   readImage,
 } from "../../src/knowledge-plane/image-text.js"
+import { oneShotThreadId } from "../../src/lib/oneShotThreadId.js"
 import {
   embedQuery,
   embedTexts,
@@ -456,6 +457,7 @@ async function probeChecks(
     const answer = await observe(calls, () =>
       chat({
         adapter: getModel("fast", { model }),
+        threadId: oneShotThreadId("evals.knowledge-probe"),
         messages: [{ role: "user", content: "Answer with the word yes." }],
         stream: false,
       }),

@@ -236,6 +236,7 @@ describe("each model client sends the provider block", () => {
       vi.stubEnv("MODEL_PROVIDER", kind)
       server.use(answer("/chat/completions", completion("ok")))
       await chat({
+        threadId: "test-thread",
         adapter: getModel("fast"),
         messages: [{ role: "user", content: "hi" }],
         stream: false,
@@ -251,6 +252,7 @@ describe("each model client sends the provider block", () => {
     )
     server.use(answer("/chat/completions", completion("ok")))
     await chat({
+      threadId: "test-thread",
       adapter: getModel("fast"),
       messages: [{ role: "user", content: "hi" }],
       stream: false,
@@ -271,6 +273,7 @@ describe("each model client sends the provider block", () => {
       ),
     )
     await chat({
+      threadId: "test-thread",
       adapter: getModel("fast"),
       messages: [{ role: "user", content: "hi" }],
       stream: false,

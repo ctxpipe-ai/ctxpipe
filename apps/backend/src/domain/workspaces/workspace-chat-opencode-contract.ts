@@ -105,8 +105,7 @@ const WORKSPACE_CHAT_LOCAL_PROCESS_KEEP_ENV = new Set([
   "GIT_CONFIG_SYSTEM",
   "GIT_CONFIG_NOSYSTEM",
   "GIT_TRACE2_EVENT",
-  // The run sets these itself. The scrub runs after the run's own values
-  // are added, so it must not remove them.
+  // The run sets these itself.
   "XDG_CONFIG_HOME",
   "XDG_DATA_HOME",
   "XDG_STATE_HOME",
@@ -116,19 +115,17 @@ const WORKSPACE_CHAT_LOCAL_PROCESS_KEEP_ENV = new Set([
 ])
 
 /**
- * The variables to remove from the backend's environment before an
- * unsandboxed agent process starts: all of them except the allow-list and
- * the locale (`LC_*`). The sandbox applies this scrub after it adds the
- * run's own variables, so a run variable must not have the name of a
- * removed backend variable.
+ * The backend variables that an unsandboxed agent process gets: the
+ * allow-list and the locale (`LC_*`). The local-process sandbox of TanStack
+ * AI 1.x passes a command only a few host variables and these (`passEnv`),
+ * plus the run's own variables.
  */
-export function workspaceChatLocalProcessScrubEnv(
+export function workspaceChatLocalProcessPassEnv(
   env: Record<string, string | undefined> = process.env,
 ): string[] {
   return Object.keys(env).filter(
     (name) =>
-      !WORKSPACE_CHAT_LOCAL_PROCESS_KEEP_ENV.has(name) &&
-      !name.startsWith("LC_"),
+      WORKSPACE_CHAT_LOCAL_PROCESS_KEEP_ENV.has(name) || name.startsWith("LC_"),
   )
 }
 
