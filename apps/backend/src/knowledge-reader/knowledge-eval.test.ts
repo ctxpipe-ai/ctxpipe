@@ -31,7 +31,8 @@ import {
 import { parseSettings } from "../../evals/knowledge/runner.js"
 import { madeUpPrivateKey } from "../../test/made-up-key.js"
 import { useMswServer } from "../../test/msw.js"
-import { decideNoul, JEV_MODEL } from "../retrieval/jev/client.js"
+import { decideNoul } from "../retrieval/jev/client.js"
+import { JEV_MODEL } from "../retrieval/jev/decision-model.js"
 import { askDisagreementFacts } from "../retrieval/jev/disagreement.js"
 import { judgeLayer } from "../retrieval/jev/layer-judge.js"
 import { ORCHESTRATOR_DEFAULTS } from "./orchestrator.js"
@@ -459,6 +460,22 @@ describe("the spend cap", () => {
       // 20,000 input tokens at $0.10 for each million.
       expect(calls.spentUsd).toBeCloseTo(0.002)
       expect(calls.records[0]).toMatchObject({ kind: "jev", estimated: false })
+    } finally {
+      restore()
+    }
+  })
+
+  it("reserves a large decision call by the size of its body", async () => {
+    sent = 0
+    const calls = new ModelCalls(BASE, 0.005)
+    const restore = calls.install()
+    try {
+      // 100,000 bytes can be 100,000 input tokens: $0.01 at $0.10 for each
+      // million, over the cap of $0.005.
+      const answer = await post(JEV, { state: ["x".repeat(100_000)] })
+      expect(answer.status).toBe(503)
+      expect(sent).toBe(0)
+      expect(calls.stopped).toBe(true)
     } finally {
       restore()
     }

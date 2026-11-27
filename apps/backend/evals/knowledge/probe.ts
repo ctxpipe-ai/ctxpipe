@@ -15,7 +15,11 @@ import {
   embedTexts,
   textEmbeddingConfig,
 } from "../../src/retrieval/embeddings/textEmbeddings.js"
-import { decideNoul, JEV_MODEL } from "../../src/retrieval/jev/client.js"
+import { decideNoul } from "../../src/retrieval/jev/client.js"
+import {
+  decisionModelSettings,
+  JEV_MODEL,
+} from "../../src/retrieval/jev/decision-model.js"
 import {
   generateEmbeddings,
   getModel,
@@ -327,7 +331,10 @@ async function probeChecks(
   const served = await observe(calls, () =>
     decideNoul(["The sky is blue on a clear day."], jevQuestion, jevOptions),
   )
-  const jevProviders = zdrProvidersOf(JEV_MODEL)
+  // The probe checks the OpenRouter routing of the decision model that the
+  // settings select.
+  const decisionModel = decisionModelSettings()?.model ?? JEV_MODEL
+  const jevProviders = zdrProvidersOf(decisionModel)
   check(
     "decisions-zdr-provider",
     served,
@@ -335,7 +342,7 @@ async function probeChecks(
       served.status === 200 &&
       jevProviders.has(served.provider ?? "") &&
       onList.has(served.provider),
-    `HTTP 200, a yes/no answer, and a ZDR provider of ${JEV_MODEL} (${[...jevProviders].join(", ") || "none listed"})${onList.text}`,
+    `HTTP 200, a yes/no answer, and a ZDR provider of ${decisionModel} (${[...jevProviders].join(", ") || "none listed"})${onList.text}`,
   )
 
   // The ZDR proof of an endpoint is a pair of requests to a model of that

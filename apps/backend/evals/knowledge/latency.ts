@@ -7,7 +7,10 @@ import {
   embedQuery,
   textEmbeddingConfig,
 } from "../../src/retrieval/embeddings/textEmbeddings.js"
-import { JEV_MODEL } from "../../src/retrieval/jev/client.js"
+import {
+  decisionModelSettings,
+  JEV_MODEL,
+} from "../../src/retrieval/jev/decision-model.js"
 import { judgeLayer } from "../../src/retrieval/jev/layer-judge.js"
 import {
   isAllowedProvider,
@@ -242,10 +245,11 @@ export async function measureLatency(input: {
       })
   }
 
-  // Jev with the request of the layer judge: 10 made-up candidates.
+  // The decision model of the settings with the request of the layer judge:
+  // 10 made-up candidates.
   measures.push({
     name: "Jev, layer judge (10 candidates)",
-    model: JEV_MODEL,
+    model: decisionModelSettings()?.model ?? JEV_MODEL,
     provider: "routing",
     usdPer1MTokens: "—",
     samples: await sample(Math.min(runs, 30), calls, () =>

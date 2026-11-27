@@ -15,15 +15,9 @@ import { openRouterProvider } from "../services/openRouterProvider.js"
 /** The Jev model of the OpenRouter Decisions API, the default decision model. */
 export const JEV_MODEL = "typesafe/jev-1.14"
 
-/** The model of each provider when `DECISION_MODEL_NAME` is not set. */
-const DEFAULT_MODELS = {
-  openrouter: JEV_MODEL,
-  openai: "gpt-6-luna",
-} as const
-
 const decisionProviderSchema = z.enum(["openrouter", "openai"])
 
-type DecisionModel = {
+export type DecisionModel = {
   provider: z.infer<typeof decisionProviderSchema>
   model: string
   apiKey: string
@@ -54,7 +48,9 @@ export function decisionModelSettings(): DecisionModel | null {
   const env = decisionEnvSchema.safeParse(process.env)
   if (!env.success) return null
   const provider = env.data.DECISION_MODEL_PROVIDER ?? "openrouter"
-  const model = env.data.DECISION_MODEL_NAME ?? DEFAULT_MODELS[provider]
+  const model =
+    env.data.DECISION_MODEL_NAME ??
+    { openrouter: JEV_MODEL, openai: "gpt-6-luna" }[provider]
   const apiKey = env.data.DECISION_MODEL_API_KEY
   const baseUrl = env.data.DECISION_MODEL_URL
   if (apiKey) return { provider, model, apiKey, baseUrl }

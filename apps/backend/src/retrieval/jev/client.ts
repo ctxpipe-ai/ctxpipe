@@ -4,7 +4,10 @@
 // provider (`decisionModelSettings`). A call to OpenRouter requires a
 // zero-data-retention (ZDR) endpoint (ADR-068 decision 7), because it sends
 // customer content. It pins no provider, so OpenRouter can fall back among
-// the ZDR endpoints of the model.
+// the ZDR endpoints of the model. The names `JevError`, `JevState`,
+// `JevQuestion` and the span `jev.decide` stay from the time when Jev was
+// the only decision model, so that the dashboards and the eval reports keep
+// their names.
 import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api"
 import { decide, isEvaluateError } from "@tanstack/ai"
 import { z } from "zod"
@@ -12,9 +15,11 @@ import { z } from "zod"
 import { assertNotInOrgDbContext } from "../../db/client.js"
 import { gatewayRoutingError } from "../../observability/gatewayError.js"
 import { scrubForModel } from "../services/scrubForModel.js"
-import { decisionAdapter, decisionModelSettings } from "./decision-model.js"
-
-export { JEV_MODEL } from "./decision-model.js"
+import {
+  type DecisionModel,
+  decisionAdapter,
+  decisionModelSettings,
+} from "./decision-model.js"
 
 /**
  * The state of a decisions request: text only. The decision model gets no
@@ -192,7 +197,7 @@ const noulProbability = z.object({
  */
 function jevErrorOf(
   error: unknown,
-  settings: { provider: string; model: string },
+  settings: Pick<DecisionModel, "provider" | "model">,
   timeoutMs: number,
 ): JevError {
   if (!(error instanceof Error))

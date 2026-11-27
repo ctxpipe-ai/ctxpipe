@@ -105,6 +105,13 @@ const EMBEDDING_USD_PER_BYTE = 0.5 / 1_000_000
 
 /** The worst-case cost of one call of `kind` with the request `body`. */
 function reservationOf(kind: CallKind, body: string): number {
+  // A decision call costs at most its input tokens at the decision price,
+  // and each token holds at least one byte of the body.
+  if (kind === "jev")
+    return Math.max(
+      RESERVED_COST_USD.jev,
+      Buffer.byteLength(body, "utf8") * DECISION_USD_PER_INPUT_TOKEN,
+    )
   if (kind !== "embedding") return RESERVED_COST_USD[kind]
   const input = z
     .object({ input: z.union([z.string(), z.array(z.string())]) })
@@ -134,13 +141,19 @@ const emptyCounts = (): CallCounts => ({
 })
 
 /**
+ * True for the path of a decision call: OpenRouter `/api/alpha/decisions`,
+ * OpenAI `/v1/decisions`. A decision call can go to its own provider
+ * (`DECISION_MODEL_URL`), so the recorder takes it from any origin.
+ */
+const isDecisionPath = (path: string) => path.endsWith("/decisions")
+
+/**
  * The kind of a call to the origin of the model provider, from its path
  * and its body. A chat call of the vision client (`readImage`) names its JSON schema
  * `image_reading`.
  */
 function kindOf(path: string, body: string): CallKind | null {
-  // OpenRouter `/api/alpha/decisions`, OpenAI `/v1/decisions`.
-  if (path.endsWith("/decisions")) return "jev"
+  if (isDecisionPath(path)) return "jev"
   if (path.endsWith("/embeddings")) return "embedding"
   if (path.endsWith("/chat/completions"))
     return body.includes('"name":"image_reading"') ? "vision" : "chat"
@@ -193,7 +206,8 @@ const questionsOf = (body: string): number =>
 /**
  * The price of the OpenAI decision model for each input token ($0.10 for
  * each million, no charge for output; read 2026-11-26). Its answers report
- * tokens but no cost.
+ * tokens but no cost. Jev costs less ($0.042), so the reservation of a
+ * decision call also holds for Jev.
  */
 const DECISION_USD_PER_INPUT_TOKEN = 0.1 / 1_000_000
 
@@ -437,8 +451,7 @@ export class ModelCalls {
     owner: Owner,
   ): Promise<Response> {
     const url = new URL(request.url)
-    // A decision call can go to its own provider (`DECISION_MODEL_URL`).
-    if (url.origin !== this.origin && !url.pathname.endsWith("/decisions"))
+    if (url.origin !== this.origin && !isDecisionPath(url.pathname))
       return next(request)
     const body = await request.clone().text()
     const kind = kindOf(url.pathname, body)

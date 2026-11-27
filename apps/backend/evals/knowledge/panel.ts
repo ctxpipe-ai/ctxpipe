@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import { JEV_MODEL } from "../../src/retrieval/jev/client.js"
+import { JEV_MODEL } from "../../src/retrieval/jev/decision-model.js"
 import { scrubForModel } from "../../src/retrieval/services/scrubForModel.js"
 import { askJson, BudgetExceededError, dataBlock } from "./chat.js"
 import {
