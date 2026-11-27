@@ -224,43 +224,64 @@ function pushRetiredSkillAndRuleRemovals(ops: Operation[], root: string): void {
   }
 }
 
-/** The files in which CLI 0.2.0 wrote memory MCP entries and hooks, with the host of each. */
+/**
+ * A file in which CLI 0.2.0 can have written a memory MCP entry or hook: its
+ * host, and its scope (`user` for a file of the home directory). The scope
+ * comes from this table, not from the path, because the repository can be
+ * the home directory.
+ */
+export type LegacyMemoryFile = {
+  path: string
+  host: Client | null
+  scope: "repo" | "user"
+}
+
 function legacyMemoryFiles({ cwd, homeDir }: OperationContext) {
-  const mcpFiles: Array<[string, Client | null]> = [
-    [resolve(cwd, ".cursor", "mcp.json"), "cursor"],
-    [join(homeDir, ".cursor", "mcp.json"), "cursor"],
-    [resolve(cwd, ".mcp.json"), "claude"],
-    [resolve(cwd, ".vscode", "mcp.json"), "vscode"],
-    [resolve(cwd, "opencode.json"), "opencode"],
-    [join(homeDir, ".config", "opencode", "opencode.json"), "opencode"],
-    [resolve(cwd, ".agents", "mcp.json"), null],
-    [resolve(cwd, ".ctxpipe", "config.json"), null],
-  ]
-  const claudeSettings = [
-    join(homeDir, ".claude", "settings.json"),
-    join(homeDir, ".claude", "settings.local.json"),
-    resolve(cwd, ".claude", "settings.json"),
-    resolve(cwd, ".claude", "settings.local.json"),
-  ]
-  const codexConfigs = [
-    resolve(cwd, ".codex", "config.toml"),
-    join(homeDir, ".codex", "config.toml"),
-  ]
-  // `claude mcp add --scope user` keeps its servers in this file.
-  const claudeUserConfig = join(homeDir, ".claude.json")
-  return { mcpFiles, claudeSettings, codexConfigs, claudeUserConfig }
+  const repo = (host: Client | null, ...parts: string[]): LegacyMemoryFile => ({
+    path: resolve(cwd, ...parts),
+    host,
+    scope: "repo",
+  })
+  const user = (host: Client | null, ...parts: string[]): LegacyMemoryFile => ({
+    path: join(homeDir, ...parts),
+    host,
+    scope: "user",
+  })
+  return {
+    mcpFiles: [
+      repo("cursor", ".cursor", "mcp.json"),
+      user("cursor", ".cursor", "mcp.json"),
+      repo("claude", ".mcp.json"),
+      repo("vscode", ".vscode", "mcp.json"),
+      repo("opencode", "opencode.json"),
+      user("opencode", ".config", "opencode", "opencode.json"),
+      repo(null, ".agents", "mcp.json"),
+      repo(null, ".ctxpipe", "config.json"),
+    ],
+    claudeSettings: [
+      user("claude", ".claude", "settings.json"),
+      user("claude", ".claude", "settings.local.json"),
+      repo("claude", ".claude", "settings.json"),
+      repo("claude", ".claude", "settings.local.json"),
+    ],
+    codexConfigs: [
+      repo("codex", ".codex", "config.toml"),
+      user("codex", ".codex", "config.toml"),
+    ],
+    // `claude mcp add --scope user` keeps its servers in this file.
+    claudeUserConfig: user("claude", ".claude.json"),
+  }
 }
 
 /** Each file in which CLI 0.2.0 can have written a memory MCP entry or hook. */
 export function legacyMemoryFilePaths(context: OperationContext): Set<string> {
   const { mcpFiles, claudeSettings, codexConfigs, claudeUserConfig } =
     legacyMemoryFiles(context)
-  return new Set([
-    ...mcpFiles.map(([path]) => path),
-    ...claudeSettings,
-    ...codexConfigs,
-    claudeUserConfig,
-  ])
+  return new Set(
+    [...mcpFiles, ...claudeSettings, ...codexConfigs, claudeUserConfig].map(
+      ({ path }) => path,
+    ),
+  )
 }
 
 /**
@@ -293,12 +314,12 @@ export function buildMemoryUpgradeOperations({
     legacyMemoryFiles(context)
 
   // MCP / config cleanup — only touch files that already exist (do not create empties).
-  for (const [path] of mcpFiles) {
+  for (const { path } of mcpFiles) {
     if (existsSync(path)) ops.push(stripMcpJsonOperation(path, context))
   }
 
   // Codex TOML (user + repo): strip ctxpipe-memory MCP tables from `codex mcp add`.
-  for (const path of codexConfigs) {
+  for (const { path } of codexConfigs) {
     if (!existsSync(path)) continue
     ops.push({
       type: "write-text",
@@ -326,7 +347,7 @@ export function buildMemoryUpgradeOperations({
   }
 
   // Claude settings: strip retired memory hook commands (user + project).
-  for (const path of claudeSettings) {
+  for (const { path } of claudeSettings) {
     if (!existsSync(path)) continue
     ops.push({
       type: "write-json",
@@ -339,7 +360,7 @@ export function buildMemoryUpgradeOperations({
   }
 
   // Claude user MCP servers (`claude mcp add ctxpipe-memory --scope user`).
-  const claudeServers = legacyClaudeUserServers(claudeUserConfig)
+  const claudeServers = legacyClaudeUserServers(claudeUserConfig.path)
   const hasClaude = claudeServers.length > 0 && context.commandExists("claude")
   for (const key of claudeServers) {
     const command = ["claude", "mcp", "remove", key, "--scope", "user"]
@@ -397,32 +418,27 @@ export function buildMemoryUpgradeOperations({
  */
 export function findLegacyMemoryEntries(
   context: OperationContext,
-): Array<{ path: string; host: Client | null }> {
+): LegacyMemoryFile[] {
   const { mcpFiles, claudeSettings, codexConfigs, claudeUserConfig } =
     legacyMemoryFiles(context)
-  const hasLegacyEntry = (
-    path: string,
-    strip: (o: Record<string, unknown>) => Record<string, unknown>,
-  ) => {
-    const existing = readJsonObject(path)
-    return JSON.stringify(strip(existing)) !== JSON.stringify(existing)
-  }
+  const hasLegacyEntry =
+    (strip: (o: Record<string, unknown>) => Record<string, unknown>) =>
+    ({ path }: LegacyMemoryFile) => {
+      const existing = readJsonObject(path)
+      return JSON.stringify(strip(existing)) !== JSON.stringify(existing)
+    }
 
   return [
-    ...mcpFiles.filter(([path]) => hasLegacyEntry(path, stripLegacyMemoryMcp)),
-    ...claudeSettings
-      .filter((path) => hasLegacyEntry(path, stripLegacyClaudeHooks))
-      .map((path): [string, Client] => [path, "claude"]),
+    ...mcpFiles.filter(hasLegacyEntry(stripLegacyMemoryMcp)),
+    ...claudeSettings.filter(hasLegacyEntry(stripLegacyClaudeHooks)),
     // `search` ignores the lastIndex of a /g regex; `test` does not.
-    ...codexConfigs
-      .filter(
-        (path) =>
-          existsSync(path) &&
-          readFileSync(path, "utf8").search(LEGACY_CODEX_MEMORY_TABLE) >= 0,
-      )
-      .map((path): [string, Client] => [path, "codex"]),
-    ...(legacyClaudeUserServers(claudeUserConfig).length > 0
-      ? [[claudeUserConfig, "claude"] as [string, Client]]
+    ...codexConfigs.filter(
+      ({ path }) =>
+        existsSync(path) &&
+        readFileSync(path, "utf8").search(LEGACY_CODEX_MEMORY_TABLE) >= 0,
+    ),
+    ...(legacyClaudeUserServers(claudeUserConfig.path).length > 0
+      ? [claudeUserConfig]
       : []),
-  ].map(([path, host]) => ({ path, host }))
+  ]
 }

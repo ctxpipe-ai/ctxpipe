@@ -79,11 +79,20 @@ function repair(cwd: string): string {
   // entry is only removed. Only a repository with memory gets new files;
   // in another directory, the repair only removes the 0.2.0 entries.
   const hasMemory = existsSync(resolve(context.cwd, ".ai", "memory"))
+  // A file that is also a home file (the repository is the home directory)
+  // counts as a home file.
+  const userFiles = new Set(
+    entries
+      .filter(({ scope }) => scope === "user")
+      .map(({ path }) => realTarget(path)),
+  )
   const hosts = hasMemory
     ? [
         ...new Set(
-          entries.flatMap(({ path, host }) =>
-            host && isInside(context.cwd, path) ? [host] : [],
+          entries.flatMap(({ path, host, scope }) =>
+            host && scope === "repo" && !userFiles.has(realTarget(path))
+              ? [host]
+              : [],
           ),
         ),
       ]

@@ -1089,6 +1089,26 @@ if (args[0] === "mcp" && args[1] === "remove") {
     expect(existsSync(join(home, ".claude", "settings.json"))).toBe(false)
   })
 
+  it("treats a 0.2.0 entry in the home directory as a home entry when the repository is the home directory", () => {
+    const home = mkdtempSync(join(tmpdir(), "ctxpipe-mem-repair-home-repo-"))
+    mkdirSync(join(home, ".ai", "memory"), { recursive: true })
+    mkdirSync(join(home, ".cursor"))
+    writeFileSync(
+      join(home, ".cursor", "mcp.json"),
+      JSON.stringify({ mcpServers: { "ctxpipe-memory": legacyServer } }),
+    )
+
+    const result = runRemoved(home, home, "mcp")
+
+    expect(result.stderr.trim()).toBe(
+      "ctxpipe: `memory mcp` was removed in 0.3.0. Removed the 0.2.0 memory entries.",
+    )
+    expect(existsSync(join(home, ".cursor", "hooks.json"))).toBe(false)
+    expect(
+      readFileSync(join(home, ".cursor", "mcp.json"), "utf8"),
+    ).not.toContain("ctxpipe-memory")
+  })
+
   it("keeps ~/.claude.json and names the manual step when there is no claude command", () => {
     const { cwd, home } = legacySetup()
     const before = readFileSync(join(home, ".claude.json"), "utf8")
