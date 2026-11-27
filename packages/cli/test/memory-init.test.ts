@@ -1205,6 +1205,34 @@ if (args[0] === "mcp" && args[1] === "remove") {
     )
   })
 
+  it("does not run a command from a PATH folder that links to a `..name` folder of the repository", () => {
+    const { cwd, home } = legacySetup()
+    rmSync(claudeLog, { force: true })
+    const tools = join(cwd, "..tools")
+    mkdirSync(tools)
+    for (const name of ["claude", "git"]) {
+      writeFileSync(
+        join(tools, name),
+        `#!/bin/sh\ntouch ${JSON.stringify(join(cwd, "planted-ran"))}\n`,
+        { mode: 0o755 },
+      )
+    }
+    symlinkSync("..tools", join(cwd, "bin"))
+
+    const result = runRemoved(
+      cwd,
+      home,
+      "mcp",
+      `${join(cwd, "bin")}:${fakeClaude}:${process.env.PATH ?? ""}`,
+    )
+
+    expect(result.stderr).toContain("Removed the 0.2.0 memory entries")
+    expect(existsSync(join(cwd, "planted-ran"))).toBe(false)
+    expect(readFileSync(claudeLog, "utf8")).toBe(
+      "mcp remove ctxpipe-memory --scope user\n",
+    )
+  })
+
   it("fails closed when PATH has only folders of the repository", () => {
     const { cwd, home } = legacySetup()
     const planted = join(cwd, "bin")

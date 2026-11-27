@@ -1,12 +1,5 @@
 import { existsSync, readFileSync, realpathSync } from "node:fs"
-import {
-  basename,
-  dirname,
-  isAbsolute,
-  join,
-  relative,
-  resolve,
-} from "node:path"
+import { basename, dirname, join, relative, resolve } from "node:path"
 
 import { CLIENT_LABELS } from "../constants.js"
 import { applyOperations } from "../fs-operations.js"
@@ -16,7 +9,7 @@ import {
   buildMemoryArtifactOperations,
   createOperationContext,
 } from "../mcp/mcp-operations.js"
-import { trustedPath } from "../system.js"
+import { isInside, trustedPath } from "../system.js"
 import { extractWorkspaceCwd, readStdinJson } from "./capture.js"
 import { buildMemoryHookOperations } from "./hooks.js"
 import {
@@ -181,11 +174,6 @@ function assertJsonObject(path: string, context: OperationContext): void {
   if (!isObject(value)) {
     throw new Error(`${displayPath(path, context)} is not a JSON object`)
   }
-}
-
-function isInside(root: string, path: string): boolean {
-  const rel = relative(root, path)
-  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel))
 }
 
 /** The real path of `path`, also when it does not exist yet (the real path of its nearest existing parent). */

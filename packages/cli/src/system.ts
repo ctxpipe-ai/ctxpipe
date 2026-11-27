@@ -62,8 +62,7 @@ export function trustedPath(
         return false
       }
       if (!existsSync(dir)) return false
-      const rel = relative(root, realpathSync(dir))
-      return rel.startsWith("..") || isAbsolute(rel)
+      return !isInside(root, realpathSync(dir))
     })
     .join(delimiter)
 }
@@ -81,4 +80,10 @@ export function trustedCommand(name: string, cwd: string): string | null {
     }
   }
   return null
+}
+
+/** True when `path` is `root` or below it. A name such as `..tools` is below it. */
+export function isInside(root: string, path: string): boolean {
+  const rel = relative(root, path)
+  return !(rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel))
 }
