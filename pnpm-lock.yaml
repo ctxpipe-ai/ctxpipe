@@ -16,6 +16,7 @@ patchedDependencies:
   '@cosmograph/cosmograph@2.2.1': d64016c0891928c6f2a484566b608bec97ba8443d29c0686014f7784fadc3adb
   '@hono/zod-openapi@1.6.3': 90d1056918522f459c2439b685cf2cc211c0c3f42a1c673eb8f37c72b9534fa9
   '@tanstack/ai-opencode@1.0.1': 9463f5e6144b93a6838c53aefce8cfb189d70586decf08f52bdd782e5b4f746b
+  '@tanstack/ai-openrouter@1.1.2': efa9f60339a24551f8cf6648fec660ad79d3ddc19f358793fbaa01699ad4b874
   fast-json-patch@3.1.1: 25ebefa74813316903ca26f95ca6582cd57b4433beab190214c8bcfae78b265e
   opencode-ai@1.19.5: fbd7620d4152b3a7a000c2155af5372fb864fca5340d609c0ed34f9bce14c2d1
   openworkflow@0.10.1: 4c3613a15af4a7f59d91d71839d78741b7a7b4853f1f1ba8f636a628e15e5888
@@ -168,9 +169,15 @@ importers:
       '@tanstack/ai':
         specifier: ^1.4.0
         version: 1.7.0(@opentelemetry/api@1.9.1)(zod@4.6.7)
+      '@tanstack/ai-openai':
+        specifier: ^1.2.0
+        version: 1.2.0(@aws-sdk/credential-provider-node@3.972.97)(@smithy/signature-v4@5.7.5)(@tanstack/ai@1.7.0(@opentelemetry/api@1.9.1)(zod@4.6.7))(undici@7.29.0)(ws@8.22.0)(zod@4.6.7)
       '@tanstack/ai-opencode':
         specifier: 1.0.1
         version: 1.0.1(patch_hash=9463f5e6144b93a6838c53aefce8cfb189d70586decf08f52bdd782e5b4f746b)(@tanstack/ai-sandbox@1.4.0(@tanstack/ai-persistence@1.1.0(@tanstack/ai@1.7.0(@opentelemetry/api@1.9.1)(zod@4.6.7))(vitest@5.1.0))(@tanstack/ai@1.7.0(@opentelemetry/api@1.9.1)(zod@4.6.7))(vitest@5.1.0)(zod@4.6.7))(@tanstack/ai@1.7.0(@opentelemetry/api@1.9.1)(zod@4.6.7))
+      '@tanstack/ai-openrouter':
+        specifier: ^1.1.2
+        version: 1.1.2(patch_hash=efa9f60339a24551f8cf6648fec660ad79d3ddc19f358793fbaa01699ad4b874)(@tanstack/ai@1.7.0(@opentelemetry/api@1.9.1)(zod@4.6.7))
       '@tanstack/ai-persistence':
         specifier: ^1.0.1
         version: 1.1.0(@tanstack/ai@1.7.0(@opentelemetry/api@1.9.1)(zod@4.6.7))(vitest@5.1.0)
@@ -4152,6 +4159,9 @@ packages:
   '@opencode-ai/sdk@1.19.5':
     resolution: {integrity: sha512-+bqu8gHiwmq96T9q5G34uLNHWCInIMsrE3hytCNHj1cVaxjY0AGJyNCT1rkeeZwgPU7A5TMTNwN+0XxCO2vqDg==}
 
+  '@openrouter/sdk@0.13.20':
+    resolution: {integrity: sha512-fx4o19FHgadEldfrSOgSbXAi32hCE3O708q1nxcoxYrW6fP6/WggX3o5PmnlnObzmxrqLMkZpqg188K+Twguhg==}
+
   '@opentelemetry/api-logs@0.218.0':
     resolution: {integrity: sha512-fmEWp5kXlGEc3i/lR698Hz41DfGyN4Tbe4g7L1AxSc7fF8Xeh/FQ9Quqpa9dVA413Q1Ad43QOLzU4JoXgbFPWw==}
     engines: {node: '>=8.0.0'}
@@ -7147,11 +7157,21 @@ packages:
   '@tanstack/ai-event-client@1.1.0':
     resolution: {integrity: sha512-g4ctAzbvC1CuAjjTnp8iH5hlnFzVPJybVhuRMItUb5ISC4bQsrhUyhrsZ4QHW1brEpaAhfdss+MpdWux+7glUw==}
 
+  '@tanstack/ai-openai@1.2.0':
+    resolution: {integrity: sha512-OLZ/w0m5J3Iu+8i0f78Jp+LOc2I3K8+yWTmDK+Rb5ft/LM+AqdM8krPKthvB//qPOSlmyK+qmrVeGShUYlcXVw==}
+    peerDependencies:
+      '@tanstack/ai': ^1.7.0
+
   '@tanstack/ai-opencode@1.0.1':
     resolution: {integrity: sha512-h9FjxCCrUXrqi7nMbki3YIOTo6/QwpYWO5PyGhxYu/sSglCJ3uCmOhAmxEyuaa4MWp3lhB6mBW3VgTP3tl/K8w==}
     peerDependencies:
       '@tanstack/ai': ^1.1.0
       '@tanstack/ai-sandbox': ^1.1.0
+
+  '@tanstack/ai-openrouter@1.1.2':
+    resolution: {integrity: sha512-x/6xLvdRDUNUYv9OcUs8pZxozZp+8PAJX14GBZxuolKowP31tDMiw+yoQ9U7MGMfh60l4v7N3J8nk7KSiz10fQ==}
+    peerDependencies:
+      '@tanstack/ai': ^1.2.0
 
   '@tanstack/ai-persistence@1.1.0':
     resolution: {integrity: sha512-8RBISKZUKjETvR8kU0By1pfe+SKylVo3qxqxlN4xXfkCXy3mLWkAAyjvo4TliJGdlvlsnS/7b9Ys3AgZhIh3rw==}
@@ -7333,6 +7353,11 @@ packages:
     engines: {node: '>=22.12'}
     peerDependencies:
       vite: '>=7.0.0'
+
+  '@tanstack/openai-base@1.1.0':
+    resolution: {integrity: sha512-Ki3i39DgnkhgYNk+NK9ec94m/+8hUDbkVRaRj8Zwvdg+IoSpfaQa0XKH8oEw7BY188di4j3p8k1t5BcFjWR0Vg==}
+    peerDependencies:
+      '@tanstack/ai': ^1.7.0
 
   '@tanstack/query-core@5.107.1':
     resolution: {integrity: sha512-PSyAik11oQBEVOiVy5hjZWHmoUqOXqK1WYy4v55mcxozEfKaQgpUMsgnXhWjuESzSht8JfzqMS1m6M/9CpNgvg==}
@@ -12206,6 +12231,33 @@ packages:
   open@11.0.0:
     resolution: {integrity: sha512-smsWv2LzFjP03xmvFoJ331ss6h+jixfA4UUV/Bsiyuu4YJPfN+FIQGOIiv4w9/+MoHkfkJ22UIaQWRVFRfH6Vw==}
     engines: {node: '>=20'}
+
+  openai@7.61.0:
+    resolution: {integrity: sha512-Tl030M8hWYLIloVJo0UKaIwpzGxBASgeR8/Fa+rOJAhQQSVSSv4jYp0rdDmPmUkox13x/t3jlCoklPkcOCqKFg==}
+    engines: {node: '>=22.0.0'}
+    peerDependencies:
+      '@aws-sdk/credential-provider-node': '>=3.972.0 <4'
+      '@smithy/hash-node': '>=4.3.0 <5'
+      '@smithy/signature-v4': '>=5.4.0 <6'
+      google-auth-library: '>=9.15.1 <12'
+      undici: '>=5 <9'
+      ws: ^8.21.0
+      zod: ^3.25 || ^4.0
+    peerDependenciesMeta:
+      '@aws-sdk/credential-provider-node':
+        optional: true
+      '@smithy/hash-node':
+        optional: true
+      '@smithy/signature-v4':
+        optional: true
+      google-auth-library:
+        optional: true
+      undici:
+        optional: true
+      ws:
+        optional: true
+      zod:
+        optional: true
 
   openapi3-ts@4.5.0:
     resolution: {integrity: sha512-jaL+HgTq2Gj5jRcfdutgRGLosCy/hT8sQf6VOy+P+g36cZOjI1iukdPnijC+4CmeRzg/jEllJUboEic2FhxhtQ==}
@@ -18822,6 +18874,10 @@ snapshots:
     dependencies:
       cross-spawn: 7.0.6
 
+  '@openrouter/sdk@0.13.20':
+    dependencies:
+      zod: 4.6.7
+
   '@opentelemetry/api-logs@0.218.0':
     dependencies:
       '@opentelemetry/api': 1.9.1
@@ -21366,11 +21422,32 @@ snapshots:
     dependencies:
       '@tanstack/devtools-event-client': 0.4.4
 
+  '@tanstack/ai-openai@1.2.0(@aws-sdk/credential-provider-node@3.972.97)(@smithy/signature-v4@5.7.5)(@tanstack/ai@1.7.0(@opentelemetry/api@1.9.1)(zod@4.6.7))(undici@7.29.0)(ws@8.22.0)(zod@4.6.7)':
+    dependencies:
+      '@tanstack/ai': 1.7.0(@opentelemetry/api@1.9.1)(zod@4.6.7)
+      '@tanstack/ai-utils': 1.1.0
+      '@tanstack/openai-base': 1.1.0(@aws-sdk/credential-provider-node@3.972.97)(@smithy/signature-v4@5.7.5)(@tanstack/ai@1.7.0(@opentelemetry/api@1.9.1)(zod@4.6.7))(undici@7.29.0)(ws@8.22.0)(zod@4.6.7)
+      openai: 7.61.0(@aws-sdk/credential-provider-node@3.972.97)(@smithy/signature-v4@5.7.5)(undici@7.29.0)(ws@8.22.0)(zod@4.6.7)
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - google-auth-library
+      - undici
+      - ws
+      - zod
+
   '@tanstack/ai-opencode@1.0.1(patch_hash=9463f5e6144b93a6838c53aefce8cfb189d70586decf08f52bdd782e5b4f746b)(@tanstack/ai-sandbox@1.4.0(@tanstack/ai-persistence@1.1.0(@tanstack/ai@1.7.0(@opentelemetry/api@1.9.1)(zod@4.6.7))(vitest@5.1.0))(@tanstack/ai@1.7.0(@opentelemetry/api@1.9.1)(zod@4.6.7))(vitest@5.1.0)(zod@4.6.7))(@tanstack/ai@1.7.0(@opentelemetry/api@1.9.1)(zod@4.6.7))':
     dependencies:
       '@opencode-ai/sdk': 1.19.5
       '@tanstack/ai': 1.7.0(@opentelemetry/api@1.9.1)(zod@4.6.7)
       '@tanstack/ai-sandbox': 1.4.0(@tanstack/ai-persistence@1.1.0(@tanstack/ai@1.7.0(@opentelemetry/api@1.9.1)(zod@4.6.7))(vitest@5.1.0))(@tanstack/ai@1.7.0(@opentelemetry/api@1.9.1)(zod@4.6.7))(vitest@5.1.0)(zod@4.6.7)
+
+  '@tanstack/ai-openrouter@1.1.2(patch_hash=efa9f60339a24551f8cf6648fec660ad79d3ddc19f358793fbaa01699ad4b874)(@tanstack/ai@1.7.0(@opentelemetry/api@1.9.1)(zod@4.6.7))':
+    dependencies:
+      '@openrouter/sdk': 0.13.20
+      '@tanstack/ai': 1.7.0(@opentelemetry/api@1.9.1)(zod@4.6.7)
+      '@tanstack/ai-utils': 1.1.0
 
   '@tanstack/ai-persistence@1.1.0(@tanstack/ai@1.7.0(@opentelemetry/api@1.9.1)(zod@4.6.7))(vitest@5.1.0)':
     dependencies:
@@ -21588,6 +21665,20 @@ snapshots:
       - uploadthing
       - webpack
       - xml2js
+
+  '@tanstack/openai-base@1.1.0(@aws-sdk/credential-provider-node@3.972.97)(@smithy/signature-v4@5.7.5)(@tanstack/ai@1.7.0(@opentelemetry/api@1.9.1)(zod@4.6.7))(undici@7.29.0)(ws@8.22.0)(zod@4.6.7)':
+    dependencies:
+      '@tanstack/ai': 1.7.0(@opentelemetry/api@1.9.1)(zod@4.6.7)
+      '@tanstack/ai-utils': 1.1.0
+      openai: 7.61.0(@aws-sdk/credential-provider-node@3.972.97)(@smithy/signature-v4@5.7.5)(undici@7.29.0)(ws@8.22.0)(zod@4.6.7)
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - google-auth-library
+      - undici
+      - ws
+      - zod
 
   '@tanstack/query-core@5.107.1': {}
 
@@ -27656,6 +27747,14 @@ snapshots:
       is-inside-container: 1.0.0
       powershell-utils: 0.1.0
       wsl-utils: 0.3.1
+
+  openai@7.61.0(@aws-sdk/credential-provider-node@3.972.97)(@smithy/signature-v4@5.7.5)(undici@7.29.0)(ws@8.22.0)(zod@4.6.7):
+    optionalDependencies:
+      '@aws-sdk/credential-provider-node': 3.972.97
+      '@smithy/signature-v4': 5.7.5
+      undici: 7.29.0
+      ws: 8.22.0
+      zod: 4.6.7
 
   openapi3-ts@4.5.0:
     dependencies:

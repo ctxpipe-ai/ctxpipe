@@ -360,7 +360,7 @@ describe("the provider probe", () => {
         pass: true,
         status: 404,
         error:
-          "Jev answered HTTP 404: No endpoints found matching your data policy.",
+          "The decision model answered HTTP 404: No endpoints found matching your data policy.",
       }),
       expect.objectContaining({
         name: "embedding-query",

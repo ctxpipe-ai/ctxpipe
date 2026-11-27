@@ -61,17 +61,16 @@ Each model call to OpenRouter allows only zero data retention (ZDR) endpoints, w
 
 The knowledge plane asks a decision model typed yes/no questions, for example "Does this candidate help answer the question?". A decision model answers with a probability, not with text. A chat model cannot replace it.
 
-ctxpipe supports three decision providers:
+ctxpipe supports two decision providers:
 
 | `DECISION_MODEL_PROVIDER` | Default `DECISION_MODEL_NAME` | Endpoint |
 | ------------------------- | ----------------------------- | -------- |
 | `openrouter` (default)    | `typesafe/jev-1.14` (Jev)     | OpenRouter Decisions API. Each call allows only ZDR endpoints. |
 | `openai`                  | `gpt-6-luna`                  | OpenAI Decisions API (`/v1/decisions`), or a compatible server at `DECISION_MODEL_URL`. |
-| `gemini`                  | `gemini-decision-1`           | Gemini Decisions API (`/v1beta/decisions`). |
 
 | Variable                  | Required | Default | Description |
 | ------------------------- | -------- | ------- | ----------- |
-| `DECISION_MODEL_PROVIDER` | No       | `openrouter` | `openrouter` \| `openai` \| `gemini`. |
+| `DECISION_MODEL_PROVIDER` | No       | `openrouter` | `openrouter` \| `openai`. |
 | `DECISION_MODEL_NAME`     | No       | See the table above | The decision model ID of the provider. |
 | `DECISION_MODEL_URL`      | No       | The endpoint of the provider | The base URL, for example of an OpenAI-compatible server. |
 | `DECISION_MODEL_API_KEY`  | Yes\*    | - | The API key of the decision provider. |

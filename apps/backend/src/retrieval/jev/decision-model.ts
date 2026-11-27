@@ -4,7 +4,6 @@
 // adapter of the configured provider. With no decision settings, the model is
 // Jev on OpenRouter with the `MODEL_PROVIDER_*` values (the hosted setup).
 import type { AnyEvaluateAdapter } from "@tanstack/ai"
-import { createGeminiDecider } from "@tanstack/ai-gemini"
 import { createOpenaiDecider } from "@tanstack/ai-openai"
 import { createOpenRouterDecider } from "@tanstack/ai-openrouter"
 import { z } from "zod"
@@ -20,10 +19,9 @@ export const JEV_MODEL = "typesafe/jev-1.14"
 const DEFAULT_MODELS = {
   openrouter: JEV_MODEL,
   openai: "gpt-6-luna",
-  gemini: "gemini-decision-1",
 } as const
 
-const decisionProviderSchema = z.enum(["openrouter", "openai", "gemini"])
+const decisionProviderSchema = z.enum(["openrouter", "openai"])
 
 type DecisionModel = {
   provider: z.infer<typeof decisionProviderSchema>
@@ -96,10 +94,6 @@ export function decisionAdapter(settings: DecisionModel): {
           baseURL: baseUrl,
           maxRetries: 0,
         }),
-      }
-    case "gemini":
-      return {
-        adapter: createGeminiDecider(model, apiKey, { baseURL: baseUrl }),
       }
   }
 }

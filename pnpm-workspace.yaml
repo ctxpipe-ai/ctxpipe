@@ -29,6 +29,7 @@ trustPolicyExclude:
 allowBuilds:
   '@ast-grep/cli': false
   '@forge/cli': false
+  '@openrouter/sdk': false
   '@parcel/watcher': false
   cloudflared: false
   core-js: false
@@ -67,6 +68,11 @@ patchedDependencies:
   # Upstream in 1.0, so no longer patched: assistant-only parts and the "pending" tool part (CTX-576), and the 1 s
   # teardown step (ticket 15, https://github.com/TanStack/ai/issues/1638, fixed in https://github.com/TanStack/ai/pull/1773).
   '@tanstack/ai-opencode@1.0.1': patches/@tanstack__ai-opencode@1.0.1.patch
+  # Permanent (CTX-1721; the CTO chose no upstream PR, 2026-11-26). Apply it again on each version bump.
+  # The decision adapter sends `modelOptions` (the OpenRouter routing block: ZDR, ADR-068 decision 7),
+  # uses `baseURL` (MODEL_PROVIDER_URL), and keeps the error body on the error, so that the error
+  # message stays free of content and only a fixed routing message reaches a span.
+  '@tanstack/ai-openrouter@1.1.2': patches/@tanstack__ai-openrouter@1.1.2.patch
   # @tanstack/ai 1.x imports fast-json-patch. Its package ships index.ts beside index.js, without the src/ that
   # index.ts imports, and tsx loads index.ts: every tsx run that reaches @tanstack/ai (src/db/migrate.ts in CI and
   # db:migrate, the tests that spawn `--import tsx`) fails with "Cannot find module './src/core'". The patch

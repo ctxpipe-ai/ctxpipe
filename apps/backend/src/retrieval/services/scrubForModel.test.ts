@@ -731,11 +731,13 @@ describe("the one scrub point", () => {
         file: relative(root, path),
         source: readFileSync(path, "utf8"),
       }))
-      // A file that names a model endpoint and sends a request.
+      // A file that names a model endpoint and sends a request, or that
+      // calls the `decide()` activity of TanStack AI.
       .filter(
         ({ source }) =>
-          MODEL_REQUEST.test(source) &&
-          /\b(?:fetch|doFetch|forwardToUpstream)\(|\.send\(/.test(source),
+          (MODEL_REQUEST.test(source) &&
+            /\b(?:fetch|doFetch|forwardToUpstream)\(|\.send\(/.test(source)) ||
+          /\bdecide\(\{/.test(source),
       )
     // The detector finds the known clients, so an empty list is no pass.
     expect(clients.map(({ file }) => file)).toEqual(

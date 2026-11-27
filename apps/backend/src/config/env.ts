@@ -175,9 +175,7 @@ const envSchema = z
     MODEL_BEDROCK_AWS_REGION: z.string().optional(),
     // The decision model of the knowledge plane (`decisionModelSettings`).
     // Unset: Jev on OpenRouter with the MODEL_PROVIDER_* values.
-    DECISION_MODEL_PROVIDER: z
-      .enum(["openrouter", "openai", "gemini"])
-      .optional(),
+    DECISION_MODEL_PROVIDER: z.enum(["openrouter", "openai"]).optional(),
     DECISION_MODEL_NAME: z.string().optional(),
     DECISION_MODEL_URL: z.string().url().optional(),
     DECISION_MODEL_API_KEY: z.string().min(1).optional(),

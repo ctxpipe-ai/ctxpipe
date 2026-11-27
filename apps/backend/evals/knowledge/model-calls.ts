@@ -139,8 +139,7 @@ const emptyCounts = (): CallCounts => ({
  * `image_reading`.
  */
 function kindOf(path: string, body: string): CallKind | null {
-  // OpenRouter `/api/alpha/decisions`, OpenAI `/v1/decisions`, Gemini
-  // `/v1beta/decisions`.
+  // OpenRouter `/api/alpha/decisions`, OpenAI `/v1/decisions`.
   if (path.endsWith("/decisions")) return "jev"
   if (path.endsWith("/embeddings")) return "embedding"
   if (path.endsWith("/chat/completions"))
@@ -177,7 +176,7 @@ const parseOr = (text: string, fallback: unknown): unknown => {
 
 /**
  * The number of questions of a decision request body: a record of questions
- * (OpenRouter, Gemini) or a list (OpenAI).
+ * (OpenRouter) or a list (OpenAI).
  */
 const questionsOf = (body: string): number =>
   Object.keys(
@@ -192,21 +191,16 @@ const questionsOf = (body: string): number =>
   ).length
 
 /**
- * The price of the OpenAI and Gemini decision models for each input token
- * ($0.10 for each million, no charge for output; read 2026-11-26). Their
- * answers report tokens but no cost.
+ * The price of the OpenAI decision model for each input token ($0.10 for
+ * each million, no charge for output; read 2026-11-26). Its answers report
+ * tokens but no cost.
  */
 const DECISION_USD_PER_INPUT_TOKEN = 0.1 / 1_000_000
 
 /** The cost of a decision answer from its input tokens, when it has them. */
 function decisionTokenCost(usage: unknown): number | undefined {
-  const tokens = z
-    .object({
-      input_tokens: z.number().optional(),
-      total_input_tokens: z.number().optional(),
-    })
-    .safeParse(usage).data
-  const input = tokens?.total_input_tokens ?? tokens?.input_tokens
+  const input = z.object({ input_tokens: z.number() }).safeParse(usage)
+    .data?.input_tokens
   return input === undefined ? undefined : input * DECISION_USD_PER_INPUT_TOKEN
 }
 

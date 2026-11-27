@@ -295,29 +295,13 @@ describe("decideNoul", () => {
       expect(span?.attributes["gen_ai.request.model"]).toBe("gpt-6-luna")
     })
 
-    it("sends the questions to a Gemini decisions endpoint", async () => {
+    it("throws a config JevError for a decision provider that the backend does not support", async () => {
       vi.stubEnv("DECISION_MODEL_PROVIDER", "gemini")
-      vi.stubEnv("DECISION_MODEL_URL", "https://gemini.test/")
       vi.stubEnv("DECISION_MODEL_API_KEY", "gemini-key")
-      let body: unknown
-      server.use(
-        http.post(
-          "https://gemini.test/v1beta/decisions",
-          async ({ request }) => {
-            body = await request.json()
-            return HttpResponse.json({
-              model: "gemini-decision-1",
-              answers: { sky: { type: "noul", noul: 0.3 } },
-            })
-          },
-        ),
-      )
 
-      expect(await ask()).toEqual(new Map([["sky", 0.3]]))
-      expect(body).toEqual({
-        model: "gemini-decision-1",
-        input: JSON.stringify(["The state."]),
-        questions: { sky: question },
+      await expect(ask()).rejects.toMatchObject({
+        name: "JevError",
+        kind: "config",
       })
     })
 
