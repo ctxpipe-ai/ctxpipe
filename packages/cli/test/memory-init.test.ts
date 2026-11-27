@@ -14,7 +14,7 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { describe, expect, it } from "vitest"
+import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..")
 const BIN = join(PKG_ROOT, "bin", "ctxpipe.js")
@@ -805,11 +805,14 @@ describe("the removed memory mcp and memory hook commands repair a 0.2.0 setup",
    * A `claude` command on PATH that does what `claude mcp remove --scope user`
    * does to ~/.claude.json, and logs its arguments outside the home directory.
    */
-  const fakeClaude = mkdtempSync(join(tmpdir(), "ctxpipe-mem-fake-claude-"))
-  const claudeLog = join(fakeClaude, "calls.log")
-  writeFileSync(
-    join(fakeClaude, "claude"),
-    `#!/usr/bin/env node
+  let fakeClaude = ""
+  let claudeLog = ""
+  beforeAll(() => {
+    fakeClaude = mkdtempSync(join(tmpdir(), "ctxpipe-mem-fake-claude-"))
+    claudeLog = join(fakeClaude, "calls.log")
+    writeFileSync(
+      join(fakeClaude, "claude"),
+      `#!/usr/bin/env node
 const fs = require("node:fs")
 const path = require("node:path")
 const args = process.argv.slice(2)
@@ -822,8 +825,12 @@ if (args[0] === "mcp" && args[1] === "remove") {
   fs.writeFileSync(file, JSON.stringify(config, null, 2))
 }
 `,
-    { mode: 0o755 },
-  )
+      { mode: 0o755 },
+    )
+  })
+  afterAll(() => {
+    rmSync(fakeClaude, { recursive: true, force: true })
+  })
 
   function runRemoved(
     cwd: string,
@@ -1033,6 +1040,27 @@ if (args[0] === "mcp" && args[1] === "remove") {
       expect(snapshot(cwd, home, outside)).toEqual(before)
     },
   )
+
+  it("refuses the repair when ~/.claude.json with a 0.2.0 server is a symlink", () => {
+    const { cwd, home } = legacySetup()
+    rmSync(claudeLog, { force: true })
+    const dotfiles = mkdtempSync(join(tmpdir(), "ctxpipe-mem-dotfiles-"))
+    const config = join(home, ".claude.json")
+    writeFileSync(join(dotfiles, "claude.json"), readFileSync(config))
+    rmSync(config)
+    symlinkSync(join(dotfiles, "claude.json"), config)
+    const before = snapshot(cwd, home, dotfiles)
+
+    const result = runRemoved(cwd, home, "mcp")
+
+    expect(result.status).toBe(0)
+    expect(result.stdout).toBe("")
+    expect(result.stderr.trim().split("\n")).toEqual([
+      "ctxpipe: `memory mcp` was removed in 0.3.0. The repair of the memory setup failed (~/.claude.json goes through a symlink). Run `npx ctxpipe memory init`.",
+    ])
+    expect(snapshot(cwd, home, dotfiles)).toEqual(before)
+    expect(existsSync(claudeLog)).toBe(false)
+  })
 
   it("tries again after a partial failure when the only 0.2.0 entry is in the home directory", () => {
     const { cwd, home } = legacySetup()

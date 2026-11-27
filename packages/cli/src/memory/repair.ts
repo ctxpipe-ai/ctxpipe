@@ -99,21 +99,22 @@ function repair(cwd: string): string {
     ...upgradeOps.filter((op) => !isRemoval(op)),
     ...upgradeOps.filter(isRemoval),
   ]
-  // A cloned repository can hold symlinks, and the upgrade reads patterns.md
-  // and writes lessons-learned.md. So refuse each path that goes through a
-  // symlink, also to a target in the repository (for example .git/config) or
-  // in the home directory. Refuse a JSON file that does not parse too: the
-  // write would replace it with an empty object.
-  for (const path of [
-    resolve(context.cwd, ".ai", "memory", "patterns.md"),
+  // A cloned repository can hold symlinks. So refuse each path that goes
+  // through a symlink, also to a target in the repository (for example
+  // .git/config) or in the home directory. This includes each file with a
+  // 0.2.0 entry, also ~/.claude.json, which the `claude` CLI changes. The ops
+  // hold patterns.md (a read) and lessons-learned.md. Refuse a JSON file that
+  // does not parse too: the write would replace it with an empty object.
+  for (const path of new Set([
+    ...entryFiles,
     ...operations.flatMap((op) => ("path" in op ? [op.path] : [])),
-  ]) {
+  ])) {
     const root = isInside(context.cwd, path) ? context.cwd : context.homeDir
     if (
       !isInside(root, path) ||
       realTarget(path) !== join(realpathSync(root), relative(root, path))
     ) {
-      throw new Error(`${shown(path, context)} goes through a symlink`)
+      throw new Error(`${displayPath(path, context)} goes through a symlink`)
     }
   }
   for (const op of operations) {
@@ -130,7 +131,7 @@ function repair(cwd: string): string {
 }
 
 /** A path for the stderr line: relative to the repository, or `~/…` in the home directory. */
-function shown(path: string, context: OperationContext): string {
+function displayPath(path: string, context: OperationContext): string {
   return isInside(context.cwd, path)
     ? relative(context.cwd, path)
     : `~/${relative(context.homeDir, path)}`
@@ -144,7 +145,7 @@ function assertJsonObject(path: string, context: OperationContext): void {
     value = null
   }
   if (!isObject(value)) {
-    throw new Error(`${shown(path, context)} is not a JSON object`)
+    throw new Error(`${displayPath(path, context)} is not a JSON object`)
   }
 }
 
