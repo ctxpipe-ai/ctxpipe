@@ -37,7 +37,7 @@ import { scrubForModel } from "../services/scrubForModel.js"
  * reader gives such an error as an `EmbeddingError` with the status, when
  * there is one. The message holds no input text.
  */
-export class EmbeddingError extends Error {
+class EmbeddingError extends Error {
   override readonly name = "EmbeddingError"
   constructor(
     message: string,

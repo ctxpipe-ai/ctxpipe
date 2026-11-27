@@ -33,18 +33,12 @@ import {
   type KnowledgeRelation,
   type KnowledgeStore,
 } from "../knowledge-store/knowledge-store.js"
-import {
-  isRetryableFetchFailure,
-  TransientHttpError,
-} from "../lib/withTransientHttpRetry.js"
+import { isRetryableFetchFailure } from "../lib/withTransientHttpRetry.js"
 import { truncateText } from "../mcp/framework/budget.js"
 import { checkPath } from "../mcp/framework/refs.js"
 import { McpToolError } from "../mcp/framework/tool-errors.js"
 import type { KnowledgeHead } from "../models/knowledge-state.js"
-import {
-  EmbeddingError,
-  embedQuery,
-} from "../retrieval/embeddings/textEmbeddings.js"
+import { embedQuery } from "../retrieval/embeddings/textEmbeddings.js"
 import { JevError } from "../retrieval/jev/client.js"
 import {
   askDisagreementFacts,
@@ -121,13 +115,7 @@ export function planeKnowledgeReader(input: {
         // a 429, a 5xx or a network error ends the budget, and the call
         // returns partial, as when the budget ends.
         if (isRetryableFetchFailure(error))
-          throw new BudgetSpentError("The query embedding failed", {
-            // The status only: a message can quote content.
-            cause: new EmbeddingError(
-              "The query embedding failed",
-              error instanceof TransientHttpError ? error.status : undefined,
-            ),
-          })
+          throw new BudgetSpentError("The query embedding failed")
         throw error
       }
     })
