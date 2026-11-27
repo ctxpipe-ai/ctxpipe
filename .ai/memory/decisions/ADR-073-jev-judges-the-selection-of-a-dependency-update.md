@@ -53,10 +53,20 @@ Groups with no evidence went from 25 (202 checks) to 3 (3 checks) on #1043, and 
 
 A bake-off on five labeled cases (#1041, #1043, #1068, #1070, #1092; 3 runs each, threshold 0.3) kept every regression in every run. On #1043, the release before this revision selected 395–589 checks in this bake-off, and this release selects 288–456 checks. (The range of the release before differs from the 349–540 of the revision of 2026-11-25 because Jev answers differ from run to run near the threshold.)
 
+## Revision 2026-11-27: a dependency whose copy splits keeps its group
+
+A sixth labeled case found a miss. PR #1099 moved `dockerode` 4.0.12 to 5.0.1 in `apps/backend`. Before the update, `apps/backend` and its dependency `@tanstack/ai-sandbox-docker` shared one copy of `dockerode`. After it, the backend has 5.0.1, and `@tanstack/ai-sandbox-docker` keeps 4.0.12. A test setup patches `Docker.prototype.createContainer` of the backend copy only. Thus the containers that the sandbox package creates get no owner label, and `test-containers.contract.test.ts` fails.
+
+The code of `dockerode` hardly changed, so the evidence showed no relevant change, and Jev gave the group 0.12. The break is in the lockfile, not in the package code.
+
+Rule (factory PR #762, `49c9c1b1`): when a project and one of its direct dependencies shared one copy of the changed package before the update, and hold different copies after it, a group whose modules also import that dependency gets evidence `none`. Such a group stays (fail wide, decision 1). ctxpipe pins that release.
+
+A bake-off on the six labeled cases (#1041, #1043, #1068, #1070, #1092, #1099; 3 runs each, threshold 0.3) kept every regression in every run. Before the rule, #1099 had recall 0 in each run. The rule changed groups only on #1099 (17 groups, 256 checks; 16 of them were already kept). On the other five cases, the counts changed only by the variance from run to run.
+
 ## Consequences
 
 - Some dependency updates keep more checks than before. On #1043, Jev keeps about 290 to 460 checks; the old judge kept about 65. The old judge found both regressions of that case, but by chance.
-- The probabilities of the regression groups are near the threshold. With the test groups by module, Jev gave the group of `scope-caps.test.ts` (#1043) 0.37 to 0.45, and the #1070 chart play groups 0.46 to 0.51. Five labeled cases are few. More cases make the threshold safer. Each label build takes about 3 hours.
+- The probabilities of the regression groups are near the threshold. With the test groups by module, Jev gave the group of `scope-caps.test.ts` (#1043) 0.37 to 0.45, and the #1070 chart play groups 0.46 to 0.51. Six labeled cases are few. More cases make the threshold safer. Each label build takes about 3 hours.
 - The evidence (code of public npm packages and of the public ctxpipe repo) goes to TypeSafe through OpenRouter, with `data_collection: "deny"`.
 - A host with no OpenRouter key keeps every judged group. It selects more than CI, never fewer.
 - With an explicit `--llm-provider claude-cli`, the judge is off unless the operator gives `--package-judge jev`. Thus a local run sends no code to OpenRouter without that option.
