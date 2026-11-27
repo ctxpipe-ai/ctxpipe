@@ -246,7 +246,27 @@ function legacyMemoryFiles({ cwd, homeDir }: OperationContext) {
     resolve(cwd, ".codex", "config.toml"),
     join(homeDir, ".codex", "config.toml"),
   ]
-  return { mcpFiles, claudeSettings, codexConfigs }
+  // `claude mcp add --scope user` keeps its servers in this file.
+  const claudeUserConfig = join(homeDir, ".claude.json")
+  return { mcpFiles, claudeSettings, codexConfigs, claudeUserConfig }
+}
+
+/**
+ * The keys of the 0.2.0 memory servers in the top-level `mcpServers` of
+ * `~/.claude.json`. Claude Code writes that file while it runs, so only the
+ * `claude` CLI removes them; with no `claude` command, there is nothing to do.
+ */
+function legacyClaudeUserServers(
+  path: string,
+  context: OperationContext,
+): string[] {
+  if (!existsSync(path)) return []
+  const servers = readJsonObject(path).mcpServers
+  if (!isObject(servers)) return []
+  const keys = Object.entries(servers)
+    .filter(([key, value]) => isLegacyLocalMemoryServer(key, value))
+    .map(([key]) => key)
+  return keys.length > 0 && context.commandExists("claude") ? keys : []
 }
 
 /**
@@ -261,7 +281,8 @@ export function buildMemoryUpgradeOperations({
   const cwd = context.cwd
   const memoryRoot = resolve(cwd, ".ai", "memory")
 
-  const { mcpFiles, claudeSettings, codexConfigs } = legacyMemoryFiles(context)
+  const { mcpFiles, claudeSettings, codexConfigs, claudeUserConfig } =
+    legacyMemoryFiles(context)
 
   // MCP / config cleanup — only touch files that already exist (do not create empties).
   for (const [path] of mcpFiles) {
@@ -309,6 +330,15 @@ export function buildMemoryUpgradeOperations({
     })
   }
 
+  // Claude user MCP servers (`claude mcp add ctxpipe-memory --scope user`).
+  for (const key of legacyClaudeUserServers(claudeUserConfig, context)) {
+    ops.push({
+      type: "run",
+      command: ["claude", "mcp", "remove", key, "--scope", "user"],
+      description: `remove the legacy ${key} MCP server from Claude Code (user scope)`,
+    })
+  }
+
   // Migrate patterns → lessons, then remove patterns.md
   ops.push(migratePatternsToLessonsOperation(context))
   ops.push({
@@ -349,7 +379,8 @@ export function buildMemoryUpgradeOperations({
 export function findLegacyMemoryEntries(
   context: OperationContext,
 ): Array<{ path: string; host: Client | null }> {
-  const { mcpFiles, claudeSettings, codexConfigs } = legacyMemoryFiles(context)
+  const { mcpFiles, claudeSettings, codexConfigs, claudeUserConfig } =
+    legacyMemoryFiles(context)
   const hasLegacyEntry = (
     path: string,
     strip: (o: Record<string, unknown>) => Record<string, unknown>,
@@ -371,5 +402,8 @@ export function findLegacyMemoryEntries(
           readFileSync(path, "utf8").search(LEGACY_CODEX_MEMORY_TABLE) >= 0,
       )
       .map((path): [string, Client] => [path, "codex"]),
+    ...(legacyClaudeUserServers(claudeUserConfig, context).length > 0
+      ? [[claudeUserConfig, "claude"] as [string, Client]]
+      : []),
   ].map(([path, host]) => ({ path, host }))
 }

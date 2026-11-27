@@ -11,14 +11,14 @@ import {
 import { CLIENT_LABELS } from "../constants.js"
 import { applyOperations } from "../fs-operations.js"
 import { isObject } from "../mcp/json.js"
-import type { Operation } from "../mcp/mcp-operations.js"
+import type { Operation, OperationContext } from "../mcp/mcp-operations.js"
 import {
   buildMemoryArtifactOperations,
   createOperationContext,
 } from "../mcp/mcp-operations.js"
+import { commandExists } from "../system.js"
 import { extractWorkspaceCwd, readStdinJson } from "./capture.js"
-import { hasCaptureHook } from "./harness.js"
-import { buildMemoryHookOperations, REPO_CAPTURE_HOOK } from "./hooks.js"
+import { buildMemoryHookOperations } from "./hooks.js"
 import {
   buildMemoryUpgradeOperations,
   findLegacyMemoryEntries,
@@ -27,14 +27,15 @@ import {
 /**
  * CLI 0.2.0 wrote hooks and MCP entries that run `memory mcp` and
  * `memory hook`; 0.3.0 removed these commands. Hooks run the newest release,
- * so the old commands repair the repository in which they run: they write the
- * capture hooks of each host that has a 0.2.0 entry, and apply the
- * `memory init` upgrade to the files of the repository. A second run changes
- * nothing.
+ * so the old commands repair the setup: in a repository that has
+ * `.ai/memory`, they write the repo capture hooks of each host that has a
+ * 0.2.0 entry, apply the `memory init` upgrade, and remove each 0.2.0 entry
+ * where it is: in the repository and in the home directory. A second run
+ * finds no 0.2.0 entry and changes nothing.
  *
- * The repair changes no file in the home directory. A 0.2.0 entry there runs
- * in each repository of the user, so it stays as the repair trigger of the
- * other repositories. `memory init` removes it.
+ * A home entry does not become a user-scope capture hook: such a hook writes
+ * `.ai/memory/events/` into each directory where a session starts, also one
+ * with no memory.
  *
  * The command runs from a hook or an MCP host. It always exits 0, writes
  * nothing to stdout (a host can parse it), and writes one line to stderr.
@@ -67,7 +68,7 @@ async function sessionCwd(command: "mcp" | "hook"): Promise<string> {
 }
 
 function repair(cwd: string): string {
-  const context = createOperationContext({ cwd })
+  const context = createOperationContext({ cwd, commandExists })
   // Repair only a repository that has memory; never seed memory in another directory.
   if (!existsSync(resolve(context.cwd, ".ai", "memory"))) {
     return "This directory has no .ai/memory, so there is nothing to repair. To repair a repository, run `npx ctxpipe memory init` in it."
@@ -76,71 +77,66 @@ function repair(cwd: string): string {
   if (entries.length === 0) {
     return "This repository has no 0.2.0 memory entry to repair."
   }
-  // A home entry stays after the repair, so its host counts only while the
-  // repository has no capture hook for it. Else each run would repair again.
-  const pending = entries.filter(
-    ({ path, host }) =>
-      isInside(context.cwd, path) ||
-      (host && !hasCaptureHook(resolve(context.cwd, REPO_CAPTURE_HOOK[host]))),
-  )
-  if (pending.length === 0) {
-    return "The memory setup of this repository is already current."
-  }
   const hosts = [
-    ...new Set(pending.flatMap(({ host }) => (host ? [host] : []))),
+    ...new Set(entries.flatMap(({ host }) => (host ? [host] : []))),
   ]
 
-  // Order the steps so that a failure leaves a retry: first all other steps
-  // of `memory init`, then the capture-hook files, and last the removal of
-  // the 0.2.0 entries. If a step fails, the next run still sees a host with
-  // no capture hook or a 0.2.0 entry, and tries the repair again.
-  const hookFiles = new Set(
-    hosts.map((host) => resolve(context.cwd, REPO_CAPTURE_HOOK[host])),
-  )
+  // Remove the 0.2.0 entries last. If a step fails, the entries stay, and the
+  // next run tries the repair again. In the home directory, change only the
+  // files that hold a 0.2.0 entry.
   const entryFiles = new Set(entries.map(({ path }) => path))
-  const hookOps = buildMemoryHookOperations({
-    clients: hosts,
-    scope: "repo",
-    context,
-  })
-  const upgradeOps = buildMemoryUpgradeOperations({ context })
-  const isHook = (op: Operation) => "path" in op && hookFiles.has(op.path)
-  const isRemoval = (op: Operation) => "path" in op && entryFiles.has(op.path)
+  const isRemoval = (op: Operation) =>
+    op.type === "run" || ("path" in op && entryFiles.has(op.path))
+  const upgradeOps = buildMemoryUpgradeOperations({ context }).filter(
+    (op) =>
+      !("path" in op) ||
+      isInside(context.cwd, op.path) ||
+      entryFiles.has(op.path),
+  )
   const operations = [
     ...buildMemoryArtifactOperations({ context }),
-    ...hookOps.filter((op) => !isHook(op)),
+    ...buildMemoryHookOperations({ clients: hosts, scope: "repo", context }),
     ...upgradeOps.filter((op) => !isRemoval(op)),
-    ...hookOps.filter(isHook),
     ...upgradeOps.filter(isRemoval),
-  ].filter((op) => !("path" in op) || isInside(context.cwd, op.path))
+  ]
   // A cloned repository can hold symlinks, and the upgrade reads patterns.md
   // and writes lessons-learned.md. So refuse each path that goes through a
-  // symlink, also to a target in the repository (for example .git/config).
-  // Refuse a JSON file that does not parse too: the write would replace it
-  // with an empty object.
-  const root = realpathSync(context.cwd)
+  // symlink, also to a target in the repository (for example .git/config) or
+  // in the home directory. Refuse a JSON file that does not parse too: the
+  // write would replace it with an empty object.
   for (const path of [
     resolve(context.cwd, ".ai", "memory", "patterns.md"),
     ...operations.flatMap((op) => ("path" in op ? [op.path] : [])),
   ]) {
-    if (realTarget(path) !== join(root, relative(context.cwd, path))) {
-      throw new Error(`${relative(context.cwd, path)} goes through a symlink`)
+    const root = isInside(context.cwd, path) ? context.cwd : context.homeDir
+    if (
+      !isInside(root, path) ||
+      realTarget(path) !== join(realpathSync(root), relative(root, path))
+    ) {
+      throw new Error(`${shown(path, context)} goes through a symlink`)
     }
   }
   for (const op of operations) {
     if (op.type === "write-json" && existsSync(op.path)) {
-      assertJsonObject(op.path, context.cwd)
+      assertJsonObject(op.path, context)
     }
   }
 
   applyOperations(operations)
   const labels = hosts.map((host) => CLIENT_LABELS[host]).join(", ")
   return hosts.length > 0
-    ? `Removed the 0.2.0 memory entries of this repository and wrote the capture hooks for ${labels}.`
-    : "Removed the 0.2.0 memory entries of this repository."
+    ? `Removed the 0.2.0 memory entries and wrote the capture hooks of this repository for ${labels}.`
+    : "Removed the 0.2.0 memory entries."
 }
 
-function assertJsonObject(path: string, cwd: string): void {
+/** A path for the stderr line: relative to the repository, or `~/…` in the home directory. */
+function shown(path: string, context: OperationContext): string {
+  return isInside(context.cwd, path)
+    ? relative(context.cwd, path)
+    : `~/${relative(context.homeDir, path)}`
+}
+
+function assertJsonObject(path: string, context: OperationContext): void {
   let value: unknown
   try {
     value = JSON.parse(readFileSync(path, "utf8"))
@@ -148,7 +144,7 @@ function assertJsonObject(path: string, cwd: string): void {
     value = null
   }
   if (!isObject(value)) {
-    throw new Error(`${relative(cwd, path)} is not a JSON object`)
+    throw new Error(`${shown(path, context)} is not a JSON object`)
   }
 }
 

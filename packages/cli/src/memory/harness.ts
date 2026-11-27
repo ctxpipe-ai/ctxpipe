@@ -35,7 +35,7 @@ export function resolveCaptureHost(
   return host
 }
 
-export function hasCaptureHook(path: string): boolean {
+function hasCaptureHook(path: string): boolean {
   try {
     return (
       existsSync(path) && readFileSync(path, "utf8").includes("memory capture")

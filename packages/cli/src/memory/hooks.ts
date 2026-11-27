@@ -447,15 +447,6 @@ function buildOpenCodeConfigOperation({
   }
 }
 
-/** The file in the repository that holds the capture hook of each host. */
-export const REPO_CAPTURE_HOOK: Record<Client, string> = {
-  cursor: ".cursor/hooks.json",
-  claude: ".claude/settings.json",
-  codex: ".codex/config.toml",
-  vscode: ".github/hooks/ctxpipe-memory.json",
-  opencode: ".opencode/plugins/ctxpipe-memory.js",
-}
-
 /** Install host hooks / instruction artifacts for selected agents. */
 export function buildMemoryHookOperations({
   clients,
@@ -474,7 +465,7 @@ export function buildMemoryHookOperations({
       if (s === "repo") {
         ops.push(
           buildCursorHooksOperation({
-            path: resolve(context.cwd, REPO_CAPTURE_HOOK.cursor),
+            path: resolve(context.cwd, ".cursor", "hooks.json"),
             context,
           }),
         )
@@ -520,7 +511,7 @@ export function buildMemoryHookOperations({
       if (s === "repo") {
         ops.push(
           buildCodexHooksOperation({
-            path: resolve(context.cwd, REPO_CAPTURE_HOOK.codex),
+            path: resolve(context.cwd, ".codex", "config.toml"),
             context,
           }),
         )
@@ -580,7 +571,12 @@ export function buildMemoryHookOperations({
         )
         ops.push(
           buildOpenCodePluginOperation({
-            path: resolve(context.cwd, REPO_CAPTURE_HOOK.opencode),
+            path: resolve(
+              context.cwd,
+              ".opencode",
+              "plugins",
+              "ctxpipe-memory.js",
+            ),
             context,
           }),
         )
@@ -652,7 +648,12 @@ export function buildMemoryHookOperations({
         )
         ops.push(
           buildVscodeHooksOperation({
-            path: resolve(context.cwd, REPO_CAPTURE_HOOK.vscode),
+            path: resolve(
+              context.cwd,
+              ".github",
+              "hooks",
+              "ctxpipe-memory.json",
+            ),
             context,
           }),
         )
