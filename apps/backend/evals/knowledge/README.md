@@ -348,7 +348,7 @@ The time budget of a plane search (`timeBudgetMs`) must fit the latency of its m
 | Plane query embedding, production request | The query embedding of the real client (`embedQuery`), with no pin, as production sends it: sorted by latency, in one attempt. |
 | Plane query embedding, pinned | The same request, pinned to one ZDR endpoint tag of the model (no fallback, one attempt), for each ZDR endpoint. The pin is for the measurement only: production pins no provider. |
 | Query embedding, other model | Each other text embedding model with a ZDR endpoint, with no pin, and pinned to each of its ZDR endpoints. |
-| Jev, layer judge | The request of the layer judge with 10 made-up candidates (at most 30 calls). |
+| Decision model, layer judge | The request of the layer judge with 10 made-up candidates (at most 30 calls), to the decision model of the settings. |
 
 It writes `latency.md` (for each measure: the calls, the errors, p50, p95, the maximum, the price of 1M input tokens, and the providers that answered) and `latency.json` (each sample) to `--out`. The default spend cap is $2. Exit codes: 0 done, 3 the spend cap stopped a call.
 

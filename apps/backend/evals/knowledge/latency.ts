@@ -248,7 +248,7 @@ export async function measureLatency(input: {
   // The decision model of the settings with the request of the layer judge:
   // 10 made-up candidates.
   measures.push({
-    name: "Jev, layer judge (10 candidates)",
+    name: "Decision model, layer judge (10 candidates)",
     model: decisionModelSettings()?.model ?? JEV_MODEL,
     provider: "routing",
     usdPer1MTokens: "—",

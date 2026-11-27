@@ -206,7 +206,7 @@ describe("the latency command", () => {
           servedBy: ["Nebius"],
         },
         {
-          name: "Jev, layer judge (10 candidates)",
+          name: "Decision model, layer judge (10 candidates)",
           model: "typesafe/jev-1.14",
           provider: "routing",
           usdPer1MTokens: "—",

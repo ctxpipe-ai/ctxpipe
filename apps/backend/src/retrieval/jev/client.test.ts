@@ -1,4 +1,4 @@
-import { HttpResponse, http } from "msw"
+import { delay, HttpResponse, http } from "msw"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { useMswServer } from "../../../test/msw.js"
@@ -293,6 +293,26 @@ describe("decideNoul", () => {
       const span = spans.spanNamed("jev.decide")
       expect(span?.attributes["gen_ai.provider.name"]).toBe("openai")
       expect(span?.attributes["gen_ai.request.model"]).toBe("gpt-6-luna")
+    })
+
+    it("throws a timeout JevError when the OpenAI decisions endpoint does not answer in time", async () => {
+      vi.stubEnv("DECISION_MODEL_PROVIDER", "openai")
+      vi.stubEnv("DECISION_MODEL_URL", "https://decisions.test/v1")
+      vi.stubEnv("DECISION_MODEL_API_KEY", "decision-key")
+      server.use(
+        http.post("https://decisions.test/v1/decisions", async () => {
+          await delay("infinite")
+          return HttpResponse.json({})
+        }),
+      )
+
+      await expect(
+        decideNoul(
+          ["The state."],
+          { sky: question },
+          { timeoutMs: 200, attributes: {} },
+        ),
+      ).rejects.toMatchObject({ name: "JevError", kind: "timeout" })
     })
 
     it("throws a config JevError for a decision provider that the backend does not support", async () => {

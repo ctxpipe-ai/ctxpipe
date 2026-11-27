@@ -226,7 +226,8 @@ function decisionTokenCost(usage: unknown): number | undefined {
  * items has the same key in another batch and under other numbers. A
  * symmetric pair fact of the disagreement step (`SYMMETRIC_FACTS`) has a
  * second key, with the two items in the other order. Null for a body that
- * is not a Jev request.
+ * is not a Jev request: an OpenAI decision request (`input` and a list of
+ * questions) has no content keys, so a replay composes no answer for it.
  */
 function contentKeysOf(body: unknown): Map<string, string[]> | null {
   const request = z
