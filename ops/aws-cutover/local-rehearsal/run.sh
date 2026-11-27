@@ -5,11 +5,10 @@
 # .ai/agents/aws-cutover-runbook.md, then the full rollback of AWS:
 #
 #   reset-database, copy-database (preflight, copy), migrate, export-indexes,
-#   import-indexes, verify-graph, seed-shard-store, then reset-indexes and
-#   reset-database.
+#   import-indexes, seed-shard-store, then reset-indexes and reset-database.
 #
 # Each server is a container of its own: a Neon-like and an Aurora-like
-# Postgres 17, a source and a target FalkorDB, and an S3 server (versitygw).
+# Postgres 17, and an S3 server (versitygw).
 # Nothing reads or writes the `pnpm dev:infra` stack. The script deletes its
 # containers, volumes and network at the end (--keep keeps them).
 #
@@ -46,7 +45,6 @@ command -v openssl >/dev/null || { echo "Install openssl." >&2; exit 2; }
 root="$(cd "$(dirname "$0")/../../.." && pwd)"
 pins="$root/scripts/ci/service-pins.json"
 postgres="$(jq -r '.postgres | "\(.image):\(.tag)@\(.digest)"' "$pins")"
-falkordb="$(jq -r '.falkordb | "\(.image):\(.tag)@\(.digest)"' "$pins")"
 s3_image="${CTXPIPE_CODESEARCH_TEST_IMAGE:-ctxpipe-codesearch:test}"
 
 p=ctx1217-local
@@ -60,8 +58,8 @@ shard_store="s3://$bucket/shards"
 s3_env=(-e AWS_ENDPOINT_URL_S3="http://$p-s3:8080" -e AWS_ACCESS_KEY_ID=rehearsalaccess
   -e AWS_SECRET_ACCESS_KEY=rehearsalsecret -e AWS_REGION=us-east-1)
 
-containers=("$p-source-pg" "$p-target-pg" "$p-source-falkordb" "$p-target-falkordb" "$p-s3")
-volumes=("$p-source-codesearch" "$p-target-codesearch" "$p-target-falkordb")
+containers=("$p-source-pg" "$p-target-pg" "$p-s3")
+volumes=("$p-source-codesearch" "$p-target-codesearch")
 remove_servers() {
   docker rm -f -v "${containers[@]}" >/dev/null 2>&1 || true
   docker volume rm "${volumes[@]}" >/dev/null 2>&1 || true
@@ -127,14 +125,10 @@ step "Servers"
 docker network create "$net" >/dev/null
 docker volume create "${volumes[0]}" >/dev/null
 docker volume create "${volumes[1]}" >/dev/null
-docker volume create "${volumes[2]}" >/dev/null
 docker run -d --name "$p-source-pg" --network "$net" --shm-size=1g "${pg_tls[@]}" \
   -e POSTGRES_USER=cloud_admin -e POSTGRES_PASSWORD="$password" "$postgres" -c "$pg_start" >/dev/null
 docker run -d --name "$p-target-pg" --network "$net" --shm-size=1g "${pg_tls[@]}" \
   -e POSTGRES_USER=rdsadmin -e POSTGRES_PASSWORD="$password" "$postgres" -c "$pg_start" >/dev/null
-docker run -d --name "$p-source-falkordb" --network "$net" "$falkordb" >/dev/null
-docker run -d --name "$p-target-falkordb" --network "$net" -e REDIS_ARGS="--appendonly no" \
-  -v "$p-target-falkordb:/var/lib/falkordb/data" "$falkordb" >/dev/null
 docker run -d --name "$p-s3" --network "$net" --entrypoint sh \
   -e ROOT_ACCESS_KEY=rehearsalaccess -e ROOT_SECRET_KEY=rehearsalsecret "$s3_image" -c \
   "mkdir -p /s3/$bucket && exec versitygw --port 0.0.0.0:8080 posix /s3" >/dev/null
@@ -175,11 +169,7 @@ backend_task -e SUPER_URL="$source_super_url" -e ROWS="$rows" "$backend" bun -e 
   console.log(JSON.stringify({ tables: tables.length, failed: failed.length }))
   process.exit(failed.length ? 1 : 0)' >&2
 backend_task -e DATABASE_URL="$source_app_url" "$backend" bun run apps/backend/src/db/migrate.ts >/dev/null
-# Made-up graphs, and a made-up repository indexed by zoekt-index.
-for graph in 1 2 3; do
-  docker exec "$p-source-falkordb" redis-cli GRAPH.QUERY "graph_$graph" \
-    "UNWIND range(1, $((graph * 50))) AS i CREATE (:File {path: 'f' + toString(i)})-[:IMPORTS]->(:Module {name: 'm' + toString(i)})" >/dev/null
-done
+# A made-up repository indexed by zoekt-index.
 task -v "$p-source-codesearch:/data" --entrypoint sh "$codesearch" -c '
   set -e
   name="ctxpipe:v1:org:org_rehearsal:repo:repo_one"
@@ -225,31 +215,18 @@ jq -se 'last | .ok and .preflight.sourceReadOnly' "$work/copy.json" >/dev/null |
 
 step "T+5: export-indexes (on the source)"
 export_indexes() {
-  task -v "$p-source-codesearch:/data" -e GRAPH_DB_URI="redis://$p-source-falkordb:6379" "${s3_env[@]}" \
+  task -v "$p-source-codesearch:/data" "${s3_env[@]}" \
     "$codesearch" sh -c "cd /app/apps/codesearch && exec bun run cutover:export-indexes --to \"$transfer\"" >"$work/export.json"
 }
 timed export-indexes export_indexes || fail "export"
 
-step "T+40: cutover-import-indexes (target FalkorDB stopped)"
-docker stop "$p-target-falkordb" >/dev/null
+step "T+40: cutover-import-indexes"
 import_indexes() {
-  task -v "$p-target-codesearch:/data" -v "$p-target-falkordb:/var/lib/falkordb/data" \
+  task -v "$p-target-codesearch:/data" \
     -e CUTOVER_TRANSFER_URL="$transfer" "${s3_env[@]}" "$codesearch" sh -c \
-    'cd /app/apps/codesearch && exec bun run cutover:import-indexes --from "$CUTOVER_TRANSFER_URL" --falkordb-data-file /var/lib/falkordb/data/dump.rdb --force' >"$work/import.json"
+    'cd /app/apps/codesearch && exec bun run cutover:import-indexes --from "$CUTOVER_TRANSFER_URL" --force' >"$work/import.json"
 }
 timed import-indexes import_indexes || fail "import: $(cat "$work/import.json")"
-docker start "$p-target-falkordb" >/dev/null
-for _ in $(seq 30); do
-  docker exec "$p-target-falkordb" redis-cli PING 2>/dev/null | grep -q PONG && break
-  sleep 1
-done
-
-step "T+40: cutover-verify-graph"
-verify_graph() {
-  task -e GRAPH_DB_URI="redis://$p-target-falkordb:6379" -e CUTOVER_TRANSFER_URL="$transfer" "${s3_env[@]}" \
-    "$codesearch" sh -c 'cd /app/apps/codesearch && exec bun run cutover:verify-graph --from "$CUTOVER_TRANSFER_URL"' >"$work/verify-graph.json"
-}
-timed verify-graph verify_graph || fail "verify-graph: $(cat "$work/verify-graph.json")"
 
 step "T+40: cutover-seed-shard-store"
 seed() {
@@ -268,18 +245,17 @@ timed migrate migrate_check
 [[ "$(cat "$work/migrate.txt")" == "f|0" ]] || fail "role check: $(cat "$work/migrate.txt")"
 
 step "Full rollback of AWS: cutover-reset-indexes, cutover-reset-database"
-docker stop "$p-target-falkordb" >/dev/null
 reset_indexes() {
-  task -v "$p-target-codesearch:/data" -v "$p-target-falkordb:/var/lib/falkordb/data" \
+  task -v "$p-target-codesearch:/data" \
     -e CODESEARCH_SHARD_STORE="$shard_store" "${s3_env[@]}" "$codesearch" sh -c \
-    'cd /app/apps/codesearch && exec bun run cutover:reset-indexes --falkordb-data-file /var/lib/falkordb/data/dump.rdb' >"$work/reset-indexes.json"
+    'cd /app/apps/codesearch && exec bun run cutover:reset-indexes' >"$work/reset-indexes.json"
 }
 timed reset-indexes reset_indexes || fail "reset-indexes: $(cat "$work/reset-indexes.json")"
 store_left="$(docker exec "$p-s3" sh -c "find /s3/$bucket/shards -type f 2>/dev/null | wc -l")"
 [[ "$store_left" -eq 0 ]] || fail "$store_left shard store objects stay"
-# The contents of zoekt-index and repo-cache, and each file of the FalkorDB volume.
-volume_left="$(task -v "$p-target-codesearch:/data" -v "$p-target-falkordb:/fdb" --entrypoint sh "$codesearch" \
-  -c '{ find /data -mindepth 2; find /fdb -mindepth 1; } | wc -l')"
+# The contents of zoekt-index and repo-cache.
+volume_left="$(task -v "$p-target-codesearch:/data" --entrypoint sh "$codesearch" \
+  -c 'find /data -mindepth 2 | wc -l')"
 [[ "$volume_left" -eq 0 ]] || fail "$volume_left entries stay on the target volumes"
 timed reset-database-rollback reset_database
 tables="$(psql_super "$p-target-pg" rdsadmin ctxpipe -c "SELECT count(*) FROM pg_tables WHERE schemaname NOT IN ('pg_catalog', 'information_schema')")"
@@ -287,12 +263,12 @@ tables="$(psql_super "$p-target-pg" rdsadmin ctxpipe -c "SELECT count(*) FROM pg
 
 step "Report"
 jq -n --slurpfile copy "$work/copy.json" \
-  --slurpfile imported "$work/import.json" --slurpfile graph "$work/verify-graph.json" \
+  --slurpfile imported "$work/import.json" \
   --slurpfile seed "$work/seed.json" --slurpfile reset "$work/reset-indexes.json" \
   --rawfile times "$times" '{
     ok: true,
     copy: { phases: $copy[-1].phases, tables: ($copy[-1].verify.tables | length) },
-    graph: $graph[-1], seed: $seed[-1], resetIndexes: $reset[-1],
+    seed: $seed[-1], resetIndexes: $reset[-1],
     import: $imported[-1].import,
     seconds: ($times | split("\n") | map(select(length > 0) | split("\t") | {(.[0]): .[1]}) | add)
   }'

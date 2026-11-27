@@ -1,6 +1,6 @@
 # ADR-071: The knowledge plane projects every branch: shared file versions, a full tree for the default branch, an overlay for each other branch
 
-**Status:** Accepted (the CTO, 2026-11-21; [CTX-1457](https://linear.app/ctxpipe/issue/CTX-1457): built: the file versions, the trees and heads of all branches, the overlays, branch runs from GitHub pushes, the MCP `branch` argument, branch deletion and the cleanup, and the base branch selector of the chat; amended 2026-11-22 by [CTX-1516](https://linear.app/ctxpipe/issue/CTX-1516): the source time of a file; 2026-11-23 by [CTX-1526](https://linear.app/ctxpipe/issue/CTX-1526): the status dates of a Linear issue) | **Date:** 2026-11-21 | **Tags:** knowledge, clickhouse, branches, git, mcp, consistency
+**Status:** Accepted (the CTO, 2026-11-21; [CTX-1457](https://linear.app/ctxpipe/issue/CTX-1457): built: the file versions, the trees and heads of all branches, the overlays, branch runs from GitHub pushes, the MCP `branch` argument, branch deletion and the cleanup, and the base branch selector of the chat; amended 2026-11-22 by [CTX-1516](https://linear.app/ctxpipe/issue/CTX-1516): the source time of a file; 2026-11-23 by [CTX-1526](https://linear.app/ctxpipe/issue/CTX-1526): the status dates of a Linear issue; 2026-11-26 by [CTX-1713](https://linear.app/ctxpipe/issue/CTX-1713): the old stack is removed) | **Date:** 2026-11-21 | **Tags:** knowledge, clickhouse, branches, git, mcp, consistency
 
 ## Context
 
@@ -96,6 +96,7 @@ One fact makes branches cheap: the rows of a file depend only on that file (ADR-
 9. **No maintenance and no write-back on a branch** (the CTO: "is for now, we may decide to add it later").
    - These steps run only on the default branch: the maintenance job, the link fixes, the folder lists, the rename repairs, the semantic merges, and each other step that writes to the repository.
    - The old stack (Postgres, FalkorDB) stays on the default branch only. The plane replaces it.
+   - **Amended 2026-11-26 by [CTX-1713](https://linear.app/ctxpipe/issue/CTX-1713):** the old stack is removed. The plane is the only reader on each branch, the default branch too.
 
 10. **Lifecycle.**
     - When a branch is deleted in Git, its tree rows and its head are deleted.

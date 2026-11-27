@@ -10,7 +10,7 @@ import {
   servingIdForKnowledgePath,
   unitRelations,
 } from "../domain/workspaces/hydrate.js"
-import { knowledgeChunkRows } from "../domain/workspaces/knowledge-chunks.js"
+import { documentChunks } from "../domain/workspaces/knowledge-chunks.js"
 import { imageContentType } from "../domain/workspaces/raw-file.js"
 import { workspaceGraphNodes } from "../domain/workspaces/workspace-graph.js"
 import {
@@ -89,15 +89,7 @@ export function knowledgeRows(input: {
   if (!node) throw new Error(`No graph node for ${unit.path}`)
   const title = unit.title ?? node.name ?? ""
 
-  // The rows hold no chunk hash, so the embedding model is not an input here.
-  const chunks = knowledgeChunkRows([unit], "").map(
-    ({ ordinal, text, startLine, endLine }) => ({
-      ordinal,
-      text,
-      startLine,
-      endLine,
-    }),
-  )
+  const chunks = documentChunks(unit)
   // A file with no body text (only front matter) gets one chunk with its
   // title, so that each relation has a chunk that states it. Its lines are
   // the first line of the file, where the front matter starts.
@@ -299,16 +291,7 @@ export function fileRows(input: {
   const { path, observedAt } = input
   const docKey = servingIdForKnowledgePath(input.workspaceId, path)
   const title = path.slice(path.lastIndexOf("/") + 1)
-  // The rows hold no chunk hash, so the embedding model is not an input here.
-  const chunks = knowledgeChunkRows(
-    [{ servingId: docKey, body: input.text, title }],
-    "",
-  ).map(({ ordinal, text, startLine, endLine }) => ({
-    ordinal,
-    text,
-    startLine,
-    endLine,
-  }))
+  const chunks = documentChunks({ body: input.text, title })
   if (!chunks.length)
     chunks.push({ ordinal: 0, text: title, startLine: 1, endLine: 1 })
   return {

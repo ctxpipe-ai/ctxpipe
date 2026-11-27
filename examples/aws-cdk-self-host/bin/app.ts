@@ -15,7 +15,6 @@ const size =
     : undefined;
 
 const ctxPipeProps: CtxPipeProps = {
-  orgSlug: String(ctx("orgSlug") ?? ""),
   size,
   modelProvider: {
     kind: "bedrock",

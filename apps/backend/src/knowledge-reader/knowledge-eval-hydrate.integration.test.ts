@@ -18,23 +18,27 @@ import { executeRun, hydrateCommand } from "../../evals/knowledge/cli.js"
 import { type Dataset, datasetSchema } from "../../evals/knowledge/dataset.js"
 import { hydrateCorpora } from "../../evals/knowledge/hydrate.js"
 import { ModelCalls } from "../../evals/knowledge/model-calls.js"
-import type { Targets } from "../../evals/knowledge/runner.js"
+import {
+  type ArmAnswer,
+  readRun,
+  type Targets,
+  writeRun,
+} from "../../evals/knowledge/runner.js"
 import { getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
-import { EMBEDDING_DIMENSIONS } from "../db/schema/objects.js"
 import { workspaces } from "../db/schema/workspaces.js"
 import { migrateKnowledgeStore } from "../knowledge-store/migrate.js"
 import { textEmbeddingConfig } from "../retrieval/embeddings/textEmbeddings.js"
 import { startClickHouse, userUrl } from "../test/clickhouse.js"
 import { startGitHttpServer } from "../test/git-http-server.js"
-import { embedText, planeVector } from "../test/knowledge-search-fixture.js"
-import { dropOrgGraph } from "../test/related-fixture.js"
+import { embedText } from "../test/knowledge-search-fixture.js"
 
 /*
  * The hydrate of the knowledge eval harness (ADR-069 decision 3): a small
- * frozen context repo goes into both stacks through the real workflows
- * (real Git over HTTP, Postgres, FalkorDB and ClickHouse; msw answers for
- * the model). Then `run` answers its question on both arms.
+ * frozen context repo goes into the knowledge plane through the real
+ * workflows (real Git over HTTP, Postgres and ClickHouse; msw answers for
+ * the model). Then `run` answers its question on the plane, with a stored
+ * answer of the old stack as its baseline.
  */
 
 /** The eval org of this run. */
@@ -56,8 +60,6 @@ vi.hoisted(() => {
 })
 
 const MODEL_URL = "https://hydrate-model.test/v1"
-/** The embedding endpoint of the old stack fails. */
-let failOldStack = false
 /** The body of each embedding request. */
 const embeddingBodies: {
   model: string
@@ -75,17 +77,10 @@ const models = setupServer(
       provider?: unknown
     }
     embeddingBodies.push(body)
-    // Both stacks use one model; the plane asks for its own dimension.
-    const plane = body.dimensions === textEmbeddingConfig.dimensions
-    if (!plane && failOldStack)
-      return HttpResponse.json(
-        { error: { message: "fixture outage" } },
-        { status: 500 },
-      )
     return HttpResponse.json({
       data: body.input.map((input, index) => ({
         index,
-        embedding: plane ? planeVector(input) : embedText(input),
+        embedding: embedText(input),
       })),
       usage: { cost: 0.0001 },
     })
@@ -243,7 +238,6 @@ describe("the hydrate of the knowledge eval harness", () => {
     await withOrgDbContext(orgId, (db) =>
       db.delete(workspaces).where(eq(workspaces.orgId, orgId)),
     )
-    await dropOrgGraph(orgId)
     await getSystemDb().delete(organizations).where(eq(organizations.id, orgId))
     await clickHouse?.stop()
     await git?.stop()
@@ -344,41 +338,7 @@ describe("the hydrate of the knowledge eval harness", () => {
     vi.stubEnv("CLICKHOUSE_URL", writerUrl)
   })
 
-  it("stops when the old stack records a failed store", async () => {
-    vi.stubEnv("CLICKHOUSE_URL", writerUrl)
-    // A Workspace of its own, so that the old stack embeds its files again.
-    const [corpus] = dataset.corpora
-    if (!corpus) throw new Error("The dataset has no corpus.")
-    const broken = {
-      ...dataset,
-      // A copy of the repository: one org binds a repository to one
-      // Workspace.
-      corpora: [
-        {
-          ...corpus,
-          id: "broken",
-          workspace: "broken-v0",
-          contextRepo: {
-            ...corpus.contextRepo,
-            url: corpus.contextRepo.url.replace(/context$/, "copy"),
-          },
-        },
-      ],
-    }
-    // The hydrate records the failure of the embeddings, and completes.
-    failOldStack = true
-    try {
-      await expect(
-        hydrate(new ModelCalls(MODEL_URL, 1), broken),
-      ).rejects.toThrow(
-        `The old stack has the state failed for its embeddings of ws_knowledge_eval_${suffix}_broken`,
-      )
-    } finally {
-      failOldStack = false
-    }
-  })
-
-  it("writes the frozen corpus to both stacks, with ZDR on each model call", async () => {
+  it("writes the frozen corpus to the knowledge plane, with ZDR on each model call", async () => {
     const calls = new ModelCalls(MODEL_URL, 1, undefined, {
       keepRecords: false,
     })
@@ -388,10 +348,10 @@ describe("the hydrate of the knowledge eval harness", () => {
     expect(targets).toEqual({
       "tiny-v0": { orgId: org.id, orgSlug: org.slug, workspace: "tiny-v0" },
     })
-    // Both writers embedded the files of the root, and each client sent the
+    // The plane embedded the files of the root, and each client sent the
     // provider block (ADR-070).
     expect(new Set(embeddingBodies.map((body) => body.dimensions))).toEqual(
-      new Set([EMBEDDING_DIMENSIONS, textEmbeddingConfig.dimensions]),
+      new Set([textEmbeddingConfig.dimensions]),
     )
     for (const body of embeddingBodies)
       expect(body.provider).toMatchObject({
@@ -402,14 +362,46 @@ describe("the hydrate of the knowledge eval harness", () => {
     expect(calls.spentUsd).toBeGreaterThan(0)
   })
 
-  it("finds both stacks current on a second hydrate", async () => {
+  it("finds the plane current on a second hydrate", async () => {
     const before = embeddingBodies.length
     await hydrate(new ModelCalls(MODEL_URL, 1))
     expect(embeddingBodies.length).toBe(before)
   })
 
-  it("lets run answer the question on both arms", async () => {
+  it("lets run answer the question on the plane, with the stored answer of the old stack", async () => {
     vi.stubEnv("CLICKHOUSE_URL", readerUrl)
+    // A stored run of the old stack: it found the gold document.
+    const stored = join(directory, "old-stack")
+    await writeRun(stored, {
+      manifest: {
+        datasetVersion: dataset.version,
+        splits: ["dev"],
+        now: new Date().toISOString(),
+        settings: {},
+        loop: { keepAt: 0.5 },
+        mode: "live",
+        capUsd: 1,
+        spentUsd: 0,
+        stopped: false,
+      },
+      dataset,
+      targets,
+      answers: dataset.questions.map((question) => ({
+        arm: "legacy",
+        question: question.id,
+        search: { refs: question.gold, scores: [1], latencyMs: 50 },
+        calls: {
+          jev: 0,
+          jevQuestions: 0,
+          embedding: 1,
+          costUsd: 0,
+          missing: 0,
+          failed: 0,
+          unrecorded: 0,
+        },
+      })) as ArmAnswer[],
+      calls: [],
+    })
     const report = await executeRun({
       dataset,
       targets,
@@ -420,6 +412,7 @@ describe("the hydrate of the knowledge eval harness", () => {
       out: join(directory, "run"),
       kept: null,
       quietMs: 0,
+      baseline: { folder: stored, run: await readRun(stored) },
     })
     expect(report.status).toBe("complete")
     expect(
@@ -433,7 +426,7 @@ describe("the hydrate of the knowledge eval harness", () => {
     ])
   })
 
-  it("projects both stacks again when the root changes at the same SHA", async () => {
+  it("projects the plane again when the root changes at the same SHA", async () => {
     vi.stubEnv("CLICKHOUSE_URL", writerUrl)
     const before = embeddingBodies.length
     const [corpus] = dataset.corpora
@@ -445,14 +438,12 @@ describe("the hydrate of the knowledge eval harness", () => {
       ],
     }
     await hydrate(new ModelCalls(MODEL_URL, 1))
-    // The file at the new root went to both writers: the hydrate waited for
+    // The file at the new root went to the plane: the hydrate waited for
     // the projection of the new root.
     const outside = embeddingBodies
       .slice(before)
       .filter((body) => body.input.some((text) => text.includes("Outside")))
       .map((body) => body.dimensions)
-    expect(new Set(outside)).toEqual(
-      new Set([EMBEDDING_DIMENSIONS, textEmbeddingConfig.dimensions]),
-    )
+    expect(new Set(outside)).toEqual(new Set([textEmbeddingConfig.dimensions]))
   })
 })

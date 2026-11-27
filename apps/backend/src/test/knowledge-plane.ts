@@ -1,4 +1,8 @@
+import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { dirname, join } from "node:path"
 
 import type {
   DocumentRows,
@@ -7,6 +11,10 @@ import type {
   KnowledgeScope,
   KnowledgeStore,
 } from "../knowledge-store/knowledge-store.js"
+import {
+  beginKnowledgeRun,
+  completeKnowledgeRun,
+} from "../models/knowledge-state.js"
 
 /**
  * The rows of a document as a read test gives them: the `valid_from` of its
@@ -66,4 +74,65 @@ export async function writePlaneDocuments(
       deletedAt: null,
     })),
   )
+}
+
+/**
+ * Complete a knowledge run of `tip` on the default branch `main` of a
+ * Workspace, as tree `treeVersion`: the plane then serves the Workspace at
+ * `tip`.
+ */
+export async function servePlaneHead(input: {
+  orgId: string
+  workspaceId: string
+  tip: string
+  treeVersion?: number
+}): Promise<void> {
+  const { orgId, workspaceId } = input
+  await beginKnowledgeRun({
+    orgId,
+    workspaceId,
+    branch: "main",
+    isDefault: true,
+  })
+  await completeKnowledgeRun({
+    orgId,
+    workspaceId,
+    tip: input.tip,
+    branch: "main",
+    treeVersion: input.treeVersion ?? 1,
+    baseBranch: null,
+    projectionVersion: "test",
+    failedCount: 0,
+  })
+}
+
+/**
+ * A Git repository in a new temporary folder with `files` in one commit.
+ * Returns its path (the remote URL of a Workspace) and the SHA. The caller
+ * removes the folder.
+ */
+export function gitRepository(files: Record<string, string>): {
+  url: string
+  sha: string
+} {
+  const directory = mkdtempSync(join(tmpdir(), "ctxpipe-plane-git-"))
+  const git = (...args: string[]) =>
+    execFileSync("git", ["-C", directory, ...args], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: "Fixture",
+        GIT_AUTHOR_EMAIL: "fixture@example.test",
+        GIT_COMMITTER_NAME: "Fixture",
+        GIT_COMMITTER_EMAIL: "fixture@example.test",
+      },
+    }).trim()
+  git("init", "-q", "-b", "main")
+  for (const [path, content] of Object.entries(files)) {
+    mkdirSync(dirname(join(directory, path)), { recursive: true })
+    writeFileSync(join(directory, path), content)
+  }
+  git("add", "-A")
+  git("commit", "-q", "-m", "fixture")
+  return { url: directory, sha: git("rev-parse", "HEAD") }
 }

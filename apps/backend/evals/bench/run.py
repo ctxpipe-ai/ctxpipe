@@ -24,7 +24,7 @@ import sys
 import time
 from pathlib import Path
 
-from record import falkor_graph_calls, byok_usage, record_run, run_cost, write_report
+from record import byok_usage, record_run, run_cost, write_report
 
 BENCH = Path(__file__).resolve().parent
 
@@ -110,7 +110,6 @@ def main():
     parser.add_argument("--out", type=Path, required=True, help="run folder, in a path Docker can mount")
     parser.add_argument("--corpus", type=Path, required=True, help="B1+ corpus: repos/ and issues/")
     parser.add_argument("--otlp", type=Path, required=True, help="OTLP JSON lines of the backend spans")
-    parser.add_argument("--falkor-container", required=True, help="the FalkorDB of the backend")
     parser.add_argument("--cap-usd", type=float, default=2.0)
     parser.add_argument("--models", default="haiku,sonnet")
     parser.add_argument("--arms", default="b1plus,ctx")
@@ -156,7 +155,6 @@ def main():
                     gateway_out = args.out / "gateway" / run_id
                     gateway_out.mkdir(parents=True)
                     (gateway_out / "reserve.txt").write_text(str(reserve))
-                    falkor_before = falkor_graph_calls(args.falkor_container)
                     started = time.time()
                     print(f"run {run_id}", flush=True)
                     subprocess.run(
@@ -170,7 +168,6 @@ def main():
                     run = record_run(
                         out=args.out, run_id=run_id, model=model_name, arm=arm_name, task=task,
                         cap_usd=model["runCapUsd"], otlp=args.otlp, started=started, ended=ended,
-                        falkor_commands=falkor_graph_calls(args.falkor_container) - falkor_before,
                     )
                     runs.append(run)
                     new_runs.append(run)

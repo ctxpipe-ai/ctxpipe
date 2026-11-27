@@ -9,7 +9,6 @@ import { withOrgIdContext } from "../../src/auth/withAuth.js"
 import { parseEnv } from "../../src/config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../src/db/client.js"
 import { organizations } from "../../src/db/schema/auth.js"
-import { orgFeatures } from "../../src/db/schema/org_features.js"
 import { workspaces } from "../../src/db/schema/workspaces.js"
 import { resolveWorkspaceReadRevision } from "../../src/domain/workspaces/resolve-revision.js"
 import {
@@ -28,16 +27,17 @@ import type { Targets } from "./runner.js"
 
 /*
  * The hydrate of an eval run (ADR-069 decision 3): each corpus of the
- * dataset goes into both stacks of the database of the run, through the
- * real workflows. `workspace-hydrate` writes the old stack (Postgres and
- * FalkorDB), and it queues `knowledge-projection`, which writes the plane
- * (ClickHouse). The ingest output is the frozen context repo, so the
- * hydrate makes no ingest call: only the embedding calls (and a vision call
- * for each image) of the two writers.
+ * dataset goes into the plane of the database of the run, through the real
+ * workflows. `workspace-hydrate` publishes the revision, and it queues
+ * `knowledge-projection`, which writes the plane (ClickHouse). The ingest
+ * output is the frozen context repo, so the hydrate makes no ingest call:
+ * only the embedding calls (and a vision call for each image) of the plane.
+ * The old stack is gone (CTX-1713): its answers come only from a stored
+ * run.
  *
  * Each corpus gets one Workspace in the eval org, at the frozen SHA and the
- * root of the corpus, with the org flag `knowledge_plane` at `shadow`. A
- * second hydrate of the same SHA finds both stacks current.
+ * root of the corpus. A second hydrate of the same SHA finds the plane
+ * current.
  */
 
 /** An org of the evals. Its ids are made up: the run folder holds them. */
@@ -47,13 +47,13 @@ export type EvalOrg = { id: string; slug: string; name: string }
 const HYDRATE_TIMEOUT_MS = 60 * 60_000
 
 /**
- * Hydrate each corpus of `dataset` into both stacks in the org `org`. It
+ * Hydrate each corpus of `dataset` into the plane in the org `org`. It
  * returns the targets of `run`, and the count of `failed` documents of the
  * plane for each corpus: a file that does not parse, a file type with no
  * converter, or a failed vision call (ADR-067 decision 8). The model calls
  * go through `calls`, which `install` put in front of `fetch`: the spend cap
- * applies to them. Throws when a step of a workflow fails, or when a stack
- * does not serve the frozen SHA after the hydrate.
+ * applies to them. Throws when a step of a workflow fails, or when the
+ * plane does not serve the frozen SHA after the hydrate.
  */
 export async function hydrateCorpora(input: {
   dataset: Dataset
@@ -80,19 +80,6 @@ export async function hydrateCorpora(input: {
     .insert(organizations)
     .values({ ...org, createdAt: new Date() })
     .onConflictDoNothing()
-  await withOrgDbContext(org.id, (db) =>
-    db
-      .insert(orgFeatures)
-      .values({
-        organizationId: org.id,
-        feature: "knowledge_plane",
-        value: "shadow",
-      })
-      .onConflictDoUpdate({
-        target: [orgFeatures.organizationId, orgFeatures.feature],
-        set: { value: "shadow", updatedAt: new Date() },
-      }),
-  )
   const backend = await connectOpenWorkflowBackend(input.databaseUrl)
   const runner = new OpenWorkflow({ backend })
   runner.implementWorkflow(workspaceHydrate.spec, workspaceHydrate.fn)
@@ -125,7 +112,7 @@ export async function hydrateCorpora(input: {
         workspaceId,
         revision: revision.revision,
       })
-      await waitForBothStacks({
+      await waitForHydrate({
         org,
         namespace,
         workspaceId,
@@ -139,7 +126,7 @@ export async function hydrateCorpora(input: {
           ?.failedCount ?? 0
       failedDocuments[corpus.id] = failed
       log(
-        `${corpus.id}: both stacks serve ${corpus.contextRepo.sha} after ${Math.round((performance.now() - started) / 1000)} s; ${counts.embedding} embedding calls, $${counts.costUsd.toFixed(4)}; ${failed} failed documents on the plane.`,
+        `${corpus.id}: the plane serves ${corpus.contextRepo.sha} after ${Math.round((performance.now() - started) / 1000)} s; ${counts.embedding} embedding calls, $${counts.costUsd.toFixed(4)}; ${failed} failed documents on the plane.`,
       )
       targets[corpus.workspace] = {
         orgId: org.id,
@@ -208,7 +195,8 @@ function isolateGit(): () => void {
 /**
  * The Workspace of `corpus` at its frozen SHA and root. A Workspace that
  * wants another SHA, URL or root gets the new values and the next
- * generation, so that both stacks project it again. Returns its id.
+ * generation, so that the hydrate and the plane project it again. Returns its
+ * id.
  */
 async function upsertWorkspace(org: EvalOrg, corpus: Corpus): Promise<string> {
   const id = `${org.id.replace(/^org_/, "ws_")}_${corpus.id}`
@@ -254,19 +242,17 @@ async function upsertWorkspace(org: EvalOrg, corpus: Corpus): Promise<string> {
 }
 
 /**
- * Wait until both stacks serve `sha` for the Workspace:
+ * Wait until the plane serves `sha` for the Workspace:
  * - each hydrate and projection run of the Workspace since `since` is
  *   complete;
- * - the old stack publishes `sha` with ready embeddings and a ready graph
- *   (the hydrate records a failure of these stores and still completes);
+ * - the hydrate publishes `sha`;
  * - the plane serves `sha`.
  *
- * A failed step of such a run, or a failed store, stops the wait with its
- * error: the workflows retry an outage for minutes, but in an eval a failure
- * is almost always a setup error. A second hydrate continues from the
- * stored state.
+ * A failed step of such a run stops the wait with its error: the workflows
+ * retry an outage for minutes, but in an eval a failure is almost always a
+ * setup error. A second hydrate continues from the stored state.
  */
-async function waitForBothStacks(input: {
+async function waitForHydrate(input: {
   org: EvalOrg
   namespace: string
   workspaceId: string
@@ -299,21 +285,13 @@ async function waitForBothStacks(input: {
         where ${runs} and run.status not in ('completed', 'failed')`,
     )
     if (open.rows.length === 0) {
-      const old = await withOrgIdContext(org, () =>
+      const published = await withOrgIdContext(org, () =>
         getWorkspaceProjection(workspaceId),
       )
-      if (old.kind !== "active" || old.revision.sha !== sha)
+      if (published.kind !== "active" || published.revision.sha !== sha)
         throw new Error(
-          `The old stack does not publish ${sha} for ${workspaceId} after the hydrate.`,
+          `The hydrate does not publish ${sha} for ${workspaceId}.`,
         )
-      for (const [store, result] of Object.entries({
-        embeddings: old.stores.embeddings,
-        graph: old.stores.graph,
-      }))
-        if (result.kind !== "ready")
-          throw new Error(
-            `The old stack has the state ${result.kind} for its ${store} of ${workspaceId}${result.kind === "failed" ? `: ${result.message}` : ""}.`,
-          )
       const plane = (await readyKnowledgeHeads(org.id, [workspaceId])).get(
         workspaceId,
       )?.sha

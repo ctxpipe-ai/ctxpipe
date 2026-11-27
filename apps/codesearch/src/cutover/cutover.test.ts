@@ -37,9 +37,7 @@ import {
  * The codesearch part of the cutover index copy, with real `zoekt-index`
  * shards, GNU tar and a real S3-compatible server: export the volume, import
  * it into empty directories, then seed the shard store from the imported
- * cold directory. The FalkorDB part has real FalkorDB containers in the
- * backend contracts lane (shared/falkordb-transfer.ts). This test gives the
- * export a made-up RDB, so it does not run the RDB fetch and verify-graph.
+ * cold directory.
  */
 
 const exec = promisify(execFile)
@@ -119,54 +117,34 @@ afterAll(async () => {
   await rm(root, { recursive: true, force: true })
 })
 
-/**
- * The export of the volume, with a made-up RDB in place of the FalkorDB
- * part: the test image has no FalkorDB.
- */
+/** The export of the volume, with a small multipart part size. */
 async function writeExport(url: string) {
   const transfer = transferFromUrl(url)
   const volume = await exportVolume(transfer, source, { partSize })
-  const rdbBytes = randomBytes(1024)
-  const rdb = await uploadStream(
-    transfer,
-    "falkordb.rdb",
-    (async function* () {
-      yield rdbBytes
-    })(),
-  )
   const manifest: TransferManifest = {
     version: 1,
     createdAt: new Date().toISOString(),
-    falkordb: {
-      redisVersion: "8.0.0",
-      moduleVersion: 42007,
-      graphs: [{ name: "graph_a", nodes: 2, edges: 1 }],
-      rdb,
-      ms: 1,
-    },
     ...volume,
     ms: 1,
   }
   await writeTransferManifest(transfer, manifest)
-  return { transfer, manifest, rdbBytes }
+  return { transfer, manifest }
 }
 
 /** The import targets below `root/name`. */
 const targets = (name: string) => ({
   zoektIndexDir: join(root, name, "zoekt-index"),
   repoCacheDir: join(root, name, "repo-cache"),
-  falkordbDataFile: join(root, name, "falkordb/dump.rdb"),
 })
 
 describe("export-indexes and import-indexes", () => {
-  it("copies the volume and the RDB through the transfer prefix", async () => {
+  it("copies the volume through the transfer prefix", async () => {
     server.stubEnv("prod")
     const url = `s3://${server.bucket}/transfer/run-1`
 
-    const { manifest, rdbBytes } = await writeExport(url)
+    const { manifest } = await writeExport(url)
 
     expect(await server.keys()).toEqual([
-      "transfer/run-1/falkordb.rdb",
       "transfer/run-1/manifest.json",
       "transfer/run-1/repo-cache.tar",
       "transfer/run-1/zoekt-index.tar",
@@ -184,7 +162,6 @@ describe("export-indexes and import-indexes", () => {
     const sourceShards = await tree(source.zoektIndexDir, [".build", ".store"])
     expect(Object.keys(sourceShards)).toHaveLength(manifest.zoektIndex.files)
     expect(await tree(target.zoektIndexDir)).toEqual(sourceShards)
-    expect(await readFile(target.falkordbDataFile)).toEqual(rdbBytes)
   })
 
   it("refuses an export to a run id that has a manifest", async () => {
@@ -193,7 +170,6 @@ describe("export-indexes and import-indexes", () => {
     await expect(
       exportIndexes({
         to: `s3://${server.bucket}/transfer/run-1`,
-        falkordb: "redis://127.0.0.1:1",
         ...source,
       }),
     ).rejects.toThrow(/has a manifest already/)
@@ -217,27 +193,19 @@ describe("export-indexes and import-indexes", () => {
     )
   })
 
-  it("refuses an RDB with a different sha256, and keeps no data file", async () => {
+  it("refuses an archive with a different sha256", async () => {
     server.stubEnv("prod")
-    const url = `s3://${server.bucket}/transfer/run-rdb`
+    const url = `s3://${server.bucket}/transfer/run-changed`
     const { transfer, manifest } = await writeExport(url)
-    const { rdb } = manifest.falkordb
     await writeTransferManifest(transfer, {
       ...manifest,
-      falkordb: {
-        ...manifest.falkordb,
-        rdb: { ...rdb, sha256: "0".repeat(64) },
-      },
+      repoCache: { ...manifest.repoCache, sha256: "0".repeat(64) },
     })
-    const target = targets("rdb-changed")
+    const target = targets("archive-changed")
 
     await expect(
       importIndexes({ from: url, ...target, force: false }),
     ).rejects.toThrow(/sha256/)
-
-    await expect(stat(target.falkordbDataFile)).rejects.toMatchObject({
-      code: "ENOENT",
-    })
   })
 })
 
@@ -338,7 +306,7 @@ describe("seed-shard-store", () => {
 })
 
 describe("reset-indexes", () => {
-  it("deletes the published shards of each repository on the host, both volumes and the RDB", async () => {
+  it("deletes the published shards of each repository on the host and both volumes", async () => {
     server.stubEnv("store")
     const target = targets("target")
     // A repository that is not on the host: its artifacts stay.
@@ -370,9 +338,6 @@ describe("reset-indexes", () => {
     ).toEqual([`${other}/manifest.json`])
     expect(await readdir(target.zoektIndexDir)).toEqual([])
     expect(await readdir(target.repoCacheDir)).toEqual([])
-    await expect(stat(target.falkordbDataFile)).rejects.toMatchObject({
-      code: "ENOENT",
-    })
 
     // A second run finds nothing and changes nothing.
     expect(await resetIndexes(target)).toMatchObject({
@@ -393,7 +358,6 @@ describe("reset-indexes", () => {
       resetIndexes({
         zoektIndexDir: join(dir, "zoekt-index"),
         repoCacheDir: join(dir, "repo-cache"),
-        falkordbDataFile: join(dir, "dump.rdb"),
       }),
     ).rejects.toThrow(
       /^The reset stopped \(Error ENOTDIR\)\. Run it again: it continues\.$/,

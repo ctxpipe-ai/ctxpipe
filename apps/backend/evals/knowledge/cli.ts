@@ -1,8 +1,8 @@
 /**
  * The knowledge-plane evals (ADR-069 decisions 5 to 7). Run from
  * `apps/backend`, with the backend environment of the database that holds
- * the eval Workspaces (`DATABASE_URL`, `AUTH_SECRET`, `GRAPH_DB_URI`,
- * `CLICKHOUSE_URL`, and the model settings `MODEL_PROVIDER_*`):
+ * the eval Workspaces (`DATABASE_URL`, `AUTH_SECRET`, `CLICKHOUSE_URL`,
+ * and the model settings `MODEL_PROVIDER_*`):
  *
  *   bun evals/knowledge/cli.ts hydrate --dataset FILE --out DIR [--cap-usd 5]
  *   bun evals/knowledge/cli.ts run --dataset FILE --targets FILE --out DIR \
@@ -42,7 +42,6 @@ import { z } from "zod"
 import { closeDb, initDb } from "../../src/db/client.js"
 import { ORCHESTRATOR_DEFAULTS } from "../../src/knowledge-reader/orchestrator.js"
 import { initEvlog } from "../../src/observability/logger.js"
-import { closeGraphDb } from "../../src/platform/graph/client.js"
 import {
   allowlistSettingsProblem,
   DEFAULT_OPENROUTER_BASE,
@@ -130,8 +129,10 @@ export async function executeRun(input: {
   /** The quiet time before the first calls of each arm (check 7). */
   quietMs: number
   /**
-   * An earlier run folder (`--baseline-from`): the run reuses its answers of
-   * the old stack, and runs only the plane.
+   * An earlier run folder (`--baseline-from`, or the `--from` folder of a
+   * rescore): the run reuses its answers of the old stack. The old stack is
+   * gone (CTX-1713), so the run runs only the plane. With none, the report
+   * has the plane only.
    */
   baseline?: RunFolder
   /**
@@ -175,12 +176,11 @@ export async function executeRun(input: {
   )
   // The folder keeps the calls of the reused answers, so that a replay of
   // this run has each call of both arms.
-  if (baseline)
-    calls.records.push(
-      ...(input.baseline?.run.calls ?? []).filter(
-        (call) => call.arm === "legacy" && baseline.has(call.question),
-      ),
-    )
+  calls.records.push(
+    ...(input.baseline?.run.calls ?? []).filter(
+      (call) => call.arm === "legacy" && baseline?.has(call.question),
+    ),
+  )
   // An eval has no time budget, so that a slow step does not hide what the
   // loop finds (the CTO, 2026-11-22). `--set timeBudgetMs=…` sets one.
   const productBudgetMs = ORCHESTRATOR_DEFAULTS.timeBudgetMs
@@ -346,7 +346,7 @@ function buildConverter() {
 }
 
 /**
- * Hydrate each corpus into both stacks in `org` (`hydrate.ts`), and write the
+ * Hydrate each corpus into the plane in `org` (`hydrate.ts`), and write the
  * targets of `run` (`targets.json`) to `out`. It writes the spend and the
  * failed documents of the plane (`hydrate.json`) also when the hydrate
  * fails. Returns the exit code: 3 when the spend cap stopped a call. Then it
@@ -863,7 +863,6 @@ export async function main(argv: string[]): Promise<number> {
         capUsd,
       })
     } finally {
-      await closeGraphDb()
       await closeDb()
     }
   }
@@ -878,7 +877,7 @@ export async function main(argv: string[]): Promise<number> {
       if (!values.from) throw new SetupError("rescore needs --from.")
       if (values["baseline-from"] || values["reuse-from"])
         throw new SetupError(
-          "rescore takes no --baseline-from and no --reuse-from: it replays both arms of --from.",
+          "rescore takes no --baseline-from and no --reuse-from: it replays the plane of --from, and keeps its answers of the old stack.",
         )
       const fill = values["unrecorded-yes"]
       const unrecordedYes = fill === undefined ? undefined : Number(fill)
@@ -904,6 +903,10 @@ export async function main(argv: string[]): Promise<number> {
           ...(unrecordedYes === undefined ? {} : { unrecordedYes }),
         },
         quietMs: QUIET_MS,
+        // The answers of the old stack of --from, when it has them.
+        ...(recorded.answers.some((answer) => answer.arm === "legacy")
+          ? { baseline: { folder: values.from, run: recorded } }
+          : {}),
       })
     } else {
       if (!dataset || !values.targets)
@@ -965,7 +968,6 @@ export async function main(argv: string[]): Promise<number> {
     }
     return 0
   } finally {
-    await closeGraphDb()
     await closeDb()
   }
 }

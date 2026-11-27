@@ -13,6 +13,11 @@ output.
 - **Agent:** the cutover builder. It starts the one-off tasks with `hosted-run-task.yml` (factory), reads their logs,
   and runs `validateTarget`.
 
+**Status (2026-11-26, [CTX-1713](https://linear.app/ctxpipe/issue/CTX-1713)):** the cutover is done. ctxpipe has no
+FalkorDB any more: ClickHouse holds the knowledge content. The FalkorDB copy step is removed. `export-indexes` and
+`import-indexes` copy only the codesearch volumes, and the task `cutover-verify-graph` is gone. The other FalkorDB
+lines in this runbook (the scale actions, the `/data/falkordb` volume, the preview dump) are the record of the window.
+
 **Rollback point:** go/no-go G4. Before G4, each step has a rollback. After G4, there is no rollback: fix forward.
 
 ## Commands that this runbook uses
@@ -240,22 +245,20 @@ line gives its expected output. The dry run of the copy is its preflight against
   1. Fill `hosted/cutover/transfer-url` with `s3://<shard bucket>/cutover-transfer/<run id>` (a new run id).
   2. On your machine, get credentials that can write only `cutover-transfer/*`. They are valid for one hour:
      `aws sts assume-role --role-arn arn:aws:iam::213102790567:role/guard/cutover-transfer-writer --role-session-name railway-export --duration-seconds 3600 --query Credentials`.
-     Also read the graph URL of the Railway `backend` service (the codesearch service has no `GRAPH_DB_URI`):
-     `railway variables --service backend --environment production --json | jq -r .GRAPH_DB_URI`.
   3. Open the shell with `railway ssh --service codesearch --environment production`. Type `unset HISTFILE` first.
-     Then enter each value without echo, for example `read -rs GRAPH_DB_URI && export GRAPH_DB_URI`, for
-     `GRAPH_DB_URI`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_SESSION_TOKEN`. Then run
+     Then enter each value without echo, for example `read -rs AWS_ACCESS_KEY_ID && export AWS_ACCESS_KEY_ID`, for
+     `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_SESSION_TOKEN`. Then run
      `export AWS_REGION=us-west-2`.
   4. Start the export in the background, so that it continues when the session closes (rehearsal 1 lost a foreground
      export that way):
      `cd /app/apps/codesearch && nohup bun run cutover:export-indexes --to "s3://<shard bucket>/cutover-transfer/<run id>" > /tmp/export.log 2>&1 &`.
-  5. Run `unset GRAPH_DB_URI AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN`. The export keeps its own
+  5. Run `unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN`. The export keeps its own
      copy of the values.
   6. Read the end of the log until the report is there: `tail -5 /tmp/export.log`. If the session closes, open it
      again with `railway ssh --service codesearch --environment production` and read the log again. The export
      takes about 6 minutes (rehearsal 1). When the report is there, run `rm /tmp/export.log`, then close the shell
      with `exit`.
-  - **Expected:** the log ends with a JSON report with the sizes, the sha256 values and the graph counts.
+  - **Expected:** the log ends with a JSON report with the sizes and the sha256 values.
     `manifest.json` is in S3. If the export stopped, start again at step 1 with a new run id. The old prefix holds
     partial files and no manifest; the retire step deletes it.
 - **If either fails:** the full rollback. Write the cause into [CTX-1217].
@@ -267,9 +270,7 @@ line gives its expected output. The dry run of the copy is its preflight against
   1. Run the task `cutover-import-indexes`.
   2. Run the task `cutover-seed-shard-store`.
   3. Run the scale action `cutover-scale-up-indexes`.
-  4. Run the task `cutover-verify-graph`.
-- **Expected:** import checks each sha256 and count against the manifest. verify-graph reports no difference (it names
-  graphs by position, with no organization id). seed-shard-store reports the count of names that it published.
+- **Expected:** import checks each sha256 and count against the manifest. seed-shard-store reports the count of names that it published.
 - **Rollback:** the full rollback.
 
 ### T+50 · Migrate

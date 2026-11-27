@@ -10,7 +10,6 @@ function synthCtxPipe(): Template {
     env: { account: "123456789012", region: "us-east-1" },
   })
   new CtxPipe(stack, "CtxPipe", {
-    orgSlug: "acme",
     size: "small",
     customDomain: {
       domainName: "app.example.com",

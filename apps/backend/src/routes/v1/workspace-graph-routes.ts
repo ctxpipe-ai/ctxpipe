@@ -1,16 +1,12 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 
 import type { AppEnv } from "../../app/env.js"
-import { requireCurrentOrgSlug } from "../../auth/context.js"
-import { WorkspaceGraphUnavailableError } from "../../domain/workspaces/graph-projection.js"
-import { WorkspaceGraphBuildingError } from "../../domain/workspaces/graph-rebuild.js"
 import { hydrateUnitsToProjectionClaims } from "../../domain/workspaces/hydrate.js"
-import { publishedProjection } from "../../domain/workspaces/revision.js"
 import { computeWorkspaceGraphQuality } from "../../domain/workspaces/workspace-graph.js"
-import { selectKnowledgeReader } from "../../knowledge-reader/knowledge-reader.js"
+import { planeKnowledgeReader } from "../../knowledge-reader/plane-reader.js"
+import { readyKnowledgeHeads } from "../../models/knowledge-state.js"
 import {
   getWorkspaceBySlug,
-  getWorkspaceProjection,
   getWorkspaceProjectionSnapshot,
 } from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
@@ -132,34 +128,23 @@ export const workspaceGraphRoutes = new OpenAPIHono<AppEnv>()
     const workspace = await getWorkspaceBySlug(workspaceSlug)
     if (!workspace) return c.json({ error: "Not found" }, 404)
     try {
-      const projection = publishedProjection(
-        await getWorkspaceProjection(workspace.id),
+      const heads = await readyKnowledgeHeads(workspace.orgId, [workspace.id])
+      // The pane shows its building state until the plane serves the
+      // Workspace.
+      if (!heads.has(workspace.id))
+        return c.json({ building: true as const }, 202)
+      return c.json(
+        await planeKnowledgeReader({ heads }).graph({
+          orgId: workspace.orgId,
+          workspaceId: workspace.id,
+        }),
+        200,
       )
-      const { reader } = await selectKnowledgeReader(workspace.orgId, [
-        workspace.id,
-      ])
-      try {
-        return c.json(
-          await reader.graph({
-            orgId: workspace.orgId,
-            orgSlug: requireCurrentOrgSlug(),
-            workspaceId: workspace.id,
-            projection,
-          }),
-          200,
-        )
-      } catch (error) {
-        // The pane shows its building state; the route never builds the graph itself.
-        if (error instanceof WorkspaceGraphBuildingError)
-          return c.json({ building: true as const }, 202)
-        throw error
-      }
     } catch (error) {
-      if (!(error instanceof WorkspaceGraphUnavailableError))
-        getLogger().error(
-          error instanceof Error ? error : new Error(String(error)),
-          { step: "workspace.graph.read" },
-        )
+      getLogger().error(
+        error instanceof Error ? error : new Error(String(error)),
+        { step: "workspace.graph.read" },
+      )
       return c.json(
         { error: "Workspace graph projection is unavailable." },
         503,

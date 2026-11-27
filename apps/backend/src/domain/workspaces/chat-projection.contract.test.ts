@@ -96,7 +96,6 @@ async function withChatProjection(
           revision,
           units: parsed.units,
           skipped: [],
-          embeddingModel: "fixture-embedding",
           displayName: null,
           formatVersion: 0,
           legacyKnowledgeFiles: 0,
@@ -164,7 +163,6 @@ it(
       const tools = await workspaceChatTools({
         ...f,
         orgId: f.org.id,
-        orgSlug: f.org.slug,
       })
       expect(tools.map((t) => t.name)).toEqual(
         expect.arrayContaining([
@@ -199,7 +197,6 @@ it(
       const tools = await workspaceChatTools({
         ...f,
         orgId: f.org.id,
-        orgSlug: f.org.slug,
       })
       const listed = String(
         await tools.find((t) => t.name === "list_repositories")?.execute({}),
@@ -218,7 +215,6 @@ it(
       const tools = await workspaceChatTools({
         ...f,
         orgId: f.org.id,
-        orgSlug: f.org.slug,
       })
       expect(
         String(
@@ -240,7 +236,6 @@ it("an absent workspace has no chat tools", { timeout: 30_000 }, async () => {
       await workspaceChatTools({
         ...f,
         orgId: f.org.id,
-        orgSlug: f.org.slug,
         snapshot: await getWorkspaceProjectionSnapshot(generateObjectId("ws")),
       }),
     ).toEqual([])

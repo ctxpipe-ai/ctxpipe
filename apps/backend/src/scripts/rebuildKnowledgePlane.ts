@@ -6,8 +6,8 @@
  * rebuilds in full by itself (`empty_tree`).
  *
  * The run takes the projection lease of the Workspace, as each run does.
- * Reads use the old head until the run completes. The script refuses an org
- * whose `knowledge_plane` flag is `off`, and it logs the run that it queued.
+ * Reads use the old head until the run completes. The script logs the run
+ * that it queued.
  *
  * A run of this script in production is an ops action that a human approves.
  *
@@ -15,7 +15,6 @@
  */
 import { parseEnv } from "../config/env.js"
 import { closeDb, initDb, withOrgDbContext } from "../db/client.js"
-import { getOrgFeature } from "../models/org-features.js"
 import { getWorkspaceById } from "../models/workspaces.js"
 import { initEvlog, log } from "../observability/logger.js"
 import {
@@ -39,8 +38,6 @@ if (!orgId || !workspaceId) {
 }
 initDb(parseEnv(process.env).DATABASE_URL)
 try {
-  if ((await getOrgFeature(orgId, "knowledge_plane")) === "off")
-    throw new Error("The knowledge_plane flag of the org is off")
   const workspace = await withOrgDbContext(orgId, () =>
     getWorkspaceById(workspaceId, orgId),
   )

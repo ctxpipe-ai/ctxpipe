@@ -201,7 +201,7 @@ export function decideMode({ config, event, fork, changed, read, diff }) {
       /^\.github\/actions\//,
       /^\.github\/merge-gate\.json$/,
       /^scripts\/checks\/(?:schema\/[^/]+\.json|[^/]+\.(?:mjs|json))$/,
-      /^scripts\/ci\/(?:vitest-launch|test-suite|graph-ready|prerequisites|storybook-play|check-pins)\.mjs$/,
+      /^scripts\/ci\/(?:vitest-launch|test-suite|prerequisites|storybook-play|check-pins)\.mjs$/,
       /^scripts\/ci\/(?!(?:module-scope-values-baseline|page-story-exemptions|component-descriptions-allowlist)\.json$)[^/]+\.json$/,
       /^\.npmrc$/,
       /^patches\//,
@@ -255,7 +255,7 @@ export function decideMode({ config, event, fork, changed, read, diff }) {
   const definitions = inputs.filter(
     (path) =>
       !/(?:^|\/)node_modules(?:\/|$)/.test(path) &&
-      !/^scripts\/checks\/(?:families|prerequisites|toolchain)\.mjs$|^scripts\/ci\/(?:graph-ready|vitest-launch)\.mjs$/.test(
+      !/^scripts\/checks\/(?:families|prerequisites|toolchain)\.mjs$|^scripts\/ci\/vitest-launch\.mjs$/.test(
         path,
       ) &&
       [/^scripts\/checks\//, /^scripts\/ci\//, /^apps\//].some((input) =>

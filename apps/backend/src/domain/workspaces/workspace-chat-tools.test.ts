@@ -105,7 +105,6 @@ function snapshot(
         : { revision: { sha: SHA }, stores: {} }),
     } as PublishedProjection,
     units: [],
-    chunksMissing: false,
     repositories: [
       {
         id: "repo_bound",
@@ -122,7 +121,6 @@ function snapshot(
 async function tool(name: string, kind: "active" | "legacy" = "active") {
   const tools = await workspaceChatTools({
     orgId: "org_chat",
-    orgSlug: "chat",
     workspaceId: "ws_chat",
     snapshot: snapshot({ kind }),
   })

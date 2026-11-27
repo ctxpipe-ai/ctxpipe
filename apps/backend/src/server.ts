@@ -10,7 +10,6 @@ import {
 } from "./domain/workspaces/sandbox-provider.js"
 import { flushEvlog } from "./observability/logger.js"
 import { shutdownOtel } from "./observability/otel.js"
-import { shutdownGraphClients } from "./platform/graph/index.js"
 import { scrubForModel } from "./retrieval/services/scrubForModel.js"
 import {
   handleWebSocketProxy,
@@ -41,7 +40,6 @@ async function shutdownResources() {
   if (shuttingDown) return
   shuttingDown = true
   await Promise.all([flushEvlog(), shutdownOtel()])
-  await shutdownGraphClients()
   await closeDb()
 }
 

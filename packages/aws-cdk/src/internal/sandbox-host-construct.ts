@@ -249,7 +249,7 @@ export class SandboxHostConstruct extends Construct {
         dockerHostname: discovery.hostname,
         agentVaultMasterSecretArn: agentVaultMasterSecret.secretArn,
         // The backend tasks' subnets. They are the stack's only private
-        // subnets, so they also hold RDS, Neptune, the ClickHouse host, EFS,
+        // subnets, so they also hold RDS, the ClickHouse host, EFS,
         // and the UI and codesearch tasks. Only security groups keep the
         // proxy out of them: the sandbox host's group must never be in the
         // app security group or in their ingress rules. The host's own ports

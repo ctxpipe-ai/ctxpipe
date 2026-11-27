@@ -244,8 +244,6 @@
         "apps/backend/src/domain/workspaces/write-ops-native.contract.test.ts",
         "apps/backend/src/mcp/tools/code-tools.integration.test.ts",
         "apps/backend/src/mcp/tools/get-related.integration.test.ts",
-        "apps/backend/src/mcp/tools/get-related.latency.ts",
-        "apps/backend/src/mcp/tools/legacy-knowledge.integration.test.ts",
         "apps/backend/src/mcp/tools/list-workspaces.integration.test.ts",
         "apps/backend/src/mcp/tools/search-knowledge.integration.test.ts",
         "apps/backend/src/routes/v1/connector-sync-now.http.integration.test.ts",
@@ -273,7 +271,6 @@
     },
     {
       "files": [
-        "apps/backend/src/platform/graph/client.ts",
         "apps/ui/src/components/ui/FieldButton.tsx"
       ],
       "rules": {

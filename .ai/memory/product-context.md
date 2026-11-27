@@ -46,8 +46,10 @@ Workspace chat is stock TanStack (`useChat` + persistence + sandbox) against git
 - PostgreSQL 17 with pgvector stores application, auth, repository, connection,
   conversation, retrieval, and workflow data. All migrations live in
   `apps/backend`.
-- FalkorDB is the default graph database. The graph platform supports configured
-  OpenCypher providers through `GRAPH_DB_PROVIDER` and `GRAPH_DB_URI`.
+- ClickHouse holds the knowledge content: the documents, their chunks, and
+  their relations ([ADR-066](decisions/ADR-066-knowledge-content-in-clickhouse.md)).
+  The knowledge plane reads it for `search_knowledge`, `get_related`, the chat
+  search and graph tools, and the Graph pane. ctxpipe has no graph database.
 - Organization DB context uses AsyncLocalStorage with
   `withSystemDbContext(...)` and `withOrgDbContext(orgId, ...)`.
 - Repository IDs use the `repo_` prefix; connections use `con_`.
@@ -116,8 +118,8 @@ Workspace chat is stock TanStack (`useChat` + persistence + sandbox) against git
 
 ## Local development
 
-- `pnpm dev:infra` starts the Compose `infra` profile: PostgreSQL, FalkorDB, and
-  the OpenTelemetry collector.
+- `pnpm dev:infra` starts the Compose `infra` profile: PostgreSQL, ClickHouse,
+  and the OpenTelemetry collector.
 - `pnpm dev` runs backend and UI on the host behind portless and starts
   codesearch in Docker. Browse at `https://app.ctxpipe.localhost`.
 - Linked worktrees share PostgreSQL but use one database per worktree.

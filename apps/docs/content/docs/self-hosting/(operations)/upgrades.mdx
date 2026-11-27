@@ -10,14 +10,14 @@ back in.
 ## Upgrade checklist
 
 1. Read release notes or the relevant pull request.
-2. Back up Postgres.
-3. Back up or snapshot the graph database.
-4. Keep the current deployment secrets and image tags or commit SHA.
-5. Confirm that no connector or ingestion job that runs for a long time must finish first.
-6. Run migrations against the target database (AWS CDK: this is part of
+2. Back up Postgres. A ClickHouse backup is optional: see
+   [Recover the knowledge store](/docs/self-hosting/configuration#recover-the-knowledge-store).
+3. Keep the current deployment secrets and image tags or commit SHA.
+4. Confirm that no connector or ingestion job that runs for a long time must finish first.
+5. Run migrations against the target database (AWS CDK: this is part of
    `cdk deploy`).
-7. Deploy backend, worker, UI, and codesearch from the same commit or release.
-8. Validate health, sign-in, repository indexing, Chat/MCP, and connectors.
+6. Deploy backend, worker, UI, and codesearch from the same commit or release.
+7. Validate health, sign-in, repository indexing, Chat/MCP, and connectors.
 
 ## Upgrade from main to Workspaces
 
@@ -32,7 +32,7 @@ self-hosted deployments use the same UI workflow.
 
 1. **Take a database snapshot.** The upgrade deletes orphan rows. A
    schema rollback is possible only from a snapshot. Take the snapshot of
-   Postgres (and of the graph database) before you deploy.
+   Postgres before you deploy.
 2. **Check the GitHub App permissions.** Workspace writes need **Contents:
    Read and write** and **Pull requests: Read and write**. Without them, a
    Workspace shows `blocked: write_access`. The upgrade pull request
@@ -254,9 +254,11 @@ Workspace does the work:
   Git that adds its source file. Workspace **Settings** lists only GitHub App
   repositories. Or leave the repository out.
 
-Below format 3, the Workspace serves the knowledge from before Workspaces as
-read-only units from the database (source `legacy`). After the re-ingestion of a
-repository, the fresh knowledge replaces the old knowledge of that repository.
+From 4.0.0, the knowledge tools serve only the knowledge plane, which reads
+the files of the Workspace repository. The knowledge from before Workspaces is
+not in that repository, so the tools do not serve it until you upgrade the
+Workspace to format 3 and run its re-ingestion. Then the fresh knowledge of
+each repository is in the Workspace repository.
 
 #### Index a repository with the REST API
 
@@ -273,14 +275,11 @@ file of that Workspace names it.
 
 ### Knowledge from before Workspaces needs the re-ingestion
 
-The old knowledge stack serves the knowledge from before Workspaces from the
-database. It does this below format 3, and for each source repository that no
-re-ingestion did yet. The Workspace repository does not hold this knowledge.
-
-The knowledge store reads only the Workspace repository, so it does not serve
-this knowledge. A later release removes the old knowledge stack. After that
-release, MCP and chat do not find this knowledge. To keep it, do these steps
-for each Workspace before you deploy that release:
+The Workspace repository does not hold the knowledge from before Workspaces.
+The database keeps it below format 3, and for each source repository that no
+re-ingestion did yet. Since 4.0.0, the knowledge tools read only the knowledge
+store, which reads only the Workspace repository. So MCP and chat do not find
+this knowledge until you do these steps for each Workspace:
 
 1. Open the Workspace, then **Settings**. On the **Upgrades** card, a warning
    shows the count of knowledge files that are not in the repository.
@@ -293,8 +292,7 @@ the re-ingestion makes the knowledge of each source repository again. Then the
 Workspace repository holds the knowledge, and the warning goes away after the
 next hydrate.
 
-When the knowledge store serves a Workspace that still has such files, MCP
-tells the agent. `search_knowledge`, `list_files`, and `get_related` add a
+When a Workspace still has such files, MCP tells the agent. `search_knowledge`, `list_files`, and `get_related` add a
 `notices` entry with the count and the action. `read_file`, `list_files`, and `get_related` add the same text to an
 `unknown_ref` error.
 
@@ -340,9 +338,32 @@ ClickHouse, an EBS data volume, and an S3 bucket. The host is always on: no
 prop turns it off. At `size: "small"` it is a `t4g.large` with a 50 GB volume,
 for about **$55 a month** in us-east-1. The deploy waits until ClickHouse
 answers. Then the migrate task makes its tables and its two users, before the
-services roll. The new knowledge store stays off for each organization. See
+services roll. See
 [the knowledge store](/docs/self-hosting/deployment/aws#knowledge-store) for
 the larger sizes and for recovery.
+
+### Upgrade to 4.0.0: the old knowledge stack is removed
+
+Version 4.0.0 is a major release. The knowledge plane (ClickHouse) now serves
+all knowledge, and the old knowledge stack is removed.
+
+1. Remove the `orgSlug` prop from your `CtxPipe` props. The construct does not
+   have it now, so a typed CDK app does not compile with it.
+2. Run `cdk deploy`. The deploy deletes the Neptune cluster and its instance,
+   and AWS keeps a final snapshot of the cluster.
+3. The migrate task drops the Postgres knowledge chunk tables. A rollback to
+   3.x after this step needs the database backup.
+4. Until the knowledge projection of a Workspace ends, its knowledge tools give
+   `workspace_not_ready`, and the graph view shows that the graph is building.
+   The knowledge from before Workspaces comes back only with the re-ingestion
+   of the Workspace (see [Re-ingestion](#re-ingestion)).
+5. When the plane serves each Workspace, delete the final Neptune snapshot. It
+   holds a copy of the old knowledge graph of each organization, also of an
+   organization that you delete later, and nothing removes that copy for you.
+
+On Docker Compose, the release has no FalkorDB service. When your
+`docker-compose.override.yml` adds a `falkordb` service or volume, remove it.
+Then remove the old FalkorDB container and its volume.
 
 ## Docker Compose flow
 
@@ -408,7 +429,7 @@ Rollback depends on whether the upgrade ran database migrations.
 |---|---|
 | No migrations ran | Revert service images or source ref and restart services. |
 | Forward-compatible migrations ran | Revert services only if the previous version can tolerate the new schema. |
-| Breaking migrations ran | Restore Postgres from backup, restore graph data if needed, then redeploy the previous version. |
+| Breaking migrations ran | Restore Postgres from backup, then redeploy the previous version. |
 
 ### Roll back from Workspaces to main
 
@@ -450,7 +471,7 @@ A release that knows only older formats shows that Workspace as read-only
 | UI | Build-time public URL values, connector wizard behavior |
 | Codesearch | Index format or clone/cache behavior |
 | Chat sandboxes | Chat image changes, Docker daemon and TLS settings, sandbox host size (AWS) |
-| Graph database | Provider configuration and graph projection compatibility |
+| Knowledge store | ClickHouse migrations, and full rebuilds of the knowledge store after an index format change |
 | Model provider | Default model names, embedding dimensions, provider-specific auth |
 
 ## Related pages

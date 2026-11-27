@@ -57,20 +57,6 @@
     "UNKEYED_COLLISION_TIMEOUT_MS"
   ],
   "apps/backend/src/domain/workspaces/fetch-github-commits.ts": ["MAX_PAGES"],
-  "apps/backend/src/domain/workspaces/graph-projection.ts": [
-    "workspaceGraphProjectionVersion"
-  ],
-  "apps/backend/src/domain/workspaces/graph-relevance.ts": [
-    "DAY_MS",
-    "DEFAULT_RECENCY_HALF_LIFE_DAYS",
-    "PPR_MAX_ITERATIONS",
-    "PPR_TOLERANCE",
-    "QUERY_MATCH_BASE",
-    "RECENCY_FLOOR",
-    "STRONG_QUERY_MATCH",
-    "UNDATED_RECENCY"
-  ],
-  "apps/backend/src/domain/workspaces/knowledge-search.ts": ["RRF_K"],
   "apps/backend/src/domain/workspaces/mask-credentials.ts": [
     "HOLD_MAX",
     "TAIL"
@@ -113,7 +99,6 @@
     "RESERVED_TOKENS"
   ],
   "apps/backend/src/mcp/framework/org-code.ts": ["CALL_DEADLINE_MS"],
-  "apps/backend/src/mcp/tools/get-related.latency.ts": ["CLAIMS_PER_NODE"],
   "apps/backend/src/mcp/tools/list-files.ts": ["GLOB_LIMIT"],
   "apps/backend/src/mcp/tools/list-workspaces.ts": [
     "PAGE_SIZE",
@@ -149,7 +134,6 @@
   "apps/backend/src/openworkflow/workflows/workspace-upgrade-scan.ts": [
     "SCAN_STAGGER_MS"
   ],
-  "apps/backend/src/platform/graph/client.ts": ["DEFAULT_GRAPH_DB_URI"],
   "apps/backend/src/retrieval/services/confidenceAggregation.ts": [
     "RECENCY_HALF_LIFE_DAYS"
   ],

@@ -1,18 +1,16 @@
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 
+import type { SeededOrg } from "../../test/db.js"
 import { withOrgDbContext } from "../db/client.js"
-import {
-  workspaceKnowledgeChunks,
-  workspaceKnowledgeUnits,
-  workspaces,
-} from "../db/schema/workspaces.js"
+import { workspaceKnowledgeUnits, workspaces } from "../db/schema/workspaces.js"
 import type { HydrateClaim } from "../domain/workspaces/hydrate.js"
-import { knowledgeChunkRows } from "../domain/workspaces/knowledge-chunks.js"
+import type { WorkspaceRevision } from "../domain/workspaces/revision.js"
 
 /**
- * A small concept embedding: synonyms share one dimension, so a paraphrase
- * is near its source text. Other words fall into hashed noise dimensions.
+ * A small concept embedding with the 1024 dimensions of the knowledge plane:
+ * synonyms share one dimension, so a paraphrase is near its source text.
+ * Other words fall into hashed noise dimensions.
  */
 const CONCEPTS: Record<string, number> = {
   outage: 0,
@@ -25,7 +23,7 @@ const CONCEPTS: Record<string, number> = {
 }
 
 export function embedText(text: string): number[] {
-  const vector: number[] = new Array(2000).fill(0)
+  const vector: number[] = new Array(1024).fill(0)
   for (const word of text.toLowerCase().match(/[a-z0-9]+/g) ?? []) {
     const concept = CONCEPTS[word]
     if (concept !== undefined) {
@@ -40,9 +38,6 @@ export function embedText(text: string): number[] {
   if (!vector.some((value) => value !== 0)) vector[63] = 1
   return vector
 }
-
-/** The vector of a text on both stacks: the old stack has 2000 dimensions. */
-export const planeVector = (text: string) => embedText(text).slice(0, 1024)
 
 /** An msw server for the embeddings endpoint of `MODEL_PROVIDER_URL=https://search-model.test/v1`. */
 export function embeddingModelServer(requests: string[] = []) {
@@ -63,7 +58,7 @@ export function embeddingModelServer(requests: string[] = []) {
   )
 }
 
-export type SeedUnit = {
+type SeedUnit = {
   id: string
   workspaceId: string
   path: string
@@ -92,13 +87,14 @@ export async function seedKnowledgeWorkspace(
   )
 }
 
+/** The unit rows of the projection in Postgres (`workspace_knowledge_units`). */
 export async function seedKnowledgeUnits(
   org: string,
   sha: string,
   seed: SeedUnit[],
 ) {
-  await withOrgDbContext(org, async (db) => {
-    await db.insert(workspaceKnowledgeUnits).values(
+  await withOrgDbContext(org, (db) =>
+    db.insert(workspaceKnowledgeUnits).values(
       seed.map((unit) => ({
         servingId: unit.id,
         orgId: org,
@@ -120,20 +116,48 @@ export async function seedKnowledgeUnits(
           ...claim,
         })),
       })),
-    )
-    for (const unit of seed) {
-      const rows = knowledgeChunkRows(
-        [{ servingId: unit.id, body: unit.body, title: unit.title }],
-        "fixture-model",
-      )
-      await db.insert(workspaceKnowledgeChunks).values(
-        rows.map((row) => ({
-          ...row,
-          workspaceId: unit.workspaceId,
-          orgId: org,
-          embedding: embedText(row.text),
-        })),
-      )
-    }
-  })
+    ),
+  )
+}
+
+/**
+ * A Workspace with an active revision of `sha` and a ready index. The
+ * knowledge plane serves it after a test writes its documents and completes
+ * a knowledge run (`writePlaneDocuments`, `completeKnowledgeRun`).
+ */
+export async function seedServedWorkspace(input: {
+  seed: Pick<SeededOrg, "orgId">
+  slug: string
+  sha: string
+}): Promise<{ workspaceId: string; revision: WorkspaceRevision }> {
+  const { seed, slug, sha } = input
+  const workspaceId = `ws_served_${slug}_${Date.now().toString(36)}`
+  const url = `https://git.example.test/acme/${slug}.git`
+  const revision: WorkspaceRevision = {
+    workspaceId,
+    generation: 1,
+    remote: { url, connectionId: null },
+    defaultBranch: "main",
+    sha,
+    access: "read",
+  }
+  await withOrgDbContext(seed.orgId, (db) =>
+    db.insert(workspaces).values({
+      id: workspaceId,
+      orgId: seed.orgId,
+      slug,
+      displayName: `Fixture ${slug}`,
+      workspaceRepositoryUrl: url,
+      desiredDefaultBranch: "main",
+      activeProjectionSha: sha,
+      activeRevision: revision,
+      hydratePhases: {
+        url,
+        sha,
+        revision,
+        index: { revision, result: { kind: "ready" } },
+      },
+    }),
+  )
+  return { workspaceId, revision }
 }

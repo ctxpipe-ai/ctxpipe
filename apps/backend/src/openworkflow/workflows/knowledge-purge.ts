@@ -3,6 +3,7 @@ import { z } from "zod"
 
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
+import { organizationExists } from "../../domain/organization-admin.js"
 import { withSandboxLockIfFree } from "../../domain/workspaces/sandbox-lock-store.js"
 import {
   createKnowledgeStore,
@@ -21,10 +22,10 @@ import { openWorkflowNamespaceId } from "../namespace.js"
 import { cancelRun } from "../run-ended.js"
 
 /**
- * The count of checks that find the Workspace row there while no delete
- * runs, before the purge of a Workspace stops with no change.
+ * The count of checks that find the Workspace row (or the org row) there
+ * while no delete runs, before the purge stops with no change.
  */
-export const IDLE_WORKSPACE_CHECKS = 10
+export const IDLE_CHECKS = 10
 
 /**
  * Deletes the knowledge plane rows of a deleted org or Workspace from
@@ -32,23 +33,27 @@ export const IDLE_WORKSPACE_CHECKS = 10
  * no right to delete (ADR-066 decision 9), so the delete paths queue this
  * workflow, and the worker runs it with the writer user.
  *
- * The delete removes the Postgres rows that a projection run reads before
- * its first write: the Workspace row, or the knowledge flag of the org.
- * Thus a projection run that starts after the delete writes nothing. A run
- * that started before the delete can still write. The purge waits until
- * the delete committed and no projection run of the scope is running, then
- * deletes. The lease of a Workspace cannot give this order for an org: the
- * lease rows go with the org row.
+ * The delete removes the Postgres row that a projection run reads before
+ * its first write: the Workspace row, or the org row. Thus a projection run
+ * that starts after the delete writes nothing. A run that started before
+ * the delete can still write. The purge waits until the delete committed
+ * and no projection run of the scope is running, then deletes. The lease of
+ * a Workspace cannot give this order for an org: the lease rows go with the
+ * org row.
  *
  * A Workspace delete queues the purge before it starts, so that a failed
  * enqueue deletes nothing and the delete can run again. The delete holds
  * the sandbox lock of the Workspace while it destroys the sandboxes and
  * deletes the row. Thus the purge of a Workspace waits while the row is
  * there. When the row is there and no one holds that lock at
- * {@link IDLE_WORKSPACE_CHECKS} checks, no delete runs, and the purge stops
- * with no change. An org delete queues the purge after its Postgres
- * transaction: when the enqueue fails, the organization row stays, and a
- * new delete queues the purge again.
+ * {@link IDLE_CHECKS} checks, no delete runs, and the purge stops with no
+ * change, and cancels its next runs. An org delete queues the purge in its `beforeDeleteOrganization`
+ * hook, after the Postgres transaction of the hook and before the delete of
+ * the org row. When the enqueue fails, the organization row stays, and a
+ * new delete queues the purge again. The purge of an org waits while the
+ * org row is there. When the row is there at {@link IDLE_CHECKS} checks,
+ * the purge stops with no change, and its next-day run checks again: the
+ * delete of the org row can come later, or never.
  *
  * After the DELETEs, the purge makes ClickHouse remove the deleted rows
  * from the parts, and waits until no part holds a row of the scope and the
@@ -81,10 +86,11 @@ export const knowledgePurge = defineWorkflow(
       maximumAttempts: 30,
     } as const
     // The first step queues the next purge run of the scope, one day later.
-    // A run that ends with no error cancels the queued runs of its scope. A
-    // run that fails (a step that still fails after its retries, as while
-    // ClickHouse is down) leaves its next run, and the next run queues its
-    // own next run first. Thus the purge and the erase start again each day
+    // A run that ends with no error cancels the queued runs of its scope,
+    // except a run that ends with `org_kept`: its next run checks the org
+    // row again. A run that fails (a step that still fails after its
+    // retries, as while ClickHouse is down) leaves its next run, and the
+    // next run queues its own next run first. Thus the purge and the erase start again each day
     // until one run ends, with no operator (ADR-066 decision 9). This step
     // retries each hour until it succeeds, so no run ends before its next
     // run is queued.
@@ -112,12 +118,16 @@ export const knowledgePurge = defineWorkflow(
         purgeWait(input),
       )
       if (!wait) break
-      if (wait === "workspace" && ++idle >= IDLE_WORKSPACE_CHECKS)
-        return step.run({ name: "workspace-kept" }, async () => {
-          await cancelQueuedPurges(input)
+      // A kept Workspace row: no delete runs, and the queued runs go. A kept
+      // org row: the hook can still run (it calls codesearch for each
+      // repository before the delete of the org row), so the next-day run
+      // stays and checks again.
+      if ((wait === "workspace" || wait === "org") && ++idle >= IDLE_CHECKS)
+        return step.run({ name: `${wait}-kept` }, async () => {
+          if (wait === "workspace") await cancelQueuedPurges(input)
           getLogger().set({
             step: "knowledge-purge",
-            knowledgePurge: { outcome: "workspace_kept" },
+            knowledgePurge: { outcome: `${wait}_kept` },
           })
           return null
         })
@@ -233,16 +243,18 @@ async function withStore<T>(
  * - `deleting`: the Workspace row is there, and its delete (or another
  *   holder of its sandbox lock) runs now;
  * - `workspace`: the Workspace row is there, and no one holds that lock;
+ * - `org`: the purge is for an org, and the org row is there;
  * - `projection`: a projection run of the scope is `running`. A run asleep
  *   in a step (as one that waits for the projection lease) also counts.
- *   A `pending` run (new, or before a retry) does not: it reads the flag
+ *   A `pending` run (new, or before a retry) does not: it reads the org row
  *   and the Workspace again when it runs, so it writes nothing for a
  *   deleted scope.
  */
 async function purgeWait(
   scope: PurgeScope,
-): Promise<"deleting" | "workspace" | "projection" | null> {
+): Promise<"deleting" | "workspace" | "org" | "projection" | null> {
   const { orgId, workspaceId } = scope
+  if (workspaceId === null && (await organizationExists(orgId))) return "org"
   if (
     workspaceId !== null &&
     (await withOrgDbContext(orgId, () => getWorkspaceById(workspaceId, orgId)))

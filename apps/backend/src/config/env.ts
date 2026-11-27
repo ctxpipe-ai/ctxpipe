@@ -126,20 +126,6 @@ const envSchema = z
      */
     CLICKHOUSE_URL: z.string().url().optional(),
 
-    // Graph DB (OpenCypher: FalkorDB, Neo4j, Memgraph, Neptune)
-    GRAPH_DB_URI: z.string().url().default("redis://falkordb:6379"),
-    GRAPH_DB_USER: z.string().min(1).optional(),
-    GRAPH_DB_PASSWORD: z.string().optional(),
-    GRAPH_DB_PROVIDER: z
-      .enum([
-        "falkordb",
-        "neo4j-enterprise",
-        "neo4j-community",
-        "memgraph",
-        "neptune",
-      ])
-      .default("falkordb"),
-
     /** Reachable local-interface hostname/IP used for sandbox callbacks. */
     SANDBOX_CALLBACK_HOST: z.preprocess(
       (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),

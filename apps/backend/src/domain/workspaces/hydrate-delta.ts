@@ -12,18 +12,15 @@ import {
  *
  * - `no_base`: no active projection to start from.
  * - `reproject`: the run must project the revision again (a re-ingestion).
- * - `chunks_missing`: a unit of the active projection has no chunk rows.
  * - `lineage`: the active projection has another generation, remote,
  *   connection or default branch.
  * - `format_changed`: the Workspace format of the new tree is not the cached
  *   format of the active projection.
  * - `base_moved`: another hydrate changed the active projection after this
  *   run selected its base.
- * - `unit_bound`: too many units changed (`partialUnitBound`). A new
- *   embedding model changes the hash of each unit, so it also gives this
- *   reason.
+ * - `unit_bound`: too many units changed (`partialUnitBound`).
  *
- * `hydrateCommitBase` selects the first five reasons, which need no lock.
+ * `hydrateCommitBase` selects the first four reasons, which need no lock.
  * The commit adds `base_moved` under the row lock, and `unit_bound` after
  * it compares the units with the stored rows.
  *
@@ -35,7 +32,6 @@ import {
 export type HydrateFullReason =
   | "no_base"
   | "reproject"
-  | "chunks_missing"
   | "lineage"
   | "format_changed"
   | "base_moved"
@@ -55,12 +51,10 @@ export function hydrateCommitBase(input: {
   revision: WorkspaceRevision
   projection: PublishedProjection | null
   reproject: boolean
-  chunksMissing: boolean
   formatChanged: boolean
 }): HydrateCommitBase {
   const { projection } = input
   if (input.reproject) return { fullReason: "reproject" }
-  if (input.chunksMissing) return { fullReason: "chunks_missing" }
   if (projection?.kind !== "active") return { fullReason: "no_base" }
   if (!sameWorkspaceBinding(projection.revision, input.revision))
     return { fullReason: "lineage" }
@@ -70,35 +64,25 @@ export function hydrateCommitBase(input: {
 
 /**
  * The maximum number of changed and removed units for a partial write: 10%
- * of the stored units, at most 200. A partial write uses one upsert for each
- * changed row and reads the chunk keys of the changed units only. A full
- * write uses one insert for each 500 rows and reads the keys of all chunks
- * once. Above about 10% of the units, the partial statements cost about as
- * much as the full rewrite. Above 200 units, the graph delta (one atomic
- * graph query) gets large, and the graph store blocks the org graph while
- * that query runs.
+ * of the stored units. A partial write uses one upsert for each 500 changed
+ * rows and one delete for each 1,000 removed rows, and a full write deletes
+ * all rows and inserts each 500 rows. Above about 10% of the units, the
+ * partial statements cost about as much as the full rewrite.
  */
 export function partialUnitBound(storedUnits: number): number {
-  return Math.min(200, Math.ceil(storedUnits * 0.1))
+  return Math.ceil(storedUnits * 0.1)
 }
 
 /**
- * A hash of each value that hydrate stores for a unit or derives from it:
- * the row columns, the first body line, which sets the chunk lines, and the
- * embedding model, which sets the chunk hashes and vectors. When the model
- * changes, each stored hash differs, so the next hydrate writes all units
- * (`unit_bound`) and embeds them again.
+ * A hash of each value that hydrate stores for a unit: the row columns and
+ * the first body line.
  */
-export function hydrateUnitHash(
-  unit: HydrateUnit,
-  embeddingModel: string,
-): string {
+export function hydrateUnitHash(unit: HydrateUnit): string {
   return createHash("sha256")
     .update(
       JSON.stringify([
         // The hash version. Increase it when the hashed values change.
-        1,
-        embeddingModel,
+        2,
         unit.servingId,
         unit.path,
         unit.kind ?? null,
@@ -130,7 +114,6 @@ export function hydrateUnitHash(
 export function diffHydrateUnits(
   stored: ReadonlyArray<{ servingId: string; unitHash: string | null }>,
   next: readonly HydrateUnit[],
-  embeddingModel: string,
 ): { changed: HydrateUnit[]; removed: string[] } {
   const kept = new Set<string>()
   for (const unit of next) {
@@ -140,8 +123,7 @@ export function diffHydrateUnits(
   }
   const hashes = new Map(stored.map((row) => [row.servingId, row.unitHash]))
   const changed = next.filter(
-    (unit) =>
-      hashes.get(unit.servingId) !== hydrateUnitHash(unit, embeddingModel),
+    (unit) => hashes.get(unit.servingId) !== hydrateUnitHash(unit),
   )
   const removed = stored
     .map((row) => row.servingId)

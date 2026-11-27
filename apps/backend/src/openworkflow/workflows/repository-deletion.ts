@@ -4,13 +4,11 @@ import { withOrgIdContext } from "../../auth/withAuth.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { formatUnknownError } from "../../db/transientDbRetry.js"
 import {
-  applyRepositoryDeletionGraphCleanup,
   deleteRepositoryRowPostgres,
   notifyCodesearchRepositoryDeleted,
   prepareRepositoryDeletionPostgres,
 } from "../../domain/repositoryDeletion.js"
 import { flushWorkflowLog, getLogger } from "../../observability/logger.js"
-import { withGraphClient } from "../../platform/graph/client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { withLoggedStepAttempt } from "../withLoggedStepAttempt.js"
 
@@ -76,8 +74,9 @@ export const repositoryDeletion = defineWorkflow(
       return await withOrgIdContext(
         { id: org.id, slug: org.slug },
         async () => {
-          // Persist graphEffects in this step *before* deleting the row so a
-          // crash between row delete and step-ack cannot drop claim retractions.
+          // Persist the lookup in this step *before* deleting the row, so
+          // that a crash between row delete and step-ack keeps the name and
+          // the index id for the codesearch purge.
           const prepared = await step.run({ name: "prepare-purge" }, () =>
             wls("prepare-purge", () =>
               withOrgDbContext(input.orgId, () =>
@@ -110,21 +109,6 @@ export const repositoryDeletion = defineWorkflow(
           logWorkflowMilestone("repository-deletion.delete-row.done", {
             repositoryId: input.repositoryId,
             deleted,
-          })
-
-          await step.run({ name: "sync-graph" }, () =>
-            wls("sync-graph", () =>
-              withGraphClient({ orgId: org.id, orgSlug: org.slug }, () =>
-                applyRepositoryDeletionGraphCleanup({
-                  repositoryId: input.repositoryId,
-                  graphEffects: prepared.graphEffects,
-                }),
-              ),
-            ),
-          )
-
-          logWorkflowMilestone("repository-deletion.sync-graph.done", {
-            repositoryId: input.repositoryId,
           })
 
           const repoName = prepared.name ?? input.repoName ?? null

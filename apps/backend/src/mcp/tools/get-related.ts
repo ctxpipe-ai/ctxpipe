@@ -4,7 +4,8 @@ import { z } from "zod"
 
 import { RELEVANCE_INTENTS } from "../../domain/workspaces/graph-relevance.js"
 import type { Ranking } from "../../domain/workspaces/related-ranking.js"
-import { selectKnowledgeReader } from "../../knowledge-reader/knowledge-reader.js"
+import { servedKnowledgeHead } from "../../knowledge-reader/knowledge-reader.js"
+import { planeKnowledgeReader } from "../../knowledge-reader/plane-reader.js"
 import { knowledgeViewKey } from "../../models/knowledge-state.js"
 import { STATUS_RULES } from "../../retrieval/jev/disagreement.js"
 import { fitPage } from "../framework/budget.js"
@@ -26,16 +27,10 @@ import {
 import { McpToolError } from "../framework/tool-errors.js"
 import { defineMcpReadTool, scoredResult } from "../framework/tool-registry.js"
 
-export { rankWorkspaceRelated } from "../../domain/workspaces/related-ranking.js"
-
 const instant = z.iso.datetime({ offset: true })
 const name = z.string().min(1).max(64)
 
-/**
- * The arguments of `get_related`. Each bound is the bound that `rankRelated`
- * and `expandWorkspaceGraph` check, so a call that passes here never makes
- * either function throw (ADR-051 §6).
- */
+/** The arguments of `get_related`, with their bounds (ADR-051 §6). */
 export const getRelatedInputShape = {
   workspace: workspaceArgument,
   branch: branchArgument,
@@ -75,13 +70,6 @@ export const getRelatedInputShape = {
     .describe(
       "Never walk edges with these predicates. Not case-sensitive. Applies to every walk.",
     ),
-  predicateWeights: z
-    .record(name, z.number().min(0))
-    .refine((weights) => Object.keys(weights).length <= 50, {
-      message: "At most 50 predicate weights.",
-    })
-    .optional()
-    .describe("Replaces the weight of single predicates. 0 removes the edges."),
   kinds: z
     .array(name)
     .max(50)
@@ -112,7 +100,7 @@ export const getRelatedInputShape = {
     .max(200)
     .default(50)
     .describe(
-      "Edges that one unit expands, 5 to 200: the strongest edge of each predicate first, then the next of each. Default 50.",
+      "Relations that one document expands, 5 to 200: the most confident relations first. Default 50.",
     ),
   minConfidence: z
     .number()
@@ -132,47 +120,6 @@ export const getRelatedInputShape = {
     .describe(
       "Instead of validAt: edges valid at some time in this window, ended edges included.",
     ),
-  recencyHalfLifeDays: z
-    .number()
-    .positive()
-    .optional()
-    .describe("Half-life of a change edge in days. Default 90."),
-  restart: z
-    .number()
-    .gt(0)
-    .lt(1)
-    .optional()
-    .describe(
-      "Restart probability of the walk, above 0 and below 1. Higher stays closer to the seeds. Default 0.15.",
-    ),
-  queryWeight: z
-    .number()
-    .min(0)
-    .max(1)
-    .optional()
-    .describe("Share of the query against graph proximity. Default 0.5."),
-  hubPenalty: z
-    .number()
-    .min(0)
-    .max(1)
-    .optional()
-    .describe(
-      "Exponent of the hub penalty degree^-x, 0 to 1. The intent sets the default.",
-    ),
-  diversity: z
-    .number()
-    .min(0)
-    .max(1)
-    .optional()
-    .describe(
-      "0 ranks by score only; higher spreads results over kinds and neighbors. Default 0.5 for general, else 0.3.",
-    ),
-  maxPerKind: z
-    .number()
-    .int()
-    .min(1)
-    .optional()
-    .describe("At most this many results of one kind."),
   explain: z
     .boolean()
     .default(true)
@@ -217,7 +164,6 @@ const resultSchema = z.object({
   updatedAt: z.string(),
   summary: z.string().optional(),
   score: z.number(),
-  queryMatch: z.number().optional(),
   depth: z.number().int(),
   path: z.array(stepSchema).optional(),
 })
@@ -274,7 +220,7 @@ export const getRelatedTool = defineMcpReadTool({
   name: "get_related",
   title: "Get related knowledge",
   description:
-    "Use it after search_knowledge to find owners, dependencies, decisions, incidents and changes. Finds knowledge related to seed refs AND relevant to your query, ranked by graph proximity, edge confidence and query match. Without the knowledge plane, edge confidence decreases with age, and the change intent also ranks newer changes first. The knowledge plane does not rank by age. Set intent (why, ownership, change, dependencies, structure, provenance) or give the question as query. Each intent walks its own edges first and puts its answer kinds first; with few results, a second walk follows all edges. No walk of all edges follows FROM_SOURCE; the provenance intent walks it, to find the sources a unit came from. Each result can explain why: the path of predicates from a seed. With positions, the top results are grouped by the claim they make, each with a status (current, superseded, disputed, scoped) and the positions it contradicts or updates: prefer a current position. Positions come only on the knowledge plane. Without positions, compare the updatedAt of the results and read the newest source. Filter by predicates, kinds, direction, depth and time. For plain neighbors, set maxDepth 1 and no query. Send independent calls in parallel.",
+    "Use it after search_knowledge to find owners, dependencies, decisions, incidents and changes. Finds knowledge related to seed refs AND relevant to your query: a walk of the relations of the seeds, ranked by how well each result answers the question. The ranking does not use age. Set intent (why, ownership, change, dependencies, structure, provenance) or give the question as query. Each intent walks its own edges first and puts its answer kinds first; with few results, a second walk follows all edges. No walk of all edges follows FROM_SOURCE; the provenance intent walks it, to find the sources a unit came from. Each result can explain why: the path of predicates from a seed. With positions, the top results are grouped by the claim they make, each with a status (current, superseded, disputed, scoped) and the positions it contradicts or updates: prefer a current position. Without positions, compare the updatedAt of the results and read the newest source. Filter by predicates, kinds, direction, depth and time. For plain neighbors, set maxDepth 1 and no query. Send independent calls in parallel.",
   org: "required",
   inputShape: getRelatedInputShape,
   outputSchema: z.object({
@@ -302,21 +248,19 @@ export const getRelatedTool = defineMcpReadTool({
       )
     }
     const workspace = await resolveCallWorkspace(org, input.workspace)
-    const legacyServed = requireServed(workspace)
-    const { reader, planeHeads } = await selectKnowledgeReader(
-      org.id,
-      [workspace.id],
-      input.branch,
-    )
+    const published = requireServed(workspace)
+    const head = await servedKnowledgeHead(org.id, workspace.id, input.branch)
+    const reader = planeKnowledgeReader({
+      heads: new Map([[workspace.id, head]]),
+    })
     // The plane serves the SHA of its last full run of the branch.
-    const planeHead = planeHeads.get(workspace.id)
     const served = {
-      branch: input.branch ?? legacyServed.branch,
-      sha: planeHead?.sha ?? legacyServed.sha,
+      branch: input.branch ?? published.branch,
+      sha: head.sha,
     }
-    const viewKey = planeHead ? knowledgeViewKey(planeHead) : served.sha
+    const viewKey = knowledgeViewKey(head)
     // The main-era knowledge that the plane does not rank (CTX-1715).
-    const notices = legacyKnowledgeNotices([workspace], planeHeads)
+    const notices = legacyKnowledgeNotices([workspace])
     const { cursor, ...parameters } = input
     const { limit, maxTokens, explain, ...rankParameters } = parameters
     const binding = {
@@ -324,7 +268,6 @@ export const getRelatedTool = defineMcpReadTool({
       workspaceId: workspace.id,
       scope: JSON.stringify(["get_related", parameters]),
       sha: viewKey,
-      stack: reader.stack,
     }
     const decoded = cursor ? decodeCursorWithAnchor(cursor, binding) : null
     const offset = decoded?.offset ?? 0
@@ -332,14 +275,7 @@ export const getRelatedTool = defineMcpReadTool({
     const now = decoded?.anchor ?? Date.now()
     const key = createHash("sha256")
       .update(
-        JSON.stringify([
-          reader.stack,
-          org.id,
-          workspace.id,
-          viewKey,
-          rankParameters,
-          now,
-        ]),
+        JSON.stringify([org.id, workspace.id, viewKey, rankParameters, now]),
       )
       .digest("hex")
     let ranking = cachedRanking(key)
@@ -348,7 +284,6 @@ export const getRelatedTool = defineMcpReadTool({
         ranking = await reader.related({
           org,
           workspace,
-          sha: served.sha,
           input,
           now: new Date(now),
         })

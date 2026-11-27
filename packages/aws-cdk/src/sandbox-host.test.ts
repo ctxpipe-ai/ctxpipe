@@ -14,7 +14,6 @@ function synth(overrides: Partial<CtxPipeProps> = {}): Template {
     env: { account: "123456789012", region: "us-east-1" },
   })
   new CtxPipe(stack, "CtxPipe", {
-    orgSlug: "acme",
     customDomain: {
       domainName: "app.example.com",
       hostedZoneId: "Z0123456789ABCDEF",

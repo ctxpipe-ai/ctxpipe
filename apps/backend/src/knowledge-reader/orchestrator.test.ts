@@ -216,11 +216,10 @@ describe("judge", () => {
     const inputs = Array.from({ length: 30 }, (_, index) =>
       input(`kn_${((index * 37) % 101).toString(36).padStart(3, "0")}${index}`),
     )
-    const meter = () => ({ jevCalls: 0, jevCandidates: 0, embeddingCalls: 0 })
-    const ranked = await judge(inputs, "q", "search", Infinity, meter())
+    const ranked = await judge(inputs, "q", "search", Infinity)
     const rankedCalls = calls.splice(0).sort()
     const reordered = [...inputs.slice(20), ...inputs.slice(0, 20)]
-    const other = await judge(reordered, "q", "search", Infinity, meter())
+    const other = await judge(reordered, "q", "search", Infinity)
 
     expect(calls.sort()).toEqual(rankedCalls)
     expect(rankedCalls).toHaveLength(2)

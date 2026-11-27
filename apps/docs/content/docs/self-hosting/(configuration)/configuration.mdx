@@ -12,9 +12,8 @@ values as production secrets.
 - A [deployment path](/docs/self-hosting#choose-a-deployment-path): Docker Compose or AWS CDK.
 - PostgreSQL with pgvector. Compose uses PostgreSQL 17. AWS CDK
   uses Aurora PostgreSQL 16.
-- A graph database. FalkorDB is in the Compose stack.
-- ClickHouse 26.10 for the new knowledge store. ClickHouse is in the Compose
-  stack. AWS CDK does not deploy it yet.
+- ClickHouse 26.10 for the knowledge store. Compose and AWS CDK both deploy
+  ClickHouse.
 - A model provider: OpenRouter, Azure OpenAI, Amazon Bedrock, or another
   OpenAI-compatible API.
 - A public HTTPS origin for auth callbacks, webhooks, MCP, and Forge.
@@ -86,29 +85,17 @@ behavior.
 See [Model configuration](/docs/self-hosting/models) for provider-specific
 examples and embedding requirements.
 
-## Graph database
-
-| Variable | Description |
-|---|---|
-| `GRAPH_DB_PROVIDER` | Optional. `falkordb` (default), `neo4j-enterprise`, `neo4j-community`, `memgraph`, or `neptune`. |
-| `GRAPH_DB_URI` | FalkorDB Redis URI or Bolt URI for another supported graph database. |
-| `GRAPH_DB_USER`, `GRAPH_DB_PASSWORD` | Optional credentials for providers that require them. |
-
-See [Graph databases](/docs/self-hosting/graph-databases) for provider support
-and tenancy behavior.
-
 ## Knowledge store
 
-ClickHouse holds the content of the new knowledge store: the documents, their
+ClickHouse holds the content of the knowledge store: the documents, their
 sections, and the relations between them. ctxpipe makes this content from the
-files of each Workspace repository.
-
-The new knowledge store is off for every organization. A later release
-explains how to turn it on.
+files of each Workspace repository. Knowledge search, related-item lookups, and
+the graph in the app read only from this store. ctxpipe has no separate graph
+database.
 
 | Variable | Description |
 |---|---|
-| `CLICKHOUSE_URL` | Required for an organization on the new knowledge store. The ClickHouse HTTP URL with the user, the password, and the database: `http://user:password@host:8123/database`. URL-encode special characters in the password. Each process gets a different user (see below). |
+| `CLICKHOUSE_URL` | Required for knowledge search and the graph. The ClickHouse HTTP URL with the user, the password, and the database: `http://user:password@host:8123/database`. URL-encode special characters in the password. Each process gets a different user (see below). |
 | `CLICKHOUSE_READER_PASSWORD` | Migrations only. The password of the user `ctxpipe_reader`. |
 | `CLICKHOUSE_WRITER_PASSWORD` | Migrations only. The password of the user `ctxpipe_writer`. |
 
@@ -232,7 +219,8 @@ repositories. If you lose the ClickHouse data:
    ```
 
 The next hydrate of each Workspace is a full rebuild. Until a Workspace
-completes its full rebuild, the graph database answers for it.
+completes its full rebuild, knowledge search for that Workspace returns a "not
+ready" error, and the graph in the app shows that it is building.
 
 ## Chat sandboxes
 

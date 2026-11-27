@@ -8,7 +8,6 @@ import {
   withOrgDbContext,
 } from "../../../db/client.js"
 import { organizations } from "../../../db/schema/auth.js"
-import { orgFeatures } from "../../../db/schema/org_features.js"
 import { workspaces } from "../../../db/schema/workspaces.js"
 import { generateObjectId } from "../../../lib/id.js"
 import { createLogger, withLogger } from "../../../observability/logger.js"
@@ -18,52 +17,50 @@ import { enqueueKnowledgeBranchRuns } from "./github-knowledge-branch-push.js"
 /*
  * The trigger of the projection of a branch (ADR-071 decision 7) against a
  * real Postgres: a push to a branch that is not the default branch queues a
- * `knowledge-projection` run of that branch, for each org whose flag is not
- * `off`, with a key that holds the pushed SHA.
+ * `knowledge-projection` run of that branch, for each org of the push, with
+ * a key that holds the pushed SHA.
  */
 
-const on = generateObjectId("org")
-const off = generateObjectId("org")
-const workspaceId = generateObjectId("ws")
+const first = generateObjectId("org")
+const second = generateObjectId("org")
+/** The Workspace of the repository in each org. */
+const workspaceIds = {
+  [first]: generateObjectId("ws"),
+  [second]: generateObjectId("ws"),
+}
 const repository = "example-org/notes"
 
 beforeAll(async () => {
   if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required")
   initDb(process.env.DATABASE_URL)
-  for (const orgId of [on, off]) {
+  for (const orgId of [first, second]) {
     await getSystemDb().insert(organizations).values({
       id: orgId,
       slug: orgId,
       name: "Knowledge branch push",
       createdAt: new Date(),
     })
-    await withOrgDbContext(orgId, async (db) => {
-      await db.insert(workspaces).values({
-        id: orgId === on ? workspaceId : generateObjectId("ws"),
+    await withOrgDbContext(orgId, (db) =>
+      db.insert(workspaces).values({
+        id: workspaceIds[orgId] as string,
         orgId,
         slug: `notes-${orgId}`,
         displayName: "Notes",
         workspaceRepositoryUrl: `https://github.com/${repository}.git`,
         desiredDefaultBranch: "main",
-      })
-      await db.insert(orgFeatures).values({
-        organizationId: orgId,
-        feature: "knowledge_plane",
-        value: orgId === on ? "on" : "off",
-      })
-    })
+      }),
+    )
   }
 })
 
 afterAll(async () => {
-  for (const orgId of [on, off]) {
+  for (const orgId of [first, second]) {
     await getSystemDb().execute(
       sql`delete from openworkflow.workflow_runs where input->>'orgId' = ${orgId}`,
     )
-    await withOrgDbContext(orgId, async (db) => {
-      await db.delete(orgFeatures).where(eq(orgFeatures.organizationId, orgId))
-      await db.delete(workspaces).where(eq(workspaces.orgId, orgId))
-    })
+    await withOrgDbContext(orgId, (db) =>
+      db.delete(workspaces).where(eq(workspaces.orgId, orgId)),
+    )
     await getSystemDb().delete(organizations).where(eq(organizations.id, orgId))
   }
   await closeOpenWorkflowClient()
@@ -76,7 +73,7 @@ async function queued() {
     await getSystemDb().execute(
       sql`select input from openworkflow.workflow_runs
         where workflow_name = 'knowledge-projection'
-          and input->>'orgId' in (${on}, ${off})
+          and input->>'orgId' in (${first}, ${second})
         order by created_at`,
     )
   ).rows as { input: Record<string, unknown> }[]
@@ -87,7 +84,7 @@ const zero = "0".repeat(40)
 const push = (ref: string, deliveryId: string, after = "b".repeat(40)) =>
   withLogger(createLogger({}), () =>
     enqueueKnowledgeBranchRuns({
-      orgIds: [on, off],
+      orgIds: [first, second],
       // GitHub can give the name in another case.
       repository: "Example-Org/Notes",
       ref,
@@ -97,8 +94,12 @@ const push = (ref: string, deliveryId: string, after = "b".repeat(40)) =>
     }),
   )
 
-it("queues one run of the pushed branch for each push and each org that has the plane, and none for the default branch or a tag", async () => {
-  const run = { orgId: on, workspaceId, branch: "feature" }
+it("queues one run of the pushed branch for each push and each org, and none for the default branch or a tag", async () => {
+  const runs = [first, second].map((orgId) => ({
+    orgId,
+    workspaceId: workspaceIds[orgId],
+    branch: "feature",
+  }))
   await push("refs/heads/main", "delivery-1")
   await push("refs/tags/v1", "delivery-2")
   expect(await queued()).toEqual([])
@@ -106,14 +107,14 @@ it("queues one run of the pushed branch for each push and each org that has the 
   await push("refs/heads/feature", "delivery-3")
   // A redelivery of the same push queues no second run.
   await push("refs/heads/feature", "delivery-3")
-  expect(await queued()).toEqual([run])
+  expect(await queued()).toEqual(runs)
 
   // The push that deletes the branch queues a run too: it removes the head.
   await push("refs/heads/feature", "delivery-4", zero)
-  expect(await queued()).toEqual([run, run])
+  expect(await queued()).toEqual([...runs, ...runs])
   // Each later push queues its own run, also one with the same SHAs as an
   // earlier push (the branch comes back and is deleted again).
   await push("refs/heads/feature", "delivery-5")
   await push("refs/heads/feature", "delivery-6", zero)
-  expect(await queued()).toHaveLength(4)
+  expect(await queued()).toHaveLength(8)
 })

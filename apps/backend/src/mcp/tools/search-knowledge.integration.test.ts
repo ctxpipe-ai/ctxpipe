@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm"
 import { evlog } from "evlog/hono"
 import { Hono } from "hono"
 import { contextStorage } from "hono/context-storage"
+import { HttpResponse, http } from "msw"
 import {
   afterAll,
   beforeAll,
@@ -19,21 +20,121 @@ import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../../test/db.js"
 import type { AppEnv } from "../../app/env.js"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
+import { knowledgeBranchHeads } from "../../db/schema/knowledge_state.js"
 import { workspaces } from "../../db/schema/workspaces.js"
+import { servingIdForKnowledgePath } from "../../domain/workspaces/hydrate.js"
+import { createKnowledgeStore } from "../../knowledge-store/knowledge-store.js"
+import { migrateKnowledgeStore } from "../../knowledge-store/migrate.js"
 import { registerMcpRoutes } from "../../routes/mcp.js"
+import { startClickHouse, userUrl } from "../../test/clickhouse.js"
 import { withTestRequestLogger } from "../../test/hono-test-logger.js"
 import {
+  writePlaneDocuments,
+  servePlaneHead,
+} from "../../test/knowledge-plane.js"
+import {
   embeddingModelServer,
-  seedKnowledgeUnits,
+  embedText,
   seedKnowledgeWorkspace,
+  seedServedWorkspace,
 } from "../../test/knowledge-search-fixture.js"
 import { searchKnowledgeTool } from "./search-knowledge.js"
 
+/*
+ * `search_knowledge` through the MCP client on the knowledge plane: real
+ * Postgres and ClickHouse, msw for the embedding model and for Jev. Jev does
+ * not answer, so each page has the hits in the search order of the plane.
+ */
+
 const modelServer = embeddingModelServer()
+modelServer.use(
+  http.post("https://search-model.test/alpha/decisions", () =>
+    HttpResponse.json({ error: "down" }, { status: 503 }),
+  ),
+)
 const sha = "a".repeat(40)
 let seed: SeededOrg
 let client: Client
 let workspaceId: string
+let clickHouse: Awaited<ReturnType<typeof startClickHouse>>
+/** The admin URL of the knowledge database, for test writes. */
+let knowledgeUrl: string
+
+type PlaneUnit = {
+  path: string
+  title: string
+  kind?: string
+  updatedAt: string
+  body: string
+  claims?: Array<{ to: string; predicate: string }>
+  validTo?: string
+}
+
+/** Write `units` to the knowledge plane as documents of one Workspace. */
+async function seedPlaneUnits(id: string, units: PlaneUnit[]) {
+  const key = (path: string) => servingIdForKnowledgePath(id, path)
+  const writer = createKnowledgeStore(knowledgeUrl)
+  try {
+    await writePlaneDocuments(
+      writer,
+      { orgId: seed.orgId, workspaceId: id },
+      units.map((unit) => {
+        const observedAt = new Date(unit.updatedAt)
+        const text = `${unit.title}\n\n${unit.body}`
+        return {
+          document: {
+            docKey: key(unit.path),
+            kind: unit.kind ?? "",
+            title: unit.title,
+            path: unit.path,
+            sourceType: "docs",
+            source: "",
+            summary: unit.title,
+            mime: "",
+            validFrom: null,
+            validTo: unit.validTo ? new Date(unit.validTo) : null,
+            observedAt,
+          },
+          chunks: [
+            {
+              ordinal: 0,
+              text,
+              startLine: 1,
+              endLine: unit.body.split("\n").length,
+              embedding: embedText(text),
+            },
+          ],
+          relations: (unit.claims ?? []).map((claim) => ({
+            srcChunk: 0,
+            predicate: claim.predicate,
+            dstDoc: key(claim.to),
+            confidence: 1,
+            validFrom: null,
+            validTo: null,
+            source: "",
+            altText: "",
+            observedAt,
+          })),
+        }
+      }),
+    )
+  } finally {
+    await writer.close()
+  }
+}
+
+/** Mark a Workspace ready on the plane: a run applied `tip` in full. */
+async function markReady(id: string, tip = sha) {
+  await servePlaneHead({ orgId: seed.orgId, workspaceId: id, tip })
+}
+
+/** A Workspace of `slug` that the plane serves, with `units`. */
+async function seedPlaneWorkspace(slug: string, units: PlaneUnit[]) {
+  const { workspaceId: id } = await seedServedWorkspace({ seed, slug, sha })
+  await seedPlaneUnits(id, units)
+  await markReady(id)
+  return id
+}
 
 async function call(
   args: Record<string, unknown> = {},
@@ -51,6 +152,17 @@ describe("search_knowledge through the MCP client", () => {
     vi.stubEnv("MODEL_PROVIDER_API_KEY", "fixture-only")
     vi.stubEnv("MODEL_PROVIDER_URL", "https://search-model.test/v1")
     modelServer.listen({ onUnhandledRequest: "bypass" })
+    clickHouse = await startClickHouse()
+    knowledgeUrl = await clickHouse.freshDatabase()
+    await migrateKnowledgeStore(knowledgeUrl, {
+      reader: "reader-test",
+      writer: "writer-test",
+    })
+    // The backend reads as the reader user, with SELECT only.
+    vi.stubEnv(
+      "CLICKHOUSE_URL",
+      userUrl(knowledgeUrl, "ctxpipe_reader", "reader-test"),
+    )
     seed = await seedOrg()
     const app = new Hono<AppEnv>()
     app.use(contextStorage())
@@ -79,50 +191,28 @@ describe("search_knowledge through the MCP client", () => {
       }),
     )
     await client.listTools()
-  }, 30_000)
+  }, 240_000)
   beforeEach(async () => {
     await withOrgDbContext(seed.orgId, (db) =>
       db.delete(workspaces).where(eq(workspaces.orgId, seed.orgId)),
     )
-    workspaceId = `ws_search_${Date.now()}`
-    await seedKnowledgeWorkspace(seed.orgId, workspaceId, sha)
-    await withOrgDbContext(seed.orgId, (db) =>
-      db
-        .update(workspaces)
-        .set({ slug: "handbook", desiredDefaultBranch: "main" })
-        .where(eq(workspaces.id, workspaceId)),
-    )
-    await seedKnowledgeUnits(seed.orgId, sha, [
+    workspaceId = await seedPlaneWorkspace("handbook", [
       {
-        id: "unit_handbook",
-        workspaceId,
         path: "runbooks/gateway.md",
         title: "Gateway handbook",
         kind: "Runbook",
-        source: "authored",
         updatedAt: "2026-01-10T00:00:00Z",
         body: "# Gateway handbook\n\nRestart the gateway during downtime.",
       },
     ])
-    const otherId = `${workspaceId}_second`
-    await seedKnowledgeWorkspace(seed.orgId, otherId, sha)
-    await withOrgDbContext(seed.orgId, (db) =>
-      db
-        .update(workspaces)
-        .set({ slug: "decisions", desiredDefaultBranch: "main" })
-        .where(eq(workspaces.id, otherId)),
-    )
-    await seedKnowledgeUnits(seed.orgId, sha, [
+    await seedPlaneWorkspace("decisions", [
       {
-        id: "unit_ticket",
-        workspaceId: otherId,
         path: "linear/task.md",
         title: "Handbook decision",
         kind: "Decision",
-        source: "linear",
         updatedAt: "2025-01-01T00:00:00Z",
         body: "# Handbook decision\n\nThe handbook describes the old gateway.",
-        claims: [{ validTo: "2025-12-31" }],
+        validTo: "2025-12-31T00:00:00Z",
       },
     ])
   })
@@ -134,6 +224,7 @@ describe("search_knowledge through the MCP client", () => {
       )
       await cleanupSeededOrg(seed)
     }
+    await clickHouse?.stop()
     modelServer.close()
     vi.unstubAllEnvs()
   })
@@ -152,30 +243,11 @@ describe("search_knowledge through the MCP client", () => {
       ],
     })
   })
-  it("serves the active SHA for a unit that the last partial hydrate did not write", async () => {
-    // A partial hydrate moved the active projection and kept the row, so the
-    // row still holds the older SHA.
-    const next = "b".repeat(40)
-    await withOrgDbContext(seed.orgId, (db) =>
-      db
-        .update(workspaces)
-        .set({ activeProjectionSha: next })
-        .where(eq(workspaces.id, workspaceId)),
-    )
-    const result = await call({ workspaces: ["handbook"] })
-    expect(result.structuredContent).toMatchObject({
-      hits: [
-        { ref: "runbooks/gateway.md", served: { branch: "main", sha: next } },
-      ],
-    })
-  })
+
   it("defaults to 8 hits, allows at most 20, and sums up the claims of each hit", async () => {
-    await seedKnowledgeUnits(
-      seed.orgId,
-      sha,
+    await seedPlaneUnits(
+      workspaceId,
       Array.from({ length: 10 }, (_, index) => ({
-        id: `unit_limit_${index}`,
-        workspaceId,
         path: `limit/${index}.md`,
         title: `Handbook ${index}`,
         updatedAt: "2026-01-01T00:00:00Z",
@@ -184,6 +256,16 @@ describe("search_knowledge through the MCP client", () => {
           to: `knowledge/teams/team-${claim}.md`,
           predicate: "OWNED_BY",
         })),
+      })),
+    )
+    // The plane gives a claim when its target is a document of the view.
+    await seedPlaneUnits(
+      workspaceId,
+      Array.from({ length: 7 }, (_, index) => ({
+        path: `knowledge/teams/team-${index}.md`,
+        title: `Team ${index}`,
+        updatedAt: "2026-01-01T00:00:00Z",
+        body: `# Team ${index}`,
       })),
     )
     const result = await call({ pathPrefix: "limit/" })
@@ -196,8 +278,10 @@ describe("search_knowledge through the MCP client", () => {
       if (hit.ref !== "limit/0.md") expect(hit.claims).toBeUndefined()
     const [claimed] = (await call({ pathPrefix: "limit/0" })).structuredContent
       ?.hits as Array<{ claims?: string }>
-    expect(claimed?.claims).toBe(
-      "OWNED_BY knowledge/teams/team-0.md; OWNED_BY knowledge/teams/team-1.md; OWNED_BY knowledge/teams/team-2.md; OWNED_BY knowledge/teams/team-3.md; OWNED_BY knowledge/teams/team-4.md; +2 more",
+    // Five of the seven claims, in the order of the plane, then the count
+    // of the others.
+    expect(claimed?.claims).toMatch(
+      /^(OWNED_BY knowledge\/teams\/team-[0-6]\.md; ){5}\+2 more$/,
     )
     expect((await call({ limit: 21 })).isError).toBe(true)
   })
@@ -247,32 +331,16 @@ describe("search_knowledge through the MCP client", () => {
     expect(
       (await call({ limit: 1, cursor: "broken" }))._meta?.["ai.ctxpipe/error"],
     ).toMatchObject({ code: "invalid_cursor" })
-    await withOrgDbContext(seed.orgId, (db) =>
-      db
-        .update(workspaces)
-        .set({ activeProjectionSha: "b".repeat(40) })
-        .where(eq(workspaces.id, workspaceId)),
-    )
-    try {
-      expect(
-        (await call({ limit: 1, cursor }))._meta?.["ai.ctxpipe/error"],
-      ).toMatchObject({ code: "stale_cursor", retryable: false })
-    } finally {
-      await withOrgDbContext(seed.orgId, (db) =>
-        db
-          .update(workspaces)
-          .set({ activeProjectionSha: sha })
-          .where(eq(workspaces.id, workspaceId)),
-      )
-    }
+    // A new knowledge run of the Workspace serves another SHA.
+    await markReady(workspaceId, "b".repeat(40))
+    expect(
+      (await call({ limit: 1, cursor }))._meta?.["ai.ctxpipe/error"],
+    ).toMatchObject({ code: "stale_cursor", retryable: false })
   })
   it("keeps large pages within both budgets and preserves every ref in the cursor walk", async () => {
-    await seedKnowledgeUnits(
-      seed.orgId,
-      sha,
+    await seedPlaneUnits(
+      workspaceId,
       Array.from({ length: 20 }, (_, index) => ({
-        id: `unit_budget_${index}`,
-        workspaceId,
         path: `large/${index}.md`,
         title: `Handbook ${index}`,
         updatedAt: "2026-01-01T00:00:00Z",
@@ -313,11 +381,11 @@ describe("search_knowledge through the MCP client", () => {
     expect(found).toHaveLength(20)
     expect(new Set(found).size).toBe(20)
   })
-  it("skips a Workspace that is not ready, and fails only when the call names it", async () => {
+  it("skips a Workspace with no projection, and fails only when the call names it", async () => {
     await withOrgDbContext(seed.orgId, (db) =>
       db
         .update(workspaces)
-        .set({ activeProjectionSha: null })
+        .set({ activeProjectionSha: null, activeRevision: null })
         .where(eq(workspaces.id, workspaceId)),
     )
     const byDefault = await call()
@@ -339,11 +407,30 @@ describe("search_knowledge through the MCP client", () => {
     ])
   })
 
+  it("skips a Workspace that the plane does not serve yet, and fails only when the call names it", async () => {
+    await withOrgDbContext(seed.orgId, (db) =>
+      db
+        .delete(knowledgeBranchHeads)
+        .where(eq(knowledgeBranchHeads.workspaceId, workspaceId)),
+    )
+    const byDefault = await call()
+    expect(byDefault.isError).not.toBe(true)
+    expect(byDefault.structuredContent?.hits).toMatchObject([
+      { ref: "linear/task.md" },
+    ])
+    expect(byDefault.structuredContent?.skipped).toEqual([
+      { workspace: "handbook", reason: "not_ready" },
+    ])
+    expect(
+      (await call({ workspaces: ["handbook"] }))._meta?.["ai.ctxpipe/error"],
+    ).toMatchObject({ code: "workspace_not_ready", retryable: true })
+  })
+
   it("gives no hits and the skipped list when no Workspace is ready", async () => {
     await withOrgDbContext(seed.orgId, (db) =>
       db
         .update(workspaces)
-        .set({ activeProjectionSha: null })
+        .set({ activeProjectionSha: null, activeRevision: null })
         .where(eq(workspaces.orgId, seed.orgId)),
     )
     const result = await call()

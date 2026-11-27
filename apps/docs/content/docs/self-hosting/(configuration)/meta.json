@@ -1,10 +1,4 @@
 {
   "title": "Configuration",
-  "pages": [
-    "configuration",
-    "authentication",
-    "models",
-    "graph-databases",
-    "mcp"
-  ]
+  "pages": ["configuration", "authentication", "models", "mcp"]
 }

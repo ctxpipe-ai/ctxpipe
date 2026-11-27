@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import {
   chunkKnowledgeBody,
-  knowledgeChunkRows,
+  documentChunks,
   markdownLines,
 } from "./knowledge-chunks.js"
 
@@ -166,81 +166,29 @@ describe("chunkKnowledgeBody", () => {
   })
 })
 
-describe("knowledgeChunkRows", () => {
-  const unit = (servingId: string, body: string, title: string | null) => ({
-    servingId,
-    body,
-    title,
-  })
-
-  it("puts the title and heading path first, keys repeats by occurrence, and offsets lines past front matter", () => {
-    const rows = knowledgeChunkRows(
-      [
-        {
-          ...unit("kn_a", "# A\nOne.\n## B\nTwo.\n", "Guide"),
-          bodyStartLine: 4,
-        },
-        unit("kn_b", "Same.\n\n# H\nSame.\n", null),
-        unit("kn_c", "", "Empty"),
-      ],
-      "model-1",
-    )
+describe("documentChunks", () => {
+  it("puts the title and heading path first, and offsets lines past front matter", () => {
     expect(
-      rows.map(({ unitId, occurrence, ordinal, startLine, endLine, text }) => ({
-        unitId,
-        occurrence,
-        ordinal,
-        startLine,
-        endLine,
-        text,
-      })),
+      documentChunks({
+        body: "# A\nOne.\n## B\nTwo.\n",
+        title: "Guide",
+        bodyStartLine: 4,
+      }),
     ).toEqual([
+      { ordinal: 0, startLine: 4, endLine: 5, text: "Guide > A\n\n# A\nOne." },
       {
-        unitId: "kn_a",
-        occurrence: 0,
-        ordinal: 0,
-        startLine: 4,
-        endLine: 5,
-        text: "Guide > A\n\n# A\nOne.",
-      },
-      {
-        unitId: "kn_a",
-        occurrence: 0,
         ordinal: 1,
         startLine: 6,
         endLine: 7,
         text: "Guide > A > B\n\n## B\nTwo.",
       },
-      {
-        unitId: "kn_b",
-        occurrence: 0,
-        ordinal: 0,
-        startLine: 1,
-        endLine: 1,
-        text: "Same.",
-      },
-      {
-        unitId: "kn_b",
-        occurrence: 0,
-        ordinal: 1,
-        startLine: 3,
-        endLine: 4,
-        text: "H\n\n# H\nSame.",
-      },
     ])
-    expect(rows[0]?.chunkHash).toMatch(/^[0-9a-f]{64}$/)
-  })
-
-  it("gives a repeated chunk a second occurrence and changes every hash with the model", () => {
-    const body = "Same.\n\nOther.\n\n```\n```\n"
-    const repeated = knowledgeChunkRows(
-      [unit("kn_a", "# X\nSame.\n# X\nSame.\n", null)],
-      "model-1",
-    )
-    expect(repeated.map(({ occurrence }) => occurrence)).toEqual([0, 1])
-    expect(repeated[0]?.chunkHash).toBe(repeated[1]?.chunkHash)
-    const [one] = knowledgeChunkRows([unit("kn_a", body, null)], "model-1")
-    const [two] = knowledgeChunkRows([unit("kn_a", body, null)], "model-2")
-    expect(one?.chunkHash).not.toBe(two?.chunkHash)
+    expect(
+      documentChunks({ body: "Same.\n\n# H\nSame.\n", title: null }),
+    ).toEqual([
+      { ordinal: 0, startLine: 1, endLine: 1, text: "Same." },
+      { ordinal: 1, startLine: 3, endLine: 4, text: "H\n\n# H\nSame." },
+    ])
+    expect(documentChunks({ body: "", title: "Empty" })).toEqual([])
   })
 })

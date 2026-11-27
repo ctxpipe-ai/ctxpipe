@@ -115,7 +115,6 @@ function appWithRoutes(opts: AppOpts): OpenAPIHono<AppEnv> {
     AUTH_BASE_URL: "https://backend.example.com",
     NODE_ENV: "test",
     DATABASE_URL: "postgresql://fixture:fixture@localhost:5432/fixture",
-    GRAPH_DB_URI: "redis://localhost:6379",
     AUTH_SECRET: "fixture-openai-proxy-secret-minimum-32-chars",
   }
   if (opts.upstreamUrl) env.MODEL_PROVIDER_URL = opts.upstreamUrl

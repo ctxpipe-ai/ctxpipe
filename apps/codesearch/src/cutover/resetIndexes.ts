@@ -15,22 +15,21 @@ import { errorKind, runCli } from "./transfer.js"
 
 /*
  * reset-indexes (CTX-1217): the rollback of import-indexes and
- * seed-shard-store, on the AWS stateful host, while FalkorDB and codesearch
- * are stopped. After a rollback, AWS must keep no copy of the graphs and the
- * source code. For each repository that has a shard in the cold directory,
- * it deletes the artifacts of that repository in the shard store. Then it
- * deletes the contents of the cold directory and of the repository cache,
- * and the FalkorDB RDB. It deletes the store first, so that a second run
- * still finds the repositories when a delete fails. The report holds counts
- * only: a Zoekt Name holds organization and repository ids.
+ * seed-shard-store, on the AWS stateful host, while codesearch is stopped.
+ * After a rollback, AWS must keep no copy of the source code. For each
+ * repository that has a shard in the cold directory, it deletes the
+ * artifacts of that repository in the shard store. Then it deletes the
+ * contents of the cold directory and of the repository cache. It deletes the
+ * store first, so that a second run still finds the repositories when a
+ * delete fails. The report holds counts only: a Zoekt Name holds
+ * organization and repository ids.
  *
- *   bun run cutover:reset-indexes --falkordb-data-file /var/lib/falkordb/data/dump.rdb
+ *   bun run cutover:reset-indexes
  */
 
 export async function resetIndexes(options: {
   zoektIndexDir: string
   repoCacheDir: string
-  falkordbDataFile: string
 }) {
   const store = writableShardStore()
   if (!store)
@@ -68,7 +67,6 @@ async function reset(
     await deleteRepositoryArtifacts(store, repository)
   const zoektIndexEntries = await empty(options.zoektIndexDir)
   const repoCacheEntries = await empty(options.repoCacheDir)
-  await rm(options.falkordbDataFile, { force: true })
   return {
     ok: true,
     repositories: repositories.size,
@@ -97,19 +95,12 @@ async function empty(dir: string): Promise<number> {
 if (import.meta.main) {
   const { values } = parseArgs({
     options: {
-      "falkordb-data-file": { type: "string" },
       "zoekt-index-dir": { type: "string", default: ZOEKT_INDEX_DIR },
       "repo-cache-dir": { type: "string", default: REPO_CACHE_DIR },
     },
   })
   runCli(async () => {
-    const dataFile = values["falkordb-data-file"]
-    if (!dataFile)
-      throw new Error(
-        "Usage: reset-indexes --falkordb-data-file … [--zoekt-index-dir …] [--repo-cache-dir …]",
-      )
     return resetIndexes({
-      falkordbDataFile: dataFile,
       zoektIndexDir: values["zoekt-index-dir"],
       repoCacheDir: values["repo-cache-dir"],
     })

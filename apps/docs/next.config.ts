@@ -23,6 +23,12 @@ const config = withMDX({
         permanent: false,
       },
       {
+        // ClickHouse holds the knowledge content; there is no graph database setting.
+        source: "/docs/self-hosting/graph-databases",
+        destination: "/docs/self-hosting/configuration#knowledge-store",
+        permanent: false,
+      },
+      {
         source: "/docs/connections/connecting-docs",
         destination: "/docs/connections",
         permanent: false,

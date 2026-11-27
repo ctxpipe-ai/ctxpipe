@@ -54,31 +54,3 @@ export async function enqueueWorkspaceHydrate(
     }
   }
 }
-
-/**
- * Start one hydrate run that writes the graph of a published revision again
- * from the PostgreSQL projection. The key names the Workspace, the revision
- * and the trigger (the time of a graph loss, or the UTC hour of a manual
- * rebuild), so each trigger starts one run. Returns true when the key gives a
- * run that did not start (a new run, or a run that waits for a worker), and
- * false when the key gives a run that started before.
- */
-export async function enqueueWorkspaceGraphRebuild(input: {
-  orgId: string
-  revision: WorkspaceRevision
-  revisionKey: string
-  trigger: string
-}): Promise<boolean> {
-  const handle = await enqueueWorkflow(
-    workspaceHydrate.spec,
-    {
-      orgId: input.orgId,
-      workspaceId: input.revision.workspaceId,
-      revision: input.revision,
-    },
-    {
-      idempotencyKey: `workspace-graph-rebuild:${input.revision.workspaceId}:${input.revisionKey}:${input.trigger}`,
-    },
-  )
-  return handle.workflowRun.status === "pending"
-}

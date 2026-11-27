@@ -18,7 +18,7 @@ ctxpipe is a job engine over **Workspaces**. An organization's portable knowledg
 
 ## Projection (hydrate)
 
-- **Hydrate** reads one immutable revision (`WorkspaceRevision`: workspace, generation, remote, default branch, SHA) and rebuilds the **projection**: Postgres knowledge units, FalkorDB/Neptune graph, embeddings, codesearch (Zoekt + SCIP). It never writes git and never calls an extraction model.
+- **Hydrate** reads one immutable revision (`WorkspaceRevision`: workspace, generation, remote, default branch, SHA) and rebuilds the **projection**: Postgres knowledge units and codesearch (Zoekt + SCIP). Then it queues the `knowledge-projection` run, which writes the knowledge plane in ClickHouse (documents, chunks, relations, embeddings; [ADR-067](../decisions/ADR-067-knowledge-projection-applies-git-diff.md)). It never writes git and never calls an extraction model.
 - Activation is one compare-and-set on generation + URL + SHA; the previous projection keeps serving until the new one is active. Malformed files are skipped. Derived stores (graph, embeddings, search) report their own freshness and retry independently.
 - Search and chat read only the active projection and the Workspace's linked set. Indexes are per Workspace.
 

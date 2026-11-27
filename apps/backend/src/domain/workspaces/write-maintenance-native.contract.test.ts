@@ -336,23 +336,35 @@ it(
           })
           await worker.start()
           await hydrated.result({ timeoutMs: 30_000 })
-          const { getWorkspaceProjection } =
+          const { listWorkspaceKnowledgeUnits } =
             await import("../../models/workspaces.js")
-          const { readWorkspaceGraph } = await import("./graph-projection.js")
-          const graph = await withOrgIdContext(f.org, async () => {
-            const projection = await getWorkspaceProjection(f.workspaceId)
-            if (projection.kind !== "active")
-              throw new Error("Expected an active post-write projection")
-            return readWorkspaceGraph({
-              orgId: f.org.id,
-              orgSlug: f.org.slug,
-              projection,
-            })
-          })
-          expect(graph.edges.map((edge) => edge.predicate)).toEqual([
-            "LINKS_TO",
-            "LINKS_TO",
-            "LINKS_TO",
+          // The post-write hydrate reads each upgraded link as a claim with
+          // no predicate (a LINKS_TO edge on the knowledge plane).
+          const { units } = await withOrgIdContext(f.org, () =>
+            listWorkspaceKnowledgeUnits(f.workspaceId),
+          )
+          expect(
+            units.map((unit) => [
+              unit.path,
+              unit.claims.map((claim) => [claim.to, claim.predicate]),
+            ]),
+          ).toEqual([
+            [
+              "knowledge/alias.md",
+              [
+                ["archive.md", null],
+                ["api.md", null],
+              ],
+            ],
+            ["knowledge/api.md", []],
+            ["knowledge/empty.md", [["api.md", null]]],
+            [
+              "knowledge/service.md",
+              [
+                ["archive.md", "DEPENDS_ON"],
+                ["./api.md", null],
+              ],
+            ],
           ])
           expect(markdown).toContain("# Preserve this note")
           expect(markdown).toContain("&source_claim")

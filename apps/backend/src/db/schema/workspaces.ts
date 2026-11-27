@@ -1,17 +1,14 @@
 import { sql } from "drizzle-orm"
 import {
-  customType,
   index,
   integer,
   jsonb,
   pgTable,
-  pgView,
   primaryKey,
   text,
   timestamp,
   unique,
   uniqueIndex,
-  vector,
 } from "drizzle-orm/pg-core"
 
 import type { WorkspaceUpgradePayload } from "../../domain/upgrades/registry.js"
@@ -27,8 +24,7 @@ import type {
 } from "../../domain/workspaces/write-job-intent.js"
 import type { GitFileChange } from "../../services/git/file-change.js"
 import { connections } from "./connections.js"
-import { EMBEDDING_DIMENSIONS } from "./objects.js"
-import { orgCondition, orgIsolationPolicy } from "./org-rls.js"
+import { orgIsolationPolicy } from "./org-rls.js"
 
 /**
  * Context Workspace (`ws_`). One workspace repository URL per org; slug unique per org.
@@ -165,129 +161,6 @@ export const workspaceKnowledgeUnits = pgTable.withRLS(
     orgIsolationPolicy(t.orgId),
   ],
 )
-
-const tsvector = customType<{ data: string }>({
-  dataType: () => "tsvector",
-})
-
-/** The name of the HNSW index of the chunk embeddings, in half precision. */
-export const KNOWLEDGE_VECTOR_INDEX =
-  "workspace_knowledge_chunks_embedding_half_idx"
-/** The type of the index's values; the search casts the embedding and the query to it, to order by the index. */
-export const HALF_EMBEDDING = `halfvec(${EMBEDDING_DIMENSIONS})`
-/** The index's expression and operator class (the schema here, and the concurrent build in runMigrations). */
-export const HALF_EMBEDDING_INDEX = `("embedding"::${HALF_EMBEDDING}) halfvec_cosine_ops`
-
-/** The org of a chunk for its full-text match; equal to `org_id` (byte equality). */
-const chunkSearchOrg = sql`("org_id" COLLATE "C")`
-/** The name of the full-text GIN index of the chunks, by org and Workspace. */
-export const KNOWLEDGE_SEARCH_INDEX = "workspace_knowledge_chunks_search_ws_idx"
-/**
- * Its columns (the schema here, and the concurrent build in runMigrations): the org and the Workspace under
- * `COLLATE "C"`, which no btree index holds, and the tsvector.
- */
-export const KNOWLEDGE_SEARCH_INDEX_COLUMNS = `("org_id" COLLATE "C"), ("workspace_id" COLLATE "C"), "search"`
-/**
- * The btree index of the chunks by org, Workspace and unit. Row-level security adds the org condition to each read of
- * the chunks as the app role. With the org in the same index as the unit, a test "does this unit have chunks" is an
- * index-only scan. Without the org there, each test also read the row of the chunk in the table (CTX-1708).
- */
-export const KNOWLEDGE_UNIT_INDEX = "workspace_knowledge_chunks_org_unit_idx"
-/** Its columns (the schema here, and the concurrent build in runMigrations). */
-export const KNOWLEDGE_UNIT_INDEX_COLUMNS = `"org_id", "workspace_id", "unit_id"`
-
-/**
- * Search chunks of the active projection's knowledge units (ADR-051). A row
- * stays across projection SHAs while its unit still has that chunk, so an
- * unchanged chunk is never written again. The activation transaction inserts
- * new chunks and deletes gone ones. `unit_id` has no foreign key: units are
- * replaced in that transaction, and a new chunk copies the embedding of an
- * old chunk with the same hash before the old one goes.
- */
-export const workspaceKnowledgeChunks = pgTable.withRLS(
-  "workspace_knowledge_chunks",
-  {
-    workspaceId: text("workspace_id")
-      .notNull()
-      .references(() => workspaces.id, { onDelete: "cascade" }),
-    unitId: text("unit_id").notNull(),
-    /** SHA-256 of the embedding model id and `text`. */
-    chunkHash: text("chunk_hash").notNull(),
-    /** Index among the chunks of the unit with the same hash. */
-    occurrence: integer("occurrence").notNull(),
-    orgId: text("org_id").notNull(),
-    ordinal: integer("ordinal").notNull(),
-    /** 1-based file lines, inclusive. */
-    startLine: integer("start_line").notNull(),
-    endLine: integer("end_line").notNull(),
-    /** Title and heading path, then the section text. */
-    text: text("text").notNull(),
-    search: tsvector("search")
-      .notNull()
-      .generatedAlwaysAs(sql`to_tsvector('english', "text")`),
-    /** Null until embedded. */
-    embedding: vector("embedding", { dimensions: EMBEDDING_DIMENSIONS }),
-  },
-  (t) => [
-    primaryKey({
-      columns: [t.workspaceId, t.unitId, t.chunkHash, t.occurrence],
-    }),
-    index("workspace_knowledge_chunks_workspace_id_hash_idx").on(
-      t.workspaceId,
-      t.chunkHash,
-    ),
-    // Also serves each read of the chunks by org only, as the old index on the org did.
-    index(KNOWLEDGE_UNIT_INDEX).using(
-      "btree",
-      sql.raw(KNOWLEDGE_UNIT_INDEX_COLUMNS),
-    ),
-    // The org and the Workspace under `COLLATE "C"` (btree_gin) and the
-    // tsvector: the full-text match of workspaceKnowledgeChunkSearch, one
-    // Workspace at a time. No other index has them under that collation, so
-    // whatever the statistics, no btree serves the match, and it reads only
-    // the matches of the Workspace (CTX-1380). runMigrations builds it
-    // concurrently (knowledge-indexes.ts), as no migration can.
-    index(KNOWLEDGE_SEARCH_INDEX).using(
-      "gin",
-      sql.raw(KNOWLEDGE_SEARCH_INDEX_COLUMNS),
-    ),
-    // The embeddings in half precision: half the pages of a cold walk, no loss
-    // of recall measured (CTX-1380). runMigrations builds it concurrently
-    // (knowledge-indexes.ts), as no migration can.
-    index(KNOWLEDGE_VECTOR_INDEX).using("hnsw", sql.raw(HALF_EMBEDDING_INDEX)),
-    orgIsolationPolicy(t.orgId),
-  ],
-)
-
-/**
- * The keys and tsvectors of the session org's chunks, for the full-text match
- * of the knowledge search (ADR-042, revision 2026-11-18). `tsvector @@ tsquery`
- * is not leakproof, so Postgres does not use the GIN index for it on a table
- * whose RLS policy applies to the role. The view reads the table as its owner,
- * to whom the policy does not apply, and filters by the policy's condition,
- * on `org_id COLLATE "C"`: only `KNOWLEDGE_SEARCH_INDEX` holds
- * the org that way, so one GIN scan serves the org and the match together.
- * `provisionAppRole` leaves the app role SELECT only on views, and the check
- * option keeps any write through the view in the session's org.
- *
- * The view is not a security barrier (the index needs that), so a function in
- * a query over it can see rows of other orgs before the org filter. Only
- * `lexicalCandidates` reads it, with built-in operators only.
- */
-export const workspaceKnowledgeChunkSearch = pgView(
-  "workspace_knowledge_chunk_search",
-  {
-    workspaceId: text("workspace_id").notNull(),
-    unitId: text("unit_id").notNull(),
-    chunkHash: text("chunk_hash").notNull(),
-    occurrence: integer("occurrence").notNull(),
-    search: tsvector("search").notNull(),
-  },
-)
-  .with({ checkOption: "cascaded" })
-  .as(
-    sql`SELECT workspace_id, unit_id, chunk_hash, occurrence, search FROM workspace_knowledge_chunks WHERE ${orgCondition(chunkSearchOrg)}`,
-  )
 
 export const orgMemberPreferences = pgTable.withRLS(
   "org_member_preferences",

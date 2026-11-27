@@ -154,7 +154,7 @@ const allJobs = readdirSync(directory)
 
 test("a GitHub-hosted job uses no Docker, except the listed jobs", () => {
   // The GitHub-hosted jobs with Docker in their steps: the test shards
-  // (service containers, FalkorDB, the chat sandbox image from the registry
+  // (service containers, the chat sandbox image from the registry
   // cache) and the publish job of the deploy (manifest lists through `docker
   // buildx imagetools`, no container). The test reads only the steps: the
   // screenshots job starts the Playwright container from a script

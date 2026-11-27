@@ -2,7 +2,13 @@ import type { ToolExecutionContext } from "@tanstack/ai"
 import { z } from "zod"
 
 import { withOrgDbContext } from "../../db/client.js"
-import { selectFirstKnowledgeBranch } from "../../knowledge-reader/knowledge-reader.js"
+import {
+  firstServedKnowledgeBranch,
+  type GraphExpandParams,
+  type GraphExpansion,
+  isKnowledgeNotReady,
+} from "../../knowledge-reader/knowledge-reader.js"
+import { planeKnowledgeReader } from "../../knowledge-reader/plane-reader.js"
 import { toToon } from "../../lib/agentToolRuntime.js"
 import { runBridgeToolCall } from "../../mcp/correlation.js"
 import { getConversationSession } from "../../models/conversations.js"
@@ -23,8 +29,6 @@ import {
   runCodeTool,
   stringArg,
 } from "./code-tools.js"
-import type { GraphExpandParams, GraphExpansion } from "./graph-expand.js"
-import { WorkspaceGraphBuildingError } from "./graph-rebuild.js"
 import { type PublishedProjection, publishedProjection } from "./revision.js"
 
 export type WorkspaceChatTanstackTool = {
@@ -82,20 +86,28 @@ async function selectChatKnowledgeReader(input: {
           ...(conversation.baseBranch ? [conversation.baseBranch] : []),
         ]
       : []
-  return selectFirstKnowledgeBranch(input.orgId, [input.workspaceId], branches)
+  const { head, branch } = await firstServedKnowledgeBranch(
+    input.orgId,
+    input.workspaceId,
+    branches,
+  )
+  return {
+    reader: planeKnowledgeReader({
+      heads: new Map([[input.workspaceId, head]]),
+    }),
+    sha: head.sha,
+    branch,
+  }
 }
 
 export async function workspaceChatTools(input: {
   orgId: string
-  orgSlug: string
   workspaceId: string
   conversationId?: string
   snapshot: WorkspaceProjectionSnapshot
 }): Promise<WorkspaceChatTanstackTool[]> {
   const projection = publishedProjection(input.snapshot.projection)
   if (!projection) return []
-  const sha =
-    projection.kind === "active" ? projection.revision.sha : projection.sha
   // A read that serves the default branch names it.
   const defaultBranch =
     projection.kind === "active"
@@ -104,17 +116,14 @@ export async function workspaceChatTools(input: {
   const boundRepositories = input.snapshot.repositories
   const allowed = new Set(boundRepositories.map((repo) => repo.id))
   const expand = async (params: GraphExpandParams) => {
-    const { reader, planeHeads, branch } =
-      await selectChatKnowledgeReader(input)
+    const { reader, sha, branch } = await selectChatKnowledgeReader(input)
     return {
       graph: await reader.expand({
         orgId: input.orgId,
-        orgSlug: input.orgSlug,
         workspaceId: input.workspaceId,
-        projection,
         params,
       }),
-      sha: planeHeads.get(input.workspaceId)?.sha ?? sha,
+      sha,
       branch: branch ?? defaultBranch,
     }
   }
@@ -135,7 +144,6 @@ export async function workspaceChatTools(input: {
   tools.unshift(
     hybridSearchTool({
       ...input,
-      activeProjectionSha: sha,
       defaultBranch,
     }),
   )
@@ -162,7 +170,6 @@ function hybridSearchTool(input: {
   orgId: string
   workspaceId: string
   conversationId?: string
-  activeProjectionSha: string
   defaultBranch: string
 }): WorkspaceChatTanstackTool {
   return {
@@ -175,18 +182,20 @@ function hybridSearchTool(input: {
           ? (args as { query: string }).query
           : ""
       if (!query.trim()) return "No search query."
-      const { reader, planeHeads, branch } =
-        await selectChatKnowledgeReader(input)
-      const { hits } = await reader.search({
-        orgId: input.orgId,
-        workspaceIds: [input.workspaceId],
-        query,
-        limit: 8,
+      const searched = await whenKnowledgeReady(async () => {
+        const selection = await selectChatKnowledgeReader(input)
+        const { hits } = await selection.reader.search({
+          orgId: input.orgId,
+          workspaceIds: [input.workspaceId],
+          query,
+          limit: 8,
+        })
+        return { ...selection, hits }
       })
+      if (!("hits" in searched)) return searched.message
+      const { sha, branch, hits } = searched
       if (hits.length === 0)
         return "No matching knowledge in the active projection."
-      const sha =
-        planeHeads.get(input.workspaceId)?.sha ?? input.activeProjectionSha
       return [
         `Workspace projection context (${branch ?? input.defaultBranch} at ${sha}):`,
         ...hits.map((hit) => {
@@ -275,7 +284,7 @@ function graphLookupTool(input: ChatGraphTool): WorkspaceChatTanstackTool {
     execute: async (args) => {
       const nodeId = stringArg(args, "nodeId")
       if (!nodeId) return toToon({ error: "nodeId_required" })
-      const walked = await expandOrRetry(() =>
+      const walked = await whenKnowledgeReady(() =>
         input.expand({ seeds: [nodeId], maxDepth: 0 }),
       )
       if (!("graph" in walked)) return toToon(walked)
@@ -310,9 +319,9 @@ function graphNeighborsTool(input: ChatGraphTool): WorkspaceChatTanstackTool {
         typeof limitRaw === "number" && Number.isFinite(limitRaw)
           ? Math.min(50, Math.max(1, Math.floor(limitRaw)))
           : 20
-      // The expansion keeps at most `limit` valid edges of the node: the
-      // strongest edge of each predicate first, then the next of each.
-      const walked = await expandOrRetry(() =>
+      // The expansion keeps at most `limit` relations of the node, the most
+      // confident first.
+      const walked = await whenKnowledgeReady(() =>
         input.expand({ seeds: [nodeId], maxDepth: 1, maxFanOut: limit }),
       )
       if (!("graph" in walked)) return toToon(walked)
@@ -349,18 +358,21 @@ function graphNeighborsTool(input: ChatGraphTool): WorkspaceChatTanstackTool {
   }
 }
 
-/** A graph that is being built gives the model a retry message, not an error. */
-async function expandOrRetry<T>(
-  expand: () => Promise<T>,
+/**
+ * Knowledge that the plane does not serve yet (`workspace_not_ready`) gives
+ * the model a retry message, not an error.
+ */
+async function whenKnowledgeReady<T>(
+  read: () => Promise<T>,
 ): Promise<T | { error: string; message: string }> {
   try {
-    return await expand()
+    return await read()
   } catch (error) {
-    if (!(error instanceof WorkspaceGraphBuildingError)) throw error
+    if (!isKnowledgeNotReady(error)) throw error
     return {
-      error: "graph_building",
+      error: "knowledge_building",
       message:
-        "The Workspace graph is being built. Use the other tools now, and try the graph tools again in a few minutes.",
+        "The Workspace knowledge is being built. Use the other tools now, and try the knowledge tools again in a few minutes.",
     }
   }
 }
@@ -403,7 +415,6 @@ const GRAPH_NEIGHBORS_DEFINITION: Omit<WorkspaceChatTanstackTool, "execute"> = {
 
 const chatToolScope = z.object({
   orgId: z.string().min(1),
-  orgSlug: z.string().min(1),
   workspaceId: z.string().min(1),
   /** The graph reads use the branches of the conversation (ADR-071). */
   conversationId: z.string().min(1).optional(),

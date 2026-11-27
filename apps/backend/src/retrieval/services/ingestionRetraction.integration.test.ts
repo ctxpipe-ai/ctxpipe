@@ -201,7 +201,7 @@ describe("purgeRepositoryEvidencePg (integration)", () => {
   })
 
   it("removes repo-A evidence, keeps repo-B evidence, recomputes multi-source claim", async () => {
-    const { stats, graphEffects } = await purgeRepositoryEvidencePg(db, {
+    const { stats } = await purgeRepositoryEvidencePg(db, {
       orgId: ORG_ID,
       repositoryId: REPO_A,
     })
@@ -218,12 +218,8 @@ describe("purgeRepositoryEvidencePg (integration)", () => {
     expect(await claimExists(claimAC)).toBe(false)
     expect(await countEvidence(claimAC)).toBe(0)
 
-    // graphEffects
-    expect(graphEffects.refreshedClaimIds).toContain(claimAB)
-    expect(graphEffects.deletedClaimIds).toContain(claimAC)
-
     // objC should be orphaned (was only used by claimAC)
-    expect(graphEffects.deletedObjectIds).toContain(objC)
+    expect(stats.orphanObjectsDeleted).toBe(1)
     expect(await objectExists(objC)).toBe(false)
 
     // objA and objB still referenced by claimAB
@@ -249,7 +245,7 @@ describe("purgeRepositoryEvidencePg (integration)", () => {
       repositoryId: REPO_A,
     })
 
-    const { stats, graphEffects } = await purgeRepositoryEvidencePg(db, {
+    const { stats } = await purgeRepositoryEvidencePg(db, {
       orgId: ORG_ID,
       repositoryId: REPO_B,
     })
@@ -258,8 +254,6 @@ describe("purgeRepositoryEvidencePg (integration)", () => {
     expect(stats.claimsDeleted).toBe(1)
     expect(stats.claimsUpdated).toBe(0)
     expect(await claimExists(claimAB)).toBe(false)
-    expect(graphEffects.deletedClaimIds).toContain(claimAB)
-    expect(graphEffects.refreshedClaimIds).toEqual([])
     // objA/objB only referenced claimAB → orphans
     expect(await objectExists(objA)).toBe(false)
     expect(await objectExists(objB)).toBe(false)

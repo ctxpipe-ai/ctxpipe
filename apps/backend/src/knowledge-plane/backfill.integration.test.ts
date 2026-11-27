@@ -4,14 +4,12 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 import { closeDb, getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
-import { orgFeatures } from "../db/schema/org_features.js"
 import { workspaces } from "../db/schema/workspaces.js"
 import { generateObjectId } from "../lib/id.js"
 import {
   beginKnowledgeRun,
   completeKnowledgeRun,
 } from "../models/knowledge-state.js"
-import { setOrgFeature } from "../models/org-features.js"
 import { closeOpenWorkflowClient } from "../openworkflow/client.js"
 import { backfillKnowledgePlane } from "./backfill.js"
 
@@ -93,23 +91,16 @@ afterAll(async () => {
   await getSystemDb().execute(
     sql`delete from openworkflow.workflow_runs where input->>'orgId' = ${orgId}`,
   )
-  await withOrgDbContext(orgId, async (db) => {
-    await db.delete(workspaces).where(eq(workspaces.orgId, orgId))
-    await db.delete(orgFeatures).where(eq(orgFeatures.organizationId, orgId))
-  })
+  await withOrgDbContext(orgId, (db) =>
+    db.delete(workspaces).where(eq(workspaces.orgId, orgId)),
+  )
   await getSystemDb().delete(organizations).where(eq(organizations.id, orgId))
   await closeOpenWorkflowClient()
   await closeDb()
 })
 
 describe("the knowledge plane backfill", () => {
-  it("queues nothing while the flag is off", async () => {
-    await expect(backfillKnowledgePlane(orgId)).resolves.toEqual([])
-    expect(await projectionRuns()).toEqual([])
-  })
-
   it("queues one run for each Workspace with a tip and no ready head, on each call, until it is ready", async () => {
-    await setOrgFeature(orgId, "knowledge_plane", "shadow")
     await expect(backfillKnowledgePlane(orgId)).resolves.toEqual([fresh])
     expect(await projectionRuns()).toEqual([fresh])
     const backfill = events.find(

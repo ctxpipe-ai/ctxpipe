@@ -150,7 +150,6 @@ async function freshChatTool(f: NativeIndexFixture, name: string) {
   )
   const tools = await workspaceChatTools({
     orgId: f.org.id,
-    orgSlug: f.org.slug,
     workspaceId: f.workspaceId,
     snapshot,
   })
@@ -242,7 +241,6 @@ it(
           .toMatchObject([{ FileName: "AGENTS.md", Version: sha }])
         const chatTools = await workspaceChatTools({
           orgId: org.id,
-          orgSlug: org.slug,
           workspaceId,
           snapshot: await getWorkspaceProjectionSnapshot(workspaceId),
         })
@@ -269,7 +267,6 @@ it(
       await withOrgIdContext(org, async () => {
         const chatTools = await workspaceChatTools({
           orgId: org.id,
-          orgSlug: org.slug,
           workspaceId,
           snapshot: await getWorkspaceProjectionSnapshot(workspaceId),
         })
@@ -293,7 +290,6 @@ it(
               hydratePhases: {
                 url: remoteUrl,
                 sha,
-                embeddings: false,
                 index: { revision: movedRevision, result: { kind: "ready" } },
               },
             })
@@ -385,7 +381,6 @@ it(
       await withOrgIdContext(org, async () => {
         const capturedTools = await workspaceChatTools({
           orgId: org.id,
-          orgSlug: org.slug,
           workspaceId,
           snapshot: await getWorkspaceProjectionSnapshot(workspaceId),
         })
@@ -411,7 +406,6 @@ it(
       await withOrgIdContext(org, async () => {
         const capturedTools = await workspaceChatTools({
           orgId: org.id,
-          orgSlug: org.slug,
           workspaceId,
           snapshot: await getWorkspaceProjectionSnapshot(workspaceId),
         })
@@ -752,7 +746,6 @@ it(
         ).toEqual([])
         const tools = await workspaceChatTools({
           orgId: org.id,
-          orgSlug: org.slug,
           workspaceId,
           snapshot: await getWorkspaceProjectionSnapshot(workspaceId),
         })
@@ -924,7 +917,6 @@ it.each(["pending", "failed"])(
             legacyKnowledgeFiles: 0,
             units: [],
             skipped: [],
-            embeddingModel: "fixture-embedding",
           }),
         ).not.toBeNull()
         if (state === "failed") {
@@ -996,7 +988,6 @@ it(
       )
       const tools = await workspaceChatTools({
         orgId: f.org.id,
-        orgSlug: f.org.slug,
         workspaceId: f.workspaceId,
         snapshot,
       })
@@ -1035,7 +1026,6 @@ it(
       )
       const tools = await workspaceChatTools({
         orgId: f.org.id,
-        orgSlug: f.org.slug,
         workspaceId: f.workspaceId,
         snapshot,
       })

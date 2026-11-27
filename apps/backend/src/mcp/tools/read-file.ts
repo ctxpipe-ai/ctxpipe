@@ -1,19 +1,10 @@
-import { and, eq } from "drizzle-orm"
 import { z } from "zod"
 
-import { withOrgDbContext } from "../../db/client.js"
-import {
-  workspaceKnowledgeChunks,
-  workspaceKnowledgeUnits,
-  workspaces,
-} from "../../db/schema/workspaces.js"
 import { fetchCheckoutFileBytes } from "../../domain/codeIngestion/codesearchClient.js"
 import type { HydrateClaim } from "../../domain/workspaces/hydrate.js"
-import { chunkKnowledgeBody } from "../../domain/workspaces/knowledge-chunks.js"
-import { selectKnowledgeReader } from "../../knowledge-reader/knowledge-reader.js"
+import { servedKnowledgeHead } from "../../knowledge-reader/knowledge-reader.js"
 import { readPlaneUnit } from "../../knowledge-reader/plane-files.js"
 import type { KnowledgeHead } from "../../models/knowledge-state.js"
-import { activeProjectionSha } from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
 import { fitPage, measureResult, truncateText } from "../framework/budget.js"
 import {
@@ -112,14 +103,15 @@ function frontMatterOf(unit: {
 }
 
 /**
- * A unit and the file line before its first body line: the lines of front
- * matter. The chunk rows hold file lines, and the first chunk starts at its
- * body line, so the difference is the offset (ADR-051 §6). Without chunk
- * rows the offset is 0.
+ * A unit of the Workspace Git at the SHA that the knowledge plane serves.
+ * The text is the body without front matter, and `lineOffset` is the
+ * count of its lines of front matter. The `updatedAt` of the front matter
+ * comes from the plane (`readPlaneUnit`).
  */
-async function readUnit(
+async function readPlaneUnitFile(
   org: CallOrg,
   workspace: CallWorkspace,
+  head: KnowledgeHead,
   path: string,
 ): Promise<{
   text: string
@@ -127,71 +119,6 @@ async function readUnit(
   sha: string
   frontMatter: FrontMatter
 } | null> {
-  return withOrgDbContext(org.id, async (db) => {
-    const [row] = await db
-      .select({
-        servingId: workspaceKnowledgeUnits.servingId,
-        body: workspaceKnowledgeUnits.body,
-        // The unit row belongs to the active projection. Its own
-        // `projection_sha` can be older after a partial hydrate.
-        sha: activeProjectionSha(),
-        kind: workspaceKnowledgeUnits.kind,
-        title: workspaceKnowledgeUnits.title,
-        source: workspaceKnowledgeUnits.source,
-        updatedAt: workspaceKnowledgeUnits.updatedAt,
-        claims: workspaceKnowledgeUnits.claims,
-      })
-      .from(workspaceKnowledgeUnits)
-      .innerJoin(
-        workspaces,
-        eq(workspaces.id, workspaceKnowledgeUnits.workspaceId),
-      )
-      .where(
-        and(
-          eq(workspaceKnowledgeUnits.orgId, org.id),
-          eq(workspaceKnowledgeUnits.workspaceId, workspace.id),
-          eq(workspaceKnowledgeUnits.path, path),
-        ),
-      )
-      .limit(1)
-    if (!row) return null
-    const [first] = await db
-      .select({ startLine: workspaceKnowledgeChunks.startLine })
-      .from(workspaceKnowledgeChunks)
-      .where(
-        and(
-          eq(workspaceKnowledgeChunks.orgId, org.id),
-          eq(workspaceKnowledgeChunks.workspaceId, workspace.id),
-          eq(workspaceKnowledgeChunks.unitId, row.servingId),
-          eq(workspaceKnowledgeChunks.ordinal, 0),
-        ),
-      )
-      .limit(1)
-    const bodyStart = chunkKnowledgeBody(row.body)[0]?.startLine
-    const lineOffset =
-      first && bodyStart !== undefined
-        ? Math.max(0, first.startLine - bodyStart)
-        : 0
-    return {
-      text: row.body,
-      lineOffset,
-      sha: row.sha,
-      frontMatter: frontMatterOf(row),
-    }
-  })
-}
-
-/**
- * A unit of the Workspace Git at the SHA that the knowledge plane serves.
- * The text is the body without front matter, as on the old stack. The
- * `updatedAt` of the front matter comes from the plane (`readPlaneUnit`).
- */
-async function readPlaneUnitFile(
-  org: CallOrg,
-  workspace: CallWorkspace,
-  head: KnowledgeHead,
-  path: string,
-): Promise<Awaited<ReturnType<typeof readUnit>>> {
   const read = await readPlaneUnit({
     orgId: org.id,
     workspaceId: workspace.id,
@@ -340,16 +267,9 @@ export async function readFileByRef(
   if (ref.kind === "unit") {
     if (!workspace) throw new Error("A unit ref has a Workspace")
     const workspaceServed = requireServed(workspace)
-    const { planeHeads } = await selectKnowledgeReader(
-      org.id,
-      [workspace.id],
-      input.branch,
-    )
-    const planeHead = planeHeads.get(workspace.id)
-    notices = legacyKnowledgeNotices([workspace], planeHeads)
-    const unit = planeHead
-      ? await readPlaneUnitFile(org, workspace, planeHead, ref.path)
-      : await readUnit(org, workspace, ref.path)
+    const head = await servedKnowledgeHead(org.id, workspace.id, input.branch)
+    notices = legacyKnowledgeNotices([workspace])
+    const unit = await readPlaneUnitFile(org, workspace, head, ref.path)
     text = unit?.text ?? null
     frontMatter = unit?.frontMatter
     lineOffset = unit?.lineOffset ?? 0

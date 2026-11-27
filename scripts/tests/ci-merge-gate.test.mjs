@@ -164,7 +164,6 @@ test("a change to a file that lists, defines or runs checks gives a full run, or
     "scripts/checks/prerequisites.mjs",
     "scripts/checks/toolchain.mjs",
     "scripts/ci/vitest-launch.mjs",
-    "scripts/ci/graph-ready.mjs",
   ])
     assert.equal(
       decideMode({

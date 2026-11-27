@@ -2,6 +2,7 @@ import { z } from "zod"
 
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
+import { organizationExists } from "../../domain/organization-admin.js"
 import {
   resolveRepositoryReadTip,
   workspaceGitRead,
@@ -17,7 +18,6 @@ import {
   listBranchHeads,
   readyKnowledgeHeads,
 } from "../../models/knowledge-state.js"
-import { getOrgFeature } from "../../models/org-features.js"
 import { getWorkspaceById } from "../../models/workspaces.js"
 import { enqueueWorkflow } from "../client.js"
 import { StepCrashLoopError, withCrashLoopGuard } from "../crash-loop.js"
@@ -25,10 +25,9 @@ import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { knowledgeMaintenance } from "./knowledge-maintenance.js"
 
 /**
- * The ClickHouse projection of the knowledge plane (ADR-067), for an org
- * whose flag is not `off`. The hydrate queues one run after it releases the
- * Workspace hydrate lock. Thus a ClickHouse outage does not stop the old
- * stack, and both stacks stay current (ADR-069 decision 9).
+ * The ClickHouse projection of the knowledge plane (ADR-067). The hydrate
+ * queues one run after it releases the Workspace hydrate lock. Thus a
+ * ClickHouse outage does not stop the hydrate.
  *
  * A run applies the tip that the Workspace wants when the step starts, not
  * the SHA of its trigger. Thus queued runs merge (ADR-067 decision 3): a
@@ -106,11 +105,6 @@ export const knowledgeProjection = defineWorkflow(
         },
         withProjectionGuard(async () => {
           lockSignal.throwIfAborted()
-          // The flag is the gate before Workspace content goes to the
-          // embedding provider and to ClickHouse. A run can wait for a long
-          // time, so it reads the flag again at each attempt.
-          if ((await getOrgFeature(input.orgId, "knowledge_plane")) === "off")
-            return null
           const env = parseEnv(process.env)
           const workspace = await withOrgDbContext(input.orgId, () =>
             getWorkspaceById(input.workspaceId, input.orgId),
@@ -196,12 +190,19 @@ export const knowledgeProjection = defineWorkflow(
     // holds no worker slot, so the runs that queue during a ClickHouse outage
     // do not take the slots of the hydrate. The run that gets the lease
     // reads the newest tip, so a later run often only finds `current`.
-    const projectIfFree = () =>
-      withSandboxLockIfFree(
-        input.orgId,
-        `knowledge-projection:${input.workspaceId}`,
-        project,
-      )
+    // The org row is the gate before Workspace content goes to the embedding
+    // provider and to ClickHouse: the Workspace rows of a deleted org stay,
+    // and the org purge waits until the org row is gone
+    // (`knowledge-purge`). A run can wait for a long time, so it reads the
+    // org row again before each lease. The lease row needs the org row too.
+    const projectIfFree = async () =>
+      (await organizationExists(input.orgId))
+        ? withSandboxLockIfFree(
+            input.orgId,
+            `knowledge-projection:${input.workspaceId}`,
+            project,
+          )
+        : { busy: false as const, value: null }
     let locked = await projectIfFree()
     for (let wait = 0; locked.busy; wait++) {
       await step.sleep(`await-knowledge-lease-${wait}`, "1 minute")

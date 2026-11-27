@@ -57,9 +57,6 @@
     "src/routes/webhooks/github/github-tip.contract.test.ts",
     "src/db/gateway-guards.contract.test.ts"
   ],
-  "derived revision graph": [
-    "src/domain/workspaces/graph-workflow.contract.test.ts"
-  ],
   "native cron scheduling": [
     "src/openworkflow/workflows/workspace-tip-check.contract.test.ts"
   ],
@@ -91,9 +88,6 @@
     "src/domain/workspaces/workspace-chat-prepare-native.contract.test.ts",
     "src/domain/workspaces/native-https-git-github-auth.contract.test.ts"
   ],
-  "knowledge search at scale": [
-    "src/domain/workspaces/knowledge-search.contract.test.ts"
-  ],
   "knowledge store (ClickHouse)": [
     "src/knowledge-store/knowledge-store.contract.test.ts",
     "src/knowledge-store/knowledge-reads.contract.test.ts"
@@ -119,7 +113,6 @@
     "src/domain/workspaces/sandbox-process-guards-native.contract.test.ts",
     "src/domain/workspaces/workspace-chat-unsandboxed-env.test.ts",
     "src/openworkflow/enqueue-follow-up-native.contract.test.ts",
-    "src/platform/graph/falkordb-transfer.contract.test.ts",
     "src/test/docker-outside-msw.test.ts",
     "src/db/copy-database.contract.test.ts",
     "src/test/test-containers.contract.test.ts"

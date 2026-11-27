@@ -14,6 +14,7 @@ import { recordSpans } from "../../../test/spans.js"
 import type { AppEnv } from "../../app/env.js"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
+import { knowledgeBranchHeads } from "../../db/schema/knowledge_state.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
 import {
@@ -181,16 +182,25 @@ describe("list_workspaces through MCP", () => {
           url: revision.remote.url,
           sha: revision.sha,
           revision,
-          embeddings: true,
-          graph: {
+          index: {
             revision,
             result: {
               kind: "failed",
               message: "repo_private: secret diagnostic",
             },
           },
-          index: { revision, result: { kind: "pending" } },
         },
+      })
+      // The knowledge plane serves the Workspace: it holds the embeddings
+      // and the graph.
+      await db.insert(knowledgeBranchHeads).values({
+        workspaceId: id,
+        organizationId: seed.orgId,
+        branch: "main",
+        lastSha: revision.sha,
+        treeVersion: 1,
+        runStatus: "completed",
+        defaultAt: new Date(),
       })
       await insertLinkedRepositoryRows(db, [
         {
@@ -245,8 +255,8 @@ describe("list_workspaces through MCP", () => {
         readiness: {
           knowledge: "ready",
           embeddings: "ready",
-          graph: "failed",
-          index: "pending",
+          graph: "ready",
+          index: "failed",
         },
         repositories: [
           "example/web",
@@ -300,8 +310,6 @@ describe("list_workspaces through MCP", () => {
           url: revision.remote.url,
           sha: revision.sha,
           revision,
-          embeddings: true,
-          graph: { revision, result: { kind: "ready" } },
           index: { revision, result: { kind: "ready" } },
         },
       })
@@ -484,8 +492,6 @@ describe("list_workspaces through MCP", () => {
             url: revision.remote.url,
             sha,
             revision,
-            embeddings: true,
-            graph: { revision, result: { kind: "ready" } },
             index: { revision, result: { kind: "ready" } },
           },
         })

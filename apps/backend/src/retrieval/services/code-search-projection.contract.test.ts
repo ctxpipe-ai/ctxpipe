@@ -136,7 +136,6 @@ async function withSearchProjection(
           url,
           sha: revision.sha,
           revision,
-          embeddings: true,
           index: { revision, result: { kind: "ready" } },
         },
       })

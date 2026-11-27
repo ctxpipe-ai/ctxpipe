@@ -117,14 +117,14 @@ Fix or dispute each finding. A hold ends when a later review no longer raises th
 
 ## Local development
 
-One [docker-compose.yml](docker-compose.yml) uses profiles ([ADR-015](.ai/memory/decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md)). `pnpm dev:infra` starts the `infra` profile (Postgres, FalkorDB, ClickHouse, OTEL, Agent Vault). `pnpm start` starts the `deploy` profile (production images). Details on Compose, migrations, the docs site, and container deploy: [`.ai/agents/local-development.md`](.ai/agents/local-development.md).
+One [docker-compose.yml](docker-compose.yml) uses profiles ([ADR-015](.ai/memory/decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md)). `pnpm dev:infra` starts the `infra` profile (Postgres, ClickHouse, OTEL, Agent Vault). `pnpm start` starts the `deploy` profile (production images). Details on Compose, migrations, the docs site, and container deploy: [`.ai/agents/local-development.md`](.ai/agents/local-development.md).
 
 ### Agent runbook — host dev (run from repo root)
 
 Run `pnpm` from the repo root, not inside `apps/*`.
 
 1. `pnpm install`
-2. `apps/backend/.env.local`: copy from [apps/backend/.env.example](apps/backend/.env.example) if missing. Set `AUTH_SECRET` (≥ 32 characters), and `DATABASE_URL` / `GRAPH_DB_URI` as in the example (Postgres on host port 5433, FalkorDB `redis://localhost:6379`). In a linked git worktree, use the per-worktree database name `ctxpipe_<sanitized_branch>` from [`scripts/worktree-db.sh`](scripts/worktree-db.sh), so that `pnpm dev` and migrate use the same database. A normal clone uses `ctxpipe`.
+2. `apps/backend/.env.local`: copy from [apps/backend/.env.example](apps/backend/.env.example) if missing. Set `AUTH_SECRET` (≥ 32 characters), and `DATABASE_URL` as in the example (Postgres on host port 5433). In a linked git worktree, use the per-worktree database name `ctxpipe_<sanitized_branch>` from [`scripts/worktree-db.sh`](scripts/worktree-db.sh), so that `pnpm dev` and migrate use the same database. A normal clone uses `ctxpipe`.
 3. `pnpm dev:infra` — Docker must be running.
 4. `pnpm dev` — it starts the portless HTTPS proxy on port 443. macOS and Linux may ask for elevation. It exports `AUTH_BASE_URL`, `UI_PROXY_URL`, `VITE_PUBLIC_API_URL`, and `AUTH_ALLOWED_ORIGINS` from `pnpm exec portless get`. It starts codesearch in Docker ([`scripts/codesearch-docker-dev.sh`](scripts/codesearch-docker-dev.sh)). It sets `CODESEARCH_URL` to `http://127.0.0.1:<random-port>` (server-side only). Turbo then runs backend `migrate`. After that, Turbo runs backend and UI on the host.
 5. Browse and test at `https://app.ctxpipe.localhost`. Do not use `ui.ctxpipe` or raw localhost ports. A linked worktree gets a branch subdomain ([portless](https://portless.sh/)). Trust the dev CA once with `pnpm trust`.

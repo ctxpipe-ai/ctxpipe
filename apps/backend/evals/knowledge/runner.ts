@@ -12,8 +12,6 @@ import {
   KNOWLEDGE_PROJECTION_CODE_VERSION,
   parseKnowledgeProjectionVersion,
 } from "../../src/knowledge-plane/change-set.js"
-import type { KnowledgeReader } from "../../src/knowledge-reader/knowledge-reader.js"
-import { legacyKnowledgeReader } from "../../src/knowledge-reader/legacy-reader.js"
 import { ORCHESTRATOR_DEFAULTS } from "../../src/knowledge-reader/orchestrator.js"
 import { planeKnowledgeReader } from "../../src/knowledge-reader/plane-reader.js"
 import { resolveCallWorkspace } from "../../src/mcp/framework/call-workspace.js"
@@ -40,7 +38,7 @@ import {
 
 /*
  * One eval run (ADR-069 decision 7): each question of the dataset, through
- * both arms, through the `KnowledgeReader` seam of the tools. Both arms get
+ * both arms, through the plane reader of the tools (`planeKnowledgeReader`). Both arms get
  * the same Workspace, at the frozen SHA of the corpus, the same question and
  * the same request, so the comparison is fair.
  *
@@ -49,15 +47,17 @@ import {
  */
 
 /**
- * The two arms (a CTO decision): the baseline, which is the current stack,
- * and the knowledge plane. Only the plane has Jev's p(answers) as its score
- * and gives positions.
+ * The two arms (a CTO decision): the baseline, which is the old stack, and
+ * the knowledge plane. Only the plane has Jev's p(answers) as its score and
+ * gives positions. The old stack is gone (CTX-1713): the baseline arm comes
+ * only from the stored answers of an earlier run (`--baseline-from`), and a
+ * run with none has the plane only.
  */
 export const ARMS = ["legacy", "plane"] as const
 export type Arm = (typeof ARMS)[number]
 
 export const ARM_NAMES: Record<Arm, string> = {
-  legacy: "baseline: current stack (Postgres + FalkorDB)",
+  legacy: "baseline: old stack (Postgres + FalkorDB), stored answers",
   plane: "knowledge plane (ClickHouse + Jev)",
 }
 
@@ -244,13 +244,13 @@ function failure(error: unknown): string {
 const relatedInput = z.object(getRelatedInputShape)
 
 /**
- * The org and the Workspace of a corpus, the SHA that both stacks serve, and
- * the head of the plane at that SHA.
+ * The org and the Workspace of a corpus, the SHA that the hydrate publishes
+ * and the plane serves, and the head of the plane at that SHA.
  */
 type EvalTarget = {
   org: { id: string; slug: string }
   workspace: { id: string; slug: string }
-  /** The branch and the frozen SHA that both stacks serve. */
+  /** The branch and the frozen SHA that the plane serves. */
   served: { branch: string; sha: string }
   /** The high-degree units of the corpus (`highDegreeUnits`). */
   hubs: ReadonlySet<string>
@@ -260,9 +260,10 @@ type EvalTarget = {
 }
 
 /**
- * The Workspace of each corpus. Both stacks must serve the frozen SHA of the
- * corpus, so that both arms read the same context repo that the gold labels
- * describe (ADR-069 decision 4).
+ * The Workspace of each corpus. The hydrate and the plane must serve the
+ * frozen SHA of the corpus, the SHA of the stored baseline answers, so that
+ * both arms read the same context repo that the gold labels describe
+ * (ADR-069 decision 4).
  */
 async function resolveWorkspaces(
   dataset: Dataset,
@@ -284,11 +285,12 @@ async function resolveWorkspaces(
     const { sha, root } = corpus.contextRepo
     if (workspace.served?.sha !== sha || !head || plane !== sha)
       throw new Error(
-        `Workspace ${workspace.slug} must serve the frozen SHA ${sha} of ${corpus.id} on both stacks. The old stack serves ${workspace.served?.sha ?? "nothing"}, and the plane serves ${plane ?? "nothing"}.`,
+        `Workspace ${workspace.slug} must serve the frozen SHA ${sha} of ${corpus.id}. The hydrate publishes ${workspace.served?.sha ?? "nothing"}, and the plane serves ${plane ?? "nothing"}.`,
       )
     // The gold paths are relative to the root of the corpus, as the tools
-    // give the paths of the Workspace. Each stack must serve that root: a
-    // failed projection after a change of the root keeps the earlier one.
+    // give the paths of the Workspace. The hydrate and the plane must serve
+    // that root: a failed projection after a change of the root keeps the
+    // earlier one.
     const record = await withOrgDbContext(org.id, () =>
       getWorkspaceById(workspace.id, org.id),
     )
@@ -312,14 +314,14 @@ async function resolveWorkspaces(
       )
     const roots = {
       workspace: workspaceRootPath(record),
-      old: workspaceRootPath(
+      hydrate: workspaceRootPath(
         workspaceRevisionSchema.safeParse(record?.activeRevision).data,
       ),
       plane: projection.root,
     }
     if (Object.values(roots).some((served) => served !== root))
       throw new Error(
-        `Workspace ${workspace.slug} must serve the root "${root}" of ${corpus.id} on both stacks. The Workspace has "${roots.workspace}", the old stack serves "${roots.old}", and the plane serves "${roots.plane}".`,
+        `Workspace ${workspace.slug} must serve the root "${root}" of ${corpus.id}. The Workspace has "${roots.workspace}", the hydrate publishes "${roots.hydrate}", and the plane serves "${roots.plane}".`,
       )
     resolved.set(corpus.id, {
       org,
@@ -336,9 +338,9 @@ async function resolveWorkspaces(
 /**
  * The paths of the high-degree units of a Workspace, for the hub check
  * (CTX-1135): an out-degree (links and claims) of at least 10, and at or
- * above the 99th percentile of the units. The degree comes from the units of the frozen SHA in
- * the old stack. Both stacks hydrate the same files, so the degree is a fact
- * of the corpus, the same for both arms.
+ * above the 99th percentile of the units. The degree comes from the units
+ * that the hydrate publishes at the frozen SHA in Postgres: a fact of the
+ * corpus, the same for both arms.
  */
 export async function highDegreeUnits(
   orgId: string,
@@ -361,12 +363,13 @@ export async function highDegreeUnits(
 }
 
 /**
- * Run each question of `questions` through both arms, one after the other,
+ * Run each question of `questions` through the plane, one after the other,
  * so that each latency is the latency of one request. Stops at the spend
- * cap of `calls`; the answer that the cap stopped is not kept. With
- * `baseline`, the old stack does not run: each question gets its stored
- * answer of the old stack. Also gives the projection version of the plane
- * store of each corpus, by corpus id.
+ * cap of `calls`; the answer that the cap stopped is not kept. The old
+ * stack does not run: with `baseline`, each question gets its stored answer
+ * of the old stack.
+ * Also gives the projection version of the plane store of each corpus, by
+ * corpus id.
  */
 export async function runEval(input: {
   dataset: Dataset
@@ -395,30 +398,22 @@ export async function runEval(input: {
   for (const question of input.questions) {
     const target = workspaces.get(question.corpus)
     if (!target) throw new Error(`No Workspace for ${question.corpus}.`)
-    for (const arm of ARMS) {
-      const stored = arm === "legacy" && input.baseline?.get(question.id)
-      if (stored) {
-        answers.push(stored)
-        continue
-      }
-      const reader: KnowledgeReader =
-        arm === "legacy"
-          ? legacyKnowledgeReader
-          : planeKnowledgeReader({
-              heads: new Map([[target.workspace.id, target.head]]),
-            })
-      calls.begin(arm, question.id)
-      const answer = await ask(reader, question, target, now, quiet)
-      await calls.settle()
-      const counts = calls.end()
-      if (calls.stopped) return { answers, projectionVersions }
-      answers.push({
-        arm,
-        question: question.id,
-        ...answer,
-        calls: counts,
-      })
-    }
+    const stored = input.baseline?.get(question.id)
+    if (stored) answers.push(stored)
+    const reader = planeKnowledgeReader({
+      heads: new Map([[target.workspace.id, target.head]]),
+    })
+    calls.begin("plane", question.id)
+    const answer = await ask(reader, question, target, now, quiet)
+    await calls.settle()
+    const counts = calls.end()
+    if (calls.stopped) return { answers, projectionVersions }
+    answers.push({
+      arm: "plane",
+      question: question.id,
+      ...answer,
+      calls: counts,
+    })
   }
   return { answers, projectionVersions }
 }
@@ -455,14 +450,14 @@ function quietTimer(quietMs: number) {
 
 /** The search, then `get_related` from the seeds, of one question. */
 async function ask(
-  reader: KnowledgeReader,
+  reader: ReturnType<typeof planeKnowledgeReader>,
   question: Question,
   target: EvalTarget,
   now: Date,
   quiet: ReturnType<typeof quietTimer>,
 ): Promise<Pick<ArmAnswer, "search" | "related">> {
   const validAt = question.validAt ? new Date(question.validAt) : undefined
-  let quietBefore = await quiet.before(`${reader.stack} search`)
+  let quietBefore = await quiet.before("plane search")
   let started = performance.now()
   let search: ArmAnswer["search"]
   try {
@@ -502,14 +497,13 @@ async function ask(
     quiet.after()
   }
   if (!question.seeds) return { search }
-  quietBefore = await quiet.before(`${reader.stack} get_related`)
+  quietBefore = await quiet.before("plane get_related")
   started = performance.now()
   let related: ArmAnswer["related"]
   try {
     const ranking = await reader.related({
       org: target.org,
       workspace: target.workspace,
-      sha: target.served.sha,
       input: relatedInput.parse({
         workspace: target.workspace.slug,
         seeds: question.seeds,

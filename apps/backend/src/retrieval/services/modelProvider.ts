@@ -281,11 +281,6 @@ function addUsage(
  * OpenAI-compatible providers receive `input: string[]` in chunks; providers that
  * only expose single-text `embed` (e.g. Bedrock) use bounded concurrency.
  */
-/** The embedding model id that `generateEmbeddings` calls. */
-export function embeddingModelId(): string {
-  return modelSpecBase(modelEnvSchema.parse(process.env).MODEL_EMBEDDING_NAME)
-}
-
 export async function generateEmbeddings(
   rawTexts: string[],
   signal?: AbortSignal,

@@ -7,16 +7,13 @@ import { McpToolError } from "./tool-errors.js"
  * (null for a call over several Workspaces), the tool and its query
  * (`scope`), and the projection SHA. A cursor from another org, Workspace or
  * query is invalid. A cursor after a new projection is stale, because the
- * order can change. A cursor records the knowledge stack that made it
- * (ADR-069 decision 9): a cursor of the other stack is stale too.
+ * order can change.
  */
 export type CursorBinding = {
   orgId: string
   workspaceId: string | null
   sha: string
   scope: string
-  /** The knowledge stack of the call. Absent: the old stack. */
-  stack?: "legacy" | "plane"
 }
 
 function scopeKey(binding: CursorBinding): string {
@@ -24,14 +21,12 @@ function scopeKey(binding: CursorBinding): string {
     JSON.stringify([binding.orgId, binding.workspaceId, binding.scope]),
   )
 }
-/** `k` is set only for the plane, so a cursor of the old stack keeps its bytes. */
 type CursorPayload = {
   v: 1
   s: string
   q: string
   o: number
   t?: number
-  k?: "plane"
 }
 
 function digest(value: string): string {
@@ -52,7 +47,6 @@ export function encodeCursor(
     q: scopeKey(input),
     o: input.offset,
     ...(input.anchor === undefined ? {} : { t: input.anchor }),
-    ...(input.stack === "plane" ? { k: "plane" as const } : {}),
   }
   return Buffer.from(JSON.stringify(payload)).toString("base64url")
 }
@@ -92,18 +86,11 @@ export function decodeCursorWithAnchor(
     payload.o < 0 ||
     (payload.t !== undefined &&
       (typeof payload.t !== "number" ||
-        Number.isNaN(new Date(payload.t).getTime()))) ||
-    (payload.k !== undefined && payload.k !== "plane")
+        Number.isNaN(new Date(payload.t).getTime())))
   ) {
     throw invalidCursor()
   }
   if (payload.q !== scopeKey(expected)) throw invalidCursor()
-  if ((payload.k ?? "legacy") !== (expected.stack ?? "legacy")) {
-    throw new McpToolError(
-      "stale_cursor",
-      "The cursor comes from the other knowledge stack: the org changed its knowledge plane setting, or the Workspace became ready on the new plane. Send the call again without the cursor.",
-    )
-  }
   if (payload.s !== digest(expected.sha)) {
     throw new McpToolError(
       "stale_cursor",

@@ -1,10 +1,10 @@
 # Rerun skill derivation (Phase 2 only)
 
-Recomputes **Skill** nodes and **MEMBER_OF_PRIMARY** claims from existing **InstructionUnit** rows in Postgres (no LLM, no codesearch file reads). Persists via the same path as ingestion: `deduplicateAndStore` → Falkor projection → optional embeddings.
+Recomputes **Skill** nodes and **MEMBER_OF_PRIMARY** claims from existing **InstructionUnit** rows in Postgres (no LLM, no codesearch file reads). Persists via the same path as ingestion: `deduplicateAndStore` → optional embeddings.
 
 ## Prerequisites
 
-- `apps/backend/.env.local` with `DATABASE_URL`, `AUTH_SECRET`, `GRAPH_DB_URI`, and the usual model/embedding variables (unless you pass `--skip-embed`).
+- `apps/backend/.env.local` with `DATABASE_URL`, `AUTH_SECRET`, and the usual model/embedding variables (unless you pass `--skip-embed`).
 - Organization UUID and repository ID (same IDs as in the DB / API).
 
 ## Command

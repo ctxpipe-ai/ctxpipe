@@ -26,13 +26,9 @@ if ! docker info >/dev/null 2>&1; then
   docker info >/dev/null 2>&1 || { log "dockerd did not start"; tail -20 /tmp/dockerd.log >&2; exit 1; }
 fi
 
-# No IPv6 in the sandbox kernel: FalkorDB's Bolt listener (binds [::]) aborts the
-# server. The backend talks Redis protocol on 6379 and never uses Bolt.
-if [ ! -e /proc/net/if_inet6 ] && [ ! -f docker-compose.override.yml ]; then
-  printf '%s\n' 'services:' '  falkordb:' '    environment:' '      FALKORDB_ARGS: "CMD_INFO no"' >docker-compose.override.yml
-fi
-
-docker compose --profile infra up -d --wait postgres falkordb otel-collector
+# ClickHouse holds the knowledge (the knowledge plane); infra-host-ports gives it
+# the host port 8123.
+docker compose --profile infra up -d --wait postgres clickhouse infra-host-ports otel-collector
 
 ########################################################
 # 2. Dependencies
@@ -57,7 +53,6 @@ ENV_LOCAL="apps/backend/.env.local"
 if [ ! -f "$ENV_LOCAL" ]; then
   cat >"$ENV_LOCAL" <<EOF
 DATABASE_URL=postgresql://ctxpipe:ctxpipe@localhost:5433/ctxpipe
-GRAPH_DB_URI=redis://localhost:6379
 AUTH_SECRET=${AUTH_SECRET:-$(openssl rand -hex 32)}
 AUTH_BASE_URL=http://localhost:3000
 UI_PROXY_URL=http://localhost:3002
@@ -66,6 +61,8 @@ CODESEARCH_URL=http://127.0.0.1:3001
 EOF
   log "wrote $ENV_LOCAL"
 fi
+# The knowledge store (ClickHouse), from the infra profile above.
+grep -q '^CLICKHOUSE_URL=' "$ENV_LOCAL" || echo "CLICKHOUSE_URL=http://ctxpipe:ctxpipe@localhost:8123/ctxpipe" >>"$ENV_LOCAL"
 # Agent Vault (Docker chat sandboxes): a generated owner password per checkout.
 grep -q '^AGENT_VAULT_ADDR=' "$ENV_LOCAL" || echo "AGENT_VAULT_ADDR=http://localhost:14321" >>"$ENV_LOCAL"
 grep -q '^AGENT_VAULT_OWNER_PASSWORD=' "$ENV_LOCAL" || echo "AGENT_VAULT_OWNER_PASSWORD=$(openssl rand -hex 24)" >>"$ENV_LOCAL"
@@ -74,9 +71,9 @@ pnpm db:migrate >/dev/null
 # Tests read DATABASE_URL / AUTH_SECRET from the shell (as in CI), not .env.local.
 if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
   {
-    grep -E '^(DATABASE_URL|GRAPH_DB_URI|AUTH_SECRET)=' "$ENV_LOCAL" | sed 's/^/export /'
+    grep -E '^(DATABASE_URL|AUTH_SECRET)=' "$ENV_LOCAL" | sed 's/^/export /'
     echo "export PATH=\"$GOBIN_DIR:\$PATH\""
   } >>"$CLAUDE_ENV_FILE"
 fi
 
-echo "Cloud dev env ready: postgres :5433, falkordb :6379, DATABASE_URL/AUTH_SECRET exported. Start the app with: bash scripts/dev-headless.sh (see AGENTS.md, Claude Code on the web)." >&3
+echo "Cloud dev env ready: postgres :5433, clickhouse :8123, DATABASE_URL/AUTH_SECRET exported. Start the app with: bash scripts/dev-headless.sh (see AGENTS.md, Claude Code on the web)." >&3

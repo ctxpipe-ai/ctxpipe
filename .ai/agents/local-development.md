@@ -6,7 +6,7 @@ The root [`AGENTS.md`](../../AGENTS.md#local-development) holds the host dev run
 
 One [docker-compose.yml](../../docker-compose.yml) uses profiles ([ADR-015](../memory/decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md)).
 
-- `pnpm dev:infra` starts the `infra` profile: Postgres, FalkorDB, OTEL, and Agent Vault for Docker chat sandboxes.
+- `pnpm dev:infra` starts the `infra` profile: Postgres, ClickHouse, OTEL, and Agent Vault for Docker chat sandboxes.
 - The Agent Vault API is on `127.0.0.1:14321`. Local containers can reach it on Docker Desktop, so use a trusted machine.
 - Set a generated `AGENT_VAULT_OWNER_PASSWORD` in `apps/backend/.env.local`. If a fresh Agent Vault refuses it, remove the `agent_vault_dev` volume.
 - `pnpm start` starts the `deploy` profile (production images: migrate, backend, worker, UI, codesearch).

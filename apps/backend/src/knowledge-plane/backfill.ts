@@ -2,20 +2,19 @@ import { getSystemDb, withOrgDbContext } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
 import { formatUnknownError } from "../db/transientDbRetry.js"
 import { readyKnowledgeHeads } from "../models/knowledge-state.js"
-import { getOrgFeature } from "../models/org-features.js"
 import { listOrgWorkspaces } from "../models/workspaces.js"
 import { log } from "../observability/logger.js"
 import { enqueueWorkflow } from "../openworkflow/client.js"
 import { knowledgeProjection } from "../openworkflow/workflows/knowledge-projection.js"
 
 /**
- * The backfill of the knowledge plane of one org (CTX-1643): when its
- * `knowledge_plane` flag is not `off`, queue one `knowledge-projection` run
- * of the default branch for each Workspace that has a tip but no ready head.
+ * The backfill of the knowledge plane of one org (CTX-1643): queue one
+ * `knowledge-projection` run of the default branch for each Workspace that
+ * has a tip but no ready head.
  * A Workspace with no tip gets its run from its first hydrate.
  *
- * Call it on each run of the operator path, not only on a change: thus the
- * next run queues again a Workspace whose first run failed. The runs have no
+ * Each deploy calls it, not only a change: thus the next deploy queues
+ * again a Workspace whose first run failed. The runs have no
  * idempotency key for the same reason. A second queued run of a Workspace
  * costs little: it waits for the projection lease, and a run of a tip that
  * is already applied returns `current` (ADR-067 decision 3).
@@ -27,7 +26,6 @@ import { knowledgeProjection } from "../openworkflow/workflows/knowledge-project
  * and no name. Returns the ids.
  */
 export async function backfillKnowledgePlane(orgId: string): Promise<string[]> {
-  if ((await getOrgFeature(orgId, "knowledge_plane")) === "off") return []
   const workspaceIds = await withOrgDbContext(orgId, async () => {
     const withTip = (await listOrgWorkspaces(orgId))
       .filter((workspace) => workspace.desiredSha)

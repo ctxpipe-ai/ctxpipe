@@ -4,13 +4,7 @@ import type { AppEnv } from "../../app/env.js"
 import { directWriteRoute } from "../../auth/write-grant.js"
 import { UPGRADE_STATUSES } from "../../domain/upgrades/registry.js"
 import { workspaceAllowsConversationEdits } from "../../domain/workspaces/chat-sandbox-policy.js"
-import { workspaceGraphRebuildKey } from "../../domain/workspaces/graph-projection.js"
 import { HYDRATE_SKIP_REASONS } from "../../domain/workspaces/hydrate.js"
-import {
-  type DerivedStoreResult,
-  type ProjectionState,
-  publishedProjection,
-} from "../../domain/workspaces/revision.js"
 import {
   workspaceRootPath,
   workspaceRootPathSchema,
@@ -25,8 +19,7 @@ import {
   githubRepoFullNameFromWorkspaceUrl,
   WORKSPACE_WRITE_STATUSES,
 } from "../../domain/workspaces/write-status.js"
-import { selectKnowledgeReader } from "../../knowledge-reader/knowledge-reader.js"
-import { FEATURE_VALUES, getOrgFeature } from "../../models/org-features.js"
+import { readyKnowledgeHeads } from "../../models/knowledge-state.js"
 import { isRepositoryLostAccess } from "../../models/repositories.js"
 import { listWorkspaceUpgradeRows } from "../../models/workspace-upgrades.js"
 import {
@@ -34,20 +27,15 @@ import {
   getWorkspaceBySlug,
   listLinkedRepositories,
   listWorkspaces,
-  markWorkspaceGraphRetry,
   persistHydrateRetry,
   persistWriteCheckRetry,
-  projectionFromWorkspace,
   touchLastUsedWorkspace,
   type WorkspaceRecord,
 } from "../../models/workspaces.js"
-import { detachedErrorLog, getLogger } from "../../observability/logger.js"
+import { detachedErrorLog } from "../../observability/logger.js"
 import { startLostAccessRebuilds } from "../../openworkflow/enqueue-codesearch-rebuild.js"
 import { enqueueKnowledgePurge } from "../../openworkflow/enqueue-knowledge-purge.js"
-import {
-  enqueueWorkspaceGraphRebuild,
-  enqueueWorkspaceHydrate,
-} from "../../openworkflow/enqueue-workspace-hydrate.js"
+import { enqueueWorkspaceHydrate } from "../../openworkflow/enqueue-workspace-hydrate.js"
 import { enqueueWorkspaceTipCheck } from "../../openworkflow/enqueue-workspace-tip-check.js"
 import { workspaceActivityRoutes } from "./workspace-activity-routes.js"
 import { workspaceBranchesRoutes } from "./workspace-branches-routes.js"
@@ -115,13 +103,13 @@ const WorkspaceSchema = z
   .openapi("Workspace")
 
 const WorkspaceStorePhaseSchema = z
-  .object({ kind: z.enum(["pending", "ready", "failed"]) })
+  .object({ kind: z.enum(["pending", "ready"]) })
   .openapi("WorkspaceStorePhase")
 
 const WorkspaceDetailSchema = WorkspaceSchema.extend({
   hydratePhases: z.object({ graph: WorkspaceStorePhaseSchema }).openapi({
     description:
-      "Graph state of the projection that reads use. `pending` until the first hydrate publishes the graph.",
+      "Graph state of the knowledge plane. `pending` until the plane serves the default branch of the Workspace.",
   }),
   linkedRepositories: z.array(LinkedRepositorySchema),
   skippedFiles: z.array(WorkspaceSkippedFileSchema).openapi({
@@ -133,10 +121,6 @@ const WorkspaceDetailSchema = WorkspaceSchema.extend({
 const ListWorkspacesResponseSchema = z
   .object({
     lastUsedWorkspaceId: z.string().nullable(),
-    knowledgePlane: z.enum(FEATURE_VALUES.knowledge_plane).openapi({
-      description:
-        "The `knowledge_plane` flag of the org. The chat composer shows the base branch picker only when it is not `off`.",
-    }),
     items: z.array(WorkspaceSchema),
   })
   .openapi("WorkspaceListResponse")
@@ -177,32 +161,16 @@ const DeleteWorkspaceRequestSchema = z
   })
   .openapi("DeleteWorkspaceRequest")
 
-function hydratePhasesView(state: ProjectionState): {
-  graph: { kind: DerivedStoreResult["kind"] }
-} {
-  const published = publishedProjection(state)
-  // A legacy projection has no graph phase. The graph route reports its state.
-  if (published?.kind === "legacy") return { graph: { kind: "ready" } }
-  if (published?.kind === "active")
-    return { graph: { kind: published.stores.graph.kind } }
-  return { graph: { kind: state.kind === "failed" ? "failed" : "pending" } }
-}
-
 /**
- * The phases that the Workspace pane shows. With the `knowledge_plane` flag
- * `on` and a ready head of the plane, the graph route reads the plane
- * (`selectKnowledgeReader`), so the graph is ready whatever the phase of the
- * FalkorDB graph. Else the pane shows the FalkorDB phase.
+ * The phases that the Workspace pane shows. The graph route reads the
+ * knowledge plane, so the graph is ready when the plane serves the default
+ * branch of the Workspace. Until then the pane shows "building".
  */
-async function workspaceHydratePhases(
-  workspace: WorkspaceRecord,
-): Promise<ReturnType<typeof hydratePhasesView>> {
-  const phases = hydratePhasesView(projectionFromWorkspace(workspace))
-  if (phases.graph.kind === "ready") return phases
-  const { planeHeads } = await selectKnowledgeReader(workspace.orgId, [
-    workspace.id,
-  ])
-  return planeHeads.has(workspace.id) ? { graph: { kind: "ready" } } : phases
+async function workspaceHydratePhases(workspace: WorkspaceRecord): Promise<{
+  graph: { kind: "ready" | "pending" }
+}> {
+  const heads = await readyKnowledgeHeads(workspace.orgId, [workspace.id])
+  return { graph: { kind: heads.has(workspace.id) ? "ready" : "pending" } }
 }
 
 function serializeWorkspace(row: {
@@ -439,37 +407,6 @@ const retryPrepareWorkspaceRoute = createRoute(
   }),
 )
 
-// Only a failed graph of the active revision is written again, and at most
-// once in each UTC hour. The run writes the graph from PostgreSQL; it does not
-// resolve the tip, so it never hydrates a new commit.
-const rebuildWorkspaceGraphRoute = createRoute(
-  directWriteRoute({
-    method: "post",
-    path: "/{workspaceSlug}/rebuild-graph",
-    request: { params: WorkspaceSlugParamsSchema },
-    responses: {
-      202: {
-        content: { "application/json": { schema: WorkspaceSchema } },
-        description:
-          "A rebuild of the failed graph of the active revision is queued",
-      },
-      401: {
-        content: { "application/json": { schema: ErrorResponseSchema } },
-        description: "Unauthorized",
-      },
-      404: {
-        content: { "application/json": { schema: ErrorResponseSchema } },
-        description: "Not found",
-      },
-      409: {
-        content: { "application/json": { schema: ErrorResponseSchema } },
-        description:
-          "The graph of the active revision did not fail, another phase is not ready, a newer commit builds, or a rebuild started in this UTC hour",
-      },
-    },
-  }),
-)
-
 // The tip check resumes paused write jobs and queues a migration export.
 const checkWriteAccessWorkspaceRoute = createRoute(
   directWriteRoute({
@@ -500,14 +437,10 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     }
     const orgId = c.get("orgId")
     if (!orgId) return c.json({ error: "Unauthorized" }, 401)
-    const [{ items, lastUsedWorkspaceId }, knowledgePlane] = await Promise.all([
-      listWorkspaces(),
-      getOrgFeature(orgId, "knowledge_plane"),
-    ])
+    const { items, lastUsedWorkspaceId } = await listWorkspaces()
     return c.json(
       {
         lastUsedWorkspaceId,
-        knowledgePlane,
         items: items.map((row) => serializeWorkspace(row)),
       },
       200,
@@ -745,48 +678,6 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       detachedErrorLog("workspace.hydrate.enqueue"),
     )
     return c.json(serializeWorkspace(retried), 200)
-  })
-  .openapi(rebuildWorkspaceGraphRoute, async (c) => {
-    if (!c.get("user") || !c.get("session")) {
-      return c.json({ error: "Unauthorized" }, 401)
-    }
-    const { workspaceSlug } = workspaceSlugParams(c)
-    const workspace = await getWorkspaceBySlug(workspaceSlug)
-    if (!workspace) return c.json({ error: "Not found" }, 404)
-    // The run writes only the graph when each other phase is ready. Not
-    // ready embeddings call a paid model, and a not ready index queues an
-    // index run. While a newer commit builds, the hydrate discards a run of
-    // the active revision. The tip check retries each of these states.
-    const projection = projectionFromWorkspace(workspace)
-    if (
-      projection.kind !== "active" ||
-      projection.stores.graph.kind !== "failed" ||
-      projection.stores.embeddings.kind !== "ready" ||
-      projection.stores.index.kind !== "ready"
-    )
-      return c.json({ error: "A rebuild cannot start now." }, 409)
-    const { revision } = projection
-    const queued = await enqueueWorkspaceGraphRebuild({
-      orgId: workspace.orgId,
-      revision,
-      revisionKey: workspaceGraphRebuildKey(revision),
-      trigger: `manual:${new Date().toISOString().slice(0, 13)}`,
-    })
-    if (!queued)
-      return c.json(
-        { error: "A rebuild started in this hour. Try again later." },
-        409,
-      )
-    getLogger().info("workspace_graph_rebuild_requested", {
-      workspaceId: workspace.id,
-    })
-    await markWorkspaceGraphRetry(revision, workspace.updatedAt)
-    return c.json(
-      serializeWorkspace(
-        (await getWorkspaceBySlug(workspaceSlug)) ?? workspace,
-      ),
-      202,
-    )
   })
   .openapi(checkWriteAccessWorkspaceRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {

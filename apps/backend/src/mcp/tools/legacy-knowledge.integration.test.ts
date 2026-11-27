@@ -9,7 +9,6 @@ import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { apikeys, members, sessions, users } from "../../db/schema/auth.js"
 import { claims } from "../../db/schema/claims.js"
 import { objects } from "../../db/schema/objects.js"
-import { orgFeatures } from "../../db/schema/org_features.js"
 import { repositories } from "../../db/schema/repositories.js"
 import {
   orgFirstWorkspaces,
@@ -23,15 +22,14 @@ import {
   persistWorkspaceIndexResult,
 } from "../../models/workspaces.js"
 import { startClickHouse, userUrl } from "../../test/clickhouse.js"
+import { callTool, connectToolClient } from "../../test/mcp-tool-client.js"
 import {
   type NativeHydrationFixture,
   withNativeHydrationFixture,
 } from "../../test/native-hydration-fixture.js"
-import { callTool, connectToolClient } from "../../test/related-fixture.js"
 import { TOOL_ERROR_META_KEY } from "../framework/tool-result.js"
 import { getRelatedTool } from "./get-related.js"
 import { listFilesTool } from "./list-files.js"
-import { listWorkspaces } from "./list-workspaces.js"
 import { readFileTool } from "./read-file.js"
 import { searchKnowledgeTool } from "./search-knowledge.js"
 
@@ -171,108 +169,16 @@ async function publishIndex(f: NativeHydrationFixture) {
 }
 
 /**
- * Below format 3 no ingestion runs. The old stack serves the main-era
- * knowledge that Postgres holds for a Workspace at format 0, and the hydrate
- * counts it on the Workspace (CTX-1715).
- */
-it(
-  "serves the main-era objects of a format 0 Workspace through each knowledge tool",
-  { timeout: 120_000 },
-  async () => {
-    if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required")
-    if (!process.env.GRAPH_DB_URI) throw new Error("GRAPH_DB_URI is required")
-    await withNativeHydrationFixture({}, async (f) => {
-      const mainEra = await seedMainEraKnowledge(f)
-      try {
-        await f.worker.start()
-        expect(await f.handle.result({ timeoutMs: 60_000 })).toMatchObject({
-          hydrated: true,
-          units: f.count + 2,
-        })
-        expect(await legacyKnowledgeFiles(f)).toBe(2)
-        await publishIndex(f)
-        const { client } = mainEra
-        const args = { org: f.org.slug, workspace: "knowledge" }
-
-        const listed = await callTool(
-          await client(listWorkspaces),
-          "list_workspaces",
-          args,
-        )
-        expect(listed.isError).not.toBe(true)
-        expect(listed.structuredContent?.units).toMatchObject({
-          Service: 1,
-          Library: 1,
-        })
-
-        const files = await callTool(
-          await client(listFilesTool),
-          "list_files",
-          { ...args, path: "knowledge", depth: 5, glob: "**/*.md" },
-        )
-        expect(files.isError).not.toBe(true)
-        // The old stack serves the knowledge, so no tool gives a notice.
-        expect(files.structuredContent?.notices).toBeUndefined()
-        const refs = (
-          files.structuredContent?.entries as Array<{ path: string }>
-        ).map((entry) => entry.path)
-        const toolsPath = refs.find((path) => path.endsWith("tools-cli.md"))
-        const parserPath = refs.find((path) => path.endsWith("parser.md"))
-        expect(toolsPath).toMatch(/^knowledge\//)
-        expect(parserPath).toMatch(/^knowledge\//)
-
-        const search = await callTool(
-          await client(searchKnowledgeTool),
-          "search_knowledge",
-          { ...args, workspaces: ["knowledge"], query: "release tools" },
-        )
-        expect(search.isError).not.toBe(true)
-        expect(search.structuredContent?.hits).toEqual(
-          expect.arrayContaining([
-            expect.objectContaining({ ref: toolsPath, title: "Tools CLI" }),
-          ]),
-        )
-        expect(search.structuredContent?.notices).toBeUndefined()
-
-        const read = await callTool(await client(readFileTool), "read_file", {
-          ...args,
-          ref: toolsPath,
-        })
-        expect(read.isError).not.toBe(true)
-        expect(JSON.stringify(read.structuredContent)).toContain(
-          "The release tools.",
-        )
-
-        const related = await callTool(
-          await client(getRelatedTool),
-          "get_related",
-          { ...args, seeds: [toolsPath], intent: "dependencies" },
-        )
-        expect(related.isError).not.toBe(true)
-        expect(
-          (related.structuredContent?.results as Array<{ ref: string }>).map(
-            (result) => result.ref,
-          ),
-        ).toContain(parserPath)
-      } finally {
-        await mainEra.cleanup()
-      }
-    })
-  },
-)
-
-/**
  * The knowledge plane projects only the Workspace repository, so it does not
- * serve the main-era knowledge (the CTO, 2026-11-26). When the plane serves
- * the Workspace, each knowledge tool says that the knowledge is missing, and
- * what an owner or admin does about it, not a silent miss (CTX-1715).
+ * serve the main-era knowledge (the CTO, 2026-11-26). Each knowledge tool
+ * says that the knowledge is missing, and what an owner or admin does about
+ * it, not a silent miss (CTX-1715).
  */
 it(
-  "on the knowledge plane, each knowledge tool names the main-era knowledge that it does not serve, and the action",
+  "each knowledge tool names the main-era knowledge that it does not serve, and the action",
   { timeout: 240_000 },
   async () => {
     if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required")
-    if (!process.env.GRAPH_DB_URI) throw new Error("GRAPH_DB_URI is required")
     const clickhouse = await startClickHouse()
     try {
       const adminUrl = await clickhouse.freshDatabase()
@@ -304,12 +210,6 @@ it(
                 ).toMatchObject({ lastSha: f.sha, runStatus: "completed" }),
               { timeout: 120_000, interval: 250 },
             )
-            await withOrgDbContext(f.org.id, (db) =>
-              db
-                .update(orgFeatures)
-                .set({ value: "on" })
-                .where(eq(orgFeatures.organizationId, f.org.id)),
-            )
             const { client } = mainEra
             const args = { org: f.org.slug, workspace: "knowledge" }
             const message = `Workspace "knowledge" has 2 knowledge files from before Workspaces that are not in its repository, so ctxpipe does not serve them. An owner or admin of the org can add them: merge the format upgrade if the Workspace has one open, then start the re-ingestion (Workspace settings, Upgrades).`
@@ -329,9 +229,11 @@ it(
             expect(search.isError).not.toBe(true)
             expect(search.structuredContent?.notices).toEqual(notices)
             expect(
-              (search.structuredContent?.hits as Array<{ title: string }>).map(
-                (hit) => hit.title,
-              ),
+              (
+                (search.structuredContent?.hits ?? []) as Array<{
+                  title: string
+                }>
+              ).map((hit) => hit.title),
             ).not.toContain("Tools CLI")
 
             const files = await callTool(
@@ -342,7 +244,7 @@ it(
             expect(files.isError).not.toBe(true)
             expect(files.structuredContent?.notices).toEqual(notices)
 
-            // The path where the old stack serves the main-era unit.
+            // The path of the main-era unit in Postgres.
             const [unit] = await withOrgDbContext(f.org.id, (db) =>
               db
                 .select({ path: workspaceKnowledgeUnits.path })

@@ -24,8 +24,6 @@ async function createTestApp(options?: {
       AUTH_SECRET: "abcdefghijklmnopqrstuvwxyz123456",
       NODE_ENV: "test" as const,
       PORT: 3000,
-      GRAPH_DB_URI: "redis://localhost:6379",
-      GRAPH_DB_PROVIDER: "falkordb" as const,
     }
     c.set(
       "env",

@@ -50,7 +50,6 @@ const backendInputs = [
 // one) and the chat sandbox image.
 const nativeInputs = [
   "scripts/ci/prerequisites.mjs",
-  "scripts/ci/graph-ready.mjs",
   "apps/backend/src/domain/workspaces/workspace-chat-opencode-contract.ts",
   "scripts/chat-sandbox/**",
   // The file converter that the knowledge-plane tests run (the
@@ -96,7 +95,7 @@ const codesearchInputs = [
 const backendTraceInputs = { "apps/backend/migrations/**": "tables" }
 // The named prerequisites (prerequisites.mjs) that the runner makes or
 // verifies before a lane runs. The CI jobs set up the same things.
-const databases = ["postgres", "migrations", "falkordb"]
+const databases = ["postgres", "migrations"]
 const nativePrerequisites = [
   ...databases,
   "bun",
@@ -172,7 +171,6 @@ const lanes = {
     env: [...backendEnv, { name: "RELEASE_TREE", mode: "presence" }],
     prerequisites: [
       "postgres",
-      "falkordb",
       "bun",
       "zoekt",
       "ast-grep",

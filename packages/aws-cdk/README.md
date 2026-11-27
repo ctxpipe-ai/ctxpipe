@@ -12,7 +12,6 @@ const app = new cdk.App();
 const stack = new cdk.Stack(app, "CtxPipeStack");
 
 new CtxPipe(stack, "CtxPipe", {
-  orgSlug: "acme",
   size: "medium",
   customDomain: {
     domainName: "app.example.com",
@@ -34,7 +33,6 @@ When `modelProvider.kind` is `"bedrock"`, the construct wires `MODEL_PROVIDER=be
 
 ```ts
 new CtxPipe(stack, "CtxPipe", {
-  orgSlug: "acme",
   customDomain: { domainName: "app.example.com", hostedZoneId: "Z0123456789ABCDEF" },
   modelProvider: {
     kind: "bedrock",
@@ -120,7 +118,6 @@ modelProvider: {
 ## Required props
 
 - `modelProvider`: model endpoint configuration — OpenAI-compatible HTTP (`openai-like`, default) or Amazon Bedrock via native SDK (`kind: "bedrock"`). See [Model provider](#model-provider) above.
-- `orgSlug`: organization slug used by the deployed instance. Neptune is single-graph per cluster, so this construct configures one org per stack.
 - `customDomain`: provide `domainName` and `hostedZoneId` to set the public URL to `https://<domainName>` and add:
   - ACM certificate for the domain (DNS validated in the provided hosted zone),
   - Route53 DNS validation records required by ACM,
@@ -152,7 +149,7 @@ Costs are on-demand instance hours plus the Docker volume and a 16 GB root volum
 
 ```ts
 new CtxPipe(stack, "CtxPipe", {
-  // ...orgSlug, customDomain, modelProvider
+  // ...customDomain, modelProvider
   sandboxHost: {
     // Graviton (arm64) only; other architectures are rejected at synth.
     instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.XLARGE),
@@ -166,7 +163,7 @@ What the construct sets up:
 - A single-instance Auto Scaling group in the private subnets (Amazon Linux 2023 on Graviton). EC2 health checks replace a failed host; `cdk deploy` waits until the host reports ready. New AMIs apply when the host is replaced, not on every deploy.
 - A gp3 volume for `/var/lib/docker`. The volume belongs to the instance: a replaced host starts empty. Conversations keep their work in their git branch, so they continue on the new host.
 - The Docker API on port 2376 with mutual TLS at `sandbox-host.ctxpipe.local` (Cloud Map, registered by the host). The host creates the certificates on first boot and stores them in Secrets Manager; a replacement host reuses them. The CA key is not kept.
-- Security groups: backend and worker reach the Docker API; only the backend reaches the sandboxes' agent ports, and only the backend accepts calls from sandboxes (model proxy on 3000 and per-run tool bridges). Sandboxes also reach Git hosts and the internet through NAT, but not Postgres, Neptune, ClickHouse, EFS, codesearch, the UI, or the worker.
+- Security groups: backend and worker reach the Docker API; only the backend reaches the sandboxes' agent ports, and only the backend accepts calls from sandboxes (model proxy on 3000 and per-run tool bridges). Sandboxes also reach Git hosts and the internet through NAT, but not Postgres, ClickHouse, EFS, codesearch, the UI, or the worker.
 - Each agent port needs a per-conversation password. Agent ports are reachable inside the VPC, so the host also blocks sandboxes from each other, from the host itself, and from instance metadata.
 - All sandbox containers run under one systemd slice capped at 85% of memory, and container logs rotate at 3 × 10 MB.
 - The Workspace chat image is `ghcr.io/ctxpipe-ai/chat-sandbox`, published for arm64 and amd64 with the same release tag as the service images. The backend pulls it through the host's Docker daemon on the first chat after a release, so a new chat image never replaces the host.
@@ -180,7 +177,7 @@ Ingestion can read a plain git repository on a git server inside your network. T
 
 ```ts
 new CtxPipe(stack, "CtxPipe", {
-  // ...orgSlug, customDomain, modelProvider
+  // ...customDomain, modelProvider
   sandboxHost: {
     agentVaultNetworkAllowlist: ["10.20.0.15/32"],
   },
@@ -224,7 +221,7 @@ A move to a larger `size` replaces the host and makes the volume larger. EBS can
 
 ```ts
 new CtxPipe(stack, "CtxPipe", {
-  // ...orgSlug, customDomain, modelProvider
+  // ...customDomain, modelProvider
   otel: {
     endpoint: "https://otel.example.com",
     headers: cdk.SecretValue.unsafePlainText("Authorization=Bearer replace-me"),
@@ -242,18 +239,18 @@ new CtxPipe(stack, "CtxPipe", {
 `CtxPipe` is single-tenant by design and ships with three capacity presets:
 
 
-| Size              | ECS task sizes (cpu/memory MiB)                                                                     | ECS desired count                               | Aurora writer   | Neptune instance | Backup retention |
-| ----------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------- | --------------- | ---------------- | ---------------- |
-| `small` (default) | backend `256/512`, worker `512/1024`, ui `256/512`, codesearch `512/4096`, migrate `256/512`        | backend `1`, worker `1`, ui `1`, codesearch `1` | `db.t4g.medium` | `db.t4g.medium`  | 7 days           |
-| `medium`          | backend `512/1024`, worker `1024/2048`, ui `256/512`, codesearch `1024/8192`, migrate `512/1024`    | backend `1`, worker `1`, ui `1`, codesearch `1` | `db.t4g.large`  | `db.r6g.large`   | 7 days           |
-| `large`           | backend `1024/2048`, worker `2048/4096`, ui `512/1024`, codesearch `2048/12288`, migrate `1024/2048` | backend `2`, worker `2`, ui `1`, codesearch `1` | `db.r6g.xlarge` | `db.r6g.xlarge`  | 14 days          |
+| Size              | ECS task sizes (cpu/memory MiB)                                                                     | ECS desired count                               | Aurora writer   | Backup retention |
+| ----------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------- | --------------- | ---------------- |
+| `small` (default) | backend `256/512`, worker `512/1024`, ui `256/512`, codesearch `512/4096`, migrate `256/512`        | backend `1`, worker `1`, ui `1`, codesearch `1` | `db.t4g.medium` | 7 days           |
+| `medium`          | backend `512/1024`, worker `1024/2048`, ui `256/512`, codesearch `1024/8192`, migrate `512/1024`    | backend `1`, worker `1`, ui `1`, codesearch `1` | `db.t4g.large`  | 7 days           |
+| `large`           | backend `1024/2048`, worker `2048/4096`, ui `512/1024`, codesearch `2048/12288`, migrate `1024/2048` | backend `2`, worker `2`, ui `1`, codesearch `1` | `db.r6g.xlarge` | 14 days          |
 
 
 Sizing guidance:
 
-- Use `small` for pilots and cost-sensitive setups with moderate ingestion churn. Both Aurora and Neptune use burstable `db.t4g.medium` — the smallest AWS-supported combination for Aurora PostgreSQL 16.x and Neptune in most regions (dev/test oriented; not intended for production graph performance testing).
-- Use `medium` when ingestion/reindex bursts are frequent and you want more headroom. Neptune moves to memory-optimized `db.r6g.large`.
-- Use `large` for high-ingestion repositories with stricter latency requirements. Aurora and Neptune both use `db.r6g.xlarge`.
+- Use `small` for pilots and cost-sensitive setups with moderate ingestion churn. Aurora uses burstable `db.t4g.medium`, the smallest AWS-supported class for Aurora PostgreSQL 16.x in most regions.
+- Use `medium` when ingestion/reindex bursts are frequent and you want more headroom. Aurora moves to `db.t4g.large`.
+- Use `large` for high-ingestion repositories with stricter latency requirements. Aurora uses memory-optimized `db.r6g.xlarge`.
 - Keep codesearch at **one replica** on every size. Zoekt shards, git clone cache, and SCIP artifacts live on one process and one EFS volume; a second replica splits that state.
 - Extra worker replicas on `large` help extract and connector jobs only. They do **not** raise ingest throughput unless codesearch memory (and the injected `OPENWORKFLOW_CONCURRENCY` / indexer caps) also grow. Each size injects per-worker concurrency so the cluster cannot stampede the single codesearch task (`small` 6, `medium` 10, `large` 8×2 workers with index pipelines capped at 2).
 - Codesearch memory is sized for **ingest peaks** (Zoekt/SCIP), not idle RSS. Fargate cannot grow a running task; `small` is 4 GiB, `medium` 8 GiB, `large` 12 GiB.
@@ -270,7 +267,7 @@ Networking note:
 - ECS cluster and Fargate services for backend, worker, ui, and codesearch.
   - Service deployments use ECS deployment circuit breaker with automatic rollback.
 - Deploy-time database migration as a one-off ECS Fargate task triggered by a CloudFormation custom resource before service deployment.
-- Aurora PostgreSQL (private), Neptune cluster + instance (private), EFS (codesearch `/data`).
+- Aurora PostgreSQL (private), EFS (codesearch `/data`).
 - Secrets Manager secrets for database URL, model provider API key (openai-like only), and optional connectors.
 - SES domain identity + DKIM records + SMTP credentials in Secrets Manager for backend email delivery.
 - Public ALB routing to backend only (UI/codesearch remain internal-only).
@@ -278,13 +275,10 @@ Networking note:
 - One EC2 ClickHouse host for the knowledge store, with an EBS volume and an S3 bucket (see [Knowledge store](#knowledge-store)).
 - Outputs for app URL, key secret ARNs, and the sandbox and knowledge store host groups.
 - No OpenTelemetry collector or ClickStack. Telemetry export is the optional `otel` prop.
-- Backup defaults enabled for Aurora, Neptune, and EFS.
+- Backup defaults enabled for Aurora and EFS.
 
 Runtime defaults injected by the construct include:
 
-- `GRAPH_DB_PROVIDER=neptune`
-- `GRAPH_DB_URI` from Neptune endpoint
-- `GRAPH_DB_URI_<orgSlug>` from the same Neptune endpoint
 - `UI_PROXY_URL=http://ui.ctxpipe.local:3002`
 - `CODESEARCH_URL=http://codesearch.ctxpipe.local:3001`
 - `AUTH_SECRET` generated in Secrets Manager and injected into backend/worker/codesearch/migrate tasks
@@ -374,14 +368,9 @@ cluster.engineVersion = "16.15"; // the EngineVersion that `aws rds describe-db-
 
 - `AUTH_SECRET` (Secrets Manager generated value)
 - `DATABASE_URL` (Secrets Manager + Aurora endpoint; runtime value is `ctxpipe_app`, migrate keeps the Aurora master)
-- `GRAPH_DB_PROVIDER=neptune`
-- `GRAPH_DB_URI` (Neptune endpoint)
-- `GRAPH_DB_URI_<orgSlug>` (Neptune endpoint for the configured org slug)
 - `UI_PROXY_URL` and `CODESEARCH_URL` (internal service DNS)
 - `SMTP_CONNECTION_URL` and `EMAIL_FROM_ADDRESS` (SES SMTP + Secrets Manager)
 - `SANDBOX_PROVIDER`, `SANDBOX_CHAT_IMAGE`, `DOCKER_HOST`, `DOCKER_TLS_VERIFY`, `DOCKER_CERT_PATH` (sandbox host; certificate files written by an init container)
-
-Because Neptune is single-graph per cluster, this construct does not support multi-tenant self-hosting in one stack. Deploy separate stacks for separate org slugs.
 
 ### Optional second deploy (connector onboarding)
 

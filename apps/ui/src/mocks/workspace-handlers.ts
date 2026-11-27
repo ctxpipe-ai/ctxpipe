@@ -19,7 +19,6 @@ import type {
   WorkspaceGitStatusResponse,
   WorkspaceGitTreeResponse,
   WorkspaceGraphPayload,
-  WorkspaceListResponse,
 } from "@/features/workspaces/types"
 import {
   docsConversationDetail,
@@ -63,14 +62,11 @@ const emptyPageInfo: PageInfo = {
 
 /**
  * `GET /workspaces`: the Workspaces of the org. The last used Workspace is
- * the first one, unless `lastUsedWorkspaceId` names another (or null). The
- * `knowledge_plane` flag of the org is `on`, so the composer shows the base
- * branch picker; the product default is `off`.
+ * the first one, unless `lastUsedWorkspaceId` names another (or null).
  */
 export function workspaceListHandler(
   items: MockState<Workspace[]>,
   lastUsedWorkspaceId?: string | null,
-  knowledgePlane: WorkspaceListResponse["knowledgePlane"] = "on",
 ) {
   return http.get(
     ({ request }) => /\/api\/v1\/workspaces$/.test(pathnameOf(request)),
@@ -82,7 +78,6 @@ export function workspaceListHandler(
             lastUsedWorkspaceId === undefined
               ? (items[0]?.id ?? null)
               : lastUsedWorkspaceId,
-          knowledgePlane,
         }),
       ),
   )
@@ -633,7 +628,6 @@ export function workspaceShellHandlers(input?: {
   gitBlobs?: Record<string, string>
   gitStatus?: WorkspaceGitStatusResponse
   graph?: WorkspaceGraphPayload
-  knowledgePlane?: WorkspaceListResponse["knowledgePlane"]
 }) {
   const workspaces = input?.workspaces ?? [docsWorkspace, readOnlyWorkspace]
   const detail = input && "detail" in input ? input.detail : docsWorkspaceDetail
@@ -642,7 +636,7 @@ export function workspaceShellHandlers(input?: {
       ? (input.conversation ?? null)
       : docsConversationDetail
   return [
-    workspaceListHandler(workspaces, undefined, input?.knowledgePlane),
+    workspaceListHandler(workspaces),
     workspaceDetailHandler(detail ?? null),
     workspaceTouchHandler,
     conversationsListHandler(input?.conversations ?? docsConversations),

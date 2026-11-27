@@ -65,7 +65,6 @@ describe("providerAllowlist", () => {
     const env = {
       NODE_ENV: "test",
       DATABASE_URL: "postgres://localhost:5432/fixture",
-      GRAPH_DB_URI: "redis://localhost:6379",
       AUTH_BASE_URL: "https://backend.example.com",
       AUTH_SECRET: "fixture-provider-allowlist-secret-32-chars",
     }
@@ -82,7 +81,6 @@ describe("providerAllowlist", () => {
     const env = {
       NODE_ENV: "test",
       DATABASE_URL: "postgres://localhost:5432/fixture",
-      GRAPH_DB_URI: "redis://localhost:6379",
       AUTH_BASE_URL: "https://backend.example.com",
       AUTH_SECRET: "fixture-provider-allowlist-secret-32-chars",
       MODEL_PROVIDER_ALLOWLIST: ALLOWLIST,

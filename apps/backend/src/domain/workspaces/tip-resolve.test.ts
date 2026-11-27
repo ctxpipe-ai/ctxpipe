@@ -19,7 +19,7 @@ const ready = { kind: "ready" } as const
 const active = (served: WorkspaceRevision): ProjectionState => ({
   kind: "active",
   revision: served,
-  stores: { embeddings: ready, graph: ready, index: ready },
+  stores: { index: ready },
 })
 
 describe("servedSha", () => {
@@ -83,18 +83,18 @@ describe("failedPhaseRetryDue", () => {
 
 describe("shouldEnqueueCronHydrate", () => {
   const failed = { kind: "failed", message: "Socket closed" } as const
-  const withGraph = (graph: typeof failed | typeof ready): ProjectionState => ({
+  const withIndex = (index: typeof failed | typeof ready): ProjectionState => ({
     kind: "active",
     revision,
-    stores: { embeddings: ready, graph, index: ready },
+    stores: { index },
   })
   const retry = (hour: string) => ({
     hour,
-    failedAt: { graph: "2026-10-01T10:45:00.000Z" },
+    failedAt: "2026-10-01T10:45:00.000Z",
   })
 
-  it("builds a failed graph again only when its retry is due", () => {
-    const projection = withGraph(failed)
+  it("builds a failed index again only when its retry is due", () => {
+    const projection = withIndex(failed)
     expect(
       shouldEnqueueCronHydrate({ projection, retry: retry("2026-10-01T12") }),
     ).toBe(true)
@@ -104,10 +104,10 @@ describe("shouldEnqueueCronHydrate", () => {
     expect(shouldEnqueueCronHydrate({ projection })).toBe(true)
   })
 
-  it("does nothing when each phase is ready", () => {
+  it("does nothing when the index is ready", () => {
     expect(
       shouldEnqueueCronHydrate({
-        projection: withGraph(ready),
+        projection: withIndex(ready),
         retry: retry("2026-10-01T12"),
       }),
     ).toBe(false)

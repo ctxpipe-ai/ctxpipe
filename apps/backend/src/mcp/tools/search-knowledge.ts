@@ -1,8 +1,12 @@
 import { z } from "zod"
 
-import type { KnowledgeHit } from "../../domain/workspaces/knowledge-search.js"
-import { selectKnowledgeReader } from "../../knowledge-reader/knowledge-reader.js"
-import { knowledgeViewKey } from "../../models/knowledge-state.js"
+import type { KnowledgeHit } from "../../knowledge-reader/knowledge-reader.js"
+import { servedKnowledgeHeads } from "../../knowledge-reader/knowledge-reader.js"
+import { planeKnowledgeReader } from "../../knowledge-reader/plane-reader.js"
+import {
+  knowledgeViewKey,
+  readyKnowledgeHeads,
+} from "../../models/knowledge-state.js"
 import { fitPage, truncateText } from "../framework/budget.js"
 import {
   listOrgWorkspaceSlugs,
@@ -217,24 +221,31 @@ export const searchKnowledgeTool = defineMcpReadTool({
       skipped.push({ workspace: workspace.slug, reason: "not_ready" })
       return []
     })
-    const { reader, planeHeads } = await selectKnowledgeReader(
-      org.id,
-      servedWorkspaces.map((workspace) => workspace.id),
-      input.branch,
-    )
+    // A call over the default Workspaces of the org skips each one that the
+    // plane does not serve yet. A named Workspace gives `workspace_not_ready`.
+    const ids = servedWorkspaces.map((workspace) => workspace.id)
+    const heads =
+      named || input.branch !== undefined
+        ? await servedKnowledgeHeads(org.id, ids, input.branch)
+        : await readyKnowledgeHeads(org.id, ids)
     // The plane serves the SHA of its last full run of the branch.
-    const workspaces = servedWorkspaces.map((workspace) => {
-      const head = planeHeads.get(workspace.id)
-      return head
-        ? {
+    const workspaces = servedWorkspaces.flatMap((workspace) => {
+      const head = heads.get(workspace.id)
+      if (head)
+        return [
+          {
             ...workspace,
             served: {
               branch: input.branch ?? workspace.served.branch,
               sha: head.sha,
             },
-          }
-        : workspace
+            head,
+          },
+        ]
+      skipped.push({ workspace: workspace.slug, reason: "not_ready" })
+      return []
     })
+    const reader = planeKnowledgeReader({ heads })
     const { hits, partialReason } =
       workspaces.length === 0
         ? { hits: [], partialReason: undefined }
@@ -255,16 +266,12 @@ export const searchKnowledgeTool = defineMcpReadTool({
     const binding = {
       orgId: org.id,
       workspaceId: null,
-      stack: reader.stack,
       scope: JSON.stringify(["search_knowledge", parameters]),
       sha: JSON.stringify([
-        workspaces.map((workspace) => {
-          const head = planeHeads.get(workspace.id)
-          return [
-            workspace.id,
-            head ? knowledgeViewKey(head) : workspace.served.sha,
-          ]
-        }),
+        workspaces.map((workspace) => [
+          workspace.id,
+          knowledgeViewKey(workspace.head),
+        ]),
         [
           ...new Set(
             hits.map((hit) => `${hit.workspaceId}:${hit.projectionSha}`),
@@ -278,7 +285,7 @@ export const searchKnowledgeTool = defineMcpReadTool({
       workspaces,
       skipped,
       partialReason,
-      notices: legacyKnowledgeNotices(workspaces, planeHeads),
+      notices: legacyKnowledgeNotices(workspaces),
       offset,
       limit: input.limit,
     })

@@ -994,7 +994,7 @@ export const GraphPhasePending = meta.story({
   },
   parameters: {
     intent:
-      "Catches a graph pane that reads the graph while its build phase is pending. The pane must wait and send no graph request. Not for failed or ready phases.",
+      "Catches a graph pane that reads the graph while its build phase is pending. The pane must wait and send no graph request. Not for a ready phase.",
     storyRoute: graphPaneRoute,
   },
   play: async ({ canvasElement }) => {
@@ -1015,75 +1015,14 @@ export const GraphPhasePending = meta.story({
   },
 })
 
-const graphRebuilds = { count: 0 }
-
 /**
- * Graph pane of a Workspace, which shows its knowledge graph. The graph build
- * failed, so an error in plain words, not the store error, says that ctxpipe
- * builds it again. Try again asks the server to build the graph again.
+ * Graph pane of a Workspace, which shows its knowledge graph. The Workspace
+ * detail says that the graph is ready, but the knowledge plane does not
+ * serve the Workspace when the pane reads it (for example a new default
+ * branch), so the route answers building, and the pane shows the building
+ * state. The graph opens when a later read has it.
  */
-export const GraphPhaseFailed = meta.story({
-  tags: ["required"],
-  args: {
-    pane: { kind: "graph" },
-    workspace: {
-      ...docsWorkspaceDetail,
-      hydratePhases: {
-        graph: { kind: "failed" },
-      },
-    },
-  },
-  beforeEach: ({ msw }) => {
-    msw.use(
-      http.post(
-        ({ request }) =>
-          /\/api\/v1\/workspaces\/[^/]+\/rebuild-graph$/.test(
-            new URL(request.url).pathname,
-          ),
-        () => {
-          graphRebuilds.count += 1
-          return HttpResponse.json(
-            {
-              ...docsWorkspaceDetail,
-              hydratePhases: { graph: { kind: "pending" } },
-            },
-            { status: 202 },
-          )
-        },
-      ),
-    )
-    graphRebuilds.count = 0
-  },
-  parameters: {
-    intent:
-      "Catches a failed graph phase that shows the raw store error, or that has no Try again action. Try again sends one rebuild-graph request. Not for pending or ready phases.",
-    storyRoute: graphPaneRoute,
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await waitFor(() =>
-      expect(canvas.getByText("Could not build graph")).toBeVisible(),
-    )
-    expect(
-      canvas.getByText(
-        "ctxpipe rebuilds the graph automatically. You can also try again now.",
-      ),
-    ).toBeVisible()
-    // The tab fades in for 100 ms when the pane mounts.
-    await waitFor(() =>
-      expect(canvas.getByRole("tab", { name: "Graph" })).toBeVisible(),
-    )
-    await userEvent.click(canvas.getByRole("button", { name: "Try again" }))
-    await waitFor(() => expect(graphRebuilds.count).toBe(1))
-  },
-})
-
-/**
- * Graph pane of a Workspace, which shows its knowledge graph. The graph store
- * lost a ready graph, so the route answers building, and the pane shows the
- * building state. The graph opens when a later read has it.
- */
-export const GraphLostRebuilds = meta.story({
+export const GraphRouteBuilding = meta.story({
   tags: ["required"],
   args: {
     pane: { kind: "graph" },
@@ -1111,7 +1050,7 @@ export const GraphLostRebuilds = meta.story({
   },
   parameters: {
     intent:
-      "Catches a ready graph that the store lost and the pane then shows an error. The pane shows the building state and opens the graph when a later read has it. Not for failed phases.",
+      "Catches a graph route that answers building after a ready phase, and the pane then shows an error. The pane shows the building state and opens the graph when a later read has it. Not for a pending phase.",
     storyRoute: graphPaneRoute,
   },
   play: async ({ canvasElement }) => {

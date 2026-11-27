@@ -1965,9 +1965,6 @@ test("a gated step has the setup of its full-run step and of the prerequisites o
       Boolean(job.services?.postgres) && env.has("DATABASE_URL"),
     migrations: (job) =>
       job.steps.some((step) => (step.run ?? "").includes("src/db/migrate.ts")),
-    falkordb: (job, env) =>
-      job.steps.some((step) => step.uses === "./.github/actions/falkordb") &&
-      env.has("GRAPH_DB_URI"),
   }
   const pairs = new Map()
   for (const check of JSON.parse(listed.stdout).checks) {

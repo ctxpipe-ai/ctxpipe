@@ -76,7 +76,6 @@ function appWithRoutes(): OpenAPIHono<AppEnv> {
   const env = parseEnv({
     NODE_ENV: "test",
     DATABASE_URL: "postgres://localhost:5432/ctxpipe_test",
-    GRAPH_DB_URI: "redis://localhost:6379",
     AUTH_BASE_URL: "https://backend.example.com",
     AUTH_SECRET,
     PORT: "3000",

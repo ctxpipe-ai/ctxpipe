@@ -1,13 +1,11 @@
 import { describe, expect, it } from "vitest"
 
-import { EXTENSION_TRAVERSAL_PREDICATES } from "../services/graphTraversal.js"
 import {
   CORE_ALLOWED_CONNECTIONS,
   EXTENSION_ALLOWED_CONNECTIONS,
   getGraphEdgeTypes,
   getGraphNodeKinds,
   isAllowedConnection,
-  isValidGraphEdgeType,
   PREDICATE_DESCRIPTIONS,
 } from "./allowedConnections.js"
 import { CoreNodeType, CoreRelType } from "./core.js"
@@ -70,18 +68,8 @@ describe("ontology consistency (ADR-033)", () => {
     }
   })
 
-  it("the extension traversal walks only reference, cause and ownership predicates that exist", () => {
-    const rels = new Set(getGraphEdgeTypes())
-    for (const predicate of EXTENSION_TRAVERSAL_PREDICATES) {
-      expect(rels.has(predicate), predicate).toBe(true)
-    }
-    expect(EXTENSION_TRAVERSAL_PREDICATES).toContain("RESOLVES")
-    expect(EXTENSION_TRAVERSAL_PREDICATES).not.toContain("PART_OF")
-    expect(EXTENSION_TRAVERSAL_PREDICATES).not.toContain("DECLARED_IN")
-  })
-
   it("accepts package and repository changes from a pull request", () => {
-    expect(isValidGraphEdgeType("CHANGED")).toBe(true)
+    expect(getGraphEdgeTypes()).toContain("CHANGED")
     for (const kind of ["Service", "App", "Library", "Repository"]) {
       expect(isAllowedConnection("PullRequest", "CHANGED", kind)).toBe(true)
     }

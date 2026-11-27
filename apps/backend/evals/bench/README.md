@@ -38,11 +38,11 @@ Both arms get the same preamble (`arms.json`), with one sentence that tells wher
 
 ### The CTX arm reaches only the MCP
 
-On Colima and Docker Desktop, a container can connect to each port of the host through `host.docker.internal`. This includes the stores of the bench (FalkorDB, ClickHouse, Postgres). Harbor allows hosts, not ports. Thus the allowlist of the CTX arm never holds `host.docker.internal`. It holds only `ctxpipe-model-gateway` and `ctxpipe-mcp-proxy`.
+On Colima and Docker Desktop, a container can connect to each port of the host through `host.docker.internal`. This includes the stores of the bench (ClickHouse, Postgres). Harbor allows hosts, not ports. Thus the allowlist of the CTX arm never holds `host.docker.internal`. It holds only `ctxpipe-model-gateway` and `ctxpipe-mcp-proxy`.
 
 `ctxpipe-mcp-proxy` is a small Python proxy in a pinned image, in the Compose project of the trial (`mcp-proxy.yaml`). Each trial has its own proxy, so its limits apply to one run. It forwards only the path `/mcp` (exactly) to the backend at `host.docker.internal:3660`, with the headers of the request (`x-api-key`, `x-ctxpipe-conversation-id`). Each other path, also an encoded path such as `/api/x%2F..%2F..%2Fmcp`, gets 404, and the proxy listens on no other port. It also has these limits. They limit the count of the tool calls of a run, not their cost:
 
-- Only the tools that the CTX arm allows (`list_workspaces`, `search_knowledge`, `read_file`, `list_files`). Claude Code disallows the other tools, but the agent can send a request with Bash, so the proxy also refuses them (403). Thus the agent cannot call `get_related`, which can reach FalkorDB (D5).
+- Only the tools that the CTX arm allows (`list_workspaces`, `search_knowledge`, `read_file`, `list_files`). Claude Code disallows the other tools, but the agent can send a request with Bash, so the proxy also refuses them (403). Thus the agent cannot call `get_related`.
 - At most 120 tool calls in a run (`MAX_TOOL_CALLS`, three searches in each of the 40 turns of the reserve). The next tool call gets 429.
 - One JSON-RPC message in each request: a batch gets 400. The body is at most 64 KiB.
 - It removes the tracing headers of the client (`traceparent`, `tracestate`, `baggage`). Thus a client cannot stop the sampling of the model calls of the backend, and the recorder counts each of them.
@@ -66,31 +66,27 @@ A probe in a task container (the `oracle` agent, with the network setup of a CTX
 
 ### The CTX arm reads only the knowledge plane (decision D5)
 
-Decision D5 of the plan allows only the knowledge plane (ClickHouse and Jev, the org flag `knowledge_plane` at `on`) in the CTX arm. A run that touches FalkorDB is not valid. The code gives this result for the seven MCP tools when the flag is `on`:
+Decision D5 of the plan allows only the knowledge plane (ClickHouse and Jev) in the CTX arm. Since [CTX-1713](https://linear.app/ctxpipe/issue/CTX-1713), the backend has no other knowledge reader: there is no org flag, no FalkorDB and no fallback to the old stack. A Workspace that is not ready on the plane gives `workspace_not_ready`. The code gives this result for the seven MCP tools:
 
-| Tool | Can it reach FalkorDB? | The path |
+| Tool | Can it reach a store other than the plane? | The path |
 | --- | --- | --- |
-| `list_workspaces` | No | Postgres and Git only. Its `readiness.graph` field is a Postgres column of the published revision, not a FalkorDB query. |
-| `search_knowledge` | No | The plane (`planeKnowledgeReader`). When a Workspace in scope is not ready on the plane, `selectKnowledgeReader` falls back to the old stack, which is the Postgres search (`searchKnowledge`), not FalkorDB. |
+| `list_workspaces` | No | Postgres and Git only. Its `readiness.embeddings` and `readiness.graph` fields read the knowledge heads of the plane in Postgres. |
+| `search_knowledge` | No | The plane (`planeKnowledgeReader`), with no fallback. |
 | `search_code` | No | codesearch (Zoekt). |
 | `find_symbol` | No | codesearch (Zoekt and SCIP). |
-| `read_file` | No | The plane file (Git at the plane SHA). The fallback reads the Postgres units or the Git checkout. |
-| `list_files` | No | The plane view. The fallback reads the Postgres units. |
-| `get_related` | **Yes** | The plane walk. When a Workspace is not ready on the plane, the fallback is `legacyKnowledgeReader.related`, which calls `expandWorkspaceGraph`, a FalkorDB query. |
+| `read_file` | No | The plane file (Git at the plane SHA), or the codesearch checkout for a repository file. |
+| `list_files` | No | The plane view, or the codesearch checkout for a repository. |
+| `get_related` | No | The plane walk, with no fallback. |
 
-Thus the CTX arm disallows `mcp__ctxpipe__get_related` (Claude Code `--disallowedTools`). Each fallback writes the log `knowledge_plane.fallback`, so the recorder also counts these logs. The spike also disallows `search_code` and `find_symbol`, because the local stack has no codesearch index of the corpus repositories. Each run proves D5 three ways:
-
-- `falkorGraphCommands`: the change of the `GRAPH.*` command count of the FalkorDB of the backend (`INFO commandstats`) during the run. The bench backend has a FalkorDB of its own, so no other process adds to the count.
-- `server.falkorSpans`: the `falkordb` spans in the traces of the MCP calls of the run.
-- `server.planeFallbackLogs`: the `knowledge_plane.fallback` logs during the run. `server.jevCalls` shows that the plane answered.
+The CTX arm disallows `mcp__ctxpipe__get_related` (Claude Code `--disallowedTools`). Before CTX-1713, its fallback was a FalkorDB query. The spike also disallows `search_code` and `find_symbol`, because the local stack has no codesearch index of the corpus repositories. `server.jevCalls` of each run (the `jev.decide` spans in the traces of its MCP calls) shows that the plane answered.
 
 ## Set up the local stack
 
 The CTX arm needs a backend with the frozen corpus on the plane. Do these steps one time. All the paths that Docker mounts (the run folder, the corpus, the collector output) must be in a folder that the Docker VM shares. Colima shares only your home folder.
 
-1. Get the stores of the corpus. `../knowledge` `hydrate` writes the frozen context repo into Postgres, FalkorDB and ClickHouse (see `../knowledge/README.md`). The context repo is private, so a hydrate serves it from a local Git server. To reuse an earlier hydrate, copy its Postgres database (`CREATE DATABASE … TEMPLATE …`), migrate the copy, and copy the plane rows of the Workspace into a ClickHouse of your own (`SELECT … FORMAT Native` into `INSERT … FORMAT Native`, with the setting `SQL_ctxpipe_org_id`).
-2. In the copy, keep only the Workspace of the corpus, and set the flag `knowledge_plane` of the org to `on`. Serve the context repo with `src/test/git-http-server.ts`, and point the remote URL of the Workspace revision at it.
-3. Start an empty FalkorDB for the backend (`GRAPH_DB_URI`), and an OpenTelemetry collector that writes OTLP JSON lines to a file (the `file` exporter). Set `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` of the backend to it.
+1. Get the stores of the corpus. `../knowledge` `hydrate` writes the frozen context repo into Postgres and ClickHouse (see `../knowledge/README.md`). The context repo is private, so a hydrate serves it from a local Git server. To reuse an earlier hydrate, copy its Postgres database (`CREATE DATABASE … TEMPLATE …`), migrate the copy, and copy the plane rows of the Workspace into a ClickHouse of your own (`SELECT … FORMAT Native` into `INSERT … FORMAT Native`, with the setting `SQL_ctxpipe_org_id`).
+2. In the copy, keep only the Workspace of the corpus. Serve the context repo with `src/test/git-http-server.ts`, and point the remote URL of the Workspace revision at it.
+3. Start an OpenTelemetry collector that writes OTLP JSON lines to a file (the `file` exporter). Set `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` of the backend to it.
 4. Start the backend on port 3660 (`mcp-proxy.yaml` forwards to that port), and set `AUTH_BASE_URL` of the backend to `http://host.docker.internal:3660`. With a loopback base URL, `/mcp` refuses each request from the proxy (the DNS rebinding check of `rejectInvalidMcpOrigin`).
 5. Start the backend alone, with no worker: `bun --env-file=BENCH.env src/server.ts` from `apps/backend`. Do not use `pnpm dev`.
 6. Make the org key: `bun --env-file=BENCH.env evals/bench/mint-key.ts --org ORG_ID --out KEY_FILE`.
@@ -102,7 +98,7 @@ The CTX arm needs a backend with the frozen corpus on the plane. Do these steps 
 ```sh
 DOCKER_HOST=… ANTHROPIC_BASE_URL=https://openrouter.ai/api ANTHROPIC_AUTH_TOKEN=… CTXPIPE_API_KEY=… \
   .venv/bin/python evals/bench/run.py --out ~/RUN --corpus ~/CORPUS --otlp ~/OTEL/otlp.jsonl \
-  --falkor-container FALKOR [--models haiku,sonnet] [--arms b1plus,ctx] [--tasks …] [--cap-usd 2]
+  [--models haiku,sonnet] [--arms b1plus,ctx] [--tasks …] [--cap-usd 2]
 python evals/bench/record.py ~/RUN   # writes report.md again from runs.jsonl
 ```
 

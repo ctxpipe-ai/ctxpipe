@@ -2,9 +2,9 @@
 # Copy docker-compose.env.example → .env (Compose loads it from this directory).
 #
 # Profiles:
-#   infra  — Postgres, FalkorDB, ClickHouse (host ports via infra-host-ports),
+#   infra  — Postgres, ClickHouse (host ports via infra-host-ports),
 #            contributor OTEL collector (host dev: pnpm dev:infra)
-#   deploy — App stack (pnpm start): postgres + falkordb + clickhouse + apps.
+#   deploy — App stack (pnpm start): postgres + clickhouse + apps.
 #            No collector.
 #            Set OTEL_EXPORTER_OTLP_* in .env to export to your own endpoint.
 #            Workspace chat sandboxes run in the `dind` Docker-in-Docker
@@ -78,17 +78,6 @@ services:
       timeout: 5s
       retries: 5
 
-  falkordb:
-    profiles: [infra, deploy]
-    image: falkordb/falkordb:v4.20.7@sha256:13996aa523f0dd283f6bd6df6620b094dcea525452417c4d6ef9bef15dc9998d
-    restart: unless-stopped
-    environment:
-      # CMD_INFO no: in 4.20.7 the module load can start a cron task before
-      # its lock is ready, and the server then stops answering (see
-      # .github/actions/falkordb).
-      FALKORDB_ARGS: "CMD_INFO no"
-    # Never published, like postgres.
-
   # The knowledge content (ADR-066), on local disk. The migrate service makes
   # the tables, their org CHECK constraints, their row policies and the users
   # of the backend and the worker; for this, the admin user needs SQL access
@@ -118,7 +107,7 @@ services:
       retries: 12
       start_period: 10s
 
-  # Host dev only: Postgres, FalkorDB and ClickHouse on host ports, forwarded
+  # Host dev only: Postgres and ClickHouse on host ports, forwarded
   # so the data stores themselves stay unpublished in every profile.
   infra-host-ports:
     profiles: [infra]
@@ -129,19 +118,13 @@ services:
     command:
       - |
         socat TCP-LISTEN:5432,fork,reuseaddr TCP:postgres:5432 &
-        socat TCP-LISTEN:6379,fork,reuseaddr TCP:falkordb:6379 &
-        socat TCP-LISTEN:7687,fork,reuseaddr TCP:falkordb:7687 &
-        socat TCP-LISTEN:3000,fork,reuseaddr TCP:falkordb:3000 &
         socat TCP-LISTEN:8123,fork,reuseaddr TCP:clickhouse:8123 &
         wait
     ports:
       - "${CTXPIPE_POSTGRES_HOST_PORT:-5433}:5432"
-      - "${CTXPIPE_FALKOR_REDIS_HOST_PORT:-6379}:6379"
-      - "${CTXPIPE_FALKOR_BOLT_HOST_PORT:-7687}:7687"
-      - "${CTXPIPE_FALKOR_ADMIN_HOST_PORT:-3003}:3000"
       # Loopback only: the user of this port has SQL access management.
       - "127.0.0.1:${CTXPIPE_CLICKHOUSE_HOST_PORT:-8123}:8123"
-    depends_on: [postgres, falkordb, clickhouse]
+    depends_on: [postgres, clickhouse]
 
   otel-collector:
     profiles: [infra]
@@ -337,7 +320,6 @@ services:
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://ctxpipe_app:${POSTGRES_PASSWORD:-ctxpipe}@postgres:5432/${POSTGRES_DB:-ctxpipe}
-      GRAPH_DB_URI: redis://falkordb:6379
       # SELECT only: the backend cannot change the knowledge content.
       CLICKHOUSE_URL: http://ctxpipe_reader:${CLICKHOUSE_READER_PASSWORD:-}@clickhouse:8123/${CLICKHOUSE_DB:-ctxpipe}
       UI_PROXY_URL: http://ui:3002
@@ -388,8 +370,6 @@ services:
         condition: service_completed_successfully
       postgres:
         condition: service_healthy
-      falkordb:
-        condition: service_started
       clickhouse:
         condition: service_healthy
       ui:
@@ -408,7 +388,6 @@ services:
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://ctxpipe_app:${POSTGRES_PASSWORD:-ctxpipe}@postgres:5432/${POSTGRES_DB:-ctxpipe}
-      GRAPH_DB_URI: redis://falkordb:6379
       # The projection writes the knowledge content. No access management.
       CLICKHOUSE_URL: http://ctxpipe_writer:${CLICKHOUSE_WRITER_PASSWORD:-}@clickhouse:8123/${CLICKHOUSE_DB:-ctxpipe}
       # Required to decrypt connection secrets (Slack bot tokens, GitHub App keys).
@@ -447,8 +426,6 @@ services:
         condition: service_completed_successfully
       postgres:
         condition: service_healthy
-      falkordb:
-        condition: service_started
       clickhouse:
         condition: service_healthy
 

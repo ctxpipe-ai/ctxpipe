@@ -19,7 +19,7 @@ export type CallWorkspace = {
   /** Null until the first projection is published. */
   served: Served | null
   /**
-   * The main-era knowledge files that only the old stack serves (ADR-053,
+   * The main-era knowledge files that the knowledge plane does not serve (ADR-053,
    * CTX-1715). 0 when ctxpipe has not counted them.
    */
   legacyKnowledgeFiles: number

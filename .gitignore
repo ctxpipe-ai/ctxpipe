@@ -32,7 +32,7 @@ packages/aws-cdk/src/pinned-service-image-tag.ts
 .ai/memory/events/**
 !.ai/memory/events/.gitkeep
 
-# Claude Code on the web: FalkorDB without Bolt (no IPv6), written by .claude/hooks/session-start.sh
+# Local Compose overrides.
 docker-compose.override.yml
 .release-cache
 

@@ -1,5 +1,5 @@
 {
-  "description": "A small Workspace for the example questions: short summaries of some files of .ai/memory, with their supersede relations. The integration test writes it to both stacks. The validity window of a unit applies to the document and to its claims.",
+  "description": "A small Workspace for the example questions: short summaries of some files of .ai/memory, with their supersede relations. The integration test writes it to Postgres and to the plane. The validity window of a unit applies to the document and to its claims.",
   "units": [
     {
       "path": "decisions/ADR-003-drizzle-beta.md",
