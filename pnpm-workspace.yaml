@@ -70,7 +70,8 @@ patchedDependencies:
   # @tanstack/ai 1.x imports fast-json-patch. Its package ships index.ts beside index.js, without the src/ that
   # index.ts imports, and tsx loads index.ts: every tsx run that reaches @tanstack/ai (src/db/migrate.ts in CI and
   # db:migrate, the tests that spawn `--import tsx`) fails with "Cannot find module './src/core'". The patch
-  # deletes index.ts. Node and Bun load index.js and are not affected. Drop it when tsx or fast-json-patch fixes this.
+  # deletes index.ts. Node and Bun load index.js and are not affected. Temporary: drop it once fast-json-patch
+  # (https://github.com/Starcounter-Jack/JSON-Patch/issues/347) or tsx is fixed upstream. Accepted by the CTO on 2026-11-27.
   'fast-json-patch@3.1.1': patches/fast-json-patch@3.1.1.patch
   # The checks run OpenCode from the root devDependency, and pnpm runs no
   # dependency build script. The launcher runs the binary of the platform
