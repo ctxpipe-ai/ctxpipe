@@ -3,7 +3,6 @@ import {
   documentId,
   type FrontierRelation,
   type KnowledgeDocument,
-  type KnowledgeRelation,
   type KnowledgeReadScope,
   type KnowledgeStore,
 } from "../knowledge-store/knowledge-store.js"
@@ -189,7 +188,7 @@ export type JudgeInput = {
 type Judgment = { pAnswers: number; pExplore: number }
 
 /** The metadata of a document that Jev reads with its text. */
-export function jevMeta(document: KnowledgeDocument): CandidateMeta {
+function jevMeta(document: KnowledgeDocument): CandidateMeta {
   return {
     status: document.status,
     sourceType: document.sourceType,
@@ -295,8 +294,6 @@ export type WalkFilter = {
 type Traversal = {
   /** Each judged document, the seeds first, in the order of the layers. */
   nodes: TraversalNode[]
-  /** Each relation that the layers read. */
-  relations: KnowledgeRelation[]
   explored: { nodes: number; edges: number }
   partialReason?: "total_timeout"
   /** Frontier documents with more relations than `maxFanOut`. */
@@ -357,7 +354,8 @@ export async function traverse(input: {
   const nodes: TraversalNode[] = []
   const visited = new Set(input.seeds.map((seed) => documentId(seed.ref)))
   const cappedHubs: KnowledgeDocument[] = []
-  const read: KnowledgeRelation[] = []
+  /** The relations of the frontiers that the layers read. */
+  let edges = 0
   let partialReason: Traversal["partialReason"]
   let seedsJudged = false
   // The judgments of the seeds come with layer 1. Until then, a seed node
@@ -397,7 +395,7 @@ export async function traverse(input: {
       const own = (await beforeDeadline(deadline, () => relations)).filter(
         (item) => byKey.has(frontierKey(item)),
       )
-      read.push(...own.map((item) => item.relation))
+      edges += own.length
       const candidates = layerCandidates(own, byKey, visited, input.walk)
       cappedHubs.push(...candidates.capped.map((node) => node.document))
       const layer: Candidate[] = candidates.picked.slice(0, settings.fanOut)
@@ -500,8 +498,7 @@ export async function traverse(input: {
   if (seedsJudged) nodes.unshift(...seeds)
   return {
     nodes,
-    relations: read,
-    explored: { nodes: visited.size, edges: read.length },
+    explored: { nodes: visited.size, edges },
     ...(partialReason ? { partialReason } : {}),
     cappedHubs,
   }
@@ -542,7 +539,7 @@ type Candidate = Omit<JudgeInput, "text"> & {
 type Reached = Candidate & { parent: NonNullable<TraversalNode["parent"]> }
 
 /** True when the validity of a row overlaps the window (open ends count). */
-function overlaps(
+export function overlaps(
   row: { validFrom: Date | null; validTo: Date | null },
   window: { from: Date; to: Date },
 ): boolean {

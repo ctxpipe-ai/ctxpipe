@@ -29,7 +29,6 @@ import {
   readyKnowledgeHeads,
 } from "../../src/models/knowledge-state.js"
 import { getWorkspaceById } from "../../src/models/workspaces.js"
-import { POSITION_STATUSES } from "../../src/retrieval/jev/disagreement.js"
 import { type Dataset, datasetSchema, type Question } from "./dataset.js"
 import {
   callCountsSchema,
@@ -51,7 +50,7 @@ import {
 /**
  * The two arms (a CTO decision): the baseline, which is the current stack,
  * and the knowledge plane. Only the plane has Jev's p(answers) as its score
- * and gives positions.
+ * and gives the claims between the top results.
  */
 export const ARMS = ["legacy", "plane"] as const
 export type Arm = (typeof ARMS)[number]
@@ -168,11 +167,18 @@ const armAnswerSchema = z.object({
          * CTX-1518.
          */
         hubs: z.array(z.string()).optional(),
-        positions: z
+        /**
+         * The claims between the top results (ADR-068 decision 4). Absent
+         * in a run from before CTX-1720, which gave positions.
+         */
+        claims: z
           .array(
             z.object({
-              refs: z.array(z.string()),
-              status: z.enum(POSITION_STATUSES),
+              from: z.string(),
+              to: z.string(),
+              predicate: z.string(),
+              by: z.enum(["edge", "reading"]),
+              confidence: z.number(),
             }),
           )
           .optional(),
@@ -529,12 +535,17 @@ async function ask(
       hubs: ranking.results
         .map((result) => result.ref)
         .filter((ref) => target.hubs.has(ref)),
-      ...(ranking.positions
+      ...(ranking.claims
         ? {
-            positions: ranking.positions.map(({ refs, status }) => ({
-              refs,
-              status,
-            })),
+            claims: ranking.claims.map(
+              ({ from, to, predicate, by, confidence }) => ({
+                from,
+                to,
+                predicate,
+                by,
+                confidence,
+              }),
+            ),
           }
         : {}),
       ...(ranking.partialReason
