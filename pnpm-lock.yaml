@@ -15,7 +15,7 @@ overrides:
 patchedDependencies:
   '@cosmograph/cosmograph@2.2.1': d64016c0891928c6f2a484566b608bec97ba8443d29c0686014f7784fadc3adb
   '@hono/zod-openapi@1.6.3': 90d1056918522f459c2439b685cf2cc211c0c3f42a1c673eb8f37c72b9534fa9
-  '@tanstack/ai-opencode@1.0.1': 5e9be03fae8dc588633618a34d34a9f27316eb75d9e857bfa9555c95b712234e
+  '@tanstack/ai-opencode@1.0.1': 9463f5e6144b93a6838c53aefce8cfb189d70586decf08f52bdd782e5b4f746b
   fast-json-patch@3.1.1: 25ebefa74813316903ca26f95ca6582cd57b4433beab190214c8bcfae78b265e
   opencode-ai@1.19.5: fbd7620d4152b3a7a000c2155af5372fb864fca5340d609c0ed34f9bce14c2d1
   openworkflow@0.10.1: 4c3613a15af4a7f59d91d71839d78741b7a7b4853f1f1ba8f636a628e15e5888
@@ -170,7 +170,7 @@ importers:
         version: 1.7.0(@opentelemetry/api@1.9.1)(zod@4.6.7)
       '@tanstack/ai-opencode':
         specifier: 1.0.1
-        version: 1.0.1(patch_hash=5e9be03fae8dc588633618a34d34a9f27316eb75d9e857bfa9555c95b712234e)(@tanstack/ai-sandbox@1.4.0(@tanstack/ai-persistence@1.1.0(@tanstack/ai@1.7.0(@opentelemetry/api@1.9.1)(zod@4.6.7))(vitest@5.1.0))(@tanstack/ai@1.7.0(@opentelemetry/api@1.9.1)(zod@4.6.7))(vitest@5.1.0)(zod@4.6.7))(@tanstack/ai@1.7.0(@opentelemetry/api@1.9.1)(zod@4.6.7))
+        version: 1.0.1(patch_hash=9463f5e6144b93a6838c53aefce8cfb189d70586decf08f52bdd782e5b4f746b)(@tanstack/ai-sandbox@1.4.0(@tanstack/ai-persistence@1.1.0(@tanstack/ai@1.7.0(@opentelemetry/api@1.9.1)(zod@4.6.7))(vitest@5.1.0))(@tanstack/ai@1.7.0(@opentelemetry/api@1.9.1)(zod@4.6.7))(vitest@5.1.0)(zod@4.6.7))(@tanstack/ai@1.7.0(@opentelemetry/api@1.9.1)(zod@4.6.7))
       '@tanstack/ai-persistence':
         specifier: ^1.0.1
         version: 1.1.0(@tanstack/ai@1.7.0(@opentelemetry/api@1.9.1)(zod@4.6.7))(vitest@5.1.0)
@@ -21366,7 +21366,7 @@ snapshots:
     dependencies:
       '@tanstack/devtools-event-client': 0.4.4
 
-  '@tanstack/ai-opencode@1.0.1(patch_hash=5e9be03fae8dc588633618a34d34a9f27316eb75d9e857bfa9555c95b712234e)(@tanstack/ai-sandbox@1.4.0(@tanstack/ai-persistence@1.1.0(@tanstack/ai@1.7.0(@opentelemetry/api@1.9.1)(zod@4.6.7))(vitest@5.1.0))(@tanstack/ai@1.7.0(@opentelemetry/api@1.9.1)(zod@4.6.7))(vitest@5.1.0)(zod@4.6.7))(@tanstack/ai@1.7.0(@opentelemetry/api@1.9.1)(zod@4.6.7))':
+  '@tanstack/ai-opencode@1.0.1(patch_hash=9463f5e6144b93a6838c53aefce8cfb189d70586decf08f52bdd782e5b4f746b)(@tanstack/ai-sandbox@1.4.0(@tanstack/ai-persistence@1.1.0(@tanstack/ai@1.7.0(@opentelemetry/api@1.9.1)(zod@4.6.7))(vitest@5.1.0))(@tanstack/ai@1.7.0(@opentelemetry/api@1.9.1)(zod@4.6.7))(vitest@5.1.0)(zod@4.6.7))(@tanstack/ai@1.7.0(@opentelemetry/api@1.9.1)(zod@4.6.7))':
     dependencies:
       '@opencode-ai/sdk': 1.19.5
       '@tanstack/ai': 1.7.0(@opentelemetry/api@1.9.1)(zod@4.6.7)

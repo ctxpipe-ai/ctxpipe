@@ -189,7 +189,7 @@ index c3f62754a7a2e2dbf6cc4482e188b4bf5d10b37d..b208f69b3c045b3c6cdb39f217885b48
  			}
  		};
 diff --git a/dist/esm/stream/translate.js b/dist/esm/stream/translate.js
-index 9b9d5d352b9161d8a9d47446240138a76178de73..c901b40750917243608bb7080a77ebda37555984 100644
+index 9b9d5d352b9161d8a9d47446240138a76178de73..d14a92df03374dd0ffa05905936a2694b6900c17 100644
 --- a/dist/esm/stream/translate.js
 +++ b/dist/esm/stream/translate.js
 @@ -81,6 +81,10 @@ async function* translateOpencodeStream(events, ctx) {
@@ -211,10 +211,18 @@ index 9b9d5d352b9161d8a9d47446240138a76178de73..c901b40750917243608bb7080a77ebda
  			const role = messageRoles.get(part.messageID);
  			if (role === void 0) {
  				const parts = pendingParts.get(part.messageID) ?? [];
-@@ -327,6 +332,20 @@ async function* translateOpencodeStream(events, ctx) {
- 				else parts[index] = { part };
- 				pendingParts.set(part.messageID, parts);
- 			} else if (role === "assistant") yield* handlePart(part, delta);
+@@ -324,7 +329,25 @@ async function* translateOpencodeStream(events, ctx) {
+ 					part,
+ 					delta
+ 				});
+-				else parts[index] = { part };
++				else {
++					// ctxpipe patch: the snapshot holds the deltas queued before it.
++					parts[index] = { part };
++					for (let later = parts.length - 1; later > index; later--) if (parts[later].part.id === part.id) parts.splice(later, 1);
++				}
++				pendingParts.set(part.messageID, parts);
++			} else if (role === "assistant") yield* handlePart(part, delta);
 +		} else if (event.type === "message.part.delta") {
 +			const { partID, field, delta } = event.properties;
 +			const part = streamedParts.get(partID);
@@ -227,8 +235,6 @@ index 9b9d5d352b9161d8a9d47446240138a76178de73..c901b40750917243608bb7080a77ebda
 +					part,
 +					delta
 +				});
-+				pendingParts.set(part.messageID, parts);
-+			} else if (role === "assistant") yield* handlePart(part, delta);
+ 				pendingParts.set(part.messageID, parts);
+ 			} else if (role === "assistant") yield* handlePart(part, delta);
  		} else if (event.type === "todo.updated") yield {
- 			type: EventType.CUSTOM,
- 			model,

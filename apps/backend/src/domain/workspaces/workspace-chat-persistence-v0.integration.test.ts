@@ -114,7 +114,7 @@ const pausedTranscript: unknown[] = [
   },
 ]
 
-/** The interrupt payload 0.63.0 wrote for that approval. */
+/** The interrupt payload 0.63.0 wrote for that approval, with its binding. */
 const approvalPayload = {
   id: approvalId,
   reason: "tool_call",
@@ -333,6 +333,8 @@ describe("a chat that TanStack AI 0.63.0 stored", () => {
 
   it("resumes the paused approval and finishes the turn", async () => {
     const executed: string[] = []
+    // The subject is the stored chat, not a model provider: the stock fake
+    // model of TanStack AI answers the resumed turn.
     const model = fakeText()
     model.setResponses([{ text: "Published." }])
     await asOrg(async () => {
@@ -376,7 +378,7 @@ describe("a chat that TanStack AI 0.63.0 stored", () => {
   })
 
   it("cancels only the pending interrupts that have no binding, once", async () => {
-    // An approval as a 0.x release before the binding wrote it.
+    // An approval with no binding, which 1.x cannot resume.
     const { "tanstack:interruptBinding": _binding, ...unboundMetadata } =
       approvalPayload.metadata
     await withOrgDbContext(org.id, async (db) => {
