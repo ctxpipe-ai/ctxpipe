@@ -1374,7 +1374,7 @@ describe("the knowledge reader seam", () => {
     const claims = properties.claims
     if (!claims) throw new Error("get_related has no claims output")
     expect(claims.description).toBe(
-      "The claims between the top results of this page.",
+      "The claims between the top results whose later end is on this page.",
     )
     expect(
       claims.items.oneOf?.map(({ properties }) =>
@@ -1435,19 +1435,26 @@ describe("the knowledge reader seam", () => {
         confidence: 0.9,
       },
     ])
-    // A page shows the claims between its own results.
-    const firstPage = structured(
-      await relatedCall({
+    // With one result for each page, the claims come on the page of their
+    // later end: the second page.
+    const pageCall = (cursor?: string) =>
+      relatedCall({
         workspace: "claims",
         seeds: ["claims/seed.md"],
         maxDepth: 1,
         limit: 1,
-      }),
-    )
+        ...(cursor ? { cursor } : {}),
+      })
+    const firstPage = structured(await pageCall())
     expect(
       (firstPage.results as { ref: string }[]).map(({ ref }) => ref),
     ).toEqual(["claims/new.md"])
     expect(firstPage.claims).toEqual([])
+    const secondPage = structured(await pageCall(firstPage.cursor as string))
+    expect(
+      (secondPage.results as { ref: string }[]).map(({ ref }) => ref),
+    ).toEqual(["claims/old.md"])
+    expect(secondPage.claims).toEqual(content.claims)
   })
 
   it("on: with validBetween, get_related shows only the stored relations between top results that are valid in the window", async () => {

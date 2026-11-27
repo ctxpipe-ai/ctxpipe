@@ -301,7 +301,9 @@ export const getRelatedTool = defineMcpReadTool({
     claims: z
       .array(claimSchema)
       .optional()
-      .describe("The claims between the top results of this page."),
+      .describe(
+        "The claims between the top results whose later end is on this page.",
+      ),
     cursor: z.string().optional(),
     truncated: z.boolean().optional(),
     notices: knowledgeNoticesSchema,
@@ -377,6 +379,21 @@ export const getRelatedTool = defineMcpReadTool({
     const items: RelatedResult[] = explain
       ? results
       : results.map(({ path: _path, ...rest }) => rest)
+    // A page shows each claim whose later end is on it: one end on the
+    // page, and the other on it or on an earlier page. Thus each claim is
+    // on one page, and it fits the budget of that page with its results.
+    const earlier = new Set(items.slice(0, offset).map(({ ref }) => ref))
+    const claimsOf = (
+      claims: NonNullable<Ranking["claims"]>,
+      page: RelatedResult[],
+    ) => {
+      const onPage = new Set(page.map(({ ref }) => ref))
+      return claims.filter(
+        ({ from, to }) =>
+          (onPage.has(from) || onPage.has(to)) &&
+          [from, to].every((ref) => onPage.has(ref) || earlier.has(ref)),
+      )
+    }
     const build = (page: RelatedResult[]) => ({
       workspace: workspace.slug,
       served,
@@ -385,15 +402,7 @@ export const getRelatedTool = defineMcpReadTool({
       ...(header.partialReason ? { partialReason: header.partialReason } : {}),
       ...(header.cappedHubs.length ? { cappedHubs: header.cappedHubs } : {}),
       results: page,
-      // A page shows the claims between its own results, so that the
-      // claims fit the page budget with them.
-      ...(header.claims
-        ? {
-            claims: header.claims.filter(({ from, to }) =>
-              [from, to].every((ref) => page.some((item) => item.ref === ref)),
-            ),
-          }
-        : {}),
+      ...(header.claims ? { claims: claimsOf(header.claims, page) } : {}),
       ...(notices.length ? { notices } : {}),
     })
     const { page, nextOffset, truncated } = fitPage(items, {
