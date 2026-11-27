@@ -836,6 +836,7 @@ if (args[0] === "mcp" && args[1] === "remove") {
     cwd: string,
     home: string,
     command: "mcp" | "hook",
+    path = `${fakeClaude}:${process.env.PATH ?? ""}`,
   ): ReturnType<typeof spawnSync> & { stdout: string; stderr: string } {
     const args = command === "hook" ? ["hook", "claude-session-start"] : ["mcp"]
     const input =
@@ -853,7 +854,7 @@ if (args[0] === "mcp" && args[1] === "remove") {
         ...process.env,
         HOME: home,
         USERPROFILE: home,
-        PATH: `${fakeClaude}:${process.env.PATH ?? ""}`,
+        PATH: path,
       },
     })
   }
@@ -946,7 +947,7 @@ if (args[0] === "mcp" && args[1] === "remove") {
       expect(second.status).toBe(0)
       expect(second.stdout).toBe("")
       expect(second.stderr.trim().split("\n")).toEqual([
-        `ctxpipe: \`memory ${command === "hook" ? "mcp" : "hook"}\` was removed in 0.3.0. This repository has no 0.2.0 memory entry to repair.`,
+        `ctxpipe: \`memory ${command === "hook" ? "mcp" : "hook"}\` was removed in 0.3.0. This setup has no 0.2.0 memory entry to repair.`,
       ])
       expect(snapshot(cwd, home)).toEqual(before)
       expect(readFileSync(claudeLog, "utf8")).toBe(
@@ -984,7 +985,7 @@ if (args[0] === "mcp" && args[1] === "remove") {
 
     expect(result.status).toBe(0)
     expect(result.stderr).toContain(
-      "This repository has no 0.2.0 memory entry to repair.",
+      "This setup has no 0.2.0 memory entry to repair.",
     )
     expect(snapshot(cwd, home)).toEqual(before)
   })
@@ -1062,7 +1063,7 @@ if (args[0] === "mcp" && args[1] === "remove") {
     expect(existsSync(claudeLog)).toBe(false)
   })
 
-  it("tries again after a partial failure when the only 0.2.0 entry is in the home directory", () => {
+  it("removes a home-only 0.2.0 entry and adds no capture hook for it", () => {
     const { cwd, home } = legacySetup()
     for (const rel of [
       ".cursor/mcp.json",
@@ -1075,30 +1076,40 @@ if (args[0] === "mcp" && args[1] === "remove") {
     }
     rmSync(join(home, ".codex"), { recursive: true })
     rmSync(join(home, ".claude.json"))
-    // A file where the Claude rule needs a directory: that write fails.
-    mkdirSync(join(cwd, ".claude"))
-    writeFileSync(join(cwd, ".claude", "rules"), "not a directory\n")
 
-    const failed = runRemoved(cwd, home, "hook")
+    const result = runRemoved(cwd, home, "hook")
 
-    expect(failed.stderr).toContain("The repair of the memory setup failed")
-    expect(
-      readFileSync(join(home, ".claude", "settings.local.json"), "utf8"),
-    ).toContain("memory hook claude-stop")
-
-    rmSync(join(cwd, ".claude", "rules"))
-    const retried = runRemoved(cwd, home, "hook")
-
-    expect(retried.stderr.trim()).toBe(
-      "ctxpipe: `memory hook` was removed in 0.3.0. Removed the 0.2.0 memory entries and wrote the capture hooks of this repository for Claude Code.",
+    expect(result.stderr.trim()).toBe(
+      "ctxpipe: `memory hook` was removed in 0.3.0. Removed the 0.2.0 memory entries.",
     )
-    expect(
-      readFileSync(join(cwd, ".claude", "settings.json"), "utf8"),
-    ).toContain("npx -y ctxpipe memory capture finalize --host claude")
-    expect(existsSync(join(cwd, ".claude", "rules", "ai-memory.md"))).toBe(true)
     expect(
       readFileSync(join(home, ".claude", "settings.local.json"), "utf8"),
     ).not.toContain("memory hook")
+    expect(existsSync(join(cwd, ".claude", "settings.json"))).toBe(false)
+    expect(existsSync(join(home, ".claude", "settings.json"))).toBe(false)
+  })
+
+  it("keeps ~/.claude.json and names the manual step when there is no claude command", () => {
+    const { cwd, home } = legacySetup()
+    const before = readFileSync(join(home, ".claude.json"), "utf8")
+
+    const result = runRemoved(cwd, home, "mcp", dirname(process.execPath))
+
+    expect(result.status).toBe(0)
+    expect(result.stdout).toBe("")
+    expect(result.stderr.trim().split("\n")).toEqual([
+      "ctxpipe: `memory mcp` was removed in 0.3.0. Removed the 0.2.0 memory entries and wrote the capture hooks of this repository for Cursor, Claude Code, VS Code / Copilot, OpenCode, Codex. Not removed: The claude command is not available. Run: claude mcp remove ctxpipe-memory --scope user",
+    ])
+    expect(readFileSync(join(home, ".claude.json"), "utf8")).toBe(before)
+    expect(readFileSync(join(cwd, ".mcp.json"), "utf8")).not.toContain(
+      "ctxpipe-memory",
+    )
+
+    const again = runRemoved(cwd, home, "mcp", dirname(process.execPath))
+
+    expect(again.stderr.trim()).toBe(
+      "ctxpipe: `memory mcp` was removed in 0.3.0. Not removed: The claude command is not available. Run: claude mcp remove ctxpipe-memory --scope user",
+    )
   })
 
   it("keeps the 0.2.0 entries for a retry when a migration step fails", () => {
@@ -1144,19 +1155,40 @@ if (args[0] === "mcp" && args[1] === "remove") {
     expect(snapshot(cwd, home)).toEqual(before)
   })
 
-  it("changes nothing in a directory that has no .ai/memory", () => {
+  it("outside a memory repository, only removes the 0.2.0 entries", () => {
     const { cwd, home } = legacySetup()
     rmSync(join(cwd, ".ai"), { recursive: true })
-    const before = snapshot(cwd, home)
 
     const result = runRemoved(cwd, home, "hook")
 
     expect(result.status).toBe(0)
     expect(result.stdout).toBe("")
-    expect(result.stderr).toContain(
-      "This directory has no .ai/memory, so there is nothing to repair.",
+    expect(result.stderr.trim()).toBe(
+      "ctxpipe: `memory hook` was removed in 0.3.0. Removed the 0.2.0 memory entries.",
     )
-    expect(snapshot(cwd, home)).toEqual(before)
+    const after = snapshot(cwd, home)
+    for (const [path, text] of Object.entries(after)) {
+      expect(text, path).not.toMatch(
+        /memory (mcp|hook)\b|ctxpipe-memory"?[:\]]/,
+      )
+    }
+    for (const rel of [
+      ".cursor/hooks.json",
+      ".claude/settings.json",
+      ".github/hooks/ctxpipe-memory.json",
+      ".opencode/plugins/ctxpipe-memory.js",
+      ".gitignore",
+    ]) {
+      expect(existsSync(join(cwd, rel)), rel).toBe(false)
+    }
+    expect(existsSync(join(cwd, ".ai"))).toBe(false)
+
+    const second = runRemoved(cwd, home, "hook")
+
+    expect(second.stderr.trim()).toBe(
+      "ctxpipe: `memory hook` was removed in 0.3.0. This setup has no 0.2.0 memory entry to repair.",
+    )
+    expect(snapshot(cwd, home)).toEqual(after)
   })
 
   it("exits 0 with one stderr line when the repair cannot write a file", () => {

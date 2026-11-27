@@ -27,11 +27,12 @@ import {
 /**
  * CLI 0.2.0 wrote hooks and MCP entries that run `memory mcp` and
  * `memory hook`; 0.3.0 removed these commands. Hooks run the newest release,
- * so the old commands repair the setup: in a repository that has
- * `.ai/memory`, they write the repo capture hooks of each host that has a
- * 0.2.0 entry, apply the `memory init` upgrade, and remove each 0.2.0 entry
- * where it is: in the repository and in the home directory. A second run
- * finds no 0.2.0 entry and changes nothing.
+ * so the old commands repair the setup. They remove each 0.2.0 entry where it
+ * is: in the repository and in the home directory. In a repository that has
+ * `.ai/memory`, they also apply the `memory init` upgrade and write the repo
+ * capture hook of each host that has a repo 0.2.0 entry. In another
+ * directory, they only remove the entries. A second run finds no 0.2.0 entry
+ * and changes nothing.
  *
  * A home entry does not become a user-scope capture hook: such a hook writes
  * `.ai/memory/events/` into each directory where a session starts, also one
@@ -69,32 +70,39 @@ async function sessionCwd(command: "mcp" | "hook"): Promise<string> {
 
 function repair(cwd: string): string {
   const context = createOperationContext({ cwd, commandExists })
-  // Repair only a repository that has memory; never seed memory in another directory.
-  if (!existsSync(resolve(context.cwd, ".ai", "memory"))) {
-    return "This directory has no .ai/memory, so there is nothing to repair. To repair a repository, run `npx ctxpipe memory init` in it."
-  }
   const entries = findLegacyMemoryEntries(context)
   if (entries.length === 0) {
-    return "This repository has no 0.2.0 memory entry to repair."
+    return "This setup has no 0.2.0 memory entry to repair."
   }
-  const hosts = [
-    ...new Set(entries.flatMap(({ host }) => (host ? [host] : []))),
-  ]
+  // A repo 0.2.0 entry becomes the repo capture hook of its host. A home
+  // entry is only removed. Only a repository with memory gets new files;
+  // in another directory, the repair only removes the 0.2.0 entries.
+  const hasMemory = existsSync(resolve(context.cwd, ".ai", "memory"))
+  const hosts = hasMemory
+    ? [
+        ...new Set(
+          entries.flatMap(({ path, host }) =>
+            host && isInside(context.cwd, path) ? [host] : [],
+          ),
+        ),
+      ]
+    : []
 
   // Remove the 0.2.0 entries last. If a step fails, the entries stay, and the
-  // next run tries the repair again. In the home directory, change only the
+  // next run tries the repair again. Outside the repository, change only the
   // files that hold a 0.2.0 entry.
   const entryFiles = new Set(entries.map(({ path }) => path))
   const isRemoval = (op: Operation) =>
-    op.type === "run" || ("path" in op && entryFiles.has(op.path))
+    op.type === "run" ||
+    op.type === "manual" ||
+    ("path" in op && entryFiles.has(op.path))
   const upgradeOps = buildMemoryUpgradeOperations({ context }).filter(
     (op) =>
-      !("path" in op) ||
-      isInside(context.cwd, op.path) ||
-      entryFiles.has(op.path),
+      isRemoval(op) ||
+      (hasMemory && "path" in op && isInside(context.cwd, op.path)),
   )
   const operations = [
-    ...buildMemoryArtifactOperations({ context }),
+    ...(hasMemory ? buildMemoryArtifactOperations({ context }) : []),
     ...buildMemoryHookOperations({ clients: hosts, scope: "repo", context }),
     ...upgradeOps.filter((op) => !isRemoval(op)),
     ...upgradeOps.filter(isRemoval),
@@ -124,10 +132,16 @@ function repair(cwd: string): string {
   }
 
   applyOperations(operations)
-  const labels = hosts.map((host) => CLIENT_LABELS[host]).join(", ")
-  return hosts.length > 0
-    ? `Removed the 0.2.0 memory entries and wrote the capture hooks of this repository for ${labels}.`
-    : "Removed the 0.2.0 memory entries."
+  const done =
+    hosts.length > 0
+      ? `Removed the 0.2.0 memory entries and wrote the capture hooks of this repository for ${hosts.map((host) => CLIENT_LABELS[host]).join(", ")}.`
+      : "Removed the 0.2.0 memory entries."
+  const manual = operations.find((op) => op.type === "manual")
+  if (!manual) return done
+  // An entry that only a manual step removes stays, so later runs report it again.
+  return operations.some((op) => isRemoval(op) && op.type !== "manual")
+    ? `${done} Not removed: ${manual.detail}`
+    : `Not removed: ${manual.detail}`
 }
 
 /** A path for the stderr line: relative to the repository, or `~/…` in the home directory. */

@@ -147,19 +147,17 @@ The installed `memory-search` skill describes the full procedure.
   versions: the `ctxpipe-memory` MCP entry, old memory skills, and an
   AgentMemory-era `README.md`. It also moves `patterns.md` into
   `lessons-learned.md`.
-- A repository that you set up with CLI 0.2.0 repairs itself at the next
-  session. Its old hooks and MCP entries call `memory hook` and `memory mcp`.
-  These commands now apply the `memory init` upgrade in the repository. They
-  write the current capture hooks of the repository for each host that had an
-  old entry. Then they remove each old entry, in the repository and in your
-  home directory (also a `ctxpipe-memory` server in `~/.claude.json`, through
-  `claude mcp remove`). They also write the memory rules and skills, the
-  missing `.ai/memory` seed files, and the `.gitignore` line for
-  `.ai/memory/events`. They exit with code 0 and write one line to stderr (the
-  hook or MCP log).
-- The repair runs only in a repository that has `.ai/memory`. It adds no
-  user-scope capture hook, because such a hook writes `.ai/memory/events/`
-  into each directory where a session starts. Another 0.2.0 repository
-  repairs itself through its own old entries, or you run `npx ctxpipe memory
-  init` in it. The repair stops with no change when a path goes through a
-  symlink, or when a JSON file that it changes does not parse.
+- A setup from CLI 0.2.0 repairs itself at the next session. Its old hooks
+  and MCP entries call `memory hook` and `memory mcp`. These commands now
+  remove each old entry, in the repository and in your home directory. A
+  `ctxpipe-memory` server in `~/.claude.json` is removed with
+  `claude mcp remove`. In a repository that has `.ai/memory`, they also apply
+  the `memory init` upgrade. They write the current capture hooks of the
+  repository for each host that had an old entry in the repository. They exit
+  with code 0 and write one line to stderr (the hook or MCP log).
+- An old entry in your home directory is only removed, and it does not
+  become a user-scope capture hook. Such a hook writes `.ai/memory/events/`
+  into each directory where a session starts. If a repository got its capture
+  only from a home entry, run `npx ctxpipe memory init` in it. The repair
+  stops with no change when a path goes through a symlink, or when a JSON
+  file that it changes does not parse.

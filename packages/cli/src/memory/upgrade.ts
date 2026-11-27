@@ -254,19 +254,15 @@ function legacyMemoryFiles({ cwd, homeDir }: OperationContext) {
 /**
  * The keys of the 0.2.0 memory servers in the top-level `mcpServers` of
  * `~/.claude.json`. Claude Code writes that file while it runs, so only the
- * `claude` CLI removes them; with no `claude` command, there is nothing to do.
+ * `claude` CLI removes them.
  */
-function legacyClaudeUserServers(
-  path: string,
-  context: OperationContext,
-): string[] {
+function legacyClaudeUserServers(path: string): string[] {
   if (!existsSync(path)) return []
   const servers = readJsonObject(path).mcpServers
   if (!isObject(servers)) return []
-  const keys = Object.entries(servers)
+  return Object.entries(servers)
     .filter(([key, value]) => isLegacyLocalMemoryServer(key, value))
     .map(([key]) => key)
-  return keys.length > 0 && context.commandExists("claude") ? keys : []
 }
 
 /**
@@ -331,12 +327,23 @@ export function buildMemoryUpgradeOperations({
   }
 
   // Claude user MCP servers (`claude mcp add ctxpipe-memory --scope user`).
-  for (const key of legacyClaudeUserServers(claudeUserConfig, context)) {
-    ops.push({
-      type: "run",
-      command: ["claude", "mcp", "remove", key, "--scope", "user"],
-      description: `remove the legacy ${key} MCP server from Claude Code (user scope)`,
-    })
+  const claudeServers = legacyClaudeUserServers(claudeUserConfig)
+  const hasClaude = claudeServers.length > 0 && context.commandExists("claude")
+  for (const key of claudeServers) {
+    const command = ["claude", "mcp", "remove", key, "--scope", "user"]
+    ops.push(
+      hasClaude
+        ? {
+            type: "run",
+            command,
+            description: `remove the legacy ${key} MCP server from Claude Code (user scope)`,
+          }
+        : {
+            type: "manual",
+            description: `remove the legacy ${key} MCP server from Claude Code (user scope)`,
+            detail: `The claude command is not available. Run: ${command.join(" ")}`,
+          },
+    )
   }
 
   // Migrate patterns → lessons, then remove patterns.md
@@ -402,7 +409,7 @@ export function findLegacyMemoryEntries(
           readFileSync(path, "utf8").search(LEGACY_CODEX_MEMORY_TABLE) >= 0,
       )
       .map((path): [string, Client] => [path, "codex"]),
-    ...(legacyClaudeUserServers(claudeUserConfig, context).length > 0
+    ...(legacyClaudeUserServers(claudeUserConfig).length > 0
       ? [[claudeUserConfig, "claude"] as [string, Client]]
       : []),
   ].map(([path, host]) => ({ path, host }))
