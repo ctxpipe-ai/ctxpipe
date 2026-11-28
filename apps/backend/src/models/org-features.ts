@@ -6,54 +6,17 @@ import { orgFeatures } from "../db/schema/org_features.js"
 import type { AdminRequest } from "../domain/admin-request.js"
 import { log } from "../observability/logger.js"
 
-/** The permitted values of each feature. The first value is the default. */
-export const FEATURE_VALUES = {
-  knowledge_plane: ["off", "shadow", "on"],
-} as const
-
-type OrgFeature = keyof typeof FEATURE_VALUES
-type OrgFeatureValue<F extends OrgFeature> = (typeof FEATURE_VALUES)[F][number]
-
-function isPermitted<F extends OrgFeature>(
-  feature: F,
-  value: string,
-): value is OrgFeatureValue<F> {
-  return (FEATURE_VALUES[feature] as readonly string[]).includes(value)
-}
-
 /**
- * The value of a feature for an org. No row, or a value that is not permitted,
- * gives the default.
+ * The permitted values of each feature. The first value is the default: an
+ * org with no row has it. No feature uses the table now: the only one,
+ * `knowledge_plane`, was removed when the plane began to serve every org
+ * (CTX-1712). A new feature adds its entry here, with its reader.
  */
-export async function getOrgFeature<F extends OrgFeature>(
-  orgId: string,
-  feature: F,
-): Promise<OrgFeatureValue<F>> {
-  const fallback: OrgFeatureValue<F> = FEATURE_VALUES[feature][0]
-  const [row] = await withOrgDbContext(orgId, (db) =>
-    db
-      .select({ value: orgFeatures.value })
-      .from(orgFeatures)
-      .where(
-        and(
-          eq(orgFeatures.organizationId, orgId),
-          eq(orgFeatures.feature, feature),
-        ),
-      ),
-  )
-  if (!row) return fallback
-  if (isPermitted(feature, row.value)) return row.value
-  log.warn({
-    step: "org_features.invalid_value",
-    message: "org feature has a value that is not permitted; using the default",
-    orgId,
-    feature,
-    value: row.value,
-  })
-  return fallback
-}
+const FEATURE_VALUES: Readonly<Record<string, readonly [string, ...string[]]>> =
+  {}
 
-function isFeature(feature: string): feature is OrgFeature {
+/** True for a feature of `FEATURE_VALUES`. */
+export function isKnownOrgFeature(feature: string): boolean {
   return Object.hasOwn(FEATURE_VALUES, feature)
 }
 
@@ -82,11 +45,13 @@ export async function setOrgFeature(
   changed: boolean
   held: boolean
 }> {
-  if (!isFeature(feature))
-    throw new Error(`"${feature}" is not a known feature`)
-  if (!isPermitted(feature, value))
+  const values = isKnownOrgFeature(feature)
+    ? FEATURE_VALUES[feature]
+    : undefined
+  if (!values) throw new Error(`"${feature}" is not a known feature`)
+  if (!values.includes(value))
     throw new Error(
-      `"${value}" is not a permitted value of ${feature} (${FEATURE_VALUES[feature].join(", ")})`,
+      `"${value}" is not a permitted value of ${feature} (${values.join(", ")})`,
     )
   const { wasHeld, ...result } = await withOrgDbContext(orgId, async (db) => {
     const [org] = await db
@@ -108,7 +73,7 @@ export async function setOrgFeature(
           eq(orgFeatures.feature, feature),
         ),
       )
-    const previous = row?.value ?? FEATURE_VALUES[feature][0]
+    const previous = row?.value ?? values[0]
     const wasHeld = row?.held ?? false
     const held = request !== undefined
     if (!request && wasHeld && previous !== value)

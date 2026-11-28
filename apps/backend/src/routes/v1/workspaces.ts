@@ -26,7 +26,6 @@ import {
   WORKSPACE_WRITE_STATUSES,
 } from "../../domain/workspaces/write-status.js"
 import { selectKnowledgeReader } from "../../knowledge-reader/knowledge-reader.js"
-import { FEATURE_VALUES, getOrgFeature } from "../../models/org-features.js"
 import { isRepositoryLostAccess } from "../../models/repositories.js"
 import { listWorkspaceUpgradeRows } from "../../models/workspace-upgrades.js"
 import {
@@ -133,10 +132,6 @@ const WorkspaceDetailSchema = WorkspaceSchema.extend({
 const ListWorkspacesResponseSchema = z
   .object({
     lastUsedWorkspaceId: z.string().nullable(),
-    knowledgePlane: z.enum(FEATURE_VALUES.knowledge_plane).openapi({
-      description:
-        "The `knowledge_plane` flag of the org. The chat composer shows the base branch picker only when it is not `off`.",
-    }),
     items: z.array(WorkspaceSchema),
   })
   .openapi("WorkspaceListResponse")
@@ -189,8 +184,8 @@ function hydratePhasesView(state: ProjectionState): {
 }
 
 /**
- * The phases that the Workspace pane shows. With the `knowledge_plane` flag
- * `on` and a ready head of the plane, the graph route reads the plane
+ * The phases that the Workspace pane shows. With a ready head of the plane,
+ * the graph route reads the plane
  * (`selectKnowledgeReader`), so the graph is ready whatever the phase of the
  * FalkorDB graph. Else the pane shows the FalkorDB phase.
  */
@@ -500,14 +495,10 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     }
     const orgId = c.get("orgId")
     if (!orgId) return c.json({ error: "Unauthorized" }, 401)
-    const [{ items, lastUsedWorkspaceId }, knowledgePlane] = await Promise.all([
-      listWorkspaces(),
-      getOrgFeature(orgId, "knowledge_plane"),
-    ])
+    const { items, lastUsedWorkspaceId } = await listWorkspaces()
     return c.json(
       {
         lastUsedWorkspaceId,
-        knowledgePlane,
         items: items.map((row) => serializeWorkspace(row)),
       },
       200,

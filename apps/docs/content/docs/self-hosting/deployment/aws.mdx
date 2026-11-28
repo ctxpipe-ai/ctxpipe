@@ -292,8 +292,10 @@ through backend routing.
 
 `CtxPipe` deploys ClickHouse 26.10 for the
 [new knowledge store](/docs/self-hosting/configuration#knowledge-store). The
-new knowledge store is off for every organization. While it is off, Neptune
-answers, and the backend and the worker do not use ClickHouse.
+new knowledge store is on for every organization. Until a Workspace is ready
+in ClickHouse, Neptune answers for it. The new knowledge store also needs an
+OpenRouter key: see [Model configuration](/docs/self-hosting/models#the-knowledge-store).
+With `modelProvider.kind: "bedrock"`, Neptune continues to answer.
 
 ### What it sets up
 

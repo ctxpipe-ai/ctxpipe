@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto"
 
 import { eq, inArray, sql } from "drizzle-orm"
-import { initLogger } from "evlog"
 import { OpenWorkflow, type Worker } from "openworkflow"
 import { BackendPostgres } from "openworkflow/postgres"
 import postgres from "postgres"
@@ -20,7 +19,6 @@ import {
 } from "../../db/schema/auth.js"
 import { orgApiKeyCreators } from "../../db/schema/org_api_key_creators.js"
 import { generateObjectId } from "../../lib/id.js"
-import { getOrgFeature, setOrgFeature } from "../../models/org-features.js"
 import { openWorkflowNamespaceId } from "../namespace.js"
 import { connectOpenWorkflowBackend } from "../storable-backend.js"
 import * as admin from "./admin.js"
@@ -460,83 +458,13 @@ describe("the admin jobs", () => {
 })
 
 describe("the fast path to off (admin.set-org-feature)", () => {
-  it("sets the flag at once, logs the audit record, and holds the value against the config", async () => {
-    const events: Record<string, unknown>[] = []
-    // setup-evlog turns evlog off; this test reads the drained events.
-    // `silent` keeps them off stdout; the drain still gets each event.
-    initLogger({
-      pretty: false,
-      silent: true,
-      drain: (ctx) => {
-        events.push(ctx.event)
-      },
-    })
-    try {
-      await setOrgFeature(seed.orgId, "knowledge_plane", "shadow")
-      const input = request({
-        organizationId: seed.orgId,
-        feature: "knowledge_plane",
-        value: "off",
-      })
-      expect(await runAsConsole("admin.set-org-feature", input)).toEqual({
-        ok: true,
-        organizationId: seed.orgId,
-        feature: "knowledge_plane",
-        previous: "shadow",
-        value: "off",
-        changed: true,
-      })
-      expect(await getOrgFeature(seed.orgId, "knowledge_plane")).toBe("off")
-      expect(
-        events.filter(
-          (event) =>
-            event.step === "org_features.set" &&
-            event.orgId === seed.orgId &&
-            event.source === "operator",
-        ),
-      ).toEqual([
-        expect.objectContaining({
-          feature: "knowledge_plane",
-          previous: "shadow",
-          value: "off",
-          changed: true,
-          requested: "off",
-          requestId: input.requestId,
-          requestedBy: input.requestedBy,
-          approvedBy: input.approvedBy,
-        }),
-      ])
-
-      // The next hosted update runs the config with its old value.
-      await setOrgFeature(seed.orgId, "knowledge_plane", "shadow")
-      expect(await getOrgFeature(seed.orgId, "knowledge_plane")).toBe("off")
-    } finally {
-      initLogger({ enabled: false })
-    }
-  })
-
-  it("refuses an unknown organization or feature, and any value but off", async () => {
-    await expect(
-      runAsConsole(
-        "admin.set-org-feature",
-        request({
-          organizationId: "org_unknown",
-          feature: "knowledge_plane",
-          value: "off",
-        }),
-      ),
-    ).rejects.toThrow(/not found/)
-    for (const params of [
-      { feature: "no_such_feature", value: "off" },
-      { feature: "knowledge_plane", value: "maybe" },
-      { feature: "knowledge_plane", value: "on" },
-      { feature: "knowledge_plane", value: "shadow" },
-    ])
+  it("refuses each feature: no feature is known", async () => {
+    for (const feature of ["knowledge_plane", "no_such_feature"])
       await expect(
         runAsConsole(
           "admin.set-org-feature",
-          request({ organizationId: seed.orgId, ...params }),
+          request({ organizationId: seed.orgId, feature, value: "off" }),
         ),
-      ).rejects.toThrow()
+      ).rejects.toThrow(/is not a known feature/)
   })
 })

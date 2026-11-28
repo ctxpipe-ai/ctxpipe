@@ -1,5 +1,4 @@
 import { withOrgDbContext } from "../../../db/client.js"
-import { getOrgFeature } from "../../../models/org-features.js"
 import { listOrgWorkspaces } from "../../../models/workspaces.js"
 import { getLogger } from "../../../observability/logger.js"
 import { enqueueWorkflow } from "../../../openworkflow/client.js"
@@ -8,9 +7,8 @@ import { repositoryPath } from "./github-push-tip-check.js"
 
 /**
  * Queue the knowledge projection of a pushed branch that is not the default
- * branch of a Workspace (ADR-071 decision 7), for each org of the push whose
- * `knowledge_plane` flag is not `off`. The hydrate queues the run of the
- * default branch. A push that deletes the branch queues the same run, which
+ * branch of a Workspace (ADR-071 decision 7), for each org of the push. The
+ * hydrate queues the run of the default branch. A push that deletes the branch queues the same run, which
  * finds no tip and removes the head. The key holds the delivery id of the
  * push (else its SHAs before and after), so a redelivery of one push queues
  * no second run, and each other push (also a second deletion, or a
@@ -36,7 +34,6 @@ export async function enqueueKnowledgeBranchRuns(input: {
     // A failed read skips this org only: the next push of the branch queues
     // its run, and the other orgs and the rest of the push go on.
     try {
-      if ((await getOrgFeature(orgId, "knowledge_plane")) === "off") continue
       const workspaces = await withOrgDbContext(orgId, () =>
         listOrgWorkspaces(orgId),
       )
