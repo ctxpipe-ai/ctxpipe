@@ -1242,11 +1242,13 @@ async function fileGitTimes(input: {
     token: await input.remote.token(),
   })
   // Each document of the plane, not only a knowledge file, gets the Git
-  // times of its path (CTX-1710).
+  // times of its path, and a merge counts as the change that it brings to
+  // the branch (CTX-1710).
   const { introduced, lastChanged } = await readPathHistory(directory, {
     sha: tip,
     root,
     allPaths: true,
+    mergeChanges: true,
   })
   const byWorkspacePath = (times: Map<string, string>) => {
     const byPath = new Map<string, string>()
@@ -1267,6 +1269,7 @@ async function fileGitTimes(input: {
         "-z",
         "--diff-filter=AMT",
         "--no-renames",
+        "--diff-merges=first-parent",
         `${tip}...${input.base}`,
       ])
     )

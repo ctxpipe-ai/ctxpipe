@@ -19,7 +19,7 @@ import {
   workspaceRepositoryPath,
   workspaceRootPath,
 } from "../domain/workspaces/root-path.js"
-import type { KnowledgeDocument } from "../knowledge-store/knowledge-store.js"
+import type { DocumentTimes } from "../domain/workspaces/source-time.js"
 import { McpToolError } from "../mcp/framework/tool-errors.js"
 import type { KnowledgeHead } from "../models/knowledge-state.js"
 import { log } from "../observability/logger.js"
@@ -107,7 +107,7 @@ export async function readPlaneUnit(input: {
   path: string
 }): Promise<{
   unit: HydrateUnit
-  times: Pick<KnowledgeDocument, "createdAt" | "updatedAt" | "expiresAt">
+  times: DocumentTimes<Date>
   sha: string
 } | null> {
   const { orgId, workspaceId, head, path } = input

@@ -885,6 +885,41 @@ describe("projectKnowledgePlane", () => {
     }
   })
 
+  it("an authored file that a merge changes was updated at the merge, in a delta and in a full rebuild (CTX-1710)", async () => {
+    const remote = await Remote.create()
+    try {
+      await remote.commit({ "a.md": "# A\n\nOne.\n", "b.md": "# B\n" })
+      remote.git("checkout", "-q", "-b", "side")
+      await remote.commit({ "a.md": "# A\n\nSide.\n" })
+      remote.git("checkout", "-q", "main")
+      const base = await remote.commit({ "a.md": "# A\n\nMain.\n" })
+      const workspaceId = await newWorkspace()
+      await run(remote, workspaceId, base)
+      // The merge conflicts on a.md. Its resolution is content that no
+      // other commit has, so only the merge changed it.
+      try {
+        remote.git("merge", "-q", "--no-ff", "side", "-m", "merge")
+      } catch {
+        // The conflict stops the merge; the next commit resolves it.
+      }
+      const tip = await remote.commit({ "a.md": "# A\n\nBoth.\n" })
+      expect(await run(remote, workspaceId, tip)).toMatchObject({
+        mode: "delta",
+      })
+      const rebuilt = await newWorkspace()
+      await run(remote, rebuilt, tip)
+      const paths = ["a.md", "b.md"]
+      const delta = await content(workspaceId, paths)
+      expect(delta).toEqual(await content(rebuilt, paths))
+      expect(timesOf(delta, "updated_at")).toEqual({
+        "a.md": Remote.timeOf(3).toISOString(),
+        "b.md": Remote.timeOf(0).toISOString(),
+      })
+    } finally {
+      await remote.remove()
+    }
+  })
+
   it("after a crash at each write statement, a retry gives the same tables, also when a later commit changes a file back", async () => {
     /** A Workspace at the base commit, and the commits after it. */
     const issue = linearIssue("ENG-7")

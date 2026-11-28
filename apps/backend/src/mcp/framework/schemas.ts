@@ -1,5 +1,7 @@
 import { z } from "zod"
 
+import type { DocumentTimes } from "../../domain/workspaces/source-time.js"
+
 /** The Workspace slug argument of a tool. */
 export const workspaceArgument = z
   .string()
@@ -59,11 +61,7 @@ export const documentTimesShape = {
 }
 
 /** The times of a unit as the tools give them: `expiresAt` only when set. */
-export function documentTimesOutput(times: {
-  createdAt: Date | null
-  updatedAt: Date | null
-  expiresAt: Date | null
-}) {
+export function documentTimesOutput(times: DocumentTimes<Date>) {
   return {
     createdAt: times.createdAt?.toISOString() ?? null,
     updatedAt: times.updatedAt?.toISOString() ?? null,

@@ -237,11 +237,14 @@ export async function enqueueWriteJob(
   // ctxpipe does not write `valid_from` into Workspace files any more
   // (CTX-1710). A paused job of either kind ends here, so no resume admits
   // it again.
-  if (input.kind === "extract_ingest" || input.kind === "valid_from_persist") {
-    const reason =
-      input.kind === "extract_ingest"
-        ? "The old ingestion pipeline is retired. Admission refuses its extract_ingest write; ingestion v2 publishes to a Workspace at format 3 or more."
-        : "ctxpipe does not write valid_from into Workspace files any more. Admission refuses the valid_from_persist write."
+  const retired: Partial<Record<EnqueueWriteJobInput["kind"], string>> = {
+    extract_ingest:
+      "The old ingestion pipeline is retired. Admission refuses its extract_ingest write; ingestion v2 publishes to a Workspace at format 3 or more.",
+    valid_from_persist:
+      "ctxpipe does not write valid_from into Workspace files any more. Admission refuses the valid_from_persist write.",
+  }
+  const reason = retired[input.kind]
+  if (reason) {
     log.error(new Error(reason))
     if (input.jobId)
       await withOrgDbContext(input.orgId, () =>

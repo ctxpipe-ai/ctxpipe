@@ -750,8 +750,10 @@ export async function fetchGitHistory(
 /**
  * One walk of the Markdown history of `sha` in `dir`, newest first
  * (`fetchGitHistory` gets it). With `allPaths`, the walk reads the history
- * of each path, not only of the Markdown files. The maps are by repository
- * path:
+ * of each path, not only of the Markdown files. With `mergeChanges`, a
+ * merge commit shows its diff from its first parent, so a change that a
+ * merge brings to the branch (also the resolution of a conflict) has the
+ * time of the merge. The maps are by repository path:
  * - `introduced`: the time of the newest commit that added the path, so a
  *   path that a commit removed and a later commit added again has the time
  *   of the later commit;
@@ -770,6 +772,7 @@ export async function readPathHistory(
     layoutPath?: string
     deletedPaths?: Set<string>
     allPaths?: boolean
+    mergeChanges?: boolean
   },
 ): Promise<{
   introduced: Map<string, string>
@@ -795,6 +798,7 @@ export async function readPathHistory(
       // deletes give the deleted paths.
       "--diff-filter=AMTD",
       "--no-renames",
+      ...(input.mergeChanges ? ["--diff-merges=first-parent"] : []),
       input.sha,
       "--",
       ...(input.allPaths ? [] : ["*.md"]),
