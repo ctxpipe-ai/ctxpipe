@@ -1,6 +1,6 @@
 # OrgBench
 
-This folder holds OrgBench, the org-scale benchmark for context engines ([ADR-075](../../../../.ai/memory/decisions/ADR-075-orgbench-org-scale-agent-benchmark.md)). Phase 1 ([CTX-1664](https://linear.app/ctxpipe/issue/CTX-1664)) runs Claude Code on answer-only tasks of the Zulip twin in three arms, records each run, and writes a report. [Harbor](https://github.com/harbor-framework/harbor) is the only runner (decision D1 of the plan). The phase 0 spike ([CTX-1660](https://linear.app/ctxpipe/issue/CTX-1660)) built the sidecars; phase 1 reuses them.
+This folder holds OrgBench, the org-scale benchmark for context engines ([ADR-075](../../../../.ai/memory/decisions/ADR-075-orgbench-org-scale-agent-benchmark.md)). Phase 1 ([CTX-1664](https://linear.app/ctxpipe/issue/CTX-1664)) runs Claude Code on answer-only tasks of the Zulip twin in three arms, records each run, and writes a report. [Harbor](https://github.com/harbor-framework/harbor) is the only runner (decision D1 of the plan). The phase 0 spike ([CTX-1660](https://linear.app/ctxpipe/issue/CTX-1660)) built the sidecars; phase 1 reuses them. Phase 2 ([CTX-1665](https://linear.app/ctxpipe/issue/CTX-1665)) adds the machinery of a climb: the tiers, a candidate CTX against the kept CTX in one batch, the B1+ sentinel, the keep rule, and the smoke check.
 
 ## The files
 
@@ -14,7 +14,9 @@ This folder holds OrgBench, the org-scale benchmark for context engines ([ADR-07
 | `model-gateway.yaml` | The model gateway of each run: a Compose service that holds the model key and stops the run at its cap. |
 | `mcp-proxy.yaml` | The MCP proxy of the CTX arm: a Compose service that holds the bench key and forwards only `/mcp`. |
 | `record.py` | The recorder: one record for each run, with the MCP server spans from HyperDX and the D5 proof. |
-| `analyze.py` | The analyzer: `runs.jsonl` to `report.json` and `report.md`. |
+| `analyze.py` | The analyzer: `runs.jsonl` to `report.json` and `report.md`, with the keep rule for a candidate. |
+| `tiers.json` | The tiers (their splits, arms, models, trials and caps), the B1+ sentinel and the margins of the keep rule. |
+| `tiers.py` | The tasks of a tier, the verdict of the smoke tier, and `pick-smoke` (the smoke list from a baseline). |
 | `mint-key.ts` | Makes an org API key on a local stack (a candidate run, plan §5.4). |
 | `requirements.in`, `requirements.txt` | The pinned Harbor release, and its lock with hashes (`uv pip compile --generate-hashes requirements.in`). |
 
@@ -24,6 +26,7 @@ A task is a Harbor task folder: `instruction.md` (the question), `environment/Do
 
 | Key | Use |
 | --- | --- |
+| `split` | `dev`, `holdout` or `sealed`. Each task must have it. A run with no tier takes only dev tasks; a holdout task runs only with `--tier holdout` or `release`, and a sealed task only with `--tier release`. |
 | `family` | The task family (`T1`, `T3`, `T4`, `T8a`, `T10a`, `T11`, `T12`): a stratum of the report. |
 | `lexical_hook` | `true` or `false`: a stratum of the report (ADR-075 decision 4). |
 | `repos` | The repositories of the gold evidence, as `owner/name`. Their count is a stratum (1, 2, 3+). |
@@ -100,9 +103,9 @@ The agent can run Bash, and text in the corpus can tell it to send model request
 ```sh
 ANTHROPIC_BASE_URL=https://openrouter.ai/api ANTHROPIC_AUTH_TOKEN=… CTXPIPE_API_KEY=… HYPERDX_…=… \
   .venv/bin/python evals/bench/run.py --out ~/.cache/ctxpipe-bench/runs/RUN \
-  [--tasks-dir evals/bench/tasks/zulip-v1] [--tasks a,b] [--arms b1plus,ctx,oracle] \
-  [--models haiku] [--trials 2] [--repos 50] [--cap-usd 2]
-.venv/bin/python evals/bench/analyze.py ~/.cache/ctxpipe-bench/runs/RUN [--pass-at 1.0]
+  [--tier smoke|dev|holdout|release] [--tasks-dir evals/bench/tasks/zulip-v1] [--tasks a,b] \
+  [--arms b1plus,ctx,oracle] [--models haiku] [--trials 2] [--repos 50] [--cap-usd 2]
+.venv/bin/python evals/bench/analyze.py ~/.cache/ctxpipe-bench/runs/RUN [--pass-at 1.0] [--l0-win]
 ```
 
 - Each run is one Harbor job with the stock `claude-code` agent at a pinned Claude Code version, with `--max-turns` and `--max-budget-usd` (the cap of the run in `arms.json`). `run.py` writes the report at the end; `analyze.py` writes it again, for example with another pass threshold.
@@ -111,8 +114,70 @@ ANTHROPIC_BASE_URL=https://openrouter.ai/api ANTHROPIC_AUTH_TOKEN=… CTXPIPE_AP
 - Before and after each CTX run, `run.py` reads the snapshot that the Workspace serves (`list_files` of the root, field `served`) into `snapshot` of the record. Thus a run with no tool result also names its snapshot.
 - Before each run, `run.py` writes its reserve to `gateway/<run>/reserve.txt`. A run with no record (an invocation that stopped during the run) keeps that full reserve in the spend of the next invocation.
 - **The cache.** A baseline arm (an arm with no MCP: `b1plus`, `oracle`) reuses a record from `~/.cache/ctxpipe-bench/cache/` when the key is the same: a hash of the task folder, the snapshot (the plan, the context repo SHA and the repository count), the harness (the Harbor and Claude Code versions, the turn limit), the model with its prices and cap, the arm config with its preamble, and the trial. A cached record has `cached: true`, and its cost does not count in the spend of the new invocation. The CTX arm never uses the cache, because production can change.
-- **A candidate run (plan §5.4)** uses a local stack: `--mcp-url http://host.docker.internal:3660/mcp --telemetry-env local-<name>`, with a backend that exports its spans to the shared collector ([USING.md](../../../../ops/observability/USING.md#localhost-telemetry)) and an org key from `mint-key.ts`. The proxy reaches the host, and the agent still reaches only the proxy.
+- **A candidate** runs against a local stack (see [Candidate and kept](#candidate-and-kept)).
 - With an OpenRouter key, `run.py` also reads the upstream spend of the key (`byok_usage`) before and after all its runs, and writes the change and the Claude Code total to `byok.jsonl`. The counter lags by up to a minute, so it checks the total, not each run.
+
+## Tiers
+
+`--tier smoke|dev|holdout|release` takes the tasks of the splits of the tier in `tiers.json`, with its arms, models, trials and spend cap (plan §5.1). `--tasks` narrows the set to tasks of the tier. `--cap-usd` can lower the cap of the tier, never raise it. A tier can also set the cap of each run in the model gateway (`runCapUsd`) and the reserve of each CTX run (`serverReserveUsd`). A run with no tier takes the dev tasks, the arms `b1plus,ctx,oracle`, Haiku and a cap of $2. `run.py --tier <tier>` is the entry command of a campaign; the factory does not wrap it yet.
+
+| Tier | Tasks | Use |
+| --- | --- | --- |
+| `smoke` | A fixed subset of about 20 dev tasks, CTX with Haiku only, 1 trial, cap $3 | A breakage check of the tool surface (see [The smoke check](#the-smoke-check)) |
+| `dev` | The dev split | Find large wins; read the failure classes |
+| `holdout` | The holdout split; the report gives aggregates only | The non-inferiority guard |
+| `release` | Each split, also `sealed`; aggregates only | Claims and publication |
+
+The smoke list is `tasks` of the tier `smoke`. While it is `null`, the smoke tier takes the first 20 dev tasks by id: a placeholder until the first baseline exists. Then `python evals/bench/tiers.py pick-smoke <baseline run folder>` prints the dev tasks whose CTX score is in the 30–70% band, nearest to 50% first, for the list. The tier sizes come from the variance of the first baseline (plan §5.1).
+
+A tier with `aggregateOnly` (holdout, release) gives no result of a task: `report.json` has no task list, no runs table, and no per-task delta or stratum, and `run.py` prints no score of a run (plan §5.5).
+
+## Candidate and kept
+
+Production cannot serve unmerged code (D4), so a candidate runs on a local stack that a person or an agent builds from the branch (plan §5.4):
+
+1. Start the stack of the branch on the host (`pnpm dev`), with a backend that exports its spans to the shared collector ([USING.md](../../../../ops/observability/USING.md#localhost-telemetry)), so that the recorder finds them under `DeploymentEnvironment` `local-<name>`.
+2. Hydrate the frozen context repo of the twin into the bench org of that stack (`evals/knowledge` hydrate makes the eval org), with the knowledge plane on (D5). A change to ingest, Jev or embeddings needs a new ingest of the snapshot.
+3. Make an org key on that stack with `mint-key.ts`, and give it as `CTXPIPE_CANDIDATE_API_KEY`.
+4. Run the batch:
+
+```sh
+… CTXPIPE_API_KEY=<bench key> CTXPIPE_CANDIDATE_API_KEY=<local key> .venv/bin/python evals/bench/run.py \
+  --tier dev --out ~/.cache/ctxpipe-bench/runs/RUN \
+  --candidate-mcp-url http://host.docker.internal:3660/mcp --candidate-telemetry-env local-<name> \
+  [--mcp-url <kept MCP, default production>] [--sentinel 15]
+```
+
+- The arm `ctx` becomes two arms on the same tasks in the same batch: `ctx:kept` (the MCP of `--mcp-url`) and `ctx:candidate`. They change places on each other task, so that neither always runs first. The MCP proxy of a candidate run reaches the host through `host.docker.internal`; the agent still reaches only the proxy.
+- The baseline arms come from the cache only: a baseline run that is not in the cache is skipped. The exception is the **B1+ sentinel**: on the first `--sentinel` tasks (default 15, `tiers.json`), B1+ runs again and refreshes its cache record. The report compares each fresh sentinel run with the cached record that it replaced. When the mean drift is above `maxDrift`, the report says so: then run the baselines again with `--no-cache`.
+
+## The keep rule
+
+The report of a candidate batch has the keep rule of ADR-075 decision 9 for `ctx:candidate` against `ctx:kept`, over the tasks that both ran:
+
+- **A win:** an L0 win, or an L2-process win. The L0 eval is `evals/knowledge` on its holdout split; give `analyze.py RUN --l0-win` when it kept the change. An L2-process win is a lower argument error rate (argument errors for each MCP call) or a higher tool adoption (runs with an MCP call), where the 95% bootstrap interval of the gain over the tasks lies above 0.
+- **Non-inferiority:** for the score, the cost ($ of a run) and the harm (the score on the tasks of the `harmFamilies`, T12), the 95% bootstrap interval of the per-task delta must exclude a loss larger than its margin (`tiers.json`: 0.05 of score, 20% of the kept cost, 0.05 of harm score). The margins are fixed before the run.
+- **The verdict:** `keep` when it wins and each guard is non-inferior; `reject` when an interval shows a loss larger than its margin; else `inconclusive`, which does not keep the change. Fewer paired tasks than `minTasks` (10) are inconclusive. The report gives the delta, the interval and the margin of each guard, and the gain and the interval of each process metric.
+
+## The smoke check
+
+The smoke tier is also a check of the check manifest: `eval:bench:apps/backend/evals/bench/tiers.json#smoke` ([`scripts/checks/evals.mjs`](../../../../scripts/checks/evals.mjs)). `factory check` selects it only when a file of the MCP tool surface changes: each tool with its name, description and input schema (`src/mcp/tools.ts`, `src/mcp/tools/`), the tool registry and framework (`src/mcp/framework/`), and the agent guidance (`plugins/ctxpipe/skills/`), without tests. No other change selects it, and no model step adds or drops it (`selectBy: "inputs"` in the manifest).
+
+The check makes no model call. Under `factory check`, no check gets the model key. The paid run is the smoke tier on the host, against a local stack of the branch:
+
+```sh
+… CTXPIPE_API_KEY=<local key> .venv/bin/python evals/bench/run.py --tier smoke \
+  --out ~/.cache/ctxpipe-bench/runs/smoke-<date> \
+  --mcp-url http://host.docker.internal:3660/mcp --telemetry-env local-<name>
+```
+
+- It runs the CTX arm with Haiku on the smoke list, 1 trial, with a cap of $0.15 for each run in the model gateway and $3 for the invocation. The gateway reserves the worst cost of each request (above 100,000 bytes of body, at the long-context price), so a run needs a cap of about $0.15.
+- It writes one verdict for each hash of the tool surface to `~/.cache/ctxpipe-bench/smoke/<hash>.json`. The hash is over the path and the bytes of each file of the surface (`node scripts/checks/evals.mjs surface`, tracked and new files). When the verdict of the surface is there, the smoke tier makes no run and costs $0 (`--no-cache` runs it again). A run that the cap stopped, or that has an infrastructure error, writes no verdict.
+- Only the smoke list of `tiers.json` in `tasks/<twin>` gives the verdict that the check reads. A run of other tasks (`--tasks`, `--tasks-dir`) keeps its verdict under `<hash>-<hash of the tasks>.json`.
+- The `--out` folder of a smoke run holds the runs of one tool surface: a folder of another surface is refused.
+- Production serves the tools of `main`. Thus the smoke tier refuses the production MCP when the surface of the checkout is not the surface of `origin/main`: give the MCP of a local stack of the checkout. The smoke tier cannot see which tools a local stack serves; the person or agent that starts it from the checkout states it.
+- The verdict is a breakage check, not a measure: it fails on an invalid run (D5), an infrastructure error, an own-service error, an argument error rate above 0.5, more than half of the tasks with no MCP call, more than half of the runs stopped at a limit, or a score more than 0.4 below `referenceScore` (set from the first baseline; `null` until then).
+- The check reads the verdict of the tool surface of the checkout: it passes or fails as the verdict does. Without a verdict, its prerequisite `bench-smoke` fails with the fix. It is stochastic, so it has no key and `factory check` stores no pass; it reads the verdict again at no cost. No job of PR CI runs it: the merge gate lists it as `not run by PR CI`.
 
 ## The record of a run
 
@@ -125,4 +190,5 @@ ANTHROPIC_BASE_URL=https://openrouter.ai/api ANTHROPIC_AUTH_TOKEN=… CTXPIPE_AP
 - for each arm: the mean continuous score, pass@1 (the first trial of each task), pass^k (each of the first k trials passes; k is the smallest count of trials of a task), $/task (the mean cost of one run), $/success, the mean tokens, the wall time and the turns;
 - the paired delta of each arm against B1+: the mean over the tasks of the difference of the mean trial scores, with a 95% bootstrap interval over the tasks, and the strata by `family`, `lexical_hook` and repository count;
 - the process of the CTX arm: the MCP calls and their share of the tool calls, the tasks with no MCP call, the argument errors and their rate, the runs with an own-service error, the server tools, the Jev calls, the D5 counts, and the served snapshots (two SHAs of the Workspace branch mean that the snapshot changed during the runs);
+- for a candidate batch: the keep rule and its numbers (see [The keep rule](#the-keep-rule)), and the drift of the B1+ sentinel;
 - the failure class of each failed run: own-service error, infra (an infrastructure error that did not run again), tool not used (a CTX run with no MCP call), reasoning with gold seen (the run saw a gold file, or the arm is ORACLE), bad args (an argument error and no gold file seen), or retrieval miss.
