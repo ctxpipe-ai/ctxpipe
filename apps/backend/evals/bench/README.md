@@ -56,7 +56,7 @@ Each arm gets the same preamble (`arms.json`), with one sentence that tells wher
 - `run.py` gives the bench key (`CTXPIPE_API_KEY`, a read-scope key of the bench org, ADR-075 decision 14) only to the Compose project of the trial. The proxy adds it as `x-api-key`. Claude Code gets the URL of the proxy and no header. It removes each credential and cookie that the client sends, and each `set-cookie` of the server. Thus the agent container has no key, and a transcript cannot show it.
 - It adds the conversation id of the run (`x-ctxpipe-conversation-id`). The recorder joins the server spans by that id.
 - It forwards only the path `/mcp` (exactly) to `--mcp-url` (default `https://app.ctxpipe.ai/mcp`). Each other path, also an encoded path such as `/api/x%2F..%2F..%2Fmcp`, gets 404.
-- Only the tools of `mcpTools` in `arms.json`: `list_workspaces`, `search_knowledge`, `search_code`, `find_symbol`, `read_file`, `list_files`. Production has codesearch, so `search_code` and `find_symbol` are allowed. Claude Code also disallows `get_related`, but the agent can send a request with Bash, so the proxy refuses each other tool (403).
+- Only the tools of `mcpTools` in `arms.json`: `list_workspaces`, `search_knowledge`, `search_code`, `find_symbol`, `get_related`, `read_file`, `list_files`. Production has codesearch, so `search_code` and `find_symbol` are allowed. The agent can send a request with Bash, so the proxy refuses each other tool (403).
 - At most `maxToolCalls` (120) tool calls in a run. The next tool call gets 429 from the proxy.
 - One JSON-RPC message in each request: a batch gets 400. The body is at most 64 KiB.
 - It removes the tracing headers of the client (`traceparent`, `tracestate`, `baggage`), so that a client cannot stop the sampling of the server spans.
@@ -64,11 +64,10 @@ Each arm gets the same preamble (`arms.json`), with one sentence that tells wher
 
 ### The CTX arm reads only the knowledge plane (decision D5)
 
-Decision D5 allows only the knowledge plane (ClickHouse and Jev) in the CTX arm. A run that touches FalkorDB is not valid. Only `get_related` can reach FalkorDB: when a Workspace is not ready on the plane, its fallback calls `expandWorkspaceGraph`. `search_code` and `find_symbol` read codesearch (Zoekt and SCIP). The fallback of each other tool reads Postgres or Git. Each fallback writes the log `knowledge_plane.fallback`.
+Decision D5 allows only the knowledge plane (ClickHouse and Jev) in the CTX arm. The bench Workspace is ready on the plane, so `get_related` reads the plane graph (ClickHouse and Jev). The CTX arm allows each of the seven tools: the checks of `record.py` enforce D5, not the removal of a tool. `search_code` and `find_symbol` read codesearch (Zoekt and SCIP). When a Workspace is not ready on the plane, the fallback of each tool reads Postgres or Git. Each fallback writes the log `knowledge_plane.fallback`. A run with a fallback did not use the plane.
 
 The recorder reads the server spans of each CTX run from HyperDX (`DeploymentEnvironment` of `--telemetry-env`, default `production`): the traces whose `mcp.tool` span has the conversation id of the run. A CTX run is valid only when all of these are true:
 
-- the traces of the run have no span with `db.system.name = falkordb` (or "falkor" in the span name);
 - HyperDX has no `knowledge_plane.fallback` log of the bench org (`ctxpipe.org.slug`) or of the traces of the run, during the run;
 - the traces have one `mcp.tool` span for each tool call that the server answered with 2xx, less the calls that the MCP SDK refused for bad arguments (those calls have no span). A call that failed with a 5xx, a 429 or a timeout is an own-service error, not a missing span.
 
