@@ -10,6 +10,7 @@
     "src/domain/workspaces/commit-subject.contract.test.ts",
     "src/domain/workspaces/write-rename-native.contract.test.ts",
     "src/domain/workspaces/write-extract-retired-native.contract.test.ts",
+    "src/domain/workspaces/write-valid-from-retired-native.contract.test.ts",
     "src/domain/workspaces/write-mirror-native.contract.test.ts",
     "src/domain/workspaces/github-pr-mirror-native.contract.test.ts",
     "src/domain/workspaces/write-merge-native.contract.test.ts",
@@ -96,7 +97,8 @@
   ],
   "knowledge store (ClickHouse)": [
     "src/knowledge-store/knowledge-store.contract.test.ts",
-    "src/knowledge-store/knowledge-reads.contract.test.ts"
+    "src/knowledge-store/knowledge-reads.contract.test.ts",
+    "src/test/clickhouse.contract.test.ts"
   ],
   "knowledge projection writer (Git, Postgres, ClickHouse)": [
     "src/knowledge-plane/writer.contract.test.ts",

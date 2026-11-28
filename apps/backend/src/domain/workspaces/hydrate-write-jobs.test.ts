@@ -8,8 +8,6 @@ import {
   hydrateWriteJobsToEnqueue,
   importKeyCleanupFiles,
   kindsToRetryAfterHydrate,
-  validFromPersistFiles,
-  validFromPersistRemainder,
 } from "./hydrate-write-jobs.js"
 import { type HydrateUnit, hydrateKnowledgeTree } from "./hydrate.js"
 
@@ -39,45 +37,6 @@ describe("hydrate write remainders", () => {
               validFrom: null,
               validTo: null,
               source: null,
-            },
-          ],
-        }),
-      ]),
-    ).toBe(0)
-  })
-
-  it("counts claims missing valid_from", () => {
-    expect(
-      validFromPersistRemainder([
-        unit({
-          claims: [
-            {
-              to: "svc",
-              predicate: "owns",
-              confidence: 0.5,
-              validFrom: null,
-              validTo: null,
-              source: null,
-            },
-          ],
-        }),
-      ]),
-    ).toBe(1)
-    expect(validFromPersistRemainder([unit({ claims: [] })])).toBe(0)
-  })
-
-  it("does not count the FROM_SOURCE claim of the sources front matter, which has no valid_from to write", () => {
-    expect(
-      validFromPersistRemainder([
-        unit({
-          claims: [
-            {
-              to: "workspace:sources/github/acme/api.md",
-              predicate: "FROM_SOURCE",
-              confidence: 1,
-              validFrom: null,
-              validTo: null,
-              source: "git",
             },
           ],
         }),
@@ -135,6 +94,33 @@ describe("hydrate write remainders", () => {
     ).toEqual([])
   })
 
+  it("plans no write of a valid_from for a claim that has none: retrieval reads the times of the file (CTX-1710)", () => {
+    const undated = unit({
+      links: [],
+      claims: [
+        {
+          to: "svc",
+          predicate: "owns",
+          confidence: 0.5,
+          validFrom: null,
+          validTo: null,
+          source: null,
+        },
+      ],
+    })
+    expect(
+      hydrateWriteJobsToEnqueue({
+        units: [undated],
+        writeStatus: "writable",
+        jobGeneration: 1,
+        desiredGeneration: 1,
+      }),
+    ).toEqual([])
+    expect(hydrateWriteJobRemainders({ units: [undated] })).not.toHaveProperty(
+      "valid_from_persist",
+    )
+  })
+
   it("retries a kind only when that remainder shrank", () => {
     const after = hydrateWriteJobRemainders({
       units: [unit({})],
@@ -172,35 +158,6 @@ describe("hydrate write files", () => {
     })
     expect(files).toHaveLength(1)
     expect(files[0]?.content).toContain("to: ../billing/ledger.md")
-  })
-
-  it("writes the introducing commit timestamp onto claims that lack valid_from", () => {
-    const files = validFromPersistFiles({
-      introducingCommitTimestamp: "2026-08-16T12:00:00.000Z",
-      files: [
-        {
-          path: "knowledge/a.md",
-          content: "---\nclaims:\n  - to: svc\n---\n\nBody\n",
-        },
-      ],
-      units: [
-        unit({
-          body: "Body",
-          links: [],
-          claims: [
-            {
-              to: "svc",
-              predicate: null,
-              confidence: null,
-              validFrom: null,
-              validTo: null,
-              source: null,
-            },
-          ],
-        }),
-      ],
-    })
-    expect(files[0]?.content).toContain("valid_from: 2026-08-16T12:00:00.000Z")
   })
 
   it("strips import_key and leaves claims and body intact", () => {

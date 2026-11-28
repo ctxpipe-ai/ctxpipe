@@ -13,8 +13,6 @@ import { removeFolderMapMarkers } from "../workspaces/folder-list.js"
 import {
   claimsUpgradeFiles,
   importKeyCleanupFiles,
-  validFromPersistFiles,
-  validFromPersistRemainder,
 } from "../workspaces/hydrate-write-jobs.js"
 import { hydrateKnowledgeTree } from "../workspaces/hydrate.js"
 import type { GitUpgradeStep, UpgradeNotice } from "./registry.js"
@@ -80,9 +78,8 @@ export const sourcesConversionStep: GitUpgradeStep = {
  *
  * - It removes the `import_key` of each knowledge file. Step 1 writes the
  *   key so that a second plan of step 1 finds its own export.
- * - It adds a claim for each link that has none, and a `valid_from` for each
- *   claim that has none: the source time of the file (`sourceTime`), else
- *   the time of the commit that added the file.
+ * - It adds a claim for each link that has none. It writes no time into a
+ *   file: retrieval reads the times of each file (CTX-1710).
  * - It writes the bootstrap files: AGENTS.md with its folder section and no
  *   old folder-map markers, and the knowledge skill.
  */
@@ -146,37 +143,17 @@ export const ownershipMigrationStep: GitUpgradeStep = {
       report.push(
         `Removed the import key of ${unkeyed} knowledge file(s). ctxpipe does not need it after the upgrade.`,
       )
-    const units = () =>
-      hydrateKnowledgeTree({ workspaceId: ctx.workspaceId, files: current() })
-        .units
     const linked = apply(
-      claimsUpgradeFiles({ files: current(), units: units() }),
+      claimsUpgradeFiles({
+        files: current(),
+        units: hydrateKnowledgeTree({
+          workspaceId: ctx.workspaceId,
+          files: current(),
+        }).units,
+      }),
     )
     if (linked)
       report.push(`Added a claim for each link of ${linked} knowledge file(s).`)
-    const needValidFrom = units().filter(
-      (unit) => validFromPersistRemainder([unit]) > 0,
-    )
-    const introduced = needValidFrom.length
-      ? ((await ctx.introducedAt?.()) ?? new Map<string, string>())
-      : new Map<string, string>()
-    const dated = apply(
-      needValidFrom.flatMap((unit) => {
-        const timestamp = introduced.get(unit.path)
-        const file = content.get(unit.path)
-        return timestamp && file !== undefined
-          ? validFromPersistFiles({
-              files: [{ path: unit.path, content: file }],
-              units: [unit],
-              introducingCommitTimestamp: timestamp,
-            })
-          : []
-      }),
-    )
-    if (dated)
-      report.push(
-        `Set the valid_from of the claims of ${dated} file(s) to the source time of the file, else to the time of the commit that added the file.`,
-      )
     const agentsMd = content.get("AGENTS.md")
     if (agentsMd !== undefined) {
       const unmarked = removeFolderMapMarkers(agentsMd)

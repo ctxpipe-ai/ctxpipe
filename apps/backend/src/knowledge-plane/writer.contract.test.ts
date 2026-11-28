@@ -369,20 +369,24 @@ async function viewOf(
 /**
  * The rows that the head of a Workspace shows, in the shape of the tables
  * before ADR-071: the file versions of the tree rows that hold a file, with
- * the `valid_from` of the tree row. Only the rows of the view count, so a
- * file version of another tree version is not in it.
+ * the times of the tree row. Only the rows of the view count, so a file
+ * version of another tree version is not in it.
  */
 async function viewRows(workspaceId: string): Promise<Record<Table, Row[]>> {
   const head = await headOf(workspaceId)
-  const view = `SELECT doc_key, version, valid_from FROM (
-      SELECT doc_key, kind, version, valid_from FROM trees
+  const view = `SELECT doc_key, version, created_at, updated_at, expires_at
+    FROM (
+      SELECT doc_key, kind, version, created_at, updated_at, expires_at
+      FROM trees
       WHERE org_id = {orgId:String} AND workspace_id = {workspaceId:String}
         AND branch = {branch:String} AND tree_version <= {treeVersion:UInt64}
       ORDER BY doc_key, tree_version DESC LIMIT 1 BY doc_key)
     WHERE kind = 'file'`
   const queries: Record<Table, string> = {
-    documents: `SELECT d.* EXCEPT (org_id, workspace_id, written_at, version),
-        v.valid_from AS valid_from
+    documents: `SELECT d.* EXCEPT (org_id, workspace_id, written_at, version,
+          valid_from, valid_to, created_at, updated_at, expires_at),
+        v.created_at AS created_at, v.updated_at AS updated_at,
+        v.expires_at AS expires_at
       FROM documents AS d INNER JOIN (${view}) AS v
         ON v.doc_key = d.doc_key AND v.version = d.version
       WHERE d.org_id = {orgId:String} AND d.workspace_id = {workspaceId:String}`,
@@ -400,7 +404,7 @@ async function viewRows(workspaceId: string): Promise<Record<Table, Row[]>> {
   for (const table of ["relations", "relations_in"] as const)
     queries[table] = `SELECT r.* EXCEPT (org_id, workspace_id, written_at,
         src_version, valid_from, valid_from_introduced),
-        if(r.valid_from_introduced, v.valid_from, r.valid_from) AS valid_from
+        if(r.valid_from_introduced, v.created_at, r.valid_from) AS valid_from
       FROM ${table} AS r INNER JOIN (${view}) AS v
         ON v.doc_key = r.src_doc AND v.version = r.src_version
       WHERE r.org_id = {orgId:String} AND r.workspace_id = {workspaceId:String}`
@@ -456,17 +460,20 @@ async function content(workspaceId: string, paths: string[]) {
   }
 }
 
-/** The `valid_from` of a row (UTC with no zone in JSON), as an ISO time. */
-function validFromAt(row: Row): string | null {
-  return row.valid_from === null
+/** A time column of a row (UTC with no zone in JSON), as an ISO time. */
+function timeAt(row: Row, column: string): string | null {
+  return row[column] === null || row[column] === undefined
     ? null
-    : new Date(`${String(row.valid_from)}Z`).toISOString()
+    : new Date(`${String(row[column])}Z`).toISOString()
 }
 
-/** The `valid_from` of each document with content, by path. */
-function validFromOf(rows: Awaited<ReturnType<typeof content>>) {
+/** A time column of each document with content, by path. */
+function timesOf(
+  rows: Awaited<ReturnType<typeof content>>,
+  column: "created_at" | "updated_at" | "expires_at",
+) {
   return Object.fromEntries(
-    rows.documents.map((row) => [String(row.doc_key), validFromAt(row)]),
+    rows.documents.map((row) => [String(row.doc_key), timeAt(row, column)]),
   )
 }
 
@@ -748,9 +755,10 @@ describe("projectKnowledgePlane", () => {
         expect(left[table], table).toEqual(right[table])
       // A document gets the time of the commit that introduced its file. A
       // change of the file keeps it; a rename is a new file. An image gets
-      // none. A mirror file gets the time of its source (CTX-1516).
+      // the Git times of its path too (CTX-1710). A mirror file gets the
+      // time of its source (CTX-1516).
       const time = (index: number) => Remote.timeOf(index).toISOString()
-      expect(validFromOf(right)).toEqual({
+      expect(timesOf(right, "created_at")).toEqual({
         "a.md": time(0),
         "notes/c.md": time(0),
         [historyPull.path]: "2026-08-30T10:00:00.000Z",
@@ -759,8 +767,14 @@ describe("projectKnowledgePlane", () => {
         "knowledge/services/api.md": time(1),
         "e.md": time(2),
         "g.md": time(4),
-        "img/d.png": null,
-        "img/unused.png": null,
+        "img/d.png": time(0),
+        "img/unused.png": time(0),
+      })
+      // The image bytes changed in the second commit.
+      expect(timesOf(right, "updated_at")).toMatchObject({
+        "img/d.png": time(1),
+        "img/unused.png": time(0),
+        "notes/c.md": time(2),
       })
       // A claim with no time of its own gets the same time.
       expect(
@@ -768,7 +782,7 @@ describe("projectKnowledgePlane", () => {
           .filter(
             (row) => row.src_doc === "a.md" && row.predicate === "FROM_SOURCE",
           )
-          .map(validFromAt),
+          .map((row) => timeAt(row, "valid_from")),
       ).toEqual([time(0)])
       // A removed file has a tombstone after the history. A link target with
       // no file has no row: it is `missing` when it is read (ADR-071
@@ -818,7 +832,7 @@ describe("projectKnowledgePlane", () => {
     }
   })
 
-  it("a run over several commits, forward or back, gives the valid_from of a full rebuild, also to a file that a commit removed and a later commit added again", async () => {
+  it("a run over several commits, forward or back, gives the times of a full rebuild, also to a file that a commit removed and a later commit added again", async () => {
     const remote = await Remote.create()
     try {
       const base = await remote.commit({ "x.md": "# X\n", "y.md": "# Y\n" })
@@ -839,9 +853,14 @@ describe("projectKnowledgePlane", () => {
       const paths = ["x.md", "y.md"]
       const left = await content(workspaceId, paths)
       expect(left).toEqual(await content(rebuilt, paths))
-      expect(validFromOf(left)).toEqual({
+      expect(timesOf(left, "created_at")).toEqual({
         "x.md": Remote.timeOf(2).toISOString(),
         "y.md": Remote.timeOf(0).toISOString(),
+      })
+      // An authored file was updated at its last commit (CTX-1710).
+      expect(timesOf(left, "updated_at")).toEqual({
+        "x.md": Remote.timeOf(2).toISOString(),
+        "y.md": Remote.timeOf(2).toISOString(),
       })
 
       // The tip goes back to `base`, where x.md has its first introducing
@@ -853,9 +872,48 @@ describe("projectKnowledgePlane", () => {
       await run(remote, back, base)
       const reset = await content(workspaceId, paths)
       expect(reset).toEqual(await content(back, paths))
-      expect(validFromOf(reset)).toEqual({
+      expect(timesOf(reset, "created_at")).toEqual({
         "x.md": Remote.timeOf(0).toISOString(),
         "y.md": Remote.timeOf(0).toISOString(),
+      })
+      expect(timesOf(reset, "updated_at")).toEqual({
+        "x.md": Remote.timeOf(0).toISOString(),
+        "y.md": Remote.timeOf(0).toISOString(),
+      })
+    } finally {
+      await remote.remove()
+    }
+  })
+
+  it("an authored file that a merge changes was updated at the merge, in a delta and in a full rebuild (CTX-1710)", async () => {
+    const remote = await Remote.create()
+    try {
+      await remote.commit({ "a.md": "# A\n\nOne.\n", "b.md": "# B\n" })
+      remote.git("checkout", "-q", "-b", "side")
+      await remote.commit({ "a.md": "# A\n\nSide.\n" })
+      remote.git("checkout", "-q", "main")
+      const base = await remote.commit({ "a.md": "# A\n\nMain.\n" })
+      const workspaceId = await newWorkspace()
+      await run(remote, workspaceId, base)
+      // The merge conflicts on a.md. Its resolution is content that no
+      // other commit has, so only the merge changed it.
+      try {
+        remote.git("merge", "-q", "--no-ff", "side", "-m", "merge")
+      } catch {
+        // The conflict stops the merge; the next commit resolves it.
+      }
+      const tip = await remote.commit({ "a.md": "# A\n\nBoth.\n" })
+      expect(await run(remote, workspaceId, tip)).toMatchObject({
+        mode: "delta",
+      })
+      const rebuilt = await newWorkspace()
+      await run(remote, rebuilt, tip)
+      const paths = ["a.md", "b.md"]
+      const delta = await content(workspaceId, paths)
+      expect(delta).toEqual(await content(rebuilt, paths))
+      expect(timesOf(delta, "updated_at")).toEqual({
+        "a.md": Remote.timeOf(3).toISOString(),
+        "b.md": Remote.timeOf(0).toISOString(),
       })
     } finally {
       await remote.remove()
@@ -2471,7 +2529,7 @@ describe("branches (ADR-071)", () => {
   })
 })
 
-describe("the source time of a file (CTX-1516)", () => {
+describe("the times of a file (CTX-1516, CTX-1710)", () => {
   // One commit, as a snapshot context repo has: each file is introduced at
   // Remote.timeOf(0), 2026-01-01. Only a file with no time of its own takes
   // that time.
@@ -2513,65 +2571,76 @@ describe("the source time of a file (CTX-1516)", () => {
   // The issue names the source file of acme/shop, which has no row.
   const paths = [...Object.keys(files), SHOP_SOURCE.path]
 
-  async function frontierAt(workspaceId: string, path: string, at: string) {
-    const relations = await store.readFrontier(
-      await viewOf(workspaceId),
-      [{ workspaceId, docKey: key(workspaceId, path) }],
-      new Date(at),
-    )
+  /** The relations of a document with their validFrom, FROM_SOURCE out. */
+  async function frontierOf(workspaceId: string, path: string) {
+    const relations = await store.readFrontier(await viewOf(workspaceId), [
+      { workspaceId, docKey: key(workspaceId, path) },
+    ])
     return relations
       .filter(({ relation }) => relation.predicate !== "FROM_SOURCE")
       .map(({ direction, relation, neighbor }) => [
         direction,
         relation.predicate,
         neighbor?.path,
+        relation.validFrom?.toISOString() ?? null,
       ])
   }
 
-  it("a document is valid from the time of its source, and a time question with validAt finds it", async () => {
+  it("a document has the times of its source, and updatedAfter finds what changed in the source (CTX-1710)", async () => {
     const remote = await Remote.create()
     try {
       const workspaceId = await newWorkspace()
       await run(remote, workspaceId, await remote.commit(files))
-      expect(validFromOf(await content(workspaceId, paths))).toEqual({
+      const rows = await content(workspaceId, paths)
+      expect(timesOf(rows, "created_at")).toEqual({
         [pull.path]: "2020-05-20T10:00:00.000Z",
         [issue.path]: "2020-05-01T00:00:00.000Z",
         [decision.path]: "2019-01-18T00:00:00.000Z",
         [plain.path]: Remote.timeOf(0).toISOString(),
       })
+      // A mirror file was updated when its source changed; an authored file
+      // at its last commit. The projection time is not a time of a document.
+      expect(timesOf(rows, "updated_at")).toEqual({
+        [pull.path]: MERGED_AT,
+        [issue.path]: "2026-09-01T00:00:00.000Z",
+        [decision.path]: Remote.timeOf(0).toISOString(),
+        [plain.path]: Remote.timeOf(0).toISOString(),
+      })
 
-      // Before the ingest date, the search finds the sources of that time,
-      // and not the file with no time of its own.
+      // The projection ran now, but only the two sources changed after
+      // August 2026.
       const found = await store.search(await viewOf(workspaceId), {
         vector: vectorOf("resize"),
         terms: ["checkout", "Resize", "timeout"],
         chunksPerDocument: 1,
-        validAt: new Date("2020-05-25T00:00:00Z"),
+        updatedAfter: new Date("2026-08-01T00:00:00Z"),
       })
       expect(found.map((hit) => hit.document.path).sort()).toEqual(
-        [decision.path, issue.path, pull.path].sort(),
+        [issue.path, pull.path].sort(),
+      )
+      expect(
+        found.map(({ document }) => [
+          document.path,
+          document.createdAt?.toISOString(),
+          document.updatedAt?.toISOString(),
+        ]),
+      ).toEqual(
+        expect.arrayContaining([
+          [issue.path, "2020-05-01T00:00:00.000Z", "2026-09-01T00:00:00.000Z"],
+          [pull.path, "2020-05-20T10:00:00.000Z", MERGED_AT],
+        ]),
       )
 
-      // A claim with no time of its own is valid from the Date of its
-      // decision; its neighbor from the creation of the issue.
-      expect(
-        await frontierAt(workspaceId, decision.path, "2019-06-01T00:00:00Z"),
-      ).toEqual([])
-      expect(
-        await frontierAt(workspaceId, decision.path, "2020-05-25T00:00:00Z"),
-      ).toEqual([["out", "INFLUENCES", issue.path]])
-      // The pull request that closed the issue is linked from the close.
-      expect(
-        await frontierAt(workspaceId, issue.path, "2020-05-25T00:00:00Z"),
-      ).toEqual([["in", "INFLUENCES", decision.path]])
-      expect(
-        (
-          await frontierAt(workspaceId, issue.path, "2020-07-01T00:00:00Z")
-        ).sort(),
-      ).toEqual(
+      // A claim with no time of its own holds from the Date of its
+      // decision. The pull request that closed the issue is linked from the
+      // close. No time filters the relations.
+      expect(await frontierOf(workspaceId, decision.path)).toEqual([
+        ["out", "INFLUENCES", issue.path, "2019-01-18T00:00:00.000Z"],
+      ])
+      expect((await frontierOf(workspaceId, issue.path)).sort()).toEqual(
         [
-          ["in", "INFLUENCES", decision.path],
-          ["out", "LINKS_TO", pull.path],
+          ["in", "INFLUENCES", decision.path, "2019-01-18T00:00:00.000Z"],
+          ["out", "LINKS_TO", pull.path, "2020-06-01T00:00:00.000Z"],
         ].sort(),
       )
     } finally {
@@ -2605,24 +2674,22 @@ describe("the source time of a file (CTX-1516)", () => {
           [canceled.path]: canceled.content,
         }),
       )
-      const linksAt = async (path: string, at: string) =>
-        (await frontierAt(workspaceId, path, at)).filter(
+      const linksOf = async (path: string) =>
+        (await frontierOf(workspaceId, path)).filter(
           ([direction]) => direction === "out",
         )
-      expect(await linksAt(done.path, "2026-03-01T00:00:00Z")).toEqual([])
-      expect(await linksAt(done.path, "2026-03-11T00:00:00Z")).toEqual([
-        ["out", "LINKS_TO", pull.path],
+      expect(await linksOf(done.path)).toEqual([
+        ["out", "LINKS_TO", pull.path, "2026-03-10T12:00:00.000Z"],
       ])
-      expect(await linksAt(canceled.path, "2026-04-01T00:00:00Z")).toEqual([])
-      expect(await linksAt(canceled.path, "2026-04-11T00:00:00Z")).toEqual([
-        ["out", "LINKS_TO", pull.path],
+      expect(await linksOf(canceled.path)).toEqual([
+        ["out", "LINKS_TO", pull.path, "2026-04-10T12:00:00.000Z"],
       ])
     } finally {
       await remote.remove()
     }
   })
 
-  it("a delta that uses a stored file version gives the source time of a full rebuild", async () => {
+  it("a delta that uses a stored file version gives the times of a full rebuild", async () => {
     const remote = await Remote.create()
     try {
       const workspaceId = await newWorkspace()
@@ -2639,7 +2706,12 @@ describe("the source time of a file (CTX-1516)", () => {
       await run(remote, rebuilt, tip)
       const delta = await content(workspaceId, paths)
       expect(delta).toEqual(await content(rebuilt, paths))
-      expect(validFromOf(delta)[issue.path]).toBe("2020-05-01T00:00:00.000Z")
+      expect(timesOf(delta, "created_at")[issue.path]).toBe(
+        "2020-05-01T00:00:00.000Z",
+      )
+      expect(timesOf(delta, "updated_at")[issue.path]).toBe(
+        "2026-09-01T00:00:00.000Z",
+      )
     } finally {
       await remote.remove()
     }

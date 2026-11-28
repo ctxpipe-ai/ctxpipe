@@ -1,9 +1,7 @@
-import { isAlias, isMap, isSeq } from "yaml"
+import { isSeq } from "yaml"
 
 import { isConnectorMirrorPath } from "../codeIngestion/connectorMirrorPaths.js"
 import { GENERATED_BY as INGESTION_V2_GENERATED_BY } from "../ingestion/patch-validator.js"
-import { FROM_SOURCE_PREDICATE } from "./graph-relevance.js"
-import { looksLikeGitSha } from "./hydrate-phases.js"
 import {
   claimHasEvidence,
   type HydrateUnit,
@@ -11,7 +9,6 @@ import {
 } from "./hydrate.js"
 import {
   editableMetadataNode,
-  materializeMetadataAlias,
   removeMetadataKey,
   updateKnowledgeMetadata,
 } from "./knowledge-metadata.js"
@@ -62,22 +59,6 @@ export function claimsUpgradeRemainder(units: readonly HydrateUnit[]): number {
   ).length
 }
 
-/**
- * True when hydrate must write a `valid_from` for a claim of the `claims`
- * front matter. A `FROM_SOURCE` claim comes from the `sources` front matter,
- * which has no `valid_from`, so no write can give it one.
- */
-function claimNeedsValidFrom(claim: HydrateUnit["claims"][number]): boolean {
-  if (claim.predicate === FROM_SOURCE_PREDICATE) return false
-  return !claim.validFrom || looksLikeGitSha(claim.validFrom)
-}
-
-export function validFromPersistRemainder(
-  units: readonly HydrateUnit[],
-): number {
-  return units.filter((unit) => unit.claims.some(claimNeedsValidFrom)).length
-}
-
 export function hydrateWriteJobsToEnqueue(input: {
   units: readonly HydrateUnit[]
   writeStatus: string
@@ -90,9 +71,6 @@ export function hydrateWriteJobsToEnqueue(input: {
   if (!gate.enqueue && gate.reason === "stale_generation") return []
   const kinds: WorkspaceWriteJobKind[] = []
   if (claimsUpgradeRemainder(input.units) > 0) kinds.push("claims_upgrade")
-  if (validFromPersistRemainder(input.units) > 0) {
-    kinds.push("valid_from_persist")
-  }
   if (
     renameRewriteRemainder({
       previousPaths: input.previousPaths ?? [],
@@ -113,7 +91,6 @@ export function hydrateWriteJobRemainders(input: {
 }): Partial<Record<WorkspaceWriteJobKind, number>> {
   return {
     claims_upgrade: claimsUpgradeRemainder(input.units),
-    valid_from_persist: validFromPersistRemainder(input.units),
     rename_rewrite: renameRewriteRemainder({
       previousPaths: input.previousPaths ?? [],
       currentPaths: input.units.map((unit) => unit.path),
@@ -194,53 +171,6 @@ function withoutClaimsLackingEvidence(
     if (isSeq(node))
       node.items = node.items.filter((_, index) => keep[index] ?? true)
   })
-}
-
-export function validFromPersistFiles(input: {
-  files: ReadonlyArray<{ path: string; content: string }>
-  units: readonly HydrateUnit[]
-  introducingCommitTimestamp: string
-}): Array<{ path: string; content: string }> {
-  const byPath = new Map(input.units.map((unit) => [unit.path, unit]))
-  const out: Array<{ path: string; content: string }> = []
-  for (const file of input.files) {
-    const unit = byPath.get(file.path)
-    if (!unit?.claims.some(claimNeedsValidFrom)) continue
-    const parsed = parseSimpleFrontMatter(file.content)
-    if (parsed.malformed) continue
-    out.push({
-      path: file.path,
-      content: updateKnowledgeMetadata(file.content, (document) => {
-        const claims = editableMetadataNode(document, "claims")
-        if (!isSeq(claims))
-          throw new Error("Knowledge claims must be a sequence")
-        for (let index = 0; index < claims.items.length; index++) {
-          let claim = claims.items[index]
-          if (isAlias(claim)) {
-            const detached = materializeMetadataAlias(document, claim)
-            claims.items[index] = detached
-            claim = detached
-          }
-          if (!isMap(claim)) continue
-          const to = claim.get("to")
-          if (typeof to !== "string" || !to.trim()) continue
-          const validFrom = claim.get("valid_from")
-          if (
-            typeof validFrom === "string" &&
-            validFrom &&
-            !looksLikeGitSha(validFrom)
-          )
-            continue
-          // The source time of the file comes first (CTX-1516).
-          claim.set(
-            "valid_from",
-            unit.sourceTime ?? input.introducingCommitTimestamp,
-          )
-        }
-      }),
-    })
-  }
-  return out
 }
 
 function stripImportKeyFromMarkdown(markdown: string): string | null {

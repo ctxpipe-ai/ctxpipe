@@ -509,6 +509,8 @@ function planeRows(
 ): PlaneDocument[] {
   const key = (path: string) => servingIdForKnowledgePath(workspaceId, path)
   const observedAt = new Date("2026-11-01T00:00:00Z")
+  // The times of the tree rows: the commit that added each file.
+  const committedAt = new Date("2026-10-01T00:00:00Z")
   return list.map((unit) => ({
     document: {
       docKey: key(unit.path),
@@ -519,8 +521,9 @@ function planeRows(
       source: "",
       summary: unit.title ?? "",
       mime: "",
-      validFrom: null,
-      validTo: null,
+      createdAt: committedAt,
+      updatedAt: committedAt,
+      expiresAt: null,
       observedAt,
     },
     chunks: [
@@ -637,8 +640,9 @@ const branchPlaneDocument = (
     source: "",
     summary: title,
     mime: "",
-    validFrom: null,
-    validTo: null,
+    createdAt: null,
+    updatedAt: null,
+    expiresAt: null,
     observedAt: new Date("2026-11-01T00:00:00Z"),
   },
   chunks: [
@@ -673,9 +677,9 @@ const relatedCall = (args: Record<string, unknown>) =>
  * The shape of a value: the keys and the types, with the union of the keys
  * of the items of an array.
  */
-function shapeOf(value: unknown): unknown {
+function shapeOf(value: unknown, omit = ["cursor"]): unknown {
   if (Array.isArray(value)) {
-    const items = value.map(shapeOf)
+    const items = value.map((item) => shapeOf(item, omit))
     const merged: Record<string, unknown> = {}
     for (const item of items)
       if (item && typeof item === "object") Object.assign(merged, item)
@@ -685,9 +689,9 @@ function shapeOf(value: unknown): unknown {
   if (value && typeof value === "object")
     return Object.fromEntries(
       Object.entries(value)
-        .filter(([key]) => key !== "cursor")
+        .filter(([key]) => !omit.includes(key))
         .sort(([a], [b]) => a.localeCompare(b))
-        .map(([key, item]) => [key, shapeOf(item)]),
+        .map(([key, item]) => [key, shapeOf(item, omit)]),
     )
   return typeof value
 }
@@ -1086,20 +1090,23 @@ describe("the knowledge reader seam", () => {
     )
     const planeSearch = structured(await searchCall({ workspaces: ["ready"] }))
     const planeRelated = structured(await relatedCall({ maxDepth: 2 }))
-    expect(shapeOf(planeSearch)).toEqual(shapeOf(legacySearch))
+    // Only the plane gives the createdAt of a result (CTX-1710).
+    const omit = ["cursor", "createdAt"]
+    expect(shapeOf(planeSearch, omit)).toEqual(shapeOf(legacySearch, omit))
     // Only the plane gives the claims between the top results, and the
     // source type of each result.
     const { claims, results, ...rankedOnly } = planeRelated
     expect(claims).toEqual(expect.any(Array))
     const { results: legacyResults, ...legacyRankedOnly } = legacyRelated
-    expect(shapeOf(rankedOnly)).toEqual(shapeOf(legacyRankedOnly))
+    expect(shapeOf(rankedOnly, omit)).toEqual(shapeOf(legacyRankedOnly, omit))
     expect(
       shapeOf(
         (results as Record<string, unknown>[]).map(
           ({ sourceType: _sourceType, ...result }) => result,
         ),
+        omit,
       ),
-    ).toEqual(shapeOf(legacyResults))
+    ).toEqual(shapeOf(legacyResults, omit))
     expect(legacyRelated.claims).toBeUndefined()
     expect(shapeOf(planeSearch)).toMatchSnapshot()
     expect(shapeOf(planeRelated)).toMatchSnapshot()
@@ -1285,6 +1292,31 @@ describe("the knowledge reader seam", () => {
     expect(named.results).toEqual([])
   })
 
+  it("the tools take no validity time, and describe the times of each result (CTX-1710)", async () => {
+    const [searchTools, relatedTools] = await Promise.all([
+      search.listTools(),
+      related.listTools(),
+    ])
+    const tool = (name: string) =>
+      [...searchTools.tools, ...relatedTools.tools].find(
+        (item) => item.name === name,
+      )
+    const inputs = (name: string) =>
+      Object.keys(tool(name)?.inputSchema.properties ?? {})
+    expect(inputs("search_knowledge")).toContain("updatedAfter")
+    expect(inputs("search_knowledge")).not.toContain("validAt")
+    expect(inputs("get_related")).not.toContain("validAt")
+    expect(inputs("get_related")).not.toContain("validBetween")
+    const outputs = (tool("search_knowledge")?.outputSchema?.properties ??
+      {}) as Record<
+      string,
+      { items: { properties: Record<string, { description?: string }> } }
+    >
+    const hit = outputs.hits?.items.properties
+    for (const time of ["createdAt", "updatedAt", "expiresAt"])
+      expect(hit?.[time]?.description, time).toEqual(expect.any(String))
+  })
+
   it("get_related tells agents about the claims, with no verdict, in its description and output schema", async () => {
     const { tools } = await related.listTools()
     const tool = tools.find((item) => item.name === "get_related")
@@ -1382,26 +1414,31 @@ describe("the knowledge reader seam", () => {
     expect(secondPage.claims).toEqual(content.claims)
   })
 
-  it("on: with validBetween, get_related shows only the stored relations between top results that are valid in the window", async () => {
-    const claimsIn = async (from: string, to: string) =>
-      (
-        structured(
-          await relatedCall({
-            workspace: "claims",
-            seeds: ["claims/seed.md"],
-            maxDepth: 1,
-            validBetween: { from, to },
-          }),
-        ).claims as { predicate: string; by: string }[]
-      ).map(({ predicate, by }) => ({ predicate, by }))
-    // The SUPERSEDES holds from March 2026.
-    expect(
-      await claimsIn("2026-01-01T00:00:00.000Z", "2026-02-01T00:00:00.000Z"),
-    ).toEqual([{ predicate: "REPLACES", by: "reading" }])
-    expect(
-      await claimsIn("2026-02-01T00:00:00.000Z", "2026-04-01T00:00:00.000Z"),
-    ).toEqual([
-      { predicate: "SUPERSEDES", by: "edge" },
+  it("on: get_related shows each stored relation between top results with its validFrom and validTo, and filters none by time (CTX-1710)", async () => {
+    const claims = (
+      structured(
+        await relatedCall({
+          workspace: "claims",
+          seeds: ["claims/seed.md"],
+          maxDepth: 1,
+        }),
+      ).claims as {
+        predicate: string
+        by: string
+        validFrom?: string | null
+        validTo?: string | null
+      }[]
+    ).map(({ predicate, by, validFrom, validTo }) =>
+      by === "edge" ? { predicate, by, validFrom, validTo } : { predicate, by },
+    )
+    // The SUPERSEDES holds from March 2026. The agent judges the time.
+    expect(claims).toEqual([
+      {
+        predicate: "SUPERSEDES",
+        by: "edge",
+        validFrom: "2026-03-01T00:00:00.000Z",
+        validTo: "2100-01-01T00:00:00.000Z",
+      },
       { predicate: "REPLACES", by: "reading" },
     ])
   })
@@ -1575,28 +1612,6 @@ describe("the knowledge reader seam", () => {
     ])
   })
 
-  it("on: validBetween follows only relations valid in the window", async () => {
-    const refs = async (validBetween: { from: string; to: string }) =>
-      (
-        structured(await relatedCall({ maxDepth: 3, validBetween }))
-          .results as {
-          ref: string
-        }[]
-      ).map((result) => result.ref)
-    // GOVERNED_BY is valid from 2026-01-01. The ledger is a step (a hub)
-    // in both windows.
-    expect(
-      await refs({ from: "2025-01-01T00:00:00Z", to: "2025-06-01T00:00:00Z" }),
-    ).toEqual(["knowledge/teams/payments.md", "knowledge/databases/ledger.md"])
-    expect(
-      await refs({ from: "2026-02-01T00:00:00Z", to: "2026-03-01T00:00:00Z" }),
-    ).toEqual([
-      "knowledge/teams/payments.md",
-      "knowledge/decisions/adr-7.md",
-      "knowledge/databases/ledger.md",
-    ])
-  })
-
   it("on: search_knowledge filters the sources in the store", async () => {
     const content = structured(
       await searchCall({ workspaces: ["ready"], sources: ["linear"] }),
@@ -1649,7 +1664,7 @@ describe("the knowledge reader seam", () => {
     expect(filtered.refs).not.toContain(mailer)
   })
 
-  it("on: search_knowledge puts a hit that is not valid now after the valid hits, through code", async () => {
+  it("on: search_knowledge gives the times of each hit, keeps an expired hit in Jev's order, and filters updatedAfter on the source time (CTX-1710)", async () => {
     const { workspaceId } = await seedRelatedWorkspace({
       seed,
       slug: "history",
@@ -1657,10 +1672,15 @@ describe("the knowledge reader seam", () => {
       units: [],
     })
     const key = (path: string) => servingIdForKnowledgePath(workspaceId, path)
-    const observedAt = new Date("2026-11-01T00:00:00Z")
+    // The projection ran after both changes: its time is no document time.
+    const observedAt = new Date("2026-11-25T00:00:00Z")
     // Jev gives the expired document a high p(answers) ("answer"), and the
-    // valid one a low p(answers).
-    const document = (path: string, text: string, validTo: Date | null) => ({
+    // other one a low p(answers).
+    const document = (
+      path: string,
+      text: string,
+      times: { createdAt: Date; updatedAt: Date; expiresAt: Date | null },
+    ) => ({
       document: {
         docKey: key(path),
         kind: "Note",
@@ -1670,8 +1690,7 @@ describe("the knowledge reader seam", () => {
         source: "",
         summary: "",
         mime: "",
-        validFrom: null,
-        validTo,
+        ...times,
         observedAt,
       },
       chunks: [
@@ -1688,12 +1707,16 @@ describe("the knowledge reader seam", () => {
     const writer = createKnowledgeStore(knowledgeUrl)
     try {
       await writePlaneDocuments(writer, { orgId: seed.orgId, workspaceId }, [
-        document(
-          "knowledge/old.md",
-          "Checkout owner. answer",
-          new Date("2020-01-01T00:00:00Z"),
-        ),
-        document("knowledge/new.md", "Checkout owner.", null),
+        document("knowledge/old.md", "Checkout owner. answer", {
+          createdAt: new Date("2019-05-01T00:00:00Z"),
+          updatedAt: new Date("2019-06-01T00:00:00Z"),
+          expiresAt: new Date("2020-01-01T00:00:00Z"),
+        }),
+        document("knowledge/new.md", "Checkout owner.", {
+          createdAt: new Date("2026-03-01T00:00:00Z"),
+          updatedAt: new Date("2026-04-01T00:00:00Z"),
+          expiresAt: null,
+        }),
       ])
     } finally {
       await writer.close()
@@ -1702,12 +1725,39 @@ describe("the knowledge reader seam", () => {
 
     const content = structured(await searchCall({ workspaces: ["history"] }))
     expect(
-      (content.hits as { ref: string; score: number }[]).map(
-        ({ ref, score }) => [ref, score],
+      (content.hits as Record<string, unknown>[]).map(
+        ({ ref, score, createdAt, updatedAt, expiresAt }) => ({
+          ref,
+          score,
+          createdAt,
+          updatedAt,
+          expiresAt,
+        }),
       ),
     ).toEqual([
-      ["knowledge/new.md", 0.1],
-      ["knowledge/old.md", 0.9],
+      {
+        ref: "knowledge/old.md",
+        score: 0.9,
+        createdAt: "2019-05-01T00:00:00.000Z",
+        updatedAt: "2019-06-01T00:00:00.000Z",
+        expiresAt: "2020-01-01T00:00:00.000Z",
+      },
+      {
+        ref: "knowledge/new.md",
+        score: 0.1,
+        createdAt: "2026-03-01T00:00:00.000Z",
+        updatedAt: "2026-04-01T00:00:00.000Z",
+        expiresAt: undefined,
+      },
+    ])
+    const changed = structured(
+      await searchCall({
+        workspaces: ["history"],
+        updatedAfter: "2026-01-01T00:00:00Z",
+      }),
+    )
+    expect((changed.hits as { ref: string }[]).map(({ ref }) => ref)).toEqual([
+      "knowledge/new.md",
     ])
   })
 
@@ -1941,8 +1991,9 @@ describe("the knowledge reader seam", () => {
         source: "",
         summary: "",
         mime: "image/png",
-        validFrom: null,
-        validTo: null,
+        createdAt: null,
+        updatedAt: null,
+        expiresAt: null,
         observedAt,
       },
       chunks: [

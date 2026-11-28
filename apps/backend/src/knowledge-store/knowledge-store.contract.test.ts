@@ -77,8 +77,12 @@ async function rawRows<T>(
 }
 
 const observedAt = new Date("2026-11-19T10:11:12.345Z")
-/** The source's own time of a file version (CTX-1516). */
-const SOURCE_TIME = new Date("2019-01-18T00:00:00.000Z")
+/** The times that the file of a file version states (CTX-1710). */
+const SOURCE_TIMES = {
+  createdAt: new Date("2019-01-18T00:00:00.000Z"),
+  updatedAt: new Date("2019-02-01T00:00:00.000Z"),
+  expiresAt: new Date("2030-01-01T00:00:00.000Z"),
+}
 const denied = /ACCESS_DENIED|Not enough privileges/
 
 function rowsOf(
@@ -96,8 +100,9 @@ function rowsOf(
       source: "workspace",
       summary: `${title} summary`,
       mime: "",
-      validFrom: null,
-      validTo: null,
+      createdAt: null,
+      updatedAt: null,
+      expiresAt: null,
       observedAt,
     },
     chunks: [
@@ -142,8 +147,9 @@ const entryOf = (rows: DocumentRows, version: string): TreeEntry => ({
   status: "active",
   kind: rows.document.kind,
   observedAt: rows.document.observedAt,
-  validFrom: new Date("2026-01-01T00:00:00.000Z"),
-  validTo: rows.document.validTo,
+  createdAt: new Date("2026-01-01T00:00:00.000Z"),
+  updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+  expiresAt: rows.document.expiresAt,
   deletedAt: null,
 })
 
@@ -204,13 +210,14 @@ async function readOne(
   }
 }
 
-/** The document as a read gives it: active, with the tree's `valid_from`. */
+/** The document as a read gives it: active, with the times of the tree. */
 const active = (rows: DocumentRows) => ({
   ...rows.document,
   status: "active",
   deletedAt: null,
   error: "",
-  validFrom: new Date("2026-01-01T00:00:00.000Z"),
+  createdAt: new Date("2026-01-01T00:00:00.000Z"),
+  updatedAt: new Date("2026-01-01T00:00:00.000Z"),
 })
 
 /** A chunk as a read gives it: no vector. */
@@ -285,6 +292,7 @@ describe("KnowledgeStore", () => {
       "0010_file_versions_and_trees.sql",
       "0011_tree_overlays.sql",
       "0012_document_source_time.sql",
+      "0013_document_times.sql",
     ])
   })
 
@@ -1162,12 +1170,12 @@ describe("users and mutations", () => {
       for (const scope of [target, ...others]) {
         await put(writer, scope, seed())
         // A second file version of doc.md at tree version 2, above the head
-        // of the cleanups below. Its file states a source time (CTX-1516).
+        // of the cleanups below. Its file states its times (CTX-1710).
         const v2 = rowsOf("Doc v2", "doc.md", "new.md")
         await put(
           writer,
           scope,
-          [{ ...v2, document: { ...v2.document, validFrom: SOURCE_TIME } }],
+          [{ ...v2, document: { ...v2.document, ...SOURCE_TIMES } }],
           { version: "v2", treeVersion: 2 },
         )
       }
@@ -1191,10 +1199,11 @@ describe("users and mutations", () => {
         status: "active",
         kind: "note",
         observedAt,
-        validFrom: null,
-        validTo: null,
+        createdAt: null,
+        updatedAt: null,
+        expiresAt: null,
       })
-      expect(found.get("doc.md\0v2")?.validFrom).toEqual(SOURCE_TIME)
+      expect(found.get("doc.md\0v2")).toMatchObject(SOURCE_TIMES)
     })
 
     it("a retry of a write that stopped before its document row stores each row one time", async () => {

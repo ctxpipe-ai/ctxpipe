@@ -161,6 +161,8 @@ In a publish, a merged file that fails the patch validator is withheld at its de
 - **The published file keeps `valid_from`.** The output has the base value, so that hydrate does not set it again on each run. Hydrate does not change.
 - **A `legacy` claim keeps its `valid_from` too.** When a step changes or removes the `valid_from` of a `legacy` claim, the output keeps the base claim. Before this revision, the validator refused that step. A step that changes the `valid_to` or the evidence of a `legacy` claim is still refused.
 
+- **Revision 2026-11-26 ([CTX-1710](https://linear.app/ctxpipe/issue/CTX-1710)).** The write job `valid_from_persist` is retired: ctxpipe writes no time into a file, and retrieval reads the times of each file. The claim schema still accepts `valid_from`, and the host still keeps the base value, because an author or an earlier release wrote it.
+
 ## Revision 2026-10-31: a host job adds no claim to a v2-owned file (CTX-1100)
 
 - **Problem.** The hydrate write job `claims_upgrade` added a claim `{ to }` for each body link that had no claim. It also did this in a file that ingestion v2 owns (`generated_by: ctxpipe-extract`). Such a claim has no `predicate` and no `evidence`, so the claim schema refuses it. Each later step that kept the front matter of the file got a `front_matter` rejection. A publish merge that kept the claim withheld the file.

@@ -43,13 +43,12 @@ export type UnembeddedDocumentRows = Omit<DocumentRows, "chunks"> & {
  * The rows depend only on the unit and its references, so all branches can
  * share them (ADR-071 decision 2). Give a unit and its references from
  * `parseKnowledgeFile`, which parses one file alone (CTX-1400). The document
- * holds the source's own time of the file (`sourceTime`, CTX-1516), or
- * null. The time of the commit that introduced the file depends on the
- * branch, so it is not in the rows: the tree row takes the source time, else
- * that time, as the `valid_from` of the document. A claim whose own
- * `valid_from` is empty or a Git SHA takes the time of the tree row too, as
- * in the old stack (`effectiveValidFrom`): its relation has
- * `validFromIntroduced`. A validity bound that is not a time becomes null.
+ * holds the times that the file states (`documentTimes`, CTX-1710). The Git
+ * times of the path depend on the branch, so they are not in the rows: the
+ * tree row adds them (`withGitTimes`). A claim whose own `valid_from` is
+ * empty or a Git SHA takes the `createdAt` of the tree row, as in the old
+ * stack (`effectiveValidFrom`): its relation has `validFromIntroduced`. A
+ * validity bound that is not a time becomes null.
  */
 export function knowledgeRows(input: {
   workspaceId: string
@@ -269,9 +268,11 @@ export function knowledgeRows(input: {
       path: unit.path,
       sourceType: sourceTypeOf(unit),
       summary: node.summary ?? "",
-      // The source's own time of the file (CTX-1516). The tree row takes
-      // it before the time of the introducing commit.
-      validFrom: dateOrNull(unit.sourceTime ?? null),
+      // The times that the file states (CTX-1710). The tree row adds the
+      // Git times of the path on its branch.
+      createdAt: dateOrNull(unit.sourceTimes?.createdAt ?? null),
+      updatedAt: dateOrNull(unit.sourceTimes?.updatedAt ?? null),
+      expiresAt: dateOrNull(unit.sourceTimes?.expiresAt ?? null),
     },
     chunks,
     relations,
@@ -380,8 +381,9 @@ function documentDefaults(observedAt: Date) {
     source: "",
     summary: "",
     mime: "",
-    validFrom: null,
-    validTo: null,
+    createdAt: null,
+    updatedAt: null,
+    expiresAt: null,
     observedAt,
   }
 }

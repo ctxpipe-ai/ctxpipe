@@ -63,6 +63,9 @@ const checkoutFile = (version: string) =>
 const paymentsFile =
   "---\nsources:\n  - sources/notes.md\n---\n# Payments team\n\nThe payments team owns checkout.\n"
 const observedAt = new Date("2026-11-01T00:00:00.000Z")
+/** The times of the tree rows: the commits that added and changed a file. */
+const createdAt = new Date("2026-09-01T00:00:00.000Z")
+const updatedAt = new Date("2026-10-01T00:00:00.000Z")
 
 let seed: SeededOrg
 let clickHouse: Awaited<ReturnType<typeof startClickHouse>>
@@ -261,8 +264,9 @@ describe("read_file and list_files on the knowledge plane", () => {
             source: "",
             summary: "",
             mime: "",
-            validFrom: null,
-            validTo: null,
+            createdAt,
+            updatedAt,
+            expiresAt: null,
             observedAt,
           },
           chunks: [],
@@ -325,7 +329,8 @@ describe("read_file and list_files on the knowledge plane", () => {
           kind: "Service",
           title: "Checkout service",
           source: "authored",
-          updatedAt: observedAt.toISOString(),
+          createdAt: createdAt.toISOString(),
+          updatedAt: updatedAt.toISOString(),
           claims: [
             {
               to: "../teams/payments.md",
@@ -374,13 +379,14 @@ describe("read_file and list_files on the knowledge plane", () => {
       }
     })
 
-    it("read_file reads a Git unit that has no plane document; updatedAt is the read time", async () => {
+    it("read_file reads a Git unit that has no plane document; its times are unknown", async () => {
       const result = await readFile({ ref: PAYMENTS })
       expect(result.isError).toBeFalsy()
       expect(structured(result)).toMatchObject({
         served: { sha: servedSha },
         frontMatter: {
-          updatedAt: new Date(clock).toISOString(),
+          createdAt: null,
+          updatedAt: null,
           // A claim that comes from another file (`sources/`) at the served SHA.
           claims: [
             {
@@ -473,8 +479,9 @@ describe("read_file and list_files on the knowledge plane", () => {
               source: "",
               summary: "",
               mime: "",
-              validFrom: null,
-              validTo: null,
+              createdAt,
+              updatedAt,
+              expiresAt: null,
               observedAt,
             },
             chunks: [],
@@ -531,7 +538,16 @@ describe("read_file and list_files on the knowledge plane", () => {
           read: structured(await readFile({ ref: CHECKOUT })),
           list: structured(await listFiles({ path: "knowledge", depth: 3 })),
         }
-        expect(shapeOf(plane)).toEqual(shapeOf(legacy))
+        // Only the plane knows the createdAt of a unit (CTX-1710): the old
+        // stack gives null.
+        const withoutCreatedAt = (files: typeof plane) => {
+          const { createdAt: _createdAt, ...frontMatter } = files.read
+            .frontMatter as Record<string, unknown>
+          return { ...files, read: { ...files.read, frontMatter } }
+        }
+        expect(shapeOf(withoutCreatedAt(plane))).toEqual(
+          shapeOf(withoutCreatedAt(legacy)),
+        )
       } finally {
         await setReady(true)
       }

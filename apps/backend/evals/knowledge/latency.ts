@@ -257,9 +257,9 @@ export async function measureLatency(input: {
           meta: {
             status: "current",
             sourceType: "docs",
-            observedAt: "2026-11-01T00:00:00Z",
-            validFrom: null,
-            validTo: null,
+            createdAt: null,
+            updatedAt: "2026-11-01T00:00:00Z",
+            expiresAt: null,
             confidence: 0.8,
           },
           text: `Decision ${n}: the team runs service ${n} with Docker Compose profiles. The infra profile starts the database, the graph store and the collector. A developer runs one command to start it, and a second command to stop it.`,

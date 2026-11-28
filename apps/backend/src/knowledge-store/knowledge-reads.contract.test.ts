@@ -59,21 +59,20 @@ const nearQuery = (seed: number) =>
 
 const observedAt = new Date("2026-11-19T10:11:12.345Z")
 
-/** The rows of a document, and the `valid_from` of its tree row. */
-type Seeded = DocumentRows & { validFrom: Date | null }
-
+/**
+ * The rows of a document. Its tree row has the times of the document, as
+ * when the file states each of them.
+ */
 function document(
   docKey: string,
   chunks: { text: string; embedding: number[] }[],
   options: Partial<DocumentRows["document"]> & {
-    validFrom?: Date | null
     relations?: Partial<FileRelation>[]
     refKeys?: string[]
   } = {},
-): Seeded {
-  const { relations = [], validFrom = null, refKeys, ...fields } = options
+): DocumentRows {
+  const { relations = [], refKeys, ...fields } = options
   return {
-    validFrom,
     refKeys,
     document: {
       docKey,
@@ -84,8 +83,9 @@ function document(
       source: "workspace",
       summary: "",
       mime: "",
-      validFrom: null,
-      validTo: null,
+      createdAt: null,
+      updatedAt: null,
+      expiresAt: null,
       observedAt,
       ...fields,
     },
@@ -113,7 +113,7 @@ function document(
 }
 
 /** The documents of org A in `ws_main`. */
-const orgADocuments: Seeded[] = [
+const orgADocuments: DocumentRows[] = [
   // The closest vector. No query term.
   document(
     "vector.md",
@@ -142,12 +142,15 @@ const orgADocuments: Seeded[] = [
   document("deleted.md", [
     { text: "zebracorn deleted", embedding: queryVector },
   ]),
-  // Close vector and the query term, valid in 2020 only.
+  // Close vector and the query term, of 2020. A late projection observed
+  // it: the projection time is no time of the document.
   document("old.md", [{ text: "zebracorn of 2020", embedding: nearQuery(7) }], {
     // A file of the Linear mirror.
     path: "linear/old.md",
-    validFrom: new Date("2020-01-01T00:00:00.000Z"),
-    validTo: new Date("2021-01-01T00:00:00.000Z"),
+    createdAt: new Date("2020-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2020-06-01T00:00:00.000Z"),
+    expiresAt: new Date("2021-01-01T00:00:00.000Z"),
+    observedAt: new Date("2026-11-25T00:00:00.000Z"),
     relations: [{ dstDoc: "vector.md" }],
   }),
   document(
@@ -156,7 +159,7 @@ const orgADocuments: Seeded[] = [
     {
       kind: "guide",
       path: "guides/setup.md",
-      observedAt: new Date("2026-11-20T00:00:00.000Z"),
+      updatedAt: new Date("2026-11-20T00:00:00.000Z"),
     },
   ),
   // More than 50 chunks near the query, so that the top 50 is a choice.
@@ -186,14 +189,14 @@ const orgADocuments: Seeded[] = [
                     },
                   ]
                 : [],
-        ...(i === 3 ? { validFrom: new Date("2030-01-01T00:00:00.000Z") } : {}),
+        ...(i === 3 ? { createdAt: new Date("2030-01-01T00:00:00.000Z") } : {}),
       },
     ),
   ),
 ]
 
 /** Org B: the same Workspace id and keys, other text. */
-const orgBDocuments: Seeded[] = [
+const orgBDocuments: DocumentRows[] = [
   document("vector.md", [{ text: "Org B zebracorn", embedding: queryVector }], {
     title: "Org B vector",
     relations: [{ dstDoc: "org-b-target.md" }],
@@ -222,15 +225,16 @@ const rawClient = (url: string) => clickHouse.client(url)
 const readerPassword = "reader-test"
 
 /** The tree row of the file version `version` of `rows`. */
-const entryOf = (rows: Seeded, version: string): TreeEntry => ({
+const entryOf = (rows: DocumentRows, version: string): TreeEntry => ({
   docKey: rows.document.docKey,
   version,
   path: rows.document.path,
   status: "active",
   kind: rows.document.kind,
   observedAt: rows.document.observedAt,
-  validFrom: rows.validFrom,
-  validTo: rows.document.validTo,
+  createdAt: rows.document.createdAt,
+  updatedAt: rows.document.updatedAt,
+  expiresAt: rows.document.expiresAt,
   deletedAt: null,
 })
 
@@ -241,15 +245,12 @@ const entryOf = (rows: Seeded, version: string): TreeEntry => ({
 async function seed(
   store: KnowledgeStore,
   scope: KnowledgeScope,
-  documents: Seeded[],
+  documents: DocumentRows[],
   { version = "v1", treeVersion = 1 } = {},
 ): Promise<void> {
   await store.writeFileVersions(
     scope,
-    documents.map(({ validFrom: _validFrom, ...rows }) => ({
-      ...rows,
-      version,
-    })),
+    documents.map((rows) => ({ ...rows, version })),
   )
   await store.writeTree(
     scope,
@@ -653,7 +654,7 @@ describe("search", () => {
         }),
         document("out.md", [{ text: "named", embedding: far(10) }]),
         document("expired.md", [{ text: "of 2020", embedding: far(11) }], {
-          validTo: new Date("2021-01-01T00:00:00.000Z"),
+          expiresAt: new Date("2021-01-01T00:00:00.000Z"),
         }),
         // In-relations: to the issue, and to a key of the issue.
         document("in.md", [{ text: "names it", embedding: far(12) }], {
@@ -712,17 +713,20 @@ describe("search", () => {
         48,
       ),
     ).toEqual(["mailer.md", "guide.md"])
-    // A neighbor must pass the filters of the search, and the neighbor and
-    // its relation must be valid at `validAt`.
+    // A neighbor must pass the filters of the search. No time filters a
+    // neighbor or its relation: an expired document and an ended relation
+    // stay (CTX-1710).
     expect(
-      hitKeys(
-        await searchIn(url, {
-          neighbors,
-          kinds: ["note"],
-          validAt: new Date("2026-06-01T00:00:00.000Z"),
-        }),
-      ).slice(46),
-    ).toEqual(["mailer.md", "out.md", "in.md", "keyed-in.md"])
+      hitKeys(await searchIn(url, { neighbors, kinds: ["note"] })).slice(43),
+    ).toEqual([
+      "mailer.md",
+      "out.md",
+      "expired.md",
+      "in.md",
+      "keyed-in.md",
+      "old-out.md",
+      "old-in.md",
+    ])
     // When the signal aborts before the read of the neighbors ends, the
     // search gives its hits without neighbors.
     const end = new AbortController()
@@ -743,21 +747,6 @@ describe("search", () => {
     expect(keys).toContain("lexical.md")
   })
 
-  it("validAt: finds a document only in its validity", async () => {
-    expect(hitKeys(await search({ terms: ["zebracorn"] }))).toContain("old.md")
-    const in2020 = hitKeys(
-      await search({ terms: ["zebracorn"], validAt: new Date("2020-06-01") }),
-    )
-    expect(in2020).toContain("old.md")
-    // A document with no validity is valid at each time.
-    expect(in2020).toContain("lexical.md")
-    expect(
-      hitKeys(
-        await search({ terms: ["zebracorn"], validAt: new Date("2026-06-01") }),
-      ),
-    ).not.toContain("old.md")
-  })
-
   it("filters by kind and by path prefix", async () => {
     expect(hitKeys(await search({ kinds: ["guide"] }))).toEqual([
       "guides/setup.md",
@@ -767,7 +756,7 @@ describe("search", () => {
     ])
   })
 
-  it("filters by source and by the time a document was observed", async () => {
+  it("filters by source and by the time a document changed in its source (CTX-1710)", async () => {
     // The source is the mirror root of the path, else authored.
     expect(
       hitKeys(await search({ terms: ["zebracorn"], sources: ["linear"] })),
@@ -775,11 +764,22 @@ describe("search", () => {
     expect(
       hitKeys(await search({ terms: ["zebracorn"], sources: ["authored"] })),
     ).not.toContain("old.md")
+    // old.md was observed after that time, but it changed in 2020. A
+    // document with no updatedAt is not found.
     expect(
       hitKeys(
-        await search({ observedAfter: new Date("2026-11-19T12:00:00.000Z") }),
+        await search({ updatedAfter: new Date("2026-11-19T12:00:00.000Z") }),
       ),
     ).toEqual(["guides/setup.md"])
+    // Only the two documents with an updatedAt have one after May 2020.
+    expect(
+      hitKeys(
+        await search({
+          terms: ["zebracorn"],
+          updatedAfter: new Date("2020-05-01T00:00:00.000Z"),
+        }),
+      ).sort(),
+    ).toEqual(["guides/setup.md", "old.md"])
     expect(
       hitKeys(
         await search({ terms: ["zebracorn"], sources: ["linear", "authored"] }),
@@ -914,7 +914,7 @@ describe("tree view (ADR-071 decision 4)", () => {
     )
   })
 
-  it("gives each document the status, the deletion time and the valid_from of its tree row", async () => {
+  it("gives each document the status, the deletion time and the times of its tree row", async () => {
     const [deleted] = await store.readDocuments(orgA, [
       { workspaceId: workspace, docKey: "deleted.md" },
     ])
@@ -926,19 +926,17 @@ describe("tree view (ADR-071 decision 4)", () => {
     const [old] = await store.readDocuments(orgA, [
       { workspaceId: workspace, docKey: "old.md" },
     ])
-    expect(old?.document.validFrom).toEqual(
-      new Date("2020-01-01T00:00:00.000Z"),
-    )
+    expect(old?.document).toMatchObject({
+      createdAt: new Date("2020-01-01T00:00:00.000Z"),
+      updatedAt: new Date("2020-06-01T00:00:00.000Z"),
+      expiresAt: new Date("2021-01-01T00:00:00.000Z"),
+    })
   })
 })
 
 describe("frontier relations", () => {
-  const frontier = (validAt?: Date) =>
-    store.readFrontier(
-      orgA,
-      [{ workspaceId: workspace, docKey: "vector.md" }],
-      validAt,
-    )
+  const frontier = () =>
+    store.readFrontier(orgA, [{ workspaceId: workspace, docKey: "vector.md" }])
 
   it("returns the out-relations and the in-relations, each with its neighbor document", async () => {
     const relations = await frontier()
@@ -968,7 +966,7 @@ describe("frontier relations", () => {
       "",
       "",
     ])
-    // The claim of filler-03 has the `valid_from` of its tree row.
+    // The claim of filler-03 has the `created_at` of its tree row.
     expect(
       relations.find((row) => row.relation.srcDoc === "filler-03.md")?.relation
         .validFrom,
@@ -978,33 +976,27 @@ describe("frontier relations", () => {
       status: "active",
       deletedAt: null,
       error: "",
-      validFrom: null,
     })
   })
 
   it("out: returns only the out-relations, the same as the out-relations of a read in both directions (CTX-1688)", async () => {
     const refs = [{ workspaceId: workspace, docKey: "vector.md" }]
     const both = await store.readFrontier(orgA, refs)
-    const out = await store.readFrontier(orgA, refs, null, "out")
+    const out = await store.readFrontier(orgA, refs, "out")
     expect(out.length).toBeGreaterThan(0)
     expect(out).toEqual(both.filter((row) => row.direction === "out"))
   })
 
-  it("validAt: leaves out a relation or a neighbor that is not valid at that time", async () => {
-    const in2026 = await frontier(new Date("2026-06-01"))
-    expect(in2026.map((row) => row.relation.srcDoc)).toEqual([
-      "vector.md",
-      "vector.md",
-      "filler-01.md",
-    ])
-    const in2020 = await frontier(new Date("2020-06-01"))
-    expect(in2020.map((row) => row.relation.srcDoc)).toEqual([
-      "vector.md",
-      "vector.md",
-      "filler-01.md",
-      "filler-02.md",
-      "old.md",
-    ])
+  it("filters no relation by time: each relation shows its validFrom and validTo (CTX-1710)", async () => {
+    const relations = await frontier()
+    expect(
+      relations.find((row) => row.relation.srcDoc === "filler-02.md")?.relation
+        .validTo,
+    ).toEqual(new Date("2021-01-01T00:00:00.000Z"))
+    // A neighbor that expired stays, with its expiresAt.
+    expect(
+      relations.find((row) => row.relation.srcDoc === "old.md")?.neighbor,
+    ).toMatchObject({ expiresAt: new Date("2021-01-01T00:00:00.000Z") })
   })
 })
 

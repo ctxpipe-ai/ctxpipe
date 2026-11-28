@@ -96,8 +96,9 @@ describe("knowledgeRows", () => {
           source: "",
           summary: "See [ledger](../billing/ledger.md).",
           mime: "",
-          validFrom: null,
-          validTo: null,
+          createdAt: null,
+          updatedAt: null,
+          expiresAt: null,
           observedAt: OBSERVED,
         },
         chunks: [
@@ -261,10 +262,10 @@ describe("knowledgeRows", () => {
       references: NO_REFERENCES,
       observedAt: OBSERVED,
     })
-    // The file states no source time, so the tree row takes the time of
-    // the introducing commit, which depends on the branch (ADR-071
-    // decision 2).
-    expect(rows.document.validFrom).toBeNull()
+    // The file states no time, so the tree row takes the Git times of the
+    // path, which depend on the branch (ADR-071 decision 2).
+    expect(rows.document.createdAt).toBeNull()
+    expect(rows.document.updatedAt).toBeNull()
     // A body link states no validity.
     expect(
       rows.relations.map(
@@ -325,8 +326,9 @@ describe("knowledgeRows", () => {
           source: "",
           summary: "",
           mime: "image/png",
-          validFrom: null,
-          validTo: null,
+          createdAt: null,
+          updatedAt: null,
+          expiresAt: null,
           observedAt: OBSERVED,
         },
         chunks: [
@@ -664,7 +666,7 @@ describe("the source time of a file (CTX-1516)", () => {
       },
     })
     const rows = parsedRows(file.path, file.content)
-    expect(rows.document.validFrom).toEqual(
+    expect(rows.document.createdAt).toEqual(
       new Date("2026-09-01T00:00:00.000Z"),
     )
     const closing = rows.relations.filter(
@@ -689,7 +691,7 @@ describe("the source time of a file (CTX-1516)", () => {
       ],
     })
     const rows = parsedRows(file.path, file.content)
-    expect(rows.document.validFrom).toEqual(
+    expect(rows.document.createdAt).toEqual(
       new Date("2026-01-01T00:00:00.000Z"),
     )
     expect(
@@ -748,7 +750,7 @@ describe("the source time of a file (CTX-1516)", () => {
         ],
       })}---\n# In-place resize\n\n**Status:** Implementable\n**Date:** 2019-01-18\n`,
     )
-    expect(rows.document.validFrom).toEqual(
+    expect(rows.document.createdAt).toEqual(
       new Date("2019-01-18T00:00:00.000Z"),
     )
     expect(
@@ -760,7 +762,23 @@ describe("the source time of a file (CTX-1516)", () => {
 
   it("gives a file with no time of its own no source time", () => {
     expect(
-      parsedRows("knowledge/services/api.md", "# API\n").document.validFrom,
+      parsedRows("knowledge/services/api.md", "# API\n").document.createdAt,
     ).toBeNull()
+  })
+
+  it("holds the times that a mirror file states in its own property names (CTX-1710)", () => {
+    const { document } = parsedRows(
+      "pagerduty/incidents/P1.md",
+      "---\ncreated_at: 2021-04-05T06:07:08Z\nupdated_at: 2021-04-07T00:00:00Z\nExpiresAt: 2021-05-01T00:00:00Z\n---\n# API down\n",
+    )
+    expect({
+      createdAt: document.createdAt,
+      updatedAt: document.updatedAt,
+      expiresAt: document.expiresAt,
+    }).toEqual({
+      createdAt: new Date("2021-04-05T06:07:08.000Z"),
+      updatedAt: new Date("2021-04-07T00:00:00.000Z"),
+      expiresAt: new Date("2021-05-01T00:00:00.000Z"),
+    })
   })
 })

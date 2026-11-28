@@ -9,6 +9,7 @@ import { runGit } from "../../src/domain/ingestion/run-git.js"
 import { renderSourceFile } from "../../src/domain/workspace-sources/source-file-text.js"
 import { gitSourcePath } from "../../src/domain/workspace-sources/source-file.js"
 import { stampMirrorFiles } from "../../src/domain/workspace-sources/stamp-sources.js"
+import { workspaceFormatFile } from "../../src/domain/workspaces/workspace-format.js"
 import { gitRemoteEnvironment } from "../../src/services/git/clone-tree.js"
 import { bodiesEditedAfter } from "../../src/services/github/github-mirror.js"
 import { importPublicGithubIssues } from "../../src/services/github/issue-mirror/public-import.js"
@@ -185,9 +186,13 @@ type CorpusContext = { corpus: string; sha: string }
  * the context repo of the corpus, in one commit. The file names the public
  * URL and pins the SHA of the plan (ADR-050, revision 2026-11-26), so the
  * product reads the public repository at that SHA with no credential and
- * no copy. A repository that is not public is refused. A second run with
- * the same plan pushes nothing. Returns the main branch SHA of each context
- * repo after the step.
+ * no copy. A repository that is not public is refused. The same commit
+ * writes the Workspace format file when the context repo has none: the
+ * product reads a repository with source files and no format file as
+ * format 0 (ADR-053), and ingestion v2 publishes nothing below format 3.
+ * The bootstrap of a new Workspace writes no format file into a repository
+ * that has source files. A second run with the same plan pushes nothing.
+ * Returns the main branch SHA of each context repo after the step.
  */
 export async function writeCorpusSources(
   plan: Plan,
@@ -229,6 +234,7 @@ export async function writeCorpusSources(
       corpus.id,
       files,
       `Add the public repositories at ${plan.cutoff} as pinned sources`,
+      [workspaceFormatFile()],
     )
     contexts.push({ corpus: corpus.id, sha })
   }
@@ -376,8 +382,9 @@ export async function importCorpusMirrors(
 
 /**
  * Add `files` to the main branch of the context repo of `corpus` in one
- * commit, and return the SHA of the main branch. When the files change
- * nothing, it pushes nothing.
+ * commit, and return the SHA of the main branch. Each file of `ifMissing`
+ * is added only when its path is not on the main branch. When the files
+ * change nothing, it pushes nothing.
  */
 async function commitToContext(
   plan: Plan,
@@ -385,6 +392,7 @@ async function commitToContext(
   corpus: string,
   files: ChatFile[],
   message: string,
+  ifMissing: ChatFile[] = [],
 ): Promise<string> {
   const target = remote(
     access,
@@ -401,8 +409,16 @@ async function commitToContext(
     )
     const parent = await git(work, ["rev-parse", "FETCH_HEAD"], env)
     await git(work, ["read-tree", parent], env)
+    const present = new Set(
+      ifMissing.length
+        ? (await git(work, ["ls-files", "-z"], env)).split("\0")
+        : [],
+    )
     const entries: string[] = []
-    for (const file of files) {
+    for (const file of [
+      ...files,
+      ...ifMissing.filter((file) => !present.has(file.path)),
+    ]) {
       const blob = await git(
         work,
         ["hash-object", "-w", "--stdin"],

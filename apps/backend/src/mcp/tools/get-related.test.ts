@@ -52,27 +52,6 @@ describe("get_related arguments", () => {
     )
   })
 
-  it("rejects a validity window that ends before it starts, as rankRelated does", () => {
-    const window = {
-      from: "2026-09-02T00:00:00Z",
-      to: "2026-09-01T00:00:00Z",
-    }
-    expect(schema.safeParse({ ...base, validBetween: window }).success).toBe(
-      false,
-    )
-    expect(
-      rankAccepts({
-        validBetween: { from: new Date(window.from), to: new Date(window.to) },
-      }),
-    ).toBe(false)
-    expect(
-      schema.safeParse({
-        ...base,
-        validBetween: { from: window.to, to: window.from },
-      }).success,
-    ).toBe(true)
-  })
-
   it("bounds the expansion and the page as the design says", () => {
     const rejects = (extra: Record<string, unknown>) =>
       schema.safeParse({ ...base, ...extra }).success

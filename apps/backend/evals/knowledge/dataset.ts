@@ -87,8 +87,6 @@ export const questionSchema = z.strictObject({
    * the traversal recall and, with `positions`, the positions.
    */
   seeds: z.array(path).min(1).max(10).optional(),
-  /** The time of the question, for a `time` question. */
-  validAt: z.iso.datetime({ offset: true }).optional(),
   /** The expected positions of a `disagreement` question. */
   positions: z.array(positionSchema).optional(),
   /**

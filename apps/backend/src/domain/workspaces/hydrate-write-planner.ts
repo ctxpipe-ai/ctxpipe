@@ -9,7 +9,6 @@ import { removeFolderMapMarkers } from "./folder-list.js"
 import {
   claimsUpgradeRemainder,
   importKeyCleanupRemainder,
-  validFromPersistRemainder,
 } from "./hydrate-write-jobs.js"
 import { hydrateKnowledgeTree } from "./hydrate.js"
 import type { WorkspaceRevision } from "./revision.js"
@@ -26,7 +25,6 @@ export type HydrateWriteRequirement =
         | "import_key_cleanup"
         | "ownership_migration"
         | "claims_upgrade"
-        | "valid_from_persist"
       remainder: number
     }
   | {
@@ -49,14 +47,14 @@ type HydrateWriteHistory = {
 }
 
 /**
- * Plan the direct writes of hydrate from committed files, before hydrate
- * supplies derived valid_from values. Each planned job commits to the
- * default branch with no pull request.
+ * Plan the direct writes of hydrate from committed files. Each planned job
+ * commits to the default branch with no pull request. No job writes a
+ * time into a file: retrieval reads the times of each file (CTX-1710).
  *
  * Below format 3 hydrate plans no write (ADR-053 section 7): the upgrade
  * pull request makes each layout change, also the bootstrap files and the
- * claim and valid_from rewrites. At format 3 or more these are ctxpipe-managed
- * files of a v2 Workspace, so hydrate keeps them current.
+ * claim rewrites. At format 3 or more these are ctxpipe-managed files of a
+ * v2 Workspace, so hydrate keeps them current.
  */
 export async function planHydrateWrites(input: {
   revision: WorkspaceRevision
@@ -87,7 +85,6 @@ export async function planHydrateWrites(input: {
       existing,
     }).filter((file) => existing.get(file.path) !== file.content).length,
     claims_upgrade: claimsUpgradeRemainder(units),
-    valid_from_persist: validFromPersistRemainder(units),
     import_key_cleanup: importKeyCleanupRemainder(input.files),
     // Retired folder-map marker lines still in AGENTS.md: one cleanup write.
     ops_folder_map: removeFolderMapMarkers(agentsMd) === agentsMd ? 0 : 1,

@@ -158,8 +158,9 @@ describe("judge", () => {
       source: "",
       summary: "",
       mime: "text/markdown",
-      validFrom: null,
-      validTo: null,
+      createdAt: null,
+      updatedAt: null,
+      expiresAt: null,
       observedAt: new Date("2026-11-01T00:00:00Z"),
     }
     return {

@@ -102,8 +102,6 @@ describe("upgrade steps 2 and 3 (Postgres + git)", () => {
       workspaceId,
       baseSha: "",
       remote: { url: workspaceUrl, connectionId: null },
-      introducedAt: async () =>
-        new Map([["knowledge/guides/deploy.md", "2025-01-02T03:04:05.000Z"]]),
     }
     const steps = GIT_UPGRADE_STEPS
     const inOrg = <T>(fn: () => Promise<T>) =>
@@ -120,8 +118,8 @@ sources:
       // summary over 1000 characters. The report names them.
       "knowledge/services/billing.md": `---\nkind: Service\ngenerated_by: ctxpipe\nsource: https://github.com/acme/billing.git#src/index.ts\nowner: team-payments\nsummary: ${"a".repeat(1001)}\n---\n\n# Billing\n`,
       "knowledge/notes.md": "---\nkind: Note\n---\n\nA human note.\n",
-      // A link with no claim: hydrate at format 3 adds the claim and its
-      // valid_from, so the upgrade pull request adds them.
+      // A link with no claim: hydrate at format 3 adds the claim, so the
+      // upgrade pull request adds it. It writes no valid_from (CTX-1710).
       "knowledge/guides/deploy.md":
         "---\nkind: Guide\n---\n\nDeploy [billing](../services/billing.md) first.\n",
       // An AGENTS.md with no folder section and the retired markers.
@@ -181,7 +179,7 @@ sources:
     expect(head.show(WORKSPACE_FORMAT_PATH)).toContain("format: 3")
     const deploy = head.show("knowledge/guides/deploy.md") ?? ""
     expect(deploy).toContain("to: ../services/billing.md")
-    expect(deploy).toContain("valid_from: 2025-01-02T03:04:05.000Z")
+    expect(deploy).not.toContain("valid_from")
     const agentsMd = head.show("AGENTS.md") ?? ""
     expect(agentsMd).toContain("Read the guides.")
     expect(agentsMd).toContain("## Folder Structure")

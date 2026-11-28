@@ -2554,8 +2554,8 @@ describe("validatePatchStep claims with the host field valid_from (CTX-1090)", (
   const path = "knowledge/services/hydrated.md"
   const VALID_FROM = "2026-02-03T04:05:06.000Z"
   const STEP_VALID_FROM = "2026-05-06T00:00:00.000Z"
-  // A claim as hydrate leaves it: the validator stamped the confidence, and
-  // the valid_from_persist write job added valid_from.
+  // A claim with a host valid_from: the validator stamped the confidence,
+  // and the author or an earlier release added valid_from.
   const hydratedClaim = {
     to: "./billing.md",
     predicate: "CALLS",

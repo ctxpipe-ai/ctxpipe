@@ -34,6 +34,8 @@ import {
 } from "../framework/org-code.js"
 import { formatRef, parseRef } from "../framework/refs.js"
 import {
+  documentTimesOutput,
+  documentTimesShape,
   excludeRepositoriesSchema,
   servedSchema,
   branchArgument,
@@ -57,7 +59,7 @@ const frontMatterSchema = z
     kind: z.string().optional(),
     title: z.string().optional(),
     source: z.string(),
-    updatedAt: z.string(),
+    ...documentTimesShape,
     claims: z
       .array(
         z.object({
@@ -73,7 +75,7 @@ const frontMatterSchema = z
     moreClaims: z.number().int().optional(),
   })
   .describe(
-    "The front matter of a knowledge unit, as ctxpipe parsed it: kind, title, source, last update, and claims. Only on the page that starts at the body.",
+    "The front matter of a knowledge unit, as ctxpipe parsed it: kind, title, source, times, and claims. Only on the page that starts at the body.",
   )
 type FrontMatter = z.infer<typeof frontMatterSchema>
 
@@ -82,7 +84,9 @@ function frontMatterOf(unit: {
   kind: string | null
   title: string | null
   source: string | null
-  updatedAt: Date
+  createdAt: Date | null
+  updatedAt: Date | null
+  expiresAt: Date | null
   claims: readonly HydrateClaim[]
 }): FrontMatter {
   const claims: NonNullable<FrontMatter["claims"]> = unit.claims
@@ -103,7 +107,7 @@ function frontMatterOf(unit: {
       ? { title: truncateText(unit.title, MAX_FRONT_MATTER_TEXT) }
       : {}),
     source: truncateText(unit.source ?? "authored", MAX_FRONT_MATTER_TEXT),
-    updatedAt: unit.updatedAt.toISOString(),
+    ...documentTimesOutput(unit),
     ...(claims.length ? { claims } : {}),
     ...(unit.claims.length > claims.length
       ? { moreClaims: unit.claims.length - claims.length }
@@ -176,7 +180,8 @@ async function readUnit(
       text: row.body,
       lineOffset,
       sha: row.sha,
-      frontMatter: frontMatterOf(row),
+      // The old stack gives no createdAt and no expiresAt.
+      frontMatter: frontMatterOf({ ...row, createdAt: null, expiresAt: null }),
     }
   })
 }
@@ -184,7 +189,7 @@ async function readUnit(
 /**
  * A unit of the Workspace Git at the SHA that the knowledge plane serves.
  * The text is the body without front matter, as on the old stack. The
- * `updatedAt` of the front matter comes from the plane (`readPlaneUnit`).
+ * times of the front matter come from the plane (`readPlaneUnit`).
  */
 async function readPlaneUnitFile(
   org: CallOrg,
@@ -199,7 +204,7 @@ async function readPlaneUnitFile(
     path,
   })
   if (!read) return null
-  const { unit, updatedAt, sha } = read
+  const { unit, times, sha } = read
   return {
     text: unit.body,
     lineOffset: (unit.bodyStartLine ?? 1) - 1,
@@ -208,7 +213,7 @@ async function readPlaneUnitFile(
       kind: unit.kind ?? null,
       title: unit.title,
       source: unit.source,
-      updatedAt,
+      ...times,
       claims: unit.claims,
     }),
   }

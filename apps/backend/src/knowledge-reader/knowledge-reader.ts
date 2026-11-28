@@ -37,15 +37,8 @@ export type KnowledgeStack = "legacy" | "plane"
 /** The search of `search_knowledge` and of the chat search tool. */
 export type SearchRequest = Omit<
   KnowledgeSearchInput,
-  "deadline" | "embedding" | "unitIds"
-> & {
-  /**
-   * The query time when `validAt` is not given: a hit that is not valid then
-   * comes after the valid hits. Now by default; an eval replay gives the
-   * recorded time.
-   */
-  now?: Date
-}
+  "deadline" | "embedding" | "unitIds" | "validAt"
+>
 
 export type SearchResult = {
   /** Best first. `projectionSha` is the SHA that the stack serves. */

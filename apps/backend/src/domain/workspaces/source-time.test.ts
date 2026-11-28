@@ -8,12 +8,12 @@ import { toSlackThreadMarkdownFile } from "../../services/slack/converter.js"
 import { shopIssue } from "../../test/github-issue.js"
 import { linearIssueFile } from "../../test/linear-issue.js"
 import { diffHydrateUnits, hydrateUnitHash } from "./hydrate-delta.js"
-import { validFromPersistFiles } from "./hydrate-write-jobs.js"
 import {
   applyEffectiveValidFromToUnits,
   hydrateKnowledgeTree,
   hydrateUnitsToProjectionClaims,
 } from "./hydrate.js"
+import { documentTimes, withGitTimes } from "./source-time.js"
 
 /** The source time of one file, through the hydrate parse. */
 function sourceTimeOf(path: string, content: string): string | null {
@@ -21,7 +21,7 @@ function sourceTimeOf(path: string, content: string): string | null {
     workspaceId: "ws_source_time",
     files: [{ path, content }],
   })
-  return units[0]?.sourceTime ?? null
+  return units[0]?.sourceTimes?.createdAt ?? null
 }
 
 describe("the source time of a file (CTX-1516)", () => {
@@ -162,16 +162,6 @@ describe("the old stack takes the source time before the commit time", () => {
       ({ predicate }) => predicate === "INFLUENCES",
     )
     expect(claim?.validFrom).toBe("2019-01-18T00:00:00.000Z")
-  })
-
-  it("in the valid_from that the persist job writes to Git", () => {
-    const [file] = validFromPersistFiles({
-      files: [decision],
-      units,
-      introducingCommitTimestamp: commit,
-    })
-    expect(file?.content).toContain("valid_from: 2019-01-18T00:00:00.000Z")
-    expect(file?.content).not.toContain(commit)
   })
 
   it("and keeps the commit time for a file with no source time", () => {
@@ -416,5 +406,162 @@ describe("the old stack's updatedAt is the source's own time of the last change 
       },
     ])
       expect(updatedAtOf(file), file.path).toBe(rewrite)
+  })
+})
+
+describe("the times of a document (CTX-1710)", () => {
+  /** The times that one file states. */
+  const timesOf = (path: string, content: string) => {
+    const unit = hydrateKnowledgeTree({
+      workspaceId: "ws_document_times",
+      files: [{ path, content }],
+    }).units[0]
+    if (!unit?.sourceTimes) throw new Error("Expected a unit")
+    return unit.sourceTimes
+  }
+
+  it("reads the source's own property names in any case, with or without _", () => {
+    for (const [createdAt, updatedAt] of [
+      ["created_at", "updated_at"],
+      ["createdAt", "updatedAt"],
+      ["CreatedAt", "UPDATED_AT"],
+      ["created_time", "last_edited_time"],
+      ["createdTime", "lastEditedTime"],
+    ])
+      expect(
+        timesOf(
+          "linear/teams/ENG/issues/eng-7--a1.md",
+          `---\n${createdAt}: 2022-02-02T02:02:02Z\n${updatedAt}: 2023-01-01T00:00:00Z\n---\n# ENG-7\n`,
+        ),
+        `${createdAt}, ${updatedAt}`,
+      ).toEqual({
+        createdAt: "2022-02-02T02:02:02.000Z",
+        updatedAt: "2023-01-01T00:00:00.000Z",
+        expiresAt: null,
+      })
+  })
+
+  it("reads the threadTs and the latest ts of a Slack thread in any case", () => {
+    expect(
+      timesOf(
+        "slack/eng--C01/threads/1700000000.000100/thread.md",
+        '---\nthreadTs: "1700000000.000100"\nLatest: "1700003600.000200"\n---\n# Thread\n',
+      ),
+    ).toEqual({
+      createdAt: "2023-11-14T22:13:20.000Z",
+      updatedAt: "2023-11-14T23:13:20.000Z",
+      expiresAt: null,
+    })
+  })
+
+  it("takes the finished_at of a Buildkite build as its last change", () => {
+    expect(
+      timesOf(
+        "buildkite/builds/b1.md",
+        '---\ncreated_at: "2021-04-05T06:07:08Z"\nfinished_at: "2021-04-05T06:30:00Z"\n---\n# Build 1\n',
+      ).updatedAt,
+    ).toBe("2021-04-05T06:30:00.000Z")
+  })
+
+  it("reads the expiresAt that an author sets on any file", () => {
+    expect(
+      timesOf(
+        "knowledge/runbooks/deploy.md",
+        "---\nkind: Runbook\nexpires_at: 2025-01-01\n---\n# Deploy\n",
+      ),
+    ).toEqual({
+      createdAt: null,
+      updatedAt: null,
+      expiresAt: "2025-01-01T00:00:00.000Z",
+    })
+    expect(
+      timesOf(
+        "github/issues/acme/api/12.md",
+        "---\nsource: github\nexpiresAt: 2026-02-03T04:05:06Z\n---\n# Issue\n",
+      ).expiresAt,
+    ).toBe("2026-02-03T04:05:06.000Z")
+  })
+
+  it("gives an authored file no updatedAt of its own: its source is the Git history", () => {
+    expect(
+      documentTimes({
+        path: "knowledge/services/api.md",
+        attributes: { updatedAt: "2020-01-01T00:00:00Z" },
+        body: "# API\n",
+      }).updatedAt,
+    ).toBeNull()
+  })
+
+  describe("with the Git times of the path", () => {
+    const git = {
+      introducedAt: "2026-01-01T00:00:00.000Z",
+      lastChangedAt: "2026-11-24T03:00:00.000Z",
+    }
+    const none = { createdAt: null, updatedAt: null, expiresAt: null }
+
+    it("keeps the times that a mirror file states", () => {
+      expect(
+        withGitTimes(
+          "linear/teams/ENG/issues/eng-7--a1.md",
+          {
+            createdAt: "2022-02-02T02:02:02.000Z",
+            updatedAt: "2023-01-01T00:00:00.000Z",
+            expiresAt: null,
+          },
+          git,
+        ),
+      ).toEqual({
+        createdAt: "2022-02-02T02:02:02.000Z",
+        updatedAt: "2023-01-01T00:00:00.000Z",
+        expiresAt: null,
+      })
+    })
+
+    it("gives a mirror with no time of its last change its creation time, never the last commit", () => {
+      expect(
+        withGitTimes(
+          "github/issues/acme/api/12.md",
+          { ...none, createdAt: "2019-03-04T05:06:07.000Z" },
+          git,
+        ).updatedAt,
+      ).toBe("2019-03-04T05:06:07.000Z")
+      // A Confluence page or a Linear label states no time: both times are
+      // the commit that introduced it, the first time that ctxpipe saw it.
+      for (const path of [
+        "confluence/ENG/runbook--1.md",
+        "linear/teams/ENG/labels/bug.md",
+      ])
+        expect(withGitTimes(path, none, git), path).toEqual({
+          createdAt: git.introducedAt,
+          updatedAt: git.introducedAt,
+          expiresAt: null,
+        })
+    })
+
+    it("gives an authored file the commit that added it and its last commit", () => {
+      expect(
+        withGitTimes(
+          "knowledge/services/api.md",
+          { ...none, expiresAt: "2027-01-01T00:00:00.000Z" },
+          git,
+        ),
+      ).toEqual({
+        createdAt: git.introducedAt,
+        updatedAt: git.lastChangedAt,
+        expiresAt: "2027-01-01T00:00:00.000Z",
+      })
+      // A design record keeps its own date as its creation time.
+      expect(
+        withGitTimes(
+          "decisions/ADR-012-queue.md",
+          { ...none, createdAt: "2024-05-06T00:00:00.000Z" },
+          git,
+        ),
+      ).toEqual({
+        createdAt: "2024-05-06T00:00:00.000Z",
+        updatedAt: git.lastChangedAt,
+        expiresAt: null,
+      })
+    })
   })
 })

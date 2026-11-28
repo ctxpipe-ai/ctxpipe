@@ -25,8 +25,8 @@ import { pullRequestChangedClaims } from "./pull-request-changes.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
 import {
   closingPullRequests,
-  sourceTime,
-  sourceUpdatedTime,
+  type DocumentTimes,
+  documentTimes,
 } from "./source-time.js"
 
 export function servingIdForKnowledgePath(
@@ -97,16 +97,17 @@ export type HydrateUnit = {
   merged?: boolean
   /**
    * ISO time of the last change: the source's own time of a mirror file
-   * (`sourceUpdatedTime`), else the time of the last commit that changed
-   * the path, when known.
+   * (`sourceTimes.updatedAt`), else the time of the last commit that
+   * changed the path, when known.
    */
   updatedAt: string | null
   /**
-   * The source's own time of the file (`sourceTime`): the `valid_from` of
-   * the document and of each claim with no time of its own. Null or absent
-   * when the file states none: the introducing commit gives the time.
+   * The times that the file states itself (`documentTimes`). Its
+   * `createdAt` is the `valid_from` of each claim with no time of its own;
+   * when null, the introducing commit gives the time. Absent on a unit that
+   * is not from a Git file.
    */
-  sourceTime?: string | null
+  sourceTimes?: DocumentTimes
   /**
    * The time from which a link of the body to a Workspace path is valid, by
    * the path. A GitHub issue links to each pull request that closed it from
@@ -249,6 +250,11 @@ export function hydrateKnowledgeTree(input: {
     }
 
     attributes.set(path, parsed.attributes)
+    const sourceTimes = documentTimes({
+      path,
+      attributes: parsed.attributes,
+      body: parsed.body,
+    })
     units.push({
       path,
       servingId: servingIdForKnowledgePath(input.workspaceId, path),
@@ -273,15 +279,8 @@ export function hydrateKnowledgeTree(input: {
       title: unitTitle(parsed.attributes.title, parsed.body),
       source: connectorMirrorRoot(path) ?? "authored",
       merged: parsed.attributes.merged === true,
-      updatedAt:
-        sourceUpdatedTime({ path, attributes: parsed.attributes }) ??
-        file.lastCommitTimestamp ??
-        null,
-      sourceTime: sourceTime({
-        path,
-        attributes: parsed.attributes,
-        body: parsed.body,
-      }),
+      updatedAt: sourceTimes.updatedAt ?? file.lastCommitTimestamp ?? null,
+      sourceTimes,
       bodyStartLine: file.content
         .slice(0, file.content.length - parsed.body.length)
         .split("\n").length,
@@ -436,7 +435,7 @@ export function applyEffectiveValidFromToUnits(
       ...claim,
       validFrom: effectiveValidFrom({
         recorded: claim.validFrom,
-        sourceTime: unit.sourceTime ?? null,
+        sourceTime: unit.sourceTimes?.createdAt ?? null,
         introducingCommitTimestamp: introducingCommits.get(unit.path) ?? null,
       }),
     })),
@@ -485,7 +484,7 @@ export function hydrateUnitsToProjectionClaims(
       const validFrom = isClaim
         ? effectiveValidFrom({
             recorded: relation.validFrom,
-            sourceTime: unit.sourceTime ?? null,
+            sourceTime: unit.sourceTimes?.createdAt ?? null,
             introducingCommitTimestamp: introducingCommitTimestamp ?? null,
           })
         : relation.validFrom

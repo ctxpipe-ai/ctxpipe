@@ -67,6 +67,7 @@ export async function knowledgeRowCounts(
 export async function startClickHouse({
   objectStorageCold = false,
   fastPartCleanup = false,
+  firstPort,
 }: {
   /**
    * The disk cold is an object storage disk with its objects in a local
@@ -79,6 +80,8 @@ export async function startClickHouse({
    * (clickhouse-fast-part-cleanup.xml).
    */
   fastPartCleanup?: boolean
+  /** The host port to try first. A test gives a taken port to force the race. */
+  firstPort?: number
 } = {}): Promise<{
   serverUrl: string
   /** A new database with the migrated tables. Returns its URL. */
@@ -100,50 +103,65 @@ export async function startClickHouse({
 }> {
   const container = `ctxpipe-knowledge-${randomUUID().slice(0, 8)}`
   // A fixed host port: Docker gives a new ephemeral port at each restart.
-  const port = await freePort()
-  await docker(
-    "create",
-    ...testLabelArgs(),
-    "--name",
-    container,
-    "-p",
-    `127.0.0.1:${port}:8123`,
-    "-e",
-    "CLICKHOUSE_USER=knowledge",
-    "-e",
-    "CLICKHOUSE_PASSWORD=knowledge-test",
-    // The migrations create row policies (SQL access management).
-    "-e",
-    "CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1",
-    contractImage("clickhouse"),
-  )
-  // The storage policy with the volume cold, which the TTL of the migrations
-  // needs. docker cp also works when the Docker daemon is on another host.
-  await docker(
-    "cp",
-    fileURLToPath(
-      new URL("../knowledge-store/clickhouse-storage.xml", import.meta.url),
-    ),
-    `${container}:/etc/clickhouse-server/config.d/storage.xml`,
-  )
-  if (objectStorageCold)
+  // Another process can take the free port before `docker start` binds it.
+  // Then Docker refuses the start, and the helper tries again on a new port.
+  const createAndStart = async (port: number) => {
+    await docker(
+      "create",
+      ...testLabelArgs(),
+      "--name",
+      container,
+      "-p",
+      `127.0.0.1:${port}:8123`,
+      "-e",
+      "CLICKHOUSE_USER=knowledge",
+      "-e",
+      "CLICKHOUSE_PASSWORD=knowledge-test",
+      // The migrations create row policies (SQL access management).
+      "-e",
+      "CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1",
+      contractImage("clickhouse"),
+    )
+    // The storage policy with the volume cold, which the TTL of the migrations
+    // needs. docker cp also works when the Docker daemon is on another host.
     await docker(
       "cp",
       fileURLToPath(
-        new URL("./clickhouse-cold-object-storage.xml", import.meta.url),
+        new URL("../knowledge-store/clickhouse-storage.xml", import.meta.url),
       ),
-      // After storage.xml in the order of the names: it replaces the disk.
-      `${container}:/etc/clickhouse-server/config.d/zz-cold-object-storage.xml`,
+      `${container}:/etc/clickhouse-server/config.d/storage.xml`,
     )
-  if (fastPartCleanup)
-    await docker(
-      "cp",
-      fileURLToPath(
-        new URL("./clickhouse-fast-part-cleanup.xml", import.meta.url),
-      ),
-      `${container}:/etc/clickhouse-server/config.d/fast-part-cleanup.xml`,
-    )
-  await docker("start", container)
+    if (objectStorageCold)
+      await docker(
+        "cp",
+        fileURLToPath(
+          new URL("./clickhouse-cold-object-storage.xml", import.meta.url),
+        ),
+        // After storage.xml in the order of the names: it replaces the disk.
+        `${container}:/etc/clickhouse-server/config.d/zz-cold-object-storage.xml`,
+      )
+    if (fastPartCleanup)
+      await docker(
+        "cp",
+        fileURLToPath(
+          new URL("./clickhouse-fast-part-cleanup.xml", import.meta.url),
+        ),
+        `${container}:/etc/clickhouse-server/config.d/fast-part-cleanup.xml`,
+      )
+    await docker("start", container)
+  }
+  let port = 0
+  for (let attempt = 1; ; attempt++) {
+    port = attempt === 1 && firstPort ? firstPort : await freePort()
+    try {
+      await createAndStart(port)
+      break
+    } catch (error) {
+      await docker("rm", "-f", "-v", container).catch(() => "")
+      const portTaken = /address already in use|port is already allocated/i
+      if (attempt >= 5 || !portTaken.test(String(error))) throw error
+    }
+  }
   const clients: ClickHouseClient[] = []
   const stop = async () => {
     await Promise.all(clients.map((client) => client.close()))

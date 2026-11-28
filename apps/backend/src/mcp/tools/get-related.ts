@@ -21,6 +21,7 @@ import {
 } from "../framework/legacy-knowledge.js"
 import {
   branchArgument,
+  documentTimesShape,
   servedSchema,
   workspaceArgument,
 } from "../framework/schemas.js"
@@ -29,7 +30,6 @@ import { defineMcpReadTool, scoredResult } from "../framework/tool-registry.js"
 
 export { rankWorkspaceRelated } from "../../domain/workspaces/related-ranking.js"
 
-const instant = z.iso.datetime({ offset: true })
 const name = z.string().min(1).max(64)
 
 /**
@@ -121,18 +121,6 @@ export const getRelatedInputShape = {
     .max(1)
     .default(0.2)
     .describe("Stored confidence below which an edge is not walked."),
-  validAt: instant
-    .optional()
-    .describe("Only edges valid at this time (ISO 8601). Default now."),
-  validBetween: z
-    .object({ from: instant, to: instant })
-    .refine((window) => Date.parse(window.from) <= Date.parse(window.to), {
-      message: "validBetween must end after it starts.",
-    })
-    .optional()
-    .describe(
-      "Instead of validAt: edges valid at some time in this window, ended edges included.",
-    ),
   recencyHalfLifeDays: z
     .number()
     .positive()
@@ -221,7 +209,7 @@ const resultSchema = z.object({
     .describe(
       `The kind of source: ${SOURCE_TYPES.join(", ")}. Only on the knowledge plane.`,
     ),
-  updatedAt: z.string(),
+  ...documentTimesShape,
   summary: z.string().optional(),
   score: z.number(),
   queryMatch: z.number().optional(),
@@ -287,7 +275,7 @@ export const getRelatedTool = defineMcpReadTool({
   name: "get_related",
   title: "Get related knowledge",
   description:
-    "Use it after search_knowledge to find owners, dependencies, decisions, incidents and changes. Finds knowledge related to seed refs AND relevant to your query, ranked by graph proximity, edge confidence and query match. Without the knowledge plane, edge confidence decreases with age, and the change intent also ranks newer changes first. The knowledge plane does not rank by age. Set intent (why, ownership, change, dependencies, structure, provenance) or give the question as query. Each intent walks its own edges first and puts its answer kinds first; with few results, a second walk follows all edges. No walk of all edges follows FROM_SOURCE; the provenance intent walks it, to find the sources a unit came from. Each result can explain why: the path of predicates from a seed. On the knowledge plane, claims show what connects the top results: each stored relation between two of them (by edge), with its predicate, source, validFrom, validTo and confidence, and each reading of the model (by reading: REPLACES, CONTRADICTS or PARTLY_CONTRADICTS), with its confidence. A claim is evidence, not a verdict; a SUPERSEDES edge is a claim too. Compare the times of the results, and on the knowledge plane also the claims and the source types, and decide yourself which source holds. Filter by predicates, kinds, direction, depth and time. For plain neighbors, set maxDepth 1 and no query. Send independent calls in parallel.",
+    "Use it after search_knowledge to find owners, dependencies, decisions, incidents and changes. Finds knowledge related to seed refs AND relevant to your query, ranked by graph proximity, edge confidence and query match. Without the knowledge plane, edge confidence decreases with age, and the change intent also ranks newer changes first. The knowledge plane does not rank by age. Set intent (why, ownership, change, dependencies, structure, provenance) or give the question as query. Each intent walks its own edges first and puts its answer kinds first; with few results, a second walk follows all edges. No walk of all edges follows FROM_SOURCE; the provenance intent walks it, to find the sources a unit came from. Each result can explain why: the path of predicates from a seed. On the knowledge plane, claims show what connects the top results: each stored relation between two of them (by edge), with its predicate, source, validFrom, validTo and confidence, and each reading of the model (by reading: REPLACES, CONTRADICTS or PARTLY_CONTRADICTS), with its confidence. A claim is evidence, not a verdict; a SUPERSEDES edge is a claim too. Compare the times of the results, and on the knowledge plane also the claims and the source types, and decide yourself which source holds. Filter by predicates, kinds, direction and depth. For plain neighbors, set maxDepth 1 and no query. Send independent calls in parallel.",
   org: "required",
   inputShape: getRelatedInputShape,
   outputSchema: z.object({
@@ -310,12 +298,6 @@ export const getRelatedTool = defineMcpReadTool({
   }),
   describeResult: ({ results }) => scoredResult(results),
   async run(input, { org }) {
-    if (input.validAt && input.validBetween) {
-      throw new McpToolError(
-        "invalid_argument",
-        "Give validAt or validBetween, not both.",
-      )
-    }
     const workspace = await resolveCallWorkspace(org, input.workspace)
     const legacyServed = requireServed(workspace)
     const { reader, planeHeads } = await selectKnowledgeReader(

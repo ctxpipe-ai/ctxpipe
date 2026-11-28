@@ -558,15 +558,13 @@ describe("the drafter", () => {
       expect(question.seeds).toEqual(current?.refs)
     }
     // The month of the date is in the text of the two KEP issues only. The
-    // date stays in the question text: no validAt goes out.
+    // date stays in the question text.
     expect(byCategory("time").map((question) => question.gold)).toEqual(
       expect.arrayContaining([
         ["github/issues/kubernetes/enhancements/1.md"],
         ["github/issues/kubernetes/enhancements/2.md"],
       ]),
     )
-    for (const question of byCategory("time"))
-      expect(question.validAt).toBeUndefined()
     expect(byCategory("time")).toHaveLength(2)
     expect(
       drafted.attempts.find(

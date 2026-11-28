@@ -18,7 +18,12 @@ import {
 } from "../../evals/knowledge/corpus.js"
 import { useMswServer } from "../../test/msw.js"
 import { serveZulip, withFakeClock, zulipMessage } from "../../test/zulip.js"
+import { workspacePublishPipeline } from "../domain/ingestion/ingestion-v2-config.js"
 import { parseSourceFile } from "../domain/workspace-sources/source-file-text.js"
+import {
+  readWorkspaceFormat,
+  WORKSPACE_FORMAT_PATH,
+} from "../domain/workspaces/workspace-format.js"
 
 /*
  * The corpus steps with real git and `file://` remotes in place of GitHub,
@@ -102,7 +107,7 @@ const SOURCE = "sources/git/github.com/acme-api.md"
 describe("writeCorpusSources", () => {
   it("writes a plain git source that pins the SHA of each public repository", async () => {
     const sha = await repository("acme/api", { "README.md": "# API\n" })
-    await repository("evals/v0-demo-context", { ".ctxpipe": "format: 3\n" })
+    await repository("evals/v0-demo-context", { "README.md": "# Context\n" })
     server.use(
       http.get(`${API}/repos/acme/api`, () =>
         HttpResponse.json({ private: false, visibility: "public" }),
@@ -131,11 +136,40 @@ describe("writeCorpusSources", () => {
     expect(git(context, "log", "--format=%ae", "-1", "main")).toBe(
       "evals@ctxpipe.invalid",
     )
+    // A repository with source files and no format file is format 0 for
+    // the product (ADR-053), and ingestion v2 publishes nothing to it. The
+    // same commit gives the format file, as the bootstrap of a new
+    // Workspace does.
+    const format = readWorkspaceFormat(
+      git(context, "show", `main:${WORKSPACE_FORMAT_PATH}`),
+    )
+    expect(
+      format.kind === "format" && workspacePublishPipeline(format.format),
+    ).toBe("v2")
 
     // The same plan gives the same tree, so a second run pushes nothing.
     const tip = git(context, "rev-parse", "main")
     await writeCorpusSources(plan(sha), access(), quiet)
     expect(git(context, "rev-parse", "main")).toBe(tip)
+  })
+
+  it("keeps the format file of a context repo that has one", async () => {
+    const sha = await repository("acme/api", { "README.md": "# API\n" })
+    await repository("evals/v0-demo-context", {
+      [WORKSPACE_FORMAT_PATH]: "format: 4\n",
+    })
+    server.use(
+      http.get(`${API}/repos/acme/api`, () =>
+        HttpResponse.json({ private: false, visibility: "public" }),
+      ),
+    )
+
+    await writeCorpusSources(plan(sha), access(), quiet)
+
+    const context = join(base, "evals", "v0-demo-context.git")
+    expect(git(context, "show", `main:${WORKSPACE_FORMAT_PATH}`)).toBe(
+      "format: 4",
+    )
   })
 
   it("refuses a repository that is not public", async () => {
