@@ -1,6 +1,5 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { sql } from "drizzle-orm"
-import { createLogger } from "evlog"
 import { contextStorage } from "hono/context-storage"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
@@ -10,6 +9,7 @@ import { getSystemDb } from "../../../db/client.js"
 import { connectionDirectory } from "../../../db/schema/connections.js"
 import { encryptConnectionSecret } from "../../../lib/connection-secrets.js"
 import { replaceWorkspaceSourceRows } from "../../../models/workspace-sources.js"
+import { createTestLogger } from "../../../test/hono-test-logger.js"
 import { seedSourcesOrg } from "../../../test/workspace-sources-fixture.js"
 
 const webhookToken = "plain-webhook-token-for-sources"
@@ -23,7 +23,7 @@ function app() {
   hono.use(contextStorage())
   hono.use("*", async (c, next) => {
     c.set("env", env)
-    c.set("log", createLogger())
+    c.set("log", createTestLogger())
     await next()
   })
   return hono

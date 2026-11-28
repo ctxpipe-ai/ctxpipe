@@ -16,6 +16,7 @@ patchedDependencies:
   '@cosmograph/cosmograph@2.2.1': d64016c0891928c6f2a484566b608bec97ba8443d29c0686014f7784fadc3adb
   '@hono/zod-openapi@1.6.3': 90d1056918522f459c2439b685cf2cc211c0c3f42a1c673eb8f37c72b9534fa9
   '@tanstack/ai-opencode@1.0.1': 9463f5e6144b93a6838c53aefce8cfb189d70586decf08f52bdd782e5b4f746b
+  evlog: 28c876b092ef32020717d549ae975448b3054a7e6185ffd7a87891fa25bd706a
   fast-json-patch@3.1.1: 25ebefa74813316903ca26f95ca6582cd57b4433beab190214c8bcfae78b265e
   opencode-ai@1.19.5: fbd7620d4152b3a7a000c2155af5372fb864fca5340d609c0ed34f9bce14c2d1
   openworkflow@0.10.1: 4c3613a15af4a7f59d91d71839d78741b7a7b4853f1f1ba8f636a628e15e5888
@@ -199,8 +200,8 @@ importers:
         specifier: beta
         version: 1.0.0-beta.22(@opentelemetry/api@1.9.1)(@sinclair/typebox@0.34.52)(@types/mssql@9.1.9(supports-color@10.2.2))(@types/pg@8.23.1)(bun-types@1.4.4)(gel@2.2.0(supports-color@10.2.2))(mssql@11.0.1(supports-color@10.2.2))(pg@8.23.1)(postgres@3.4.9)(valibot@1.2.0(typescript@6.0.3))(zod@4.6.7)
       evlog:
-        specifier: ^2.13.0
-        version: 2.14.1(@tanstack/start-client-core@1.170.39)(ai@7.0.137(zod@4.6.7))(express@5.2.1(supports-color@10.2.2))(h3@1.15.11)(hono@4.13.19)(nitropack@2.13.6(@azure/identity@4.13.3(supports-color@10.2.2))(@parcel/watcher@2.5.6)(aws4fetch@1.0.20)(drizzle-orm@1.0.0-beta.22(@opentelemetry/api@1.9.1)(@sinclair/typebox@0.34.52)(@types/mssql@9.1.9(supports-color@10.2.2))(@types/pg@8.23.1)(bun-types@1.4.4)(gel@2.2.0(supports-color@10.2.2))(mssql@11.0.1(supports-color@10.2.2))(pg@8.23.1)(postgres@3.4.9)(valibot@1.2.0(typescript@6.0.3))(zod@4.6.7))(oxc-parser@0.155.0)(rolldown@1.2.19)(srvx@1.0.8)(supports-color@10.2.2)(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1))(webpack@5.105.4(esbuild@0.28.1)))(ofetch@1.5.1)(react@19.3.1)(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1))
+        specifier: ^2.36.0
+        version: 2.36.0(patch_hash=28c876b092ef32020717d549ae975448b3054a7e6185ffd7a87891fa25bd706a)(@tanstack/start-client-core@1.170.39)(ai@7.0.137(zod@4.6.7))(express@5.2.1(supports-color@10.2.2))(h3@1.15.11)(hono@4.13.19)(nitropack@2.13.6(@azure/identity@4.13.3(supports-color@10.2.2))(@parcel/watcher@2.5.6)(aws4fetch@1.0.20)(drizzle-orm@1.0.0-beta.22(@opentelemetry/api@1.9.1)(@sinclair/typebox@0.34.52)(@types/mssql@9.1.9(supports-color@10.2.2))(@types/pg@8.23.1)(bun-types@1.4.4)(gel@2.2.0(supports-color@10.2.2))(mssql@11.0.1(supports-color@10.2.2))(pg@8.23.1)(postgres@3.4.9)(valibot@1.2.0(typescript@6.0.3))(zod@4.6.7))(oxc-parser@0.155.0)(rolldown@1.2.19)(srvx@1.0.8)(supports-color@10.2.2)(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1))(webpack@5.105.4(esbuild@0.28.1)))(ofetch@1.5.1)(react@19.3.1)(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1))
       falkordb:
         specifier: ^6.6.2
         version: 6.6.2
@@ -365,8 +366,8 @@ importers:
         specifier: beta
         version: 1.0.0-beta.22(@opentelemetry/api@1.9.1)(@sinclair/typebox@0.34.52)(@types/mssql@9.1.9(supports-color@10.2.2))(@types/pg@8.23.1)(bun-types@1.4.4)(gel@2.2.0(supports-color@10.2.2))(mssql@11.0.1(supports-color@10.2.2))(pg@8.23.1)(postgres@3.4.9)(valibot@1.2.0(typescript@6.0.3))(zod@4.6.7)
       evlog:
-        specifier: ^2.13.0
-        version: 2.14.1(@tanstack/start-client-core@1.170.39)(ai@7.0.137(zod@4.6.7))(express@5.2.1(supports-color@10.2.2))(h3@1.15.11)(hono@4.13.19)(nitropack@2.13.6(@azure/identity@4.13.3(supports-color@10.2.2))(@parcel/watcher@2.5.6)(aws4fetch@1.0.20)(drizzle-orm@1.0.0-beta.22(@opentelemetry/api@1.9.1)(@sinclair/typebox@0.34.52)(@types/mssql@9.1.9(supports-color@10.2.2))(@types/pg@8.23.1)(bun-types@1.4.4)(gel@2.2.0(supports-color@10.2.2))(mssql@11.0.1(supports-color@10.2.2))(pg@8.23.1)(postgres@3.4.9)(valibot@1.2.0(typescript@6.0.3))(zod@4.6.7))(oxc-parser@0.155.0)(rolldown@1.2.19)(srvx@1.0.8)(supports-color@10.2.2)(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1)))(ofetch@1.5.1)(react@19.3.1)(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1))
+        specifier: ^2.36.0
+        version: 2.36.0(patch_hash=28c876b092ef32020717d549ae975448b3054a7e6185ffd7a87891fa25bd706a)(@tanstack/start-client-core@1.170.39)(ai@7.0.137(zod@4.6.7))(h3@1.15.11)(hono@4.13.19)(nitropack@2.13.6(@azure/identity@4.13.3(supports-color@10.2.2))(@parcel/watcher@2.5.6)(aws4fetch@1.0.20)(drizzle-orm@1.0.0-beta.22(@opentelemetry/api@1.9.1)(@sinclair/typebox@0.34.52)(@types/mssql@9.1.9(supports-color@10.2.2))(@types/pg@8.23.1)(bun-types@1.4.4)(gel@2.2.0(supports-color@10.2.2))(mssql@11.0.1(supports-color@10.2.2))(pg@8.23.1)(postgres@3.4.9)(valibot@1.2.0(typescript@6.0.3))(zod@4.6.7))(oxc-parser@0.155.0)(rolldown@1.2.19)(srvx@1.0.8)(supports-color@10.2.2)(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1)))(ofetch@1.5.1)(react@19.3.1)(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1))
       hono:
         specifier: ^4.13.19
         version: 4.13.19
@@ -561,8 +562,8 @@ importers:
         specifier: ^2.1.1
         version: 2.1.1
       evlog:
-        specifier: ^2.13.0
-        version: 2.14.1(@tanstack/start-client-core@1.170.39)(ai@7.0.137(zod@4.6.7))(express@5.2.1(supports-color@10.2.2))(h3@1.15.11)(hono@4.13.19)(nitropack@2.13.6(@azure/identity@4.13.3(supports-color@10.2.2))(@parcel/watcher@2.5.6)(aws4fetch@1.0.20)(oxc-parser@0.155.0)(rolldown@1.2.19)(srvx@1.0.8)(supports-color@10.2.2)(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1))(webpack@5.105.4(esbuild@0.28.2)))(ofetch@1.5.1)(react@19.3.1)(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1))
+        specifier: ^2.36.0
+        version: 2.36.0(patch_hash=28c876b092ef32020717d549ae975448b3054a7e6185ffd7a87891fa25bd706a)(@tanstack/start-client-core@1.170.39)(ai@7.0.137(zod@4.6.7))(h3@1.15.11)(hono@4.13.19)(nitropack@2.13.6(@azure/identity@4.13.3(supports-color@10.2.2))(@parcel/watcher@2.5.6)(aws4fetch@1.0.20)(oxc-parser@0.155.0)(rolldown@1.2.19)(srvx@1.0.8)(supports-color@10.2.2)(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1))(webpack@5.105.4(esbuild@0.28.2)))(ofetch@1.5.1)(react@19.3.1)(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1))
       hono:
         specifier: ^4.13.19
         version: 4.13.19
@@ -9955,35 +9956,49 @@ packages:
     resolution: {integrity: sha512-D6bTRWh6KahHTK/m4WnjPQyEinNPf9eFLEZSEoj7d6fTibspnAVYfzHvirL7u/aoX5d9YYfIkBVAhmigUELk9w==}
     engines: {node: '>=20.0.0'}
 
-  evlog@2.14.1:
-    resolution: {integrity: sha512-fLLPLsio6BOb6sjbecB5AkikW5KzmLXj8fMxp/PauaZrrwzmzA6J1J5II+BMQIrosh/nPN6snF1mqsbwkajfYQ==}
+  evlog@2.36.0:
+    resolution: {integrity: sha512-S1DADaoiFDhJqEAHkVHEmXbHx+6f3PUaGhP5Kb366nFs267EtBGkwD2g0uJhpIQ1G+0C4kDeZuTJHVN6krdpEw==}
+    engines: {node: '>=18.0.0'}
+    hasBin: true
     peerDependencies:
-      '@nestjs/common': '>=11.1.19'
-      '@nuxt/kit': ^4.4.2
-      '@tanstack/start-client-core': ^1.167.20
-      ai: '>=6.0.168'
-      elysia: '>=1.4.28'
-      express: '>=5.2.1'
-      fastify: '>=5.8.5'
+      '@nestjs/common': '>=11.2.8'
+      '@nestjs/core': '>=11.2.8'
+      '@nuxt/kit': ^4.6.4
+      '@orpc/server': '>=1.16.2'
+      '@tanstack/start-client-core': ^1.170.39
+      ai: '>=6.0.168 <8.0.0'
+      effect: ^4.1.2
+      elysia: '>=1.4.31'
+      eve: '>=0.30.0'
+      express: '>=5.3.0'
+      fastify: '>=5.12.8'
       h3: ^1.15.11
-      hono: ''
-      next: '>=16.2.4'
-      nitro: ^3.0.260311-beta
-      nitropack: ^2.13.3
+      hono: '>=4.13.17'
+      next: '>=16.4.5'
+      nitro: '>=3.0.0-0 <4.0.0-0 || >=3.0.260311-beta <4.0.0-0 || >=3.0.261029-rc <4.0.0-0 || >=3.0.261103-rc <4.0.0-0'
+      nitropack: ^2.13.6
       ofetch: ^1.5.1
-      react: '>=19.2.5'
-      react-router: '>=7.14.2'
+      react: '>=19.3.1'
+      react-router: '>=7.18.5'
       vite: ^7.0.0 || ^8.0.0
     peerDependenciesMeta:
       '@nestjs/common':
         optional: true
+      '@nestjs/core':
+        optional: true
       '@nuxt/kit':
+        optional: true
+      '@orpc/server':
         optional: true
       '@tanstack/start-client-core':
         optional: true
       ai:
         optional: true
+      effect:
+        optional: true
       elysia:
+        optional: true
+      eve:
         optional: true
       express:
         optional: true
@@ -24576,7 +24591,7 @@ snapshots:
     dependencies:
       eventsource-parser: 3.1.1
 
-  evlog@2.14.1(@tanstack/start-client-core@1.170.39)(ai@7.0.137(zod@4.6.7))(express@5.2.1(supports-color@10.2.2))(h3@1.15.11)(hono@4.13.19)(nitropack@2.13.6(@azure/identity@4.13.3(supports-color@10.2.2))(@parcel/watcher@2.5.6)(aws4fetch@1.0.20)(drizzle-orm@1.0.0-beta.22(@opentelemetry/api@1.9.1)(@sinclair/typebox@0.34.52)(@types/mssql@9.1.9(supports-color@10.2.2))(@types/pg@8.23.1)(bun-types@1.4.4)(gel@2.2.0(supports-color@10.2.2))(mssql@11.0.1(supports-color@10.2.2))(pg@8.23.1)(postgres@3.4.9)(valibot@1.2.0(typescript@6.0.3))(zod@4.6.7))(oxc-parser@0.155.0)(rolldown@1.2.19)(srvx@1.0.8)(supports-color@10.2.2)(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1))(webpack@5.105.4(esbuild@0.28.1)))(ofetch@1.5.1)(react@19.3.1)(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1)):
+  evlog@2.36.0(patch_hash=28c876b092ef32020717d549ae975448b3054a7e6185ffd7a87891fa25bd706a)(@tanstack/start-client-core@1.170.39)(ai@7.0.137(zod@4.6.7))(express@5.2.1(supports-color@10.2.2))(h3@1.15.11)(hono@4.13.19)(nitropack@2.13.6(@azure/identity@4.13.3(supports-color@10.2.2))(@parcel/watcher@2.5.6)(aws4fetch@1.0.20)(drizzle-orm@1.0.0-beta.22(@opentelemetry/api@1.9.1)(@sinclair/typebox@0.34.52)(@types/mssql@9.1.9(supports-color@10.2.2))(@types/pg@8.23.1)(bun-types@1.4.4)(gel@2.2.0(supports-color@10.2.2))(mssql@11.0.1(supports-color@10.2.2))(pg@8.23.1)(postgres@3.4.9)(valibot@1.2.0(typescript@6.0.3))(zod@4.6.7))(oxc-parser@0.155.0)(rolldown@1.2.19)(srvx@1.0.8)(supports-color@10.2.2)(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1))(webpack@5.105.4(esbuild@0.28.1)))(ofetch@1.5.1)(react@19.3.1)(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1)):
     optionalDependencies:
       '@tanstack/start-client-core': 1.170.39
       ai: 7.0.137(zod@4.6.7)
@@ -24588,11 +24603,10 @@ snapshots:
       react: 19.3.1
       vite: 8.3.8(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1)
 
-  evlog@2.14.1(@tanstack/start-client-core@1.170.39)(ai@7.0.137(zod@4.6.7))(express@5.2.1(supports-color@10.2.2))(h3@1.15.11)(hono@4.13.19)(nitropack@2.13.6(@azure/identity@4.13.3(supports-color@10.2.2))(@parcel/watcher@2.5.6)(aws4fetch@1.0.20)(drizzle-orm@1.0.0-beta.22(@opentelemetry/api@1.9.1)(@sinclair/typebox@0.34.52)(@types/mssql@9.1.9(supports-color@10.2.2))(@types/pg@8.23.1)(bun-types@1.4.4)(gel@2.2.0(supports-color@10.2.2))(mssql@11.0.1(supports-color@10.2.2))(pg@8.23.1)(postgres@3.4.9)(valibot@1.2.0(typescript@6.0.3))(zod@4.6.7))(oxc-parser@0.155.0)(rolldown@1.2.19)(srvx@1.0.8)(supports-color@10.2.2)(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1)))(ofetch@1.5.1)(react@19.3.1)(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1)):
+  evlog@2.36.0(patch_hash=28c876b092ef32020717d549ae975448b3054a7e6185ffd7a87891fa25bd706a)(@tanstack/start-client-core@1.170.39)(ai@7.0.137(zod@4.6.7))(h3@1.15.11)(hono@4.13.19)(nitropack@2.13.6(@azure/identity@4.13.3(supports-color@10.2.2))(@parcel/watcher@2.5.6)(aws4fetch@1.0.20)(drizzle-orm@1.0.0-beta.22(@opentelemetry/api@1.9.1)(@sinclair/typebox@0.34.52)(@types/mssql@9.1.9(supports-color@10.2.2))(@types/pg@8.23.1)(bun-types@1.4.4)(gel@2.2.0(supports-color@10.2.2))(mssql@11.0.1(supports-color@10.2.2))(pg@8.23.1)(postgres@3.4.9)(valibot@1.2.0(typescript@6.0.3))(zod@4.6.7))(oxc-parser@0.155.0)(rolldown@1.2.19)(srvx@1.0.8)(supports-color@10.2.2)(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1)))(ofetch@1.5.1)(react@19.3.1)(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1)):
     optionalDependencies:
       '@tanstack/start-client-core': 1.170.39
       ai: 7.0.137(zod@4.6.7)
-      express: 5.2.1(supports-color@10.2.2)
       h3: 1.15.11
       hono: 4.13.19
       nitropack: 2.13.6(@azure/identity@4.13.3(supports-color@10.2.2))(@parcel/watcher@2.5.6)(aws4fetch@1.0.20)(drizzle-orm@1.0.0-beta.22(@opentelemetry/api@1.9.1)(@sinclair/typebox@0.34.52)(@types/mssql@9.1.9(supports-color@10.2.2))(@types/pg@8.23.1)(bun-types@1.4.4)(gel@2.2.0(supports-color@10.2.2))(mssql@11.0.1(supports-color@10.2.2))(pg@8.23.1)(postgres@3.4.9)(valibot@1.2.0(typescript@6.0.3))(zod@4.6.7))(oxc-parser@0.155.0)(rolldown@1.2.19)(srvx@1.0.8)(supports-color@10.2.2)(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -24600,11 +24614,10 @@ snapshots:
       react: 19.3.1
       vite: 8.3.8(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1)
 
-  evlog@2.14.1(@tanstack/start-client-core@1.170.39)(ai@7.0.137(zod@4.6.7))(express@5.2.1(supports-color@10.2.2))(h3@1.15.11)(hono@4.13.19)(nitropack@2.13.6(@azure/identity@4.13.3(supports-color@10.2.2))(@parcel/watcher@2.5.6)(aws4fetch@1.0.20)(oxc-parser@0.155.0)(rolldown@1.2.19)(srvx@1.0.8)(supports-color@10.2.2)(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1))(webpack@5.105.4(esbuild@0.28.2)))(ofetch@1.5.1)(react@19.3.1)(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1)):
+  evlog@2.36.0(patch_hash=28c876b092ef32020717d549ae975448b3054a7e6185ffd7a87891fa25bd706a)(@tanstack/start-client-core@1.170.39)(ai@7.0.137(zod@4.6.7))(h3@1.15.11)(hono@4.13.19)(nitropack@2.13.6(@azure/identity@4.13.3(supports-color@10.2.2))(@parcel/watcher@2.5.6)(aws4fetch@1.0.20)(oxc-parser@0.155.0)(rolldown@1.2.19)(srvx@1.0.8)(supports-color@10.2.2)(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1))(webpack@5.105.4(esbuild@0.28.2)))(ofetch@1.5.1)(react@19.3.1)(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1)):
     optionalDependencies:
       '@tanstack/start-client-core': 1.170.39
       ai: 7.0.137(zod@4.6.7)
-      express: 5.2.1(supports-color@10.2.2)
       h3: 1.15.11
       hono: 4.13.19
       nitropack: 2.13.6(@azure/identity@4.13.3(supports-color@10.2.2))(@parcel/watcher@2.5.6)(aws4fetch@1.0.20)(oxc-parser@0.155.0)(rolldown@1.2.19)(srvx@1.0.8)(supports-color@10.2.2)(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.0)(tsx@4.23.15)(yaml@2.9.1))(webpack@5.105.4(esbuild@0.28.2))

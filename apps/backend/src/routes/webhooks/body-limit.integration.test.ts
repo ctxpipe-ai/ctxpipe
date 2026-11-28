@@ -4,13 +4,13 @@ import { fileURLToPath } from "node:url"
 
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { config } from "dotenv"
-import { createLogger } from "evlog"
 import { contextStorage } from "hono/context-storage"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 import type { AppEnv } from "../../app/env.js"
 import { parseEnv } from "../../config/env.js"
 import { closeDb, initDb } from "../../db/client.js"
+import { createTestLogger } from "../../test/hono-test-logger.js"
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url))
 config({ path: resolve(__dirname, "../../../.env.local") })
@@ -44,7 +44,7 @@ function createTestApp() {
   app.use(contextStorage())
   app.use("*", async (c, next) => {
     c.set("env", env)
-    c.set("log", createLogger())
+    c.set("log", createTestLogger())
     await next()
   })
   registerWebhookRoutes(app)

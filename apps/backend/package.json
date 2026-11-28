@@ -78,7 +78,7 @@
     "dockerode": "^5.0.1",
     "dotenv": "^17.3.1",
     "drizzle-orm": "beta",
-    "evlog": "^2.13.0",
+    "evlog": "^2.36.0",
     "falkordb": "^6.6.2",
     "graphql": "^17.1.0",
     "hono": "^4.13.19",

@@ -1,5 +1,4 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
-import { createLogger } from "evlog"
 import { contextStorage } from "hono/context-storage"
 import { exportJWK, generateKeyPair, type JWK, SignJWT } from "jose"
 import { HttpResponse, http } from "msw"
@@ -97,6 +96,7 @@ vi.mock("../../../openworkflow/client.js", () => ({
 
 import { confluenceSyncSpace } from "../../../openworkflow/workflows/confluence-sync-space.js"
 import { workspaceSourcesSync } from "../../../openworkflow/workflows/workspace-sources-sync.js"
+import { createTestLogger } from "../../../test/hono-test-logger.js"
 import type {
   ForgeInvocationTokenApp,
   ForgeInvocationTokenPayload,
@@ -240,7 +240,7 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
   })
 
   function createApp() {
-    const log = createLogger()
+    const log = createTestLogger()
     const app = new OpenAPIHono<AppEnv>()
     app.use(contextStorage())
     app.use("*", async (c, next) => {
@@ -564,7 +564,7 @@ describe("POST /api/v1/webhook/atlassian/forge/token-refresh", () => {
     app.use(contextStorage())
     app.use("*", async (c, next) => {
       c.set("env", env)
-      c.set("log", createLogger())
+      c.set("log", createTestLogger())
       await next()
     })
     registerAtlassianWebhookRoute(app)

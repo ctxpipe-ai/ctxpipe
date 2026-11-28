@@ -20,7 +20,6 @@ trustPolicyExclude:
   - '@pierre/theme@2.0.0'
   - '@vercel/detect-agent@1.2.5'
   - 'chokidar@4.0.3'
-  - 'evlog@2.14.1'
   - 'semver@6.3.1'
   - 'undici-types@6.21.0'
 
@@ -73,6 +72,11 @@ patchedDependencies:
   # deletes index.ts. Node and Bun load index.js and are not affected. Temporary: drop it once fast-json-patch
   # (https://github.com/Starcounter-Jack/JSON-Patch/issues/347) or tsx is fixed upstream. Accepted by the CTO on 2026-11-27.
   'fast-json-patch@3.1.1': patches/fast-json-patch@3.1.1.patch
+  # evlog 2.30 and later ship an `evlog` bin. It runs the latest @evlog/cli through `pnpm dlx`, `bunx` or
+  # `npx --yes`, outside the lockfile, the release age and the trust policy. ctxpipe uses only the library.
+  # Thus the patch removes the bin from the package.json of evlog. The key has no version, so the patch stays
+  # on each update. When evlog changes the lines around `bin`, the install stops. Then examine the bin again.
+  evlog: patches/evlog.patch
   # The checks run OpenCode from the root devDependency, and pnpm runs no
   # dependency build script. The launcher runs the binary of the platform
   # package that the lockfile installed, so the postinstall is not needed.

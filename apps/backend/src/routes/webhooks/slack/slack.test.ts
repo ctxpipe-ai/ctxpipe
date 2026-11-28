@@ -1,4 +1,3 @@
-import { createLogger } from "evlog"
 import { Hono } from "hono"
 import { contextStorage } from "hono/context-storage"
 import { beforeEach, describe, expect, it, vi } from "vitest"
@@ -29,12 +28,13 @@ vi.mock("../../../services/slack/client.js", () => ({
   updateSlackMessage: vi.fn(),
 }))
 
+import { createTestLogger } from "../../../test/hono-test-logger.js"
 import { registerSlackWebhookRoute } from "./slack.js"
 
 let logInfo = vi.fn()
 
 function testApp() {
-  const log = createLogger()
+  const log = createTestLogger()
   logInfo = vi.spyOn(log, "info")
   const app = new Hono<AppEnv>()
   app.use(contextStorage())

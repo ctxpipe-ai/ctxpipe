@@ -19,7 +19,10 @@ import { workspaceTipCheck } from "../../openworkflow/workflows/workspace-tip-ch
 import { maybeEnqueueGithubIssueMirror } from "../../routes/webhooks/github/github-issue-mirror-events.js"
 import { registerGithubWebhookRoute } from "../../routes/webhooks/github/github.js"
 import { captureGithubIssuePage } from "../../services/github/issue-mirror/sync.js"
-import { contextStorage } from "../../test/hono-test-logger.js"
+import {
+  contextStorage,
+  createTestLogger,
+} from "../../test/hono-test-logger.js"
 import {
   type NativeHydrationFixture,
   withNativeHydrationFixture,
@@ -318,7 +321,7 @@ it(
       app.use(contextStorage())
       app.use("*", async (c, next) => {
         c.set("env", env)
-        c.set("log", createLogger({ proof: "webhook" }))
+        c.set("log", createTestLogger({ proof: "webhook" }))
         await next()
       })
       registerGithubWebhookRoute(app)

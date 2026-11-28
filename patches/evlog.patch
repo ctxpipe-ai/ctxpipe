@@ -1,0 +1,11 @@
+diff --git a/package.json b/package.json
+--- a/package.json
++++ b/package.json
+@@ -40,7 +40,4 @@
+   "engines": {
+     "node": ">=18.0.0"
+   },
+-  "bin": {
+-    "evlog": "./bin/evlog.mjs"
+-  },
+   "exports": {

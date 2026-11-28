@@ -1,7 +1,6 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { Webhooks } from "@octokit/webhooks"
 import { trace } from "@opentelemetry/api"
-import { createLogger } from "evlog"
 import type { MiddlewareHandler } from "hono"
 import { contextStorage } from "hono/context-storage"
 import { beforeEach, describe, expect, it, vi } from "vitest"
@@ -109,6 +108,7 @@ import {
   registerInstallationOnConnection,
 } from "../../../models/github-installation.js"
 import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
+import { createTestLogger } from "../../../test/hono-test-logger.js"
 import { enqueuePushTipChecks } from "./github-push-tip-check.js"
 import { registerGithubWebhookRoute } from "./github.js"
 
@@ -195,7 +195,7 @@ describe("POST /api/v1/webhook/github", () => {
     if (before) app.use("*", before)
     app.use("*", async (c, next) => {
       c.set("env", env)
-      c.set("log", createLogger())
+      c.set("log", createTestLogger())
       await next()
     })
     registerGithubWebhookRoute(app)
@@ -298,7 +298,7 @@ describe("POST /api/v1/webhook/github", () => {
     app.use(contextStorage())
     app.use("*", async (c, next) => {
       c.set("env", envNoSecret)
-      c.set("log", createLogger())
+      c.set("log", createTestLogger())
       await next()
     })
     registerGithubWebhookRoute(app)
@@ -722,7 +722,7 @@ describe("POST /api/v1/webhook/github/:connectionId", () => {
     if (before) app.use("*", before)
     app.use("*", async (c, next) => {
       c.set("env", env)
-      c.set("log", createLogger())
+      c.set("log", createTestLogger())
       await next()
     })
     registerGithubWebhookRoute(app)

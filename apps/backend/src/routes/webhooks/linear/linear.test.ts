@@ -2,7 +2,6 @@ import { createHmac } from "node:crypto"
 
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { trace } from "@opentelemetry/api"
-import { createLogger } from "evlog"
 import type { MiddlewareHandler } from "hono"
 import { contextStorage } from "hono/context-storage"
 import { beforeEach, describe, expect, it, vi } from "vitest"
@@ -10,6 +9,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { recordSpans } from "../../../../test/spans.js"
 import type { AppEnv } from "../../../app/env.js"
 import { parseEnv } from "../../../config/env.js"
+import { createTestLogger } from "../../../test/hono-test-logger.js"
 import {
   linearEntityTargetForPayload,
   registerLinearWebhookRoute,
@@ -68,7 +68,7 @@ function createTestApp(before?: MiddlewareHandler) {
   if (before) app.use("*", before)
   app.use("*", async (c, next) => {
     c.set("env", env)
-    c.set("log", createLogger())
+    c.set("log", createTestLogger())
     await next()
   })
   registerLinearWebhookRoute(app)
@@ -91,7 +91,7 @@ function createTestAppWithEnv(testEnv: typeof env) {
   app.use(contextStorage())
   app.use("*", async (c, next) => {
     c.set("env", testEnv)
-    c.set("log", createLogger())
+    c.set("log", createTestLogger())
     await next()
   })
   registerLinearWebhookRoute(app)
