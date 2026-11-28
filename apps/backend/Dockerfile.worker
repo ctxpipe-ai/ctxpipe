@@ -29,10 +29,14 @@ WORKDIR /app
 ENV CI=true
 # pnpm is a Node CLI. Running it through Bun can stall during lifecycle scripts.
 RUN apk add --no-cache nodejs
-RUN bun install -g pnpm@11.28.11
+RUN bun install -g pnpm@11.28.13
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* tsconfig.json ./
 COPY patches patches
 COPY apps/backend/package.json apps/backend/package.json
+# The workspace packages that apps/backend/package.json links (workspace:*).
+# pnpm 11.28.13 and later reject a frozen install whose linked workspace
+# package has no manifest, even when --prod skips it.
+COPY packages/visual-review/package.json packages/visual-review/package.json
 # The pnpm store is a BuildKit cache mount (scripts/checks/README.md, Builds).
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm install --store-dir /pnpm/store --frozen-lockfile --prod --config.confirmModulesPurge=false
