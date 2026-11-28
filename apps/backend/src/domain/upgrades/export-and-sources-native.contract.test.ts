@@ -398,10 +398,11 @@ it(
           expect(gateway).toContain("generated_by: ctxpipe-extract")
           expect(gateway).toContain("sources/github/team-a/api.md")
           // Step 3 makes the changes that hydrate makes at format 3: the
-          // claim of a link, its valid_from, and the bootstrap files.
+          // claim of a link and the bootstrap files. It writes no
+          // valid_from (CTX-1710).
           const release = show("guides/release.md")
           expect(release).toContain("to: ../knowledge/services/tools-cli.md")
-          expect(release).toMatch(/valid_from: "?\d{4}-\d{2}-\d{2}T/)
+          expect(release).not.toContain("valid_from")
           expect(files).toContain("AGENTS.md")
           expect(files).toContain(KNOWLEDGE_SKILL_PATH)
           expect(show("AGENTS.md")).toContain("## Folder Structure")

@@ -19,6 +19,7 @@ import {
   workspaceRepositoryPath,
   workspaceRootPath,
 } from "../domain/workspaces/root-path.js"
+import type { DocumentTimes } from "../domain/workspaces/source-time.js"
 import { McpToolError } from "../mcp/framework/tool-errors.js"
 import type { KnowledgeHead } from "../models/knowledge-state.js"
 import { log } from "../observability/logger.js"
@@ -93,9 +94,9 @@ const scopeOf = (orgId: string, workspaceId: string, head: KnowledgeHead) => ({
 /**
  * The unit at `path` in the view of `head`, from the Workspace Git at the tip
  * that the view takes the file from, or null when the file is not there or
- * is not a unit. `updatedAt` is the time that the plane observed the
- * document, as in the other results of the plane; without a document row it
- * is the time of the read. `sha` is the tip of the read.
+ * is not a unit. `times` are the times of its tree row (CTX-1710), as in
+ * the other results of the plane; without a row they are null. `sha` is the
+ * tip of the read.
  */
 export async function readPlaneUnit(input: {
   orgId: string
@@ -104,7 +105,11 @@ export async function readPlaneUnit(input: {
   head: KnowledgeHead
   /** The path from the Workspace root. */
   path: string
-}): Promise<{ unit: HydrateUnit; updatedAt: Date; sha: string } | null> {
+}): Promise<{
+  unit: HydrateUnit
+  times: DocumentTimes<Date>
+  sha: string
+} | null> {
   const { orgId, workspaceId, head, path } = input
   const scope = scopeOf(orgId, workspaceId, head)
   let sha = head.sha
@@ -157,7 +162,15 @@ export async function readPlaneUnit(input: {
   const [document] = await knowledgeStore().readDocuments(scope, [
     { workspaceId, docKey: servingIdForKnowledgePath(workspaceId, path) },
   ])
-  return { unit, updatedAt: document?.document.observedAt ?? new Date(), sha }
+  return {
+    unit,
+    times: {
+      createdAt: document?.document.createdAt ?? null,
+      updatedAt: document?.document.updatedAt ?? null,
+      expiresAt: document?.document.expiresAt ?? null,
+    },
+    sha,
+  }
 }
 
 /**

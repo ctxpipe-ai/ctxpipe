@@ -63,12 +63,42 @@ claims:
 | `to` | Required. File-relative path of the related unit. Items without `to` are skipped. |
 | `predicate` | The relationship, for example `DEPENDS_ON`, `PART_OF`, `OWNS`, `SUPERSEDES`. |
 | `confidence` | How sure the author is: about `0.5` typical, `0.7` strong, `0.85` and above rare. |
-| `valid_from`, `valid_to` | When the fact holds. A missing `valid_from` defaults to the time of the commit that introduced it. |
+| `valid_from`, `valid_to` | When the fact holds. A missing `valid_from` defaults to the `createdAt` of the unit (see [Times of a unit](#times-of-a-unit)). ctxpipe does not write it into the file. |
 | `source` | Optional pointer to where the fact came from. |
 
 `kind` is optional and sets the unit's node type in the graph (`Service`,
 `API`, `Library`, `Decision`, `Pattern`, and so on). Without it, the unit
 appears as a generic knowledge unit.
+
+## Times of a unit
+
+Agents see three times for each unit: `createdAt`, `updatedAt`, and
+`expiresAt`. ctxpipe reads them from the file each time it reads the file. It
+never writes them into the file.
+
+| Time | A unit that people write | A mirrored item (Linear, GitHub, Slack, Notion, and the other connectors) |
+| --- | --- | --- |
+| `createdAt` | The commit that added the file. A decision record uses its `date` front matter or its `**Date:**` line. | The creation time that the source gives. Without one, the commit that added the file. |
+| `updatedAt` | The last commit that changed the file. | The time of the last change that the source gives. Without one, the `createdAt`. |
+| `expiresAt` | The `expiresAt` front matter, when you set it. | The same. |
+
+A mirrored file keeps the property names of its source, for example
+`updated_at` or `lastEditedTime`. ctxpipe compares the names with no case and
+no `_`, so `expires_at` and `expiresAt` are the same property. Thus an edit of
+the file by another tool keeps working.
+
+Set `expiresAt` on a unit that you know will be stale after a date, for
+example a plan for one quarter:
+
+```markdown
+---
+kind: Plan
+expiresAt: 2027-01-01
+---
+```
+
+`expiresAt` is a hint for the agent. A search still returns the unit after
+that time, with its `expiresAt`.
 
 On the default reader, related results (`get_related`) give less confidence
 to older facts on every intent, through the half-life of their source. The

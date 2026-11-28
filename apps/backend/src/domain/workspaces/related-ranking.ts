@@ -48,7 +48,10 @@ export type RelatedResult = {
    * plane rows. Only the knowledge plane gives it.
    */
   sourceType?: string
-  updatedAt: string
+  /** The times of the result (CTX-1710), as ISO times. Null: unknown. */
+  createdAt: string | null
+  updatedAt: string | null
+  expiresAt?: string
   summary?: string
   score: number
   queryMatch?: number
@@ -232,10 +235,7 @@ export async function rankWorkspaceRelated(
       ),
       minConfidence: input.minConfidence,
       maxFanOut: input.maxFanOut,
-      validAt: input.validBetween
-        ? undefined
-        : (input.validAt ?? now.toISOString()),
-      validBetween: input.validBetween,
+      validAt: now.toISOString(),
       caps: {
         ...caps,
         totalTimeoutMs: Math.max(0, Math.floor(deadline - performance.now())),
@@ -297,11 +297,7 @@ export async function rankWorkspaceRelated(
         excludeKinds: input.excludeKinds,
         includeSeeds: input.includeSeeds,
         limit: RANKED_LIMIT,
-        now: input.validAt ? new Date(input.validAt) : now,
-        validBetween: input.validBetween && {
-          from: new Date(input.validBetween.from),
-          to: new Date(input.validBetween.to),
-        },
+        now,
       },
     })
     return { expansion, ranked }
@@ -404,6 +400,8 @@ export async function rankWorkspaceRelated(
         title: unit.title,
         kind: result.kind,
         source: unit.source ?? "authored",
+        // The old stack gives no createdAt.
+        createdAt: null,
         updatedAt: unit.updatedAt.toISOString(),
         ...(node.summary ? { summary: truncateText(node.summary, 200) } : {}),
         score: round(result.score),

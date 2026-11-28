@@ -1,5 +1,7 @@
 import { z } from "zod"
 
+import type { DocumentTimes } from "../../domain/workspaces/source-time.js"
+
 /** The Workspace slug argument of a tool. */
 export const workspaceArgument = z
   .string()
@@ -34,6 +36,38 @@ export const servedSchema = z.object({
   branch: z.string(),
   sha: z.string(),
 })
+
+/**
+ * The times of a knowledge unit in each tool output that names one
+ * (CTX-1710), as ISO 8601 strings.
+ */
+export const documentTimesShape = {
+  createdAt: z
+    .string()
+    .nullable()
+    .describe("When the item began in its source (ISO 8601). Null: unknown."),
+  updatedAt: z
+    .string()
+    .nullable()
+    .describe(
+      "When the content last changed in its source (ISO 8601). Compare it to find the newest source. Null: unknown.",
+    ),
+  expiresAt: z
+    .string()
+    .optional()
+    .describe(
+      "The author's hint that the content is stale after this time (ISO 8601). Only when the author set it. An expired unit can still be correct.",
+    ),
+}
+
+/** The times of a unit as the tools give them: `expiresAt` only when set. */
+export function documentTimesOutput(times: DocumentTimes<Date>) {
+  return {
+    createdAt: times.createdAt?.toISOString() ?? null,
+    updatedAt: times.updatedAt?.toISOString() ?? null,
+    ...(times.expiresAt ? { expiresAt: times.expiresAt.toISOString() } : {}),
+  }
+}
 
 /**
  * A Workspace or repository that the call did not use, with the reason. A

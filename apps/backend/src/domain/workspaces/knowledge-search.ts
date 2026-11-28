@@ -49,7 +49,14 @@ export type KnowledgeHit = {
   kind: string | null
   title: string | null
   source: string
-  updatedAt: Date
+  /**
+   * The times of the unit (CTX-1710): when it began and when it last
+   * changed in its source, and the author's hint that it is stale after a
+   * time. Null: unknown or not set.
+   */
+  createdAt: Date | null
+  updatedAt: Date | null
+  expiresAt: Date | null
   /** The SHA of the Workspace's active projection, which holds the unit. */
   projectionSha: string
   /** 1-based file lines of the chunk, inclusive. */
@@ -344,7 +351,10 @@ async function runSearch(
     kind: row.kind,
     title: row.title,
     source: row.source,
+    // The old stack gives no createdAt and no expiresAt.
+    createdAt: null,
     updatedAt: new Date(row.updated_at),
+    expiresAt: null,
     projectionSha: row.projection_sha,
     startLine: row.start_line,
     endLine: row.end_line,

@@ -468,7 +468,11 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
       expect(result.structuredContent).toEqual({
         ref: "knowledge/services/payments-api.md",
         served: { branch: "main", sha: sha1 },
-        frontMatter: { source: "authored", updatedAt: expect.any(String) },
+        frontMatter: {
+          source: "authored",
+          createdAt: null,
+          updatedAt: expect.any(String),
+        },
         content: "# Payments API\n\nOwns card charges.\nCalls the ledger.",
         startLine: 1,
         endLine: 4,
@@ -683,6 +687,7 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
           kind: "Standard",
           title: "Rate limits",
           source: "authored",
+          createdAt: null,
           updatedAt: "2026-09-01T00:00:00.000Z",
           claims: [
             {

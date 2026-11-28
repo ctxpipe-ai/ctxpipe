@@ -9,6 +9,7 @@ import {
 } from "../domain/workspace-sources/source-tree.js"
 import { SOURCES_FILE_PATH } from "../domain/workspace-sources/sources-file.js"
 import { servingIdForKnowledgePath } from "../domain/workspaces/hydrate.js"
+import { withGitTimes } from "../domain/workspaces/source-time.js"
 import {
   type DocumentRows,
   type FileDocument,
@@ -38,10 +39,7 @@ import {
   textEmbeddingConfig,
 } from "../retrieval/embeddings/textEmbeddings.js"
 import { scrubForModel } from "../retrieval/services/scrubForModel.js"
-import {
-  fetchGitHistory,
-  readMarkdownHistory,
-} from "../services/git/clone-tree.js"
+import { fetchGitHistory, readPathHistory } from "../services/git/clone-tree.js"
 import {
   fetchGitCommits,
   nativeGit,
@@ -115,11 +113,12 @@ type KnowledgeRunSummary =
  *    the same key (`fileVersion`), else a new one from its file. A knowledge
  *    file (Markdown) that does not parse, or a file that does not convert,
  *    gets a `failed` file version.
- * 4. Each path whose file version or `valid_from` changed gets a tree row
- *    with the next tree version. The `valid_from` of a document is the
- *    source time of its file version (CTX-1516), else, for a knowledge
- *    file, the time of the commit that introduced it, from one walk of the
- *    Git history of the tip (`fileIntroductions`).
+ * 4. Each path whose file version or times changed gets a tree row with
+ *    the next tree version. The times of a document are the times that its
+ *    file version states, with the Git times of the path where it states
+ *    none (`withGitTimes`, CTX-1710): the commit that introduced it and the
+ *    last commit that changed it, from one walk of the Git history of the
+ *    tip (`fileGitTimes`).
  * 5. Each path whose file is gone gets a tombstone row. A full rebuild does
  *    this for each path of the head that the tree does not give. An overlay
  *    gets an `inherit` row for each path that left it.
@@ -257,7 +256,7 @@ export async function projectKnowledgePlane(input: {
               input.defaultTip ?? lastSha,
             )
             // The history of both tips in one fetch, so that `git
-            // merge-base` can walk them. `fileIntroductions` then finds the
+            // merge-base` can walk them. `fileGitTimes` then finds the
             // history of the tip already there.
             let mergeBase: string | null = null
             if (input.defaultTip) {
@@ -298,7 +297,7 @@ export async function projectKnowledgePlane(input: {
               // A rebuild writes new file versions: a stored one can have
               // lost rows that its document row does not show.
               rebuildId: forcedReason ? input.observedAt.toISOString() : null,
-              introductions: await fileIntroductions({
+              gitTimes: await fileGitTimes({
                 directory,
                 remote: input.remote,
                 root: input.root,
@@ -442,7 +441,8 @@ const sameEntry = (a: TreeEntry | undefined, b: TreeEntry) =>
   !a.inherit &&
   a.version === b.version &&
   a.path === b.path &&
-  (a.validFrom?.getTime() ?? null) === (b.validFrom?.getTime() ?? null)
+  (a.createdAt?.getTime() ?? null) === (b.createdAt?.getTime() ?? null) &&
+  (a.updatedAt?.getTime() ?? null) === (b.updatedAt?.getTime() ?? null)
 
 /**
  * The work of one change set: the file versions that are not stored yet,
@@ -470,7 +470,7 @@ async function applyChangeSet(input: {
   treeVersion: number
   /** A full rebuild: the id that makes its file versions new (`fileVariant`). */
   rebuildId: string | null
-  introductions: FileIntroductions
+  gitTimes: FileGitTimes
   counter: MutationCounter
   embedding: EmbeddingCounter
   files: FileCounter
@@ -513,15 +513,15 @@ async function applyChangeSet(input: {
   )
   // Only regular files: a submodule, a symlink or a removed path gives no
   // document. A delta also writes each file that a commit after a fork
-  // added, because its `valid_from` can change when the diff does not show
-  // it.
+  // added or changed, because its Git times can change when the diff does
+  // not show it.
   const files = [
     ...new Set(
       plan.kind === "full"
         ? plan.files
         : plan.kind === "overlay"
           ? plan.changed
-          : [...plan.changed, ...input.introductions.addedSinceFork],
+          : [...plan.changed, ...input.gitTimes.changedSinceFork],
     ),
   ]
     .filter((path) => tree.has(path) && isDocumentPath(path))
@@ -583,8 +583,9 @@ async function applyChangeSet(input: {
         status: error === undefined ? "active" : "failed",
         kind: document.kind,
         observedAt: document.observedAt,
-        validFrom: document.validFrom,
-        validTo: document.validTo,
+        createdAt: document.createdAt,
+        updatedAt: document.updatedAt,
+        expiresAt: document.expiresAt,
       })
   }
 
@@ -598,17 +599,16 @@ async function applyChangeSet(input: {
     const version = stored.get(fileVersionId(key))
     if (!version) continue
     present.add(key.docKey)
+    // The times of the file version, with the Git times of the path on
+    // the branch where the file states none (CTX-1710).
     const entry: TreeEntry = {
       ...key,
       ...version,
+      ...withGitTimes(path, version, {
+        introducedAt: dateOrNull(input.gitTimes.introducedAtByPath.get(path)),
+        lastChangedAt: dateOrNull(input.gitTimes.lastChangedAtByPath.get(path)),
+      }),
       path,
-      // The source time of the file version first (CTX-1516), else the
-      // time of the commit that introduced the knowledge file.
-      validFrom:
-        version.validFrom ??
-        (isKnowledgePath(path)
-          ? dateOrNull(input.introductions.introducedAtByPath.get(path))
-          : null),
       deletedAt: null,
     }
     if (!sameEntry(current.get(key.docKey), entry))
@@ -721,8 +721,9 @@ async function overlayEnds(input: {
             status: "active" as const,
             kind: "",
             observedAt: input.observedAt,
-            validFrom: null,
-            validTo: null,
+            createdAt: null,
+            updatedAt: null,
+            expiresAt: null,
           }),
           inherit: false,
           deletedAt: input.observedAt,
@@ -752,8 +753,9 @@ const failedDocument = (
   source: "",
   summary: "",
   mime: "",
-  validFrom: null,
-  validTo: null,
+  createdAt: null,
+  updatedAt: null,
+  expiresAt: null,
   observedAt,
 })
 
@@ -1196,55 +1198,67 @@ async function embedDocuments(
   }))
 }
 
-/** The introducing commit of each knowledge file (`fileIntroductions`). */
-type FileIntroductions = {
+/** The Git times of each file (`fileGitTimes`). */
+type FileGitTimes = {
   /** The time of the commit that introduced each path. */
   introducedAtByPath: Map<string, string>
+  /** The time of the last commit that changed each path. */
+  lastChangedAtByPath: Map<string, string>
   /**
-   * The paths that a commit added on one side only of the fork between the
-   * tip and `last_sha`.
+   * The paths that a commit added or changed on one side only of the fork
+   * between the tip and `last_sha`.
    */
-  addedSinceFork: string[]
+  changedSinceFork: string[]
 }
 
 /**
- * The commit that introduced each knowledge file at `tip`, with the rule of
- * the old stack (`readMarkdownHistory`): the newest commit that added the
- * path. One fetch with no blobs and one walk of the history, for all files,
- * so the cost does not grow with each file. Paths are relative to `root`.
+ * The commit that introduced each file at `tip`, with the rule of the old
+ * stack (`readPathHistory`): the newest commit that added the path, and
+ * the last commit that changed it. One fetch with no blobs and one walk of
+ * the history, for all files, so the cost does not grow with each file.
+ * Paths are relative to `root`.
  *
- * In a delta, a file can get a different introducing commit with no change
- * in the diff from `last_sha`: a commit removed the file and a later commit
- * added it again, a merge brought an earlier add, or the tip went back to an
- * older commit. Then the introducing commit at the tip or at `last_sha` is
- * on one side only of their fork. `addedSinceFork` gives each path that such
- * a commit added, so the delta writes the `valid_from` of a full rebuild.
+ * In a delta, a file can get a different introducing commit or last commit
+ * with no change in the diff from `last_sha`: a commit removed the file and
+ * a later commit added it again, a commit changed it and a later commit
+ * changed it back, a merge brought an earlier change, or the tip went back
+ * to an older commit. Then that commit at the tip or at `last_sha` is on one
+ * side only of their fork. `changedSinceFork` gives each path that such a
+ * commit added or changed, so the delta writes the times of a full rebuild.
  * The walk of the fork reads only the commits after it.
  */
-async function fileIntroductions(input: {
+async function fileGitTimes(input: {
   directory: string
   remote: KnowledgeRemote
   root: string
   tip: string
   /** The `last_sha` of a delta; null for a full rebuild. */
   base: string | null
-}): Promise<FileIntroductions> {
+}): Promise<FileGitTimes> {
   const { directory, root, tip } = input
   await fetchGitHistory(directory, {
     url: input.remote.url,
     sha: tip,
     token: await input.remote.token(),
   })
-  const { introduced } = await readMarkdownHistory(directory, {
+  // Each document of the plane, not only a knowledge file, gets the Git
+  // times of its path, and a merge counts as the change that it brings to
+  // the branch (CTX-1710).
+  const { introduced, lastChanged } = await readPathHistory(directory, {
     sha: tip,
     root,
+    allPaths: true,
+    mergeChanges: true,
   })
-  const introducedAtByPath = new Map<string, string>()
-  for (const [repositoryPath, timestamp] of introduced) {
-    const path = workspaceRelativePath(root, repositoryPath)
-    if (path !== null) introducedAtByPath.set(path, timestamp)
+  const byWorkspacePath = (times: Map<string, string>) => {
+    const byPath = new Map<string, string>()
+    for (const [repositoryPath, timestamp] of times) {
+      const path = workspaceRelativePath(root, repositoryPath)
+      if (path !== null) byPath.set(path, timestamp)
+    }
+    return byPath
   }
-  const added = new Set<string>()
+  const changed = new Set<string>()
   if (input.base && input.base !== tip)
     for (const repositoryPath of (
       await nativeGit(directory, [
@@ -1253,11 +1267,10 @@ async function fileIntroductions(input: {
         "--format=",
         "--name-only",
         "-z",
-        "--diff-filter=A",
+        "--diff-filter=AMT",
         "--no-renames",
+        "--diff-merges=first-parent",
         `${tip}...${input.base}`,
-        "--",
-        "*.md",
       ])
     )
       .toString()
@@ -1265,9 +1278,13 @@ async function fileIntroductions(input: {
       // An empty format puts a newline before the paths of each commit.
       const name = repositoryPath.replace(/^\n/, "")
       const path = name ? workspaceRelativePath(root, name) : null
-      if (path !== null) added.add(path)
+      if (path !== null) changed.add(path)
     }
-  return { introducedAtByPath, addedSinceFork: [...added] }
+  return {
+    introducedAtByPath: byWorkspacePath(introduced),
+    lastChangedAtByPath: byWorkspacePath(lastChanged),
+    changedSinceFork: [...changed],
+  }
 }
 
 /**

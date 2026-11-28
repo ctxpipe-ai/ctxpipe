@@ -5,10 +5,14 @@
 export type CandidateMeta = {
   status: string
   sourceType: string
-  /** ISO 8601 times. Null when the source does not give one. */
-  observedAt: string | null
-  validFrom: string | null
-  validTo: string | null
+  /**
+   * The times of the document (CTX-1710), ISO 8601: when it began and when
+   * it last changed in its source, and the author's hint that it is stale
+   * after a time. Null when unknown or not set.
+   */
+  createdAt: string | null
+  updatedAt: string | null
+  expiresAt: string | null
   /** From 0 to 1. Null when unknown. */
   confidence: number | null
 }
@@ -22,9 +26,9 @@ export function metaLine(meta: CandidateMeta): string {
   return [
     `status: ${meta.status}`,
     `source type: ${meta.sourceType}`,
-    `observed at: ${meta.observedAt ?? "unknown"}`,
-    `valid from: ${meta.validFrom ?? "unknown"}`,
-    `valid to: ${meta.validTo ?? "open"}`,
+    `created at: ${meta.createdAt ?? "unknown"}`,
+    `updated at: ${meta.updatedAt ?? "unknown"}`,
+    `expires at: ${meta.expiresAt ?? "not set"}`,
     `confidence: ${meta.confidence === null ? "unknown" : meta.confidence.toFixed(2)}`,
   ].join("; ")
 }

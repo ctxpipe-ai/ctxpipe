@@ -16,7 +16,7 @@ To connect a client, see
 | Tool | What it does | Main arguments |
 | --- | --- | --- |
 | `list_workspaces` | Lists the organizations and Workspaces that the connection can read. With one Workspace, it also gives its repositories, sources, and readiness. | `org`, `workspace` |
-| `search_knowledge` | Searches the knowledge with natural language or keywords. | `query`, `workspaces`, `kinds`, `pathPrefix`, `sources`, `updatedAfter`, `validAt` |
+| `search_knowledge` | Searches the knowledge with natural language or keywords. | `query`, `workspaces`, `kinds`, `pathPrefix`, `sources`, `updatedAfter` |
 | `search_code` | Searches the linked repositories in one call. | `query`, `mode` (`literal`, `regex`, or `structural`), `repositories`, `language`, `pathGlob`, `caseSensitive` |
 | `find_symbol` | Finds the definition, references, callers, or callees of a symbol. | `symbol`, `relation`, `filePath`, `language` |
 | `read_file` | Reads a knowledge file or a repository file by its ref. | `ref`, `startLine`, `endLine` |
@@ -27,6 +27,18 @@ Each tool has the read-only hint. The tools never change your data. The
 `structural` mode of `search_code` needs `language`. For `get_related`,
 `intent` is one of `why`, `ownership`, `change`, `dependencies`, `structure`,
 `provenance`, or `general`.
+
+Each result of `search_knowledge` and `get_related`, and the front matter that
+`read_file` gives, has the times of the unit:
+
+| Time | Meaning |
+| --- | --- |
+| `createdAt` | When the item began in its source, for example when the issue was opened. For a file that people write in the Workspace, the commit that added the file. |
+| `updatedAt` | When the content last changed in its source. For a mirrored item with no such time, its `createdAt`. For a file that people write, its last commit. |
+| `expiresAt` | Only when the author sets it. A hint that the content can be stale after this time. ctxpipe still returns the unit. |
+
+`updatedAfter` gives only the units whose `updatedAt` is after the time that
+you give. Use it to find what changed since your last search.
 
 When your organization is on the knowledge plane, `get_related` also gives
 `claims`: what connects its top results. A claim is one of these:

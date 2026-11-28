@@ -95,8 +95,9 @@ async function seed(scope: KnowledgeScope): Promise<void> {
           source: "workspace",
           summary: "",
           mime: "",
-          validFrom: null,
-          validTo: null,
+          createdAt: null,
+          updatedAt: null,
+          expiresAt: null,
           observedAt,
         },
         chunks: [
@@ -133,8 +134,9 @@ async function seed(scope: KnowledgeScope): Promise<void> {
         status: "active",
         kind: "note",
         observedAt,
-        validFrom: null,
-        validTo: null,
+        createdAt: null,
+        updatedAt: null,
+        expiresAt: null,
         deletedAt: null,
       },
     ])

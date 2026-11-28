@@ -212,6 +212,19 @@ let queueRevision: Awaited<ReturnType<typeof seedRelatedWorkspace>>["revision"]
 const related = (args: Record<string, unknown>) =>
   callTool(client, "get_related", { org: seed.orgSlug, ...args })
 
+/**
+ * A call on 2026-10-14. The old stack takes the edges that are valid at the
+ * time of the call, and their age then.
+ */
+const relatedOnOctober14 = async (args: Record<string, unknown>) => {
+  vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-10-14T00:00:00Z") })
+  try {
+    return await related(args)
+  } finally {
+    vi.useRealTimers()
+  }
+}
+
 const refs = (result: CallToolResult): string[] =>
   (
     result.structuredContent?.results as Array<{ ref: string }> | undefined
@@ -552,11 +565,10 @@ describe("get_related through the MCP client on live Postgres and FalkorDB", () 
   })
 
   it("ranks incident context with graph proximity (design example 1)", async () => {
-    const result = await related({
+    const result = await relatedOnOctober14({
       workspace: "payments",
       seeds: [checkout],
       intent: "why",
-      validAt: "2026-10-14T00:00:00Z",
       limit: 5,
     })
     expect(result.isError).not.toBe(true)
@@ -591,12 +603,11 @@ describe("get_related through the MCP client on live Postgres and FalkorDB", () 
   })
 
   it("lets the query move the unit that matches it to the top", async () => {
-    const result = await related({
+    const result = await relatedOnOctober14({
       workspace: "payments",
       seeds: [checkout],
       query: "connection pool exhaustion after deploy",
       intent: "why",
-      validAt: "2026-10-14T00:00:00Z",
       limit: 5,
     })
     expect(result.isError).not.toBe(true)
@@ -611,39 +622,12 @@ describe("get_related through the MCP client on live Postgres and FalkorDB", () 
     ])
   })
 
-  it("includes edges that ended when the window covers them", async () => {
-    const window = await related({
-      workspace: "payments",
-      seeds: [checkout],
-      intent: "why",
-      validBetween: {
-        from: "2026-06-15T00:00:00Z",
-        to: "2026-06-20T00:00:00Z",
-      },
-      limit: 5,
-    })
-    expect(refs(window)).toEqual([
-      "pagerduty/incidents/q3.md",
-      "knowledge/decisions/adr-012.md",
-      "knowledge/databases/payments-db.md",
-      "knowledge/runbooks/db-connection-saturation.md",
-    ])
-    const now = await related({
-      workspace: "payments",
-      seeds: [checkout],
-      intent: "why",
-      validAt: "2026-10-14T00:00:00Z",
-    })
-    expect(refs(now)).not.toContain("pagerduty/incidents/q3.md")
-  })
-
   it("returns the seeds only on request and omits paths without explain", async () => {
-    const result = await related({
+    const result = await relatedOnOctober14({
       workspace: "payments",
       seeds: [checkout],
       includeSeeds: true,
       explain: false,
-      validAt: "2026-10-14T00:00:00Z",
     })
     expect(refs(result)).toContain(checkout)
     for (const item of result.structuredContent?.results as object[]) {
@@ -922,19 +906,6 @@ describe("get_related through the MCP client on live Postgres and FalkorDB", () 
         }),
       ),
     ).toBe("org_not_found")
-    expect(
-      errorCode(
-        await related({
-          workspace: "payments",
-          seeds: [checkout],
-          validAt: "2026-10-14T00:00:00Z",
-          validBetween: {
-            from: "2026-06-15T00:00:00Z",
-            to: "2026-06-20T00:00:00Z",
-          },
-        }),
-      ),
-    ).toBe("invalid_argument")
   })
 
   it("refuses an option that is out of range", async () => {

@@ -136,7 +136,6 @@
       "split": "dev",
       "text": "In October 2026, how did production image deploys work?",
       "gold": ["decisions/ADR-039-production-image-deploys-one-environment.md"],
-      "validAt": "2026-10-01T00:00:00Z",
       "keyFacts": [
         "Production image deploys stayed on one Railway environment."
       ]

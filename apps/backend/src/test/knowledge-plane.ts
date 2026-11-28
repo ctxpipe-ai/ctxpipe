@@ -8,12 +8,16 @@ import type {
   KnowledgeStore,
 } from "../knowledge-store/knowledge-store.js"
 
+/** The times of a document (CTX-1710). */
+type Times = "createdAt" | "updatedAt" | "expiresAt"
+
 /**
- * The rows of a document as a read test gives them: the `valid_from` of its
- * tree row on the document, and `validFromIntroduced` optional (false).
+ * The rows of a document as a read test gives them: the times of its tree
+ * row on the document, each optional (null), and `validFromIntroduced`
+ * optional (false).
  */
 export type PlaneDocument = Omit<DocumentRows, "document" | "relations"> & {
-  document: FileDocument & { validFrom?: Date | null }
+  document: Omit<FileDocument, Times> & Partial<Pick<FileDocument, Times>>
   relations: (Omit<FileRelation, "validFromIntroduced"> & {
     validFromIntroduced?: boolean
   })[]
@@ -35,7 +39,12 @@ export async function writePlaneDocuments(
   const versions = documents.map(({ document, relations, ...rows }) => {
     const content = {
       ...rows,
-      document,
+      document: {
+        ...document,
+        createdAt: document.createdAt ?? null,
+        updatedAt: document.updatedAt ?? null,
+        expiresAt: document.expiresAt ?? null,
+      },
       relations: relations.map((relation) => ({
         ...relation,
         validFromIntroduced: relation.validFromIntroduced ?? false,
@@ -54,15 +63,16 @@ export async function writePlaneDocuments(
     scope,
     branch,
     treeVersion,
-    versions.map(({ document, version }, index) => ({
+    versions.map(({ document, version }) => ({
       docKey: document.docKey,
       version,
       path: document.path,
       status: "active",
       kind: document.kind,
       observedAt: document.observedAt,
-      validFrom: documents[index]?.document.validFrom ?? null,
-      validTo: document.validTo,
+      createdAt: document.createdAt,
+      updatedAt: document.updatedAt,
+      expiresAt: document.expiresAt,
       deletedAt: null,
     })),
   )

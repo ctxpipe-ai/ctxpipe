@@ -209,7 +209,6 @@ describe("search_knowledge through the MCP client", () => {
       { pathPrefix: "runbooks/" },
       { sources: ["authored"] },
       { updatedAfter: "2026-01-01T00:00:00Z" },
-      { validAt: "2026-01-01T00:00:00Z" },
     ]) {
       const result = await call(filter)
       expect(result.isError).not.toBe(true)

@@ -178,7 +178,6 @@ describe("hydrate direct writes and the Workspace format (ADR-053 section 7)", (
         "ops_folder_map",
         "ownership_migration",
         "rename_rewrite",
-        "valid_from_persist",
       ],
       historyRead: true,
     })

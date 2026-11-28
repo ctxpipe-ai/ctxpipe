@@ -38,6 +38,7 @@ import {
 } from "../lib/withTransientHttpRetry.js"
 import { truncateText } from "../mcp/framework/budget.js"
 import { checkPath } from "../mcp/framework/refs.js"
+import { documentTimesOutput } from "../mcp/framework/schemas.js"
 import { McpToolError } from "../mcp/framework/tool-errors.js"
 import type { KnowledgeHead } from "../models/knowledge-state.js"
 import {
@@ -67,7 +68,6 @@ import {
   judge,
   type ModelMeter,
   ORCHESTRATOR_DEFAULTS,
-  overlaps,
   retrievalDeadline,
   type TraversalNode,
   traverse,
@@ -230,9 +230,9 @@ function queryTerms(query: string): string[] {
 
 /**
  * `search_knowledge` and the chat search: the hybrid search, then layer 0
- * (Jev orders the hits by p(answers)). A hit that is not valid at `validAt`
- * (or now) comes after the valid hits. When Jev fails, the hits keep the
- * search order and the result says `judge_unavailable`. When the time
+ * (Jev orders the hits by p(answers)). No time filters or orders the hits:
+ * an agent sees the times of each hit and judges them (CTX-1710). When Jev
+ * fails, the hits keep the search order and the result says `judge_unavailable`. When the time
  * budget ends during the judge, they keep the search order and the result
  * says `total_timeout`; when it ends before the search ends, there are no
  * hits.
@@ -246,7 +246,6 @@ async function search(
 ): Promise<SearchResult> {
   const query = request.query.trim()
   if (!query || request.workspaceIds.length === 0) return { hits: [] }
-  const queryTime = request.validAt ?? request.now ?? new Date()
   const deadline = retrievalDeadline()
   const store = knowledgeStore()
   // The store applies each filter before it cuts the candidates. With no
@@ -268,8 +267,7 @@ async function search(
           kinds: request.kinds ? [...request.kinds] : undefined,
           pathPrefix: request.pathPrefix,
           sources: request.sources ? [...request.sources] : undefined,
-          observedAfter: request.updatedAfter ?? null,
-          validAt: request.validAt ?? null,
+          updatedAfter: request.updatedAfter ?? null,
           chunksPerDocument: ORCHESTRATOR_DEFAULTS.evidenceChunks,
           neighbors: {
             from: ORCHESTRATOR_DEFAULTS.searchNeighborsFrom,
@@ -307,7 +305,6 @@ async function search(
       store.readFrontier(
         scope,
         inputs.map((input) => input.ref),
-        request.validAt ?? null,
         "out",
       ),
     ).catch((error: unknown) => {
@@ -317,21 +314,22 @@ async function search(
   ])
   const claimsOf = claimsByDocument(relations)
   const hits = found.flatMap(
-    (hit, index): (KnowledgeHit & { order: number; valid: boolean })[] => {
+    (hit, index): (KnowledgeHit & { order: number })[] => {
       const chunk = hit.chunks[0]
       const sha = heads.get(hit.workspaceId)?.sha
       if (!chunk || !sha) return []
       return [
         {
           order: index,
-          valid: isValidAt(hit.document, queryTime),
           workspaceId: hit.workspaceId,
           unitId: hit.document.docKey,
           path: hit.document.path,
           kind: hit.document.kind || null,
           title: hit.document.title || null,
           source: sourceOf(hit.document),
-          updatedAt: hit.document.observedAt,
+          createdAt: hit.document.createdAt,
+          updatedAt: hit.document.updatedAt,
+          expiresAt: hit.document.expiresAt,
           projectionSha: sha,
           startLine: chunk.startLine,
           endLine: chunk.endLine,
@@ -342,19 +340,10 @@ async function search(
       ]
     },
   )
-  // The valid hits first: the validity reaches the order through code, not
-  // through Jev. Then Jev's order, with the search order between equal
-  // probabilities.
-  hits.sort(
-    (a, b) =>
-      Number(b.valid) - Number(a.valid) ||
-      b.score - a.score ||
-      a.order - b.order,
-  )
+  // Jev's order, with the search order between equal probabilities.
+  hits.sort((a, b) => b.score - a.score || a.order - b.order)
   return {
-    hits: hits
-      .slice(0, limit)
-      .map(({ order: _order, valid: _valid, ...hit }) => hit),
+    hits: hits.slice(0, limit).map(({ order: _order, ...hit }) => hit),
     ...(unjudged ? { partialReason: unjudged } : {}),
   }
 }
@@ -382,17 +371,6 @@ function claimsByDocument(
     claims.set(key, list)
   }
   return claims
-}
-
-/** True when the span is valid at `at`. An unknown bound is open. */
-function isValidAt(
-  span: { validFrom: Date | null; validTo: Date | null },
-  at: Date,
-): boolean {
-  return (
-    (!span.validFrom || span.validFrom <= at) &&
-    (!span.validTo || at < span.validTo)
-  )
 }
 
 /**
@@ -435,20 +413,11 @@ async function related(
     ),
     minConfidence: input.minConfidence,
     maxFanOut: input.maxFanOut,
-    validAt: input.validBetween ? null : new Date(input.validAt ?? Date.now()),
-    ...(input.validBetween
-      ? {
-          validBetween: {
-            from: new Date(input.validBetween.from),
-            to: new Date(input.validBetween.to),
-          },
-        }
-      : {}),
   }
   // The seeds are the first frontier, so their relations need no vector and
   // no judge: the read starts with the query embedding (CTX-1535).
   const seedRelations = beforeDeadline(deadline, () =>
-    store.readFrontier(scope, seedRefs, walk.validAt),
+    store.readFrontier(scope, seedRefs),
   )
   // The traversal awaits it; a call that ends before (an unknown seed, the
   // end of the budget) must not leave an unhandled rejection.
@@ -501,7 +470,7 @@ async function related(
   let earlyFacts: Promise<DisagreementFacts> | undefined
   let earlyRelations: Promise<FrontierRelation[]> | undefined
   const readRelations = (nodes: readonly TraversalNode[]) =>
-    relationsBetween(store, scope, nodes, walk, deadline)
+    relationsBetween(store, scope, nodes, deadline)
   try {
     traversal = await traverse({
       store,
@@ -582,27 +551,19 @@ async function related(
  * no relation to the code or the design that it is about, and a code
  * document has no relation to the issues about it. The search of the store
  * with no query terms orders only by vector, and it needs no model call.
- * The bridge follows no relation, so a walk of named predicates, of one
- * direction or of a time window has no bridge.
+ * The bridge follows no relation, so a walk of named predicates or of one
+ * direction has no bridge.
  */
 function bridgeDocuments(
   store: KnowledgeStore,
   scope: KnowledgeReadScope,
   vector: number[],
   seeds: readonly string[],
-  walk: Pick<
-    WalkFilter,
-    "direction" | "predicates" | "validAt" | "validBetween"
-  >,
+  walk: Pick<WalkFilter, "direction" | "predicates">,
   deadline: number,
 ): Promise<{ ref: DocumentRef; document: KnowledgeDocument }[]> {
   const items = ORCHESTRATOR_DEFAULTS.bridgeItems
-  if (
-    items <= 0 ||
-    walk.direction !== "both" ||
-    walk.predicates ||
-    walk.validBetween
-  )
+  if (items <= 0 || walk.direction !== "both" || walk.predicates)
     return Promise.resolve([])
   const seedSources = new Set(seeds.map((path) => sourceOf({ path })))
   const sources = [...CONNECTOR_MIRROR_ROOTS, AUTHORED].filter(
@@ -615,7 +576,6 @@ function bridgeDocuments(
       vector,
       terms: [],
       sources,
-      validAt: walk.validAt,
       chunksPerDocument: 1,
     }),
   ).then((hits) =>
@@ -748,8 +708,8 @@ function askFacts(
 }
 
 /**
- * The out-relations of `nodes` that pass the time filter of the `walk`,
- * read before `deadline`. Each relation between two of the nodes is an
+ * The out-relations of `nodes`, read before `deadline`. No time filters
+ * them: each claim shows its `validFrom` and `validTo` (CTX-1710). Each relation between two of the nodes is an
  * out-relation of one of them, so fewer than two nodes need no read. The
  * caller awaits the result later, so a failure is not an unhandled
  * rejection until then.
@@ -758,21 +718,14 @@ function relationsBetween(
   store: KnowledgeStore,
   scope: KnowledgeReadScope,
   nodes: readonly TraversalNode[],
-  walk: Pick<WalkFilter, "validAt" | "validBetween">,
   deadline: number,
 ): Promise<FrontierRelation[]> {
   if (nodes.length < 2) return Promise.resolve([])
-  const { validAt, validBetween } = walk
   const relations = beforeDeadline(deadline, () =>
     store.readFrontier(
       scope,
       nodes.map(({ ref }) => ref),
-      validAt,
       "out",
-    ),
-  ).then((read) =>
-    read.filter(
-      ({ relation }) => !validBetween || overlaps(relation, validBetween),
     ),
   )
   relations.catch(() => {})
@@ -851,7 +804,7 @@ function relatedResult(node: TraversalNode): RelatedResult {
     kind: document.kind || null,
     source: sourceOf(document),
     ...(document.sourceType ? { sourceType: document.sourceType } : {}),
-    updatedAt: document.observedAt.toISOString(),
+    ...documentTimesOutput(document),
     ...(document.summary
       ? { summary: truncateText(document.summary, 200) }
       : {}),
@@ -908,7 +861,6 @@ async function expand(
     const relations = await store.readFrontier(
       scope,
       frontier.map((docKey) => ({ workspaceId, docKey })),
-      new Date(),
     )
     const next: string[] = []
     for (const docKey of frontier) {

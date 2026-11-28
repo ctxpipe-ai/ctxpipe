@@ -27,7 +27,7 @@ The ctxpipe MCP server gives you facts with stable refs. You do the reasoning. T
 | Tool | Use it to |
 | -- | -- |
 | `list_workspaces` | Find the organizations and Workspaces you can read, and the state of one Workspace. |
-| `search_knowledge` | Search knowledge units (ADRs, standards, service pages, mirrored issues, docs) in natural language or with keywords. Filter with `kinds`, `pathPrefix`, `sources`, `updatedAfter`, `validAt`. Omit `workspaces` to search all Workspaces of the organization. |
+| `search_knowledge` | Search knowledge units (ADRs, standards, service pages, mirrored issues, docs) in natural language or with keywords. Filter with `kinds`, `pathPrefix`, `sources`, `updatedAfter` (the units that changed in their source since a time). Omit `workspaces` to search all Workspaces of the organization. |
 | `get_related` | Find units near seed refs in the graph and relevant to a `query`. Set `intent`: `general` (the default), `why`, `ownership`, `change`, `dependencies`, `structure`, or `provenance` (the sources that a unit came from). Use `excludePredicates` and `excludeKinds` to remove edges and result kinds. Each intent has its own default walk of the graph, so pick the intent that matches your question. Use it after `search_knowledge` for owners, dependencies, decisions, changes, and sources. |
 | `search_code` | Search linked repositories. `mode` is `literal`, `regex` (RE2), or `structural` (ast-grep, needs `language`). Narrow it with `pathGlob` (a gitignore-style glob, such as `*.ts`) and `caseSensitive`. |
 | `find_symbol` | Find the `definition`, `references`, `callers`, or `callees` of a symbol. |
@@ -58,6 +58,7 @@ The ctxpipe MCP server gives you facts with stable refs. You do the reasoning. T
 - `truncated: true` means the server cut the result to fit its size limit. Narrow the query instead of paging through noise.
 - A `skipped` list names Workspaces or repositories that the server did not search, with a reason. Narrow the call with `workspace` or `repositories` when a repository is skipped as `over_limit`.
 - Each result states the served branch and commit. Use it when you tell the user how fresh a fact is.
+- Each knowledge result has `createdAt` (when the item began in its source) and `updatedAt` (when its content last changed in its source). Compare `updatedAt` to find the newest source. An `expiresAt` is the author's hint that the content can be stale after that time: check a newer source before you rely on it.
 - An error has `code`, `message`, and `retryable`. Retry only when `retryable` is true.
 
 ## Answer

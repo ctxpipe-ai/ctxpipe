@@ -81,8 +81,18 @@ export type KnowledgeDocument = {
   source: string
   summary: string
   mime: string
-  validFrom: Date | null
-  validTo: Date | null
+  /**
+   * The times of the document (`DocumentTimes`, CTX-1710). On a file
+   * version, the times that the file states; on a read, the times of the
+   * tree row, with the Git times of the path (`withGitTimes`).
+   */
+  createdAt: Date | null
+  updatedAt: Date | null
+  expiresAt: Date | null
+  /**
+   * The start of the projection run that first wrote the file version. It
+   * is internal: no agent sees it, and no ranking uses it (CTX-1710).
+   */
   observedAt: Date
 }
 
@@ -145,9 +155,8 @@ export type FileVersionKey = { docKey: string; version: string }
 /**
  * The fields of a document that the content of its file gives. The tree
  * gives the status of the path and `deletedAt` (ADR-071 decision 3).
- * `validFrom` is the source's own time of the file (`sourceTime`), or null
- * when it states none: the `validFrom` of the tree row is this time, else
- * the time of the commit that introduced the file on the branch.
+ * Its times are the times that the file states (`documentTimes`): the tree
+ * row adds the Git times of the path on its branch (`withGitTimes`).
  */
 export type FileDocument = Omit<
   KnowledgeDocument,
@@ -187,20 +196,21 @@ export type StoredFileVersion = {
   status: "active" | "failed"
   kind: string
   observedAt: Date
-  /** The source time of the file (`FileDocument.validFrom`). */
-  validFrom: Date | null
-  validTo: Date | null
+  /** The times that the file states (`FileDocument`). */
+  createdAt: Date | null
+  updatedAt: Date | null
+  expiresAt: Date | null
 }
 
 /**
  * One tree row (ADR-071 decision 3): the file version of a path on a
  * branch, or a tombstone (`deletedAt` is set) that keeps the last file
- * version of the path.
+ * version of the path. Its times are the times of the file version with the
+ * Git times of the path on the branch (`withGitTimes`).
  */
 export type TreeEntry = FileVersionKey &
   StoredFileVersion & {
     path: string
-    validFrom: Date | null
     deletedAt: Date | null
     /**
      * An overlay row that takes the path out of the overlay: the view of
@@ -242,10 +252,8 @@ export type SearchQuery = {
    * outside the mirror roots. Empty or absent: all.
    */
   sources?: string[]
-  /** Only documents observed after this time. */
-  observedAfter?: Date | null
-  /** Only documents that are valid at this time. */
-  validAt?: Date | null
+  /** Only documents with an `updatedAt` after this time. */
+  updatedAfter?: Date | null
   /** The best chunks of each found document that the hit holds, at most. */
   chunksPerDocument: number
   /**
@@ -493,7 +501,6 @@ export type KnowledgeStore = {
   readFrontier(
     scope: KnowledgeReadScope,
     refs: DocumentRef[],
-    validAt?: Date | null,
     direction?: "out" | "both",
   ): Promise<FrontierRelation[]>
   /**
@@ -595,8 +602,8 @@ export function createKnowledgeStore(url: string | undefined): KnowledgeStore {
     listUnresolvedReferences: (scope) =>
       listUnresolvedReferences(client, scope),
     search: (scope, query) => search(client, scope, query),
-    readFrontier: (scope, refs, validAt, direction) =>
-      readFrontier(client, scope, refs, validAt, direction),
+    readFrontier: (scope, refs, direction) =>
+      readFrontier(client, scope, refs, direction),
     readDocuments: (scope, refs) => readDocuments(client, scope, refs),
     listViewFiles: (scope, prefix) =>
       selectIn<{ workspaceId: string; path: string; branch: string }>(
@@ -778,8 +785,9 @@ type StoredVersionRecord = FileVersionKey & {
   status: "active" | "failed"
   kind: string
   observedAt: string
-  validFrom: string | null
-  validTo: string | null
+  createdAt: string | null
+  updatedAt: string | null
+  expiresAt: string | null
 }
 
 async function findFileVersions(
@@ -793,8 +801,8 @@ async function findFileVersions(
       client,
       scope,
       `SELECT doc_key AS docKey, version, status, kind,
-         observed_at AS observedAt, valid_from AS validFrom,
-         valid_to AS validTo
+         observed_at AS observedAt, created_at AS createdAt,
+         updated_at AS updatedAt, expires_at AS expiresAt
        FROM documents
        WHERE ${scoped}
          AND (doc_key, version) IN {keys:Array(Tuple(String, String))}`,
@@ -804,8 +812,9 @@ async function findFileVersions(
         status: row.status,
         kind: row.kind,
         observedAt: new Date(row.observedAt),
-        validFrom: toDate(row.validFrom),
-        validTo: toDate(row.validTo),
+        createdAt: toDate(row.createdAt),
+        updatedAt: toDate(row.updatedAt),
+        expiresAt: toDate(row.expiresAt),
       })
   return found
 }
@@ -877,8 +886,9 @@ type TableRows = {
     source: string
     summary: string
     mime: string
-    valid_from: string | null
-    valid_to: string | null
+    created_at: string | null
+    updated_at: string | null
+    expires_at: string | null
     observed_at: string
   }
   chunks: ScopeColumns & {
@@ -904,8 +914,9 @@ type TableRows = {
     status: "active" | "failed"
     doc_kind: string
     observed_at: string
-    valid_from: string | null
-    valid_to: string | null
+    created_at: string | null
+    updated_at: string | null
+    expires_at: string | null
     deleted_at: string | null
   }
 }
@@ -1016,8 +1027,9 @@ async function insertRows(
       source: document.source,
       summary: document.summary,
       mime: document.mime,
-      valid_from: isoOrNull(document.validFrom),
-      valid_to: isoOrNull(document.validTo),
+      created_at: isoOrNull(document.createdAt),
+      updated_at: isoOrNull(document.updatedAt),
+      expires_at: isoOrNull(document.expiresAt),
       observed_at: document.observedAt.toISOString(),
     })),
   )
@@ -1052,8 +1064,9 @@ async function writeTree(
       status: entry.status,
       doc_kind: entry.kind,
       observed_at: entry.observedAt.toISOString(),
-      valid_from: isoOrNull(entry.validFrom),
-      valid_to: isoOrNull(entry.validTo),
+      created_at: isoOrNull(entry.createdAt),
+      updated_at: isoOrNull(entry.updatedAt),
+      expires_at: isoOrNull(entry.expiresAt),
       deleted_at: isoOrNull(entry.deletedAt),
     })),
   )
@@ -1065,8 +1078,9 @@ type TreeRecord = FileVersionKey & {
   status: "active" | "failed"
   kind: string
   observedAt: string
-  validFrom: string | null
-  validTo: string | null
+  createdAt: string | null
+  updatedAt: string | null
+  expiresAt: string | null
   deletedAt: string | null
 }
 
@@ -1085,8 +1099,9 @@ async function readTree(
     "tree",
     // The rows of the tree itself, with its `inherit` rows: no view.
     `SELECT doc_key AS docKey, version, path, status,
-       doc_kind AS kind, observed_at AS observedAt, valid_from AS validFrom,
-       valid_to AS validTo, deleted_at AS deletedAt,
+       doc_kind AS kind, observed_at AS observedAt, created_at AS createdAt,
+       updated_at AS updatedAt, expires_at AS expiresAt,
+       deleted_at AS deletedAt,
        kind = 'inherit' AS inherit
      FROM (${newestRows("treeBranches", "treeVersions")}) ORDER BY docKey`,
     {},
@@ -1094,8 +1109,9 @@ async function readTree(
   return rows.map((row) => ({
     ...row,
     observedAt: new Date(row.observedAt),
-    validFrom: toDate(row.validFrom),
-    validTo: toDate(row.validTo),
+    createdAt: toDate(row.createdAt),
+    updatedAt: toDate(row.updatedAt),
+    expiresAt: toDate(row.expiresAt),
     deletedAt: toDate(row.deletedAt),
   }))
 }
@@ -1570,7 +1586,8 @@ const inWorkspaces =
 
 /** The columns of a row of the tree view. */
 const treeColumns = `workspace_id, branch, doc_key, kind, path, version,
-  status, doc_kind, observed_at, valid_from, valid_to, deleted_at`
+  status, doc_kind, observed_at, created_at, updated_at, expires_at,
+  deleted_at`
 
 /**
  * The newest tree row of each document key of the branches `branches` at
@@ -1614,7 +1631,7 @@ const treeView = `SELECT ${treeColumns} FROM (
   LIMIT 1 BY workspace_id, doc_key`
 
 /** The tree rows of the view that hold a file version (not a tombstone). */
-const viewFiles = `SELECT workspace_id, doc_key, version, valid_from
+const viewFiles = `SELECT workspace_id, doc_key, version, created_at
   FROM tree_view WHERE kind = 'file'`
 
 /**
@@ -1643,19 +1660,20 @@ const viewDocumentColumns = `v.doc_key AS docKey, v.doc_kind AS kind,
   v.deleted_at AS deletedAt, if(v.kind = 'deleted', '', d.error) AS error,
   d.title AS title, v.path AS path, d.source_type AS sourceType,
   d.source AS source, d.summary AS summary, d.mime AS mime,
-  v.valid_from AS validFrom, v.valid_to AS validTo,
-  v.observed_at AS observedAt`
+  v.created_at AS createdAt, v.updated_at AS updatedAt,
+  v.expires_at AS expiresAt, v.observed_at AS observedAt`
 
 /**
  * The relations of the file versions of `sources` (a subquery with the
  * columns of {@link viewFiles}), with the columns of a relation. A relation
- * with `valid_from_introduced` takes `valid_from` of its source row.
+ * with `valid_from_introduced` takes as its `valid_from` the `created_at`
+ * of its source row: the claim holds from the time that the document began.
  */
 const relationsOf = (table: "relations" | "relations_in", sources: string) =>
   `SELECT r.workspace_id AS workspace_id, r.src_doc AS src_doc,
      r.src_chunk AS src_chunk, r.predicate AS predicate, r.dst_doc AS dst_doc,
      r.confidence AS confidence,
-     if(r.valid_from_introduced, s.valid_from, r.valid_from) AS valid_from,
+     if(r.valid_from_introduced, s.created_at, r.valid_from) AS valid_from,
      r.valid_to AS valid_to, r.source AS source, r.alt_text AS alt_text,
      r.observed_at AS observed_at
    FROM ${table} AS r
@@ -1668,19 +1686,6 @@ const relationsOf = (table: "relations" | "relations_in", sources: string) =>
 /** A time in the text form of a `DateTime64(3, 'UTC')` parameter. */
 const clickHouseTime = (time: Date) =>
   time.toISOString().slice(0, 23).replace("T", " ")
-
-/**
- * True for a row with no `validAt`, or with `validAt` in its validity:
- * `from` to `to`, by default the columns of `alias`.
- */
-const validDuring = (
-  alias = "",
-  from = `${alias}valid_from`,
-  to = `${alias}valid_to`,
-) =>
-  `({validAt:Nullable(DateTime64(3, 'UTC'))} IS NULL OR (
-    (${from} IS NULL OR ${from} <= {validAt:Nullable(DateTime64(3, 'UTC'))})
-    AND (${to} IS NULL OR ${to} > {validAt:Nullable(DateTime64(3, 'UTC'))})))`
 
 /** The binary form of a vector, as hex: the same bits as `embedding_bits`. */
 function vectorBits(vector: number[]): string {
@@ -1745,8 +1750,7 @@ async function search(
     kinds = [],
     pathPrefix = "",
     sources = [],
-    observedAfter = null,
-    validAt = null,
+    updatedAfter = null,
     chunksPerDocument,
     neighbors,
   }: SearchQuery,
@@ -1767,8 +1771,7 @@ async function search(
     pathPrefix,
     sources,
     mirrorRoots: CONNECTOR_MIRROR_ROOTS,
-    observedAfter: observedAfter && clickHouseTime(observedAfter),
-    validAt: validAt && clickHouseTime(validAt),
+    updatedAfter: updatedAfter && clickHouseTime(updatedAfter),
   }
   const params = {
     ...filters,
@@ -1781,9 +1784,8 @@ async function search(
     AND (empty({sources:Array(String)}) OR has({sources:Array(String)},
       ifNull(arrayFirst(root -> path = root OR startsWith(path, concat(root, '/')),
         {mirrorRoots:Array(Nullable(String))}), 'authored')))
-    AND ({observedAfter:Nullable(DateTime64(3, 'UTC'))} IS NULL
-      OR observed_at > {observedAfter:Nullable(DateTime64(3, 'UTC'))})
-    AND ${validDuring()}`
+    AND ({updatedAfter:Nullable(DateTime64(3, 'UTC'))} IS NULL
+      OR updated_at > {updatedAfter:Nullable(DateTime64(3, 'UTC'))})`
   const inSearchable = `(workspace_id, doc_key, version) IN (
     SELECT workspace_id, doc_key, version FROM tree_view WHERE ${searchable})`
   // For each term, at most 1000 chunks of searchable documents: the cap
@@ -2111,11 +2113,12 @@ async function searchNeighbors(
         | "status"
         | "path"
         | "deletedAt"
-        | "validFrom"
-        | "validTo"
+        | "createdAt"
+        | "updatedAt"
+        | "expiresAt"
         | "observedAt"
       >,
-      "deletedAt" | "validFrom" | "validTo" | "observedAt"
+      "deletedAt" | "createdAt" | "updatedAt" | "expiresAt" | "observedAt"
     > & { workspaceId: string; version: string }
   >(
     client,
@@ -2125,13 +2128,10 @@ async function searchNeighbors(
      candidates AS (
        SELECT o.workspace_id AS workspace_id,
          if(empty(keys.doc_key), o.dst_doc, keys.doc_key) AS doc_key,
-         keys.version AS version, NOT empty(keys.doc_key) AS exact,
-         false AS introduced, NULL AS valid_from, NULL AS valid_to
+         keys.version AS version, NOT empty(keys.doc_key) AS exact
        FROM (
-         SELECT workspace_id, dst_doc FROM (
-           ${relationsOf("relations", `${viewFiles} AND ${seedVersions}`)}
-             AND r.predicate != {fromSource:String}
-         ) WHERE ${validDuring()}
+         ${relationsOf("relations", `${viewFiles} AND ${seedVersions}`)}
+           AND r.predicate != {fromSource:String}
        ) AS o
        LEFT JOIN (
          SELECT workspace_id, concat({prefix:String}, ref_key) AS target,
@@ -2140,8 +2140,7 @@ async function searchNeighbors(
        ) AS keys
          ON keys.workspace_id = o.workspace_id AND keys.target = o.dst_doc
        UNION ALL
-       SELECT workspace_id, src_doc, src_version, true, valid_from_introduced,
-         valid_from, valid_to
+       SELECT workspace_id, src_doc, src_version, true
        FROM relations_in
        WHERE ${inWorkspaces} AND predicate != {fromSource:String} AND (
          (workspace_id, dst_doc) IN {seedDocs:Array(Tuple(String, String))}
@@ -2152,15 +2151,14 @@ async function searchNeighbors(
      SELECT DISTINCT v.workspace_id AS workspaceId, v.doc_key AS docKey,
        v.version AS version, v.doc_kind AS kind,
        toString(v.status) AS status, v.deleted_at AS deletedAt,
-       v.path AS path, v.valid_from AS validFrom, v.valid_to AS validTo,
-       v.observed_at AS observedAt
+       v.path AS path, v.created_at AS createdAt, v.updated_at AS updatedAt,
+       v.expires_at AS expiresAt, v.observed_at AS observedAt
      FROM candidates AS c
      INNER JOIN (
        SELECT * FROM tree_view WHERE ${input.searchable}
          AND (workspace_id, doc_key) NOT IN {hits:Array(Tuple(String, String))}
      ) AS v ON v.workspace_id = c.workspace_id AND v.doc_key = c.doc_key
-     WHERE (NOT c.exact OR c.version = v.version)
-       AND ${validDuring("", "if(c.introduced, v.valid_from, c.valid_from)", "c.valid_to")}`,
+     WHERE NOT c.exact OR c.version = v.version`,
     {
       ...input.filters,
       seeds: versions(input.seeds),
@@ -2275,8 +2273,8 @@ const resolvedTarget = (alias: string) =>
  * (sorted by `dst_doc`). Only the relations of the file versions of the view
  * count. Each relation has the document of its neighbor in the view, or a
  * `missing` document when the view has no row for it (ADR-071 decision 5).
- * With `validAt`, a relation or a neighbor that is not valid at that time is
- * not returned.
+ * No time filters the relations: each relation shows its `validFrom` and
+ * `validTo`, and the agent judges them (CTX-1710).
  *
  * A relation to a reference key resolves through `doc_refs` (ADR-066
  * decision 5): an out-relation comes one time for each document of the key,
@@ -2300,7 +2298,6 @@ async function readFrontier(
   client: ClickHouseClient,
   scope: KnowledgeReadScope,
   refs: DocumentRef[],
-  validAtTime: Date | null = null,
   direction: "out" | "both" = "both",
 ): Promise<FrontierRelation[]> {
   assertReadScope(scope)
@@ -2318,12 +2315,10 @@ async function readFrontier(
          SELECT workspace_id, doc_key, version FROM frontier)
      ),
      in_edges AS (
-       SELECT * FROM (
-         ${relationsOf("relations_in", viewFiles)}
-           AND (${inRefs("r.workspace_id, r.dst_doc")}
-             OR (r.workspace_id, r.dst_doc) IN (
-               SELECT workspace_id, target FROM own_keys))
-       ) WHERE ${validDuring()}
+       ${relationsOf("relations_in", viewFiles)}
+         AND (${inRefs("r.workspace_id, r.dst_doc")}
+           OR (r.workspace_id, r.dst_doc) IN (
+             SELECT workspace_id, target FROM own_keys))
      ),`
   const inBranches = `UNION ALL
        SELECT 'in', src_doc, '', ${edgeColumns}
@@ -2351,10 +2346,8 @@ async function readFrontier(
        ${viewFiles} AND ${inRefs("workspace_id, doc_key")}
      ),
      out_edges AS (
-       SELECT * FROM (
-         ${relationsOf("relations", "SELECT * FROM frontier")}
-           AND ${inRefs("r.workspace_id, r.src_doc")}
-       ) WHERE ${validDuring()}
+       ${relationsOf("relations", "SELECT * FROM frontier")}
+         AND ${inRefs("r.workspace_id, r.src_doc")}
      ),
 ${direction === "out" ? "" : inCtes}     edges AS (
        SELECT 'out' AS direction, dst_doc AS neighbor_doc, '' AS via_key,
@@ -2386,7 +2379,6 @@ ${direction === "out" ? "" : inBranches}
      ORDER BY direction DESC, workspaceId, srcDoc, srcChunk, predicate, dstDoc`,
     {
       refs: refTuples(refs),
-      validAt: validAtTime && clickHouseTime(validAtTime),
       prefix: REFERENCE_TARGET_PREFIX,
     },
   )
@@ -2417,16 +2409,6 @@ ${direction === "out" ? "" : inBranches}
     const neighbor = neighborOf.get(
       documentId({ workspaceId, docKey: neighborDoc }),
     )
-    // A neighbor that is not valid at `validAt` leaves its relation out, as
-    // `validDuring` in SQL (open ends count). A target with no row in the
-    // view is `missing`, and it stays.
-    if (
-      neighbor &&
-      validAtTime &&
-      ((neighbor.validFrom && neighbor.validFrom > validAtTime) ||
-        (neighbor.validTo && neighbor.validTo <= validAtTime))
-    )
-      continue
     const relation = toRelation(row)
     const counts = viaKey && stats.get(keyId(workspaceId, viaKey))
     if (counts) relation.confidence = mentionConfidence(row.confidence, counts)
@@ -2584,8 +2566,9 @@ const missingDocument = (
   source: "",
   summary: "",
   mime: "",
-  validFrom: null,
-  validTo: null,
+  createdAt: null,
+  updatedAt: null,
+  expiresAt: null,
   observedAt,
 })
 
@@ -2815,7 +2798,7 @@ type WithDateStrings<T, K extends keyof T> = Omit<T, K> & {
 }
 type DocumentRecord = WithDateStrings<
   KnowledgeDocument,
-  "deletedAt" | "validFrom" | "validTo" | "observedAt"
+  "deletedAt" | "createdAt" | "updatedAt" | "expiresAt" | "observedAt"
 >
 type RelationRecord = WithDateStrings<
   KnowledgeRelation,
@@ -2827,8 +2810,9 @@ const toDate = (value: string | null) => (value ? new Date(value) : null)
 const toDocument = (record: DocumentRecord): KnowledgeDocument => ({
   ...record,
   deletedAt: toDate(record.deletedAt),
-  validFrom: toDate(record.validFrom),
-  validTo: toDate(record.validTo),
+  createdAt: toDate(record.createdAt),
+  updatedAt: toDate(record.updatedAt),
+  expiresAt: toDate(record.expiresAt),
   observedAt: new Date(record.observedAt),
 })
 

@@ -47,10 +47,10 @@ it(
                   f.workspaceId &&
                 run.workflowName.startsWith("workspace-write-"),
             )
+          // No job writes a time into a file (CTX-1710).
           expect((await jobs()).map((run) => run.workflowName).sort()).toEqual([
             "workspace-write-bootstrap",
             "workspace-write-claims-upgrade",
-            "workspace-write-valid-from-persist",
           ])
           const replay = await f.runner.runWorkflow(workspaceHydrate.spec, {
             orgId: f.org.id,
@@ -58,7 +58,7 @@ it(
             revision: f.revision,
           })
           await replay.result({ timeoutMs: 30_000 })
-          expect(await jobs()).toHaveLength(3)
+          expect(await jobs()).toHaveLength(2)
           expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(f.sha)
           expect(
             f.tokenRequests.filter(
@@ -144,7 +144,7 @@ it(
           { path: "knowledge/a.md", body: "# A\n[B](b.md)\n" },
           {
             path: "knowledge/b.md",
-            body: "---\nclaims:\n  - to: a.md\n---\n# B\n",
+            body: "---\nimport_key: legacy-b\nclaims:\n  - to: a.md\n---\n# B\n",
           },
         ],
       },
@@ -156,8 +156,8 @@ it(
         const runner = new OpenWorkflow({ backend })
         const { workspaceClaimsUpgrade } =
           await import("../../openworkflow/workflows/workspace-claims-upgrade.js")
-        const { workspaceValidFromPersist } =
-          await import("../../openworkflow/workflows/workspace-valid-from-persist.js")
+        const { workspaceImportKeyCleanup } =
+          await import("../../openworkflow/workflows/workspace-import-key-cleanup.js")
         const { workspaceSemanticMerge } =
           await import("../../openworkflow/workflows/workspace-semantic-merge.js")
         runner.implementWorkflow(
@@ -165,8 +165,8 @@ it(
           workspaceClaimsUpgrade.fn,
         )
         runner.implementWorkflow(
-          workspaceValidFromPersist.spec,
-          workspaceValidFromPersist.fn,
+          workspaceImportKeyCleanup.spec,
+          workspaceImportKeyCleanup.fn,
         )
         runner.implementWorkflow(
           workspaceSemanticMerge.spec,
@@ -184,9 +184,10 @@ it(
                 f.workspaceId &&
               run.workflowName.startsWith("workspace-write-"),
           )
+          // No job writes a time into a file (CTX-1710).
           expect(queued.map((run) => run.workflowName).sort()).toEqual([
             "workspace-write-claims-upgrade",
-            "workspace-write-valid-from-persist",
+            "workspace-write-import-key-cleanup",
           ])
           await worker.start()
           await expect
@@ -208,9 +209,9 @@ it(
           expect(
             f.git("--git-dir", f.remote, "show", "main:knowledge/a.md"),
           ).toContain("to: b.md")
-          expect(
-            f.git("--git-dir", f.remote, "show", "main:knowledge/b.md"),
-          ).toContain("valid_from:")
+          const b = f.git("--git-dir", f.remote, "show", "main:knowledge/b.md")
+          expect(b).not.toContain("import_key")
+          expect(b).not.toContain("valid_from:")
           expect(
             f.git(
               "--git-dir",
@@ -269,7 +270,7 @@ it.each([
           { path: "knowledge/a.md", body: "# A\n[B](b.md)\n" },
           {
             path: "knowledge/b.md",
-            body: "---\nclaims:\n  - to: a.md\n---\n# B\n",
+            body: "---\nimport_key: legacy-b\nclaims:\n  - to: a.md\n---\n# B\n",
           },
         ],
       },
@@ -279,7 +280,7 @@ it.each([
           withOrgDbContext(f.org.id, async () => {
             for (const entry of [
               ...history.map((entry) => ({ kind: "claims_upgrade", ...entry })),
-              { kind: "valid_from_persist", attempt: 1, remainder: 2 },
+              { kind: "import_key_cleanup", attempt: 1, remainder: 2 },
             ]) {
               const payload = {
                 revision: { ...f.revision, access: "write-default" },
@@ -312,7 +313,7 @@ it.each([
               run.workflowName.startsWith("workspace-write-"),
           )
           expect(commands.map((run) => run.workflowName)).toEqual([
-            "workspace-write-valid-from-persist",
+            "workspace-write-import-key-cleanup",
           ])
         } finally {
           await backend.stop()

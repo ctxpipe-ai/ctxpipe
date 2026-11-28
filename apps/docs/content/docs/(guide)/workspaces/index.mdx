@@ -34,7 +34,7 @@ App. Each change is a small commit to the default branch, or a pull request:
 | The [setup commit](/docs/workspaces/create-workspace#what-ctxpipe-adds-to-the-repository) of a new Workspace | A commit |
 | Connector mirrors: Linear, Notion, Confluence, Slack, PagerDuty, Buildkite, Plain, and the issues and closed pull requests of linked GitHub repositories | A commit for each sync |
 | [Knowledge extracted](/docs/workspaces/indexing#how-extraction-works) from linked repositories | One commit for each run, `Update extracted knowledge` |
-| Upkeep, for example links that ctxpipe rewrites after a rename, a `valid_from` that a file does not have, or the automatic-upgrades setting | A commit |
+| Upkeep, for example links that ctxpipe rewrites after a rename, or the automatic-upgrades setting | A commit |
 | A change to `sources/`: add, edit, rename, or remove a source | A pull request that a person merges |
 | A [format upgrade](/docs/workspaces/settings#upgrades) | A pull request on `ctxpipe/upgrade/format-<N>` |
 | [Workspace chat](/docs/workspaces/chat#publish-with-a-pull-request) | A branch for each conversation, and a pull request that you open |

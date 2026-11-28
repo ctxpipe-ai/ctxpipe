@@ -494,7 +494,7 @@ describe("the knowledge eval harness", () => {
           arm: "plane",
           split: "dev",
           jev: 2.25,
-          jevQuestions: 36.75,
+          jevQuestions: 39.375,
           embedding: 1,
           errors: 0,
           partial: 0,
@@ -502,16 +502,16 @@ describe("the knowledge eval harness", () => {
         {
           arm: "plane",
           split: "holdout",
-          jev: 3,
-          jevQuestions: 49,
+          jev: 3.25,
+          jevQuestions: 54.75,
           embedding: 1,
           errors: 0,
           partial: 0,
         },
       ],
-      // 30 Jev calls at $0.001, and 29 embedding calls with no cost in the
+      // 31 Jev calls at $0.001, and 29 embedding calls with no cost in the
       // answer, at the upper estimate of $0.001.
-      costUsd: 0.059,
+      costUsd: 0.06,
     })
     const markdown = await readFile(join(folder, "live", "report.md"), "utf8")
     const firstTable = markdown.slice(markdown.indexOf("\n## "))
@@ -550,7 +550,9 @@ describe("the knowledge eval harness", () => {
     for (const ms of quiet) expect(ms).toBeGreaterThanOrEqual(200)
     // The raw Jev answers and the vectors are in the run folder.
     const jev = kept.calls.filter((call) => call.kind === "jev")
-    expect(jev).toHaveLength(30)
+    // No time filters the walk (CTX-1710), so get_related judges the
+    // documents of ended relations too.
+    expect(jev).toHaveLength(31)
     expect(JSON.parse(jev[0]?.response ?? "{}")).toHaveProperty("answers")
     expect(kept.calls.filter((call) => call.kind === "embedding")).toHaveLength(
       29,
@@ -945,7 +947,7 @@ describe("the knowledge eval harness", () => {
         kept: {
           ...latency,
           jevCallsPerQuestion: 2.25,
-          jevQuestionsPerQuestion: 36.75,
+          jevQuestionsPerQuestion: 39.375,
           costPerQuestionUsd: 0.003,
           hedged: 0,
           errors: 0,
@@ -954,7 +956,7 @@ describe("the knowledge eval harness", () => {
           searchP95Ms: null,
           relatedP95Ms: null,
           jevCallsPerQuestion: 2,
-          jevQuestionsPerQuestion: 32.5,
+          jevQuestionsPerQuestion: 34.125,
           costPerQuestionUsd: 0.002,
           hedged: 0,
           errors: 0,
@@ -965,8 +967,8 @@ describe("the knowledge eval harness", () => {
         questions: 4,
         kept: {
           ...latency,
-          jevCallsPerQuestion: 3,
-          jevQuestionsPerQuestion: 49,
+          jevCallsPerQuestion: 3.25,
+          jevQuestionsPerQuestion: 54.75,
           costPerQuestionUsd: 0.004,
           hedged: 0,
           errors: 0,
@@ -977,7 +979,7 @@ describe("the knowledge eval harness", () => {
           searchP95Ms: null,
           relatedP95Ms: null,
           jevCallsPerQuestion: 2.75,
-          jevQuestionsPerQuestion: 35.5,
+          jevQuestionsPerQuestion: 38.25,
           costPerQuestionUsd: 0.003,
           hedged: 0,
           errors: 0,
@@ -993,7 +995,7 @@ describe("the knowledge eval harness", () => {
       "| holdout | all | 4 | disagreements shown | 1.000 | 0.000 | -1.000 |",
     )
     expect(markdown).toContain(
-      "| holdout | 4 | Jev questions / question | 49.000 | 35.500 | -13.500 |",
+      "| holdout | 4 | Jev questions / question | 54.750 | 38.250 | -16.500 |",
     )
   })
 
