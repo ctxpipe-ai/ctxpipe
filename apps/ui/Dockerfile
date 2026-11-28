@@ -7,9 +7,9 @@ COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
 COPY patches patches
 COPY apps/ui/package.json apps/ui/package.json
 COPY apps/backend/package.json apps/backend/package.json
-# The workspace packages that apps/backend/package.json links (workspace:*).
-# pnpm 11.28.13 and later reject a frozen install whose linked workspace
-# package has no manifest, even when --prod skips it.
+# apps/backend links @ctxpipe/visual-review (workspace:*). pnpm 11.28.13 and
+# later stop a frozen install when the manifest of a linked workspace package
+# is missing.
 COPY packages/visual-review/package.json packages/visual-review/package.json
 # The pnpm store is a BuildKit cache mount (scripts/checks/README.md, Builds).
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \

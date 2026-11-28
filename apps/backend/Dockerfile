@@ -30,13 +30,14 @@ RUN bun install -g pnpm@11.28.13
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* tsconfig.json ./
 COPY patches patches
 COPY apps/backend/package.json apps/backend/package.json
-# The workspace packages that apps/backend/package.json links (workspace:*).
-# pnpm 11.28.13 and later reject a frozen install whose linked workspace
-# package has no manifest, even when --prod skips it.
+# apps/backend links @ctxpipe/visual-review (workspace:*, a dev dependency).
+# pnpm 11.28.13 and later stop a frozen install when the manifest of a linked
+# workspace package is missing, even under --prod. --filter-prod keeps that
+# package's own dependencies out of the image.
 COPY packages/visual-review/package.json packages/visual-review/package.json
 # The pnpm store is a BuildKit cache mount (scripts/checks/README.md, Builds).
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
-    pnpm install --store-dir /pnpm/store --frozen-lockfile --prod --config.confirmModulesPurge=false
+    pnpm install --store-dir /pnpm/store --frozen-lockfile --prod --filter-prod @ctxpipe/backend... --config.confirmModulesPurge=false
 
 # Production stage — Bun runs TypeScript natively, no tsc compilation needed
 FROM oven/bun:1.4.4-alpine@sha256:4cf82f5686b196504fe119db3fcd9185b191f82ece82c40680e597228ec6070a
