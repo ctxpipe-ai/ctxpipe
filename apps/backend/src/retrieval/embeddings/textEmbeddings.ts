@@ -33,9 +33,9 @@ import { scrubForModel } from "../services/scrubForModel.js"
  * the wrong shape, or model settings that cannot reach OpenRouter. The
  * client throws it for each failure that does not retry. A 429, a 5xx and a
  * network error are `TransientHttpError`s and fetch errors, so that
- * `embedTexts` retries them. The query path does not retry: the plane
- * reader gives such an error as an `EmbeddingError` with the status, when
- * there is one. The message holds no input text.
+ * `embedTexts` retries them. The query path does not retry: for a 429, a
+ * 5xx or a network error, the plane reader ends the time budget. The
+ * message holds no input text.
  */
 class EmbeddingError extends Error {
   override readonly name = "EmbeddingError"

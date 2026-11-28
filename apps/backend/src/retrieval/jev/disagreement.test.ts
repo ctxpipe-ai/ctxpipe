@@ -4,7 +4,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { useMswServer } from "../../../test/msw.js"
 import {
   askDisagreementFacts,
-  disagreementCalls,
   type EvidenceItem,
   readDisagreements,
 } from "./disagreement.js"
@@ -137,7 +136,6 @@ describe("askDisagreementFacts and readDisagreements", () => {
 
     // 6 pairs in batches of 2: three calls.
     expect(requests).toHaveLength(3)
-    expect(disagreementCalls(4)).toBe(1)
     const keys = requests.map(({ questions }) => Object.keys(questions))
     expect(keys).toEqual([
       [
@@ -195,7 +193,6 @@ describe("askDisagreementFacts and readDisagreements", () => {
       expect(readDisagreements({ items, facts, thresholds })).toEqual([])
     }
     expect(requests).toHaveLength(0)
-    expect(disagreementCalls(1)).toBe(0)
   })
 
   it("reads the facts of an earlier ask about more items", async () => {

@@ -90,15 +90,6 @@ type FactThresholds = {
 const BATCH_SIZE = 12
 
 /**
- * The number of Jev calls that `askDisagreementFacts` makes for `items`
- * items with the default batch size: one call for each batch of
- * `BATCH_SIZE` pairs.
- */
-export function disagreementCalls(items: number): number {
-  return Math.ceil((items * (items - 1)) / 2 / BATCH_SIZE)
-}
-
-/**
  * The yes/no facts that Jev gave about some items: p(yes) for each question
  * key, with the items numbered from 1 in the order of `itemIds`.
  */
