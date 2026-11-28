@@ -52,7 +52,6 @@
       ],
       "project": ["src/**/*.{ts,tsx}", ".storybook/**/*.{ts,tsx}"],
       "ignoreDependencies": [
-        "shadcn",
         "tailwindcss-animate",
         "tailwindcss-react-aria-components",
         "tw-animate-css",

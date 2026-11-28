@@ -18,6 +18,6 @@
     "install:pr:first": "forge install --non-interactive --confirm-scopes -e \"$FORGE_PR_ENV\" -s ctxpipe.atlassian.net -p Confluence"
   },
   "devDependencies": {
-    "@forge/cli": "^13.4.0"
+    "@forge/cli": "^15.1.0"
   }
 }

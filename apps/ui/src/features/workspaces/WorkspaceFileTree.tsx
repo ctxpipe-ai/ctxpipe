@@ -408,11 +408,28 @@ function WorkspaceFileTreeClient(props: {
 
   const search = useFileTreeSearch(model)
   const searchWasOpenRef = useRef(search.isOpen)
+  // Set when the member closes the search from the keyboard or the header
+  // button, so that focus moves from the hidden search field to a row.
+  const focusRowOnSearchCloseRef = useRef(false)
   useEffect(() => {
     if (searchWasOpenRef.current && !search.isOpen) {
       const selected = props.selectedPath ?? model.getSelectedPaths()[0] ?? null
-      if (selected) model.getItem(selected)?.focus()
+      if (selected) {
+        model.getItem(selected)?.focus()
+        // Pierre leaves DOM focus in the search field when the search closes,
+        // and TREE_UNSAFE_CSS hides a closed search field. Focus the row
+        // itself, so that a keyboard member keeps a visible focus.
+        if (focusRowOnSearchCloseRef.current) {
+          model
+            .getFileTreeContainer()
+            ?.shadowRoot?.querySelector<HTMLElement>(
+              `button[data-item-path="${CSS.escape(selected)}"]`,
+            )
+            ?.focus()
+        }
+      }
     }
+    focusRowOnSearchCloseRef.current = false
     searchWasOpenRef.current = search.isOpen
   }, [model, props.selectedPath, search.isOpen])
 
@@ -466,8 +483,10 @@ function WorkspaceFileTreeClient(props: {
           aria-pressed={search.isOpen}
           preventFocusOnPress
           onPress={() => {
-            if (search.isOpen) search.close()
-            else search.open()
+            if (search.isOpen) {
+              focusRowOnSearchCloseRef.current = true
+              search.close()
+            } else search.open()
           }}
           className={cn(
             TREE_HEADER_ICON_CLASS,
@@ -503,6 +522,11 @@ function WorkspaceFileTreeClient(props: {
         style={TREE_HOST_STYLE}
         aria-label="Workspace files"
         aria-describedby={changeSummary ? changeSummaryId : undefined}
+        onKeyDownCapture={(event) => {
+          if (event.key === "Escape" && search.isOpen) {
+            focusRowOnSearchCloseRef.current = true
+          }
+        }}
         onMouseOver={(event) => {
           const path = workspaceFilePathFromHoverNodes(
             event.nativeEvent.composedPath(),
