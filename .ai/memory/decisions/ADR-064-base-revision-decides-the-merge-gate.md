@@ -50,7 +50,7 @@ The threat is the threat of this ADR: a fault, or an agent that wants its PR to 
   - `run.mjs`, `families.mjs`, `scripts/checks/prerequisites.mjs`, `scripts/ci/vitest-launch.mjs`, `scripts/ci/graph-ready.mjs` and `scripts/ci/prerequisites.mjs` run the checks of every family. A project key does not hold them.
   - Each check that runs in CI runs through `selected.mjs` and `rerun-failed.mjs`.
   - The record of `toolchain.mjs` is part of each key.
-  - The manifest job installs with `.npmrc` and `patches/` before it lists. The revision of 2026-11-28 makes `patches/` a definition of checks.
+  - The manifest job installs with `.npmrc` before it lists.
   - Node loads a package from a committed `node_modules/` folder.
   - `.github/actions/**` and the other `ci.yaml` changes set up jobs in a way that no key holds.
 
@@ -107,7 +107,7 @@ The decision:
 - **A file in `patches/` is a definition of checks.** A change to one runs the selector, and `definitions` in the mode record names it. The base listing runs, the plan compares the two listings, and the LLM stage does not decide the run.
 - **A committed `node_modules` path stays a full-run input**, also under `patches/`.
 - **`.npmrc` stays a full-run input.** It changes the install, but no key holds it.
-- **The job summary names the mode of the run.** Its heading was "Merge gate (shadow)" also for a full run in gate mode. Now the heading of a full run is "Merge gate (full run)", the heading of a shadow run is "Merge gate (shadow)", and the mode line names the config mode.
+- **The job summary names the mode of the run.** Its heading was "Merge gate (shadow)" also for a full run in gate mode. Now the heading is "Merge gate (shadow)" only for a shadow run of the shadow config. When the full run gates, the heading is "Merge gate (full run)". The mode line names the config mode.
 
 ### Consequences of the patch revision
 

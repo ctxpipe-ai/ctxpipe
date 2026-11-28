@@ -184,12 +184,12 @@ export function decideMode({ config, event, fork, changed, read, diff }) {
   // that runs the gate, its actions, its pin, and the code that the gate and
   // the runner execute. The manifest job runs the code of the PR (`pnpm
   // install`, `pnpm --reporter=silent checks:list`), so a file that changes
-  // how the manifest is made is here too: .npmrc, the patches, and each file
-  // that scripts/checks/list.mjs runs outside scripts/checks/ (a test keeps
-  // this list complete). The patches are definitions of checks (see below).
+  // how the manifest is made is here too: .npmrc, and each file that
+  // scripts/checks/list.mjs runs outside scripts/checks/ (a test keeps this
+  // list complete). The patches are definitions of checks (see below).
   // Package files and the lockfile are lane inputs that the selector reads,
-  // not gate inputs. Other workflows, Markdown files and
-  // .node-version are lane inputs too, and the toolchain is part of each key.
+  // not gate inputs. Other workflows, Markdown files and .node-version are
+  // lane inputs too, and the toolchain is part of each key.
   // A data file in scripts/ci is a gate input, except a file that only its
   // own check reads and whose key holds it (a test keeps the list true).
   // The run is full, except for the inputs that the base revision decides,
@@ -1331,12 +1331,12 @@ export function gateText(decision, runUrl) {
 }
 
 export function summary(decision, runUrl) {
-  // The heading names the mode of this run: a full run, or a shadow run
-  // with the gated verdict beside it. The mode line names the config mode.
-  const lines = [
-    `## Merge gate (${decision.mode === "full" ? "full run" : "shadow"})`,
-    "",
-  ]
+  // The heading names the mode of this run. The full run gates, except in a
+  // shadow run of the shadow config, where the gated verdict is beside it.
+  // The mode line names the config mode.
+  const shadowRun =
+    decision.mode === "shadow" && decision.configMode === "shadow"
+  const lines = [`## Merge gate (${shadowRun ? "shadow" : "full run"})`, ""]
   const gated = decision.gatedRun.verdict
   const configured = `config mode ${code(String(decision.configMode ?? "none"))}`
   lines.push(
