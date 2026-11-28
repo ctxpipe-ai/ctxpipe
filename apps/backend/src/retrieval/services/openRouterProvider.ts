@@ -1,7 +1,9 @@
 import { z } from "zod"
 
+import { OPENROUTER_DEFAULT_URL } from "../../../../../packages/aws-cdk/src/internal/knowledge-plane-settings.js"
+
 /** The OpenRouter base URL, the default of `MODEL_PROVIDER_URL`. */
-export const DEFAULT_OPENROUTER_BASE = "https://openrouter.ai/api/v1"
+export const DEFAULT_OPENROUTER_BASE = OPENROUTER_DEFAULT_URL
 
 /**
  * The OpenRouter provider block of each model call of the backend

@@ -59,6 +59,8 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps/backend/node_modules ./apps/backend/node_modules
 COPY tsconfig.json ./
 COPY shared ./shared
+# The knowledge plane settings rule, shared with @ctxpipe/aws-cdk. It has no imports.
+COPY packages/aws-cdk/src/internal/knowledge-plane-settings.ts ./packages/aws-cdk/src/internal/knowledge-plane-settings.ts
 COPY apps/backend/src ./apps/backend/src
 # The RDS CA bundle (https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem).
 # Aurora certificates chain to these CAs, which are not public roots. The

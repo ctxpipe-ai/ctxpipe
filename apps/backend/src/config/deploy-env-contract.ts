@@ -1,7 +1,7 @@
 import {
   JEV_PROVIDER,
   knowledgePlaneSettingsProblem,
-} from "../../../../packages/aws-cdk/src/knowledge-plane-settings.js"
+} from "../../../../packages/aws-cdk/src/internal/knowledge-plane-settings.js"
 /**
  * The env contract of the two self-host deployments (CTX-1743): the
  * `@ctxpipe/aws-cdk` construct and the Compose `deploy` profile. Two tests
@@ -19,13 +19,17 @@ import { parseEnv } from "./env.js"
 
 type Deployment = "construct" | "compose"
 
-type Service = "backend" | "worker" | "codesearch"
+type Service = "backend" | "worker" | "migrate" | "codesearch"
 
 const parsers: Record<Service, (env: Record<string, string>) => unknown> = {
   backend: parseEnv,
   worker: parseEnv,
+  migrate: parseEnv,
   codesearch: parseCodesearchEnv,
 }
+
+/** The services that call the plane models. */
+const PLANE_SERVICES: readonly Service[] = ["backend", "worker"]
 
 export const SERVICES = Object.keys(parsers) as Service[]
 
@@ -77,6 +81,16 @@ const SERVICE_SETTINGS: Record<
     // Without it, the worker uses http://codesearch:3001, the Compose service.
     construct: ["CODESEARCH_URL"],
   },
+  migrate: {
+    all: ["DATABASE_URL", "DATABASE_APP_PASSWORD"],
+    // In Compose, the command of the service sets them from the password
+    // files of clickhouse-secrets.
+    construct: [
+      "CLICKHOUSE_URL",
+      "CLICKHOUSE_READER_PASSWORD",
+      "CLICKHOUSE_WRITER_PASSWORD",
+    ],
+  },
   codesearch: { all: ["DATABASE_URL", "AUTH_SECRET"] },
 }
 
@@ -89,7 +103,7 @@ const SERVICE_SETTINGS: Record<
  */
 const KNOWN_GAPS: ReadonlyArray<{
   readonly issue: string
-  readonly findings: readonly string[]
+  readonly findings: readonly `${Deployment} ${string}`[]
 }> = [
   {
     // The construct sets no allowlist and no vision model, and its Bedrock
@@ -184,9 +198,9 @@ export function serviceFindings(
     for (const issue of issues)
       add(`parseEnv ${issue.path.join(".")}: ${issue.message}`)
   }
-  if (service !== "codesearch") {
+  if (PLANE_SERVICES.includes(service)) {
     const plane = knowledgePlaneSettingsProblem(env)
-    if (plane) add(`plane ${plane.code}`, true)
+    if (plane) add(`plane ${plane}`, true)
   }
   const { all = [], [deployment]: own = [] } = SERVICE_SETTINGS[service]
   for (const name of [...all, ...own])
