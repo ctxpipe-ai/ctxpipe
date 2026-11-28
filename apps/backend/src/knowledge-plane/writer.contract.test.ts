@@ -46,7 +46,10 @@ import {
 import { createLogger, withLogger } from "../observability/logger.js"
 import { textEmbeddingConfig } from "../retrieval/embeddings/textEmbeddings.js"
 import { renderGithubPullRequest } from "../services/github/pull-request-mirror/converter.js"
-import { renderLinearIssue } from "../services/linear/converter.js"
+import {
+  renderLinearEntity,
+  renderLinearIssue,
+} from "../services/linear/converter.js"
 import { startClickHouse, userUrl } from "../test/clickhouse.js"
 import { shopIssue } from "../test/github-issue.js"
 import { Remote } from "../test/knowledge-remote.js"
@@ -1738,6 +1741,93 @@ describe("reference keys (CTX-1400)", () => {
           status: "active",
         },
       ])
+    } finally {
+      await remote.remove()
+    }
+  })
+})
+
+describe("Linear issue links by id (CTX-1716)", () => {
+  const label = renderLinearEntity({
+    directory: "labels",
+    type: "issue_label",
+    id: "label-uuid-1",
+    title: "Bug",
+  })
+  const parent = linearIssue("ENG-1")
+  /** A sub-issue of ENG-1 with the label, a label, a project and a team that have no file. */
+  const labeled = (identifier: string) =>
+    renderLinearIssue({
+      id: `issue-${identifier}`,
+      identifier,
+      title: `Issue ${identifier}`,
+      url: `https://linear.app/acme/issue/${identifier}/issue`,
+      priorityLabel: "No priority",
+      teamId: "team-uuid-missing",
+      projectId: "project-uuid-missing",
+      parent: "ENG-1",
+      parentId: "issue-ENG-1",
+      labels: [
+        { id: "label-uuid-1", name: "Bug" },
+        { id: "label-uuid-missing", name: "Customer" },
+      ],
+      createdAt: new Date("2026-01-01T00:00:00Z"),
+      updatedAt: new Date("2026-01-02T00:00:00Z"),
+      completedAt: null,
+      canceledAt: null,
+      comments: [],
+      attachments: [],
+    })
+  const two = labeled("ENG-2")
+  const three = labeled("ENG-3")
+  const linked = (direction: string, path: string, predicate = "PART_OF") => ({
+    direction,
+    predicate,
+    neighbor: path,
+    status: "active",
+  })
+
+  it("each issue HAS_LABEL its label and is PART_OF its parent issue, both read from either end, and an id with no file is no relation", async () => {
+    const remote = await Remote.create()
+    try {
+      const workspaceId = await newWorkspace()
+      await run(
+        remote,
+        workspaceId,
+        await remote.commit({
+          [label.path]: label.content,
+          [parent.path]: parent.content,
+          [two.path]: two.content,
+          [three.path]: three.content,
+        }),
+      )
+      const byPath = (a: { neighbor: string }, b: { neighbor: string }) =>
+        a.neighbor.localeCompare(b.neighbor)
+      expect(await frontierOf(workspaceId, label.path)).toEqual(
+        [
+          linked("in", two.path, "HAS_LABEL"),
+          linked("in", three.path, "HAS_LABEL"),
+        ].sort(byPath),
+      )
+      expect(await frontierOf(workspaceId, parent.path)).toEqual(
+        [linked("in", two.path), linked("in", three.path)].sort(byPath),
+      )
+      // The label, the project and the team with no file give no `missing`
+      // neighbor, no broken link and no relation in the graph view.
+      expect(await frontierOf(workspaceId, two.path)).toEqual([
+        linked("out", label.path, "HAS_LABEL"),
+        linked("out", parent.path),
+      ])
+      const scope = await viewOf(workspaceId)
+      expect(await store.listUnresolvedReferences(scope)).toEqual([])
+      expect(
+        (await store.readGraph(scope, 1000)).relations
+          .filter((relation) => relation.srcDoc === key(workspaceId, two.path))
+          .map((relation) => relation.dstDoc)
+          .sort(),
+      ).toEqual(
+        [key(workspaceId, label.path), key(workspaceId, parent.path)].sort(),
+      )
     } finally {
       await remote.remove()
     }

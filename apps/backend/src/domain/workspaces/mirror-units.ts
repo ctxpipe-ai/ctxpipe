@@ -5,6 +5,7 @@ import {
   findLinearIdentifiers,
   githubIssueOrPullDedupKey,
   issueDedupKey,
+  linearIdDedupKey,
   linearWorkspaceOfUrl,
   normalizeLinearIdentifier,
   parseConfluencePageUrl,
@@ -170,8 +171,9 @@ function linearIdentifierOf(
 /**
  * The keys under which other files can name one mirror unit: from its
  * `notion_id`, its `url` (the keys that `keysOfUrl` gives), its Linear
- * `identifier`, and the path of a Confluence page or a Slack thread. The
- * knowledge plane gives its own `keysOfUrl` (CTX-1400).
+ * `identifier`, the `id` of a Linear file (CTX-1716), and the path of a
+ * Confluence page or a Slack thread. The knowledge plane gives its own
+ * `keysOfUrl` (CTX-1400).
  */
 export function mirrorUnitKeys(
   path: string,
@@ -194,6 +196,10 @@ export function mirrorUnitKeys(
   }
   const identifier = linearIdentifierOf(attributes)
   if (identifier) keys.push(issueDedupKey(identifier))
+  const linearId = path.startsWith("linear/")
+    ? linearIdDedupKey(attributes.id)
+    : null
+  if (linearId) keys.push(linearId)
   const page = confluencePageIdOfPath(path)
   if (page) keys.push(confluencePageDedupKey(page))
   const thread =

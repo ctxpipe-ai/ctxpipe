@@ -78,6 +78,24 @@ export function issueDedupKey(identifier: string): string {
   return `iss:linear:${normalized}`
 }
 
+/**
+ * The start of the key of a Linear entity by its id (CTX-1716). The store
+ * reads a key target with this start that names no document as no relation.
+ */
+export const LINEAR_ID_KEY_PREFIX = "ent:linear:"
+
+/**
+ * The key of a Linear entity by its id, for example a label, a project, a
+ * team or an issue: `ent:linear:${id}`. A Linear id is a UUID, so the key
+ * holds no Linear workspace. A value that is not text, or is blank, gives
+ * null.
+ */
+export function linearIdDedupKey(id: unknown): string | null {
+  return typeof id === "string" && id.trim()
+    ? `${LINEAR_ID_KEY_PREFIX}${id.trim().toLowerCase()}`
+    : null
+}
+
 export function parseLinearIssueUrl(rawUrl: string): string | null {
   let url: URL
   try {

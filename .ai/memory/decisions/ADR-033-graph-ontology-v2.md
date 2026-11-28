@@ -1,6 +1,6 @@
 # ADR-033: Graph ontology v2 — relation families, shared identity, deterministic connector extraction
 
-**Status:** Accepted (revised 2026-10-13) | **Date:** 2026-09-17 | **Tags:** graph, ingestion, connectors, retrieval
+**Status:** Accepted (revised 2026-10-13; revised 2026-11-26: Linear issue links by id, CTX-1716) | **Date:** 2026-09-17 | **Tags:** graph, ingestion, connectors, retrieval
 
 Amends [ADR-032](ADR-032-path-located-graph-edges.md) §2 (predicates) and §4
 (connector nodes). Builds on [ADR-031](ADR-031-github-pr-scoped-mirror.md).
@@ -27,6 +27,49 @@ Amends [ADR-032](ADR-032-path-located-graph-edges.md) §2 (predicates) and §4
   not mirrored becomes a stub when its team is known, otherwise the claim
   drops.
 
+## Revision (2026-11-26): Linear issue links by id
+
+[CTX-1716](https://linear.app/ctxpipe/issue/CTX-1716). A Linear label file was
+a node with no edge, so `get_related` from a label returned nothing.
+
+- **Key:** each Linear mirror file has the key of its Linear id,
+  `ent:linear:${id}`. A Linear id is a UUID, so the key holds no Linear
+  workspace.
+- **Edges:** a Linear issue states an edge to the key of each id in four
+  keys of its front matter: `parentId`, `projectId`, `teamId` and
+  `labelIds`. Other ids (for example `cycleId` and `assigneeId`) give no
+  edge. The predicate tells containment (`PART_OF`) from classification
+  (`HAS_LABEL`), and the kind of the target tells a parent, a project and a
+  team apart:
+  - `Issue PART_OF Issue` from `parentId` (the sub-issue rule of the
+    2026-10-13 revision).
+  - `Issue PART_OF Project` from `projectId`.
+  - `Issue PART_OF Team` from `teamId`. This replaces `Team OWNS Issue` for
+    the tracker team. Reason: the issue file states the edge, and a relation
+    belongs to the file that states it (ADR-066 decision 5). In Linear, the
+    team holds the issue, and the issue identifier starts with the team key,
+    so the team is a container of the issue. `OWNS` stays for a `Team` that
+    owns a package (CODEOWNERS).
+  - `Issue HAS_LABEL Label` from `labelIds`, for each label (not only
+    `area/…` and `component/…`). `HAS_LABEL` is the first predicate of a new
+    family, classification. Reason: a label groups issues. It does not
+    contain them (`PART_OF`), own them (`OWNS`) or name them in text
+    (`MENTIONS`). The name has the form of `HAS_OPERATION` and
+    `HAS_INSTRUCTION`.
+- **No target:** an id with no mirrored file gives no edge. A mirror with a
+  project scope does not write the team and the labels of its issues.
+- **Knowledge plane only:** the knowledge plane makes these edges
+  (`knowledge-plane/reference-keys.ts`). The old stack (the hydrate graph in
+  FalkorDB) does not, because
+  [CTX-1713](https://linear.app/ctxpipe/issue/CTX-1713) removes it. For the
+  same reason, the old-stack registry (`allowedConnections.ts`,
+  `extension.ts`) does not change. This revision is the record of these
+  predicates.
+- **Order:** this revision does not order the issues of a label by time. The
+  walk keeps its fan-out order. A newest-first order needs a source update
+  time on the plane, which the timestamp audit
+  ([CTX-1718](https://linear.app/ctxpipe/issue/CTX-1718)) decides.
+
 ## Context
 
 Customer graphs sat at roughly one edge per node: `InstructionUnit` stars on a
@@ -52,8 +95,9 @@ cross-tool edges require shared identity.
    containment `PART_OF`; provenance `DECLARED_IN`, `MEMBER_OF_PRIMARY`;
    change `TARGETS`, `ADDED`, `MODIFIED`, `REMOVED`, `RENAMED`; reference
    `REFERENCES`, `MENTIONS`, `SUPERSEDES`; ownership `OWNS`; cause
-   `INFLUENCES`. `ABOUT`, `RELATES_TO`, `ASSOCIATED_WITH` are retired. The
-   extension traversal walks the reference, cause and ownership families.
+   `INFLUENCES`; classification `HAS_LABEL` (revision 2026-11-26). `ABOUT`,
+   `RELATES_TO`, `ASSOCIATED_WITH` are retired. The extension traversal
+   walks the reference, cause and ownership families.
    Containment also shapes a monorepo: a `Service`/`App`/`Library` is
    `PART_OF` its nearest enclosing package or the workspace root
    (`svc:…:./`), which is `IMPLEMENTED_IN` the `Repository` like every
@@ -63,7 +107,8 @@ cross-tool edges require shared identity.
    `prq:${repoId}:${n}`, `iss:linear:${IDENT}`, `team:linear:${KEY}`,
    `team:github:${org}/${slug}`, `thr:slack:${channel}:${ts}`,
    `dec:${repoId}:${path}`, `fil:${repoId}:${path}`. Bare Linear identifiers
-   match only known team keys.
+   match only known team keys. Each Linear mirror file also has the key of
+   its Linear id, `ent:linear:${id}` (see "Revision (2026-11-26)").
 4. **Connector Markdown is parsed, never LLM-read.**
    A list of deterministic extractors is the only reader of connector Markdown; a
    connector ships its frontmatter contract and its extractor together.
