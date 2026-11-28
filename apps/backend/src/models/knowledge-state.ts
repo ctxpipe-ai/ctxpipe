@@ -91,6 +91,11 @@ export async function listBranchHeads(key: KnowledgeStateKey) {
 export type KnowledgeHead = TreeHead & {
   /** The tip that the last completed run of the branch applied. */
   sha: string
+  /**
+   * The count of the tree rows after the first row of their folded path
+   * (`case_duplicate_rows`); null: not known.
+   */
+  caseDuplicateRows: number | null
   base?: TreeHead & { sha: string }
 }
 
@@ -166,7 +171,11 @@ export async function readyKnowledgeHeads(
   for (const [workspaceId, base] of defaults) {
     const baseHead = { branch: base.branch, treeVersion: base.treeVersion }
     if (branch === undefined || branch === base.branch) {
-      heads.set(workspaceId, { sha: base.lastSha ?? "", ...baseHead })
+      heads.set(workspaceId, {
+        sha: base.lastSha ?? "",
+        caseDuplicateRows: base.caseDuplicateRows,
+        ...baseHead,
+      })
       continue
     }
     const overlay = rows.find(
@@ -178,12 +187,41 @@ export async function readyKnowledgeHeads(
     if (overlay?.lastSha)
       heads.set(workspaceId, {
         sha: overlay.lastSha,
+        caseDuplicateRows: overlay.caseDuplicateRows,
         branch,
         treeVersion: overlay.treeVersion,
         base: { ...baseHead, sha: base.lastSha ?? "" },
       })
   }
   return heads
+}
+
+/**
+ * The tip of the default branch of each Workspace of the org that has a
+ * ready head, with the count of the hidden copies of the files of that tip
+ * (`case_duplicates`, CTX-1697). Null when a run of an earlier release made
+ * the head.
+ */
+export async function defaultCaseDuplicates(
+  orgId: string,
+): Promise<Map<string, { sha: string; caseDuplicates: number | null }>> {
+  const rows = await withOrgDbContext(orgId, (db) =>
+    db
+      .select()
+      .from(knowledgeBranchHeads)
+      .where(
+        and(
+          eq(knowledgeBranchHeads.organizationId, orgId),
+          isNotNull(knowledgeBranchHeads.lastSha),
+        ),
+      ),
+  )
+  return new Map(
+    [...defaultHeads(rows)].map(([workspaceId, row]) => [
+      workspaceId,
+      { sha: row.lastSha ?? "", caseDuplicates: row.caseDuplicates },
+    ]),
+  )
 }
 
 /**
@@ -259,6 +297,10 @@ export async function completeKnowledgeRun(
     projectionVersion: string
     /** The count of `failed` documents (ADR-067 decisions 8 and 11). */
     failedCount: number
+    /** The case duplicate rows of the tree (CTX-1697). */
+    caseDuplicateRows: number
+    /** The hidden copies of the files of the tip (CTX-1697). */
+    caseDuplicates: number
   },
 ): Promise<void> {
   const now = new Date()
@@ -273,6 +315,8 @@ export async function completeKnowledgeRun(
           projectionVersion: input.projectionVersion,
           runStatus: "completed",
           failedCount: input.failedCount,
+          caseDuplicateRows: input.caseDuplicateRows,
+          caseDuplicates: input.caseDuplicates,
           defaultAt: input.baseBranch === null ? now : null,
           updatedAt: now,
         })

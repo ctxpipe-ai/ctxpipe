@@ -144,6 +144,12 @@ export type WorkspaceHead = TreeHead & {
    * decision 5).
    */
   base?: TreeHead
+  /**
+   * The count of the tree rows of the head after the first row of their
+   * folded path (CTX-1697). A read of a default branch with 0 does not
+   * fold. Absent or null: not known, so the read folds.
+   */
+  caseDuplicateRows?: number | null
 }
 
 /**
@@ -1511,7 +1517,11 @@ async function runSelectIn<T>(
     const result = await client.query({
       query,
       query_params: {
+        // No hidden copies, unless the read gives them (`copyParams`).
+        hiddenKeys: [],
+        shownKeys: [],
         ...params,
+        foldCase: foldsCase(scope),
         orgId: scope.orgId,
         workspaceIds: scope.heads.map((head) => head.workspaceId),
         // The full tree of each Workspace: the base of an overlay, else the
@@ -1605,7 +1615,8 @@ const newestRows = (branches: string, versions: string) =>
    LIMIT 1 BY workspace_id, doc_key`
 
 /**
- * The tree view of the heads of a read (ADR-071 decisions 4 and 5). The
+ * The tree rows of the heads of a read, one for each path (ADR-071
+ * decisions 4 and 5), before the case fold of {@link treeView}. The
  * view of the default branch is its tree. The view of another branch B is
  * the view of the default branch, minus each path of the overlay of B, plus
  * the overlay rows of B: an overlay row wins (layer 1), and an `inherit`
@@ -1614,11 +1625,8 @@ const newestRows = (branches: string, versions: string) =>
  * A read with no overlay has no layer 1. A full tree can keep an `inherit`
  * row from the time when it was an overlay (a branch that became the
  * default branch): its path is not in the tree, so the view drops it too.
- *
- * This is the one place of the tree rule. Each read of the view starts with
- * `WITH tree_view AS (${treeView})`.
  */
-const treeView = `SELECT ${treeColumns} FROM (
+const treePaths = `SELECT ${treeColumns} FROM (
     SELECT ${treeColumns}, 1 AS layer FROM (
       ${newestRows("overlayBranches", "overlayVersions")}
     ) WHERE kind != 'inherit'
@@ -1629,6 +1637,112 @@ const treeView = `SELECT ${treeColumns} FROM (
   )
   ORDER BY workspace_id, doc_key, layer
   LIMIT 1 BY workspace_id, doc_key`
+
+/** The folded form of `path`: NFC, then lowercase (`foldPath`). */
+const foldedPath = "lowerUTF8(normalizeUTF8NFC(path))"
+
+/**
+ * The order of the rows of one folded path, the row that the view shows
+ * first (CTX-1697): a file before a tombstone, then the order of
+ * `compareCopies` in `domain/workspaces/case-duplicates.ts`: the newest
+ * `updated_at` (the time that an agent sees, CTX-1710: the time that the
+ * file states, else the last commit that changed the path), then the
+ * canonical path, then the byte order.
+ */
+const caseOrder = `kind != 'file', updated_at DESC NULLS LAST,
+  path != ${foldedPath}, path`
+
+/**
+ * The tree view of the heads of a read (ADR-071 decision 5): the rows of
+ * {@link treePaths}, with one row for each path that is equal after case
+ * folding when the parameter `foldCase` is true (CTX-1697). Git can hold
+ * two such paths, and they are one file on a checkout that ignores case.
+ * With `foldCase` false, each path keeps its row. The fold sorts the whole
+ * view (25 ms on 100k paths), so a read folds only when a head can show a
+ * case duplicate ({@link foldsCase}).
+ *
+ * This is the one place of the tree rule. Each read of the view starts with
+ * `WITH tree_view AS (${treeView})`.
+ */
+const treeView = `SELECT ${treeColumns} FROM (${treePaths})
+  ORDER BY workspace_id, if({foldCase:Bool}, ${foldedPath}, doc_key),
+    ${caseOrder}
+  LIMIT 1 BY workspace_id, if({foldCase:Bool}, ${foldedPath}, doc_key)`
+
+/**
+ * True when the view of a head can hold two rows whose paths are equal
+ * after case folding: the tree of a default branch has such rows (also a
+ * tombstone, which a link can name), or their count is not known. The
+ * view of an overlay holds the newer files of the default branch beside the
+ * rows of the branch, so no count of one tree shows them: it always folds.
+ */
+const foldsCase = (scope: KnowledgeReadScope) =>
+  scope.heads.some((head) => head.base || head.caseDuplicateRows !== 0)
+
+/**
+ * The document key of each path that the view hides because it shows
+ * another path that is equal after case folding, to the document key that
+ * it shows (CTX-1697). A document key holds its Workspace, so one map
+ * serves a read of many Workspaces. Empty when the read does not fold.
+ */
+type HiddenCopies = ReadonlyMap<string, string>
+
+async function readHiddenCopies(
+  client: ClickHouseClient,
+  scope: KnowledgeReadScope,
+): Promise<HiddenCopies> {
+  if (!foldsCase(scope)) return new Map()
+  const rows = await selectIn<{ hidden: string; shown: string }>(
+    client,
+    scope,
+    "hidden_copies",
+    `SELECT doc_key AS hidden, shown FROM (
+       SELECT doc_key, first_value(doc_key) OVER (
+         PARTITION BY workspace_id, ${foldedPath} ORDER BY ${caseOrder}
+       ) AS shown
+       FROM (${treePaths})
+     ) WHERE doc_key != shown`,
+    {},
+  )
+  return new Map(rows.map((row) => [row.hidden, row.shown]))
+}
+
+/**
+ * The query parameters of {@link relationsOf} for `copies`: a relation to
+ * a hidden copy goes to the copy that the view shows.
+ */
+const copyParams = (copies: HiddenCopies) => ({
+  hiddenKeys: [...copies.keys()],
+  shownKeys: [...copies.values()],
+})
+
+/** `refs` with each hidden copy as the copy that the view shows, one time each. */
+function shownRefs(refs: DocumentRef[], copies: HiddenCopies): DocumentRef[] {
+  if (copies.size === 0) return refs
+  const shown = new Map<string, DocumentRef>()
+  for (const ref of refs) {
+    const docKey = copies.get(ref.docKey) ?? ref.docKey
+    shown.set(documentId({ ...ref, docKey }), { ...ref, docKey })
+  }
+  return [...shown.values()]
+}
+
+/**
+ * The refs of {@link shownRefs}, then the hidden copies of each of them, so
+ * that a query also finds the in-relations to a hidden copy.
+ */
+function shownRefsAndCopies(
+  refs: DocumentRef[],
+  copies: HiddenCopies,
+): DocumentRef[] {
+  const shown = shownRefs(refs, copies)
+  const byKey = new Map(shown.map((ref) => [ref.docKey, ref]))
+  const hidden = [...copies].flatMap(([docKey, shownKey]) => {
+    const ref = byKey.get(shownKey)
+    return ref ? [{ ...ref, docKey }] : []
+  })
+  return [...shown, ...hidden]
+}
 
 /** The tree rows of the view that hold a file version (not a tombstone). */
 const viewFiles = `SELECT workspace_id, doc_key, version, created_at
@@ -1663,15 +1777,25 @@ const viewDocumentColumns = `v.doc_key AS docKey, v.doc_kind AS kind,
   v.created_at AS createdAt, v.updated_at AS updatedAt,
   v.expires_at AS expiresAt, v.observed_at AS observedAt`
 
+/** The target of the relation `r`, as the copy that the view shows. */
+const shownTarget = `transform(r.dst_doc, {hiddenKeys:Array(String)},
+  {shownKeys:Array(String)}, r.dst_doc)`
+
 /**
  * The relations of the file versions of `sources` (a subquery with the
  * columns of {@link viewFiles}), with the columns of a relation. A relation
  * with `valid_from_introduced` takes as its `valid_from` the `created_at`
  * of its source row: the claim holds from the time that the document began.
+ *
+ * A relation to a hidden copy (the parameters of {@link copyParams}) goes
+ * to the copy that the view shows, and a relation of a document to its own
+ * hidden copy is not returned (CTX-1697). The conditions that a caller adds
+ * on `r.dst_doc` see the stored target.
  */
 const relationsOf = (table: "relations" | "relations_in", sources: string) =>
   `SELECT r.workspace_id AS workspace_id, r.src_doc AS src_doc,
-     r.src_chunk AS src_chunk, r.predicate AS predicate, r.dst_doc AS dst_doc,
+     r.src_chunk AS src_chunk, r.predicate AS predicate,
+     ${shownTarget} AS dst_doc,
      r.confidence AS confidence,
      if(r.valid_from_introduced, s.created_at, r.valid_from) AS valid_from,
      r.valid_to AS valid_to, r.source AS source, r.alt_text AS alt_text,
@@ -1681,7 +1805,9 @@ const relationsOf = (table: "relations" | "relations_in", sources: string) =>
      ON s.workspace_id = r.workspace_id AND s.doc_key = r.src_doc
      AND s.version = r.src_version
    WHERE r.org_id = {orgId:String}
-     AND r.workspace_id IN {workspaceIds:Array(String)}`
+     AND r.workspace_id IN {workspaceIds:Array(String)}
+     AND NOT (has({hiddenKeys:Array(String)}, r.dst_doc)
+       AND ${shownTarget} = r.src_doc)`
 
 /** A time in the text form of a `DateTime64(3, 'UTC')` parameter. */
 const clickHouseTime = (time: Date) =>
@@ -2102,6 +2228,9 @@ async function searchNeighbors(
     )
   const seedVersions =
     "(workspace_id, doc_key, version) IN {seeds:Array(Tuple(String, String, String))}"
+  // A relation to a hidden copy of a seed or of a neighbor counts as a
+  // relation to the copy that the view shows (CTX-1697).
+  const copies = await readHiddenCopies(client, scope)
   // `exact`: the neighbor must be in the view at `version`. A relation to a
   // document key names no version.
   const neighbors = await selectIn<
@@ -2162,7 +2291,8 @@ async function searchNeighbors(
     {
       ...input.filters,
       seeds: versions(input.seeds),
-      seedDocs: refTuples(input.seeds),
+      seedDocs: refTuples(shownRefsAndCopies(input.seeds, copies)),
+      ...copyParams(copies),
       hits: refTuples(input.hits),
       prefix: REFERENCE_TARGET_PREFIX,
       fromSource: "FROM_SOURCE",
@@ -2302,6 +2432,9 @@ async function readFrontier(
 ): Promise<FrontierRelation[]> {
   assertReadScope(scope)
   if (refs.length === 0) return []
+  // A frontier document is the copy that the view shows; its hidden copies
+  // find the in-relations to them (CTX-1697).
+  const copies = await readHiddenCopies(client, scope)
   const edgeColumns = `workspace_id, src_doc, src_chunk, predicate, dst_doc,
     confidence, valid_from, valid_to, source, alt_text, observed_at`
   const isKey = (column: string) => `startsWith(${column}, {prefix:String})`
@@ -2378,8 +2511,9 @@ ${direction === "out" ? "" : inBranches}
      FROM edges
      ORDER BY direction DESC, workspaceId, srcDoc, srcChunk, predicate, dstDoc`,
     {
-      refs: refTuples(refs),
+      refs: refTuples(shownRefsAndCopies(refs, copies)),
       prefix: REFERENCE_TARGET_PREFIX,
+      ...copyParams(copies),
     },
   )
   // The neighbor documents and the mention counts are two more queries, in
@@ -2395,7 +2529,7 @@ ${direction === "out" ? "" : inBranches}
     neighborRefs.set(documentId(ref), ref)
   }
   const [neighbors, stats] = await Promise.all([
-    readDocuments(client, scope, [...neighborRefs.values()]),
+    readDocuments(client, scope, [...neighborRefs.values()], copies),
     readMentionStats(client, scope, [...mentionKeys.values()]),
   ])
   const neighborOf = new Map(
@@ -2584,9 +2718,16 @@ const missingDocument = (
 async function readDocuments(
   client: ClickHouseClient,
   scope: KnowledgeReadScope,
-  refs: DocumentRef[],
+  requested: DocumentRef[],
+  /** The hidden copies, when the caller read them. */
+  known?: HiddenCopies,
 ): Promise<{ workspaceId: string; document: KnowledgeDocument }[]> {
   assertReadScope(scope)
+  // A hidden copy reads as the copy that the view shows (CTX-1697).
+  const refs = shownRefs(
+    requested,
+    known ?? (await readHiddenCopies(client, scope)),
+  )
   // The length of a string of a query parameter in the URL: the client
   // escapes a backslash and a quote, then the URL encodes the text.
   const urlLength = (value: string) =>
@@ -2650,7 +2791,7 @@ async function readEvidence(
   assertReadScope(scope)
   if (refs.length === 0) return []
   const params = {
-    refs: refTuples(refs),
+    refs: refTuples(shownRefs(refs, await readHiddenCopies(client, scope))),
     queryVector: vector,
     chunksPerDocument,
   }
@@ -2704,7 +2845,11 @@ async function readGraph(
   limit: number,
 ): Promise<KnowledgeGraph> {
   assertReadScope(scope)
-  const params = { limit: limit + 1, prefix: REFERENCE_TARGET_PREFIX }
+  const params = {
+    limit: limit + 1,
+    prefix: REFERENCE_TARGET_PREFIX,
+    ...copyParams(await readHiddenCopies(client, scope)),
+  }
   const [documents, relations] = await Promise.all([
     selectIn<DocumentRecord>(
       client,
@@ -2747,7 +2892,7 @@ async function readGraph(
   }
 }
 
-const listDocumentStatuses = (
+const listDocumentStatuses = async (
   client: ClickHouseClient,
   scope: KnowledgeReadScope,
 ) =>
@@ -2770,7 +2915,11 @@ const listDocumentStatuses = (
            SELECT workspace_id, doc_key FROM tree_view)
      )
      ORDER BY docKey`,
-    { prefix: REFERENCE_TARGET_PREFIX },
+    // A relation to a hidden copy is not a missing target (CTX-1697).
+    {
+      prefix: REFERENCE_TARGET_PREFIX,
+      ...copyParams(await readHiddenCopies(client, scope)),
+    },
   )
 
 const listUnresolvedReferences = (

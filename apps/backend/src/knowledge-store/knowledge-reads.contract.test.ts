@@ -357,7 +357,7 @@ const filler =
       query: `INSERT INTO trees (org_id, workspace_id, branch, doc_key,
           tree_version, kind, path, version, status, doc_kind, observed_at)
         SELECT {orgId:String}, {workspace:String}, 'main', ${docKey}, 1,
-          'file', '', 'v1', 'active', {kind:String}, now64(3)
+          'file', ${docKey}, 'v1', 'active', {kind:String}, now64(3)
         FROM numbers({count:UInt32})`,
       query_params: params,
       clickhouse_settings: settings,
@@ -849,7 +849,10 @@ describe("read spans (CTX-1688)", () => {
     const reads = spans
       .finishedSpans()
       .filter((span) => span.name.startsWith("clickhouse "))
+    // The head has no count of case duplicate rows, so the neighbors read
+    // the hidden copies (CTX-1697).
     expect(reads.map((span) => span.name).sort()).toEqual([
+      "clickhouse hidden_copies",
       "clickhouse search.chunks",
       "clickhouse search.documents",
       "clickhouse search.lexical",

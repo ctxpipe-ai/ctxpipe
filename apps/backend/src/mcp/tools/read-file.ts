@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm"
+import { and, eq, type SQL, sql } from "drizzle-orm"
 import { z } from "zod"
 
 import { withOrgDbContext } from "../../db/client.js"
@@ -8,6 +8,10 @@ import {
   workspaces,
 } from "../../db/schema/workspaces.js"
 import { fetchCheckoutFileBytes } from "../../domain/codeIngestion/codesearchClient.js"
+import {
+  foldedPathSql,
+  foldPath,
+} from "../../domain/workspaces/case-duplicates.js"
 import type { HydrateClaim } from "../../domain/workspaces/hydrate.js"
 import { chunkKnowledgeBody } from "../../domain/workspaces/knowledge-chunks.js"
 import { selectKnowledgeReader } from "../../knowledge-reader/knowledge-reader.js"
@@ -132,32 +136,41 @@ async function readUnit(
   frontMatter: FrontMatter
 } | null> {
   return withOrgDbContext(org.id, async (db) => {
-    const [row] = await db
-      .select({
-        servingId: workspaceKnowledgeUnits.servingId,
-        body: workspaceKnowledgeUnits.body,
-        // The unit row belongs to the active projection. Its own
-        // `projection_sha` can be older after a partial hydrate.
-        sha: activeProjectionSha(),
-        kind: workspaceKnowledgeUnits.kind,
-        title: workspaceKnowledgeUnits.title,
-        source: workspaceKnowledgeUnits.source,
-        updatedAt: workspaceKnowledgeUnits.updatedAt,
-        claims: workspaceKnowledgeUnits.claims,
-      })
-      .from(workspaceKnowledgeUnits)
-      .innerJoin(
-        workspaces,
-        eq(workspaces.id, workspaceKnowledgeUnits.workspaceId),
-      )
-      .where(
-        and(
-          eq(workspaceKnowledgeUnits.orgId, org.id),
-          eq(workspaceKnowledgeUnits.workspaceId, workspace.id),
-          eq(workspaceKnowledgeUnits.path, path),
-        ),
-      )
-      .limit(1)
+    const unitAt = (match: SQL) =>
+      db
+        .select({
+          servingId: workspaceKnowledgeUnits.servingId,
+          body: workspaceKnowledgeUnits.body,
+          // The unit row belongs to the active projection. Its own
+          // `projection_sha` can be older after a partial hydrate.
+          sha: activeProjectionSha(),
+          kind: workspaceKnowledgeUnits.kind,
+          title: workspaceKnowledgeUnits.title,
+          source: workspaceKnowledgeUnits.source,
+          updatedAt: workspaceKnowledgeUnits.updatedAt,
+          claims: workspaceKnowledgeUnits.claims,
+        })
+        .from(workspaceKnowledgeUnits)
+        .innerJoin(
+          workspaces,
+          eq(workspaces.id, workspaceKnowledgeUnits.workspaceId),
+        )
+        .where(
+          and(
+            eq(workspaceKnowledgeUnits.orgId, org.id),
+            eq(workspaceKnowledgeUnits.workspaceId, workspace.id),
+            match,
+          ),
+        )
+        .limit(1)
+    // A path that differs from a unit only in case reads that unit: the
+    // hydrate keeps one unit for each folded path (CTX-1697).
+    const exact = await unitAt(eq(workspaceKnowledgeUnits.path, path))
+    const [row] = exact.length
+      ? exact
+      : await unitAt(
+          sql`${foldedPathSql(workspaceKnowledgeUnits.path)} = ${foldPath(path)}`,
+        )
     if (!row) return null
     const [first] = await db
       .select({ startLine: workspaceKnowledgeChunks.startLine })

@@ -41,6 +41,7 @@ import {
   probeWorkspaceWriteAccess,
 } from "../../domain/workspaces/write-status.js"
 import { orgHasRecentIngestionRun } from "../../models/ingestion-runs.js"
+import { defaultCaseDuplicates } from "../../models/knowledge-state.js"
 import { getWorkspaceCommitProjection } from "../../models/workspace-commits.js"
 import { listUnfinishedHydrateShas } from "../../models/workspace-hydrate-runs.js"
 import { failStoppedUpgradeRun } from "../../models/workspace-upgrades.js"
@@ -62,6 +63,7 @@ import {
   GIT_REMOTE_ACCESS_MESSAGES,
   GitRemoteAccessError,
 } from "../../services/git/clone-tree.js"
+import { enqueueWorkflow } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { enqueueWorkspaceCommitProjection } from "../enqueue-workspace-commit-projection.js"
 import { enqueueWorkspaceHydrate } from "../enqueue-workspace-hydrate.js"
@@ -69,8 +71,10 @@ import { enqueueWorkspaceIndex } from "../enqueue-workspace-index.js"
 import {
   type EnqueueWorkspaceWriteCommitInput,
   enqueueWorkspaceWriteCommit,
+  enqueueWriteJob,
 } from "../enqueue-workspace-write-commit.js"
 import { scheduleSweepBackstop } from "./conversation-sandbox-sweep.js"
+import { workspaceCaseMerge } from "./workspace-case-merge.js"
 
 /** A Workspace in the no-access state reads its remote again after this, or after a retry or a reconnect. */
 const NO_ACCESS_RETRY_MS = 6 * 60 * 60 * 1000
@@ -261,6 +265,7 @@ export const workspaceTipCheck = defineWorkflow(
           })
       }
       const unfinishedHydrates = await listUnfinishedHydrateShas(input.orgId)
+      const planeHeads = await defaultCaseDuplicates(input.orgId)
       const hour = input.hour ?? startedAt.toISOString().slice(0, 13)
       // The knowledge export of main-era data is upgrade step 1. It goes
       // only through the upgrade pull request that an owner or admin opens
@@ -318,6 +323,48 @@ export const workspaceTipCheck = defineWorkflow(
                 `workspace-tip-hydrate:${revision.workspaceId}:${revision.generation}:${revision.defaultBranch}:${servedSha(projection, revision) ?? "none"}:${revision.sha}:${hour}`,
             },
           )
+        }
+        // A case duplicate at the tip that the knowledge plane projected
+        // (CTX-1697), for example from a direct commit of a person or an
+        // outside agent. The reads show one copy without a repair. The
+        // repair commits the copies that need no person, and a pull request
+        // merges two edited copies. One of each for each tip.
+        const plane = planeHeads.get(workspace.id)
+        const caseDuplicates =
+          desired && plane?.sha === desired.sha
+            ? (plane.caseDuplicates ?? 0)
+            : 0
+        if (caseDuplicates > 0 && desired) {
+          // One event for each Workspace: the fields of the wide event of
+          // the run would keep only the last one. A count only: the paths
+          // can be customer content.
+          log.info({
+            event: "workspace_tip_check_case_duplicates",
+            workspaceId: workspace.id,
+            caseDuplicates,
+          })
+          if (
+            workspace.githubConnectionId &&
+            (writeStatusById.get(workspace.id) ?? workspace.writeStatus) ===
+              "writable"
+          ) {
+            await enqueueWriteJob(
+              {
+                orgId: input.orgId,
+                workspaceId: workspace.id,
+                jobId: `wjob_case_${workspace.id}_${desired.sha.slice(0, 12)}`,
+                kind: "case_repair",
+              },
+              quietLog,
+            )
+            await enqueueWorkflow(
+              workspaceCaseMerge.spec,
+              { orgId: input.orgId, workspaceId: workspace.id },
+              {
+                idempotencyKey: `workspace-case-merge:${workspace.id}:${desired.sha}`,
+              },
+            )
+          }
         }
         // A run can also fail after it stores the tip and before it queues
         // the commit projection job below. A hydrate that it queued can then

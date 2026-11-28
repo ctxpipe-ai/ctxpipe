@@ -95,6 +95,21 @@ export const knowledgeBranchHeads = pgTable.withRLS(
     /** The count of `failed` documents after the last completed run. */
     failedCount: integer("failed_count").notNull().default(0),
     /**
+     * The count of the tree rows of the head (files and tombstones) after
+     * the first row of their folded path (CTX-1697). A read of a head with 0
+     * does not fold the paths. Null for a run of an earlier release: the
+     * read folds.
+     */
+    caseDuplicateRows: integer("case_duplicate_rows"),
+    /**
+     * The count of the files of the tip, of each file type, after the first
+     * file of their folded path (CTX-1697): the copies that the reads hide
+     * and that the repair removes. A tombstone does not count. The tip
+     * check queues the repair when it is above 0. Null for a run of an
+     * earlier release.
+     */
+    caseDuplicates: integer("case_duplicates"),
+    /**
      * When a full tree of the branch last became the tree of the default
      * branch. A read of the default branch uses the head with the newest
      * time, until a run of a new default branch moves its head (the rename

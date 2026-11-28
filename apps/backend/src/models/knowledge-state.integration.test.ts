@@ -87,6 +87,8 @@ describe("knowledge_state (Postgres)", () => {
         baseBranch: null,
         projectionVersion: "1:test-model",
         failedCount: 0,
+        caseDuplicateRows: 0,
+        caseDuplicates: 0,
       }),
     ).rejects.toThrow("call beginKnowledgeRun first")
   })
@@ -117,6 +119,8 @@ describe("knowledge_state (Postgres)", () => {
       baseBranch: null,
       projectionVersion: "1:test-model",
       failedCount: 2,
+      caseDuplicateRows: 0,
+      caseDuplicates: 0,
     })
     expect(await getKnowledgeState(workspace)).toMatchObject({
       lastSha: "sha-main",
@@ -125,7 +129,8 @@ describe("knowledge_state (Postgres)", () => {
       runStatus: "completed",
       failedCount: 2,
     })
-    const mainHead = { sha: "sha-main", branch: "main", treeVersion: 1 }
+    const mainTree = { sha: "sha-main", branch: "main", treeVersion: 1 }
+    const mainHead = { ...mainTree, caseDuplicateRows: 0 }
     expect(await readyKnowledgeHeads(orgId, [workspaceId])).toEqual(
       new Map([[workspaceId, mainHead]]),
     )
@@ -144,6 +149,8 @@ describe("knowledge_state (Postgres)", () => {
       baseBranch: "main",
       projectionVersion: "1:test-model",
       failedCount: 0,
+      caseDuplicateRows: 2,
+      caseDuplicates: 2,
     })
     expect(
       (await readyKnowledgeHeads(orgId, [workspaceId], "feature")).get(
@@ -151,9 +158,10 @@ describe("knowledge_state (Postgres)", () => {
       ),
     ).toEqual({
       sha: "sha-feature",
+      caseDuplicateRows: 2,
       branch: "feature",
       treeVersion: 1,
-      base: mainHead,
+      base: mainTree,
     })
     expect(await getKnowledgeState(workspace)).toMatchObject({
       lastSha: "sha-main",
@@ -189,6 +197,8 @@ describe("knowledge_state (Postgres)", () => {
       baseBranch: null,
       projectionVersion: "1:test-model",
       failedCount: 0,
+      caseDuplicateRows: 0,
+      caseDuplicates: 0,
     })
     expect(
       (await readyKnowledgeHeads(orgId, [workspaceId])).get(workspaceId)

@@ -15,6 +15,7 @@ import { parseDocument, stringify, type YAMLSeq } from "yaml"
 import { z } from "zod"
 
 import { isConnectorMirrorPath } from "../codeIngestion/connectorMirrorPaths.js"
+import { foldPath } from "../workspaces/case-duplicates.js"
 import { isHostOnlyPath } from "../workspaces/host-only.js"
 import { KNOWLEDGE_KIND_FOLDERS } from "../workspaces/layout.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
@@ -1829,10 +1830,6 @@ function repositoryKey(url: string): string | null {
   } catch {
     return null
   }
-}
-
-function foldPath(path: string): string {
-  return path.normalize("NFC").toLowerCase()
 }
 
 function parentFolders(paths: Iterable<string>): Set<string> {

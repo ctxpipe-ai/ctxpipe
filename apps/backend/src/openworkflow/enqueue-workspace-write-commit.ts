@@ -45,6 +45,7 @@ import {
 import { listMarkdownFilesAtGitSha } from "../services/git/clone-tree.js"
 import { enqueueWorkflow } from "./client.js"
 import { workspaceBootstrap } from "./workflows/workspace-bootstrap.js"
+import { workspaceCaseRepair } from "./workflows/workspace-case-repair.js"
 import { workspaceClaimsUpgrade } from "./workflows/workspace-claims-upgrade.js"
 import {
   workspaceConnectorMirror,
@@ -276,6 +277,7 @@ export async function enqueueWriteJob(
       | typeof workspaceClaimsUpgrade
       | typeof workspaceOwnershipMigration
       | typeof workspaceGithubMirrorCleanup
+      | typeof workspaceCaseRepair
     >
   > = {
     claims_upgrade: workspaceClaimsUpgrade,
@@ -283,6 +285,7 @@ export async function enqueueWriteJob(
     ownership_migration: workspaceOwnershipMigration,
     ops_folder_map: workspaceOpsFolderList,
     github_mirror_cleanup: workspaceGithubMirrorCleanup,
+    case_repair: workspaceCaseRepair,
   }
   const snapshotWorkflow = snapshotWriteWorkflows[input.kind]
   if (

@@ -3,6 +3,7 @@ import {
   CONNECTOR_MIRROR_ROOTS,
   connectorMirrorRoot,
 } from "../domain/codeIngestion/connectorMirrorPaths.js"
+import { foldPath } from "../domain/workspaces/case-duplicates.js"
 import type {
   ExpandedEdge,
   ExpandedNode,
@@ -451,8 +452,11 @@ async function related(
     }
   }
   const seeds = evidence.filter((item) => item.document.status === "active")
+  // A seed of a copy that the view hides reads as the copy that it shows,
+  // whose path differs only in case (CTX-1697).
   const unknown = paths.filter(
-    (path) => !seeds.some((seed) => seed.document.path === path),
+    (path) =>
+      !seeds.some((seed) => foldPath(seed.document.path) === foldPath(path)),
   )
   if (unknown.length > 0) throw unknownRefError(unknown)
   let traversal: Awaited<ReturnType<typeof traverse>>

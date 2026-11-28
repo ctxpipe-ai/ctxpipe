@@ -8,6 +8,7 @@ import {
   SOURCES_FOLDER_PREFIX,
 } from "../domain/workspace-sources/source-tree.js"
 import { SOURCES_FILE_PATH } from "../domain/workspace-sources/sources-file.js"
+import { caseDuplicateCount } from "../domain/workspaces/case-duplicates.js"
 import { servingIdForKnowledgePath } from "../domain/workspaces/hydrate.js"
 import { withGitTimes } from "../domain/workspaces/source-time.js"
 import {
@@ -98,6 +99,11 @@ type KnowledgeRunSummary =
       documentsChanged: number
       /** The `failed` documents of the tree of the branch after the run. */
       failedCount: number
+      /**
+       * The files of the tip, of each file type, that a read does not show,
+       * because another path is equal after case folding (CTX-1697).
+       */
+      caseDuplicates: number
     }
 
 /**
@@ -315,12 +321,15 @@ export async function projectKnowledgePlane(input: {
               baseBranch: base?.branch ?? null,
               projectionVersion,
               failedCount: applied.failedCount,
+              caseDuplicateRows: applied.caseDuplicateRows,
+              caseDuplicates: applied.caseDuplicates,
             })
             return {
               mode: plan.kind,
               fullReason: plan.kind === "full" ? plan.reason : null,
               documentsChanged: applied.changed,
               failedCount: applied.failedCount,
+              caseDuplicates: applied.caseDuplicates,
             }
           },
           undefined,
@@ -474,7 +483,12 @@ async function applyChangeSet(input: {
   counter: MutationCounter
   embedding: EmbeddingCounter
   files: FileCounter
-}): Promise<{ changed: number; failedCount: number }> {
+}): Promise<{
+  changed: number
+  failedCount: number
+  caseDuplicates: number
+  caseDuplicateRows: number
+}> {
   const { workspaceId, root, store, observedAt, directory, plan } = input
   const scope: KnowledgeScope = {
     orgId: input.orgId,
@@ -651,10 +665,20 @@ async function applyChangeSet(input: {
     ...next.values(),
   ])
 
-  const failedCount = [...new Map([...current, ...next]).values()].filter(
+  const after = [...new Map([...current, ...next]).values()]
+  const failedCount = after.filter(
     (entry) => !entry.deletedAt && !entry.inherit && entry.status === "failed",
   ).length
-  return { changed: next.size, failedCount }
+  return {
+    changed: next.size,
+    failedCount,
+    // Each file type: the repair removes each hidden copy (CTX-1697).
+    caseDuplicates: caseDuplicateCount(tree.keys()),
+    // A tombstone counts too: a link can name its path.
+    caseDuplicateRows: caseDuplicateCount(
+      after.filter((entry) => !entry.inherit).map((entry) => entry.path),
+    ),
+  }
 }
 
 /**
@@ -1461,6 +1485,7 @@ function recordRun(input: {
       "ctxpipe.knowledge.full_reason": summary.fullReason ?? "",
       "ctxpipe.knowledge.documents_changed": summary.documentsChanged,
       "ctxpipe.knowledge.failed_count": summary.failedCount,
+      "ctxpipe.knowledge.case_duplicates": summary.caseDuplicates,
     })
   }
   input.span.setAttributes(fields)
