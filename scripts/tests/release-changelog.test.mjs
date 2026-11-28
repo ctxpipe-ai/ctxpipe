@@ -99,6 +99,7 @@ test("the guard rejects a changeset that names a package and has no kind", () =>
   assert.equal(changesetProblem('---\n"ctxpipe": minor\n---\n\nfeature!: New flags.\n'), null)
   assert.match(changesetProblem('---\n"ctxpipe": patch\n---\n\nThe CLI works.\n'), /no kind/)
   assert.match(changesetProblem('---\n"ctxpipe": patch\n---\n\nFix: The CLI works.\n'), /no kind/)
+  assert.match(changesetProblem('---\n"ctxpipe": patch\n---\n\nfix: \n'), /no kind/)
   assert.match(changesetProblem("no front matter\n"), /no front matter/)
 })
 

@@ -24,7 +24,7 @@ const groups = [
 // The kind of a changeset summary, or null when the first line has no tag.
 export function parseKind(summary) {
   const kinds = groups.map(([kind]) => kind).join("|")
-  const match = new RegExp(`^(${kinds})(!?): +`).exec(summary.trimStart())
+  const match = new RegExp(`^(${kinds})(!?): +(?=\\S)`).exec(summary.trimStart())
   if (!match) return null
   return {
     kind: match[1],
