@@ -6,6 +6,7 @@ import { delimiter, join } from "node:path"
 import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 
+import { regroup } from "../release/changelog.mjs"
 import { changesetProblem } from "../release/check-changeset-kinds.mjs"
 
 const root = fileURLToPath(new URL("../..", import.meta.url))
@@ -84,6 +85,11 @@ test("a major bump is breaking, the older versions stay as they are, and a chang
     changelog,
     `# @fixture/a\n\n## 2.0.0\n\n### Bug fixes\n\n- **Breaking:** The default changes.\n\n### Other changes\n\n- Something old.\n\n${older}`,
   )
+})
+
+test("regroup keeps a published version of a package that the release does not bump", () => {
+  const published = "# ctxpipe\n\n## 0.5.2\n\n### Patch Changes\n\n- abc1234: The CLI works.\n"
+  assert.equal(regroup(published), published)
 })
 
 test("the guard rejects a changeset that names a package and has no kind", () => {

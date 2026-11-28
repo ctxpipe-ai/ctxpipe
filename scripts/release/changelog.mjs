@@ -23,7 +23,8 @@ const groups = [
 
 // The kind of a changeset summary, or null when the first line has no tag.
 export function parseKind(summary) {
-  const match = /^(feature|improvement|fix)(!?): +/.exec(summary.trimStart())
+  const kinds = groups.map(([kind]) => kind).join("|")
+  const match = new RegExp(`^(${kinds})(!?): +`).exec(summary.trimStart())
   if (!match) return null
   return {
     kind: match[1],
@@ -31,6 +32,9 @@ export function parseKind(summary) {
     text: summary.trimStart().slice(match[0].length),
   }
 }
+
+// The comment that keeps the kind of an entry until `regroup` reads it.
+const markerPattern = /^- <!-- kind:(\w+)( breaking)? -->/
 
 function marker(kind, breaking) {
   return `<!-- kind:${kind}${breaking ? " breaking" : ""} -->`
@@ -62,31 +66,32 @@ const changelogFunctions = {
 export default changelogFunctions
 
 // Puts the entries of the newest version of a CHANGELOG in the groups of their
-// kind. A version that has no bump heading stays as it is, so a second run
-// changes nothing.
+// kind. A version with no kind comment stays as it is: a published version, a
+// version that is grouped already, or a package that this release does not
+// bump. Thus a second run changes nothing.
 export function regroup(changelog) {
   const start = changelog.search(/^## /m)
   if (start === -1) return changelog
   const nextVersion = changelog.slice(start + 3).search(/^## /m)
   const end = nextVersion === -1 ? changelog.length : start + 3 + nextVersion
   const lines = changelog.slice(start, end).trimEnd().split("\n")
-  if (!lines.some((line) => /^### (Major|Minor|Patch) Changes$/.test(line))) return changelog
+  if (!lines.some((line) => markerPattern.test(line))) return changelog
 
   const entries = []
   for (const line of lines.slice(1)) {
     if (line.startsWith("- ")) entries.push([line])
     else if (!line.startsWith("### ") && entries.length > 0) entries.at(-1).push(line)
   }
-  const sorted = new Map([...groups.map(([kind]) => [kind, []]), ["other", []]])
+  const byKind = new Map([...groups.map(([kind]) => [kind, []]), ["other", []]])
   for (const item of entries) {
     const text = item.join("\n").trimEnd()
-    const match = /^- <!-- kind:(\w+)( breaking)? -->/.exec(text)
-    if (!match || !sorted.has(match[1])) {
-      sorted.get("other").push({ breaking: false, text })
+    const match = markerPattern.exec(text)
+    if (!match || !byKind.has(match[1])) {
+      byKind.get("other").push({ breaking: false, text })
       continue
     }
     const body = text.slice(match[0].length)
-    sorted.get(match[1]).push({
+    byKind.get(match[1]).push({
       breaking: Boolean(match[2]),
       text: `- ${match[2] ? "**Breaking:** " : ""}${body}`,
     })
@@ -94,7 +99,7 @@ export function regroup(changelog) {
 
   const sections = [...groups, ["other", "Other changes"]]
     .map(([kind, heading]) => {
-      const items = sorted.get(kind)
+      const items = byKind.get(kind)
       if (items.length === 0) return null
       const ordered = [...items.filter((item) => item.breaking), ...items.filter((item) => !item.breaking)]
       // A multi-line entry has a blank line after it, as Changesets writes it.
@@ -108,10 +113,10 @@ export function regroup(changelog) {
   return `${changelog.slice(0, start)}${section}\n${end < changelog.length ? `\n${changelog.slice(end)}` : ""}`
 }
 
-// `node scripts/release/changelog.mjs [root]` regroups CHANGELOG.md of each
-// package under packages/.
+// `node scripts/release/changelog.mjs` regroups CHANGELOG.md of each package
+// under packages/.
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const packages = join(process.argv[2] ?? process.cwd(), "packages")
+  const packages = join(process.cwd(), "packages")
   for (const name of readdirSync(packages)) {
     const file = join(packages, name, "CHANGELOG.md")
     let text

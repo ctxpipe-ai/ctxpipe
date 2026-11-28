@@ -308,6 +308,8 @@ const definitions = () => [
             "ci-preview-images": imageBuildFiles,
             "ci-test-shards": ["apps/backend/**"],
             "ci-visual-container": ["apps/ui/package.json"],
+            // The test runs the changeset config and the ci:version script.
+            "release-changelog": [".changeset/config.json", "package.json"],
           }[stem] ?? []),
         ],
         commands: [
