@@ -172,9 +172,9 @@ The check makes no model call. Under `factory check`, no check gets the model ke
 ```
 
 - It runs the CTX arm with Haiku on the smoke list, 1 trial, with a cap of $0.15 for each run in the model gateway and $3 for the invocation. The gateway reserves the worst cost of each request (above 100,000 bytes of body, at the long-context price), so a run needs a cap of about $0.15.
-- It writes one verdict for each hash of the tool surface to `~/.cache/ctxpipe-bench/smoke/<hash>.json`. The hash is over the path and the bytes of each file of the surface (`node scripts/checks/evals.mjs surface`). When the verdict of the surface is there, the smoke tier makes no run and costs $0 (`--no-cache` runs it again). A run that the cap stopped writes no verdict.
+- It writes one verdict for each hash of the tool surface to `~/.cache/ctxpipe-bench/smoke/<hash>.json`. The hash is over the path and the bytes of each file of the surface (`node scripts/checks/evals.mjs surface`). When the verdict of the surface is there, the smoke tier makes no run and costs $0 (`--no-cache` runs it again). A run that the cap stopped, or that has an infrastructure error, writes no verdict.
 - The verdict is a breakage check, not a measure: it fails on an invalid run (D5), an infrastructure error, an own-service error, an argument error rate above 0.5, more than half of the tasks with no MCP call, more than half of the runs stopped at a limit, or a score more than 0.4 below `referenceScore` (set from the first baseline; `null` until then).
-- The check reads the verdict of the tool surface of the checkout: it passes or fails as the verdict does. Without a verdict, its prerequisite `bench-smoke` fails with the fix. `factory check` stores a pass, so CI reuses it; no job of PR CI runs the check.
+- The check reads the verdict of the tool surface of the checkout: it passes or fails as the verdict does. Without a verdict, its prerequisite `bench-smoke` fails with the fix. It is stochastic, so it has no key and `factory check` stores no pass; it reads the verdict again at no cost. No job of PR CI runs it: the merge gate lists it as `not run by PR CI`.
 
 ## The record of a run
 

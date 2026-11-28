@@ -7,11 +7,12 @@ import { fileURLToPath } from "node:url"
 // The eval checks: the smoke tier of OrgBench (lane `bench`, CTX-1665). It
 // costs model money, so it is stochastic, and its manifest entry has
 // `selectBy: "inputs"`: a selector selects it only when a file of the tool
-// surface changes (its `inputs`), by no other rule and no model step. The
-// key of a pass holds only those files. The paid run is not this check: the
-// smoke tier of `apps/backend/evals/bench/run.py` runs on the host with the
-// model key and keeps one verdict for each hash of the tool surface. This
-// check reads the verdict of the tool surface of the checkout. Usage:
+// surface changes (its `inputs`), by no other rule and no model step. As a
+// stochastic check, it has no key and stores no pass. The paid run is not
+// this check: the smoke tier of `apps/backend/evals/bench/run.py` runs on the
+// host with the model key and keeps one verdict for each hash of the tool
+// surface. This check reads the verdict of the tool surface of the checkout.
+// Usage:
 //   evals.mjs surface   prints the files and the hash of the tool surface
 
 const root = fileURLToPath(new URL("../../", import.meta.url))

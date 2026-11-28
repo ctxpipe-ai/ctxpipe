@@ -1105,7 +1105,11 @@ test("every check has the root toolchain files among its inputs, and a Storybook
   const { checks } = JSON.parse(result.stdout)
   assert.ok(checks.some(({ lane }) => lane === "visual"))
   assert.ok(checks.some(({ lane }) => lane === "plays"))
-  for (const { id, family, inputs } of checks) {
+  // The smoke check is selected only by the files of the tool surface: a
+  // toolchain file does not change its verdict.
+  for (const { id, family, inputs } of checks.filter(
+    (check) => !check.selectBy,
+  )) {
     for (const file of [
       "pnpm-lock.yaml",
       "pnpm-workspace.yaml",

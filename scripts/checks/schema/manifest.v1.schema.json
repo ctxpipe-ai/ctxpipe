@@ -217,7 +217,7 @@
           "type": "boolean"
         },
         "selectBy": {
-          "description": "`inputs`: a selector selects the check only when a changed file is one of its `inputs`. No other rule selects it (its file, `root`, an import, a trace, a tool, a package, a co-failure), and no model step adds or removes it. A selector does not need to be asked for it when it is `stochastic`, and the key of a pass holds its inputs, so a stochastic check with `selectBy` runs again only when an input changes. Use it for a paid check whose owner states exactly which files can change its result (the OrgBench smoke tier: the MCP tool surface). Optional; without it, the rules of its family.",
+          "description": "`inputs`: a selector selects the check only when a changed file is one of its `inputs`. No other rule selects it (its file, `root`, an import, a trace, a tool, a package, a co-failure), and no model step adds or removes it. Only a `stochastic` check has it, and a selector selects that check without being asked for the stochastic checks. It still has no key. Use it for a paid check whose owner states exactly which files can change its result (the OrgBench smoke tier: the MCP tool surface). Optional; without it, the rules of its family.",
           "enum": ["inputs"]
         },
         "runnerInputs": {

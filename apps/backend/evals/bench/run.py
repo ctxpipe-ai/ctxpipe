@@ -355,13 +355,15 @@ def main():
                             cache_path.parent.mkdir(parents=True, exist_ok=True)
                             cache_path.write_text(json.dumps(run))
         if smoke_path:
-            verdict = tiers.smoke_verdict(analyze(args.out, 1.0), tier["verdict"])
-            # Only a finished run has a verdict: a run that the cap stopped returned above.
-            if status == 0:
+            report = analyze(args.out, 1.0)
+            verdict = tiers.smoke_verdict(report, tier["verdict"])
+            # Only a finished run keeps its verdict: a run that the cap stopped
+            # returned above, and an infrastructure error is not a verdict of the surface.
+            if not report["unresolvedInfraRuns"]:
                 smoke_path.parent.mkdir(parents=True, exist_ok=True)
                 smoke_path.write_text(json.dumps({**verdict, "surface": smoke_surface, "runFolder": str(args.out), "mcpUrl": args.mcp_url, "at": int(time.time())}, indent=2) + "\n")
             print(f"smoke verdict for tool surface {smoke_surface['hash'][:12]}: {'pass' if verdict['pass'] else 'fail'} {verdict['reasons']} {verdict['numbers']}")
-            status = status or (0 if verdict["pass"] else 1)
+            status = 0 if verdict["pass"] else 1
         return status
     finally:
         if runs:
