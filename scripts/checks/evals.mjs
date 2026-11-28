@@ -1,5 +1,6 @@
+import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -13,7 +14,7 @@ import { fileURLToPath } from "node:url"
 // host with the model key and keeps one verdict for each hash of the tool
 // surface. This check reads the verdict of the tool surface of the checkout.
 // Usage:
-//   evals.mjs surface   prints the files and the hash of the tool surface
+//   evals.mjs surface [<ref>]   prints the files and the hash of the tool surface
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
 const tiers = "apps/backend/evals/bench/tiers.json"
@@ -21,37 +22,40 @@ const tiers = "apps/backend/evals/bench/tiers.json"
 // The tool surface that the CTX arm sees: each MCP tool with its name,
 // description and input schema, the tool registry and framework, and the
 // agent guidance of the plugin. Tests and latency checks are not part of it.
-const surfaceRoots = [
+const code = [
   "apps/backend/src/mcp/tools.ts",
   "apps/backend/src/mcp/tools",
   "apps/backend/src/mcp/framework",
-  "plugins/ctxpipe/skills",
 ]
-const notSurface = /\.(test|latency|intent)\./
+const guidance = "plugins/ctxpipe/skills"
+const git = (args) =>
+  execFileSync("git", args, {
+    cwd: root,
+    encoding: "buffer",
+    maxBuffer: 64 * 1024 * 1024,
+  })
 
-function walk(path) {
-  if (!statSync(join(root, path)).isDirectory()) return [path]
-  return readdirSync(join(root, path))
+// The files of the tool surface in the checkout (tracked or new, not
+// ignored), or at the revision `ref`, with a reader of their bytes.
+function surface(ref) {
+  const roots = ["--", ...code, guidance]
+  const listed = ref
+    ? git(["ls-tree", "-r", "--name-only", ref, ...roots])
+    : git(["ls-files", "--cached", "--others", "--exclude-standard", ...roots])
+  const files = [...new Set(listed.toString("utf8").split("\n"))]
+    .filter((path) => path && !/\.(test|latency|intent)\./.test(path))
+    .filter((path) => ref || existsSync(join(root, path)))
     .sort()
-    .flatMap((name) => walk(`${path}/${name}`))
-}
-
-function surfaceFiles() {
-  return surfaceRoots
-    .flatMap(walk)
-    .filter((path) => !notSurface.test(path))
-    .sort()
+  const read = (path) =>
+    ref ? git(["show", `${ref}:${path}`]) : readFileSync(join(root, path))
+  return { files, read }
 }
 
 // The hash of the tool surface: each path and its bytes, in path order.
-function surfaceHash(files = surfaceFiles()) {
+function surfaceHash({ files, read } = surface()) {
   const hash = createHash("sha256")
   for (const path of files)
-    hash
-      .update(path)
-      .update("\0")
-      .update(readFileSync(join(root, path)))
-      .update("\0")
+    hash.update(path).update("\0").update(read(path)).update("\0")
   return hash.digest("hex")
 }
 
@@ -67,7 +71,13 @@ export function listEvals() {
       lane: "bench",
       root: "apps/backend/evals/bench",
       file: tiers,
-      inputs: surfaceFiles(),
+      // Each code file, and the guidance folder: a deleted tool or framework
+      // module changes an importer of it, which is an input, but a deleted
+      // skill file can change nothing else.
+      inputs: [
+        ...surface().files.filter((path) => !path.startsWith(`${guidance}/`)),
+        `${guidance}/**`,
+      ],
       selectBy: "inputs",
       stochastic: true,
       portable: true,
@@ -109,12 +119,14 @@ export function runEvals(checks) {
   }
 }
 
+// `evals.mjs surface [<ref>]`: the hash and the files of the tool surface of
+// the checkout, or of a revision (run.py compares it with origin/main).
 if (
   process.argv[1] === fileURLToPath(import.meta.url) &&
   process.argv[2] === "surface"
 ) {
-  const files = surfaceFiles()
+  const found = surface(process.argv[3])
   process.stdout.write(
-    `${JSON.stringify({ hash: surfaceHash(files), files })}\n`,
+    `${JSON.stringify({ hash: surfaceHash(found), files: found.files })}\n`,
   )
 }
