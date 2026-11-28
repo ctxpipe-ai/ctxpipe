@@ -18,14 +18,13 @@ const suffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 const database = `ctxpipe_test_console_role_${suffix}`
 const migrateRole = `ctxpipe_migrate_test_${suffix}`
 const password = "migrate-password-1"
-const console_ = `"${CONSOLE_ROLE_NAME}"`
+const consoleRoleIdent = `"${CONSOLE_ROLE_NAME}"`
 
 let admin: pg.Client
 let pool: pg.Pool
-let madeIam = false
 
 /** The migrate role's rights in a role: through a membership, or SET ROLE. */
-async function membership(role: string) {
+async function migrateRoleRights(role: string) {
   const result = await pool.query<{ usage: boolean; set: boolean }>(
     "SELECT pg_has_role(current_user, $1, 'USAGE') AS usage, pg_has_role(current_user, $1, 'SET') AS set",
     [role],
@@ -56,21 +55,22 @@ describe("provisionConsoleRole as a migrate role that is not a superuser", () =>
     const ownerUrl = new URL(ownerUrlForMigrate(process.env.DATABASE_URL))
     admin = new pg.Client({ connectionString: ownerUrl.toString() })
     await admin.connect()
-    madeIam =
-      (await admin.query("SELECT 1 FROM pg_roles WHERE rolname = 'rds_iam'"))
-        .rowCount === 0
-    if (madeIam) await admin.query("CREATE ROLE rds_iam")
+    // Other runs on the same server can use `rds_iam` too, so the test
+    // does not drop it. As a plain role it has no effect.
+    await admin.query(
+      "DO $$ BEGIN CREATE ROLE rds_iam; EXCEPTION WHEN duplicate_object THEN NULL; END $$",
+    )
     await admin.query(
       `CREATE ROLE "${migrateRole}" LOGIN CREATEROLE PASSWORD '${password}'`,
     )
     await admin.query(
       `DO $$ BEGIN
          IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${CONSOLE_ROLE_NAME}') THEN
-           CREATE ROLE ${console_} LOGIN;
+           CREATE ROLE ${consoleRoleIdent} LOGIN;
          END IF;
        END $$`,
     )
-    for (const role of [console_, "rds_iam"])
+    for (const role of [consoleRoleIdent, "rds_iam"])
       await admin.query(
         `GRANT ${role} TO "${migrateRole}" WITH ADMIN OPTION, INHERIT FALSE, SET FALSE`,
       )
@@ -98,20 +98,22 @@ describe("provisionConsoleRole as a migrate role that is not a superuser", () =>
     await admin?.query(`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`)
     // The migrate role granted rds_iam to the console role.
     await admin?.query(
-      `REVOKE rds_iam FROM ${console_} GRANTED BY "${migrateRole}"`,
+      `REVOKE rds_iam FROM ${consoleRoleIdent} GRANTED BY "${migrateRole}"`,
     )
     await admin?.query(`DROP ROLE IF EXISTS "${migrateRole}"`)
-    if (madeIam) await admin?.query("DROP ROLE IF EXISTS rds_iam")
     await admin?.end()
   })
 
   it("makes the console schema, views, grants and policy, and leaves no membership", async () => {
     await provisionConsoleRole(pool)
-    expect(await membership(CONSOLE_ROLE_NAME)).toEqual({
+    expect(await migrateRoleRights(CONSOLE_ROLE_NAME)).toEqual({
       usage: false,
       set: false,
     })
-    expect(await membership("rds_iam")).toEqual({ usage: false, set: false })
+    expect(await migrateRoleRights("rds_iam")).toEqual({
+      usage: false,
+      set: false,
+    })
     expect(await provisioned()).toEqual({
       console_owner: CONSOLE_ROLE_NAME,
       console_acl: `{${CONSOLE_ROLE_NAME}=UC/${CONSOLE_ROLE_NAME}}`,
@@ -127,7 +129,7 @@ describe("provisionConsoleRole as a migrate role that is not a superuser", () =>
   it("leaves no membership on a second run, and changes nothing", async () => {
     const before = await provisioned()
     await provisionConsoleRole(pool)
-    expect(await membership(CONSOLE_ROLE_NAME)).toEqual({
+    expect(await migrateRoleRights(CONSOLE_ROLE_NAME)).toEqual({
       usage: false,
       set: false,
     })
@@ -136,14 +138,20 @@ describe("provisionConsoleRole as a migrate role that is not a superuser", () =>
 
   it("removes the membership that an earlier migrate left", async () => {
     const before = await provisioned()
-    await pool.query(`GRANT ${console_} TO CURRENT_USER`)
-    expect(await membership("rds_iam")).toEqual({ usage: true, set: true })
+    await pool.query(`GRANT ${consoleRoleIdent} TO CURRENT_USER`)
+    expect(await migrateRoleRights("rds_iam")).toEqual({
+      usage: true,
+      set: true,
+    })
     await provisionConsoleRole(pool)
-    expect(await membership(CONSOLE_ROLE_NAME)).toEqual({
+    expect(await migrateRoleRights(CONSOLE_ROLE_NAME)).toEqual({
       usage: false,
       set: false,
     })
-    expect(await membership("rds_iam")).toEqual({ usage: false, set: false })
+    expect(await migrateRoleRights("rds_iam")).toEqual({
+      usage: false,
+      set: false,
+    })
     expect(await provisioned()).toEqual(before)
   })
 
@@ -159,7 +167,7 @@ describe("provisionConsoleRole as a migrate role that is not a superuser", () =>
       await owner.end()
     }
     await provisionConsoleRole(pool)
-    expect(await membership(CONSOLE_ROLE_NAME)).toEqual({
+    expect(await migrateRoleRights(CONSOLE_ROLE_NAME)).toEqual({
       usage: false,
       set: false,
     })

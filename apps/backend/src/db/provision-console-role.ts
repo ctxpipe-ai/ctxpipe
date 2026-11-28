@@ -120,35 +120,24 @@ export async function provisionConsoleRole(pool: Pool): Promise<void> {
       `GRANT CONNECT ON DATABASE ${quoteIdent(database)} TO ${role}`,
     )
 
-    // The migrate role must not stay a member of the console role. On RDS
-    // the console role is a member of `rds_iam`, and a member of `rds_iam`
-    // cannot log in with a password. An earlier migrate left this
-    // membership, so remove it first.
-    await dropConsoleMembership(client)
     // To make the console role the owner of a schema, and to change the
     // rights on that schema, a role must be able to SET ROLE to it. A creator
     // that is not a superuser (the RDS master user) gets only ADMIN OPTION.
-    // Thus the migrate role gets the membership in this transaction only.
-    const schema = await client.query<{ done: boolean }>(
-      `SELECT pg_catalog.pg_get_userbyid(nspowner) = $1
-         AND NOT EXISTS (SELECT 1 FROM pg_catalog.aclexplode(nspacl) a WHERE a.grantee = 0) AS done
-       FROM pg_catalog.pg_namespace WHERE nspname = 'console'`,
+    // Thus the migrate role gets the membership in this transaction only. It
+    // must not keep it: on RDS the console role is a member of `rds_iam`,
+    // and a member of `rds_iam` cannot log in with a password. This also
+    // removes a membership that an earlier migrate left.
+    const canSet = await client.query<{ ok: boolean }>(
+      "SELECT pg_has_role(current_user, $1, 'SET') AS ok",
       [CONSOLE_ROLE_NAME],
     )
-    if (!schema.rows[0]?.done) {
-      const canSet = await client.query<{ ok: boolean }>(
-        "SELECT pg_has_role(current_user, $1, 'SET') AS ok",
-        [CONSOLE_ROLE_NAME],
-      )
-      if (!canSet.rows[0]?.ok)
-        await client.query(`GRANT ${role} TO CURRENT_USER`)
-      await client.query(
-        `CREATE SCHEMA IF NOT EXISTS console AUTHORIZATION ${role}`,
-      )
-      await client.query(`ALTER SCHEMA console OWNER TO ${role}`)
-      await client.query("REVOKE ALL ON SCHEMA console FROM PUBLIC")
-      await dropConsoleMembership(client)
-    }
+    if (!canSet.rows[0]?.ok) await client.query(`GRANT ${role} TO CURRENT_USER`)
+    await client.query(
+      `CREATE SCHEMA IF NOT EXISTS console AUTHORIZATION ${role}`,
+    )
+    await client.query(`ALTER SCHEMA console OWNER TO ${role}`)
+    await client.query("REVOKE ALL ON SCHEMA console FROM PUBLIC")
+    await dropConsoleMembership(client)
 
     await client.query("CREATE SCHEMA IF NOT EXISTS console_read")
     await client.query("REVOKE ALL ON SCHEMA console_read FROM PUBLIC")
@@ -190,6 +179,7 @@ export async function provisionConsoleRole(pool: Pool): Promise<void> {
       await client.query(
         "ALTER TABLE openworkflow.workflow_runs ENABLE ROW LEVEL SECURITY",
       )
+    // REVOKE only warns when another role granted the membership.
     if (await holdsConsoleRole(client))
       throw new Error(
         `the migrate role is still a member of ${CONSOLE_ROLE_NAME}; refusing to continue`,
