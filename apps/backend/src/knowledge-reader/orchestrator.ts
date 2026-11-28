@@ -192,9 +192,9 @@ function jevMeta(document: KnowledgeDocument): CandidateMeta {
   return {
     status: document.status,
     sourceType: document.sourceType,
-    observedAt: document.observedAt.toISOString(),
-    validFrom: document.validFrom?.toISOString() ?? null,
-    validTo: document.validTo?.toISOString() ?? null,
+    createdAt: document.createdAt?.toISOString() ?? null,
+    updatedAt: document.updatedAt?.toISOString() ?? null,
+    expiresAt: document.expiresAt?.toISOString() ?? null,
     confidence: null,
   }
 }
@@ -285,10 +285,6 @@ export type WalkFilter = {
   minConfidence: number
   /** The relations of one frontier document that the loop follows. */
   maxFanOut: number
-  /** Only relations and documents valid at this time (the store filters). */
-  validAt: Date | null
-  /** Only relations and documents valid at some time in this window. */
-  validBetween?: { from: Date; to: Date }
 }
 
 type Traversal = {
@@ -333,7 +329,7 @@ export async function traverse(input: {
   intent: string
   vector: number[]
   seeds: readonly JudgeInput[]
-  /** The relations of the seeds (`readFrontier` at `walk.validAt`). */
+  /** The relations of the seeds (`readFrontier`). */
   seedRelations: Promise<FrontierRelation[]>
   /**
    * The documents that layer 1 adds with no relation, after the documents
@@ -417,7 +413,7 @@ export async function traverse(input: {
       relations =
         depth < maxDepth
           ? beforeDeadline(deadline, () =>
-              input.store.readFrontier(input.scope, refs, input.walk.validAt),
+              input.store.readFrontier(input.scope, refs),
             )
           : Promise.resolve([])
       // Each await of `relations` comes later; until then, a failure must
@@ -538,17 +534,6 @@ type Candidate = Omit<JudgeInput, "text"> & {
 /** A document that a relation of the frontier reaches. */
 type Reached = Candidate & { parent: NonNullable<TraversalNode["parent"]> }
 
-/** True when the validity of a row overlaps the window (open ends count). */
-export function overlaps(
-  row: { validFrom: Date | null; validTo: Date | null },
-  window: { from: Date; to: Date },
-): boolean {
-  return (
-    (!row.validFrom || row.validFrom <= window.to) &&
-    (!row.validTo || row.validTo >= window.from)
-  )
-}
-
 /**
  * The new documents that the relations of a frontier reach. A document that
  * two relations reach keeps the one with the higher confidence. The
@@ -575,9 +560,6 @@ function layerCandidates(
       (walk.predicates
         ? !walk.predicates.has(predicate)
         : walk.skipUnlessNamed.has(predicate)) ||
-      (walk.validBetween &&
-        (!overlaps(relation, walk.validBetween) ||
-          !overlaps(neighbor, walk.validBetween))) ||
       visited.has(
         documentId({ workspaceId: item.workspaceId, docKey: neighbor.docKey }),
       )

@@ -17,9 +17,10 @@ import { isKnowledgePath } from "./parse-file.js"
  * 0010 made the tables again, empty. 9: the `MENTIONS` links of an issue and
  * the keys of a knowledge unit (CTX-1502). 10: `valid_from` from the
  * source's own time of a file (CTX-1516). 11: the `MENTIONS` links of names
- * in code and of product names (CTX-1579).
+ * in code and of product names (CTX-1579). 12: the document times
+ * `created_at`, `updated_at` and `expires_at` (CTX-1710).
  */
-export const KNOWLEDGE_PROJECTION_CODE_VERSION = 11
+export const KNOWLEDGE_PROJECTION_CODE_VERSION = 12
 
 /**
  * The projection version of the knowledge plane (ADR-067 decision 4): the

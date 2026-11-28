@@ -17,6 +17,8 @@ import {
 } from "../framework/legacy-knowledge.js"
 import {
   branchArgument,
+  documentTimesOutput,
+  documentTimesShape,
   type Skipped,
   servedSchema,
   skippedSchema,
@@ -33,7 +35,7 @@ const hitSchema = z.object({
   title: z.string().nullable(),
   kind: z.string().nullable(),
   source: z.string(),
-  updatedAt: z.string(),
+  ...documentTimesShape,
   snippet: z.string(),
   startLine: z.number().int(),
   endLine: z.number().int(),
@@ -96,7 +98,7 @@ export function searchKnowledgePage(input: {
       title: hit.title,
       kind: hit.kind,
       source: hit.source,
-      updatedAt: hit.updatedAt.toISOString(),
+      ...documentTimesOutput(hit),
       snippet: truncateText(hit.text, 600),
       startLine: hit.startLine,
       endLine: hit.endLine,
@@ -165,11 +167,9 @@ export const searchKnowledgeTool = defineMcpReadTool({
     updatedAfter: z.iso
       .datetime({ offset: true })
       .optional()
-      .describe("Only units updated after this time (ISO 8601)."),
-    validAt: z.iso
-      .datetime({ offset: true })
-      .optional()
-      .describe("Only units valid at this time (ISO 8601)."),
+      .describe(
+        "Only units whose updatedAt is after this time (ISO 8601): the units that changed in their source since then.",
+      ),
     limit: z
       .number()
       .int()
@@ -248,7 +248,6 @@ export const searchKnowledgeTool = defineMcpReadTool({
             updatedAfter: input.updatedAfter
               ? new Date(input.updatedAfter)
               : undefined,
-            validAt: input.validAt ? new Date(input.validAt) : undefined,
             limit: 50,
           })
     const { cursor, ...parameters } = input

@@ -76,11 +76,10 @@ describe("the dataset", () => {
         (question) => question.corpus === corpus.id,
       )
       expect(questions.length).toBeGreaterThanOrEqual(expected.least)
-      // No image in the corpora, and no validAt in v0.
+      // No image in the corpora.
       expect(questions.some((question) => question.category === "image")).toBe(
         false,
       )
-      expect(questions.some((question) => question.validAt)).toBe(false)
       // In each category, the count of holdout questions is the nearest
       // whole number to 40%.
       for (const category of new Set(
@@ -713,9 +712,9 @@ describe("the replay of a Jev question in another call", () => {
   const meta = {
     status: "active",
     sourceType: "docs",
-    observedAt: "2026-11-01T00:00:00.000Z",
-    validFrom: null,
-    validTo: null,
+    createdAt: null,
+    updatedAt: "2026-11-01T00:00:00.000Z",
+    expiresAt: null,
     confidence: null,
   }
   const judgeWhy = (ids: string[]) =>

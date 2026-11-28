@@ -614,7 +614,7 @@ export async function listMarkdownFilesAtGitSha(input: {
         `${entries.map((entry) => entry.sha).join("\n")}\n`,
       )
       const { introduced, lastChanged } = input.includeIntroducingCommits
-        ? await readMarkdownHistory(dir, {
+        ? await readPathHistory(dir, {
             sha: input.sha,
             root: input.root ?? "",
             layoutPath: input.layoutPath,
@@ -702,7 +702,7 @@ export async function readFileAtGitSha(input: {
 /**
  * Fetch the commits and the trees of the whole history of `sha` (one SHA or
  * more) into `dir`, also when an earlier fetch was shallow. The history walk
- * (`readMarkdownHistory`) needs no old blob, and the blobs of a large history
+ * (`readPathHistory`) needs no old blob, and the blobs of a large history
  * are most of its bytes. The blobs that `dir` has stay, so the fetch adds
  * only the rest.
  */
@@ -749,7 +749,9 @@ export async function fetchGitHistory(
 
 /**
  * One walk of the Markdown history of `sha` in `dir`, newest first
- * (`fetchGitHistory` gets it). The maps are by repository path:
+ * (`fetchGitHistory` gets it). With `allPaths`, the walk reads the history
+ * of each path, not only of the Markdown files. The maps are by repository
+ * path:
  * - `introduced`: the time of the newest commit that added the path, so a
  *   path that a commit removed and a later commit added again has the time
  *   of the later commit;
@@ -760,13 +762,14 @@ export async function fetchGitHistory(
  * layout commit, such as an upgrade or its revert: its deletes do not go to
  * `deletedPaths`, because a person did not delete those files.
  */
-export async function readMarkdownHistory(
+export async function readPathHistory(
   dir: string,
   input: {
     sha: string
     root: string
     layoutPath?: string
     deletedPaths?: Set<string>
+    allPaths?: boolean
   },
 ): Promise<{
   introduced: Map<string, string>
@@ -794,7 +797,7 @@ export async function readMarkdownHistory(
       "--no-renames",
       input.sha,
       "--",
-      "*.md",
+      ...(input.allPaths ? [] : ["*.md"]),
       ...(layoutPath ? [`:(literal)${layoutPath}`] : []),
     ],
     5 * 60_000,

@@ -467,7 +467,6 @@ async function ask(
   now: Date,
   quiet: ReturnType<typeof quietTimer>,
 ): Promise<Pick<ArmAnswer, "search" | "related">> {
-  const validAt = question.validAt ? new Date(question.validAt) : undefined
   let quietBefore = await quiet.before(`${reader.stack} search`)
   let started = performance.now()
   let search: ArmAnswer["search"]
@@ -478,8 +477,6 @@ async function ask(
       query: question.text,
       // The most that a search gives: search recall@50 reads all of it.
       limit: 50,
-      ...(validAt ? { validAt } : {}),
-      now,
     })
     const latencyMs = performance.now() - started
     quiet.after()
@@ -520,7 +517,6 @@ async function ask(
         workspace: target.workspace.slug,
         seeds: question.seeds,
         query: question.text,
-        validAt: (validAt ?? now).toISOString(),
         // A seed can hold one of the positions. The traversal recall
         // counts only the gold documents that are not seeds.
         includeSeeds: true,

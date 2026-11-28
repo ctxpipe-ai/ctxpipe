@@ -5,6 +5,7 @@ exports[`the knowledge reader seam > on: the output of both tools has the shape 
   "hits": [
     {
       "claims": "string",
+      "createdAt": "string",
       "endLine": "number",
       "kind": "string",
       "ref": "string",
@@ -43,6 +44,7 @@ exports[`the knowledge reader seam > on: the output of both tools has the shape 
   "partial": "boolean",
   "results": [
     {
+      "createdAt": "string",
       "depth": "number",
       "kind": "string",
       "path": [

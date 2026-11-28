@@ -71,7 +71,6 @@ import {
   workspaceUnlinkRetraction,
   workspaceUnlinkRetractionInputSchema,
 } from "./workflows/workspace-unlink-retraction.js"
-import { workspaceValidFromPersist } from "./workflows/workspace-valid-from-persist.js"
 
 type WorkspaceWriteSnapshot = WorkspaceWriteProbeBinding & {
   writeStatus: string
@@ -235,10 +234,14 @@ export async function enqueueWriteJob(
   }
   // The old pipeline is gone. Ingestion v2 publishes through its
   // own run, not through admission, so admission refuses each extract ingest.
-  // A paused job of the old pipeline ends here, so no resume admits it again.
-  if (input.kind === "extract_ingest") {
+  // ctxpipe does not write `valid_from` into Workspace files any more
+  // (CTX-1710). A paused job of either kind ends here, so no resume admits
+  // it again.
+  if (input.kind === "extract_ingest" || input.kind === "valid_from_persist") {
     const reason =
-      "The old ingestion pipeline is retired. Admission refuses its extract_ingest write; ingestion v2 publishes to a Workspace at format 3 or more."
+      input.kind === "extract_ingest"
+        ? "The old ingestion pipeline is retired. Admission refuses its extract_ingest write; ingestion v2 publishes to a Workspace at format 3 or more."
+        : "ctxpipe does not write valid_from into Workspace files any more. Admission refuses the valid_from_persist write."
     log.error(new Error(reason))
     if (input.jobId)
       await withOrgDbContext(input.orgId, () =>
@@ -273,7 +276,6 @@ export async function enqueueWriteJob(
     >
   > = {
     claims_upgrade: workspaceClaimsUpgrade,
-    valid_from_persist: workspaceValidFromPersist,
     import_key_cleanup: workspaceImportKeyCleanup,
     ownership_migration: workspaceOwnershipMigration,
     ops_folder_map: workspaceOpsFolderList,

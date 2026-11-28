@@ -296,7 +296,7 @@ describe("searchKnowledge (Postgres)", () => {
       endLine: 3,
     })
     expect(hits[0]?.text).toContain("ERR_LEDGER_7731")
-    expect(hits[0]?.updatedAt.toISOString()).toBe("2026-03-01T00:00:00.000Z")
+    expect(hits[0]?.updatedAt?.toISOString()).toBe("2026-03-01T00:00:00.000Z")
   })
 
   it("ranks a paraphrase first through the embedding", async () => {
@@ -373,7 +373,7 @@ describe("searchKnowledge (Postgres)", () => {
       workspaceIds: [mirrors],
     })
     expect(
-      all.map((hit) => [hit.source, hit.updatedAt.toISOString()]).sort(),
+      all.map((hit) => [hit.source, hit.updatedAt?.toISOString()]).sort(),
     ).toEqual([
       ["authored", rewrite],
       ["linear", "2026-01-02T00:00:00.000Z"],

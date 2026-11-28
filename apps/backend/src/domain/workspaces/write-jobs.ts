@@ -4,6 +4,7 @@ export const WORKSPACE_WRITE_JOB_KINDS = [
   "connector_mirror",
   "claims_upgrade",
   "rename_rewrite",
+  // Retired (CTX-1710): admission ends an old job of this kind.
   "valid_from_persist",
   "semantic_merge",
   "ops_folder_map",
