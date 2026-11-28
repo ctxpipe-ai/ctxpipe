@@ -1,118 +1,129 @@
-# OrgBench spike (CTX-1660)
+# OrgBench
 
-This folder holds the phase 0 spike of OrgBench, the org-scale benchmark for context engines. The spike runs Claude Code on three answer-only tasks in two arms, and records the score, the tokens, the cost, the time and the MCP calls of each run. [Harbor](https://github.com/harbor-framework/harbor) is the only runner (decision D1 of the plan). The spike is thin on purpose: the full benchmark replaces most of it.
+This folder holds OrgBench, the org-scale benchmark for context engines ([ADR-075](../../../../.ai/memory/decisions/ADR-075-orgbench-org-scale-agent-benchmark.md)). Phase 1 ([CTX-1664](https://linear.app/ctxpipe/issue/CTX-1664)) runs Claude Code on answer-only tasks of the Zulip twin in three arms, records each run, and writes a report. [Harbor](https://github.com/harbor-framework/harbor) is the only runner (decision D1 of the plan). The phase 0 spike ([CTX-1660](https://linear.app/ctxpipe/issue/CTX-1660)) built the sidecars; phase 1 reuses them.
 
 ## The files
 
 | File | What it is |
 | --- | --- |
-| `tasks/<id>/` | One Harbor task for each question: `instruction.md` (the question), `environment/Dockerfile` (the agent workspace), `tests/` (the verifier). Harbor copies only the task folder into the container, so each task has its own copy of `grade.py`. |
-| `arms.json` | The arms, the neutral preamble, the models with their list prices, the spend cap of each run and the reserve for the server calls of an arm. |
-| `run.py` | Runs each task × arm × model one time as a Harbor job, stops before the spend cap, and resumes from `runs.jsonl`. |
+| `tasks/<twin>/<id>/` | One Harbor task for each question (see [The task format](#the-task-format)). |
+| `arms.json` | The twins, the arms, the neutral preamble, the models with their list prices, the spend cap of each run and the server reserve of an arm. |
+| `corpus.py` | Builds the B1+ corpus of a twin as plain files, also at a scale size. |
+| `distractors.json` | The pinned distractor repositories of the scale sweep. |
+| `run.py` | Runs each task × arm × model × trial as a Harbor job, stops before the spend cap, resumes from `runs.jsonl`, and reuses cached baseline runs. |
 | `model-gateway.yaml` | The model gateway of each run: a Compose service that holds the model key and stops the run at its cap. |
-| `mcp-proxy.yaml` | The MCP proxy of the CTX arm: a Compose service that Harbor adds to the job of a CTX run. |
-| `record.py` | The recorder: one record for each run, and `report.md`. |
-| `mint-key.ts` | Makes an org API key for the CTX arm. |
+| `mcp-proxy.yaml` | The MCP proxy of the CTX arm: a Compose service that holds the bench key and forwards only `/mcp`. |
+| `record.py` | The recorder: one record for each run, with the MCP server spans from HyperDX and the D5 proof. |
+| `analyze.py` | The analyzer: `runs.jsonl` to `report.json` and `report.md`. |
+| `mint-key.ts` | Makes an org API key on a local stack (a candidate run, plan §5.4). |
 | `requirements.in`, `requirements.txt` | The pinned Harbor release, and its lock with hashes (`uv pip compile --generate-hashes requirements.in`). |
 
-## The tasks
+## The task format
 
-The three questions come from the dev split of `../knowledge/fixtures/backstage-v0.dataset.json`. Each question needs more than one source:
+A task is a Harbor task folder: `instruction.md` (the question), `environment/Dockerfile` (the agent workspace), `tests/` (the verifier, which writes `/logs/verifier/reward.txt`, a score from 0 to 1). The agent writes its answer to `/app/answer.md`. The runner and the analyzer read these keys of `[metadata]` in `task.toml`:
 
-| Task | Category | Gold |
-| --- | --- | --- |
-| `backstage-multi-hop-27` | multi-hop | three linked issues |
-| `backstage-cross-source-12` | cross-source | an issue and the knowledge document of the endpoint |
-| `backstage-cross-source-13` | cross-source | an issue and the knowledge document of the API |
+| Key | Use |
+| --- | --- |
+| `family` | The task family (`T1`, `T3`, `T4`, `T8a`, `T10a`, `T11`, `T12`): a stratum of the report. |
+| `lexical_hook` | `true` or `false`: a stratum of the report (ADR-075 decision 4). |
+| `repos` | The repositories of the gold evidence, as `owner/name`. Their count is a stratum (1, 2, 3+). |
+| `gold_context` | The gold files, as paths in the B1+ corpus (`repos/<name>/<path>`, `github/issues/…`, `github/pulls/…`, `chat/…`), each with an optional line range (`#L10-80`, or one line `#L42`). The ORACLE arm gets these files in its prompt. `run.py` refuses a path that is not in the corpus, also through a link. The recorder also uses them for the failure class: a run "saw" a gold file when a tool call named it or returned it. |
 
-The agent writes its answer to `/app/answer.md`. The verifier (`tests/grade.py`) scores the answer against the key facts of the dataset. Each key fact has groups of regular expressions in `tests/gold.json`, and the fact matches when each group has a match. The reward is the fraction of the facts that match. When the agent wrote no `/app/answer.md`, the verifier scores the final text of the run, and `facts.json` says so (`answer_source`). Each `gold.json` gives 1.0 for the text of its own key facts, and 0 for an empty answer and for the question text. This check is crude on purpose. The claims rubric and the judge panel of the plan replace it.
+`task.toml` must set `[agent] network_mode = "allowlist"`, `allowed_hosts = []` and `[verifier] network_mode = "no-network"`; `run.py` refuses another task. The task folder holds no other file of the run. Harbor gives the agent only the instruction and the environment, and gives `tests/` only to the verifier.
 
 ## The arms
 
-Both arms get the same preamble (`arms.json`), with one sentence that tells where the sources are. Both arms disallow the web tools (`WebSearch`, `WebFetch` in `disallowedTools`). The agent phase has no egress (`network_mode = "allowlist"` in `task.toml`) except to the hosts that `run.py` adds: the model gateway, and the MCP proxy in the CTX arm. The install of Claude Code runs before the agent phase, with network. The verifier has no network.
+Each arm gets the same preamble (`arms.json`), with one sentence that tells where the sources are. Each arm disallows the web tools (`WebSearch`, `WebFetch`). The agent phase has no egress (`network_mode = "allowlist"` in `task.toml`) except to the hosts that `run.py` adds: the model gateway, and the MCP proxy in the CTX arm. The install of Claude Code runs before the agent phase, with network. The verifier has no network.
 
 | Arm | Workspace | MCP |
 | --- | --- | --- |
-| `b1plus` | The corpus as plain files, mounted read-only at `/app/org`: `repos/backstage` (the source at the frozen SHA) and `issues/` (the issue mirror of the frozen context repo, one Markdown file for each issue). | None. |
-| `ctx` | Empty. | The ctxpipe MCP over HTTP at `http://ctxpipe-mcp-proxy/mcp`, with the headers `x-api-key` and `x-ctxpipe-conversation-id`. |
+| `b1plus` | The B1+ corpus, mounted read-only at `/app/org`: `repos/<name>` (each repository at its pinned SHA, with no git history), `github/issues/` and `github/pulls/` (the Markdown of the frozen context repo), and `chat/` (the chat threads as Markdown). | None. |
+| `ctx` | Empty. | The ctxpipe MCP of production (decision D4) at `http://ctxpipe-mcp-proxy/mcp`. The bench Workspace serves the context repo after the ctxpipe ingest, so its SHA is not the SHA of the B1+ corpus. Each CTX record names the SHA that it read (`served`), and the report shows it for each run. |
+| `oracle` | Empty. The `gold_context` files of the task follow the preamble. One trial. | None. |
 
-### The CTX arm reaches only the MCP
+`corpus.py` builds the B1+ corpus from the plan of the twin (`../knowledge/fixtures/orgbench-zulip-v1.plan.json`) and the frozen context repo (`ctxpipe-ai/orgbench-zulip-context` at the SHA in `arms.json`). It reads the context repo through the `gh` login. It fetches each tree one time into `~/.cache/ctxpipe-bench/corpus/trees/`, and builds each corpus size as a view of hard links in `~/.cache/ctxpipe-bench/corpus/views/`. The name of a view holds a hash of its snapshot (each repository as `source@sha`, and the context repo), so a changed pin builds a new view. `run.py` builds the corpus only for a B1+ or ORACLE run that is not in the cache.
 
-On Colima and Docker Desktop, a container can connect to each port of the host through `host.docker.internal`. This includes the stores of the bench (FalkorDB, ClickHouse, Postgres). Harbor allows hosts, not ports. Thus the allowlist of the CTX arm never holds `host.docker.internal`. It holds only `ctxpipe-model-gateway` and `ctxpipe-mcp-proxy`.
+### The scale sweep
 
-`ctxpipe-mcp-proxy` is a small Python proxy in a pinned image, in the Compose project of the trial (`mcp-proxy.yaml`). Each trial has its own proxy, so its limits apply to one run. It forwards only the path `/mcp` (exactly) to the backend at `host.docker.internal:3660`, with the headers of the request (`x-api-key`, `x-ctxpipe-conversation-id`). Each other path, also an encoded path such as `/api/x%2F..%2F..%2Fmcp`, gets 404, and the proxy listens on no other port. It also has these limits. They limit the count of the tool calls of a run, not their cost:
+`run.py --repos N` (and `corpus.py --repos N`) mounts N repositories in the B1+ arm (plan §4.2). A size above the count of the plan adds the first distractor repositories of `distractors.json`: 192 public repositories of 18 other orgs (chat, video call and collaboration software, so that they are near the Zulip text), each at the last commit of its default branch before T. A size below the count of the plan keeps the first repositories of the plan (for 5: `zulip`, `zulip-flutter`, `zulip-mobile`, `zulip-desktop`, `zulip-terminal`). Thus pick the sweep tasks from the tasks whose repositories are in the first five. Each repository has the folder `repos/<name>`, with no owner, so that the path does not show which repositories are distractors. The sweep changes only the B1+ arm, so `run.py` refuses `--repos` with another arm: the CTX arm at 50 or 200 repositories needs a bench Workspace that indexes the distractors.
 
-- Only the tools that the CTX arm allows (`list_workspaces`, `search_knowledge`, `read_file`, `list_files`). Claude Code disallows the other tools, but the agent can send a request with Bash, so the proxy also refuses them (403). Thus the agent cannot call `get_related`, which can reach FalkorDB (D5).
-- At most 120 tool calls in a run (`MAX_TOOL_CALLS`, three searches in each of the 40 turns of the reserve). The next tool call gets 429.
+## The CTX arm
+
+### The bench key stays in the MCP proxy
+
+`ctxpipe-mcp-proxy` is a small Python proxy in a pinned image, in the Compose project of the trial (`mcp-proxy.yaml`). Each trial has its own proxy, so its limits apply to one run. It has these properties:
+
+- `run.py` gives the bench key (`CTXPIPE_API_KEY`, a read-scope key of the bench org, ADR-075 decision 14) only to the Compose project of the trial. The proxy adds it as `x-api-key`. Claude Code gets the URL of the proxy and no header. It removes each credential and cookie that the client sends, and each `set-cookie` of the server. Thus the agent container has no key, and a transcript cannot show it.
+- It adds the conversation id of the run (`x-ctxpipe-conversation-id`). The recorder joins the server spans by that id.
+- It forwards only the path `/mcp` (exactly) to `--mcp-url` (default `https://app.ctxpipe.ai/mcp`). Each other path, also an encoded path such as `/api/x%2F..%2F..%2Fmcp`, gets 404.
+- Only the tools of `mcpTools` in `arms.json`: `list_workspaces`, `search_knowledge`, `search_code`, `find_symbol`, `read_file`, `list_files`. Production has codesearch, so `search_code` and `find_symbol` are allowed. Claude Code also disallows `get_related`, but the agent can send a request with Bash, so the proxy refuses each other tool (403).
+- At most `maxToolCalls` (120) tool calls in a run. The next tool call gets 429 from the proxy.
 - One JSON-RPC message in each request: a batch gets 400. The body is at most 64 KiB.
-- It removes the tracing headers of the client (`traceparent`, `tracestate`, `baggage`). Thus a client cannot stop the sampling of the model calls of the backend, and the recorder counts each of them.
+- It removes the tracing headers of the client (`traceparent`, `tracestate`, `baggage`), so that a client cannot stop the sampling of the server spans.
+- It writes `mcp/<run>/calls.json`: the forwarded tool calls, the tool calls that the server answered with 2xx, the HTTP status of each response of the server, the timeouts (300 s) and the connection errors, and the refused calls.
 
-The proxy sends the Host header `host.docker.internal:3660`, the host of `AUTH_BASE_URL`, so the DNS rebinding check of the backend accepts the request. The egress sidecar of Harbor sniffs the HTTP Host and the TLS SNI, and it connects to that host, not to the address of the packet. Thus a request to the address of the host with the Host header `ctxpipe-mcp-proxy` goes to the proxy, not to the host.
+### The CTX arm reads only the knowledge plane (decision D5)
 
-A probe in a task container of the CTX arm (the `oracle` agent, with the same network setup) got these results: `POST /mcp` through the proxy gave 200 with the org key and 401 with no key, other paths and the encoded path above gave 404, a batch gave 400, `get_related` gave 403, tool calls 1 to 120 gave 200 and call 121 gave 429, the backend sampled all 120 calls although each sent an unsampled `traceparent`, and FalkorDB (16379), ClickHouse (18123), Postgres (5433) and the backend (3660) on `host.docker.internal` sent no data, also with a false Host header. From a container with no egress control, the same probe got `+PONG`, `200 OK` and an answer from Postgres.
+Decision D5 allows only the knowledge plane (ClickHouse and Jev) in the CTX arm. A run that touches FalkorDB is not valid. Only `get_related` can reach FalkorDB: when a Workspace is not ready on the plane, its fallback calls `expandWorkspaceGraph`. `search_code` and `find_symbol` read codesearch (Zoekt and SCIP). The fallback of each other tool reads Postgres or Git. Each fallback writes the log `knowledge_plane.fallback`.
 
-### The model key stays in the model gateway
+The recorder reads the server spans of each CTX run from HyperDX (`DeploymentEnvironment` of `--telemetry-env`, default `production`): the traces whose `mcp.tool` span has the conversation id of the run. A CTX run is valid only when all of these are true:
 
-The agent can run Bash, and text in the corpus can tell it to send model requests. Thus the agent container never gets the model key, and it cannot reach the model host. `ctxpipe-model-gateway` is a small Python proxy in a pinned image, in the Compose project of the trial (`model-gateway.yaml`), in both arms. It has these properties:
+- the traces of the run have no span with `db.system.name = falkordb` (or "falkor" in the span name);
+- HyperDX has no `knowledge_plane.fallback` log of the bench org (`ctxpipe.org.slug`) or of the traces of the run, during the run;
+- the traces have one `mcp.tool` span for each tool call that the server answered with 2xx, less the calls that the MCP SDK refused for bad arguments (those calls have no span). A call that failed with a 5xx, a 429 or a timeout is an own-service error, not a missing span.
+
+The analyzer leaves out an invalid run, and lists it with its reasons. The record also holds `clickhouseSpans` and `jevCalls`, which show that the plane answered. The recorder waits up to five minutes for the spans of the run, because the backend exports spans in batches. The bench org is shared production, so the fallback check also counts a fallback of the bench org that does not come from the run.
+
+## The model key stays in the model gateway
+
+The agent can run Bash, and text in the corpus can tell it to send model requests. Thus the agent container never gets the model key, and it cannot reach the model host. `ctxpipe-model-gateway` is a small Python proxy in a pinned image, in the Compose project of the trial (`model-gateway.yaml`), in each arm. It has these properties:
 
 - `run.py` gives the model key only to the Compose project of the trial (`MODEL_GATEWAY_KEY`). Claude Code gets `ANTHROPIC_BASE_URL=http://ctxpipe-model-gateway` and a dummy token. The egress allowlist holds the gateway, never the model host.
 - It forwards only `POST /v1/messages` (the exact target, also with `?beta=true`), and only for the model of the run. It adds the key. Each other path gets 404, and another model gets 403.
 - It allows only tokens: only the body fields and the beta features that the pinned Claude Code sends, and no server tool (web search, code execution), document block (PDF), image from a URL, one-hour cache write or compaction edit (403). It removes each other `anthropic-beta` value. Thus the model host cannot fetch a URL for the agent, and each cost of a request is a cost of its tokens.
 - Before it forwards a request, it reserves the worst cost of the request: each byte of the body as one input token (a token is at least one byte) at the highest input price (a cache write), 5,000 tokens for each image, and `max_tokens` at the output price. It sets `max_tokens` to at most 16,000. When the spend of the run and the reserve are more than the cap of the run (`runCapUsd`), it refuses the request with 402. It sends one request at a time.
-- After the response, it reads the `usage` of the response (also a streamed response), and charges it at the list price of the model (`pricesUsdPerMTok` in `arms.json`, with the long-context price of Haiku above 100,000 tokens). When the client goes before the end, it reads the response to the end. When a response of 200 has no full usage, it charges the reserve. An error response with no usage costs nothing. Thus the spend of a run can never go over its cap. The reserve of a big request is large (about $0.41 for a Sonnet request of 100 KB), so the caps of a run (`runCapUsd`: Haiku $0.3, Sonnet $1) are higher than the measured cost of a run. The gateway refuses a request when its reserve is more than the rest of the cap: for example, a Sonnet request above about 270 KB (about 65,000 tokens of context) after $0.15 of spend, and a Haiku request above about 400 KB after $0.01 of spend.
+- After the response, it reads the `usage` of the response (also a streamed response), and charges it at the list price of the model (`pricesUsdPerMTok` in `arms.json`, with the long-context price of Haiku above 100,000 tokens). When the client goes before the end, it reads the response to the end. When a response of 200 has no full usage, it charges the reserve. An error response with no usage costs nothing. Thus the spend of a run can never go over its cap.
 - It writes the spend of the run to `gateway/<run>/spend.json` in the run folder. The recorder uses that total as the agent spend, because it also counts a model request that did not come from Claude Code.
 
-A probe in a task container (the `oracle` agent, with the network setup of a CTX run) got these results: no environment variable, process environment or file had the model key, and `openrouter.ai` and `api.anthropic.com` sent no answer. The gateway gave 200 with the dummy token (with and without a stream), 403 for another model, a server tool, a document block, an image from a URL, a one-hour cache write, the `speed` field and a compaction edit, and 404 for another path. It closed the connection of a 5 MB body. It charged a request whose client went before the headers. With a budget of $0.003, it refused the third long request with 402, and its total was $0.00218. Two runs through the gateway on `backstage-cross-source-13` (Haiku CTX, reward 1.0, and Sonnet B1+, reward 0.67) had gateway totals of $0.007032 (5 requests) and $0.130086 (10 requests). Each total is equal to the Claude Code `total_cost_usd` and to the change of the upstream spend of the key (`byok_usage`). The run folders had no copy of the model key.
+## The environment of Harbor
 
-### The CTX arm reads only the knowledge plane (decision D5)
+`run.py` does not give Harbor a copy of the host environment. It gives only `PATH`, `HOME`, `DOCKER_HOST`, the values of the two sidecars (`MODEL_GATEWAY_*`, and `MCP_PROXY_*` with the bench key in a CTX run), the dummy token of Claude Code, `HARBOR_TELEMETRY=0`, and `PYTHON_DOTENV_DISABLED=1`. The last one is necessary: litellm, a dependency of Harbor, loads the first `.env` file above the working folder when Harbor starts (in a worktree, that can be the `.env` of the main checkout).
 
-Decision D5 of the plan allows only the knowledge plane (ClickHouse and Jev) in the CTX arm. A run that touches FalkorDB is not valid. The code gives this result for the seven MCP tools:
+## Set up
 
-| Tool | Can it reach FalkorDB? | The path |
-| --- | --- | --- |
-| `list_workspaces` | No | Postgres and Git only. Its `readiness.graph` field is a Postgres column of the published revision, not a FalkorDB query. |
-| `search_knowledge` | No | The plane (`planeKnowledgeReader`). When a Workspace in scope is not ready on the plane, `selectKnowledgeReader` falls back to the old stack, which is the Postgres search (`searchKnowledge`), not FalkorDB. |
-| `search_code` | No | codesearch (Zoekt). |
-| `find_symbol` | No | codesearch (Zoekt and SCIP). |
-| `read_file` | No | The plane file (Git at the plane SHA). The fallback reads the Postgres units or the Git checkout. |
-| `list_files` | No | The plane view. The fallback reads the Postgres units. |
-| `get_related` | **Yes** | The plane walk. When a Workspace is not ready on the plane, the fallback is `legacyKnowledgeReader.related`, which calls `expandWorkspaceGraph`, a FalkorDB query. |
-
-Thus the CTX arm disallows `mcp__ctxpipe__get_related` (Claude Code `--disallowedTools`). Each fallback writes the log `knowledge_plane.fallback`, so the recorder also counts these logs. The spike also disallows `search_code` and `find_symbol`, because the local stack has no codesearch index of the corpus repositories. Each run proves D5 three ways:
-
-- `falkorGraphCommands`: the change of the `GRAPH.*` command count of the FalkorDB of the backend (`INFO commandstats`) during the run. The bench backend has a FalkorDB of its own, so no other process adds to the count.
-- `server.falkorSpans`: the `falkordb` spans in the traces of the MCP calls of the run.
-- `server.planeFallbackLogs`: the `knowledge_plane.fallback` logs during the run. `server.jevCalls` shows that the plane answered.
-
-## Set up the local stack
-
-The CTX arm needs a backend with the frozen corpus on the plane. Do these steps one time. All the paths that Docker mounts (the run folder, the corpus, the collector output) must be in a folder that the Docker VM shares. Colima shares only your home folder.
-
-1. Get the stores of the corpus. `../knowledge` `hydrate` writes the frozen context repo into Postgres, FalkorDB and ClickHouse (see `../knowledge/README.md`). The context repo is private, so a hydrate serves it from a local Git server. To reuse an earlier hydrate, copy its Postgres database (`CREATE DATABASE … TEMPLATE …`), migrate the copy, and copy the plane rows of the Workspace into a ClickHouse of your own (`SELECT … FORMAT Native` into `INSERT … FORMAT Native`, with the setting `SQL_ctxpipe_org_id`).
-2. In the copy, keep only the Workspace of the corpus. Serve the context repo with `src/test/git-http-server.ts`, and point the remote URL of the Workspace revision at it.
-3. Start an empty FalkorDB for the backend (`GRAPH_DB_URI`), and an OpenTelemetry collector that writes OTLP JSON lines to a file (the `file` exporter). Set `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` of the backend to it.
-4. Start the backend on port 3660 (`mcp-proxy.yaml` forwards to that port), and set `AUTH_BASE_URL` of the backend to `http://host.docker.internal:3660`. With a loopback base URL, `/mcp` refuses each request from the proxy (the DNS rebinding check of `rejectInvalidMcpOrigin`).
-5. Start the backend alone, with no worker: `bun --env-file=BENCH.env src/server.ts` from `apps/backend`. Do not use `pnpm dev`.
-6. Make the org key: `bun --env-file=BENCH.env evals/bench/mint-key.ts --org ORG_ID --out KEY_FILE`.
-7. Make the B1+ corpus: `repos/backstage` (a `git fetch --depth 1` of the frozen SHA, with no `.git`) and `issues/` (`git archive` of `github/issues` of the frozen context repo).
-8. Install Harbor from `apps/backend`: `uv venv && uv pip install --require-hashes -r evals/bench/requirements.txt`.
+1. Install Harbor from `apps/backend`: `uv venv && uv pip install --require-hashes -r evals/bench/requirements.txt`.
+2. Use a Docker that shares your home folder (Colima shares only the home folder): the run folder and the corpus are bind mounts.
+3. Get the keys. The model key is the key of `factory eval`: `MODEL_PROVIDER_API_KEY`, or the login keychain item `factory-model-provider` (an OpenRouter key; `ANTHROPIC_BASE_URL=https://openrouter.ai/api`). The bench key is the read-scope key of the production bench org. The HyperDX values are the three variables of an agent host ([USING.md](../../../../ops/observability/USING.md#agent-hosts)). Put them in the environment of `run.py` from a file or the keychain, not on the command line.
+4. Keep the run folders, the corpus and the cache in `~/.cache/ctxpipe-bench/`, not in `/tmp` (a restart clears it).
 
 ## Run
 
 ```sh
-DOCKER_HOST=… ANTHROPIC_BASE_URL=https://openrouter.ai/api ANTHROPIC_AUTH_TOKEN=… CTXPIPE_API_KEY=… \
-  .venv/bin/python evals/bench/run.py --out ~/RUN --corpus ~/CORPUS --otlp ~/OTEL/otlp.jsonl \
-  --falkor-container FALKOR [--models haiku,sonnet] [--arms b1plus,ctx] [--tasks …] [--cap-usd 2]
-python evals/bench/record.py ~/RUN   # writes report.md again from runs.jsonl
+ANTHROPIC_BASE_URL=https://openrouter.ai/api ANTHROPIC_AUTH_TOKEN=… CTXPIPE_API_KEY=… HYPERDX_…=… \
+  .venv/bin/python evals/bench/run.py --out ~/.cache/ctxpipe-bench/runs/RUN \
+  [--tasks-dir evals/bench/tasks/zulip-v1] [--tasks a,b] [--arms b1plus,ctx,oracle] \
+  [--models haiku] [--trials 2] [--repos 50] [--cap-usd 2]
+.venv/bin/python evals/bench/analyze.py ~/.cache/ctxpipe-bench/runs/RUN [--pass-at 1.0]
 ```
 
-- Use the model keys of `factory eval`: the factory gets the model key from `MODEL_PROVIDER_API_KEY` or the login keychain (`factory-model-provider`). Give the backend (`MODEL_PROVIDER_API_KEY`) the same key. The limit of that key does not count the Claude calls (provider-key, BYOK, usage), so the spend cap is `--cap-usd` of `run.py`, which the model gateway enforces for each run (see [The model key stays in the model gateway](#the-model-key-stays-in-the-model-gateway)).
-- Each run is one Harbor job with the stock `claude-code` agent at a pinned Claude Code version, with `--max-turns` and `--max-budget-usd` (the cap of the run in `arms.json`).
-- Before each run, `run.py` adds the cap of the run and the server reserve of the arm to the spend so far. When the sum is more than `--cap-usd`, it stops with exit code 3. The model gateway enforces the cap of the run, in dollars. The server calls have no dollar limit for each run: the backend calls the model host from the host, with its own key. Thus the CTX reserve ($0.12) is an estimate: each search makes one query embedding and about two Jev calls (at most $0.001 measured), and it assumes at most three searches in each of the `maxTurns` (40) turns. The MCP proxy enforces that count: at most 120 tool calls in a run. The recorded server spend of each run counts, so `run.py` stops before a run when the recorded spend and the reserve of the next run are more than the cap.
-- A run with no result event or no reward is a failed run: it keeps its spend, `run.py` exits with 1, and the next invocation runs it again. Before each run, `run.py` writes its reserve to `gateway/<run>/reserve.txt`. A run with no record (an invocation that stopped during the run) keeps that full reserve in the spend of the next invocation.
-- The spend of a run is the total of the model gateway (the Claude Code `total_cost_usd` when there is no gateway total, and the full cap of the run when the run has neither), plus the cost of the model calls of the bench backend after the start of the run (`gen_ai.usage.cost` on its spans: the query embeddings and Jev; `server.backendCostUsd`). This also counts a call with no conversation id or the id of another run. `server.modelCostUsd` is the part of the MCP calls of the run.
+- Each run is one Harbor job with the stock `claude-code` agent at a pinned Claude Code version, with `--max-turns` and `--max-budget-usd` (the cap of the run in `arms.json`). `run.py` writes the report at the end; `analyze.py` writes it again, for example with another pass threshold.
+- Before each run, `run.py` adds the cap of the run and the server reserve of the arm to the spend so far. When the sum is more than `--cap-usd`, it stops with exit code 3. The server calls of a CTX run (a query embedding and about two Jev calls for each search) have no dollar cap of their own: the proxy limits their count, and the CTX reserve ($0.12) is an estimate. The recorded server spend (`gen_ai.usage.cost` of the spans of the run) counts in the spend.
+- A run with an infrastructure error (a harness crash, no result event, no reward, or a model API error) runs again, at most three attempts. An error of the arm's own service (a 5xx, a 429 or a timeout of the MCP server, or a tool error `internal`, `too_many_requests`, `judge_unavailable` or `workspace_not_ready`) does not run again: the run fails with score 0 (ADR-075 decision 7). A run that stops at its turn, time or dollar limit (a result `error_max_*`, a request that the gateway refused, or the agent timeout of Harbor) does not run again and fails the task; with no reward, its score is 0.
+- Before and after each CTX run, `run.py` reads the snapshot that the Workspace serves (`list_files` of the root, field `served`) into `snapshot` of the record. Thus a run with no tool result also names its snapshot.
+- Before each run, `run.py` writes its reserve to `gateway/<run>/reserve.txt`. A run with no record (an invocation that stopped during the run) keeps that full reserve in the spend of the next invocation.
+- **The cache.** A baseline arm (an arm with no MCP: `b1plus`, `oracle`) reuses a record from `~/.cache/ctxpipe-bench/cache/` when the key is the same: a hash of the task folder, the snapshot (the plan, the context repo SHA and the repository count), the harness (the Harbor and Claude Code versions, the turn limit), the model with its prices and cap, the arm config with its preamble, and the trial. A cached record has `cached: true`, and its cost does not count in the spend of the new invocation. The CTX arm never uses the cache, because production can change.
+- **A candidate run (plan §5.4)** uses a local stack: `--mcp-url http://host.docker.internal:3660/mcp --telemetry-env local-<name>`, with a backend that exports its spans to the shared collector ([USING.md](../../../../ops/observability/USING.md#localhost-telemetry)) and an org key from `mint-key.ts`. The proxy reaches the host, and the agent still reaches only the proxy.
 - With an OpenRouter key, `run.py` also reads the upstream spend of the key (`byok_usage`) before and after all its runs, and writes the change and the Claude Code total to `byok.jsonl`. The counter lags by up to a minute, so it checks the total, not each run.
 
 ## The record of a run
 
-`runs.jsonl` holds one record for each run: the reward and the matched facts, the tokens (input, output, cache read, cache write), the Claude Code cost, the total of the model gateway (`gatewayCostUsd`, with its requests and its refused requests), the turns, the agent time and the wall time, the tool calls of the transcript and the MCP calls that gave an error result (`mcpFailedCalls`: bad arguments that the MCP SDK refused, which have no span, and the errors of the tools), the MCP server spans of the run (joined by `ctxpipe.mcp.conversation.id`: the calls and the error codes for each tool, the Jev calls, the model cost of the server) and the D5 proof. The trial folder of each run holds the full transcript (`agent/claude-code.txt`, `agent/trajectory.json`) and the verifier output.
+`runs.jsonl` holds one record for each run: the score (and `rawScore`, the score of the grader before an own-service error), the matched facts, the tokens (input, output, cache read, cache write), the Claude Code cost, the gateway total, the turns, the agent time and the wall time, the tool calls of the transcript, the MCP error results (`mcpErrors`: the tool error code, or `schema` for bad arguments that the MCP SDK refused), the argument errors, the own-service errors, the gold files that the run saw, the snapshot that a CTX run read (`served`: the `branch@sha` of each hit and file in the MCP results, for example `main@<sha>` for the Workspace and `<sha>@<sha>` for a pinned repository), the proxy counts, the server spans (calls and error codes for each tool, ClickHouse spans, Jev calls, model cost), the D5 proof (`valid`, `invalidReasons`), and the error class (`infra`, `own-service` or none). The trial folder of each run holds the full transcript (`agent/claude-code.txt`, `agent/trajectory.json`) and the verifier output.
+
+## The report
+
+`analyze.py` writes `report.json` and `report.md`. For each model and corpus size, it gives:
+
+- for each arm: the mean continuous score, pass@1 (the first trial of each task), pass^k (each of the first k trials passes; k is the smallest count of trials of a task), $/task (the mean cost of one run), $/success, the mean tokens, the wall time and the turns;
+- the paired delta of each arm against B1+: the mean over the tasks of the difference of the mean trial scores, with a 95% bootstrap interval over the tasks, and the strata by `family`, `lexical_hook` and repository count;
+- the process of the CTX arm: the MCP calls and their share of the tool calls, the tasks with no MCP call, the argument errors and their rate, the runs with an own-service error, the server tools, the Jev calls, the D5 counts, and the served snapshots (two SHAs of the Workspace branch mean that the snapshot changed during the runs);
+- the failure class of each failed run: own-service error, infra (an infrastructure error that did not run again), tool not used (a CTX run with no MCP call), reasoning with gold seen (the run saw a gold file, or the arm is ORACLE), bad args (an argument error and no gold file seen), or retrieval miss.
