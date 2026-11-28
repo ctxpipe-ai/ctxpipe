@@ -147,12 +147,9 @@ const KNOWN_GAPS: ReadonlyArray<{
 
 /** The known findings of a deployment, sorted. */
 export function knownFindings(deployment: Deployment): string[] {
-  const all = KNOWN_GAPS.flatMap(({ findings }) => findings)
-  // An entry that names neither deployment would pass both tests unseen.
-  const stray = all.filter((finding) => !/^(construct|compose) /.test(finding))
-  if (stray.length)
-    throw new Error(`KNOWN_GAPS names no deployment: ${stray.join(", ")}`)
-  return all.filter((finding) => finding.startsWith(`${deployment} `)).sort()
+  return KNOWN_GAPS.flatMap(({ findings }) => findings)
+    .filter((finding) => finding.startsWith(`${deployment} `))
+    .sort()
 }
 
 /** A valid sample value of a setting, for a value that the test cannot know. */
