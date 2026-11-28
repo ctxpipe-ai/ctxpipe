@@ -4,18 +4,16 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import {
   JEV_PROVIDER,
+  knowledgePlaneSettingsProblem,
   OPENROUTER_DEFAULT_URL,
-  reachesOpenRouter,
 } from "../../../../packages/aws-cdk/src/knowledge-plane-settings.js"
+import { planeModelsReachable } from "../knowledge-plane/model-settings.js"
 import { JEV_MODEL } from "../retrieval/jev/client.js"
-import {
-  DEFAULT_OPENROUTER_BASE,
-  isOpenRouterCall,
-} from "../retrieval/services/openRouterProvider.js"
+import { DEFAULT_OPENROUTER_BASE } from "../retrieval/services/openRouterProvider.js"
 import {
   knownFindings,
   operatorSettings,
@@ -150,24 +148,35 @@ describe("the env contract of the Compose deploy profile", () => {
     expect(openAi).toContain("compose backend: plane not-openrouter")
   })
 
-  it("keeps the plane rule equal to the backend code", () => {
+  it("keeps the plane rule of the construct equal to the check of the worker", () => {
     expect(OPENROUTER_DEFAULT_URL).toBe(DEFAULT_OPENROUTER_BASE)
     expect(JEV_MODEL.split("/")[0]).toBe(JEV_PROVIDER)
-    for (const kind of [
-      undefined,
+    for (const MODEL_PROVIDER of [
+      "",
       "openai-like",
       "openrouter",
       "azure",
       "bedrock",
     ])
-      for (const url of [
-        undefined,
+      for (const MODEL_PROVIDER_URL of [
+        "",
         OPENROUTER_DEFAULT_URL,
         "https://api.openai.com/v1",
         "not a url",
       ])
-        expect(reachesOpenRouter(kind, url), `${kind} ${url}`).toBe(
-          isOpenRouterCall(kind, url),
-        )
+        for (const MODEL_PROVIDER_API_KEY of ["", "model-key"]) {
+          const env = {
+            MODEL_PROVIDER,
+            MODEL_PROVIDER_URL,
+            MODEL_PROVIDER_API_KEY,
+          }
+          for (const [name, value] of Object.entries(env))
+            vi.stubEnv(name, value)
+          expect(
+            knowledgePlaneSettingsProblem(env) === undefined,
+            JSON.stringify(env),
+          ).toBe(planeModelsReachable())
+        }
+    vi.unstubAllEnvs()
   })
 })

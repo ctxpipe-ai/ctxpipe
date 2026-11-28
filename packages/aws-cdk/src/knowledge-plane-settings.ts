@@ -5,12 +5,14 @@
  * settings fail this rule deploys with no error, but no Workspace becomes
  * ready on the plane.
  *
- * This is the one copy of the rule. The env contract test of the backend
- * (`apps/backend/src/config/deploy-env.contract.test.ts`) applies it to each
- * deployment, and keeps its constants equal to the backend code. The
- * synth check of CTX-1738 can call it too. The values are environment
- * values, as a backend process gets them; an empty value is unset, as in
- * `parseEnv`.
+ * This is the rule for a deployment, before it runs: the env contract test
+ * (`apps/backend/src/config/deploy-env-contract.ts`) applies it to the
+ * construct and to Compose, and the synth check of CTX-1738 can call it.
+ * The backend image cannot import this package, so the worker has its own
+ * start check (`planeModelsReachable` in
+ * `apps/backend/src/knowledge-plane/model-settings.ts`). The contract test
+ * keeps the two equal. The values are environment values, as a backend
+ * process gets them; an empty value is unset, as in `parseEnv`.
  */
 
 /** The `MODEL_PROVIDER_URL` default of the backend. */
@@ -24,25 +26,20 @@ type KnowledgePlaneSettingsProblem =
   | "no-api-key"
   | "allowlist-without-jev"
 
-/**
- * True when the model calls of these settings go to OpenRouter. The backend
- * has the same rule (`isOpenRouterCall`); the contract test keeps them
- * equal.
- */
-export function reachesOpenRouter(
+/** True when the model calls of these settings go to OpenRouter. */
+function reachesOpenRouter(
   kind: string | undefined,
   url: string | undefined,
 ): boolean {
-  if (kind === "openrouter") return true
   if (kind === "azure" || kind === "bedrock") return false
+  let host: string
   try {
-    return (
-      new URL(url?.trim() || OPENROUTER_DEFAULT_URL).hostname ===
-      "openrouter.ai"
-    )
+    host = new URL(url?.trim() || OPENROUTER_DEFAULT_URL).hostname
   } catch {
     return false
   }
+  // The worker takes the kind `openrouter` as OpenRouter with any valid URL.
+  return kind === "openrouter" || host === "openrouter.ai"
 }
 
 /**
