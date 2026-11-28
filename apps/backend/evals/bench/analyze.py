@@ -93,7 +93,6 @@ def arm_summary(runs, pass_at, arm):
             "argErrorRate": round(sum(r["argErrors"] for r in runs) / mcp_calls, 4) if mcp_calls else None,
             "serverTools": dict(sum((collections.Counter(r["server"].get("tools", {})) for r in runs), collections.Counter())),
             "jevCalls": sum(r["server"].get("jevCalls", 0) for r in runs),
-            "falkorSpans": sum(r["server"].get("falkorSpans", 0) for r in runs),
             "planeFallbackLogs": sum(r["server"].get("planeFallbackLogs", 0) for r in runs),
             # Two SHAs of one branch: the snapshot moved during the runs.
             "served": dict(sum((collections.Counter(r.get("served", {})) for r in runs), collections.Counter())),
@@ -206,7 +205,7 @@ def markdown(report):
         for arm, s in g["arms"].items():
             if "mcp" in s:
                 m = s["mcp"]
-                lines.append(f"**{arm} process:** {m['calls']} MCP calls ({m['shareOfToolCalls']} of the tool calls), {m['tasksWithZeroMcpCalls']} tasks with no MCP call, {m['argErrors']} argument errors (rate {m['argErrorRate']}), {s['ownServiceErrorRuns']} runs with an own-service error. Server tools {m['serverTools']}, Jev calls {m['jevCalls']}. D5: {m['falkorSpans']} falkordb spans, {m['planeFallbackLogs']} plane fallback logs.")
+                lines.append(f"**{arm} process:** {m['calls']} MCP calls ({m['shareOfToolCalls']} of the tool calls), {m['tasksWithZeroMcpCalls']} tasks with no MCP call, {m['argErrors']} argument errors (rate {m['argErrorRate']}), {s['ownServiceErrorRuns']} runs with an own-service error. Server tools {m['serverTools']}, Jev calls {m['jevCalls']}. D5: {m['planeFallbackLogs']} plane fallback logs.")
                 lines.append("")
                 lines.append(f"**{arm} served snapshot** (`branch@sha` of the hits and files): " + ", ".join(f"`{k}` {v}" for k, v in sorted(m["served"].items())))
                 lines.append("")
