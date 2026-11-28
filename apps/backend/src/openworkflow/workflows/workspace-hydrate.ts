@@ -14,6 +14,10 @@ import {
   SOURCES_TREE_READ,
   splitSourcesTree,
 } from "../../domain/workspace-sources/source-tree.js"
+import {
+  caseCopies,
+  hideCaseDuplicateUnits,
+} from "../../domain/workspaces/case-duplicates.js"
 import { nativeFolderSetChanged } from "../../domain/workspaces/folder-list.js"
 import {
   projectWorkspaceGraph,
@@ -636,8 +640,18 @@ export function defineWorkspaceHydrateWorkflow() {
             : // The active projection of this revision is reused: its units stay in Postgres, and the run reports
               // only how many there are (below). Their bodies are not read.
               { units: [], linked: [], skipped: [] }
+          // Paths that differ only in case are one file on a checkout that
+          // ignores case: the units keep the copy that changed last, by the
+          // `updatedAt` of each unit (CTX-1697). People and outside agents
+          // commit to the Workspace directly, so the projection, not a write
+          // check, handles them.
+          const shownPath = caseCopies(
+            hydrated.units.map((unit) => unit.path),
+            new Map(hydrated.units.map((unit) => [unit.path, unit.updatedAt])),
+          )
           const parsed = {
             ...hydrated,
+            units: hideCaseDuplicateUnits(hydrated.units, shownPath),
             skipped: markLegacyOverlaySkips(hydrated.skipped, legacyPaths),
           }
           if (legacyPaths.size)
@@ -651,6 +665,8 @@ export function defineWorkspaceHydrateWorkflow() {
           log.set({
             workspaceId: workspace.id,
             desiredSha,
+            // A count only: the paths can be customer content.
+            ...(pending.postgres && { caseDuplicates: shownPath.size }),
           })
 
           let activated = !pending.postgres

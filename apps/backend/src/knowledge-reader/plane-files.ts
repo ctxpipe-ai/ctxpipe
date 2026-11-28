@@ -8,6 +8,7 @@ import {
   SOURCES_TREE_READ,
   splitSourcesTree,
 } from "../domain/workspace-sources/source-tree.js"
+import { foldPath } from "../domain/workspaces/case-duplicates.js"
 import {
   type HydrateUnit,
   hydrateKnowledgeTree,
@@ -110,8 +111,17 @@ export async function readPlaneUnit(input: {
   times: DocumentTimes<Date>
   sha: string
 } | null> {
-  const { orgId, workspaceId, head, path } = input
+  const { orgId, workspaceId, head } = input
   const scope = scopeOf(orgId, workspaceId, head)
+  // A path that differs from another only in case reads the copy that the
+  // view shows (CTX-1697).
+  const [document] = await knowledgeStore().readDocuments(scope, [
+    { workspaceId, docKey: servingIdForKnowledgePath(workspaceId, input.path) },
+  ])
+  const path =
+    document && foldPath(document.document.path) === foldPath(input.path)
+      ? document.document.path
+      : input.path
   let sha = head.sha
   if (head.base) {
     const row = (await knowledgeStore().listViewFiles(scope, path)).find(
@@ -159,9 +169,6 @@ export async function readPlaneUnit(input: {
     sourceFiles: sources.sourceFiles,
   }).units.find((parsed) => parsed.path === path)
   if (!unit) return null
-  const [document] = await knowledgeStore().readDocuments(scope, [
-    { workspaceId, docKey: servingIdForKnowledgePath(workspaceId, path) },
-  ])
   return {
     unit,
     times: {
@@ -174,10 +181,9 @@ export async function readPlaneUnit(input: {
 }
 
 /**
- * The unit files below `folder` (`""` is the root) in the view of `head`.
- * For the default branch, the units of the Workspace Git at its tip. For an
- * overlay, the files of the view, each from the units at the tip that the
- * view takes it from.
+ * The unit files below `folder` (`""` is the root) in the view of `head`:
+ * the files of the view, each from the units at the tip that the view takes
+ * it from. The view shows one path of the paths that differ only in case.
  */
 export async function listPlaneUnitFiles(input: {
   orgId: string
@@ -204,8 +210,11 @@ export async function listPlaneUnitFiles(input: {
       size: Buffer.byteLength(unit.body),
     }))
   }
+  // The paths of the view: one path for paths that differ only in case
+  // (CTX-1697), and for an overlay the files of both branches. A default
+  // branch with no case duplicate lists its tip.
   const { base } = head
-  if (!base) return unitsAt(head.sha)
+  if (!base && head.caseDuplicateRows === 0) return unitsAt(head.sha)
   const view = await knowledgeStore().listViewFiles(
     scopeOf(orgId, workspaceId, head),
     folder ? `${folder}/` : "",
@@ -218,6 +227,6 @@ export async function listPlaneUnitFiles(input: {
     )
     return paths.size > 0 ? unitsAt(tip.sha, paths) : []
   }
-  const [own, below] = await Promise.all([from(head), from(base)])
+  const [own, below] = await Promise.all([from(head), base ? from(base) : []])
   return [...own, ...below].sort((a, b) => a.path.localeCompare(b.path))
 }

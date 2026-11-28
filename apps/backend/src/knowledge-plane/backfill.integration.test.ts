@@ -49,6 +49,8 @@ async function completeDefaultRun(workspaceId: string) {
     baseBranch: null,
     projectionVersion: "1:test-model",
     failedCount: 0,
+    caseDuplicateRows: 0,
+    caseDuplicates: 0,
   })
 }
 

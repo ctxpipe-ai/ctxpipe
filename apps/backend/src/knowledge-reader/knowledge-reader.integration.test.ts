@@ -597,6 +597,8 @@ async function markReady(workspaceId: string) {
     baseBranch: null,
     projectionVersion: "test",
     failedCount: 0,
+    caseDuplicateRows: 0,
+    caseDuplicates: 0,
   })
 }
 
@@ -642,6 +644,8 @@ async function markBranchReady(
     baseBranch: "main",
     projectionVersion: "test",
     failedCount: 0,
+    caseDuplicateRows: 0,
+    caseDuplicates: 0,
   })
 }
 
@@ -1981,6 +1985,31 @@ describe("the knowledge reader seam", () => {
     const result = await relatedCall({ seeds: ["knowledge/missing.md"] })
     expect(result.isError).toBe(true)
     expect(JSON.stringify(result.content)).toContain("unknown_ref")
+  })
+
+  it("on: a seed of the copy that the view hides reads as the copy that it shows (CTX-1697)", async () => {
+    await setFlag("on")
+    const workspaceId = ids.ready as string
+    // An overlay always folds: a copy of the default branch file in another
+    // case. The view hides one of the two copies.
+    await markBranchReady(workspaceId, "cased", [
+      branchPlaneDocument(
+        workspaceId,
+        "knowledge/services/Checkout.md",
+        "Checkout copy",
+      ),
+    ])
+    for (const seed of [
+      "knowledge/services/checkout.md",
+      "knowledge/services/Checkout.md",
+    ]) {
+      const result = await relatedCall({
+        branch: "cased",
+        seeds: [seed],
+        maxDepth: 1,
+      })
+      expect(result.isError, seed).toBeFalsy()
+    }
   })
 
   it("on: when Jev fails, search_knowledge gives the search order with a flag", async () => {

@@ -38,6 +38,10 @@ import {
   withNativeHydrationFixture,
 } from "../../test/native-hydration-fixture.js"
 import { workspaceHttpApp } from "../../test/workspace-http-fixture.js"
+import { expandWorkspaceGraph } from "./graph-expand.js"
+import { hydrateUnitsToProjectionClaims } from "./hydrate.js"
+import { searchKnowledge } from "./knowledge-search.js"
+import { publishedProjection } from "./revision.js"
 
 it(
   "hydrates 0 committed native Git files without reading uncommitted replacements",
@@ -77,6 +81,127 @@ it(
         )
       })
     }),
+)
+
+it(
+  "hydrates one unit for two paths that differ only in case, and a link to the other copy goes to it (CTX-1697)",
+  { timeout: 60_000 },
+  async () =>
+    withNativeHydrationFixture(
+      {
+        files: [
+          {
+            path: "knowledge/services/Billing.md",
+            body: "# Billing\n\nThe mixed-case copy.\n",
+          },
+          {
+            path: "knowledge/services/billing.md",
+            body: "# Billing\n\nThe canonical copy.\n",
+          },
+          {
+            path: "knowledge/guides/deploy.md",
+            body: "# Deploy\n\nDeploy [billing](../services/Billing.md) first.\n",
+          },
+        ],
+        units: 2,
+      },
+      async (f) => {
+        await f.publish()
+        await withOrgIdContext(f.org, async () => {
+          const { units } = await listWorkspaceKnowledgeUnits(f.workspaceId)
+          // One commit gives both copies the same time: the canonical
+          // lowercase path wins.
+          expect(units.map((unit) => unit.path)).toEqual([
+            "knowledge/guides/deploy.md",
+            "knowledge/services/billing.md",
+          ])
+          const billing = units.find(
+            (unit) => unit.path === "knowledge/services/billing.md",
+          )
+          expect(
+            hydrateUnitsToProjectionClaims(
+              units.map((unit) => ({
+                ...unit,
+                title: null,
+                source: "authored",
+                updatedAt: null,
+              })),
+            ).map((claim) => claim.objectId),
+          ).toEqual([billing?.servingId])
+        })
+        // The graph walk of the old stack gives one node for the two paths.
+        const deploy = await withOrgIdContext(f.org, async () =>
+          (await listWorkspaceKnowledgeUnits(f.workspaceId)).units.find(
+            (unit) => unit.path === "knowledge/guides/deploy.md",
+          ),
+        )
+        const walk = await expandWorkspaceGraph({
+          orgId: f.org.id,
+          orgSlug: f.org.slug,
+          projection: publishedProjection(
+            await withOrgIdContext(f.org, () =>
+              getWorkspaceProjection(f.workspaceId),
+            ),
+          ),
+          seeds: [deploy?.servingId ?? ""],
+          maxDepth: 1,
+        })
+        expect(walk.nodes.map((node) => node.path).sort()).toEqual([
+          "knowledge/guides/deploy.md",
+          "knowledge/services/billing.md",
+        ])
+        // The search of the old stack gives one hit for the two paths.
+        const hits = await searchKnowledge({
+          orgId: f.org.id,
+          workspaceIds: [f.workspaceId],
+          query: "billing copy",
+          embedding: Promise.resolve(null),
+        })
+        expect(
+          hits
+            .map((hit) => hit.path)
+            .filter((path) => path.startsWith("knowledge/services/")),
+        ).toEqual(["knowledge/services/billing.md"])
+      },
+    ),
+)
+
+it(
+  "shows the valid copy when the other copy of a path that differs only in case has front matter that is not valid (CTX-1697)",
+  { timeout: 60_000 },
+  async () =>
+    withNativeHydrationFixture(
+      {
+        files: [
+          {
+            path: "knowledge/services/billing.md",
+            body: "---\nkind: [\n---\n# Billing\n",
+          },
+          {
+            path: "knowledge/services/Billing.md",
+            body: "# Billing\n\nThe valid copy.\n",
+          },
+        ],
+        units: 1,
+        skipped: 1,
+      },
+      async (f) => {
+        await f.publish()
+        await withOrgIdContext(f.org, async () => {
+          expect(
+            (await listWorkspaceKnowledgeUnits(f.workspaceId)).units.map(
+              (unit) => unit.path,
+            ),
+          ).toEqual(["knowledge/services/Billing.md"])
+          // The skip is the front matter. A hidden copy is no skip.
+          expect(
+            (await getWorkspaceById(f.workspaceId))?.hydratePhases?.skipped,
+          ).toEqual([
+            { path: "knowledge/services/billing.md", reason: "malformed" },
+          ])
+        })
+      },
+    ),
 )
 
 it(

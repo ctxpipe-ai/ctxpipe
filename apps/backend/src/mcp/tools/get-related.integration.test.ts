@@ -334,6 +334,25 @@ describe("get_related through the MCP client on live Postgres and FalkorDB", () 
     ])
   })
 
+  it("reads a seed path that differs from a unit only in case as that unit (CTX-1697)", async () => {
+    const args = {
+      workspace: "platform",
+      intent: "dependencies",
+      direction: "in",
+      predicates: ["DEPENDS_ON", "OWNS"],
+      maxDepth: 2,
+      limit: 6,
+    }
+    const cased = await related({
+      ...args,
+      seeds: ["knowledge/libraries/Rate-Limiter.md"],
+    })
+    expect(cased.isError).not.toBe(true)
+    expect(refs(cased)).toEqual(
+      refs(await related({ ...args, seeds: [limiter] })),
+    )
+  })
+
   it("walks only the predicates it is given", async () => {
     const withDoc = await related({
       workspace: "platform",

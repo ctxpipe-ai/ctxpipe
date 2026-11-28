@@ -486,6 +486,16 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
       expect(attributes?.["ctxpipe.mcp.args"]).toMatch(/(^|,)ref(,|$)/)
     })
 
+    it("reads the unit of a path that differs only in case: the hydrate keeps one unit for both paths (CTX-1697)", async () => {
+      const result = await call("read_file", {
+        ref: "knowledge/services/Payments-API.md",
+      })
+      expect(result.isError).toBeFalsy()
+      expect(result.structuredContent).toMatchObject({
+        content: "# Payments API\n\nOwns card charges.\nCalls the ledger.",
+      })
+    })
+
     it("reads a path with a colon as a unit when the part before the colon is not a handle", async () => {
       const result = await call("read_file", {
         ref: "slack/threads/c1:1728.md",

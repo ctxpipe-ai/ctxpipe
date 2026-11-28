@@ -40,8 +40,8 @@ type HostWriteInput = {
 
 /**
  * One direct host commit through the write broker that plans its change on
- * the tree that the push lands on. The unlink retraction and the GitHub
- * mirror cleanup use it.
+ * the tree that the push lands on. The unlink retraction, the GitHub
+ * mirror cleanup and the case duplicate repair use it.
  *
  * - `change` reads the acquired tree. The push lands only on that parent,
  *   so the plan is checked against the commit that it changes.
@@ -57,7 +57,7 @@ export function defineReplanningHostWriteWorkflow<
   Extra extends Record<string, unknown>,
 >(options: {
   name: string
-  kind: "unlink_retraction" | "github_mirror_cleanup"
+  kind: "unlink_retraction" | "github_mirror_cleanup" | "case_repair"
   schema: S
   /** The kind-specific fields of the job row. */
   claim?: (

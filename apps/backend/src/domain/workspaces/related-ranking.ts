@@ -16,6 +16,7 @@ import {
   projectionFromWorkspace,
 } from "../../models/workspaces.js"
 import type { Reading } from "../../retrieval/jev/disagreement.js"
+import { foldedPathSql, foldPath } from "./case-duplicates.js"
 import {
   defaultCaps,
   type ExpandedNode,
@@ -168,12 +169,16 @@ async function resolveSeeds(
           eq(workspaceKnowledgeUnits.orgId, org.id),
           eq(workspaceKnowledgeUnits.workspaceId, workspaceId),
           sql`${activeProjectionSha()} = ${sha}`,
-          inArray(workspaceKnowledgeUnits.path, paths),
+          // A path that differs from a unit only in case names that unit:
+          // the hydrate keeps one unit for each folded path (CTX-1697).
+          inArray(foldedPathSql(workspaceKnowledgeUnits.path), [
+            ...new Set(paths.map(foldPath)),
+          ]),
         ),
       ),
   )
-  const found = new Set(rows.map((row) => row.path))
-  const unknown = paths.filter((path) => !found.has(path))
+  const found = new Set(rows.map((row) => foldPath(row.path)))
+  const unknown = paths.filter((path) => !found.has(foldPath(path)))
   if (unknown.length > 0) throw unknownRefError(unknown)
   return rows.map((row) => row.id)
 }

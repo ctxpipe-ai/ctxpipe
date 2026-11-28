@@ -205,6 +205,8 @@ async function projectPlane(of: string, version = projectionAt(of)) {
     baseBranch: null,
     projectionVersion: version,
     failedCount: 0,
+    caseDuplicateRows: 0,
+    caseDuplicates: 0,
   })
 }
 

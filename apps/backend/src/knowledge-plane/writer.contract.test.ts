@@ -38,6 +38,7 @@ import {
 import { migrateKnowledgeStore } from "../knowledge-store/migrate.js"
 import {
   deleteBranchHead,
+  getBranchHead,
   getKnowledgeState,
   listBranchHeads,
   readyKnowledgeHeads,
@@ -2712,6 +2713,252 @@ describe("the times of a file (CTX-1516, CTX-1710)", () => {
       expect(timesOf(delta, "updated_at")[issue.path]).toBe(
         "2026-09-01T00:00:00.000Z",
       )
+    } finally {
+      await remote.remove()
+    }
+  })
+})
+
+describe("case duplicates (CTX-1697)", () => {
+  const shown = "knowledge/services/Billing.md"
+  const other = "knowledge/services/billing.md"
+  const guide = "knowledge/guides/deploy.md"
+
+  /**
+   * The search hits for the word `invoice` of the copies of the billing
+   * file: the vector search also finds the other files.
+   */
+  async function invoiceHits(workspaceId: string, branch?: string) {
+    const hits = await store.search(await viewOf(workspaceId, branch), {
+      vector: vectorOf("invoice"),
+      terms: ["invoice"],
+      chunksPerDocument: 2,
+    })
+    return hits
+      .map((hit) => hit.document.path)
+      .filter((path) => path.startsWith("knowledge/services/"))
+  }
+
+  /** Each relation of the frontier of `path`, with the neighbor. */
+  async function related(workspaceId: string, path: string) {
+    return (
+      await store.readFrontier(await viewOf(workspaceId), [
+        { workspaceId, docKey: key(workspaceId, path) },
+      ])
+    ).map(({ direction, relation, neighbor }) => [
+      direction,
+      relation.predicate,
+      neighbor.path,
+      neighbor.status,
+    ])
+  }
+
+  it("a read shows one copy of paths that differ only in case: the copy that Git changed last", async () => {
+    const remote = await Remote.create()
+    try {
+      const workspaceId = await newWorkspace()
+      await run(
+        remote,
+        workspaceId,
+        await remote.commit({
+          [other]: "# Billing\n\nThe old invoice rules.\n",
+          [guide]:
+            "# Deploy\n\nDeploy [billing](../services/Billing.md) after [it](../services/billing.md).\n",
+        }),
+      )
+      expect((await headOf(workspaceId)).caseDuplicateRows).toBe(0)
+      // A person commits the mixed-case copy one day later.
+      const added = await run(
+        remote,
+        workspaceId,
+        await remote.commit({
+          [shown]: "# Billing\n\nThe new invoice rules.\n",
+        }),
+      )
+      expect(added).toMatchObject({ mode: "delta", caseDuplicates: 1 })
+      expect((await headOf(workspaceId)).caseDuplicateRows).toBe(1)
+      expect(
+        await getBranchHead({
+          orgId,
+          workspaceId,
+          branch: (await headOf(workspaceId)).branch,
+        }),
+      ).toMatchObject({ caseDuplicates: 1 })
+
+      expect(await invoiceHits(workspaceId)).toEqual([shown])
+      // Both links of the guide go to the copy that the read shows.
+      expect(await related(workspaceId, guide)).toEqual([
+        ["out", "LINKS_TO", shown, "active"],
+      ])
+      expect(await related(workspaceId, shown)).toEqual([
+        ["in", "LINKS_TO", guide, "active"],
+      ])
+      // The hidden copy reads as the copy that the read shows.
+      expect(await related(workspaceId, other)).toEqual([
+        ["in", "LINKS_TO", guide, "active"],
+      ])
+      const [document] = await store.readDocuments(await viewOf(workspaceId), [
+        { workspaceId, docKey: key(workspaceId, other) },
+      ])
+      expect(document?.document.path).toBe(shown)
+      const graph = await store.readGraph(await viewOf(workspaceId), 100)
+      expect(graph.documents.map((row) => row.path).sort()).toEqual([
+        guide,
+        shown,
+      ])
+      expect(graph.relations.map((row) => row.dstDoc)).toEqual([
+        key(workspaceId, shown),
+      ])
+      expect(
+        (await store.listDocumentStatuses(await viewOf(workspaceId))).map(
+          (row) => row.status,
+        ),
+      ).toEqual(["active", "active"])
+
+      // An edit of the lowercase copy makes it the copy that Git changed last.
+      await run(
+        remote,
+        workspaceId,
+        await remote.commit({
+          [other]: "# Billing\n\nThe newest invoice rules.\n",
+        }),
+      )
+      expect(await invoiceHits(workspaceId)).toEqual([other])
+      expect(await related(workspaceId, guide)).toEqual([
+        ["out", "LINKS_TO", other, "active"],
+      ])
+
+      // A repair removes the mixed-case copy. Its tombstone keeps the fold,
+      // so the link to its path still goes to the file.
+      const repaired = await run(
+        remote,
+        workspaceId,
+        await remote.commit({ [shown]: null }),
+      )
+      expect(repaired).toMatchObject({ caseDuplicates: 0 })
+      // The tombstone keeps the fold of the reads, but the tip has no hidden
+      // copy: the tip check queues no repair.
+      expect(
+        await getBranchHead({
+          orgId,
+          workspaceId,
+          branch: (await headOf(workspaceId)).branch,
+        }),
+      ).toMatchObject({ caseDuplicateRows: 1, caseDuplicates: 0 })
+      expect(await invoiceHits(workspaceId)).toEqual([other])
+      expect(await related(workspaceId, guide)).toEqual([
+        ["out", "LINKS_TO", other, "active"],
+      ])
+    } finally {
+      await remote.remove()
+    }
+  })
+
+  it("a change and its revert between two runs still make the copy the one that Git changed last", async () => {
+    const remote = await Remote.create()
+    try {
+      const workspaceId = await newWorkspace()
+      const old = "# Billing\n\nThe old invoice rules.\n"
+      await remote.commit({ [other]: old })
+      await run(
+        remote,
+        workspaceId,
+        await remote.commit({
+          [shown]: "# Billing\n\nThe new invoice rules.\n",
+        }),
+      )
+      expect(await invoiceHits(workspaceId)).toEqual([shown])
+      // Two commits change the lowercase copy and change it back: the diff
+      // of the next run does not hold it.
+      await remote.commit({ [other]: "# Billing\n\nA draft.\n" })
+      await run(remote, workspaceId, await remote.commit({ [other]: old }))
+      expect(await invoiceHits(workspaceId)).toEqual([other])
+    } finally {
+      await remote.remove()
+    }
+  })
+
+  it("a file that is not Markdown shows the copy that Git changed last too", async () => {
+    const remote = await Remote.create()
+    try {
+      const workspaceId = await newWorkspace()
+      await run(
+        remote,
+        workspaceId,
+        await remote.commit({
+          "knowledge/services/billing.html":
+            "<html><body><p>The old invoice rules.</p></body></html>",
+        }),
+      )
+      await run(
+        remote,
+        workspaceId,
+        await remote.commit({
+          "knowledge/services/Billing.html":
+            "<html><body><p>The new invoice rules.</p></body></html>",
+        }),
+      )
+      expect(await invoiceHits(workspaceId)).toEqual([
+        "knowledge/services/Billing.html",
+      ])
+    } finally {
+      await remote.remove()
+    }
+  })
+
+  it("the view of a branch shows the copy of the default branch when the default branch changed it after the branch", async () => {
+    const remote = await Remote.create()
+    try {
+      const base = await remote.commit({
+        [other]: "# Billing\n\nThe old invoice rules.\n",
+      })
+      const workspaceId = await newWorkspace()
+      await run(remote, workspaceId, base)
+      remote.git("checkout", "-q", "-f", "-b", "feature")
+      const branchTip = await remote.commit({
+        [shown]: "# Billing\n\nThe branch invoice rules.\n",
+      })
+      await run(remote, workspaceId, branchTip, {
+        overlay: { branch: "feature", defaultTip: base },
+      })
+      expect(await invoiceHits(workspaceId, "feature")).toEqual([shown])
+      // The default branch changes its copy after the commit of the branch.
+      remote.git("checkout", "-q", "-f", "main")
+      const mainTip = await remote.commit({
+        [other]: "# Billing\n\nThe newest invoice rules.\n",
+      })
+      await run(remote, workspaceId, mainTip)
+      expect(await invoiceHits(workspaceId, "feature")).toEqual([other])
+    } finally {
+      await remote.remove()
+    }
+  })
+
+  it("a full rebuild shows the same copy as the deltas, and the view of a branch folds too", async () => {
+    const remote = await Remote.create()
+    try {
+      await remote.commit({ [other]: "# Billing\n\nThe old invoice rules.\n" })
+      const tip = await remote.commit({
+        [shown]: "# Billing\n\nThe new invoice rules.\n",
+      })
+      const workspaceId = await newWorkspace()
+      expect(await run(remote, workspaceId, tip)).toMatchObject({
+        mode: "full",
+        caseDuplicates: 1,
+      })
+      expect(await invoiceHits(workspaceId)).toEqual([shown])
+
+      remote.git("checkout", "-q", "-f", "-b", "feature")
+      const branchTip = await remote.commit({
+        "knowledge/services/BILLING.md":
+          "# Billing\n\nThe branch invoice rules.\n",
+      })
+      await run(remote, workspaceId, branchTip, {
+        overlay: { branch: "feature", defaultTip: tip },
+      })
+      expect(await invoiceHits(workspaceId, "feature")).toEqual([
+        "knowledge/services/BILLING.md",
+      ])
     } finally {
       await remote.remove()
     }

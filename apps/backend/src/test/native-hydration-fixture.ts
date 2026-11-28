@@ -40,6 +40,8 @@ import { connectOpenWorkflowBackend } from "../openworkflow/storable-backend.js"
 import { knowledgeProjection } from "../openworkflow/workflows/knowledge-projection.js"
 import { knowledgePurge } from "../openworkflow/workflows/knowledge-purge.js"
 import { repositoryIndex } from "../openworkflow/workflows/repository-index.js"
+import { workspaceCaseMerge } from "../openworkflow/workflows/workspace-case-merge.js"
+import { workspaceCaseRepair } from "../openworkflow/workflows/workspace-case-repair.js"
 import { workspaceHydrate } from "../openworkflow/workflows/workspace-hydrate.js"
 import { workspaceIndex } from "../openworkflow/workflows/workspace-index.js"
 import { workspaceTipCheck } from "../openworkflow/workflows/workspace-tip-check.js"
@@ -75,6 +77,13 @@ export type NativeHydrationOptions = {
         }) => { text: string } | { tool: string; args: Record<string, unknown> }
       }
   count?: number
+  /**
+   * The units that the hydrate makes, when it is not one for each file: two
+   * paths that differ only in case give one unit (CTX-1697).
+   */
+  units?: number
+  /** The files that the hydrate skips, for example front matter that is not valid. */
+  skipped?: number
   /** The Workspace root folder (CTX-709); the repository root when absent. */
   rootPath?: string
   traceGitCommands?: boolean
@@ -732,6 +741,10 @@ async function createNativeHydrationFixture(
   if (options.knowledgePlane) {
     runner.implementWorkflow(knowledgeProjection.spec, knowledgeProjection.fn)
     runner.implementWorkflow(knowledgePurge.spec, knowledgePurge.fn)
+    // The tip check queues the case duplicate repair (CTX-1697) in the
+    // namespace of the app, which is the namespace of this worker here.
+    runner.implementWorkflow(workspaceCaseRepair.spec, workspaceCaseRepair.fn)
+    runner.implementWorkflow(workspaceCaseMerge.spec, workspaceCaseMerge.fn)
   }
   const worker = runner.newWorker({ concurrency: 2 })
   const gitTrace = join(tmpdir(), `ctxpipe-hydration-trace-${id}.jsonl`)
@@ -1032,8 +1045,8 @@ async function createNativeHydrationFixture(
         // The 7,000-file tree takes about 30 s on a laptop and more on a CI runner.
         expect(await handle.result({ timeoutMs: 120_000 })).toMatchObject({
           hydrated: true,
-          units: count,
-          skipped: 0,
+          units: options.units ?? count,
+          skipped: options.skipped ?? 0,
         })
         const run = await backend.getWorkflowRun({
           workflowRunId: handle.workflowRun.id,

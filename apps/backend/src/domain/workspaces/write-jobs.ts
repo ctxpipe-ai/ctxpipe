@@ -15,6 +15,7 @@ export const WORKSPACE_WRITE_JOB_KINDS = [
   "ownership_migration",
   "unlink_retraction",
   "github_mirror_cleanup",
+  "case_repair",
 ] as const
 
 export type WorkspaceWriteJobKind = (typeof WORKSPACE_WRITE_JOB_KINDS)[number]

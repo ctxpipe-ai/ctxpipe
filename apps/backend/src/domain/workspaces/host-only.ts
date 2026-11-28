@@ -2,6 +2,7 @@ import { isDeepStrictEqual } from "node:util"
 
 import { parseYamlObject, splitFrontMatter } from "../ingestion/front-matter.js"
 import type { HOST_FIELDS } from "../ingestion/patch-validator.js"
+import { foldPath } from "./case-duplicates.js"
 
 /**
  * The Workspace paths that no agent write can change without a pull request
@@ -23,7 +24,7 @@ const HOST_ONLY_FOLDERS = [".ctxpipe", "sources"] as const
  * folder under another spelling.
  */
 export function isHostOnlyPath(path: string): boolean {
-  const folded = path.normalize("NFC").toLowerCase()
+  const folded = foldPath(path)
   return HOST_ONLY_FOLDERS.some(
     (folder) => folded === folder || folded.startsWith(`${folder}/`),
   )

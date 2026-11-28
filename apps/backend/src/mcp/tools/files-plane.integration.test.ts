@@ -149,6 +149,8 @@ async function setReady(ready: boolean) {
     baseBranch: null,
     projectionVersion: "test",
     failedCount: 0,
+    caseDuplicateRows: 0,
+    caseDuplicates: 0,
   })
 }
 
@@ -527,6 +529,8 @@ describe("read_file and list_files on the knowledge plane", () => {
         baseBranch: "main",
         projectionVersion: "test",
         failedCount: 0,
+        caseDuplicateRows: 0,
+        caseDuplicates: 0,
       })
 
       const payments = structured(
@@ -551,6 +555,83 @@ describe("read_file and list_files on the knowledge plane", () => {
           .filter((entry) => entry.type === "file")
           .map((entry) => entry.path),
       ).toEqual(["knowledge/branch.md", CHECKOUT, PAYMENTS])
+    })
+
+    it("a path that differs from another only in case gives one answer: read_file reads the copy that the view shows, and list_files lists it one time (CTX-1697)", async () => {
+      // An outside commit adds a copy whose path differs only in case. The
+      // index gets it from its blob: the disk of the test can ignore case.
+      const copy = "knowledge/services/Checkout.md"
+      await git("checkout", "-q", "-b", "cased", servedSha)
+      const body = join(tmpdir(), `ctxpipe-case-${Date.now()}.md`)
+      await writeFile(body, "# Checkout copy\n\nThe mixed-case copy.\n")
+      const blob = await git("hash-object", "-w", body)
+      await rm(body)
+      await git(
+        "update-index",
+        "--add",
+        "--cacheinfo",
+        `100644,${blob},${copy}`,
+      )
+      await git("commit", "-q", "-m", "An outside copy")
+      const casedSha = await git("rev-parse", "HEAD")
+      await git("checkout", "-q", "-f", "main")
+      const writer = createKnowledgeStore(knowledgeUrl)
+      try {
+        await writePlaneDocuments(
+          writer,
+          { orgId: seed.orgId, workspaceId },
+          [
+            {
+              document: {
+                docKey: servingIdForKnowledgePath(workspaceId, copy),
+                kind: "",
+                title: copy,
+                path: copy,
+                sourceType: "docs",
+                source: "",
+                summary: "",
+                mime: "",
+                observedAt,
+              },
+              chunks: [],
+              relations: [],
+            },
+          ],
+          { branch: "cased" },
+        )
+      } finally {
+        await writer.close()
+      }
+      const head = { orgId: seed.orgId, workspaceId, branch: "cased" }
+      await beginKnowledgeRun({ ...head, isDefault: false })
+      await completeKnowledgeRun({
+        ...head,
+        tip: casedSha,
+        treeVersion: 1,
+        baseBranch: "main",
+        projectionVersion: "test",
+        failedCount: 0,
+        caseDuplicateRows: 1,
+        caseDuplicates: 1,
+      })
+
+      // The copy has no time, so the canonical lowercase path shows.
+      for (const ref of [CHECKOUT, copy]) {
+        const read = structured(await readFile({ ref, branch: "cased" }))
+        expect(read.content).toContain("Version A of the checkout service.")
+      }
+      const list = structured(
+        await listFiles({
+          path: "knowledge/services",
+          depth: 1,
+          branch: "cased",
+        }),
+      )
+      expect(
+        (list.entries as { path: string; type: string }[]).map(
+          (entry) => entry.path,
+        ),
+      ).toEqual([CHECKOUT])
     })
 
     it("both tools give the output shape of the old stack", async () => {

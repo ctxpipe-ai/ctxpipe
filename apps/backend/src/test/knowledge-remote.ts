@@ -26,6 +26,9 @@ export class Remote {
     remote.git("init", "-q", "-b", "main")
     remote.git("config", "uploadpack.allowAnySHA1InWant", "true")
     remote.git("config", "uploadpack.allowFilter", "true")
+    // The index takes paths as they are: two paths that differ only in
+    // case stay two files, also on a file system that ignores case.
+    remote.git("config", "core.ignorecase", "false")
     return remote
   }
 
@@ -66,7 +69,15 @@ export class Remote {
       else {
         await mkdir(dirname(join(this.directory, path)), { recursive: true })
         await writeFile(join(this.directory, path), content)
-        this.git("add", path)
+        // From the blob, not from the disk: a file system that ignores case
+        // keeps one file for two paths that differ only in case.
+        const blob = this.git("hash-object", "-w", "--", path)
+        this.git(
+          "update-index",
+          "--add",
+          "--cacheinfo",
+          `100644,${blob},${path}`,
+        )
       }
     }
     this.git("commit", "-q", "--allow-empty", "-m", "change")
