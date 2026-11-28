@@ -1,37 +1,27 @@
-"""The recorder of the OrgBench spike (CTX-1660): one record for each run.
+"""The recorder of OrgBench (phase 1, CTX-1664): one record for each run.
 
-A record holds the reward, the tokens, the cost, the wall time, the turns and
-the MCP tool calls of the transcript, and the MCP server spans of the run,
-joined by `x-ctxpipe-conversation-id` (the span attribute
-`ctxpipe.mcp.conversation.id`). It also holds the proof of decision D5 of the
-plan: the FalkorDB graph commands during the run (the `INFO commandstats` of
-the FalkorDB of the backend), the `falkordb` spans in the traces of the run,
-and the `knowledge_plane.fallback` logs.
-
-  python record.py RUN_FOLDER   writes report.md from RUN_FOLDER/runs.jsonl
+A record holds the score, the tokens, the cost, the wall time, the turns and
+the tool calls of the transcript, the MCP proxy counts, and the MCP server
+spans of the run. The recorder reads the spans from HyperDX, joined by the
+conversation id that the MCP proxy sends (`x-ctxpipe-conversation-id`, the
+span attribute `ctxpipe.mcp.conversation.id`). A CTX run is valid only with
+the proof of decision D5: no `falkordb` span in the traces of its MCP calls,
+no `knowledge_plane.fallback` log of the bench org during the run, and a span
+for each tool call that the proxy forwarded. `analyze.py` reads the records.
 """
 
 import collections
 import json
 import os
-import subprocess
-import sys
+import re
 import time
+import tomllib
 import urllib.request
-from pathlib import Path
+from datetime import datetime, timezone
 
-
-def falkor_graph_calls(container):
-    """The count of GRAPH.* commands that the FalkorDB server answered."""
-    out = subprocess.run(
-        ["docker", "exec", container, "redis-cli", "INFO", "commandstats"],
-        capture_output=True, text=True, check=True,
-    ).stdout
-    calls = 0
-    for line in out.splitlines():
-        if line.lower().startswith("cmdstat_graph."):
-            calls += int(line.split("calls=")[1].split(",")[0])
-    return calls
+# The MCP tool error codes (apps/backend/src/mcp/framework/tool-errors.ts)
+# that are errors of the arm's own service, not of the agent (ADR-075 decision 7).
+OWN_SERVICE_CODES = {"internal", "too_many_requests", "judge_unavailable", "workspace_not_ready"}
 
 
 def openrouter_key_status():
@@ -66,15 +56,106 @@ def byok_usage():
     return last
 
 
-def transcript(stream_path):
-    """The result event, the tool calls and the MCP error results of a Claude Code transcript.
+def hyperdx(tool, arguments):
+    """Call a tool of the HyperDX MCP (ops/observability/USING.md, Agent hosts)."""
+    headers = {
+        "Authorization": f"Bearer {os.environ['HYPERDX_ACCESS_KEY']}",
+        "CF-Access-Client-Id": os.environ["HYPERDX_CF_ACCESS_CLIENT_ID"],
+        "CF-Access-Client-Secret": os.environ["HYPERDX_CF_ACCESS_CLIENT_SECRET"],
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+        # Cloudflare refuses the default Python user agent.
+        "User-Agent": "orgbench-recorder/1",
+    }
+    body = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": tool, "arguments": arguments}}
+    request = urllib.request.Request("https://hyperdx.ctxpipe.dev/api/mcp", json.dumps(body).encode(), headers)
+    with urllib.request.urlopen(request, timeout=120) as response:
+        text = response.read().decode()
+    data = json.loads(next(line[5:] for line in text.splitlines() if line.startswith("data:")) if "data:" in text else text)
+    content = data["result"]["content"][0]["text"]
+    if data["result"].get("isError"):
+        raise RuntimeError(content)
+    return json.loads(content)
 
-    A call with bad arguments fails in the MCP SDK before the tool runs, so it
-    has no `mcp.tool` span: only the transcript shows it.
+
+def hyperdx_sql(sql, started, ended):
+    connection = hyperdx("clickstack_list_sources", {})["connections"][0]["id"]
+    iso = lambda t: datetime.fromtimestamp(t, timezone.utc).isoformat()
+    result = hyperdx("clickstack_sql", {"connectionId": connection, "sql": sql, "startTime": iso(started), "endTime": iso(ended)})
+    return result["result"]["data"]
+
+
+def server_spans(conversation_id, *, env, org_slug, started, ended, expected_calls):
+    """The MCP server spans of one run and the D5 proof, from HyperDX.
+
+    The backend exports spans in batches, so the recorder reads again until
+    the spans of each forwarded tool call are there, for at most five minutes.
     """
-    result, tools, names, failed = {}, collections.Counter(), {}, collections.Counter()
+    # The ids are ours (run.py, arms.json); check them anyway, because they go into SQL.
+    for value in (conversation_id, env, org_slug):
+        if not re.fullmatch(r"[A-Za-z0-9._-]+", value):
+            raise ValueError(f"unsafe value for SQL: {value!r}")
+    traces = (
+        "SELECT DISTINCT TraceId FROM otel.otel_traces WHERE $__timeFilter(Timestamp)"
+        f" AND DeploymentEnvironment = '{env}' AND SpanName LIKE 'mcp.tool%'"
+        f" AND SpanAttributes['ctxpipe.mcp.conversation.id'] = '{conversation_id}'"
+    )
+    spans_sql = (
+        "SELECT countIf(SpanName LIKE 'mcp.tool%') AS toolSpans,"
+        " groupArrayIf(SpanAttributes['ctxpipe.mcp.tool'], SpanName LIKE 'mcp.tool%') AS tools,"
+        " groupArrayIf(SpanAttributes['ctxpipe.mcp.error.code'], SpanName LIKE 'mcp.tool%' AND SpanAttributes['ctxpipe.mcp.error.code'] != '') AS errors,"
+        " countIf(SpanName = 'jev.decide') AS jevCalls,"
+        " countIf(SpanAttributes['db.system.name'] = 'clickhouse') AS clickhouseSpans,"
+        " countIf(SpanAttributes['db.system.name'] = 'falkordb' OR positionCaseInsensitive(SpanName, 'falkor') > 0) AS falkorSpans,"
+        " sum(toFloat64OrZero(SpanAttributes['gen_ai.usage.cost'])) AS modelCostUsd"
+        f" FROM otel.otel_traces WHERE $__timeFilter(Timestamp) AND DeploymentEnvironment = '{env}' AND TraceId IN ({traces})"
+    )
+    # Each fallback of the bench org during the run counts, also one with no trace of the run.
+    logs_sql = (
+        "SELECT count() AS fallbackLogs FROM otel.otel_logs WHERE $__timeFilter(Timestamp)"
+        f" AND DeploymentEnvironment = '{env}' AND LogAttributes['step'] = 'knowledge_plane.fallback'"
+        f" AND (LogAttributes['ctxpipe.org.slug'] = '{org_slug}' OR TraceId IN ({traces}))"
+    )
+    deadline = time.time() + 300
+    try:
+        while True:
+            spans = hyperdx_sql(spans_sql, started - 60, max(time.time(), ended) + 60)[0]
+            if int(spans["toolSpans"]) >= expected_calls or time.time() > deadline:
+                break
+            time.sleep(20)
+        logs = hyperdx_sql(logs_sql, started, ended)[0]
+    except (OSError, RuntimeError, KeyError, ValueError) as error:
+        return {"error": f"HyperDX: {error}"}
+    return {
+        "toolSpans": int(spans["toolSpans"]),
+        "tools": dict(collections.Counter(spans["tools"])),
+        "errors": dict(collections.Counter(spans["errors"])),
+        "jevCalls": int(spans["jevCalls"]),
+        "clickhouseSpans": int(spans["clickhouseSpans"]),
+        "falkorSpans": int(spans["falkorSpans"]),
+        "planeFallbackLogs": int(logs["fallbackLogs"]),
+        "modelCostUsd": round(float(spans["modelCostUsd"]), 6),
+    }
+
+
+def result_code(block):
+    """The error code of an MCP error result: the code of a tool error, or `schema` for bad arguments."""
+    content = block.get("content")
+    text = content if isinstance(content, str) else " ".join(c.get("text", "") for c in content or [] if isinstance(c, dict))
+    match = re.search(r'"code"\s*:\s*"([a-z_]+)"', text)
+    if match:
+        return match.group(1)
+    # The MCP SDK refuses bad arguments before the tool runs: no span, only this text.
+    if "-32602" in text or "Invalid arguments" in text or "validation" in text.lower():
+        return "schema"
+    return "other"
+
+
+def transcript(stream_path):
+    """The result event, the tool calls, the MCP error codes and the tool text of a Claude Code transcript."""
+    result, tools, names, errors, text = {}, collections.Counter(), {}, [], []
     if not stream_path.is_file():
-        return result, tools, failed
+        return result, tools, errors, ""
     for line in stream_path.read_text(errors="replace").splitlines():
         if not line.startswith("{"):
             continue
@@ -89,81 +170,96 @@ def transcript(stream_path):
             if block.get("type") == "tool_use":
                 tools[block["name"]] += 1
                 names[block["id"]] = block["name"]
-            name = names.get(block.get("tool_use_id"), "")
-            if block.get("type") == "tool_result" and block.get("is_error") and name.startswith("mcp__"):
-                failed[name] += 1
-    return result, tools, failed
+                text.append(json.dumps(block.get("input")))
+            if block.get("type") == "tool_result":
+                text.append(json.dumps(block.get("content")))
+                if block.get("is_error") and names.get(block.get("tool_use_id"), "").startswith("mcp__"):
+                    errors.append(result_code(block))
+    return result, tools, errors, "\n".join(text)
 
 
-def attributes(item):
-    return {a["key"]: next(iter(a["value"].values()), None) for a in item.get("attributes", [])}
+def gold_seen(task_dir, tool_text):
+    """The gold files that a tool call named or returned (the path, or the path in its repository)."""
+    meta = tomllib.loads((task_dir / "task.toml").read_text()).get("metadata", {})
+    seen = []
+    for ref in meta.get("gold_context", []):
+        path = ref.split("#")[0]
+        inner = path.split("/", 2)[2] if path.startswith("repos/") else path
+        if inner in tool_text:
+            seen.append(ref)
+    return seen, len(meta.get("gold_context", []))
 
 
-def server_spans(otlp_path, conversation_id, started):
-    """The MCP server spans of one conversation and the spans of their traces."""
-    spans, fallback_logs = [], 0
-    since = int(started * 1e9)
-    if otlp_path.is_file():
-        for line in otlp_path.read_text().splitlines():
-            batch = json.loads(line)
-            for resource in batch.get("resourceSpans", []):
-                for scope in resource["scopeSpans"]:
-                    spans += [(s, attributes(s)) for s in scope["spans"]]
-            for resource in batch.get("resourceLogs", []):
-                for scope in resource["scopeLogs"]:
-                    for log in scope["logRecords"]:
-                        if int(log.get("timeUnixNano", 0)) >= since and "knowledge_plane.fallback" in json.dumps(log):
-                            fallback_logs += 1
-    # Child spans carry the attribution of the call too, so only the
-    # `mcp.tool` span counts as the call.
-    tool_spans = [
-        (s, a) for s, a in spans
-        if s["name"].startswith("mcp.tool") and a.get("ctxpipe.mcp.conversation.id") == conversation_id
-    ]
-    traces = {s["traceId"] for s, _ in tool_spans}
-    in_traces = [(s, a) for s, a in spans if s["traceId"] in traces]
-    return {
-        "tools": dict(collections.Counter(a.get("ctxpipe.mcp.tool") for _, a in tool_spans)),
-        "errors": dict(collections.Counter(
-            a["ctxpipe.mcp.error.code"] for _, a in tool_spans if a.get("ctxpipe.mcp.error.code")
-        )),
-        "jevCalls": sum(s["name"] == "jev.decide" for s, _ in in_traces),
-        "modelCostUsd": round(sum(float(a.get("gen_ai.usage.cost", 0)) for _, a in in_traces), 6),
-        # The bench backend serves only the bench, so the cost of each of its
-        # spans since the start counts, also a call with no conversation id
-        # or with the id of another run.
-        "backendCostUsd": round(sum(
-            float(a.get("gen_ai.usage.cost", 0)) for s, a in spans if int(s.get("startTimeUnixNano", 0)) >= since
-        ), 6),
-        "falkorSpans": sum(a.get("db.system.name") == "falkordb" for _, a in in_traces),
-        "planeFallbackLogs": fallback_logs,
-    }
+def read_json(path):
+    return json.loads(path.read_text()) if path.is_file() else {}
 
 
-def record_run(*, out, run_id, model, arm, task, cap_usd, otlp, started, ended, falkor_commands):
+def record_run(*, out, run_id, model, arm, task, trial, attempt, repos, cap_usd, mcp, started, ended, telemetry_env, org_slug, task_dir):
     trials = sorted((out / "jobs" / run_id).glob("*/agent"))
-    trial = trials[0].parent if trials else out / "jobs" / run_id
-    result, tools, failed = transcript(trial / "agent" / "claude-code.txt")
+    trial_dir = trials[0].parent if trials else out / "jobs" / run_id
+    result, tools, mcp_errors, tool_text = transcript(trial_dir / "agent" / "claude-code.txt")
     usage = result.get("usage", {})
-    tokens = {
-        "input": usage.get("input_tokens", 0),
-        "output": usage.get("output_tokens", 0),
-        "cacheRead": usage.get("cache_read_input_tokens", 0),
-        "cacheWrite": usage.get("cache_creation_input_tokens", 0),
-    }
-    reward_path = trial / "verifier" / "reward.txt"
-    facts_path = trial / "verifier" / "facts.json"
-    trial_result = json.loads((trial / "result.json").read_text()) if (trial / "result.json").is_file() else {}
-    gateway_path = out / "gateway" / run_id / "spend.json"
-    gateway = json.loads(gateway_path.read_text()) if gateway_path.is_file() else {}
+    reward_path = trial_dir / "verifier" / "reward.txt"
+    exception = (read_json(trial_dir / "result.json").get("exception_info") or {}).get("exception_type")
+    gateway = read_json(out / "gateway" / run_id / "spend.json")
+    proxy = read_json(out / "mcp" / run_id / "calls.json") if mcp else {}
+    server = {}
+    if mcp:
+        server = server_spans(
+            run_id, env=telemetry_env, org_slug=org_slug, started=started, ended=ended,
+            # A call with bad arguments fails in the MCP SDK before the tool runs: it has no span.
+            expected_calls=proxy.get("toolCalls", 0) - mcp_errors.count("schema"),
+        )
+    statuses = proxy.get("statuses", {})
+    own_service = (
+        sum(n for code, n in statuses.items() if code == "429" or code.startswith("5"))
+        + proxy.get("timeouts", 0) + proxy.get("connectionErrors", 0)
+        + sum(code in OWN_SERVICE_CODES for code in mcp_errors)
+    )
+    error = exception or (None if result else "no result event") or (None if reward_path.is_file() else "no reward")
+    # The arm's own service errors count as failures; model API errors and
+    # harness crashes are infrastructure and run again (ADR-075 decision 7).
+    # An agent that runs out of time or budget fails the task.
+    if own_service:
+        error_class = "own-service"
+    elif error and error != "AgentTimeoutError":
+        error_class = "infra"
+    elif result.get("is_error") and "API Error" in str(result.get("result")) and not gateway.get("refused"):
+        error_class = "infra"
+    else:
+        error_class = None
+    raw = float(reward_path.read_text()) if reward_path.is_file() else None
+    invalid = []
+    if mcp:
+        if "error" in server:
+            invalid.append(server["error"])
+        else:
+            if server["falkorSpans"]:
+                invalid.append(f"{server['falkorSpans']} falkordb spans")
+            if server["planeFallbackLogs"]:
+                invalid.append(f"{server['planeFallbackLogs']} knowledge_plane.fallback logs")
+            expected = proxy.get("toolCalls", 0) - mcp_errors.count("schema")
+            if server["toolSpans"] < expected:
+                invalid.append(f"{server['toolSpans']} tool spans for {expected} forwarded calls with valid arguments")
+    seen, gold_count = gold_seen(task_dir, tool_text)
     return {
         "runId": run_id,
         "model": model,
         "arm": arm,
         "task": task,
-        "reward": float(reward_path.read_text()) if reward_path.is_file() else None,
-        "facts": json.loads(facts_path.read_text())["facts"] if facts_path.is_file() else None,
-        "tokens": tokens,
+        "trial": trial,
+        "attempt": attempt,
+        "repos": repos,
+        # An own-service error fails the run whatever the grader says.
+        "score": 0.0 if error_class == "own-service" else raw,
+        "rawScore": raw,
+        "facts": read_json(trial_dir / "verifier" / "facts.json").get("facts"),
+        "tokens": {
+            "input": usage.get("input_tokens", 0),
+            "output": usage.get("output_tokens", 0),
+            "cacheRead": usage.get("cache_read_input_tokens", 0),
+            "cacheWrite": usage.get("cache_creation_input_tokens", 0),
+        },
         "claudeCodeCostUsd": result.get("total_cost_usd"),
         "gatewayCostUsd": gateway.get("usd"),
         "gatewayRequests": gateway.get("requests"),
@@ -175,13 +271,18 @@ def record_run(*, out, run_id, model, arm, task, cap_usd, otlp, started, ended, 
         "stopReason": result.get("subtype"),
         "toolCalls": dict(tools),
         "mcpCalls": sum(n for name, n in tools.items() if name.startswith("mcp__")),
-        "mcpFailedCalls": dict(failed),
-        "server": server_spans(otlp, run_id, started),
-        "falkorGraphCommands": falkor_commands,
-        "error": (trial_result.get("exception_info") or {}).get("exception_type")
-        or (None if result else "no result event")
-        or (None if reward_path.is_file() else "no reward"),
-        "trial": str(trial),
+        "mcpErrors": dict(collections.Counter(mcp_errors)),
+        "argErrors": sum(code not in OWN_SERVICE_CODES and code != "other" for code in mcp_errors),
+        "ownServiceErrors": own_service,
+        "goldSeen": seen,
+        "goldCount": gold_count,
+        "proxy": proxy,
+        "server": server,
+        "valid": not invalid,
+        "invalidReasons": invalid,
+        "error": error,
+        "errorClass": error_class,
+        "trialDir": str(trial_dir),
     }
 
 
@@ -190,36 +291,9 @@ def run_cost(run):
 
     The agent spend is the total of the model gateway, which also counts the
     model requests that did not come from Claude Code. A run with no gateway
-    total (a record from before the gateway) uses the Claude Code cost, and a
-    run with neither counts as its full cap.
+    total uses the Claude Code cost, and a run with neither counts as its full cap.
     """
     agent = run.get("gatewayCostUsd")
     if agent is None:
         agent = run["claudeCodeCostUsd"]
-    server = run["server"]
-    return (run["runCapUsd"] if agent is None else agent) + server.get("backendCostUsd", server["modelCostUsd"])
-
-
-def write_report(out, runs):
-    lines = [
-        "| Model | Arm | Task | Score | $ Claude Code | $ server | Input | Output | Cache read | Cache write | Turns | Agent s | Wall s | MCP calls | Falkor cmds | Error |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
-    ]
-    for r in runs:
-        t = r["tokens"]
-        cost = "-" if r["claudeCodeCostUsd"] is None else f"{r['claudeCodeCostUsd']:.4f}"
-        lines.append(
-            f"| {r['model']} | {r['arm']} | {r['task']} | {r['reward']} | "
-            f"{cost} | {r['server']['modelCostUsd']:.4f} | "
-            f"{t['input']} | {t['output']} | {t['cacheRead']} | {t['cacheWrite']} | {r['turns']} | "
-            f"{r['agentSeconds']} | {r['wallSeconds']} | {r['mcpCalls']} | {r['falkorGraphCommands']} | {r['error'] or ''} |"
-        )
-    lines.append("")
-    lines.append(f"Total spend: ${sum(run_cost(r) for r in runs):.4f}")
-    (out / "report.md").write_text("\n".join(lines) + "\n")
-    print("\n".join(lines))
-
-
-if __name__ == "__main__":
-    folder = Path(sys.argv[1])
-    write_report(folder, [json.loads(line) for line in (folder / "runs.jsonl").read_text().splitlines()])
+    return (run["runCapUsd"] if agent is None else agent) + run["server"].get("modelCostUsd", 0)

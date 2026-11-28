@@ -1,0 +1,774 @@
+{
+  "about": "Distractor repositories of the scale sweep (README.md): public repositories of other orgs, each at the last commit of its default branch before T. The first ones pad a smaller size.",
+  "pinnedAt": "2026-11-01T00:00:00Z",
+  "repositories": [
+    {
+      "source": "matrix-org/matrix-rust-sdk",
+      "sha": "1e54358136beb13999f09b31cbc9734b654f50e0"
+    },
+    {
+      "source": "element-hq/element-x-android",
+      "sha": "33cbb9938503dec3c760b65c1ce9fd632d86331a"
+    },
+    {
+      "source": "mattermost/desktop",
+      "sha": "a6b3d6ec9f26a18d516ba30d7035a2fc0555b332"
+    },
+    {
+      "source": "RocketChat/Rocket.Chat.Electron",
+      "sha": "ab22ef603d1c1fdab33981fe9e11d29660517f69"
+    },
+    {
+      "source": "discourse/discourse_docker",
+      "sha": "a84c6eb7a924928dc16eb110e65108579d632e19"
+    },
+    {
+      "source": "jitsi/docker-jitsi-meet",
+      "sha": "6bb51e620633b826dedc7b32ff575bf543ff16ac"
+    },
+    {
+      "source": "mastodon/mastodon-ios",
+      "sha": "bba8cb217be7bca36dbd99aa7b28f31e745b1c79"
+    },
+    {
+      "source": "nextcloud/all-in-one",
+      "sha": "a9b73e1c95eb247a443283d3d417b0a1b339906b"
+    },
+    {
+      "source": "signalapp/Signal-Server",
+      "sha": "ce7514718660355e5c8f0c2776b496d5eac90b2c"
+    },
+    {
+      "source": "owncloud/notes",
+      "sha": "2a597d5d643f0b36a6a573d3044b9812de7e5f39"
+    },
+    {
+      "source": "thunderbird/thunderbolt",
+      "sha": "d9edfd517fab3be1a807e46a0a96768656097689"
+    },
+    {
+      "source": "zammad/zammad-docker-compose",
+      "sha": "cee5e1cef02543977de6d13937ba8cc7276b5a5a"
+    },
+    {
+      "source": "chatwoot/chatwoot-mobile-app",
+      "sha": "389f6de36f72b84b7425abadfa0666be2025bb91"
+    },
+    {
+      "source": "revoltchat/vortex",
+      "sha": "b776871a9800bf85709b22c0e58297c9561eec08"
+    },
+    {
+      "source": "deltachat/deltachat-desktop",
+      "sha": "d9b3fcd617cc547f55f1dd1eddb44a36367042f7"
+    },
+    {
+      "source": "xmppo/go-xmpp",
+      "sha": "16a04cc86da706ea03b884656e9e5a0a93e311c1"
+    },
+    {
+      "source": "processone/ejabberd",
+      "sha": "9266a5fb8c7d4fa5fbe8a0da2f40b5432d095cb3"
+    },
+    {
+      "source": "conversejs/converse-desktop",
+      "sha": "29d10e892e88bb64ea627b1700ca539c7ee89b84"
+    },
+    {
+      "source": "matrix-org/matrix-js-sdk",
+      "sha": "fa1bd59fe86831be3e6bec5e8a1185f37a62e1d2"
+    },
+    {
+      "source": "element-hq/element-ios",
+      "sha": "7ba8beb088978786a6fc0aa3c9324a33ee77c38a"
+    },
+    {
+      "source": "mattermost/docker",
+      "sha": "12bbeda5009e1d8381be294a88d1cb69dc624290"
+    },
+    {
+      "source": "RocketChat/meteor-streamer",
+      "sha": "00a4e6be4973ab0c848c123af05ebab9bd3b0005"
+    },
+    {
+      "source": "discourse/message_bus",
+      "sha": "b43f68d8ff779460e7440d05a4bc608e3f3d1711"
+    },
+    {
+      "source": "jitsi/jitsi-meet-electron",
+      "sha": "28c2dfde875faf554c5ea6fa97b09c7ea9180273"
+    },
+    {
+      "source": "mastodon/mastodon-android",
+      "sha": "1b68f65d5a1ccce697d943c5d3dde68e2c4f7ed1"
+    },
+    {
+      "source": "nextcloud/vm",
+      "sha": "7b445db2dee492b76be58690ac449e65a42e5134"
+    },
+    {
+      "source": "signalapp/libsignal",
+      "sha": "c5fd5f73d2649b44e751cf7e449885caa8b7e16f"
+    },
+    {
+      "source": "owncloud/calendar",
+      "sha": "d7c9fa3ad1256584e31ac2aab1b35b304425f5e0"
+    },
+    {
+      "source": "thunderbird/thunderbird-ios",
+      "sha": "dcc520fa8e478821bd4efe9579c39e1acc07f2f8"
+    },
+    {
+      "source": "zammad/zammad-helm",
+      "sha": "ea216637f0d6490f1b39a3a65cb483786d59bb58"
+    },
+    {
+      "source": "chatwoot/ai-agents",
+      "sha": "e846ca18332972eb7f1636e160634219dd3db7d0"
+    },
+    {
+      "source": "revoltchat/rfcs",
+      "sha": "1f107bfd40a688b22ea0fcca4874c2510d0ad494"
+    },
+    {
+      "source": "deltachat/calls-webapp",
+      "sha": "c3ccd96400eb047e7c80f4ce76503f8baab75994"
+    },
+    {
+      "source": "xmppo/node-expat",
+      "sha": "78e559baa908942097330f7967dfbf623ebc2529"
+    },
+    {
+      "source": "processone/tsung",
+      "sha": "3c9a2f0bfa626cd5e645d2437aec77f8951b3af5"
+    },
+    {
+      "source": "conversejs/pluggable.js",
+      "sha": "75167a4db2304603f7a62e652d3dd09473c10b51"
+    },
+    {
+      "source": "matrix-org/matrix.to",
+      "sha": "562a5e273b3ac4185ed2d483215b3c803c079139"
+    },
+    {
+      "source": "element-hq/ess-helm",
+      "sha": "bb4676ed5c25cb0595920ee06f284746149424ba"
+    },
+    {
+      "source": "mattermost/mattermost-push-proxy",
+      "sha": "20f2a046fef76a7ab1c121cd01bc2b06206979be"
+    },
+    {
+      "source": "RocketChat/rocketchat-compose",
+      "sha": "967a4d3a8a7dd8be1836067f447a60cb10f86b00"
+    },
+    {
+      "source": "discourse/onebox",
+      "sha": "a40aabdffe51d35d6a715b92776dc8be97f34dc3"
+    },
+    {
+      "source": "jitsi/lib-jitsi-meet",
+      "sha": "de80eae9264a7e8339cf990401fe992c6f9fa276"
+    },
+    {
+      "source": "mastodon/documentation",
+      "sha": "f9e4c0116b17d28b56db63798662f1bc3aa15420"
+    },
+    {
+      "source": "nextcloud/bookmarks",
+      "sha": "c2b9b5407e022e05b9a77308df8a117ff31df3ce"
+    },
+    {
+      "source": "signalapp/ringrtc",
+      "sha": "bdbb0dd1b9f418850dfe1fa3cd4b1c2b1123436f"
+    },
+    {
+      "source": "owncloud/ocis-charts",
+      "sha": "36a4490a94c033c610fcda0de7a62d25206bff02"
+    },
+    {
+      "source": "thunderbird/appointment",
+      "sha": "8e699ca3e6f4278a0cd35b309fbf394611e2ea96"
+    },
+    {
+      "source": "zammad/zammad-documentation",
+      "sha": "a1c58ffb876182f9fcf7b1d979157f18e6da753e"
+    },
+    {
+      "source": "chatwoot/chatwoot-flutter-sdk",
+      "sha": "81379be77e89737a6272154961a4a14d73c1e6b2"
+    },
+    {
+      "source": "revoltchat/components",
+      "sha": "d21aeb7924f6eea795da41ee97e0c3b6cc14ffc4"
+    },
+    {
+      "source": "deltachat/mailadm",
+      "sha": "9398fda349e8517bd3433e279e8578cad91b8bc6"
+    },
+    {
+      "source": "xmppo/xmpp-php",
+      "sha": "62d330ccacf19eceec2113701629894b4293d65d"
+    },
+    {
+      "source": "processone/eturnal",
+      "sha": "c59e3c7702861b7c8616c1e40568e44118ae600a"
+    },
+    {
+      "source": "conversejs/roundcube-plugin",
+      "sha": "1e3c9b34c96479deb684dbe08d9dc353dfa73d26"
+    },
+    {
+      "source": "matrix-org/matrix-spec-proposals",
+      "sha": "a6d4f687330b515f91bbc67e671779c42ae80438"
+    },
+    {
+      "source": "element-hq/element-call",
+      "sha": "6cffe649e2ece1528618f51ee63f2022ed5a0dba"
+    },
+    {
+      "source": "mattermost/mattermost-plugin-agents",
+      "sha": "ecbc93994b59bbd3aee780c5194783b52dec78a5"
+    },
+    {
+      "source": "RocketChat/RC4Community",
+      "sha": "0c093a897913279f76a7830f07f65f2613f728da"
+    },
+    {
+      "source": "discourse/logster",
+      "sha": "c344dea12478caac2109b1cdeae9d95e31bfb2d3"
+    },
+    {
+      "source": "jitsi/jiwer",
+      "sha": "2227002889f20f3fb19d523eeb322732cb67b431"
+    },
+    {
+      "source": "mastodon/chart",
+      "sha": "4236a557fb65dd5634c8c342dc6f131d4dc24403"
+    },
+    {
+      "source": "nextcloud/notes-android",
+      "sha": "56130316cd934c5a5399c1c065ba75bc07ffb4b5"
+    },
+    {
+      "source": "signalapp/Signal-Calling-Service",
+      "sha": "581a82db75c38aebbcee5134fb4ce0c5edb18224"
+    },
+    {
+      "source": "owncloud/davclient.js",
+      "sha": "fefdef896c856a1d7acdd88ecf7c3d16fecfdfb6"
+    },
+    {
+      "source": "thunderbird/import-export-tools-ng",
+      "sha": "b30464c60f1eb71ddc67e2563086e4e799c937ea"
+    },
+    {
+      "source": "zammad/zammad-api-client-php",
+      "sha": "2b1382d29c843c17ebf0ef8c3ff476e275e30b2d"
+    },
+    {
+      "source": "chatwoot/chatwoot-react-native-widget",
+      "sha": "cd280c2642b6d054606df81d55062018f76091ae"
+    },
+    {
+      "source": "deltachat/deltachat-tauri",
+      "sha": "4719862cbddbf7ffe383ca476722d7dde157a7d8"
+    },
+    {
+      "source": "xmppo/node-stringprep",
+      "sha": "2f42889fb1dddda92cb709bce1ff0c8faad1a33c"
+    },
+    {
+      "source": "processone/stun",
+      "sha": "85ea195bb456b90f1a0bb468b6f884c6755d92c6"
+    },
+    {
+      "source": "conversejs/community-plugins",
+      "sha": "c920ca5628d68a5778f696c52be0e74e03330e51"
+    },
+    {
+      "source": "matrix-org/matrix-appservice-discord",
+      "sha": "8ae61dda84df45b0a558604ef97e60e5870b201a"
+    },
+    {
+      "source": "element-hq/dendrite",
+      "sha": "08cac1ccf0a45471132ad24a29e3ec15643675fa"
+    },
+    {
+      "source": "mattermost/react-native-paste-input",
+      "sha": "26489acf1f6b8636cc40e5b220f3af6432572598"
+    },
+    {
+      "source": "RocketChat/Rocket.Chat.Apps-cli",
+      "sha": "6452db89394fc992e1bd594d64920208efa2a616"
+    },
+    {
+      "source": "discourse/prometheus_exporter",
+      "sha": "d20e6987a7f546b4581b674f89995049ade02fc5"
+    },
+    {
+      "source": "jitsi/jibri",
+      "sha": "e05e1169939473d303ec3fae99b598b0cfcf2619"
+    },
+    {
+      "source": "mastodon/mastodon-ansible",
+      "sha": "c41f72391367f666785c954e2891c730725f2222"
+    },
+    {
+      "source": "nextcloud/news",
+      "sha": "c3c055db69eb817f1770ce69a25f9189d0cf27a6"
+    },
+    {
+      "source": "signalapp/better-sqlite3",
+      "sha": "f2dd94be8f3f8df4bec4cb5b5bf6374a9167dae9"
+    },
+    {
+      "source": "owncloud/files_antivirus",
+      "sha": "51eba9a9a175c0c6a2211f3f84672f13b6f6f48d"
+    },
+    {
+      "source": "thunderbird/stormbox",
+      "sha": "1ed76c2a9bb892f0a7ed2f3a8dce39cbe6a8afdb"
+    },
+    {
+      "source": "zammad/zammad-api-client-ruby",
+      "sha": "7b6163442d20ffab1b0356300e8c6e78ea4522aa"
+    },
+    {
+      "source": "chatwoot/charts",
+      "sha": "b1edef51189595fd6505170a875e47db18613ad4"
+    },
+    {
+      "source": "deltachat/invite",
+      "sha": "3c193f165a94db968e78ced1bd4acc4ac707a362"
+    },
+    {
+      "source": "xmppo/xmppconsole",
+      "sha": "57b8d1702b4aacea09c8294e9373c4336a328e12"
+    },
+    {
+      "source": "processone/xmpp-messenger-ios",
+      "sha": "ecf02b427a8f4a03de1ceeffd19da3f63cd08e85"
+    },
+    {
+      "source": "conversejs/skeletor",
+      "sha": "c964299ba74d0b3c9b52361c6f84e3e8a7e7c516"
+    },
+    {
+      "source": "matrix-org/matrix-appservice-irc",
+      "sha": "d3edeaa8306d33a213ba5307719a9a07e8788c9b"
+    },
+    {
+      "source": "element-hq/hydrogen-web",
+      "sha": "ea5976e40b8d4974890e67bba3c139012044612c"
+    },
+    {
+      "source": "mattermost/mattermost-helm",
+      "sha": "43a36f9514269a281353854b3bc5416ffc8fee3a"
+    },
+    {
+      "source": "RocketChat/Opensource-Contribution-Leaderboard",
+      "sha": "75d742513df6f809d15d68d1b51fd4eb31d91455"
+    },
+    {
+      "source": "discourse/wp-discourse",
+      "sha": "f736cbe2e5bdf6b94d43abdafa339c5b7c44e99e"
+    },
+    {
+      "source": "jitsi/libjitsi",
+      "sha": "f12d60c5892b7f5edb8c9a00e3a16db9b6111b28"
+    },
+    {
+      "source": "mastodon/fediverse_auxiliary_service_provider_specifications",
+      "sha": "c9452c2af04db96e13e80adc170587a891c61cd5"
+    },
+    {
+      "source": "nextcloud/passman",
+      "sha": "b71315e66daae742a9354ca8eac5a1d74a488bf5"
+    },
+    {
+      "source": "signalapp/tus-server",
+      "sha": "34f243a7be536679483374d314b556801bc0a2f5"
+    },
+    {
+      "source": "owncloud/oauth2",
+      "sha": "4e3189a7b7b06470784357bfb93ff32eb0e2cea5"
+    },
+    {
+      "source": "thunderbird/developer-docs",
+      "sha": "fd3ac8adc3f9ba5a66b36c4b8b640af5097ea750"
+    },
+    {
+      "source": "zammad/zammad-user-documentation",
+      "sha": "987c77150fde2a9a987c57d2a41dbbbb0987f0a6"
+    },
+    {
+      "source": "chatwoot/faultline",
+      "sha": "2f44765e8df5c54267dd5970ef046c99f34cfe7e"
+    },
+    {
+      "source": "deltachat/maps",
+      "sha": "a1d6d76a68a1ffc8d629a5bda2cb5dd57285d21f"
+    },
+    {
+      "source": "xmppo/xmpp-gui",
+      "sha": "03a60df55459e330cd702b42b03ddf88210f938a"
+    },
+    {
+      "source": "processone/xmpp",
+      "sha": "9cad9a6c6abd3cdad75d0431f0ecccce73ddd7c0"
+    },
+    {
+      "source": "conversejs/libomemo.js",
+      "sha": "d5ba2a36abaa57662c27ac1c27c79cc1c3a8ada9"
+    },
+    {
+      "source": "matrix-org/pinecone",
+      "sha": "b35aec69f59eb9bb8bd5a8c6be30fc276d3cce96"
+    },
+    {
+      "source": "element-hq/matrix-authentication-service",
+      "sha": "07befe946efad81678c5df4891f5107c00be3c50"
+    },
+    {
+      "source": "mattermost/mattermost-plugin-github",
+      "sha": "2b9840ce473dfeb222ee69038f31f5d0b428e8ae"
+    },
+    {
+      "source": "RocketChat/handbook",
+      "sha": "20c7b8515a8711bc9bc85e5b8488a9112c083d7b"
+    },
+    {
+      "source": "discourse/mini_sql",
+      "sha": "645c65ea37afb6b1a50d013fc7b0c509d6cbc059"
+    },
+    {
+      "source": "jitsi/jigasi",
+      "sha": "3a2789ab87f954d67397c26afacef96f37ac90d8"
+    },
+    {
+      "source": "mastodon/share",
+      "sha": "91bcb99c1efa2e358fe84a77a52bb176cfcbe6ca"
+    },
+    {
+      "source": "nextcloud/talk-android",
+      "sha": "a6a1211712237552c69af9f85043a0b7a96b030b"
+    },
+    {
+      "source": "signalapp/SparsePostQuantumRatchet",
+      "sha": "da0f6d612baf1e160bbd68fe236dbb65434f2050"
+    },
+    {
+      "source": "owncloud/theme-example",
+      "sha": "12fb4853dc8975fb34d0d648ef9d50f03684a825"
+    },
+    {
+      "source": "thunderbird/autoconfig",
+      "sha": "cd0ffe4b48d675e8a2e9f878b9676762b5824cd0"
+    },
+    {
+      "source": "chatwoot/contributors",
+      "sha": "ff889214d1f27ddbffbb2bd94ad7b4a81e2803a5"
+    },
+    {
+      "source": "deltachat/workshops",
+      "sha": "2d60e8ba998a7cbe3a0205883be3e1f5aaf11b90"
+    },
+    {
+      "source": "xmppo/l-bot",
+      "sha": "cd86f27a91be83d244d587f17823fe9c12204e7c"
+    },
+    {
+      "source": "processone/fast_xml",
+      "sha": "0cda644e41cbde84f434e85d40fb359e0d7a47e2"
+    },
+    {
+      "source": "conversejs/converse-tauri",
+      "sha": "f0b044e595a34004ef61839dfb5f7c96d4eae1fe"
+    },
+    {
+      "source": "matrix-org/matrix-ios-sdk",
+      "sha": "097208ccc5bec72b37261d8ea0bc857c9ccd8361"
+    },
+    {
+      "source": "element-hq/chatterbox",
+      "sha": "df49983d249ae1ed610a5177b98543f0e5ce27ec"
+    },
+    {
+      "source": "mattermost/mattermost-plugin-starter-template",
+      "sha": "e275f68987bf5b6123a943d0411a6e43289f078b"
+    },
+    {
+      "source": "RocketChat/botpress-channel-rocketchat",
+      "sha": "0105fd88df40fc7b53ddc30e1d71b13fd0eb943a"
+    },
+    {
+      "source": "discourse/discourse_api",
+      "sha": "6e5e71b692bbf86e9d052506e7647cb9aa5a84c2"
+    },
+    {
+      "source": "jitsi/ice4j",
+      "sha": "cb4d152f2cd94f8d82864ac60ce0082ab135f5eb"
+    },
+    {
+      "source": "mastodon/fediscoverer",
+      "sha": "4ce104d6374ffb9446519b59054fc2a7078b3ebc"
+    },
+    {
+      "source": "nextcloud/tasks",
+      "sha": "41f85edfe5bedc6159f0c2e5cf0abd3ec57584a9"
+    },
+    {
+      "source": "signalapp/SecureValueRecovery2",
+      "sha": "cb0d75f19bf9cf9c909466d69f431cc8b9fcaabd"
+    },
+    {
+      "source": "owncloud/files_mediaviewer",
+      "sha": "e0b3a4b9ef23bfa877e184a529e94713109d366b"
+    },
+    {
+      "source": "thunderbird/tbpro-add-on",
+      "sha": "07ee6f65d2a97222dba28878b050a3a0f9d6e2ea"
+    },
+    {
+      "source": "chatwoot/pico-search",
+      "sha": "5986db15ec453de15e7706ed4abe0c97251e8c42"
+    },
+    {
+      "source": "processone/oneteam",
+      "sha": "c51bc545c3a32db4ea8b96e43b84fcfc6b8d3d2a"
+    },
+    {
+      "source": "conversejs/generator-conversejs",
+      "sha": "37a818fe34b8025aa46482935ddb5f0ca472e239"
+    },
+    {
+      "source": "matrix-org/matrix-hookshot",
+      "sha": "95c3478d94c94dc7e32e9cf8eddcb4a3e59c5c8b"
+    },
+    {
+      "source": "element-hq/lk-jwt-service",
+      "sha": "33e5465e82ca9c0c4c3e2f22d96112d735d15c80"
+    },
+    {
+      "source": "mattermost/mattermost-plugin-gitlab",
+      "sha": "8916a039f1ba0f27bd550c17adb8507018f95074"
+    },
+    {
+      "source": "RocketChat/GSoC-Community-Hub",
+      "sha": "d6ebea3d0029ef5c2b07f94cb5a99eb134cd2379"
+    },
+    {
+      "source": "discourse/rails_multisite",
+      "sha": "86c6ce96e2599d5fe20dd6024f1cdcc76f795da3"
+    },
+    {
+      "source": "jitsi/jicofo",
+      "sha": "ef69ab604f917e5e50a37cd80b3bc35c629d04b5"
+    },
+    {
+      "source": "mastodon/specs-background",
+      "sha": "01073ca297dbb5f795976410fdc2bd0edfafcfe6"
+    },
+    {
+      "source": "nextcloud/cookbook",
+      "sha": "c38ebcc86b6d17ea9718b17b1231d120fa6c09a0"
+    },
+    {
+      "source": "signalapp/ContactDiscoveryService-Icelake",
+      "sha": "145c988935e9e1943eb52a42da4646b98b2827d8"
+    },
+    {
+      "source": "owncloud/encryption",
+      "sha": "c0d31b292db07f1a5a2903911cab3b68c1a20a73"
+    },
+    {
+      "source": "thunderbird/policy-templates",
+      "sha": "3a2d2f7c263ea9b7f158d8d9bc4cb72356a4502a"
+    },
+    {
+      "source": "chatwoot/prosemirror-schema",
+      "sha": "2221764d2999e695a94c3f1a5a74d942f6c06ba9"
+    },
+    {
+      "source": "processone/fast_tls",
+      "sha": "dfa7d0d635488374fa1fc204573053618d276921"
+    },
+    {
+      "source": "matrix-org/mjolnir",
+      "sha": "23f2fec90e09752a7d28f58c35f76cfbd5e8999a"
+    },
+    {
+      "source": "element-hq/element-admin",
+      "sha": "45863e4728c87652c13add7644face8b45a50521"
+    },
+    {
+      "source": "mattermost/mattermost-plugin-calls",
+      "sha": "b3cc0387ff8f54a927db3e766ae63eb42dba88ba"
+    },
+    {
+      "source": "RocketChat/server-snap",
+      "sha": "5e3b3ae927b49fa7e635a525fd05007c7742ff75"
+    },
+    {
+      "source": "discourse/pups",
+      "sha": "103a50a5156f49eda20e129729648396f20e5d18"
+    },
+    {
+      "source": "jitsi/jitsi-meet-sdk-samples",
+      "sha": "0338126f955dc73aaf318882914ea679c96c3346"
+    },
+    {
+      "source": "mastodon/mastodon-fosdem2024",
+      "sha": "315d39124b91aa35eba7922c6cc7ebac7b19ed2c"
+    },
+    {
+      "source": "nextcloud/contacts",
+      "sha": "311b0827e5d00bd0209e692ddd22405d164c928a"
+    },
+    {
+      "source": "signalapp/storage-service",
+      "sha": "898578b23e7c57e4253f820b241437736b528437"
+    },
+    {
+      "source": "owncloud/files_texteditor",
+      "sha": "8fea56592867ba31e1e85c10f057161254a317df"
+    },
+    {
+      "source": "thunderbird/ews-rs",
+      "sha": "726235bc968b5273e06bf44c9b365f6631c88a63"
+    },
+    {
+      "source": "chatwoot/utils",
+      "sha": "59fcb7a725decb71bcfa2524fb20ddaa16698485"
+    },
+    {
+      "source": "processone/iconv",
+      "sha": "e160eb6f81f53ad1ced3ce6da70c756f0ae7f578"
+    },
+    {
+      "source": "matrix-org/vodozemac",
+      "sha": "8acadec2eb90f0738e4f360440571bed162460f5"
+    },
+    {
+      "source": "element-hq/aurora",
+      "sha": "4c0fd94dfec4d893ebb46533eab280600ab39ed4"
+    },
+    {
+      "source": "mattermost/mattermost-plugin-boards",
+      "sha": "136c219e42996a935c2c14cf21fa7284d26dbb62"
+    },
+    {
+      "source": "RocketChat/Apps.Jitsi",
+      "sha": "4ccf4791024d2837851bf503f0b1bb92558b997e"
+    },
+    {
+      "source": "discourse/rails_failover",
+      "sha": "c7d03a474d6198c921dcf27d8006f9d4a6bc92a3"
+    },
+    {
+      "source": "jitsi/rnnoise-wasm",
+      "sha": "cb529a59a8478fe604e57986fc96afdaecfa6fb7"
+    },
+    {
+      "source": "mastodon/rms_fasp",
+      "sha": "70560aa7547ca2543ef79c0daa71344969900b7c"
+    },
+    {
+      "source": "nextcloud/helm",
+      "sha": "cc9a0898aba8aacc53154df7d427106f67017234"
+    },
+    {
+      "source": "signalapp/key-transparency-server",
+      "sha": "2eb0ead9a23dc4bd2dcb75a2f803c6e8ee85600c"
+    },
+    {
+      "source": "owncloud/files_pdfviewer",
+      "sha": "8298a467fb39552ac0b789255cd0c9267b0434f9"
+    },
+    {
+      "source": "thunderbird/webext-support",
+      "sha": "dd07ed6284c8b2d471d1b8de86e776cad1ec3a8c"
+    },
+    {
+      "source": "chatwoot/cli",
+      "sha": "024bc80f99fd1df24b95485ff83ea0838e94de28"
+    },
+    {
+      "source": "processone/fast_yaml",
+      "sha": "f322e4b5f371cd4b11a9607bf4ed3eae21b8f5b4"
+    },
+    {
+      "source": "matrix-org/matrix-spec",
+      "sha": "ecfbc3a54cdcb4f905553b5973fb14c80b96ed01"
+    },
+    {
+      "source": "element-hq/swift-ogg",
+      "sha": "a00a22b90f6230d2d3a75a18adef97a3603d9d28"
+    },
+    {
+      "source": "mattermost/mattermost-operator",
+      "sha": "0943972fe780ba211b3945ffc256c8c5765ba2a4"
+    },
+    {
+      "source": "RocketChat/Rocket.Chat.Flutter.SDK",
+      "sha": "7479ac27814889b352dc698329a37778cf16c856"
+    },
+    {
+      "source": "discourse/mini_mime",
+      "sha": "6493de98c9e2a8277e2bc008d7c6bae1a124634c"
+    },
+    {
+      "source": "jitsi/jidesha",
+      "sha": "fcb8be45c908cfd8f66ff5836152ec75e041973c"
+    },
+    {
+      "source": "nextcloud/talk-desktop",
+      "sha": "45e011d65bbfed33678ad0a2b7c769486545cfa4"
+    },
+    {
+      "source": "signalapp/Mock-Signal-Server",
+      "sha": "0aaf9bc4622766f97e33e3e9e11267ec44bc01a6"
+    },
+    {
+      "source": "owncloud/user_ldap",
+      "sha": "20992b86710dc3eddf05a68616515fa670a15211"
+    },
+    {
+      "source": "thunderbird/thunderbird-accounts",
+      "sha": "6284f2ce4f4e863d472cb764587222b60c89955d"
+    },
+    {
+      "source": "chatwoot/android-sdk",
+      "sha": "d1b0bf2b1292ed5e24ce1c2731aeea562acc4fab"
+    },
+    {
+      "source": "processone/rtb",
+      "sha": "42a11fe375f97964511f3a25ff50198b60f2b2fc"
+    },
+    {
+      "source": "matrix-org/matrix-python-sdk",
+      "sha": "887f5d55e16518a0a2bef4f2d6bff6ecf48d18c1"
+    },
+    {
+      "source": "element-hq/sygnal",
+      "sha": "77630cff61fc9664cad3a2041c756aa94b90f60b"
+    },
+    {
+      "source": "mattermost/mattermost-plugin-zoom",
+      "sha": "828ca56b3b1ebf4790f797d31c43b4b10b2749a3"
+    },
+    {
+      "source": "RocketChat/homeserver",
+      "sha": "fff45ccbea52407d3c786b4fa9e46132c5b578a8"
+    },
+    {
+      "source": "discourse/all-the-plugins",
+      "sha": "f230df6756f2683675e209f0eb89e4a8ff83617d"
+    },
+    {
+      "source": "jitsi/jitsi-meet-electron-sdk",
+      "sha": "9ba0639103a3fdfd1f4e2fefa89233d2008070a7"
+    }
+  ]
+}
