@@ -1,25 +1,51 @@
 {
-  "preamble": "You answer a question about the Backstage open-source project (a developer portal), as an engineer of its organization. {where} Use only those sources, not the web. Write the final answer, in a few short paragraphs, to /app/answer.md.",
+  "preamble": "You answer a question about {about}, as an engineer of its organization. {where} Use only those sources, not the web. Write the final answer, in a few short paragraphs, to /app/answer.md.",
+  "twins": {
+    "zulip-v1": {
+      "about": "the Zulip open-source project (a team chat application)",
+      "plan": "../knowledge/fixtures/orgbench-zulip-v1.plan.json",
+      "context": {
+        "repo": "ctxpipe-ai/orgbench-zulip-context",
+        "sha": "cd17b29fa2d6358c4abfe722dd6ed9ce0afbf6bd",
+        "paths": ["github", "chat"]
+      },
+      "ctxOrg": "orgbench-zulip",
+      "ctxWorkspace": "zulip"
+    }
+  },
   "arms": {
     "b1plus": {
-      "where": "The repositories and the issue tracker of the organization are available as plain files under /app/org: repos/ holds the source code and issues/ holds each issue as Markdown.",
+      "where": "The repositories, the issues, the pull requests and the chat of the organization are available as plain files under /app/org: repos/ holds the source code of each repository, github/issues/ and github/pulls/ hold each issue and pull request as Markdown, and chat/ holds each chat thread as Markdown.",
       "mountCorpus": true,
       "mcp": false,
+      "goldContext": false,
       "disallowedTools": ["WebSearch", "WebFetch"],
       "serverReserveUsd": 0
     },
     "ctx": {
-      "where": "The repositories and the issue tracker of the organization are available through the ctxpipe MCP tools (org knowledge-eval, Workspace backstage-v0). The folder /app is empty.",
+      "where": "The repositories, the issues, the pull requests and the chat of the organization are available through the ctxpipe MCP tools (org {ctxOrg}, Workspace {ctxWorkspace}). The folder /app is empty.",
       "mountCorpus": false,
       "mcp": true,
-      "disallowedTools": [
-        "WebSearch",
-        "WebFetch",
-        "mcp__ctxpipe__get_related",
-        "mcp__ctxpipe__search_code",
-        "mcp__ctxpipe__find_symbol"
+      "goldContext": false,
+      "mcpTools": [
+        "list_workspaces",
+        "search_knowledge",
+        "search_code",
+        "find_symbol",
+        "read_file",
+        "list_files"
       ],
+      "disallowedTools": ["WebSearch", "WebFetch", "mcp__ctxpipe__get_related"],
       "serverReserveUsd": 0.12
+    },
+    "oracle": {
+      "where": "The sources that you need are below this text, as files of the organization. The folder /app is empty.",
+      "mountCorpus": false,
+      "mcp": false,
+      "goldContext": true,
+      "trials": 1,
+      "disallowedTools": ["WebSearch", "WebFetch"],
+      "serverReserveUsd": 0
     }
   },
   "models": {
@@ -52,5 +78,6 @@
     }
   },
   "claudeCodeVersion": "2.1.332",
-  "maxTurns": 40
+  "maxTurns": 40,
+  "maxToolCalls": 120
 }
