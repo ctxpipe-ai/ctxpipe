@@ -6,20 +6,19 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 // Whether this push to main publishes a snapshot of @ctxpipe/aws-cdk to the
 // npm dist-tag `canary` (deploy.yaml, job prerelease).
 //
-// A canary publishes when HEAD has a pending changeset that releases
-// @ctxpipe/aws-cdk (patch, minor or major) and that the current canary does
-// not have. The package pins its images to the commit that built it
-// (PINNED_SERVICE_IMAGE_TAG), so the canary tarball names that commit: a
-// pending changeset of HEAD that is not in the tree of that commit, with the
-// same text, is new. The comparison is with npm, not with the commit before
-// this push. Thus a run that the deploy-main group cancelled, or a publish
-// that failed, loses no canary: its changeset is still pending in the next
-// run. A changeset that the version PR consumed is in the stable release, so
-// it publishes no canary. An empty changeset, or a changeset of another
-// package only, publishes nothing. When npm has no canary, or its commit is
-// not in this clone (the canary of 2026-09 is from a commit that is not on
-// main), each pending changeset is new. An npm error fails the plan: the next
-// run tries again.
+// A canary publishes when a commit after the commit of the current canary
+// adds a changeset that releases @ctxpipe/aws-cdk (patch, minor or major).
+// The package pins its images to the commit that built it
+// (PINNED_SERVICE_IMAGE_TAG), so the canary tarball names that commit. The
+// comparison is with npm, not with the commit before this push. Thus a run
+// that the deploy-main group cancelled, or a publish that failed, loses no
+// canary: the next run finds the changeset too. This is also true when the
+// version PR consumed the changeset before the next run (the prerelease job
+// then versions the package with a changeset of its own checkout). An empty
+// changeset, or a changeset of another package only, publishes nothing. When
+// npm has no canary, or its commit is not in this clone (the canary of
+// 2026-09 is from a commit that is not on main), a canary publishes. An npm
+// error fails the plan: the next run tries again.
 //
 // Usage (deploy.yaml, job canary_plan): node scripts/ci/canary-plan.mjs
 // It writes `publish` (true or false) to $GITHUB_OUTPUT.
@@ -70,47 +69,47 @@ function releasesAwsCdk(changeset) {
   )
 }
 
-/** The changesets of `commit`: path to blob id. Empty for an unknown commit. */
-function changesets(root, commit) {
-  let tree = ""
-  try {
-    tree = git(root, "ls-tree", commit, "--", ".changeset/")
-  } catch {
-    return new Map()
-  }
-  return new Map(
-    tree
-      .split("\n")
-      .map((line) => /^\d+ blob ([0-9a-f]+)\t(\.changeset\/[^/]+\.md)$/.exec(line))
-      .filter(Boolean)
-      .map(([, blob, path]) => [path, blob]),
-  )
-}
-
 /** `{ publish, reason }` for the checkout `root` against npm at `registry`. */
 export async function canaryPlan({
   root,
   registry = "https://registry.npmjs.org",
 }) {
-  const pending = [...changesets(root, "HEAD")].filter(([, blob]) =>
-    releasesAwsCdk(git(root, "cat-file", "blob", blob)),
-  )
-  if (pending.length === 0)
-    return {
-      publish: false,
-      reason: "no pending changeset releases @ctxpipe/aws-cdk",
-    }
   const pin = await canaryCommit(registry)
-  const inCanary = pin ? changesets(root, pin) : new Map()
-  const added = pending.find(([path, blob]) => inCanary.get(path) !== blob)
-  if (!added)
+  if (!pin)
+    return { publish: true, reason: "npm has no canary with a pinned commit" }
+  try {
+    git(root, "merge-base", "--is-ancestor", pin, "HEAD")
+  } catch {
     return {
-      publish: false,
-      reason: `the canary of ${pin} has each pending changeset of @ctxpipe/aws-cdk`,
+      publish: true,
+      reason: `the canary commit ${pin} is not in the history of HEAD`,
     }
+  }
+  // Each commit after the canary commit, newest first, with the changesets
+  // that it adds. A changeset is read at the commit that adds it, because a
+  // later version commit can delete it.
+  let commit
+  for (const line of git(
+    root,
+    "log",
+    "--no-renames",
+    "--diff-filter=A",
+    "--name-only",
+    "--format=commit %H",
+    `${pin}..HEAD`,
+    "--",
+    ".changeset/*.md",
+  ).split("\n")) {
+    if (line.startsWith("commit ")) commit = line.slice(7)
+    else if (line && releasesAwsCdk(git(root, "show", `${commit}:${line}`)))
+      return {
+        publish: true,
+        reason: `${line} (${commit.slice(0, 9)}) releases @ctxpipe/aws-cdk after the canary commit ${pin}`,
+      }
+  }
   return {
-    publish: true,
-    reason: `${added[0]} releases @ctxpipe/aws-cdk, and the canary${pin ? ` of ${pin}` : ""} does not have it`,
+    publish: false,
+    reason: `no changeset releases @ctxpipe/aws-cdk after the canary commit ${pin}`,
   }
 }
 

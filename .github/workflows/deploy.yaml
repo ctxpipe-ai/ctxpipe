@@ -543,16 +543,17 @@ jobs:
   # A snapshot of each package with a pending changeset, on an npm dist-tag.
   # Never `latest`, and never a stable version (scripts/ci/snapshot-guard.mjs).
   # A dispatch without `deploy` publishes `ref` on `dist_tag`. A push to main
-  # publishes HEAD on `canary` when canary_plan says so. The package pins its
-  # images to HEAD, so the push path waits for publish_images. It runs
-  # dependency code, so it also waits for ecr_digests, as release does.
+  # publishes HEAD on `canary` when canary_plan says so. The push path waits
+  # for release: release waits for publish_images (the package pins its
+  # images to HEAD) and for ecr_digests (this job runs dependency code), and a
+  # stable version that release publishes is then on npm for the guard.
   prerelease:
     timeout-minutes: 20
     name: Prerelease
     needs:
       - canary_plan
-      - ecr_digests
-    if: ${{ !cancelled() && ((github.event_name == 'workflow_dispatch' && !inputs.deploy) || (needs.canary_plan.outputs.publish == 'true' && needs.ecr_digests.result == 'success')) }}
+      - release
+    if: ${{ !cancelled() && ((github.event_name == 'workflow_dispatch' && !inputs.deploy) || (needs.canary_plan.outputs.publish == 'true' && needs.release.result == 'success')) }}
     # github-hosted: a package build and the npm publish, without Docker (ADR-065)
     runs-on: ubuntu-24.04-arm
     permissions:
@@ -595,6 +596,14 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # The canary holds the newest state of @ctxpipe/aws-cdk, also when the
+      # version PR consumed its changesets. This changeset is only in this
+      # checkout: it makes the snapshot version the package.
+      - name: Version @ctxpipe/aws-cdk in the canary
+        if: github.event_name == 'push'
+        run: |
+          printf -- '---\n"@ctxpipe/aws-cdk": patch\n---\n\nThe canary of %s.\n' "$GITHUB_SHA" > .changeset/canary.md
 
       - name: Publish snapshot prerelease
         run: IMAGE_TAG="$(git rev-parse HEAD)" pnpm ci:prerelease

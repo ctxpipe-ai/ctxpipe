@@ -674,7 +674,7 @@ test("a push to main runs the deploy, also when no image builds", () => {
   )
 })
 
-test("a push to main publishes a canary only when canary_plan says so, after ecr_digests", () => {
+test("a push to main publishes a canary only when canary_plan says so, after release and ecr_digests", () => {
   const pushJobs = [...deployJobs, "release", "canary_plan"]
   assert.deepEqual(
     sorted(
@@ -688,6 +688,14 @@ test("a push to main publishes a canary only when canary_plan says so, after ecr
       build: '[{"image":"ui"}]',
       canary: "true",
       broken: ["ecr_digests"],
+    }).includes("prerelease"),
+  )
+  assert.ok(
+    !jobsThatRun({
+      event: "push",
+      build: '[{"image":"ui"}]',
+      canary: "true",
+      broken: ["release"],
     }).includes("prerelease"),
   )
 })

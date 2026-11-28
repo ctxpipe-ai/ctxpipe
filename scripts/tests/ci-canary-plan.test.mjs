@@ -104,8 +104,9 @@ test("the changeset of a cancelled run publishes in the next run", async () => {
   assert.match(plan.reason, /cancelled\.md/)
 })
 
-// The version PR consumes the changeset: the stable release has the change.
-test("a changeset that the version PR consumed publishes no canary", async () => {
+// The version PR consumes the changeset before the next run: the canary
+// still gets the newest state.
+test("a changeset that the version PR consumed still publishes a canary", async () => {
   const { dir, commit } = repository()
   canaryOnNpm(commit({}))
   commit({ ".changeset/b.md": awsCdk })
@@ -114,16 +115,19 @@ test("a changeset that the version PR consumed publishes no canary", async () =>
     "packages/aws-cdk/CHANGELOG.md": "# 3.3.0\n",
   })
   const plan = await canaryPlan({ root: dir, registry })
-  assert.equal(plan.publish, false, plan.reason)
+  assert.equal(plan.publish, true, plan.reason)
 })
 
-test("a new changeset with the name of a consumed changeset publishes a canary", async () => {
+test("a version PR after the canary commit alone publishes nothing", async () => {
   const { dir, commit } = repository()
-  canaryOnNpm(commit({ ".changeset/b.md": awsCdk }))
-  commit({ ".changeset/b.md": null })
-  commit({ ".changeset/b.md": awsCdk.replace("A fix.", "Another fix.") })
+  commit({ ".changeset/b.md": awsCdk })
+  canaryOnNpm(commit({}))
+  commit({
+    ".changeset/b.md": null,
+    "packages/aws-cdk/CHANGELOG.md": "# 3.3.0\n",
+  })
   const plan = await canaryPlan({ root: dir, registry })
-  assert.equal(plan.publish, true, plan.reason)
+  assert.equal(plan.publish, false, plan.reason)
 })
 
 test("a canary commit that is not in the clone publishes a canary", async () => {
